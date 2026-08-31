@@ -807,6 +807,14 @@ fn hash_denotation(denotation: &Option<SemanticDenotation>, hasher: &mut impl Ha
                         m.hash(hasher);
                     }
                 }
+                crate::types::denotation::AssociatedValueDenotation::BehavioralFamily { receiver_type, spec, members } => {
+                    2u8.hash(hasher);
+                    receiver_type.hash(hasher);
+                    spec.hash(hasher);
+                    for member in members.iter() {
+                        member.hash(hasher);
+                    }
+                }
             }
         }
     }

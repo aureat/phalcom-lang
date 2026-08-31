@@ -1512,7 +1512,7 @@ impl<'a> CheckingContext<'a> {
         crate::types::substitution::specialize_self_type(self.store, self.declarations, receiver, ty)
     }
 
-    fn dispatch_owner_for_lookup(&self, receiver: TypeId, lookup: crate::dispatch::DispatchLookup) -> Option<(DeclarationId, DispatchSide)> {
+    pub(crate) fn dispatch_owner_for_lookup(&self, receiver: TypeId, lookup: crate::dispatch::DispatchLookup) -> Option<(DeclarationId, DispatchSide)> {
         match lookup {
             crate::dispatch::DispatchLookup::Super { defining_class, side } => {
                 self.hierarchy.superclass(&defining_class).cloned().map(|super_decl| (super_decl, side))

@@ -95,11 +95,16 @@ fn build_enum_or_opaque_space(ctx: &mut CheckingContext<'_>, scrutinee_ty: TypeI
 
     ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::EnumDeclaration(owner.clone()));
     let declaration_substitution = crate::types::substitution::substitution_for_applied(ctx.declarations, ctx.store, scrutinee_ty);
-    let variant_infos = enum_info
-        .variants
-        .iter()
-        .filter_map(|variant| ctx.enum_table.and_then(|table| table.variants.get(variant)).cloned())
-        .collect::<Vec<_>>();
+    let mut variant_infos = Vec::with_capacity(enum_info.variants.len());
+    for variant in enum_info.variants.iter() {
+        let Some(info) = ctx.enum_table.and_then(|table| table.variants.get(variant)).cloned() else {
+            // A declared case with missing semantic metadata remains a
+            // possible value. Do not drop it and prove coverage over a smaller
+            // finite universe.
+            return PatternSpace::Opaque(scrutinee_ty);
+        };
+        variant_infos.push(info);
+    }
 
     let mut variants = Vec::new();
     for info in variant_infos {
@@ -265,6 +270,11 @@ fn push_coverage_witnesses(space: &PatternSpace, limit: usize, output: &mut Vec<
             }
             output.push(CoverageWitness::List(elements.into_boxed_slice()));
         }
+        // Record and map spaces are intentionally refutable and currently have
+        // no public witness shape. Preserve their domain as opaque rather than
+        // inventing a structural witness that could imply exhaustive coverage.
+        PatternSpace::Record(record) => output.push(CoverageWitness::Opaque(record.ty)),
+        PatternSpace::Map(map) => output.push(CoverageWitness::Opaque(map.ty)),
     }
 }
 
@@ -286,6 +296,8 @@ fn first_coverage_witness(space: &PatternSpace) -> CoverageWitness {
             }
             CoverageWitness::List(elements.into_boxed_slice())
         }
+        PatternSpace::Record(record) => CoverageWitness::Opaque(record.ty),
+        PatternSpace::Map(map) => CoverageWitness::Opaque(map.ty),
     }
 }
 

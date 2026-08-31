@@ -39,7 +39,7 @@ fn test_native_option_runtime_representation_seam() {
         ]),
     };
 
-    let root_class = vm.register_enum_from_spec(&option_spec);
+    let root_class = vm.register_enum_from_spec(&option_spec).expect("register Option enum");
     assert_eq!(vm.heap.class(root_class).name.as_str(), "Option");
 
     let none_val = Value::none();

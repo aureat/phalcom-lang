@@ -202,8 +202,8 @@ impl<'vm> Compiler<'vm> {
             }
             ExecutablePattern::Map { entries } => {
                 self.emit_class_test(value_slot, "Map", failures, range);
-                for (key_str, child_pat) in entries.iter() {
-                    let key = Value::symbol(self.vm.interner.intern(key_str));
+                for (key_pattern, child_pat) in entries.iter() {
+                    let key = self.pattern_key_value(key_pattern);
                     let option = self.emit_lookup_temp(value_slot, key, range)?;
                     self.emit_option_test(option, true, failures, range);
                     let child = self.emit_option_value_temp(option, range)?;

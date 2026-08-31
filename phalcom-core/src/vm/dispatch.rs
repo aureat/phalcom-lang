@@ -1823,7 +1823,7 @@ impl VM {
                 }
                 Bytecode::Enum(spec_idx) => {
                     let spec = callable.chunk.executable_semantics.enum_spec(spec_idx).clone();
-                    let root_class_id = self.register_enum_from_spec(&spec);
+                    let root_class_id = self.register_enum_from_spec(&spec)?;
                     self.stack.push(Value::obj(root_class_id));
                 }
                 Bytecode::VariantMethod { variant, selector } => {
@@ -1896,8 +1896,8 @@ impl VM {
                         if let crate::modules::semantic_lowering::ExecutableFamilyTarget::Behavioral {
                             target: crate::modules::semantic_lowering::ExecutableInvocationTarget::Behavioral { lookup_owner, .. },
                         } = &entry.target
-                            && let Ok(class_id) = self.resolve_declaration_class(lookup_owner)
                         {
+                            let class_id = self.resolve_declaration_class(lookup_owner)?;
                             bound_owner = Some(Value::obj(class_id));
                             break;
                         }

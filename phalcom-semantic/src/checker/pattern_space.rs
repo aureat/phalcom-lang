@@ -5,6 +5,7 @@ use crate::match_semantics::{BranchProofEnvironment, PatternSpaceSummary};
 use crate::types::id::TypeId;
 use crate::types::relation::{TypeHierarchy, is_subtype};
 use crate::types::store::TypeStore;
+use phalcom_ast::ast::MapPatternKey;
 
 /// Internal representation of a value space during pattern elimination.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -15,6 +16,13 @@ pub enum PatternSpace {
     Variant(VariantSpace),
     Tuple(Box<[PatternSpace]>),
     List(ListSpace),
+    /// A refutable open record-pattern space. Kept distinct from `Opaque` so
+    /// an open field requirement can never prove an arbitrary object domain
+    /// exhaustive.
+    Record(RecordSpace),
+    /// A refutable open map-pattern space. Required keys are runtime tests,
+    /// not a claim that every map contains those keys.
+    Map(MapSpace),
 }
 
 /// Space representation for a specific variant case with payload field spaces.
@@ -33,6 +41,18 @@ pub struct ListSpace {
     pub rest: Option<Box<PatternSpace>>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RecordSpace {
+    pub ty: TypeId,
+    pub fields: Box<[(Box<str>, PatternSpace)]>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MapSpace {
+    pub ty: TypeId,
+    pub entries: Box<[(MapPatternKey, PatternSpace)]>,
+}
+
 impl PatternSpace {
     pub fn empty() -> Self {
         Self::Empty
@@ -49,6 +69,8 @@ impl PatternSpace {
             Self::Variant(v) => v.fields.iter().any(Self::is_empty),
             Self::Tuple(elements) => elements.iter().any(Self::is_empty),
             Self::List(l) => l.prefix.iter().any(Self::is_empty),
+            Self::Record(record) => record.fields.iter().any(|(_, space)| space.is_empty()),
+            Self::Map(map) => map.entries.iter().any(|(_, space)| space.is_empty()),
             Self::Opaque(_) => false,
         }
     }
@@ -121,6 +143,33 @@ impl PatternSpace {
                 l.rest = l.rest.map(|r| Box::new(r.normalize()));
                 Self::List(l)
             }
+            Self::Record(mut record) => {
+                let mut fields = Vec::with_capacity(record.fields.len());
+                for (label, space) in record.fields.into_vec() {
+                    let normalized = space.normalize();
+                    if normalized.is_empty() {
+                        return Self::Empty;
+                    }
+                    fields.push((label, normalized));
+                }
+                record.fields = fields.into_boxed_slice();
+                Self::Record(record)
+            }
+            Self::Map(map) => {
+                let mut entries = Vec::with_capacity(map.entries.len());
+                for (key, space) in map.entries.into_vec() {
+                    let normalized = space.normalize();
+                    if normalized.is_empty() {
+                        return Self::Empty;
+                    }
+                    entries.push((key, normalized));
+                }
+                let map = MapSpace {
+                    ty: map.ty,
+                    entries: entries.into_boxed_slice(),
+                };
+                Self::Map(map)
+            }
             other => other,
         }
     }
@@ -178,6 +227,9 @@ impl PatternSpace {
                 if v1.variant != v2.variant {
                     return Self::Empty;
                 }
+                if !crate::checker::gadt_proof::exact_cases_compatible(store, v1.exact_case, v2.exact_case) {
+                    return Self::Empty;
+                }
                 if v1.fields.len() != v2.fields.len() {
                     return Self::Empty;
                 }
@@ -189,17 +241,10 @@ impl PatternSpace {
                     }
                     fields.push(inter);
                 }
-                let mut proof = v1.proof.clone();
-                for (param, ty) in &v2.proof.bindings {
-                    proof.bindings.insert(*param, *ty);
-                }
-                let mut equalities = proof.equalities.into_vec();
-                for eq in v2.proof.equalities.iter() {
-                    if !equalities.contains(eq) {
-                        equalities.push(eq.clone());
-                    }
-                }
-                proof.equalities = equalities.into_boxed_slice();
+                let proof = match crate::checker::gadt_proof::merge_branch_proofs(store, &v1.proof, &v2.proof) {
+                    crate::checker::gadt_proof::ProofMerge::Compatible(proof) => proof,
+                    crate::checker::gadt_proof::ProofMerge::Contradictory => return Self::Empty,
+                };
 
                 Self::Variant(VariantSpace {
                     variant: v1.variant.clone(),
@@ -223,6 +268,10 @@ impl PatternSpace {
                 }
                 Self::Tuple(elements.into_boxed_slice()).normalize()
             }
+            (Self::Opaque(_), Self::Record(record)) | (Self::Record(record), Self::Opaque(_)) => Self::Record(record.clone()).normalize(),
+            (Self::Opaque(_), Self::Map(map)) | (Self::Map(map), Self::Opaque(_)) => Self::Map(map.clone()).normalize(),
+            (Self::Record(left), Self::Record(_right)) => Self::Record(left.clone()).normalize(),
+            (Self::Map(left), Self::Map(_right)) => Self::Map(left.clone()).normalize(),
             (Self::Tuple(t), Self::Opaque(op)) | (Self::Opaque(op), Self::Tuple(t)) => {
                 // If the opaque type is a tuple with matching arity:
                 if op.index() < store.len() {
@@ -298,6 +347,14 @@ impl PatternSpace {
             }
             (Self::Variant(v1), Self::Variant(v2)) => {
                 if v1.variant != v2.variant {
+                    return Self::Variant(v1.clone());
+                }
+                if !crate::checker::gadt_proof::exact_cases_compatible(store, v1.exact_case, v2.exact_case)
+                    || matches!(
+                        crate::checker::gadt_proof::merge_branch_proofs(store, &v1.proof, &v2.proof),
+                        crate::checker::gadt_proof::ProofMerge::Contradictory
+                    )
+                {
                     return Self::Variant(v1.clone());
                 }
                 if v1.fields.is_empty() {
@@ -399,6 +456,8 @@ impl PatternSpace {
             },
             Self::Tuple(elements) => PatternSpaceSummary::Tuple(elements.iter().map(Self::summarize).collect::<Vec<_>>().into_boxed_slice()),
             Self::List(_) => PatternSpaceSummary::List,
+            Self::Record(record) => PatternSpaceSummary::Opaque(record.ty),
+            Self::Map(map) => PatternSpaceSummary::Opaque(map.ty),
         }
     }
 }

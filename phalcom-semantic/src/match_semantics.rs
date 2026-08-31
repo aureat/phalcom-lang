@@ -5,6 +5,7 @@ use crate::types::TypeConstraint;
 use crate::types::evidence::TypeKnowledge;
 use crate::types::id::{TypeId, TypeParameterId};
 use crate::types::outcome::BlockReason;
+use phalcom_ast::ast::MapPatternKey;
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorPattern};
 use std::collections::BTreeMap;
@@ -116,7 +117,7 @@ pub struct ResolvedRecordFieldPattern {
 /// Resolution of a map entry pattern.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolvedMapEntryPattern {
-    pub key: Box<str>,
+    pub key: MapPatternKey,
     pub child: Box<PatternResolution>,
 }
 

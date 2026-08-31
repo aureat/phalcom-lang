@@ -13,7 +13,7 @@ use crate::types::id::{KindId, TypeId};
 use crate::types::relation::{TypeHierarchy, is_subtype};
 use crate::types::store::{CallableParameterType, CallableType, TypeData, TypeStore};
 use phalcom_common::range::SourceRange;
-use phalcom_common::selector::{SelectorBase, SelectorKind, SelectorSlot};
+use phalcom_common::selector::{Selector, SelectorBase, SelectorKind, SelectorPattern, SelectorSlot};
 use std::collections::{BTreeMap, HashSet};
 
 /// A specialized member belonging to an associated family or lookup outcome.
@@ -30,7 +30,9 @@ pub struct SpecializedAssociatedMember {
 pub struct AssociatedResolution {
     pub owner_form: TypeId,
     pub lookup_owner: DeclarationId,
-    pub family: AssociatedFamilyId,
+    /// `Some` only when lookup won in the declaration-owned associated
+    /// namespace. Ordinary `::` behavior has no associated-family identity.
+    pub family: Option<AssociatedFamilyId>,
     pub kind: AssociatedResolutionKind,
 }
 
@@ -59,6 +61,36 @@ pub enum AssociatedResolutionKind {
         candidates: Box<[SpecializedAssociatedMember]>,
         result_type: Option<TypeId>,
     },
+    /// Ordinary receiver-bound `::` family/reference resolution. Kept as a
+    /// distinct variant so lowering never infers namespace ownership from a
+    /// callable side or from an `AssociatedMemberId`.
+    BoundBehavioralFamily {
+        family_type: TypeId,
+        spec: BehavioralFamilySpec,
+        members: Box<[BoundBehavioralMember]>,
+    },
+    /// Ordinary receiver-bound direct `::` invocation.
+    BoundBehavioralInvoke {
+        target: InvocationTargetId,
+        result_type: TypeId,
+    },
+}
+
+/// Source-independent selector specification for an ordinary bound family.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum BehavioralFamilySpec {
+    Exact(Selector),
+    Pattern(SelectorPattern),
+}
+
+/// One statically known ordinary behavior candidate retained by a bound
+/// family. Runtime still dispatches on the captured receiver.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct BoundBehavioralMember {
+    pub operation: FamilyOperationShape,
+    pub member_kind: crate::types::family::FamilyMemberTypeKind,
+    pub target: InvocationTargetId,
+    pub callable_type: TypeId,
 }
 
 /// Semantic resolution product for an ordinary invocation on a first-class family value.
@@ -186,6 +218,125 @@ pub fn resolve_effective_associated_family(
         range,
     ));
     Err(AssociatedResolutionError)
+}
+
+/// Resolves an ordinary receiver-bound `::` family without consulting the
+/// declaration-owned associated namespace. Candidate discovery is static, but
+/// each target remains a behavioral selector dispatched against the captured
+/// receiver at runtime.
+pub fn resolve_bound_behavioral_family(
+    ctx: &mut CheckingContext<'_>,
+    receiver_type: TypeId,
+    lookup: crate::dispatch::DispatchLookup,
+    spec: BehavioralFamilySpec,
+    range: SourceRange,
+) -> Result<(DeclarationId, TypeId, Vec<BoundBehavioralMember>), AssociatedResolutionError> {
+    let Some((lookup_owner, side)) = ctx.dispatch_owner_for_lookup(receiver_type, lookup.clone()) else {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::AssociatedOwnerUnresolved,
+            "bound `::` receiver has no dispatch owner",
+            range,
+        ));
+        return Err(AssociatedResolutionError);
+    };
+
+    let mut members = Vec::new();
+    let mut seen = HashSet::new();
+
+    match &spec {
+        BehavioralFamilySpec::Exact(selector) => {
+            if let crate::dispatch::ResolvedDispatchResult::Found(resolved) = ctx.resolve_dispatch_target(receiver_type, selector, lookup) {
+                if let Some(callable_type) = callable_type_from_signature(ctx, &resolved.signature) {
+                    let member_kind = if selector.kind == SelectorKind::Getter {
+                        crate::types::family::FamilyMemberTypeKind::Value
+                    } else {
+                        crate::types::family::FamilyMemberTypeKind::Callable
+                    };
+                    members.push(BoundBehavioralMember {
+                        operation: FamilyOperationShape::new(selector.kind, selector.slots.clone()),
+                        member_kind,
+                        target: InvocationTargetId::Behavioral(resolved.callable),
+                        callable_type,
+                    });
+                }
+            }
+        }
+        BehavioralFamilySpec::Pattern(SelectorPattern { base, .. }) => {
+            for owner in ctx.dispatch_ref().dispatch_owners(ctx.hierarchy.inner(), &lookup_owner, side) {
+                let candidates = ctx.get_surface(&owner.declaration).map(|surface| {
+                    surface
+                        .surface(owner.side)
+                        .callable_signatures
+                        .iter()
+                        .filter_map(|(selector, signature)| {
+                            surface
+                                .get_callable_id(owner.side, selector)
+                                .cloned()
+                                .map(|callable| (selector.clone(), signature.clone(), callable))
+                        })
+                        .collect::<Vec<_>>()
+                });
+                let Some(candidates) = candidates else {
+                    continue;
+                };
+                for (selector, signature, callable) in candidates {
+                    if selector.base != *base || !matches!(selector.kind, SelectorKind::Getter | SelectorKind::Setter | SelectorKind::Method) {
+                        continue;
+                    }
+                    if !seen.insert(selector.clone()) {
+                        continue;
+                    }
+                    let Some(callable_type) = callable_type_from_signature(ctx, &signature) else {
+                        // A family may still be constructed when declaration
+                        // type knowledge is incomplete. Omit only the static
+                        // candidate; runtime keeps the live receiver-bound
+                        // selector pattern authoritative.
+                        continue;
+                    };
+                    let member_kind = if selector.kind == SelectorKind::Getter {
+                        crate::types::family::FamilyMemberTypeKind::Value
+                    } else {
+                        crate::types::family::FamilyMemberTypeKind::Callable
+                    };
+                    members.push(BoundBehavioralMember {
+                        operation: FamilyOperationShape::new(selector.kind, selector.slots.clone()),
+                        member_kind,
+                        target: InvocationTargetId::Behavioral(callable),
+                        callable_type,
+                    });
+                }
+            }
+        }
+    }
+
+    let family_members = members.iter().map(|member| match member.member_kind {
+        crate::types::family::FamilyMemberTypeKind::Value => crate::types::family::FamilyMemberType::value(member.operation.clone(), member.callable_type),
+        crate::types::family::FamilyMemberTypeKind::Callable => {
+            crate::types::family::FamilyMemberType::callable(member.operation.clone(), member.callable_type)
+        }
+    });
+    let family_type = ctx.store.family_type(family_members).map_err(|_| AssociatedResolutionError)?;
+    Ok((lookup_owner, family_type, members))
+}
+
+fn callable_type_from_signature(ctx: &mut CheckingContext<'_>, signature: &crate::dispatch::CallableSignature) -> Option<TypeId> {
+    let return_type = signature.return_type.ty()?;
+    let parameters = signature
+        .parameters
+        .iter()
+        .map(|parameter| {
+            Some(CallableParameterType {
+                label: parameter.external_label.clone().map(Into::into),
+                ty: parameter.ty.ty()?,
+                rest: parameter.rest,
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(ctx.store.callable(CallableType {
+        parameters: parameters.into_boxed_slice(),
+        return_type,
+    }))
 }
 
 /// Projects generic type arguments across class inheritance hops from child to ancestor.

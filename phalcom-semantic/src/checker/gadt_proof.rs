@@ -6,8 +6,10 @@ use crate::match_semantics::BranchProofEnvironment;
 use crate::types::constraint::TypeConstraint;
 use crate::types::id::{TypeId, TypeParameterId};
 use crate::types::relation::TypeHierarchy;
-use crate::types::store::{TypeData, TypeStore};
+use crate::types::row::RecordRowTail;
+use crate::types::store::{CallableParameterType, CallableType, TupleTypeElement, TypeData, TypeStore};
 use crate::types::substitution::TypeSubstitution;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Result of evaluating GADT specialization and reachability for a variant case.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -21,6 +23,81 @@ pub enum GadtProofResult {
     },
     /// Case is contradictory / impossible under the scrutinee type.
     Refuted,
+}
+
+/// Result of merging proof environments from two overlapping semantic spaces.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum ProofMerge {
+    Compatible(BranchProofEnvironment),
+    Contradictory,
+}
+
+/// Merges branch equalities without allowing a later constraint to overwrite
+/// an incompatible earlier binding.
+pub(crate) fn merge_branch_proofs(store: &mut TypeStore, left: &BranchProofEnvironment, right: &BranchProofEnvironment) -> ProofMerge {
+    let mut substitution = TypeSubstitution::new();
+    let mut parameters = BTreeSet::new();
+    for (&parameter, &ty) in left.bindings.iter().chain(right.bindings.iter()) {
+        parameters.insert(parameter);
+        let parameter_ty = store.parameter_form(parameter);
+        if !unify_equality(store, &mut substitution, parameter_ty, ty) {
+            return ProofMerge::Contradictory;
+        }
+    }
+
+    let mut equalities = Vec::new();
+    for equality in left.equalities.iter().chain(right.equalities.iter()) {
+        let TypeConstraint::Equal(lhs, rhs) = equality else {
+            if !equalities.contains(equality) {
+                equalities.push(equality.clone());
+            }
+            continue;
+        };
+        if !unify_equality(store, &mut substitution, *lhs, *rhs) {
+            return ProofMerge::Contradictory;
+        }
+        if !equalities.contains(equality) {
+            equalities.push(equality.clone());
+        }
+    }
+
+    // Equality solving may discover parameters that were not explicitly in a
+    // branch binding (for example through an exact case). Retain those facts
+    // by collecting parameters from all equality terms as well.
+    for equality in equalities.iter() {
+        let TypeConstraint::Equal(lhs, rhs) = equality else { continue };
+        let mut equality_parameters = Vec::new();
+        collect_type_parameters(store, *lhs, &mut equality_parameters);
+        collect_type_parameters(store, *rhs, &mut equality_parameters);
+        parameters.extend(equality_parameters);
+    }
+
+    let bindings = parameters
+        .into_iter()
+        .filter_map(|parameter| {
+            let parameter_ty = store.parameter_form(parameter);
+            let resolved = apply_substitution_to_fixpoint(store, &substitution, parameter_ty);
+            (resolved != parameter_ty).then_some((parameter, resolved))
+        })
+        .collect();
+
+    ProofMerge::Compatible(BranchProofEnvironment {
+        bindings,
+        equalities: equalities.into_boxed_slice(),
+    })
+}
+
+/// Checks exact-case compatibility using the same equality relation as GADT
+/// branch reachability. Invalid recovery IDs are only compatible by identity.
+pub(crate) fn exact_cases_compatible(store: &mut TypeStore, left: TypeId, right: TypeId) -> bool {
+    if left == right {
+        return true;
+    }
+    if left.index() >= store.len() || right.index() >= store.len() {
+        return false;
+    }
+    let mut substitution = TypeSubstitution::new();
+    unify_equality(store, &mut substitution, left, right)
 }
 
 /// Solves GADT equality constraints between a variant's case environment and the scrutinee type.
@@ -122,17 +199,110 @@ pub(crate) fn apply_branch_proof(store: &mut TypeStore, proof: &BranchProofEnvir
 }
 
 fn apply_substitution_to_fixpoint(store: &mut TypeStore, substitution: &TypeSubstitution, ty: TypeId) -> TypeId {
-    let mut current = ty;
-    // A valid occurs-checked substitution cannot contain a cycle. The bound keeps
-    // this helper total even if an invalid environment reaches it through recovery.
-    for _ in 0..64 {
-        let next = substitution.apply(store, current);
-        if next == current {
-            return current;
-        }
-        current = next;
+    #[derive(Clone, Copy)]
+    enum VisitState {
+        Visiting,
+        Resolved(TypeId),
     }
-    current
+
+    fn normalize(store: &mut TypeStore, substitution: &TypeSubstitution, ty: TypeId, states: &mut BTreeMap<TypeId, VisitState>) -> TypeId {
+        if let Some(state) = states.get(&ty) {
+            return match state {
+                VisitState::Resolved(resolved) => *resolved,
+                // TypeSubstitution binding is occurs-checked. Reaching this
+                // branch means malformed recovery data; retain current term
+                // instead of looping or returning a partially iterated chain.
+                VisitState::Visiting => ty,
+            };
+        }
+        states.insert(ty, VisitState::Visiting);
+        let normalized = match store.get(ty).clone() {
+            TypeData::Parameter(parameter) => substitution
+                .get(parameter)
+                .filter(|replacement| *replacement != ty)
+                .map(|replacement| normalize(store, substitution, replacement, states))
+                .unwrap_or(ty),
+            TypeData::Applied { origin, arguments } => {
+                let origin = normalize(store, substitution, origin, states);
+                let arguments = arguments
+                    .iter()
+                    .map(|&argument| normalize(store, substitution, argument, states))
+                    .collect::<Vec<_>>();
+                store.apply_type_form(origin, &arguments).unwrap_or(ty)
+            }
+            TypeData::ExactCase { variant, enum_type } => {
+                let enum_type = normalize(store, substitution, enum_type, states);
+                let variant = store.variant_identity(variant).clone();
+                store.exact_case_type(&variant, enum_type).unwrap_or(ty)
+            }
+            TypeData::Union(members) => {
+                let members = members.iter().map(|&member| normalize(store, substitution, member, states)).collect::<Vec<_>>();
+                store.union(&members)
+            }
+            TypeData::Tuple(elements) => {
+                let elements = elements
+                    .iter()
+                    .map(|element| TupleTypeElement {
+                        label: element.label.clone(),
+                        ty: normalize(store, substitution, element.ty, states),
+                    })
+                    .collect::<Vec<_>>();
+                store.tuple(elements.into_boxed_slice())
+            }
+            TypeData::Record(row_id) => {
+                let (fields, tail) = {
+                    let row = store.record_row(row_id);
+                    (row.fields.to_vec(), row.tail)
+                };
+                let fields = fields
+                    .into_iter()
+                    .map(|field| crate::types::row::RecordRowField {
+                        name: field.name,
+                        ty: normalize(store, substitution, field.ty, states),
+                    })
+                    .collect::<Vec<_>>();
+                let row_id = store.intern_record_row(crate::types::row::RecordRowData {
+                    fields: fields.into_boxed_slice(),
+                    tail,
+                });
+                store.record_type(row_id)
+            }
+            TypeData::Callable(callable) => {
+                let parameters = callable
+                    .parameters
+                    .iter()
+                    .map(|parameter| CallableParameterType {
+                        label: parameter.label.clone(),
+                        ty: normalize(store, substitution, parameter.ty, states),
+                        rest: parameter.rest,
+                    })
+                    .collect::<Vec<_>>();
+                let return_type = normalize(store, substitution, callable.return_type, states);
+                store.callable(CallableType {
+                    parameters: parameters.into_boxed_slice(),
+                    return_type,
+                })
+            }
+            TypeData::Family(family_id) => {
+                let family = store.get_family(family_id).clone();
+                let members = family
+                    .members
+                    .iter()
+                    .map(|member| crate::types::family::FamilyMemberType {
+                        operation: member.operation.clone(),
+                        member_kind: member.member_kind,
+                        ty: normalize(store, substitution, member.ty, states),
+                    })
+                    .collect::<Vec<_>>();
+                store.family_type(members).unwrap_or(ty)
+            }
+            TypeData::Never | TypeData::Unit | TypeData::ClassObject { .. } | TypeData::Nominal { .. } | TypeData::Lambda(_) | TypeData::SelfType(_) => ty,
+        };
+        states.insert(ty, VisitState::Resolved(normalized));
+        normalized
+    }
+
+    normalize(store, substitution, ty, &mut BTreeMap::new())
 }
 
 fn parameters_referenced_by_scrutinee(store: &TypeStore, arguments: &[TypeId]) -> Vec<TypeParameterId> {
@@ -241,6 +411,7 @@ fn unify_equality(store: &mut TypeStore, substitution: &mut TypeSubstitution, le
                     .zip(right_elements.iter())
                     .all(|(left, right)| left.label == right.label && unify_equality(store, substitution, left.ty, right.ty))
         }
+        (TypeData::Record(left_row_id), TypeData::Record(right_row_id)) => unify_record_rows(store, substitution, left_row_id, right_row_id),
         (TypeData::Callable(left_callable), TypeData::Callable(right_callable)) => {
             left_callable.parameters.len() == right_callable.parameters.len()
                 && left_callable
@@ -255,6 +426,37 @@ fn unify_equality(store: &mut TypeStore, substitution: &mut TypeSubstitution, le
         // Since unequal TypeIds reached this arm, equality is refuted.
         _ => false,
     }
+}
+
+fn unify_record_rows(
+    store: &mut TypeStore,
+    substitution: &mut TypeSubstitution,
+    left_row_id: crate::types::id::RecordRowId,
+    right_row_id: crate::types::id::RecordRowId,
+) -> bool {
+    let left = store.record_row(left_row_id).clone();
+    let right = store.record_row(right_row_id).clone();
+
+    for left_field in left.fields.iter() {
+        if let Some(right_field) = right.fields.iter().find(|field| field.name == left_field.name) {
+            if !unify_equality(store, substitution, left_field.ty, right_field.ty) {
+                return false;
+            }
+        } else if left.tail == RecordRowTail::Closed && right.tail == RecordRowTail::Closed {
+            return false;
+        }
+    }
+    for right_field in right.fields.iter() {
+        if !left.fields.iter().any(|field| field.name == right_field.name) && left.tail == RecordRowTail::Closed && right.tail == RecordRowTail::Closed {
+            return false;
+        }
+    }
+
+    // Open row parameters can absorb unmatched fields. Their substitution is
+    // owned by the row solver, not the proper-type substitution used here; the
+    // equality proof therefore records compatibility without fabricating a
+    // proper type for a row parameter.
+    true
 }
 
 fn bind_parameter(store: &mut TypeStore, substitution: &mut TypeSubstitution, parameter: TypeParameterId, ty: TypeId) -> bool {

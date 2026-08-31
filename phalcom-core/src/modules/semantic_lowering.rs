@@ -6,10 +6,13 @@
 use phalcom_common::range::SourceRange;
 use phalcom_modules::{DeclarationId, ModuleId, SourceId};
 use phalcom_semantic::associated::AssociatedMemberId;
-use phalcom_semantic::checker::associated::{AssociatedResolution, AssociatedResolutionKind, FamilyApplicationResolution, FamilyApplicationSelection};
+use phalcom_semantic::checker::associated::{
+    AssociatedResolution, AssociatedResolutionKind, BehavioralFamilySpec, FamilyApplicationResolution, FamilyApplicationSelection,
+};
 use phalcom_semantic::enum_semantics::VariantShape;
 use phalcom_semantic::identity::{CallableId, ExpressionId, InvocationTargetId, VariantFieldId, VariantId};
 use phalcom_semantic::snapshot::SemanticSnapshot;
+use phalcom_semantic::types::denotation::{AssociatedValueDenotation, SemanticDenotation};
 use phalcom_semantic::types::family::{FamilyMemberTypeKind, FamilyOperationShape};
 use phalcom_semantic::types::store::TypeData;
 use std::collections::BTreeMap;
@@ -116,6 +119,12 @@ pub enum AssociatedLoweringSpec {
     MakeAssociatedFamily { descriptor: Arc<ExecutableFamilyDescriptor> },
     /// Dynamic associated invocation over frozen candidate set.
     DynamicInvoke { candidates: Box<[ExecutableFamilyCandidate]> },
+    /// Ordinary receiver-bound family capture. Runtime retains captured
+    /// receiver and performs live behavioral dispatch on future invocation.
+    MakeBehavioralFamily { spec: BehavioralFamilySpec },
+    /// Ordinary receiver-bound direct invocation. Runtime uses normal dispatch
+    /// against the expression's receiver.
+    InvokeBoundBehavioral { selector: phalcom_common::selector::Selector },
 }
 
 /// Lowering specification for an application on a first-class family value.
@@ -203,7 +212,7 @@ pub enum ExecutablePattern {
         entries: Box<[(Box<str>, ExecutablePattern)]>,
     },
     Map {
-        entries: Box<[(Box<str>, ExecutablePattern)]>,
+        entries: Box<[(phalcom_ast::ast::MapPatternKey, ExecutablePattern)]>,
     },
 }
 
@@ -268,6 +277,10 @@ pub enum ProjectionError {
     SlotOverflow(usize),
     #[error("non-proven match reached executable lowering for expression {0:?}")]
     NonProvenMatch(ExpressionId),
+    #[error("ordinary behavioral resolution carried a non-behavioral target")]
+    InvalidBoundBehavioralTarget,
+    #[error("missing constructor metadata for variant {0:?}")]
+    MissingConstructorMetadata(VariantId),
 }
 
 /// Projects formal snapshot products into an immutable `ModuleLoweringSemantics` bundle.
@@ -348,7 +361,13 @@ pub fn build_module_lowering_semantics(module: &ModuleId, snapshot: &SemanticSna
 
         // Family-valued expressions
         for expression in analysis.expressions.values() {
-            if let Some(ty) = expression.knowledge.ty()
+            let is_associated_family = matches!(
+                expression.denotation.as_ref(),
+                Some(SemanticDenotation::AssociatedValue(assoc))
+                    if matches!(&**assoc, AssociatedValueDenotation::Family { .. })
+            );
+            if is_associated_family
+                && let Some(ty) = expression.knowledge.ty()
                 && matches!(snapshot.store.get(ty), TypeData::Family(_))
             {
                 family_values.insert(LoweringSite::new(source_id.clone(), expression.range, LoweringSiteKind::FamilyApplication));
@@ -363,7 +382,7 @@ pub fn build_module_lowering_semantics(module: &ModuleId, snapshot: &SemanticSna
                 None => return Err(ProjectionError::MissingSourceRange(*expr_id)),
             };
 
-            let spec = project_family_application(fam_app);
+            let spec = project_family_application(snapshot, fam_app)?;
             let site = LoweringSite::new(source_id.clone(), range, LoweringSiteKind::FamilyApplication);
             family_application_sites.insert(site.clone());
 
@@ -561,12 +580,12 @@ fn project_associated_resolution(
                         lookup_owner: resolution.lookup_owner.clone(),
                         callable: c.clone(),
                         operation: behavioral_operation(c),
-                        rest_mode: ExecutableRestMode::None,
+                        rest_mode: executable_rest_mode(snapshot, c),
                     },
                 },
                 InvocationTargetId::VariantConstructor(vc) => AssociatedLoweringSpec::MakeVariantConstructorThunk {
                     variant: vc.variant.clone(),
-                    operation: variant_constructor_operation(snapshot, &vc.variant),
+                    operation: variant_constructor_operation(snapshot, &vc.variant)?,
                 },
             };
             Ok((LoweringSiteKind::AssociatedLookup, spec))
@@ -588,7 +607,7 @@ fn project_associated_resolution(
                                 lookup_owner: resolution.lookup_owner.clone(),
                                 callable: c.clone(),
                                 operation: member.operation.clone(),
-                                rest_mode: ExecutableRestMode::None,
+                                rest_mode: executable_rest_mode(snapshot, c),
                             },
                         },
                         FamilyMemberTypeKind::Callable,
@@ -628,7 +647,7 @@ fn project_associated_resolution(
                             lookup_owner: resolution.lookup_owner.clone(),
                             callable: c.clone(),
                             operation: behavioral_operation(c),
-                            rest_mode: ExecutableRestMode::None,
+                            rest_mode: executable_rest_mode(snapshot, c),
                         },
                         arity,
                     }
@@ -644,7 +663,7 @@ fn project_associated_resolution(
                         lookup_owner: resolution.lookup_owner.clone(),
                         callable: cid.clone(),
                         operation: c.operation.clone(),
-                        rest_mode: ExecutableRestMode::None,
+                        rest_mode: executable_rest_mode(snapshot, cid),
                     },
                     InvocationTargetId::VariantConstructor(vc) => ExecutableInvocationTarget::VariantConstructor { variant: vc.variant.clone() },
                 });
@@ -658,6 +677,21 @@ fn project_associated_resolution(
             };
             Ok((LoweringSiteKind::AssociatedInvoke, spec))
         }
+        AssociatedResolutionKind::BoundBehavioralFamily { spec, .. } => Ok((
+            LoweringSiteKind::AssociatedLookup,
+            AssociatedLoweringSpec::MakeBehavioralFamily { spec: spec.clone() },
+        )),
+        AssociatedResolutionKind::BoundBehavioralInvoke { target, .. } => {
+            let InvocationTargetId::Behavioral(callable) = target else {
+                return Err(ProjectionError::InvalidBoundBehavioralTarget);
+            };
+            Ok((
+                LoweringSiteKind::AssociatedInvoke,
+                AssociatedLoweringSpec::InvokeBoundBehavioral {
+                    selector: callable.selector.clone(),
+                },
+            ))
+        }
     }
 }
 
@@ -665,35 +699,50 @@ fn behavioral_operation(callable: &CallableId) -> FamilyOperationShape {
     FamilyOperationShape::new(callable.selector.kind, callable.selector.slots.clone())
 }
 
-fn variant_constructor_operation(snapshot: &SemanticSnapshot, variant: &VariantId) -> FamilyOperationShape {
-    let slots = snapshot
+fn variant_constructor_operation(snapshot: &SemanticSnapshot, variant: &VariantId) -> Result<FamilyOperationShape, ProjectionError> {
+    let info = snapshot
         .enum_semantics
         .variant_info(variant)
-        .and_then(|info| info.constructor.as_ref())
-        .map(|constructor| {
-            constructor
-                .parameters
-                .iter()
-                .map(|parameter| match &parameter.external_label {
-                    Some(label) => phalcom_common::selector::SelectorSlot::Label(label.to_string()),
-                    None => phalcom_common::selector::SelectorSlot::Positional,
-                })
-                .collect::<Vec<_>>()
+        .ok_or_else(|| ProjectionError::MissingVariantMetadata(variant.clone()))?;
+    let constructor = info
+        .constructor
+        .as_ref()
+        .ok_or_else(|| ProjectionError::MissingConstructorMetadata(variant.clone()))?;
+    let slots = constructor
+        .parameters
+        .iter()
+        .map(|parameter| match &parameter.external_label {
+            Some(label) => phalcom_common::selector::SelectorSlot::Label(label.to_string()),
+            None => phalcom_common::selector::SelectorSlot::Positional,
         })
-        .unwrap_or_default();
-    FamilyOperationShape::method(slots.into_boxed_slice())
+        .collect::<Vec<_>>();
+    Ok(FamilyOperationShape::method(slots.into_boxed_slice()))
 }
 
-fn project_family_application(fam_app: &FamilyApplicationResolution) -> FamilyApplicationLoweringSpec {
+fn executable_rest_mode(snapshot: &SemanticSnapshot, callable: &CallableId) -> ExecutableRestMode {
+    snapshot
+        .callable_signatures
+        .get(callable)
+        .and_then(|signature| signature.parameters.iter().find(|parameter| parameter.rest != phalcom_ast::ast::RestMode::None))
+        .map(|parameter| match parameter.rest {
+            phalcom_ast::ast::RestMode::None => ExecutableRestMode::None,
+            phalcom_ast::ast::RestMode::Positional => ExecutableRestMode::Positional,
+            phalcom_ast::ast::RestMode::Labeled => ExecutableRestMode::Labeled,
+            phalcom_ast::ast::RestMode::Complete => ExecutableRestMode::Complete,
+        })
+        .unwrap_or(ExecutableRestMode::None)
+}
+
+fn project_family_application(snapshot: &SemanticSnapshot, fam_app: &FamilyApplicationResolution) -> Result<FamilyApplicationLoweringSpec, ProjectionError> {
     match &fam_app.selection {
         FamilyApplicationSelection::Static { operation, target, .. } => {
-            let exec_target = target.as_ref().map(|target| executable_invocation_target(target, operation));
-            let arity = operation.slots.len() as u8;
-            FamilyApplicationLoweringSpec::Static {
+            let exec_target = target.as_ref().map(|target| executable_invocation_target(snapshot, target, operation));
+            let arity = u8::try_from(operation.slots.len()).map_err(|_| ProjectionError::ArityOverflow(operation.slots.len()))?;
+            Ok(FamilyApplicationLoweringSpec::Static {
                 operation: operation.clone(),
                 target: exec_target,
                 arity,
-            }
+            })
         }
         FamilyApplicationSelection::Dynamic { candidates, .. } => {
             let exec_candidates = candidates
@@ -703,22 +752,22 @@ fn project_family_application(fam_app: &FamilyApplicationResolution) -> FamilyAp
                     target: candidate
                         .target
                         .as_ref()
-                        .map(|target| executable_invocation_target(target, &candidate.operation)),
+                        .map(|target| executable_invocation_target(snapshot, target, &candidate.operation)),
                 })
                 .collect::<Vec<_>>()
                 .into_boxed_slice();
-            FamilyApplicationLoweringSpec::DynamicPack { candidates: exec_candidates }
+            Ok(FamilyApplicationLoweringSpec::DynamicPack { candidates: exec_candidates })
         }
     }
 }
 
-fn executable_invocation_target(target: &InvocationTargetId, operation: &FamilyOperationShape) -> ExecutableInvocationTarget {
+fn executable_invocation_target(snapshot: &SemanticSnapshot, target: &InvocationTargetId, operation: &FamilyOperationShape) -> ExecutableInvocationTarget {
     match target {
         InvocationTargetId::Behavioral(c) => ExecutableInvocationTarget::Behavioral {
             lookup_owner: c.owner.declaration().clone(),
             callable: c.clone(),
             operation: operation.clone(),
-            rest_mode: ExecutableRestMode::None,
+            rest_mode: executable_rest_mode(snapshot, c),
         },
         InvocationTargetId::VariantConstructor(vc) => ExecutableInvocationTarget::VariantConstructor { variant: vc.variant.clone() },
     }

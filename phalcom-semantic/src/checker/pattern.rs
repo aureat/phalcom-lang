@@ -1,7 +1,7 @@
 use phalcom_ast::ast::{Pattern, VariantPattern, VariantPatternMode};
 use phalcom_ast::selector::{selector_from_exact_variant_pattern, selector_pattern_from_variant_pattern};
 use phalcom_common::range::SourceRange;
-use phalcom_common::selector::{Selector, SelectorBase};
+use phalcom_common::selector::{Selector, SelectorBase, SelectorKind};
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::checker::context::CheckingContext;
@@ -159,8 +159,113 @@ fn resolve_pattern_with_mode(
                 expected_space.clone(),
             )
         }
-        _ => (PatternResolution::Wildcard, expected_space.clone()),
+        Pattern::Record { entries, range } => resolve_record_pattern(ctx, entries, *range, expected_ty, bindings, binding_mode),
+        Pattern::Map { entries, range } => resolve_map_pattern(ctx, entries, *range, expected_ty, bindings, binding_mode),
     }
+}
+
+fn resolve_record_pattern(
+    ctx: &mut CheckingContext<'_>,
+    entries: &[phalcom_ast::ast::RecordPatternEntry],
+    _range: SourceRange,
+    expected_ty: TypeId,
+    bindings: &mut Vec<PatternBindingResolution>,
+    binding_mode: BindingMode,
+) -> (PatternResolution, PatternSpace) {
+    let known_row = match ctx.store.get(expected_ty).clone() {
+        TypeData::Record(row_id) => Some(ctx.store.record_row(row_id).clone()),
+        _ => None,
+    };
+    let mut resolved = Vec::with_capacity(entries.len());
+    let mut fields = Vec::with_capacity(entries.len());
+    let mut impossible = false;
+
+    for entry in entries {
+        let field_ty = match &known_row {
+            Some(row) => match row.find_field(&entry.label) {
+                Some(ty) => Some(ty),
+                None if matches!(row.tail, crate::types::row::RecordRowTail::Closed) => {
+                    impossible = true;
+                    ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        crate::diagnostic::DiagnosticCode::MatchPatternFieldMismatch,
+                        format!("record field `{}` is not present in scrutinee type", entry.label),
+                        entry.range,
+                    ));
+                    None
+                }
+                None => None,
+            },
+            None => None,
+        };
+        let child_ty = field_ty.unwrap_or_else(|| conservative_pattern_type(ctx, expected_ty));
+        let child_space = PatternSpace::Opaque(child_ty);
+        let (child, child_space) = resolve_pattern_with_mode(ctx, &entry.pattern, child_ty, &child_space, bindings, binding_mode);
+        resolved.push(crate::match_semantics::ResolvedRecordFieldPattern {
+            label: entry.label.clone().into_boxed_str(),
+            child: Box::new(child),
+        });
+        fields.push((entry.label.clone().into_boxed_str(), child_space));
+    }
+
+    let resolution = PatternResolution::Record(resolved.into_boxed_slice());
+    if impossible {
+        (resolution, PatternSpace::Empty)
+    } else {
+        (
+            resolution,
+            PatternSpace::Record(crate::checker::pattern_space::RecordSpace {
+                ty: expected_ty,
+                fields: fields.into_boxed_slice(),
+            }),
+        )
+    }
+}
+
+fn resolve_map_pattern(
+    ctx: &mut CheckingContext<'_>,
+    entries: &[phalcom_ast::ast::MapPatternEntry],
+    _range: SourceRange,
+    expected_ty: TypeId,
+    bindings: &mut Vec<PatternBindingResolution>,
+    binding_mode: BindingMode,
+) -> (PatternResolution, PatternSpace) {
+    let map_value_ty = ctx.store.applied_nominal_parts(expected_ty).and_then(|(declaration, arguments)| {
+        if declaration == ctx.core_ids.map && arguments.len() == 2 {
+            arguments.get(1).copied()
+        } else {
+            None
+        }
+    });
+    let mut resolved = Vec::with_capacity(entries.len());
+    let mut spaces = Vec::with_capacity(entries.len());
+
+    for entry in entries {
+        let child_ty = map_value_ty.unwrap_or_else(|| conservative_pattern_type(ctx, expected_ty));
+        let child_space = PatternSpace::Opaque(child_ty);
+        let (child, child_space) = resolve_pattern_with_mode(ctx, &entry.pattern, child_ty, &child_space, bindings, binding_mode);
+        resolved.push(crate::match_semantics::ResolvedMapEntryPattern {
+            key: entry.key.clone(),
+            child: Box::new(child),
+        });
+        spaces.push((entry.key.clone(), child_space));
+    }
+
+    (
+        PatternResolution::Map(resolved.into_boxed_slice()),
+        PatternSpace::Map(crate::checker::pattern_space::MapSpace {
+            ty: expected_ty,
+            entries: spaces.into_boxed_slice(),
+        }),
+    )
+}
+
+fn conservative_pattern_type(ctx: &mut CheckingContext<'_>, fallback: TypeId) -> TypeId {
+    // Record/map structure is refutable against an opaque receiver. For child
+    // recursion we need a canonical type token, but must not claim the field's
+    // actual type is known. Object is the least-specific structural fallback
+    // available in this checker; its use remains confined to pattern knowledge.
+    ctx.core_type(&ctx.core_ids.object.clone()).unwrap_or(fallback)
 }
 
 fn bind_name_pattern(
@@ -786,29 +891,32 @@ fn matches_variant_info(
             if &v_info.id.selector == exact {
                 return true;
             }
-            if let VariantPatternMode::ExactCall { arguments } = &variant_pat.mode {
-                if arguments.len() == v_info.fields.len() {
-                    let mut matched_all = true;
-                    for (i, arg) in arguments.iter().enumerate() {
-                        let has_match = if let Some(ref label) = arg.label {
-                            v_info
-                                .fields
-                                .iter()
-                                .any(|f| f.external_label.as_deref() == Some(label) || f.local_name.as_ref() == label.as_str())
-                        } else {
-                            i < v_info.fields.len()
-                        };
-                        if !has_match {
-                            matched_all = false;
-                            break;
-                        }
-                    }
-                    if matched_all {
-                        return true;
-                    }
-                }
+
+            // Exact calls may use local field names for binding selection, while
+            // canonical constructor selectors retain only external labels. Keep
+            // that compatibility for method-shaped variants, but never allow it
+            // to bridge getter and constructor shapes.
+            if exact.kind != SelectorKind::Method || v_info.id.selector.kind != SelectorKind::Method {
+                return false;
             }
-            false
+
+            let VariantPatternMode::ExactCall { arguments } = &variant_pat.mode else {
+                return false;
+            };
+            if arguments.len() != v_info.fields.len() {
+                return false;
+            }
+
+            arguments.iter().enumerate().all(|(i, arg)| {
+                if let Some(ref label) = arg.label {
+                    v_info
+                        .fields
+                        .iter()
+                        .any(|field| field.external_label.as_deref() == Some(label) || field.local_name.as_ref() == label.as_str())
+                } else {
+                    i < v_info.fields.len()
+                }
+            })
         }
         VariantSelectorConstraint::Pattern(pattern) => pattern.matches(&v_info.id.selector),
     }

@@ -1,14 +1,15 @@
 //! Associated expression lowering to direct bytecodes and family objects (Part 4).
 
 use crate::bytecode::Bytecode;
-use crate::compiler::lib::Compiler;
 use crate::compiler::lib::error::CompilerError;
+use crate::compiler::lib::{Compiler, checked_send_arity};
 use crate::modules::semantic_lowering::{AssociatedLoweringSpec, ExecutableFamilyCandidateSet, FamilyApplicationLoweringSpec, LoweringSiteKind};
 use crate::value::Value;
 use phalcom_ast::ast::{AssociatedInvokeExpr, AssociatedLookupExpr, AssociatedMemberSyntax, Expr, PackItem};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
 use phalcom_modules::DeclarationId;
+use phalcom_semantic::checker::associated::BehavioralFamilySpec;
 use phalcom_semantic::identity::VariantId;
 
 impl<'vm> Compiler<'vm> {
@@ -101,6 +102,12 @@ impl<'vm> Compiler<'vm> {
 
         if let Some(spec) = spec {
             match spec {
+                AssociatedLoweringSpec::MakeBehavioralFamily { spec } => {
+                    self.compile_expr(expr.receiver.clone())?;
+                    let (spec_idx, kind) = self.compile_behavioral_family_spec(&spec)?;
+                    self.emit(Bytecode::MakeFamily { spec: spec_idx, kind }, expr.range);
+                    return Ok(());
+                }
                 AssociatedLoweringSpec::SingletonLoad { variant } => {
                     let var_idx = self
                         .functions
@@ -177,6 +184,17 @@ impl<'vm> Compiler<'vm> {
 
         if let Some(spec) = spec {
             match spec {
+                AssociatedLoweringSpec::InvokeBoundBehavioral { selector } => {
+                    let arity = checked_send_arity("associated message send", expr.args.len(), expr.range)?;
+                    self.compile_expr(expr.receiver.clone())?;
+                    for arg in &expr.args {
+                        self.compile_pack_item(arg.clone())?;
+                    }
+                    let selector_sym = self.vm.interner.intern(&selector.encode());
+                    let selector_idx = self.add_constant(Value::symbol(selector_sym));
+                    self.emit(Bytecode::Invoke(arity, selector_idx), expr.range);
+                    return Ok(());
+                }
                 AssociatedLoweringSpec::SingletonLoad { variant } => {
                     let var_idx = self
                         .functions
@@ -192,7 +210,7 @@ impl<'vm> Compiler<'vm> {
                     for arg in &expr.args {
                         self.compile_pack_item(arg.clone())?;
                     }
-                    let arity = expr.args.len() as u8;
+                    let arity = checked_send_arity("variant construction", expr.args.len(), expr.range)?;
                     let var_idx = self
                         .functions
                         .last_mut()
@@ -207,7 +225,7 @@ impl<'vm> Compiler<'vm> {
                     for arg in &expr.args {
                         self.compile_pack_item(arg.clone())?;
                     }
-                    let arity = expr.args.len() as u8;
+                    let arity = checked_send_arity("associated invocation", expr.args.len(), expr.range)?;
                     let target_idx = self
                         .functions
                         .last_mut()
@@ -260,7 +278,7 @@ impl<'vm> Compiler<'vm> {
             for arg in &expr.args {
                 self.compile_pack_item(arg.clone())?;
             }
-            let arity = expr.args.len() as u8;
+            let arity = checked_send_arity("standalone variant construction", expr.args.len(), expr.range)?;
             let var_idx = self
                 .functions
                 .last_mut()
@@ -275,9 +293,23 @@ impl<'vm> Compiler<'vm> {
         Err(CompilerError::AssociatedInvokeNotLoweredYet(expr.range))
     }
 
+    fn compile_behavioral_family_spec(&mut self, spec: &BehavioralFamilySpec) -> Result<(u16, crate::bytecode::FamilySpecKind), CompilerError> {
+        match spec {
+            BehavioralFamilySpec::Exact(selector) => {
+                let symbol = self.vm.interner.intern(&selector.encode());
+                Ok((self.add_constant(Value::symbol(symbol)), crate::bytecode::FamilySpecKind::Exact))
+            }
+            BehavioralFamilySpec::Pattern(pattern) => {
+                let pattern_object = crate::heap::SelectorPatternObject::compile(pattern.clone(), &mut self.vm.interner);
+                let object = self.vm.heap.alloc(crate::heap::Object::SelectorPattern(Box::new(pattern_object)));
+                Ok((self.add_constant(Value::obj(object)), crate::bytecode::FamilySpecKind::Pattern))
+            }
+        }
+    }
+
     /// Emits a callable thunk that constructs a variant instance when called.
     fn compile_variant_constructor_thunk(&mut self, variant: &VariantId, range: SourceRange) -> Result<(), CompilerError> {
-        let arity = variant.selector.slots.len() as u8;
+        let arity = checked_send_arity("variant constructor thunk", variant.selector.slots.len(), range)?;
         let name_sym = self.vm.interner.intern(&format!("thunk::{}", variant.selector));
         let param_names = (0..arity).map(|i| format!("_{i}")).collect();
         let closure = self.compile_block(
@@ -297,7 +329,7 @@ impl<'vm> Compiler<'vm> {
         callable.chunk.gcaches.clear();
         let var_idx = callable.chunk.executable_semantics.add_variant_target(variant, range)?;
         // Reserve slot 0 for receiver, arguments in slots 1..=arity
-        for slot in 1..=(arity as u16) {
+        for slot in 1..=u16::from(arity) {
             callable.chunk.add_instruction(Bytecode::GetLocal(slot), range);
         }
         callable.chunk.add_instruction(Bytecode::ConstructVariant { variant: var_idx, arity }, range);

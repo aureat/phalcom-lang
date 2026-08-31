@@ -73,19 +73,10 @@ impl VM {
 
                 let selector_sym = self.get_or_intern(&callable.selector.to_string());
                 let method = match rest_mode {
-                    ExecutableRestMode::None => {
-                        self.heap.class(defining_metaclass).methods.get(&selector_sym).copied().or_else(|| {
-                            // Also check directly on defining_class in case it was installed on instance side
-                            self.heap.class(defining_class).methods.get(&selector_sym).copied()
-                        })
+                    ExecutableRestMode::None => self.heap.class(defining_metaclass).methods.get(&selector_sym).copied(),
+                    ExecutableRestMode::Positional | ExecutableRestMode::Labeled | ExecutableRestMode::Complete => {
+                        self.heap.class(defining_metaclass).rest_methods.get(&selector_sym).copied()
                     }
-                    ExecutableRestMode::Positional | ExecutableRestMode::Labeled | ExecutableRestMode::Complete => self
-                        .heap
-                        .class(defining_metaclass)
-                        .rest_methods
-                        .get(&selector_sym)
-                        .copied()
-                        .or_else(|| self.heap.class(defining_class).rest_methods.get(&selector_sym).copied()),
                 };
 
                 let method = method.ok_or_else(|| {

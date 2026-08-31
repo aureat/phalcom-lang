@@ -46,7 +46,7 @@ class Probe {
             .find(|candidate| source.get(candidate.range.start..candidate.range.end) == Some(expression_text))
             .expect("associated expression");
         let resolution = callable_analysis.associated_resolutions.get(&expression.id).expect("associated resolution");
-        assert_eq!(&resolution.family, &family);
+        assert_eq!(resolution.family.as_ref(), Some(&family));
         assert!(matches!(
             (expected_kind, &resolution.kind),
             ("value", AssociatedResolutionKind::ExactValue { .. }) | ("invoke", AssociatedResolutionKind::StaticInvoke { .. })

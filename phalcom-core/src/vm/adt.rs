@@ -6,21 +6,24 @@ use crate::heap::{ClassId, ClassObject, Object};
 use crate::modules::semantic_lowering::EnumLoweringSpec;
 use crate::value::Value;
 use crate::vm::VM;
+use phalcom_modules::{DeclarationId, ModuleId};
 use phalcom_semantic::enum_semantics::VariantShape;
 
 impl VM {
     /// Materializes and registers an enum declaration and its hidden case behavior classes.
-    pub fn register_enum_from_spec(&mut self, spec: &EnumLoweringSpec) -> ClassId {
+    pub fn register_enum_from_spec(&mut self, spec: &EnumLoweringSpec) -> Result<ClassId, RuntimeError> {
         if let Some(enum_id) = self.adt_registry.enum_by_declaration(&spec.owner) {
             if let Some(desc) = self.adt_registry.enum_descriptor(enum_id) {
-                return desc.root_class;
+                return Ok(desc.root_class);
             }
         }
 
         // Determine representation strategy
-        let representation = if spec.owner.name.as_ref() == "Option" {
+        let option_decl = DeclarationId::new(ModuleId::core(), "Option".into());
+        let result_decl = DeclarationId::new(ModuleId::core(), "Result".into());
+        let representation = if spec.owner == option_decl {
             crate::adt::RuntimeAdtRepresentation::NativeOption
-        } else if spec.owner.name.as_ref() == "Result" {
+        } else if spec.owner == result_decl {
             crate::adt::RuntimeAdtRepresentation::NativeResult
         } else {
             crate::adt::RuntimeAdtRepresentation::General
@@ -42,12 +45,14 @@ impl VM {
             case_class.class = self.universe.classes.class_class;
             case_class.superclass = Some(root_class_id);
             let case_class_id = self.heap.alloc_class(case_class);
-            let discriminant = CaseDiscriminant(u32::try_from(idx).expect("discriminant index overflow"));
+            let discriminant =
+                CaseDiscriminant(u32::try_from(idx).map_err(|_| RuntimeError::Message(format!("enum `{}` has too many variants", spec.owner.name)))?);
             let shape = match var_spec.shape {
                 VariantShape::Singleton => RuntimeVariantShape::Singleton,
                 VariantShape::Constructor => RuntimeVariantShape::Constructor,
             };
-            let payload_arity = u16::try_from(var_spec.payload_fields.len()).expect("payload arity overflow");
+            let payload_arity = u16::try_from(var_spec.payload_fields.len())
+                .map_err(|_| RuntimeError::Message(format!("variant `{}` has too many payload fields", var_spec.id.selector)))?;
 
             let runtime_var_id = self
                 .adt_registry
@@ -63,10 +68,7 @@ impl VM {
 
                 let mut chunk = crate::chunk::Chunk::new();
                 chunk.add_instruction(crate::bytecode::Bytecode::GetLocal(0), phalcom_common::range::EmptySourceRange);
-                chunk.add_instruction(
-                    crate::bytecode::Bytecode::GetVariantPayload(slot as u16),
-                    phalcom_common::range::EmptySourceRange,
-                );
+                chunk.add_instruction(crate::bytecode::Bytecode::GetVariantPayload(slot), phalcom_common::range::EmptySourceRange);
                 chunk.add_instruction(crate::bytecode::Bytecode::Return, phalcom_common::range::EmptySourceRange);
 
                 let callable = std::rc::Rc::new(crate::callable::Callable {
@@ -106,7 +108,7 @@ impl VM {
             }
         }
 
-        root_class_id
+        Ok(root_class_id)
     }
 
     /// Part-5 runtime primitive: returns the RuntimeVariantId of an ADT value if any.

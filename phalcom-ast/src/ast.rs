@@ -1252,7 +1252,7 @@ pub struct MapPatternEntry {
 
 /// Keys accepted by the first map-pattern implementation. Arbitrary key
 /// expressions remain deliberately outside pattern syntax.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub enum MapPatternKey {
     Symbol(String),
     String(String),

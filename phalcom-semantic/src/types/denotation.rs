@@ -4,6 +4,7 @@ use super::evidence::TypeKnowledge;
 use super::family::FamilyOperationShape;
 use super::id::{KindId, TypeId};
 use crate::associated::AssociatedMemberId;
+use crate::checker::associated::BehavioralFamilySpec;
 use crate::identity::{AssociatedFamilyId, DeclarationId, InvocationTargetId};
 use std::sync::Arc;
 
@@ -12,6 +13,12 @@ pub struct CapturedAssociatedMember {
     pub operation: FamilyOperationShape,
     pub member: AssociatedMemberId,
     pub target: Option<InvocationTargetId>,
+}
+
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CapturedBehavioralMember {
+    pub operation: FamilyOperationShape,
+    pub target: InvocationTargetId,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -27,6 +34,14 @@ pub enum AssociatedValueDenotation {
         lookup_owner: DeclarationId,
         family: AssociatedFamilyId,
         members: Arc<[CapturedAssociatedMember]>,
+    },
+    /// Ordinary receiver-bound behavioral family. Its receiver is retained in
+    /// the executable `MakeFamily` projection; targets here are static
+    /// candidate knowledge only.
+    BehavioralFamily {
+        receiver_type: TypeId,
+        spec: BehavioralFamilySpec,
+        members: Arc<[CapturedBehavioralMember]>,
     },
 }
 

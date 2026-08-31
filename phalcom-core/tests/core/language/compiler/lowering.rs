@@ -67,7 +67,7 @@ let payload = Weird::Marker(1, 2)
 }
 
 #[test]
-fn behavioral_associated_call_projects_exact_target_without_family_fallback() {
+fn behavioral_bound_call_projects_exact_selector_without_associated_fallback() {
     let source = r#"
 class Factory {
   @class make(value: Int) -> Int {
@@ -85,16 +85,14 @@ let result = Factory::make(value: 1)
         .find(|(site, _)| site.kind == LoweringSiteKind::AssociatedInvoke)
         .map(|(_, spec)| spec)
         .expect("associated invocation lowering");
-    let AssociatedLoweringSpec::InvokeResolvedAssociated { target, .. } = spec else {
-        panic!("expected direct associated invocation lowering, got {spec:?}");
+    let AssociatedLoweringSpec::InvokeBoundBehavioral { selector } = spec else {
+        panic!("expected ordinary bound invocation lowering, got {spec:?}");
     };
-    let phalcom_core::modules::semantic_lowering::ExecutableInvocationTarget::Behavioral { operation, .. } = target else {
-        panic!("expected behavioral associated target, got {target:?}");
-    };
-    assert_eq!(operation.slots.as_ref(), [SelectorSlot::Label("value".into())]);
+    assert_eq!(selector.slots.as_ref(), [SelectorSlot::Label("value".into())]);
 
     let chunk = &vm.heap.closure(closure).callable.chunk;
-    assert!(chunk.code.iter().any(|op| matches!(op, Bytecode::InvokeResolvedAssociated { arity: 1, .. })));
+    assert!(chunk.code.iter().any(|op| matches!(op, Bytecode::Invoke(1, _))));
+    assert!(!chunk.code.iter().any(|op| matches!(op, Bytecode::InvokeResolvedAssociated { .. })));
     assert!(!chunk.code.iter().any(|op| matches!(op, Bytecode::MakeFamily { .. })));
 }
 

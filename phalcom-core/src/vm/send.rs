@@ -881,7 +881,7 @@ impl VM {
                     _ => expected_positional,
                 };
                 if expected_positional != view.positional_count() || expected_labels.as_slice() != labels {
-                    return Err(RuntimeError::Message(format!("exact family `{base}` does not accept this call shape")).into());
+                    return Err(RuntimeError::Message(format!("call does not match the callable shape of exact family `{base}`")).into());
                 }
                 selector
             }

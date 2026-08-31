@@ -61,10 +61,13 @@ impl<'vm> Compiler<'vm> {
                     if let Some(payload) = &v.payload {
                         for (idx, p) in payload.parameters.iter().enumerate() {
                             let field_name = p.name.clone();
+                            let field_index =
+                                u32::try_from(idx).map_err(|_| CompilerError::Message(format!("variant `{}` has too many payload fields", v.name)))?;
+                            let slot = u16::try_from(idx).map_err(|_| CompilerError::Message(format!("variant `{}` has too many payload slots", v.name)))?;
                             fields.push(VariantFieldLoweringSpec {
-                                id: VariantFieldId::new(vid.clone(), idx as u32),
+                                id: VariantFieldId::new(vid.clone(), field_index),
                                 local_name: field_name.into_boxed_str(),
-                                slot: idx as u16,
+                                slot,
                             });
                         }
                     }
