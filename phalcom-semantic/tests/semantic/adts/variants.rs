@@ -134,9 +134,7 @@ fn adt_variant_06_mixed_payload_field_ids_follow_selector_slots() {
 
 #[test]
 fn adt_variant_07_all_same_base_variants_share_one_family_identity() {
-    let case = super::support::analyze_adt(
-        "enum Animal { @variant Dog @variant Dog() @variant Dog(_ name: String) }\n",
-    );
+    let case = super::support::analyze_adt("enum Animal { @variant Dog @variant Dog() @variant Dog(_ name: String) }\n");
     let family = case.family_id("Animal", "Dog");
     let info = case.enum_info("Animal");
     assert_eq!(info.variant_families.as_ref(), [family.clone()]);

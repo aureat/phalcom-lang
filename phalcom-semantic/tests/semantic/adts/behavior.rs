@@ -89,5 +89,9 @@ enum Shape {
         .requirements
         .get(&owner)
         .expect("enum requirement table entry");
-    assert!(!requirements.iter().any(|requirement| requirement.id.selector == Selector::method("draw", []).unwrap()));
+    assert!(
+        !requirements
+            .iter()
+            .any(|requirement| requirement.id.selector == Selector::method("draw", []).unwrap())
+    );
 }

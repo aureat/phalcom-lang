@@ -38,22 +38,13 @@ impl<'vm> Compiler<'vm> {
         let mut end_jumps = Vec::new();
 
         for (arm_idx, arm) in node.arms.into_iter().enumerate() {
-            let arm_spec = spec
-                .arms
-                .get(arm_idx)
-                .ok_or(CompilerError::InvalidExecutablePattern(arm.range))?;
+            let arm_spec = spec.arms.get(arm_idx).ok_or(CompilerError::InvalidExecutablePattern(arm.range))?;
 
             self.begin_scope();
             let frame = self.setup_pattern_frame(&arm_spec.bindings, arm.range)?;
 
             let mut failure_jumps = Vec::new();
-            self.emit_executable_pattern(
-                &arm_spec.pattern,
-                scrutinee_slot,
-                &frame,
-                &mut failure_jumps,
-                arm.range,
-            )?;
+            self.emit_executable_pattern(&arm_spec.pattern, scrutinee_slot, &frame, &mut failure_jumps, arm.range)?;
 
             let arm_scratch_count = (self.functions.last().unwrap().num_locals as usize) - (frame.scope_start as usize);
 

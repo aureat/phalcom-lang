@@ -409,9 +409,7 @@ enum State {
 
 #[test]
 fn adt_decl_01_ordinary_closed_enum_publishes_owner_and_ordered_variants() {
-    let case = super::support::analyze_adt(
-        "enum Status {\n  @variant Active -> Status\n  @variant Inactive -> Status\n}\n",
-    );
+    let case = super::support::analyze_adt("enum Status {\n  @variant Active -> Status\n  @variant Inactive -> Status\n}\n");
     let info = case.enum_info("Status");
     assert_eq!(info.variants.len(), 2);
     assert_eq!(info.variants[0].owner.name.as_ref(), "Status");
@@ -423,43 +421,49 @@ fn adt_decl_01_ordinary_closed_enum_publishes_owner_and_ordered_variants() {
 
 #[test]
 fn adt_decl_02_generic_parameter_is_owned_by_enum_and_reused_by_case() {
-    let case = super::support::analyze_adt(
-        "enum Option<T> {\n  @variant Some(_ value: T) -> Option<T>\n  @variant None -> Option<T>\n}\n",
-    );
+    let case = super::support::analyze_adt("enum Option<T> {\n  @variant Some(_ value: T) -> Option<T>\n  @variant None -> Option<T>\n}\n");
     let owner = &case.declaration("Option").declaration;
     let signature = case.declaration("Option").generic_signature.as_ref().expect("generic signature");
     assert_eq!(signature.parameter_count(), 1);
     let parameter = signature.parameters[0];
     let store = case.analysis.snapshot.store.as_ref();
-    assert_eq!(&store.type_parameter(parameter).owner, &phalcom_semantic::TypeParameterOwner::Declaration(owner.clone()));
+    assert_eq!(
+        &store.type_parameter(parameter).owner,
+        &phalcom_semantic::TypeParameterOwner::Declaration(owner.clone())
+    );
     let some = case.variant("Option", Selector::method("Some", [SelectorSlot::Positional]).expect("Some selector"));
-    assert_eq!(store.get(some.fields[0].declared_type.canonical_type().expect("Some field type")), &phalcom_semantic::types::store::TypeData::Parameter(parameter));
+    assert_eq!(
+        store.get(some.fields[0].declared_type.canonical_type().expect("Some field type")),
+        &phalcom_semantic::types::store::TypeData::Parameter(parameter)
+    );
     assert!(some.case_environment.is_empty());
     case.assert_no_diagnostics();
 }
 
 #[test]
 fn adt_decl_03_multi_parameter_result_keeps_parameter_order_and_roles() {
-    let case = super::support::analyze_adt(
-        "enum Result<T, E> {\n  @variant Ok(_ value: T) -> Result<T, E>\n  @variant Err(_ error: E) -> Result<T, E>\n}\n",
-    );
+    let case = super::support::analyze_adt("enum Result<T, E> {\n  @variant Ok(_ value: T) -> Result<T, E>\n  @variant Err(_ error: E) -> Result<T, E>\n}\n");
     let declaration = case.declaration("Result");
     let signature = declaration.generic_signature.as_ref().expect("Result generic signature");
     assert_eq!(signature.parameter_count(), 2);
     let store = case.analysis.snapshot.store.as_ref();
     let ok = case.variant("Result", Selector::method("Ok", [SelectorSlot::Positional]).expect("Ok selector"));
     let err = case.variant("Result", Selector::method("Err", [SelectorSlot::Positional]).expect("Err selector"));
-    assert_eq!(store.get(ok.fields[0].declared_type.canonical_type().expect("Ok field type")), &phalcom_semantic::types::store::TypeData::Parameter(signature.parameters[0]));
-    assert_eq!(store.get(err.fields[0].declared_type.canonical_type().expect("Err field type")), &phalcom_semantic::types::store::TypeData::Parameter(signature.parameters[1]));
+    assert_eq!(
+        store.get(ok.fields[0].declared_type.canonical_type().expect("Ok field type")),
+        &phalcom_semantic::types::store::TypeData::Parameter(signature.parameters[0])
+    );
+    assert_eq!(
+        store.get(err.fields[0].declared_type.canonical_type().expect("Err field type")),
+        &phalcom_semantic::types::store::TypeData::Parameter(signature.parameters[1])
+    );
     assert_eq!(store.type_parameter(signature.parameters[0]).index, 0);
     assert_eq!(store.type_parameter(signature.parameters[1]).index, 1);
 }
 
 #[test]
 fn adt_decl_04_gadt_result_templates_publish_case_environments() {
-    let case = super::support::analyze_adt(
-        "enum Expr<T> {\n  @variant Int(_ value: Int) -> Expr<Int>\n  @variant Bool(_ value: Bool) -> Expr<Bool>\n}\n",
-    );
+    let case = super::support::analyze_adt("enum Expr<T> {\n  @variant Int(_ value: Int) -> Expr<Int>\n  @variant Bool(_ value: Bool) -> Expr<Bool>\n}\n");
     let expr = case.enum_info("Expr");
     assert_eq!(expr.variants.len(), 2);
     let int = case.variant("Expr", Selector::method("Int", [SelectorSlot::Positional]).expect("Int selector"));
@@ -471,13 +475,15 @@ fn adt_decl_04_gadt_result_templates_publish_case_environments() {
 
 #[test]
 fn adt_decl_05_same_base_distinct_selector_declarations_do_not_collapse() {
-    let case = super::support::analyze_adt(
-        "enum Animal {\n  @variant Dog\n  @variant Dog()\n  @variant Dog(_ name: String)\n  @variant Dog(named age: Int)\n}\n",
-    );
+    let case =
+        super::support::analyze_adt("enum Animal {\n  @variant Dog\n  @variant Dog()\n  @variant Dog(_ name: String)\n  @variant Dog(named age: Int)\n}\n");
     let info = case.enum_info("Animal");
     assert_eq!(info.variants.len(), 4);
     let selectors = info.variants.iter().map(|variant| variant.selector.encode()).collect::<Vec<_>>();
-    assert_eq!(selectors, vec!["Dog".to_string(), "Dog()".to_string(), "Dog(_)".to_string(), "Dog(named)".to_string()]);
+    assert_eq!(
+        selectors,
+        vec!["Dog".to_string(), "Dog()".to_string(), "Dog(_)".to_string(), "Dog(named)".to_string()]
+    );
     assert_eq!(info.variant_families.len(), 1);
 }
 

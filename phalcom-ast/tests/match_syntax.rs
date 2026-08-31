@@ -207,7 +207,10 @@ fn parse_match_with_nested_and_or_patterns() {
 #[test]
 fn review_ast_01_nested_or_patterns_remain_inside_payload_node() {
     let program = parse_source("match value { Some(Ok(x) | Cached(x)) => x _ => 0 }", 0).expect("match should parse");
-    let Statement::Expr { expr: Expr::Match(match_expr), .. } = &program.statements[0] else {
+    let Statement::Expr {
+        expr: Expr::Match(match_expr), ..
+    } = &program.statements[0]
+    else {
         panic!("expected match expression");
     };
     let Pattern::Variant(outer) = &match_expr.arms[0].pattern else {
@@ -222,14 +225,23 @@ fn review_ast_01_nested_or_patterns_remain_inside_payload_node() {
 #[test]
 fn review_ast_02_selector_modes_preserve_getter_call_and_family_shape() {
     let program = parse_source("match value { Animal::Dog => 1 Animal::Dog() => 2 Animal::Dog* => 3 }", 0).expect("match should parse");
-    let Statement::Expr { expr: Expr::Match(match_expr), .. } = &program.statements[0] else {
+    let Statement::Expr {
+        expr: Expr::Match(match_expr), ..
+    } = &program.statements[0]
+    else {
         panic!("expected match expression");
     };
-    let Pattern::Variant(getter) = &match_expr.arms[0].pattern else { panic!("expected getter pattern") };
+    let Pattern::Variant(getter) = &match_expr.arms[0].pattern else {
+        panic!("expected getter pattern")
+    };
     assert!(matches!(getter.mode, VariantPatternMode::Singleton));
-    let Pattern::Variant(call) = &match_expr.arms[1].pattern else { panic!("expected call pattern") };
+    let Pattern::Variant(call) = &match_expr.arms[1].pattern else {
+        panic!("expected call pattern")
+    };
     assert!(matches!(call.mode, VariantPatternMode::ExactCall { ref arguments } if arguments.is_empty()));
-    let Pattern::Variant(family) = &match_expr.arms[2].pattern else { panic!("expected family pattern") };
+    let Pattern::Variant(family) = &match_expr.arms[2].pattern else {
+        panic!("expected family pattern")
+    };
     assert!(matches!(family.mode, VariantPatternMode::WholeFamily { .. }));
 }
 
@@ -237,10 +249,15 @@ fn review_ast_02_selector_modes_preserve_getter_call_and_family_shape() {
 fn review_ast_03_source_ranges_cover_gap_and_label_tokens() {
     let source = "match value { Animal::Dog(x, ..., named: y) => x }";
     let program = parse_source(source, 0).expect("match should parse");
-    let Statement::Expr { expr: Expr::Match(match_expr), .. } = &program.statements[0] else {
+    let Statement::Expr {
+        expr: Expr::Match(match_expr), ..
+    } = &program.statements[0]
+    else {
         panic!("expected match expression");
     };
-    let Pattern::Variant(variant) = &match_expr.arms[0].pattern else { panic!("expected variant") };
+    let Pattern::Variant(variant) = &match_expr.arms[0].pattern else {
+        panic!("expected variant")
+    };
     assert!(variant.base_range.start < variant.base_range.end);
     let VariantPatternMode::CallablePattern { gap_range, suffix, .. } = &variant.mode else {
         panic!("expected callable pattern");

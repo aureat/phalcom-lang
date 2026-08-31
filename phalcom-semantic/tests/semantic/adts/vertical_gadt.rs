@@ -43,7 +43,13 @@ class Evaluator {
     assert_eq!(bool_variant.shape, VariantShape::Constructor);
 
     // 3. Match analysis & GADT proof
-    let callable_analysis = case.analysis.snapshot.callable_analyses.values().find(|c| !c.match_resolutions.is_empty()).expect("Evaluator method analysis");
+    let callable_analysis = case
+        .analysis
+        .snapshot
+        .callable_analyses
+        .values()
+        .find(|c| !c.match_resolutions.is_empty())
+        .expect("Evaluator method analysis");
     assert!(!callable_analysis.match_resolutions.is_empty(), "match analysis produced formal resolution");
 
     // 4. Protocol-neutral reflection projection
@@ -64,11 +70,7 @@ class Evaluator {
     assert_eq!(exact_int_refl.fields.len(), 1);
 
     // 5. Tooling generation plan
-    let gen_plan = GeneratedMatchPlan::from_enum_info(
-        enum_info,
-        &[int_variant, bool_variant],
-        "expr",
-    );
+    let gen_plan = GeneratedMatchPlan::from_enum_info(enum_info, &[int_variant, bool_variant], "expr");
     assert_eq!(gen_plan.arms.len(), 2);
     assert_eq!(gen_plan.arms[0].pattern_syntax.as_ref(), "Int(value)");
     assert_eq!(gen_plan.arms[1].pattern_syntax.as_ref(), "Bool(value)");

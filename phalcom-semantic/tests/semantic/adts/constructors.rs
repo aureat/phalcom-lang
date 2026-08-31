@@ -35,9 +35,8 @@ enum Animal {
 
 #[test]
 fn adt_constr_01_payload_constructor_publishes_exact_and_root_result() {
-    let case = analyze_adt(
-        "enum Option<T> { @variant Some(_ value: T) -> Option<T> @variant None -> Option<T> }\n\nclass Test { run() { Option<Int>::Some(42) } }\n",
-    );
+    let case =
+        analyze_adt("enum Option<T> { @variant Some(_ value: T) -> Option<T> @variant None -> Option<T> }\n\nclass Test { run() { Option<Int>::Some(42) } }\n");
     let some = case.variant("Option", Selector::method("Some", [SelectorSlot::Positional]).expect("Some"));
     assert_eq!(some.fields.len(), 1);
     let resolution = case
@@ -70,9 +69,10 @@ fn adt_constr_03_singleton_access_is_exact_value_not_zero_arg_call() {
 #[test]
 fn adt_constr_04_wrong_label_reports_member_or_selector_diagnostic() {
     let case = analyze_adt("enum Animal { @variant Dog(named age: Int) }\nclass Test { run() { Animal::Dog(other: 1) } }\n");
-    assert!(case.diagnostics().any(|diagnostic| {
-        diagnostic.code == DiagnosticCode::AssociatedCallShapeMissing || diagnostic.code == DiagnosticCode::AssociatedMemberMissing
-    }));
+    assert!(
+        case.diagnostics()
+            .any(|diagnostic| { diagnostic.code == DiagnosticCode::AssociatedCallShapeMissing || diagnostic.code == DiagnosticCode::AssociatedMemberMissing })
+    );
 }
 
 #[test]

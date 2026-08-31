@@ -25,7 +25,13 @@ fn adt_lower_02_multiple_sites_keep_distinct_source_keys() {
 fn adt_lower_03_exact_candidate_retains_variant_identity() {
     let source = "enum State { @variant Ready }\nlet value = State::Ready\n";
     let (_vm, program, _closure) = compile_inline(source).expect("singleton source should compile");
-    assert!(program.modules[&program.entry].lowering.associated.values().any(|spec| matches!(spec, AssociatedLoweringSpec::SingletonLoad { .. })));
+    assert!(
+        program.modules[&program.entry]
+            .lowering
+            .associated
+            .values()
+            .any(|spec| matches!(spec, AssociatedLoweringSpec::SingletonLoad { .. }))
+    );
 }
 
 #[test]
@@ -50,7 +56,15 @@ fn adt_lower_05_candidate_specific_slots_follow_variant_field_ids() {
 fn adt_lower_06_wildcard_child_does_not_require_payload_extraction() {
     let source = "enum Boxed { @variant Value(_ value: Int) }\nlet value = Boxed::Value(1)\nlet result = match value { Boxed::Value(_) => 1 }\n";
     let (vm, _program, closure) = compile_inline(source).expect("wildcard source should compile");
-    assert!(!vm.heap.closure(closure).callable.chunk.code.iter().any(|op| matches!(op, Bytecode::GetVariantPayload(..))));
+    assert!(
+        !vm.heap
+            .closure(closure)
+            .callable
+            .chunk
+            .code
+            .iter()
+            .any(|op| matches!(op, Bytecode::GetVariantPayload(..)))
+    );
 }
 
 #[test]

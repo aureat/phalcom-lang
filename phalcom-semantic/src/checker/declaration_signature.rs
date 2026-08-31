@@ -82,11 +82,7 @@ impl<'a> From<&'a EnumBehaviorMember> for CallableSyntaxRef<'a> {
     }
 }
 
-pub(crate) fn callable_id_for_syntax(
-    owner: &CallableOwnerId,
-    syntax: CallableSyntaxRef<'_>,
-    declared_side: DispatchSide,
-) -> Option<CallableId> {
+pub(crate) fn callable_id_for_syntax(owner: &CallableOwnerId, syntax: CallableSyntaxRef<'_>, declared_side: DispatchSide) -> Option<CallableId> {
     match syntax {
         CallableSyntaxRef::Method(method) => {
             let slots = method

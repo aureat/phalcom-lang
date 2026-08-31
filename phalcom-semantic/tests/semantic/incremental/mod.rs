@@ -1,5 +1,5 @@
-mod advisory;
 mod adts;
+mod advisory;
 mod callable_dependencies;
 mod checker_dependencies;
 mod db;

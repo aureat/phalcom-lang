@@ -1,11 +1,11 @@
 //! Explicit ADT ownership and tracing scenarios.
 
+use super::vm_support::run_inline;
 use phalcom_core::adt::RuntimeVariantId;
 use phalcom_core::heap::{InstanceObject, Object};
+use phalcom_core::modules::semantic_lowering::ExecutableFamilyDescriptor;
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
-use super::vm_support::run_inline;
-use phalcom_core::modules::semantic_lowering::ExecutableFamilyDescriptor;
 use std::sync::Arc;
 
 #[test]

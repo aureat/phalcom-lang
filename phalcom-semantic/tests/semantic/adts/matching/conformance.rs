@@ -139,29 +139,46 @@ class Test {
 
 #[test]
 fn review_x_01_malformed_pattern_cannot_prove_false_exhaustiveness() {
-    let case = super::super::support::analyze_adt("enum Choice { @variant A @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::Missing => 1 } } }\n");
-    assert!(!case.only_match().resolution().exhaustiveness.eq(&phalcom_semantic::match_semantics::ExhaustivenessResult::Proven));
+    let case = super::super::support::analyze_adt(
+        "enum Choice { @variant A @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::Missing => 1 } } }\n",
+    );
+    assert!(
+        !case
+            .only_match()
+            .resolution()
+            .exhaustiveness
+            .eq(&phalcom_semantic::match_semantics::ExhaustivenessResult::Proven)
+    );
 }
 
 #[test]
 #[ignore = "GATED: typed semantic-to-lowering rejection seam is required"]
 fn review_x_02_invalid_semantic_match_never_reaches_lowering() {
     let case = super::super::support::analyze_adt("enum Choice { @variant A }\nclass Test { run(_ value: Choice) { match value { Choice::Missing => 1 } } }\n");
-    assert!(case.diagnostics().any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::MatchPatternUnresolved));
+    assert!(
+        case.diagnostics()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::MatchPatternUnresolved)
+    );
 }
 
 #[test]
 fn review_x_03_gadt_theorem_remains_present_in_semantic_match_product() {
-    let case = super::super::support::analyze_adt("enum Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { run<T>(_ value: Expr<T>) -> T { match value { Expr::Int(x) => x Expr::Bool(x) => x } } }\n");
+    let case = super::super::support::analyze_adt(
+        "enum Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { run<T>(_ value: Expr<T>) -> T { match value { Expr::Int(x) => x Expr::Bool(x) => x } } }\n",
+    );
     let handle = case.only_match();
     assert!(handle.resolution().arms.iter().all(|arm| !arm.proof.is_empty()));
 }
 
 #[test]
 fn review_x_04_witness_structure_is_separate_from_presentation() {
-    let case = super::super::support::analyze_adt("enum Choice { @variant A @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 } } }\n");
+    let case =
+        super::super::support::analyze_adt("enum Choice { @variant A @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 } } }\n");
     let diagnostic = case.diagnostic(phalcom_semantic::diagnostic::DiagnosticCode::MatchNonExhaustive);
-    assert!(matches!(case.only_match().resolution().exhaustiveness, phalcom_semantic::match_semantics::ExhaustivenessResult::Missing(_)));
+    assert!(matches!(
+        case.only_match().resolution().exhaustiveness,
+        phalcom_semantic::match_semantics::ExhaustivenessResult::Missing(_)
+    ));
     let presented = phalcom_semantic::DiagnosticPresenter::new(&case.analysis.snapshot).present(diagnostic, phalcom_semantic::DiagnosticDetail::Compact);
     assert_eq!(presented.code, phalcom_semantic::diagnostic::DiagnosticCode::MatchNonExhaustive);
 }

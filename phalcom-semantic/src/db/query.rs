@@ -889,7 +889,11 @@ pub fn query_callable_signature(
                                 phalcom_ast::ast::EnumBehaviorMember::Setter(s) => s.is_static,
                                 phalcom_ast::ast::EnumBehaviorMember::Index(_) => false,
                             };
-                        let side = if is_class_side { crate::identity::DispatchSide::Class } else { crate::identity::DispatchSide::Instance };
+                        let side = if is_class_side {
+                            crate::identity::DispatchSide::Class
+                        } else {
+                            crate::identity::DispatchSide::Instance
+                        };
                         if crate::checker::declaration_signature::callable_id_for_syntax(&callable.owner, syntax, side).as_ref() == Some(&callable) {
                             crate::checker::declaration_signature::semantic_signature_for_syntax(&mut context, &callable.owner, syntax, side)
                         } else {
@@ -910,8 +914,20 @@ pub fn query_callable_signature(
                             v.body.as_ref().and_then(|body| {
                                 body.members.iter().find_map(|case_member| {
                                     let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(case_member);
-                                    if crate::checker::declaration_signature::callable_id_for_syntax(&callable.owner, syntax, crate::identity::DispatchSide::Instance).as_ref() == Some(&callable) {
-                                        crate::checker::declaration_signature::semantic_signature_for_syntax(&mut context, &callable.owner, syntax, crate::identity::DispatchSide::Instance)
+                                    if crate::checker::declaration_signature::callable_id_for_syntax(
+                                        &callable.owner,
+                                        syntax,
+                                        crate::identity::DispatchSide::Instance,
+                                    )
+                                    .as_ref()
+                                        == Some(&callable)
+                                    {
+                                        crate::checker::declaration_signature::semantic_signature_for_syntax(
+                                            &mut context,
+                                            &callable.owner,
+                                            syntax,
+                                            crate::identity::DispatchSide::Instance,
+                                        )
                                     } else {
                                         None
                                     }
@@ -1097,7 +1113,11 @@ fn declaration_signature_id_for_body(callable: &CallableId, unit: &ParsedModuleU
                                 phalcom_ast::ast::EnumBehaviorMember::Setter(s) => s.is_static,
                                 phalcom_ast::ast::EnumBehaviorMember::Index(_) => false,
                             };
-                        let side = if is_class_side { crate::identity::DispatchSide::Class } else { crate::identity::DispatchSide::Instance };
+                        let side = if is_class_side {
+                            crate::identity::DispatchSide::Class
+                        } else {
+                            crate::identity::DispatchSide::Instance
+                        };
                         if crate::checker::declaration_signature::callable_id_for_syntax(&callable.owner, syntax, side).as_ref() == Some(callable) {
                             return Some(callable.clone());
                         }
@@ -1112,7 +1132,14 @@ fn declaration_signature_id_for_body(callable: &CallableId, unit: &ParsedModuleU
                             if let Some(ref body) = v.body {
                                 for case_member in &body.members {
                                     let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(case_member);
-                                    if crate::checker::declaration_signature::callable_id_for_syntax(&callable.owner, syntax, crate::identity::DispatchSide::Instance).as_ref() == Some(callable) {
+                                    if crate::checker::declaration_signature::callable_id_for_syntax(
+                                        &callable.owner,
+                                        syntax,
+                                        crate::identity::DispatchSide::Instance,
+                                    )
+                                    .as_ref()
+                                        == Some(callable)
+                                    {
                                         return Some(callable.clone());
                                     }
                                 }

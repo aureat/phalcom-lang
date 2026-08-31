@@ -1,5 +1,5 @@
 use phalcom_ast::parse_source;
-use phalcom_semantic::core_surface::{extract_source_declarations, SourceDeclarationRecord, SourceNativeBindingRole};
+use phalcom_semantic::core_surface::{SourceDeclarationRecord, SourceNativeBindingRole, extract_source_declarations};
 use phalcom_semantic::identity::ModuleId;
 
 #[test]

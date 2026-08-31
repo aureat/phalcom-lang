@@ -68,13 +68,17 @@ impl GeneratedMatchPlan {
                     if variant.fields.is_empty() {
                         format!("{}()", base_name)
                     } else {
-                        let params: Vec<String> = variant.fields.iter().map(|f| {
-                            if let Some(ref l) = f.external_label {
-                                format!("{}: {}", l, f.local_name)
-                            } else {
-                                f.local_name.to_string()
-                            }
-                        }).collect();
+                        let params: Vec<String> = variant
+                            .fields
+                            .iter()
+                            .map(|f| {
+                                if let Some(ref l) = f.external_label {
+                                    format!("{}: {}", l, f.local_name)
+                                } else {
+                                    f.local_name.to_string()
+                                }
+                            })
+                            .collect();
                         format!("{}({})", base_name, params.join(", "))
                     }
                 }

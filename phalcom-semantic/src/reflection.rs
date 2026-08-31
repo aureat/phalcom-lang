@@ -64,11 +64,7 @@ pub struct ExactCaseTypeReflection {
 
 impl EnumReflection {
     pub fn from_enum_info(info: &EnumInfo, native: bool) -> Self {
-        let generic_params = info
-            .generic_signature
-            .as_ref()
-            .map(|sig| sig.parameters.clone())
-            .unwrap_or_default();
+        let generic_params = info.generic_signature.as_ref().map(|sig| sig.parameters.clone()).unwrap_or_default();
         Self {
             declaration: info.owner.clone(),
             generic_parameters: generic_params,
@@ -97,12 +93,7 @@ impl VariantReflection {
 }
 
 impl ExactCaseTypeReflection {
-    pub fn from_exact_case(
-        ty: TypeId,
-        variant_info: &VariantInfo,
-        enum_type: TypeId,
-        _store: &TypeStore,
-    ) -> Self {
+    pub fn from_exact_case(ty: TypeId, variant_info: &VariantInfo, enum_type: TypeId, _store: &TypeStore) -> Self {
         let mut fields = Vec::new();
         for f in variant_info.fields.iter() {
             fields.push(SpecializedVariantFieldReflection {

@@ -1,8 +1,8 @@
+use super::support::single_module_input;
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_semantic::db::QueryKey;
 use phalcom_semantic::identity::DeclarationId;
 use phalcom_semantic::session::SemanticWorkspaceSession;
-use super::support::single_module_input;
 
 #[test]
 fn stable_type_store_id_and_snapshots_across_revisions() {

@@ -5,15 +5,10 @@ use crate::compiler::lib::Compiler;
 use crate::compiler::lib::checked_send_arity;
 use crate::compiler::lib::error::CompilerError;
 use crate::heap::Object;
-use crate::method::{
-    MemberVisibility, MethodKind, MethodObject, SignatureKind, encode_selector, make_signature,
-};
+use crate::method::{MemberVisibility, MethodKind, MethodObject, SignatureKind, encode_selector, make_signature};
 use crate::modules::semantic_lowering::{EnumLoweringSpec, VariantFieldLoweringSpec, VariantLoweringSpec};
 use crate::value::Value;
-use phalcom_ast::ast::{
-    AttrKind, Attribute, BuiltinAttr, ClosureParameters, EnumBehaviorMember, EnumDef, EnumMember,
-    IndexAccessor, MemberBody,
-};
+use phalcom_ast::ast::{AttrKind, Attribute, BuiltinAttr, ClosureParameters, EnumBehaviorMember, EnumDef, EnumMember, IndexAccessor, MemberBody};
 use phalcom_modules::DeclarationId;
 use phalcom_semantic::enum_semantics::VariantShape;
 use phalcom_semantic::identity::{VariantFieldId, VariantId};
@@ -115,14 +110,7 @@ impl<'vm> Compiler<'vm> {
                         let param_names = method_def.params.iter().map(|p| p.name.clone()).collect();
                         let is_static = method_def.is_static || has_class_attr(&method_def.attributes);
                         self.is_static_context = is_static;
-                        let closure = self.compile_block(
-                            body_stmts,
-                            selector_sym,
-                            ClosureParameters::fixed(param_names),
-                            true,
-                            false,
-                            None,
-                        )?;
+                        let closure = self.compile_block(body_stmts, selector_sym, ClosureParameters::fixed(param_names), true, false, None)?;
                         let method_obj = self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
                             selector_sym,
                             sig_kind,
@@ -144,14 +132,7 @@ impl<'vm> Compiler<'vm> {
                         let selector_sym = self.vm.interner.intern(&selector);
                         let is_static = getter_def.is_static || has_class_attr(&getter_def.attributes);
                         self.is_static_context = is_static;
-                        let closure = self.compile_block(
-                            body_stmts,
-                            selector_sym,
-                            ClosureParameters::default(),
-                            true,
-                            false,
-                            None,
-                        )?;
+                        let closure = self.compile_block(body_stmts, selector_sym, ClosureParameters::default(), true, false, None)?;
                         let method_obj = self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
                             selector_sym,
                             sig_kind,
@@ -207,14 +188,7 @@ impl<'vm> Compiler<'vm> {
                         let selector = encode_selector("", &labels, sig_kind);
                         let selector_sym = self.vm.interner.intern(&selector);
                         self.is_static_context = false;
-                        let closure = self.compile_block(
-                            index_def.body.clone(),
-                            selector_sym,
-                            ClosureParameters::fixed(param_names),
-                            true,
-                            false,
-                            None,
-                        )?;
+                        let closure = self.compile_block(index_def.body.clone(), selector_sym, ClosureParameters::fixed(param_names), true, false, None)?;
                         let method_obj = self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
                             selector_sym,
                             sig_kind,
@@ -235,10 +209,7 @@ impl<'vm> Compiler<'vm> {
             if let EnumMember::Variant(v) = m {
                 if let Some(body) = &v.body {
                     let expected_selector = phalcom_ast::selector::selector_from_variant(v);
-                    let v_spec = spec
-                        .variants
-                        .iter()
-                        .find(|vs| vs.id.selector == expected_selector);
+                    let v_spec = spec.variants.iter().find(|vs| vs.id.selector == expected_selector);
                     if let Some(v_spec) = v_spec {
                         let var_idx = self
                             .functions
@@ -252,18 +223,12 @@ impl<'vm> Compiler<'vm> {
                             match b_member {
                                 EnumBehaviorMember::Method(method_def) => {
                                     if method_def.is_static || has_class_attr(&method_def.attributes) {
-                                        return Err(CompilerError::IllegalStaticOnVariantMember(
-                                            method_def.name.clone(),
-                                            method_def.range,
-                                        ));
+                                        return Err(CompilerError::IllegalStaticOnVariantMember(method_def.name.clone(), method_def.range));
                                     }
                                     let body_stmts = match &method_def.body {
                                         MemberBody::Block(stmts) => stmts.clone(),
                                         MemberBody::Declaration => {
-                                            return Err(CompilerError::DeclarationBodyRequiresImplementation(
-                                                method_def.name.clone(),
-                                                method_def.range,
-                                            ));
+                                            return Err(CompilerError::DeclarationBodyRequiresImplementation(method_def.name.clone(), method_def.range));
                                         }
                                     };
                                     let arity = checked_send_arity("method declaration", method_def.params.len(), method_def.range)?;
@@ -274,14 +239,7 @@ impl<'vm> Compiler<'vm> {
                                     let selector_const = self.add_constant(Value::symbol(selector_sym));
                                     let param_names = method_def.params.iter().map(|p| p.name.clone()).collect();
                                     self.is_static_context = false;
-                                    let closure = self.compile_block(
-                                        body_stmts,
-                                        selector_sym,
-                                        ClosureParameters::fixed(param_names),
-                                        true,
-                                        false,
-                                        None,
-                                    )?;
+                                    let closure = self.compile_block(body_stmts, selector_sym, ClosureParameters::fixed(param_names), true, false, None)?;
                                     let method_obj = self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
                                         selector_sym,
                                         sig_kind,
@@ -300,18 +258,12 @@ impl<'vm> Compiler<'vm> {
                                 }
                                 EnumBehaviorMember::Getter(getter_def) => {
                                     if getter_def.is_static || has_class_attr(&getter_def.attributes) {
-                                        return Err(CompilerError::IllegalStaticOnVariantMember(
-                                            getter_def.name.clone(),
-                                            getter_def.range,
-                                        ));
+                                        return Err(CompilerError::IllegalStaticOnVariantMember(getter_def.name.clone(), getter_def.range));
                                     }
                                     let body_stmts = match &getter_def.body {
                                         MemberBody::Block(stmts) => stmts.clone(),
                                         MemberBody::Declaration => {
-                                            return Err(CompilerError::DeclarationBodyRequiresImplementation(
-                                                getter_def.name.clone(),
-                                                getter_def.range,
-                                            ));
+                                            return Err(CompilerError::DeclarationBodyRequiresImplementation(getter_def.name.clone(), getter_def.range));
                                         }
                                     };
                                     let sig_kind = SignatureKind::Getter;
@@ -319,14 +271,7 @@ impl<'vm> Compiler<'vm> {
                                     let selector_sym = self.vm.interner.intern(&sig_str);
                                     let selector_const = self.add_constant(Value::symbol(selector_sym));
                                     self.is_static_context = false;
-                                    let closure = self.compile_block(
-                                        body_stmts,
-                                        selector_sym,
-                                        ClosureParameters::default(),
-                                        true,
-                                        false,
-                                        None,
-                                    )?;
+                                    let closure = self.compile_block(body_stmts, selector_sym, ClosureParameters::default(), true, false, None)?;
                                     let method_obj = self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
                                         selector_sym,
                                         sig_kind,
@@ -345,18 +290,12 @@ impl<'vm> Compiler<'vm> {
                                 }
                                 EnumBehaviorMember::Setter(setter_def) => {
                                     if setter_def.is_static || has_class_attr(&setter_def.attributes) {
-                                        return Err(CompilerError::IllegalStaticOnVariantMember(
-                                            setter_def.name.clone(),
-                                            setter_def.range,
-                                        ));
+                                        return Err(CompilerError::IllegalStaticOnVariantMember(setter_def.name.clone(), setter_def.range));
                                     }
                                     let body_stmts = match &setter_def.body {
                                         MemberBody::Block(stmts) => stmts.clone(),
                                         MemberBody::Declaration => {
-                                            return Err(CompilerError::DeclarationBodyRequiresImplementation(
-                                                setter_def.name.clone(),
-                                                setter_def.range,
-                                            ));
+                                            return Err(CompilerError::DeclarationBodyRequiresImplementation(setter_def.name.clone(), setter_def.range));
                                         }
                                     };
                                     let sig_kind = SignatureKind::Setter;
@@ -404,14 +343,8 @@ impl<'vm> Compiler<'vm> {
                                     let selector_sym = self.vm.interner.intern(&selector);
                                     let selector_const = self.add_constant(Value::symbol(selector_sym));
                                     self.is_static_context = false;
-                                    let closure = self.compile_block(
-                                        index_def.body.clone(),
-                                        selector_sym,
-                                        ClosureParameters::fixed(param_names),
-                                        true,
-                                        false,
-                                        None,
-                                    )?;
+                                    let closure =
+                                        self.compile_block(index_def.body.clone(), selector_sym, ClosureParameters::fixed(param_names), true, false, None)?;
                                     let method_obj = self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
                                         selector_sym,
                                         sig_kind,

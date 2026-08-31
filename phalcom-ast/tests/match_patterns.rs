@@ -1,7 +1,4 @@
-use phalcom_ast::ast::{
-    MapPatternEntry, MapPatternKey, Pattern, RecordPatternEntry, SourceRange, VariantPattern,
-    VariantPatternArgument, VariantPatternMode,
-};
+use phalcom_ast::ast::{MapPatternEntry, MapPatternKey, Pattern, RecordPatternEntry, SourceRange, VariantPattern, VariantPatternArgument, VariantPatternMode};
 
 #[test]
 fn or_and_wildcard_pattern_ast_shape() {
@@ -269,7 +266,10 @@ fn review_m3_02_getter_singleton_does_not_project_as_callable_method() {
         mode: VariantPatternMode::Singleton,
         range,
     };
-    assert_eq!(selector_from_exact_variant_pattern(&pattern).expect("getter selector").kind, phalcom_common::selector::SelectorKind::Getter);
+    assert_eq!(
+        selector_from_exact_variant_pattern(&pattern).expect("getter selector").kind,
+        phalcom_common::selector::SelectorKind::Getter
+    );
     assert!(selector_pattern_from_variant_pattern(&pattern).is_err());
 }
 
@@ -281,7 +281,11 @@ fn review_m3_03_selector_projection_does_not_invent_kind_for_family_gap() {
         owner: None,
         base: "Dog".into(),
         base_range: range,
-        mode: VariantPatternMode::CallablePattern { prefix: vec![], gap_range: range, suffix: vec![] },
+        mode: VariantPatternMode::CallablePattern {
+            prefix: vec![],
+            gap_range: range,
+            suffix: vec![],
+        },
         range,
     };
     let projected = selector_pattern_from_variant_pattern(&pattern).expect("family gap projection");

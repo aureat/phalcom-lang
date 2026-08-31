@@ -24,11 +24,7 @@ pub struct EnumBehaviorProduct {
 }
 
 /// Builds the canonical [`EnumBehaviorProduct`] from an [`EnumDef`].
-pub fn build_enum_behavior(
-    ctx: &mut CheckingContext<'_>,
-    owner: &DeclarationId,
-    enum_def: &EnumDef,
-) -> EnumBehaviorProduct {
+pub fn build_enum_behavior(ctx: &mut CheckingContext<'_>, owner: &DeclarationId, enum_def: &EnumDef) -> EnumBehaviorProduct {
     let mut diagnostics = Vec::new();
     let mut root_defaults = Vec::new();
     let mut root_requirements = Vec::new();
@@ -48,11 +44,7 @@ pub fn build_enum_behavior(
                         EnumBehaviorMember::Setter(s) => s.is_static,
                         EnumBehaviorMember::Index(_) => false,
                     };
-                let side = if is_class_side {
-                    DispatchSide::Class
-                } else {
-                    DispatchSide::Instance
-                };
+                let side = if is_class_side { DispatchSide::Class } else { DispatchSide::Instance };
 
                 let has_body = syntax.has_body();
 
@@ -68,10 +60,7 @@ pub fn build_enum_behavior(
                         diagnostics.push(SemanticDiagnostic::error_in(
                             ctx.current_module.clone(),
                             DiagnosticCode::EnumCaseStaticBehaviorUnsupported,
-                            format!(
-                                "class-side requirement is not supported on enum `{}`",
-                                owner.name
-                            ),
+                            format!("class-side requirement is not supported on enum `{}`", owner.name),
                             syntax.range(),
                         ));
                     } else if let Some(sig) = semantic_signature_for_syntax(ctx, &root_owner, syntax, DispatchSide::Instance) {
@@ -108,10 +97,7 @@ pub fn build_enum_behavior(
                             diagnostics.push(SemanticDiagnostic::error_in(
                                 ctx.current_module.clone(),
                                 DiagnosticCode::EnumCaseStaticBehaviorUnsupported,
-                                format!(
-                                    "case-local behavior on variant `{}` cannot be class-side",
-                                    variant_decl.name
-                                ),
+                                format!("case-local behavior on variant `{}` cannot be class-side", variant_decl.name),
                                 syntax.range(),
                             ));
                             continue;
@@ -121,10 +107,7 @@ pub fn build_enum_behavior(
                             diagnostics.push(SemanticDiagnostic::error_in(
                                 ctx.current_module.clone(),
                                 DiagnosticCode::EnumCaseDeclarationOnlyBehavior,
-                                format!(
-                                    "case-local behavior on variant `{}` must have an executable body",
-                                    variant_decl.name
-                                ),
+                                format!("case-local behavior on variant `{}` must have an executable body", variant_decl.name),
                                 syntax.range(),
                             ));
                             continue;
@@ -141,10 +124,7 @@ pub fn build_enum_behavior(
         }
     }
 
-    let case_boxed = case_implementations
-        .into_iter()
-        .map(|(k, v)| (k, v.into_boxed_slice()))
-        .collect();
+    let case_boxed = case_implementations.into_iter().map(|(k, v)| (k, v.into_boxed_slice())).collect();
 
     EnumBehaviorProduct {
         owner: owner.clone(),

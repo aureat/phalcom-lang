@@ -432,9 +432,7 @@ fn project_match_resolution(
         });
     }
 
-    Ok(MatchLoweringSpec {
-        arms: arms.into_boxed_slice(),
-    })
+    Ok(MatchLoweringSpec { arms: arms.into_boxed_slice() })
 }
 
 fn project_pattern_resolution(
@@ -449,8 +447,7 @@ fn project_pattern_resolution(
                 .iter()
                 .position(|b| b.binding == *binding)
                 .ok_or_else(|| ProjectionError::MissingPatternBinding(binding.clone()))?;
-            let binding_index = u32::try_from(index)
-                .map_err(|_| ProjectionError::PatternBindingIndexOverflow(index))?;
+            let binding_index = u32::try_from(index).map_err(|_| ProjectionError::PatternBindingIndexOverflow(index))?;
             Ok(ExecutablePattern::Binding {
                 binding_index,
                 name: name.clone(),
@@ -618,16 +615,14 @@ fn project_associated_resolution(
                         .enum_semantics
                         .variant_info(&vc.variant)
                         .ok_or_else(|| ProjectionError::MissingVariantMetadata(vc.variant.clone()))?;
-                    let arity = u8::try_from(vinfo.fields.len())
-                        .map_err(|_| ProjectionError::ArityOverflow(vinfo.fields.len()))?;
+                    let arity = u8::try_from(vinfo.fields.len()).map_err(|_| ProjectionError::ArityOverflow(vinfo.fields.len()))?;
                     AssociatedLoweringSpec::ConstructVariant {
                         variant: vc.variant.clone(),
                         arity,
                     }
                 }
                 InvocationTargetId::Behavioral(c) => {
-                    let arity = u8::try_from(c.selector.slots.len())
-                        .map_err(|_| ProjectionError::ArityOverflow(c.selector.slots.len()))?;
+                    let arity = u8::try_from(c.selector.slots.len()).map_err(|_| ProjectionError::ArityOverflow(c.selector.slots.len()))?;
                     AssociatedLoweringSpec::InvokeResolvedAssociated {
                         target: ExecutableInvocationTarget::Behavioral {
                             lookup_owner: resolution.lookup_owner.clone(),

@@ -1,5 +1,6 @@
 use phalcom_common::selector::Selector;
 use phalcom_modules::identity::ModuleId;
+use phalcom_native_meta::{EffectSpec, ImplementationKind, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
 use phalcom_semantic::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact};
 use phalcom_semantic::enum_requirements::{CaseRequirementStatus, EnumRequirement, EnumRequirementId, check_enum_requirements};
 use phalcom_semantic::enum_semantics::{EnumInfo, VariantInfo, VariantShape, VariantVisibility};
@@ -10,7 +11,6 @@ use phalcom_semantic::types::id::{KindId, VariantTypeId};
 use phalcom_semantic::types::parameter::{TypeParameterData, TypeParameterOwner, TypeTerm};
 use phalcom_semantic::types::relation::MapTypeHierarchy;
 use phalcom_semantic::types::store::TypeStore;
-use phalcom_native_meta::{EffectSpec, ImplementationKind, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
 use std::collections::HashMap;
 
 #[test]
@@ -93,11 +93,22 @@ fn adt_req_03_selector_or_arity_mismatch_is_missing_not_satisfied() {
     let wrong_shape = Selector::method("describe", []).expect("method implementation");
     let requirement = EnumRequirement {
         id: EnumRequirementId::new(owner.clone(), describe),
-        signature: signature(owner.clone(), Selector::getter("describe").unwrap(), DeclaredTypeFact::known(TypeTerm::Canonical(root), DeclaredTypeBasis::SourceAnnotation)),
+        signature: signature(
+            owner.clone(),
+            Selector::getter("describe").unwrap(),
+            DeclaredTypeFact::known(TypeTerm::Canonical(root), DeclaredTypeBasis::SourceAnnotation),
+        ),
         source: None,
     };
     let mut methods = HashMap::new();
-    methods.insert(variant.id.clone(), vec![signature(owner.clone(), wrong_shape, DeclaredTypeFact::known(TypeTerm::Canonical(root), DeclaredTypeBasis::SourceAnnotation))]);
+    methods.insert(
+        variant.id.clone(),
+        vec![signature(
+            owner.clone(),
+            wrong_shape,
+            DeclaredTypeFact::known(TypeTerm::Canonical(root), DeclaredTypeBasis::SourceAnnotation),
+        )],
+    );
 
     let (statuses, diagnostics) = check_enum_requirements(
         &owner,
@@ -110,7 +121,11 @@ fn adt_req_03_selector_or_arity_mismatch_is_missing_not_satisfied() {
         &module,
     );
     assert!(matches!(statuses[0].status, CaseRequirementStatus::Missing));
-    assert!(diagnostics.iter().any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::EnumRequirementMissing));
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::EnumRequirementMissing)
+    );
 }
 
 #[test]
@@ -126,7 +141,8 @@ fn adt_req_05_generic_requirement_specializes_through_case_environment() {
     let selector = Selector::method("Int", [phalcom_common::selector::SelectorSlot::Positional]).expect("Int variant");
     let variant_id = VariantId::new(owner.clone(), selector);
     let exact = store.exact_case_type(&variant_id, specialized_root).expect("exact Int case");
-    let environment = phalcom_semantic::types::case_environment::derive_case_environment(&mut store, &owner, &[parameter], Some(specialized_root)).expect("case environment");
+    let environment =
+        phalcom_semantic::types::case_environment::derive_case_environment(&mut store, &owner, &[parameter], Some(specialized_root)).expect("case environment");
     let variant = VariantInfo {
         id: variant_id.clone(),
         type_handle: VariantTypeId(1),
@@ -144,11 +160,22 @@ fn adt_req_05_generic_requirement_specializes_through_case_environment() {
     let requirement_selector = Selector::method("eval", []).expect("eval selector");
     let requirement = EnumRequirement {
         id: EnumRequirementId::new(owner.clone(), requirement_selector.clone()),
-        signature: signature(owner.clone(), requirement_selector.clone(), DeclaredTypeFact::known(TypeTerm::Canonical(store.parameter_form(parameter)), DeclaredTypeBasis::SourceAnnotation)),
+        signature: signature(
+            owner.clone(),
+            requirement_selector.clone(),
+            DeclaredTypeFact::known(TypeTerm::Canonical(store.parameter_form(parameter)), DeclaredTypeBasis::SourceAnnotation),
+        ),
         source: None,
     };
     let mut methods = HashMap::new();
-    methods.insert(variant_id, vec![signature(owner.clone(), requirement_selector, DeclaredTypeFact::known(TypeTerm::Canonical(int), DeclaredTypeBasis::SourceAnnotation))]);
+    methods.insert(
+        variant_id,
+        vec![signature(
+            owner.clone(),
+            requirement_selector,
+            DeclaredTypeFact::known(TypeTerm::Canonical(int), DeclaredTypeBasis::SourceAnnotation),
+        )],
+    );
     let (statuses, diagnostics) = check_enum_requirements(
         &owner,
         &info,

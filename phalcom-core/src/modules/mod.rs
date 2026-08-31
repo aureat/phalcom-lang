@@ -27,6 +27,6 @@ pub use registry::{ModuleFailure, ModuleFailureRef, ModulePlanFingerprint, Modul
 pub use semantic_lowering::{
     AssociatedLoweringSpec, EnumLoweringSpec, ExecutableBindingSpec, ExecutableFamilyCandidate, ExecutableFamilyCandidateSet, ExecutableFamilyDescriptor,
     ExecutableFamilyEntry, ExecutableFamilyTarget, ExecutableFieldProjection, ExecutableInvocationTarget, ExecutableMatchArm, ExecutablePattern,
-    ExecutableRestMode, ExecutableVariantCandidate, FamilyApplicationLoweringSpec, LoweringSite, LoweringSiteKind, MatchLoweringSpec,
-    ModuleLoweringSemantics, VariantFieldLoweringSpec, VariantLoweringSpec, build_module_lowering_semantics,
+    ExecutableRestMode, ExecutableVariantCandidate, FamilyApplicationLoweringSpec, LoweringSite, LoweringSiteKind, MatchLoweringSpec, ModuleLoweringSemantics,
+    VariantFieldLoweringSpec, VariantLoweringSpec, build_module_lowering_semantics,
 };

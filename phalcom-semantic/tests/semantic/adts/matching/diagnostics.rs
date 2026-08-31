@@ -179,29 +179,43 @@ class Test {
 #[test]
 #[ignore = "GATED: ambiguous contextual owner fixture requires union-domain support"]
 fn match_diag_02_ambiguous_variant_has_owner_candidates() {
-    let case = super::super::support::analyze_adt("enum Left { @variant Same }\nenum Right { @variant Same }\nclass Test { run(_ value: Object) { match value { Same => 1 _ => 0 } } }\n");
+    let case = super::super::support::analyze_adt(
+        "enum Left { @variant Same }\nenum Right { @variant Same }\nclass Test { run(_ value: Object) { match value { Same => 1 _ => 0 } } }\n",
+    );
     assert!(case.diagnostics().any(|diagnostic| diagnostic.code == DiagnosticCode::MatchPatternUnresolved));
 }
 
 #[test]
 #[ignore = "GATED: cross-module visibility fixture is required"]
 fn match_diag_03_inaccessible_variant_points_at_explicit_name() {
-    let case = super::super::support::analyze_adt("enum Choice { @variant Ready }\nclass Test { run(_ value: Choice) { match value { Other::Ready => 1 _ => 0 } } }\n");
+    let case = super::super::support::analyze_adt(
+        "enum Choice { @variant Ready }\nclass Test { run(_ value: Choice) { match value { Other::Ready => 1 _ => 0 } } }\n",
+    );
     assert!(!case.diagnostics().collect::<Vec<_>>().is_empty());
 }
 
 #[test]
 #[ignore = "GATED: private payload fixture is required"]
 fn match_diag_04_inaccessible_payload_points_at_projection() {
-    let case = super::super::support::analyze_adt("enum Choice { @variant Ready(_ value: Int) }\nclass Test { run(_ value: Choice) { match value { Choice::Ready() => 1 _ => 0 } } }\n");
-    assert!(case.diagnostics().any(|diagnostic| diagnostic.code == DiagnosticCode::MatchPatternArityMismatch));
+    let case = super::super::support::analyze_adt(
+        "enum Choice { @variant Ready(_ value: Int) }\nclass Test { run(_ value: Choice) { match value { Choice::Ready() => 1 _ => 0 } } }\n",
+    );
+    assert!(
+        case.diagnostics()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::MatchPatternArityMismatch)
+    );
 }
 
 #[test]
 #[ignore = "GATED: selector constraint validator fixture is required"]
 fn match_diag_05_invalid_selector_is_machine_diagnostic() {
-    let case = super::super::support::analyze_adt("enum Choice { @variant Ready(_ value: Int) }\nclass Test { run(_ value: Choice) { match value { Choice::Ready(x, y) => 1 _ => 0 } } }\n");
-    assert!(case.diagnostics().any(|diagnostic| diagnostic.code == DiagnosticCode::MatchPatternArityMismatch));
+    let case = super::super::support::analyze_adt(
+        "enum Choice { @variant Ready(_ value: Int) }\nclass Test { run(_ value: Choice) { match value { Choice::Ready(x, y) => 1 _ => 0 } } }\n",
+    );
+    assert!(
+        case.diagnostics()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::MatchPatternArityMismatch)
+    );
 }
 
 #[test]
@@ -210,7 +224,10 @@ fn match_diag_06_selector_without_candidate_is_not_silently_widened() {
         "enum Animal { @variant Dog(_ name: String) @variant Cat }\nclass Test { run(_ value: Animal) { match value { Animal::Dog(named: x) => 1 _ => 0 } } }\n",
     );
     assert!(case.diagnostics().any(|diagnostic| {
-        matches!(diagnostic.code, DiagnosticCode::MatchPatternFieldMismatch | DiagnosticCode::MatchPatternUnresolved | DiagnosticCode::MatchPatternContradictory)
+        matches!(
+            diagnostic.code,
+            DiagnosticCode::MatchPatternFieldMismatch | DiagnosticCode::MatchPatternUnresolved | DiagnosticCode::MatchPatternContradictory
+        )
     }));
 }
 
@@ -241,7 +258,9 @@ fn match_diag_10_or_binding_mismatch_is_precise_machine_code() {
 #[test]
 #[ignore = "RED: alternative usefulness diagnostic is not yet published"]
 fn match_diag_11_or_redundant_alternative_has_its_own_code() {
-    let case = super::super::support::analyze_adt("enum Choice { @variant Left @variant Right }\nclass Test { run(_ value: Choice) { match value { Choice::Left | Choice::Left => 1 _ => 0 } } }\n");
+    let case = super::super::support::analyze_adt(
+        "enum Choice { @variant Left @variant Right }\nclass Test { run(_ value: Choice) { match value { Choice::Left | Choice::Left => 1 _ => 0 } } }\n",
+    );
     assert!(!case.diagnostics().collect::<Vec<_>>().is_empty());
 }
 
@@ -250,9 +269,10 @@ fn match_diag_12_impossible_gadt_pattern_explains_contradiction_code() {
     let case = super::super::support::analyze_adt(
         "enum Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Test { run(_ value: Expr<Int>) { match value { Expr::Bool(x) => x Expr::Int(x) => x } } }\n",
     );
-    assert!(case.diagnostics().any(|diagnostic| {
-        diagnostic.code == DiagnosticCode::MatchPatternContradictory || diagnostic.code == DiagnosticCode::MatchPatternImpossible
-    }));
+    assert!(
+        case.diagnostics()
+            .any(|diagnostic| { diagnostic.code == DiagnosticCode::MatchPatternContradictory || diagnostic.code == DiagnosticCode::MatchPatternImpossible })
+    );
 }
 
 #[test]
@@ -265,11 +285,13 @@ fn match_diag_13_redundant_arm_has_structured_primary_range() {
 
 #[test]
 fn match_diag_14_non_exhaustive_has_witness_and_machine_code() {
-    let case = super::super::support::analyze_adt(
-        "enum Choice { @variant A @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 } } }\n",
-    );
+    let case =
+        super::super::support::analyze_adt("enum Choice { @variant A @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 } } }\n");
     case.assert_diagnostic_primary_contains(DiagnosticCode::MatchNonExhaustive, "match");
-    assert!(matches!(case.only_match().resolution().exhaustiveness, phalcom_semantic::match_semantics::ExhaustivenessResult::Missing(_)));
+    assert!(matches!(
+        case.only_match().resolution().exhaustiveness,
+        phalcom_semantic::match_semantics::ExhaustivenessResult::Missing(_)
+    ));
 }
 
 #[test]
@@ -281,7 +303,9 @@ fn match_diag_15_blocked_analysis_is_not_reported_as_non_exhaustive_proof() {
 
 #[test]
 fn review_m4_01_missing_singleton_presentation_keeps_machine_code_and_source_range() {
-    let case = super::super::support::analyze_adt("enum Maybe { @variant Some @variant None }\nclass Test { run(_ value: Maybe) { match value { Maybe::Some => 1 } } }\n");
+    let case = super::super::support::analyze_adt(
+        "enum Maybe { @variant Some @variant None }\nclass Test { run(_ value: Maybe) { match value { Maybe::Some => 1 } } }\n",
+    );
     let diagnostic = case.diagnostic(DiagnosticCode::MatchNonExhaustive);
     let presented = phalcom_semantic::DiagnosticPresenter::new(&case.analysis.snapshot).present(diagnostic, phalcom_semantic::DiagnosticDetail::Explain);
     assert_eq!(presented.code, DiagnosticCode::MatchNonExhaustive);
@@ -290,16 +314,26 @@ fn review_m4_01_missing_singleton_presentation_keeps_machine_code_and_source_ran
 
 #[test]
 fn review_m4_02_missing_payload_presentation_has_structured_witness() {
-    let case = super::super::support::analyze_adt("enum Maybe { @variant Some(_ value: Int) @variant None }\nclass Test { run(_ value: Maybe) { match value { Maybe::None => 0 } } }\n");
+    let case = super::super::support::analyze_adt(
+        "enum Maybe { @variant Some(_ value: Int) @variant None }\nclass Test { run(_ value: Maybe) { match value { Maybe::None => 0 } } }\n",
+    );
     let handle = case.only_match();
-    let phalcom_semantic::match_semantics::ExhaustivenessResult::Missing(witnesses) = &handle.resolution().exhaustiveness else { panic!("expected witness") };
-    assert!(witnesses.iter().any(|witness| matches!(witness, phalcom_semantic::match_semantics::CoverageWitness::Variant { fields, .. } if fields.len() == 1)));
+    let phalcom_semantic::match_semantics::ExhaustivenessResult::Missing(witnesses) = &handle.resolution().exhaustiveness else {
+        panic!("expected witness")
+    };
+    assert!(
+        witnesses
+            .iter()
+            .any(|witness| matches!(witness, phalcom_semantic::match_semantics::CoverageWitness::Variant { fields, .. } if fields.len() == 1))
+    );
 }
 
 #[test]
 #[ignore = "GATED: external-label witness renderer is not yet source-owned"]
 fn review_m4_03_missing_labeled_payload_presentation_uses_external_label() {
-    let case = super::super::support::analyze_adt("enum Maybe { @variant Some(named value: Int) @variant None }\nclass Test { run(_ value: Maybe) { match value { Maybe::None => 0 } } }\n");
+    let case = super::super::support::analyze_adt(
+        "enum Maybe { @variant Some(named value: Int) @variant None }\nclass Test { run(_ value: Maybe) { match value { Maybe::None => 0 } } }\n",
+    );
     let diagnostic = case.diagnostic(DiagnosticCode::MatchNonExhaustive);
     let presented = phalcom_semantic::DiagnosticPresenter::new(&case.analysis.snapshot).present(diagnostic, phalcom_semantic::DiagnosticDetail::Explain);
     assert_eq!(presented.code, DiagnosticCode::MatchNonExhaustive);
@@ -308,7 +342,9 @@ fn review_m4_03_missing_labeled_payload_presentation_uses_external_label() {
 #[test]
 #[ignore = "RED: singleton/nullary witness rendering needs final presentation contract"]
 fn review_m4_04_missing_singleton_and_nullary_render_differently() {
-    let case = super::super::support::analyze_adt("enum Maybe { @variant Some @variant Some() }\nclass Test { run(_ value: Maybe) { match value { Maybe::Some => 0 } } }\n");
+    let case = super::super::support::analyze_adt(
+        "enum Maybe { @variant Some @variant Some() }\nclass Test { run(_ value: Maybe) { match value { Maybe::Some => 0 } } }\n",
+    );
     let diagnostic = case.diagnostic(DiagnosticCode::MatchNonExhaustive);
     let presented = phalcom_semantic::DiagnosticPresenter::new(&case.analysis.snapshot).present(diagnostic, phalcom_semantic::DiagnosticDetail::Explain);
     assert_eq!(presented.code, DiagnosticCode::MatchNonExhaustive);
@@ -316,7 +352,9 @@ fn review_m4_04_missing_singleton_and_nullary_render_differently() {
 
 #[test]
 fn review_m4_05_diagnostic_presentation_has_no_debug_format_leakage() {
-    let case = super::super::support::analyze_adt("enum Maybe { @variant Some @variant None }\nclass Test { run(_ value: Maybe) { match value { Maybe::Some => 1 } } }\n");
+    let case = super::super::support::analyze_adt(
+        "enum Maybe { @variant Some @variant None }\nclass Test { run(_ value: Maybe) { match value { Maybe::Some => 1 } } }\n",
+    );
     let diagnostic = case.diagnostic(DiagnosticCode::MatchNonExhaustive);
     let presented = phalcom_semantic::DiagnosticPresenter::new(&case.analysis.snapshot).present(diagnostic, phalcom_semantic::DiagnosticDetail::Explain);
     let text = format!("{} {:?} {:?}", presented.headline, presented.explanation, presented.guidance);

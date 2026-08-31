@@ -802,17 +802,14 @@ impl SemanticWorkspaceSession {
                 let arc_enum_product = Arc::new(enum_product);
                 let _ = query_enum_declaration(&mut self.db, arc_enum_product);
 
-                let mut behavior_ctx = crate::checker::CheckingContext::new_with_dispatch_ref(
-                    &mut self.store,
-                    &hierarchy,
-                    &resolver,
-                    &declarations,
-                    &dispatch,
-                    module_id.clone(),
-                );
+                let mut behavior_ctx =
+                    crate::checker::CheckingContext::new_with_dispatch_ref(&mut self.store, &hierarchy, &resolver, &declarations, &dispatch, module_id.clone());
                 behavior_ctx.attach_enum_semantics(&enum_semantics);
                 let behavior_product = crate::checker::enum_behavior::build_enum_behavior(&mut behavior_ctx, &decl_id, enum_def);
-                diags_by_module.entry(module_id.clone()).or_default().extend(behavior_product.diagnostics.iter().cloned());
+                diags_by_module
+                    .entry(module_id.clone())
+                    .or_default()
+                    .extend(behavior_product.diagnostics.iter().cloned());
 
                 // Publish root defaults to callable_signatures and dispatch surface
                 let mut surface = dispatch.surface(&decl_id).cloned().unwrap_or_default();
@@ -1129,17 +1126,21 @@ impl SemanticWorkspaceSession {
                                     phalcom_ast::ast::EnumBehaviorMember::Getter(g) => (Selector::getter(&g.name).ok(), g.body.statements(), Some(g.range)),
                                     phalcom_ast::ast::EnumBehaviorMember::Setter(s) => (Selector::setter(&s.name).ok(), s.body.statements(), Some(s.range)),
                                     phalcom_ast::ast::EnumBehaviorMember::Index(i) => {
-                                        let slots = i.params.iter().map(|p| {
-                                            if let Some(ref l) = p.label {
-                                                if l == "_" {
-                                                    phalcom_common::selector::SelectorSlot::Positional
+                                        let slots = i
+                                            .params
+                                            .iter()
+                                            .map(|p| {
+                                                if let Some(ref l) = p.label {
+                                                    if l == "_" {
+                                                        phalcom_common::selector::SelectorSlot::Positional
+                                                    } else {
+                                                        phalcom_common::selector::SelectorSlot::Label(l.clone())
+                                                    }
                                                 } else {
-                                                    phalcom_common::selector::SelectorSlot::Label(l.clone())
+                                                    phalcom_common::selector::SelectorSlot::Positional
                                                 }
-                                            } else {
-                                                phalcom_common::selector::SelectorSlot::Positional
-                                            }
-                                        }).collect::<Vec<_>>();
+                                            })
+                                            .collect::<Vec<_>>();
                                         let sel = match &i.accessor {
                                             phalcom_ast::ast::IndexAccessor::Get => Selector::subscript_get(slots).ok(),
                                             phalcom_ast::ast::IndexAccessor::Set { .. } => Selector::subscript_set(slots).ok(),
@@ -1190,7 +1191,10 @@ impl SemanticWorkspaceSession {
                                                 callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
                                             }
                                             if !analysis.diagnostics.is_empty() {
-                                                diags_by_module.entry(module_id.clone()).or_default().extend(analysis.diagnostics.iter().cloned());
+                                                diags_by_module
+                                                    .entry(module_id.clone())
+                                                    .or_default()
+                                                    .extend(analysis.diagnostics.iter().cloned());
                                             }
                                             callable_analyses.insert(callable_id.clone(), analysis);
                                         }
@@ -1230,20 +1234,28 @@ impl SemanticWorkspaceSession {
                                                     .collect::<Vec<_>>();
                                                 (Selector::method(&m.name, slots).ok(), m.body.statements(), Some(m.range))
                                             }
-                                            phalcom_ast::ast::EnumBehaviorMember::Getter(g) => (Selector::getter(&g.name).ok(), g.body.statements(), Some(g.range)),
-                                            phalcom_ast::ast::EnumBehaviorMember::Setter(s) => (Selector::setter(&s.name).ok(), s.body.statements(), Some(s.range)),
+                                            phalcom_ast::ast::EnumBehaviorMember::Getter(g) => {
+                                                (Selector::getter(&g.name).ok(), g.body.statements(), Some(g.range))
+                                            }
+                                            phalcom_ast::ast::EnumBehaviorMember::Setter(s) => {
+                                                (Selector::setter(&s.name).ok(), s.body.statements(), Some(s.range))
+                                            }
                                             phalcom_ast::ast::EnumBehaviorMember::Index(i) => {
-                                                let slots = i.params.iter().map(|p| {
-                                                    if let Some(ref l) = p.label {
-                                                        if l == "_" {
-                                                            phalcom_common::selector::SelectorSlot::Positional
+                                                let slots = i
+                                                    .params
+                                                    .iter()
+                                                    .map(|p| {
+                                                        if let Some(ref l) = p.label {
+                                                            if l == "_" {
+                                                                phalcom_common::selector::SelectorSlot::Positional
+                                                            } else {
+                                                                phalcom_common::selector::SelectorSlot::Label(l.clone())
+                                                            }
                                                         } else {
-                                                            phalcom_common::selector::SelectorSlot::Label(l.clone())
+                                                            phalcom_common::selector::SelectorSlot::Positional
                                                         }
-                                                    } else {
-                                                        phalcom_common::selector::SelectorSlot::Positional
-                                                    }
-                                                }).collect::<Vec<_>>();
+                                                    })
+                                                    .collect::<Vec<_>>();
                                                 let sel = match &i.accessor {
                                                     phalcom_ast::ast::IndexAccessor::Get => Selector::subscript_get(slots).ok(),
                                                     phalcom_ast::ast::IndexAccessor::Set { .. } => Selector::subscript_set(slots).ok(),
@@ -1294,7 +1306,10 @@ impl SemanticWorkspaceSession {
                                                         callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
                                                     }
                                                     if !analysis.diagnostics.is_empty() {
-                                                        diags_by_module.entry(module_id.clone()).or_default().extend(analysis.diagnostics.iter().cloned());
+                                                        diags_by_module
+                                                            .entry(module_id.clone())
+                                                            .or_default()
+                                                            .extend(analysis.diagnostics.iter().cloned());
                                                     }
                                                     callable_analyses.insert(callable_id.clone(), analysis);
                                                 }

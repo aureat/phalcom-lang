@@ -32,8 +32,16 @@ fn adt_incr_01_adding_enum_case_invalidates_match_and_reports_new_residual() {
     let source_b = "enum Choice { @variant A @variant B @variant C }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 Choice::B => 2 } } }\n";
     let _ = session.update(single_module_input(module.clone(), source_a, 1));
     let update = session.update(single_module_input(module.clone(), source_b, 2));
-    assert!(update.snapshot.all_diagnostics().any(|diagnostic| diagnostic.code == DiagnosticCode::MatchNonExhaustive));
-    assert!(!matches!(first_match(&update.snapshot).exhaustiveness, phalcom_semantic::match_semantics::ExhaustivenessResult::Proven));
+    assert!(
+        update
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::MatchNonExhaustive)
+    );
+    assert!(!matches!(
+        first_match(&update.snapshot).exhaustiveness,
+        phalcom_semantic::match_semantics::ExhaustivenessResult::Proven
+    ));
 }
 
 #[test]
@@ -58,8 +66,14 @@ fn adt_incr_03_adding_family_member_changes_family_candidate_set() {
     let second = session.update(single_module_input(module, source_b, 2));
     let first_pattern = &first_match(&first.snapshot).arms[0].pattern;
     let second_pattern = &first_match(&second.snapshot).arms[0].pattern;
-    let first_count = match first_pattern { PatternResolution::Variant(pattern) => pattern.candidates.len(), _ => 0 };
-    let second_count = match second_pattern { PatternResolution::Variant(pattern) => pattern.candidates.len(), _ => 0 };
+    let first_count = match first_pattern {
+        PatternResolution::Variant(pattern) => pattern.candidates.len(),
+        _ => 0,
+    };
+    let second_count = match second_pattern {
+        PatternResolution::Variant(pattern) => pattern.candidates.len(),
+        _ => 0,
+    };
     assert!(second_count > first_count);
 }
 
@@ -113,7 +127,12 @@ fn adt_incr_07_alias_union_expansion_invalidates_exhaustiveness() {
     let source_b = "enum Choice { @variant A @variant B @variant C }\ntype ChoiceAlias = Choice\nclass Test { run(_ value: ChoiceAlias) { match value { Choice::A => 1 Choice::B => 2 } } }\n";
     let _ = session.update(single_module_input(module.clone(), source_a, 1));
     let update = session.update(single_module_input(module, source_b, 2));
-    assert!(update.snapshot.all_diagnostics().any(|diagnostic| diagnostic.code == DiagnosticCode::MatchNonExhaustive));
+    assert!(
+        update
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::MatchNonExhaustive)
+    );
 }
 
 #[test]
@@ -125,7 +144,10 @@ fn adt_incr_08_alias_union_contraction_updates_residual_witness() {
     let source_b = "enum Choice { @variant A @variant B }\ntype ChoiceAlias = Choice\nclass Test { run(_ value: ChoiceAlias) { match value { Choice::A => 1 Choice::B => 2 } } }\n";
     let _ = session.update(single_module_input(module.clone(), source_a, 1));
     let update = session.update(single_module_input(module, source_b, 2));
-    assert!(matches!(first_match(&update.snapshot).exhaustiveness, phalcom_semantic::match_semantics::ExhaustivenessResult::Proven));
+    assert!(matches!(
+        first_match(&update.snapshot).exhaustiveness,
+        phalcom_semantic::match_semantics::ExhaustivenessResult::Proven
+    ));
 }
 
 #[test]
@@ -148,7 +170,11 @@ fn adt_incr_10_unrelated_method_edit_reuses_match_analysis() {
     let source_a = "enum Choice { @variant A @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 _ => 0 } } keep() { 1 } }\n";
     let source_b = "enum Choice { @variant A @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 _ => 0 } } keep() { 2 } }\n";
     let first = session.update(single_module_input(module.clone(), source_a, 1));
-    let callable = CallableId::new(DeclarationId::new(module.clone(), "Test".into()), Selector::method("run", [phalcom_common::selector::SelectorSlot::Positional]).expect("run"), DispatchSide::Instance);
+    let callable = CallableId::new(
+        DeclarationId::new(module.clone(), "Test".into()),
+        Selector::method("run", [phalcom_common::selector::SelectorSlot::Positional]).expect("run"),
+        DispatchSide::Instance,
+    );
     let first_analysis = first.snapshot.callable_analyses.get(&callable).expect("run analysis");
     let second = session.update(single_module_input(module, source_b, 2));
     let second_analysis = second.snapshot.callable_analyses.get(&callable).expect("run analysis");
@@ -161,9 +187,15 @@ fn adt_incr_11_whitespace_edit_does_not_change_enum_product_fingerprint() {
     let mut session = SemanticWorkspaceSession::new();
     let first = session.update(single_module_input(module.clone(), "enum Choice { @variant A @variant B }\n", 1));
     let owner = DeclarationId::new(module.clone(), "Choice".into());
-    let first_fp = session.db().ready_product_fingerprint(&QueryKey::EnumDeclaration(owner.clone())).expect("enum fingerprint");
+    let first_fp = session
+        .db()
+        .ready_product_fingerprint(&QueryKey::EnumDeclaration(owner.clone()))
+        .expect("enum fingerprint");
     let _ = session.update(single_module_input(module, "enum Choice {\n\n  @variant A\n  @variant B\n}\n", 2));
-    let second_fp = session.db().ready_product_fingerprint(&QueryKey::EnumDeclaration(owner)).expect("enum fingerprint");
+    let second_fp = session
+        .db()
+        .ready_product_fingerprint(&QueryKey::EnumDeclaration(owner))
+        .expect("enum fingerprint");
     assert_eq!(first_fp, second_fp);
     assert_eq!(first.snapshot.store.id(), session.last_snapshot().expect("snapshot").store.id());
 }

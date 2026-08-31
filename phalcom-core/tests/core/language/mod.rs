@@ -29,24 +29,24 @@ mod algebraic_data_construction_primitives;
 mod algebraic_data_execution;
 #[path = "algebraic_data/gc.rs"]
 mod algebraic_data_gc;
+#[path = "algebraic_data/gc_scenarios.rs"]
+mod algebraic_data_gc_scenarios;
+#[path = "algebraic_data/pattern_context.rs"]
+mod algebraic_data_pattern_context;
+#[path = "algebraic_data/scenarios.rs"]
+mod algebraic_data_scenarios;
 #[path = "compiler/associated_lowering.rs"]
 mod compiler_associated_lowering;
 #[path = "compiler/lowering.rs"]
 mod compiler_lowering;
-#[path = "algebraic_data/scenarios.rs"]
-mod algebraic_data_scenarios;
-#[path = "algebraic_data/pattern_context.rs"]
-mod algebraic_data_pattern_context;
-#[path = "algebraic_data/gc_scenarios.rs"]
-mod algebraic_data_gc_scenarios;
 #[path = "compiler/lowering_scenarios.rs"]
 mod compiler_lowering_scenarios;
 
 #[path = "golden.rs"]
 mod golden;
-#[path = "numeric_values.rs"]
-mod numeric_values;
 #[path = "numeric_diagnostics.rs"]
 mod numeric_diagnostics;
+#[path = "numeric_values.rs"]
+mod numeric_values;
 #[path = "option.rs"]
 mod option;

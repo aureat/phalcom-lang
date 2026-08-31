@@ -208,7 +208,10 @@ impl<'a> MatchHandle<'a> {
     }
 
     pub fn assert_not_exhaustive(&self) {
-        assert!(!matches!(self.resolution.exhaustiveness, ExhaustivenessResult::Proven), "match unexpectedly proved exhaustive");
+        assert!(
+            !matches!(self.resolution.exhaustiveness, ExhaustivenessResult::Proven),
+            "match unexpectedly proved exhaustive"
+        );
     }
 
     pub fn assert_arm_candidate_variants(&self, arm: usize, expected: &[VariantId]) {

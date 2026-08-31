@@ -17,7 +17,8 @@ fn adt_run_01_singleton_execution_and_variant_identity() {
 
 #[test]
 fn adt_run_02_nullary_constructor_is_not_singleton() {
-    let source = "enum State { @variant Ready() @variant Done() }\nlet first = State::Ready()\nlet second = State::Ready()\nlet distinct = not (first === second)\n";
+    let source =
+        "enum State { @variant Ready() @variant Done() }\nlet first = State::Ready()\nlet second = State::Ready()\nlet distinct = not (first === second)\n";
     let (vm, module) = run_inline(source).expect("nullary construction should run");
     assert_eq!(slot(&vm, module, "distinct"), Some(Value::bool(true)));
 }
@@ -69,7 +70,8 @@ fn adt_run_08_or_pattern_selects_first_successful_alternative() {
 
 #[test]
 fn adt_run_09_family_pattern_routes_to_exact_member() {
-    let source = "enum State { @variant Ready @variant Ready() @variant Done }\nlet value = State::Ready()\nlet result = match value { Ready* => 1 Done => 2 }\n";
+    let source =
+        "enum State { @variant Ready @variant Ready() @variant Done }\nlet value = State::Ready()\nlet result = match value { Ready* => 1 Done => 2 }\n";
     let (vm, module) = run_inline(source).expect("family match should run");
     assert_eq!(slot(&vm, module, "result"), Some(Value::int(1)));
 }
@@ -156,7 +158,8 @@ fn adt_vert_02_gadt_evaluator_erases_proof_at_runtime() {
 #[test]
 #[ignore = "RED: multi-selector family runtime routing remains incomplete"]
 fn adt_vert_03_multi_selector_family_routes_all_exact_shapes() {
-    let source = "enum Animal { @variant Dog @variant Dog() @variant Dog(_ age: Int) }\nlet value = Animal::Dog(4)\nlet result = match value { Dog* => 1 _ => 0 }\n";
+    let source =
+        "enum Animal { @variant Dog @variant Dog() @variant Dog(_ age: Int) }\nlet value = Animal::Dog(4)\nlet result = match value { Dog* => 1 _ => 0 }\n";
     let (vm, module) = run_inline(source).expect("multi-selector family fixture should execute");
     assert_eq!(slot(&vm, module, "result"), Some(Value::int(1)));
 }

@@ -1,3 +1,4 @@
+use super::super::support::analyze_adt;
 use phalcom_common::selector::Selector;
 use phalcom_modules::identity::{ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_semantic::checker::{PatternSpace, VariantSpace};
@@ -6,7 +7,6 @@ use phalcom_semantic::match_semantics::BranchProofEnvironment;
 use phalcom_semantic::types::id::TypeId;
 use phalcom_semantic::types::relation::MapTypeHierarchy;
 use phalcom_semantic::types::store::TypeStore;
-use super::super::support::analyze_adt;
 
 fn test_module() -> ModuleId {
     ModuleId::resolved(ResolvedProjectId::from_raw(42), ModulePath::root())
@@ -213,7 +213,10 @@ fn match_space_09_intersection_distributes_over_union() {
     let mut store = TypeStore::new();
     let hierarchy = MapTypeHierarchy::new();
     let left = PatternSpace::Union(Box::new([PatternSpace::Opaque(TypeId(1)), PatternSpace::Opaque(TypeId(2))]));
-    assert_eq!(left.intersect(&PatternSpace::Opaque(TypeId(1)), &mut store, &hierarchy), PatternSpace::Opaque(TypeId(1)));
+    assert_eq!(
+        left.intersect(&PatternSpace::Opaque(TypeId(1)), &mut store, &hierarchy),
+        PatternSpace::Opaque(TypeId(1))
+    );
 }
 
 #[test]
@@ -229,7 +232,10 @@ fn match_space_12_union_subtraction_retains_uncovered_member() {
     let mut store = TypeStore::new();
     let hierarchy = MapTypeHierarchy::new();
     let left = PatternSpace::Union(Box::new([PatternSpace::Opaque(TypeId(1)), PatternSpace::Opaque(TypeId(2))]));
-    assert_eq!(left.subtract(&PatternSpace::Opaque(TypeId(1)), &mut store, &hierarchy), PatternSpace::Opaque(TypeId(2)));
+    assert_eq!(
+        left.subtract(&PatternSpace::Opaque(TypeId(1)), &mut store, &hierarchy),
+        PatternSpace::Opaque(TypeId(2))
+    );
 }
 
 #[test]
@@ -400,9 +406,14 @@ fn review_c2_06_normalized_empty_spaces_have_consistent_empty_invariant() {
 
 #[test]
 fn review_m2_01_wide_union_deduplicates_distinct_exact_members() {
-    let spaces = (0..512).map(|index| PatternSpace::Opaque(TypeId(index))).chain((0..512).map(|index| PatternSpace::Opaque(TypeId(index)))).collect::<Vec<_>>();
+    let spaces = (0..512)
+        .map(|index| PatternSpace::Opaque(TypeId(index)))
+        .chain((0..512).map(|index| PatternSpace::Opaque(TypeId(index))))
+        .collect::<Vec<_>>();
     let normalized = PatternSpace::Union(spaces.into_boxed_slice()).normalize();
-    let PatternSpace::Union(members) = normalized else { panic!("wide union must retain multiple members") };
+    let PatternSpace::Union(members) = normalized else {
+        panic!("wide union must retain multiple members")
+    };
     assert_eq!(members.len(), 512);
     assert_eq!(members.iter().filter(|member| **member == PatternSpace::Opaque(TypeId(511))).count(), 1);
 }
@@ -411,7 +422,9 @@ fn review_m2_01_wide_union_deduplicates_distinct_exact_members() {
 fn review_m2_02_duplicate_heavy_union_has_unique_structural_members() {
     let spaces = (0..4096).map(|index| PatternSpace::Opaque(TypeId((index % 8) as u32))).collect::<Vec<_>>();
     let normalized = PatternSpace::Union(spaces.into_boxed_slice()).normalize();
-    let PatternSpace::Union(members) = normalized else { panic!("duplicate-heavy union must retain unique members") };
+    let PatternSpace::Union(members) = normalized else {
+        panic!("duplicate-heavy union must retain unique members")
+    };
     assert_eq!(members.len(), 8);
 }
 

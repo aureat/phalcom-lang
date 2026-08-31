@@ -1664,7 +1664,6 @@ impl<'vm> Compiler<'vm> {
         Ok(())
     }
 
-
     fn compile_product_label(
         &mut self,
         label: ProductLabel,

@@ -31,7 +31,9 @@ impl VM {
         root_class.class = self.universe.classes.class_class;
         root_class.superclass = Some(self.universe.classes.object_class);
         let root_class_id = self.heap.alloc_class(root_class);
-        let enum_id = self.adt_registry.register_enum_with_representation(spec.owner.clone(), root_class_id, representation);
+        let enum_id = self
+            .adt_registry
+            .register_enum_with_representation(spec.owner.clone(), root_class_id, representation);
 
         // 2. Create hidden case behavior classes for each variant
         for (idx, var_spec) in spec.variants.iter().enumerate() {

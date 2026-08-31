@@ -86,11 +86,7 @@ fn resolve_pattern_with_mode(
                 alternative_bindings.push(local_bindings);
             }
 
-            let active_bindings: Vec<Vec<PatternBindingResolution>> = alternative_bindings
-                .iter()
-                .filter(|alt| !alt.is_empty())
-                .cloned()
-                .collect();
+            let active_bindings: Vec<Vec<PatternBindingResolution>> = alternative_bindings.iter().filter(|alt| !alt.is_empty()).cloned().collect();
             let bindings_to_commit = if active_bindings.is_empty() {
                 &alternative_bindings[..]
             } else {
@@ -518,7 +514,10 @@ fn resolve_variant_pattern(
                 VariantPatternMode::ExactCall { arguments } => {
                     for (i, argument) in arguments.iter().enumerate() {
                         let field_semantic = if let Some(ref label) = argument.label {
-                            v_info.fields.iter().find(|field| field.external_label.as_deref() == Some(label) || field.local_name.as_ref() == label.as_str())
+                            v_info
+                                .fields
+                                .iter()
+                                .find(|field| field.external_label.as_deref() == Some(label) || field.local_name.as_ref() == label.as_str())
                         } else {
                             v_info.fields.get(i)
                         };
@@ -792,7 +791,10 @@ fn matches_variant_info(
                     let mut matched_all = true;
                     for (i, arg) in arguments.iter().enumerate() {
                         let has_match = if let Some(ref label) = arg.label {
-                            v_info.fields.iter().any(|f| f.external_label.as_deref() == Some(label) || f.local_name.as_ref() == label.as_str())
+                            v_info
+                                .fields
+                                .iter()
+                                .any(|f| f.external_label.as_deref() == Some(label) || f.local_name.as_ref() == label.as_str())
                         } else {
                             i < v_info.fields.len()
                         };

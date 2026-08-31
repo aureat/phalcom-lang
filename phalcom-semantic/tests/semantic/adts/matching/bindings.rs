@@ -125,7 +125,10 @@ fn match_bind_02_labeled_payload_binding_uses_field_mapping() {
     );
     let handle = case.only_match();
     handle.arm(0).assert_binding_names(&["x", "y"]);
-    assert_eq!(handle.arm(0).resolution().bindings[0].source.start, handle.arm(0).resolution().bindings[0].source.start);
+    assert_eq!(
+        handle.arm(0).resolution().bindings[0].source.start,
+        handle.arm(0).resolution().bindings[0].source.start
+    );
 }
 
 #[test]
@@ -163,13 +166,17 @@ fn review_c1_02_or_binding_join_uses_all_alternative_types() {
     let case = analyze_adt(
         "enum Either { @variant Left(_ value: Int) -> Either @variant Right(_ value: String) -> Either }\nclass Test { inspect(_ value: Either) { match value { Either::Left(x) | Either::Right(x) => x _ => 0 } } }\n",
     );
-    case.only_match().arm(0).assert_binding_union_members("x", &[case.declaration("Int").form, case.declaration("String").form]);
+    case.only_match()
+        .arm(0)
+        .assert_binding_union_members("x", &[case.declaration("Int").form, case.declaration("String").form]);
 }
 
 #[test]
 #[ignore = "GATED: branch-visible binding lifetime fixture is required"]
 fn review_c1_03_or_binding_common_scope_is_not_a_hidden_staging_slot() {
-    let case = analyze_adt("enum Either { @variant Left(_ value: Int) @variant Right(_ value: Int) }\nclass Test { inspect(_ value: Either) { match value { Either::Left(x) | Either::Right(x) => x } } }\n");
+    let case = analyze_adt(
+        "enum Either { @variant Left(_ value: Int) @variant Right(_ value: Int) }\nclass Test { inspect(_ value: Either) { match value { Either::Left(x) | Either::Right(x) => x } } }\n",
+    );
     let arm = case.only_match().arm(0);
     arm.assert_binding_names(&["x"]);
     arm.assert_unique_binding_ids();
@@ -178,21 +185,27 @@ fn review_c1_03_or_binding_common_scope_is_not_a_hidden_staging_slot() {
 #[test]
 #[ignore = "GATED: explicit or-pattern binding-set mismatch notes are not exposed"]
 fn review_c1_04_or_binding_mismatch_preserves_both_alternative_sets() {
-    let case = analyze_adt("enum Either { @variant Left(_ value: Int) @variant Right(_ value: String) }\nclass Test { inspect(_ value: Either) { match value { Either::Left(x) | Either::Right(y) => 1 _ => 0 } } }\n");
+    let case = analyze_adt(
+        "enum Either { @variant Left(_ value: Int) @variant Right(_ value: String) }\nclass Test { inspect(_ value: Either) { match value { Either::Left(x) | Either::Right(y) => 1 _ => 0 } } }\n",
+    );
     assert_eq!(case.diagnostics_for(DiagnosticCode::MatchPatternOrBindingMismatch).len(), 1);
 }
 
 #[test]
 #[ignore = "GATED: multi-level nested or binding fixture is required"]
 fn review_c1_05_nested_or_binding_join_is_recursive() {
-    let case = analyze_adt("enum Inner { @variant A(_ value: Int) @variant B(_ value: Int) }\nenum Outer { @variant Boxed(_ value: Inner) }\nclass Test { inspect(_ value: Outer) { match value { Outer::Boxed(Inner::A(x) | Inner::B(x)) => x } } }\n");
+    let case = analyze_adt(
+        "enum Inner { @variant A(_ value: Int) @variant B(_ value: Int) }\nenum Outer { @variant Boxed(_ value: Inner) }\nclass Test { inspect(_ value: Outer) { match value { Outer::Boxed(Inner::A(x) | Inner::B(x)) => x } } }\n",
+    );
     case.only_match().arm(0).assert_binding_names(&["x"]);
 }
 
 #[test]
 #[ignore = "GATED: explicit binding-source product is not yet published for every alternative"]
 fn review_c1_06_joined_binding_source_ranges_cover_each_alternative() {
-    let case = analyze_adt("enum Either { @variant Left(_ value: Int) @variant Right(_ value: Int) }\nclass Test { inspect(_ value: Either) { match value { Either::Left(x) | Either::Right(x) => x } } }\n");
+    let case = analyze_adt(
+        "enum Either { @variant Left(_ value: Int) @variant Right(_ value: Int) }\nclass Test { inspect(_ value: Either) { match value { Either::Left(x) | Either::Right(x) => x } } }\n",
+    );
     let handle = case.only_match();
     let arm = handle.arm(0);
     let binding = arm.find_binding("x").expect("joined binding");
@@ -201,7 +214,9 @@ fn review_c1_06_joined_binding_source_ranges_cover_each_alternative() {
 
 #[test]
 fn review_m6_01_pattern_binding_is_not_available_after_match() {
-    let case = analyze_adt("enum Choice { @variant A(_ value: Int) @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A(x) => x Choice::B => 0 } } }\n");
+    let case = analyze_adt(
+        "enum Choice { @variant A(_ value: Int) @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A(x) => x Choice::B => 0 } } }\n",
+    );
     let handle = case.only_match();
     handle.arm(0).assert_binding_names(&["x"]);
     handle.arm(1).assert_no_binding("x");
@@ -210,14 +225,18 @@ fn review_m6_01_pattern_binding_is_not_available_after_match() {
 #[test]
 #[ignore = "GATED: FlowState product is not exposed through source fixture"]
 fn review_m6_02_pattern_binding_is_absent_from_joined_flow_state() {
-    let case = analyze_adt("enum Choice { @variant A(_ value: Int) @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A(x) => x Choice::B => 0 } } }\n");
+    let case = analyze_adt(
+        "enum Choice { @variant A(_ value: Int) @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A(x) => x Choice::B => 0 } } }\n",
+    );
     case.only_match().arm(1).assert_no_binding("x");
 }
 
 #[test]
 #[ignore = "GATED: branch-local fact product is not exposed through source fixture"]
 fn review_m6_03_branch_local_facts_are_removed_with_binding() {
-    let case = analyze_adt("enum Choice { @variant A(_ value: Int) @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A(x) => x Choice::B => 0 } } }\n");
+    let case = analyze_adt(
+        "enum Choice { @variant A(_ value: Int) @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A(x) => x Choice::B => 0 } } }\n",
+    );
     assert!(case.only_match().arm(0).find_binding("x").is_some());
     assert!(case.only_match().arm(1).find_binding("x").is_none());
 }
@@ -225,13 +244,17 @@ fn review_m6_03_branch_local_facts_are_removed_with_binding() {
 #[test]
 #[ignore = "GATED: shadowed outer binding fixture is required"]
 fn review_m6_04_outer_same_name_binding_is_restored_after_match() {
-    let case = analyze_adt("enum Choice { @variant A(_ value: Int) @variant B }\nclass Test { run(_ value: Choice) { let x = 7 match value { Choice::A(x) => x Choice::B => x } } }\n");
+    let case = analyze_adt(
+        "enum Choice { @variant A(_ value: Int) @variant B }\nclass Test { run(_ value: Choice) { let x = 7 match value { Choice::A(x) => x Choice::B => x } } }\n",
+    );
     assert_eq!(case.only_match().arm(0).resolution().bindings.len(), 1);
 }
 
 #[test]
 fn review_m6_05_pattern_binding_does_not_leak_between_arms() {
-    let case = analyze_adt("enum Choice { @variant A(_ value: Int) @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A(x) => x Choice::B => 0 } } }\n");
+    let case = analyze_adt(
+        "enum Choice { @variant A(_ value: Int) @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A(x) => x Choice::B => 0 } } }\n",
+    );
     let handle = case.only_match();
     handle.arm(0).assert_binding_names(&["x"]);
     handle.arm(1).assert_no_binding("x");
@@ -239,13 +262,25 @@ fn review_m6_05_pattern_binding_does_not_leak_between_arms() {
 
 #[test]
 fn review_m6_06_or_joined_binding_exists_only_for_arm_body() {
-    let case = analyze_adt("enum Either { @variant Left(_ value: Int) @variant Right(_ value: String) }\nclass Test { run(_ value: Either) { match value { Either::Left(x) | Either::Right(x) => x } } }\n");
+    let case = analyze_adt(
+        "enum Either { @variant Left(_ value: Int) @variant Right(_ value: String) }\nclass Test { run(_ value: Either) { match value { Either::Left(x) | Either::Right(x) => x } } }\n",
+    );
     case.only_match().arm(0).assert_binding_names(&["x"]);
 }
 
 #[test]
 #[ignore = "GATED: direct scope cleanup authority seam is not public"]
 fn review_m6_07_scope_cleanup_is_owned_by_one_authority() {
-    let case = analyze_adt("enum Choice { @variant A(_ value: Int) @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A(x) => x Choice::B => 0 } } }\n");
-    assert_eq!(case.only_match().resolution().arms.iter().filter(|arm| arm.bindings.iter().any(|binding| binding.name.as_ref() == "x")).count(), 1);
+    let case = analyze_adt(
+        "enum Choice { @variant A(_ value: Int) @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A(x) => x Choice::B => 0 } } }\n",
+    );
+    assert_eq!(
+        case.only_match()
+            .resolution()
+            .arms
+            .iter()
+            .filter(|arm| arm.bindings.iter().any(|binding| binding.name.as_ref() == "x"))
+            .count(),
+        1
+    );
 }

@@ -1,7 +1,5 @@
 use crate::bytecode::Bytecode;
-use crate::modules::semantic_lowering::{
-    ExecutableBindingSpec, ExecutablePattern,
-};
+use crate::modules::semantic_lowering::{ExecutableBindingSpec, ExecutablePattern};
 use crate::value::Value;
 use phalcom_ast::ast::{MapPatternKey, Pattern};
 use phalcom_common::range::SourceRange;
@@ -18,11 +16,7 @@ pub(crate) struct PatternExecutionFrame {
 
 impl<'vm> Compiler<'vm> {
     /// Sets up visible locals and staging scratch slots for pattern bindings.
-    pub(crate) fn setup_pattern_frame(
-        &mut self,
-        bindings: &[ExecutableBindingSpec],
-        range: SourceRange,
-    ) -> Result<PatternExecutionFrame, CompilerError> {
+    pub(crate) fn setup_pattern_frame(&mut self, bindings: &[ExecutableBindingSpec], range: SourceRange) -> Result<PatternExecutionFrame, CompilerError> {
         let scope_start = self.functions.last().unwrap().num_locals as u16;
         let mut visible_slots = Vec::with_capacity(bindings.len());
         let mut staging_slots = Vec::with_capacity(bindings.len());
@@ -46,11 +40,7 @@ impl<'vm> Compiler<'vm> {
     }
 
     /// Commits staged binding values into visible locals upon complete pattern success.
-    pub(crate) fn commit_pattern_frame(
-        &mut self,
-        frame: &PatternExecutionFrame,
-        range: SourceRange,
-    ) -> Result<(), CompilerError> {
+    pub(crate) fn commit_pattern_frame(&mut self, frame: &PatternExecutionFrame, range: SourceRange) -> Result<(), CompilerError> {
         for (visible_slot, staging_slot) in frame.visible_slots.iter().zip(frame.staging_slots.iter()) {
             self.emit(Bytecode::GetLocal(*staging_slot), range);
             self.emit(Bytecode::SetLocal(*visible_slot), range);
@@ -122,13 +112,7 @@ impl<'vm> Compiler<'vm> {
                         self.emit(Bytecode::SetLocal(child_temp), range);
                         self.emit(Bytecode::Pop, range);
 
-                        self.emit_executable_pattern(
-                            &field_proj.child,
-                            child_temp,
-                            frame,
-                            &mut nested_failures,
-                            range,
-                        )?;
+                        self.emit_executable_pattern(&field_proj.child, child_temp, frame, &mut nested_failures, range)?;
                     }
 
                     if !is_last {

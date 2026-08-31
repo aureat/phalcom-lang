@@ -36,7 +36,10 @@ fn adt_assoc_02_exact_nullary_lookup_keeps_callable_selector_kind() {
 #[test]
 fn adt_assoc_03_exact_payload_constructor_resolves_one_member() {
     let case = analyze_adt("enum Animal { @variant Dog(_ name: String) }\nclass Test { run() { Animal::Dog(\"rex\") } }\n");
-    assert!(matches!(resolution(&case, "Animal::Dog(\"rex\")").kind, AssociatedResolutionKind::StaticInvoke { .. }));
+    assert!(matches!(
+        resolution(&case, "Animal::Dog(\"rex\")").kind,
+        AssociatedResolutionKind::StaticInvoke { .. }
+    ));
 }
 
 #[test]
@@ -46,7 +49,11 @@ fn adt_assoc_04_whole_family_capture_publishes_exact_member_ids() {
         panic!("expected family resolution");
     };
     assert_eq!(members.len(), 2);
-    assert!(members.iter().all(|member| matches!(member.member, phalcom_semantic::associated::AssociatedMemberId::Variant(_))));
+    assert!(
+        members
+            .iter()
+            .all(|member| matches!(member.member, phalcom_semantic::associated::AssociatedMemberId::Variant(_)))
+    );
 }
 
 #[test]
@@ -63,7 +70,10 @@ fn adt_assoc_05_callable_family_excludes_singleton_member() {
 #[ignore = "RED: static family invocation lowering remains incomplete"]
 fn adt_assoc_06_static_family_invocation_selects_exact_member() {
     let case = analyze_adt("enum Animal { @variant Dog(_ name: String) @variant Dog() }\nclass Test { run() { Animal::Dog(\"rex\") } }\n");
-    assert!(matches!(resolution(&case, "Animal::Dog(\"rex\")").kind, AssociatedResolutionKind::StaticInvoke { .. }));
+    assert!(matches!(
+        resolution(&case, "Animal::Dog(\"rex\")").kind,
+        AssociatedResolutionKind::StaticInvoke { .. }
+    ));
 }
 
 #[test]
@@ -89,7 +99,8 @@ fn adt_assoc_08_positional_rest_routes_matching_candidate_shapes() {
 #[test]
 #[ignore = "RED: labeled rest family routing remains incomplete"]
 fn adt_assoc_09_labeled_rest_routes_matching_candidate_shapes() {
-    let case = analyze_adt("enum Animal { @variant Dog(named age: Int) @variant Dog(named age: Int, breed: String) }\nclass Test { run() { Animal::Dog::* } }\n");
+    let case =
+        analyze_adt("enum Animal { @variant Dog(named age: Int) @variant Dog(named age: Int, breed: String) }\nclass Test { run() { Animal::Dog::* } }\n");
     let AssociatedResolutionKind::Family { members, .. } = &resolution(&case, "Animal::Dog::*").kind else {
         panic!("expected labeled-rest family surface");
     };
@@ -98,7 +109,8 @@ fn adt_assoc_09_labeled_rest_routes_matching_candidate_shapes() {
 
 #[test]
 fn adt_assoc_10_generic_family_metadata_keeps_owner_specialization() {
-    let case = analyze_adt("enum Option<T> { @variant Some(_ value: T) -> Option<T> @variant None -> Option<T> }\nclass Test { run() { Option<Int>::Some::* } }\n");
+    let case =
+        analyze_adt("enum Option<T> { @variant Some(_ value: T) -> Option<T> @variant None -> Option<T> }\nclass Test { run() { Option<Int>::Some::* } }\n");
     let family = case.associated_family("Option", "Some");
     assert!(!family.members.is_empty());
 }
@@ -108,19 +120,30 @@ fn adt_assoc_10_generic_family_metadata_keeps_owner_specialization() {
 fn adt_assoc_11_inherited_family_keeps_lookup_and_definition_owners() {
     let case = analyze_adt("enum Animal { @variant Dog @variant Cat }\nclass Test { run() { Animal::Dog::* } }\n");
     let family = case.associated_family("Animal", "Dog");
-    assert!(family.members.iter().all(|member| matches!(member, phalcom_semantic::associated::AssociatedMemberId::Variant(_))));
+    assert!(
+        family
+            .members
+            .iter()
+            .all(|member| matches!(member, phalcom_semantic::associated::AssociatedMemberId::Variant(_)))
+    );
 }
 
 #[test]
 fn adt_assoc_12_exact_selector_miss_does_not_select_nearest_shape() {
     let case = analyze_adt("enum Animal { @variant Dog(_ name: String) }\nclass Test { run() { Animal::Dog() } }\n");
-    assert!(case.diagnostics().any(|diagnostic| diagnostic.code == DiagnosticCode::AssociatedCallShapeMissing || diagnostic.code == DiagnosticCode::AssociatedMemberMissing));
+    assert!(
+        case.diagnostics()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::AssociatedCallShapeMissing || diagnostic.code == DiagnosticCode::AssociatedMemberMissing)
+    );
 }
 
 #[test]
 fn adt_assoc_13_wrong_call_shape_reports_diagnostic() {
     let case = analyze_adt("enum Animal { @variant Dog(_ name: String) }\nclass Test { run() { Animal::Dog(1, 2) } }\n");
-    assert!(case.diagnostics().any(|diagnostic| diagnostic.code == DiagnosticCode::AssociatedCallShapeMissing || diagnostic.code == DiagnosticCode::AssociatedMemberMissing));
+    assert!(
+        case.diagnostics()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::AssociatedCallShapeMissing || diagnostic.code == DiagnosticCode::AssociatedMemberMissing)
+    );
 }
 
 #[test]

@@ -1,5 +1,6 @@
 //! Integration tests verifying fine-grained callable semantic dependency tracking and invalidation (Spec 04.5 / Wave 5 Section 8.8).
 
+use super::support::single_module_input;
 use phalcom_common::selector::Selector;
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_modules::interface::{LinkedExport, LinkedExportTarget, LinkedModuleInterface};
@@ -14,7 +15,6 @@ use phalcom_semantic::source::ParsedModuleUnit;
 use phalcom_semantic::workspace::SemanticWorkspaceInput;
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use super::support::single_module_input;
 
 #[test]
 fn case_a_unchanged_caller_changed_callee_signature_recomputes() {
