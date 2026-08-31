@@ -1,0 +1,801 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "Phalcom",
+	"patterns": [
+		{
+			"include": "#phalcom.comment"
+		},
+		{
+			"include": "#phalcom.string"
+		},
+		{
+			"include": "#phalcom.symbol"
+		},
+		{
+			"include": "#phalcom.methodref"
+		},
+		{
+			"include": "#phalcom.attribute"
+		},
+		{
+			"include": "#phalcom.option-operator"
+		},
+		{
+			"include": "#phalcom.index-bracket"
+		},
+		{
+			"include": "#phalcom.number"
+		},
+		{
+			"include": "#phalcom.module"
+		},
+		{
+			"include": "#phalcom.type-declaration"
+		},
+		{
+			"include": "#phalcom.class-declaration"
+		},
+		{
+			"include": "#phalcom.where-clause"
+		},
+		{
+			"include": "#phalcom.type-lambda"
+		},
+		{
+			"include": "#phalcom.generic-callable-declaration"
+		},
+		{
+			"include": "#phalcom.callable-declaration"
+		},
+		{
+			"include": "#phalcom.generic-call"
+		},
+		{
+			"include": "#phalcom.trailing-closure-call"
+		},
+		{
+			"include": "#phalcom.type-parameter-application"
+		},
+		{
+			"include": "#phalcom.type-application"
+		},
+		{
+			"include": "#phalcom.type-builtin"
+		},
+		{
+			"include": "#phalcom.type-parameter-reference"
+		},
+		{
+			"include": "#phalcom.closure"
+		},
+		{
+			"include": "#phalcom.member-selector"
+		},
+		{
+			"include": "#phalcom.keyword"
+		},
+		{
+			"include": "#phalcom.field"
+		},
+		{
+			"include": "#variables"
+		}
+	],
+	"repository": {
+		"phalcom.comment": {
+			"patterns": [
+				{
+					"name": "comment.block.documentation.phalcom",
+					"match": "(^|(?<=\\s))//[/!].*$"
+				},
+				{
+					"name": "comment.line.double-slash.phalcom",
+					"match": "//.*$"
+				},
+				{
+					"name": "comment.block.phalcom",
+					"begin": "/\\*",
+					"end": "\\*/"
+				}
+			]
+		},
+		"phalcom.string": {
+			"name": "string.quoted.double.phalcom",
+			"begin": "\"",
+			"end": "\"",
+			"patterns": [
+				{
+					"include": "#phalcom.interpolation"
+				},
+				{
+					"name": "constant.character.escape.phalcom",
+					"match": "\\\\."
+				}
+			]
+		},
+		"phalcom.interpolation": {
+			"name": "meta.embedded.line.phalcom",
+			"begin": "\\\\\\(",
+			"beginCaptures": {
+				"0": {
+					"name": "punctuation.section.embedded.begin.phalcom"
+				}
+			},
+			"end": "\\)",
+			"endCaptures": {
+				"0": {
+					"name": "punctuation.section.embedded.end.phalcom"
+				}
+			},
+			"patterns": [
+				{
+					"include": "#phalcom.interpolation.round"
+				},
+				{
+					"include": "#phalcom.symbol"
+				},
+				{
+					"include": "#phalcom.methodref"
+				},
+				{
+					"include": "#phalcom.attribute"
+				},
+				{
+					"include": "#phalcom.option-operator"
+				},
+				{
+					"include": "#phalcom.number"
+				},
+				{
+					"include": "#phalcom.type-lambda"
+				},
+				{
+					"include": "#phalcom.generic-call"
+				},
+				{
+					"include": "#phalcom.trailing-closure-call"
+				},
+				{
+					"include": "#phalcom.type-parameter-application"
+				},
+				{
+					"include": "#phalcom.type-application"
+				},
+				{
+					"include": "#phalcom.type-builtin"
+				},
+				{
+					"include": "#phalcom.type-parameter-reference"
+				},
+				{
+					"include": "#phalcom.closure"
+				},
+				{
+					"include": "#phalcom.member-selector"
+				},
+				{
+					"include": "#phalcom.keyword"
+				},
+				{
+					"include": "#phalcom.field"
+				},
+				{
+					"include": "#variables"
+				}
+			]
+		},
+		"phalcom.interpolation.round": {
+			"name": "meta.embedded.line.phalcom",
+			"begin": "\\(",
+			"end": "\\)",
+			"patterns": [
+				{
+					"include": "#phalcom.interpolation.round"
+				},
+				{
+					"include": "#phalcom.symbol"
+				},
+				{
+					"include": "#phalcom.methodref"
+				},
+				{
+					"include": "#phalcom.attribute"
+				},
+				{
+					"include": "#phalcom.option-operator"
+				},
+				{
+					"include": "#phalcom.number"
+				},
+				{
+					"include": "#phalcom.type-lambda"
+				},
+				{
+					"include": "#phalcom.generic-call"
+				},
+				{
+					"include": "#phalcom.trailing-closure-call"
+				},
+				{
+					"include": "#phalcom.type-parameter-application"
+				},
+				{
+					"include": "#phalcom.type-application"
+				},
+				{
+					"include": "#phalcom.type-builtin"
+				},
+				{
+					"include": "#phalcom.type-parameter-reference"
+				},
+				{
+					"include": "#phalcom.closure"
+				},
+				{
+					"include": "#phalcom.member-selector"
+				},
+				{
+					"include": "#phalcom.keyword"
+				},
+				{
+					"include": "#phalcom.field"
+				},
+				{
+					"include": "#variables"
+				}
+			]
+		},
+		"phalcom.symbol": {
+			"patterns": [
+				{
+					"name": "constant.other.symbol.phalcom",
+					"match": "#[a-zA-Z_][a-zA-Z0-9_]*(=(\\([^)]*\\))?|\\([^)]*\\))?"
+				},
+				{
+					"name": "constant.other.symbol.phalcom",
+					"match": "#(\\*{1,3}|~/|<<|>>|==|!=|<=|>=|\\?\\.|\\?\\?|\\.\\.\\.|\\+|-|/|%|&|\\||\\^|~|<|>|!|\\?)"
+				}
+			]
+		},
+		"phalcom.methodref": {
+			"name": "keyword.operator.methodref.phalcom",
+			"match": "::\\s*(?:[a-zA-Z_][a-zA-Z0-9_]*|\\*{1,3}|~/|<<|>>|==|!=|<=|>=|\\+|-|/|%|&|\\||\\^|~|<|>|\\[[^\\]]*\\])(?:=(?:\\([^)]*\\)|\\.\\.\\.)|\\([^)]*\\)|\\.\\.\\.)?"
+		},
+		"phalcom.module": {
+			"patterns": [
+				{
+					"begin": "\\b(from|import|export|expose)\\b",
+					"beginCaptures": {
+						"0": {
+							"name": "keyword.control.phalcom"
+						}
+					},
+					"end": "(?=\\r?$)",
+					"patterns": [
+						{
+							"name": "keyword.control.phalcom",
+							"match": "\\b(from|import|export|expose|as)\\b"
+						},
+						{
+							"name": "entity.name.namespace.phalcom",
+							"match": "(?<![a-zA-Z0-9_])(?:(?:\\.{1,3})(?:[a-zA-Z_][a-zA-Z0-9_]*(?:\\.[a-zA-Z_][a-zA-Z0-9_]*)*)?|(?:[a-zA-Z_][a-zA-Z0-9_]*\\.)+[a-zA-Z_][a-zA-Z0-9_]*)"
+						},
+						{
+							"include": "#variables"
+						}
+					]
+				}
+			]
+		},
+		"phalcom.type-declaration": {
+			"patterns": [
+				{
+					"comment": "Generic type alias declaration, e.g. type Evidence<T> = ...",
+					"begin": "\\b(type)\\s+([A-Z][a-zA-Z0-9_]*)\\s*(<)",
+					"beginCaptures": {
+						"1": {
+							"name": "keyword.declaration.phalcom"
+						},
+						"2": {
+							"name": "entity.name.type.alias.phalcom"
+						},
+						"3": {
+							"name": "punctuation.definition.generic.begin.phalcom"
+						}
+					},
+					"end": ">",
+					"endCaptures": {
+						"0": {
+							"name": "punctuation.definition.generic.end.phalcom"
+						}
+					},
+					"patterns": [
+						{
+							"include": "#phalcom.generic-parameter-declaration"
+						}
+					]
+				},
+				{
+					"comment": "Non-generic type alias declaration.",
+					"match": "\\b(type)\\s+([A-Z][a-zA-Z0-9_]*)",
+					"captures": {
+						"1": {
+							"name": "keyword.declaration.phalcom"
+						},
+						"2": {
+							"name": "entity.name.type.alias.phalcom"
+						}
+					}
+				}
+			]
+		},
+		"phalcom.class-declaration": {
+			"patterns": [
+				{
+					"comment": "Generic class declaration, including variance markers in the generic binder.",
+					"begin": "\\b(class)\\s+([A-Z][a-zA-Z0-9_]*)\\s*(<)",
+					"beginCaptures": {
+						"1": {
+							"name": "keyword.declaration.phalcom"
+						},
+						"2": {
+							"name": "entity.name.type.class.phalcom"
+						},
+						"3": {
+							"name": "punctuation.definition.generic.begin.phalcom"
+						}
+					},
+					"end": ">",
+					"endCaptures": {
+						"0": {
+							"name": "punctuation.definition.generic.end.phalcom"
+						}
+					},
+					"patterns": [
+						{
+							"include": "#phalcom.generic-parameter-declaration"
+						}
+					]
+				},
+				{
+					"comment": "Non-generic class declaration.",
+					"match": "\\b(class)\\s+([A-Z][a-zA-Z0-9_]*)",
+					"captures": {
+						"1": {
+							"name": "keyword.declaration.phalcom"
+						},
+						"2": {
+							"name": "entity.name.type.class.phalcom"
+						}
+					}
+				}
+			]
+		},
+		"phalcom.generic-parameter-declaration": {
+			"patterns": [
+				{
+					"name": "storage.modifier.variance.phalcom",
+					"match": "[+-](?=[A-Z][a-zA-Z0-9_]*\\b)"
+				},
+				{
+					"name": "entity.name.type.parameter.phalcom",
+					"match": "\\b[A-Z][a-zA-Z0-9_]*\\b"
+				},
+				{
+					"name": "punctuation.separator.generic.phalcom",
+					"match": ","
+				}
+			]
+		},
+		"phalcom.type-lambda": {
+			"name": "meta.type.lambda.phalcom",
+			"begin": "(<)(?=[+-]?[A-Z][a-zA-Z0-9_]*(?:\\s*,\\s*[+-]?[A-Z][a-zA-Z0-9_]*)*\\s*>\\s*=>>)",
+			"beginCaptures": {
+				"1": {
+					"name": "punctuation.definition.type-parameters.begin.phalcom"
+				}
+			},
+			"end": ">",
+			"endCaptures": {
+				"0": {
+					"name": "punctuation.definition.type-parameters.end.phalcom"
+				}
+			},
+			"patterns": [
+				{
+					"include": "#phalcom.generic-parameter-declaration"
+				}
+			]
+		},
+		"phalcom.where-clause": {
+			"name": "meta.type.constraints.phalcom",
+			"begin": "\\b(where)\\b",
+			"beginCaptures": {
+				"1": {
+					"name": "keyword.control.constraint.phalcom"
+				}
+			},
+			"end": "(?=\\{)|(?=\\r?$)",
+			"patterns": [
+				{
+					"include": "#phalcom.type-lambda"
+				},
+				{
+					"include": "#phalcom.type-parameter-application"
+				},
+				{
+					"include": "#phalcom.type-application"
+				},
+				{
+					"include": "#phalcom.type-builtin"
+				},
+				{
+					"include": "#phalcom.type-parameter-reference"
+				},
+				{
+					"include": "#phalcom.type-operator"
+				},
+				{
+					"name": "punctuation.separator.constraint.phalcom",
+					"match": "[:,]"
+				}
+			]
+		},
+		"phalcom.generic-callable-declaration": {
+			"comment": "Generic function/method declaration head such as map<B>(...) -> ... { . The same-line lookahead prevents generic calls from being mistaken for declarations.",
+			"begin": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*(<)(?=[^\\r\\n{]*>[^\\r\\n{]*\\{)",
+			"beginCaptures": {
+				"1": {
+					"name": "entity.name.function.phalcom"
+				},
+				"2": {
+					"name": "punctuation.definition.generic.begin.phalcom"
+				}
+			},
+			"end": ">",
+			"endCaptures": {
+				"0": {
+					"name": "punctuation.definition.generic.end.phalcom"
+				}
+			},
+			"patterns": [
+				{
+					"include": "#phalcom.generic-parameter-declaration"
+				}
+			]
+		},
+		"phalcom.callable-declaration": {
+			"patterns": [
+				{
+					"comment": "Named function/method declaration with an ordinary parameter list and optional return type.",
+					"name": "entity.name.function.phalcom",
+					"match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b(?=\\s*\\([^\\r\\n]*\\)\\s*(?:->[^\\r\\n{]+)?\\s*\\{)"
+				},
+				{
+					"comment": "Operator method declaration.",
+					"name": "entity.name.function.phalcom",
+					"match": "(?<![a-zA-Z0-9_])(?:\\+\\+|--|==|!=|<=|>=|<<|>>|\\*\\*\\*|\\*\\*|~/|\\?\\?|\\?\\.|\\+|-|\\*|/|%|<|>|&|\\||\\^|~)(?=\\s*\\([^\\r\\n]*\\)\\s*(?:->[^\\r\\n{]+)?\\s*\\{)"
+				},
+				{
+					"comment": "Indexer method declaration.",
+					"name": "entity.name.function.phalcom",
+					"match": "\\[(?=[^\\]]*\\]\\s*(?:=\\s*\\(\\s*put\\b)?\\s*\\{)[^\\]]*\\]"
+				}
+			]
+		},
+		"phalcom.generic-call": {
+			"comment": "Generic call or message send, including ordinary and trailing-closure forms: map<Int>(...), .map<Int>(...), map<Int> |x| {...}, .map<Int> |x| {...}.",
+			"name": "meta.function-call.generic.phalcom",
+			"begin": "\\b([a-zA-Z_][a-zA-Z0-9_]*)(<)(?=[^\\r\\n>]*>\\s*(?:\\(|\\|))",
+			"beginCaptures": {
+				"1": {
+					"name": "entity.name.function.phalcom"
+				},
+				"2": {
+					"name": "punctuation.definition.generic.begin.phalcom"
+				}
+			},
+			"end": ">(?=\\s*(?:\\(|\\|))",
+			"endCaptures": {
+				"0": {
+					"name": "punctuation.definition.generic.end.phalcom"
+				}
+			},
+			"patterns": [
+				{
+					"include": "#phalcom.type-lambda"
+				},
+				{
+					"include": "#phalcom.type-parameter-application"
+				},
+				{
+					"include": "#phalcom.type-application"
+				},
+				{
+					"include": "#phalcom.type-builtin"
+				},
+				{
+					"include": "#phalcom.type-parameter-reference"
+				},
+				{
+					"include": "#phalcom.type-operator"
+				},
+				{
+					"name": "punctuation.separator.generic.phalcom",
+					"match": ","
+				}
+			]
+		},
+		"phalcom.trailing-closure-call": {
+			"comment": "Bare call using trailing-closure syntax: flatMap |value| { ... }. Dot-prefixed forms are also covered by phalcom.member-selector.",
+			"name": "entity.name.function.phalcom",
+			"match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b(?=\\s*\\|\\s*(?:[a-zA-Z_][a-zA-Z0-9_]*(?:\\s*,\\s*[a-zA-Z_][a-zA-Z0-9_]*)*)?\\s*\\|\\s*\\{)"
+		},
+		"phalcom.type-parameter-application": {
+			"comment": "Lexical heuristic for higher-kinded type parameter application such as F<A>. The semantic token provider should make this authoritative.",
+			"name": "meta.type.application.parameter.phalcom",
+			"begin": "\\b([A-Z])(<)",
+			"beginCaptures": {
+				"1": {
+					"name": "entity.name.type.parameter.phalcom"
+				},
+				"2": {
+					"name": "punctuation.definition.generic.begin.phalcom"
+				}
+			},
+			"end": ">",
+			"endCaptures": {
+				"0": {
+					"name": "punctuation.definition.generic.end.phalcom"
+				}
+			},
+			"patterns": [
+				{
+					"include": "#phalcom.type-lambda"
+				},
+				{
+					"include": "#phalcom.type-parameter-application"
+				},
+				{
+					"include": "#phalcom.type-application"
+				},
+				{
+					"include": "#phalcom.type-builtin"
+				},
+				{
+					"include": "#phalcom.type-parameter-reference"
+				},
+				{
+					"include": "#phalcom.type-operator"
+				},
+				{
+					"name": "punctuation.separator.generic.phalcom",
+					"match": ","
+				}
+			]
+		},
+		"phalcom.type-application": {
+			"comment": "Recursive generic type application such as Result<List<Evidence<T>>, Failure>.",
+			"name": "meta.type.application.phalcom",
+			"begin": "\\b([A-Z][a-zA-Z0-9_]*)(<)",
+			"beginCaptures": {
+				"1": {
+					"name": "entity.name.type.phalcom"
+				},
+				"2": {
+					"name": "punctuation.definition.generic.begin.phalcom"
+				}
+			},
+			"end": ">",
+			"endCaptures": {
+				"0": {
+					"name": "punctuation.definition.generic.end.phalcom"
+				}
+			},
+			"patterns": [
+				{
+					"include": "#phalcom.type-lambda"
+				},
+				{
+					"include": "#phalcom.type-parameter-application"
+				},
+				{
+					"include": "#phalcom.type-application"
+				},
+				{
+					"include": "#phalcom.type-builtin"
+				},
+				{
+					"include": "#phalcom.type-parameter-reference"
+				},
+				{
+					"include": "#phalcom.type-operator"
+				},
+				{
+					"name": "punctuation.separator.generic.phalcom",
+					"match": ","
+				}
+			]
+		},
+		"phalcom.type-builtin": {
+			"name": "support.type.builtin.phalcom",
+			"match": "\\b(Type|Self|Any|Never|Unit|Int|Float|String|Bool|Symbol|None)\\b"
+		},
+		"phalcom.type-parameter-reference": {
+			"comment": "Conservative lexical heuristic for conventional one-letter generic parameters. Semantic highlighting should recognize arbitrary declared type-parameter names.",
+			"name": "entity.name.type.parameter.phalcom",
+			"match": "\\b[A-Z]\\b"
+		},
+		"phalcom.closure": {
+			"comment": "Closure binder such as |value| { ... } or |left, right| { ... }. The lookahead avoids confusing union-type bars with closure delimiters.",
+			"name": "meta.function.closure.phalcom",
+			"begin": "\\|(?=\\s*(?:[a-zA-Z_][a-zA-Z0-9_]*(?:\\s*,\\s*[a-zA-Z_][a-zA-Z0-9_]*)*)?\\s*\\|\\s*\\{)",
+			"beginCaptures": {
+				"0": {
+					"name": "punctuation.definition.parameters.begin.phalcom"
+				}
+			},
+			"end": "\\|(?=\\s*\\{)",
+			"endCaptures": {
+				"0": {
+					"name": "punctuation.definition.parameters.end.phalcom"
+				}
+			},
+			"patterns": [
+				{
+					"name": "variable.parameter.function.phalcom",
+					"match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
+				},
+				{
+					"name": "punctuation.separator.parameter.phalcom",
+					"match": ","
+				}
+			]
+		},
+		"phalcom.member-selector": {
+			"comment": "Every dot-prefixed identifier is a message selector in Phalcom. Getter sends, setter syntax, ordinary calls, and trailing-closure sends therefore receive the same callable scope.",
+			"name": "entity.name.function.phalcom",
+			"match": "(?<=\\.)[a-zA-Z_][a-zA-Z0-9_]*\\b"
+		},
+		"phalcom.attribute": {
+			"patterns": [
+				{
+					"comment": "Declaration/construction annotations intentionally share the keyword visual family with let, const, type, and class.",
+					"name": "keyword.declaration.annotation.phalcom",
+					"match": "@(class|sealed|constructor|construct)\\b"
+				},
+				{
+					"name": "storage.modifier.annotation.visibility.phalcom",
+					"match": "@(private|protected|public)\\b"
+				},
+				{
+					"name": "storage.modifier.annotation.contract.phalcom",
+					"match": "@(total|requires|ensures|invariant)\\b"
+				},
+				{
+					"name": "storage.modifier.annotation.accessor.phalcom",
+					"match": "@(get|set)\\b"
+				},
+				{
+					"name": "storage.modifier.annotation.structure.phalcom",
+					"match": "@(data|variant)\\b"
+				},
+				{
+					"name": "storage.modifier.annotation.implementation.phalcom",
+					"match": "@(native|ignore)\\b"
+				},
+				{
+					"name": "storage.modifier.annotation.event.phalcom",
+					"match": "@On\\b"
+				},
+				{
+					"name": "entity.name.tag.attribute.phalcom",
+					"match": "@[a-zA-Z_][a-zA-Z0-9_]*"
+				}
+			]
+		},
+		"phalcom.option-operator": {
+			"name": "keyword.operator.option.phalcom",
+			"match": "\\?\\.|\\?\\?"
+		},
+		"phalcom.index-bracket": {
+			"name": "punctuation.definition.index.phalcom",
+			"match": "\\[|\\]"
+		},
+		"phalcom.number": {
+			"name": "constant.numeric.phalcom",
+			"match": "\\b[0-9][0-9_]*(\\.[0-9][0-9_]*)?\\b"
+		},
+		"phalcom.type-operator": {
+			"patterns": [
+				{
+					"name": "keyword.operator.type.lambda.phalcom",
+					"match": "=>>"
+				},
+				{
+					"name": "keyword.operator.type.function.phalcom",
+					"match": "->"
+				},
+				{
+					"name": "keyword.operator.type.union.phalcom",
+					"match": "\\|"
+				},
+				{
+					"name": "keyword.operator.type.intersection.phalcom",
+					"match": "&"
+				}
+			]
+		},
+		"phalcom.keyword": {
+			"patterns": [
+				{
+					"comment": "Declaration keywords. The Phalcom theme should color these the same as keyword.declaration.annotation.phalcom.",
+					"name": "keyword.declaration.phalcom",
+					"match": "\\b(let|const|type|class)\\b"
+				},
+				{
+					"name": "keyword.control.phalcom",
+					"match": "\\b(try|catch|on|ensure|throw|break|continue|match|return|while|for|if|else|import|from|export|expose)\\b"
+				},
+				{
+					"name": "keyword.operator.word.phalcom",
+					"match": "\\b(and|or|not|in|as|is|matches|understands)\\b"
+				},
+				{
+					"name": "constant.language.boolean.phalcom",
+					"match": "\\b(true|false)\\b"
+				},
+				{
+					"name": "variable.language.phalcom",
+					"match": "\\b(self|super)\\b"
+				},
+				{
+					"name": "keyword.operator.type.lambda.phalcom",
+					"match": "=>>"
+				},
+				{
+					"name": "keyword.operator.type.function.phalcom",
+					"match": "->"
+				},
+				{
+					"name": "keyword.operator.phalcom",
+					"match": "===|<=>|\\.\\.\\.|\\+\\+|--|\\+|-|\\*|/|%|==|!=|<=|>=|<|>|=>|=|\\+=|-=|/=|\\*=|%="
+				}
+			]
+		},
+		"phalcom.field": {
+			"name": "variable.other.field.phalcom",
+			"match": "\\b_[a-zA-Z][a-zA-Z0-9_]*\\b"
+		},
+		"variables": {
+			"patterns": [
+				{
+					"comment": "Capitalized identifier fallback. It may denote a class, alias, or another named type; semantic highlighting can refine it.",
+					"name": "entity.name.type.phalcom",
+					"match": "\\b[A-Z][a-zA-Z0-9_]*\\b"
+				},
+				{
+					"comment": "Bare generic call with parentheses or trailing closure.",
+					"name": "entity.name.function.phalcom",
+					"match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b(?=\\s*<[^>\\r\\n]*>\\s*(?:\\(|\\|))"
+				},
+				{
+					"comment": "Bare ordinary call with parentheses.",
+					"name": "entity.name.function.phalcom",
+					"match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b(?=\\s*\\()"
+				},
+				{
+					"comment": "Bare call using trailing-closure syntax.",
+					"name": "entity.name.function.phalcom",
+					"match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b(?=\\s*\\|\\s*(?:[a-zA-Z_][a-zA-Z0-9_]*(?:\\s*,\\s*[a-zA-Z_][a-zA-Z0-9_]*)*)?\\s*\\|\\s*\\{)"
+				},
+				{
+					"comment": "Ordinary lexical identifier. Bare implicit-receiver getter sends cannot be distinguished reliably from locals by TextMate; semantic highlighting should refine them.",
+					"name": "variable.other.readwrite.phalcom",
+					"match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
+				}
+			]
+		}
+	},
+	"scopeName": "source.phalcom"
+}

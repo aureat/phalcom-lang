@@ -28,13 +28,15 @@ pub struct DispatchOwner {
     pub side: DispatchSide,
 }
 
+use phalcom_ast::ast::RestMode;
+
 /// Parameter in a callable signature.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CallableParameter {
     pub external_label: Option<String>,
     pub local_name: String,
     pub ty: TypeKnowledge,
-    pub rest: bool,
+    pub rest: RestMode,
 }
 
 impl CallableParameter {
@@ -43,7 +45,7 @@ impl CallableParameter {
             external_label: None,
             local_name: local_name.into(),
             ty,
-            rest: false,
+            rest: RestMode::None,
         }
     }
 
@@ -52,9 +54,13 @@ impl CallableParameter {
         self
     }
 
-    pub fn with_rest(mut self, rest: bool) -> Self {
+    pub fn with_rest(mut self, rest: RestMode) -> Self {
         self.rest = rest;
         self
+    }
+
+    pub fn is_rest(&self) -> bool {
+        self.rest != RestMode::None
     }
 }
 
@@ -186,7 +192,7 @@ impl SurfaceDispatchResolver {
     /// Replaces an inferred return type on an existing source callable while
     /// retaining its parameters, selector, and declaration identity.
     pub fn update_callable_return_type(&mut self, callable: &CallableId, return_type: TypeKnowledge) -> bool {
-        let Some(surface) = self.surfaces.get_mut(&callable.owner) else {
+        let Some(surface) = self.surfaces.get_mut(callable.declaration_owner()) else {
             return false;
         };
         let member_surface = surface.surface_mut(callable.side);

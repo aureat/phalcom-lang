@@ -98,7 +98,7 @@ fn direct_and_nested_and_composite_substitution() {
         parameters: vec![CallableParameterType {
             label: None,
             ty: t_ty,
-            rest: false,
+            rest: phalcom_ast::ast::RestMode::None,
         }]
         .into_boxed_slice(),
         return_type: list_t,
@@ -108,7 +108,7 @@ fn direct_and_nested_and_composite_substitution() {
         parameters: vec![CallableParameterType {
             label: None,
             ty: int_ty,
-            rest: false,
+            rest: phalcom_ast::ast::RestMode::None,
         }]
         .into_boxed_slice(),
         return_type: expected_list_int,

@@ -8,7 +8,9 @@
 //! ([`CallFrame`]) are `Copy` too, so the interpreter carries no borrow-panic
 //! surface. Method lookup keys on signature symbols (`object-model.md` §3).
 
+pub mod adt;
 mod api;
+pub mod associated;
 mod bootstrap;
 mod dispatch;
 #[cfg(test)]
@@ -377,6 +379,8 @@ pub struct VM {
     pub strict_resources: bool,
     /// Numeric budget/resource policy.
     pub numeric_policy: crate::value::NumericPolicy,
+    /// Runtime ADT registry for enums and variants.
+    pub adt_registry: crate::adt::RuntimeAdtRegistry,
     /// Bounded free-list for recycling fiber stacks/frames to avoid
     /// allocations (U-GC step 5, `fiber-pool` feature). Measured net
     /// negative in whole-process A/B benchmarking (perf-log, 2026-07-14);

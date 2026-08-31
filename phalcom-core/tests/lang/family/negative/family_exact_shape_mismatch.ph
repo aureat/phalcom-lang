@@ -11,5 +11,5 @@ class Point {
   }
 }
 const p = Point.new(0, 0)
-const f = p::#move(to,duration)
+const f = Point::move::(to, duration);
 System.print(f(5))

@@ -41,6 +41,8 @@ pub struct FormalQueryInputs<'a> {
     pub declarations: &'a DeclarationTypeTable,
     pub field_signatures: Option<&'a crate::signature::FieldSignatureTable>,
     pub field_lifecycle: Option<&'a crate::checker::field_lifecycle::FieldLifecycleTable>,
+    pub enum_semantics: Option<&'a crate::enum_semantics::EnumSemanticTable>,
+    pub associated_families: Option<&'a crate::associated::AssociatedFamilyTable>,
 }
 
 fn semantic_dependency_query_key(dependency: &crate::checker::analysis::SemanticDependency) -> QueryKey {
@@ -51,6 +53,8 @@ fn semantic_dependency_query_key(dependency: &crate::checker::analysis::Semantic
         crate::checker::analysis::SemanticDependency::DeclarationSurface(declaration) => QueryKey::DeclarationSurface(declaration.clone()),
         crate::checker::analysis::SemanticDependency::HierarchyEdge(declaration) => QueryKey::HierarchyEdge(declaration.clone()),
         crate::checker::analysis::SemanticDependency::LinkedInterface(module) => QueryKey::LinkedInterface(module.clone()),
+        crate::checker::analysis::SemanticDependency::EnumDeclaration(declaration) => QueryKey::EnumDeclaration(declaration.clone()),
+        crate::checker::analysis::SemanticDependency::AssociatedSurface(declaration) => QueryKey::AssociatedSurface(declaration.clone()),
     }
 }
 
@@ -149,7 +153,7 @@ pub fn query_source_formal_attachment(
     attachment: Arc<CallableSourceAttachment>,
 ) -> QueryOutcome<Arc<CallableSourceAttachment>> {
     let key = QueryKey::SourceFormalAttachment(callable.clone());
-    let structure_key = QueryKey::SourceStructure(callable.owner.module.clone());
+    let structure_key = QueryKey::SourceStructure(callable.module().clone());
     let product_fingerprint = crate::db::fingerprint::source_formal_attachment_fingerprint(&attachment);
     let input_fingerprint = InputFingerprint::new(attachment_fingerprint(&attachment));
     if db.validate_reuse(&key, input_fingerprint) {
@@ -615,6 +619,97 @@ pub fn query_declaration_shell(db: &mut SemanticDb, info: Arc<DeclarationTypeInf
     QueryOutcome::Ready(info)
 }
 
+pub fn query_enum_declaration(
+    db: &mut SemanticDb,
+    product: Arc<crate::db::product::EnumDeclarationProduct>,
+) -> QueryOutcome<Arc<crate::db::product::EnumDeclarationProduct>> {
+    let key = QueryKey::EnumDeclaration(product.info.owner.clone());
+    let input_fingerprint = crate::db::fingerprint::enum_declaration_input_fingerprint(&product.info);
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(cached) = db.product(&key).and_then(|p| p.as_enum_declaration()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(cached.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    db.metrics().record_miss();
+    let product_fingerprint = crate::db::fingerprint::enum_declaration_product_fingerprint(&product);
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::EnumDeclaration(product.clone()),
+        Vec::new(),
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(product)
+}
+
+pub fn query_enum_requirements(
+    db: &mut SemanticDb,
+    owner: DeclarationId,
+    product: Arc<crate::db::product::EnumRequirementsProduct>,
+) -> QueryOutcome<Arc<crate::db::product::EnumRequirementsProduct>> {
+    let key = QueryKey::EnumRequirements(owner.clone());
+    let input_fingerprint = crate::db::fingerprint::enum_requirements_input_fingerprint(&owner);
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(cached) = db.product(&key).and_then(|p| p.as_enum_requirements()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(cached.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    db.metrics().record_miss();
+    let product_fingerprint = crate::db::fingerprint::enum_requirements_product_fingerprint(&product);
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::EnumRequirements(product.clone()),
+        Vec::new(),
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(product)
+}
+
+pub fn query_associated_surface(
+    db: &mut SemanticDb,
+    surface: Arc<crate::associated::AssociatedSurface>,
+) -> QueryOutcome<Arc<crate::associated::AssociatedSurface>> {
+    let key = QueryKey::AssociatedSurface(surface.owner.clone());
+    let input_fingerprint = crate::db::fingerprint::associated_surface_input_fingerprint(&surface.owner);
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(cached) = db.product(&key).and_then(|p| p.as_associated_surface()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(cached.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    db.metrics().record_miss();
+    let product_fingerprint = crate::db::fingerprint::associated_surface_product_fingerprint(&surface);
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::AssociatedSurface(surface.clone()),
+        Vec::new(),
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(surface)
+}
+
 /// Inputs for one declaration-surface query.
 pub struct DeclarationSurfaceQuery<'a> {
     pub decl_id: DeclarationId,
@@ -738,11 +833,11 @@ pub fn query_callable_signature(
     declarations: &DeclarationTypeTable,
 ) -> QueryOutcome<Arc<CallableSemanticSignature>> {
     let key = QueryKey::CallableSignature(callable.clone());
-    if unit.id != callable.owner.module {
+    if unit.id != *callable.module() {
         return query_failure(db, key, format!("source unit does not own callable {callable:?}"));
     }
 
-    let Some(declaration_info) = declarations.get(&callable.owner).cloned() else {
+    let Some(declaration_info) = declarations.get(callable.declaration_owner()).cloned() else {
         return query_failure(db, key, format!("missing declaration metadata for {:?}", callable.owner));
     };
     match query_declaration_shell(db, Arc::new(declaration_info)) {
@@ -753,25 +848,23 @@ pub fn query_callable_signature(
         QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
     }
 
-    let linked_key = QueryKey::LinkedInterface(callable.owner.module.clone());
+    let linked_key = QueryKey::LinkedInterface(callable.module().clone());
     if db.query_state(&linked_key).and_then(QueryState::validated_revision) != Some(db.revision()) {
         return query_failure(db, key, format!("CallableSignature prerequisite {linked_key:?} is not current"));
     }
 
-    let Some(class_def) = class_definition_for(&unit, &callable.owner) else {
+    let Some(class_def) = class_definition_for(&unit, callable.declaration_owner()) else {
         return query_failure(db, key, format!("missing class declaration for {:?}", callable.owner));
     };
-    let Some(member) = class_def
-        .members
-        .iter()
-        .find(|member| crate::checker::declaration_signature::callable_id_for_member(&callable.owner, member).is_some_and(|candidate| candidate == callable))
-    else {
+    let Some(member) = class_def.members.iter().find(|member| {
+        crate::checker::declaration_signature::callable_id_for_member(callable.declaration_owner(), member).is_some_and(|candidate| candidate == callable)
+    }) else {
         return query_failure(db, key, format!("missing source declaration for callable {callable:?}"));
     };
 
     let (signature, captured_dependencies) = {
-        let mut context = crate::checker::CheckingContext::new(store, hierarchy, resolver, declarations, callable.owner.module.clone());
-        let Some(signature) = crate::checker::declaration_signature::semantic_signature_for_member(&mut context, &callable.owner, member) else {
+        let mut context = crate::checker::CheckingContext::new(store, hierarchy, resolver, declarations, callable.module().clone());
+        let Some(signature) = crate::checker::declaration_signature::semantic_signature_for_member(&mut context, callable.declaration_owner(), member) else {
             return query_failure(db, key, format!("source member cannot publish callable signature {callable:?}"));
         };
         (Arc::new(signature), context.semantic_dependencies_snapshot())
@@ -789,7 +882,7 @@ pub fn query_callable_signature(
     }
     db.metrics().record_miss();
 
-    let mut dependency_keys = BTreeSet::from([QueryKey::DeclarationShell(callable.owner.clone()), linked_key]);
+    let mut dependency_keys = BTreeSet::from([QueryKey::DeclarationShell(callable.declaration_owner().clone()), linked_key]);
     dependency_keys.extend(captured_dependencies.iter().map(semantic_dependency_query_key));
     dependency_keys.remove(&key);
 
@@ -906,11 +999,11 @@ pub fn query_field_signature(
 }
 
 fn declaration_signature_id_for_body(callable: &CallableId, unit: &ParsedModuleUnit) -> Option<CallableId> {
-    let class_def = class_definition_for(unit, &callable.owner)?;
+    let class_def = class_definition_for(unit, callable.declaration_owner())?;
     if class_def
         .members
         .iter()
-        .any(|member| crate::checker::declaration_signature::callable_id_for_member(&callable.owner, member).as_ref() == Some(callable))
+        .any(|member| crate::checker::declaration_signature::callable_id_for_member(callable.declaration_owner(), member).as_ref() == Some(callable))
     {
         return Some(callable.clone());
     }
@@ -920,7 +1013,7 @@ fn declaration_signature_id_for_body(callable: &CallableId, unit: &ParsedModuleU
         if class_def
             .members
             .iter()
-            .any(|member| crate::checker::declaration_signature::callable_id_for_member(&callable.owner, member).as_ref() == Some(&class_side))
+            .any(|member| crate::checker::declaration_signature::callable_id_for_member(callable.declaration_owner(), member).as_ref() == Some(&class_side))
         {
             return Some(class_side);
         }
@@ -948,21 +1041,21 @@ fn ensure_callable_signature(
     formal_inputs: &FormalQueryInputs<'_>,
     store: &mut TypeStore,
 ) -> QueryOutcome<Arc<CallableSemanticSignature>> {
-    match ensure_declaration_shell(db, &callable.owner, formal_inputs.declarations) {
+    match ensure_declaration_shell(db, callable.declaration_owner(), formal_inputs.declarations) {
         QueryOutcome::Ready(_) => {}
         QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
         QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
         QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
         QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
     }
-    match ensure_linked_interface(db, &callable.owner.module, formal_inputs.linked) {
+    match ensure_linked_interface(db, callable.module(), formal_inputs.linked) {
         QueryOutcome::Ready(_) => {}
         QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
         QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
         QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
         QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
     }
-    let Some(unit) = formal_inputs.sources.get(&callable.owner.module).cloned() else {
+    let Some(unit) = formal_inputs.sources.get(callable.module()).cloned() else {
         return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
     };
     query_callable_signature(
@@ -1150,7 +1243,7 @@ fn query_callable_body_with_requirement(
     // instance-side while consuming their class-side constructor declaration.
     let declared_signature = match formal_inputs {
         Some(inputs) => {
-            let Some(unit) = inputs.sources.get(&callable.owner.module).cloned() else {
+            let Some(unit) = inputs.sources.get(callable.module()).cloned() else {
                 return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
             };
             let Some(signature_id) = declaration_signature_id_for_body(&callable, &unit) else {
@@ -1230,6 +1323,8 @@ fn query_callable_body_with_requirement(
             cancel,
             field_signatures: formal_inputs.and_then(|inputs| inputs.field_signatures),
             field_lifecycle: formal_inputs.and_then(|inputs| inputs.field_lifecycle),
+            enum_semantics: formal_inputs.and_then(|inputs| inputs.enum_semantics),
+            associated_families: formal_inputs.and_then(|inputs| inputs.associated_families),
         },
     );
 

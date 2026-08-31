@@ -27,6 +27,7 @@ impl VM {
 
                 let mut module_obj = ModuleObject::new(id.clone(), compiled_mod.kind, display_name, name_sym, path, None, false);
                 module_obj.metadata = Some(Arc::new(compiled_mod.interface.metadata.clone()));
+                module_obj.lowering = Some(compiled_mod.lowering.clone());
                 let obj_ref = self.heap.alloc(Object::Module(Box::new(module_obj)));
                 if matches!(
                     id.project,
@@ -233,6 +234,10 @@ impl VM {
                 match decl {
                     crate::modules::RuntimeDeclarationBlueprint::Global { symbol, .. } => {
                         let sym = self.interner.intern(&symbol.name);
+                        self.heap.module_mut(obj_ref).declare(sym)?;
+                    }
+                    crate::modules::RuntimeDeclarationBlueprint::Enum(enum_bp) => {
+                        let sym = self.interner.intern(&enum_bp.symbol.name);
                         self.heap.module_mut(obj_ref).declare(sym)?;
                     }
                     crate::modules::RuntimeDeclarationBlueprint::Class(_class_bp) => {}

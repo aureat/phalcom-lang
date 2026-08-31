@@ -373,7 +373,7 @@ impl FormalSemanticProjection {
         let mut ordered = analyses.values().cloned().collect::<Vec<_>>();
         ordered.sort_by(|left, right| left.callable.cmp(&right.callable));
         for analysis in ordered {
-            let module = analysis.callable.owner.module.clone();
+            let module = analysis.callable.module().clone();
             let module_index = source_index.and_then(|index| index.module(&module));
             let callable_fact = FormalFactRef::Callable(analysis.callable.clone());
             sites.push(FormalFactSite {

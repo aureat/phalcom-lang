@@ -778,6 +778,37 @@ fn hash_denotation(denotation: &Option<SemanticDenotation>, hasher: &mut impl Ha
             2u8.hash(hasher);
             kind.hash(hasher);
         }
+        Some(SemanticDenotation::AssociatedValue(assoc)) => {
+            3u8.hash(hasher);
+            match &**assoc {
+                crate::types::denotation::AssociatedValueDenotation::Exact {
+                    owner_form,
+                    lookup_owner,
+                    member,
+                    target,
+                } => {
+                    0u8.hash(hasher);
+                    owner_form.hash(hasher);
+                    lookup_owner.hash(hasher);
+                    member.hash(hasher);
+                    target.hash(hasher);
+                }
+                crate::types::denotation::AssociatedValueDenotation::Family {
+                    owner_form,
+                    lookup_owner,
+                    family,
+                    members,
+                } => {
+                    1u8.hash(hasher);
+                    owner_form.hash(hasher);
+                    lookup_owner.hash(hasher);
+                    family.hash(hasher);
+                    for m in members.iter() {
+                        m.hash(hasher);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1355,7 +1386,7 @@ pub fn callable_body_input_fingerprint_with_fields(
 ) -> InputFingerprint {
     let mut hasher = DefaultHasher::new();
     callable_body_input_fingerprint(callable, body, body_range, store).0.hash(&mut hasher);
-    for (field, fact) in lifecycle.fields.iter().filter(|(field, _)| field.owner == callable.owner) {
+    for (field, fact) in lifecycle.fields.iter().filter(|(field, _)| &field.owner == callable.declaration_owner()) {
         field.hash(&mut hasher);
         hash_type_knowledge(&fact.contract, true, &mut hasher);
         hash_type_knowledge(&fact.read_knowledge, true, &mut hasher);
@@ -1381,13 +1412,13 @@ pub fn callable_body_input_fingerprint_with_formal_inputs(
 ) -> InputFingerprint {
     let mut hasher = DefaultHasher::new();
     callable_body_input_fingerprint(callable, body, body_range, store).0.hash(&mut hasher);
-    if let Some(unit) = sources.get(&callable.owner.module) {
+    if let Some(unit) = sources.get(callable.module()) {
         unit.text.get(body_range.start..body_range.end).map(str::as_bytes).hash(&mut hasher);
     }
     source_resolution_input_fingerprint(sources).raw().hash(&mut hasher);
     semantic_component_product_fingerprint(linked).raw().hash(&mut hasher);
     if let Some(lifecycle) = lifecycle {
-        for (field, fact) in lifecycle.fields.iter().filter(|(field, _)| field.owner == callable.owner) {
+        for (field, fact) in lifecycle.fields.iter().filter(|(field, _)| &field.owner == callable.declaration_owner()) {
             field.hash(&mut hasher);
             hash_type_knowledge(&fact.contract, true, &mut hasher);
             hash_type_knowledge(&fact.read_knowledge, true, &mut hasher);
@@ -1446,6 +1477,7 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
         binding.version.hash(&mut hasher);
     }
 
+    hash_match_resolutions(&analysis.match_resolutions, &mut hasher);
     hash_flow_graph_semantics(&analysis.flow_graph, &mut hasher);
     hash_flow_summary(&analysis.entry_flow, &mut hasher);
     hash_exit_facts(&analysis.exits, &mut hasher);
@@ -1461,6 +1493,240 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
     // `dependency_fingerprint` is assigned from this fingerprint after
     // computation. Hashing it would make the product definition recursive.
     finish_product(hasher)
+}
+
+fn hash_match_resolutions(resolutions: &crate::match_semantics::MatchResolutionIndex, hasher: &mut impl Hasher) {
+    resolutions.len().hash(hasher);
+    for (expr_id, resolution) in resolutions.iter() {
+        expr_id.hash(hasher);
+        hash_match_resolution(resolution, hasher);
+    }
+}
+
+fn hash_match_resolution(res: &crate::match_semantics::MatchResolution, hasher: &mut impl Hasher) {
+    res.expression.hash(hasher);
+    hash_type_knowledge(&res.scrutinee, false, hasher);
+    hash_pattern_space_summary(&res.initial_space, hasher);
+    res.arms.len().hash(hasher);
+    for arm in res.arms.iter() {
+        hash_match_arm_resolution(arm, hasher);
+    }
+    hash_type_knowledge(&res.result, false, hasher);
+    hash_exhaustiveness_result(&res.exhaustiveness, hasher);
+}
+
+fn hash_match_arm_resolution(arm: &crate::match_semantics::MatchArmResolution, hasher: &mut impl Hasher) {
+    arm.arm_index.hash(hasher);
+    hash_pattern_resolution(&arm.pattern, hasher);
+    hash_pattern_space_summary(&arm.reachable_space, hasher);
+    hash_pattern_space_summary(&arm.residual_after, hasher);
+    arm.bindings.len().hash(hasher);
+    for b in arm.bindings.iter() {
+        b.binding.hash(hasher);
+        b.name.hash(hasher);
+        hash_type_knowledge(&b.knowledge, false, hasher);
+        hash_range(b.source, hasher);
+    }
+    hash_branch_proof_environment(&arm.proof, hasher);
+    match arm.usefulness {
+        crate::match_semantics::PatternUsefulness::Useful => 0u8.hash(hasher),
+        crate::match_semantics::PatternUsefulness::Redundant => 1u8.hash(hasher),
+        crate::match_semantics::PatternUsefulness::Impossible => 2u8.hash(hasher),
+    }
+    hash_type_knowledge(&arm.branch_result, false, hasher);
+}
+
+fn hash_pattern_resolution(pat: &crate::match_semantics::PatternResolution, hasher: &mut impl Hasher) {
+    match pat {
+        crate::match_semantics::PatternResolution::Wildcard => 0u8.hash(hasher),
+        crate::match_semantics::PatternResolution::Binding { binding, name, knowledge } => {
+            1u8.hash(hasher);
+            binding.hash(hasher);
+            name.hash(hasher);
+            hash_type_knowledge(knowledge, false, hasher);
+        }
+        crate::match_semantics::PatternResolution::Variant(v) => {
+            2u8.hash(hasher);
+            v.owner.hash(hasher);
+            v.family.hash(hasher);
+            match &v.selector {
+                crate::match_semantics::VariantSelectorConstraint::Exact(sel) => {
+                    0u8.hash(hasher);
+                    sel.hash(hasher);
+                }
+                crate::match_semantics::VariantSelectorConstraint::Pattern(pat) => {
+                    1u8.hash(hasher);
+                    pat.hash(hasher);
+                }
+                crate::match_semantics::VariantSelectorConstraint::WholeFamily => 2u8.hash(hasher),
+            }
+            v.candidates.len().hash(hasher);
+            for c in v.candidates.iter() {
+                c.variant.hash(hasher);
+                c.exact_case.hash(hasher);
+                c.fields.len().hash(hasher);
+                for f in c.fields.iter() {
+                    f.field.hash(hasher);
+                    hash_type_knowledge(&f.field_type, false, hasher);
+                    hash_pattern_resolution(&f.child, hasher);
+                }
+                hash_branch_proof_environment(&c.proof, hasher);
+            }
+        }
+        crate::match_semantics::PatternResolution::Or(or_pat) => {
+            3u8.hash(hasher);
+            or_pat.alternatives.len().hash(hasher);
+            for alt in or_pat.alternatives.iter() {
+                hash_pattern_resolution(alt, hasher);
+            }
+        }
+        crate::match_semantics::PatternResolution::Tuple(elems) => {
+            4u8.hash(hasher);
+            elems.len().hash(hasher);
+            for e in elems.iter() {
+                hash_pattern_resolution(e, hasher);
+            }
+        }
+        crate::match_semantics::PatternResolution::List(list) => {
+            5u8.hash(hasher);
+            list.prefix.len().hash(hasher);
+            for p in list.prefix.iter() {
+                hash_pattern_resolution(p, hasher);
+            }
+            list.rest.is_some().hash(hasher);
+            if let Some(ref r) = list.rest {
+                hash_pattern_resolution(r, hasher);
+            }
+        }
+        crate::match_semantics::PatternResolution::Record(fields) => {
+            6u8.hash(hasher);
+            fields.len().hash(hasher);
+            for f in fields.iter() {
+                f.label.hash(hasher);
+                hash_pattern_resolution(&f.child, hasher);
+            }
+        }
+        crate::match_semantics::PatternResolution::Map(entries) => {
+            7u8.hash(hasher);
+            entries.len().hash(hasher);
+            for e in entries.iter() {
+                e.key.hash(hasher);
+                hash_pattern_resolution(&e.child, hasher);
+            }
+        }
+    }
+}
+
+fn hash_pattern_space_summary(space: &crate::match_semantics::PatternSpaceSummary, hasher: &mut impl Hasher) {
+    match space {
+        crate::match_semantics::PatternSpaceSummary::Empty => 0u8.hash(hasher),
+        crate::match_semantics::PatternSpaceSummary::Opaque(ty) => {
+            1u8.hash(hasher);
+            ty.hash(hasher);
+        }
+        crate::match_semantics::PatternSpaceSummary::Union(members) => {
+            2u8.hash(hasher);
+            members.len().hash(hasher);
+            for m in members.iter() {
+                hash_pattern_space_summary(m, hasher);
+            }
+        }
+        crate::match_semantics::PatternSpaceSummary::Variant { variant, exact_case, fields } => {
+            3u8.hash(hasher);
+            variant.hash(hasher);
+            exact_case.hash(hasher);
+            fields.len().hash(hasher);
+            for f in fields.iter() {
+                hash_pattern_space_summary(f, hasher);
+            }
+        }
+        crate::match_semantics::PatternSpaceSummary::Tuple(elems) => {
+            4u8.hash(hasher);
+            elems.len().hash(hasher);
+            for e in elems.iter() {
+                hash_pattern_space_summary(e, hasher);
+            }
+        }
+        crate::match_semantics::PatternSpaceSummary::List => 5u8.hash(hasher),
+    }
+}
+
+fn hash_branch_proof_environment(proof: &crate::match_semantics::BranchProofEnvironment, hasher: &mut impl Hasher) {
+    proof.bindings.len().hash(hasher);
+    for (param, ty) in &proof.bindings {
+        param.hash(hasher);
+        ty.hash(hasher);
+    }
+    proof.equalities.len().hash(hasher);
+    for eq in proof.equalities.iter() {
+        match eq {
+            crate::types::TypeConstraint::Equal(a, b) => {
+                0u8.hash(hasher);
+                a.hash(hasher);
+                b.hash(hasher);
+            }
+            crate::types::TypeConstraint::Subtype(sub, sup) => {
+                1u8.hash(hasher);
+                sub.hash(hasher);
+                sup.hash(hasher);
+            }
+            crate::types::TypeConstraint::HasMember(ty, sel) => {
+                2u8.hash(hasher);
+                ty.hash(hasher);
+                sel.hash(hasher);
+            }
+        }
+    }
+}
+
+fn hash_exhaustiveness_result(res: &crate::match_semantics::ExhaustivenessResult, hasher: &mut impl Hasher) {
+    match res {
+        crate::match_semantics::ExhaustivenessResult::Proven => 0u8.hash(hasher),
+        crate::match_semantics::ExhaustivenessResult::Missing(witnesses) => {
+            1u8.hash(hasher);
+            witnesses.len().hash(hasher);
+            for w in witnesses.iter() {
+                hash_coverage_witness(w, hasher);
+            }
+        }
+        crate::match_semantics::ExhaustivenessResult::Blocked(b) => {
+            2u8.hash(hasher);
+            hash_block_reason(b, hasher);
+        }
+    }
+}
+
+fn hash_coverage_witness(w: &crate::match_semantics::CoverageWitness, hasher: &mut impl Hasher) {
+    match w {
+        crate::match_semantics::CoverageWitness::Variant { variant, exact_case, fields } => {
+            0u8.hash(hasher);
+            variant.hash(hasher);
+            exact_case.hash(hasher);
+            fields.len().hash(hasher);
+            for f in fields.iter() {
+                hash_coverage_witness(f, hasher);
+            }
+        }
+        crate::match_semantics::CoverageWitness::Tuple(elems) => {
+            1u8.hash(hasher);
+            elems.len().hash(hasher);
+            for e in elems.iter() {
+                hash_coverage_witness(e, hasher);
+            }
+        }
+        crate::match_semantics::CoverageWitness::List(elems) => {
+            2u8.hash(hasher);
+            elems.len().hash(hasher);
+            for e in elems.iter() {
+                hash_coverage_witness(e, hasher);
+            }
+        }
+        crate::match_semantics::CoverageWitness::Opaque(ty) => {
+            3u8.hash(hasher);
+            ty.hash(hasher);
+        }
+        crate::match_semantics::CoverageWitness::Wildcard => 4u8.hash(hasher),
+    }
 }
 
 /// Computes product fingerprint for resolved imports.
@@ -1560,6 +1826,64 @@ pub fn advisory_module_input_fingerprint(product: &crate::advisory::AdvisoryModu
 
 pub fn advisory_module_product_fingerprint(product: &crate::advisory::AdvisoryModuleProduct) -> ProductFingerprint {
     product.fingerprint
+}
+
+pub fn enum_declaration_input_fingerprint(info: &crate::enum_semantics::EnumInfo) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    info.owner.hash(&mut hasher);
+    info.root_form.hash(&mut hasher);
+    info.variants.hash(&mut hasher);
+    finish_input(hasher)
+}
+
+pub fn enum_declaration_product_fingerprint(product: &crate::db::product::EnumDeclarationProduct) -> ProductFingerprint {
+    let mut hasher = DefaultHasher::new();
+    product.info.owner.hash(&mut hasher);
+    product.info.variants.hash(&mut hasher);
+    for v in product.variants.iter() {
+        v.id.hash(&mut hasher);
+        v.type_handle.hash(&mut hasher);
+        v.shape.hash(&mut hasher);
+        v.result_type_template.hash(&mut hasher);
+        v.exact_case_template.hash(&mut hasher);
+    }
+    finish_product(hasher)
+}
+
+pub fn enum_requirements_input_fingerprint(owner: &DeclarationId) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    owner.hash(&mut hasher);
+    finish_input(hasher)
+}
+
+pub fn enum_requirements_product_fingerprint(product: &crate::db::product::EnumRequirementsProduct) -> ProductFingerprint {
+    let mut hasher = DefaultHasher::new();
+    for req in product.requirements.iter() {
+        req.id.hash(&mut hasher);
+    }
+    for status in product.case_statuses.iter() {
+        status.variant.hash(&mut hasher);
+        status.requirement.hash(&mut hasher);
+    }
+    finish_product(hasher)
+}
+
+pub fn associated_surface_input_fingerprint(owner: &DeclarationId) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    owner.hash(&mut hasher);
+    finish_input(hasher)
+}
+
+pub fn associated_surface_product_fingerprint(surface: &crate::associated::AssociatedSurface) -> ProductFingerprint {
+    let mut hasher = DefaultHasher::new();
+    surface.owner.hash(&mut hasher);
+    for (base, family) in &surface.families {
+        base.hash(&mut hasher);
+        family.id.hash(&mut hasher);
+        family.kind.hash(&mut hasher);
+        family.members.hash(&mut hasher);
+    }
+    finish_product(hasher)
 }
 
 #[cfg(test)]

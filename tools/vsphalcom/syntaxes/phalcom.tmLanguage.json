@@ -36,6 +36,18 @@
 			"include": "#phalcom.class-declaration"
 		},
 		{
+			"include": "#phalcom.enum-declaration"
+		},
+		{
+			"include": "#phalcom.enum-case-declaration"
+		},
+		{
+			"include": "#phalcom.enum-variant"
+		},
+		{
+			"include": "#phalcom.match-pattern"
+		},
+		{
 			"include": "#phalcom.where-clause"
 		},
 		{
@@ -129,6 +141,12 @@
 			},
 			"patterns": [
 				{
+					"include": "#phalcom.enum-variant"
+				},
+				{
+					"include": "#phalcom.match-pattern"
+				},
+				{
 					"include": "#phalcom.interpolation.round"
 				},
 				{
@@ -189,6 +207,12 @@
 			"begin": "\\(",
 			"end": "\\)",
 			"patterns": [
+				{
+					"include": "#phalcom.enum-variant"
+				},
+				{
+					"include": "#phalcom.match-pattern"
+				},
 				{
 					"include": "#phalcom.interpolation.round"
 				},
@@ -731,11 +755,11 @@
 				{
 					"comment": "Declaration keywords. The Phalcom theme should color these the same as keyword.declaration.annotation.phalcom.",
 					"name": "keyword.declaration.phalcom",
-					"match": "\\b(let|const|type|class)\\b"
+					"match": "\\b(let|const|type|class|enum|case)\\b"
 				},
 				{
 					"name": "keyword.control.phalcom",
-					"match": "\\b(try|catch|on|ensure|throw|break|continue|match|return|while|for|if|else|import|from|export|expose)\\b"
+					"match": "\\b(try|catch|on|ensure|throw|break|continue|match|when|return|while|for|if|else|import|from|export|expose)\\b"
 				},
 				{
 					"name": "keyword.operator.word.phalcom",
@@ -793,6 +817,297 @@
 					"comment": "Ordinary lexical identifier. Bare implicit-receiver getter sends cannot be distinguished reliably from locals by TextMate; semantic highlighting should refine them.",
 					"name": "variable.other.readwrite.phalcom",
 					"match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
+				}
+			]
+		},
+		"phalcom.enum-declaration": {
+			"patterns": [
+				{
+					"comment": "Generic enum/ADT/GADT declaration, e.g. enum Option<T> { ... }.",
+					"begin": "\\b(enum)\\s+([A-Z][a-zA-Z0-9_]*)\\s*(<)",
+					"beginCaptures": {
+						"1": {
+							"name": "keyword.declaration.phalcom"
+						},
+						"2": {
+							"name": "entity.name.type.enum.phalcom"
+						},
+						"3": {
+							"name": "punctuation.definition.generic.begin.phalcom"
+						}
+					},
+					"end": ">",
+					"endCaptures": {
+						"0": {
+							"name": "punctuation.definition.generic.end.phalcom"
+						}
+					},
+					"patterns": [
+						{
+							"include": "#phalcom.generic-parameter-declaration"
+						}
+					]
+				},
+				{
+					"comment": "Non-generic enum declaration.",
+					"match": "\\b(enum)\\s+([A-Z][a-zA-Z0-9_]*)",
+					"captures": {
+						"1": {
+							"name": "keyword.declaration.phalcom"
+						},
+						"2": {
+							"name": "entity.name.type.enum.phalcom"
+						}
+					}
+				}
+			]
+		},
+		"phalcom.enum-case-declaration": {
+			"comment": "Alternative enum-case syntax under consideration: case Up, Down; case North = 0; case North => 0.",
+			"name": "meta.enum.case-list.phalcom",
+			"begin": "\\b(case)\\b",
+			"beginCaptures": {
+				"1": {
+					"name": "keyword.declaration.phalcom"
+				}
+			},
+			"end": "(?=\\r?$)",
+			"patterns": [
+				{
+					"name": "entity.name.type.variant.phalcom",
+					"match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
+				},
+				{
+					"name": "punctuation.separator.sequence.phalcom",
+					"match": ","
+				},
+				{
+					"name": "keyword.operator.phalcom",
+					"match": "=>|="
+				},
+				{
+					"include": "#phalcom.number"
+				},
+				{
+					"include": "#phalcom.string"
+				},
+				{
+					"include": "#phalcom.symbol"
+				},
+				{
+					"include": "#phalcom.comment"
+				}
+			]
+		},
+		"phalcom.enum-variant": {
+			"patterns": [
+				{
+					"comment": "Generic @variant declaration, including GADT constructors such as @variant Some<T>(...) -> Option<T>.",
+					"begin": "(@variant)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*(<)",
+					"beginCaptures": {
+						"1": {
+							"name": "storage.modifier.annotation.structure.phalcom"
+						},
+						"2": {
+							"name": "entity.name.type.variant.phalcom"
+						},
+						"3": {
+							"name": "punctuation.definition.generic.begin.phalcom"
+						}
+					},
+					"end": ">",
+					"endCaptures": {
+						"0": {
+							"name": "punctuation.definition.generic.end.phalcom"
+						}
+					},
+					"patterns": [
+						{
+							"include": "#phalcom.generic-parameter-declaration"
+						}
+					]
+				},
+				{
+					"comment": "Ordinary or nullary @variant declaration.",
+					"match": "(@variant)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+					"captures": {
+						"1": {
+							"name": "storage.modifier.annotation.structure.phalcom"
+						},
+						"2": {
+							"name": "entity.name.type.variant.phalcom"
+						}
+					}
+				},
+				{
+					"comment": "Generic dot-prefixed enum-case syntax under consideration, e.g. .Some<T>(...) or .Case<T>.",
+					"begin": "(\\.)([A-Z][a-zA-Z0-9_]*)\\s*(<)",
+					"beginCaptures": {
+						"1": {
+							"name": "punctuation.accessor.phalcom"
+						},
+						"2": {
+							"name": "entity.name.type.variant.phalcom"
+						},
+						"3": {
+							"name": "punctuation.definition.generic.begin.phalcom"
+						}
+					},
+					"end": ">",
+					"endCaptures": {
+						"0": {
+							"name": "punctuation.definition.generic.end.phalcom"
+						}
+					},
+					"patterns": [
+						{
+							"include": "#phalcom.generic-parameter-declaration"
+						}
+					]
+				},
+				{
+					"comment": "Dot-prefixed enum-case syntax under consideration: .Up, .North = 0, etc. Capitalization is only a TextMate heuristic, not a language semantic rule.",
+					"match": "(\\.)([A-Z][a-zA-Z0-9_]*)\\b",
+					"captures": {
+						"1": {
+							"name": "punctuation.accessor.phalcom"
+						},
+						"2": {
+							"name": "entity.name.type.variant.phalcom"
+						}
+					}
+				}
+			]
+		},
+		"phalcom.match-pattern": {
+			"comment": "Rust-like match-arm/pattern highlighting. TextMate cannot prove the scrutinee type, so variant heuristics are constrained to lines containing => where possible.",
+			"patterns": [
+				{
+					"comment": "Qualified generic variant in a match arm, e.g. Option.Some<T>(x) => ...",
+					"begin": "\\b([A-Z][a-zA-Z0-9_]*)(\\.)([A-Z][a-zA-Z0-9_]*)(<)(?=[^>\\r\\n]+>\\s*(?:\\(|\\bwhen\\b|=>))(?=[^\\r\\n]*=>)",
+					"beginCaptures": {
+						"1": {
+							"name": "entity.name.type.phalcom"
+						},
+						"2": {
+							"name": "punctuation.accessor.phalcom"
+						},
+						"3": {
+							"name": "entity.name.type.variant.phalcom"
+						},
+						"4": {
+							"name": "punctuation.definition.generic.begin.phalcom"
+						}
+					},
+					"end": ">",
+					"endCaptures": {
+						"0": {
+							"name": "punctuation.definition.generic.end.phalcom"
+						}
+					},
+					"patterns": [
+						{
+							"include": "#phalcom.type-lambda"
+						},
+						{
+							"include": "#phalcom.type-parameter-application"
+						},
+						{
+							"include": "#phalcom.type-application"
+						},
+						{
+							"include": "#phalcom.type-builtin"
+						},
+						{
+							"include": "#phalcom.type-parameter-reference"
+						},
+						{
+							"include": "#phalcom.type-operator"
+						},
+						{
+							"name": "punctuation.separator.generic.phalcom",
+							"match": ","
+						}
+					]
+				},
+				{
+					"comment": "Qualified variant in a match arm, e.g. Option.Some(tuple) when ... => ...",
+					"match": "\\b([A-Z][a-zA-Z0-9_]*)(\\.)([A-Z][a-zA-Z0-9_]*)\\b(?=[^\\r\\n]*=>)",
+					"captures": {
+						"1": {
+							"name": "entity.name.type.phalcom"
+						},
+						"2": {
+							"name": "punctuation.accessor.phalcom"
+						},
+						"3": {
+							"name": "entity.name.type.variant.phalcom"
+						}
+					}
+				},
+				{
+					"comment": "Unqualified generic variant in a match arm.",
+					"begin": "\\b([A-Z][a-zA-Z0-9_]*)(<)(?=[^>\\r\\n]+>\\s*(?:\\(|\\bwhen\\b|=>))(?=[^\\r\\n]*=>)",
+					"beginCaptures": {
+						"1": {
+							"name": "entity.name.type.variant.phalcom"
+						},
+						"2": {
+							"name": "punctuation.definition.generic.begin.phalcom"
+						}
+					},
+					"end": ">",
+					"endCaptures": {
+						"0": {
+							"name": "punctuation.definition.generic.end.phalcom"
+						}
+					},
+					"patterns": [
+						{
+							"include": "#phalcom.type-lambda"
+						},
+						{
+							"include": "#phalcom.type-parameter-application"
+						},
+						{
+							"include": "#phalcom.type-application"
+						},
+						{
+							"include": "#phalcom.type-builtin"
+						},
+						{
+							"include": "#phalcom.type-parameter-reference"
+						},
+						{
+							"include": "#phalcom.type-operator"
+						},
+						{
+							"name": "punctuation.separator.generic.phalcom",
+							"match": ","
+						}
+					]
+				},
+				{
+					"comment": "Unqualified variant constructor/nullary case on the pattern side of a match arm: Some(...), None => ...",
+					"name": "entity.name.type.variant.phalcom",
+					"match": "\\b[A-Z][a-zA-Z0-9_]*\\b(?=\\s*(?:\\(|\\bwhen\\b|=>))(?=[^\\r\\n]*=>)"
+				},
+				{
+					"comment": "Wildcard in a match arm.",
+					"name": "constant.language.wildcard.phalcom",
+					"match": "(?<![a-zA-Z0-9_])_(?![a-zA-Z0-9_])(?=[^\\r\\n]*=>)"
+				},
+				{
+					"comment": "Labeled tuple/record-pattern component before the match arrow, e.g. x: _.",
+					"match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)(\\s*:)(?=\\s*[^,\\)\\]}]+)(?=[^\\r\\n]*=>)",
+					"captures": {
+						"1": {
+							"name": "variable.other.member.pattern.phalcom"
+						},
+						"2": {
+							"name": "punctuation.separator.key-value.phalcom"
+						}
+					}
 				}
 			]
 		}

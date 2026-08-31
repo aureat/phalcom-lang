@@ -11,7 +11,7 @@ use crate::identity::{CallableId, CallableParameterId, DeclarationId, DispatchSi
 use crate::signature::{CallableParameterSemantic, CallableSemanticSignature, FieldSemanticSignature};
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
 use crate::types::parameter::TypeParameterOwner;
-use phalcom_ast::ast::{ClassMember, ParameterDef, RestMode};
+use phalcom_ast::ast::{ClassMember, ParameterDef};
 use phalcom_common::selector::{Selector, SelectorSlot};
 
 pub(crate) fn callable_id_for_member(owner: &DeclarationId, member: &ClassMember) -> Option<CallableId> {
@@ -21,11 +21,18 @@ pub(crate) fn callable_id_for_member(owner: &DeclarationId, member: &ClassMember
             let slots = method
                 .params
                 .iter()
+                .filter(|parameter| parameter.rest_mode == phalcom_ast::ast::RestMode::None)
                 .map(|parameter| {
                     parameter
                         .label
                         .as_ref()
-                        .map(|label| SelectorSlot::Label(label.clone()))
+                        .map(|label| {
+                            if label == "_" {
+                                SelectorSlot::Positional
+                            } else {
+                                SelectorSlot::Label(label.clone())
+                            }
+                        })
                         .unwrap_or(SelectorSlot::Positional)
                 })
                 .collect::<Vec<_>>();
@@ -48,7 +55,13 @@ pub(crate) fn callable_id_for_member(owner: &DeclarationId, member: &ClassMember
                     parameter
                         .label
                         .as_ref()
-                        .map(|label| SelectorSlot::Label(label.clone()))
+                        .map(|label| {
+                            if label == "_" {
+                                SelectorSlot::Positional
+                            } else {
+                                SelectorSlot::Label(label.clone())
+                            }
+                        })
                         .unwrap_or(SelectorSlot::Positional)
                 })
                 .collect::<Vec<_>>();
@@ -349,8 +362,7 @@ pub(crate) fn project_semantic_signature(signature: &CallableSemanticSignature) 
         .parameters
         .iter()
         .map(|parameter| {
-            let mut projected =
-                CallableParameter::new(parameter.local_name.to_string(), parameter.declared_type.to_knowledge()).with_rest(parameter.rest != RestMode::None);
+            let mut projected = CallableParameter::new(parameter.local_name.to_string(), parameter.declared_type.to_knowledge()).with_rest(parameter.rest);
             if let Some(label) = &parameter.external_label {
                 projected = projected.with_label(label.to_string());
             }

@@ -169,7 +169,8 @@ impl TypeReferenceTargetCollector<'_> {
             | Statement::Break { .. }
             | Statement::Continue { .. }
             | Statement::Throw { .. }
-            | Statement::Export(_) => {}
+            | Statement::Export(_)
+            | Statement::Enum(_) => {}
         }
     }
 
@@ -393,7 +394,7 @@ impl SourceScopeBuilder<'_> {
                 Statement::Expr { expr, .. } => self.visit_expr(scope, expr),
                 Statement::For(for_statement) => self.visit_for(scope, for_statement),
                 Statement::Throw { expr, .. } => self.visit_expr(scope, expr),
-                Statement::Export(_) | Statement::Break { .. } | Statement::Continue { .. } | Statement::TypeAlias(_) => {}
+                Statement::Export(_) | Statement::Break { .. } | Statement::Continue { .. } | Statement::TypeAlias(_) | Statement::Enum(_) => {}
             }
         }
     }
@@ -553,7 +554,12 @@ impl SourceScopeBuilder<'_> {
         is_constructor: bool,
         member_side: DispatchSide,
     ) -> Option<CallableId> {
-        let slots = method.params.iter().map(parameter_slot).collect::<Vec<_>>();
+        let slots = method
+            .params
+            .iter()
+            .filter(|p| p.rest_mode == phalcom_ast::ast::RestMode::None)
+            .map(parameter_slot)
+            .collect::<Vec<_>>();
         Selector::method(&method.name, slots)
             .ok()
             .map(|selector| CallableId::new(declaration.clone(), selector, if is_constructor { DispatchSide::Class } else { member_side }))
@@ -657,11 +663,25 @@ impl SourceScopeBuilder<'_> {
                     self.declare_pattern_with_annotation(scope, rest, SourceBindingKind::Destructure, mutable, has_explicit_annotation);
                 }
             }
-            Pattern::Variant { arguments, .. } => {
-                for argument in arguments {
-                    self.declare_pattern_with_annotation(scope, argument, SourceBindingKind::Destructure, mutable, has_explicit_annotation);
+            Pattern::Wildcard { .. } => {}
+            Pattern::Or { alternatives, .. } => {
+                for alt in alternatives {
+                    self.declare_pattern_with_annotation(scope, alt, SourceBindingKind::Destructure, mutable, has_explicit_annotation);
                 }
             }
+            Pattern::Variant(variant) => match &variant.mode {
+                phalcom_ast::ast::VariantPatternMode::ExactCall { arguments } => {
+                    for argument in arguments {
+                        self.declare_pattern_with_annotation(scope, &argument.pattern, SourceBindingKind::Destructure, mutable, has_explicit_annotation);
+                    }
+                }
+                phalcom_ast::ast::VariantPatternMode::CallablePattern { prefix, suffix, .. } => {
+                    for argument in prefix.iter().chain(suffix.iter()) {
+                        self.declare_pattern_with_annotation(scope, &argument.pattern, SourceBindingKind::Destructure, mutable, has_explicit_annotation);
+                    }
+                }
+                phalcom_ast::ast::VariantPatternMode::Singleton | phalcom_ast::ast::VariantPatternMode::WholeFamily { .. } => {}
+            },
             Pattern::Record { entries, .. } => {
                 for entry in entries {
                     self.declare_pattern_with_annotation(scope, &entry.pattern, SourceBindingKind::Destructure, mutable, has_explicit_annotation);
@@ -764,7 +784,6 @@ impl SourceScopeBuilder<'_> {
                 self.visit_expr(scope, &index.value);
             }
             Expr::Block(block) => self.visit_block(scope, block),
-            Expr::MethodRef(reference) => self.visit_expr(scope, &reference.receiver),
             Expr::TupleLiteral(tuple) => {
                 for entry in &tuple.entries {
                     match entry {
@@ -818,6 +837,19 @@ impl SourceScopeBuilder<'_> {
                             self.visit_expr(scope, expr)
                         }
                     }
+                }
+            }
+            Expr::AssociatedLookup(lookup) => self.visit_expr(scope, &lookup.receiver),
+            Expr::AssociatedInvoke(invoke) => {
+                self.visit_expr(scope, &invoke.receiver);
+                self.visit_pack_items(scope, &invoke.args);
+            }
+            Expr::Match(match_expr) => {
+                self.visit_expr(scope, &match_expr.value);
+                for arm in &match_expr.arms {
+                    let arm_scope = self.new_scope(scope, arm.range);
+                    self.declare_pattern(arm_scope, &arm.pattern, SourceBindingKind::Destructure, false);
+                    self.visit_expr(arm_scope, &arm.branch);
                 }
             }
             Expr::Int { .. }
@@ -885,6 +917,7 @@ fn statements_range(statements: &[Statement]) -> SourceRange {
 fn statement_range(statement: &Statement) -> SourceRange {
     match statement {
         Statement::Class(class) => class.range,
+        Statement::Enum(enum_def) => enum_def.range,
         Statement::Let(binding) => binding.range,
         Statement::Return(return_statement) => return_statement.range,
         Statement::Expr { range, .. } => *range,

@@ -19,42 +19,6 @@ enum PositionalExpansionTarget {
 }
 
 impl<'vm> Compiler<'vm> {
-    /// Returns the exact selector for an immediately-called MethodRef when
-    /// the call shape is statically identical to that selector. The caller
-    /// can then emit an ordinary dynamic send while still evaluating the
-    /// MethodRef receiver exactly once.
-    fn immediate_exact_method_ref_selector(
-        &mut self,
-        method_call: &phalcom_ast::ast::MethodCallExpr,
-    ) -> Result<Option<crate::interner::Symbol>, CompilerError> {
-        if method_call.method != "call" || Self::needs_dynamic_pack(&method_call.args) {
-            return Ok(None);
-        }
-        let Expr::MethodRef(method_ref) = &method_call.object else {
-            return Ok(None);
-        };
-        let NormalizedSelectorSpec::Exact(selector) = method_ref
-            .spec
-            .normalize()
-            .map_err(|error| CompilerError::Message(format!("invalid selector specification: {error}")))?
-        else {
-            return Ok(None);
-        };
-        if !matches!(selector.kind, phalcom_common::selector::SelectorKind::Method) {
-            return Ok(None);
-        }
-        let arity = checked_send_arity("family call", method_call.args.len(), method_call.range)?;
-        let labels = self.pack_labels(&method_call.args)?;
-        let phalcom_common::selector::SelectorBase::Named(base) = &selector.base else {
-            return Ok(None);
-        };
-        let call_selector = encode_selector(base, &labels, SignatureKind::Method(arity));
-        if call_selector != selector.encode() {
-            return Ok(None);
-        }
-        Ok(Some(self.vm.interner.intern(&call_selector)))
-    }
-
     pub(super) fn needs_dynamic_pack(items: &[PackItem]) -> bool {
         items.iter().any(|item| {
             matches!(
@@ -173,7 +137,7 @@ impl<'vm> Compiler<'vm> {
         Ok(())
     }
 
-    fn compile_dynamic_pack_items(&mut self, builder_slot: u16, items: Vec<PackItem>) -> Result<(), CompilerError> {
+    pub(super) fn compile_dynamic_pack_items(&mut self, builder_slot: u16, items: Vec<PackItem>) -> Result<(), CompilerError> {
         for item in items {
             let range = match &item {
                 PackItem::Positional { range, .. } | PackItem::Labeled { range, .. } | PackItem::Expand { range, .. } => *range,
@@ -331,6 +295,16 @@ impl<'vm> Compiler<'vm> {
         match expr {
             Expr::UnqualifiedCall(call) => {
                 let call = *call;
+                if self.compile_family_application_call(
+                    Expr::Var {
+                        value: call.name.clone(),
+                        range: call.name_range.unwrap_or(call.range),
+                    },
+                    call.args.clone(),
+                    call.range,
+                )? {
+                    return Ok(());
+                }
                 let name_sym = self.vm.interner.intern(&call.name);
                 let resolution = self.resolve_bare_name(name_sym);
                 if Self::needs_dynamic_pack(&call.args) {
@@ -411,24 +385,15 @@ impl<'vm> Compiler<'vm> {
             }
             Expr::MethodCall(method_call) => {
                 self.check_bounded_method_call(&method_call)?;
-                if let Some(selector_sym) = self.immediate_exact_method_ref_selector(&method_call)? {
-                    let method_call = *method_call;
-                    let Expr::MethodRef(method_ref) = method_call.object else {
-                        unreachable!("immediate exact MethodRef selector was validated above");
-                    };
-                    let arity = method_call.args.len() as u8;
-                    self.compile_expr(method_ref.receiver)?;
-                    for arg in method_call.args {
-                        self.compile_pack_item(arg)?;
-                    }
-                    let selector_idx = self.add_constant(Value::symbol(selector_sym));
-                    self.emit(Bytecode::Invoke(arity, selector_idx), method_call.range);
-                    return Ok(());
-                }
                 let internal_call = method_call.method.starts_with("_$");
                 let is_invariant_guard = method_call.method == "_$invariantEnter" || method_call.method == "_$invariantExit";
                 if internal_call && !is_invariant_guard && !self.compiling_privileged_core() && !self.compiler_internal {
                     return Err(CompilerError::InternalNamespaceReserved(method_call.method.clone(), method_call.range));
+                }
+                if method_call.method == "call"
+                    && self.compile_family_application_call(method_call.object.clone(), method_call.args.clone(), method_call.range)?
+                {
+                    return Ok(());
                 }
                 if Self::needs_dynamic_pack(&method_call.args) && !matches!(&method_call.object, Expr::SuperVar { .. }) {
                     let method_call = *method_call;
@@ -559,11 +524,11 @@ impl<'vm> Compiler<'vm> {
                     }
                 }
             }
-            Expr::MethodRef(method_ref) => {
-                let method_ref = *method_ref;
-                let (spec_idx, kind) = self.compile_selector_spec_constant(&method_ref.spec)?;
-                self.compile_expr(method_ref.receiver)?;
-                self.emit(Bytecode::MakeFamily { spec: spec_idx, kind }, method_ref.range);
+            Expr::AssociatedLookup(expr) => {
+                self.compile_associated_lookup(&expr)?;
+            }
+            Expr::AssociatedInvoke(expr) => {
+                self.compile_associated_invoke(&expr)?;
             }
             Expr::GetProperty(get_prop) => {
                 self.check_bounded_property(&get_prop.property, &get_prop.object, get_prop.range)?;
@@ -1444,6 +1409,7 @@ impl<'vm> Compiler<'vm> {
             }
             Expr::IfLet(if_let) => self.compile_if_let(*if_let)?,
             Expr::WhileLet(while_let) => self.compile_while_let(*while_let)?,
+            Expr::Match(match_expr) => self.compile_match_expr(match_expr)?,
             Expr::Ellipsis { range } => {
                 self.emit(Bytecode::GetEllipsis, range);
             }
@@ -1698,6 +1664,48 @@ impl<'vm> Compiler<'vm> {
         Ok(())
     }
 
+    fn compile_match_expr(&mut self, node: phalcom_ast::ast::MatchExpr) -> Result<(), CompilerError> {
+        let range = node.range;
+        self.begin_scope();
+        self.compile_expr(*node.value)?;
+        let value_slot = self.reserve_pack_scratch("$match_value", range)?;
+        self.emit(Bytecode::SetLocal(value_slot), range);
+        self.emit(Bytecode::Pop, range);
+
+        let mut end_jumps = Vec::new();
+
+        for arm in node.arms {
+            self.begin_scope();
+            let pattern_base = self.functions.last().unwrap().num_locals;
+            self.declare_pattern_locals(&arm.pattern, false)?;
+            let mut failures = Vec::new();
+            self.emit_pattern_match_tests(&arm.pattern, value_slot, &mut failures)?;
+            self.commit_pattern_bindings(&arm.pattern, value_slot)?;
+            let match_local_count = self.functions.last().unwrap().num_locals - pattern_base;
+            self.compile_expr(*arm.branch)?;
+            self.end_scope(arm.range);
+            self.emit_release_scratch_range(pattern_base as u16, match_local_count, arm.range);
+            let jump_end = self.emit_forward_jump(Bytecode::Jump, arm.range);
+            end_jumps.push(jump_end);
+
+            let next_arm_label = self.chunk_len();
+            for jump in failures {
+                self.patch_forward_jump_to(jump, next_arm_label);
+            }
+            self.emit_release_scratch_range(pattern_base as u16, match_local_count, arm.range);
+        }
+
+        self.emit(Bytecode::Nil, range);
+
+        let end_label = self.chunk_len();
+        for jump in end_jumps {
+            self.patch_forward_jump_to(jump, end_label);
+        }
+        self.emit_release_scratch_range(value_slot, 1, range);
+        self.end_scope(range);
+        Ok(())
+    }
+
     fn compile_product_label(
         &mut self,
         label: ProductLabel,
@@ -1721,6 +1729,7 @@ impl<'vm> Compiler<'vm> {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn compile_selector_spec_constant(&mut self, spec: &SelectorSpecSyntax) -> Result<(u16, FamilySpecKind), CompilerError> {
         let normalized = spec.normalize().map_err(|error| match error {
             phalcom_common::selector::SelectorError::TooManySlots => CompilerError::ArityLimit {
@@ -1769,6 +1778,7 @@ impl<'vm> Compiler<'vm> {
     }
 }
 
+#[allow(dead_code)]
 fn selector_spec_slot_count(spec: &SelectorSpecSyntax) -> usize {
     match spec {
         SelectorSpecSyntax::Exact(exact) => exact.slots.len(),
@@ -1869,13 +1879,19 @@ fn bilateral_operator_spec(op: &BinaryOp) -> (&'static str, &'static str, &'stat
         BinaryOp::Multiply => ("*", "*", "*", false),
         BinaryOp::Divide => ("/", "/", "/", false),
         BinaryOp::IntegerDivide => ("~/", "~/", "~/", false),
-        BinaryOp::Power => ("**", "**", "**", false),
         BinaryOp::Modulo => ("%", "%", "%", false),
+        BinaryOp::Power => ("**", "**", "**", false),
+        BinaryOp::Equal => ("==", "==", "==", false),
+        BinaryOp::NotEqual => ("!=", "!=", "!=", false),
+        BinaryOp::LessThan => ("<", "<", ">", false),
+        BinaryOp::LessThanOrEqual => ("<=", "<=", ">=", false),
+        BinaryOp::GreaterThan => (">", ">", "<", false),
+        BinaryOp::GreaterThanOrEqual => (">=", ">=", "<=", false),
         BinaryOp::ShiftLeft => ("<<", "<<", "<<", false),
         BinaryOp::ShiftRight => (">>", ">>", ">>", false),
         BinaryOp::BitAnd => ("&", "&", "&", false),
-        BinaryOp::BitXor => ("^", "^", "^", false),
         BinaryOp::BitOr => ("|", "|", "|", false),
+        BinaryOp::BitXor => ("^", "^", "^", false),
         BinaryOp::Compare => ("<=>", "compare", "compare", true),
         _ => unreachable!("non-bilateral operator passed to bilateral_operator_spec"),
     }
@@ -1892,11 +1908,25 @@ fn collect_pattern_names_for_control(pattern: &phalcom_ast::ast::Pattern, out: &
                 collect_pattern_names_for_control(rest, out);
             }
         }
-        phalcom_ast::ast::Pattern::Variant { arguments, .. } => {
-            for argument in arguments {
-                collect_pattern_names_for_control(argument, out);
+        phalcom_ast::ast::Pattern::Variant(variant_pat) => match &variant_pat.mode {
+            phalcom_ast::ast::VariantPatternMode::ExactCall { arguments } => {
+                for arg in arguments {
+                    collect_pattern_names_for_control(&arg.pattern, out);
+                }
+            }
+            phalcom_ast::ast::VariantPatternMode::CallablePattern { prefix, suffix, .. } => {
+                for arg in prefix.iter().chain(suffix.iter()) {
+                    collect_pattern_names_for_control(&arg.pattern, out);
+                }
+            }
+            _ => {}
+        },
+        phalcom_ast::ast::Pattern::Or { alternatives, .. } => {
+            for p in alternatives {
+                collect_pattern_names_for_control(p, out);
             }
         }
+        phalcom_ast::ast::Pattern::Wildcard { .. } => {}
         phalcom_ast::ast::Pattern::Record { entries, .. } => {
             for entry in entries {
                 collect_pattern_names_for_control(&entry.pattern, out);

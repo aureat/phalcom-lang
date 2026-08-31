@@ -85,6 +85,8 @@ pub struct ModuleObject {
     pub exports: HashMap<Symbol, RuntimeExportRef>,
     /// Module metadata retained from source.
     pub metadata: Option<Arc<phalcom_modules::ModuleMetadata>>,
+    /// Lowering semantics projected from formal analysis.
+    pub lowering: Option<Arc<crate::modules::semantic_lowering::ModuleLoweringSemantics>>,
 }
 
 impl ModuleObject {
@@ -114,6 +116,7 @@ impl ModuleObject {
             linked_reads: Vec::new(),
             exports: HashMap::new(),
             metadata: None,
+            lowering: None,
         }
     }
 

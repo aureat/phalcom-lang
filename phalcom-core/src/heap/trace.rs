@@ -343,5 +343,15 @@ pub fn trace_object(obj: &Object, push: &mut impl FnMut(ObjRef)) {
                 }
             }
         }
+        Object::AdtCase(case) => {
+            for value in &*case.payload {
+                trace_value(*value, push);
+            }
+        }
+        Object::AssociatedFamily(family) => {
+            if let Some(owner) = family.bound_owner {
+                trace_value(owner, push);
+            }
+        }
     }
 }

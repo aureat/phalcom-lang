@@ -1,8 +1,6 @@
 // area: family
 // spec: docs/spec/callables/family.md §§1–3
 // status: PASS
-// The hashless setter pattern `name=...` accepts setter shape and remains a
-// live Family over the receiver.
 
 class Box {
   @constructor
@@ -12,6 +10,6 @@ class Box {
 }
 
 const box = Box.new()
-const setter = box::value=...
-setter.set(12)
+const setter = (Box >> #value=...).bind(box)
+setter(12)
 System.print(box.value)

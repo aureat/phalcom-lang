@@ -216,3 +216,155 @@ fn clean_vs_incremental_differential_equivalence() {
     assert_eq!(db.query_state(&key_parsed).unwrap().revision(), Some(rev2));
     assert_eq!(db.query_state(&key_unlinked).unwrap().revision(), Some(rev2));
 }
+
+#[test]
+fn structural_family_type_canonicalization_and_kind() {
+    use phalcom_common::selector::SelectorSlot;
+    use phalcom_semantic::types::family::{FamilyMemberType, FamilyOperationShape, FamilyTypeError};
+    use phalcom_semantic::types::store::{CallableParameterType, CallableType};
+
+    let mut store = TypeStore::new();
+    let int_ty = store.nominal(decl("Int"));
+    let str_ty = store.nominal(decl("String"));
+
+    let unary_callable = store.callable(CallableType {
+        parameters: Box::new([CallableParameterType::new(int_ty)]),
+        return_type: str_ty,
+    });
+    let zero_callable = store.callable(CallableType {
+        parameters: Box::new([]),
+        return_type: int_ty,
+    });
+
+    let unary = FamilyMemberType::callable(FamilyOperationShape::method([SelectorSlot::Positional]), unary_callable);
+    let zero = FamilyMemberType::callable(FamilyOperationShape::method([]), zero_callable);
+
+    let a = store.family_type([unary.clone(), zero.clone()]).unwrap();
+    let b = store.family_type([zero.clone(), unary.clone()]).unwrap();
+
+    // Canonical order independence
+    assert_eq!(a, b);
+    assert_eq!(store.kind_of(a), KindId::TYPE);
+
+    // Formats cleanly
+    let formatted = store.format_type(a);
+    assert!(formatted.contains("family {"));
+
+    // Duplicate shape with different target is rejected
+    let bad_duplicate = FamilyMemberType::callable(FamilyOperationShape::method([]), unary_callable);
+    let err = store.family_type([zero, bad_duplicate]);
+    assert!(matches!(err, Err(FamilyTypeError::DuplicateOperationShape { .. })));
+
+    // Non-callable ty for Callable member kind is rejected
+    let bad_callable = FamilyMemberType::callable(FamilyOperationShape::method([]), int_ty);
+    let err2 = store.family_type([bad_callable]);
+    assert!(matches!(err2, Err(FamilyTypeError::CallableMemberNotCallable { .. })));
+}
+
+#[test]
+fn typestore_clone_preserves_family_arena_and_canonical_ids() {
+    use phalcom_common::selector::SelectorSlot;
+    use phalcom_semantic::types::family::{FamilyMemberType, FamilyOperationShape};
+    use phalcom_semantic::types::store::{CallableParameterType, CallableType, TypeData};
+
+    let mut store = TypeStore::new();
+    let int_ty = store.nominal(decl("Int"));
+    let unary_callable = store.callable(CallableType {
+        parameters: Box::new([CallableParameterType::new(int_ty)]),
+        return_type: int_ty,
+    });
+    let unary = FamilyMemberType::callable(FamilyOperationShape::method([SelectorSlot::Positional]), unary_callable);
+    let family_ty = store.family_type([unary]).unwrap();
+
+    let cloned_store = store.clone();
+    assert_eq!(store.get(family_ty), cloned_store.get(family_ty));
+    if let TypeData::Family(fid) = store.get(family_ty) {
+        assert_eq!(store.get_family(*fid), cloned_store.get_family(*fid));
+    } else {
+        panic!("expected TypeData::Family");
+    }
+}
+
+#[test]
+fn structural_family_width_subtyping_and_member_relation() {
+    use phalcom_common::selector::SelectorSlot;
+    use phalcom_semantic::types::family::{FamilyMemberType, FamilyOperationShape};
+    use phalcom_semantic::types::relation::is_subtype;
+    use phalcom_semantic::types::store::{CallableParameterType, CallableType};
+
+    let mut store = TypeStore::new();
+    let hier = MapTypeHierarchy::new();
+
+    let product_ty = store.nominal(decl("Product"));
+    let int_ty = store.nominal(decl("Int"));
+
+    let unary_callable = store.callable(CallableType {
+        parameters: Box::new([CallableParameterType::new(int_ty)]),
+        return_type: product_ty,
+    });
+    let zero_callable = store.callable(CallableType {
+        parameters: Box::new([]),
+        return_type: product_ty,
+    });
+
+    let unary = FamilyMemberType::callable(FamilyOperationShape::method([SelectorSlot::Positional]), unary_callable);
+    let zero = FamilyMemberType::callable(FamilyOperationShape::method([]), zero_callable);
+
+    // required = family { unary }
+    let required = store.family_type([unary.clone()]).unwrap();
+    // provided = family { unary, zero } (has extra members)
+    let provided = store.family_type([unary.clone(), zero.clone()]).unwrap();
+
+    // Width subtyping: provided is a subtype of required (provided has all operations required needs)
+    assert!(is_subtype(&mut store, &hier, provided, required));
+    // Required is NOT a subtype of provided because provided needs zero
+    assert!(!is_subtype(&mut store, &hier, required, provided));
+
+    // Missing operation failure
+    let only_zero = store.family_type([zero]).unwrap();
+    assert!(!is_subtype(&mut store, &hier, only_zero, required));
+}
+
+#[test]
+fn structural_family_substitution_rewrites_member_types() {
+    use phalcom_common::selector::SelectorSlot;
+    use phalcom_semantic::types::family::{FamilyMemberType, FamilyOperationShape};
+    use phalcom_semantic::types::parameter::{TypeParameterData, TypeParameterOwner};
+    use phalcom_semantic::types::store::{CallableParameterType, CallableType, TypeData};
+    use phalcom_semantic::types::substitution::TypeSubstitution;
+
+    let mut store = TypeStore::new();
+    let param_id = store.intern_type_parameter(TypeParameterData {
+        owner: TypeParameterOwner::Declaration(decl("Box")),
+        index: 0,
+        name: "T".into(),
+        kind: KindId::TYPE,
+        variance: phalcom_semantic::types::Variance::Invariant,
+        source: None,
+    });
+    let param_ty = store.parameter_form(param_id);
+    let int_ty = store.nominal(decl("Int"));
+
+    let generic_callable = store.callable(CallableType {
+        parameters: Box::new([CallableParameterType::new(param_ty)]),
+        return_type: param_ty,
+    });
+    let generic_unary = FamilyMemberType::callable(FamilyOperationShape::method([SelectorSlot::Positional]), generic_callable);
+    let generic_family = store.family_type([generic_unary]).unwrap();
+
+    let mut subst = TypeSubstitution::new();
+    subst.bind(param_id, int_ty);
+
+    let specialized_family = subst.apply(&mut store, generic_family);
+    let TypeData::Family(fid) = store.get(specialized_family) else {
+        panic!("expected specialized TypeData::Family");
+    };
+    let family = store.get_family(*fid);
+    assert_eq!(family.members.len(), 1);
+    let member_call_ty = family.members[0].ty;
+    let TypeData::Callable(c) = store.get(member_call_ty) else {
+        panic!("expected CallableType");
+    };
+    assert_eq!(c.parameters[0].ty, int_ty);
+    assert_eq!(c.return_type, int_ty);
+}

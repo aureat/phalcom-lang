@@ -1,6 +1,7 @@
 #![allow(unused_variables)]
 extern crate core;
 
+pub mod adt;
 pub mod bytecode;
 pub mod callable;
 pub mod chunk;

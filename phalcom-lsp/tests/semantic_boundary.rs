@@ -71,7 +71,7 @@ fn every_top_level_lsp_test_is_registered() {
 
     for entry in fs::read_dir(lsp.join("tests")).expect("LSP tests directory must be readable") {
         let path = entry.expect("test entry must be readable").path();
-        if !path.is_file() || !path.extension().is_some_and(|extension| extension == "rs") {
+        if path.extension().is_none_or(|extension| extension != "rs") || !path.is_file() {
             continue;
         }
 

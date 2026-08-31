@@ -47,6 +47,8 @@ impl Value {
     pub fn type_name(&self) -> &'static str {
         if self.is_option() {
             "option"
+        } else if self.is_adt_singleton() {
+            "case"
         } else if self.is_nil() {
             "nil"
         } else if self.is_unit() {
@@ -91,6 +93,12 @@ impl Value {
         }
         if self.is_some() {
             return vm.universe.classes.some_class;
+        }
+        if let Some(rid) = self.as_adt_singleton() {
+            if let Some(vdesc) = vm.adt_registry.variant_descriptor(rid) {
+                return vdesc.behavior_class;
+            }
+            return vm.universe.classes.object_class;
         }
         if self.is_nil() {
             return vm.universe.classes.nil_class;
@@ -157,6 +165,14 @@ impl Value {
                 Object::ProjectIdentity(_) => vm.universe.classes.project_identity_class,
                 Object::Uri(_) => vm.universe.classes.uri_class,
                 Object::Typing(t) => t.class,
+                Object::AdtCase(case) => {
+                    if let Some(vdesc) = vm.adt_registry.variant_descriptor(case.variant) {
+                        vdesc.behavior_class
+                    } else {
+                        vm.universe.classes.object_class
+                    }
+                }
+                Object::AssociatedFamily(_) => vm.universe.classes.family_class,
                 Object::Upvalue(_) => panic!("upvalues are not surface values"),
                 Object::PackBuilder(_) => panic!("pack builders are not surface values"),
                 Object::RecordLiteralBuilder(_) => panic!("Record literal builders are not surface values"),
@@ -226,6 +242,8 @@ impl Value {
                 | Object::PackageIdentity(_)
                 | Object::ProjectIdentity(_)
                 | Object::Typing(_)
+                | Object::AdtCase(_)
+                | Object::AssociatedFamily(_)
                 | Object::Uri(_) => CallContext::Instance { instance: id },
                 Object::PackBuilder(_) => panic!("pack builders are not surface receivers"),
                 Object::RecordLiteralBuilder(_) => panic!("Record literal builders are not surface receivers"),
@@ -269,6 +287,13 @@ impl Value {
             if self.is_some() && other.is_some() {
                 return self.without_some_wrappers().value_eq(&other.without_some_wrappers(), heap);
             }
+            return false;
+        }
+
+        if let (Some(a), Some(b)) = (self.as_adt_singleton(), other.as_adt_singleton()) {
+            return a == b;
+        }
+        if self.is_adt_singleton() || other.is_adt_singleton() {
             return false;
         }
 

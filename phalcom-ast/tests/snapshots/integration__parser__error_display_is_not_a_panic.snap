@@ -2,4 +2,4 @@
 source: phalcom-ast/tests/parser.rs
 expression: "parse_display(\"let = \")"
 ---
-Expected one of identifier, "(", "[" (at bytes 4..5)
+Expected one of identifier, "(", "[", "_" (at bytes 4..5)

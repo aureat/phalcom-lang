@@ -579,3 +579,73 @@ class Probe { run() { CellNum.new() } }
     assert_eq!(call.knowledge.ty(), Some(fixture.ty("CellNum")));
     assert_eq!(call.knowledge.origin(), Some(EvidenceOrigin::ConstructorSemantics));
 }
+
+#[test]
+fn positional_rest_parameter_binds_multiple_positional_arguments() {
+    let fixture = Fixture::new(
+        r#"
+class Probe {
+  run(sum: (...Int) -> Int) {
+    sum()
+    sum(1)
+    sum(1, 2, 3)
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Instance);
+    assert_eq!(fixture.expression(run, "sum()").knowledge.ty(), Some(fixture.ty("Int")));
+    assert_eq!(fixture.expression(run, "sum(1)").knowledge.ty(), Some(fixture.ty("Int")));
+    assert_eq!(fixture.expression(run, "sum(1, 2, 3)").knowledge.ty(), Some(fixture.ty("Int")));
+}
+
+#[test]
+fn labeled_rest_parameter_binds_arbitrary_labeled_arguments() {
+    let fixture = Fixture::new(
+        r#"
+class Probe {
+  run(accept: (...options: Int) -> Int) {
+    accept()
+    accept(options: 1)
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Instance);
+    assert_eq!(fixture.expression(run, "accept()").knowledge.ty(), Some(fixture.ty("Int")));
+    assert_eq!(fixture.expression(run, "accept(options: 1)").knowledge.ty(), Some(fixture.ty("Int")));
+}
+
+#[test]
+fn exact_fixed_parameter_takes_priority_over_rest() {
+    let fixture = Fixture::new(
+        r#"
+class Probe {
+  run(format: (String, ...Int) -> String) {
+    format("hello")
+    format("hello", 1, 2)
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Instance);
+    assert_eq!(fixture.expression(run, r#"format("hello")"#).knowledge.ty(), Some(fixture.ty("String")));
+    assert_eq!(fixture.expression(run, r#"format("hello", 1, 2)"#).knowledge.ty(), Some(fixture.ty("String")));
+}
+
+#[test]
+fn missing_fixed_parameter_fails_even_with_rest_parameter() {
+    let fixture = Fixture::new(
+        r#"
+class Probe {
+  run(format: (String, ...Int) -> String) {
+    format()
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Instance);
+    let call = fixture.expression(run, "format()");
+    assert!(matches!(call.status, AnalysisStatus::Invalid(_)));
+    fixture.assert_diagnostic(DiagnosticCode::CallShapeMismatch, 1);
+}

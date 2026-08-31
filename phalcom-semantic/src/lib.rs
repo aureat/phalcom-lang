@@ -2,6 +2,7 @@
 //! and verification engine for Phalcom.
 
 pub mod advisory;
+pub mod associated;
 pub mod checker;
 pub mod contracts;
 pub mod control_summary;
@@ -14,11 +15,14 @@ pub mod diagnostic_presentation;
 pub mod dispatch;
 pub mod editor;
 pub mod effects;
+pub mod enum_requirements;
+pub mod enum_semantics;
 pub mod explain;
 pub mod export;
 pub mod hierarchy_product;
 pub mod identity;
 pub mod invalidation;
+pub mod match_semantics;
 pub mod metadata;
 pub mod module_product;
 pub mod presentation;
@@ -42,9 +46,11 @@ pub use advisory::{
     AdvisoryParameterSlot, AdvisoryProductStatus, AdvisorySummaryEffects, AdvisoryTargetResolution, AdvisoryWorkspace, CapturedMethodFamilyShape,
     MAX_SHAPE_UNION, ValueShape, analyze_expr, analyze_statements,
 };
+pub use associated::{AssociatedFamilyInfo, AssociatedFamilyKind, AssociatedFamilyTable, AssociatedMemberId, AssociatedSurface};
 pub use checker::{
-    CheckingContext, StatementControl, TypeCheckReport, TypedExpression, check_class, check_class_bodies, check_statement, register_class_surface,
-    synthesize_expr, synthesize_typed_expr,
+    AssociatedResolution, AssociatedResolutionIndex, AssociatedResolutionKind, CheckingContext, FamilyApplicationCandidate, FamilyApplicationResolution,
+    FamilyApplicationResolutionIndex, FamilyApplicationSelection, SpecializedAssociatedMember, StatementControl, TypeCheckReport, TypedExpression, check_class,
+    check_class_bodies, check_statement, register_class_surface, synthesize_expr, synthesize_typed_expr,
 };
 pub use contracts::{ConditionKind, ContractCondition, ContractSpec};
 pub use control_summary::{ControlFacts, DivergenceKnowledge, DivergenceOpaqueReason, ExitSummary, RaiseKnowledge, RaiseOpaqueReason};
@@ -69,16 +75,22 @@ pub use effects::{
     EffectAtom, EffectKnowledge, EffectOpaqueReason, EffectSet, adapt_effect_atom, adapt_effect_spec, infer_interprocedural_effects_scc,
     infer_intraprocedural_effects,
 };
+pub use enum_requirements::{CaseRequirementResult, CaseRequirementStatus, EnumRequirement, EnumRequirementId, EnumRequirementTable};
+pub use enum_semantics::{
+    EnumInfo, EnumSemanticTable, VariantConstructorParameter, VariantConstructorSignature, VariantFieldSemantic, VariantInfo, VariantShape, VariantVisibility,
+};
 pub use explain::{DerivationRule, ExplanationArena, ExplanationNode, ExplanationStep, causal_slice, causal_trace};
 pub use export::{
     CompiledCallableParam, CompiledCallableType, CompiledKindRef, CompiledRecordField, CompiledTupleElement, CompiledTypeParameterOwner, CompiledTypeRef,
     SemanticExportError, export_kind, export_type_form,
 };
 pub use identity::{
-    BindingId, CallableId, CallableParameterId, DeclarationId, FieldId, ModuleId, ProperTypeId, SemanticRevision, SemanticTargetId, SnapshotId,
-    SnapshotTypeRef, SourceOwner, SourceSiteId, SourceSiteLocalId, SourceSiteRef, TypeStoreId, WorkspaceId,
+    AssociatedFamilyId, BindingId, CallableId, CallableOwnerId, CallableParameterId, DeclarationId, FieldId, InvocationTargetId, ModuleId, ProperTypeId,
+    SemanticRevision, SemanticTargetId, SnapshotId, SnapshotTypeRef, SourceOwner, SourceSiteId, SourceSiteLocalId, SourceSiteRef, TypeStoreId,
+    VariantConstructorId, VariantFamilyId, VariantFieldId, VariantId, WorkspaceId,
 };
 pub use invalidation::{DeclarationFingerprint, InvalidationIndex};
+pub use match_semantics::*;
 pub use phalcom_modules::WorkspaceSourceBatchMutation;
 pub use presentation::{
     AdvisoryPresenter, CallablePresentation, FieldPresentation, FormalContractRelation, FormalFactRef, FormalFactSite, FormalFactStatus, FormalPresentation,
@@ -116,7 +128,7 @@ pub use types::{
     NativeSurfaceImportError, NativeSurfaceImportReport, NativeTypeResolutionError, QueryBudget, RecordTypeField, RefutationReason, RelationEvidence,
     RelationFailure, RelationOutcome, SemanticDenotation, SimpleTypeResolver, TupleTypeElement, TypeApplicationError, TypeConstraint, TypeData, TypeEvidence,
     TypeHierarchy, TypeId, TypeKnowledge, TypeParameterData, TypeParameterId, TypeParameterOwner, TypeResolver, TypeStore, TypeSubstitution, UnknownReason,
-    ValueSemanticFact, check_assignability, check_assignability_bounded, check_knowledge_against_type, check_knowledge_against_type_bounded,
+    ValueSemanticFact, VariantTypeId, check_assignability, check_assignability_bounded, check_knowledge_against_type, check_knowledge_against_type_bounded,
     check_subtype_bounded, is_subtype, normalize_native_type, register_native_surfaces, resolve_native_type_form, resolve_type_annotation, resolve_type_form,
     substitution_for_applied,
 };

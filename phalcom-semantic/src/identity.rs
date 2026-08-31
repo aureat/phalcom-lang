@@ -101,17 +101,223 @@ impl DispatchSide {
     }
 }
 
-/// Canonical callable identity across module/class boundaries.
+/// Stable variant identity across the compilation lifecycle.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct VariantId {
+    pub owner: DeclarationId,
+    pub selector: Selector,
+}
+
+impl VariantId {
+    pub fn new(owner: DeclarationId, selector: Selector) -> Self {
+        Self { owner, selector }
+    }
+
+    pub fn family(&self) -> Option<VariantFamilyId> {
+        let base = self.selector.base.clone();
+        match base {
+            phalcom_common::selector::SelectorBase::Named(name) => Some(VariantFamilyId {
+                owner: self.owner.clone(),
+                base_name: name.into_boxed_str(),
+            }),
+            phalcom_common::selector::SelectorBase::Subscript => None,
+        }
+    }
+}
+
+/// Stable variant family identity (grouping overloaded variants sharing a base name).
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct VariantFamilyId {
+    pub owner: DeclarationId,
+    pub base_name: Box<str>,
+}
+
+impl VariantFamilyId {
+    pub fn new(owner: DeclarationId, base_name: impl Into<Box<str>>) -> Self {
+        Self {
+            owner,
+            base_name: base_name.into(),
+        }
+    }
+
+    pub fn associated(&self) -> AssociatedFamilyId {
+        AssociatedFamilyId {
+            owner: self.owner.clone(),
+            base: phalcom_common::selector::SelectorBase::Named(self.base_name.to_string()),
+        }
+    }
+}
+
+/// Universal associated family identity (covering variants and class-side callables).
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct AssociatedFamilyId {
+    pub owner: DeclarationId,
+    pub base: phalcom_common::selector::SelectorBase,
+}
+
+impl AssociatedFamilyId {
+    pub fn new(owner: DeclarationId, base: phalcom_common::selector::SelectorBase) -> Self {
+        Self { owner, base }
+    }
+}
+
+/// Payload field identity within a variant.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct VariantFieldId {
+    pub variant: VariantId,
+    pub index: u32,
+}
+
+impl VariantFieldId {
+    pub fn new(variant: VariantId, index: u32) -> Self {
+        Self { variant, index }
+    }
+}
+
+/// Variant constructor identity.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct VariantConstructorId {
+    pub variant: VariantId,
+}
+
+impl VariantConstructorId {
+    pub fn new(variant: VariantId) -> Self {
+        Self { variant }
+    }
+}
+
+/// Owner identity of a callable member (class declaration or exact enum variant).
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum CallableOwnerId {
+    Declaration(DeclarationId),
+    Variant(VariantId),
+}
+
+impl CallableOwnerId {
+    pub fn declaration(&self) -> &DeclarationId {
+        match self {
+            Self::Declaration(decl) => decl,
+            Self::Variant(var) => &var.owner,
+        }
+    }
+
+    pub fn module(&self) -> &ModuleId {
+        match self {
+            Self::Declaration(decl) => &decl.module,
+            Self::Variant(var) => &var.owner.module,
+        }
+    }
+}
+
+impl std::ops::Deref for CallableOwnerId {
+    type Target = DeclarationId;
+    fn deref(&self) -> &Self::Target {
+        self.declaration()
+    }
+}
+
+impl From<DeclarationId> for CallableOwnerId {
+    fn from(decl: DeclarationId) -> Self {
+        Self::Declaration(decl)
+    }
+}
+
+impl From<VariantId> for CallableOwnerId {
+    fn from(var: VariantId) -> Self {
+        Self::Variant(var)
+    }
+}
+
+impl PartialEq<DeclarationId> for CallableOwnerId {
+    fn eq(&self, other: &DeclarationId) -> bool {
+        match self {
+            CallableOwnerId::Declaration(decl) => decl == other,
+            CallableOwnerId::Variant(var) => &var.owner == other,
+        }
+    }
+}
+
+impl PartialEq<CallableOwnerId> for DeclarationId {
+    fn eq(&self, other: &CallableOwnerId) -> bool {
+        other == self
+    }
+}
+
+/// Canonical callable identity across module/class/variant boundaries.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CallableId {
-    pub owner: DeclarationId,
+    pub owner: CallableOwnerId,
     pub selector: Selector,
     pub side: DispatchSide,
 }
 
 impl CallableId {
-    pub fn new(owner: DeclarationId, selector: Selector, side: DispatchSide) -> Self {
-        Self { owner, selector, side }
+    pub fn new(owner: impl Into<CallableOwnerId>, selector: Selector, side: DispatchSide) -> Self {
+        Self {
+            owner: owner.into(),
+            selector,
+            side,
+        }
+    }
+
+    pub fn method(owner: DeclarationId, selector: Selector, side: DispatchSide) -> Self {
+        Self {
+            owner: CallableOwnerId::Declaration(owner),
+            selector,
+            side,
+        }
+    }
+
+    pub fn case_method(owner: VariantId, selector: Selector) -> Self {
+        Self {
+            owner: CallableOwnerId::Variant(owner),
+            selector,
+            side: DispatchSide::Instance,
+        }
+    }
+
+    pub fn declaration_owner(&self) -> &DeclarationId {
+        self.owner.declaration()
+    }
+
+    pub fn module(&self) -> &ModuleId {
+        self.owner.module()
+    }
+}
+
+/// Canonical target of an invocation (behavioral callable or variant constructor).
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum InvocationTargetId {
+    Behavioral(CallableId),
+    VariantConstructor(VariantConstructorId),
+}
+
+impl InvocationTargetId {
+    pub fn behavioral(callable: CallableId) -> Self {
+        Self::Behavioral(callable)
+    }
+
+    pub fn variant_constructor(variant: VariantId) -> Self {
+        Self::VariantConstructor(VariantConstructorId::new(variant))
+    }
+
+    pub fn callable_id(&self) -> Option<&CallableId> {
+        match self {
+            Self::Behavioral(c) => Some(c),
+            Self::VariantConstructor(_) => None,
+        }
+    }
+}
+
+impl From<CallableId> for InvocationTargetId {
+    fn from(callable: CallableId) -> Self {
+        Self::Behavioral(callable)
+    }
+}
+
+impl From<VariantConstructorId> for InvocationTargetId {
+    fn from(ctor: VariantConstructorId) -> Self {
+        Self::VariantConstructor(ctor)
     }
 }
 
@@ -208,10 +414,12 @@ impl SourceSiteRef {
     }
 }
 
+pub use crate::diagnostic::SemanticSourceSpan;
+
 /// Canonical semantic target attached to source sites and occurrences.
 ///
 /// Local bindings target their declaration [`SourceSiteId`]; declarations,
-/// callables, fields, and modules use cross-revision compiler identities.
+/// callables, fields, modules, and variants use cross-revision compiler identities.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum SemanticTargetId {
     Binding(SourceSiteId),
@@ -219,6 +427,7 @@ pub enum SemanticTargetId {
     Callable(CallableId),
     Field(FieldId),
     Module(ModuleId),
+    Variant(VariantId),
 }
 
 /// Snapshot-local binding identity for local variables/parameters.

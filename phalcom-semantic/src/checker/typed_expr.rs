@@ -155,7 +155,7 @@ impl TypedExpression {
     pub fn fact(&self) -> ValueSemanticFact {
         ValueSemanticFact {
             knowledge: self.knowledge.clone(),
-            denotation: self.denotation,
+            denotation: self.denotation.clone(),
         }
     }
 

@@ -76,6 +76,13 @@ impl DeclaredTypeFact {
         }
     }
 
+    pub fn canonical_type(&self) -> Option<crate::types::id::TypeId> {
+        match &self.state {
+            DeclaredTypeState::Known(TypeTerm::Canonical(ty)) => Some(*ty),
+            _ => None,
+        }
+    }
+
     pub fn is_known(&self) -> bool {
         matches!(self.state, DeclaredTypeState::Known(_))
     }

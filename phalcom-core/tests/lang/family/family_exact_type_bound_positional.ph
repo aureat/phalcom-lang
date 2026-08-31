@@ -7,5 +7,5 @@ class MathUtil {
   @class
   square(_ n) { return n * n }
 }
-const f = MathUtil::square(_)
+const f = MathUtil::square::(_)
 System.print(f(6))

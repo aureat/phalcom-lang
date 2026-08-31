@@ -335,11 +335,11 @@ pub(crate) fn join_branch_results(
     typed.explanation_parents.push(join_derivation);
 
     if let (Some(d1), Some(d2)) = (
-        then_result.value.as_ref().and_then(|v| v.denotation),
-        else_result.value.as_ref().and_then(|v| v.denotation),
+        then_result.value.as_ref().and_then(|v| v.denotation.as_ref()),
+        else_result.value.as_ref().and_then(|v| v.denotation.as_ref()),
     ) {
         if d1 == d2 {
-            typed.denotation = Some(d1);
+            typed.denotation = Some(d1.clone());
         }
     }
 

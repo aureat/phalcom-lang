@@ -49,6 +49,9 @@ pub fn extract_source_surface(module_id: &ModuleId, program: &Program) -> Vec<So
                     ClassMember::Method(m) => {
                         let mut slots = Vec::new();
                         for p in &m.params {
+                            if p.rest_mode != phalcom_ast::ast::RestMode::None {
+                                continue;
+                            }
                             if let Some(ref l) = p.label {
                                 slots.push(SelectorSlot::Label(l.clone()));
                             } else {

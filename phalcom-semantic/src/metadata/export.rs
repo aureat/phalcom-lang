@@ -354,6 +354,10 @@ impl<'a> MetadataExporter<'a> {
                     arguments: arg_ids.into_boxed_slice(),
                 }
             }
+            TypeData::ExactCase { enum_type, .. } => {
+                // TODO(Part 4/6): propagate exact-case to metadata when format supports it
+                return self.export_type_form(enum_type);
+            }
             TypeData::Union(ref members) => {
                 let mut member_ids = Vec::new();
                 for &m in members.iter() {
@@ -391,7 +395,7 @@ impl<'a> MetadataExporter<'a> {
                     params.push(CallableParamRef {
                         label: p.label.clone(),
                         ty: ty_id,
-                        rest: p.rest,
+                        rest: p.rest != phalcom_ast::ast::RestMode::None,
                     });
                 }
                 let return_type = self.export_type_form(call.return_type)?;
@@ -421,7 +425,7 @@ impl<'a> MetadataExporter<'a> {
                     body,
                 })
             }
-            TypeData::ClassObject { .. } => return Err(MetadataExportError::NonExportableForm(ty)),
+            TypeData::ClassObject { .. } | TypeData::Family(_) => return Err(MetadataExportError::NonExportableForm(ty)),
         };
 
         if let Some(&id) = self.type_map.get(&form) {

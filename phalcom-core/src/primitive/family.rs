@@ -8,7 +8,7 @@ use crate::vm::VM;
 
 fn family_id(vm: &VM, receiver: &Value) -> Result<crate::heap::ObjRef, RuntimeError> {
     if let Some(id) = receiver.as_obj() {
-        if matches!(vm.heap.get(id), Object::Family(_)) {
+        if matches!(vm.heap.get(id), Object::Family(_) | Object::AssociatedFamily(_)) {
             return Ok(id);
         }
     }

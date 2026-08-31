@@ -275,6 +275,8 @@ pub enum SemanticDependency {
     DeclarationSurface(DeclarationId),
     HierarchyEdge(DeclarationId),
     LinkedInterface(ModuleId),
+    EnumDeclaration(DeclarationId),
+    AssociatedSurface(DeclarationId),
 }
 
 /// Status of callable-body analysis.
@@ -295,6 +297,9 @@ pub struct CallableAnalysis {
     pub body_range: SourceRange,
     pub expressions: ExpressionAnalysisIndex,
     pub bindings: BindingAnalysisIndex,
+    pub associated_resolutions: Arc<crate::checker::associated::AssociatedResolutionIndex>,
+    pub family_applications: Arc<crate::checker::associated::FamilyApplicationResolutionIndex>,
+    pub match_resolutions: Arc<crate::match_semantics::MatchResolutionIndex>,
     pub flow_graph: Arc<crate::checker::flow::graph::FlowGraph>,
     pub entry_flow: FlowStateSummary,
     pub exits: BodyExitFacts,

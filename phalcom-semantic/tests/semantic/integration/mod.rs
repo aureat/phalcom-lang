@@ -1,9 +1,13 @@
+mod adt_associated;
 mod advisory;
 mod compiler_capabilities;
 mod declaration_knowledge;
 mod denotation;
 mod editor;
 mod editor_type_hints;
+mod family_capabilities;
+mod gadt_associated;
+mod generic_adts;
 mod imported_resolution;
 mod metadata;
 mod native_conformance;

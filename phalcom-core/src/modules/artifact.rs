@@ -7,8 +7,27 @@ use phalcom_modules::{LinkedModuleInterface, LinkedReadSpec, ModuleId, SymbolId}
 pub enum RuntimeDeclarationBlueprint {
     /// A class declaration and its linked superclass identity.
     Class(ClassBlueprint),
+    /// An enum declaration and its variant shapes.
+    Enum(EnumBlueprint),
     /// A top-level global slot declaration.
     Global { symbol: SymbolId, mutable: bool },
+}
+
+/// VM-independent enum declaration metadata.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EnumBlueprint {
+    /// Canonical enum symbol.
+    pub symbol: SymbolId,
+    /// Variant metadata.
+    pub variants: Vec<VariantBlueprint>,
+}
+
+/// VM-independent variant declaration metadata.
+#[derive(Clone, Debug, PartialEq)]
+pub struct VariantBlueprint {
+    pub name: Box<str>,
+    pub shape: phalcom_semantic::enum_semantics::VariantShape,
+    pub payload_arity: u16,
 }
 
 /// VM-independent class declaration metadata.

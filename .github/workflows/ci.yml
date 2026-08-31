@@ -75,10 +75,15 @@ jobs:
   miri:
     name: Miri (phalcom-ast)
     runs-on: ubuntu-latest
+    env:
+      MIRIFLAGS: -Zmiri-disable-isolation
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: miri
       - uses: Swatinem/rust-cache@v2
-      - run: cargo +nightly miri test -p phalcom-ast
+      # Snapshot integration tests invoke cargo through insta, which Miri cannot
+      # emulate (socketpair/process spawning). The AST unit lane still covers
+      # lexer/parser behavior under Miri without crossing that harness boundary.
+      - run: cargo +nightly miri test -p phalcom-ast --lib

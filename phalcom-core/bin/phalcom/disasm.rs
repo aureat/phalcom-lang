@@ -145,6 +145,37 @@ fn disassemble_chunk(vm: &mut VM, chunk: &Chunk, indent: usize, visited: &mut Ha
                 }
                 format!("Closure(idx={}){}", idx, capture_ann)
             }
+            Bytecode::Enum(spec_idx) => {
+                let spec = chunk.executable_semantics.enum_spec(spec_idx);
+                format!("Enum({} [variants={}])", spec.owner.name, spec.variants.len())
+            }
+            Bytecode::LoadVariantSingleton(var_idx) => {
+                let var = chunk.executable_semantics.variant_target(var_idx);
+                format!("LoadVariantSingleton({}::{})", var.owner.name, var.selector)
+            }
+            Bytecode::ConstructVariant { variant, arity } => {
+                let var = chunk.executable_semantics.variant_target(variant);
+                format!("ConstructVariant({}::{}, arity={})", var.owner.name, var.selector, arity)
+            }
+            Bytecode::MakeResolvedBoundMethod(target_idx) => {
+                let target = chunk.executable_semantics.associated_target(target_idx);
+                format!("MakeResolvedBoundMethod({:?})", target)
+            }
+            Bytecode::InvokeResolvedAssociated { target, arity } => {
+                let target = chunk.executable_semantics.associated_target(target);
+                format!("InvokeResolvedAssociated({:?}, arity={})", target, arity)
+            }
+            Bytecode::MakeAssociatedFamily(desc_idx) => {
+                let desc = chunk.executable_semantics.family_descriptor(desc_idx);
+                format!("MakeAssociatedFamily({} entries)", desc.entries.len())
+            }
+            Bytecode::IsVariant(var_idx) => {
+                let var = chunk.executable_semantics.variant_target(var_idx);
+                format!("IsVariant({}::{})", var.owner.name, var.selector)
+            }
+            Bytecode::GetVariantPayload(slot) => {
+                format!("GetVariantPayload(slot={})", slot)
+            }
             _ => format!("{:?}", instr),
         };
 

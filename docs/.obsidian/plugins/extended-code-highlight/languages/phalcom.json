@@ -1,0 +1,106 @@
+{
+  "id": "phalcom",
+  "aliases": ["ph", "phalcom"],
+  "tokens": [
+    {
+      "name": "comment",
+      "pattern": "\\/\\*[\\s\\S]*?\\*\\/|\\/\\/[/!]?.*$",
+      "flags": "m"
+    },
+
+    {
+      "name": "string",
+      "pattern": "\"(?:\\\\.|[^\"\\\\])*\"|'(?:\\\\.|[^'\\\\])*'"
+    },
+
+    {
+      "name": "number",
+      "pattern": "\\b(?:0[xX][0-9a-fA-F_]+|0[bB][01_]+|\\d[\\d_]*(?:\\.\\d[\\d_]*)?)\\b"
+    },
+
+    {
+      "name": "keyword",
+      "pattern": "@(?:class|sealed|constructor|construct|variant|data|protocol|enum)\\b"
+    },
+
+    {
+      "name": "keyword",
+      "pattern": "\\b(?:let|const|type|class|enum|is|is!|where|when|if|else|while|for|match|matches|try|catch|on|ensure|throw|break|continue|return|import|from|export|expose|as|in|and|or|not|with|super|self|case)\\b"
+    },
+
+    {
+      "name": "keyword",
+      "pattern": "\\b(?:true|false)\\b"
+    },
+
+    {
+      "name": "builtin",
+      "pattern": "@(?:private|protected|public|total|requires|ensures|invariant|native|ignore|get|set|variant|on)\\b"
+    },
+
+    {
+      "name": "builtin",
+      "pattern": "\\b(?:Int|Float|String|Bool|Unit|None|Self|Type|Symbol|Any|Never|Object|Error)\\b"
+    },
+
+    {
+      "name": "variable",
+      "pattern": "\\b[A-Z]\\b"
+    },
+
+    {
+      "name": "builtin",
+      "pattern": "\\b[A-Z][A-Za-z0-9_]+\\b"
+    },
+
+    {
+      "name": "string",
+      "pattern": "#(?:[A-Za-z_][A-Za-z0-9_]*(?:=\\([^)]*\\)|\\([^)]*\\))?|\\*{1,3}|~\\/|<<|>>|==|!=|<=|>=|\\?\\.|\\?\\?|\\.\\.\\.|\\+|-|\\/|%|&|\\||\\^|~|<|>|!|\\?)"
+    },
+
+    {
+      "name": "function",
+      "pattern": "(?<=\\.)[A-Za-z_][A-Za-z0-9_]*\\b"
+    },
+
+    {
+      "name": "function",
+      "pattern": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b(?=\\s*\\()"
+    },
+
+    {
+      "name": "function",
+      "pattern": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b(?=\\s*<[^>\\r\\n]+>\\s*\\()"
+    },
+
+    {
+      "name": "function",
+      "pattern": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b(?=\\s*(?:<[^>\\r\\n]+>\\s*)?\\|\\s*(?:[A-Za-z_][A-Za-z0-9_]*(?:\\s*,\\s*[A-Za-z_][A-Za-z0-9_]*)*)?\\s*\\|\\s*\\{)"
+    },
+
+    {
+      "name": "function",
+      "pattern": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b(?=\\s*(?:<[^>\\r\\n]+>\\s*)?\\([^\\r\\n)]*\\)\\s*(?:->[^\\r\\n{]+)?\\s*\\{)"
+    },
+
+    {
+      "name": "property",
+      "pattern": "\\b_[A-Za-z][A-Za-z0-9_]*\\b"
+    },
+
+    {
+      "name": "property",
+      "pattern": "\\b[A-Za-z_][A-Za-z0-9_]*\\b(?=\\s*:\\s*(?:[A-Z]|Self\\b|Type\\b))"
+    },
+
+    {
+      "name": "operator",
+      "pattern": "=>>|->|=>|===|<=>|\\.\\.\\.|\\+\\+|--|==|!=|<=|>=|\\?\\.|\\?\\?|\\+=|-=|\\*=|\\/=|%=|\\+|-|\\*|\\/|%|=|<|>|\\||&|\\^|~|!"
+    },
+
+    {
+      "name": "variable",
+      "pattern": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
+    }
+  ]
+}

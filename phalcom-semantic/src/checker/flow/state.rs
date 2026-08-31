@@ -589,12 +589,12 @@ impl FlowState {
                 b.current = joined_knowledge;
                 b.mutable = mutable;
                 b.denotation = {
-                    let first_denotation = sample_binding.denotation;
+                    let first_denotation = sample_binding.denotation.as_ref();
                     if reachable_states
                         .iter()
-                        .all(|state| state.bindings.get(&id).and_then(|binding| binding.denotation) == first_denotation)
+                        .all(|state| state.bindings.get(&id).and_then(|binding| binding.denotation.as_ref()) == first_denotation)
                     {
-                        first_denotation
+                        sample_binding.denotation.clone()
                     } else {
                         None
                     }
@@ -730,7 +730,7 @@ impl FlowState {
                     let widened_knowledge = join_type_knowledge(store, [h_b.current.clone(), next_b.current.clone()]);
                     let mut wb = h_b.clone();
                     wb.current = widened_knowledge.clone();
-                    wb.denotation = if h_b.denotation == next_b.denotation { h_b.denotation } else { None };
+                    wb.denotation = if h_b.denotation == next_b.denotation { h_b.denotation.clone() } else { None };
                     wb.causal_invalidity = h_b.causal_invalidity.join(next_b.causal_invalidity);
                     if let Some(contract) = wb.contract.as_ref() {
                         let reconciliation = crate::checker::binding::reconcile_binding_contract(store, hierarchy, Some(contract), &widened_knowledge);
@@ -776,7 +776,7 @@ impl FlowState {
                     BindingFixpointKey {
                         contract: b.contract.clone(),
                         current: (&b.current).into(),
-                        denotation: b.denotation,
+                        denotation: b.denotation.clone(),
                         consistency: b.consistency.clone(),
                         causal_invalidity: b.causal_invalidity,
                         mutable: b.mutable,
@@ -821,7 +821,7 @@ impl FlowState {
                 let prev_key = BindingFixpointKey {
                     contract: prev_b.contract.clone(),
                     current: (&prev_b.current).into(),
-                    denotation: prev_b.denotation,
+                    denotation: prev_b.denotation.clone(),
                     consistency: prev_b.consistency.clone(),
                     causal_invalidity: prev_b.causal_invalidity,
                     mutable: prev_b.mutable,
@@ -829,7 +829,7 @@ impl FlowState {
                 let next_key = BindingFixpointKey {
                     contract: next_b.contract.clone(),
                     current: (&next_b.current).into(),
-                    denotation: next_b.denotation,
+                    denotation: next_b.denotation.clone(),
                     consistency: next_b.consistency.clone(),
                     causal_invalidity: next_b.causal_invalidity,
                     mutable: next_b.mutable,

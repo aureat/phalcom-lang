@@ -31,15 +31,15 @@ This is better than making every selector-looking symbol automatically instantia
 
 The two class definitions I would aim for are conceptually like this.
 
-```
-@sealed
+```ph
+@final
 class Selector {
-  @private symbol
-  @private name
-  @private kind
-  @private positional
-  @private labels
-  @private assignment
+  @private _symbol
+  @private _name
+  @private _kind
+  @private _positional
+  @private _labels
+  @private _assignment
 
   @class
   from(symbol) {
@@ -47,31 +47,19 @@ class Selector {
     // Reject selector patterns and non-selector symbols.
   }
 
-  symbol {
-    symbol
-  }
+  symbol { _symbol }
 
-  name {
-    name
-  }
+  name { _name }
 
-  kind {
-    kind
-  }
+  kind { _kind }
 
-  positional {
-    positional
-  }
+  positional { _positional }
 
-  labels {
-    labels
-  }
+  labels { _labels }
 
-  assignment? {
-    assignment
-  }
+  assignment { _assignment }
 
-  getter? {
+  getter {
     kind == #getter
   }
 

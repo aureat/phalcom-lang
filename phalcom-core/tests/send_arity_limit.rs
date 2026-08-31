@@ -145,7 +145,6 @@ fn subscript_writes_accept_254_explicit_and_reject_255_explicit_arguments() {
 
 #[test]
 fn pinned_selector_references_with_256_arguments_are_compile_errors() {
-    assert_arity_limit(&format!("target::#send({})", placeholders(256)), "pinned selector", 256);
     assert_arity_limit(&format!("#send({})", placeholders(256)), "pinned selector", 256);
 }
 

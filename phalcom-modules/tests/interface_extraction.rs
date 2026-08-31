@@ -139,3 +139,35 @@ fn iface_08_export_undeclared_rejected() {
         result
     );
 }
+
+/// IFACE-09 — Enum declaration becomes exportable
+#[test]
+fn iface_09_enum_becomes_exportable() {
+    let id = make_test_id("test_mod");
+    let src = "enum Option {\n    @variant Some(_ value: Object)\n    @variant None\n}\nexport Option\n";
+    let parse_result = parse(src, 0);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let iface = InterfaceBuilder::build(id, ModuleKind::Module, &parse_result.program).expect("build interface");
+    assert!(iface.declarations.contains_key("Option"));
+    assert_eq!(
+        iface.exports.get("Option").map(|e| &e.target),
+        Some(&UnlinkedExportTarget::Local("Option".to_string()))
+    );
+}
+
+/// IFACE-10 — Duplicate class and enum name is rejected
+#[test]
+fn iface_10_enum_and_class_duplicate_name_rejected() {
+    let id = make_test_id("test_mod");
+    let src = "class Option {}\nenum Option {\n    @variant None\n}\n";
+    let parse_result = parse(src, 0);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let result = InterfaceBuilder::build(id, ModuleKind::Module, &parse_result.program);
+    assert!(
+        matches!(result, Err(InterfaceError::DuplicateDeclaration { ref name, .. }) if name == "Option"),
+        "expected DuplicateDeclaration for 'Option', got {:?}",
+        result
+    );
+}

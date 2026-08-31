@@ -49,6 +49,7 @@ fn shape_from_type_for_receiver(store: &TypeStore, ty: TypeId, receiver: &ValueS
         TypeData::ClassObject { declaration } => ValueShape::ClassObject(declaration.clone()),
         TypeData::Nominal { declaration } => ValueShape::Instance(declaration.clone()),
         TypeData::Applied { origin, .. } => shape_from_type_for_receiver(store, *origin, receiver, depth - 1),
+        TypeData::ExactCase { enum_type, .. } => shape_from_type_for_receiver(store, *enum_type, receiver, depth - 1),
         TypeData::Union(types) => ValueShape::bounded_union(types.iter().map(|ty| shape_from_type_for_receiver(store, *ty, receiver, depth - 1))),
         TypeData::Tuple(elements) => ValueShape::Tuple(
             elements
@@ -57,7 +58,7 @@ fn shape_from_type_for_receiver(store: &TypeStore, ty: TypeId, receiver: &ValueS
                 .collect::<Vec<_>>()
                 .into(),
         ),
-        TypeData::Record(_) | TypeData::Callable(_) | TypeData::Parameter(_) | TypeData::Lambda(_) => ValueShape::Unknown,
+        TypeData::Record(_) | TypeData::Callable(_) | TypeData::Family(_) | TypeData::Parameter(_) | TypeData::Lambda(_) => ValueShape::Unknown,
     }
 }
 
@@ -85,6 +86,7 @@ fn shape_from_type(store: &TypeStore, ty: TypeId, depth: usize) -> ValueShape {
         TypeData::ClassObject { declaration } => ValueShape::ClassObject(declaration.clone()),
         TypeData::Nominal { declaration } => ValueShape::Instance(declaration.clone()),
         TypeData::Applied { origin, .. } => shape_from_type(store, *origin, depth - 1),
+        TypeData::ExactCase { enum_type, .. } => shape_from_type(store, *enum_type, depth - 1),
         TypeData::Union(types) => ValueShape::bounded_union(types.iter().map(|ty| shape_from_type(store, *ty, depth - 1))),
         TypeData::Tuple(elements) => ValueShape::Tuple(
             elements
@@ -93,6 +95,13 @@ fn shape_from_type(store: &TypeStore, ty: TypeId, depth: usize) -> ValueShape {
                 .collect::<Vec<_>>()
                 .into(),
         ),
-        TypeData::Record(_) | TypeData::Callable(_) | TypeData::Parameter(_) | TypeData::Lambda(_) | TypeData::SelfType(_) => ValueShape::Unknown,
+        TypeData::SelfType(term) => match term.role {
+            SelfRole::InstanceType => ValueShape::Instance(term.owner.clone()),
+            SelfRole::ReceiverValue => match term.side {
+                crate::identity::DispatchSide::Class => ValueShape::ClassObject(term.owner.clone()),
+                crate::identity::DispatchSide::Instance => ValueShape::Instance(term.owner.clone()),
+            },
+        },
+        TypeData::Record(_) | TypeData::Callable(_) | TypeData::Family(_) | TypeData::Parameter(_) | TypeData::Lambda(_) => ValueShape::Unknown,
     }
 }

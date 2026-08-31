@@ -18,6 +18,23 @@ impl TypeId {
     }
 }
 
+/// Store/snapshot-local compact handle for an interned [`VariantId`].
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct VariantTypeId(pub u32);
+
+impl VariantTypeId {
+    #[inline]
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+
+    #[inline]
+    pub fn from_index(index: usize) -> Self {
+        Self(index as u32)
+    }
+}
+
 /// Store-relative unique identity.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct TypeStoreId(pub u64);

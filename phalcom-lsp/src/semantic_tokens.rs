@@ -167,6 +167,8 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
         | Token::Const
         | Token::Fn
         | Token::Class
+        | Token::Enum
+        | Token::Match
         | Token::Where
         | Token::TypeKw
         | Token::Return
@@ -213,6 +215,7 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
         | Token::GreaterEqual
         | Token::Subtype
         | Token::TypeLambdaArrow
+        | Token::FatArrow
         | Token::Spaceship
         | Token::PlusEqual
         | Token::MinusEqual
@@ -632,6 +635,13 @@ fn collect_decl_names(statements: &[Statement], out: &mut Vec<DeclNameOverride>)
                 for member in &class_def.members {
                     collect_member_decl_name(member, out);
                 }
+            }
+            Statement::Enum(enum_def) => {
+                out.push(DeclNameOverride {
+                    range: enum_def.name_range,
+                    kind: SemanticTokenKind::Class,
+                    is_index: false,
+                });
             }
             Statement::TypeAlias(alias) => {
                 out.push(DeclNameOverride {

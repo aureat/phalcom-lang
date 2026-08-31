@@ -441,6 +441,7 @@ impl<'input> Lexer<'input> {
                 "const" => Token::Const,
                 "fn" => Token::Fn,
                 "class" => Token::Class,
+                "enum" => Token::Enum,
                 "return" => Token::Return,
                 "true" => Token::True,
                 "false" => Token::False,
@@ -468,6 +469,7 @@ impl<'input> Lexer<'input> {
                 "try" => Token::Try,
                 "where" => Token::Where,
                 "type" => Token::TypeKw,
+                "match" => Token::Match,
                 _ => Token::Identifier(slice.to_string()),
             });
         }
@@ -1091,6 +1093,7 @@ impl<'input> Lexer<'input> {
             b'<' if next == Some(b':') => (2, Token::Subtype),
             b'<' if next == Some(b'<') => (2, Token::ShiftLeft),
             b'=' if next == Some(b'>') && self.peek_at(2) == Some(b'>') => (3, Token::TypeLambdaArrow),
+            b'=' if next == Some(b'>') => (2, Token::FatArrow),
             b'=' if next == Some(b'=') && self.peek_at(2) == Some(b'=') => (3, Token::TripleEqual),
             b'=' if next == Some(b'=') => (2, Token::EqualEqual),
             b'=' => (1, Token::Equal),
@@ -1212,6 +1215,7 @@ fn suppresses_following_newline(prev: &Token) -> bool {
             | Token::TypeKw
             // Arrows.
             | Token::Arrow
+            | Token::FatArrow
     )
 }
 

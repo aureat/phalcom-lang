@@ -8,7 +8,9 @@
 //! ([ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md),
 //! [ADR-0010](../../../docs/adr/accepted/0010-tagged-value-enum.md)).
 
+mod associated;
 mod class_decl;
+mod enum_decl;
 mod error;
 mod expr;
 mod jumps;
@@ -174,6 +176,8 @@ pub(crate) struct Compiler<'vm> {
     source_id: u32,
     /// Whether this compilation unit is a whole file or a single REPL cell.
     pub(crate) unit_kind: UnitKind,
+    /// Optional semantic lowering projected from formal analysis.
+    pub(crate) lowering: Option<std::sync::Arc<crate::modules::semantic_lowering::ModuleLoweringSemantics>>,
 }
 
 impl<'vm> Compiler<'vm> {
@@ -185,6 +189,7 @@ impl<'vm> Compiler<'vm> {
 
     /// Creates a compiler seeded from a linked module namespace.
     pub(crate) fn new_with_bindings(vm: &'vm mut VM, module: ObjRef, source_id: u32, unit_kind: UnitKind, linked_bindings: Option<CompileBindings>) -> Self {
+        let lowering = vm.heap.module(module).lowering.clone();
         Compiler {
             vm,
             module,
@@ -203,7 +208,13 @@ impl<'vm> Compiler<'vm> {
             scratch_counter: 0,
             source_id,
             unit_kind,
+            lowering,
         }
+    }
+
+    /// Returns lowering semantics if attached.
+    pub(crate) fn lowering(&self) -> Option<&crate::modules::semantic_lowering::ModuleLoweringSemantics> {
+        self.lowering.as_deref()
     }
 
     /// Bootstrap-owned core and universe modules may spell implementation
@@ -499,11 +510,25 @@ impl<'vm> Compiler<'vm> {
                         collect_pattern(rest, out);
                     }
                 }
-                phalcom_ast::ast::Pattern::Variant { arguments, .. } => {
-                    for argument in arguments {
-                        collect_pattern(argument, out);
+                phalcom_ast::ast::Pattern::Variant(variant_pat) => match &variant_pat.mode {
+                    phalcom_ast::ast::VariantPatternMode::ExactCall { arguments } => {
+                        for arg in arguments {
+                            collect_pattern(&arg.pattern, out);
+                        }
+                    }
+                    phalcom_ast::ast::VariantPatternMode::CallablePattern { prefix, suffix, .. } => {
+                        for arg in prefix.iter().chain(suffix.iter()) {
+                            collect_pattern(&arg.pattern, out);
+                        }
+                    }
+                    _ => {}
+                },
+                phalcom_ast::ast::Pattern::Or { alternatives, .. } => {
+                    for p in alternatives {
+                        collect_pattern(p, out);
                     }
                 }
+                phalcom_ast::ast::Pattern::Wildcard { .. } => {}
                 phalcom_ast::ast::Pattern::Record { entries, .. } => {
                     for entry in entries {
                         collect_pattern(&entry.pattern, out);
@@ -628,6 +653,9 @@ impl<'vm> Compiler<'vm> {
             }
             Statement::Class(class_def) => {
                 self.compile_class(class_def)?;
+            }
+            Statement::Enum(enum_def) => {
+                self.compile_enum(&enum_def)?;
             }
             Statement::For(for_stmt) => {
                 // A `for` is a statement consumed for effect (U-ITER spec

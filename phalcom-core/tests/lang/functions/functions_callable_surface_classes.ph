@@ -11,7 +11,7 @@ class CallableObject {
 const object = CallableObject.new()
 const method = object.methodFor(#call(_))
 const bound = method.bind(object)
-const family = object::call
+const family = CallableObject::call::*;
 
 System.print(object(4))
 System.print(object.is(Function))

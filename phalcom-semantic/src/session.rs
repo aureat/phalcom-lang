@@ -6,6 +6,7 @@ use crate::advisory::{
     FormalCallResultResolver, MethodFamilyResolver, ModuleMemberResolver, advisory_shape_from_formal, advisory_shape_from_formal_for_receiver, analyze_expr,
     analyze_statements,
 };
+use crate::associated::{AssociatedFamilyTable, build_associated_surface};
 use crate::checker::analysis::normal_return_summary;
 use crate::checker::context::CheckingContext;
 use crate::checker::declaration::check_class_field_initializers;
@@ -14,15 +15,19 @@ use crate::core_surface::render_canonical_core_source;
 use crate::db::SemanticDb;
 use crate::db::budget::{CancellationToken, QueryBudget};
 use crate::db::key::QueryKey;
+use crate::db::product::EnumRequirementsProduct;
 use crate::db::query::{
     CallableBodyQuery, DeclarationSurfaceQuery, FormalQueryInputs, bootstrap_advisory_callable, query_advisory_callable, query_advisory_module,
-    query_callable_body_with_formal_inputs, query_callable_signature, query_declaration_shell, query_declaration_surface, query_field_signature,
-    query_hierarchy_edge, query_linked_interface, query_source_formal_attachment, query_source_structure, query_unlinked_interface,
+    query_associated_surface, query_callable_body_with_formal_inputs, query_callable_signature, query_declaration_shell, query_declaration_surface,
+    query_enum_declaration, query_enum_requirements, query_field_signature, query_hierarchy_edge, query_linked_interface, query_source_formal_attachment,
+    query_source_structure, query_unlinked_interface,
 };
 use crate::db::state::QueryOutcome;
 use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, bootstrap_universe_declarations};
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::SurfaceDispatchResolver;
+use crate::enum_requirements::{EnumRequirementTable, check_enum_requirements};
+use crate::enum_semantics::{EnumSemanticTable, VariantInfo};
 use crate::identity::{CallableId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId, WorkspaceId};
 use crate::resolver::LinkedTypeResolver;
 use crate::signature::{CallableSignatureTable, FieldSignatureTable};
@@ -350,7 +355,7 @@ impl SemanticWorkspaceSession {
                         snapshot
                             .callable_analyses
                             .keys()
-                            .filter(|callable| callable.owner.module == *old_module_id)
+                            .filter(|callable| callable.module() == old_module_id)
                             .cloned()
                             .map(QueryKey::AdvisoryCallable),
                     );
@@ -386,6 +391,39 @@ impl SemanticWorkspaceSession {
                     if declarations.get(&decl_id).is_none() {
                         let kind = if !class_def.generic_parameters.is_empty() {
                             let param_kinds: Vec<KindId> = class_def
+                                .generic_parameters
+                                .iter()
+                                .map(|p| p.kind.as_ref().map_or(KindId::TYPE, |k| resolve_kind_syntax(&mut self.store, k)))
+                                .collect();
+                            self.store.arrow_kind(param_kinds.into_boxed_slice(), KindId::TYPE)
+                        } else {
+                            KindId::TYPE
+                        };
+
+                        let form = if kind == KindId::TYPE {
+                            self.store.nominal_type(decl_id.clone())
+                        } else {
+                            self.store.nominal_form(decl_id.clone(), kind)
+                        };
+                        let class_obj_type = self.store.class_object_type(decl_id.clone());
+                        declarations.insert(DeclarationTypeInfo {
+                            declaration: decl_id,
+                            form,
+                            class_object_type: class_obj_type,
+                            kind,
+                            generic_signature: None,
+                            supertype_template: None,
+                        });
+                    }
+                } else if let Statement::Enum(enum_def) = stmt {
+                    let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
+                    initial_blueprints.push(DeclarationBlueprint {
+                        id: decl_id.clone(),
+                        kind: DeclarationKind::Class,
+                    });
+                    if declarations.get(&decl_id).is_none() {
+                        let kind = if !enum_def.generic_parameters.is_empty() {
+                            let param_kinds: Vec<KindId> = enum_def
                                 .generic_parameters
                                 .iter()
                                 .map(|p| p.kind.as_ref().map_or(KindId::TYPE, |k| resolve_kind_syntax(&mut self.store, k)))
@@ -543,6 +581,33 @@ impl SemanticWorkspaceSession {
                             supertype_template,
                         });
                     }
+                } else if let Statement::Enum(enum_def) = stmt {
+                    let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
+                    let generic_signature = if !enum_def.generic_parameters.is_empty() {
+                        Some(resolve_generic_signature(
+                            &mut self.store,
+                            &declarations,
+                            &resolver,
+                            module_id,
+                            TypeParameterOwner::Declaration(decl_id.clone()),
+                            &enum_def.generic_parameters,
+                            enum_def.where_clause.as_ref(),
+                            diags_by_module.entry(module_id.clone()).or_default(),
+                        ))
+                    } else {
+                        None
+                    };
+
+                    if let Some(info) = declarations.get(&decl_id).cloned() {
+                        declarations.insert(DeclarationTypeInfo {
+                            declaration: info.declaration,
+                            form: info.form,
+                            class_object_type: info.class_object_type,
+                            kind: info.kind,
+                            generic_signature,
+                            supertype_template: None,
+                        });
+                    }
                 }
             }
         }
@@ -552,8 +617,13 @@ impl SemanticWorkspaceSession {
         let mut published_shells = BTreeSet::new();
         for (module_id, parsed_unit) in &input.sources {
             for statement in &parsed_unit.program.statements {
-                if let Statement::Class(class_def) = statement {
-                    let declaration = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                let decl_name = match statement {
+                    Statement::Class(class_def) => Some(class_def.name.as_str()),
+                    Statement::Enum(enum_def) => Some(enum_def.name.as_str()),
+                    _ => None,
+                };
+                if let Some(name) = decl_name {
+                    let declaration = DeclarationId::new(module_id.clone(), name.into());
                     if published_shells.insert(declaration.clone()) {
                         let Some(info) = declarations.get(&declaration).cloned() else {
                             return Err(QueryOutcome::Failed(format!("missing declaration metadata for {declaration:?}")));
@@ -709,6 +779,131 @@ impl SemanticWorkspaceSession {
             }
         }
 
+        // 6b. Compile and publish enum declarations, associated surfaces, and closed-enum requirements.
+        let mut enum_semantics = EnumSemanticTable::new();
+        let mut enum_requirements_table = EnumRequirementTable::new();
+        let mut associated_surfaces_table = AssociatedFamilyTable::new();
+
+        for (module_id, parsed_unit) in &input.sources {
+            for stmt in &parsed_unit.program.statements {
+                let Statement::Enum(enum_def) = stmt else {
+                    continue;
+                };
+                let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
+                let enum_product =
+                    crate::checker::enum_declaration::build_enum_semantics(&decl_id, enum_def, &mut self.store, &declarations, &resolver, module_id);
+
+                diags_by_module
+                    .entry(module_id.clone())
+                    .or_default()
+                    .extend(enum_product.diagnostics.iter().cloned());
+
+                enum_semantics.insert_enum(enum_product.info.clone());
+                for v in enum_product.variants.iter() {
+                    enum_semantics.insert_variant(Arc::new(v.clone()));
+                }
+
+                let arc_enum_product = Arc::new(enum_product);
+                let _ = query_enum_declaration(&mut self.db, arc_enum_product);
+
+                let (assoc_surface, assoc_diags) = build_associated_surface(
+                    &decl_id,
+                    Some(
+                        &enum_def
+                            .members
+                            .iter()
+                            .filter_map(|m| match m {
+                                phalcom_ast::ast::EnumMember::Variant(v) => {
+                                    let sel = phalcom_ast::selector::selector_from_variant(v);
+                                    Some(crate::identity::VariantId::new(decl_id.clone(), sel))
+                                }
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>(),
+                    ),
+                    &[],
+                    &std::collections::HashSet::new(),
+                    module_id,
+                    Some(crate::diagnostic::SemanticSourceSpan::new(module_id.clone(), enum_def.range)),
+                );
+                diags_by_module.entry(module_id.clone()).or_default().extend(assoc_diags.iter().cloned());
+                associated_surfaces_table.insert(decl_id.clone(), assoc_surface.clone());
+                let _ = query_associated_surface(&mut self.db, assoc_surface);
+
+                let variants_info: Vec<VariantInfo> = enum_def
+                    .members
+                    .iter()
+                    .filter_map(|m| match m {
+                        phalcom_ast::ast::EnumMember::Variant(v) => {
+                            let sel = phalcom_ast::selector::selector_from_variant(v);
+                            let vid = crate::identity::VariantId::new(decl_id.clone(), sel);
+                            enum_semantics.variant_info(&vid).cloned()
+                        }
+                        _ => None,
+                    })
+                    .collect();
+
+                let (case_statuses, req_diags) = check_enum_requirements(
+                    &decl_id,
+                    enum_semantics.enum_info(&decl_id).unwrap(),
+                    &variants_info,
+                    &[],
+                    &HashMap::new(),
+                    &mut self.store,
+                    &hierarchy,
+                    module_id,
+                );
+                diags_by_module.entry(module_id.clone()).or_default().extend(req_diags.iter().cloned());
+                enum_requirements_table.insert(decl_id.clone(), Arc::from([]), case_statuses.clone());
+                let req_product = Arc::new(EnumRequirementsProduct {
+                    requirements: Arc::from([]),
+                    case_statuses,
+                    diagnostics: req_diags,
+                });
+                let _ = query_enum_requirements(&mut self.db, decl_id.clone(), req_product);
+            }
+        }
+
+        for (module_id, parsed_unit) in &input.sources {
+            for stmt in &parsed_unit.program.statements {
+                let Statement::Class(class_def) = stmt else {
+                    continue;
+                };
+                let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                let class_callables: Vec<CallableId> = class_def
+                    .members
+                    .iter()
+                    .filter_map(|m| {
+                        let side = crate::checker::declaration::member_side(m);
+                        if side == DispatchSide::Class {
+                            crate::checker::declaration_signature::callable_id_for_member(&decl_id, m)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                let (assoc_surface, assoc_diags) = build_associated_surface(
+                    &decl_id,
+                    None,
+                    &class_callables,
+                    &std::collections::HashSet::new(),
+                    module_id,
+                    Some(crate::diagnostic::SemanticSourceSpan::new(module_id.clone(), class_def.range)),
+                );
+                diags_by_module.entry(module_id.clone()).or_default().extend(assoc_diags.iter().cloned());
+                associated_surfaces_table.insert(decl_id.clone(), assoc_surface.clone());
+                let _ = query_associated_surface(&mut self.db, assoc_surface);
+            }
+        }
+
+        for (decl_id, _) in declarations.iter() {
+            if !associated_surfaces_table.surfaces.contains_key(decl_id) {
+                let (assoc_surface, _) = build_associated_surface(decl_id, None, &[], &std::collections::HashSet::new(), &decl_id.module, None);
+                associated_surfaces_table.insert(decl_id.clone(), assoc_surface.clone());
+                let _ = query_associated_surface(&mut self.db, assoc_surface);
+            }
+        }
+
         // 7. Check field defaults, constructors, then ordinary callable bodies.
         // Constructor-first ordering makes lifecycle publication independent of
         // source member order.
@@ -716,6 +911,8 @@ impl SemanticWorkspaceSession {
         for (module_id, parsed_unit) in &input.sources {
             let mut ctx = CheckingContext::new_with_dispatch_ref(&mut self.store, &hierarchy, &resolver, &declarations, &dispatch, module_id.clone());
             ctx.attach_field_signatures(&field_signatures);
+            ctx.attach_enum_semantics(&enum_semantics);
+            ctx.attach_associated_families(&associated_surfaces_table);
             for stmt in &parsed_unit.program.statements {
                 if let Statement::Class(class_def) = stmt {
                     default_field_lifecycle.extend(crate::checker::field_lifecycle::default_field_seeds(&mut ctx, class_def));
@@ -751,20 +948,25 @@ impl SemanticWorkspaceSession {
                             if is_constructor != constructors_only {
                                 continue;
                             }
-                            let side = match member {
-                                ClassMember::Method(m) if m.is_constructor || m.attributes.iter().any(|a| a.name == "constructor") => {
-                                    crate::identity::DispatchSide::Instance
-                                }
-                                _ => crate::checker::declaration::member_side(member),
+                            let side = if is_constructor {
+                                crate::identity::DispatchSide::Instance
+                            } else {
+                                crate::checker::declaration::member_side(member)
                             };
+
                             let (selector_opt, body_opt, range_opt) = match member {
                                 ClassMember::Method(m) => {
                                     let slots = m
                                         .params
                                         .iter()
+                                        .filter(|p| p.rest_mode == phalcom_ast::ast::RestMode::None)
                                         .map(|p| {
                                             if let Some(ref l) = p.label {
-                                                phalcom_common::selector::SelectorSlot::Label(l.clone())
+                                                if l == "_" {
+                                                    phalcom_common::selector::SelectorSlot::Positional
+                                                } else {
+                                                    phalcom_common::selector::SelectorSlot::Label(l.clone())
+                                                }
                                             } else {
                                                 phalcom_common::selector::SelectorSlot::Positional
                                             }
@@ -789,6 +991,8 @@ impl SemanticWorkspaceSession {
                                     declarations: &declarations,
                                     field_signatures: Some(&field_signatures),
                                     field_lifecycle: Some(if is_constructor { &default_field_lifecycle } else { &field_lifecycle }),
+                                    enum_semantics: Some(&enum_semantics),
+                                    associated_families: Some(&associated_surfaces_table),
                                 };
 
                                 let outcome = query_callable_body_with_formal_inputs(
@@ -828,7 +1032,9 @@ impl SemanticWorkspaceSession {
                                                 &default_field_lifecycle,
                                                 callable_analyses
                                                     .values()
-                                                    .filter(|analysis| analysis.callable.owner == decl_id && analysis.callable.side == DispatchSide::Instance)
+                                                    .filter(|analysis| {
+                                                        analysis.callable.declaration_owner() == &decl_id && analysis.callable.side == DispatchSide::Instance
+                                                    })
                                                     .filter(|analysis| {
                                                         callable_signatures
                                                             .get_for_body(&analysis.callable)
@@ -855,33 +1061,12 @@ impl SemanticWorkspaceSession {
             }
         }
 
-        for (module_id, parsed_unit) in &input.sources {
-            let mut ctx = CheckingContext::new_with_dispatch_ref(&mut self.store, &hierarchy, &resolver, &declarations, &dispatch, module_id.clone());
-            ctx.attach_field_signatures(&field_signatures);
-            ctx.attach_field_lifecycle(&field_lifecycle);
-
-            for stmt in &parsed_unit.program.statements {
-                match stmt {
-                    Statement::Class(class_def) => {
-                        check_class_field_initializers(&mut ctx, class_def);
-                    }
-                    _ => {
-                        check_statement(&mut ctx, stmt);
-                    }
-                }
-            }
-
-            if !ctx.diagnostics.is_empty() {
-                diags_by_module.entry(module_id.clone()).or_default().extend(ctx.diagnostics);
-            }
-        }
-
         // 7. Refine Callable Return Interfaces and Reach Fixed Point
         //
-        // Declaration surfaces publish initial return facts. Body analysis
-        // then establishes or refutes them, while unannotated bodies infer
-        // return types. We promote those return contracts into the canonical
-        // view, then recheck callers until that view reaches a fixed point.
+        // This is a specialized session-level loop: body inference and
+        // interface publication iterate until return contracts stabilize.
+        // During each iteration, we only run inference and update dispatch; we
+        // do not run full checking or re-emit diagnostics.
         refresh_inferred_callable_results(InferredCallableRefreshInputs {
             db: &mut self.db,
             sources: &input.sources,
@@ -895,11 +1080,42 @@ impl SemanticWorkspaceSession {
             previous_callable_analyses: previous_snapshot.as_ref().map(|snapshot| snapshot.callable_analyses.as_ref()),
             field_signatures: &field_signatures,
             field_lifecycle: &field_lifecycle,
+            enum_semantics: &enum_semantics,
+            associated_surfaces: &associated_surfaces_table,
             callable_dispositions: &mut callable_dispositions,
             diagnostics: &mut diags_by_module,
             budget,
             cancel,
         })?;
+
+        for (module_id, parsed_unit) in &input.sources {
+            let mut ctx = CheckingContext::new_with_dispatch_ref(&mut self.store, &hierarchy, &resolver, &declarations, &dispatch, module_id.clone());
+            ctx.attach_field_signatures(&field_signatures);
+            ctx.attach_field_lifecycle(&field_lifecycle);
+            ctx.attach_enum_semantics(&enum_semantics);
+            ctx.attach_associated_families(&associated_surfaces_table);
+
+            for stmt in &parsed_unit.program.statements {
+                match stmt {
+                    Statement::Class(class_def) => {
+                        check_class_field_initializers(&mut ctx, class_def);
+                    }
+                    _ => {
+                        check_statement(&mut ctx, stmt);
+                    }
+                }
+            }
+
+            if !ctx.diagnostics.is_empty() {
+                diags_by_module.entry(module_id.clone()).or_default().extend(ctx.diagnostics.clone());
+            }
+
+            let body_range = parsed_unit.program.preamble.range;
+            let module_decl = DeclarationId::new(module_id.clone(), "<main>".into());
+            let callable_id = CallableId::new(module_decl, Selector::getter("<main>").unwrap(), DispatchSide::Instance);
+            let analysis = ctx.finalize(callable_id.clone(), body_range, crate::checker::CallableAnalysisStatus::Complete);
+            callable_analyses.insert(callable_id, Arc::new(analysis));
+        }
 
         // 8. Freeze and Publish Immutable Snapshot
         let mut diagnostics_map = BTreeMap::new();
@@ -1012,7 +1228,7 @@ impl SemanticWorkspaceSession {
                 let callables = advisory
                     .callables
                     .keys()
-                    .filter(|callable| callable.owner.module == *module)
+                    .filter(|callable| callable.module() == module)
                     .cloned()
                     .collect::<Vec<_>>();
                 if let QueryOutcome::Failed(error) = query_advisory_module(&mut self.db, module_product.clone(), callables) {
@@ -1042,6 +1258,9 @@ impl SemanticWorkspaceSession {
         snapshot_obj = snapshot_obj.with_field_signatures(Arc::new(field_signatures));
         snapshot_obj = snapshot_obj.with_presentation_sources(Arc::new(presentation_sources));
         snapshot_obj = snapshot_obj.with_source_index(Arc::new(source_index));
+        snapshot_obj = snapshot_obj.with_enum_semantics(Arc::new(enum_semantics));
+        snapshot_obj = snapshot_obj.with_enum_requirements(Arc::new(enum_requirements_table));
+        snapshot_obj = snapshot_obj.with_associated_surfaces(Arc::new(associated_surfaces_table));
         snapshot_obj.advisory = Arc::new(advisory);
         snapshot_obj.module_products = module_products;
         let snapshot = Arc::new(snapshot_obj);
@@ -1056,6 +1275,7 @@ impl SemanticWorkspaceSession {
                 diagnostics_changed.insert(module);
             }
         }
+
         let module_graph_changed = previous_snapshot.as_deref().is_none_or(|previous| {
             previous.semantic_graph != snapshot.semantic_graph
                 || previous.module_products.resolved_imports != snapshot.module_products.resolved_imports
@@ -1084,11 +1304,6 @@ impl SemanticWorkspaceSession {
         // lifecycle event.
         stats.source_indexes_recomputed = changed_modules.len();
         stats.advisory_sources_recomputed = changed_modules.len();
-        stats.advisory_callables_recomputed = snapshot
-            .callable_analyses
-            .values()
-            .filter(|analysis| changed_modules.contains(&analysis.callable.owner.module))
-            .count();
         stats.modules_relinked = if module_graph_changed { changed_modules.len() } else { 0 };
         stats.project_graph_rebuilt = effects.module_graph_changed;
         stats.callables_recomputed = callable_dispositions
@@ -1099,6 +1314,7 @@ impl SemanticWorkspaceSession {
             .values()
             .filter(|disposition| **disposition == CallableRevisionDisposition::Reused)
             .count();
+        stats.advisory_callables_recomputed = stats.callables_recomputed;
         let recomputed_keys = callable_dispositions
             .iter()
             .filter(|(_, disposition)| **disposition == CallableRevisionDisposition::Recomputed)
@@ -1199,7 +1415,7 @@ fn build_source_semantic_index(
         for callable in structure.callable_sources.values() {
             context
                 .callable_targets
-                .insert((callable.id.owner.clone(), callable.id.selector.clone()), callable.id.clone());
+                .insert((callable.id.declaration_owner().clone(), callable.id.selector.clone()), callable.id.clone());
         }
     }
     for (module, source) in sources {
@@ -1213,8 +1429,11 @@ fn build_source_semantic_index(
     }
     let mut index = SourceSemanticIndex::from_scope_indices_with_programs_and_context(scopes, sources, Some(&context));
     for analysis in callable_analyses.values() {
-        let module = &analysis.callable.owner.module;
+        let module = analysis.callable.module();
         if index.module(module).is_some() {
+            if matches!(&analysis.callable.selector.base, phalcom_common::selector::SelectorBase::Named(name) if name == "<main>") {
+                continue;
+            }
             let _ = index.attach_formal_analysis(module, analysis);
         }
     }
@@ -1364,7 +1583,7 @@ fn build_advisory_workspace(inputs: AdvisoryWorkspaceInputs<'_>) -> AdvisoryWork
                         continue;
                     };
                     let signature = &members.callable_signatures[selector];
-                    if signature.parameters.iter().any(|parameter| parameter.rest) {
+                    if signature.parameters.iter().any(|parameter| parameter.is_rest()) {
                         rest_candidates.push(callable);
                     } else {
                         exact.push((selector.clone(), callable));
@@ -1476,7 +1695,13 @@ fn build_advisory_workspace(inputs: AdvisoryWorkspaceInputs<'_>) -> AdvisoryWork
                 }
             }
 
-            for analysis in ordered_analyses.iter().filter(|analysis| analysis.callable.owner.module == *module) {
+            for analysis in ordered_analyses
+                .iter()
+                .filter(|analysis| analysis.callable.module() == module)
+                // The synthetic module entry is analyzed below with the entire
+                // top-level statement list, not as a class member body.
+                .filter(|analysis| analysis.callable.declaration_owner().name.as_ref() != "<main>")
+            {
                 let Some(body) = member_bodies.get(&analysis.callable).copied() else {
                     module_partial = true;
                     continue;
@@ -1519,7 +1744,7 @@ fn build_advisory_workspace(inputs: AdvisoryWorkspaceInputs<'_>) -> AdvisoryWork
                     fields: &fields,
                     callable_returns: &advisory_returns,
                     builtins: &builtins,
-                    current_owner: Some(&analysis.callable.owner),
+                    current_owner: Some(analysis.callable.declaration_owner()),
                     dispatch_side: analysis.callable.side,
                     source_site_for_range: &site_for_range,
                     resolved_callable_for_range: &resolved_callable_for_range,
@@ -1666,10 +1891,7 @@ fn build_advisory_workspace(inputs: AdvisoryWorkspaceInputs<'_>) -> AdvisoryWork
                 crate::advisory::AdvisoryContributionSource::Callable(callable.clone()),
                 summary.parameters.iter().cloned().collect::<BTreeMap<_, _>>(),
             );
-            contributions.replace_source(
-                crate::advisory::AdvisoryContributionSource::Module(callable.owner.module.clone()),
-                own_parameters,
-            );
+            contributions.replace_source(crate::advisory::AdvisoryContributionSource::Module(callable.module().clone()), own_parameters);
             solver_nodes.insert(
                 callable.clone(),
                 AdvisorySolverNode {
@@ -1786,9 +2008,14 @@ fn advisory_callable_member<'a>(declaration: &DeclarationId, member: &'a ClassMe
             let slots = method
                 .params
                 .iter()
+                .filter(|parameter| parameter.rest_mode == phalcom_ast::ast::RestMode::None)
                 .map(|parameter| {
                     parameter.label.as_ref().map_or(phalcom_common::selector::SelectorSlot::Positional, |label| {
-                        phalcom_common::selector::SelectorSlot::Label(label.clone())
+                        if label == "_" {
+                            phalcom_common::selector::SelectorSlot::Positional
+                        } else {
+                            phalcom_common::selector::SelectorSlot::Label(label.clone())
+                        }
                     })
                 })
                 .collect::<Vec<_>>();
@@ -1867,7 +2094,7 @@ fn advisory_target_resolution(site: &SourceSiteId, target: &SemanticTargetId) ->
         SemanticTargetId::Binding(_) => AdvisoryOrigin::Binding(site.clone()),
         SemanticTargetId::Callable(_) => AdvisoryOrigin::CallSite(site.clone()),
         SemanticTargetId::Field(field) => AdvisoryOrigin::Field(field.clone()),
-        SemanticTargetId::Declaration(_) | SemanticTargetId::Module(_) => AdvisoryOrigin::Constraint(site.clone()),
+        SemanticTargetId::Declaration(_) | SemanticTargetId::Module(_) | SemanticTargetId::Variant(_) => AdvisoryOrigin::Constraint(site.clone()),
     };
     AdvisoryTargetResolution {
         target: target.clone(),
@@ -1905,6 +2132,8 @@ struct InferredCallableRefreshInputs<'a> {
     previous_callable_analyses: Option<&'a HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>,
     field_signatures: &'a FieldSignatureTable,
     field_lifecycle: &'a crate::checker::field_lifecycle::FieldLifecycleTable,
+    enum_semantics: &'a EnumSemanticTable,
+    associated_surfaces: &'a AssociatedFamilyTable,
     callable_dispositions: &'a mut BTreeMap<CallableId, CallableRevisionDisposition>,
     diagnostics: &'a mut BTreeMap<ModuleId, Vec<SemanticDiagnostic>>,
     budget: QueryBudget,
@@ -1935,6 +2164,8 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
         previous_callable_analyses,
         field_signatures,
         field_lifecycle,
+        enum_semantics,
+        associated_surfaces,
         callable_dispositions,
         diagnostics,
         budget,
@@ -2043,9 +2274,14 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
                             let slots = m
                                 .params
                                 .iter()
+                                .filter(|p| p.rest_mode == phalcom_ast::ast::RestMode::None)
                                 .map(|p| {
                                     if let Some(ref label) = p.label {
-                                        phalcom_common::selector::SelectorSlot::Label(label.clone())
+                                        if label == "_" {
+                                            phalcom_common::selector::SelectorSlot::Positional
+                                        } else {
+                                            phalcom_common::selector::SelectorSlot::Label(label.clone())
+                                        }
                                     } else {
                                         phalcom_common::selector::SelectorSlot::Positional
                                     }
@@ -2087,6 +2323,8 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
                             cancel,
                             field_signatures: Some(field_signatures),
                             field_lifecycle: Some(field_lifecycle),
+                            enum_semantics: Some(enum_semantics),
+                            associated_families: Some(associated_surfaces),
                         },
                     );
                     analysis.dependency_fingerprint = crate::db::fingerprint::callable_body_product_fingerprint(&analysis);

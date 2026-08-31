@@ -290,7 +290,7 @@ fn gate_01_5_f_variance_occurrence_algebra() {
         parameters: vec![phalcom_semantic::types::store::CallableParameterType {
             label: None,
             ty: t_form,
-            rest: false,
+            rest: phalcom_ast::ast::RestMode::None,
         }]
         .into_boxed_slice(),
         return_type: int_ty,

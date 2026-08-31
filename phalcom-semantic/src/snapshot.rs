@@ -105,6 +105,10 @@ impl SnapshotStatus {
     }
 }
 
+use crate::associated::AssociatedFamilyTable;
+use crate::enum_requirements::EnumRequirementTable;
+use crate::enum_semantics::EnumSemanticTable;
+
 /// Immutable semantic snapshot representing a consistent view of the workspace.
 #[derive(Clone, Debug)]
 pub struct SemanticSnapshot {
@@ -131,6 +135,9 @@ pub struct SemanticSnapshot {
     /// Immutable advisory runtime-shape products for this exact snapshot.
     pub advisory: Arc<AdvisoryWorkspace>,
     pub module_products: Arc<ModuleQueryProducts>,
+    pub enum_semantics: Arc<EnumSemanticTable>,
+    pub enum_requirements: Arc<EnumRequirementTable>,
+    pub associated_surfaces: Arc<AssociatedFamilyTable>,
     pub status: SnapshotStatus,
 }
 
@@ -173,6 +180,9 @@ impl SemanticSnapshot {
             source_index: Arc::new(SourceSemanticIndex::default()),
             advisory: Arc::new(AdvisoryWorkspace::default()),
             module_products: Arc::new(ModuleQueryProducts::empty()),
+            enum_semantics: Arc::new(EnumSemanticTable::new()),
+            enum_requirements: Arc::new(EnumRequirementTable::new()),
+            associated_surfaces: Arc::new(AssociatedFamilyTable::new()),
             status: SnapshotStatus::Complete,
         }
     }
@@ -217,8 +227,26 @@ impl SemanticSnapshot {
             source_index: Arc::new(SourceSemanticIndex::default()),
             advisory: Arc::new(AdvisoryWorkspace::default()),
             module_products: Arc::new(ModuleQueryProducts::empty()),
+            enum_semantics: Arc::new(EnumSemanticTable::new()),
+            enum_requirements: Arc::new(EnumRequirementTable::new()),
+            associated_surfaces: Arc::new(AssociatedFamilyTable::new()),
             status: SnapshotStatus::Complete,
         }
+    }
+
+    pub fn with_enum_semantics(mut self, enum_semantics: Arc<EnumSemanticTable>) -> Self {
+        self.enum_semantics = enum_semantics;
+        self
+    }
+
+    pub fn with_enum_requirements(mut self, enum_requirements: Arc<EnumRequirementTable>) -> Self {
+        self.enum_requirements = enum_requirements;
+        self
+    }
+
+    pub fn with_associated_surfaces(mut self, associated_surfaces: Arc<AssociatedFamilyTable>) -> Self {
+        self.associated_surfaces = associated_surfaces;
+        self
     }
 
     pub fn with_field_signatures(mut self, field_signatures: Arc<FieldSignatureTable>) -> Self {

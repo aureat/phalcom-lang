@@ -7,5 +7,5 @@ class Router {
   route(foo) { foo }
   route(bar) { bar }
 }
-const family = Router.new()::route(..., foo)
+const family = (Router >> #route(..., foo)).bind(Router.new())
 System.print(family(bar: 1))

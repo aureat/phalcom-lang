@@ -243,11 +243,25 @@ fn bind_pattern(pattern: &Pattern, fact: &AdvisoryFact, context: &AdvisoryFlowCo
                 bind_pattern(rest, &fact.rest_shape(), context, product);
             }
         }
-        Pattern::Variant { arguments, .. } => {
-            for argument in arguments {
-                bind_pattern(argument, &AdvisoryFact::unknown(), context, product);
+        Pattern::Wildcard { .. } => {}
+        Pattern::Or { alternatives, .. } => {
+            for alt in alternatives {
+                bind_pattern(alt, fact, context, product);
             }
         }
+        Pattern::Variant(variant) => match &variant.mode {
+            phalcom_ast::ast::VariantPatternMode::ExactCall { arguments } => {
+                for argument in arguments {
+                    bind_pattern(&argument.pattern, &AdvisoryFact::unknown(), context, product);
+                }
+            }
+            phalcom_ast::ast::VariantPatternMode::CallablePattern { prefix, suffix, .. } => {
+                for argument in prefix.iter().chain(suffix.iter()) {
+                    bind_pattern(&argument.pattern, &AdvisoryFact::unknown(), context, product);
+                }
+            }
+            phalcom_ast::ast::VariantPatternMode::Singleton | phalcom_ast::ast::VariantPatternMode::WholeFamily { .. } => {}
+        },
         Pattern::Record { entries, .. } => {
             for entry in entries {
                 bind_pattern(&entry.pattern, &AdvisoryFact::unknown(), context, product);

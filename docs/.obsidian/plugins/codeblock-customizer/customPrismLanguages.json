@@ -1,0 +1,81 @@
+{
+  "ph": {
+    "comment": [
+      {
+        "pattern": "/\\/\\*[\\s\\S]*?\\*\\//",
+        "greedy": true
+      },
+      {
+        "pattern": "/(^|[^\\\\:])\\/\\/[/!]?.*$/m",
+        "lookbehind": true,
+        "greedy": true
+      }
+    ],
+    "string": [
+      {
+        "pattern": "/\"(?:\\\\[\\s\\S]|[^\"\\\\])*\"/",
+        "greedy": true
+      },
+      {
+        "pattern": "/'(?:\\\\[\\s\\S]|[^'\\\\])*'/",
+        "greedy": true
+      }
+    ],
+    "declarationAnnotation": {
+      "pattern": "/@(class|enum|sealed|constructor|construct|get|set|variant|data|protocol)\\b/",
+      "alias": "keyword"
+    },
+    "annotation": {
+      "pattern": "/@[A-Za-z_][A-Za-z0-9_]*\\b/",
+      "alias": "builtin"
+    },
+    "keyword": "/\\b(?:let|const|type|class|enum|case|is|is!|where|when|if|else|while|for|match|matches|understands|try|catch|on|ensure|throw|raise|break|continue|return|import|from|export|expose|as|in|and|or|not|with|super|self|static|var|constructor)\\b/",
+    "boolean": "/\\b(?:true|false)\\b/",
+    "symbol": [
+      {
+        "pattern": "/#[A-Za-z_][A-Za-z0-9_]*(?:=(?:\\([^)]*\\))?|\\([^)]*\\))?/",
+        "greedy": true
+      },
+      {
+        "pattern": "/#(?:\\*{1,3}|~\\/|<<|>>|==|!=|<=|>=|\\?\\.|\\?\\?|\\.\\.\\.|\\+|-|\\/|%|&|\\||\\^|~|<|>|!|\\?)/"
+      }
+    ],
+    "constant": "/\\b[A-Z][A-Z0-9_]{1,}\\b/",
+    "builtin": "/\\b(?:Type|Self|Any|Never|Unit|None|Object|Int|Float|String|Bool|Symbol|Error|List|Result|Option|Map|Set)\\b/",
+    "genericParameter": {
+      "pattern": "/\\b[A-Z]\\b/",
+      "alias": "variable"
+    },
+    "class-name": "/\\b[A-Z][A-Za-z0-9_]*\\b/",
+    "memberSelector": {
+      "pattern": "/(\\.\\s*)[A-Za-z_][A-Za-z0-9_]*\\b/",
+      "lookbehind": true,
+      "alias": "function"
+    },
+    "genericCall": {
+      "pattern": "/\\b[A-Za-z_][A-Za-z0-9_]*\\b(?=\\s*<[^>\\r\\n]+>\\s*\\()/",
+      "alias": "function"
+    },
+    "trailingClosureCall": {
+      "pattern": "/\\b[A-Za-z_][A-Za-z0-9_]*\\b(?=\\s*(?:<[^>\\r\\n]+>\\s*)?\\|\\s*(?:[A-Za-z_][A-Za-z0-9_]*(?:\\s*,\\s*[A-Za-z_][A-Za-z0-9_]*)*)?\\s*\\|\\s*\\{)/",
+      "alias": "function"
+    },
+    "functionDeclaration": {
+      "pattern": "/\\b[A-Za-z_][A-Za-z0-9_]*\\b(?=\\s*(?:<[^>\\r\\n]+>\\s*)?\\([^)]*\\)\\s*(?:->\\s*[^\\{\\r\\n]+)?\\s*(?:where\\b[^\\{\\r\\n]*)?\\{)/",
+      "alias": "function"
+    },
+    "function": "/\\b[A-Za-z_][A-Za-z0-9_]*\\b(?=\\s*\\()/",
+    "field": {
+      "pattern": "/\\b_[A-Za-z][A-Za-z0-9_]*\\b/",
+      "alias": "property"
+    },
+    "closureParameter": {
+      "pattern": "/(\\|\\s*)[A-Za-z_][A-Za-z0-9_]*(?=\\s*(?:,|\\|))/",
+      "lookbehind": true,
+      "alias": "variable"
+    },
+    "number": "/\\b(?:0[xX][0-9A-Fa-f](?:_?[0-9A-Fa-f])*|0[bB][01](?:_?[01])*|\\d(?:_?\\d)*(?:\\.\\d(?:_?\\d)*)?(?:[eE][+-]?\\d(?:_?\\d)*)?)\\b/",
+    "operator": "/=>>|->|=>|===|<=>|\\.\\.\\.|\\+\\+|--|==|!=|<=|>=|\\?\\.|\\?\\?|\\+=|-=|\\*=|\\/=|%=|&&|\\|\\||\\+|-|\\*|\\/|%|=|<|>|\\||&|\\^|~|!/",
+    "punctuation": "/[{}[\\]();,.:<>]/"
+  }
+}

@@ -52,6 +52,11 @@ impl TypeSubstitution {
                 let subst_args: Vec<TypeId> = arguments.iter().map(|&arg| self.apply(store, arg)).collect();
                 store.apply_type_form(subst_origin, &subst_args).unwrap_or(ty)
             }
+            TypeData::ExactCase { variant, enum_type } => {
+                let subst_enum = self.apply(store, enum_type);
+                let variant_id = store.variant_identity(variant).clone();
+                store.exact_case_type(&variant_id, subst_enum).unwrap_or(ty)
+            }
             TypeData::Union(members) => {
                 let subst_members: Vec<TypeId> = members.iter().map(|&m| self.apply(store, m)).collect();
                 store.union(&subst_members)
@@ -100,6 +105,19 @@ impl TypeSubstitution {
                     parameters: params.into_boxed_slice(),
                     return_type,
                 })
+            }
+            TypeData::Family(fid) => {
+                let family = store.get_family(fid).clone();
+                let subst_members: Vec<crate::types::family::FamilyMemberType> = family
+                    .members
+                    .iter()
+                    .map(|m| crate::types::family::FamilyMemberType {
+                        operation: m.operation.clone(),
+                        member_kind: m.member_kind,
+                        ty: self.apply(store, m.ty),
+                    })
+                    .collect();
+                store.family_type(subst_members).unwrap_or(ty)
             }
             TypeData::SelfType(_) => ty,
             TypeData::Lambda(_) => ty,
@@ -151,6 +169,11 @@ pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTyp
             let subst_args: Vec<TypeId> = arguments.iter().map(|&arg| specialize_self_type(store, declarations, receiver, arg)).collect();
             store.apply_type_form(subst_origin, &subst_args).unwrap_or(ty)
         }
+        TypeData::ExactCase { variant, enum_type } => {
+            let subst_enum = specialize_self_type(store, declarations, receiver, enum_type);
+            let variant_id = store.variant_identity(variant).clone();
+            store.exact_case_type(&variant_id, subst_enum).unwrap_or(ty)
+        }
         TypeData::Union(members) => {
             let subst_members: Vec<TypeId> = members.iter().map(|&m| specialize_self_type(store, declarations, receiver, m)).collect();
             store.union(&subst_members)
@@ -199,6 +222,19 @@ pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTyp
                 parameters: params.into_boxed_slice(),
                 return_type,
             })
+        }
+        TypeData::Family(fid) => {
+            let family = store.get_family(fid).clone();
+            let subst_members: Vec<crate::types::family::FamilyMemberType> = family
+                .members
+                .iter()
+                .map(|m| crate::types::family::FamilyMemberType {
+                    operation: m.operation.clone(),
+                    member_kind: m.member_kind,
+                    ty: specialize_self_type(store, declarations, receiver, m.ty),
+                })
+                .collect();
+            store.family_type(subst_members).unwrap_or(ty)
         }
         TypeData::Parameter(_) | TypeData::Lambda(_) | TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::ClassObject { .. } => ty,
     }

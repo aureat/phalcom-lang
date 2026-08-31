@@ -43,6 +43,7 @@ use crate::error::{RestParameterErrorKind, SyntaxError, SyntaxErrorKind};
 use crate::lexer::Lexer;
 use crate::token::{LexicalError, StringSegment, Token};
 use phalcom_common::range::SourceRange;
+use phalcom_common::selector::{SelectorKind, SelectorSlot};
 use std::ops::Range;
 
 /// The three pieces [`Parser::parse_class_body`] assembles a [`ClassDef`]
@@ -1153,11 +1154,17 @@ impl<'source> Parser<'source> {
     ///
     /// Returns a [`SyntaxError`] if the item or its terminator is malformed.
     fn parse_top_item(&mut self, out: &mut Vec<Statement>) -> ParserResult<()> {
-        // `class IDENT` starts a declaration. A bare `class` at module level
-        // stays in expression parsing, where it is an ordinary unresolved
-        // name; `class.` likewise needs to reach postfix parsing.
-        if matches!(self.peek(), Token::At) || (matches!(self.peek(), Token::Class) && matches!(self.peek_next(), Token::Identifier(_))) {
-            let stmt = self.parse_class()?;
+        let mut header_attrs = Vec::new();
+        while matches!(self.peek(), Token::At) {
+            header_attrs.push(self.parse_attribute()?);
+            self.skip_newlines();
+        }
+        if !header_attrs.is_empty() || (matches!(self.peek(), Token::Class | Token::Enum) && matches!(self.peek_next(), Token::Identifier(_))) {
+            let stmt = if matches!(self.peek(), Token::Enum) {
+                self.parse_enum(header_attrs)?
+            } else {
+                self.parse_class(header_attrs)?
+            };
             out.push(stmt);
             // A compound statement requires a NEWLINE terminator, not EOF.
             self.expect(&Token::Newline, &["newline"])?;
@@ -1190,7 +1197,7 @@ impl<'source> Parser<'source> {
     ///
     /// Consumes a terminating newline or `;` (so the next statement starts
     /// fresh) and stops — without consuming — at a `}`, end-of-file, or a
-    /// statement-introducing keyword (`class`, `let`, `return`).
+    /// statement-introducing keyword (`class`, `enum`, `let`, `return`).
     fn synchronize(&mut self) {
         loop {
             match self.peek() {
@@ -1199,7 +1206,7 @@ impl<'source> Parser<'source> {
                     self.advance();
                     return;
                 }
-                Token::Class | Token::TypeKw | Token::Let | Token::Const | Token::Return | Token::Import | Token::Export => return,
+                Token::Class | Token::Enum | Token::TypeKw | Token::Let | Token::Const | Token::Return | Token::Import | Token::Export => return,
                 _ => {
                     self.advance();
                 }
@@ -2118,45 +2125,199 @@ impl<'source> Parser<'source> {
     /// Returns a [`SyntaxErrorKind::Message`] diagnostic if a rest
     /// sub-pattern is not a list pattern's last element, or if the current
     /// token cannot begin a pattern.
+    /// Parses a pattern, supporting or-patterns (`p1 | p2`), wildcards (`_`),
+    /// tuples `(p1, ...)`, lists `[p1, ...]`, records `#{...}`, maps `{#...}`,
+    /// qualified/contextual variants (`Animal::Dog*`, `Dog(...)`, `Dog(x, ..., named: y)`),
+    /// and name bindings (`x`).
     fn parse_pattern(&mut self) -> ParserResult<Pattern> {
+        self.parse_or_pattern()
+    }
+
+    fn parse_or_pattern(&mut self) -> ParserResult<Pattern> {
+        let first = self.parse_pattern_atom()?;
+        if matches!(self.peek(), Token::Pipe) {
+            let mut alternatives = vec![first];
+            while self.eat(&Token::Pipe) {
+                self.skip_newlines();
+                alternatives.push(self.parse_pattern_atom()?);
+            }
+            let start = alternatives.first().unwrap().range().start;
+            let end = alternatives.last().unwrap().range().end;
+            Ok(Pattern::Or {
+                alternatives,
+                range: (start..end).into(),
+            })
+        } else {
+            Ok(first)
+        }
+    }
+
+    fn parse_pattern_atom(&mut self) -> ParserResult<Pattern> {
         match self.peek() {
+            Token::Underscore => {
+                let start = self.cur_start();
+                self.advance();
+                let range = (start..self.prev_end).into();
+                Ok(Pattern::Wildcard { range })
+            }
             Token::LParen => self.parse_tuple_pattern(),
             Token::LBracket => self.parse_list_pattern(),
             Token::RecordLBrace => self.parse_record_pattern(),
             Token::LBrace => self.parse_map_pattern(),
-            Token::Identifier(_) if matches!(self.peek_next(), Token::LParen) => self.parse_variant_pattern(),
+            Token::Identifier(_) => self.parse_identifier_or_variant_pattern(),
             _ => {
                 let start = self.cur_start();
-                let name = self.expect_identifier(&["identifier", "\"(\"", "\"[\""])?;
+                let name = self.expect_identifier(&["identifier", "\"(\"", "\"[\"", "\"_\""])?;
                 let range = (start..self.prev_end).into();
                 Ok(Pattern::Name { name, range })
             }
         }
     }
 
-    /// Parses `Variant(pattern, ...)`, including zero-payload `Variant()`.
-    fn parse_variant_pattern(&mut self) -> ParserResult<Pattern> {
+    fn parse_identifier_or_variant_pattern(&mut self) -> ParserResult<Pattern> {
         let start = self.cur_start();
-        let constructor = self.expect_identifier(&["variant constructor"])?;
-        self.expect(&Token::LParen, &["\"(\""])?;
-        let mut arguments = Vec::new();
-        if !matches!(self.peek(), Token::RParen) {
-            loop {
-                arguments.push(self.parse_pattern()?);
-                if !self.eat(&Token::Comma) {
-                    break;
-                }
-                if matches!(self.peek(), Token::RParen) {
-                    break;
+        let name = self.expect_identifier(&["identifier", "pattern"])?;
+        let root_range = (start..self.prev_end).into();
+
+        let mut members = Vec::new();
+        while self.eat(&Token::Dot) {
+            let m_start = self.cur_start();
+            let m_name = self.expect_identifier(&["qualified name"])?;
+            members.push(PathSegment {
+                name: m_name,
+                range: (m_start..self.prev_end).into(),
+            });
+        }
+
+        if self.eat(&Token::ColonColon) {
+            let owner_range = (start..self.prev_end).into();
+            let owner = Some(StaticSymbolRef {
+                root: name,
+                root_range,
+                members,
+                range: owner_range,
+            });
+            let base_start = self.cur_start();
+            let base = self.expect_identifier(&["variant constructor"])?;
+            let base_range = (base_start..self.prev_end).into();
+            self.parse_variant_pattern_suffix(start, owner, base, base_range)
+        } else if !members.is_empty() {
+            let range = (start..self.prev_end).into();
+            self.errors.push(SyntaxError {
+                kind: SyntaxErrorKind::Message("unexpected qualified path in pattern without `::`".to_string()),
+                range: start..self.prev_end,
+            });
+            Ok(Pattern::Name { name, range })
+        } else if matches!(self.peek(), Token::Asterisk | Token::LParen) {
+            self.parse_variant_pattern_suffix(start, None, name.clone(), root_range)
+        } else {
+            Ok(Pattern::Name { name, range: root_range })
+        }
+    }
+
+    fn parse_variant_pattern_suffix(&mut self, start: usize, owner: Option<StaticSymbolRef>, base: String, base_range: SourceRange) -> ParserResult<Pattern> {
+        if self.eat(&Token::Asterisk) {
+            let star_range = (self.prev_end - 1..self.prev_end).into();
+            let range = (start..self.prev_end).into();
+            Ok(Pattern::Variant(VariantPattern {
+                owner,
+                base,
+                base_range,
+                mode: VariantPatternMode::WholeFamily { star_range },
+                range,
+            }))
+        } else if self.eat(&Token::LParen) {
+            self.skip_newlines();
+            let mut prefix = Vec::new();
+            let mut suffix = Vec::new();
+            let mut gap_range: Option<SourceRange> = None;
+
+            if !matches!(self.peek(), Token::RParen) {
+                loop {
+                    self.skip_newlines();
+                    if self.peek() == &Token::DotDotDot {
+                        let dot_start = self.cur_start();
+                        self.advance();
+                        let d_range: SourceRange = (dot_start..self.prev_end).into();
+                        if let Some(_first_gap) = gap_range {
+                            self.errors.push(SyntaxError {
+                                kind: SyntaxErrorKind::Message("multiple `...` selector gaps in pattern".to_string()),
+                                range: dot_start..self.prev_end,
+                            });
+                        } else {
+                            gap_range = Some(d_range);
+                        }
+                    } else {
+                        let arg = self.parse_variant_pattern_argument()?;
+                        if gap_range.is_some() {
+                            suffix.push(arg);
+                        } else {
+                            prefix.push(arg);
+                        }
+                    }
+                    self.skip_newlines();
+                    if !self.eat(&Token::Comma) {
+                        break;
+                    }
+                    self.skip_newlines();
+                    if matches!(self.peek(), Token::RParen) {
+                        break;
+                    }
                 }
             }
+            self.expect(&Token::RParen, &["\")\""])?;
+            let range = (start..self.prev_end).into();
+            let mode = if let Some(gap_range) = gap_range {
+                VariantPatternMode::CallablePattern { prefix, gap_range, suffix }
+            } else {
+                VariantPatternMode::ExactCall { arguments: prefix }
+            };
+            Ok(Pattern::Variant(VariantPattern {
+                owner,
+                base,
+                base_range,
+                mode,
+                range,
+            }))
+        } else {
+            let range = (start..self.prev_end).into();
+            Ok(Pattern::Variant(VariantPattern {
+                owner,
+                base,
+                base_range,
+                mode: VariantPatternMode::Singleton,
+                range,
+            }))
         }
-        self.expect(&Token::RParen, &["\")\""])?;
-        Ok(Pattern::Variant {
-            constructor,
-            arguments,
-            range: (start..self.prev_end).into(),
-        })
+    }
+
+    fn parse_variant_pattern_argument(&mut self) -> ParserResult<VariantPatternArgument> {
+        let start = self.cur_start();
+        if Self::label_name(self.peek()).is_some() && matches!(self.peek_next(), Token::Colon) {
+            let label_start = self.cur_start();
+            let label_str = Self::label_name(self.peek()).unwrap().to_string();
+            self.advance();
+            let label_range = (label_start..self.prev_end).into();
+            self.expect(&Token::Colon, &["\":\""])?;
+            self.skip_newlines();
+            let pattern = self.parse_pattern()?;
+            let range = (start..self.prev_end).into();
+            Ok(VariantPatternArgument {
+                label: Some(label_str),
+                label_range: Some(label_range),
+                pattern,
+                range,
+            })
+        } else {
+            let pattern = self.parse_pattern()?;
+            let range = pattern.range();
+            Ok(VariantPatternArgument {
+                label: None,
+                label_range: None,
+                pattern,
+                range,
+            })
+        }
     }
 
     fn parse_pattern_label(&mut self) -> ParserResult<String> {
@@ -2438,6 +2599,8 @@ impl<'source> Parser<'source> {
             Token::Const => "const",
             Token::Fn => "fn",
             Token::Class => "class",
+            Token::Enum => "enum",
+            Token::Match => "match",
             Token::Return => "return",
             Token::True => "true",
             Token::False => "false",
@@ -2490,8 +2653,7 @@ impl<'source> Parser<'source> {
     ///
     /// Returns an error if a header attribute, the class name, braces, or any
     /// member is malformed.
-    fn parse_class(&mut self) -> ParserResult<Statement> {
-        let mut header_attrs = Vec::new();
+    fn parse_class(&mut self, mut header_attrs: Vec<Attribute>) -> ParserResult<Statement> {
         while matches!(self.peek(), Token::At) {
             header_attrs.push(self.parse_attribute()?);
             self.skip_newlines();
@@ -2610,25 +2772,285 @@ impl<'source> Parser<'source> {
                 Token::Eof => return Err(self.error_here(strs(&["\"}\""]))),
                 _ => {}
             }
-            // U-ANNOT-LAYOUT §3.4: `@variant Name(labels...)` is a distinct
-            // grammar production (no body, bare-colon label list) from every
-            // other class member — a pending `@variant` diverts to
-            // `parse_variant_decl` instead of the ordinary member parser,
-            // mirroring how `@invariant` above diverts to `class_invariants`.
-            // Any other attributes preceding `@variant` (unusual, but not
-            // forbidden by the grammar) are attached to the resulting
-            // `VariantDef` the same way `attach_attrs` would.
-            let mut member = if pending_attrs.iter().any(|a| a.name == "variant") {
-                self.parse_variant_decl(std::mem::take(&mut pending_attrs))?
-            } else {
-                self.parse_class_member()?
-            };
+            if let Some(variant_attr) = pending_attrs.iter().find(|a| a.name == "variant") {
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::VariantOutsideEnum,
+                    range: variant_attr.range.start..variant_attr.range.end,
+                });
+            }
+            let mut member = self.parse_class_member()?;
             if !pending_attrs.is_empty() {
                 self.attach_attrs(&mut member, std::mem::take(&mut pending_attrs))?;
             }
             members.push(member);
         }
         Ok((members, class_attributes, class_invariants))
+    }
+
+    fn parse_enum(&mut self, mut header_attrs: Vec<Attribute>) -> ParserResult<Statement> {
+        while matches!(self.peek(), Token::At) {
+            header_attrs.push(self.parse_attribute()?);
+            self.skip_newlines();
+        }
+        let start = self.cur_start();
+        self.expect(&Token::Enum, &["\"enum\""])?;
+        let name_start = self.cur_start();
+        let name = self.expect_identifier(&["identifier"])?;
+        let name_range = (name_start..self.prev_end).into();
+
+        let generic_parameters = if matches!(self.peek(), Token::Less) {
+            self.parse_generic_parameters(GenericBinderContext::NominalDeclaration)?
+        } else {
+            Vec::new()
+        };
+
+        let where_clause = if matches!(self.peek(), Token::Where) {
+            Some(self.parse_where_clause()?)
+        } else {
+            None
+        };
+
+        self.expect(&Token::LBrace, &["\"{\""])?;
+        let members = self.parse_enum_body()?;
+        self.expect(&Token::RBrace, &["\"}\""])?;
+        let range = (start..self.prev_end).into();
+
+        Ok(Statement::Enum(EnumDef {
+            name,
+            name_range,
+            generic_parameters,
+            where_clause,
+            members,
+            attributes: header_attrs,
+            range,
+        }))
+    }
+
+    fn parse_enum_body(&mut self) -> ParserResult<Vec<EnumMember>> {
+        let mut members = Vec::new();
+        let mut pending_attrs: Vec<Attribute> = Vec::new();
+        loop {
+            self.skip_newlines();
+            match self.peek() {
+                Token::RBrace if pending_attrs.is_empty() => break,
+                Token::RBrace => return Err(self.dangling_attribute_error(&pending_attrs)),
+                Token::Eof if !pending_attrs.is_empty() => return Err(self.dangling_attribute_error(&pending_attrs)),
+                Token::At => {
+                    let attr = self.parse_attribute()?;
+                    self.skip_newlines();
+                    pending_attrs.push(attr);
+                    continue;
+                }
+                Token::Eof => return Err(self.error_here(strs(&["\"}\""]))),
+                _ => {}
+            }
+
+            let member = if pending_attrs.iter().any(|a| a.name == "variant") {
+                let variant = self.parse_enum_variant(std::mem::take(&mut pending_attrs))?;
+                EnumMember::Variant(variant)
+            } else {
+                let behavior = self.parse_enum_behavior_member(std::mem::take(&mut pending_attrs))?;
+                EnumMember::Behavior(behavior)
+            };
+            members.push(member);
+        }
+        Ok(members)
+    }
+
+    fn parse_enum_variant(&mut self, pending_attrs: Vec<Attribute>) -> ParserResult<VariantDecl> {
+        let variant_attr = pending_attrs
+            .iter()
+            .find(|a| a.name == "variant")
+            .cloned()
+            .expect("parse_enum_variant called without variant attribute");
+        let start = variant_attr.range.start;
+        let variant_marker_range = variant_attr.range;
+        let non_variant_attrs: Vec<Attribute> = pending_attrs.into_iter().filter(|a| a.name != "variant").collect();
+
+        let name_start = self.cur_start();
+        let name = self.expect_identifier(&["variant name"])?;
+        let name_range = (name_start..self.prev_end).into();
+
+        let payload = if matches!(self.peek(), Token::LParen) {
+            let p_start = self.cur_start();
+            self.advance(); // '('
+            let parameters = if matches!(self.peek(), Token::RParen) {
+                Vec::new()
+            } else {
+                self.parse_selector_params(Token::RParen)?
+            };
+            self.expect(&Token::RParen, &["\")\""])?;
+            let p_range = (p_start..self.prev_end).into();
+
+            for param in &parameters {
+                if param.rest_mode != RestMode::None {
+                    return Err(SyntaxError {
+                        kind: SyntaxErrorKind::VariantRestParameterUnsupported,
+                        range: param.range.start..param.range.end,
+                    });
+                }
+            }
+
+            Some(VariantPayloadSyntax { parameters, range: p_range })
+        } else {
+            None
+        };
+
+        let result_annotation = if matches!(self.peek(), Token::Arrow) {
+            self.advance(); // '->'
+            Some(self.parse_type_annotation()?)
+        } else {
+            None
+        };
+
+        let body = if matches!(self.peek(), Token::LBrace) {
+            let b_start = self.cur_start();
+            self.advance(); // '{'
+            let mut members = Vec::new();
+            let mut inner_pending_attrs: Vec<Attribute> = Vec::new();
+            loop {
+                self.skip_newlines();
+                match self.peek() {
+                    Token::RBrace if inner_pending_attrs.is_empty() => break,
+                    Token::RBrace => return Err(self.dangling_attribute_error(&inner_pending_attrs)),
+                    Token::Eof if !inner_pending_attrs.is_empty() => return Err(self.dangling_attribute_error(&inner_pending_attrs)),
+                    Token::At => {
+                        let attr = self.parse_attribute()?;
+                        self.skip_newlines();
+                        inner_pending_attrs.push(attr);
+                        continue;
+                    }
+                    Token::Eof => return Err(self.error_here(strs(&["\"}\""]))),
+                    _ => {}
+                }
+                let member = self.parse_enum_behavior_member(std::mem::take(&mut inner_pending_attrs))?;
+                members.push(member);
+            }
+            self.expect(&Token::RBrace, &["\"}\""])?;
+            let b_range = (b_start..self.prev_end).into();
+            Some(VariantBody { members, range: b_range })
+        } else {
+            None
+        };
+
+        let range = (start..self.prev_end).into();
+        Ok(VariantDecl {
+            name,
+            name_range,
+            variant_marker_range,
+            payload,
+            result_annotation,
+            body,
+            attributes: non_variant_attrs,
+            range,
+        })
+    }
+
+    fn parse_enum_behavior_member(&mut self, pending_attrs: Vec<Attribute>) -> ParserResult<EnumBehaviorMember> {
+        let start = self.cur_start();
+        if matches!(self.peek(), Token::LBracket) {
+            let class_member = self.parse_index_member(start)?;
+            if let ClassMember::Index(mut idx) = class_member {
+                idx.attributes = pending_attrs;
+                return Ok(EnumBehaviorMember::Index(idx));
+            } else {
+                unreachable!()
+            }
+        }
+        let is_static = false;
+        let name_start = self.cur_start();
+        let name = self.parse_method_name()?;
+        let name_range = (name_start..self.prev_end).into();
+        let has_equal = self.eat(&Token::Equal);
+        if has_equal {
+            self.expect(&Token::LParen, &["\"(\""])?;
+            let start_put = self.cur_start();
+            let put_str = self.expect_identifier(&["\"put\""])?;
+            if put_str != "put" {
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message("setter parameter must start with \"put\"".to_string()),
+                    range: start_put..self.prev_end,
+                });
+            }
+            let local_start = self.cur_start();
+            let local_name = self.expect_identifier(&["parameter name"])?;
+            let local_range = (local_start..self.prev_end).into();
+            let annotation = if self.eat(&Token::Colon) { Some(self.parse_type_annotation()?) } else { None };
+            self.expect(&Token::RParen, &["\")\""])?;
+            let param = ParameterDef {
+                name: local_name,
+                name_range: local_range,
+                label: None,
+                label_range: None,
+                rest_mode: RestMode::None,
+                annotation,
+                range: (start_put..self.prev_end).into(),
+            };
+            let return_annotation = if self.eat(&Token::Arrow) { Some(self.parse_type_annotation()?) } else { None };
+            let body = self.parse_member_body()?;
+            let range = (start..self.prev_end).into();
+            return Ok(EnumBehaviorMember::Setter(SetterDef {
+                name,
+                param,
+                return_annotation,
+                body,
+                is_static,
+                attributes: pending_attrs,
+                range,
+                name_range,
+            }));
+        }
+        let generic_parameters = if matches!(self.peek(), Token::Less) {
+            self.parse_generic_parameters(GenericBinderContext::Callable)?
+        } else {
+            Vec::new()
+        };
+        let params = if self.eat(&Token::LParen) {
+            let list = self.parse_selector_params(Token::RParen)?;
+            self.expect(&Token::RParen, &["\")\""])?;
+            Some(list)
+        } else {
+            None
+        };
+        let return_annotation = if self.eat(&Token::Arrow) { Some(self.parse_type_annotation()?) } else { None };
+        let where_clause = if matches!(self.peek(), Token::Where) {
+            Some(self.parse_where_clause()?)
+        } else {
+            None
+        };
+        let body = self.parse_member_body()?;
+        let range = (start..self.prev_end).into();
+        if let Some(params) = params {
+            Ok(EnumBehaviorMember::Method(MethodDef {
+                name,
+                generic_parameters,
+                params,
+                return_annotation,
+                where_clause,
+                body,
+                is_static,
+                is_constructor: false,
+                attributes: pending_attrs,
+                range,
+                name_range,
+            }))
+        } else {
+            if !generic_parameters.is_empty() {
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message("generic parameters not permitted on getters".to_string()),
+                    range: start..self.prev_end,
+                });
+            }
+            Ok(EnumBehaviorMember::Getter(GetterDef {
+                name,
+                return_annotation,
+                body,
+                is_static,
+                attributes: pending_attrs,
+                range,
+                name_range,
+            }))
+        }
     }
 
     /// Parses a single `@name` or `@name(args…)` attribute.
@@ -2777,58 +3199,6 @@ impl<'source> Parser<'source> {
             annotation,
             default,
             attributes: Vec::new(),
-            range,
-        }))
-    }
-
-    /// Parses a `@variant Name(label1:, label2:, ...)` declaration
-    /// (U-ANNOT-LAYOUT §3.4, `annotations-data.md` §"`@variant`") — a
-    /// distinct grammar production from every other [`ClassMember`]: a
-    /// capitalized name followed by a parenthesized, comma-separated list of
-    /// bare `label:` tokens (no values, no types, no body). `pending` is
-    /// every attribute collected before this declaration (in practice always
-    /// exactly `[@variant]`, per `parse_class_body`'s dispatch) — attached
-    /// verbatim to the returned [`VariantDef`].
-    ///
-    /// Terminated the same way [`Self::parse_field_decl`] is: a newline, or —
-    /// with no explicit terminator consumed — the closing `}`/end-of-file.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the variant name or any label is missing, a label
-    /// is not followed by `:`, the argument list is unterminated, or the
-    /// declaration is not followed by a newline, `}`, or end-of-file.
-    fn parse_variant_decl(&mut self, pending: Vec<Attribute>) -> ParserResult<ClassMember> {
-        let start = self.cur_start();
-        let name_start = self.cur_start();
-        let name = self.expect_identifier(&["variant name"])?;
-        let name_range = (name_start..self.prev_end).into();
-        self.expect(&Token::LParen, &["\"(\""])?;
-        let mut labels = Vec::new();
-        if !matches!(self.peek(), Token::RParen) {
-            loop {
-                let label = self.expect_identifier(&["variant label"])?;
-                self.expect(&Token::Colon, &["\":\""])?;
-                labels.push(label);
-                if !self.eat(&Token::Comma) {
-                    break;
-                }
-            }
-        }
-        self.expect(&Token::RParen, &["\")\""])?;
-        let range = (start..self.prev_end).into();
-        match self.peek() {
-            Token::Newline => {
-                self.advance();
-            }
-            Token::RBrace | Token::Eof => {}
-            _ => return Err(self.error_here(strs(&["newline", "\"}\""]))),
-        }
-        Ok(ClassMember::Variant(VariantDef {
-            name,
-            name_range,
-            labels,
-            attributes: pending,
             range,
         }))
     }
@@ -3106,6 +3476,7 @@ impl<'source> Parser<'source> {
             // `from` is a module-syntax keyword, but remains valid as a
             // selector for existing APIs such as `Map.from(...)`.
             Token::From => "from".to_string(),
+            Token::Match => "match".to_string(),
             _ => return Err(self.error_here(strs(&["identifier", "operator"]))),
         };
         self.advance();
@@ -3447,23 +3818,28 @@ impl<'source> Parser<'source> {
                 // spelling for `self.class` and must continue through small
                 // statement parsing below. `@` keeps its existing decorated
                 // class-declaration path.
-                Token::At | Token::Class if matches!(self.peek(), Token::At) || matches!(self.peek_next(), Token::Identifier(_)) => {
-                    let stmt = self.parse_class()?;
-                    // `range.start` is the `class` keyword's own byte offset
-                    // (set in `parse_class` before any header attribute
-                    // affects it — attributes are consumed first, then
-                    // `start = self.cur_start()` right before `Token::Class`
-                    // is expected), so the span points at the keyword even
-                    // when the nested class carries `@` attributes.
-                    let Statement::Class(class_def) = &stmt else {
-                        unreachable!("parse_class always returns Statement::Class")
+                Token::At | Token::Class | Token::Enum if matches!(self.peek(), Token::At) || matches!(self.peek_next(), Token::Identifier(_)) => {
+                    let mut header_attrs = Vec::new();
+                    while matches!(self.peek(), Token::At) {
+                        header_attrs.push(self.parse_attribute()?);
+                        self.skip_newlines();
+                    }
+                    let is_enum = matches!(self.peek(), Token::Enum);
+                    let stmt = if is_enum {
+                        self.parse_enum(header_attrs)?
+                    } else {
+                        self.parse_class(header_attrs)?
                     };
-                    let keyword_start = class_def.range.start;
+                    let (keyword_start, kw_len, decl_kind) = match &stmt {
+                        Statement::Class(class_def) => (class_def.range.start, "class".len(), "class"),
+                        Statement::Enum(enum_def) => (enum_def.range.start, "enum".len(), "enum"),
+                        _ => unreachable!(),
+                    };
                     return Err(SyntaxError {
-                        kind: SyntaxErrorKind::Message(
-                            "class.nested_declaration: class declarations are only allowed at a module's top level, not nested inside a block".to_string(),
-                        ),
-                        range: keyword_start..keyword_start + "class".len(),
+                        kind: SyntaxErrorKind::Message(format!(
+                            "{decl_kind}.nested_declaration: {decl_kind} declarations are only allowed at a module's top level, not nested inside a block"
+                        )),
+                        range: keyword_start..keyword_start + kw_len,
                     });
                 }
                 _ => {
@@ -4177,22 +4553,7 @@ impl<'source> Parser<'source> {
                 expr = self.parse_optional_send(expr, start)?;
                 trailing_target = TrailingTarget::None;
             } else if self.eat(&Token::ColonColon) {
-                // `::` owns its selector syntax. In particular, the parens in
-                // `obj::name()` belong to the exact selector, while `obj::name`
-                // remains an exact getter and `obj::name(...)` is a structural
-                // pattern with a gap.
-                let selector_start = self.cur_start();
-                let spec = self.parse_selector_spec_after_colon_colon()?;
-                let range = (start..self.prev_end).into();
-                let selector_range = Some((selector_start..self.prev_end).into());
-                let kind = legacy_method_ref_kind(&spec);
-                expr = Expr::MethodRef(Box::new(MethodRefExpr {
-                    receiver: expr,
-                    spec,
-                    kind,
-                    selector_range,
-                    range,
-                }));
+                expr = self.parse_associated_suffix(expr, start)?;
                 trailing_target = TrailingTarget::None;
             } else if self.eat(&Token::Dot) {
                 let is_method_call = matches!(self.peek_next(), Token::LParen);
@@ -4289,6 +4650,310 @@ impl<'source> Parser<'source> {
             }
         }
         Ok(expr)
+    }
+
+    fn parse_associated_suffix(&mut self, receiver: Expr, start: usize) -> ParserResult<Expr> {
+        let first_separator_range: SourceRange = (self.tokens[self.pos.saturating_sub(1)].start..self.prev_end).into();
+
+        if matches!(self.peek(), Token::Hash) {
+            let h_start = self.cur_start();
+            self.advance();
+            return Err(SyntaxError {
+                kind: SyntaxErrorKind::Message("associated member syntax does not use `#` after `::`".to_string()),
+                range: h_start..self.prev_end,
+            });
+        }
+
+        if matches!(self.peek(), Token::DotDotDot) {
+            let dot_start = self.cur_start();
+            self.advance();
+            return Err(SyntaxError {
+                kind: SyntaxErrorKind::AssociatedLegacyFamilyEllipsis,
+                range: dot_start..self.prev_end,
+            });
+        }
+
+        if matches!(self.peek(), Token::LBracket) {
+            let bracket_start = self.cur_start();
+            self.advance(); // consume '['
+            let (prefix, suffix, gap_range, mut end) = self.parse_selector_spec_slots(Token::RBracket)?;
+            if gap_range.is_some() {
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::AssociatedLegacyFamilyEllipsis,
+                    range: bracket_start..end,
+                });
+            }
+            let setter = if self.eat(&Token::Equal) {
+                self.expect(&Token::LParen, &["\"(put)\""])?;
+                let put_start = self.cur_start();
+                let put = self.expect_identifier(&["\"put\""])?;
+                if put != "put" {
+                    return Err(SyntaxError {
+                        kind: SyntaxErrorKind::Message("setter parameter must start with \"put\"".to_string()),
+                        range: put_start..self.prev_end,
+                    });
+                }
+                self.expect(&Token::RParen, &["\")\""])?;
+                end = self.prev_end;
+                true
+            } else {
+                false
+            };
+            let base_range = (bracket_start..bracket_start + 1).into();
+            let range = (bracket_start..end).into();
+            let mut slots = prefix;
+            slots.extend(suffix);
+            let exact = ExactSelectorSyntax {
+                base: String::new(),
+                kind: if setter {
+                    phalcom_common::selector::SelectorKind::SubscriptSet
+                } else {
+                    phalcom_common::selector::SelectorKind::SubscriptGet
+                },
+                slots,
+                is_subscript: true,
+                base_range,
+                range,
+            };
+            let whole_range = (start..end).into();
+            return Ok(Expr::AssociatedLookup(Box::new(AssociatedLookupExpr {
+                receiver,
+                first_separator_range,
+                member: AssociatedMemberSyntax::Subscript(exact),
+                range: whole_range,
+            })));
+        }
+
+        if matches!(
+            self.peek(),
+            Token::Plus
+                | Token::Minus
+                | Token::Asterisk
+                | Token::DoubleAsterisk
+                | Token::Power
+                | Token::TripleAsterisk
+                | Token::Slash
+                | Token::SlashTilde
+                | Token::Percent
+                | Token::ShiftLeft
+                | Token::ShiftRight
+                | Token::Ampersand
+                | Token::Pipe
+                | Token::Caret
+                | Token::Tilde
+                | Token::EqualEqual
+                | Token::TripleEqual
+                | Token::BangEqual
+                | Token::Less
+                | Token::LessEqual
+                | Token::Greater
+                | Token::GreaterEqual
+                | Token::Spaceship
+        ) {
+            let base_start = self.cur_start();
+            let op_name = self.parse_method_name()?;
+            let base_range = (base_start..self.prev_end).into();
+            let slots = if self.eat(&Token::LParen) {
+                let (prefix, suffix, gap_range, _end) = self.parse_selector_spec_slots(Token::RParen)?;
+                if gap_range.is_some() {
+                    return Err(SyntaxError {
+                        kind: SyntaxErrorKind::AssociatedLegacyFamilyEllipsis,
+                        range: base_start..self.prev_end,
+                    });
+                }
+                let mut slots = prefix;
+                slots.extend(suffix);
+                slots
+            } else if matches!(op_name.as_str(), "not" | "~") {
+                Vec::new()
+            } else {
+                vec![SelectorSlotSyntax {
+                    slot: SelectorSlot::Positional,
+                    range: base_range,
+                }]
+            };
+            let range = (base_start..self.prev_end).into();
+            let exact = ExactSelectorSyntax {
+                base: op_name,
+                kind: SelectorKind::Method,
+                slots,
+                is_subscript: false,
+                base_range,
+                range,
+            };
+            let whole_range = (start..self.prev_end).into();
+            return Ok(Expr::AssociatedLookup(Box::new(AssociatedLookupExpr {
+                receiver,
+                first_separator_range,
+                member: AssociatedMemberSyntax::Operator(exact),
+                range: whole_range,
+            })));
+        }
+
+        let base_start = self.cur_start();
+        let base = self.parse_property_name()?;
+        let base_range = (base_start..self.prev_end).into();
+
+        if matches!(self.peek(), Token::LParen) {
+            let next_tok = self.peek_next();
+            if matches!(next_tok, Token::Underscore) {
+                let err_start = self.cur_start();
+                self.advance(); // consume '('
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::AssociatedExactShapeRequiresSecondSeparator,
+                    range: err_start..self.cur_start() + 1,
+                });
+            }
+            if matches!(next_tok, Token::DotDotDot) {
+                let err_start = self.cur_start();
+                self.advance(); // consume '('
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::AssociatedLegacyFamilyEllipsis,
+                    range: err_start..self.cur_start() + 3,
+                });
+            }
+
+            self.advance(); // consume '('
+            let args = self.parse_arg_list()?;
+            self.expect(&Token::RParen, &["\")\""])?;
+            let range = (start..self.prev_end).into();
+            return Ok(Expr::AssociatedInvoke(Box::new(AssociatedInvokeExpr {
+                receiver,
+                first_separator_range,
+                base,
+                base_range,
+                args,
+                range,
+            })));
+        }
+
+        if self.eat(&Token::ColonColon) {
+            let second_separator_range: SourceRange = (self.tokens[self.pos.saturating_sub(1)].start..self.prev_end).into();
+            if self.eat(&Token::Asterisk) {
+                let star_range: SourceRange = (self.tokens[self.pos.saturating_sub(1)].start..self.prev_end).into();
+                let member_range = (base_start..self.prev_end).into();
+                let whole_range = (start..self.prev_end).into();
+                return Ok(Expr::AssociatedLookup(Box::new(AssociatedLookupExpr {
+                    receiver,
+                    first_separator_range,
+                    member: AssociatedMemberSyntax::Named(AssociatedNamedMemberSyntax {
+                        base,
+                        base_range,
+                        mode: AssociatedNamedMode::Family {
+                            second_separator_range,
+                            star_range,
+                        },
+                        range: member_range,
+                    }),
+                    range: whole_range,
+                })));
+            }
+
+            if self.eat(&Token::LParen) {
+                let res_start = self.tokens[self.pos.saturating_sub(1)].start;
+                let (prefix, suffix, gap_range, end) = self.parse_selector_spec_slots(Token::RParen)?;
+                if gap_range.is_some() {
+                    return Err(SyntaxError {
+                        kind: SyntaxErrorKind::AssociatedLegacyFamilyEllipsis,
+                        range: res_start..end,
+                    });
+                }
+                let mut slots = prefix;
+                slots.extend(suffix);
+                let res_range = (res_start..end).into();
+                let member_range = (base_start..end).into();
+                let whole_range = (start..end).into();
+                return Ok(Expr::AssociatedLookup(Box::new(AssociatedLookupExpr {
+                    receiver,
+                    first_separator_range,
+                    member: AssociatedMemberSyntax::Named(AssociatedNamedMemberSyntax {
+                        base,
+                        base_range,
+                        mode: AssociatedNamedMode::Exact {
+                            second_separator_range,
+                            residual: AssociatedResidualSelectorSyntax::Method { slots, range: res_range },
+                        },
+                        range: member_range,
+                    }),
+                    range: whole_range,
+                })));
+            }
+
+            if self.eat(&Token::Equal) {
+                let res_start = self.tokens[self.pos.saturating_sub(1)].start;
+                self.expect(&Token::LParen, &["\"(put)\""])?;
+                let put_start = self.cur_start();
+                let put = self.expect_identifier(&["\"put\""])?;
+                if put != "put" {
+                    return Err(SyntaxError {
+                        kind: SyntaxErrorKind::Message("setter parameter must start with \"put\"".to_string()),
+                        range: put_start..self.prev_end,
+                    });
+                }
+                self.expect(&Token::RParen, &["\")\""])?;
+                let put_range = (put_start..put_start + 3).into();
+                let res_range = (res_start..self.prev_end).into();
+                let member_range = (base_start..self.prev_end).into();
+                let whole_range = (start..self.prev_end).into();
+                return Ok(Expr::AssociatedLookup(Box::new(AssociatedLookupExpr {
+                    receiver,
+                    first_separator_range,
+                    member: AssociatedMemberSyntax::Named(AssociatedNamedMemberSyntax {
+                        base,
+                        base_range,
+                        mode: AssociatedNamedMode::Exact {
+                            second_separator_range,
+                            residual: AssociatedResidualSelectorSyntax::Setter { put_range, range: res_range },
+                        },
+                        range: member_range,
+                    }),
+                    range: whole_range,
+                })));
+            }
+
+            // Explicit getter separator: `owner::name::`
+            let member_range = (base_start..self.prev_end).into();
+            let whole_range = (start..self.prev_end).into();
+            return Ok(Expr::AssociatedLookup(Box::new(AssociatedLookupExpr {
+                receiver,
+                first_separator_range,
+                member: AssociatedMemberSyntax::Named(AssociatedNamedMemberSyntax {
+                    base,
+                    base_range,
+                    mode: AssociatedNamedMode::Getter {
+                        explicit_separator_range: Some(second_separator_range),
+                    },
+                    range: member_range,
+                }),
+                range: whole_range,
+            })));
+        }
+
+        if matches!(self.peek(), Token::DotDotDot) {
+            let dot_start = self.cur_start();
+            self.advance();
+            return Err(SyntaxError {
+                kind: SyntaxErrorKind::AssociatedLegacyFamilyEllipsis,
+                range: dot_start..self.prev_end,
+            });
+        }
+
+        // Implicit getter: `owner::name`
+        let member_range = (base_start..self.prev_end).into();
+        let whole_range = (start..self.prev_end).into();
+        Ok(Expr::AssociatedLookup(Box::new(AssociatedLookupExpr {
+            receiver,
+            first_separator_range,
+            member: AssociatedMemberSyntax::Named(AssociatedNamedMemberSyntax {
+                base,
+                base_range,
+                mode: AssociatedNamedMode::Getter {
+                    explicit_separator_range: None,
+                },
+                range: member_range,
+            }),
+            range: whole_range,
+        })))
     }
 
     fn skip_newlines_at(&self, mut pos: usize) -> usize {
@@ -4485,6 +5150,7 @@ impl<'source> Parser<'source> {
             | Token::ImplementationFieldIdentifier(name)
             | Token::ImplementationSelectorIdentifier(name) => name,
             Token::Class => "class".to_string(),
+            Token::Enum => "enum".to_string(),
             // `try` is a genuine reserved keyword (statement-leading, ADR-0031
             // §4) but must still resolve as an ordinary selector in message
             // position — `fiber.try(...)`/`fiber.try` (`Fiber#try`, ADR-0030)
@@ -4493,6 +5159,7 @@ impl<'source> Parser<'source> {
             // `from` is reserved in module preambles but remains valid in
             // message-send position (`Map.from(...)`).
             Token::From => "from".to_string(),
+            Token::Match => "match".to_string(),
             Token::Plus => "+".to_string(),
             Token::Minus => "-".to_string(),
             Token::Asterisk => "*".to_string(),
@@ -4706,6 +5373,87 @@ impl<'source> Parser<'source> {
         })))
     }
 
+    /// Parses a `match value { (pattern => branch)* }` pattern elimination expression.
+    fn parse_match_expression(&mut self) -> ParserResult<Expr> {
+        let start = self.cur_start();
+        self.advance(); // 'match'
+        let value = Box::new(self.parse_expr_without_trailing_closures()?);
+        self.expect(&Token::LBrace, &["\"{\""])?;
+        self.skip_newlines();
+        let mut arms = Vec::new();
+        while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+            let arm_start = self.cur_start();
+            let pattern = self.parse_pattern()?;
+            let arrow_start = self.cur_start();
+            self.expect(&Token::FatArrow, &["\"=>\""])?;
+            let arrow_range = (arrow_start..self.prev_end).into();
+            self.skip_newlines();
+            let branch = Box::new(self.parse_match_arm_branch()?);
+            let arm_range = (arm_start..self.prev_end).into();
+            arms.push(MatchArm {
+                pattern,
+                branch,
+                arrow_range,
+                range: arm_range,
+            });
+            self.skip_newlines();
+            self.eat(&Token::Semicolon);
+            self.skip_newlines();
+        }
+        self.expect(&Token::RBrace, &["\"}\""])?;
+        let range = (start..self.prev_end).into();
+        Ok(Expr::Match(MatchExpr { value, arms, range }))
+    }
+
+    fn parse_match_arm_branch(&mut self) -> ParserResult<Expr> {
+        if matches!(self.peek(), Token::LBrace) {
+            let next_is_map = (matches!(self.peek_next(), Token::Identifier(_) | Token::String(_) | Token::QuotedSymbol(_))
+                && self.tokens.get(self.pos + 2).is_some_and(|t| matches!(t.token, Token::Colon)))
+                || matches!(
+                    self.peek_next(),
+                    Token::LBracket | Token::Asterisk | Token::DoubleAsterisk | Token::TripleAsterisk | Token::Power
+                );
+            if !next_is_map {
+                return self.parse_brace_block();
+            }
+        }
+        self.parse_expr()
+    }
+
+    fn is_match_expression(&self) -> bool {
+        if self.peek() != &Token::Match {
+            return false;
+        }
+        if self.peek_next() != &Token::LParen {
+            return true;
+        }
+        let mut depth = 0;
+        let mut i = self.pos + 1;
+        while i < self.tokens.len() {
+            match &self.tokens[i].token {
+                Token::LParen => depth += 1,
+                Token::RParen => {
+                    depth -= 1;
+                    if depth == 0 {
+                        let mut next = i + 1;
+                        while next < self.tokens.len() && matches!(self.tokens[next].token, Token::Newline) {
+                            next += 1;
+                        }
+                        if next < self.tokens.len() && self.tokens[next].token == Token::LBrace {
+                            return true;
+                        }
+                        return false;
+                    }
+                }
+                Token::Colon if depth == 1 => return false,
+                Token::Eof => return false,
+                _ => {}
+            }
+            i += 1;
+        }
+        false
+    }
+
     /// Parses a primary expression: a literal, variable/field, `self`/`super`,
     /// or a parenthesised expression.
     ///
@@ -4721,6 +5469,17 @@ impl<'source> Parser<'source> {
         let end = self.tokens[self.pos].end;
         let range = (start..end).into();
         match self.peek().clone() {
+            Token::Match => {
+                if self.is_match_expression() {
+                    self.parse_match_expression()
+                } else {
+                    self.advance();
+                    Ok(Expr::Var {
+                        value: "match".to_string(),
+                        range,
+                    })
+                }
+            }
             Token::If => self.parse_if(),
             Token::While => self.parse_while(),
             Token::True => {
@@ -5126,19 +5885,6 @@ impl<'source> Parser<'source> {
                 kind: SyntaxErrorKind::InvalidToken,
                 range: self.prev_end.saturating_sub(1)..self.prev_end,
             });
-        }
-        self.parse_selector_spec_body()
-    }
-
-    fn parse_selector_spec_after_colon_colon(&mut self) -> ParserResult<SelectorSpecSyntax> {
-        if matches!(self.peek(), Token::Hash) {
-            self.advance();
-            if self.prev_end != self.cur_start() {
-                return Err(SyntaxError {
-                    kind: SyntaxErrorKind::InvalidToken,
-                    range: self.prev_end.saturating_sub(1)..self.prev_end,
-                });
-            }
         }
         self.parse_selector_spec_body()
     }
@@ -5877,24 +6623,6 @@ fn exact_symbol_kind(spec: ExactSelectorSyntax) -> SymbolLiteralKind {
     }
 }
 
-fn legacy_method_ref_kind(spec: &SelectorSpecSyntax) -> MethodRefKind {
-    match spec {
-        SelectorSpecSyntax::Exact(exact) if matches!(exact.kind, phalcom_common::selector::SelectorKind::Method) => MethodRefKind::Pinned {
-            name: exact.base.clone(),
-            labels: exact
-                .slots
-                .iter()
-                .map(|slot| match &slot.slot {
-                    phalcom_common::selector::SelectorSlot::Positional => None,
-                    phalcom_common::selector::SelectorSlot::Label(label) => Some(label.clone()),
-                })
-                .collect(),
-        },
-        SelectorSpecSyntax::Exact(exact) => MethodRefKind::Open { name: exact.base.clone() },
-        SelectorSpecSyntax::Pattern(pattern) => MethodRefKind::Open { name: pattern.base.clone() },
-    }
-}
-
 /// Maps a token to its binary-operator precedence and [`BinaryOp`], or `None`.
 ///
 /// Higher numbers bind tighter: `or` (1), `and` (2), equality (3), comparison
@@ -6121,7 +6849,7 @@ mod tests {
         let Statement::Expr { expr: Expr::IfLet(if_let), .. } = only_statement("if let Some(value) = option { value } else { None }") else {
             panic!("expected if let expression");
         };
-        assert!(matches!(if_let.pattern, Pattern::Variant { ref constructor, .. } if constructor == "Some"));
+        assert!(matches!(if_let.pattern, Pattern::Variant(VariantPattern { ref base, .. }) if base == "Some"));
 
         let Statement::Expr {
             expr: Expr::WhileLet(while_let),
@@ -6130,7 +6858,7 @@ mod tests {
         else {
             panic!("expected while let expression");
         };
-        assert!(matches!(while_let.pattern, Pattern::Variant { ref constructor, .. } if constructor == "Some"));
+        assert!(matches!(while_let.pattern, Pattern::Variant(VariantPattern { ref base, .. }) if base == "Some"));
     }
 
     /// Returns the single statement of a program that must parse cleanly.

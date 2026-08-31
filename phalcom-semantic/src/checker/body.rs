@@ -20,6 +20,7 @@ use std::sync::Arc;
 fn stmt_range(stmt: &Statement) -> SourceRange {
     match stmt {
         Statement::Class(c) => c.range,
+        Statement::Enum(e) => e.range,
         Statement::TypeAlias(t) => t.range,
         Statement::Let(l) => l.range,
         Statement::Return(r) => r.range,
@@ -54,6 +55,8 @@ pub struct CallableBodyRequest<'a> {
     pub cancel: &'a CancellationToken,
     pub field_signatures: Option<&'a crate::signature::FieldSignatureTable>,
     pub field_lifecycle: Option<&'a crate::checker::field_lifecycle::FieldLifecycleTable>,
+    pub enum_semantics: Option<&'a crate::enum_semantics::EnumSemanticTable>,
+    pub associated_families: Option<&'a crate::associated::AssociatedFamilyTable>,
 }
 
 /// Analyzes a single callable body and returns a complete [`CallableAnalysis`].
@@ -75,14 +78,25 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
         cancel,
         field_signatures,
         field_lifecycle,
+        enum_semantics,
+        associated_families,
     } = request;
     let control = CheckerControl::new(budget, cancel);
     let mut ctx = CheckingContext::new_with_dispatch_ref_and_control(store, hierarchy, resolver, declarations, dispatch, module, control);
     if let Some(field_signatures) = field_signatures {
         ctx.attach_field_signatures(field_signatures);
     }
+    if let Some(field_lifecycle) = field_lifecycle {
+        ctx.attach_field_lifecycle(field_lifecycle);
+    }
+    if let Some(enum_semantics) = enum_semantics {
+        ctx.attach_enum_semantics(enum_semantics);
+    }
+    if let Some(associated_families) = associated_families {
+        ctx.attach_associated_families(associated_families);
+    }
     ctx.current_callable = Some(callable.clone());
-    ctx.current_class = Some(callable.owner.clone());
+    ctx.current_class = Some(callable.declaration_owner().clone());
     ctx.current_side = callable.side;
 
     // 1. Build flow graph for the body statements
@@ -100,7 +114,7 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
     );
     if let Some(field_lifecycle) = field_lifecycle {
         ctx.attach_field_lifecycle(field_lifecycle);
-        field_lifecycle.seed_flow_for_owner(&mut ctx.flow, &callable.owner, constructor_body);
+        field_lifecycle.seed_flow_for_owner(&mut ctx.flow, callable.declaration_owner(), constructor_body);
     }
 
     if let Some((signature_id, signature)) = declared_signature {

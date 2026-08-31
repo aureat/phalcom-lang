@@ -7,7 +7,7 @@
 //! `??`/`?.` are desugared to ordinary `Option` message sends by the parser
 //! (see [`crate::parser`]).
 
-use phalcom_common::range::SourceRange;
+pub use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorError, SelectorKind, SelectorKindPattern, SelectorPattern, SelectorSlot};
 
 #[derive(Debug, Default)]
@@ -25,6 +25,7 @@ pub struct Program {
 #[derive(Debug, Clone)]
 pub enum Statement {
     Class(ClassDef),
+    Enum(EnumDef),
     TypeAlias(TypeAliasDef),
     Let(LetBinding),
     Return(ReturnStatement),
@@ -276,6 +277,98 @@ impl ClassDef {
     pub fn superclass_ref(&self) -> Option<&StaticSymbolRef> {
         self.superclass.as_ref().and_then(|sc| sc.origin_symbol_ref())
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct EnumDef {
+    pub name: String,
+    pub name_range: SourceRange,
+    pub generic_parameters: Vec<GenericParameterSyntax>,
+    pub where_clause: Option<WhereClauseSyntax>,
+    pub members: Vec<EnumMember>,
+    pub attributes: Vec<Attribute>,
+    pub range: SourceRange,
+}
+
+#[derive(Debug, Clone)]
+pub enum EnumMember {
+    Variant(VariantDecl),
+    Behavior(EnumBehaviorMember),
+}
+
+#[derive(Debug, Clone)]
+pub enum EnumBehaviorMember {
+    Method(MethodDef),
+    Getter(GetterDef),
+    Setter(SetterDef),
+    Index(IndexMethodDef),
+}
+
+impl EnumBehaviorMember {
+    pub fn attributes(&self) -> &[Attribute] {
+        match self {
+            EnumBehaviorMember::Method(m) => &m.attributes,
+            EnumBehaviorMember::Getter(g) => &g.attributes,
+            EnumBehaviorMember::Setter(s) => &s.attributes,
+            EnumBehaviorMember::Index(i) => &i.attributes,
+        }
+    }
+
+    pub fn attributes_mut(&mut self) -> &mut Vec<Attribute> {
+        match self {
+            EnumBehaviorMember::Method(m) => &mut m.attributes,
+            EnumBehaviorMember::Getter(g) => &mut g.attributes,
+            EnumBehaviorMember::Setter(s) => &mut s.attributes,
+            EnumBehaviorMember::Index(i) => &mut i.attributes,
+        }
+    }
+
+    pub fn range(&self) -> SourceRange {
+        match self {
+            EnumBehaviorMember::Method(m) => m.range,
+            EnumBehaviorMember::Getter(g) => g.range,
+            EnumBehaviorMember::Setter(s) => s.range,
+            EnumBehaviorMember::Index(i) => i.range,
+        }
+    }
+
+    pub fn name_range(&self) -> SourceRange {
+        match self {
+            EnumBehaviorMember::Method(m) => m.name_range,
+            EnumBehaviorMember::Getter(g) => g.name_range,
+            EnumBehaviorMember::Setter(s) => s.name_range,
+            EnumBehaviorMember::Index(i) => i.name_range,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct VariantDecl {
+    pub name: String,
+    pub name_range: SourceRange,
+    /// Span of the explicit `@variant` marker.
+    pub variant_marker_range: SourceRange,
+    /// `None` means getter-shaped singleton variant `#name`.
+    pub payload: Option<VariantPayloadSyntax>,
+    /// GADT result specialization, if written.
+    pub result_annotation: Option<TypeAnnotation>,
+    /// Case-specific behavior.
+    pub body: Option<VariantBody>,
+    /// Non-marker attributes preserved for later visibility/metadata semantics.
+    pub attributes: Vec<Attribute>,
+    pub range: SourceRange,
+}
+
+#[derive(Debug, Clone)]
+pub struct VariantPayloadSyntax {
+    pub parameters: Vec<ParameterDef>,
+    pub range: SourceRange,
+}
+
+#[derive(Debug, Clone)]
+pub struct VariantBody {
+    pub members: Vec<EnumBehaviorMember>,
+    pub range: SourceRange,
 }
 
 /// A `@name(args…)` attribute attached to a class or class member.
@@ -876,7 +969,7 @@ pub enum ExpansionMode {
 }
 
 /// A parameter's rest-binding lane. Binding semantics remain deferred to F.3.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum RestMode {
     None,
     Positional,
@@ -1037,6 +1130,8 @@ pub struct LetBinding {
 /// behavior lives in the compiler's lowering, not in this node's shape.
 #[derive(Debug, Clone)]
 pub enum Pattern {
+    /// A first-class recursive wildcard `_` matching any value and binding nothing.
+    Wildcard { range: SourceRange },
     /// A single bound name — the non-destructuring case (`let x = …`).
     Name {
         /// The bound name.
@@ -1068,16 +1163,10 @@ pub enum Pattern {
         /// The source span of the whole `[…]` pattern.
         range: SourceRange,
     },
-    /// A sealed/unit or payload-bearing variant pattern such as `None()` or
-    /// `Some(value)`.
-    Variant {
-        /// Constructor/variant class name.
-        constructor: String,
-        /// Positional payload patterns in declaration order.
-        arguments: Vec<Pattern>,
-        /// Source span of the complete constructor pattern.
-        range: SourceRange,
-    },
+    /// A rich variant pattern (singleton, exact call, selector gap, or whole family).
+    Variant(VariantPattern),
+    /// An or-pattern `p1 | p2 | ...` matching any alternative.
+    Or { alternatives: Vec<Pattern>, range: SourceRange },
     /// An open record pattern such as `#{name: value}`.
     Record {
         /// Required field patterns.
@@ -1098,14 +1187,51 @@ impl Pattern {
     /// Returns this pattern's source span.
     pub fn range(&self) -> SourceRange {
         match self {
-            Pattern::Name { range, .. }
+            Pattern::Wildcard { range }
+            | Pattern::Name { range, .. }
             | Pattern::Tuple { range, .. }
             | Pattern::List { range, .. }
-            | Pattern::Variant { range, .. }
+            | Pattern::Or { range, .. }
             | Pattern::Record { range, .. }
             | Pattern::Map { range, .. } => *range,
+            Pattern::Variant(v) => v.range,
         }
     }
+}
+
+/// A qualified or contextual variant pattern matching a singleton, exact constructor/selector,
+/// selector pattern with gap, or whole family.
+#[derive(Debug, Clone)]
+pub struct VariantPattern {
+    pub owner: Option<StaticSymbolRef>,
+    pub base: String,
+    pub base_range: SourceRange,
+    pub mode: VariantPatternMode,
+    pub range: SourceRange,
+}
+
+#[derive(Debug, Clone)]
+pub enum VariantPatternMode {
+    Singleton,
+    ExactCall {
+        arguments: Vec<VariantPatternArgument>,
+    },
+    CallablePattern {
+        prefix: Vec<VariantPatternArgument>,
+        gap_range: SourceRange,
+        suffix: Vec<VariantPatternArgument>,
+    },
+    WholeFamily {
+        star_range: SourceRange,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct VariantPatternArgument {
+    pub label: Option<String>,
+    pub label_range: Option<SourceRange>,
+    pub pattern: Pattern,
+    pub range: SourceRange,
 }
 
 /// A required record field in a pattern.
@@ -1250,9 +1376,8 @@ pub enum Expr {
     /// A postfix subscript write `object[index] = value` (U-INDEX). See [`SetIndexExpr`].
     SetIndex(Box<SetIndexExpr>),
     Block(Box<BlockExpr>),
-    /// A `::` method reference — `receiver::name` (selectors.md §3, U16-Open,
-    /// Open form only). See [`MethodRefExpr`].
-    MethodRef(Box<MethodRefExpr>),
+    AssociatedLookup(Box<AssociatedLookupExpr>),
+    AssociatedInvoke(Box<AssociatedInvokeExpr>),
     /// A `#`-prefixed symbol literal (selectors.md §2, U-LEX-HASH). See
     /// [`SymbolExpr`].
     Symbol(Box<SymbolExpr>),
@@ -1272,6 +1397,8 @@ pub enum Expr {
     IsMembership(Box<IsMembershipExpr>),
     /// A value-space type form expression (e.g. `List<Int>` or `<T> =>> Result<T, Error>`) (Spec 04).
     TypeForm(Box<TypeAnnotation>),
+    /// A pattern elimination match expression (Part 05.1).
+    Match(MatchExpr),
 }
 
 impl Expr {
@@ -1307,7 +1434,8 @@ impl Expr {
             Expr::Index(e) => e.range,
             Expr::SetIndex(e) => e.range,
             Expr::Block(e) => e.range,
-            Expr::MethodRef(e) => e.range,
+            Expr::AssociatedLookup(e) => e.range,
+            Expr::AssociatedInvoke(e) => e.range,
             Expr::Symbol(e) => e.range,
             Expr::TupleLiteral(e) => e.range,
             Expr::RecordLiteral(e) => e.range,
@@ -1317,8 +1445,26 @@ impl Expr {
             Expr::Membership(e) => e.range,
             Expr::IsMembership(e) => e.range,
             Expr::TypeForm(t) => t.range,
+            Expr::Match(m) => m.range,
         }
     }
+}
+
+/// A pattern elimination match expression.
+#[derive(Debug, Clone)]
+pub struct MatchExpr {
+    pub value: Box<Expr>,
+    pub arms: Vec<MatchArm>,
+    pub range: SourceRange,
+}
+
+/// A single arm `pattern => branch` in a match expression.
+#[derive(Debug, Clone)]
+pub struct MatchArm {
+    pub pattern: Pattern,
+    pub branch: Box<Expr>,
+    pub arrow_range: SourceRange,
+    pub range: SourceRange,
 }
 
 /// Range bounds as written in source. Omitted bounds are structurally absent,
@@ -1500,26 +1646,58 @@ pub struct GetPropertyExpr {
 /// A method reference expression, `receiver::name` / `receiver::#sel(...)`
 /// (selectors.md §3, U16-Open + U16-Pinned — the **bound** forms only; the
 /// unbound `Type::name` / `Type::#sel(...)` "receiver is the first argument"
-/// forms are out of this unit's scope).
-///
-/// Both `obj::name` and `Type::name` parse to this node — `receiver` is
-/// whatever postfix expression preceded `::`, evaluated and bound as the
-/// resulting [`Family`](https://en.wikipedia.org/wiki/Message_passing)
-/// value's receiver at reference time. There is no unbound form in this
-/// unit's scope: the compiled `Family` always carries a concrete receiver
-/// value (`phalcom-core::heap::Object::Family`).
 #[derive(Debug, Clone)]
-pub struct MethodRefExpr {
-    /// The expression evaluated to produce the family's bound receiver.
+pub struct AssociatedLookupExpr {
     pub receiver: Expr,
-    /// The exact selector or structural pattern written after `::`.
-    pub spec: SelectorSpecSyntax,
-    /// Compatibility view retained for existing semantic consumers while
-    /// they migrate to [`Self::spec`].
-    pub kind: MethodRefKind,
-    /// The written selector portion after `::`, if present.
-    pub selector_range: Option<SourceRange>,
-    /// The source span from the start of `receiver` through the name/selector.
+    pub first_separator_range: SourceRange,
+    pub member: AssociatedMemberSyntax,
+    pub range: SourceRange,
+}
+
+#[derive(Debug, Clone)]
+pub enum AssociatedMemberSyntax {
+    Named(AssociatedNamedMemberSyntax),
+    Operator(ExactSelectorSyntax),
+    Subscript(ExactSelectorSyntax),
+}
+
+#[derive(Debug, Clone)]
+pub struct AssociatedNamedMemberSyntax {
+    pub base: String,
+    pub base_range: SourceRange,
+    pub mode: AssociatedNamedMode,
+    pub range: SourceRange,
+}
+
+#[derive(Debug, Clone)]
+pub enum AssociatedNamedMode {
+    /// `owner::name` or `owner::name::`.
+    Getter { explicit_separator_range: Option<SourceRange> },
+    /// `owner::name::shape`.
+    Exact {
+        second_separator_range: SourceRange,
+        residual: AssociatedResidualSelectorSyntax,
+    },
+    /// `owner::name::*`.
+    Family {
+        second_separator_range: SourceRange,
+        star_range: SourceRange,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum AssociatedResidualSelectorSyntax {
+    Method { slots: Vec<SelectorSlotSyntax>, range: SourceRange },
+    Setter { put_range: SourceRange, range: SourceRange },
+}
+
+#[derive(Debug, Clone)]
+pub struct AssociatedInvokeExpr {
+    pub receiver: Expr,
+    pub first_separator_range: SourceRange,
+    pub base: String,
+    pub base_range: SourceRange,
+    pub args: Vec<PackItem>,
     pub range: SourceRange,
 }
 
@@ -1629,33 +1807,6 @@ impl SelectorSpecSyntax {
             Self::Pattern(spec) => spec.normalize().map(NormalizedSelectorSpec::Pattern),
         }
     }
-}
-
-/// The two `::` method-reference shapes (selectors.md §3), carried by
-/// [`MethodRefExpr`].
-#[derive(Debug, Clone)]
-pub enum MethodRefKind {
-    /// `obj::name` — a bare base name. The call-time selector is built from
-    /// this name plus the call site's argument labels (selectors.md §3
-    /// "Open families resolve at call time"), U16-Open.
-    Open {
-        /// The base method name after `::` (not a full selector).
-        name: String,
-    },
-    /// `obj::#name(_,to,duration)` — a full selector form. Pins the exact
-    /// selector at the reference site: the call-time labels are ignored and
-    /// only the argument *count* is validated (selectors.md §3 "Pinned
-    /// families have their selector fully known at compile time"), U16-Pinned.
-    Pinned {
-        /// The selector's base name (`"move"`, `"square"`, ...).
-        name: String,
-        /// Per-argument labels in declared order; `None` is the positional
-        /// placeholder `_`. Lowered by the compiler through the same
-        /// `encode_selector` routine a matching method definition uses
-        /// (`phalcom-core::method::encode_selector`), so the pinned selector
-        /// interns to the *same* `Symbol` as its target method (ADR-0012).
-        labels: Vec<Option<String>>,
-    },
 }
 
 /// A `#`-prefixed symbol literal (selectors.md §2, U-LEX-HASH): a name symbol

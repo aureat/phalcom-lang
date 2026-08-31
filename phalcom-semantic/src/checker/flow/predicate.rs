@@ -493,16 +493,15 @@ fn is_canonical_equality(ctx: &CheckingContext<'_>, callable: Option<&CallableId
     let phalcom_common::selector::SelectorBase::Named(ref name) = callable.selector.base else {
         return false;
     };
-    matches!(
-        &callable.owner,
-        owner if owner == &ctx.core_ids.object
-            || owner == &ctx.core_ids.bool_
-            || owner == &ctx.core_ids.int
-            || owner == &ctx.core_ids.float
-            || owner == &ctx.core_ids.string
-            || owner == &ctx.core_ids.symbol
-            || owner == &ctx.core_ids.number
-    ) && matches!(name.as_str(), "==" | "!=" | "equals" | "same")
+    let owner = callable.declaration_owner();
+    (owner == &ctx.core_ids.object
+        || owner == &ctx.core_ids.bool_
+        || owner == &ctx.core_ids.int
+        || owner == &ctx.core_ids.float
+        || owner == &ctx.core_ids.string
+        || owner == &ctx.core_ids.symbol
+        || owner == &ctx.core_ids.number)
+        && matches!(name.as_str(), "==" | "!=" | "equals" | "same")
 }
 
 fn is_canonical_ordered_comparison(ctx: &CheckingContext<'_>, callable: Option<&CallableId>) -> bool {
@@ -510,6 +509,6 @@ fn is_canonical_ordered_comparison(ctx: &CheckingContext<'_>, callable: Option<&
     let phalcom_common::selector::SelectorBase::Named(ref name) = callable.selector.base else {
         return false;
     };
-    (callable.owner == ctx.core_ids.int || callable.owner == ctx.core_ids.float || callable.owner == ctx.core_ids.number)
-        && matches!(name.as_str(), "<" | "<=" | ">" | ">=" | "<=>")
+    let owner = callable.declaration_owner();
+    (owner == &ctx.core_ids.int || owner == &ctx.core_ids.float || owner == &ctx.core_ids.number) && matches!(name.as_str(), "<" | "<=" | ">" | ">=" | "<=>")
 }

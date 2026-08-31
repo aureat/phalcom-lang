@@ -5,19 +5,20 @@
 //! formal checking and does not create a second dispatch or identity system.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use phalcom_ast::ast::{
-    Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, PackItem, ProductLabel, RecordLiteralEntry, SetLiteralEntry, Statement, SymbolLiteralKind,
-    TupleLiteralEntry,
+    AssociatedMemberSyntax, AssociatedNamedMode, Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, NormalizedSelectorSpec, PackItem, ProductLabel,
+    RecordLiteralEntry, SetLiteralEntry, Statement, SymbolLiteralKind, TupleLiteralEntry,
 };
 use phalcom_common::range::SourceRange;
+use phalcom_common::selector::{SelectorKindPattern, SelectorPattern, SelectorSlot};
 
 use crate::declarations::DeclarationTypeTable;
 use crate::identity::{CallableId, DeclarationId, DispatchSide, FieldId, SourceSiteId};
 use crate::source_index::{SourceNameResolution, SourceScopeId, SourceScopeIndex};
 
 use super::{AdvisoryConfidence, AdvisoryFact, AdvisoryOrigin, CapturedMethodFamilyShape, ValueShape};
-use phalcom_ast::ast::NormalizedSelectorSpec;
 
 pub(crate) type CallableForShapeResolver<'a> = &'a dyn Fn(&ValueShape, &str, &[PackItem]) -> Option<CallableId>;
 pub(crate) type FormalCallResultResolver<'a> = &'a dyn Fn(&CallableId, Option<&ValueShape>) -> Option<AdvisoryFact>;
@@ -247,24 +248,42 @@ fn analyze_expr_inner(expr: &Expr, context: &AdvisoryExpressionContext<'_>) -> A
             })))),
             range,
         ),
-        Expr::MethodRef(reference) => {
-            let receiver = analyze_expr(&reference.receiver, context);
-            let Ok(spec) = reference.spec.normalize() else {
-                return unknown_at(context, range);
-            };
-            if let Some(resolve) = context.resolve_method_family
-                && let Some(family) = resolve(&receiver.shape, &spec)
-            {
-                return syntax_fact(context, ValueShape::MethodFamily(std::sync::Arc::new(family)), range);
+        Expr::AssociatedLookup(lookup) => {
+            let receiver = analyze_expr(&lookup.receiver, context);
+            if let AssociatedMemberSyntax::Named(named) = &lookup.member {
+                let spec = match &named.mode {
+                    AssociatedNamedMode::Getter { .. } | AssociatedNamedMode::Family { .. } => SelectorPattern::named(
+                        named.base.clone(),
+                        SelectorKindPattern::AnyNamed,
+                        Vec::<SelectorSlot>::new(),
+                        Vec::<SelectorSlot>::new(),
+                        true,
+                    )
+                    .ok()
+                    .map(NormalizedSelectorSpec::Pattern),
+                    AssociatedNamedMode::Exact { .. } => None,
+                };
+                if let Some(spec) = spec
+                    && let Some(resolve) = context.resolve_method_family
+                    && let Some(family) = resolve(&receiver.shape, &spec)
+                {
+                    return syntax_fact(context, ValueShape::MethodFamily(Arc::new(family)), range);
+                }
             }
-            syntax_fact(
-                context,
-                ValueShape::Family {
-                    receiver: Box::new(receiver.shape),
-                    spec,
-                },
-                range,
-            )
+            unknown_at(context, range)
+        }
+        Expr::AssociatedInvoke(invoke) => {
+            let _ = analyze_expr(&invoke.receiver, context);
+            for arg in &invoke.args {
+                match arg {
+                    phalcom_ast::ast::PackItem::Positional { expr: e, .. }
+                    | phalcom_ast::ast::PackItem::Expand { expr: e, .. }
+                    | phalcom_ast::ast::PackItem::Labeled { value: e, .. } => {
+                        let _ = analyze_expr(e, context);
+                    }
+                }
+            }
+            unknown_at(context, range)
         }
         Expr::MethodCall(call) => {
             let receiver = analyze_expr(&call.object, context);
@@ -362,6 +381,13 @@ fn analyze_expr_inner(expr: &Expr, context: &AdvisoryExpressionContext<'_>) -> A
         Expr::WhileLet(while_let) => {
             let _ = analyze_expr(&while_let.value, context);
             literal(context, context.builtins.boolean.clone(), range)
+        }
+        Expr::Match(match_expr) => {
+            let _ = analyze_expr(&match_expr.value, context);
+            for arm in &match_expr.arms {
+                let _ = analyze_expr(&arm.branch, context);
+            }
+            unknown_at(context, range)
         }
         Expr::SuperVar { .. } | Expr::ImplementationSelector { .. } | Expr::Ellipsis { .. } | Expr::TypeForm(_) => unknown_at(context, range),
     }

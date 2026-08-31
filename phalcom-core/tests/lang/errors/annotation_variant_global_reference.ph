@@ -2,16 +2,12 @@
 // spec: annotations-data.md @variant / this implementation specification
 // status: PASS
 
-@data @sealed
-class Ordering {
-  @variant Less()
-  @variant Greater()
-
-  @class less { Less.new() }
-  @class greater { Greater.new() }
+enum Ordering {
+  @variant Less
+  @variant Greater
 }
 
-System.print(Less)
-System.print(Greater)
-System.print(Ordering.less is Less)
-System.print(Ordering.greater is Greater)
+System.print(Ordering::Less)
+System.print(Ordering::Greater)
+System.print(Ordering::Less is Ordering)
+System.print(Ordering::Greater is Ordering)
