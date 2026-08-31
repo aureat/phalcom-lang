@@ -78,6 +78,16 @@ pub enum DiagnosticCode {
     MatchPatternArityMismatch,
     MatchPatternFieldMismatch,
     MatchPatternContradictory,
+    /// A single pattern alternative binds the same source name more than once.
+    MatchPatternDuplicateBinding,
+    /// Or-pattern alternatives do not establish one common binding-name set.
+    MatchPatternOrBindingMismatch,
+    /// A later or-pattern alternative contributes no value beyond earlier alternatives.
+    MatchPatternOrRedundant,
+    /// Pattern is outside the original scrutinee domain rather than merely covered earlier.
+    MatchPatternImpossible,
+    /// Match totality or reachability could not be proved because formal analysis was blocked.
+    MatchAnalysisBlocked,
 }
 
 impl DiagnosticCode {
@@ -148,6 +158,11 @@ impl DiagnosticCode {
             Self::MatchPatternArityMismatch => "match.pattern_arity_mismatch",
             Self::MatchPatternFieldMismatch => "match.pattern_field_mismatch",
             Self::MatchPatternContradictory => "match.pattern_contradictory",
+            Self::MatchPatternDuplicateBinding => "match.pattern.duplicate_binding",
+            Self::MatchPatternOrBindingMismatch => "match.pattern.or_binding_mismatch",
+            Self::MatchPatternOrRedundant => "match.pattern.or_redundant",
+            Self::MatchPatternImpossible => "match.pattern.impossible",
+            Self::MatchAnalysisBlocked => "match.analysis.blocked",
         }
     }
 }
