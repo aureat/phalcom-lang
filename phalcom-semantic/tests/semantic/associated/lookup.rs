@@ -8,7 +8,7 @@ use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 
 #[test]
-fn test_associated_owner_not_type_form_error() {
+fn associated_owner_rejects_runtime_value_type_form() {
     let module = ModuleId::core();
     let source: Arc<str> = Arc::from(
         r#"
@@ -26,14 +26,19 @@ class Probe {
     let analysis = analyze_single_module(module, source, Arc::new(parsed.program));
 
     assert!(
-        analysis.snapshot.diagnostics.values().flat_map(|d| d.iter()).any(|d| d.code == DiagnosticCode::AssociatedOwnerNotTypeForm),
+        analysis
+            .snapshot
+            .diagnostics
+            .values()
+            .flat_map(|d| d.iter())
+            .any(|d| d.code == DiagnosticCode::AssociatedOwnerNotTypeForm),
         "Expected AssociatedOwnerNotTypeForm diagnostic, got: {:#?}",
         analysis.snapshot.diagnostics
     );
 }
 
 #[test]
-fn test_associated_owner_generic_parameter_error() {
+fn associated_owner_rejects_generic_parameter() {
     let module = ModuleId::core();
     let source: Arc<str> = Arc::from(
         r#"
@@ -50,14 +55,19 @@ class Box<T> {
     let analysis = analyze_single_module(module, source, Arc::new(parsed.program));
 
     assert!(
-        analysis.snapshot.diagnostics.values().flat_map(|d| d.iter()).any(|d| d.code == DiagnosticCode::AssociatedOwnerNotDeclarationBacked),
+        analysis
+            .snapshot
+            .diagnostics
+            .values()
+            .flat_map(|d| d.iter())
+            .any(|d| d.code == DiagnosticCode::AssociatedOwnerNotDeclarationBacked),
         "Expected AssociatedOwnerNotDeclarationBacked diagnostic, got: {:#?}",
         analysis.snapshot.diagnostics
     );
 }
 
 #[test]
-fn test_associated_direct_variant_invocation_and_getter() {
+fn associated_lookup_resolves_variant_invocation_and_singleton_getter() {
     let module = ModuleId::core();
     let source: Arc<str> = Arc::from(
         r#"
@@ -110,7 +120,7 @@ class Test {
 }
 
 #[test]
-fn test_associated_behavioral_inheritance_and_shadowing() {
+fn associated_inheritance_keeps_lookup_owner_and_defining_owner_distinct() {
     let module = ModuleId::core();
     let source: Arc<str> = Arc::from(
         r#"
@@ -173,7 +183,7 @@ class Probe {
 }
 
 #[test]
-fn test_associated_gadt_owner_conflict() {
+fn associated_owner_rejects_conflicting_gadt_specialization() {
     let module = ModuleId::core();
     let source: Arc<str> = Arc::from(
         r#"
@@ -199,14 +209,19 @@ class Test {
     let analysis = analyze_single_module(module, source, Arc::new(parsed.program));
 
     assert!(
-        analysis.snapshot.diagnostics.values().flat_map(|d| d.iter()).any(|d| d.code == DiagnosticCode::AssociatedGadtOwnerConflict),
+        analysis
+            .snapshot
+            .diagnostics
+            .values()
+            .flat_map(|d| d.iter())
+            .any(|d| d.code == DiagnosticCode::AssociatedGadtOwnerConflict),
         "Expected AssociatedGadtOwnerConflict diagnostic, got: {:#?}",
         analysis.snapshot.diagnostics
     );
 }
 
 #[test]
-fn test_part3_5_option_a_underconstrained_reification() {
+fn associated_reification_rejects_unconstrained_generic_owner() {
     let module = ModuleId::core();
     let source: Arc<str> = Arc::from(
         r#"

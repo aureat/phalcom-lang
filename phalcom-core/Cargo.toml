@@ -84,6 +84,46 @@ path = "tests/spec03_5_census.rs"
 name = "diagnostic_cli"
 path = "tests/diagnostic_cli.rs"
 
+[[test]]
+name = "adt_case_primitives"
+path = "tests/adt_case_primitives.rs"
+
+[[test]]
+name = "adt_runtime"
+path = "tests/adt_runtime.rs"
+
+[[test]]
+name = "adt_behavior"
+path = "tests/adt_behavior.rs"
+
+[[test]]
+name = "adt_gc"
+path = "tests/adt_gc.rs"
+
+[[test]]
+name = "associated_family_gc"
+path = "tests/associated_family_gc.rs"
+
+[[test]]
+name = "associated_lowering"
+path = "tests/associated_lowering.rs"
+
+[[test]]
+name = "semantic_lowering"
+path = "tests/semantic_lowering.rs"
+
+[[test]]
+name = "adt_end_to_end"
+path = "tests/adt_end_to_end.rs"
+
+[[test]]
+name = "associated_family_runtime"
+path = "tests/associated_family_runtime.rs"
+
+[[test]]
+name = "associated_reification"
+path = "tests/associated_reification.rs"
+
 
 
 

@@ -7,8 +7,7 @@ use phalcom_common::range::SourceRange;
 use phalcom_modules::{DeclarationId, ModuleId, SourceId};
 use phalcom_semantic::associated::AssociatedMemberId;
 use phalcom_semantic::checker::associated::{
-    AssociatedResolution, AssociatedResolutionKind, FamilyApplicationCandidate, FamilyApplicationResolution,
-    FamilyApplicationSelection,
+    AssociatedResolution, AssociatedResolutionKind, FamilyApplicationCandidate, FamilyApplicationResolution, FamilyApplicationSelection,
 };
 use phalcom_semantic::enum_semantics::VariantShape;
 use phalcom_semantic::identity::{CallableId, ExpressionId, InvocationTargetId, VariantFieldId, VariantId};
@@ -103,36 +102,19 @@ pub struct ExecutableFamilyCandidateSet {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AssociatedLoweringSpec {
     /// Canonical singleton variant load (immediate value).
-    SingletonLoad {
-        variant: VariantId,
-    },
+    SingletonLoad { variant: VariantId },
     /// Fresh constructor case allocation.
-    ConstructVariant {
-        variant: VariantId,
-        arity: u8,
-    },
+    ConstructVariant { variant: VariantId, arity: u8 },
     /// Direct resolved behavioral call (no hierarchy walk, no dNU).
-    InvokeResolvedAssociated {
-        target: ExecutableInvocationTarget,
-        arity: u8,
-    },
+    InvokeResolvedAssociated { target: ExecutableInvocationTarget, arity: u8 },
     /// Exact behavioral member reification as BoundMethod.
-    MakeResolvedBoundMethod {
-        target: ExecutableInvocationTarget,
-    },
+    MakeResolvedBoundMethod { target: ExecutableInvocationTarget },
     /// Exact variant constructor reification as closure thunk.
-    MakeVariantConstructorThunk {
-        variant: VariantId,
-        operation: FamilyOperationShape,
-    },
+    MakeVariantConstructorThunk { variant: VariantId, operation: FamilyOperationShape },
     /// Frozen whole-family capture.
-    MakeAssociatedFamily {
-        descriptor: Arc<ExecutableFamilyDescriptor>,
-    },
+    MakeAssociatedFamily { descriptor: Arc<ExecutableFamilyDescriptor> },
     /// Dynamic associated invocation over frozen candidate set.
-    DynamicInvoke {
-        candidates: Box<[ExecutableFamilyCandidate]>,
-    },
+    DynamicInvoke { candidates: Box<[ExecutableFamilyCandidate]> },
 }
 
 /// Lowering specification for an application on a first-class family value.
@@ -145,9 +127,7 @@ pub enum FamilyApplicationLoweringSpec {
         arity: u8,
     },
     /// Dynamic pack invocation restricted to frozen candidates.
-    DynamicPack {
-        candidates: Box<[FamilyApplicationCandidate]>,
-    },
+    DynamicPack { candidates: Box<[FamilyApplicationCandidate]> },
 }
 
 /// Canonical payload field lowering specification.
@@ -203,10 +183,7 @@ pub enum ProjectionError {
 }
 
 /// Projects formal snapshot products into an immutable `ModuleLoweringSemantics` bundle.
-pub fn build_module_lowering_semantics(
-    module: &ModuleId,
-    snapshot: &SemanticSnapshot,
-) -> Result<ModuleLoweringSemantics, ProjectionError> {
+pub fn build_module_lowering_semantics(module: &ModuleId, snapshot: &SemanticSnapshot) -> Result<ModuleLoweringSemantics, ProjectionError> {
     let source_id = if let Some(parsed_unit) = snapshot.sources.get(module) {
         parsed_unit
             .source
@@ -301,10 +278,7 @@ pub fn build_module_lowering_semantics(
     })
 }
 
-fn project_associated_resolution(
-    resolution: &AssociatedResolution,
-    snapshot: &SemanticSnapshot,
-) -> (LoweringSiteKind, AssociatedLoweringSpec) {
+fn project_associated_resolution(resolution: &AssociatedResolution, snapshot: &SemanticSnapshot) -> (LoweringSiteKind, AssociatedLoweringSpec) {
     match &resolution.kind {
         AssociatedResolutionKind::ExactValue { member, .. } => {
             let spec = match member {
@@ -313,7 +287,7 @@ fn project_associated_resolution(
                     target: ExecutableInvocationTarget::Behavioral {
                         lookup_owner: resolution.lookup_owner.clone(),
                         callable: c.clone(),
-                        operation: FamilyOperationShape::getter(),
+                        operation: behavioral_operation(c),
                         rest_mode: ExecutableRestMode::None,
                     },
                 },
@@ -326,13 +300,13 @@ fn project_associated_resolution(
                     target: ExecutableInvocationTarget::Behavioral {
                         lookup_owner: resolution.lookup_owner.clone(),
                         callable: c.clone(),
-                        operation: FamilyOperationShape::method(Vec::new()),
+                        operation: behavioral_operation(c),
                         rest_mode: ExecutableRestMode::None,
                     },
                 },
                 InvocationTargetId::VariantConstructor(vc) => AssociatedLoweringSpec::MakeVariantConstructorThunk {
                     variant: vc.variant.clone(),
-                    operation: FamilyOperationShape::method(Vec::new()),
+                    operation: variant_constructor_operation(snapshot, &vc.variant),
                 },
             };
             (LoweringSiteKind::AssociatedLookup, spec)
@@ -340,11 +314,19 @@ fn project_associated_resolution(
         AssociatedResolutionKind::Family { members, .. } => {
             let mut entries = Vec::new();
             for member in members.iter() {
-                let target = match &member.target {
-                    Some(InvocationTargetId::VariantConstructor(vc)) => {
-                        ExecutableFamilyTarget::VariantConstructor { variant: vc.variant.clone() }
+                let (target, member_kind) = match (&member.member, &member.target) {
+                    // Singleton variants are exact values rather than call
+                    // targets. Preserve them as frozen value entries so a
+                    // family capture does not silently lose its canonical
+                    // singleton capability.
+                    (AssociatedMemberId::Variant(variant), None) => {
+                        (ExecutableFamilyTarget::Singleton { variant: variant.clone() }, FamilyMemberTypeKind::Value)
                     }
-                    Some(InvocationTargetId::Behavioral(c)) => {
+                    (_, Some(InvocationTargetId::VariantConstructor(vc))) => (
+                        ExecutableFamilyTarget::VariantConstructor { variant: vc.variant.clone() },
+                        FamilyMemberTypeKind::Callable,
+                    ),
+                    (_, Some(InvocationTargetId::Behavioral(c))) => (
                         ExecutableFamilyTarget::Behavioral {
                             target: ExecutableInvocationTarget::Behavioral {
                                 lookup_owner: resolution.lookup_owner.clone(),
@@ -352,13 +334,14 @@ fn project_associated_resolution(
                                 operation: member.operation.clone(),
                                 rest_mode: ExecutableRestMode::None,
                             },
-                        }
-                    }
-                    None => continue,
+                        },
+                        FamilyMemberTypeKind::Callable,
+                    ),
+                    (_, None) => continue,
                 };
                 entries.push(ExecutableFamilyEntry {
                     operation: member.operation.clone(),
-                    member_kind: phalcom_semantic::types::family::FamilyMemberTypeKind::Callable,
+                    member_kind,
                     target,
                 });
             }
@@ -367,9 +350,7 @@ fn project_associated_resolution(
             };
             (
                 LoweringSiteKind::AssociatedLookup,
-                AssociatedLoweringSpec::MakeAssociatedFamily {
-                    descriptor: Arc::new(desc),
-                },
+                AssociatedLoweringSpec::MakeAssociatedFamily { descriptor: Arc::new(desc) },
             )
         }
         AssociatedResolutionKind::StaticInvoke { member, target, .. } => {
@@ -388,7 +369,7 @@ fn project_associated_resolution(
                         target: ExecutableInvocationTarget::Behavioral {
                             lookup_owner: resolution.lookup_owner.clone(),
                             callable: c.clone(),
-                            operation: FamilyOperationShape::method(Vec::new()),
+                            operation: behavioral_operation(c),
                             rest_mode: ExecutableRestMode::None,
                         },
                         arity,
@@ -407,9 +388,7 @@ fn project_associated_resolution(
                         operation: c.operation.clone(),
                         rest_mode: ExecutableRestMode::None,
                     },
-                    InvocationTargetId::VariantConstructor(vc) => ExecutableInvocationTarget::VariantConstructor {
-                        variant: vc.variant.clone(),
-                    },
+                    InvocationTargetId::VariantConstructor(vc) => ExecutableInvocationTarget::VariantConstructor { variant: vc.variant.clone() },
                 });
                 exec_candidates.push(ExecutableFamilyCandidate {
                     operation: c.operation.clone(),
@@ -424,6 +403,29 @@ fn project_associated_resolution(
     }
 }
 
+fn behavioral_operation(callable: &CallableId) -> FamilyOperationShape {
+    FamilyOperationShape::new(callable.selector.kind, callable.selector.slots.clone())
+}
+
+fn variant_constructor_operation(snapshot: &SemanticSnapshot, variant: &VariantId) -> FamilyOperationShape {
+    let slots = snapshot
+        .enum_semantics
+        .variant_info(variant)
+        .and_then(|info| info.constructor.as_ref())
+        .map(|constructor| {
+            constructor
+                .parameters
+                .iter()
+                .map(|parameter| match &parameter.external_label {
+                    Some(label) => phalcom_common::selector::SelectorSlot::Label(label.to_string()),
+                    None => phalcom_common::selector::SelectorSlot::Positional,
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    FamilyOperationShape::method(slots.into_boxed_slice())
+}
+
 fn project_family_application(fam_app: &FamilyApplicationResolution) -> FamilyApplicationLoweringSpec {
     match &fam_app.selection {
         FamilyApplicationSelection::Static { operation, target, .. } => {
@@ -434,9 +436,7 @@ fn project_family_application(fam_app: &FamilyApplicationResolution) -> FamilyAp
                     operation: operation.clone(),
                     rest_mode: ExecutableRestMode::None,
                 },
-                InvocationTargetId::VariantConstructor(vc) => ExecutableInvocationTarget::VariantConstructor {
-                    variant: vc.variant.clone(),
-                },
+                InvocationTargetId::VariantConstructor(vc) => ExecutableInvocationTarget::VariantConstructor { variant: vc.variant.clone() },
             });
             let arity = operation.slots.len() as u8;
             FamilyApplicationLoweringSpec::Static {
@@ -445,10 +445,8 @@ fn project_family_application(fam_app: &FamilyApplicationResolution) -> FamilyAp
                 arity,
             }
         }
-        FamilyApplicationSelection::Dynamic { candidates, .. } => {
-            FamilyApplicationLoweringSpec::DynamicPack {
-                candidates: candidates.clone(),
-            }
-        }
+        FamilyApplicationSelection::Dynamic { candidates, .. } => FamilyApplicationLoweringSpec::DynamicPack {
+            candidates: candidates.clone(),
+        },
     }
 }

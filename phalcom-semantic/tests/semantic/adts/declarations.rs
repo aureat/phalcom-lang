@@ -4,13 +4,12 @@ use std::sync::Arc;
 use phalcom_common::selector::{Selector, SelectorBase, SelectorSlot};
 use phalcom_modules::identity::{ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_native_meta::{EffectSpec, ImplementationKind, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
+use phalcom_semantic::analyze_single_module;
 use phalcom_semantic::associated::build_associated_surface;
 use phalcom_semantic::checker::AssociatedResolutionKind;
 use phalcom_semantic::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact};
 use phalcom_semantic::diagnostic::DiagnosticCode;
-use phalcom_semantic::enum_requirements::{
-    CaseRequirementStatus, EnumRequirement, EnumRequirementId, check_enum_requirements,
-};
+use phalcom_semantic::enum_requirements::{CaseRequirementStatus, EnumRequirement, EnumRequirementId, check_enum_requirements};
 use phalcom_semantic::enum_semantics::{EnumInfo, VariantInfo, VariantShape, VariantVisibility};
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide, VariantId};
 use phalcom_semantic::signature::{CallableSemanticSignature, ReturnContractValidation};
@@ -19,7 +18,6 @@ use phalcom_semantic::types::id::{KindId, VariantTypeId};
 use phalcom_semantic::types::parameter::{TypeParameterData, TypeParameterOwner, TypeTerm};
 use phalcom_semantic::types::relation::{MapTypeHierarchy, is_subtype};
 use phalcom_semantic::types::store::TypeStore;
-use phalcom_semantic::analyze_single_module;
 
 fn test_module() -> ModuleId {
     ModuleId::resolved(ResolvedProjectId::from_raw(42), ModulePath::root())
@@ -48,7 +46,7 @@ fn helper_signature(owner: DeclarationId, selector: Selector, return_type: Decla
 }
 
 #[test]
-fn test_exact_case_nominal_subtyping() {
+fn exact_case_subtypes_only_its_specialized_enum_root() {
     let mut store = TypeStore::new();
     let hier = MapTypeHierarchy::new();
     let module = test_module();
@@ -93,7 +91,7 @@ fn test_exact_case_nominal_subtyping() {
 }
 
 #[test]
-fn test_associated_family_namespace_collisions() {
+fn enum_associated_surface_rejects_namespace_collisions() {
     let module = test_module();
     let owner = DeclarationId::new(module.clone(), "Status".into());
 
@@ -102,14 +100,7 @@ fn test_associated_family_namespace_collisions() {
 
     // Conflict with class-side callable of same base
     let class_callable = CallableId::new(owner.clone(), value_sel.clone(), DispatchSide::Class);
-    let (surface, diags) = build_associated_surface(
-        &owner,
-        Some(&[variant.clone()]),
-        &[class_callable],
-        &HashSet::new(),
-        &module,
-        None,
-    );
+    let (surface, diags) = build_associated_surface(&owner, Some(&[variant.clone()]), &[class_callable], &HashSet::new(), &module, None);
     assert!(
         diags.iter().any(|d| d.code == DiagnosticCode::EnumFamilyCategoryConflict),
         "expected EnumFamilyCategoryConflict, got {diags:#?}"
@@ -119,14 +110,7 @@ fn test_associated_family_namespace_collisions() {
     // Conflict with inherited class behavior
     let mut inherited_bases = HashSet::new();
     inherited_bases.insert(SelectorBase::Named("value".into()));
-    let (_surface, inherited_diags) = build_associated_surface(
-        &owner,
-        Some(&[variant]),
-        &[],
-        &inherited_bases,
-        &module,
-        None,
-    );
+    let (_surface, inherited_diags) = build_associated_surface(&owner, Some(&[variant]), &[], &inherited_bases, &module, None);
     assert!(
         inherited_diags.iter().any(|d| d.code == DiagnosticCode::EnumFamilyInheritedBehaviorConflict),
         "expected EnumFamilyInheritedBehaviorConflict, got {inherited_diags:#?}"
@@ -134,7 +118,7 @@ fn test_associated_family_namespace_collisions() {
 }
 
 #[test]
-fn test_closed_enum_requirements_validation() {
+fn closed_enum_requirements_report_missing_and_incompatible_cases() {
     let mut store = TypeStore::new();
     let hier = MapTypeHierarchy::new();
     let module = test_module();
@@ -241,16 +225,7 @@ fn test_closed_enum_requirements_validation() {
         source: None,
     };
 
-    let (statuses, diags) = check_enum_requirements(
-        &owner,
-        &enum_info,
-        &variants,
-        &[root_req],
-        &case_methods,
-        &mut store,
-        &hier,
-        &module,
-    );
+    let (statuses, diags) = check_enum_requirements(&owner, &enum_info, &variants, &[root_req], &case_methods, &mut store, &hier, &module);
 
     let circle_status = statuses.iter().find(|s| s.variant == circle_var).expect("circle status");
     assert!(matches!(circle_status.status, CaseRequirementStatus::Satisfied { .. }));
@@ -271,17 +246,12 @@ fn test_closed_enum_requirements_validation() {
 }
 
 #[test]
-fn test_gadt_equality_refinement_and_occurs_check() {
+fn gadt_case_environment_refines_and_rejects_cyclic_results() {
     let mut store = TypeStore::new();
     let module = test_module();
     let owner = DeclarationId::new(module.clone(), "Expr".into());
 
-    let t_param = store.intern_type_parameter(TypeParameterData::new(
-        TypeParameterOwner::Declaration(owner.clone()),
-        0,
-        "T",
-        KindId::TYPE,
-    ));
+    let t_param = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(owner.clone()), 0, "T", KindId::TYPE));
     let int_decl = DeclarationId::new(module.clone(), "Int".into());
     let int_ty = store.nominal_type(int_decl);
 
@@ -290,13 +260,7 @@ fn test_gadt_equality_refinement_and_occurs_check() {
     let specialized_result = store.apply_type_form(expr_nominal, &[int_ty]).expect("Expr[Int]");
 
     // 1. Successful GADT refinement: Expr[T] specialized to Expr[Int] -> binds T: Int
-    let env = derive_case_environment(
-        &mut store,
-        &owner,
-        &[t_param],
-        Some(specialized_result),
-    )
-    .expect("derive case env");
+    let env = derive_case_environment(&mut store, &owner, &[t_param], Some(specialized_result)).expect("derive case env");
     assert_eq!(env.bindings.get(&t_param), Some(&int_ty));
 
     // 2. Default result (no specialized annotation) -> empty environment
@@ -329,7 +293,7 @@ fn test_gadt_equality_refinement_and_occurs_check() {
 }
 
 #[test]
-fn test_enum_declaration_module_analysis() {
+fn enum_declaration_publishes_structural_enum_product() {
     let module = test_module();
     let source: Arc<str> = Arc::from(
         r#"
@@ -354,7 +318,7 @@ const none_case = Option::None
 }
 
 #[test]
-fn associated_singleton_getter_publishes_exact_value_resolution() {
+fn singleton_associated_getter_publishes_exact_value_resolution() {
     let module = ModuleId::core();
     let source: Arc<str> = Arc::from(
         r#"
@@ -397,7 +361,7 @@ enum State {
 }
 
 #[test]
-fn associated_variant_constructor_uses_canonical_call_binding() {
+fn variant_constructor_invocation_uses_canonical_call_binding() {
     let module = ModuleId::core();
     let source: Arc<str> = Arc::from(
         r#"

@@ -1,2 +1,5 @@
-pub(crate) mod part2_declarations;
-pub(crate) mod part3_associated_resolution;
+pub(crate) mod declarations;
+pub(crate) mod exact_cases;
+pub(crate) mod gadt_cases;
+pub(crate) mod requirements;
+pub(crate) mod variants;

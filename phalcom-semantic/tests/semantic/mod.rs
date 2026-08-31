@@ -1,8 +1,11 @@
 pub(crate) mod adts;
+pub(crate) mod associated;
 pub(crate) mod advanced;
 pub(crate) mod capabilities;
+pub(crate) mod families;
 pub(crate) mod foundations;
 pub(crate) mod golden;
 pub(crate) mod incremental;
 pub(crate) mod integration;
 pub(crate) mod support;
+pub(crate) mod source_semantics;

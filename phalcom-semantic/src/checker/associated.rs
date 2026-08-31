@@ -10,7 +10,7 @@ use crate::types::denotation::SemanticDenotation;
 use crate::types::environment::TypeView;
 use crate::types::family::FamilyOperationShape;
 use crate::types::id::{KindId, TypeId};
-use crate::types::relation::{is_subtype, TypeHierarchy};
+use crate::types::relation::{TypeHierarchy, is_subtype};
 use crate::types::store::{CallableParameterType, CallableType, TypeData, TypeStore};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorBase, SelectorKind, SelectorSlot};
@@ -117,26 +117,15 @@ pub struct EffectiveAssociatedFamily {
 
 /// Resolves an associated owner expression, validating its type-form denotation
 /// and recovering its root declaration, supplied arguments, and residual kind.
-pub fn resolve_associated_owner(
-    ctx: &mut CheckingContext<'_>,
-    typed_owner: &TypedExpression,
-    range: SourceRange,
-) -> Result<AssociatedOwnerResolution, ()> {
-    let owner_form = match typed_owner.denotation.clone() {
-        Some(SemanticDenotation::TypeForm(form)) => form,
-        _ => {
-            if let Some(ty) = typed_owner.knowledge.ty() {
-                ty
-            } else {
-                ctx.emit_diagnostic(SemanticDiagnostic::error_in(
-                    ctx.current_module.clone(),
-                    DiagnosticCode::AssociatedOwnerNotTypeForm,
-                    "associated lookup receiver is not a type form",
-                    range,
-                ));
-                return Err(());
-            }
-        }
+pub fn resolve_associated_owner(ctx: &mut CheckingContext<'_>, typed_owner: &TypedExpression, range: SourceRange) -> Result<AssociatedOwnerResolution, ()> {
+    let Some(SemanticDenotation::TypeForm(owner_form)) = typed_owner.denotation.clone() else {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::AssociatedOwnerNotTypeForm,
+            "associated lookup receiver is not a type form",
+            range,
+        ));
+        return Err(());
     };
 
     let Some((lookup_owner, supplied_arguments)) = ctx.store.applied_nominal_parts(owner_form) else {
@@ -278,10 +267,7 @@ pub fn project_supertype_arguments(
 
         let mut env = crate::types::environment::TypeEnvironment::new();
         for (idx, &arg) in current_args.iter().enumerate() {
-            if let Some(param_id) = store.find_type_parameter_id(
-                &crate::types::parameter::TypeParameterOwner::Declaration(current_decl.clone()),
-                idx as u32,
-            ) {
+            if let Some(param_id) = store.find_type_parameter_id(&crate::types::parameter::TypeParameterOwner::Declaration(current_decl.clone()), idx as u32) {
                 env.bind_param(param_id, arg);
             }
         }
@@ -353,8 +339,7 @@ pub fn specialize_associated_member(
             }
 
             if variant_info.shape == crate::enum_semantics::VariantShape::Singleton {
-                let value_type = TypeView::new(variant_info.exact_case_template, env)
-                    .materialize(ctx.store);
+                let value_type = TypeView::new(variant_info.exact_case_template, env).materialize(ctx.store);
                 let operation = FamilyOperationShape::getter();
                 Ok(SpecializedAssociatedMember {
                     member: member_id.clone(),
@@ -363,15 +348,13 @@ pub fn specialize_associated_member(
                     target: None,
                 })
             } else if let Some(constructor) = &variant_info.constructor {
-                let constructor_result = TypeView::new(constructor.exact_case_template, env.clone())
-                    .materialize(ctx.store);
+                let constructor_result = TypeView::new(constructor.exact_case_template, env.clone()).materialize(ctx.store);
                 let parameters: Vec<CallableParameterType> = constructor
                     .parameters
                     .iter()
                     .map(|p| {
                         let p_ty = p.declared_type.canonical_type().unwrap_or_else(|| ctx.store.unit());
-                        let ty = TypeView::new(p_ty, env.clone())
-                            .materialize(ctx.store);
+                        let ty = TypeView::new(p_ty, env.clone()).materialize(ctx.store);
                         CallableParameterType {
                             label: p.external_label.clone(),
                             ty,
@@ -414,20 +397,14 @@ pub fn specialize_associated_member(
         }
         AssociatedMemberId::Behavioral(callable_id) => {
             let defining_decl = callable_id.declaration_owner();
-            let defining_args = project_supertype_arguments(
-                ctx.store,
-                ctx.hierarchy.inner(),
-                &owner.lookup_owner,
-                &owner.supplied_arguments,
-                defining_decl,
-            );
+            let defining_args = project_supertype_arguments(ctx.store, ctx.hierarchy.inner(), &owner.lookup_owner, &owner.supplied_arguments, defining_decl);
 
             let mut env = crate::types::environment::TypeEnvironment::new();
             for (idx, &arg) in defining_args.iter().enumerate() {
-                if let Some(param_id) = ctx.store.find_type_parameter_id(
-                    &crate::types::parameter::TypeParameterOwner::Declaration(defining_decl.clone()),
-                    idx as u32,
-                ) {
+                if let Some(param_id) = ctx
+                    .store
+                    .find_type_parameter_id(&crate::types::parameter::TypeParameterOwner::Declaration(defining_decl.clone()), idx as u32)
+                {
                     env.bind_param(param_id, arg);
                 }
             }
@@ -511,8 +488,7 @@ pub fn contains_any_type_parameter(store: &TypeStore, ty: TypeId) -> bool {
             row.fields.iter().any(|f| contains_any_type_parameter(store, f.ty))
         }
         TypeData::Callable(call) => {
-            call.parameters.iter().any(|p| contains_any_type_parameter(store, p.ty))
-                || contains_any_type_parameter(store, call.return_type)
+            call.parameters.iter().any(|p| contains_any_type_parameter(store, p.ty)) || contains_any_type_parameter(store, call.return_type)
         }
         TypeData::Family(fam_id) => {
             let fam = store.get_family(*fam_id);
@@ -535,12 +511,18 @@ pub fn check_reification_underconstrained(
 ) -> Result<TypeId, ()> {
     let mut resolved_type = value_type;
     if let Some(expected_ty) = expected.ty() {
-        if let (TypeData::Callable(val_call), TypeData::Callable(exp_call)) =
-            (ctx.store.get(value_type).clone(), ctx.store.get(expected_ty).clone())
-        {
+        if let (TypeData::Callable(val_call), TypeData::Callable(exp_call)) = (ctx.store.get(value_type).clone(), ctx.store.get(expected_ty).clone()) {
             let mut env = crate::types::environment::TypeEnvironment::new();
-            if let (TypeData::Applied { origin: val_orig, arguments: val_args }, TypeData::Applied { origin: exp_orig, arguments: exp_args }) =
-                (ctx.store.get(val_call.return_type).clone(), ctx.store.get(exp_call.return_type).clone())
+            if let (
+                TypeData::Applied {
+                    origin: val_orig,
+                    arguments: val_args,
+                },
+                TypeData::Applied {
+                    origin: exp_orig,
+                    arguments: exp_args,
+                },
+            ) = (ctx.store.get(val_call.return_type).clone(), ctx.store.get(exp_call.return_type).clone())
             {
                 if val_orig == exp_orig && val_args.len() == exp_args.len() {
                     for (v, e) in val_args.iter().zip(exp_args.iter()) {
@@ -557,14 +539,26 @@ pub fn check_reification_underconstrained(
             }
             resolved_type = TypeView::new(value_type, env).materialize(ctx.store);
         } else if let (
-            TypeData::ExactCase { enum_type: val_enum, variant: val_var },
-            TypeData::ExactCase { enum_type: exp_enum, variant: exp_var },
+            TypeData::ExactCase {
+                enum_type: val_enum,
+                variant: val_var,
+            },
+            TypeData::ExactCase {
+                enum_type: exp_enum,
+                variant: exp_var,
+            },
         ) = (ctx.store.get(value_type).clone(), ctx.store.get(expected_ty).clone())
         {
             if val_var == exp_var {
                 if let (
-                    TypeData::Applied { origin: val_orig, arguments: val_args },
-                    TypeData::Applied { origin: exp_orig, arguments: exp_args },
+                    TypeData::Applied {
+                        origin: val_orig,
+                        arguments: val_args,
+                    },
+                    TypeData::Applied {
+                        origin: exp_orig,
+                        arguments: exp_args,
+                    },
                 ) = (ctx.store.get(val_enum).clone(), ctx.store.get(exp_enum).clone())
                 {
                     if val_orig == exp_orig && val_args.len() == exp_args.len() {
@@ -596,4 +590,3 @@ pub fn check_reification_underconstrained(
 
     Ok(resolved_type)
 }
-
