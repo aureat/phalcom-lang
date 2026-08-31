@@ -175,8 +175,8 @@ enum Choice {
 class Test {
     inspect(_ value: Choice) -> Int {
         match value {
-            Choice::A => return 1
-            Choice::B => return 2
+            Choice::A => { return 1 }
+            Choice::B => { return 2 }
         }
     }
 }
