@@ -1304,11 +1304,6 @@ impl SemanticWorkspaceSession {
         // lifecycle event.
         stats.source_indexes_recomputed = changed_modules.len();
         stats.advisory_sources_recomputed = changed_modules.len();
-        stats.advisory_callables_recomputed = snapshot
-            .callable_analyses
-            .values()
-            .filter(|analysis| changed_modules.contains(analysis.callable.module()))
-            .count();
         stats.modules_relinked = if module_graph_changed { changed_modules.len() } else { 0 };
         stats.project_graph_rebuilt = effects.module_graph_changed;
         stats.callables_recomputed = callable_dispositions
@@ -1319,6 +1314,7 @@ impl SemanticWorkspaceSession {
             .values()
             .filter(|disposition| **disposition == CallableRevisionDisposition::Reused)
             .count();
+        stats.advisory_callables_recomputed = stats.callables_recomputed;
         let recomputed_keys = callable_dispositions
             .iter()
             .filter(|(_, disposition)| **disposition == CallableRevisionDisposition::Recomputed)
@@ -1699,7 +1695,13 @@ fn build_advisory_workspace(inputs: AdvisoryWorkspaceInputs<'_>) -> AdvisoryWork
                 }
             }
 
-            for analysis in ordered_analyses.iter().filter(|analysis| analysis.callable.module() == module) {
+            for analysis in ordered_analyses
+                .iter()
+                .filter(|analysis| analysis.callable.module() == module)
+                // The synthetic module entry is analyzed below with the entire
+                // top-level statement list, not as a class member body.
+                .filter(|analysis| analysis.callable.declaration_owner().name.as_ref() != "<main>")
+            {
                 let Some(body) = member_bodies.get(&analysis.callable).copied() else {
                     module_partial = true;
                     continue;
