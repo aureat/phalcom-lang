@@ -127,22 +127,29 @@ All three intern to the same `u32`.
 
 ---
 
-## 3. Method references (`::`) and selector patterns — **IMPLEMENTED**
+## 3. Method references (`::`), selector patterns, and associated member lookup
 
-`::` always creates a bound `Family` value. The receiver expression is
-evaluated once and stored; construction never probes receiver behavior and
-never rejects an absent selector.
+`::` is the double-colon operator with layered semantics:
 
-<!--
-```
-obj::move                     // Open family   — receiver bound, name only
-obj::#move(_,to,duration)     // Pinned family — receiver bound, selector fixed
-Point::move                   // Open, unbound   — receiver is the first argument
-Point::#move(_,to,duration)   // Pinned, unbound
+```text
+receiver::selector-spec
+    1. evaluate receiver once
+    2. if the receiver denotes/is a declaration-backed class object whose declaration
+       exposes an associated member at this selector base, resolve associated member
+    3. otherwise construct ordinary bound behavioral Family/reference
 ```
 
-Grammar is LR(1)-clean: after `::`, peek for `#`.
--->
+Associated members (such as enum variants) live in a declaration-owned associated
+namespace and take precedence over ordinary receiver-bound `::` behavioral family
+resolution at a reserved associated base. Outside an associated base, `::` always creates
+a bound `Family` value. The receiver expression is evaluated once and stored;
+construction never probes receiver behavior and never rejects an absent selector.
+
+A class object is an ordinary receiver; `Foo::bar` on ordinary behavior refers to
+behavior callable on `Foo`, namely behavior declared with `@class` on the class
+declaration `Foo`. Whole-base reservation prevents behavioral and associated overload
+mixing within the same declaration.
+
 
 The current exact and pattern forms are:
 

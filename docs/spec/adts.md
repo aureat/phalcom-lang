@@ -173,9 +173,15 @@ Getter-shaped and zero-argument callable selectors are never interchangeable.
 
 ## 5. Associated access to variants
 
-Variants live on the enum's **associated surface**.
+Enum variants are declaration-owned associated members exposed through `::`.
+Associated lookup has precedence over ordinary receiver-bound `::` behavioral family
+resolution at a reserved associated base. Outside an associated base, `::` retains its
+ordinary receiver-bound deferred-dispatch semantics.
 
-`::` is the associated lookup/invocation operator. It is not ordinary message dispatch.
+If a declaration exposes an associated base (such as `Some`), no ordinary behavior declared
+in that same declaration may use base `Some`, regardless of exact selector shape or dispatch side.
+For example, declaring `@variant Some(_ value: T)` and `@class Some(_ left: T, _ right: T)` in
+the same enum is forbidden by entire-base reservation.
 
 ```phalcom
 Option::None
@@ -186,7 +192,7 @@ Option::Some(42)
 
 There is no rule that interprets a dot send as variant lookup merely because the receiver is an enum or type.
 
-There is also no fallback from failed `::` lookup to ordinary message dispatch or `doesNotUnderstand`.
+There is also no fallback from failed `::` lookup to ordinary message dispatch or `doesNotUnderstand` once an associated base is reserved.
 
 ### 5.1 Exact getter lookup
 
@@ -684,7 +690,7 @@ Phalcom ADTs are closed nominal sums with first-class exact variant identity.
 
 Variants are explicit `@variant` declarations and may be canonical singletons or constructor-shaped cases. Parentheses are semantically meaningful: a bare singleton and a zero-argument constructor are different declarations and different operations.
 
-Variant construction and lookup live on the static associated `::` surface. Ordinary `.` sends remain behavioral dispatch. Exact cases retain more precise static types than their enum roots, generic ADTs use ordinary specialization, and GADT result annotations establish case-specific type equalities.
+Variant construction and lookup live on the associated `::` surface, which takes precedence over receiver-bound behavioral `::` resolution at reserved associated bases. Ordinary `.` sends remain behavioral dispatch. Exact cases retain more precise static types than their enum roots, generic ADTs use ordinary specialization, and GADT result annotations establish case-specific type equalities.
 
 Enum-root bodyful behavior is shared/default instance behavior. Enum-root signature-only behavior is a closed-enum requirement that every variant must satisfy.
 
