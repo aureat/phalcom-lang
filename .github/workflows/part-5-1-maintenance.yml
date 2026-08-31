@@ -1,0 +1,59 @@
+name: Part 5.1 maintenance
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  repair-and-format:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'feat/adts'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/adts
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Restore dependency tracking and format
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          context = Path('phalcom-semantic/src/checker/context.rs')
+          text = context.read_text()
+          replacements = {
+              '''    fn superclass(&self, declaration: &DeclarationId) -> Option<&DeclarationId> {\n        let parent = self.inner.superclass(declaration);\n        if parent.is_some() {\n            record_hierarchy_dependency(&self.dependencies, declaration);\n        }\n        parent\n    }''': '''    fn superclass(&self, declaration: &DeclarationId) -> Option<&DeclarationId> {\n        record_hierarchy_dependency(&self.dependencies, declaration);\n        self.inner.superclass(declaration)\n    }''',
+              '''        while visited.insert(current.clone()) {\n            let Some(parent) = self.inner.superclass(current) else {\n                return false;\n            };\n            record_hierarchy_dependency(&self.dependencies, current);''': '''        while visited.insert(current.clone()) {\n            record_hierarchy_dependency(&self.dependencies, current);\n            let Some(parent) = self.inner.superclass(current) else {\n                return false;\n            };''',
+              '''    fn supertype_template(&self, declaration: &DeclarationId) -> Option<&crate::declarations::GenericSupertypeTemplate> {\n        let template = self.inner.supertype_template(declaration);\n        if template.is_some() {\n            record_hierarchy_dependency(&self.dependencies, declaration);\n        }\n        template\n    }''': '''    fn supertype_template(&self, declaration: &DeclarationId) -> Option<&crate::declarations::GenericSupertypeTemplate> {\n        record_hierarchy_dependency(&self.dependencies, declaration);\n        self.inner.supertype_template(declaration)\n    }''',
+          }
+          for old, new in replacements.items():
+              if old not in text:
+                  raise SystemExit(f'expected context.rs fragment not found:\n{old}')
+              text = text.replace(old, new, 1)
+          context.write_text(text)
+
+          pattern = Path('phalcom-semantic/src/checker/pattern.rs')
+          text = pattern.read_text()
+          old = '''use crate::match_semantics::{\n    BranchProofEnvironment, PatternBindingResolution, PatternResolution, ResolvedFieldPattern, ResolvedListPattern, ResolvedOrPattern,'''
+          new = '''use crate::match_semantics::{\n    PatternBindingResolution, PatternResolution, ResolvedFieldPattern, ResolvedListPattern, ResolvedOrPattern,'''
+          if old not in text:
+              raise SystemExit('expected pattern.rs import fragment not found')
+          pattern.write_text(text.replace(old, new, 1))
+          PY
+          cargo +stable fmt --all
+          git diff --check
+      - name: Commit maintenance changes
+        run: |
+          if git diff --quiet; then
+            echo 'No maintenance changes required.'
+            exit 0
+          fi
+          git config user.name 'phalcom-ci'
+          git config user.email 'phalcom-ci@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: restore hierarchy invalidation and format 5.1'
+          git push origin HEAD:feat/adts
