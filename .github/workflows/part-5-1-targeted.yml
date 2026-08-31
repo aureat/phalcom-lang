@@ -16,8 +16,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Match orchestration regression
-        run: cargo +stable test -p phalcom-semantic --test semantic redundant_arm_does_not_contribute_to_match_result
+      - name: Match regressions
+        run: cargo +stable test -p phalcom-semantic --test semantic match_regressions::
       - name: Hierarchy dependency regression
         run: cargo +stable test -p phalcom-semantic --test semantic tracked_hierarchy_records_every_mutable_edge_traversed
       - name: Publication regression
