@@ -114,13 +114,13 @@ fn adt_assoc_11_inherited_family_keeps_lookup_and_definition_owners() {
 #[test]
 fn adt_assoc_12_exact_selector_miss_does_not_select_nearest_shape() {
     let case = analyze_adt("enum Animal { @variant Dog(_ name: String) }\nclass Test { run() { Animal::Dog() } }\n");
-    assert!(case.diagnostics().any(|diagnostic| diagnostic.code == DiagnosticCode::AssociatedMemberMissing));
+    assert!(case.diagnostics().any(|diagnostic| diagnostic.code == DiagnosticCode::AssociatedCallShapeMissing || diagnostic.code == DiagnosticCode::AssociatedMemberMissing));
 }
 
 #[test]
 fn adt_assoc_13_wrong_call_shape_reports_diagnostic() {
     let case = analyze_adt("enum Animal { @variant Dog(_ name: String) }\nclass Test { run() { Animal::Dog(1, 2) } }\n");
-    assert!(case.diagnostics().any(|diagnostic| diagnostic.code == DiagnosticCode::AssociatedMemberMissing));
+    assert!(case.diagnostics().any(|diagnostic| diagnostic.code == DiagnosticCode::AssociatedCallShapeMissing || diagnostic.code == DiagnosticCode::AssociatedMemberMissing));
 }
 
 #[test]

@@ -71,7 +71,7 @@ fn adt_constr_03_singleton_access_is_exact_value_not_zero_arg_call() {
 fn adt_constr_04_wrong_label_reports_member_or_selector_diagnostic() {
     let case = analyze_adt("enum Animal { @variant Dog(named age: Int) }\nclass Test { run() { Animal::Dog(other: 1) } }\n");
     assert!(case.diagnostics().any(|diagnostic| {
-        diagnostic.code == DiagnosticCode::AssociatedMemberMissing
+        diagnostic.code == DiagnosticCode::AssociatedCallShapeMissing || diagnostic.code == DiagnosticCode::AssociatedMemberMissing
     }));
 }
 

@@ -806,6 +806,49 @@ impl SemanticWorkspaceSession {
                 let arc_enum_product = Arc::new(enum_product);
                 let _ = query_enum_declaration(&mut self.db, arc_enum_product);
 
+                let mut behavior_ctx = crate::checker::CheckingContext::new_with_dispatch_ref(
+                    &mut self.store,
+                    &hierarchy,
+                    &resolver,
+                    &declarations,
+                    &dispatch,
+                    module_id.clone(),
+                );
+                behavior_ctx.attach_enum_semantics(&enum_semantics);
+                let behavior_product = crate::checker::enum_behavior::build_enum_behavior(&mut behavior_ctx, &decl_id, enum_def);
+                diags_by_module.entry(module_id.clone()).or_default().extend(behavior_product.diagnostics.iter().cloned());
+
+                // Publish root defaults to callable_signatures and dispatch surface
+                let mut surface = dispatch.surface(&decl_id).cloned().unwrap_or_default();
+                for default_sig in behavior_product.root_defaults.iter() {
+                    callable_signatures.insert(default_sig.clone());
+                    let projection = crate::checker::declaration_signature::project_semantic_signature(default_sig);
+                    surface.add_callable(default_sig.side, projection);
+                }
+                dispatch.register_surface(decl_id.clone(), surface);
+                if let Some(ty) = declarations.form(&decl_id) {
+                    dispatch.register_type(ty, decl_id.clone());
+                }
+
+                // Publish case implementations to callable_signatures
+                for case_sigs in behavior_product.case_implementations.values() {
+                    for case_sig in case_sigs.iter() {
+                        callable_signatures.insert(case_sig.clone());
+                    }
+                }
+
+                let behavior_bases: std::collections::HashSet<phalcom_common::selector::SelectorBase> = enum_def
+                    .members
+                    .iter()
+                    .filter_map(|m| match m {
+                        phalcom_ast::ast::EnumMember::Behavior(b) => {
+                            let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(b);
+                            Some(syntax.selector_base())
+                        }
+                        _ => None,
+                    })
+                    .collect();
+
                 let (assoc_surface, assoc_diags) = build_associated_surface(
                     &decl_id,
                     Some(
@@ -821,7 +864,7 @@ impl SemanticWorkspaceSession {
                             })
                             .collect::<Vec<_>>(),
                     ),
-                    &[],
+                    &behavior_bases,
                     &std::collections::HashSet::new(),
                     module_id,
                     Some(crate::diagnostic::SemanticSourceSpan::new(module_id.clone(), enum_def.range)),
@@ -843,20 +886,25 @@ impl SemanticWorkspaceSession {
                     })
                     .collect();
 
+                let mut case_methods_map: HashMap<crate::identity::VariantId, Vec<crate::signature::CallableSemanticSignature>> = HashMap::new();
+                for (v_id, sigs) in &behavior_product.case_implementations {
+                    case_methods_map.insert(v_id.clone(), sigs.to_vec());
+                }
+
                 let (case_statuses, req_diags) = check_enum_requirements(
                     &decl_id,
                     enum_semantics.enum_info(&decl_id).unwrap(),
                     &variants_info,
-                    &[],
-                    &HashMap::new(),
+                    &behavior_product.root_requirements,
+                    &case_methods_map,
                     &mut self.store,
                     &hierarchy,
                     module_id,
                 );
                 diags_by_module.entry(module_id.clone()).or_default().extend(req_diags.iter().cloned());
-                enum_requirements_table.insert(decl_id.clone(), Arc::from([]), case_statuses.clone());
+                enum_requirements_table.insert(decl_id.clone(), Arc::from(behavior_product.root_requirements.clone()), case_statuses.clone());
                 let req_product = Arc::new(EnumRequirementsProduct {
-                    requirements: Arc::from([]),
+                    requirements: Arc::from(behavior_product.root_requirements),
                     case_statuses,
                     diagnostics: req_diags,
                 });
@@ -864,41 +912,9 @@ impl SemanticWorkspaceSession {
             }
         }
 
-        for (module_id, parsed_unit) in &input.sources {
-            for stmt in &parsed_unit.program.statements {
-                let Statement::Class(class_def) = stmt else {
-                    continue;
-                };
-                let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
-                let class_callables: Vec<CallableId> = class_def
-                    .members
-                    .iter()
-                    .filter_map(|m| {
-                        let side = crate::checker::declaration::member_side(m);
-                        if side == DispatchSide::Class {
-                            crate::checker::declaration_signature::callable_id_for_member(&decl_id, m)
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-                let (assoc_surface, assoc_diags) = build_associated_surface(
-                    &decl_id,
-                    None,
-                    &class_callables,
-                    &std::collections::HashSet::new(),
-                    module_id,
-                    Some(crate::diagnostic::SemanticSourceSpan::new(module_id.clone(), class_def.range)),
-                );
-                diags_by_module.entry(module_id.clone()).or_default().extend(assoc_diags.iter().cloned());
-                associated_surfaces_table.insert(decl_id.clone(), assoc_surface.clone());
-                let _ = query_associated_surface(&mut self.db, assoc_surface);
-            }
-        }
-
         for (decl_id, _) in declarations.iter() {
             if !associated_surfaces_table.surfaces.contains_key(decl_id) {
-                let (assoc_surface, _) = build_associated_surface(decl_id, None, &[], &std::collections::HashSet::new(), &decl_id.module, None);
+                let assoc_surface = Arc::new(crate::associated::AssociatedSurface::new(decl_id.clone()));
                 associated_surfaces_table.insert(decl_id.clone(), assoc_surface.clone());
                 let _ = query_associated_surface(&mut self.db, assoc_surface);
             }
@@ -1053,6 +1069,246 @@ impl SemanticWorkspaceSession {
                                     QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
                                     QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
                                     QueryOutcome::Failed(err) => return Err(QueryOutcome::Failed(err)),
+                                }
+                            }
+                        }
+                    } else if let Statement::Enum(enum_def) = stmt {
+                        if constructors_only {
+                            continue;
+                        }
+                        let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
+                        let type_params_map = if let Some(sig) = declarations.generic_signature(&decl_id) {
+                            let mut map = std::collections::HashMap::new();
+                            for &param_id in sig.parameters.iter() {
+                                let name = self.store.type_parameter(param_id).name.to_string();
+                                let param_form = self.store.parameter_form(param_id);
+                                map.insert(name, param_form);
+                            }
+                            map
+                        } else {
+                            std::collections::HashMap::new()
+                        };
+                        let scoped_resolver = crate::types::annotation::ScopedTypeResolver {
+                            parent: &resolver,
+                            type_parameters: type_params_map,
+                        };
+
+                        // Check root bodyful behavior
+                        for member in &enum_def.members {
+                            if let phalcom_ast::ast::EnumMember::Behavior(b) = member {
+                                let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(b);
+                                let is_class_side = syntax.attributes().iter().any(|a| a.name == "class")
+                                    || match b {
+                                        phalcom_ast::ast::EnumBehaviorMember::Method(m) => m.is_static,
+                                        phalcom_ast::ast::EnumBehaviorMember::Getter(g) => g.is_static,
+                                        phalcom_ast::ast::EnumBehaviorMember::Setter(s) => s.is_static,
+                                        phalcom_ast::ast::EnumBehaviorMember::Index(_) => false,
+                                    };
+                                let side = if is_class_side {
+                                    crate::identity::DispatchSide::Class
+                                } else {
+                                    crate::identity::DispatchSide::Instance
+                                };
+
+                                let (selector_opt, body_opt, range_opt) = match b {
+                                    phalcom_ast::ast::EnumBehaviorMember::Method(m) => {
+                                        let slots = m
+                                            .params
+                                            .iter()
+                                            .filter(|p| p.rest_mode == phalcom_ast::ast::RestMode::None)
+                                            .map(|p| {
+                                                if let Some(ref l) = p.label {
+                                                    if l == "_" {
+                                                        phalcom_common::selector::SelectorSlot::Positional
+                                                    } else {
+                                                        phalcom_common::selector::SelectorSlot::Label(l.clone())
+                                                    }
+                                                } else {
+                                                    phalcom_common::selector::SelectorSlot::Positional
+                                                }
+                                            })
+                                            .collect::<Vec<_>>();
+                                        (Selector::method(&m.name, slots).ok(), m.body.statements(), Some(m.range))
+                                    }
+                                    phalcom_ast::ast::EnumBehaviorMember::Getter(g) => (Selector::getter(&g.name).ok(), g.body.statements(), Some(g.range)),
+                                    phalcom_ast::ast::EnumBehaviorMember::Setter(s) => (Selector::setter(&s.name).ok(), s.body.statements(), Some(s.range)),
+                                    phalcom_ast::ast::EnumBehaviorMember::Index(i) => {
+                                        let slots = i.params.iter().map(|p| {
+                                            if let Some(ref l) = p.label {
+                                                if l == "_" {
+                                                    phalcom_common::selector::SelectorSlot::Positional
+                                                } else {
+                                                    phalcom_common::selector::SelectorSlot::Label(l.clone())
+                                                }
+                                            } else {
+                                                phalcom_common::selector::SelectorSlot::Positional
+                                            }
+                                        }).collect::<Vec<_>>();
+                                        let sel = match &i.accessor {
+                                            phalcom_ast::ast::IndexAccessor::Get => Selector::subscript_get(slots).ok(),
+                                            phalcom_ast::ast::IndexAccessor::Set { .. } => Selector::subscript_set(slots).ok(),
+                                        };
+                                        (sel, Some(i.body.as_slice()), Some(i.range))
+                                    }
+                                };
+
+                                if let (Some(selector), Some(body), Some(range)) = (selector_opt, body_opt, range_opt) {
+                                    let callable_id = crate::identity::CallableId::new(decl_id.clone(), selector, side);
+                                    let query_key = QueryKey::CallableBody(callable_id.clone());
+
+                                    let formal_inputs = FormalQueryInputs {
+                                        sources: &input.sources,
+                                        linked: &input.linked,
+                                        hierarchy: &hierarchy,
+                                        base_resolver: &resolver,
+                                        declarations: &declarations,
+                                        field_signatures: Some(&field_signatures),
+                                        field_lifecycle: Some(&field_lifecycle),
+                                        enum_semantics: Some(&enum_semantics),
+                                        associated_families: Some(&associated_surfaces_table),
+                                    };
+
+                                    let outcome = query_callable_body_with_formal_inputs(
+                                        &mut self.db,
+                                        CallableBodyQuery {
+                                            callable: callable_id.clone(),
+                                            body,
+                                            body_range: range,
+                                            store: &mut self.store,
+                                            hierarchy: &hierarchy,
+                                            resolver: &scoped_resolver,
+                                            declarations: &declarations,
+                                            dispatch: &dispatch,
+                                            module: module_id.clone(),
+                                            budget,
+                                            cancel,
+                                            formal_inputs: Some(&formal_inputs),
+                                        },
+                                    );
+
+                                    match outcome {
+                                        QueryOutcome::Ready(analysis) => {
+                                            if self.db.query_state(&query_key).is_some_and(|s| s.revision() == Some(self.db.revision())) {
+                                                callable_dispositions.insert(callable_id.clone(), CallableRevisionDisposition::Recomputed);
+                                            } else {
+                                                callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
+                                            }
+                                            if !analysis.diagnostics.is_empty() {
+                                                diags_by_module.entry(module_id.clone()).or_default().extend(analysis.diagnostics.iter().cloned());
+                                            }
+                                            callable_analyses.insert(callable_id.clone(), analysis);
+                                        }
+                                        QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                                        QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                                        QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                                        QueryOutcome::Failed(err) => return Err(QueryOutcome::Failed(err)),
+                                    }
+                                }
+                            }
+                        }
+
+                        // Check case-local bodyful behavior
+                        for member in &enum_def.members {
+                            if let phalcom_ast::ast::EnumMember::Variant(v) = member {
+                                let sel = phalcom_ast::selector::selector_from_variant(v);
+                                let variant_id = crate::identity::VariantId::new(decl_id.clone(), sel);
+                                if let Some(ref variant_body) = v.body {
+                                    for case_member in &variant_body.members {
+                                        let (selector_opt, body_opt, range_opt) = match case_member {
+                                            phalcom_ast::ast::EnumBehaviorMember::Method(m) => {
+                                                let slots = m
+                                                    .params
+                                                    .iter()
+                                                    .filter(|p| p.rest_mode == phalcom_ast::ast::RestMode::None)
+                                                    .map(|p| {
+                                                        if let Some(ref l) = p.label {
+                                                            if l == "_" {
+                                                                phalcom_common::selector::SelectorSlot::Positional
+                                                            } else {
+                                                                phalcom_common::selector::SelectorSlot::Label(l.clone())
+                                                            }
+                                                        } else {
+                                                            phalcom_common::selector::SelectorSlot::Positional
+                                                        }
+                                                    })
+                                                    .collect::<Vec<_>>();
+                                                (Selector::method(&m.name, slots).ok(), m.body.statements(), Some(m.range))
+                                            }
+                                            phalcom_ast::ast::EnumBehaviorMember::Getter(g) => (Selector::getter(&g.name).ok(), g.body.statements(), Some(g.range)),
+                                            phalcom_ast::ast::EnumBehaviorMember::Setter(s) => (Selector::setter(&s.name).ok(), s.body.statements(), Some(s.range)),
+                                            phalcom_ast::ast::EnumBehaviorMember::Index(i) => {
+                                                let slots = i.params.iter().map(|p| {
+                                                    if let Some(ref l) = p.label {
+                                                        if l == "_" {
+                                                            phalcom_common::selector::SelectorSlot::Positional
+                                                        } else {
+                                                            phalcom_common::selector::SelectorSlot::Label(l.clone())
+                                                        }
+                                                    } else {
+                                                        phalcom_common::selector::SelectorSlot::Positional
+                                                    }
+                                                }).collect::<Vec<_>>();
+                                                let sel = match &i.accessor {
+                                                    phalcom_ast::ast::IndexAccessor::Get => Selector::subscript_get(slots).ok(),
+                                                    phalcom_ast::ast::IndexAccessor::Set { .. } => Selector::subscript_set(slots).ok(),
+                                                };
+                                                (sel, Some(i.body.as_slice()), Some(i.range))
+                                            }
+                                        };
+
+                                        if let (Some(selector), Some(body), Some(range)) = (selector_opt, body_opt, range_opt) {
+                                            let callable_id = crate::identity::CallableId::case_method(variant_id.clone(), selector);
+                                            let query_key = QueryKey::CallableBody(callable_id.clone());
+
+                                            let formal_inputs = FormalQueryInputs {
+                                                sources: &input.sources,
+                                                linked: &input.linked,
+                                                hierarchy: &hierarchy,
+                                                base_resolver: &resolver,
+                                                declarations: &declarations,
+                                                field_signatures: Some(&field_signatures),
+                                                field_lifecycle: Some(&field_lifecycle),
+                                                enum_semantics: Some(&enum_semantics),
+                                                associated_families: Some(&associated_surfaces_table),
+                                            };
+
+                                            let outcome = query_callable_body_with_formal_inputs(
+                                                &mut self.db,
+                                                CallableBodyQuery {
+                                                    callable: callable_id.clone(),
+                                                    body,
+                                                    body_range: range,
+                                                    store: &mut self.store,
+                                                    hierarchy: &hierarchy,
+                                                    resolver: &scoped_resolver,
+                                                    declarations: &declarations,
+                                                    dispatch: &dispatch,
+                                                    module: module_id.clone(),
+                                                    budget,
+                                                    cancel,
+                                                    formal_inputs: Some(&formal_inputs),
+                                                },
+                                            );
+
+                                            match outcome {
+                                                QueryOutcome::Ready(analysis) => {
+                                                    if self.db.query_state(&query_key).is_some_and(|s| s.revision() == Some(self.db.revision())) {
+                                                        callable_dispositions.insert(callable_id.clone(), CallableRevisionDisposition::Recomputed);
+                                                    } else {
+                                                        callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
+                                                    }
+                                                    if !analysis.diagnostics.is_empty() {
+                                                        diags_by_module.entry(module_id.clone()).or_default().extend(analysis.diagnostics.iter().cloned());
+                                                    }
+                                                    callable_analyses.insert(callable_id.clone(), analysis);
+                                                }
+                                                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                                                QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                                                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                                                QueryOutcome::Failed(err) => return Err(QueryOutcome::Failed(err)),
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

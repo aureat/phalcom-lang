@@ -98,19 +98,20 @@ fn enum_associated_surface_rejects_namespace_collisions() {
     let value_sel = Selector::getter("value").unwrap();
     let variant = VariantId::new(owner.clone(), value_sel.clone());
 
-    // Conflict with class-side callable of same base
-    let class_callable = CallableId::new(owner.clone(), value_sel.clone(), DispatchSide::Class);
-    let (surface, diags) = build_associated_surface(&owner, Some(std::slice::from_ref(&variant)), &[class_callable], &HashSet::new(), &module, None);
+    // Conflict with behavior of same base
+    let mut behavior_bases = HashSet::new();
+    behavior_bases.insert(value_sel.base.clone());
+    let (surface, diags) = build_associated_surface(&owner, Some(std::slice::from_ref(&variant)), &behavior_bases, &HashSet::new(), &module, None);
     assert!(
         diags.iter().any(|d| d.code == DiagnosticCode::EnumFamilyCategoryConflict),
         "expected EnumFamilyCategoryConflict, got {diags:#?}"
     );
-    assert_eq!(surface.families.len(), 1);
+    assert_eq!(surface.families.len(), 0);
 
     // Conflict with inherited class behavior
     let mut inherited_bases = HashSet::new();
     inherited_bases.insert(SelectorBase::Named("value".into()));
-    let (_surface, inherited_diags) = build_associated_surface(&owner, Some(&[variant]), &[], &inherited_bases, &module, None);
+    let (_surface, inherited_diags) = build_associated_surface(&owner, Some(&[variant]), &HashSet::new(), &inherited_bases, &module, None);
     assert!(
         inherited_diags.iter().any(|d| d.code == DiagnosticCode::EnumFamilyInheritedBehaviorConflict),
         "expected EnumFamilyInheritedBehaviorConflict, got {inherited_diags:#?}"

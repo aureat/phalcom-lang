@@ -213,6 +213,10 @@ impl SurfaceDispatchResolver {
         &self.surfaces
     }
 
+    pub fn surface(&self, decl_id: &DeclarationId) -> Option<&DeclarationSurface> {
+        self.surfaces.get(decl_id)
+    }
+
     /// Returns the canonical owner/side traversal for one dispatch receiver.
     ///
     /// Class-object dispatch first walks the parallel class-side hierarchy.

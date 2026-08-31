@@ -539,14 +539,6 @@ fn project_associated_resolution(resolution: &AssociatedResolution, snapshot: &S
         AssociatedResolutionKind::ExactValue { member, .. } => {
             let spec = match member {
                 AssociatedMemberId::Variant(v) => AssociatedLoweringSpec::SingletonLoad { variant: v.clone() },
-                AssociatedMemberId::Behavioral(c) => AssociatedLoweringSpec::MakeResolvedBoundMethod {
-                    target: ExecutableInvocationTarget::Behavioral {
-                        lookup_owner: resolution.lookup_owner.clone(),
-                        callable: c.clone(),
-                        operation: behavioral_operation(c),
-                        rest_mode: ExecutableRestMode::None,
-                    },
-                },
             };
             (LoweringSiteKind::AssociatedLookup, spec)
         }

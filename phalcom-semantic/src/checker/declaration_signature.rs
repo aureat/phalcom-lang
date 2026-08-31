@@ -52,6 +52,15 @@ impl<'a> CallableSyntaxRef<'a> {
         }
     }
 
+    pub(crate) fn selector_base(&self) -> phalcom_common::selector::SelectorBase {
+        match self {
+            CallableSyntaxRef::Method(m) => phalcom_common::selector::SelectorBase::Named(m.name.clone()),
+            CallableSyntaxRef::Getter(g) => phalcom_common::selector::SelectorBase::Named(g.name.clone()),
+            CallableSyntaxRef::Setter(s) => phalcom_common::selector::SelectorBase::Named(s.name.clone()),
+            CallableSyntaxRef::Index(_) => phalcom_common::selector::SelectorBase::Subscript,
+        }
+    }
+
     pub(crate) fn attributes(&self) -> &[phalcom_ast::ast::Attribute] {
         match self {
             CallableSyntaxRef::Method(m) => &m.attributes,

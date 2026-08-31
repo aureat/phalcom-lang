@@ -735,7 +735,6 @@ fn synthesize_associated_lookup(ctx: &mut CheckingContext<'_>, lookup: &Associat
                         .iter()
                         .find(|m| match m {
                             AssociatedMemberId::Variant(v) => v.selector == selector,
-                            AssociatedMemberId::Behavioral(c) => c.selector == selector,
                         })
                         .cloned()
                     else {
@@ -808,7 +807,6 @@ fn synthesize_associated_lookup(ctx: &mut CheckingContext<'_>, lookup: &Associat
                         .iter()
                         .find(|m| match m {
                             AssociatedMemberId::Variant(v) => v.selector == selector,
-                            AssociatedMemberId::Behavioral(c) => c.selector == selector,
                         })
                         .cloned()
                     else {
@@ -945,7 +943,6 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
         .iter()
         .find(|m| match m {
             AssociatedMemberId::Variant(v) => v.selector == selector,
-            AssociatedMemberId::Behavioral(c) => c.selector == selector,
         })
         .cloned()
     else {
@@ -1000,11 +997,13 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
                 }
             }
 
+            let object_decl = crate::identity::DeclarationId::new(crate::identity::ModuleId::core(), "Object".into());
+            let object_ty = ctx.store.nominal(object_decl);
             let parameters = constructor
                 .parameters
                 .iter()
                 .map(|parameter| {
-                    let p_ty = parameter.declared_type.canonical_type().unwrap_or_else(|| ctx.store.unit());
+                    let p_ty = parameter.declared_type.canonical_type().unwrap_or(object_ty);
                     let ty = TypeView::new(p_ty, env.clone()).materialize(ctx.store);
                     let mut callable_parameter = crate::dispatch::CallableParameter::new(
                         parameter.local_name.to_string(),
@@ -1026,63 +1025,6 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
                 CallableApplicationTarget::variant_constructor(variant.clone(), signature),
                 constructor_result_type,
             )
-        }
-        AssociatedMemberId::Behavioral(callable) => {
-            let defining_decl = callable.declaration_owner();
-            let defining_args = crate::checker::associated::project_supertype_arguments(
-                ctx.store,
-                ctx.hierarchy.inner(),
-                &owner.lookup_owner,
-                &owner.supplied_arguments,
-                defining_decl,
-            );
-
-            let mut env = crate::types::environment::TypeEnvironment::new();
-            for (idx, &arg) in defining_args.iter().enumerate() {
-                if let Some(param_id) = ctx
-                    .store
-                    .find_type_parameter_id(&crate::types::parameter::TypeParameterOwner::Declaration(defining_decl.clone()), idx as u32)
-                {
-                    env.bind_param(param_id, arg);
-                }
-            }
-
-            let Some(surface) = ctx.dispatch.get().get_surface(defining_decl).cloned() else {
-                return TypedExpression::unknown(UnknownReason::UncheckedExpression);
-            };
-            let class_surface = surface.surface(callable.side);
-            let Some(sig) = class_surface.callable_signatures.get(&callable.selector).cloned() else {
-                return TypedExpression::unknown(UnknownReason::UncheckedExpression);
-            };
-
-            let return_ty = sig.return_type.ty().unwrap_or_else(|| ctx.store.unit());
-            let specialized_return = TypeView::new(return_ty, env.clone()).materialize(ctx.store);
-
-            let parameters: Vec<crate::dispatch::CallableParameter> = sig
-                .parameters
-                .iter()
-                .map(|p| {
-                    let param_ty = p.ty.ty().unwrap_or_else(|| ctx.store.unit());
-                    let specialized_param = TypeView::new(param_ty, env.clone()).materialize(ctx.store);
-                    let mut cp = crate::dispatch::CallableParameter::new(
-                        p.local_name.clone(),
-                        TypeKnowledge::established(specialized_param, EvidenceOrigin::CallableSignature),
-                    )
-                    .with_rest(p.rest);
-                    if let Some(label) = &p.external_label {
-                        cp = cp.with_label(label.clone());
-                    }
-                    cp
-                })
-                .collect();
-
-            let signature = CallableSignature::new(
-                selector.clone(),
-                parameters,
-                TypeKnowledge::established(specialized_return, EvidenceOrigin::CallableSignature),
-            );
-
-            (CallableApplicationTarget::exact(callable.clone(), signature), specialized_return)
         }
     };
 

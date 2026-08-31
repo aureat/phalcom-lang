@@ -3,16 +3,21 @@
 use super::support::analyze_adt;
 use phalcom_common::selector::Selector;
 use phalcom_modules::identity::ModuleId;
-use phalcom_semantic::identity::DeclarationId;
+use phalcom_semantic::identity::{CallableOwnerId, DeclarationId, VariantId};
 
 #[test]
-fn adt_beh_01_enum_wide_method_is_published_as_root_requirement() {
+fn adt_beh_01_enum_wide_method_is_published_as_root_default_and_requirement() {
     let case = analyze_adt(
         r#"
 enum Shape {
     describe() -> String { "shape" }
-    @variant Circle
-    @variant Square
+    area() -> Float
+    @variant Circle {
+        area() -> Float { 3.14 }
+    }
+    @variant Square {
+        area() -> Float { 1.0 }
+    }
 }
 "#,
     );
@@ -24,8 +29,19 @@ enum Shape {
         .requirements
         .get(&owner)
         .expect("enum requirement table entry");
-    let selector = Selector::method("describe", []).expect("describe selector");
-    assert!(requirements.iter().any(|requirement| requirement.id.selector == selector));
+    let req_selector = Selector::method("area", []).expect("area selector");
+    assert!(requirements.iter().any(|requirement| requirement.id.selector == req_selector));
+
+    let default_selector = Selector::method("describe", []).expect("describe selector");
+    let default_sig = case
+        .analysis
+        .snapshot
+        .callable_signatures
+        .iter()
+        .find(|(_, sig)| sig.owner == owner && sig.callable.selector == default_selector)
+        .map(|(_, sig)| sig)
+        .expect("root default callable signature");
+    assert_eq!(default_sig.callable.declaration_owner(), &owner);
 }
 
 #[test]
@@ -42,14 +58,15 @@ enum Shape {
 "#,
     );
     let owner = DeclarationId::new(ModuleId::core(), "Shape".into());
+    let circle_variant = VariantId::new(owner.clone(), Selector::getter("Circle").unwrap());
     let circle = case
         .analysis
         .snapshot
         .callable_analyses
         .keys()
-        .find(|callable| callable.owner == owner && callable.selector == Selector::method("describe", []).unwrap())
+        .find(|callable| callable.owner == CallableOwnerId::Variant(circle_variant.clone()) && callable.selector == Selector::method("describe", []).unwrap())
         .expect("exact-case override callable");
-    assert_eq!(circle.owner, owner);
+    assert_eq!(circle.owner, CallableOwnerId::Variant(circle_variant));
 }
 
 #[test]

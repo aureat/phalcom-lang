@@ -13,7 +13,7 @@ use crate::types::id::{KindId, TypeId};
 use crate::types::relation::{TypeHierarchy, is_subtype};
 use crate::types::store::{CallableParameterType, CallableType, TypeData, TypeStore};
 use phalcom_common::range::SourceRange;
-use phalcom_common::selector::{Selector, SelectorBase, SelectorKind, SelectorSlot};
+use phalcom_common::selector::{SelectorBase, SelectorKind, SelectorSlot};
 use std::collections::{BTreeMap, HashSet};
 
 /// A specialized member belonging to an associated family or lookup outcome.
@@ -157,96 +157,35 @@ pub fn resolve_associated_owner(
     })
 }
 
-/// Resolves the effective associated family for a given base from the lookup owner,
-/// including direct variant families and statically inherited class-side behavior.
+/// Resolves the effective associated family for a given base from the lookup owner.
 pub fn resolve_effective_associated_family(
     ctx: &mut CheckingContext<'_>,
     owner: &AssociatedOwnerResolution,
     base: &SelectorBase,
     range: SourceRange,
 ) -> Result<EffectiveAssociatedFamily, AssociatedResolutionError> {
-    // 1. Check direct surface on lookup owner (enum variants win directly)
     if let Some(surface) = ctx.associated_surface(&owner.lookup_owner) {
         if let Some(family) = surface.families.get(base) {
-            if family.kind == AssociatedFamilyKind::Variant {
-                return Ok(EffectiveAssociatedFamily {
-                    id: family.id.clone(),
-                    lookup_owner: owner.lookup_owner.clone(),
-                    kind: family.kind,
-                    members: family.members.to_vec(),
-                });
-            }
+            return Ok(EffectiveAssociatedFamily {
+                id: family.id.clone(),
+                lookup_owner: owner.lookup_owner.clone(),
+                kind: family.kind,
+                members: family.members.to_vec(),
+            });
         }
     }
 
-    // 2. Multi-hop supertype walk for behavioral class hierarchy
-    let mut current_decl = Some(owner.lookup_owner.clone());
-    let mut visited = HashSet::new();
-    let mut collected_members: Vec<AssociatedMemberId> = Vec::new();
-    let mut seen_selectors: HashSet<Selector> = HashSet::new();
-
-    while let Some(decl) = current_decl {
-        if !visited.insert(decl.clone()) {
-            break;
-        }
-
-        // Check associated surface of `decl`
-        if let Some(surface) = ctx.associated_surface(&decl) {
-            if let Some(family) = surface.families.get(base) {
-                for member in family.members.iter() {
-                    match member {
-                        AssociatedMemberId::Behavioral(callable_id) => {
-                            if seen_selectors.insert(callable_id.selector.clone()) {
-                                collected_members.push(member.clone());
-                            }
-                        }
-                        AssociatedMemberId::Variant(variant_id) => {
-                            if decl == owner.lookup_owner && seen_selectors.insert(variant_id.selector.clone()) {
-                                collected_members.push(member.clone());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Also check dispatch surfaces for class-side and instance-side methods
-        if let Some(surface) = ctx.dispatch.get().get_surface(&decl) {
-            for side in [crate::identity::DispatchSide::Class, crate::identity::DispatchSide::Instance] {
-                let side_surface = surface.surface(side);
-                for selector in side_surface.callable_signatures.keys() {
-                    if &selector.base == base && seen_selectors.insert(selector.clone()) {
-                        let callable_id = crate::identity::CallableId::new(decl.clone(), selector.clone(), side);
-                        collected_members.push(AssociatedMemberId::Behavioral(callable_id));
-                    }
-                }
-            }
-        }
-
-        current_decl = ctx.hierarchy.superclass(&decl).cloned();
-    }
-
-    if collected_members.is_empty() {
-        let base_str = match base {
-            SelectorBase::Named(name) => name.as_str(),
-            SelectorBase::Subscript => "[]",
-        };
-        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
-            ctx.current_module.clone(),
-            DiagnosticCode::AssociatedFamilyMissing,
-            format!("no associated family for base `{}` on `{}`", base_str, owner.lookup_owner.name),
-            range,
-        ));
-        return Err(AssociatedResolutionError);
-    }
-
-    let family_id = AssociatedFamilyId::new(owner.lookup_owner.clone(), base.clone());
-    Ok(EffectiveAssociatedFamily {
-        id: family_id,
-        lookup_owner: owner.lookup_owner.clone(),
-        kind: AssociatedFamilyKind::Behavioral,
-        members: collected_members,
-    })
+    let base_str = match base {
+        SelectorBase::Named(name) => name.as_str(),
+        SelectorBase::Subscript => "[]",
+    };
+    ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+        ctx.current_module.clone(),
+        DiagnosticCode::AssociatedFamilyMissing,
+        format!("no associated family for base `{}` on `{}`", base_str, owner.lookup_owner.name),
+        range,
+    ));
+    Err(AssociatedResolutionError)
 }
 
 /// Projects generic type arguments across class inheritance hops from child to ancestor.
@@ -357,11 +296,13 @@ pub fn specialize_associated_member(
                 })
             } else if let Some(constructor) = &variant_info.constructor {
                 let constructor_result = TypeView::new(constructor.exact_case_template, env.clone()).materialize(ctx.store);
+                let object_decl = crate::identity::DeclarationId::new(crate::identity::ModuleId::core(), "Object".into());
+                let object_ty = ctx.store.nominal(object_decl);
                 let parameters: Vec<CallableParameterType> = constructor
                     .parameters
                     .iter()
                     .map(|p| {
-                        let p_ty = p.declared_type.canonical_type().unwrap_or_else(|| ctx.store.unit());
+                        let p_ty = p.declared_type.canonical_type().unwrap_or(object_ty);
                         let ty = TypeView::new(p_ty, env.clone()).materialize(ctx.store);
                         CallableParameterType {
                             label: p.external_label.clone(),
@@ -402,82 +343,6 @@ pub fn specialize_associated_member(
                 ));
                 Err(AssociatedResolutionError)
             }
-        }
-        AssociatedMemberId::Behavioral(callable_id) => {
-            let defining_decl = callable_id.declaration_owner();
-            let defining_args = project_supertype_arguments(ctx.store, ctx.hierarchy.inner(), &owner.lookup_owner, &owner.supplied_arguments, defining_decl);
-
-            let mut env = crate::types::environment::TypeEnvironment::new();
-            for (idx, &arg) in defining_args.iter().enumerate() {
-                if let Some(param_id) = ctx
-                    .store
-                    .find_type_parameter_id(&crate::types::parameter::TypeParameterOwner::Declaration(defining_decl.clone()), idx as u32)
-                {
-                    env.bind_param(param_id, arg);
-                }
-            }
-
-            let Some(surface) = ctx.dispatch.get().get_surface(defining_decl).cloned() else {
-                ctx.emit_diagnostic(SemanticDiagnostic::error_in(
-                    ctx.current_module.clone(),
-                    DiagnosticCode::AssociatedMemberMissing,
-                    format!("callable `{}` surface missing", callable_id.selector),
-                    range,
-                ));
-                return Err(AssociatedResolutionError);
-            };
-            let class_surface = surface.surface(callable_id.side);
-            let Some(signature) = class_surface.callable_signatures.get(&callable_id.selector).cloned() else {
-                ctx.emit_diagnostic(SemanticDiagnostic::error_in(
-                    ctx.current_module.clone(),
-                    DiagnosticCode::AssociatedMemberMissing,
-                    format!("callable `{}` signature missing", callable_id.selector),
-                    range,
-                ));
-                return Err(AssociatedResolutionError);
-            };
-
-            let object_decl = crate::identity::DeclarationId::new(crate::identity::ModuleId::core(), "Object".into());
-            let object_ty = ctx.store.nominal(object_decl);
-            let return_ty = signature.return_type.ty().unwrap_or(object_ty);
-            let specialized_return = TypeView::new(return_ty, env.clone()).materialize(ctx.store);
-
-            let parameters: Vec<CallableParameterType> = signature
-                .parameters
-                .iter()
-                .map(|p| {
-                    let param_ty = p.ty.ty().unwrap_or(object_ty);
-                    let specialized_param = TypeView::new(param_ty, env.clone()).materialize(ctx.store);
-                    CallableParameterType {
-                        label: p.external_label.clone().map(Into::into),
-                        ty: specialized_param,
-                        rest: p.rest,
-                    }
-                })
-                .collect();
-
-            let callable_ty = ctx.store.callable(CallableType {
-                parameters: parameters.into_boxed_slice(),
-                return_type: specialized_return,
-            });
-
-            let slots: Vec<SelectorSlot> = signature
-                .parameters
-                .iter()
-                .map(|p| match &p.external_label {
-                    Some(label) => SelectorSlot::Label(label.clone()),
-                    None => SelectorSlot::Positional,
-                })
-                .collect();
-
-            let operation = FamilyOperationShape::new(callable_id.selector.kind, slots.into_boxed_slice());
-
-            Ok(SpecializedAssociatedMember {
-                member: member_id.clone(),
-                operation,
-                value_type: callable_ty,
-                target: Some(InvocationTargetId::Behavioral(callable_id.clone())),
-            })
         }
     }
 }

@@ -19,7 +19,7 @@ fn associated_lookup_returns_exact_variant_members_in_declaration_order() {
         VariantId::new(owner.clone(), Selector::getter("Cat").expect("cat selector")),
     ];
 
-    let (surface, diagnostics) = build_associated_surface(&owner, Some(&variants), &[], &HashSet::new(), &module, None);
+    let (surface, diagnostics) = build_associated_surface(&owner, Some(&variants), &HashSet::new(), &HashSet::new(), &module, None);
     assert!(diagnostics.is_empty(), "unexpected associated lookup diagnostics: {diagnostics:#?}");
     let dog = surface
         .families
