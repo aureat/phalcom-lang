@@ -3,6 +3,11 @@ name: Part 5.1 targeted verification
 on:
   pull_request:
 
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  RUSTFLAGS: ""
+
 jobs:
   semantic-regressions:
     if: github.event.pull_request.head.ref == 'feat/adts'
@@ -12,10 +17,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Match orchestration regression
-        run: cargo +stable test -p phalcom-semantic --test semantic redundant_arm_does_not_contribute_to_match_result -- --exact
+        run: cargo +stable test -p phalcom-semantic --test semantic redundant_arm_does_not_contribute_to_match_result
       - name: Hierarchy dependency regression
-        run: cargo +stable test -p phalcom-semantic --test semantic tracked_hierarchy_records_every_mutable_edge_traversed -- --exact
+        run: cargo +stable test -p phalcom-semantic --test semantic tracked_hierarchy_records_every_mutable_edge_traversed
       - name: Publication regression
-        run: cargo +stable test -p phalcom-semantic --test semantic publication_effects_distinguish_initial_graph_build_from_body_edit -- --exact
+        run: cargo +stable test -p phalcom-semantic --test semantic publication_effects_distinguish_initial_graph_build_from_body_edit
       - name: Advisory completeness regression
-        run: cargo +stable test -p phalcom-semantic --test semantic snapshot_publishes_formal_source_and_advisory_products_together -- --exact
+        run: cargo +stable test -p phalcom-semantic --test semantic snapshot_publishes_formal_source_and_advisory_products_together
