@@ -99,11 +99,7 @@ replacement = r'''pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, ma
         }
     };
 
-    let unified_result = if normal_branch_types.is_empty() {
-        TypeKnowledge::established(ctx.store.never(), EvidenceOrigin::Flow)
-    } else {
-        crate::types::evidence::join_type_knowledge(ctx.store, normal_branch_types)
-    };
+    let unified_result = crate::checker::exhaustiveness::join_match_result_knowledge(ctx.store, normal_branch_types);
 
     let resolution = crate::match_semantics::MatchResolution {
         expression: expr_id,
