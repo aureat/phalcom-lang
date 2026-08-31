@@ -20,7 +20,7 @@ pub enum AssociatedValueDenotation {
         owner_form: TypeId,
         lookup_owner: DeclarationId,
         member: AssociatedMemberId,
-        target: Option<InvocationTargetId>,
+        target: Box<Option<InvocationTargetId>>,
     },
     Family {
         owner_form: TypeId,
@@ -36,7 +36,7 @@ impl AssociatedValueDenotation {
             owner_form,
             lookup_owner,
             member,
-            target,
+            target: Box::new(target),
         }
     }
 
@@ -55,7 +55,7 @@ impl AssociatedValueDenotation {
 pub enum SemanticDenotation {
     TypeForm(TypeId),
     Kind(KindId),
-    AssociatedValue(AssociatedValueDenotation),
+    AssociatedValue(Box<AssociatedValueDenotation>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

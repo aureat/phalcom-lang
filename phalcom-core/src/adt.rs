@@ -121,6 +121,7 @@ impl RuntimeAdtRegistry {
     }
 
     /// Registers a variant for an existing enum.
+    #[allow(clippy::too_many_arguments)]
     pub fn register_variant(
         &mut self,
         semantic_id: VariantId,

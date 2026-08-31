@@ -97,6 +97,12 @@ pub type AssociatedResolutionIndex = BTreeMap<ExpressionId, AssociatedResolution
 /// Body-local index of ordinary family value application resolutions.
 pub type FamilyApplicationResolutionIndex = BTreeMap<ExpressionId, FamilyApplicationResolution>;
 
+/// Failure after a diagnostic has been emitted for an associated lookup.
+/// Keeping this as a concrete error preserves the fail-closed API without
+/// returning a unit error that loses the semantic failure category.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AssociatedResolutionError;
+
 /// Normalized resolution of an associated owner type form.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AssociatedOwnerResolution {
@@ -117,7 +123,11 @@ pub struct EffectiveAssociatedFamily {
 
 /// Resolves an associated owner expression, validating its type-form denotation
 /// and recovering its root declaration, supplied arguments, and residual kind.
-pub fn resolve_associated_owner(ctx: &mut CheckingContext<'_>, typed_owner: &TypedExpression, range: SourceRange) -> Result<AssociatedOwnerResolution, ()> {
+pub fn resolve_associated_owner(
+    ctx: &mut CheckingContext<'_>,
+    typed_owner: &TypedExpression,
+    range: SourceRange,
+) -> Result<AssociatedOwnerResolution, AssociatedResolutionError> {
     let Some(SemanticDenotation::TypeForm(owner_form)) = typed_owner.denotation.clone() else {
         ctx.emit_diagnostic(SemanticDiagnostic::error_in(
             ctx.current_module.clone(),
@@ -125,7 +135,7 @@ pub fn resolve_associated_owner(ctx: &mut CheckingContext<'_>, typed_owner: &Typ
             "associated lookup receiver is not a type form",
             range,
         ));
-        return Err(());
+        return Err(AssociatedResolutionError);
     };
 
     let Some((lookup_owner, supplied_arguments)) = ctx.store.applied_nominal_parts(owner_form) else {
@@ -135,7 +145,7 @@ pub fn resolve_associated_owner(ctx: &mut CheckingContext<'_>, typed_owner: &Typ
             "associated lookup owner is not a declaration-backed type form",
             range,
         ));
-        return Err(());
+        return Err(AssociatedResolutionError);
     };
 
     let residual_kind = ctx.store.kind_of(owner_form);
@@ -154,7 +164,7 @@ pub fn resolve_effective_associated_family(
     owner: &AssociatedOwnerResolution,
     base: &SelectorBase,
     range: SourceRange,
-) -> Result<EffectiveAssociatedFamily, ()> {
+) -> Result<EffectiveAssociatedFamily, AssociatedResolutionError> {
     // 1. Check direct surface on lookup owner (enum variants win directly)
     if let Some(surface) = ctx.associated_surface(&owner.lookup_owner) {
         if let Some(family) = surface.families.get(base) {
@@ -191,10 +201,8 @@ pub fn resolve_effective_associated_family(
                             }
                         }
                         AssociatedMemberId::Variant(variant_id) => {
-                            if decl == owner.lookup_owner {
-                                if seen_selectors.insert(variant_id.selector.clone()) {
-                                    collected_members.push(member.clone());
-                                }
+                            if decl == owner.lookup_owner && seen_selectors.insert(variant_id.selector.clone()) {
+                                collected_members.push(member.clone());
                             }
                         }
                     }
@@ -206,7 +214,7 @@ pub fn resolve_effective_associated_family(
         if let Some(surface) = ctx.dispatch.get().get_surface(&decl) {
             for side in [crate::identity::DispatchSide::Class, crate::identity::DispatchSide::Instance] {
                 let side_surface = surface.surface(side);
-                for (selector, _) in &side_surface.callable_signatures {
+                for selector in side_surface.callable_signatures.keys() {
                     if &selector.base == base && seen_selectors.insert(selector.clone()) {
                         let callable_id = crate::identity::CallableId::new(decl.clone(), selector.clone(), side);
                         collected_members.push(AssociatedMemberId::Behavioral(callable_id));
@@ -229,7 +237,7 @@ pub fn resolve_effective_associated_family(
             format!("no associated family for base `{}` on `{}`", base_str, owner.lookup_owner.name),
             range,
         ));
-        return Err(());
+        return Err(AssociatedResolutionError);
     }
 
     let family_id = AssociatedFamilyId::new(owner.lookup_owner.clone(), base.clone());
@@ -291,7 +299,7 @@ pub fn specialize_associated_member(
     owner: &AssociatedOwnerResolution,
     member_id: &AssociatedMemberId,
     range: SourceRange,
-) -> Result<SpecializedAssociatedMember, ()> {
+) -> Result<SpecializedAssociatedMember, AssociatedResolutionError> {
     match member_id {
         AssociatedMemberId::Variant(variant_id) => {
             let Some(variant_info) = ctx.variant_info(variant_id).cloned() else {
@@ -301,7 +309,7 @@ pub fn specialize_associated_member(
                     format!("variant member `{}` not found", variant_id.selector),
                     range,
                 ));
-                return Err(());
+                return Err(AssociatedResolutionError);
             };
 
             // Build TypeEnvironment from owner.supplied_arguments
@@ -333,7 +341,7 @@ pub fn specialize_associated_member(
                             ),
                             range,
                         ));
-                        return Err(());
+                        return Err(AssociatedResolutionError);
                     }
                 }
             }
@@ -392,7 +400,7 @@ pub fn specialize_associated_member(
                     format!("variant constructor for `{}` is missing", variant_id.selector),
                     range,
                 ));
-                Err(())
+                Err(AssociatedResolutionError)
             }
         }
         AssociatedMemberId::Behavioral(callable_id) => {
@@ -416,7 +424,7 @@ pub fn specialize_associated_member(
                     format!("callable `{}` surface missing", callable_id.selector),
                     range,
                 ));
-                return Err(());
+                return Err(AssociatedResolutionError);
             };
             let class_surface = surface.surface(callable_id.side);
             let Some(signature) = class_surface.callable_signatures.get(&callable_id.selector).cloned() else {
@@ -426,7 +434,7 @@ pub fn specialize_associated_member(
                     format!("callable `{}` signature missing", callable_id.selector),
                     range,
                 ));
-                return Err(());
+                return Err(AssociatedResolutionError);
             };
 
             let object_decl = crate::identity::DeclarationId::new(crate::identity::ModuleId::core(), "Object".into());
@@ -508,7 +516,7 @@ pub fn check_reification_underconstrained(
     value_type: TypeId,
     expected: &ExpectedType,
     range: SourceRange,
-) -> Result<TypeId, ()> {
+) -> Result<TypeId, AssociatedResolutionError> {
     let mut resolved_type = value_type;
     if let Some(expected_ty) = expected.ty() {
         if let (TypeData::Callable(val_call), TypeData::Callable(exp_call)) = (ctx.store.get(value_type).clone(), ctx.store.get(expected_ty).clone()) {
@@ -585,7 +593,7 @@ pub fn check_reification_underconstrained(
             ),
             range,
         ));
-        return Err(());
+        return Err(AssociatedResolutionError);
     }
 
     Ok(resolved_type)

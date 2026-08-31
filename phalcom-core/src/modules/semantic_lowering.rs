@@ -119,6 +119,7 @@ pub enum AssociatedLoweringSpec {
 
 /// Lowering specification for an application on a first-class family value.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum FamilyApplicationLoweringSpec {
     /// Statically known operation invocation on family.
     Static {

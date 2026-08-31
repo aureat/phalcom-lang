@@ -52,9 +52,10 @@ class Probe {
             .any(|member| member.operation.kind == SelectorKind::Method && member.operation.slots.as_ref() == [SelectorSlot::Positional])
     );
 
-    let SemanticDenotation::AssociatedValue(AssociatedValueDenotation::Family { members: captured, .. }) =
-        expression.denotation.as_ref().expect("captured denotation")
-    else {
+    let SemanticDenotation::AssociatedValue(denotation) = expression.denotation.as_ref().expect("captured denotation") else {
+        panic!("expected captured family denotation, got {:?}", expression.denotation);
+    };
+    let AssociatedValueDenotation::Family { members: captured, .. } = &**denotation else {
         panic!("expected captured family denotation, got {:?}", expression.denotation);
     };
     assert_eq!(captured.len(), 3);

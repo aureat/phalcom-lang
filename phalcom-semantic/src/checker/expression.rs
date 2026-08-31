@@ -780,12 +780,12 @@ fn synthesize_associated_lookup(ctx: &mut CheckingContext<'_>, lookup: &Associat
                     }
 
                     TypedExpression::established(value_type, EvidenceOrigin::DeclarationSemantics, lookup.range).with_denotation(
-                        SemanticDenotation::AssociatedValue(AssociatedValueDenotation::exact(
+                        SemanticDenotation::AssociatedValue(Box::new(AssociatedValueDenotation::exact(
                             owner.owner_form,
                             owner.lookup_owner,
                             member_id,
                             specialized.target,
-                        )),
+                        ))),
                     )
                 }
                 AssociatedNamedMode::Exact { residual, .. } => {
@@ -854,7 +854,12 @@ fn synthesize_associated_lookup(ctx: &mut CheckingContext<'_>, lookup: &Associat
                     }
 
                     TypedExpression::established(value_type, EvidenceOrigin::DeclarationSemantics, lookup.range).with_denotation(
-                        SemanticDenotation::AssociatedValue(AssociatedValueDenotation::exact(owner.owner_form, owner.lookup_owner, member_id, Some(target))),
+                        SemanticDenotation::AssociatedValue(Box::new(AssociatedValueDenotation::exact(
+                            owner.owner_form,
+                            owner.lookup_owner,
+                            member_id,
+                            Some(target),
+                        ))),
                     )
                 }
                 AssociatedNamedMode::Family { .. } => {
@@ -902,12 +907,12 @@ fn synthesize_associated_lookup(ctx: &mut CheckingContext<'_>, lookup: &Associat
                     }
 
                     TypedExpression::established(value_type, EvidenceOrigin::DeclarationSemantics, lookup.range).with_denotation(
-                        SemanticDenotation::AssociatedValue(AssociatedValueDenotation::family(
+                        SemanticDenotation::AssociatedValue(Box::new(AssociatedValueDenotation::family(
                             owner.owner_form,
                             owner.lookup_owner,
                             family.id,
                             captured_members,
-                        )),
+                        ))),
                     )
                 }
             }
@@ -1483,7 +1488,10 @@ fn apply_relation_application_to_typed(typed: &mut TypedExpression, application:
 }
 
 fn captured_family_target(denotation: Option<&SemanticDenotation>, operation: &FamilyOperationShape) -> Option<InvocationTargetId> {
-    let Some(SemanticDenotation::AssociatedValue(AssociatedValueDenotation::Family { members, .. })) = denotation else {
+    let Some(SemanticDenotation::AssociatedValue(assoc)) = denotation else {
+        return None;
+    };
+    let AssociatedValueDenotation::Family { members, .. } = &**assoc else {
         return None;
     };
     members

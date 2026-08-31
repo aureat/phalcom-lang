@@ -159,9 +159,7 @@ impl PatternSpace {
                 result.normalize()
             }
             (Self::Opaque(t1), Self::Opaque(t2)) => {
-                if t1 == t2 {
-                    Self::Opaque(*t1)
-                } else if is_subtype(store, hier, *t1, *t2) {
+                if t1 == t2 || is_subtype(store, hier, *t1, *t2) {
                     Self::Opaque(*t1)
                 } else if is_subtype(store, hier, *t2, *t1) {
                     Self::Opaque(*t2)

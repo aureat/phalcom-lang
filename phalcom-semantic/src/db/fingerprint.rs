@@ -780,7 +780,7 @@ fn hash_denotation(denotation: &Option<SemanticDenotation>, hasher: &mut impl Ha
         }
         Some(SemanticDenotation::AssociatedValue(assoc)) => {
             3u8.hash(hasher);
-            match assoc {
+            match &**assoc {
                 crate::types::denotation::AssociatedValueDenotation::Exact {
                     owner_form,
                     lookup_owner,

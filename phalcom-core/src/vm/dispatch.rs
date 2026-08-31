@@ -1893,13 +1893,13 @@ impl VM {
                     let descriptor = callable.chunk.executable_semantics.family_descriptor(desc_idx).clone();
                     let mut bound_owner = None;
                     for entry in descriptor.entries.iter() {
-                        if let crate::modules::semantic_lowering::ExecutableFamilyTarget::Behavioral { target } = &entry.target {
-                            if let crate::modules::semantic_lowering::ExecutableInvocationTarget::Behavioral { lookup_owner, .. } = target {
-                                if let Ok(class_id) = self.resolve_declaration_class(lookup_owner) {
-                                    bound_owner = Some(Value::obj(class_id));
-                                    break;
-                                }
-                            }
+                        if let crate::modules::semantic_lowering::ExecutableFamilyTarget::Behavioral {
+                            target: crate::modules::semantic_lowering::ExecutableInvocationTarget::Behavioral { lookup_owner, .. },
+                        } = &entry.target
+                            && let Ok(class_id) = self.resolve_declaration_class(lookup_owner)
+                        {
+                            bound_owner = Some(Value::obj(class_id));
+                            break;
                         }
                     }
                     let family_ref = self.heap.alloc_associated_family(descriptor, bound_owner);

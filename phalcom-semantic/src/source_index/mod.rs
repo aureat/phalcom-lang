@@ -49,9 +49,9 @@ pub struct CallableSourceAttachment {
 
 impl CallableSourceAttachment {
     /// Attaches checker products to unique compiler-owned declaration sites.
-    pub fn from_analysis(callable: CallableId, scopes: &SourceScopeIndex, analysis: &CallableAnalysis) -> Result<Self, SourceAttachmentError> {
+    pub fn from_analysis(callable: CallableId, scopes: &SourceScopeIndex, analysis: &CallableAnalysis) -> Result<Self, Box<SourceAttachmentError>> {
         let (attachment, incidents) = Self::from_analysis_with_incidents(callable, scopes, analysis);
-        incidents.into_iter().next().map_or(Ok(attachment), Err)
+        incidents.into_iter().next().map_or(Ok(attachment), |error| Err(Box::new(error)))
     }
 
     /// Builds all exact expression attachments while retaining binding failures
@@ -411,13 +411,13 @@ impl SourceSemanticIndex {
     }
 
     /// Attaches one formal callable product to its exact source sites.
-    pub fn attach_formal_analysis(&mut self, module: &ModuleId, analysis: &CallableAnalysis) -> Result<(), SourceAttachmentError> {
+    pub fn attach_formal_analysis(&mut self, module: &ModuleId, analysis: &CallableAnalysis) -> Result<(), Box<SourceAttachmentError>> {
         let Some(module_index) = self.modules.get_mut(module) else {
             let error = SourceAttachmentError::MissingModule(module.clone());
             let mut incidents = self.incidents.to_vec();
             incidents.push(error.clone());
             self.incidents = Arc::from(incidents.into_boxed_slice());
-            return Err(error);
+            return Err(Box::new(error));
         };
         let (attachment, incidents) = CallableSourceAttachment::from_analysis_with_incidents(analysis.callable.clone(), &module_index.structure, analysis);
         let module_index = Arc::make_mut(module_index);
@@ -478,7 +478,7 @@ impl SourceSemanticIndex {
             retained.extend(incidents.iter().cloned());
             self.incidents = Arc::from(retained.into_boxed_slice());
         }
-        incidents.into_iter().next().map_or(Ok(()), Err)
+        incidents.into_iter().next().map_or(Ok(()), |error| Err(Box::new(error)))
     }
 
     /// Returns one module source shard.

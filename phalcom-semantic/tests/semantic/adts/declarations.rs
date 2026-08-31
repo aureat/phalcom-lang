@@ -100,7 +100,7 @@ fn enum_associated_surface_rejects_namespace_collisions() {
 
     // Conflict with class-side callable of same base
     let class_callable = CallableId::new(owner.clone(), value_sel.clone(), DispatchSide::Class);
-    let (surface, diags) = build_associated_surface(&owner, Some(&[variant.clone()]), &[class_callable], &HashSet::new(), &module, None);
+    let (surface, diags) = build_associated_surface(&owner, Some(std::slice::from_ref(&variant)), &[class_callable], &HashSet::new(), &module, None);
     assert!(
         diags.iter().any(|d| d.code == DiagnosticCode::EnumFamilyCategoryConflict),
         "expected EnumFamilyCategoryConflict, got {diags:#?}"

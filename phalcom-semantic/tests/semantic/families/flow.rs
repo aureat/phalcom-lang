@@ -20,12 +20,12 @@ fn flow_merge_preserves_identical_family_capability_denotation() {
             Selector::getter("None").expect("None"),
         ))),
     };
-    let denotation = SemanticDenotation::AssociatedValue(AssociatedValueDenotation::family(
+    let denotation = SemanticDenotation::AssociatedValue(Box::new(AssociatedValueDenotation::family(
         store.nominal_type(DeclarationId::new(ModuleId::core(), "Option".into())),
         DeclarationId::new(ModuleId::core(), "Option".into()),
         family,
         vec![captured],
-    ));
+    )));
     let fact = ValueSemanticFact {
         knowledge: TypeKnowledge::established(store.unit(), EvidenceOrigin::DeclarationSemantics),
         denotation: Some(denotation),
@@ -42,7 +42,7 @@ fn flow_merge_drops_different_family_capabilities() {
     let owner = DeclarationId::new(ModuleId::core(), "Option".into());
     let family = AssociatedFamilyId::new(owner.clone(), SelectorBase::Named("make".into()));
     let owner_form = store.nominal_type(owner.clone());
-    let left = SemanticDenotation::AssociatedValue(AssociatedValueDenotation::family(
+    let left = SemanticDenotation::AssociatedValue(Box::new(AssociatedValueDenotation::family(
         owner_form,
         owner.clone(),
         family.clone(),
@@ -51,8 +51,8 @@ fn flow_merge_drops_different_family_capabilities() {
             member: phalcom_semantic::AssociatedMemberId::Variant(VariantId::new(owner.clone(), Selector::getter("None").expect("None"))),
             target: None,
         }],
-    ));
-    let right = SemanticDenotation::AssociatedValue(AssociatedValueDenotation::family(
+    )));
+    let right = SemanticDenotation::AssociatedValue(Box::new(AssociatedValueDenotation::family(
         owner_form,
         owner.clone(),
         family,
@@ -61,7 +61,7 @@ fn flow_merge_drops_different_family_capabilities() {
             member: phalcom_semantic::AssociatedMemberId::Variant(VariantId::new(owner, Selector::method("None", []).expect("None()"))),
             target: None,
         }],
-    ));
+    )));
     let knowledge = TypeKnowledge::established(store.unit(), EvidenceOrigin::DeclarationSemantics);
     let left_fact = ValueSemanticFact {
         knowledge: knowledge.clone(),
