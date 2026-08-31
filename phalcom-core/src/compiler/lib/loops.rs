@@ -477,11 +477,25 @@ fn collect_pattern_names(pattern: &Pattern, out: &mut Vec<String>) {
                 collect_pattern_names(rest, out);
             }
         }
-        Pattern::Variant { arguments, .. } => {
-            for argument in arguments {
-                collect_pattern_names(argument, out);
+        Pattern::Variant(variant_pat) => match &variant_pat.mode {
+            phalcom_ast::ast::VariantPatternMode::ExactCall { arguments } => {
+                for arg in arguments {
+                    collect_pattern_names(&arg.pattern, out);
+                }
+            }
+            phalcom_ast::ast::VariantPatternMode::CallablePattern { prefix, suffix, .. } => {
+                for arg in prefix.iter().chain(suffix.iter()) {
+                    collect_pattern_names(&arg.pattern, out);
+                }
+            }
+            _ => {}
+        },
+        Pattern::Or { alternatives, .. } => {
+            for p in alternatives {
+                collect_pattern_names(p, out);
             }
         }
+        Pattern::Wildcard { .. } => {}
         Pattern::Record { entries, .. } => {
             for entry in entries {
                 collect_pattern_names(&entry.pattern, out);

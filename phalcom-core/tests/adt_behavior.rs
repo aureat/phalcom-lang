@@ -35,8 +35,11 @@ let pair = Shape::Pair(1, 2)
         .as_obj()
         .expect("enum root is class object");
     let owner = DeclarationId::new(vm.heap.module(module).id.clone(), "Shape".into());
+    println!("owner: {:?}", owner);
     let enum_id = vm.adt_registry.enum_by_declaration(&owner).expect("registered enum");
+    println!("enum_id: {:?}", enum_id);
     let enum_desc = vm.adt_registry.enum_descriptor(enum_id).expect("enum descriptor");
+    println!("enum_desc: {:?}", enum_desc);
     assert_eq!(enum_desc.root_class, root);
     assert_eq!(enum_desc.variants.len(), 2);
 
@@ -49,6 +52,7 @@ let pair = Shape::Pair(1, 2)
                 vm.heap.module(module).slot_of(hidden_symbol).is_none(),
                 "hidden case behavior class must not become module global"
             );
+            println!("hidden_symbol: {:?}", hidden_symbol);
         }
     }
 

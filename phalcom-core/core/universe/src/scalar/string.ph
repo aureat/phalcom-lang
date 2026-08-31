@@ -131,15 +131,15 @@ class String is Object {
 
     let i = 0
     while (i <= self._$byteCount - needle._$byteCount) {
-      let match = true
+      let is_match = true
       let j = 0
       while (j < needle._$byteCount) {
         (self._$byteAt(i + j) == needle._$byteAt(j)).ifTrue(|| {}, ifFalse: || {
-          match = false
+          is_match = false
         })
-        (match).ifTrue(|| { j = j + 1 }, ifFalse: || { j = needle._$byteCount })
+        (is_match).ifTrue(|| { j = j + 1 }, ifFalse: || { j = needle._$byteCount })
       }
-      (match).ifTrue(|| { return i })
+      (is_match).ifTrue(|| { return i })
       i = i + 1
     }
     return -1

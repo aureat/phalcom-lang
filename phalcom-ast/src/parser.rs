@@ -2615,6 +2615,7 @@ impl<'source> Parser<'source> {
             Token::Fn => "fn",
             Token::Class => "class",
             Token::Enum => "enum",
+            Token::Match => "match",
             Token::Return => "return",
             Token::True => "true",
             Token::False => "false",
@@ -2642,7 +2643,6 @@ impl<'source> Parser<'source> {
             Token::Try => "try",
             Token::Where => "where",
             Token::TypeKw => "type",
-            Token::Match => "match",
             _ => return None,
         })
     }
@@ -3491,6 +3491,7 @@ impl<'source> Parser<'source> {
             // `from` is a module-syntax keyword, but remains valid as a
             // selector for existing APIs such as `Map.from(...)`.
             Token::From => "from".to_string(),
+            Token::Match => "match".to_string(),
             _ => return Err(self.error_here(strs(&["identifier", "operator"]))),
         };
         self.advance();
@@ -5173,6 +5174,7 @@ impl<'source> Parser<'source> {
             // `from` is reserved in module preambles but remains valid in
             // message-send position (`Map.from(...)`).
             Token::From => "from".to_string(),
+            Token::Match => "match".to_string(),
             Token::Plus => "+".to_string(),
             Token::Minus => "-".to_string(),
             Token::Asterisk => "*".to_string(),
@@ -5434,6 +5436,40 @@ impl<'source> Parser<'source> {
         self.parse_expr()
     }
 
+    fn is_match_expression(&self) -> bool {
+        if self.peek() != &Token::Match {
+            return false;
+        }
+        if self.peek_next() != &Token::LParen {
+            return true;
+        }
+        let mut depth = 0;
+        let mut i = self.pos + 1;
+        while i < self.tokens.len() {
+            match &self.tokens[i].token {
+                Token::LParen => depth += 1,
+                Token::RParen => {
+                    depth -= 1;
+                    if depth == 0 {
+                        let mut next = i + 1;
+                        while next < self.tokens.len() && matches!(self.tokens[next].token, Token::Newline) {
+                            next += 1;
+                        }
+                        if next < self.tokens.len() && self.tokens[next].token == Token::LBrace {
+                            return true;
+                        }
+                        return false;
+                    }
+                }
+                Token::Colon if depth == 1 => return false,
+                Token::Eof => return false,
+                _ => {}
+            }
+            i += 1;
+        }
+        false
+    }
+
     /// Parses a primary expression: a literal, variable/field, `self`/`super`,
     /// or a parenthesised expression.
     ///
@@ -5449,7 +5485,17 @@ impl<'source> Parser<'source> {
         let end = self.tokens[self.pos].end;
         let range = (start..end).into();
         match self.peek().clone() {
-            Token::Match => self.parse_match_expression(),
+            Token::Match => {
+                if self.is_match_expression() {
+                    self.parse_match_expression()
+                } else {
+                    self.advance();
+                    Ok(Expr::Var {
+                        value: "match".to_string(),
+                        range,
+                    })
+                }
+            }
             Token::If => self.parse_if(),
             Token::While => self.parse_while(),
             Token::True => {

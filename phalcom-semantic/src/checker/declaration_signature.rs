@@ -20,13 +20,20 @@ pub(crate) fn callable_id_for_member(owner: &DeclarationId, member: &ClassMember
         ClassMember::Method(method) => {
             let slots = method
                 .params
-                .iter()
+                .iter
+                ()
                 .filter(|parameter| parameter.rest_mode == phalcom_ast::ast::RestMode::None)
                 .map(|parameter| {
                     parameter
                         .label
                         .as_ref()
-                        .map(|label| SelectorSlot::Label(label.clone()))
+                        .map(|label| {
+                            if label == "_" {
+                                SelectorSlot::Positional
+                            } else {
+                                SelectorSlot::Label(label.clone())
+                            }
+                        })
                         .unwrap_or(SelectorSlot::Positional)
                 })
                 .collect::<Vec<_>>();
@@ -49,7 +56,13 @@ pub(crate) fn callable_id_for_member(owner: &DeclarationId, member: &ClassMember
                     parameter
                         .label
                         .as_ref()
-                        .map(|label| SelectorSlot::Label(label.clone()))
+                        .map(|label| {
+                            if label == "_" {
+                                SelectorSlot::Positional
+                            } else {
+                                SelectorSlot::Label(label.clone())
+                            }
+                        })
                         .unwrap_or(SelectorSlot::Positional)
                 })
                 .collect::<Vec<_>>();

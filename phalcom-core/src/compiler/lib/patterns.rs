@@ -34,11 +34,25 @@ impl<'vm> Compiler<'vm> {
                     self.declare_pattern_locals(rest, mutable)?;
                 }
             }
-            Pattern::Variant { arguments, .. } => {
-                for argument in arguments {
-                    self.declare_pattern_locals(argument, mutable)?;
+            Pattern::Variant(variant_pat) => match &variant_pat.mode {
+                phalcom_ast::ast::VariantPatternMode::ExactCall { arguments } => {
+                    for argument in arguments {
+                        self.declare_pattern_locals(&argument.pattern, mutable)?;
+                    }
+                }
+                phalcom_ast::ast::VariantPatternMode::CallablePattern { prefix, suffix, .. } => {
+                    for argument in prefix.iter().chain(suffix.iter()) {
+                        self.declare_pattern_locals(&argument.pattern, mutable)?;
+                    }
+                }
+                _ => {}
+            },
+            Pattern::Or { alternatives, .. } => {
+                for p in alternatives {
+                    self.declare_pattern_locals(p, mutable)?;
                 }
             }
+            Pattern::Wildcard { .. } => {}
             Pattern::Record { entries, .. } => {
                 for entry in entries {
                     self.declare_pattern_locals(&entry.pattern, mutable)?;
@@ -58,6 +72,12 @@ impl<'vm> Compiler<'vm> {
     pub(super) fn emit_pattern_match_tests(&mut self, pattern: &Pattern, value_slot: u16, failures: &mut Vec<usize>) -> Result<(), CompilerError> {
         match pattern {
             Pattern::Name { .. } => {}
+            Pattern::Wildcard { .. } => {}
+            Pattern::Or { alternatives, .. } => {
+                for p in alternatives {
+                    self.emit_pattern_match_tests(p, value_slot, failures)?;
+                }
+            }
             Pattern::Tuple { elements, range } => {
                 self.emit_class_test(value_slot, "Tuple", failures, *range);
                 self.emit_size_test(value_slot, elements.len(), false, failures, *range);
@@ -82,26 +102,39 @@ impl<'vm> Compiler<'vm> {
                     self.emit_pattern_match_tests(rest_pattern, child, failures)?;
                 }
             }
-            Pattern::Variant { constructor, arguments, range } => {
+            Pattern::Variant(variant_pat) => {
+                let range = variant_pat.range;
+                let constructor = &variant_pat.base;
                 if constructor == "Some" {
-                    if arguments.len() != 1 {
-                        return Err(CompilerError::Message("Some pattern requires exactly one payload pattern".into()));
-                    }
-                    self.emit_option_test(value_slot, true, failures, *range);
-                    if !matches!(&arguments[0], Pattern::Name { .. }) {
-                        let child = self.emit_option_value_temp(value_slot, *range)?;
-                        self.emit_pattern_match_tests(&arguments[0], child, failures)?;
+                    self.emit_option_test(value_slot, true, failures, range);
+                    if let phalcom_ast::ast::VariantPatternMode::ExactCall { arguments } = &variant_pat.mode {
+                        if arguments.len() == 1 && !matches!(&arguments[0].pattern, Pattern::Name { .. }) {
+                            let child = self.emit_option_value_temp(value_slot, range)?;
+                            self.emit_pattern_match_tests(&arguments[0].pattern, child, failures)?;
+                        }
                     }
                 } else if constructor == "None" {
-                    if !arguments.is_empty() {
-                        return Err(CompilerError::Message("None pattern cannot carry payloads".into()));
-                    }
-                    self.emit_option_test(value_slot, false, failures, *range);
+                    self.emit_option_test(value_slot, false, failures, range);
                 } else {
-                    self.emit_class_test(value_slot, constructor, failures, *range);
-                    for (index, argument) in arguments.iter().enumerate() {
-                        let child = self.emit_element_temp(value_slot, index, argument.range())?;
-                        self.emit_pattern_match_tests(argument, child, failures)?;
+                    self.emit_class_test(value_slot, constructor, failures, range);
+                    match &variant_pat.mode {
+                        phalcom_ast::ast::VariantPatternMode::ExactCall { arguments } => {
+                            for (index, argument) in arguments.iter().enumerate() {
+                                let child = self.emit_element_temp(value_slot, index, argument.pattern.range())?;
+                                self.emit_pattern_match_tests(&argument.pattern, child, failures)?;
+                            }
+                        }
+                        phalcom_ast::ast::VariantPatternMode::CallablePattern { prefix, suffix, .. } => {
+                            for (index, argument) in prefix.iter().enumerate() {
+                                let child = self.emit_element_temp(value_slot, index, argument.pattern.range())?;
+                                self.emit_pattern_match_tests(&argument.pattern, child, failures)?;
+                            }
+                            for (index, argument) in suffix.iter().enumerate() {
+                                let child = self.emit_element_temp(value_slot, prefix.len() + index, argument.pattern.range())?;
+                                self.emit_pattern_match_tests(&argument.pattern, child, failures)?;
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -173,21 +206,48 @@ impl<'vm> Compiler<'vm> {
                     self.assign_pattern_from_slot(rest, rest_slot)?;
                 }
             }
-            Pattern::Variant { constructor, arguments, range } => {
+            Pattern::Wildcard { .. } => {}
+            Pattern::Or { alternatives, .. } => {
+                for p in alternatives {
+                    self.assign_pattern_from_slot(p, value_slot)?;
+                }
+            }
+            Pattern::Variant(variant_pat) => {
+                let range = variant_pat.range;
+                let constructor = &variant_pat.base;
                 if constructor == "Some" {
-                    if let Pattern::Name { .. } = &arguments[0] {
-                        self.emit(Bytecode::GetLocal(value_slot), *range);
-                        self.emit(Bytecode::Nil, *range);
-                        self.emit_operator_send("unwrapOr", 1, *range);
-                        self.assign_pattern_from_top(&arguments[0])?;
-                    } else {
-                        let child = self.emit_option_value_temp(value_slot, *range)?;
-                        self.assign_pattern_from_slot(&arguments[0], child)?;
+                    if let phalcom_ast::ast::VariantPatternMode::ExactCall { arguments } = &variant_pat.mode {
+                        if arguments.len() == 1 {
+                            if let Pattern::Name { .. } = &arguments[0].pattern {
+                                self.emit(Bytecode::GetLocal(value_slot), range);
+                                self.emit(Bytecode::Nil, range);
+                                self.emit_operator_send("unwrapOr", 1, range);
+                                self.assign_pattern_from_top(&arguments[0].pattern)?;
+                            } else {
+                                let child = self.emit_option_value_temp(value_slot, range)?;
+                                self.assign_pattern_from_slot(&arguments[0].pattern, child)?;
+                            }
+                        }
                     }
                 } else if constructor != "None" {
-                    for (index, argument) in arguments.iter().enumerate() {
-                        self.emit_element_read(value_slot, index, argument.range());
-                        self.assign_pattern_from_top(argument)?;
+                    match &variant_pat.mode {
+                        phalcom_ast::ast::VariantPatternMode::ExactCall { arguments } => {
+                            for (index, argument) in arguments.iter().enumerate() {
+                                self.emit_element_read(value_slot, index, argument.pattern.range());
+                                self.assign_pattern_from_top(&argument.pattern)?;
+                            }
+                        }
+                        phalcom_ast::ast::VariantPatternMode::CallablePattern { prefix, suffix, .. } => {
+                            for (index, argument) in prefix.iter().enumerate() {
+                                self.emit_element_read(value_slot, index, argument.pattern.range());
+                                self.assign_pattern_from_top(&argument.pattern)?;
+                            }
+                            for (index, argument) in suffix.iter().enumerate() {
+                                self.emit_element_read(value_slot, prefix.len() + index, argument.pattern.range());
+                                self.assign_pattern_from_top(&argument.pattern)?;
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -376,13 +436,18 @@ impl<'vm> Compiler<'vm> {
             }
             Pattern::Tuple { range, .. }
             | Pattern::List { range, .. }
-            | Pattern::Variant { range, .. }
             | Pattern::Record { range, .. }
             | Pattern::Map { range, .. } => {
                 let slot = self.reserve_pack_scratch("$destructure", *range)?;
                 self.emit(Bytecode::SetLocal(slot), *range);
                 self.compile_pattern_bind_from_slot(pattern, slot, mutable, as_global)
             }
+            Pattern::Variant(variant_pat) => {
+                let slot = self.reserve_pack_scratch("$destructure", variant_pat.range)?;
+                self.emit(Bytecode::SetLocal(slot), variant_pat.range);
+                self.compile_pattern_bind_from_slot(pattern, slot, mutable, as_global)
+            }
+            Pattern::Or { .. } | Pattern::Wildcard { .. } => Ok(()),
         }
     }
 
@@ -408,6 +473,13 @@ impl<'vm> Compiler<'vm> {
                 let range = pattern.range();
                 self.emit(Bytecode::GetLocal(value_slot), range);
                 self.compile_pattern_bind_top_of_stack(pattern, mutable, as_global)
+            }
+            Pattern::Wildcard { .. } => Ok(()),
+            Pattern::Or { alternatives, .. } => {
+                for p in alternatives {
+                    self.compile_pattern_bind_from_slot(p, value_slot, mutable, as_global)?;
+                }
+                Ok(())
             }
             Pattern::Tuple { elements, range } => {
                 self.emit_required_class_check(value_slot, "Tuple", *range);
@@ -436,27 +508,48 @@ impl<'vm> Compiler<'vm> {
                 }
                 Ok(())
             }
-            Pattern::Variant { constructor, arguments, range } => {
+            Pattern::Variant(variant_pat) => {
+                let range = variant_pat.range;
+                let constructor = &variant_pat.base;
                 if constructor == "Some" {
-                    if arguments.len() != 1 {
-                        return Err(CompilerError::Message("Some pattern requires exactly one payload pattern".into()));
+                    if let phalcom_ast::ast::VariantPatternMode::ExactCall { arguments } = &variant_pat.mode {
+                        if arguments.len() != 1 {
+                            return Err(CompilerError::Message("Some pattern requires exactly one payload pattern".into()));
+                        }
+                        self.emit_required_predicate(value_slot, "isSome", range);
+                        let child = self.emit_option_value_temp(value_slot, range)?;
+                        self.compile_pattern_bind_from_slot(&arguments[0].pattern, child, mutable, as_global)?;
                     }
-                    self.emit_required_predicate(value_slot, "isSome", *range);
-                    let child = self.emit_option_value_temp(value_slot, *range)?;
-                    self.compile_pattern_bind_from_slot(&arguments[0], child, mutable, as_global)?;
                 } else if constructor == "None" {
-                    if !arguments.is_empty() {
-                        return Err(CompilerError::Message("None pattern cannot carry payloads".into()));
-                    }
-                    self.emit_required_predicate(value_slot, "isNone", *range);
+                    self.emit_required_predicate(value_slot, "isNone", range);
                 } else {
-                    self.emit_required_class_check(value_slot, constructor, *range);
-                    let message = format!("destructuring pattern {} expected {} argument(s)", constructor, arguments.len());
-                    self.emit_pattern_arity_check(value_slot, arguments.len(), false, message, *range);
-                    for (index, argument) in arguments.iter().enumerate() {
-                        self.emit_element_read(value_slot, index, argument.range());
-                        let child = self.claim_pattern_temp("$destructure_variant", argument.range())?;
-                        self.compile_pattern_bind_from_slot(argument, child, mutable, as_global)?;
+                    self.emit_required_class_check(value_slot, constructor, range);
+                    match &variant_pat.mode {
+                        phalcom_ast::ast::VariantPatternMode::ExactCall { arguments } => {
+                            let message = format!("destructuring pattern {} expected {} argument(s)", constructor, arguments.len());
+                            self.emit_pattern_arity_check(value_slot, arguments.len(), false, message, range);
+                            for (index, argument) in arguments.iter().enumerate() {
+                                self.emit_element_read(value_slot, index, argument.pattern.range());
+                                let child = self.claim_pattern_temp("$destructure_variant", argument.pattern.range())?;
+                                self.compile_pattern_bind_from_slot(&argument.pattern, child, mutable, as_global)?;
+                            }
+                        }
+                        phalcom_ast::ast::VariantPatternMode::CallablePattern { prefix, suffix, .. } => {
+                            let total_len = prefix.len() + suffix.len();
+                            let message = format!("destructuring pattern {} expected {} argument(s)", constructor, total_len);
+                            self.emit_pattern_arity_check(value_slot, total_len, false, message, range);
+                            for (index, argument) in prefix.iter().enumerate() {
+                                self.emit_element_read(value_slot, index, argument.pattern.range());
+                                let child = self.claim_pattern_temp("$destructure_variant", argument.pattern.range())?;
+                                self.compile_pattern_bind_from_slot(&argument.pattern, child, mutable, as_global)?;
+                            }
+                            for (index, argument) in suffix.iter().enumerate() {
+                                self.emit_element_read(value_slot, prefix.len() + index, argument.pattern.range());
+                                let child = self.claim_pattern_temp("$destructure_variant", argument.pattern.range())?;
+                                self.compile_pattern_bind_from_slot(&argument.pattern, child, mutable, as_global)?;
+                            }
+                        }
+                        _ => {}
                     }
                 }
                 Ok(())

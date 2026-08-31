@@ -2612,60 +2612,62 @@ fn bind_pattern(ctx: &mut CheckingContext<'_>, pattern: &Pattern, fact: ValueSem
     }
 }
 
-pub fn synthesize_match_expr(
-    ctx: &mut CheckingContext<'_>,
-    match_expr: &phalcom_ast::ast::MatchExpr,
-    expected: &ExpectedType,
-) -> TypedExpression {
+pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom_ast::ast::MatchExpr, expected: &ExpectedType) -> TypedExpression {
     let expr_id = ctx.current_expression_id().unwrap_or_else(|| ctx.alloc_expression_id());
     let scrutinee_typed = analyze_expression(ctx, &match_expr.value, &ExpectedType::None);
     let scrutinee_ty = scrutinee_typed.knowledge.ty().unwrap_or_else(|| ctx.store.unit());
+    let before_flow = ctx.flow.clone();
+    let stable_scrutinee = match match_expr.value.as_ref() {
+        Expr::Var { value, .. } => ctx.lookup_binding_info(value).map(|binding| binding.id),
+        _ => None,
+    };
 
     let initial_space = crate::checker::exhaustiveness::build_initial_pattern_space(ctx, scrutinee_ty);
 
     let mut arm_spaces = Vec::with_capacity(match_expr.arms.len());
     let mut arm_ranges = Vec::with_capacity(match_expr.arms.len());
     let mut arm_data = Vec::with_capacity(match_expr.arms.len());
-    let mut branch_types = Vec::new();
+    let mut normal_branch_types = Vec::new();
+    let mut normal_branch_flows = Vec::new();
 
     for arm in &match_expr.arms {
+        ctx.flow = before_flow.clone();
         ctx.push_scope();
         let mut arm_bindings = Vec::new();
-        let (pattern_res, arm_space) = crate::checker::pattern::resolve_pattern(
-            ctx,
-            &arm.pattern,
-            scrutinee_ty,
-            &initial_space,
-            &mut arm_bindings,
-        );
+        let (pattern_res, arm_space) = crate::checker::pattern::resolve_pattern(ctx, &arm.pattern, scrutinee_ty, &initial_space, &mut arm_bindings);
+
+        if let (Some(binding), Some(exact_case)) = (stable_scrutinee, pattern_exact_case_type(ctx, &pattern_res)) {
+            ctx.apply_flow_predicate(&crate::checker::flow::FlowPredicate::IsInstance { binding, target: exact_case }.authoritative());
+        }
 
         let branch_typed = analyze_expression(ctx, &arm.branch, expected);
         ctx.pop_scope();
+        let mut branch_flow = ctx.flow.clone();
+        for pattern_binding in &arm_bindings {
+            branch_flow.bindings.remove(&pattern_binding.binding);
+            branch_flow.facts.invalidate_binding(pattern_binding.binding);
+        }
+        if branch_flow.is_reachable() {
+            normal_branch_types.push(branch_typed.knowledge.clone());
+            normal_branch_flows.push(branch_flow);
+        }
+        ctx.flow = before_flow.clone();
 
         arm_spaces.push(arm_space);
         arm_ranges.push(arm.range);
-        branch_types.push(branch_typed.knowledge.clone());
 
-        let proof = match &pattern_res {
-            crate::match_semantics::PatternResolution::Variant(v) => {
-                v.candidates.first().map(|c| c.proof.clone()).unwrap_or_default()
-            }
-            _ => crate::match_semantics::BranchProofEnvironment::default(),
-        };
+        let proof = pattern_common_proof(&pattern_res);
 
         arm_data.push((pattern_res, arm_bindings, branch_typed.knowledge, proof));
     }
 
-    let (exhaustiveness, arm_space_results) = crate::checker::exhaustiveness::evaluate_match_exhaustiveness(
-        ctx,
-        &initial_space,
-        &arm_spaces,
-        &arm_ranges,
-        match_expr.range,
-    );
+    let (exhaustiveness, arm_space_results) =
+        crate::checker::exhaustiveness::evaluate_match_exhaustiveness(ctx, &initial_space, &arm_spaces, &arm_ranges, match_expr.range);
 
     let mut arm_resolutions = Vec::with_capacity(match_expr.arms.len());
-    for (i, ((reachable, residual, usefulness), (pattern_res, arm_bindings, branch_result, proof))) in arm_space_results.into_iter().zip(arm_data.into_iter()).enumerate() {
+    for (i, ((reachable, residual, usefulness), (pattern_res, arm_bindings, branch_result, proof))) in
+        arm_space_results.into_iter().zip(arm_data.into_iter()).enumerate()
+    {
         arm_resolutions.push(crate::match_semantics::MatchArmResolution {
             arm_index: i as u32,
             pattern: pattern_res,
@@ -2678,10 +2680,27 @@ pub fn synthesize_match_expr(
         });
     }
 
-    let unified_result = if branch_types.is_empty() {
+    ctx.flow = if normal_branch_flows.is_empty() {
+        FlowState::unreachable()
+    } else if normal_branch_flows.len() == 1 {
+        match normal_branch_flows.pop() {
+            Some(flow) => flow,
+            None => FlowState::unreachable(),
+        }
+    } else {
+        match ctx.join_flow_states(&normal_branch_flows) {
+            Ok(flow) => flow,
+            Err(failure) => {
+                ctx.publish_flow_join_failure(failure, match_expr.range);
+                before_flow
+            }
+        }
+    };
+
+    let unified_result = if normal_branch_types.is_empty() {
         TypeKnowledge::established(ctx.store.unit(), EvidenceOrigin::Flow)
     } else {
-        branch_types.first().cloned().unwrap_or_else(|| TypeKnowledge::established(ctx.store.unit(), EvidenceOrigin::Flow))
+        crate::types::evidence::join_type_knowledge(ctx.store, normal_branch_types)
     };
 
     let resolution = crate::match_semantics::MatchResolution {
@@ -2697,3 +2716,45 @@ pub fn synthesize_match_expr(
     TypedExpression::new(unified_result)
 }
 
+/// Returns the exact-case union established by a successful root pattern.
+fn pattern_exact_case_type(ctx: &mut CheckingContext<'_>, resolution: &crate::match_semantics::PatternResolution) -> Option<TypeId> {
+    match resolution {
+        crate::match_semantics::PatternResolution::Variant(variant) => {
+            let exact_cases = variant.candidates.iter().map(|candidate| candidate.exact_case).collect::<Vec<_>>();
+            (!exact_cases.is_empty()).then(|| ctx.store.union(&exact_cases))
+        }
+        crate::match_semantics::PatternResolution::Or(or_pattern) => {
+            let exact_cases = or_pattern
+                .alternatives
+                .iter()
+                .filter_map(|alternative| pattern_exact_case_type(ctx, alternative))
+                .collect::<Vec<_>>();
+            (!exact_cases.is_empty()).then(|| ctx.store.union(&exact_cases))
+        }
+        _ => None,
+    }
+}
+
+/// Keeps only GADT facts established by every reachable pattern alternative.
+fn pattern_common_proof(resolution: &crate::match_semantics::PatternResolution) -> crate::match_semantics::BranchProofEnvironment {
+    let alternatives = match resolution {
+        crate::match_semantics::PatternResolution::Variant(variant) => variant.candidates.iter().map(|candidate| candidate.proof.clone()).collect::<Vec<_>>(),
+        crate::match_semantics::PatternResolution::Or(or_pattern) => or_pattern.alternatives.iter().map(pattern_common_proof).collect::<Vec<_>>(),
+        _ => return crate::match_semantics::BranchProofEnvironment::default(),
+    };
+    let Some(first) = alternatives.first() else {
+        return crate::match_semantics::BranchProofEnvironment::default();
+    };
+    let mut proof = first.clone();
+    proof
+        .bindings
+        .retain(|parameter, ty| alternatives.iter().all(|alternative| alternative.bindings.get(parameter) == Some(ty)));
+    proof.equalities = proof
+        .equalities
+        .iter()
+        .filter(|equality| alternatives.iter().all(|alternative| alternative.equalities.contains(equality)))
+        .cloned()
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    proof
+}

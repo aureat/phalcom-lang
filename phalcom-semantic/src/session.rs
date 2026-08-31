@@ -969,7 +969,11 @@ impl SemanticWorkspaceSession {
                                         .filter(|p| p.rest_mode == phalcom_ast::ast::RestMode::None)
                                         .map(|p| {
                                             if let Some(ref l) = p.label {
-                                                phalcom_common::selector::SelectorSlot::Label(l.clone())
+                                                if l == "_" {
+                                                    phalcom_common::selector::SelectorSlot::Positional
+                                                } else {
+                                                    phalcom_common::selector::SelectorSlot::Label(l.clone())
+                                                }
                                             } else {
                                                 phalcom_common::selector::SelectorSlot::Positional
                                             }
@@ -2012,7 +2016,11 @@ fn advisory_callable_member<'a>(declaration: &DeclarationId, member: &'a ClassMe
                 .filter(|parameter| parameter.rest_mode == phalcom_ast::ast::RestMode::None)
                 .map(|parameter| {
                     parameter.label.as_ref().map_or(phalcom_common::selector::SelectorSlot::Positional, |label| {
-                        phalcom_common::selector::SelectorSlot::Label(label.clone())
+                        if label == "_" {
+                            phalcom_common::selector::SelectorSlot::Positional
+                        } else {
+                            phalcom_common::selector::SelectorSlot::Label(label.clone())
+                        }
                     })
                 })
                 .collect::<Vec<_>>();
@@ -2274,7 +2282,11 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
                                 .filter(|p| p.rest_mode == phalcom_ast::ast::RestMode::None)
                                 .map(|p| {
                                     if let Some(ref label) = p.label {
-                                        phalcom_common::selector::SelectorSlot::Label(label.clone())
+                                        if label == "_" {
+                                            phalcom_common::selector::SelectorSlot::Positional
+                                        } else {
+                                            phalcom_common::selector::SelectorSlot::Label(label.clone())
+                                        }
                                     } else {
                                         phalcom_common::selector::SelectorSlot::Positional
                                     }

@@ -145,6 +145,8 @@ fn try_resolve_contextual_singleton(
         return None;
     }
 
+    ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::EnumDeclaration(owner.clone()));
+
     let exact_case = ctx.store.exact_case_type(variant_id, expected_ty).unwrap_or(variant_info.exact_case_template);
     let family_id = variant_info.family.clone().unwrap_or_else(|| VariantFamilyId::new(owner.clone(), name));
 
@@ -179,16 +181,40 @@ fn resolve_variant_pattern(
     _expected_space: &PatternSpace,
     bindings: &mut Vec<PatternBindingResolution>,
 ) -> (ResolvedVariantPattern, PatternSpace) {
+    let expected_nominal_decl = ctx.store.nominal_origin_declaration(expected_ty).cloned();
+
     let owner_decl = if let Some(ref owner_ref) = variant_pat.owner {
-        DeclarationId::new(ctx.current_module.clone(), owner_ref.root.clone().into())
+        let decl = DeclarationId::new(ctx.current_module.clone(), owner_ref.root.clone().into());
+        if let Some(ref exp_decl) = expected_nominal_decl {
+            if &decl != exp_decl {
+                ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    crate::diagnostic::DiagnosticCode::MatchPatternContradictory,
+                    format!("pattern type `{}` cannot match scrutinee nominal type `{}`", decl.name, exp_decl.name),
+                    variant_pat.range,
+                ));
+            }
+        }
+        decl
     } else {
-        ctx.store.nominal_origin_declaration(expected_ty).cloned().unwrap_or_else(|| {
+        expected_nominal_decl.unwrap_or_else(|| {
             DeclarationId::new(ctx.current_module.clone(), variant_pat.base.clone().into())
         })
     };
 
+    ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::EnumDeclaration(owner_decl.clone()));
+
     let enum_table = ctx.enum_table.cloned();
     let enum_info = enum_table.as_ref().and_then(|t| t.enums.get(&owner_decl).cloned());
+
+    if enum_info.is_none() {
+        ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            crate::diagnostic::DiagnosticCode::MatchPatternUnresolved,
+            format!("type `{}` is not an enum or cannot be resolved", owner_decl.name),
+            variant_pat.range,
+        ));
+    }
 
     let constraint = match &variant_pat.mode {
         VariantPatternMode::WholeFamily { .. } => VariantSelectorConstraint::WholeFamily,
@@ -219,11 +245,28 @@ fn resolve_variant_pattern(
     let mut candidate_spaces = Vec::new();
 
     if let (Some(table), Some(info)) = (&enum_table, &enum_info) {
-        for variant_id in info.variants.iter() {
+        let matching_base_variants: Vec<_> = info.variants.iter().filter(|v| match &v.selector.base {
+            SelectorBase::Named(name) => name == &variant_pat.base,
+            _ => false,
+        }).collect();
+
+        if matching_base_variants.is_empty() {
+            ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                crate::diagnostic::DiagnosticCode::MatchPatternUnresolved,
+                format!("variant `{}` not found in enum `{}`", variant_pat.base, owner_decl.name),
+                variant_pat.range,
+            ));
+        }
+
+        let mut matched_any_variant = false;
+
+        for variant_id in matching_base_variants.iter() {
             let Some(v_info) = table.variants.get(variant_id) else { continue; };
             if !matches_selector_constraint(&v_info.id.selector, &variant_pat.base, &constraint) {
                 continue;
             }
+            matched_any_variant = true;
 
             let gadt_res = crate::checker::gadt_proof::solve_gadt_branch_proof(
                 ctx.store,
@@ -260,7 +303,7 @@ fn resolve_variant_pattern(
                             (f.id.clone(), TypeKnowledge::established(f_ty, EvidenceOrigin::Flow))
                         } else {
                             (
-                                crate::identity::VariantFieldId::new(variant_id.clone(), i as u32),
+                                crate::identity::VariantFieldId::new((*variant_id).clone(), i as u32),
                                 TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
                             )
                         };
@@ -300,7 +343,7 @@ fn resolve_variant_pattern(
                             (f.id.clone(), TypeKnowledge::established(f_ty, EvidenceOrigin::Flow))
                         } else {
                             (
-                                crate::identity::VariantFieldId::new(variant_id.clone(), field_idx as u32),
+                                crate::identity::VariantFieldId::new((*variant_id).clone(), field_idx as u32),
                                 TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
                             )
                         };
@@ -334,7 +377,7 @@ fn resolve_variant_pattern(
                             (f.id.clone(), TypeKnowledge::established(f_ty, EvidenceOrigin::Flow))
                         } else {
                             (
-                                crate::identity::VariantFieldId::new(variant_id.clone(), field_idx as u32),
+                                crate::identity::VariantFieldId::new((*variant_id).clone(), field_idx as u32),
                                 TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
                             )
                         };
@@ -362,18 +405,80 @@ fn resolve_variant_pattern(
             }
 
             candidate_resolutions.push(ResolvedVariantCandidate {
-                variant: variant_id.clone(),
+                variant: (*variant_id).clone(),
                 exact_case,
                 fields: resolved_fields.into_boxed_slice(),
                 proof: proof.clone(),
             });
 
             candidate_spaces.push(PatternSpace::Variant(VariantSpace {
-                variant: variant_id.clone(),
+                variant: (*variant_id).clone(),
                 exact_case,
                 fields: field_spaces.into_boxed_slice(),
                 proof,
             }));
+        }
+
+        if !matching_base_variants.is_empty() && !matched_any_variant {
+            for variant_id in matching_base_variants.iter() {
+                let Some(v_info) = table.variants.get(variant_id) else { continue; };
+                match &variant_pat.mode {
+                    VariantPatternMode::ExactCall { arguments } => {
+                        if v_info.fields.len() != arguments.len() {
+                            ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                                ctx.current_module.clone(),
+                                crate::diagnostic::DiagnosticCode::MatchPatternArityMismatch,
+                                format!("variant `{}` expects {} arguments, got {}", v_info.id.selector, v_info.fields.len(), arguments.len()),
+                                variant_pat.range,
+                            ));
+                        }
+                        for arg in arguments.iter() {
+                            if let Some(ref label) = arg.label {
+                                if !v_info.fields.iter().any(|f| f.external_label.as_deref() == Some(label)) {
+                                    ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                                        ctx.current_module.clone(),
+                                        crate::diagnostic::DiagnosticCode::MatchPatternFieldMismatch,
+                                        format!("field label `{}` does not match any field of variant `{}`", label, v_info.id.selector),
+                                        arg.range,
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    VariantPatternMode::CallablePattern { prefix, suffix, .. } => {
+                        if prefix.len() + suffix.len() > v_info.fields.len() {
+                            ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                                ctx.current_module.clone(),
+                                crate::diagnostic::DiagnosticCode::MatchPatternArityMismatch,
+                                format!("too many pattern arguments for variant `{}`", v_info.id.selector),
+                                variant_pat.range,
+                            ));
+                        }
+                        for arg in prefix.iter().chain(suffix.iter()) {
+                            if let Some(ref label) = arg.label {
+                                if !v_info.fields.iter().any(|f| f.external_label.as_deref() == Some(label)) {
+                                    ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                                        ctx.current_module.clone(),
+                                        crate::diagnostic::DiagnosticCode::MatchPatternFieldMismatch,
+                                        format!("field label `{}` does not match any field of variant `{}`", label, v_info.id.selector),
+                                        arg.range,
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        if !matching_base_variants.is_empty() && candidate_resolutions.is_empty() && matched_any_variant {
+            ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                crate::diagnostic::DiagnosticCode::MatchPatternContradictory,
+                format!("pattern `{}` is contradictory for scrutinee type", variant_pat.base),
+                variant_pat.range,
+            ));
         }
     }
 

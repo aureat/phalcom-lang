@@ -95,7 +95,14 @@ fn shape_from_type(store: &TypeStore, ty: TypeId, depth: usize) -> ValueShape {
                 .collect::<Vec<_>>()
                 .into(),
         ),
-        TypeData::Record(_) | TypeData::Callable(_) | TypeData::Family(_) | TypeData::Parameter(_) | TypeData::Lambda(_) | TypeData::SelfType(_) => {
+        TypeData::SelfType(term) => match term.role {
+            SelfRole::InstanceType => ValueShape::Instance(term.owner.clone()),
+            SelfRole::ReceiverValue => match term.side {
+                crate::identity::DispatchSide::Class => ValueShape::ClassObject(term.owner.clone()),
+                crate::identity::DispatchSide::Instance => ValueShape::Instance(term.owner.clone()),
+            },
+        },
+        TypeData::Record(_) | TypeData::Callable(_) | TypeData::Family(_) | TypeData::Parameter(_) | TypeData::Lambda(_) => {
             ValueShape::Unknown
         }
     }

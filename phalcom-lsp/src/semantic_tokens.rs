@@ -168,6 +168,7 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
         | Token::Fn
         | Token::Class
         | Token::Enum
+        | Token::Match
         | Token::Where
         | Token::TypeKw
         | Token::Return
@@ -214,6 +215,7 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
         | Token::GreaterEqual
         | Token::Subtype
         | Token::TypeLambdaArrow
+        | Token::FatArrow
         | Token::Spaceship
         | Token::PlusEqual
         | Token::MinusEqual

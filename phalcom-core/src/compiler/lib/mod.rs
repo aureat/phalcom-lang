@@ -510,11 +510,25 @@ impl<'vm> Compiler<'vm> {
                         collect_pattern(rest, out);
                     }
                 }
-                phalcom_ast::ast::Pattern::Variant { arguments, .. } => {
-                    for argument in arguments {
-                        collect_pattern(argument, out);
+                phalcom_ast::ast::Pattern::Variant(variant_pat) => match &variant_pat.mode {
+                    phalcom_ast::ast::VariantPatternMode::ExactCall { arguments } => {
+                        for arg in arguments {
+                            collect_pattern(&arg.pattern, out);
+                        }
+                    }
+                    phalcom_ast::ast::VariantPatternMode::CallablePattern { prefix, suffix, .. } => {
+                        for arg in prefix.iter().chain(suffix.iter()) {
+                            collect_pattern(&arg.pattern, out);
+                        }
+                    }
+                    _ => {}
+                },
+                phalcom_ast::ast::Pattern::Or { alternatives, .. } => {
+                    for p in alternatives {
+                        collect_pattern(p, out);
                     }
                 }
+                phalcom_ast::ast::Pattern::Wildcard { .. } => {}
                 phalcom_ast::ast::Pattern::Record { entries, .. } => {
                     for entry in entries {
                         collect_pattern(&entry.pattern, out);

@@ -425,10 +425,10 @@ impl<'a> EditorSemanticQuery<'a> {
             expression_site
                 .as_ref()
                 .and_then(|site| self.formal_shape_for_site(site))
-                .or_else(|| target_site.and_then(|site| self.formal_shape_for_site(site)))
-                .or_else(|| self.formal_shape_at(module, range.start))
                 .or_else(|| expression_site.as_ref().and_then(advisory_shape_for_site))
+                .or_else(|| target_site.and_then(|site| self.formal_shape_for_site(site)))
                 .or_else(|| target_site.and_then(advisory_shape_for_site))
+                .or_else(|| self.formal_shape_at(module, range.start))
                 .or_else(|| occurrence_site.as_ref().and_then(advisory_shape_for_site))
                 .or_else(|| match target.as_ref() {
                     Some(SemanticTargetId::Module(module)) => Some(ValueShape::Module(module.clone())),

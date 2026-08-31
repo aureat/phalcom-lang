@@ -218,8 +218,11 @@ impl<'a> TrackingTypeHierarchy<'a> {
 
 impl TypeHierarchy for TrackingTypeHierarchy<'_> {
     fn superclass(&self, declaration: &DeclarationId) -> Option<&DeclarationId> {
-        record_hierarchy_dependency(&self.dependencies, declaration);
-        self.inner.superclass(declaration)
+        let parent = self.inner.superclass(declaration);
+        if parent.is_some() {
+            record_hierarchy_dependency(&self.dependencies, declaration);
+        }
+        parent
     }
 
     fn is_subclass(&self, sub: &DeclarationId, sup: &DeclarationId) -> bool {
@@ -230,10 +233,10 @@ impl TypeHierarchy for TrackingTypeHierarchy<'_> {
         let mut current = sub;
         let mut visited = BTreeSet::new();
         while visited.insert(current.clone()) {
-            record_hierarchy_dependency(&self.dependencies, current);
             let Some(parent) = self.inner.superclass(current) else {
                 return false;
             };
+            record_hierarchy_dependency(&self.dependencies, current);
             if parent == sup {
                 return true;
             }
@@ -243,8 +246,11 @@ impl TypeHierarchy for TrackingTypeHierarchy<'_> {
     }
 
     fn supertype_template(&self, declaration: &DeclarationId) -> Option<&crate::declarations::GenericSupertypeTemplate> {
-        record_hierarchy_dependency(&self.dependencies, declaration);
-        self.inner.supertype_template(declaration)
+        let template = self.inner.supertype_template(declaration);
+        if template.is_some() {
+            record_hierarchy_dependency(&self.dependencies, declaration);
+        }
+        template
     }
 }
 

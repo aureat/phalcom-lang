@@ -1409,6 +1409,7 @@ impl<'vm> Compiler<'vm> {
             }
             Expr::IfLet(if_let) => self.compile_if_let(*if_let)?,
             Expr::WhileLet(while_let) => self.compile_while_let(*while_let)?,
+            Expr::Match(match_expr) => self.compile_match_expr(match_expr)?,
             Expr::Ellipsis { range } => {
                 self.emit(Bytecode::GetEllipsis, range);
             }
@@ -1663,6 +1664,48 @@ impl<'vm> Compiler<'vm> {
         Ok(())
     }
 
+    fn compile_match_expr(&mut self, node: phalcom_ast::ast::MatchExpr) -> Result<(), CompilerError> {
+        let range = node.range;
+        self.begin_scope();
+        self.compile_expr(*node.value)?;
+        let value_slot = self.reserve_pack_scratch("$match_value", range)?;
+        self.emit(Bytecode::SetLocal(value_slot), range);
+        self.emit(Bytecode::Pop, range);
+
+        let mut end_jumps = Vec::new();
+
+        for arm in node.arms {
+            self.begin_scope();
+            let pattern_base = self.functions.last().unwrap().num_locals;
+            self.declare_pattern_locals(&arm.pattern, false)?;
+            let mut failures = Vec::new();
+            self.emit_pattern_match_tests(&arm.pattern, value_slot, &mut failures)?;
+            self.commit_pattern_bindings(&arm.pattern, value_slot)?;
+            let match_local_count = self.functions.last().unwrap().num_locals - pattern_base;
+            self.compile_expr(*arm.branch)?;
+            self.end_scope(arm.range);
+            self.emit_release_scratch_range(pattern_base as u16, match_local_count, arm.range);
+            let jump_end = self.emit_forward_jump(Bytecode::Jump, arm.range);
+            end_jumps.push(jump_end);
+
+            let next_arm_label = self.chunk_len();
+            for jump in failures {
+                self.patch_forward_jump_to(jump, next_arm_label);
+            }
+            self.emit_release_scratch_range(pattern_base as u16, match_local_count, arm.range);
+        }
+
+        self.emit(Bytecode::Nil, range);
+
+        let end_label = self.chunk_len();
+        for jump in end_jumps {
+            self.patch_forward_jump_to(jump, end_label);
+        }
+        self.emit_release_scratch_range(value_slot, 1, range);
+        self.end_scope(range);
+        Ok(())
+    }
+
     fn compile_product_label(
         &mut self,
         label: ProductLabel,
@@ -1836,13 +1879,19 @@ fn bilateral_operator_spec(op: &BinaryOp) -> (&'static str, &'static str, &'stat
         BinaryOp::Multiply => ("*", "*", "*", false),
         BinaryOp::Divide => ("/", "/", "/", false),
         BinaryOp::IntegerDivide => ("~/", "~/", "~/", false),
-        BinaryOp::Power => ("**", "**", "**", false),
         BinaryOp::Modulo => ("%", "%", "%", false),
+        BinaryOp::Power => ("**", "**", "**", false),
+        BinaryOp::Equal => ("==", "==", "==", false),
+        BinaryOp::NotEqual => ("!=", "!=", "!=", false),
+        BinaryOp::LessThan => ("<", "<", ">", false),
+        BinaryOp::LessThanOrEqual => ("<=", "<=", ">=", false),
+        BinaryOp::GreaterThan => (">", ">", "<", false),
+        BinaryOp::GreaterThanOrEqual => (">=", ">=", "<=", false),
         BinaryOp::ShiftLeft => ("<<", "<<", "<<", false),
         BinaryOp::ShiftRight => (">>", ">>", ">>", false),
         BinaryOp::BitAnd => ("&", "&", "&", false),
-        BinaryOp::BitXor => ("^", "^", "^", false),
         BinaryOp::BitOr => ("|", "|", "|", false),
+        BinaryOp::BitXor => ("^", "^", "^", false),
         BinaryOp::Compare => ("<=>", "compare", "compare", true),
         _ => unreachable!("non-bilateral operator passed to bilateral_operator_spec"),
     }
@@ -1859,11 +1908,25 @@ fn collect_pattern_names_for_control(pattern: &phalcom_ast::ast::Pattern, out: &
                 collect_pattern_names_for_control(rest, out);
             }
         }
-        phalcom_ast::ast::Pattern::Variant { arguments, .. } => {
-            for argument in arguments {
-                collect_pattern_names_for_control(argument, out);
+        phalcom_ast::ast::Pattern::Variant(variant_pat) => match &variant_pat.mode {
+            phalcom_ast::ast::VariantPatternMode::ExactCall { arguments } => {
+                for arg in arguments {
+                    collect_pattern_names_for_control(&arg.pattern, out);
+                }
+            }
+            phalcom_ast::ast::VariantPatternMode::CallablePattern { prefix, suffix, .. } => {
+                for arg in prefix.iter().chain(suffix.iter()) {
+                    collect_pattern_names_for_control(&arg.pattern, out);
+                }
+            }
+            _ => {}
+        },
+        phalcom_ast::ast::Pattern::Or { alternatives, .. } => {
+            for p in alternatives {
+                collect_pattern_names_for_control(p, out);
             }
         }
+        phalcom_ast::ast::Pattern::Wildcard { .. } => {}
         phalcom_ast::ast::Pattern::Record { entries, .. } => {
             for entry in entries {
                 collect_pattern_names_for_control(&entry.pattern, out);
