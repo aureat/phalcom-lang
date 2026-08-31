@@ -8,6 +8,7 @@ pub(crate) mod match_bindings;
 pub(crate) mod match_diagnostics;
 pub(crate) mod match_matrix;
 pub(crate) mod match_patterns;
+pub(crate) mod match_regressions;
 pub(crate) mod pattern_space;
 pub(crate) mod requirements;
 pub(crate) mod variants;
