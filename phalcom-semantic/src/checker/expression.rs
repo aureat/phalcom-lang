@@ -2623,62 +2623,60 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
     };
 
     let initial_space = crate::checker::exhaustiveness::build_initial_pattern_space(ctx, scrutinee_ty);
-
-    let mut arm_spaces = Vec::with_capacity(match_expr.arms.len());
-    let mut arm_ranges = Vec::with_capacity(match_expr.arms.len());
-    let mut arm_data = Vec::with_capacity(match_expr.arms.len());
+    let mut remaining_space = initial_space.clone().normalize();
+    let mut arm_resolutions = Vec::with_capacity(match_expr.arms.len());
     let mut normal_branch_types = Vec::new();
     let mut normal_branch_flows = Vec::new();
 
-    for arm in &match_expr.arms {
+    for (arm_index, arm) in match_expr.arms.iter().enumerate() {
         ctx.flow = before_flow.clone();
         ctx.push_scope();
         let mut arm_bindings = Vec::new();
         let (pattern_res, arm_space) = crate::checker::pattern::resolve_pattern(ctx, &arm.pattern, scrutinee_ty, &initial_space, &mut arm_bindings);
-
-        if let (Some(binding), Some(exact_case)) = (stable_scrutinee, pattern_exact_case_type(ctx, &pattern_res)) {
-            ctx.apply_flow_predicate(&crate::checker::flow::FlowPredicate::IsInstance { binding, target: exact_case }.authoritative());
-        }
-
-        let branch_typed = analyze_expression(ctx, &arm.branch, expected);
-        ctx.pop_scope();
-        let mut branch_flow = ctx.flow.clone();
-        for pattern_binding in &arm_bindings {
-            branch_flow.bindings.remove(&pattern_binding.binding);
-            branch_flow.facts.invalidate_binding(pattern_binding.binding);
-        }
-        if branch_flow.is_reachable() {
-            normal_branch_types.push(branch_typed.knowledge.clone());
-            normal_branch_flows.push(branch_flow);
-        }
-        ctx.flow = before_flow.clone();
-
-        arm_spaces.push(arm_space);
-        arm_ranges.push(arm.range);
-
+        let (reachable, residual_after, usefulness) =
+            crate::checker::exhaustiveness::evaluate_match_arm_usefulness(ctx, &initial_space, &remaining_space, &arm_space, arm.range);
+        remaining_space = residual_after.clone();
         let proof = pattern_common_proof(&pattern_res);
 
-        arm_data.push((pattern_res, arm_bindings, branch_typed.knowledge, proof));
-    }
+        let analyzed_branch = if usefulness == crate::match_semantics::PatternUsefulness::Useful && !reachable.is_empty() {
+            if let (Some(binding), Some(exact_case)) = (stable_scrutinee, pattern_exact_case_type(ctx, &pattern_res)) {
+                ctx.apply_flow_predicate(&crate::checker::flow::FlowPredicate::IsInstance { binding, target: exact_case }.authoritative());
+            }
+            let branch_typed = analyze_expression(ctx, &arm.branch, expected);
+            Some((branch_typed.knowledge, ctx.flow.clone()))
+        } else {
+            None
+        };
 
-    let (exhaustiveness, arm_space_results) =
-        crate::checker::exhaustiveness::evaluate_match_exhaustiveness(ctx, &initial_space, &arm_spaces, &arm_ranges, match_expr.range);
+        ctx.pop_scope();
+        let branch_result = if let Some((branch_result, mut branch_flow)) = analyzed_branch {
+            for pattern_binding in &arm_bindings {
+                branch_flow.bindings.remove(&pattern_binding.binding);
+                branch_flow.facts.invalidate_binding(pattern_binding.binding);
+            }
+            if branch_flow.is_reachable() {
+                normal_branch_types.push(branch_result.clone());
+                normal_branch_flows.push(branch_flow);
+            }
+            branch_result
+        } else {
+            TypeKnowledge::Unknown(UnknownReason::UncheckedExpression)
+        };
+        ctx.flow = before_flow.clone();
 
-    let mut arm_resolutions = Vec::with_capacity(match_expr.arms.len());
-    for (i, ((reachable, residual, usefulness), (pattern_res, arm_bindings, branch_result, proof))) in
-        arm_space_results.into_iter().zip(arm_data.into_iter()).enumerate()
-    {
         arm_resolutions.push(crate::match_semantics::MatchArmResolution {
-            arm_index: i as u32,
+            arm_index: arm_index as u32,
             pattern: pattern_res,
             reachable_space: reachable.summarize(),
-            residual_after: residual.summarize(),
+            residual_after: residual_after.summarize(),
             bindings: arm_bindings.into_boxed_slice(),
             proof,
             usefulness,
             branch_result,
         });
     }
+
+    let exhaustiveness = crate::checker::exhaustiveness::finalize_match_exhaustiveness(ctx, &remaining_space, match_expr.range);
 
     ctx.flow = if normal_branch_flows.is_empty() {
         FlowState::unreachable()
@@ -2697,11 +2695,7 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
         }
     };
 
-    let unified_result = if normal_branch_types.is_empty() {
-        TypeKnowledge::established(ctx.store.unit(), EvidenceOrigin::Flow)
-    } else {
-        crate::types::evidence::join_type_knowledge(ctx.store, normal_branch_types)
-    };
+    let unified_result = crate::checker::exhaustiveness::join_match_result_knowledge(ctx.store, normal_branch_types);
 
     let resolution = crate::match_semantics::MatchResolution {
         expression: expr_id,
