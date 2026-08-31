@@ -1828,11 +1828,24 @@ pub fn advisory_module_product_fingerprint(product: &crate::advisory::AdvisoryMo
     product.fingerprint
 }
 
-pub fn enum_declaration_input_fingerprint(info: &crate::enum_semantics::EnumInfo) -> InputFingerprint {
+pub fn enum_declaration_input_fingerprint(product: &crate::db::product::EnumDeclarationProduct) -> InputFingerprint {
     let mut hasher = DefaultHasher::new();
-    info.owner.hash(&mut hasher);
-    info.root_form.hash(&mut hasher);
-    info.variants.hash(&mut hasher);
+    product.info.owner.hash(&mut hasher);
+    product.info.root_form.hash(&mut hasher);
+    product.info.variants.hash(&mut hasher);
+    for v in product.variants.iter() {
+        v.id.hash(&mut hasher);
+        v.type_handle.hash(&mut hasher);
+        v.shape.hash(&mut hasher);
+        v.result_type_template.hash(&mut hasher);
+        v.exact_case_template.hash(&mut hasher);
+        for f in &v.fields {
+            f.id.hash(&mut hasher);
+            f.external_label.hash(&mut hasher);
+            f.local_name.hash(&mut hasher);
+            f.declared_type.hash(&mut hasher);
+        }
+    }
     finish_input(hasher)
 }
 
@@ -1846,6 +1859,12 @@ pub fn enum_declaration_product_fingerprint(product: &crate::db::product::EnumDe
         v.shape.hash(&mut hasher);
         v.result_type_template.hash(&mut hasher);
         v.exact_case_template.hash(&mut hasher);
+        for f in &v.fields {
+            f.id.hash(&mut hasher);
+            f.external_label.hash(&mut hasher);
+            f.local_name.hash(&mut hasher);
+            f.declared_type.hash(&mut hasher);
+        }
     }
     finish_product(hasher)
 }

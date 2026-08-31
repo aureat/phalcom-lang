@@ -585,7 +585,6 @@ fn project_associated_resolution(resolution: &AssociatedResolution, snapshot: &S
                         },
                         FamilyMemberTypeKind::Callable,
                     ),
-                    (_, None) => continue,
                 };
                 entries.push(ExecutableFamilyEntry {
                     operation: member.operation.clone(),

@@ -388,66 +388,62 @@ impl SemanticWorkspaceSession {
                         id: decl_id.clone(),
                         kind: DeclarationKind::Class,
                     });
-                    if declarations.get(&decl_id).is_none() {
-                        let kind = if !class_def.generic_parameters.is_empty() {
-                            let param_kinds: Vec<KindId> = class_def
-                                .generic_parameters
-                                .iter()
-                                .map(|p| p.kind.as_ref().map_or(KindId::TYPE, |k| resolve_kind_syntax(&mut self.store, k)))
-                                .collect();
-                            self.store.arrow_kind(param_kinds.into_boxed_slice(), KindId::TYPE)
-                        } else {
-                            KindId::TYPE
-                        };
+                    let kind = if !class_def.generic_parameters.is_empty() {
+                        let param_kinds: Vec<KindId> = class_def
+                            .generic_parameters
+                            .iter()
+                            .map(|p| p.kind.as_ref().map_or(KindId::TYPE, |k| resolve_kind_syntax(&mut self.store, k)))
+                            .collect();
+                        self.store.arrow_kind(param_kinds.into_boxed_slice(), KindId::TYPE)
+                    } else {
+                        KindId::TYPE
+                    };
 
-                        let form = if kind == KindId::TYPE {
-                            self.store.nominal_type(decl_id.clone())
-                        } else {
-                            self.store.nominal_form(decl_id.clone(), kind)
-                        };
-                        let class_obj_type = self.store.class_object_type(decl_id.clone());
-                        declarations.insert(DeclarationTypeInfo {
-                            declaration: decl_id,
-                            form,
-                            class_object_type: class_obj_type,
-                            kind,
-                            generic_signature: None,
-                            supertype_template: None,
-                        });
-                    }
+                    let form = if kind == KindId::TYPE {
+                        self.store.nominal_type(decl_id.clone())
+                    } else {
+                        self.store.nominal_form(decl_id.clone(), kind)
+                    };
+                    let class_obj_type = self.store.class_object_type(decl_id.clone());
+                    declarations.insert(DeclarationTypeInfo {
+                        declaration: decl_id,
+                        form,
+                        class_object_type: class_obj_type,
+                        kind,
+                        generic_signature: None,
+                        supertype_template: None,
+                    });
                 } else if let Statement::Enum(enum_def) = stmt {
                     let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
                     initial_blueprints.push(DeclarationBlueprint {
                         id: decl_id.clone(),
                         kind: DeclarationKind::Class,
                     });
-                    if declarations.get(&decl_id).is_none() {
-                        let kind = if !enum_def.generic_parameters.is_empty() {
-                            let param_kinds: Vec<KindId> = enum_def
-                                .generic_parameters
-                                .iter()
-                                .map(|p| p.kind.as_ref().map_or(KindId::TYPE, |k| resolve_kind_syntax(&mut self.store, k)))
-                                .collect();
-                            self.store.arrow_kind(param_kinds.into_boxed_slice(), KindId::TYPE)
-                        } else {
-                            KindId::TYPE
-                        };
+                    let kind = if !enum_def.generic_parameters.is_empty() {
+                        let param_kinds: Vec<KindId> = enum_def
+                            .generic_parameters
+                            .iter()
+                            .map(|p| p.kind.as_ref().map_or(KindId::TYPE, |k| resolve_kind_syntax(&mut self.store, k)))
+                            .collect();
+                        self.store.arrow_kind(param_kinds.into_boxed_slice(), KindId::TYPE)
+                    } else {
+                        KindId::TYPE
+                    };
 
-                        let form = if kind == KindId::TYPE {
-                            self.store.nominal_type(decl_id.clone())
-                        } else {
-                            self.store.nominal_form(decl_id.clone(), kind)
-                        };
-                        let class_obj_type = self.store.class_object_type(decl_id.clone());
-                        declarations.insert(DeclarationTypeInfo {
-                            declaration: decl_id,
-                            form,
-                            class_object_type: class_obj_type,
-                            kind,
-                            generic_signature: None,
-                            supertype_template: None,
-                        });
-                    }
+                    let form = if kind == KindId::TYPE {
+                        self.store.nominal_type(decl_id.clone())
+                    } else {
+                        self.store.nominal_form(decl_id.clone(), kind)
+                    };
+                    let class_obj_type = self.store.class_object_type(decl_id.clone());
+                    declarations.insert(DeclarationTypeInfo {
+                        declaration: decl_id,
+                        form,
+                        class_object_type: class_obj_type,
+                        kind,
+                        generic_signature: None,
+                        supertype_template: None,
+                    });
                 }
             }
         }

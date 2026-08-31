@@ -43,7 +43,7 @@ class Evaluator {
     assert_eq!(bool_variant.shape, VariantShape::Constructor);
 
     // 3. Match analysis & GADT proof
-    let callable_analysis = case.analysis.snapshot.callable_analyses.values().next().expect("Evaluator method analysis");
+    let callable_analysis = case.analysis.snapshot.callable_analyses.values().find(|c| !c.match_resolutions.is_empty()).expect("Evaluator method analysis");
     assert!(!callable_analysis.match_resolutions.is_empty(), "match analysis produced formal resolution");
 
     // 4. Protocol-neutral reflection projection

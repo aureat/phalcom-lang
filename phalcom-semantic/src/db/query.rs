@@ -634,7 +634,7 @@ pub fn query_enum_declaration(
     product: Arc<crate::db::product::EnumDeclarationProduct>,
 ) -> QueryOutcome<Arc<crate::db::product::EnumDeclarationProduct>> {
     let key = QueryKey::EnumDeclaration(product.info.owner.clone());
-    let input_fingerprint = crate::db::fingerprint::enum_declaration_input_fingerprint(&product.info);
+    let input_fingerprint = crate::db::fingerprint::enum_declaration_input_fingerprint(&product);
     if db.validate_reuse(&key, input_fingerprint) {
         if let Some(cached) = db.product(&key).and_then(|p| p.as_enum_declaration()) {
             db.metrics().record_hit();

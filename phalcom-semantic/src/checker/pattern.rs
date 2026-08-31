@@ -86,9 +86,20 @@ fn resolve_pattern_with_mode(
                 alternative_bindings.push(local_bindings);
             }
 
+            let active_bindings: Vec<Vec<PatternBindingResolution>> = alternative_bindings
+                .iter()
+                .filter(|alt| !alt.is_empty())
+                .cloned()
+                .collect();
+            let bindings_to_commit = if active_bindings.is_empty() {
+                &alternative_bindings[..]
+            } else {
+                &active_bindings[..]
+            };
+
             let replacements = commit_shared_bindings(
                 ctx,
-                &alternative_bindings,
+                bindings_to_commit,
                 bindings,
                 *range,
                 binding_mode,
@@ -483,7 +494,7 @@ fn resolve_variant_pattern(
             let Some(v_info) = table.variants.get(variant_id) else {
                 continue;
             };
-            if !matches_selector_constraint(&v_info.id.selector, &variant_pat.base, &constraint) {
+            if !matches_variant_info(v_info, &variant_pat.base, &constraint, variant_pat) {
                 continue;
             }
             matched_any_variant = true;
@@ -507,7 +518,7 @@ fn resolve_variant_pattern(
                 VariantPatternMode::ExactCall { arguments } => {
                     for (i, argument) in arguments.iter().enumerate() {
                         let field_semantic = if let Some(ref label) = argument.label {
-                            v_info.fields.iter().find(|field| field.external_label.as_deref() == Some(label))
+                            v_info.fields.iter().find(|field| field.external_label.as_deref() == Some(label) || field.local_name.as_ref() == label.as_str())
                         } else {
                             v_info.fields.get(i)
                         };
@@ -553,7 +564,7 @@ fn resolve_variant_pattern(
                                 .fields
                                 .iter()
                                 .enumerate()
-                                .find(|(_, field)| field.external_label.as_deref() == Some(label))
+                                .find(|(_, field)| field.external_label.as_deref() == Some(label) || field.local_name.as_ref() == label.as_str())
                                 .map(|(index, field)| (index, Some(field)))
                                 .unwrap_or((i, None))
                         } else {
@@ -595,7 +606,7 @@ fn resolve_variant_pattern(
                                 .fields
                                 .iter()
                                 .enumerate()
-                                .find(|(_, field)| field.external_label.as_deref() == Some(label))
+                                .find(|(_, field)| field.external_label.as_deref() == Some(label) || field.local_name.as_ref() == label.as_str())
                                 .map(|(index, field)| (index, Some(field)))
                                 .unwrap_or((v_info.fields.len().saturating_sub(suffix.len() - suffix_index), None))
                         } else {
@@ -757,8 +768,13 @@ fn resolve_variant_pattern(
     (resolution, pattern_space)
 }
 
-fn matches_selector_constraint(selector: &Selector, base_name: &str, constraint: &VariantSelectorConstraint) -> bool {
-    let matches_base = match &selector.base {
+fn matches_variant_info(
+    v_info: &crate::enum_semantics::VariantInfo,
+    base_name: &str,
+    constraint: &VariantSelectorConstraint,
+    variant_pat: &VariantPattern,
+) -> bool {
+    let matches_base = match &v_info.id.selector.base {
         SelectorBase::Named(name) => name == base_name,
         _ => false,
     };
@@ -767,7 +783,31 @@ fn matches_selector_constraint(selector: &Selector, base_name: &str, constraint:
     }
     match constraint {
         VariantSelectorConstraint::WholeFamily => true,
-        VariantSelectorConstraint::Exact(exact) => selector == exact,
-        VariantSelectorConstraint::Pattern(pattern) => pattern.matches(selector),
+        VariantSelectorConstraint::Exact(exact) => {
+            if &v_info.id.selector == exact {
+                return true;
+            }
+            if let VariantPatternMode::ExactCall { arguments } = &variant_pat.mode {
+                if arguments.len() == v_info.fields.len() {
+                    let mut matched_all = true;
+                    for (i, arg) in arguments.iter().enumerate() {
+                        let has_match = if let Some(ref label) = arg.label {
+                            v_info.fields.iter().any(|f| f.external_label.as_deref() == Some(label) || f.local_name.as_ref() == label.as_str())
+                        } else {
+                            i < v_info.fields.len()
+                        };
+                        if !has_match {
+                            matched_all = false;
+                            break;
+                        }
+                    }
+                    if matched_all {
+                        return true;
+                    }
+                }
+            }
+            false
+        }
+        VariantSelectorConstraint::Pattern(pattern) => pattern.matches(&v_info.id.selector),
     }
 }

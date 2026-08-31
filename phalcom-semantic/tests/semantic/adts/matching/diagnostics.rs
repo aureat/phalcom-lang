@@ -281,7 +281,7 @@ fn match_diag_15_blocked_analysis_is_not_reported_as_non_exhaustive_proof() {
 
 #[test]
 fn review_m4_01_missing_singleton_presentation_keeps_machine_code_and_source_range() {
-    let case = super::super::support::analyze_adt("enum Option { @variant Some @variant None }\nclass Test { run(_ value: Option) { match value { Option::Some => 1 } } }\n");
+    let case = super::super::support::analyze_adt("enum Maybe { @variant Some @variant None }\nclass Test { run(_ value: Maybe) { match value { Maybe::Some => 1 } } }\n");
     let diagnostic = case.diagnostic(DiagnosticCode::MatchNonExhaustive);
     let presented = phalcom_semantic::DiagnosticPresenter::new(&case.analysis.snapshot).present(diagnostic, phalcom_semantic::DiagnosticDetail::Explain);
     assert_eq!(presented.code, DiagnosticCode::MatchNonExhaustive);
@@ -290,7 +290,7 @@ fn review_m4_01_missing_singleton_presentation_keeps_machine_code_and_source_ran
 
 #[test]
 fn review_m4_02_missing_payload_presentation_has_structured_witness() {
-    let case = super::super::support::analyze_adt("enum Option { @variant Some(_ value: Int) @variant None }\nclass Test { run(_ value: Option) { match value { Option::None => 0 } } }\n");
+    let case = super::super::support::analyze_adt("enum Maybe { @variant Some(_ value: Int) @variant None }\nclass Test { run(_ value: Maybe) { match value { Maybe::None => 0 } } }\n");
     let handle = case.only_match();
     let phalcom_semantic::match_semantics::ExhaustivenessResult::Missing(witnesses) = &handle.resolution().exhaustiveness else { panic!("expected witness") };
     assert!(witnesses.iter().any(|witness| matches!(witness, phalcom_semantic::match_semantics::CoverageWitness::Variant { fields, .. } if fields.len() == 1)));
@@ -299,7 +299,7 @@ fn review_m4_02_missing_payload_presentation_has_structured_witness() {
 #[test]
 #[ignore = "GATED: external-label witness renderer is not yet source-owned"]
 fn review_m4_03_missing_labeled_payload_presentation_uses_external_label() {
-    let case = super::super::support::analyze_adt("enum Option { @variant Some(named value: Int) @variant None }\nclass Test { run(_ value: Option) { match value { Option::None => 0 } } }\n");
+    let case = super::super::support::analyze_adt("enum Maybe { @variant Some(named value: Int) @variant None }\nclass Test { run(_ value: Maybe) { match value { Maybe::None => 0 } } }\n");
     let diagnostic = case.diagnostic(DiagnosticCode::MatchNonExhaustive);
     let presented = phalcom_semantic::DiagnosticPresenter::new(&case.analysis.snapshot).present(diagnostic, phalcom_semantic::DiagnosticDetail::Explain);
     assert_eq!(presented.code, DiagnosticCode::MatchNonExhaustive);
@@ -308,7 +308,7 @@ fn review_m4_03_missing_labeled_payload_presentation_uses_external_label() {
 #[test]
 #[ignore = "RED: singleton/nullary witness rendering needs final presentation contract"]
 fn review_m4_04_missing_singleton_and_nullary_render_differently() {
-    let case = super::super::support::analyze_adt("enum Option { @variant Some @variant Some() }\nclass Test { run(_ value: Option) { match value { Option::Some => 0 } } }\n");
+    let case = super::super::support::analyze_adt("enum Maybe { @variant Some @variant Some() }\nclass Test { run(_ value: Maybe) { match value { Maybe::Some => 0 } } }\n");
     let diagnostic = case.diagnostic(DiagnosticCode::MatchNonExhaustive);
     let presented = phalcom_semantic::DiagnosticPresenter::new(&case.analysis.snapshot).present(diagnostic, phalcom_semantic::DiagnosticDetail::Explain);
     assert_eq!(presented.code, DiagnosticCode::MatchNonExhaustive);
@@ -316,7 +316,7 @@ fn review_m4_04_missing_singleton_and_nullary_render_differently() {
 
 #[test]
 fn review_m4_05_diagnostic_presentation_has_no_debug_format_leakage() {
-    let case = super::super::support::analyze_adt("enum Option { @variant Some @variant None }\nclass Test { run(_ value: Option) { match value { Option::Some => 1 } } }\n");
+    let case = super::super::support::analyze_adt("enum Maybe { @variant Some @variant None }\nclass Test { run(_ value: Maybe) { match value { Maybe::Some => 1 } } }\n");
     let diagnostic = case.diagnostic(DiagnosticCode::MatchNonExhaustive);
     let presented = phalcom_semantic::DiagnosticPresenter::new(&case.analysis.snapshot).present(diagnostic, phalcom_semantic::DiagnosticDetail::Explain);
     let text = format!("{} {:?} {:?}", presented.headline, presented.explanation, presented.guidance);

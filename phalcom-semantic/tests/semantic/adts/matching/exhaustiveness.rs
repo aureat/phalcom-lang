@@ -132,7 +132,7 @@ fn match_exh_03_singleton_coverage_does_not_cover_nullary_constructor() {
 
 #[test]
 fn match_exh_04_distinct_payload_constructors_are_each_required() {
-    let case = analyze_adt("enum Result { @variant Ok(_ value: Int) @variant Error(_ value: String) }\nclass Test { run(_ value: Result) { match value { Result::Ok(x) => x _ => 0 } } }\n");
+    let case = analyze_adt("enum Result { @variant Ok(_ value: Int) @variant Error(_ value: String) }\nclass Test { run(_ value: Result) { match value { Result::Ok(x) => x } } }\n");
     case.only_match().assert_not_exhaustive();
 }
 

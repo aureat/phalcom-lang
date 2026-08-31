@@ -83,7 +83,11 @@ fn adt_incr_05_payload_type_edit_invalidates_binding_product() {
     let source_b = "enum Boxed { @variant Value(_ value: String) }\nclass Test { run(_ value: Boxed) { match value { Boxed::Value(x) => x } } }\n";
     let first = session.update(single_module_input(module.clone(), source_a, 1));
     let second = session.update(single_module_input(module.clone(), source_b, 2));
-    let callable = CallableId::new(DeclarationId::new(module, "Test".into()), Selector::method("run", []).expect("run"), DispatchSide::Instance);
+    let callable = CallableId::new(
+        DeclarationId::new(module, "Test".into()),
+        Selector::method("run", [phalcom_common::selector::SelectorSlot::Positional]).expect("run"),
+        DispatchSide::Instance,
+    );
     let first_analysis = first.snapshot.callable_analyses.get(&callable).expect("first match analysis");
     let second_analysis = second.snapshot.callable_analyses.get(&callable).expect("second match analysis");
     assert!(!Arc::ptr_eq(first_analysis, second_analysis));
