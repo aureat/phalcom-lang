@@ -122,6 +122,8 @@ class Test {
     );
 }
 
+/// LAW: ordered usefulness precedes branch typing, so an arm eliminated by an
+/// earlier pattern cannot contribute value evidence to the match result.
 #[test]
 fn redundant_arm_does_not_contribute_to_match_result() {
     let source = r#"
@@ -160,6 +162,8 @@ class Test {
     );
 }
 
+/// LAW: if every reachable arm exits abruptly, the match expression itself
+/// cannot complete normally and therefore has the bottom type `Never`.
 #[test]
 fn all_abrupt_match_has_never_result() {
     let source = r#"
