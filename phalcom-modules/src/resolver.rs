@@ -52,6 +52,9 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                 if root_seg.name == "core" {
                     return Err(ModuleResolutionError::LegacyCoreImportRemoved);
                 }
+                if root_seg.name == "std" {
+                    return Err(ModuleResolutionError::LegacyStdImportRemoved);
+                }
                 let root_comp =
                     ModuleComponent::from_identifier(&root_seg.name).map_err(|e| ModuleResolutionError::InvalidModuleName(root_seg.name.clone(), e))?;
 

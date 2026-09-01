@@ -460,6 +460,37 @@ fn legacy_core_import_is_deliberately_not_a_public_import_root() {
 }
 
 #[test]
+fn legacy_std_import_reports_migration_diagnostic() {
+    let tmp = TempDir::new().unwrap();
+    let proj_dir = tmp.path().join("proj");
+    fs::create_dir_all(proj_dir.join("src")).unwrap();
+    fs::write(proj_dir.join("project.toml"), "[project]\nname = \"proj\"\nnamespace = \"proj\"\n").unwrap();
+    fs::write(proj_dir.join("src/package.ph"), "").unwrap();
+
+    let mut universe = ProjectUniverse::new();
+    let proj_id = universe.load_root(proj_dir.join("project.toml")).unwrap();
+    let source_provider = FilesystemSourceProvider::new();
+    let mut resolver = ModuleResolver::new(&universe, &source_provider);
+    let importer_id = ModuleId {
+        project: proj_id.into(),
+        path: ModulePath::root(),
+    };
+    let import_std = ImportPath {
+        root: ImportRoot::Absolute(PathSegment {
+            name: "std".to_string(),
+            range: (0..3).into(),
+        }),
+        segments: Vec::new(),
+        range: (0..3).into(),
+    };
+
+    assert!(matches!(
+        resolver.resolve_import(&importer_id, &import_std),
+        Err(ModuleResolutionError::LegacyStdImportRemoved)
+    ));
+}
+
+#[test]
 fn test_metadata_from_ast_maps_all_kinds() {
     let parsed = parse("@!doc(\"project doc\")\nlet x = 1\n", 0);
     assert!(parsed.errors.is_empty());

@@ -77,6 +77,9 @@ pub enum ModuleResolutionError {
     #[error("the public `core` import root has been retired; import from `universe` instead")]
     LegacyCoreImportRemoved,
 
+    #[error("the `std` builtin package was removed; use `universe.<path>`")]
+    LegacyStdImportRemoved,
+
     #[error("Relative import ascends {dots} levels, which exceeds package depth {depth}")]
     RelativeImportBeyondRoot { dots: usize, depth: usize },
 

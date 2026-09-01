@@ -34,7 +34,7 @@ impl ResolvedProject {
     }
 
     /// Returns the precomputed import root table for this project:
-    /// Maps each recognized root component (self namespace + dependency aliases + core) to (ImportRootTarget, is_self).
+    /// Maps each recognized root component (Universe, self namespace, and dependency aliases) to (ImportRootTarget, is_self).
     pub fn import_roots(&self) -> &BTreeMap<ModuleComponent, (ImportRootTarget, bool)> {
         &self.import_roots
     }
