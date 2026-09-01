@@ -1,10 +1,12 @@
 //! Canonical source-visible prelude type policy.
 
-use crate::core_surface::universe_declaration;
 use crate::identity::DeclarationId;
 use phalcom_modules::builtin::UniverseSourceProvider;
 use phalcom_modules::builtin_interface::UniverseSourceDeclarationCatalog;
 use std::collections::BTreeMap;
+use std::sync::{Arc, OnceLock};
+
+static CANONICAL_UNIVERSE_PRELUDE: OnceLock<Arc<PreludeTypeMap>> = OnceLock::new();
 
 /// Canonical source-visible type names supplied implicitly by the Phalcom
 /// prelude.
@@ -35,13 +37,21 @@ impl PreludeTypeMap {
             let Ok((module, name)) = catalog.declaration_for(binding.key) else {
                 continue;
             };
-            let declaration = universe_declaration(binding.key);
-            debug_assert_eq!(declaration.module, module);
-            debug_assert_eq!(declaration.name.as_ref(), name);
-            entries.insert(binding.name.into(), declaration);
+            entries.insert(binding.name.into(), DeclarationId::new(module, name.into()));
         }
 
         Self { entries }
+    }
+
+    /// Returns the single process-stable canonical prelude map.
+    ///
+    /// The map contains only stable source declaration identities; it carries
+    /// no store-local `TypeId` or workspace mutation state, so sharing it is
+    /// safe and prevents resolver/editor policy drift.
+    pub fn shared_canonical_universe() -> Arc<Self> {
+        CANONICAL_UNIVERSE_PRELUDE
+            .get_or_init(|| Arc::new(Self::canonical_universe()))
+            .clone()
     }
 
     pub fn get(&self, name: &str) -> Option<&DeclarationId> {
