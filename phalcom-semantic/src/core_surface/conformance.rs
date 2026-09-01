@@ -7,7 +7,7 @@ use crate::types::store::TypeStore;
 use phalcom_ast::ast::Statement;
 use phalcom_modules::{ModuleComponent, ModulePath, UniverseSourceProvider};
 use phalcom_native_meta::TypeExprSpec;
-use phalcom_native_meta::universe::{UniverseBindingKind, UniverseKey, UNIVERSE_BINDINGS, UNIVERSE_TYPE_FORMS};
+use phalcom_native_meta::universe::{UNIVERSE_BINDINGS, UNIVERSE_TYPE_FORMS, UniverseBindingKind, UniverseKey};
 use phalcom_native_surface::NATIVE_SURFACES;
 use std::collections::HashMap;
 
@@ -72,7 +72,7 @@ fn validate_source_declaration_conformance(store: &mut TypeStore, declarations: 
 
         let Some(info) = declarations.get(&declaration) else {
             failures.push(format!(
-                "{:?}: canonical source declaration {} is absent from semantic declaration table",
+                "{:?}: canonical source declaration {:?} is absent from semantic declaration table",
                 binding.key, declaration
             ));
             continue;
