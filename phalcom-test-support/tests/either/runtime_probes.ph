@@ -92,7 +92,8 @@ let zipValue = zipped.fold(
     }
 )
 
-let runtimeAll = runtimeLeftIsLeft
+let runtimeAll = (
+    runtimeLeftIsLeft
     and not runtimeLeftIsRight
     and not runtimeRightIsLeft
     and runtimeRightIsRight
@@ -111,3 +112,4 @@ let runtimeAll = runtimeLeftIsLeft
     and orElseLeftValue == 100
     and orElseRightValue == 41
     and zipValue == 41
+)
