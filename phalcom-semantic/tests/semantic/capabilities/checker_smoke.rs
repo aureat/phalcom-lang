@@ -1,8 +1,9 @@
+use crate::semantic::support::Fixture;
 use phalcom_ast::parse_source;
 use phalcom_modules::identity::ModuleId;
 use phalcom_native_meta::UniverseKey;
 use phalcom_semantic::checker::check_program;
-use phalcom_semantic::declarations::{bootstrap_universe_declarations, DeclarationTypeTable};
+use phalcom_semantic::declarations::{DeclarationTypeTable, bootstrap_universe_declarations};
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::types::annotation::SimpleTypeResolver;
 use phalcom_semantic::types::relation::MapTypeHierarchy;
@@ -59,13 +60,9 @@ fn detects_binding_initializer_mismatch() {
 
 #[test]
 fn detects_method_return_mismatch() {
-    let (mut store, hier, resolver, decls, module) = setup_test_env();
     let source = "class Port {\n  number -> Int {\n    \"8080\"\n  }\n}\n";
-    let program = parse_source(source, 0).expect("valid parse");
-
-    let report = check_program(&mut store, &hier, &resolver, &decls, module, &program);
-    assert!(report.has_errors(), "expected return mismatch error");
-    assert_eq!(report.diagnostics[0].code, DiagnosticCode::ReturnMismatch);
+    let fixture = Fixture::new(source);
+    assert_eq!(fixture.diagnostics(DiagnosticCode::ReturnMismatch).len(), 1, "expected return mismatch error");
 }
 
 #[test]

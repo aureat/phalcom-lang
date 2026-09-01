@@ -3,6 +3,7 @@ use phalcom_common::selector::Selector;
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_native_meta::UniverseKey;
 use phalcom_semantic::checker::analysis::{CallableAnalysisStatus, SemanticDependency};
+use phalcom_semantic::declarations::bootstrap_universe_declarations;
 use phalcom_semantic::dispatch::{CallableSignature, DispatchLookup, SurfaceDispatchResolver};
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 use phalcom_semantic::surface::DeclarationSurface;
@@ -135,6 +136,29 @@ fn canonical_universe_reads_track_canonical_query_dependencies() {
 }
 
 #[test]
+fn builtin_type_test_dispatch_does_not_require_source_signature_product() {
+    let current = user_module(1, "client");
+    let object_decl = phalcom_semantic::core_surface::universe_declaration(UniverseKey::Object);
+    let owner = DeclarationId::new(current.clone(), "Client".into());
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let resolver = SimpleTypeResolver::new();
+    let declarations = bootstrap_universe_declarations(&mut store, &phalcom_semantic::core_surface::universe_declaration);
+    let object_ty = declarations.form(&object_decl).expect("bootstrap Object declaration form");
+    let selector = Selector::method("is", [phalcom_common::selector::SelectorSlot::Positional]).unwrap();
+
+    let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, current.clone());
+    assert!(ctx.resolve_dispatch(object_ty, &selector, DispatchLookup::Normal).is_found());
+    let analysis = ctx.finalize(callable(owner), SourceRange::default(), CallableAnalysisStatus::Complete);
+    assert!(
+        !analysis
+            .semantic_dependencies
+            .iter()
+            .any(|dependency| { matches!(dependency, SemanticDependency::CallableSignature(callable) if callable.declaration_owner() == &object_decl) })
+    );
+}
+
+#[test]
 fn declaration_metadata_read_records_declaration_shell_dependency() {
     let module = user_module(1, "main");
     let target = DeclarationId::new(module.clone(), "Target".into());
@@ -181,9 +205,11 @@ fn dispatch_lookup_records_surfaces_for_every_owner_inspected() {
     let analysis = ctx.finalize(callable(owner), SourceRange::default(), CallableAnalysisStatus::Complete);
     assert!(analysis.semantic_dependencies.contains(&SemanticDependency::DeclarationSurface(child)));
     assert!(analysis.semantic_dependencies.contains(&SemanticDependency::DeclarationSurface(base.clone())));
-    assert!(analysis
-        .semantic_dependencies
-        .contains(&SemanticDependency::CallableSignature(CallableId::new(base, selector, DispatchSide::Instance,))));
+    assert!(
+        analysis
+            .semantic_dependencies
+            .contains(&SemanticDependency::CallableSignature(CallableId::new(base, selector, DispatchSide::Instance,)))
+    );
 }
 
 #[test]

@@ -8,10 +8,10 @@ use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::source::ModuleKind;
 use phalcom_native_meta::UniverseKey;
 use phalcom_semantic::db::{
-    query_callable_body_with_formal_inputs, query_declaration_surface, CallableBodyQuery, CancellationToken, DeclarationSurfaceQuery, FormalQueryInputs,
-    QueryBudget, QueryKey,
+    CallableBodyQuery, CancellationToken, DeclarationSurfaceQuery, FormalQueryInputs, QueryBudget, QueryKey, query_callable_body_with_formal_inputs,
+    query_declaration_surface,
 };
-use phalcom_semantic::declarations::{bootstrap_universe_declarations, DeclarationTypeInfo};
+use phalcom_semantic::declarations::{DeclarationTypeInfo, bootstrap_universe_declarations};
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 use phalcom_semantic::session::SemanticWorkspaceSession;
 use phalcom_semantic::source::ParsedModuleUnit;
@@ -152,6 +152,76 @@ class Child is Base {
 }
 
 #[test]
+fn transparent_alias_shell_records_complete_alias_dependency_edge() {
+    let module = module_id();
+    let mut session = SemanticWorkspaceSession::new();
+    let update = session.update(single_module_input(module.clone(), "type Base = Int\ntype Derived = Base\n", 1));
+    assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
+
+    let base = DeclarationId::new(module.clone(), "Base".into());
+    let derived = DeclarationId::new(module, "Derived".into());
+    let key = QueryKey::DeclarationShell(derived);
+    let dependencies = session.db().index().dependencies_of(&key).expect("alias shell dependencies");
+    let edge = dependencies
+        .iter()
+        .find(|edge| edge.dependency == QueryKey::DeclarationShell(base.clone()))
+        .expect("alias must depend on referenced alias shell");
+    assert_ne!(
+        edge.observed_fingerprint,
+        Default::default(),
+        "dependency edge must carry published product fingerprint"
+    );
+}
+
+#[test]
+fn generic_annotation_records_referenced_declaration_shell_dependency() {
+    let module = module_id();
+    let mut session = SemanticWorkspaceSession::new();
+    let update = session.update(single_module_input(
+        module.clone(),
+        "class Holder<T> {}\nclass Consumer {\n  @class use(_ value: Holder<Int>) -> Int { 1 }\n}\n",
+        1,
+    ));
+    assert!(!update.snapshot.has_errors(), "diagnostics: {:?}", update.snapshot.diagnostics);
+
+    let holder = DeclarationId::new(module.clone(), "Holder".into());
+    let consumer = DeclarationId::new(module, "Consumer".into());
+    let callable = CallableId::new(consumer, Selector::method("use", [SelectorSlot::Positional]).unwrap(), DispatchSide::Class);
+    let dependencies = dependency_keys(&session, &QueryKey::CallableSignature(callable));
+
+    assert!(
+        dependencies.contains(&QueryKey::DeclarationShell(holder)),
+        "generic annotation must depend on referenced declaration shell: {dependencies:?}"
+    );
+}
+
+#[test]
+fn alias_body_semantic_edit_invalidates_consumer_signature() {
+    let module = module_id();
+    let mut session = SemanticWorkspaceSession::new();
+    let source1 = "type Alias = Int\nclass Consumer {\n  @class use(_ value: Alias) -> Int { 1 }\n}\n";
+    let first = session.update(single_module_input(module.clone(), source1, 1));
+    assert!(!first.snapshot.has_errors(), "diagnostics: {:?}", first.snapshot.diagnostics);
+
+    let alias = DeclarationId::new(module.clone(), "Alias".into());
+    let consumer = DeclarationId::new(module.clone(), "Consumer".into());
+    let callable = CallableId::new(consumer, Selector::method("use", [SelectorSlot::Positional]).unwrap(), DispatchSide::Class);
+    let alias_key = QueryKey::DeclarationShell(alias);
+    let signature_key = QueryKey::CallableSignature(callable);
+    let alias_fp1 = session.db().ready_product_fingerprint(&alias_key).expect("alias shell product");
+    let signature_revision1 = session.db().query_state(&signature_key).expect("consumer signature").revision();
+
+    let source2 = "type Alias = String\nclass Consumer {\n  @class use(_ value: Alias) -> Int { 1 }\n}\n";
+    let second = session.update(single_module_input(module, source2, 2));
+    assert!(!second.snapshot.has_errors(), "diagnostics: {:?}", second.snapshot.diagnostics);
+
+    let alias_fp2 = session.db().ready_product_fingerprint(&alias_key).expect("updated alias shell product");
+    let signature_revision2 = session.db().query_state(&signature_key).expect("updated consumer signature").revision();
+    assert_ne!(alias_fp1, alias_fp2, "alias body semantic edit must change alias shell product");
+    assert_ne!(signature_revision1, signature_revision2, "alias-dependent signature must recompute");
+}
+
+#[test]
 fn body_query_ensures_canonical_signature_without_signature_prewarm() {
     let module = module_id();
     let source = r#"
@@ -181,10 +251,7 @@ class Owner {
     let hierarchy = MapTypeHierarchy::new();
     let mut db = phalcom_semantic::db::SemanticDb::new();
     for info in declarations.iter().map(|(_, info)| info) {
-        let _ = phalcom_semantic::db::query_declaration_shell(
-            &mut db,
-            Arc::new(phalcom_semantic::TypeDeclarationShell::Nominal(info.clone())),
-        );
+        let _ = phalcom_semantic::db::query_declaration_shell(&mut db, Arc::new(phalcom_semantic::TypeDeclarationShell::Nominal(info.clone())));
     }
 
     let surface = match query_declaration_surface(

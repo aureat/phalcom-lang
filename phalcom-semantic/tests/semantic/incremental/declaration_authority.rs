@@ -10,6 +10,26 @@ fn callable_signature_query_never_reconstructs_semantics_from_dispatch_surface()
 }
 
 #[test]
+fn standalone_body_checker_reuses_published_callable_signatures() {
+    let declaration = include_str!("../../../src/checker/declaration.rs");
+    assert!(
+        declaration.contains("let signatures = register_class_surface(ctx, class_def);")
+            && declaration.contains("check_class_bodies(ctx, class_def, &signatures);")
+    );
+
+    let body = declaration
+        .split_once("fn check_callable_body")
+        .map(|(_, body)| body)
+        .expect("standalone callable body checker");
+    assert!(body.contains("parameter_at(index)"), "parameters must come from canonical signature");
+    assert!(body.contains("signature.declared_return"), "return contract must come from canonical signature");
+    assert!(
+        !body.contains("resolve_type_annotation"),
+        "standalone body checking must not reconstruct declaration annotations"
+    );
+}
+
+#[test]
 fn advisory_and_return_refresh_read_canonical_signatures_not_dispatch_surfaces() {
     let session = include_str!("../../../src/session.rs");
     assert!(

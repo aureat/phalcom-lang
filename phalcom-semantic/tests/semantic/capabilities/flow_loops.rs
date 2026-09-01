@@ -84,6 +84,26 @@ class Probe {
     f.assert_union_members(post, &[int_ty, string_ty, float_ty]);
 }
 
+/// REGRESSION: source callable bodies may consume bootstrap iteration dispatch
+/// without capturing revision-local dependencies that cannot be revalidated.
+#[test]
+fn for_loop_callable_body_publishes_with_bootstrap_iteration_protocol() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    for item in [1] {
+      let observed = item
+    }
+  }
+}
+"#,
+    );
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    assert!(run.flow_graph.nodes.values().any(|node| matches!(node.kind, FlowNodeKind::LoopHeader)));
+}
+
 /// LAW: closure capture checks body writes without applying them at creation.
 #[test]
 fn captured_block_write_is_not_applied_until_execution_is_proven() {

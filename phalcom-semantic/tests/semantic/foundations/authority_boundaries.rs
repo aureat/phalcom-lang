@@ -1,6 +1,6 @@
 use crate::semantic::support::Fixture;
-use phalcom_modules::identity::{ModuleId, SyntheticProjectIdAllocator};
 use phalcom_modules::ModulePath;
+use phalcom_modules::identity::{ModuleId, SyntheticProjectIdAllocator};
 use phalcom_native_meta::UniverseKey;
 use phalcom_semantic::checker::{ExpectationOrigin, ExpectedType};
 use phalcom_semantic::declarations::GenericSupertypeTemplate;
@@ -8,7 +8,7 @@ use phalcom_semantic::identity::{DeclarationId, DispatchSide};
 use phalcom_semantic::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
 use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::parameter::{TypeParameterData, TypeParameterOwner};
-use phalcom_semantic::types::relation::{check_assignability, is_subtype, MapTypeHierarchy};
+use phalcom_semantic::types::relation::{MapTypeHierarchy, check_assignability, is_subtype};
 use phalcom_semantic::types::store::TypeStore;
 use phalcom_semantic::types::variance::Variance;
 
@@ -107,6 +107,7 @@ fn generic_supertype_specialization_materializes_in_live_store() {
     hierarchy.insert_template(GenericSupertypeTemplate {
         declaration: names_decl,
         supertype: template,
+        structural_form: None,
     });
 
     let names_int = store.apply_type_form(names_form, &[int]).expect("well-kinded Names application");

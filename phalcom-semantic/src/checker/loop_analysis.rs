@@ -136,8 +136,8 @@ mod tests {
         let declarations = DeclarationTypeTable::new();
         let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, ModuleId::universe_root());
 
-        let int_ty = ctx.nominal_type_of(&DeclarationId::new(ModuleId::universe_root(), "Int".into()));
-        let string_ty = ctx.nominal_type_of(&DeclarationId::new(ModuleId::universe_root(), "String".into()));
+        let int_ty = ctx.store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "Int".into()));
+        let string_ty = ctx.store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "String".into()));
 
         let b_id = ctx.alloc_binding();
         let mut entry = FlowState::new();
@@ -181,8 +181,8 @@ mod tests {
         let declarations = DeclarationTypeTable::new();
         let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, ModuleId::universe_root());
 
-        let int_ty = ctx.nominal_type_of(&DeclarationId::new(ModuleId::universe_root(), "Int".into()));
-        let string_ty = ctx.nominal_type_of(&DeclarationId::new(ModuleId::universe_root(), "String".into()));
+        let int_ty = ctx.store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "Int".into()));
+        let string_ty = ctx.store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "String".into()));
 
         let b_id = ctx.alloc_binding();
         let mut entry = FlowState::new();

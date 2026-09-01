@@ -127,17 +127,14 @@ fn test_occurs_check_rejects() {
 }
 
 #[test]
+#[should_panic(expected = "RecordRow-kinded type parameters must never produce TypeData::Parameter")]
 fn test_domain_safety_record_row_type_parameter_never_produces_type_data_parameter() {
     let mut store = TypeStore::new();
     let decl = test_decl("Container");
     let param_id = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(decl), 0, "R", KindId::RECORD_ROW));
 
     // Attempting to create TypeData::Parameter with RecordRow kind must panic / be rejected
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let mut local_store = TypeStore::new();
-        local_store.parameter_form(param_id);
-    }));
-    assert!(result.is_err(), "Must panic when constructing TypeData::Parameter with KindId::RECORD_ROW");
+    store.parameter_form(param_id);
 }
 
 #[test]

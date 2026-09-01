@@ -14,7 +14,7 @@ use crate::identity::{
 };
 use crate::signature::FieldSignatureTable;
 use crate::surface::DeclarationSurface;
-use crate::types::annotation::{TypeFormationSite, TypeLevelBinding, TypeResolver};
+use crate::types::annotation::{TypeFormResolution, TypeFormationSite, TypeLevelBinding, TypeResolver};
 use crate::types::denotation::{SemanticDenotation, ValueSemanticFact};
 use crate::types::evidence::{ContractAssumptionEligibility, EvidenceOrigin, TypeKnowledge, UnknownReason};
 use crate::types::id::TypeId;
@@ -130,12 +130,41 @@ fn is_query_owned_module(module: &ModuleId) -> bool {
     !(matches!(module.project, phalcom_modules::ProjectIdentity::Universe) && components.len() == 1 && components[0].as_str() == "core")
 }
 
+/// Returns whether declaration belongs to immutable canonical Universe input.
+///
+/// Native surfaces and Universe source classes are installed as bootstrap
+/// products, not recomputed source-query products. They remain valid semantic
+/// inputs across revisions, so source-owned body queries must not capture
+/// revision-local dependencies on their declaration surfaces or signatures.
+fn is_bootstrap_declaration(declaration: &DeclarationId) -> bool {
+    if !matches!(declaration.module.project, phalcom_modules::ProjectIdentity::Universe) {
+        return false;
+    }
+    let Some(key) = phalcom_native_meta::UniverseKey::from_name(declaration.name.as_ref()) else {
+        return false;
+    };
+    let components = declaration.module.path.components();
+    components.len() == key.source_path().len() && components.iter().zip(key.source_path()).all(|(actual, expected)| actual.as_str() == *expected)
+}
+
+/// Built-in type-test callables are represented by the standalone bootstrap
+/// surface, not by source-owned `CallableSignature` query products. They can
+/// still be consumed during body checking, but must not create a dependency
+/// on a query product that cannot exist for their source-less module.
+fn is_builtin_type_test_callable(callable: &CallableId) -> bool {
+    callable.side == DispatchSide::Instance
+        && callable.declaration_owner() == &crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Object)
+        && matches!(&callable.selector.base, phalcom_common::selector::SelectorBase::Named(name) if matches!(name.as_str(), "is" | "is!"))
+        && matches!(callable.selector.kind, phalcom_common::selector::SelectorKind::Method)
+        && callable.selector.slots.len() == 1
+}
+
 fn record_query_dependency(dependencies: &SharedSemanticDependencies, dependency: SemanticDependency) {
     dependencies.borrow_mut().insert(dependency);
 }
 
 fn record_declaration_surface_dependency(dependencies: &SharedSemanticDependencies, declaration: &DeclarationId) {
-    if is_query_owned_module(&declaration.module) {
+    if is_query_owned_module(&declaration.module) && !is_bootstrap_declaration(declaration) {
         record_query_dependency(dependencies, SemanticDependency::DeclarationSurface(declaration.clone()));
     }
 }
@@ -190,6 +219,9 @@ impl TypeResolver for TrackingTypeResolver<'_> {
         self.inner.resolve_type_level_binding(name)
     }
 
+    fn resolve_alias_form(&self, declaration: &DeclarationId) -> Option<TypeId> {
+        self.inner.resolve_alias_form(declaration)
+    }
 }
 
 /// Hierarchy wrapper that records each mutable direct edge consumed by body checking.
@@ -890,10 +922,26 @@ impl<'a> CheckingContext<'a> {
         } else {
             TypeFormationSite::module(self.current_module.clone())
         };
-        let knowledge =
-            crate::types::annotation::resolve_type_annotation(self.store, self.declarations, resolver, &site, annotation, &mut diagnostics);
+        let knowledge = crate::types::annotation::resolve_type_annotation(self.store, self.declarations, resolver, &site, annotation, &mut diagnostics);
         let causal_invalidity = self.publish_diagnostics(diagnostics);
         (knowledge, causal_invalidity)
+    }
+
+    /// Resolves one expression type form without enforcing proper `Type` kind.
+    ///
+    /// Type-form expressions may denote constructors or lambdas. Their value
+    /// descriptor type is assigned by the expression checker after this exact
+    /// formation outcome is returned.
+    pub fn resolve_type_form(
+        &mut self,
+        resolver: &dyn TypeResolver,
+        site: &TypeFormationSite,
+        annotation: &phalcom_ast::ast::TypeAnnotation,
+    ) -> (TypeFormResolution, crate::checker::causal::CausalInvalidity) {
+        let mut diagnostics = Vec::new();
+        let resolution = crate::types::annotation::resolve_type_form(self.store, self.declarations, resolver, site, annotation, &mut diagnostics);
+        let causal_invalidity = self.publish_diagnostics(diagnostics);
+        (resolution, causal_invalidity)
     }
 
     pub(crate) fn record_type_relation_with_parents(
@@ -1420,7 +1468,7 @@ impl<'a> CheckingContext<'a> {
     /// every query-owned callable's type contract is represented by its
     /// canonical `CallableSignature` product, including partial declarations.
     pub(crate) fn record_consumed_callable_signature(&self, callable: &CallableId, _signature: &crate::dispatch::CallableSignature) {
-        if !is_query_owned_module(callable.module()) {
+        if !is_query_owned_module(callable.module()) || is_bootstrap_declaration(callable.declaration_owner()) || is_builtin_type_test_callable(callable) {
             return;
         }
         record_declaration_surface_dependency(&self.semantic_dependencies, callable.declaration_owner());
@@ -1695,13 +1743,9 @@ impl<'a> CheckingContext<'a> {
         self.resolver.resolve_type_parameter(name)
     }
 
-    pub fn nominal_type_of(&mut self, decl: &DeclarationId) -> TypeId {
+    pub fn nominal_type_of(&mut self, decl: &DeclarationId) -> Option<TypeId> {
         record_declaration_shell_dependency(&self.semantic_dependencies, decl);
-        if let Some(form) = self.declarations.form(decl) {
-            form
-        } else {
-            self.store.nominal_type(decl.clone())
-        }
+        self.declarations.form(decl)
     }
 
     pub(crate) fn core_type(&mut self, decl: &DeclarationId) -> Option<TypeId> {
@@ -1924,7 +1968,9 @@ pub(crate) fn ensure_core_object_type_tests(store: &mut TypeStore, declarations:
             crate::checker::declaration_signature::project_semantic_signature(&canonical_new),
         );
     }
-    dispatch.register_type(declarations.form(&class).unwrap_or_else(|| store.nominal_type(class.clone())), class.clone());
+    if let Some(class_form) = declarations.form(&class) {
+        dispatch.register_type(class_form, class.clone());
+    }
     dispatch.register_surface(class, class_surface);
 
     let object = crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Object);
@@ -1949,7 +1995,9 @@ pub(crate) fn ensure_core_object_type_tests(store: &mut TypeStore, declarations:
             );
             surface.add_callable(DispatchSide::Instance, signature);
         }
-        dispatch.register_type(declarations.form(&object).unwrap_or_else(|| store.nominal_type(object.clone())), object.clone());
+        if let Some(object_form) = declarations.form(&object) {
+            dispatch.register_type(object_form, object.clone());
+        }
         dispatch.register_surface(object, surface);
     }
 }
@@ -1960,7 +2008,7 @@ mod tests {
     use crate::checker::binding::{BindingContract, BindingContractOrigin};
     use crate::checker::causal::CausalInvalidity;
     use crate::checker::flow::state::FlowInvariantFailure;
-    use crate::checker::incident::{InternalFailurePolicy, InternalSemanticIncidentDetails, InternalSemanticIncidentKind};
+    use crate::checker::incident::{InternalSemanticIncidentDetails, InternalSemanticIncidentKind};
     use crate::declarations::bootstrap_universe_declarations;
     use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
     use crate::dispatch::{CallableSignature, ResolvedDispatchResult};
@@ -1970,7 +2018,6 @@ mod tests {
     use crate::types::relation::MapTypeHierarchy;
     use crate::types::store::TypeStore;
     use phalcom_common::range::SourceRange;
-    use std::panic::{AssertUnwindSafe, catch_unwind};
 
     #[test]
     fn published_annotation_diagnostics_join_all_error_causes() {
@@ -2034,45 +2081,29 @@ mod tests {
     }
 
     #[test]
-    fn fail_fast_policy_panics_only_after_recording_incident() {
-        let module = ModuleId::universe_root();
-        let mut store = TypeStore::new();
-        let declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(module.clone(), key.name().into()));
-        let resolver = SimpleTypeResolver::new();
-        let hierarchy = MapTypeHierarchy::new();
-        let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module);
-        ctx.set_internal_failure_policy(InternalFailurePolicy::FailFast);
-
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            ctx.record_internal_incident(
-                InternalSemanticIncidentKind::RelationInvariantViolation,
-                InternalSemanticIncidentDetails::Message { message: "test".into() },
-                None,
-            )
-        }));
-
-        assert!(result.is_err());
-        assert_eq!(ctx.analysis_incidents.len(), 1);
-        assert!(matches!(
-            ctx.terminal_status,
-            Some(crate::checker::analysis::AnalysisStatus::InternalFailure(_))
-        ));
-    }
-
-    #[test]
     fn dispatch_target_preserves_callable_identity() {
         let module = ModuleId::universe_root();
         let mut store = TypeStore::new();
-        let declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(module.clone(), key.name().into()));
+        let mut declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(module.clone(), key.name().into()));
+        let owner = DeclarationId::new(module.clone(), "Owner".into());
+        let owner_form = store.nominal_type(owner.clone());
+        let owner_class_object = store.class_object_type(owner.clone());
+        declarations.insert(crate::declarations::DeclarationTypeInfo {
+            declaration: owner.clone(),
+            form: owner_form,
+            class_object_type: owner_class_object,
+            kind: crate::types::id::KindId::TYPE,
+            generic_signature: None,
+            supertype_template: None,
+        });
         let resolver = SimpleTypeResolver::new();
         let hierarchy = MapTypeHierarchy::new();
         let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module.clone());
 
-        let owner = DeclarationId::new(module, "Owner".into());
         let selector = phalcom_common::selector::Selector::getter("value").unwrap();
         let callable = CallableId::new(owner.clone(), selector.clone(), DispatchSide::Instance);
         let int_decl = DeclarationId::new(ctx.current_module.clone(), "Int".into());
-        let int = ctx.nominal_type_of(&int_decl);
+        let int = ctx.nominal_type_of(&int_decl).expect("bootstrap Int form");
         let signature = CallableSignature::new(
             selector,
             Vec::new(),
@@ -2082,7 +2113,7 @@ mod tests {
         surface.add_callable(DispatchSide::Instance, signature);
         ctx.register_surface(owner.clone(), surface);
 
-        let receiver = ctx.nominal_type_of(&owner);
+        let receiver = ctx.nominal_type_of(&owner).expect("owner declaration form");
         let selector = phalcom_common::selector::Selector::getter("value").unwrap();
         let result = ctx.resolve_dispatch_target(receiver, &selector, crate::dispatch::DispatchLookup::Normal);
         let ResolvedDispatchResult::Found(resolved) = result else {

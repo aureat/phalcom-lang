@@ -2,15 +2,18 @@ use phalcom_ast::ast::{KindSyntax, PathSegment, StaticSymbolRef, TypeAnnotation,
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
 use phalcom_modules::identity::ModuleId;
-use phalcom_semantic::declarations::{bootstrap_universe_declarations, DeclarationTypeTable};
+use phalcom_semantic::declarations::{DeclarationTypeTable, bootstrap_universe_declarations};
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 use phalcom_semantic::types::annotation::{
-    resolve_type_annotation, KindResolution, SimpleTypeResolver, TypeFormResolution, TypeFormationInvalid, TypeFormationSite, TypeFormationUnresolved,
+    KindResolution, SimpleTypeResolver, TypeFormResolution, TypeFormationInvalid, TypeFormationMissing, TypeFormationSite, TypeFormationUnresolved,
+    resolve_type_annotation,
 };
 use phalcom_semantic::types::evidence::{TypeKnowledge, UnknownReason};
-use phalcom_semantic::types::id::KindId;
+use phalcom_semantic::types::id::{InferVarId, KindId};
+use phalcom_semantic::types::parameter::{GenericConstraint, GenericSignature, TypeParameterData, TypeParameterOwner, TypeTerm};
 use phalcom_semantic::types::store::{CallableType, TypeData, TypeStore};
+use phalcom_semantic::types::substitution::TypeSubstitution;
 use phalcom_semantic::types::type_lambda::ScopedTypeData;
 
 const RANGE: SourceRange = SourceRange { start: 0, end: 1 };
@@ -61,6 +64,33 @@ fn type_lambda(names: &[&str], body: TypeAnnotation) -> TypeAnnotation {
             body: Box::new(body),
             range: RANGE,
         },
+        range: RANGE,
+    }
+}
+
+fn typed_type_lambda(parameters: Vec<(&str, KindSyntax)>, body: TypeAnnotation) -> TypeAnnotation {
+    TypeAnnotation {
+        expr: TypeAnnotationExpr::TypeLambda {
+            parameters: parameters
+                .into_iter()
+                .map(|(name, kind)| phalcom_ast::ast::TypeLambdaParameter {
+                    name: name.into(),
+                    name_range: RANGE,
+                    kind: Some(kind),
+                    range: RANGE,
+                })
+                .collect(),
+            body: Box::new(body),
+            range: RANGE,
+        },
+        range: RANGE,
+    }
+}
+
+fn unary_type_kind() -> KindSyntax {
+    KindSyntax::Arrow {
+        parameter: Box::new(KindSyntax::Type(RANGE)),
+        result: Box::new(KindSyntax::Type(RANGE)),
         range: RANGE,
     }
 }
@@ -203,6 +233,27 @@ fn unresolved_reference_retains_existing_diagnostic() {
     let (knowledge, diagnostics) = resolve(&mut env, &reference("Missing"));
     assert!(matches!(knowledge, TypeKnowledge::Unknown(_)));
     assert_eq!(diagnostics[0].code, DiagnosticCode::AnnotationUnresolved);
+}
+
+#[test]
+fn resolved_but_unpublished_reference_does_not_fabricate_nominal_form() {
+    let mut env = setup();
+    let missing = DeclarationId::new(env.module.clone(), "Missing".into());
+    env.resolver.insert("Missing", missing.clone());
+    assert!(env.declarations.form(&missing).is_none());
+
+    let mut diagnostics = Vec::new();
+    let result = phalcom_semantic::types::annotation::resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &reference("Missing"),
+        &mut diagnostics,
+    );
+
+    assert_eq!(result, TypeFormResolution::Missing(TypeFormationMissing::DeclarationProduct(missing)));
+    assert!(diagnostics.is_empty());
 }
 
 #[test]
@@ -367,14 +418,8 @@ fn self_type_outside_owner_remains_unresolved() {
         range: RANGE,
     };
     let mut diagnostics = Vec::new();
-    let result = phalcom_semantic::types::annotation::resolve_type_form(
-        &mut env.store,
-        &env.declarations,
-        &env.resolver,
-        &env.site,
-        &annotation,
-        &mut diagnostics,
-    );
+    let result =
+        phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &annotation, &mut diagnostics);
     assert_eq!(result, TypeFormResolution::Unresolved(TypeFormationUnresolved::SelfOutsideOwner));
     assert_eq!(diagnostics[0].code, DiagnosticCode::AnnotationUnresolved);
 }
@@ -404,6 +449,49 @@ fn lowers_structural_record_annotations() {
     let (res, diags) = resolve(&mut env, &record_ann);
     assert!(diags.is_empty());
     assert!(matches!(env.store.get(res.ty().unwrap()), TypeData::Record(row_id) if env.store.record_row(*row_id).fields.len() == 2));
+}
+
+#[test]
+fn open_record_tail_is_rejected_without_closed_record_recovery() {
+    let mut env = setup();
+    let closed = TypeAnnotation {
+        expr: TypeAnnotationExpr::Record {
+            fields: vec![phalcom_ast::ast::RecordTypeField {
+                name: "name".into(),
+                ty: reference("String"),
+                range: RANGE,
+            }],
+            tail: None,
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let (closed_knowledge, _) = resolve(&mut env, &closed);
+    let closed_type = closed_knowledge.ty().expect("closed record type");
+
+    let open = TypeAnnotation {
+        expr: TypeAnnotationExpr::Record {
+            fields: vec![phalcom_ast::ast::RecordTypeField {
+                name: "name".into(),
+                ty: reference("String"),
+                range: RANGE,
+            }],
+            tail: Some(phalcom_ast::ast::RecordRowTail {
+                name: "R".into(),
+                range: RANGE,
+            }),
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let mut diagnostics = Vec::new();
+    let result = phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &open, &mut diagnostics);
+    assert_eq!(
+        result,
+        TypeFormResolution::Invalid(phalcom_semantic::types::annotation::TypeFormationInvalid::UnsupportedOpenRecordTail)
+    );
+    assert_ne!(result, TypeFormResolution::Ready(closed_type));
+    assert_eq!(diagnostics[0].code, DiagnosticCode::AnnotationUnsupported);
 }
 
 #[test]
@@ -482,6 +570,49 @@ fn type_lambda_alpha_renaming_is_semantically_equal() {
 }
 
 #[test]
+fn type_lambda_alpha_equivalence_preserves_application_shape() {
+    let mut env = setup();
+    let body_t = application(reference("List"), vec![reference("T")]);
+    let body_u = application(reference("List"), vec![reference("U")]);
+    let mut diagnostics = Vec::new();
+    let first = phalcom_semantic::types::annotation::resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &type_lambda(&["T"], body_t),
+        &mut diagnostics,
+    );
+    let second = phalcom_semantic::types::annotation::resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &type_lambda(&["U"], body_u),
+        &mut diagnostics,
+    );
+    let TypeFormResolution::Ready(first) = first else {
+        panic!("expected first type lambda")
+    };
+    let TypeFormResolution::Ready(second) = second else {
+        panic!("expected second type lambda")
+    };
+    assert_eq!(first, second, "alpha-renamed applications must share canonical lambda identity");
+    let TypeData::Lambda(lambda_id) = env.store.get(first) else {
+        panic!("expected canonical lambda")
+    };
+    let lambda = env.store.arena().get_lambda(*lambda_id);
+    let ScopedTypeData::Applied { origin, arguments } = env.store.arena().get_scoped(lambda.body) else {
+        panic!("expected List<T> scoped application")
+    };
+    assert!(matches!(env.store.arena().get_scoped(*origin), ScopedTypeData::Free(_)));
+    assert!(matches!(
+        env.store.arena().get_scoped(arguments[0]),
+        ScopedTypeData::Bound { depth: 0, index: 0 }
+    ));
+}
+
+#[test]
 fn nested_type_lambda_preserves_outer_and_inner_binders() {
     let mut env = setup();
     let mut diagnostics = Vec::new();
@@ -545,6 +676,105 @@ fn type_lambda_beta_reduction_substitutes_without_capture() {
 }
 
 #[test]
+fn nested_type_lambda_beta_reduction_avoids_capture() {
+    let mut env = setup();
+    let body = TypeAnnotation {
+        expr: TypeAnnotationExpr::Tuple {
+            elements: vec![
+                TypeTupleElement {
+                    label: None,
+                    ty: reference("T"),
+                    range: RANGE,
+                },
+                TypeTupleElement {
+                    label: None,
+                    ty: reference("U"),
+                    range: RANGE,
+                },
+            ],
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let mut diagnostics = Vec::new();
+    let result = phalcom_semantic::types::annotation::resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &type_lambda(&["T"], type_lambda(&["U"], body)),
+        &mut diagnostics,
+    );
+    let TypeFormResolution::Ready(lambda_ty) = result else {
+        panic!("expected nested type lambda")
+    };
+    let int_ty = env.declarations.form(&DeclarationId::new(env.module.clone(), "Int".into())).unwrap();
+    let string_ty = env.declarations.form(&DeclarationId::new(env.module.clone(), "String".into())).unwrap();
+    let residual = env.store.apply_type_form(lambda_ty, &[int_ty]).unwrap();
+    let TypeData::Lambda(residual_id) = env.store.get(residual) else {
+        panic!("expected residual inner lambda")
+    };
+    let residual_data = env.store.arena().get_lambda(*residual_id);
+    let ScopedTypeData::Tuple(elements) = env.store.arena().get_scoped(residual_data.body) else {
+        panic!("expected residual tuple body")
+    };
+    assert!(matches!(env.store.arena().get_scoped(elements[0].ty), ScopedTypeData::Free(ty) if *ty == int_ty));
+    assert!(matches!(
+        env.store.arena().get_scoped(elements[1].ty),
+        ScopedTypeData::Bound { depth: 0, index: 0 }
+    ));
+
+    let reduced = env.store.apply_type_form(residual, &[string_ty]).unwrap();
+    let TypeData::Tuple(elements) = env.store.get(reduced) else {
+        panic!("expected fully reduced tuple")
+    };
+    assert_eq!(elements[0].ty, int_ty);
+    assert_eq!(elements[1].ty, string_ty);
+}
+
+#[test]
+fn higher_kinded_type_lambda_applies_constructor_and_argument() {
+    let mut env = setup();
+    let lambda = typed_type_lambda(
+        vec![("F", unary_type_kind()), ("T", KindSyntax::Type(RANGE))],
+        application(reference("F"), vec![reference("T")]),
+    );
+    let mut diagnostics = Vec::new();
+    let result = phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &lambda, &mut diagnostics);
+    let TypeFormResolution::Ready(lambda_ty) = result else {
+        panic!("expected higher-kinded lambda")
+    };
+    let list_ty = env.declarations.form(&DeclarationId::new(env.module.clone(), "List".into())).unwrap();
+    let int_ty = env.declarations.form(&DeclarationId::new(env.module.clone(), "Int".into())).unwrap();
+    let applied = env.store.apply_type_form(lambda_ty, &[list_ty, int_ty]).unwrap();
+    let expected = env.store.apply_type_form(list_ty, &[int_ty]).unwrap();
+    assert_eq!(applied, expected, "F<T> with F := List must beta-reduce to List<Int>");
+    assert_eq!(env.store.kind_of(applied), KindId::TYPE);
+}
+
+#[test]
+fn nested_higher_kinded_lambda_shadowing_is_capture_safe() {
+    let mut env = setup();
+    let lambda = typed_type_lambda(
+        vec![("F", unary_type_kind())],
+        typed_type_lambda(vec![("F", unary_type_kind())], application(reference("F"), vec![reference("Int")])),
+    );
+    let mut diagnostics = Vec::new();
+    let result = phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &lambda, &mut diagnostics);
+    let TypeFormResolution::Ready(lambda_ty) = result else {
+        panic!("expected nested higher-kinded lambda")
+    };
+    let list_ty = env.declarations.form(&DeclarationId::new(env.module.clone(), "List".into())).unwrap();
+    let list_kind = env.store.kind_of(list_ty);
+    let other_ty = env.store.nominal_form(DeclarationId::new(env.module.clone(), "Other".into()), list_kind);
+    let residual = env.store.apply_type_form(lambda_ty, &[list_ty]).unwrap();
+    let reduced = env.store.apply_type_form(residual, &[other_ty]).unwrap();
+    let int_ty = env.declarations.form(&DeclarationId::new(env.module.clone(), "Int".into())).unwrap();
+    let expected = env.store.apply_type_form(other_ty, &[int_ty]).unwrap();
+    assert_eq!(reduced, expected, "inner F must shadow outer F");
+}
+
+#[test]
 fn partial_type_lambda_application_returns_residual_lambda() {
     let mut env = setup();
     let mut diagnostics = Vec::new();
@@ -565,6 +795,49 @@ fn partial_type_lambda_application_returns_residual_lambda() {
     let residual_data = env.store.arena().get_lambda(*residual_id);
     assert_eq!(residual_data.parameter_kinds.len(), 1);
     assert!(matches!(env.store.arena().get_scoped(residual_data.body), ScopedTypeData::Free(ty) if *ty == int_ty));
+}
+
+#[test]
+fn partial_type_lambda_application_can_be_applied_again() {
+    let mut env = setup();
+    let mut diagnostics = Vec::new();
+    let result = phalcom_semantic::types::annotation::resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &type_lambda(&["T", "U"], application(reference("List"), vec![reference("T")])),
+        &mut diagnostics,
+    );
+    let TypeFormResolution::Ready(lambda_ty) = result else {
+        panic!("expected type lambda")
+    };
+    let int_ty = env.declarations.form(&DeclarationId::new(env.module.clone(), "Int".into())).unwrap();
+    let string_ty = env.declarations.form(&DeclarationId::new(env.module.clone(), "String".into())).unwrap();
+    let residual = env.store.apply_type_form(lambda_ty, &[int_ty]).unwrap();
+    let reduced = env.store.apply_type_form(residual, &[string_ty]).unwrap();
+    let expected = env
+        .store
+        .apply_type_form(
+            env.declarations.form(&DeclarationId::new(env.module.clone(), "List".into())).unwrap(),
+            &[int_ty],
+        )
+        .unwrap();
+    assert_eq!(reduced, expected, "residual application must preserve substituted outer argument");
+}
+
+#[test]
+fn partially_applied_map_has_residual_constructor_kind() {
+    let mut env = setup();
+    let mut diagnostics = Vec::new();
+    let map_string = application(reference("Map"), vec![reference("String")]);
+    let TypeFormResolution::Ready(map_string) =
+        phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &map_string, &mut diagnostics)
+    else {
+        panic!("expected partially applied Map")
+    };
+    let residual_kind = env.store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
+    assert_eq!(env.store.kind_of(map_string), residual_kind);
 }
 
 #[test]
@@ -596,6 +869,11 @@ fn record_row_generic_binder_does_not_create_type_parameter_form() {
     };
     let parameter_id = signature.parameter_at(0).expect("row binder parameter");
     assert_eq!(env.store.type_parameter(parameter_id).kind, KindId::RECORD_ROW);
+    assert!(
+        !env.store.contains_parameter_type(parameter_id),
+        "row binders must not publish TypeData::Parameter"
+    );
+    assert!(signature.validate_publishable(&env.store).is_ok());
 
     env.resolver.insert_record_row_binding("R", parameter_id);
     let (knowledge, diagnostics) = resolve(&mut env, &reference("R"));
@@ -641,6 +919,80 @@ fn lowers_generic_signature_with_where_constraints() {
     };
     assert_eq!(sig.parameter_count(), 1);
     assert_eq!(sig.constraint_count(), 1);
+}
+
+#[test]
+fn generic_constraint_substitution_preserves_parameter_identity() {
+    let mut env = setup();
+    let owner = TypeParameterOwner::Declaration(DeclarationId::new(env.module.clone(), "Constrained".into()));
+    let params = vec![phalcom_ast::ast::GenericParameterSyntax {
+        variance: phalcom_ast::ast::VarianceSyntax::Invariant,
+        name: "T".into(),
+        name_range: RANGE,
+        kind: None,
+        range: RANGE,
+    }];
+    let where_clause = phalcom_ast::ast::WhereClauseSyntax {
+        constraints: vec![phalcom_ast::ast::GenericConstraintSyntax::Subtype {
+            lower: reference("T"),
+            upper: reference("Object"),
+            range: RANGE,
+        }],
+        range: RANGE,
+    };
+    let mut diagnostics = Vec::new();
+    let phalcom_semantic::types::annotation::TypeFormationOutcome::Ready(signature) = phalcom_semantic::types::annotation::resolve_generic_signature(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        owner,
+        phalcom_semantic::types::annotation::GenericBinderSite::NominalDeclaration,
+        &params,
+        Some(&where_clause),
+        &mut diagnostics,
+    ) else {
+        panic!("expected constrained generic signature")
+    };
+    let parameter = signature.parameter_at(0).expect("generic parameter");
+    let parameter_form = env.store.parameter_form(parameter);
+    let int_ty = env.declarations.form(&DeclarationId::new(env.module.clone(), "Int".into())).unwrap();
+    let mut substitution = TypeSubstitution::new();
+    substitution.bind(parameter, int_ty);
+    let GenericConstraint::Subtype { lower, upper } = signature.constraint_at(0).expect("subtype constraint") else {
+        panic!("expected subtype constraint")
+    };
+    let TypeTerm::Canonical(lower) = lower else {
+        panic!("constraint lower must be canonical")
+    };
+    let TypeTerm::Canonical(upper) = upper else {
+        panic!("constraint upper must be canonical")
+    };
+    assert_eq!(*lower, parameter_form);
+    assert_eq!(substitution.apply(&mut env.store, *lower), int_ty);
+    assert_eq!(substitution.apply(&mut env.store, *upper), *upper);
+    assert!(!matches!(env.store.get(int_ty), TypeData::Parameter(_)));
+}
+
+#[test]
+fn solver_inference_terms_never_publish_in_generic_signature() {
+    let mut env = setup();
+    let owner = TypeParameterOwner::Declaration(DeclarationId::new(env.module.clone(), "SolverLeak".into()));
+    let parameter = env.store.intern_type_parameter(TypeParameterData::new(owner.clone(), 0, "T", KindId::TYPE));
+    let int_ty = env.declarations.form(&DeclarationId::new(env.module.clone(), "Int".into())).unwrap();
+    let signature = GenericSignature::with_constraints(
+        owner,
+        vec![parameter].into_boxed_slice(),
+        vec![GenericConstraint::Equivalent {
+            left: TypeTerm::Infer(InferVarId(7)),
+            right: TypeTerm::Canonical(int_ty),
+        }]
+        .into_boxed_slice(),
+    );
+    assert!(matches!(
+        signature.validate_publishable(&env.store),
+        Err(phalcom_semantic::types::parameter::GenericSignaturePublicationError::InferenceVariable { variable: InferVarId(7) })
+    ));
 }
 
 #[test]

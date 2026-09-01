@@ -21,6 +21,7 @@ use crate::checker::flow::FlowState;
 use crate::diagnostic::DiagnosticCode;
 use crate::dispatch::{CallableSignature, ResolvedDispatch, ResolvedDispatchResult};
 use crate::identity::{DeclarationId, InvocationTargetId};
+use crate::types::annotation::TypeResolver;
 use crate::types::denotation::{AssociatedValueDenotation, CapturedBehavioralMember, SemanticDenotation, ValueSemanticFact};
 use crate::types::environment::TypeView;
 use crate::types::evidence::{DynamicReason, EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
@@ -197,7 +198,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             if let Some(ty) = ctx.core_type(&int_decl) {
                 TypedExpression::established(ty, EvidenceOrigin::Syntax, *range)
             } else {
-                TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
+                TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause)
             }
         }
         Expr::Float { range, .. } => {
@@ -205,7 +206,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             if let Some(ty) = ctx.core_type(&float_decl) {
                 TypedExpression::established(ty, EvidenceOrigin::Syntax, *range)
             } else {
-                TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
+                TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause)
             }
         }
         Expr::String { range, .. } => {
@@ -213,7 +214,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             if let Some(ty) = ctx.core_type(&string_decl) {
                 TypedExpression::established(ty, EvidenceOrigin::Syntax, *range)
             } else {
-                TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
+                TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause)
             }
         }
         Expr::Boolean { range, .. } => {
@@ -221,7 +222,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             if let Some(ty) = ctx.core_type(&bool_decl) {
                 TypedExpression::established(ty, EvidenceOrigin::Syntax, *range)
             } else {
-                TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
+                TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause)
             }
         }
         Expr::Symbol(s) => synthesize_symbol_expr(ctx, s),
@@ -244,9 +245,13 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 if let Some(info) = ctx.declaration_info(&decl) {
                     TypedExpression::established(info.class_object_type, EvidenceOrigin::DeclarationSemantics, *range)
                         .with_denotation(SemanticDenotation::TypeForm(info.form))
+                } else if let Some(form) = ctx.resolver.resolve_alias_form(&decl) {
+                    let Some(value_type) = type_form_descriptor_type(ctx, form) else {
+                        return TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause);
+                    };
+                    TypedExpression::established(value_type, EvidenceOrigin::DeclarationSemantics, *range).with_denotation(SemanticDenotation::TypeForm(form))
                 } else {
-                    let ty = ctx.nominal_type_of(&decl);
-                    TypedExpression::established(ty, EvidenceOrigin::DeclarationSemantics, *range).with_denotation(SemanticDenotation::TypeForm(ty))
+                    TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause)
                 }
             } else if let Some(param_ty) = ctx.resolve_type_parameter(value) {
                 TypedExpression::established(param_ty, EvidenceOrigin::DeclarationSemantics, *range).with_denotation(SemanticDenotation::TypeForm(param_ty))
@@ -261,15 +266,16 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                         TypedExpression::established(info.class_object_type, EvidenceOrigin::Flow, *range)
                             .with_denotation(SemanticDenotation::TypeForm(info.form))
                     } else {
-                        let ty = ctx.nominal_type_of(&class_decl);
-                        TypedExpression::established(ty, EvidenceOrigin::Flow, *range)
+                        TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause)
                     }
                 } else {
-                    let ty = ctx.nominal_type_of(&class_decl);
+                    let Some(ty) = ctx.nominal_type_of(&class_decl) else {
+                        return TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause);
+                    };
                     TypedExpression::established(ty, EvidenceOrigin::Flow, *range)
                 }
             } else {
-                TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
+                TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause)
             }
         }
         Expr::SuperVar { range } => {
@@ -285,15 +291,16 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                             .with_denotation(SemanticDenotation::TypeForm(info.form))
                             .with_dispatch_lookup(lookup)
                     } else {
-                        let ty = ctx.nominal_type_of(&class_decl);
-                        TypedExpression::established(ty, EvidenceOrigin::Flow, *range).with_dispatch_lookup(lookup)
+                        TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause).with_dispatch_lookup(lookup)
                     }
                 } else {
-                    let ty = ctx.nominal_type_of(&class_decl);
+                    let Some(ty) = ctx.nominal_type_of(&class_decl) else {
+                        return TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause).with_dispatch_lookup(lookup);
+                    };
                     TypedExpression::established(ty, EvidenceOrigin::Flow, *range).with_dispatch_lookup(lookup)
                 }
             } else {
-                TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
+                TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause)
             }
         }
         Expr::Field { value, range, .. } => {
@@ -304,7 +311,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                     return typed;
                 }
             }
-            TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
+            TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause)
         }
 
         // --- 3. Assignments ---
@@ -436,7 +443,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 ctx.normal_return_exits = outer_normal_returns;
                 ctx.throw_exit_flows = outer_throw_exits;
                 ctx.expected_return = outer_expected_return;
-                return TypedExpression::unknown(UnknownReason::UnannotatedDeclaration);
+                return TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause);
             };
 
             let mut params = Vec::new();
@@ -673,44 +680,71 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             }
             let object_decl = ctx.core_ids.object.clone();
             let Some(ty) = ctx.core_type(&object_decl) else {
-                return TypedExpression::unknown(UnknownReason::UnannotatedDeclaration);
+                return TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause);
             };
             TypedExpression::established(ty, EvidenceOrigin::Flow, r.range)
         }
         Expr::Ellipsis { .. } => TypedExpression::unknown(UnknownReason::UncheckedExpression),
         Expr::TypeForm(annotation) => {
             let resolver = ctx.resolver.inner();
-            let (knowledge, causal_invalidity) = ctx.resolve_type_annotation(resolver, annotation);
-            if let Some(form) = knowledge.ty() {
-                let mut current = form;
-                let decl = loop {
-                    match ctx.store.get(current) {
-                        TypeData::Nominal { declaration } => break Some(declaration.clone()),
-                        TypeData::Applied { origin, .. } => current = *origin,
-                        _ => break None,
-                    }
-                };
-                let class_obj_ty = if let Some(decl) = &decl {
-                    if let Some(info) = ctx.declaration_info(decl) {
-                        info.class_object_type
-                    } else {
-                        ctx.store.class_object_type(decl.clone())
-                    }
-                } else {
-                    form
-                };
-                let mut typed = TypedExpression::established(class_obj_ty, EvidenceOrigin::DeclarationSemantics, annotation.range)
-                    .with_denotation(SemanticDenotation::TypeForm(form));
-                typed.causal_invalidity = causal_invalidity;
-                typed
+            let site = if let Some(owner) = ctx.current_class.clone() {
+                crate::types::annotation::TypeFormationSite::member(ctx.current_module.clone(), owner, ctx.current_side)
             } else {
-                let mut typed = TypedExpression::new(knowledge.with_range(annotation.range));
-                typed.causal_invalidity = causal_invalidity;
-                typed
-            }
+                crate::types::annotation::TypeFormationSite::module(ctx.current_module.clone())
+            };
+            let (resolution, causal_invalidity) = ctx.resolve_type_form(resolver, &site, annotation);
+            let mut typed = match resolution {
+                crate::types::annotation::TypeFormResolution::Ready(form) => {
+                    let denotation = SemanticDenotation::TypeForm(form);
+                    match type_form_descriptor_type(ctx, form) {
+                        Some(value_type) => {
+                            TypedExpression::established(value_type, EvidenceOrigin::DeclarationSemantics, annotation.range).with_denotation(denotation)
+                        }
+                        None => TypedExpression::new(TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause)).with_denotation(denotation),
+                    }
+                }
+                crate::types::annotation::TypeFormResolution::Dynamic => TypedExpression::new(TypeKnowledge::Dynamic(DynamicReason::ExplicitEscape)),
+                crate::types::annotation::TypeFormResolution::Unresolved(reason) => TypedExpression::new(TypeKnowledge::Unknown(match reason {
+                    crate::types::annotation::TypeFormationUnresolved::Name(name) => UnknownReason::UnresolvedName(name),
+                    crate::types::annotation::TypeFormationUnresolved::SelfOutsideOwner => UnknownReason::UnresolvedName("Self".into()),
+                })),
+                crate::types::annotation::TypeFormResolution::Missing(_) | crate::types::annotation::TypeFormResolution::Invalid(_) => {
+                    TypedExpression::new(TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause))
+                }
+                crate::types::annotation::TypeFormResolution::Blocked(_) => TypedExpression::new(TypeKnowledge::Unknown(UnknownReason::InferenceBlocked)),
+                crate::types::annotation::TypeFormResolution::Cancelled => TypedExpression::new(TypeKnowledge::Unknown(UnknownReason::InferenceCancelled)),
+                crate::types::annotation::TypeFormResolution::BudgetExceeded(_) => {
+                    TypedExpression::new(TypeKnowledge::Unknown(UnknownReason::InferenceBudgetExceeded))
+                }
+                crate::types::annotation::TypeFormResolution::InternalFailure(_) => {
+                    TypedExpression::new(TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause))
+                }
+            };
+            typed.knowledge = typed.knowledge.clone().with_range(annotation.range);
+            typed.causal_invalidity = causal_invalidity;
+            typed
         }
         _ => TypedExpression::unknown(UnknownReason::UncheckedExpression),
     }
+}
+
+/// Returns ordinary runtime value type for a type-form value, without
+/// confusing its denoted form with its descriptor.
+fn type_form_descriptor_type(ctx: &mut CheckingContext<'_>, form: TypeId) -> Option<TypeId> {
+    let mut current = form;
+    let declaration = loop {
+        match ctx.store.get(current) {
+            TypeData::Nominal { declaration } => break Some(declaration.clone()),
+            TypeData::Applied { origin, .. } => current = *origin,
+            _ => break None,
+        }
+    };
+    if let Some(declaration) = declaration {
+        return ctx.declaration_info(&declaration).map(|info| info.class_object_type);
+    }
+
+    let class = crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Class);
+    ctx.declaration_info(&class).map(|info| info.form)
 }
 
 fn synthesize_associated_lookup(ctx: &mut CheckingContext<'_>, lookup: &AssociatedLookupExpr, expected: &ExpectedType) -> TypedExpression {
@@ -1259,7 +1293,7 @@ fn synthesize_symbol_expr(ctx: &mut CheckingContext<'_>, s: &SymbolExpr) -> Type
     } else if let Some(ty) = ctx.core_type(&string_decl) {
         TypedExpression::established(ty, EvidenceOrigin::Syntax, s.range)
     } else {
-        TypedExpression::unknown(UnknownReason::UnannotatedDeclaration)
+        TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause)
     }
 }
 
@@ -1285,7 +1319,7 @@ fn synthesize_list_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::as
                 let typed = analyze_expression(ctx, expr, &ExpectedType::None);
                 let projected = list_form
                     .map(|form| crate::checker::composition::project_applied_argument(ctx.store, &typed.knowledge, form, 0))
-                    .unwrap_or(TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
+                    .unwrap_or(TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause));
                 contributions.push(projected);
                 operands.push(typed);
             }
@@ -1313,7 +1347,7 @@ fn synthesize_list_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::as
             ctx.store.list_of(form, element).map_err(|_| UnknownReason::UncheckedExpression)
         })
     } else {
-        TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration)
+        TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause)
     };
     let mut result = TypedExpression::new(match knowledge {
         TypeKnowledge::Known(_) => knowledge.with_range(list.range),
@@ -1344,7 +1378,7 @@ fn synthesize_set_literal(ctx: &mut CheckingContext<'_>, set: &phalcom_ast::ast:
                 let typed = analyze_expression(ctx, expr, &ExpectedType::None);
                 let projected = set_form
                     .map(|form| crate::checker::composition::project_applied_argument(ctx.store, &typed.knowledge, form, 0))
-                    .unwrap_or(TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
+                    .unwrap_or(TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause));
                 contributions.push(projected);
                 operands.push(typed);
             }
@@ -1372,7 +1406,7 @@ fn synthesize_set_literal(ctx: &mut CheckingContext<'_>, set: &phalcom_ast::ast:
             ctx.store.set_of(form, element).map_err(|_| UnknownReason::UncheckedExpression)
         })
     } else {
-        TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration)
+        TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause)
     };
     let mut result = TypedExpression::new(match knowledge {
         TypeKnowledge::Known(_) => knowledge.with_range(set.range),
@@ -1402,7 +1436,7 @@ fn synthesize_map_literal(ctx: &mut CheckingContext<'_>, map: &phalcom_ast::ast:
                         let knowledge = ctx
                             .core_type(&symbol_decl)
                             .map(|ty| TypeKnowledge::established(ty, EvidenceOrigin::Syntax))
-                            .unwrap_or(TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
+                            .unwrap_or(TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause));
                         key_knowledge.push(knowledge);
                     }
                     MapLiteralKey::Computed { expr, .. } => {
@@ -1419,10 +1453,10 @@ fn synthesize_map_literal(ctx: &mut CheckingContext<'_>, map: &phalcom_ast::ast:
                 let typed = analyze_expression(ctx, expr, &ExpectedType::None);
                 let key = map_form
                     .map(|form| crate::checker::composition::project_applied_argument(ctx.store, &typed.knowledge, form, 0))
-                    .unwrap_or(TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
+                    .unwrap_or(TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause));
                 let value = map_form
                     .map(|form| crate::checker::composition::project_applied_argument(ctx.store, &typed.knowledge, form, 1))
-                    .unwrap_or(TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration));
+                    .unwrap_or(TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause));
                 key_knowledge.push(key);
                 value_knowledge.push(value);
                 operands.push(typed);
@@ -1460,7 +1494,7 @@ fn synthesize_map_literal(ctx: &mut CheckingContext<'_>, map: &phalcom_ast::ast:
             ctx.store.map_of(form, *key, *value).map_err(|_| UnknownReason::UncheckedExpression)
         })
     } else {
-        TypeKnowledge::Unknown(UnknownReason::UnannotatedDeclaration)
+        TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause)
     };
     let mut result = TypedExpression::new(match knowledge {
         TypeKnowledge::Known(_) => knowledge.with_range(map.range),
@@ -2093,12 +2127,15 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
     if let Some(ref class_decl) = ctx.current_class.clone() {
         let class_ty = if ctx.current_side == crate::identity::DispatchSide::Class {
             if let Some(info) = ctx.declaration_info(class_decl) {
-                info.class_object_type
+                Some(info.class_object_type)
             } else {
                 ctx.nominal_type_of(class_decl)
             }
         } else {
             ctx.nominal_type_of(class_decl)
+        };
+        let Some(class_ty) = class_ty else {
+            return TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause);
         };
         let premise = CallPremise::established(TypeKnowledge::established(class_ty, EvidenceOrigin::DeclarationSemantics));
         let arguments = application_arguments(&call.args);
@@ -2133,7 +2170,9 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
 
     // 3. Constructor or nominal reference
     if let Some(decl) = ctx.resolve_type_name(&call.name) {
-        let ty = ctx.nominal_type_of(&decl);
+        let Some(ty) = ctx.nominal_type_of(&decl) else {
+            return TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause);
+        };
         if let Some(sig) = ctx.declaration_generic_signature(&decl) {
             if !sig.parameters.is_empty() {
                 let mut arg_tys = Vec::new();

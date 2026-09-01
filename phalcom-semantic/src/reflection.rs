@@ -96,12 +96,7 @@ use crate::types::parameter::TypeParameterOwner;
 use crate::types::substitution::TypeSubstitution;
 
 impl ExactCaseTypeReflection {
-    pub fn from_exact_case(
-        ty: TypeId,
-        variant_info: &VariantInfo,
-        enum_type: TypeId,
-        store: &mut TypeStore,
-    ) -> Self {
+    pub fn from_exact_case(ty: TypeId, variant_info: &VariantInfo, enum_type: TypeId, store: &mut TypeStore) -> Self {
         let mut subst = TypeSubstitution::new();
         if let Some((decl, args)) = store.applied_nominal_parts(enum_type) {
             let owner = TypeParameterOwner::Declaration(decl);

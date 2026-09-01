@@ -150,7 +150,7 @@ pub fn extract_predicate_shape(ctx: &mut CheckingContext<'_>, expr: &Expr, truth
                         ..
                     } => {
                         let decl = ctx.resolve_type_name(type_name)?;
-                        ctx.nominal_type_of(&decl)
+                        ctx.nominal_type_of(&decl)?
                     }
                     _ => return None,
                 };

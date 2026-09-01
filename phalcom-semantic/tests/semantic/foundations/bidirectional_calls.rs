@@ -7,7 +7,7 @@ use phalcom_semantic::checker::context::CheckingContext;
 use phalcom_semantic::checker::expected::ExpectedType;
 use phalcom_semantic::checker::expression::{analyze_expression, check_expr};
 use phalcom_semantic::checker::statement::check_statement;
-use phalcom_semantic::declarations::{bootstrap_universe_declarations, DeclarationTypeTable};
+use phalcom_semantic::declarations::{DeclarationTypeInfo, DeclarationTypeTable, bootstrap_universe_declarations};
 use phalcom_semantic::identity::{BodyId, CallableId, DeclarationId, DispatchSide, ExpressionId, LocalExpressionId};
 use phalcom_semantic::types::annotation::{SimpleTypeResolver, TypeResolver};
 use phalcom_semantic::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
@@ -52,7 +52,7 @@ fn test_bidirectional_empty_collections() {
     let mut ctx = CheckingContext::new(&mut store, &hier, &resolver, &decls, module);
 
     let int_decl = ctx.resolver.resolve_type_name(&ctx.current_module, "Int", &[]).unwrap();
-    let int_ty = ctx.nominal_type_of(&int_decl);
+    let int_ty = ctx.nominal_type_of(&int_decl).expect("bootstrap Int declaration form");
 
     let list_decl = ctx.resolver.resolve_type_name(&ctx.current_module, "List", &[]).unwrap();
     let list_k = ctx.store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
@@ -78,7 +78,7 @@ fn test_bidirectional_empty_collections() {
     // Contextual checking validates a concrete literal without replacing its
     // established syntax knowledge with the expected supertype.
     let object_decl = ctx.resolver.resolve_type_name(&ctx.current_module, "Object", &[]).unwrap();
-    let object_ty = ctx.nominal_type_of(&object_decl);
+    let object_ty = ctx.nominal_type_of(&object_decl).expect("bootstrap Object declaration form");
     let literal_program = parse_source("1", 0).unwrap();
     let literal = match &literal_program.statements[0] {
         phalcom_ast::ast::Statement::Expr { expr, .. } => expr,
@@ -133,14 +133,24 @@ fn test_expression_analysis_index_population_and_stability() {
 
 #[test]
 fn test_generic_method_call_inference() {
-    let (mut store, hier, resolver, decls, module) = setup_wave3_test_env();
+    let (mut store, hier, resolver, mut decls, module) = setup_wave3_test_env();
+    let box_decl = DeclarationId::new(module.clone(), "IdBox".into());
+    let box_form = store.nominal_type(box_decl.clone());
+    let box_class_object = store.class_object_type(box_decl.clone());
+    decls.insert(DeclarationTypeInfo {
+        declaration: box_decl.clone(),
+        form: box_form,
+        class_object_type: box_class_object,
+        kind: KindId::TYPE,
+        generic_signature: None,
+        supertype_template: None,
+    });
     let mut ctx = CheckingContext::new(&mut store, &hier, &resolver, &decls, module);
 
     let int_decl = ctx.resolver.resolve_type_name(&ctx.current_module, "Int", &[]).unwrap();
-    let int_ty = ctx.nominal_type_of(&int_decl);
+    let int_ty = ctx.nominal_type_of(&int_decl).expect("bootstrap Int declaration form");
 
     // Register a class with a generic method: id<T>(x: T) -> T
-    let box_decl = DeclarationId::new(ctx.current_module.clone(), "IdBox".into());
     let mut surface = phalcom_semantic::surface::DeclarationSurface::new(Some(box_decl.clone()));
 
     let callable_id = CallableId::new(
@@ -173,7 +183,7 @@ fn test_generic_method_call_inference() {
     ctx.register_surface(box_decl.clone(), surface);
 
     // Bind `b` as instance of IdBox
-    let box_ty = ctx.nominal_type_of(&box_decl);
+    let box_ty = ctx.nominal_type_of(&box_decl).expect("registered IdBox declaration form");
     ctx.bind_pattern_binding(
         "b",
         phalcom_semantic::types::denotation::ValueSemanticFact::new(TypeKnowledge::assumed(box_ty, EvidenceOrigin::DeveloperAnnotation)),
@@ -198,8 +208,8 @@ fn test_flow_state_mutation_and_if_let_join() {
 
     let int_decl = ctx.resolver.resolve_type_name(&ctx.current_module, "Int", &[]).unwrap();
     let string_decl = ctx.resolver.resolve_type_name(&ctx.current_module, "String", &[]).unwrap();
-    let int_ty = ctx.nominal_type_of(&int_decl);
-    let str_ty = ctx.nominal_type_of(&string_decl);
+    let int_ty = ctx.nominal_type_of(&int_decl).expect("bootstrap Int declaration form");
+    let str_ty = ctx.nominal_type_of(&string_decl).expect("bootstrap String declaration form");
 
     // Bind mutable local `x` with initial Int
     let x_binding = match ctx.bind_pattern_binding(

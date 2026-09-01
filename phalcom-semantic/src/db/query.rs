@@ -267,10 +267,9 @@ pub fn query_advisory_module(
         db.discard_for_recompute(&key);
     }
     let mut recorder = crate::db::DependencyRecorder::new(key.clone());
-    for dependency in [QueryKey::SourceStructure(product.module.clone())] {
-        if let Err(error) = db.record_dependency(&mut recorder, dependency) {
-            return query_failure(db, key, error);
-        }
+    let dependency = QueryKey::SourceStructure(product.module.clone());
+    if let Err(error) = db.record_dependency(&mut recorder, dependency) {
+        return query_failure(db, key, error);
     }
     for callable in callables {
         if let Err(error) = db.record_dependency(&mut recorder, QueryKey::AdvisoryCallable(callable)) {
@@ -666,13 +665,31 @@ pub fn query_declaration_shell(db: &mut SemanticDb, shell: Arc<TypeDeclarationSh
     db.metrics().record_miss();
 
     let product_fingerprint = crate::db::fingerprint::declaration_shell_product_fingerprint(shell.as_ref());
+    let dependencies = match shell.as_ref() {
+        TypeDeclarationShell::Nominal(_) => Vec::new(),
+        TypeDeclarationShell::Alias(info) => {
+            let mut edges = Vec::with_capacity(info.dependencies.len());
+            for dependency in &info.dependencies {
+                let dependency_key = QueryKey::DeclarationShell(dependency.clone());
+                let Some(observed_fingerprint) = db.ready_product_fingerprint(&dependency_key) else {
+                    return query_failure(db, key, format!("alias dependency {dependency:?} is not published"));
+                };
+                edges.push(DependencyEdge {
+                    dependent: key.clone(),
+                    observed_fingerprint,
+                    dependency: dependency_key,
+                });
+            }
+            edges
+        }
+    };
     if let Err(error) = publish_current_product(
         db,
         key.clone(),
         input_fingerprint,
         product_fingerprint,
         SemanticProduct::DeclarationShell(shell.clone()),
-        Vec::new(),
+        dependencies,
     ) {
         return query_failure(db, key, error);
     }

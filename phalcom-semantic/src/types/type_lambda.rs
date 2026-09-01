@@ -1,7 +1,7 @@
 //! Alpha-normalized Type Lambda calculus and scoped bound representation.
 
 use super::id::{KindId, ScopedTypeId, TypeId, TypeLambdaId};
-use super::store::TypeStore;
+use super::store::{TypeData, TypeStore};
 use crate::diagnostic::SemanticSourceSpan;
 use std::collections::HashMap;
 
@@ -235,7 +235,7 @@ impl TypeLambdaArena {
         }
     }
 
-    fn subst_scoped_to_canonical(&self, scoped: ScopedTypeId, depth: u32, args: &[TypeId], store: &mut TypeStore) -> Result<TypeId, BetaReductionError> {
+    fn subst_scoped_to_canonical(&mut self, scoped: ScopedTypeId, depth: u32, args: &[TypeId], store: &mut TypeStore) -> Result<TypeId, BetaReductionError> {
         match self.get_scoped(scoped).clone() {
             ScopedTypeData::Bound { depth: d, index: idx } => {
                 if d == depth && (idx as usize) < args.len() {
@@ -308,10 +308,23 @@ impl TypeLambdaArena {
             }
             ScopedTypeData::Lambda(lid) => {
                 let nested = self.get_lambda(lid).clone();
-                let nested_body = self.subst_scoped_to_canonical(nested.body, depth + 1, args, store)?;
-                let scoped_body = store.arena_mut().intern_scoped(ScopedTypeData::Free(nested_body));
-                let new_lid = store.arena_mut().intern_lambda(nested.parameter_kinds, scoped_body, nested.result_kind, None);
-                Ok(store.type_lambda(new_lid))
+                // Inner binders remain scoped while outer arguments are
+                // substituted. Converting through `subst_scoped_to_canonical`
+                // would incorrectly reject those bound de Bruijn nodes as
+                // unbound once the enclosing lambda is saturated.
+                let scoped_body = self.subst_scoped_partial(nested.body, depth + 1, args, store);
+                let parameter_kinds = nested.parameter_kinds.clone();
+                let new_lid = self.intern_lambda(parameter_kinds.clone(), scoped_body, nested.result_kind, None);
+                // `self` is the cloned arena used by `TypeStore::apply_type_form`.
+                // Intern the denotation against that arena's ID; calling
+                // `store.type_lambda` here would read the pre-clone arena and
+                // can address a lambda that is not present there yet.
+                let kind = if parameter_kinds.is_empty() {
+                    nested.result_kind
+                } else {
+                    store.arrow_kind(parameter_kinds, nested.result_kind)
+                };
+                Ok(store.intern_with_kind(TypeData::Lambda(new_lid), kind))
             }
         }
     }

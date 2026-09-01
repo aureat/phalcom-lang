@@ -1,9 +1,6 @@
 //! Surface merge between source and native declarations.
 
-use super::source::{
-    SourceClassRecord, SourceDeclarationRecord, SourceEnumRecord, SourceMemberRecord,
-    SourceNativeBindingRole,
-};
+use super::source::{SourceClassRecord, SourceDeclarationRecord, SourceEnumRecord, SourceMemberRecord, SourceNativeBindingRole};
 use crate::identity::{DeclarationId, DispatchSide};
 use phalcom_native_surface::NativeSurfaceRecord;
 use std::collections::BTreeMap;
@@ -70,25 +67,20 @@ impl<'a> MergedDeclarationSurface<'a> {
 pub type MergedClassSurface<'a> = MergedDeclarationSurface<'a>;
 
 /// Merges source declaration records (classes and enums) and native surface records.
-pub fn merge_surfaces<'a>(
-    source_declarations: &'a [SourceDeclarationRecord],
-    native_records: &'a [NativeSurfaceRecord],
-) -> Vec<MergedDeclarationSurface<'a>> {
+pub fn merge_surfaces<'a>(source_declarations: &'a [SourceDeclarationRecord], native_records: &'a [NativeSurfaceRecord]) -> Vec<MergedDeclarationSurface<'a>> {
     let mut by_id: BTreeMap<DeclarationId, MergedDeclarationSurface<'a>> = BTreeMap::new();
 
     // 1. Ingest source declarations
     for s_decl in source_declarations {
         match s_decl {
             SourceDeclarationRecord::Class(s_class) => {
-                let entry = by_id
-                    .entry(s_class.declaration_id.clone())
-                    .or_insert_with(|| MergedDeclarationSurface {
-                        declaration_id: s_class.declaration_id.clone(),
-                        name: s_class.name.clone(),
-                        superclass: s_class.superclass.clone(),
-                        source: Some(MergedDeclarationSource::Class(s_class)),
-                        members: BTreeMap::new(),
-                    });
+                let entry = by_id.entry(s_class.declaration_id.clone()).or_insert_with(|| MergedDeclarationSurface {
+                    declaration_id: s_class.declaration_id.clone(),
+                    name: s_class.name.clone(),
+                    superclass: s_class.superclass.clone(),
+                    source: Some(MergedDeclarationSource::Class(s_class)),
+                    members: BTreeMap::new(),
+                });
                 entry.source = Some(MergedDeclarationSource::Class(s_class));
                 if entry.superclass.is_none() {
                     entry.superclass = s_class.superclass.clone();
@@ -100,15 +92,13 @@ pub fn merge_surfaces<'a>(
                 }
             }
             SourceDeclarationRecord::Enum(s_enum) => {
-                let entry = by_id
-                    .entry(s_enum.declaration_id.clone())
-                    .or_insert_with(|| MergedDeclarationSurface {
-                        declaration_id: s_enum.declaration_id.clone(),
-                        name: s_enum.name.clone(),
-                        superclass: None,
-                        source: Some(MergedDeclarationSource::Enum(s_enum)),
-                        members: BTreeMap::new(),
-                    });
+                let entry = by_id.entry(s_enum.declaration_id.clone()).or_insert_with(|| MergedDeclarationSurface {
+                    declaration_id: s_enum.declaration_id.clone(),
+                    name: s_enum.name.clone(),
+                    superclass: None,
+                    source: Some(MergedDeclarationSource::Enum(s_enum)),
+                    members: BTreeMap::new(),
+                });
                 entry.source = Some(MergedDeclarationSource::Enum(s_enum));
 
                 for m in &s_enum.members {
@@ -129,31 +119,21 @@ pub fn merge_surfaces<'a>(
         let key = (side, n_rec.selector().to_string());
 
         let native_declaration = crate::core_surface::universe_declaration(n_rec.owner());
-        let entry = by_id
-            .entry(native_declaration.clone())
-            .or_insert_with(|| MergedDeclarationSurface {
-                declaration_id: native_declaration,
-                name: owner_name.to_string(),
-                superclass: None,
-                source: None,
-                members: BTreeMap::new(),
-            });
+        let entry = by_id.entry(native_declaration.clone()).or_insert_with(|| MergedDeclarationSurface {
+            declaration_id: native_declaration,
+            name: owner_name.to_string(),
+            superclass: None,
+            source: None,
+            members: BTreeMap::new(),
+        });
 
         match entry.members.get(&key) {
             Some(SurfaceMergeOutcome::SourceOnly(s_mem)) => {
                 let outcome = match s_mem.binding_role {
                     SourceNativeBindingRole::DeclarationImplementation => {
-                        SurfaceMergeOutcome::SourceDeclarationNativeImplementation {
-                            source: s_mem,
-                            native: n_rec,
-                        }
+                        SurfaceMergeOutcome::SourceDeclarationNativeImplementation { source: s_mem, native: n_rec }
                     }
-                    SourceNativeBindingRole::WrapperOverNative => {
-                        SurfaceMergeOutcome::SourceWrapperOverNative {
-                            source: s_mem,
-                            native: n_rec,
-                        }
-                    }
+                    SourceNativeBindingRole::WrapperOverNative => SurfaceMergeOutcome::SourceWrapperOverNative { source: s_mem, native: n_rec },
                     SourceNativeBindingRole::None => SurfaceMergeOutcome::Conflict {
                         source: s_mem,
                         native: n_rec,

@@ -420,3 +420,68 @@ class Consumer {
     );
     assert_eq!(consumer_state2.validated_revision(), Some(update2.snapshot.id.revision()));
 }
+
+#[test]
+fn alias_incremental_result_matches_cold_final_analysis() {
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(95),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("alias_parity").unwrap()]),
+    );
+    let initial = "type Alias = Int\nclass Consumer {\n  @class use(_ value: Alias) -> Int { 1 }\n}\n";
+    let final_source = "type Alias = String\nclass Consumer {\n  @class use(_ value: Alias) -> Int { 1 }\n}\n";
+
+    let mut incremental = SemanticWorkspaceSession::new();
+    let _ = incremental.update(single_module_input(module.clone(), initial, 1));
+    let incremental_final = incremental.update(single_module_input(module.clone(), final_source, 2));
+
+    let mut cold = SemanticWorkspaceSession::new();
+    let cold_final = cold.update(single_module_input(module.clone(), final_source, 1));
+
+    let alias = DeclarationId::new(module, "Alias".into());
+    let incremental_form = incremental_final.snapshot.type_aliases.form(&alias).expect("incremental alias form");
+    let cold_form = cold_final.snapshot.type_aliases.form(&alias).expect("cold alias form");
+    assert_eq!(
+        incremental_final.snapshot.store.format_type(incremental_form),
+        cold_final.snapshot.store.format_type(cold_form),
+        "incremental and cold alias forms must have equal structural meaning"
+    );
+    assert_eq!(
+        incremental_final.snapshot.store.kind_of(incremental_form),
+        cold_final.snapshot.store.kind_of(cold_form),
+        "incremental and cold alias forms must have equal kinds"
+    );
+}
+
+#[test]
+fn generic_constraint_edit_recomputes_dependent_consumer_signature() {
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(96),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("generic_constraint").unwrap()]),
+    );
+    let source1 = "class Holder<T> where T <: Object {}\nclass Consumer {\n  @class use(_ value: Holder<Int>) -> Int { 1 }\n}\n";
+    let source2 = "class Holder<T> where T <: String {}\nclass Consumer {\n  @class use(_ value: Holder<Int>) -> Int { 1 }\n}\n";
+
+    let mut session = SemanticWorkspaceSession::new();
+    let first = session.update(single_module_input(module.clone(), source1, 1));
+    assert!(!first.snapshot.has_errors(), "diagnostics: {:?}", first.snapshot.diagnostics);
+
+    let holder = DeclarationId::new(module.clone(), "Holder".into());
+    let consumer = DeclarationId::new(module.clone(), "Consumer".into());
+    let callable = phalcom_semantic::identity::CallableId::new(
+        consumer,
+        phalcom_common::selector::Selector::method("use", [phalcom_common::selector::SelectorSlot::Positional]).unwrap(),
+        phalcom_semantic::identity::DispatchSide::Class,
+    );
+    let holder_key = QueryKey::DeclarationShell(holder);
+    let signature_key = QueryKey::CallableSignature(callable);
+    let holder_fp1 = session.db().ready_product_fingerprint(&holder_key).expect("generic holder shell");
+    let signature_revision1 = session.db().query_state(&signature_key).expect("consumer signature").revision();
+
+    let second = session.update(single_module_input(module, source2, 2));
+    assert!(!second.snapshot.has_errors(), "diagnostics: {:?}", second.snapshot.diagnostics);
+    let holder_fp2 = session.db().ready_product_fingerprint(&holder_key).expect("updated generic holder shell");
+    let signature_revision2 = session.db().query_state(&signature_key).expect("updated consumer signature").revision();
+
+    assert_ne!(holder_fp1, holder_fp2, "generic constraint edit must change declaration-shell product");
+    assert_ne!(signature_revision1, signature_revision2, "constraint-dependent signature must recompute");
+}

@@ -163,9 +163,15 @@ pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTyp
         TypeData::SelfType(term) => match term.role {
             crate::types::parameter::SelfRole::ReceiverValue => receiver,
             crate::types::parameter::SelfRole::InstanceType => match store.get(receiver).clone() {
-                TypeData::ClassObject { declaration } => declarations.form(&declaration).unwrap_or(receiver),
+                TypeData::ClassObject { declaration } => match declarations.form(&declaration) {
+                    Some(form) => form,
+                    None => ty,
+                },
                 TypeData::Nominal { .. } | TypeData::Applied { .. } => receiver,
-                _ => declarations.form(&term.owner).unwrap_or(receiver),
+                _ => match declarations.form(&term.owner) {
+                    Some(form) => form,
+                    None => ty,
+                },
             },
         },
         TypeData::Applied { origin, arguments } => {

@@ -27,13 +27,13 @@ pub fn build_enum_semantics(
     declarations: &DeclarationTypeTable,
     resolver: &LinkedTypeResolver,
     module_id: &ModuleId,
-) -> EnumDeclarationProduct {
+) -> Option<EnumDeclarationProduct> {
     let mut diagnostics = Vec::new();
 
     let generic_sig = declarations.generic_signature(owner).cloned();
     let generic_params: Vec<TypeParameterId> = generic_sig.as_ref().map(|sig| sig.parameters.to_vec()).unwrap_or_default();
 
-    let root_form = declarations.form(owner).unwrap_or_else(|| store.nominal(owner.clone()));
+    let root_form = declarations.form(owner)?;
 
     let default_result_type = if generic_params.is_empty() {
         root_form
@@ -304,9 +304,9 @@ pub fn build_enum_semantics(
         source: Some(SemanticSourceSpan::new(module_id.clone(), enum_def.range)),
     };
 
-    EnumDeclarationProduct {
+    Some(EnumDeclarationProduct {
         info: Arc::new(enum_info),
         variants: Arc::from(variant_infos.into_boxed_slice()),
         diagnostics: Arc::from(diagnostics.into_boxed_slice()),
-    }
+    })
 }

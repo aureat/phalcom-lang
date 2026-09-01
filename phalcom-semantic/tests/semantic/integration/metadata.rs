@@ -1,20 +1,22 @@
+use phalcom_common::range::SourceRange;
 use phalcom_modules::{DeclarationId, ModuleComponent, ModuleId, ModulePath};
 use phalcom_semantic::declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate};
+use phalcom_semantic::diagnostic::SemanticSourceSpan;
+use phalcom_semantic::identity::DispatchSide;
 use phalcom_semantic::metadata::MetadataExporter;
+use phalcom_semantic::type_alias::{TypeAliasInfo, TypeAliasTable};
 use phalcom_semantic::types::id::KindId;
-use phalcom_semantic::types::parameter::{GenericConstraint, GenericSignature, TypeParameterData, TypeParameterOwner, TypeTerm};
+use phalcom_semantic::types::parameter::{GenericConstraint, GenericSignature, SelfRole, SelfTypeTerm, TypeParameterData, TypeParameterOwner, TypeTerm};
 use phalcom_semantic::types::store::TypeStore;
 use phalcom_semantic::types::variance::Variance;
 use phalcom_type_meta::header::MetadataProfile;
 use phalcom_type_meta::validate::{ValidationLimits, validate_metadata_bundle};
 
 fn dummy_module() -> ModuleId {
-    ModuleId::universe(
-        ModulePath::from_components(vec![
-            ModuleComponent::from_identifier("collections").unwrap(),
-            ModuleComponent::from_identifier("list").unwrap(),
-        ]),
-    )
+    ModuleId::universe(ModulePath::from_components(vec![
+        ModuleComponent::from_identifier("collections").unwrap(),
+        ModuleComponent::from_identifier("list").unwrap(),
+    ]))
 }
 
 fn dummy_decl(name: &str) -> DeclarationId {
@@ -119,6 +121,7 @@ fn test_metadata_generic_signature_and_supertype_template_export() {
         supertype_template: Some(GenericSupertypeTemplate {
             declaration: decl.clone(),
             supertype: seq_t,
+            structural_form: None,
         }),
     });
 
@@ -133,4 +136,155 @@ fn test_metadata_generic_signature_and_supertype_template_export() {
     assert_eq!(bundle.generic_signatures[0].constraints.len(), 1);
     assert_eq!(bundle.parameters.len(), 1);
     assert_eq!(bundle.parameters[0].variance, phalcom_type_meta::generic::VarianceRef::Covariant);
+}
+
+#[test]
+fn test_metadata_exports_transparent_alias_records_and_generic_forms() {
+    let mut store = TypeStore::new();
+    let alias = dummy_decl("UserId");
+    let int = store.nominal(dummy_decl("Int"));
+    let generic_alias = dummy_decl("ListAlias");
+    let parameter = store.intern_type_parameter(TypeParameterData::new(
+        TypeParameterOwner::Declaration(generic_alias.clone()),
+        0,
+        "T",
+        KindId::TYPE,
+    ));
+    let list_kind = store.arrow_kind(Box::new([KindId::TYPE]), KindId::TYPE);
+    let list = store.nominal_form(dummy_decl("List"), list_kind);
+    let bound = store
+        .arena_mut()
+        .intern_scoped(phalcom_semantic::types::ScopedTypeData::Bound { depth: 0, index: 0 });
+    let free_list = store.arena_mut().intern_scoped(phalcom_semantic::types::ScopedTypeData::Free(list));
+    let applied = store.arena_mut().intern_scoped(phalcom_semantic::types::ScopedTypeData::Applied {
+        origin: free_list,
+        arguments: Box::new([bound]),
+    });
+    let generic_form = store.lambda(Box::new([KindId::TYPE]), applied, KindId::TYPE);
+    let generic_signature = GenericSignature::new(TypeParameterOwner::Declaration(generic_alias.clone()), Box::new([parameter]));
+    let aliases = {
+        let mut table = TypeAliasTable::new();
+        table.insert(TypeAliasInfo {
+            declaration: alias.clone(),
+            kind: KindId::TYPE,
+            kind_shape: "Type".into(),
+            generic_signature: None,
+            form: int,
+            structural_form: "Int".into(),
+            dependencies: Box::new([]),
+            source: SemanticSourceSpan::new(dummy_module(), SourceRange { start: 4, end: 10 }),
+        });
+        table.insert(TypeAliasInfo {
+            declaration: generic_alias,
+            kind: list_kind,
+            kind_shape: "(Type) -> Type".into(),
+            generic_signature: Some(generic_signature),
+            form: generic_form,
+            structural_form: "<T> =>> List<T>".into(),
+            dependencies: Box::new([]),
+            source: SemanticSourceSpan::new(dummy_module(), SourceRange { start: 11, end: 30 }),
+        });
+        table
+    };
+
+    let exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic).with_aliases(&aliases);
+    let bundle = exporter.build_bundle(&[]).expect("valid alias metadata");
+    assert_eq!(bundle.aliases.len(), 2);
+    let user_id = bundle
+        .aliases
+        .iter()
+        .find(|record| record.declaration.path[0].as_ref() == "UserId")
+        .expect("UserId alias");
+    let target = &bundle.types[user_id.target.0 as usize].form;
+    assert!(matches!(target, phalcom_type_meta::type_node::TypeNode::Nominal { declaration } if declaration.path[0].as_ref() == "Int"));
+    let list_alias = bundle
+        .aliases
+        .iter()
+        .find(|record| record.declaration.path[0].as_ref() == "ListAlias")
+        .expect("generic alias");
+    assert!(list_alias.generic_signature.is_some());
+    assert!(matches!(
+        &bundle.types[list_alias.target.0 as usize].form,
+        phalcom_type_meta::type_node::TypeNode::TypeLambda(_)
+    ));
+    assert_eq!(bundle.generic_signatures.len(), 1);
+    assert_eq!(bundle.parameters.len(), 1);
+    validate_metadata_bundle(&bundle, &ValidationLimits::default()).unwrap();
+}
+
+#[test]
+fn test_metadata_rejects_stale_alias_form_before_publication() {
+    let store = TypeStore::new();
+    let alias = dummy_decl("BrokenAlias");
+    let mut aliases = TypeAliasTable::new();
+    aliases.insert(TypeAliasInfo {
+        declaration: alias,
+        kind: KindId::TYPE,
+        kind_shape: "Type".into(),
+        generic_signature: None,
+        form: phalcom_semantic::types::id::TypeId::DUMMY,
+        structural_form: "<stale>".into(),
+        dependencies: Box::new([]),
+        source: SemanticSourceSpan::new(dummy_module(), SourceRange { start: 0, end: 1 }),
+    });
+
+    let exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic).with_aliases(&aliases);
+    assert!(matches!(
+        exporter.build_bundle(&[]),
+        Err(phalcom_semantic::metadata::MetadataExportError::NonExportableForm(form))
+            if form == phalcom_semantic::types::id::TypeId::DUMMY
+    ));
+}
+
+#[test]
+fn test_metadata_rejects_inference_variable_signature_before_publication() {
+    let mut store = TypeStore::new();
+    let owner = TypeParameterOwner::Declaration(dummy_decl("SolverLeak"));
+    let parameter = store.intern_type_parameter(TypeParameterData::new(owner.clone(), 0, "T", KindId::TYPE));
+    let signature = GenericSignature::with_constraints(
+        owner,
+        Box::new([parameter]),
+        Box::new([GenericConstraint::Equivalent {
+            left: TypeTerm::Infer(phalcom_semantic::types::id::InferVarId(11)),
+            right: TypeTerm::Canonical(store.unit()),
+        }]),
+    );
+    let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+    assert!(matches!(
+        exporter.export_generic_signature(&signature),
+        Err(phalcom_semantic::metadata::MetadataExportError::InvalidGenericSignature(
+            phalcom_semantic::types::parameter::GenericSignaturePublicationError::InferenceVariable { .. }
+        ))
+    ));
+}
+
+#[test]
+fn test_metadata_preserves_owner_relative_self_terms() {
+    let mut store = TypeStore::new();
+    let owner = dummy_decl("Owner");
+    let instance = store.self_type(SelfTypeTerm {
+        owner: owner.clone(),
+        side: DispatchSide::Instance,
+        role: SelfRole::InstanceType,
+    });
+    let class = store.self_type(SelfTypeTerm {
+        owner,
+        side: DispatchSide::Class,
+        role: SelfRole::ReceiverValue,
+    });
+    let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+    let instance_id = exporter.export_type_form(instance).expect("instance Self export");
+    let class_id = exporter.export_type_form(class).expect("class Self export");
+    assert_ne!(instance_id, class_id);
+    let bundle = exporter.build_bundle(&[]).expect("Self terms export");
+    assert!(matches!(
+        &bundle.types[instance_id.0 as usize].form,
+        phalcom_type_meta::type_node::TypeNode::SelfType(self_ref)
+            if matches!(self_ref.side, phalcom_type_meta::identity::StableDispatchSide::Instance)
+    ));
+    assert!(matches!(
+        &bundle.types[class_id.0 as usize].form,
+        phalcom_type_meta::type_node::TypeNode::SelfType(self_ref)
+            if matches!(self_ref.side, phalcom_type_meta::identity::StableDispatchSide::Class)
+    ));
 }

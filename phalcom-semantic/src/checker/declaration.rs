@@ -3,12 +3,13 @@
 use super::context::{CallableReturnContract, CheckingContext};
 use super::expression::synthesize_expr;
 use super::statement::check_statement;
-use crate::TypeResolver;
 use crate::diagnostic::DiagnosticCode;
 use crate::identity::DeclarationId;
+use crate::signature::CallableSemanticSignature;
 use crate::surface::{DeclarationSurface, MemberVisibility};
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
 use phalcom_ast::ast::{ClassDef, ClassMember, ParameterDef, Statement};
+use std::collections::HashMap;
 
 pub(crate) fn member_side(member: &ClassMember) -> crate::identity::DispatchSide {
     if member.is_static() || member.attributes().iter().any(|attribute| attribute.name == "class") {
@@ -19,11 +20,14 @@ pub(crate) fn member_side(member: &ClassMember) -> crate::identity::DispatchSide
 }
 
 /// Pre-registers a class surface and its callable signatures in the context's dispatch table.
-pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) {
+pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) -> HashMap<crate::identity::CallableId, CallableSemanticSignature> {
     let decl_id = DeclarationId::new(ctx.current_module.clone(), class_def.name.clone().into());
     let mut surface = DeclarationSurface::new(Some(decl_id.clone()));
-    let class_ty = ctx.nominal_type_of(&decl_id);
+    let Some(class_ty) = ctx.nominal_type_of(&decl_id) else {
+        return HashMap::new();
+    };
     ctx.dispatch.make_mut().register_type(class_ty, decl_id.clone());
+    let mut signatures = HashMap::new();
 
     for member in &class_def.members {
         let visibility = member_visibility(member);
@@ -46,12 +50,14 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
                 let side = signature.side;
                 let projection = super::declaration_signature::project_semantic_signature(&signature);
                 surface.add_callable_with_visibility(side, projection, visibility);
+                signatures.insert(signature.callable.clone(), signature);
             }
             ClassMember::Variant(_) => {}
         }
     }
 
     ctx.register_surface(decl_id, surface);
+    signatures
 }
 
 fn member_visibility(member: &ClassMember) -> MemberVisibility {
@@ -122,7 +128,7 @@ pub fn check_class_field_initializers(ctx: &mut CheckingContext<'_>, class_def: 
 }
 
 /// Checks the member bodies of an already-registered class declaration.
-pub fn check_class_bodies(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) {
+pub fn check_class_bodies(ctx: &mut CheckingContext<'_>, class_def: &ClassDef, signatures: &HashMap<crate::identity::CallableId, CallableSemanticSignature>) {
     let decl_id = DeclarationId::new(ctx.current_module.clone(), class_def.name.clone().into());
     // Keep resolver ownership independent from `ctx` while checking bodies. The
     // body checker mutably borrows the full context, so a scoped resolver that
@@ -143,26 +149,32 @@ pub fn check_class_bodies(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) {
                 check_field_initializer(ctx, &scoped_resolver, f);
             }
             ClassMember::Method(m) => {
-                check_callable_body(ctx, &scoped_resolver, &m.params, m.return_annotation.as_ref(), m.body.statements().unwrap_or(&[]));
+                let callable = super::declaration_signature::callable_id_for_member(&decl_id, member);
+                if let Some(signature) = callable.as_ref().and_then(|id| signatures.get(id)) {
+                    check_callable_body(ctx, &m.params, signature, m.body.statements().unwrap_or(&[]));
+                }
             }
             ClassMember::Getter(g) => {
-                check_callable_body(ctx, &scoped_resolver, &[], g.return_annotation.as_ref(), g.body.statements().unwrap_or(&[]));
+                let callable = super::declaration_signature::callable_id_for_member(&decl_id, member);
+                if let Some(signature) = callable.as_ref().and_then(|id| signatures.get(id)) {
+                    check_callable_body(ctx, &[], signature, g.body.statements().unwrap_or(&[]));
+                }
             }
             ClassMember::Setter(s) => {
-                check_callable_body(
-                    ctx,
-                    &scoped_resolver,
-                    std::slice::from_ref(&s.param),
-                    s.return_annotation.as_ref(),
-                    s.body.statements().unwrap_or(&[]),
-                );
+                let callable = super::declaration_signature::callable_id_for_member(&decl_id, member);
+                if let Some(signature) = callable.as_ref().and_then(|id| signatures.get(id)) {
+                    check_callable_body(ctx, std::slice::from_ref(&s.param), signature, s.body.statements().unwrap_or(&[]));
+                }
             }
             ClassMember::Index(i) => {
                 let mut params = i.params.clone();
                 if let phalcom_ast::ast::IndexAccessor::Set { put } = &i.accessor {
                     params.push((**put).clone());
                 }
-                check_callable_body(ctx, &scoped_resolver, &params, i.return_annotation.as_ref(), &i.body);
+                let callable = super::declaration_signature::callable_id_for_member(&decl_id, member);
+                if let Some(signature) = callable.as_ref().and_then(|id| signatures.get(id)) {
+                    check_callable_body(ctx, &params, signature, &i.body);
+                }
             }
             _ => {}
         }
@@ -174,43 +186,36 @@ pub fn check_class_bodies(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) {
 
 /// Checks a class declaration and all its members.
 pub fn check_class(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) {
-    register_class_surface(ctx, class_def);
-    check_class_bodies(ctx, class_def);
+    let signatures = register_class_surface(ctx, class_def);
+    check_class_bodies(ctx, class_def, &signatures);
 }
 
-fn check_callable_body(
-    ctx: &mut CheckingContext<'_>,
-    resolver: &dyn TypeResolver,
-    params: &[ParameterDef],
-    return_annotation: Option<&phalcom_ast::ast::TypeAnnotation>,
-    body: &[Statement],
-) {
+fn check_callable_body(ctx: &mut CheckingContext<'_>, params: &[ParameterDef], signature: &CallableSemanticSignature, body: &[Statement]) {
     ctx.push_scope();
 
     // Bind parameters
-    for param in params {
-        let (param_k, param_invalidity) = if let Some(ann) = &param.annotation {
-            ctx.resolve_type_annotation(resolver, ann)
-        } else {
-            (
-                TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
-                crate::checker::causal::CausalInvalidity::Clean,
-            )
-        };
+    for (index, param) in params.iter().enumerate() {
+        let knowledge = signature
+            .parameter_at(index)
+            .map(|parameter| parameter.declared_type.to_knowledge())
+            .unwrap_or_else(|| TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence));
+        let param_k = knowledge;
+        let param_invalidity = crate::checker::causal::CausalInvalidity::Clean;
         ctx.bind_callable_parameter_with_causal(param.name.clone(), param_k, param.range, param_invalidity);
     }
 
-    // Resolve return annotation
-    let expected_return = return_annotation.and_then(|ann| {
-        let (knowledge, _) = ctx.resolve_type_annotation(resolver, ann);
+    // Reuse declaration-owned return contract. Signature formation already
+    // resolved source annotations and generic binders before body analysis.
+    let expected_return = {
+        let knowledge = signature.declared_return.to_knowledge();
         knowledge.ty().map(|ty| CallableReturnContract {
             ty,
-            basis: crate::declaration_type::DeclaredTypeBasis::SourceAnnotation,
-            origin: EvidenceOrigin::DeveloperAnnotation,
-            is_dynamic: false,
-            source: Some(ann.range),
+            basis: signature.declared_return.basis,
+            origin: knowledge.origin().unwrap_or(EvidenceOrigin::CallableSignature),
+            is_dynamic: knowledge.is_dynamic(),
+            source: signature.source.as_ref().map(|source| source.range),
         })
-    });
+    };
 
     let old_return = ctx.expected_return.take();
     ctx.expected_return = expected_return.clone();

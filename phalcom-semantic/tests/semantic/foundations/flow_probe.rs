@@ -18,9 +18,9 @@ fn flow_probe_isolates_diagnostics_explanations_and_exits() {
     let declarations = DeclarationTypeTable::new();
     let module_id = ModuleId::universe_root();
 
+    let int_ty = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "Int".into()));
+    let string_ty = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "String".into()));
     let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module_id);
-    let int_ty = ctx.nominal_type_of(&DeclarationId::new(ModuleId::universe_root(), "Int".into()));
-    let string_ty = ctx.nominal_type_of(&DeclarationId::new(ModuleId::universe_root(), "String".into()));
 
     let binding_id = ctx.alloc_binding();
     ctx.flow.declare(

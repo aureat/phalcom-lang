@@ -2268,6 +2268,8 @@ The final semantic snapshots must agree structurally for identical final source,
 
 # Task 19 — Documentation and final commit organization
 
+Current evidence, residual full-gate failures, deletion results, and Tasks 0–19 acceptance status are recorded in [SC-1 Final Verification Ledger](SC-1-final-verification-ledger.md). The final checklist below remains intentionally unchecked until the listed broad gates are green and the owner reviews the ledger.
+
 Prefer reviewable commits rather than one large alias/type-system commit.
 
 Recommended sequence:

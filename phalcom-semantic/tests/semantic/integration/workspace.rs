@@ -10,7 +10,7 @@ use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 use phalcom_semantic::types::environment::{TypeEnvironment, TypeView};
 use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::store::TypeData;
-use phalcom_semantic::{analyze_single_module, analyze_workspace, SemanticWorkspaceInput, SemanticWorkspaceSession, TypeHierarchy};
+use phalcom_semantic::{SemanticWorkspaceInput, SemanticWorkspaceSession, TypeHierarchy, analyze_single_module, analyze_workspace};
 use std::collections::BTreeMap;
 use std::fs;
 use std::sync::Arc;
@@ -130,46 +130,48 @@ fn invalid_generic_kind_does_not_publish_ready_declaration_header() {
 #[test]
 fn written_invalid_superclass_does_not_publish_ready_declaration() {
     let module = ModuleId::universe_root();
-    let source: Arc<str> = Arc::from(
-        "class ConstructorBase<T> {}\nclass ConstructorKind is ConstructorBase {}\nclass MissingBase is MissingBaseType {}\n",
-    );
+    let source: Arc<str> = Arc::from("class ConstructorBase<T> {}\nclass ConstructorKind is ConstructorBase {}\nclass MissingBase is MissingBaseType {}\n");
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
     assert_eq!(parsed.program.statements.len(), 3, "parsed source statements");
     let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
-    assert!(analysis
-        .snapshot
-        .all_diagnostics()
-        .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::KindExpectedType),
+    assert!(
+        analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::KindExpectedType),
         "diagnostics: {:?}, declarations: {:?}",
         analysis.snapshot.diagnostics,
-        analysis.snapshot.declarations.iter().map(|(id, _)| id).collect::<Vec<_>>());
-    assert!(analysis
-        .snapshot
-        .all_diagnostics()
-        .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::AnnotationUnresolved));
-    assert!(analysis
-        .snapshot
-        .declarations
-        .get(&DeclarationId::new(module.clone(), "ConstructorKind".into()))
-        .is_none());
-    assert!(analysis
-        .snapshot
-        .surfaces
-        .get(&DeclarationId::new(module.clone(), "ConstructorKind".into()))
-        .is_none());
-    assert!(analysis
-        .snapshot
-        .declarations
-        .get(&DeclarationId::new(module, "MissingBase".into()))
-        .is_none());
+        analysis.snapshot.declarations.iter().map(|(id, _)| id).collect::<Vec<_>>()
+    );
+    assert!(
+        analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::AnnotationUnresolved)
+    );
+    assert!(
+        analysis
+            .snapshot
+            .declarations
+            .get(&DeclarationId::new(module.clone(), "ConstructorKind".into()))
+            .is_none()
+    );
+    assert!(
+        analysis
+            .snapshot
+            .surfaces
+            .get(&DeclarationId::new(module.clone(), "ConstructorKind".into()))
+            .is_none()
+    );
+    assert!(analysis.snapshot.declarations.get(&DeclarationId::new(module, "MissingBase".into())).is_none());
 }
 
 #[test]
 fn transparent_aliases_preserve_canonical_forms_and_kinds() {
     let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
-        "type UserId = Int\ntype Pair<T> = (T, T)\ntype ListAlias = List\nclass Uses { id(_ value: UserId) -> UserId { value } }\n",
+        "type UserId = Int\ntype Pair<T> = (T, T)\ntype Nested<U> = Pair<U>;\ntype Constrained<V: Type> = V\ntype ListAlias = List\nclass Uses { id(_ value: UserId) -> UserId { value } pair(_ value: Nested<Int>) -> Nested<Int> { value } }\n",
     );
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
@@ -181,13 +183,26 @@ fn transparent_aliases_preserve_canonical_forms_and_kinds() {
     assert_eq!(analysis.snapshot.type_aliases.get(&user_id).unwrap().kind, KindId::TYPE);
     assert_eq!(analysis.snapshot.type_aliases.form(&user_id), analysis.snapshot.declarations.form(&int));
 
-    let pair = analysis
-        .snapshot
-        .type_aliases
-        .get(&DeclarationId::new(module.clone(), "Pair".into()))
-        .unwrap();
+    let pair = analysis.snapshot.type_aliases.get(&DeclarationId::new(module.clone(), "Pair".into())).unwrap();
     assert_ne!(pair.kind, KindId::TYPE);
     assert!(matches!(analysis.snapshot.store.get(pair.form), TypeData::Lambda(_)));
+
+    let nested = analysis
+        .snapshot
+        .type_aliases
+        .get(&DeclarationId::new(module.clone(), "Nested".into()))
+        .unwrap();
+    assert!(matches!(analysis.snapshot.store.get(nested.form), TypeData::Lambda(_)));
+    assert!(nested.dependencies.iter().any(|dependency| dependency.name.as_ref() == "Pair"));
+
+    let constrained = analysis
+        .snapshot
+        .type_aliases
+        .get(&DeclarationId::new(module.clone(), "Constrained".into()))
+        .unwrap();
+    assert_eq!(constrained.generic_signature.as_ref().unwrap().parameters.len(), 1);
+    assert_eq!(constrained.generic_signature.as_ref().unwrap().parameter_kinds.len(), 1);
+    assert_eq!(constrained.generic_signature.as_ref().unwrap().parameter_kinds[0], KindId::TYPE);
 
     let list_alias = analysis
         .snapshot
@@ -196,6 +211,180 @@ fn transparent_aliases_preserve_canonical_forms_and_kinds() {
         .unwrap();
     assert_ne!(list_alias.kind, KindId::TYPE);
     assert_eq!(analysis.snapshot.store.format_kind(list_alias.kind), "(Type) -> Type");
+}
+
+#[test]
+fn alias_cycles_are_rejected_before_publication() {
+    let module = ModuleId::universe_root();
+    let source: Arc<str> = Arc::from("type First = Second\ntype Second = First\n");
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    assert!(
+        analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::TypeAliasCycle)
+    );
+    assert!(analysis.snapshot.type_aliases.iter().next().is_none());
+    assert!(
+        analysis
+            .snapshot
+            .declarations
+            .get(&DeclarationId::new(module.clone(), "First".into()))
+            .is_none()
+    );
+    assert!(analysis.snapshot.declarations.get(&DeclarationId::new(module, "Second".into())).is_none());
+}
+
+type AliasExports = Vec<&'static str>;
+type AliasImports = Vec<(&'static str, ModuleId, &'static str)>;
+type LinkedAliasModule = (ModuleId, Arc<str>, AliasExports, AliasImports);
+
+fn linked_alias_workspace(modules: Vec<LinkedAliasModule>) -> (Arc<LinkedProgram>, BTreeMap<ModuleId, Arc<ParsedModuleUnit>>) {
+    let mut sources = BTreeMap::new();
+    let mut linked_modules = BTreeMap::new();
+    let module_ids = modules.iter().map(|(module, _, _, _)| module.clone()).collect::<Vec<_>>();
+    for (module, source, exports, imports) in modules {
+        let parsed = Arc::new(phalcom_ast::parse(&source, 0).program);
+        sources.insert(
+            module.clone(),
+            Arc::new(ParsedModuleUnit::new(module.clone(), ModuleKind::Module, None, source, parsed)),
+        );
+        let export_map = exports
+            .iter()
+            .map(|name| {
+                (
+                    (*name).into(),
+                    LinkedExport {
+                        public_name: (*name).into(),
+                        target: LinkedExportTarget::Binding(SymbolId {
+                            module: module.clone(),
+                            name: (*name).into(),
+                        }),
+                        range: phalcom_common::range::SourceRange::default(),
+                    },
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        let import_bindings = imports
+            .iter()
+            .enumerate()
+            .map(|(index, (name, _, _))| ((*name).into(), ImportBindingId(index as u32)))
+            .collect::<BTreeMap<_, _>>();
+        let linked_reads = imports
+            .iter()
+            .map(|(_, target_module, target_name)| {
+                LinkedReadSpec::Binding(SymbolId {
+                    module: target_module.clone(),
+                    name: (*target_name).into(),
+                })
+            })
+            .collect::<Vec<_>>();
+        linked_modules.insert(
+            module.clone(),
+            LinkedModule {
+                interface: LinkedModuleInterface {
+                    module: module.clone(),
+                    kind: ModuleKind::Module,
+                    exports: export_map,
+                    metadata: ModuleMetadata::default(),
+                },
+                bindings: ModuleBindingLayout {
+                    local_globals: exports
+                        .iter()
+                        .enumerate()
+                        .map(|(index, name)| ((*name).into(), GlobalBindingId(index as u32)))
+                        .collect(),
+                    imports: import_bindings,
+                },
+                linked_reads,
+                runtime_dependencies: imports.iter().map(|(_, target, _)| target.clone()).collect(),
+            },
+        );
+    }
+    let entry = module_ids.first().cloned().expect("alias workspace entry");
+    (
+        Arc::new(LinkedProgram {
+            universe: Arc::new(ProjectUniverse::new()),
+            modules: linked_modules,
+            graphs: phalcom_modules::graph::ModuleGraphs::default(),
+            entry,
+            initialization_order: module_ids,
+        }),
+        sources,
+    )
+}
+
+#[test]
+fn imported_alias_resolves_transparently_and_indexes_source_targets() {
+    let project = ResolvedProjectId::from_raw(1);
+    let alias_module = ModuleId::resolved(project, ModulePath::from_components(vec![ModuleComponent::from_identifier("a").unwrap()]));
+    let consumer_module = ModuleId::resolved(project, ModulePath::from_components(vec![ModuleComponent::from_identifier("b").unwrap()]));
+    let alias_source: Arc<str> = Arc::from("type UserId = Int\nexport UserId\n");
+    let consumer_source: Arc<str> = Arc::from("import a.UserId\nclass Uses { id(_ value: UserId) -> UserId { value } }\n");
+    let (linked, sources) = linked_alias_workspace(vec![
+        (alias_module.clone(), alias_source, vec!["UserId"], vec![]),
+        (
+            consumer_module.clone(),
+            consumer_source.clone(),
+            vec![],
+            vec![("UserId", alias_module.clone(), "UserId")],
+        ),
+    ]);
+    let analysis = analyze_workspace(SemanticWorkspaceInput {
+        linked,
+        sources,
+        generation: 1,
+    });
+    assert!(!analysis.snapshot.has_errors(), "diagnostics: {:?}", analysis.snapshot.diagnostics);
+    let alias_declaration = DeclarationId::new(alias_module.clone(), "UserId".into());
+    assert!(analysis.snapshot.type_aliases.contains_key(&alias_declaration));
+    assert!(analysis.snapshot.source_index.declaration_source(&alias_declaration).is_some());
+    let consumer_index = analysis.snapshot.source_index.module(&consumer_module).expect("consumer source index");
+    let use_offset = consumer_source.rfind("UserId").expect("imported alias annotation") + 1;
+    assert_eq!(
+        consumer_index
+            .occurrences
+            .occurrence_at(use_offset)
+            .and_then(|occurrence| occurrence.target.cloned()),
+        Some(phalcom_semantic::identity::SemanticTargetId::Declaration(alias_declaration))
+    );
+}
+
+#[test]
+fn imported_alias_cycle_is_rejected_before_publication() {
+    let project = ResolvedProjectId::from_raw(1);
+    let module_a = ModuleId::resolved(project, ModulePath::from_components(vec![ModuleComponent::from_identifier("a").unwrap()]));
+    let module_b = ModuleId::resolved(project, ModulePath::from_components(vec![ModuleComponent::from_identifier("b").unwrap()]));
+    let (linked, sources) = linked_alias_workspace(vec![
+        (
+            module_a.clone(),
+            Arc::from("import b.B\ntype A = B\nexport A\n"),
+            vec!["A"],
+            vec![("B", module_b.clone(), "B")],
+        ),
+        (
+            module_b.clone(),
+            Arc::from("import a.A\ntype B = A\nexport B\n"),
+            vec!["B"],
+            vec![("A", module_a.clone(), "A")],
+        ),
+    ]);
+    let analysis = analyze_workspace(SemanticWorkspaceInput {
+        linked,
+        sources,
+        generation: 1,
+    });
+    assert!(
+        analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::TypeAliasCycle)
+    );
+    assert!(analysis.snapshot.type_aliases.iter().next().is_none());
+    assert!(analysis.snapshot.declarations.get(&DeclarationId::new(module_a, "A".into())).is_none());
+    assert!(analysis.snapshot.declarations.get(&DeclarationId::new(module_b, "B".into())).is_none());
 }
 
 /// COMPOSED: an exported class method remains callable through an imported class identity.
@@ -698,10 +887,12 @@ fn generation_retains_clean_snapshot_and_removes_stale_declarations() {
         Arc::new(phalcom_ast::parse("class OldName { val() -> Int { 1 } }", 0).program),
     );
 
-    assert!(analysis_v1
-        .snapshot
-        .surfaces
-        .contains_key(&DeclarationId::new(module.clone(), "OldName".into())));
+    assert!(
+        analysis_v1
+            .snapshot
+            .surfaces
+            .contains_key(&DeclarationId::new(module.clone(), "OldName".into()))
+    );
 
     let source_v2: Arc<str> = Arc::from("class NewName { val() -> Int { 2 } }");
     let analysis_v2 = analyze_single_module(
@@ -710,14 +901,18 @@ fn generation_retains_clean_snapshot_and_removes_stale_declarations() {
         Arc::new(phalcom_ast::parse("class NewName { val() -> Int { 2 } }", 0).program),
     );
 
-    assert!(analysis_v2
-        .snapshot
-        .surfaces
-        .contains_key(&DeclarationId::new(module.clone(), "NewName".into())));
-    assert!(!analysis_v2
-        .snapshot
-        .surfaces
-        .contains_key(&DeclarationId::new(module.clone(), "OldName".into())));
+    assert!(
+        analysis_v2
+            .snapshot
+            .surfaces
+            .contains_key(&DeclarationId::new(module.clone(), "NewName".into()))
+    );
+    assert!(
+        !analysis_v2
+            .snapshot
+            .surfaces
+            .contains_key(&DeclarationId::new(module.clone(), "OldName".into()))
+    );
 }
 
 #[test]

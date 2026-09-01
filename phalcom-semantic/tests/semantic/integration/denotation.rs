@@ -9,7 +9,7 @@ use phalcom_semantic::declarations::bootstrap_universe_declarations;
 use phalcom_semantic::identity::DeclarationId;
 use phalcom_semantic::types::annotation::SimpleTypeResolver;
 use phalcom_semantic::types::denotation::{SemanticDenotation, ValueSemanticFact};
-use phalcom_semantic::types::evidence::TypeKnowledge;
+use phalcom_semantic::types::evidence::{TypeKnowledge, UnknownReason};
 use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::relation::MapTypeHierarchy;
 use phalcom_semantic::types::store::TypeStore;
@@ -45,6 +45,30 @@ fn class_name_has_class_object_value_type_and_type_form_denotation() {
     assert_eq!(typed.ty(), Some(int_class_obj));
     assert_eq!(typed.denotation, Some(SemanticDenotation::TypeForm(int_form)));
     assert_eq!(ctx.store.kind_of(int_form), KindId::TYPE);
+}
+
+#[test]
+fn missing_class_declaration_product_does_not_fabricate_value_type() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let mut resolver = SimpleTypeResolver::new();
+    let declarations = bootstrap_universe_declarations(&mut store, &test_universe_resolver);
+    let module = ModuleId::universe_root();
+    let missing = DeclarationId::new(module.clone(), "Missing".into());
+    resolver.insert("Missing", missing.clone());
+
+    let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module);
+    let program = parse_source("Missing", 0).unwrap();
+    let expr = match &program.statements[0] {
+        phalcom_ast::ast::Statement::Expr { expr, .. } => expr,
+        _ => panic!("expected expr"),
+    };
+
+    let typed = synthesize_typed_expr(&mut ctx, expr);
+
+    assert!(matches!(typed.knowledge, TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause)));
+    assert_eq!(typed.denotation, None);
+    assert!(declarations.form(&missing).is_none());
 }
 
 #[test]
@@ -255,4 +279,38 @@ fn type_form_expression_synthesizes_class_object_and_applied_denotation() {
     assert_eq!(typed.ty(), Some(list_class_obj));
     assert_eq!(typed.denotation, Some(SemanticDenotation::TypeForm(applied_form)));
     assert_eq!(ctx.store.kind_of(applied_form), KindId::TYPE);
+}
+
+#[test]
+fn type_form_values_preserve_constructor_kinds_and_distinct_descriptors() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let mut resolver = SimpleTypeResolver::new();
+    let declarations = bootstrap_universe_declarations(&mut store, &test_universe_resolver);
+    let module = ModuleId::universe_root();
+    for key in [UniverseKey::Int, UniverseKey::List, UniverseKey::Map, UniverseKey::String] {
+        let declaration = test_universe_resolver(key);
+        resolver.insert(key.name(), declaration);
+    }
+    let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module);
+
+    for (source, expected_kind) in [
+        ("Int", "Type"),
+        ("List", "(Type) -> Type"),
+        ("Map<String>", "(Type) -> Type"),
+        ("<T> =>> List<T>", "(Type) -> Type"),
+    ] {
+        let program = parse_source(source, 0).unwrap();
+        let expr = match &program.statements[0] {
+            phalcom_ast::ast::Statement::Expr { expr, .. } => expr,
+            _ => panic!("expected expression for {source}"),
+        };
+        let typed = synthesize_typed_expr(&mut ctx, expr);
+        let Some(SemanticDenotation::TypeForm(form)) = typed.denotation else {
+            panic!("{source} did not preserve type-form denotation: {typed:?}");
+        };
+        assert_eq!(ctx.store.format_kind(ctx.store.kind_of(form)), expected_kind, "{source}");
+        assert!(typed.knowledge.is_known(), "{source} needs ordinary descriptor value type");
+        assert_ne!(typed.ty(), Some(form), "{source} descriptor must remain distinct from denoted form");
+    }
 }

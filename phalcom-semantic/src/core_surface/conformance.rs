@@ -26,9 +26,7 @@ pub fn validate_native_surface_conformance(
     if let Err(failures) = phalcom_native_surface::validate_native_surface_catalog(NATIVE_SURFACES) {
         report.failures.extend(failures);
     }
-    let universe_resolver = |key: phalcom_native_meta::UniverseKey| -> crate::identity::DeclarationId {
-        crate::core_surface::universe_declaration(key)
-    };
+    let universe_resolver = |key: phalcom_native_meta::UniverseKey| -> crate::identity::DeclarationId { crate::core_surface::universe_declaration(key) };
     let empty_params = HashMap::new();
 
     let resolve_spec = |store: &mut TypeStore, spec: &TypeExprSpec| -> Result<(), String> {

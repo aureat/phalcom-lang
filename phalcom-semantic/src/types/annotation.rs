@@ -36,7 +36,11 @@ impl TypeFormationSite {
     pub fn member(module: ModuleId, owner: DeclarationId, side: DispatchSide) -> Self {
         Self {
             module,
-            self_term: Some(SelfTypeTerm { owner, side, role: SelfRole::InstanceType }),
+            self_term: Some(SelfTypeTerm {
+                owner,
+                side,
+                role: SelfRole::InstanceType,
+            }),
         }
     }
 }
@@ -73,7 +77,6 @@ pub trait TypeResolver {
             Some(TypeLevelBinding::RecordRow(_)) | None => None,
         }
     }
-
 }
 
 /// A scoped type resolver overlaying lexical type parameters on top of a parent resolver.
@@ -98,7 +101,6 @@ impl<'a> TypeResolver for ScopedTypeResolver<'a> {
     fn resolve_alias_form(&self, declaration: &DeclarationId) -> Option<TypeId> {
         self.parent.resolve_alias_form(declaration)
     }
-
 }
 
 /// A standard resolver holding local declarations, imported declarations, and builtins.
@@ -128,7 +130,6 @@ impl SimpleTypeResolver {
     pub fn insert_record_row_binding(&mut self, name: impl Into<String>, parameter_id: TypeParameterId) {
         self.type_parameters.insert(name.into(), TypeLevelBinding::RecordRow(parameter_id));
     }
-
 }
 
 impl TypeResolver for SimpleTypeResolver {
@@ -144,7 +145,6 @@ impl TypeResolver for SimpleTypeResolver {
     fn resolve_type_level_binding(&self, name: &str) -> Option<TypeLevelBinding> {
         self.type_parameters.get(name).copied()
     }
-
 }
 
 /// Reason a source type form is unavailable because its declaration product is absent.
@@ -485,15 +485,7 @@ fn lower_scoped_type_form(
             }
         }
         TypeAnnotationExpr::Application { origin, arguments, .. } => {
-            let scoped_origin = scoped_ready_or_propagate!(lower_scoped_type_form(
-                store,
-                declarations,
-                resolver,
-                site,
-                binders,
-                origin,
-                diagnostics
-            ));
+            let scoped_origin = scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, origin, diagnostics));
             let mut scoped_arguments = Vec::with_capacity(arguments.len());
             for argument in arguments {
                 scoped_arguments.push(scoped_ready_or_propagate!(lower_scoped_type_form(
@@ -524,15 +516,7 @@ fn lower_scoped_type_form(
         TypeAnnotationExpr::Tuple { elements, .. } => {
             let mut scoped_elements = Vec::with_capacity(elements.len());
             for element in elements {
-                let ty = scoped_ready_or_propagate!(lower_scoped_type_form(
-                    store,
-                    declarations,
-                    resolver,
-                    site,
-                    binders,
-                    &element.ty,
-                    diagnostics,
-                ));
+                let ty = scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, &element.ty, diagnostics,));
                 scoped_ready_or_propagate!(require_scoped_proper(store, ty, binders, current_module, element.range, diagnostics));
                 scoped_elements.push(ScopedTupleElement {
                     label: element.label.clone().map(Into::into),
@@ -542,11 +526,11 @@ fn lower_scoped_type_form(
             TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::Tuple(scoped_elements.into_boxed_slice())))
         }
         TypeAnnotationExpr::Record { fields, tail, .. } => {
-            if tail.is_some() {
+            if let Some(tail) = tail {
                 diagnostics.push(SemanticDiagnostic::error_in(
                     current_module.clone(),
                     DiagnosticCode::AnnotationUnsupported,
-                    "open record type tails are not available in scoped type formation",
+                    format!("open record type tail `{}` is not available in scoped type formation", tail.name),
                     annotation.range,
                 ));
                 return TypeFormationOutcome::Invalid(TypeFormationInvalid::UnsupportedOpenRecordTail);
@@ -557,15 +541,7 @@ fn lower_scoped_type_form(
                 if !names.insert(field.name.clone()) {
                     return TypeFormationOutcome::Invalid(TypeFormationInvalid::DuplicateRecordField(field.name.clone().into()));
                 }
-                let ty = scoped_ready_or_propagate!(lower_scoped_type_form(
-                    store,
-                    declarations,
-                    resolver,
-                    site,
-                    binders,
-                    &field.ty,
-                    diagnostics,
-                ));
+                let ty = scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, &field.ty, diagnostics,));
                 scoped_ready_or_propagate!(require_scoped_proper(store, ty, binders, current_module, field.range, diagnostics));
                 scoped_fields.push(ScopedRecordField {
                     name: field.name.clone().into(),
@@ -577,15 +553,7 @@ fn lower_scoped_type_form(
         TypeAnnotationExpr::Callable { parameters, result, .. } => {
             let mut scoped_parameters = Vec::with_capacity(parameters.len());
             for parameter in parameters {
-                let ty = scoped_ready_or_propagate!(lower_scoped_type_form(
-                    store,
-                    declarations,
-                    resolver,
-                    site,
-                    binders,
-                    &parameter.ty,
-                    diagnostics,
-                ));
+                let ty = scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, &parameter.ty, diagnostics,));
                 scoped_ready_or_propagate!(require_scoped_proper(store, ty, binders, current_module, parameter.range, diagnostics));
                 scoped_parameters.push(ScopedCallableParameter {
                     label: parameter.label.clone().map(Into::into),
@@ -593,15 +561,7 @@ fn lower_scoped_type_form(
                     rest: parameter.rest,
                 });
             }
-            let scoped_return = scoped_ready_or_propagate!(lower_scoped_type_form(
-                store,
-                declarations,
-                resolver,
-                site,
-                binders,
-                result,
-                diagnostics,
-            ));
+            let scoped_return = scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, result, diagnostics,));
             scoped_ready_or_propagate!(require_scoped_proper(store, scoped_return, binders, current_module, result.range, diagnostics));
             TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::Callable(ScopedCallableType {
                 parameters: scoped_parameters.into_boxed_slice(),
@@ -611,15 +571,7 @@ fn lower_scoped_type_form(
         TypeAnnotationExpr::Union { members, .. } => {
             let mut scoped_members = Vec::with_capacity(members.len());
             for member in members {
-                let scoped = scoped_ready_or_propagate!(lower_scoped_type_form(
-                    store,
-                    declarations,
-                    resolver,
-                    site,
-                    binders,
-                    member,
-                    diagnostics,
-                ));
+                let scoped = scoped_ready_or_propagate!(lower_scoped_type_form(store, declarations, resolver, site, binders, member, diagnostics,));
                 scoped_ready_or_propagate!(require_scoped_proper(store, scoped, binders, current_module, member.range, diagnostics));
                 scoped_members.push(scoped);
             }
@@ -940,7 +892,16 @@ pub fn resolve_type_form(
             let tuple_ty = store.tuple(tuple_elements.into_boxed_slice());
             TypeFormResolution::Ready(tuple_ty)
         }
-        TypeAnnotationExpr::Record { fields, tail: _, range: _ } => {
+        TypeAnnotationExpr::Record { fields, tail, range: _ } => {
+            if let Some(tail) = tail {
+                diagnostics.push(SemanticDiagnostic::error_in(
+                    current_module.clone(),
+                    DiagnosticCode::AnnotationUnsupported,
+                    format!("open record type tail `{}` is not available in type formation", tail.name),
+                    annotation.range,
+                ));
+                return TypeFormResolution::Invalid(TypeFormationInvalid::UnsupportedOpenRecordTail);
+            }
             let mut record_fields = Vec::with_capacity(fields.len());
             let mut seen_names = std::collections::HashSet::new();
             for field in fields {

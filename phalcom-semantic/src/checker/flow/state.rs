@@ -40,7 +40,11 @@ mod field_tests {
     use crate::types::evidence::EvidenceOrigin;
 
     fn field() -> FieldId {
-        FieldId::new(DeclarationId::new(ModuleId::universe_root(), "Counter".into()), "_value", DispatchSide::Instance)
+        FieldId::new(
+            DeclarationId::new(ModuleId::universe_root(), "Counter".into()),
+            "_value",
+            DispatchSide::Instance,
+        )
     }
 
     #[test]

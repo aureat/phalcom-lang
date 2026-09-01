@@ -251,13 +251,16 @@ pub fn build_source_scope_index(module: ModuleId, program: &Program, context: &S
         context,
         next_scope: 1,
         next_site: BTreeMap::new(),
-        current_owner: SourceOwner::Module(module),
+        current_owner: SourceOwner::Module(module.clone()),
     };
 
     for statement in &program.statements {
         if let Statement::Class(class) = statement {
             let declaration = builder.declaration_id(class);
             builder.index.register_class(class.name.clone(), declaration);
+        } else if let Statement::TypeAlias(alias) = statement {
+            let declaration = DeclarationId::new(module.clone(), alias.name.clone().into());
+            builder.index.register_class(alias.name.clone(), declaration);
         }
     }
     builder.visit_imports(program);
@@ -385,6 +388,7 @@ impl SourceScopeBuilder<'_> {
         for statement in statements {
             match statement {
                 Statement::Class(class) => self.visit_class(scope, class),
+                Statement::TypeAlias(alias) => self.visit_type_alias(scope, alias),
                 Statement::Let(binding) => self.visit_let(scope, binding, top_level),
                 Statement::Return(return_statement) => {
                     if let Some(value) = &return_statement.value {
@@ -394,7 +398,7 @@ impl SourceScopeBuilder<'_> {
                 Statement::Expr { expr, .. } => self.visit_expr(scope, expr),
                 Statement::For(for_statement) => self.visit_for(scope, for_statement),
                 Statement::Throw { expr, .. } => self.visit_expr(scope, expr),
-                Statement::Export(_) | Statement::Break { .. } | Statement::Continue { .. } | Statement::TypeAlias(_) | Statement::Enum(_) => {}
+                Statement::Export(_) | Statement::Break { .. } | Statement::Continue { .. } | Statement::Enum(_) => {}
             }
         }
     }
@@ -421,6 +425,26 @@ impl SourceScopeBuilder<'_> {
         for member in &class.members {
             self.visit_member(parent, &declaration, member);
         }
+    }
+
+    fn visit_type_alias(&mut self, _parent: SourceScopeId, alias: &phalcom_ast::ast::TypeAliasDef) {
+        let declaration = DeclarationId::new(self.index.module.clone(), alias.name.clone().into());
+        let site = self.allocate_site(
+            SourceOwner::Module(self.index.module.clone()),
+            alias.name_range,
+            SourceSiteKind::Declaration(declaration.clone()),
+        );
+        self.index.register_target(site.clone(), SemanticTargetId::Declaration(declaration.clone()));
+        self.index.declaration_sources.insert(
+            declaration.clone(),
+            DeclarationSourceInfo {
+                id: declaration,
+                name: alias.name.clone().into(),
+                declaration_site: site,
+                name_range: alias.name_range,
+                declaration_range: alias.range,
+            },
+        );
     }
 
     fn visit_member(&mut self, parent: SourceScopeId, declaration: &DeclarationId, member: &ClassMember) {

@@ -2,9 +2,9 @@
 
 use super::artifact::ModuleMaterializationPlan;
 use phalcom_modules::{
-    UniverseSourceProvider, FilesystemSourceProvider, InterfaceBuilder, InterfaceError, LinkError, LinkedModule, LinkedProgram,
-    ModuleComponent, ModuleId, ModuleKind, ModuleLinker, ModulePath, ModuleResolutionError, ModuleResolver, ProjectError, ProjectUniverse, SourceError,
-    SourceId, SourceLocation, discover_owning_project,
+    FilesystemSourceProvider, InterfaceBuilder, InterfaceError, LinkError, LinkedModule, LinkedProgram, ModuleComponent, ModuleId, ModuleKind, ModuleLinker,
+    ModulePath, ModuleResolutionError, ModuleResolver, ProjectError, ProjectUniverse, SourceError, SourceId, SourceLocation, UniverseSourceProvider,
+    discover_owning_project,
 };
 use phalcom_semantic::SemanticDiagnostic;
 use std::collections::{BTreeMap, HashSet};
@@ -478,7 +478,8 @@ impl ProgramCompiler {
             None,
             None,
             phalcom_type_meta::header::MetadataProfile::RuntimePublic,
-        );
+        )
+        .with_aliases(analyzed.semantic.type_aliases.as_ref());
         let metadata_bundle = exporter.build_bundle(&[]).ok().map(Arc::new);
 
         Ok(CompiledProgram {

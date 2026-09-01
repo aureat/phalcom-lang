@@ -78,10 +78,7 @@ fn declaration_shell_query_publishes_typed_product_and_reuses_it() {
     });
     let mut db = SemanticDb::new();
 
-    let first = phalcom_semantic::db::query_declaration_shell(
-        &mut db,
-        Arc::new(phalcom_semantic::TypeDeclarationShell::Nominal((*info).clone())),
-    );
+    let first = phalcom_semantic::db::query_declaration_shell(&mut db, Arc::new(phalcom_semantic::TypeDeclarationShell::Nominal((*info).clone())));
     let first_product = match first {
         QueryOutcome::Ready(product) => product,
         other => panic!("expected shell product, got {other:?}"),
@@ -89,10 +86,7 @@ fn declaration_shell_query_publishes_typed_product_and_reuses_it() {
     let key = QueryKey::DeclarationShell(declaration.clone());
     assert!(db.product(&key).and_then(|product| product.as_declaration_shell()).is_some());
 
-    let second = phalcom_semantic::db::query_declaration_shell(
-        &mut db,
-        Arc::new(phalcom_semantic::TypeDeclarationShell::Nominal((*info).clone())),
-    );
+    let second = phalcom_semantic::db::query_declaration_shell(&mut db, Arc::new(phalcom_semantic::TypeDeclarationShell::Nominal((*info).clone())));
     match second {
         QueryOutcome::Ready(product) => assert!(Arc::ptr_eq(&first_product, &product)),
         other => panic!("expected cached shell product, got {other:?}"),
@@ -205,7 +199,7 @@ fn test_body_query_execution_and_invalidation() {
     assert_ne!(first_input_fingerprint.raw(), 0);
     assert!(db.product(&key1).and_then(|product| product.as_callable_body()).is_some());
 
-    let changed_body = phalcom_ast::parse_source("1", 0).expect("changed callable body parses");
+    let changed_body = phalcom_ast::parse_source("...", 0).expect("changed callable body parses");
     let changed = phalcom_semantic::db::query_signatureless_callable_body(
         &mut db,
         phalcom_semantic::db::CallableBodyQuery {

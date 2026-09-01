@@ -5,9 +5,10 @@ use super::stable_identity::*;
 use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeState};
 use crate::declarations::DeclarationTypeTable;
 use crate::signature::{CallableSignatureTable, FieldSignatureTable};
+use crate::type_alias::TypeAliasTable;
 use crate::types::id::{KindId, ScopedTypeId, TypeId, TypeParameterId};
 use crate::types::kind::KindData;
-use crate::types::parameter::{GenericConstraint, GenericSignature, SelfRole, TypeParameterOwner, TypeTerm};
+use crate::types::parameter::{GenericConstraint, GenericSignature, GenericSignaturePublicationError, SelfRole, TypeParameterOwner, TypeTerm};
 use crate::types::store::{TypeData, TypeStore};
 use crate::types::type_lambda::ScopedTypeData;
 use crate::types::variance::Variance;
@@ -40,6 +41,8 @@ use std::collections::HashMap;
 pub enum MetadataExportError {
     #[error("cannot export inference variable in durable metadata")]
     InferenceVariable,
+    #[error("cannot export invalid generic signature: {0:?}")]
+    InvalidGenericSignature(GenericSignaturePublicationError),
     #[error("non-exportable internal form: {0:?}")]
     NonExportableForm(TypeId),
 }
@@ -48,6 +51,7 @@ pub enum MetadataExportError {
 pub struct MetadataExporter<'a> {
     store: &'a TypeStore,
     declarations: Option<&'a DeclarationTypeTable>,
+    aliases: Option<&'a TypeAliasTable>,
     callables: Option<&'a CallableSignatureTable>,
     fields: Option<&'a FieldSignatureTable>,
     profile: MetadataProfile,
@@ -80,6 +84,7 @@ impl<'a> MetadataExporter<'a> {
         Self {
             store,
             declarations,
+            aliases: None,
             callables,
             fields,
             profile,
@@ -94,6 +99,12 @@ impl<'a> MetadataExporter<'a> {
             generic_signatures: Vec::new(),
             sig_map: HashMap::new(),
         }
+    }
+
+    /// Attaches the canonical transparent-alias table for durable export.
+    pub fn with_aliases(mut self, aliases: &'a TypeAliasTable) -> Self {
+        self.aliases = Some(aliases);
+        self
     }
 
     pub fn export_kind(&mut self, kind: KindId) -> KindNodeId {
@@ -334,6 +345,9 @@ impl<'a> MetadataExporter<'a> {
     }
 
     pub fn export_type_form(&mut self, ty: TypeId) -> Result<TypeNodeId, MetadataExportError> {
+        if ty.index() >= self.store.type_count() {
+            return Err(MetadataExportError::NonExportableForm(ty));
+        }
         let kind_id = self.export_kind(self.store.kind_of(ty));
         let data = self.store.get(ty).clone();
 
@@ -539,9 +553,21 @@ impl<'a> MetadataExporter<'a> {
                 let kind_id = self.export_kind(self.store.kind_of(self.store.unit()));
                 let mut fp_b = FingerprintBuilder::new();
                 fp_b.write_u8(10);
-                for c in to_stable_declaration(&s.owner).path.iter() {
+                let stable_owner = to_stable_declaration(&s.owner);
+                for c in stable_owner.module.path.iter() {
                     fp_b.write_str(c);
                 }
+                for c in stable_owner.path.iter() {
+                    fp_b.write_str(c);
+                }
+                fp_b.write_u8(match s.side {
+                    crate::identity::DispatchSide::Instance => 1,
+                    crate::identity::DispatchSide::Class => 2,
+                });
+                fp_b.write_u8(match s.role {
+                    SelfRole::InstanceType => 1,
+                    SelfRole::ReceiverValue => 2,
+                });
                 let structural_fingerprint = fp_b.finish();
                 let id = TypeNodeId(self.types.len() as u32);
                 self.types.push(TypeNodeEntry {
@@ -557,6 +583,7 @@ impl<'a> MetadataExporter<'a> {
     }
 
     pub fn export_generic_signature(&mut self, sig: &GenericSignature) -> Result<GenericSignatureRecordId, MetadataExportError> {
+        sig.validate_publishable(self.store).map_err(MetadataExportError::InvalidGenericSignature)?;
         let key = (sig.owner.clone(), sig.parameters.len());
         if let Some(&id) = self.sig_map.get(&key) {
             return Ok(id);
@@ -640,6 +667,7 @@ impl<'a> MetadataExporter<'a> {
 
     pub fn build_bundle(mut self, runtime_roots: &[(&phalcom_modules::ModuleId, &str, TypeId)]) -> Result<SemanticMetadataBundle, MetadataExportError> {
         let mut out_declarations = Vec::new();
+        let mut out_aliases = Vec::new();
         let mut out_callables = Vec::new();
         let mut out_fields = Vec::new();
         let mut out_roots = Vec::new();
@@ -671,6 +699,26 @@ impl<'a> MetadataExporter<'a> {
                     class_fields: Box::new([]),
                     flags: DeclarationTypeFlags::default(),
                     source: None,
+                });
+            }
+        }
+
+        if let Some(aliases) = self.aliases {
+            for (decl_id, info) in aliases.iter() {
+                let target = self.export_type_form(info.form)?;
+                let generic_signature = if let Some(ref sig) = info.generic_signature {
+                    Some(self.export_generic_signature(sig)?)
+                } else {
+                    None
+                };
+                out_aliases.push(phalcom_type_meta::declaration::TypeAliasRecord {
+                    declaration: to_stable_declaration(decl_id),
+                    generic_signature,
+                    target,
+                    source: Some(SourceSpanRef {
+                        start: info.source.range.start as u32,
+                        end: info.source.range.end as u32,
+                    }),
                 });
             }
         }
@@ -770,7 +818,7 @@ impl<'a> MetadataExporter<'a> {
             parameters: self.parameters.into_boxed_slice(),
             generic_signatures: self.generic_signatures.into_boxed_slice(),
             declarations: out_declarations.into_boxed_slice(),
-            aliases: Box::new([]),
+            aliases: out_aliases.into_boxed_slice(),
             callables: out_callables.into_boxed_slice(),
             fields: out_fields.into_boxed_slice(),
             module_roots: Box::new([]),
