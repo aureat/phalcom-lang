@@ -32,6 +32,12 @@ pub enum UnlinkedExportTarget {
     Local(String),
     /// A name selected from another module path.
     ReExport { path: ImportPath, remote: String },
+    /// A convenience export that names a declaration owned by another canonical module.
+    ///
+    /// Unlike a source re-export, this target has no local import binding. It preserves
+    /// the defining declaration identity for provider-owned interface policy such as
+    /// Universe root convenience names.
+    CanonicalDeclaration { module: ModuleId, name: String },
 }
 
 /// Target of a linked export: either a live global declaration or a whole module identity.

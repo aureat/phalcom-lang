@@ -221,6 +221,19 @@ impl ModuleLinker {
                     }
                 }
             }
+            for export in interface.exports.values() {
+                let UnlinkedExportTarget::CanonicalDeclaration { module: target, .. } = &export.target else {
+                    continue;
+                };
+                if !self.interfaces.contains_key(target) {
+                    return Err(LinkError::MissingModule {
+                        module: target.clone(),
+                    });
+                }
+                if reachable.insert(target.clone()) {
+                    pending.push(target.clone());
+                }
+            }
         }
         Ok(reachable)
     }
@@ -646,6 +659,25 @@ impl<'a> LinkContext<'a> {
                 let target_mod = self.target(module, path, surface.range)?;
                 let linked = self.resolve_export(&target_mod, remote)?;
                 (linked.target, surface.range)
+            }
+            UnlinkedExportTarget::CanonicalDeclaration { module: target_module, name } => {
+                let target_interface = self.linker.interfaces.get(target_module).ok_or_else(|| LinkError::MissingModule {
+                    module: target_module.clone(),
+                })?;
+                if !target_interface.declarations.contains_key(name) {
+                    return Err(LinkError::MissingBinding {
+                        module: target_module.clone(),
+                        name: name.clone(),
+                        range: surface.range,
+                    });
+                }
+                (
+                    crate::interface::LinkedExportTarget::Binding(SymbolId {
+                        module: target_module.clone(),
+                        name: name.clone().into_boxed_str(),
+                    }),
+                    surface.range,
+                )
             }
         };
         self.resolving_exports.remove(&key);

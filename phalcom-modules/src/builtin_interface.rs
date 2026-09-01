@@ -6,7 +6,7 @@ use crate::identity::{ModuleId, ProjectIdentity, SourceLocation};
 use crate::interface::{DeclarationSurface, ExportSurface, InterfaceBuilder, UnlinkedExportTarget, UnlinkedModuleInterface};
 use crate::source::ParsedModuleUnit;
 use phalcom_common::range::SourceRange;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, OnceLock};
 
 type ParsedCache = Mutex<HashMap<ModuleId, Result<Arc<ParsedModuleUnit>, ModuleLoadError>>>;
@@ -14,6 +14,58 @@ type InterfaceCache = Mutex<HashMap<ModuleId, Result<UnlinkedModuleInterface, Mo
 
 static BUILTIN_PARSED_CACHE: OnceLock<ParsedCache> = OnceLock::new();
 static BUILTIN_INTERFACE_CACHE: OnceLock<InterfaceCache> = OnceLock::new();
+
+/// Canonical source declarations available in the Universe provider.
+///
+/// This catalog records source-owned declaration identity only. Native metadata may
+/// associate runtime implementation details with these declarations, but it cannot
+/// manufacture a second root-owned declaration.
+#[derive(Clone, Debug, Default)]
+pub struct UniverseSourceDeclarationCatalog {
+    declarations: BTreeMap<ModuleId, BTreeMap<String, DeclarationSurface>>,
+}
+
+impl UniverseSourceDeclarationCatalog {
+    /// Builds the catalog from each canonical Universe source module.
+    pub fn build(provider: &UniverseSourceProvider) -> Result<Self, ModuleLoadError> {
+        let mut declarations = BTreeMap::new();
+        for node in provider.nodes() {
+            let path: Vec<crate::identity::ModuleComponent> = node
+                .path
+                .iter()
+                .map(|component| crate::identity::ModuleComponent::from_identifier(component).expect("canonical Universe component"))
+                .collect();
+            let module = ModuleId::universe(crate::identity::ModulePath::from_components(path));
+            let parsed = BuiltinInterfaceBuilder::load_parsed(provider, &module)?;
+            let interface = InterfaceBuilder::build(module.clone(), parsed.kind, &parsed.program).map_err(|error| ModuleLoadError::Interface {
+                module: module.clone(),
+                error,
+            })?;
+            declarations.insert(module, interface.declarations);
+        }
+        Ok(Self { declarations })
+    }
+
+    /// Resolves a native association to the declaration authored by its source module.
+    pub fn declaration_for(&self, key: phalcom_native_meta::UniverseKey) -> Result<(ModuleId, String), ModuleLoadError> {
+        let path: Vec<crate::identity::ModuleComponent> = key
+            .source_path()
+            .iter()
+            .map(|component| crate::identity::ModuleComponent::from_identifier(component).expect("canonical Universe component"))
+            .collect();
+        let module = ModuleId::universe(crate::identity::ModulePath::from_components(path));
+        let name = key.name().to_string();
+        if self
+            .declarations
+            .get(&module)
+            .is_some_and(|declarations| declarations.contains_key(&name))
+        {
+            Ok((module, name))
+        } else {
+            Err(ModuleResolutionError::ModuleNotFound(format!("canonical Universe declaration {module}::{name} is absent from source")).into())
+        }
+    }
+}
 
 fn parsed_cache() -> &'static Mutex<HashMap<ModuleId, Result<Arc<ParsedModuleUnit>, ModuleLoadError>>> {
     BUILTIN_PARSED_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
@@ -81,57 +133,30 @@ impl BuiltinInterfaceBuilder {
     }
 
     /// Derives unlinked module interface from the canonical parsed source.
-    pub fn build_from_parsed(_provider: &UniverseSourceProvider, parsed: &ParsedModuleUnit) -> Result<UnlinkedModuleInterface, ModuleLoadError> {
+    pub fn build_from_parsed(provider: &UniverseSourceProvider, parsed: &ParsedModuleUnit) -> Result<UnlinkedModuleInterface, ModuleLoadError> {
         let mut iface = InterfaceBuilder::build(parsed.id.clone(), parsed.kind, &parsed.program).map_err(|e| ModuleLoadError::Interface {
             module: parsed.id.clone(),
             error: e,
         })?;
 
-        if parsed.id.project == ProjectIdentity::Universe {
-            if parsed.id.path.is_root() {
-                // Root/prelude bindings are policy data, not source declarations.
-                // Module and class presentation data comes exclusively from the
-                // parsed universe modules above.
-                for binding in phalcom_native_meta::UNIVERSE_BINDINGS.iter().filter(|binding| binding.exported) {
-                    let name = binding.name.to_string();
-                    let range = SourceRange::default();
-                    if !iface.declarations.contains_key(&name) {
-                        iface.declarations.insert(
-                            name.clone(),
-                            DeclarationSurface {
-                                name: name.clone(),
-                                is_const: true,
-                                range,
+        if parsed.id.project == ProjectIdentity::Universe && parsed.id.path.is_root() {
+            let catalog = UniverseSourceDeclarationCatalog::build(provider)?;
+            for binding in phalcom_native_meta::UNIVERSE_BINDINGS.iter().filter(|binding| binding.exported) {
+                let name = binding.name.to_string();
+                if !iface.exports.contains_key(&name) {
+                    let (module, declaration_name) = catalog.declaration_for(binding.key)?;
+                    iface.exports.insert(
+                        name.clone(),
+                        ExportSurface {
+                            exported_name: name.clone(),
+                            internal_name: name,
+                            target: UnlinkedExportTarget::CanonicalDeclaration {
+                                module,
+                                name: declaration_name,
                             },
-                        );
-                    }
-                    if !iface.exports.contains_key(&name) {
-                        iface.exports.insert(
-                            name.clone(),
-                            ExportSurface {
-                                exported_name: name.clone(),
-                                internal_name: name.clone(),
-                                target: UnlinkedExportTarget::Local(name),
-                                range,
-                            },
-                        );
-                    }
-                }
-            } else {
-                // In non-root canonical universe modules, all declared classes are public exports of that module.
-                let decl_names: Vec<(String, SourceRange)> = iface.declarations.iter().map(|(n, d)| (n.clone(), d.range)).collect();
-                for (name, range) in decl_names {
-                    if !iface.exports.contains_key(&name) {
-                        iface.exports.insert(
-                            name.clone(),
-                            ExportSurface {
-                                exported_name: name.clone(),
-                                internal_name: name.clone(),
-                                target: UnlinkedExportTarget::Local(name),
-                                range,
-                            },
-                        );
-                    }
+                            range: SourceRange::default(),
+                        },
+                    );
                 }
             }
         }

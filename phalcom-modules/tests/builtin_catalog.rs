@@ -1,8 +1,11 @@
 use phalcom_ast::ast::DependencyDecl;
 use phalcom_ast::parser::parse;
 use phalcom_modules::{
-UniverseSourceProvider, ModuleComponent, ModuleId, ModuleKind, ModuleLoadError, ModulePath, ModuleResolutionError, UNIVERSE_NODES,
+ModuleComponent, ModuleId, ModuleKind, ModuleLoadError, ModuleLinker, ModulePath, ModuleResolutionError, ProjectUniverse, SymbolId,
+UniverseSourceProvider, UNIVERSE_NODES,
 };
+use std::collections::BTreeMap;
+use std::sync::Arc;
 
 fn make_universe_id(path: &[&str]) -> ModuleId {
     let components: Vec<ModuleComponent> = path.iter().map(|s| ModuleComponent::from_identifier(s).expect("valid identifier")).collect();
@@ -118,4 +121,74 @@ fn bcat_07_source_text_root_ok() {
     let id = make_universe_id(&[]);
     let src = provider.source_text(&id).expect("root source text");
     assert!(src.contains("expose"), "root source text should contain expose declarations");
+}
+
+/// BCAT-08 — Root convenience aliases preserve their defining source owner.
+#[test]
+fn bcat_08_root_alias_does_not_create_synthetic_declaration() {
+    let provider = UniverseSourceProvider::new();
+    let mut root = provider.load_interface(&make_universe_id(&[])).expect("root interface");
+    let root_id = root.id.clone();
+    let aliases = [
+        ("Int", make_universe_id(&["scalar", "number"])),
+        ("List", make_universe_id(&["collections", "list"])),
+        ("Option", make_universe_id(&["option", "option"])),
+        ("Result", make_universe_id(&["errors", "result"])),
+        ("Ordering", make_universe_id(&["object", "ordering"])),
+    ];
+    root.imports.clear();
+    root.exports.retain(|name, _| aliases.iter().any(|(alias, _)| name == alias));
+
+    let mut interfaces = BTreeMap::from([(root_id.clone(), root)]);
+    for (name, owner) in &aliases {
+        let source = provider.load_interface(owner).expect("canonical source interface");
+        assert!(source.declarations.contains_key(*name), "{name} must be declared by {owner}");
+        interfaces.insert(owner.clone(), source);
+    }
+
+    let root = &interfaces[&root_id];
+    for (name, owner) in &aliases {
+        assert!(root.exports.contains_key(*name), "root convenience alias {name} must remain exported");
+        assert!(
+            !root.declarations.contains_key(*name),
+            "root convenience alias {name} must not fabricate universe::<root>::{name}"
+        );
+        assert!(
+            matches!(
+                root.exports[*name].target,
+                phalcom_modules::UnlinkedExportTarget::CanonicalDeclaration { ref module, name: ref target_name }
+                    if module == owner && target_name == *name
+            ),
+            "root {name} export must target its canonical source declaration rather than a local root binding"
+        );
+    }
+
+    let linked = ModuleLinker::new(Arc::new(ProjectUniverse::new()), interfaces)
+        .link(root_id.clone(), &BTreeMap::new())
+        .expect("root aliases and source owners should link");
+    for (name, owner) in aliases {
+        assert_eq!(
+            linked.modules[&root_id].interface.exports[name].symbol(),
+            Some(&SymbolId {
+                module: owner,
+                name: name.into(),
+            }),
+            "root convenience lookup must preserve its source-owner identity"
+        );
+    }
+}
+
+/// BCAT-09 — A Universe module's source declarations are private until source exports them.
+#[test]
+fn bcat_09_non_root_source_declarations_are_not_implicitly_exported() {
+    let provider = UniverseSourceProvider::new();
+    let iface = provider
+        .load_interface(&make_universe_id(&["scalar", "number"]))
+        .expect("canonical number interface");
+
+    assert!(iface.declarations.contains_key("Int"), "source declaration must remain discoverable");
+    assert!(
+        !iface.exports.contains_key("Int"),
+        "universe.scalar.number::Int is not public without an ordinary source export"
+    );
 }

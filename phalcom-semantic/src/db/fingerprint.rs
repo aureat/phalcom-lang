@@ -410,6 +410,11 @@ fn hash_unlinked_interface(interface: &UnlinkedModuleInterface, include_ranges: 
                 hash_import_path(path, include_ranges, hasher);
                 remote.hash(hasher);
             }
+            UnlinkedExportTarget::CanonicalDeclaration { module, name } => {
+                2u8.hash(hasher);
+                module.hash(hasher);
+                name.hash(hasher);
+            }
         }
         if include_ranges {
             hash_range(export.range, hasher);
