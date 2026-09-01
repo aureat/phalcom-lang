@@ -120,6 +120,29 @@ Release disposition at `a8f5a175`: Slice 9 baseline extraction is required by th
 
 Search/deletion gates produced no forbidden semantic shortcut hits; remaining `UniverseKey::from_name` hits are pre-resolution source/catalog or presentation lookups. `git diff --check` is clean. Slice 8 implementation and evidence commits are complete. `CONTINUATION-HANDOFF.md` is task-owned state documentation and is committed with this checkpoint, so no task-owned untracked file remains. Broad acceptance is not claimed; Slice 9 baseline extraction is not started because its prerequisite is not met.
 
+## Post-compile-fix CI audit
+
+Commit `746e1c2b` fixed six introduced `E0283` errors in native fixture tests by
+making every `ModulePath::from_components` collection explicitly a `Vec<_>`.
+The focused core test build passed with
+`RUSTFLAGS='' RUSTC_WRAPPER='' cargo +nightly test -p phalcom-core --test core --no-run`.
+Follow-up commit `06191894` applied formatter-required layout to those new
+fixture expressions and replaced the introduced `bool.then` lint in
+`NativeSourceIndex::bootstrap_roots` with `filter`/`map`.
+
+CI run `33567928233` targets `0619189432bb8dedc5b76b72e91027ea81e798d6`.
+Its Test Build, Miri, and VS Code extension E2E steps passed. Repository-wide
+Rustfmt and Clippy remain red on baseline diagnostics; local Clippy after the
+scoped fix reports no remaining native fixture lint. The remote workspace Test
+step was still running when this checkpoint was recorded.
+
+Slice 9 remains ineligible: the amendment permits baseline extraction only
+after clean Slice 8 broad correctness evidence, while complete-core execution
+still has no completion summary. No baseline extraction was fabricated. The
+branch is pushed and clean; merging remains unsafe because `main` has
+overlapping uncommitted user changes. Both worktrees remain untouched by
+integration operations.
+
 ## Reconciliation — inherited implementation residue
 
 The seven tracked files left unstaged after the earlier checkpoints are amendment-owned residue, not unrelated work: `phalcom-core/src/native/verify.rs`, `phalcom-core/src/primitive/typing.rs`, `phalcom-core/src/typing/registry.rs`, and `phalcom-modules/tests/identity_foundation.rs` complete Slice 5 source/revision identity and reflection wiring; `phalcom-modules/src/linker.rs` provides Slice 6 whole-interface linking; `phalcom-core/src/compiler/lib/enum_decl.rs` and `phalcom-semantic/src/checker/declaration.rs` preserve canonical declaration-owner selection across the earlier identity slices. Their existing focused evidence is green: modules full target `107 passed`, semantic metadata `21 passed`, semantic native conformance `3 passed`, and core `native_adt_runtime` `6 passed`. They are reconciled in one focused commit without staging the untracked continuation handoff.
