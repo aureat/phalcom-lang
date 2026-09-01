@@ -131,11 +131,11 @@ pub struct ClassLayout {
     pub declared_at: SourceRange,
 }
 
-/// Direct runtime roots for core and entry modules.
+/// Direct runtime roots for Universe and entry modules.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RuntimeRoots {
-    /// Bootstrapped core module handle.
-    pub core: ObjRef,
+    /// Bootstrapped Universe root module handle.
+    pub universe: ObjRef,
     /// Program entry module handle, if known.
     pub entry: Option<ObjRef>,
 }
@@ -221,17 +221,17 @@ pub struct VM {
     pub module_registry: crate::modules::ModuleRegistry,
     /// Runtime typing registry for loaded metadata pools and descriptors.
     pub typing_registry: crate::typing::RuntimeTypingRegistry,
-    /// Direct runtime roots for core and entry modules.
+    /// Direct runtime roots for Universe and entry modules.
     pub runtime_roots: Option<RuntimeRoots>,
-    /// Set of modules with privileged core status (core and universe modules).
+    /// Set of modules with privileged Universe status.
     pub privileged_modules: std::collections::HashSet<ObjRef>,
     /// Canonical semantic values, initialized after universe bootstrap.
     pub semantic_roots: SemanticRoots,
 
     /// Named classes by identity [`ClassKey`], each a [`ClassId`] handle.
     pub classes: HashMap<ClassKey, ClassId>,
-    /// Kernel class names reserved to the core module (PDR-0001 ruling
-    /// 3, U-CLASSCLOSE §4): exactly the names `VM::install_core`'s
+    /// Kernel class names reserved to the Universe package (PDR-0001 ruling
+    /// 3, U-CLASSCLOSE §4): exactly the names `VM::bind_primordial_universe`'s
     /// `add_class!` macro binds — the Rust-installed primitives (`Object`,
     /// `List`, `Number`, `Error`, …), **not** every class `core.ph` itself
     /// goes on to declare in `.ph` (`ArgumentError`, `PreconditionError`,
@@ -245,8 +245,8 @@ pub struct VM {
     /// list, and no need to touch this comment when a primitive is added or
     /// removed.
     pub kernel_class_names: std::collections::HashSet<Symbol>,
-    /// Global symbol whitelist gating non-core module fallback to the core module.
-    pub prelude_names: std::collections::HashSet<Symbol>,
+    /// Canonical slots backing prelude names in their owning Universe modules.
+    pub prelude_bindings: HashMap<Symbol, crate::modules::BindingRef>,
     /// The symbol interner backing selectors, names and string identity.
     pub interner: Interner,
     /// Canonical reflection object cache.
@@ -324,7 +324,7 @@ pub struct VM {
     /// no further subclass may be declared").
     ///
     /// A module `ObjRef` is a natural, already-unique-per-compile-unit
-    /// identifier — `Compiler::new(vm, module)` is constructed fresh for
+    /// identifier — a fresh compiler is constructed for
     /// every top-level `.ph` file compile (including every `import`-loaded
     /// module, so two classes sharing a module handle were declared in the
     /// same unit, and two sharing a
@@ -390,10 +390,56 @@ pub struct VM {
 }
 
 impl VM {
-    /// Returns the core module handle if initialized.
+    /// Returns canonical Universe root package. Bootstrap creates it before
+    /// any source unit executes, so absence indicates an internal violation.
+    pub fn universe_root_module(&self) -> ObjRef {
+        let id = phalcom_modules::ModuleId::universe_root();
+        self.module_registry
+            .get(&id)
+            .expect("canonical Universe root is materialized")
+            .object
+    }
+
+    /// Reads a binding from an exact canonical Universe module path.
+    pub fn universe_global(&self, path: &[&str], name: &str) -> Option<Value> {
+        let components = path
+            .iter()
+            .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).expect("canonical Universe component"))
+            .collect::<Vec<_>>();
+        let id = phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(components));
+        let module = self.module_registry.get(&id)?.object;
+        self.heap.module(module).get(self.interner.find(name)?)
+    }
+
+    /// Resolves a canonical Universe declaration name to its live module slot.
+    pub fn canonical_universe_binding(&self, name: Symbol) -> Option<crate::modules::BindingRef> {
+        let key = phalcom_native_meta::UniverseKey::from_name(self.resolve_symbol(name))?;
+        let module = self
+            .module_registry
+            .get(&Self::canonical_universe_module_id(key))?
+            .object;
+        let slot = self.heap.module(module).slot_of(name)?;
+        Some(crate::modules::BindingRef {
+            module,
+            slot: u16::try_from(slot).ok()?,
+        })
+    }
+
+    /// Returns the exact runtime module identity that owns a Universe key.
+    pub(crate) fn canonical_universe_module_id(key: phalcom_native_meta::UniverseKey) -> phalcom_modules::ModuleId {
+        let path = phalcom_modules::ModulePath::from_components(
+            key.source_path()
+                .iter()
+                .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).expect("canonical Universe component"))
+                .collect::<Vec<_>>(),
+        );
+        phalcom_modules::ModuleId::universe(path)
+    }
+
+    /// Returns the Universe root module handle if initialized.
     #[inline]
-    pub fn core_module(&self) -> Option<ObjRef> {
-        self.runtime_roots.map(|r| r.core)
+    pub fn universe_module(&self) -> Option<ObjRef> {
+        self.runtime_roots.map(|r| r.universe)
     }
 
     /// Returns the entry module handle if recorded.
@@ -402,10 +448,10 @@ impl VM {
         self.runtime_roots.and_then(|r| r.entry)
     }
 
-    /// Checks if a module has privileged core status (e.g. core or universe module).
+    /// Checks if a module has privileged Universe status.
     #[inline]
-    pub fn is_privileged_core_module(&self, module: ObjRef) -> bool {
-        self.core_module() == Some(module) || self.privileged_modules.contains(&module)
+    pub fn is_privileged_universe_module(&self, module: ObjRef) -> bool {
+        self.universe_module() == Some(module) || self.privileged_modules.contains(&module)
     }
 
     /// Finds a module handle by its logical name symbol.

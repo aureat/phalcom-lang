@@ -11,16 +11,16 @@ use crate::checker::analysis::normal_return_summary;
 use crate::checker::context::CheckingContext;
 use crate::checker::declaration::check_class_field_initializers;
 use crate::checker::statement::check_statement;
-use crate::core_surface::render_canonical_core_source;
 use crate::db::SemanticDb;
 use crate::db::budget::{CancellationToken, QueryBudget};
 use crate::db::key::QueryKey;
 use crate::db::product::EnumRequirementsProduct;
 use crate::db::query::{
     CallableBodyQuery, DeclarationSurfaceQuery, FormalQueryInputs, bootstrap_advisory_callable, query_advisory_callable, query_advisory_module,
-    query_associated_surface, query_callable_body_with_formal_inputs, query_callable_signature, query_declaration_shell, query_declaration_surface,
-    query_enum_declaration, query_enum_requirements, query_field_signature, query_hierarchy_edge, query_linked_interface, query_source_formal_attachment,
-    query_source_structure, query_unlinked_interface,
+    query_associated_surface, query_bootstrap_callable_signature, query_bootstrap_declaration_surface, query_bootstrap_hierarchy_edge,
+    query_callable_body_with_formal_inputs, query_callable_signature, query_declaration_shell, query_declaration_surface, query_enum_declaration,
+    query_enum_requirements, query_field_signature, query_hierarchy_edge, query_linked_interface, query_source_formal_attachment, query_source_structure,
+    query_unlinked_interface,
 };
 use crate::db::state::QueryOutcome;
 use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, bootstrap_universe_declarations};
@@ -71,6 +71,17 @@ pub struct SemanticUpdateStats {
 enum CallableRevisionDisposition {
     Reused,
     Recomputed,
+}
+
+fn canonical_runtime_support_superclass(root: &str, members: &[String]) -> Option<DeclarationId> {
+    if !members.is_empty() {
+        return None;
+    }
+    match root {
+        "Some" => Some(crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Some)),
+        "None" => Some(crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::None)),
+        _ => None,
+    }
 }
 
 /// Product-level effects of one immutable semantic publication.
@@ -146,14 +157,33 @@ impl SemanticWorkspaceSession {
         let db = SemanticDb::with_workspace(workspace);
         let mut store = TypeStore::new();
 
-        let mut base_declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(ModuleId::universe_root(), key.name().into()));
+        let mut base_declarations = bootstrap_universe_declarations(&mut store, &crate::core_surface::universe_declaration);
+
+        // `Some` and `None` are runtime support classes for the canonical
+        // Option enum rather than exported class bindings. They still need
+        // declaration-backed forms so superclass checks can report the
+        // canonical sealed-inheritance diagnostic without making `None` a
+        // value binding in expression resolution.
+        for key in [phalcom_native_meta::UniverseKey::Some, phalcom_native_meta::UniverseKey::None] {
+            let declaration = crate::core_surface::universe_declaration(key);
+            let form = store.nominal_type(declaration.clone());
+            let class_object_type = store.class_object_type(declaration.clone());
+            base_declarations.insert(DeclarationTypeInfo {
+                declaration,
+                form,
+                class_object_type,
+                kind: KindId::TYPE,
+                generic_signature: None,
+                supertype_template: None,
+            });
+        }
 
         let mut base_hierarchy = MapTypeHierarchy::new();
         for relation in phalcom_native_meta::UNIVERSE_CLASS_RELATIONS {
             if let Some(superclass) = relation.superclass {
                 base_hierarchy.insert(
-                    DeclarationId::new(ModuleId::universe_root(), relation.class.name().into()),
-                    DeclarationId::new(ModuleId::universe_root(), superclass.name().into()),
+                    crate::core_surface::universe_declaration(relation.class),
+                    crate::core_surface::universe_declaration(superclass),
                 );
             }
         }
@@ -210,7 +240,7 @@ impl SemanticWorkspaceSession {
                 let phalcom_ast::ast::Statement::Enum(enum_def) = stmt else {
                     continue;
                 };
-                let decl_id = DeclarationId::new(ModuleId::universe_root(), enum_def.name.clone().into());
+                let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
                 if base_declarations.get(&decl_id).is_some() {
                     continue;
                 }
@@ -234,10 +264,8 @@ impl SemanticWorkspaceSession {
                 } else {
                     let kind = store.arrow_kind(parameter_kinds.into_boxed_slice(), KindId::TYPE);
                     let form = store.nominal_form(decl_id.clone(), kind);
-                    let signature = crate::types::parameter::GenericSignature::new(
-                        TypeParameterOwner::Declaration(decl_id.clone()),
-                        parameter_ids.into_boxed_slice(),
-                    );
+                    let signature =
+                        crate::types::parameter::GenericSignature::new(TypeParameterOwner::Declaration(decl_id.clone()), parameter_ids.into_boxed_slice());
                     (form, kind, Some(signature))
                 };
 
@@ -265,15 +293,9 @@ impl SemanticWorkspaceSession {
                 .unwrap_or_else(|e| panic!("failed to load universe module {module_id}: {e}"));
             for stmt in &parsed.program.statements {
                 if let phalcom_ast::ast::Statement::Enum(enum_def) = stmt {
-                    let decl_id = DeclarationId::new(ModuleId::universe_root(), enum_def.name.clone().into());
-                    let enum_product = crate::checker::enum_declaration::build_enum_semantics(
-                        &decl_id,
-                        enum_def,
-                        &mut store,
-                        &base_declarations,
-                        &resolver,
-                        &ModuleId::universe_root(),
-                    );
+                    let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
+                    let enum_product =
+                        crate::checker::enum_declaration::build_enum_semantics(&decl_id, enum_def, &mut store, &base_declarations, &resolver, &module_id);
                     base_enum_semantics.insert_enum(enum_product.info.clone());
                     for v in enum_product.variants.iter() {
                         base_enum_semantics.insert_variant(Arc::new(v.clone()));
@@ -286,7 +308,7 @@ impl SemanticWorkspaceSession {
                         &resolver,
                         &base_declarations,
                         &base_dispatch,
-                        ModuleId::universe_root(),
+                        module_id.clone(),
                     );
                     behavior_ctx.attach_enum_semantics(&base_enum_semantics);
                     let behavior_product = crate::checker::enum_behavior::build_enum_behavior(&mut behavior_ctx, &decl_id, enum_def);
@@ -337,8 +359,8 @@ impl SemanticWorkspaceSession {
                         ),
                         &behavior_bases,
                         &std::collections::HashSet::new(),
-                        &ModuleId::universe_root(),
-                        Some(crate::diagnostic::SemanticSourceSpan::new(ModuleId::universe_root(), enum_def.range)),
+                        &module_id,
+                        Some(crate::diagnostic::SemanticSourceSpan::new(module_id.clone(), enum_def.range)),
                     );
                     base_associated_surfaces.insert(decl_id.clone(), assoc_surface.clone());
                     base_associated_surface_products.push(assoc_surface);
@@ -369,7 +391,7 @@ impl SemanticWorkspaceSession {
                         &case_methods_map,
                         &mut store,
                         &base_hierarchy,
-                        &ModuleId::universe_root(),
+                        &module_id,
                     );
                     base_enum_requirements.insert(decl_id.clone(), Arc::from(behavior_product.root_requirements.clone()), case_statuses.clone());
                     let req_product = Arc::new(EnumRequirementsProduct {
@@ -678,7 +700,10 @@ impl SemanticWorkspaceSession {
 
                     if let Some(super_ref) = class_def.superclass_ref() {
                         let members: Vec<String> = super_ref.members.iter().map(|m| m.name.clone()).collect();
-                        if let Some(target_decl) = resolver.resolve_type_name(module_id, &super_ref.root, &members) {
+                        if let Some(target_decl) = resolver
+                            .resolve_type_name(module_id, &super_ref.root, &members)
+                            .or_else(|| canonical_runtime_support_superclass(&super_ref.root, &members))
+                        {
                             let to_node = SemanticNodeId::Declaration {
                                 module: target_decl.module,
                                 name: target_decl.name,
@@ -824,6 +849,45 @@ impl SemanticWorkspaceSession {
         // Publish declaration type metadata as explicit DB products before any
         // formal surface, signature, or body query can consume it.
         let mut published_shells = BTreeSet::new();
+        for (declaration, info) in self.base_declarations.iter() {
+            published_shells.insert(declaration.clone());
+            match query_declaration_shell(&mut self.db, Arc::new(info.clone())) {
+                QueryOutcome::Ready(_) => {}
+                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+            }
+        }
+        for (declaration, surface) in self.base_dispatch.surfaces() {
+            match query_bootstrap_declaration_surface(&mut self.db, declaration.clone(), Arc::new(surface.clone())) {
+                QueryOutcome::Ready(_) => {}
+                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+            }
+        }
+        for (_, signature) in self.base_callable_signatures.iter() {
+            match query_bootstrap_callable_signature(&mut self.db, Arc::new(signature.clone())) {
+                QueryOutcome::Ready(_) => {}
+                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+            }
+        }
+        for relation in phalcom_native_meta::UNIVERSE_CLASS_RELATIONS {
+            let class_decl = crate::core_surface::universe_declaration(relation.class);
+            let super_decl = relation.superclass.map(crate::core_surface::universe_declaration);
+            match query_bootstrap_hierarchy_edge(&mut self.db, class_decl, super_decl) {
+                QueryOutcome::Ready(_) => {}
+                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+            }
+        }
         for (module_id, parsed_unit) in &input.sources {
             for statement in &parsed_unit.program.statements {
                 let decl_name = match statement {
@@ -1700,7 +1764,12 @@ impl SemanticWorkspaceSession {
             }
             source_index.rebuild_target_occurrences();
         }
-        for (module, module_index) in &source_index.modules {
+        // Presentation-only Universe source shards provide provenance and
+        // navigation. They are deliberately not workspace query inputs.
+        for module in input.sources.keys() {
+            let Some(module_index) = source_index.modules.get(module) else {
+                continue;
+            };
             match query_source_structure(&mut self.db, module.clone(), module_index.clone()) {
                 QueryOutcome::Ready(_) => {}
                 QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
@@ -1873,22 +1942,44 @@ fn build_source_semantic_index(
     linked: &LinkedProgram,
     type_resolver: &dyn TypeResolver,
 ) -> (SourceSemanticIndex, BTreeMap<ModuleId, Arc<str>>) {
+    // Canonical Universe modules are source-owned presentation inputs: index
+    // their declarations for navigation without linking or deeply analyzing
+    // their bodies as part of an ordinary workspace update.
+    let mut index_sources = sources.clone();
+    let mut presentation_sources = BTreeMap::new();
+    let provider = phalcom_modules::UniverseSourceProvider::new();
+    for node in provider.nodes() {
+        let path = phalcom_modules::ModulePath::from_components(
+            node.path
+                .iter()
+                .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).expect("canonical Universe component"))
+                .collect::<Vec<_>>(),
+        );
+        let module = ModuleId::universe(path);
+        if sources.contains_key(&module) {
+            continue;
+        }
+        let parsed = provider.load_parsed(&module).expect("canonical Universe presentation source must load");
+        presentation_sources.insert(module.clone(), parsed.text.clone());
+        index_sources.insert(module, parsed);
+    }
+
     let mut context = SourceIndexContext {
         resolved_imports: resolved_imports.clone(),
         ..SourceIndexContext::default()
     };
-    for (module, source) in sources {
+    for (module, source) in &index_sources {
         for (range, declaration) in resolve_type_reference_targets(module, &source.program, type_resolver) {
             context.type_reference_targets.insert((module.clone(), range), declaration);
         }
     }
     for (module, linked_module) in &linked.modules {
-        if !sources.contains_key(module) {
+        if !index_sources.contains_key(module) {
             continue;
         }
         context.modules.entry(module.path.to_string()).or_insert_with(|| module.clone());
         context.modules.entry(module.to_string()).or_insert_with(|| module.clone());
-        if let Some(source) = sources.get(module) {
+        if let Some(source) = index_sources.get(module) {
             for dependency in &source.program.preamble.dependencies {
                 let DependencyDecl::Import(ImportDecl::Module(module_import)) = dependency else {
                     continue;
@@ -1932,7 +2023,7 @@ fn build_source_semantic_index(
             }
         }
     }
-    let scopes: BTreeMap<ModuleId, crate::source_index::SourceScopeIndex> = sources
+    let scopes: BTreeMap<ModuleId, crate::source_index::SourceScopeIndex> = index_sources
         .iter()
         .map(|(module, source)| (module.clone(), build_source_scope_index(module.clone(), &source.program, &context)))
         .collect();
@@ -1943,7 +2034,7 @@ fn build_source_semantic_index(
                 .insert((callable.id.declaration_owner().clone(), callable.id.selector.clone()), callable.id.clone());
         }
     }
-    for (module, source) in sources {
+    for (module, source) in &index_sources {
         for statement in &source.program.statements {
             let phalcom_ast::ast::Statement::Class(class) = statement else { continue };
             context
@@ -1952,7 +2043,7 @@ fn build_source_semantic_index(
                 .or_insert_with(|| SemanticTargetId::Declaration(DeclarationId::new(module.clone(), class.name.clone().into())));
         }
     }
-    let mut index = SourceSemanticIndex::from_scope_indices_with_programs_and_context(scopes, sources, Some(&context));
+    let mut index = SourceSemanticIndex::from_scope_indices_with_programs_and_context(scopes, &index_sources, Some(&context));
     for analysis in callable_analyses.values() {
         let module = analysis.callable.module();
         if index.module(module).is_some() {
@@ -1961,24 +2052,6 @@ fn build_source_semantic_index(
             }
             let _ = index.attach_formal_analysis(module, analysis);
         }
-    }
-
-    let mut presentation_sources = BTreeMap::new();
-    let core = ModuleId::universe_root();
-    if !sources.contains_key(&core) {
-        let text = render_canonical_core_source();
-        let parsed = phalcom_ast::parse(&text, 0);
-        assert!(
-            parsed.errors.is_empty(),
-            "compiler-owned canonical core presentation must parse: {:#?}",
-            parsed.errors
-        );
-        let structure = build_source_scope_index(core.clone(), &parsed.program, &SourceIndexContext::default());
-        let mut core_index = SourceSemanticIndex::from_scope_indices(BTreeMap::from([(core.clone(), structure)]));
-        let shard = core_index.modules.remove(&core).expect("canonical core presentation shard");
-        index.modules.insert(core.clone(), shard);
-        index.rebuild_target_occurrences();
-        presentation_sources.insert(core, text);
     }
 
     (index, presentation_sources)

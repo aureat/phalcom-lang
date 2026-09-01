@@ -563,13 +563,19 @@ pub fn query_hierarchy_edge(
     let super_decl = if let Some(class_def) = class_def {
         if let Some(super_ref) = class_def.superclass_ref() {
             let members = super_ref.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
-            resolver.resolve_type_name(&class_decl.module, &super_ref.root, &members)
+            resolver
+                .resolve_type_name(&class_decl.module, &super_ref.root, &members)
+                .or_else(|| match (super_ref.root.as_str(), members.is_empty()) {
+                    ("Some", true) => Some(crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Some)),
+                    ("None", true) => Some(crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::None)),
+                    _ => None,
+                })
         } else {
-            let object = DeclarationId::new(ModuleId::universe_root(), "Object".into());
+            let object = crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Object);
             (class_decl != object).then_some(object)
         }
     } else {
-        Some(DeclarationId::new(ModuleId::universe_root(), "Object".into()))
+        Some(crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Object))
     };
     let input_fingerprint = if let Some(class_def) = class_def {
         crate::db::fingerprint::hierarchy_edge_input_fingerprint(&class_decl, superclass_source(&unit, class_def), &super_decl)
@@ -609,6 +615,41 @@ pub fn query_hierarchy_edge(
     QueryOutcome::Ready(product)
 }
 
+/// Publishes one canonical bootstrap hierarchy edge before source-owned
+/// hierarchy queries consume it as a dependency.
+pub fn query_bootstrap_hierarchy_edge(
+    db: &mut SemanticDb,
+    class_decl: DeclarationId,
+    super_decl: Option<DeclarationId>,
+) -> QueryOutcome<Arc<HierarchyEdgeProduct>> {
+    let key = QueryKey::HierarchyEdge(class_decl.clone());
+    let input_fingerprint = crate::db::fingerprint::hierarchy_edge_input_fingerprint(&class_decl, None, &super_decl);
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(product) = db.product(&key).and_then(|product| product.as_hierarchy_edge()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(product.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    db.metrics().record_miss();
+
+    let product = Arc::new(HierarchyEdgeProduct::new(class_decl.clone(), super_decl.clone()));
+    let product_fingerprint = crate::db::fingerprint::hierarchy_edge_product_fingerprint(&class_decl, &super_decl);
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::HierarchyEdge(product.clone()),
+        Vec::new(),
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(product)
+}
+
 /// Evaluates or retrieves canonical declaration type metadata for one declaration.
 pub fn query_declaration_shell(db: &mut SemanticDb, info: Arc<DeclarationTypeInfo>) -> QueryOutcome<Arc<DeclarationTypeInfo>> {
     let key = QueryKey::DeclarationShell(info.declaration.clone());
@@ -636,6 +677,42 @@ pub fn query_declaration_shell(db: &mut SemanticDb, info: Arc<DeclarationTypeInf
         return query_failure(db, key, error);
     }
     QueryOutcome::Ready(info)
+}
+
+/// Publishes one canonical bootstrap declaration surface before source-owned
+/// surface queries consume it as a dependency.
+pub fn query_bootstrap_declaration_surface(
+    db: &mut SemanticDb,
+    declaration: DeclarationId,
+    surface: Arc<crate::surface::DeclarationSurface>,
+) -> QueryOutcome<Arc<crate::surface::DeclarationSurface>> {
+    let key = QueryKey::DeclarationSurface(declaration);
+    let diagnostics = Arc::<[SemanticDiagnostic]>::from(Vec::new());
+    let input_fingerprint = crate::db::fingerprint::declaration_surface_query_input_fingerprint(&surface, &diagnostics);
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(product) = db.product(&key).and_then(|product| product.as_declaration_surface()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(product.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    db.metrics().record_miss();
+
+    let product_fingerprint = crate::db::fingerprint::declaration_surface_product_fingerprint(&surface);
+    let product = Arc::new(DeclarationSurfaceProduct::new(surface.clone(), diagnostics));
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::DeclarationSurface(product),
+        Vec::new(),
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(surface)
 }
 
 pub fn query_enum_declaration(
@@ -847,6 +924,35 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
         return query_failure(db, key, error);
     }
     QueryOutcome::Ready(surface)
+}
+
+/// Publishes one canonical bootstrap callable signature before source-owned
+/// body queries consume it as a dependency.
+pub fn query_bootstrap_callable_signature(db: &mut SemanticDb, signature: Arc<CallableSemanticSignature>) -> QueryOutcome<Arc<CallableSemanticSignature>> {
+    let key = QueryKey::CallableSignature(signature.callable.clone());
+    let input_fingerprint = crate::db::fingerprint::callable_signature_input_fingerprint(&signature);
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(product) = db.product(&key).and_then(|product| product.as_callable_signature()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(product.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    db.metrics().record_miss();
+    let product_fingerprint = crate::db::fingerprint::callable_signature_product_fingerprint(&signature);
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::CallableSignature(signature.clone()),
+        Vec::new(),
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(signature)
 }
 
 /// Evaluates or retrieves the canonical semantic signature for one source callable.

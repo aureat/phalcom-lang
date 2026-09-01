@@ -140,7 +140,7 @@ pub enum ProgramCompileError {
     Source(#[from] SourceError),
     /// Standalone module cannot import arbitrary sibling or project modules.
     #[error(
-        "standalone module execution cannot resolve import '{import_name}' (standalone modules only support builtin 'universe' and 'std' roots; sibling modules require a Project or Package)"
+        "standalone module execution cannot resolve import '{import_name}' (standalone modules only support builtin 'universe' roots; sibling modules require a Project or Package)"
     )]
     StandaloneImportRequiresPackageContext { import_name: Box<str> },
     /// Context-free REPL cannot import modules without project context.

@@ -150,7 +150,7 @@ impl VM {
             }
 
             // Register payload field getters on the case behavior class
-            if let Some(module) = self.entry_module().or_else(|| self.core_module()) {
+            if let Some(module) = self.entry_module().or_else(|| self.universe_module()) {
                 for field in var_spec.payload_fields.iter() {
                     let slot = field.slot;
                     let getter_name = &field.local_name;

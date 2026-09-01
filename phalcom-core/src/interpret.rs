@@ -11,6 +11,7 @@ use crate::modules::{CompileBindings, RuntimeLinkedRead};
 use crate::vm::VM;
 use phalcom_ast::ast::Program;
 use phalcom_ast::parse_source;
+use phalcom_modules::ImportBindingId;
 use std::sync::Arc;
 
 pub enum ExitCode {
@@ -76,12 +77,25 @@ impl VM {
         bindings: Option<CompileBindings>,
     ) -> PhResult<ObjRef> {
         self.unit_kind = kind;
-        let compiler = match bindings {
-            Some(bindings) => Compiler::new_with_bindings(self, module, source_id, kind, Some(bindings)),
-            None => Compiler::new(self, module, source_id, kind),
-        };
+        let bindings = self.attach_prelude_bindings(module, bindings.unwrap_or_default());
+        let compiler = Compiler::new_with_bindings(self, module, source_id, kind, Some(bindings));
         let closure = compiler.compile(program)?;
         Ok(closure)
+    }
+
+    fn attach_prelude_bindings(&mut self, module: ObjRef, mut bindings: CompileBindings) -> CompileBindings {
+        let mut prelude = self.prelude_bindings.iter().collect::<Vec<_>>();
+        prelude.sort_by(|(left, _), (right, _)| self.resolve_symbol(**left).cmp(self.resolve_symbol(**right)));
+        let start = self.heap.module(module).linked_reads.len();
+        for (offset, (name, binding)) in prelude.into_iter().enumerate() {
+            let Ok(index) = u32::try_from(start + offset) else { break };
+            self.heap
+                .module_mut(module)
+                .linked_reads
+                .push(RuntimeLinkedRead::Binding(*binding));
+            bindings.add_prelude(self.resolve_symbol(*name).to_owned().into_boxed_str(), ImportBindingId(index));
+        }
+        bindings
     }
 
     /// Compiles a pre-parsed AST for `module` with `kind`.

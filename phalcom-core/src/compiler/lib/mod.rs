@@ -182,12 +182,6 @@ pub(crate) struct Compiler<'vm> {
 }
 
 impl<'vm> Compiler<'vm> {
-    /// Creates a compiler targeting `module`, whose chunks carry `source_id`
-    /// as their [`Chunk::source_id`](crate::chunk::Chunk::source_id).
-    pub(crate) fn new(vm: &'vm mut VM, module: ObjRef, source_id: u32, unit_kind: UnitKind) -> Self {
-        Self::new_with_bindings(vm, module, source_id, unit_kind, None)
-    }
-
     /// Creates a compiler seeded from a linked module namespace.
     pub(crate) fn new_with_bindings(vm: &'vm mut VM, module: ObjRef, source_id: u32, unit_kind: UnitKind, linked_bindings: Option<CompileBindings>) -> Self {
         let lowering = vm.heap.module(module).lowering.clone();
@@ -218,11 +212,11 @@ impl<'vm> Compiler<'vm> {
         self.lowering.as_deref()
     }
 
-    /// Bootstrap-owned core and universe modules may spell implementation
+    /// Bootstrap-owned Universe modules may spell implementation
     /// selectors and native declarations. Compare handles so a user module
     /// named `core` cannot acquire this authority.
-    pub(crate) fn compiling_privileged_core(&self) -> bool {
-        self.vm.is_privileged_core_module(self.module)
+    pub(crate) fn compiling_privileged_universe(&self) -> bool {
+        self.vm.is_privileged_universe_module(self.module)
     }
 
     /// Whether compilation is currently inside a sacred call's deopt-fallback
@@ -235,6 +229,25 @@ impl<'vm> Compiler<'vm> {
     /// The [`ClassKey`] for `name` in the module currently being compiled.
     pub(crate) fn class_key(&self, name: Symbol) -> ClassKey {
         ClassKey { module: self.module, name }
+    }
+
+    /// Emits a read for a bare class/global name using its canonical linked
+    /// prelude slot when one was materialized for this compilation unit.
+    pub(crate) fn emit_global_reference(&mut self, name: Symbol, range: SourceRange) {
+        if let Some(binding) = self.linked_binding(name) {
+            self.emit(Bytecode::GetLinked(binding.0 as u16), range);
+        } else if let Some(binding) = self.vm.canonical_universe_binding(name) {
+            let index = self.vm.heap.module(self.module).linked_reads.len();
+            self.vm
+                .heap
+                .module_mut(self.module)
+                .linked_reads
+                .push(crate::modules::RuntimeLinkedRead::Binding(binding));
+            self.emit(Bytecode::GetLinked(u16::try_from(index).unwrap_or(u16::MAX)), range);
+        } else {
+            let name_idx = self.add_constant(crate::value::Value::symbol(name));
+            self.emit(Bytecode::GetGlobal(name_idx), range);
+        }
     }
 
     /// The source text of the unit currently being compiled.
@@ -263,10 +276,10 @@ impl<'vm> Compiler<'vm> {
         if self.vm.field_layouts.contains_key(&own_key) || self.vm.classes.contains_key(&own_key) {
             return Some(own_key);
         }
-        if let Some(core_module) = self.vm.core_module() {
-            let core_key = ClassKey { module: core_module, name };
-            if self.vm.field_layouts.contains_key(&core_key) || self.vm.classes.contains_key(&core_key) {
-                return Some(core_key);
+        if let Some(binding) = self.vm.canonical_universe_binding(name).or_else(|| self.vm.prelude_bindings.get(&name).copied()) {
+            let prelude_key = ClassKey { module: binding.module, name };
+            if self.vm.field_layouts.contains_key(&prelude_key) || self.vm.classes.contains_key(&prelude_key) {
+                return Some(prelude_key);
             }
         }
         None

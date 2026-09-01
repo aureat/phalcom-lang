@@ -1,6 +1,7 @@
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
 use phalcom_modules::{ModuleId, ModulePath, ResolvedProjectId};
+use phalcom_native_meta::UniverseKey;
 use phalcom_semantic::types::TypeTerm;
 use phalcom_semantic::{CallableId, DeclarationId, DispatchSide, EditorMemberTarget, SemanticTargetId, ValueShape, analyze_single_module};
 use std::sync::Arc;
@@ -111,7 +112,7 @@ class Probe {
     let probe = DeclarationId::new(module.clone(), "Probe".into());
     let make = CallableId::new(probe, Selector::method("make", Vec::new()).unwrap(), DispatchSide::Instance);
     let default_new = CallableId::new(
-        DeclarationId::new(ModuleId::universe_root(), "Class".into()),
+        phalcom_semantic::core_surface::universe_declaration(UniverseKey::Class),
         Selector::method("new", Vec::new()).unwrap(),
         DispatchSide::Instance,
     );
@@ -189,7 +190,7 @@ class Probe {
     let probe = DeclarationId::new(module.clone(), "Probe".into());
     let make = CallableId::new(probe, Selector::method("make", Vec::new()).unwrap(), DispatchSide::Instance);
     let default_new = CallableId::new(
-        DeclarationId::new(ModuleId::universe_root(), "Class".into()),
+        phalcom_semantic::core_surface::universe_declaration(UniverseKey::Class),
         Selector::method("new", Vec::new()).unwrap(),
         DispatchSide::Instance,
     );
@@ -383,7 +384,7 @@ const family = Person::new
     let snapshot = analysis.snapshot;
 
     let default_new = CallableId::new(
-        DeclarationId::new(ModuleId::universe_root(), "Class".into()),
+        phalcom_semantic::core_surface::universe_declaration(UniverseKey::Class),
         Selector::method("new", Vec::new()).unwrap(),
         DispatchSide::Instance,
     );
@@ -410,7 +411,7 @@ fn builtin_annotation_snapshot() -> (ModuleId, Arc<str>, Arc<phalcom_semantic::S
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
     let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
-    let target = SemanticTargetId::Declaration(DeclarationId::new(ModuleId::universe_root(), "Int".into()));
+    let target = SemanticTargetId::Declaration(phalcom_semantic::core_surface::universe_declaration(UniverseKey::Int));
     (module, source, analysis.snapshot, target)
 }
 
@@ -436,29 +437,29 @@ fn builtin_declaration_has_canonical_definition_site() {
     );
     let site = snapshot.source_site(&sites[0]).expect("builtin declaration source site");
     assert!(
-        matches!(&site.id.owner, phalcom_semantic::SourceOwner::Module(owner) if owner == &ModuleId::universe_root()),
-        "builtin definition site must belong to the compiler-owned core presentation shard: {site:#?}"
+        matches!(&site.id.owner, phalcom_semantic::SourceOwner::Module(owner) if owner == &phalcom_semantic::core_surface::universe_declaration(UniverseKey::Int).module),
+        "builtin definition site must belong to Int's canonical Universe source module: {site:#?}"
     );
 }
 
 #[test]
 fn native_callable_presentation_is_compiler_owned() {
-    let module = ModuleId::universe_root();
-    let source: Arc<str> = Arc::from("let x = true.ifTrue || { 1 };\n");
-    let parsed = phalcom_ast::parse(&source, 0);
-    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
-    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
-    let snapshot = analysis.snapshot;
-    let offset = source.find("ifTrue").expect("ifTrue call");
-    let target = snapshot.editor().target_at(&module, offset).expect("native callable target");
-    let SemanticTargetId::Callable(callable) = target else {
-        panic!("expected callable target, got {target:#?}");
-    };
+    let snapshot = analyze_single_module(
+        ModuleId::universe_root(),
+        Arc::from("class Probe {}\n"),
+        Arc::new(phalcom_ast::parse("class Probe {}\n", 0).program),
+    )
+    .snapshot;
+    let callable = CallableId::new(
+        phalcom_semantic::core_surface::universe_declaration(UniverseKey::Bool),
+        Selector::getter("not").expect("Bool.not selector"),
+        DispatchSide::Instance,
+    );
     let native = snapshot.editor().native_callable_presentation(&callable).expect("native presentation metadata");
     assert!(
         native
             .documentation
-            .is_some_and(|documentation| documentation.contains("Executes block if receiver is true.")),
+            .is_some_and(|documentation| documentation.contains("sacred logical negation")),
         "unexpected native documentation: {native:#?}"
     );
 }

@@ -54,7 +54,7 @@ pub struct ClassObject {
     /// (a non-empty entry means at least one method answers to that base
     /// name) and, incidentally, a future candidate-list/reflection surface.
     /// Empty by default (`bare`) — a bootstrapped kernel row is finalized
-    /// once its native primitives are installed (`VM::install_core`), and a
+    /// once its native primitives are installed (`VM::bind_primordial_universe`), and a
     /// `.ph` class body is finalized at its own compile tail.
     pub base_names: HashMap<Symbol, Vec<Symbol>>,
     /// Attribute instances attached via `Object#__attach`

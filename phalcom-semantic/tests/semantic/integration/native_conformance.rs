@@ -1,7 +1,7 @@
 use phalcom_native_surface::NATIVE_SURFACES;
 use phalcom_semantic::core_surface::*;
 use phalcom_semantic::declarations::bootstrap_universe_declarations;
-use phalcom_semantic::identity::{DeclarationId, ModuleId};
+use phalcom_semantic::identity::ModuleId;
 use phalcom_semantic::types::SimpleTypeResolver;
 use phalcom_semantic::types::store::TypeStore;
 
@@ -9,7 +9,7 @@ use phalcom_semantic::types::store::TypeStore;
 fn test_native_surface_conformance() {
     let mut store = TypeStore::new();
     let core_mod = ModuleId::universe_root();
-    let universe_resolver = |key: phalcom_native_meta::UniverseKey| -> DeclarationId { DeclarationId::new(ModuleId::universe_root(), key.name().into()) };
+    let universe_resolver = phalcom_semantic::core_surface::universe_declaration;
     let declarations = bootstrap_universe_declarations(&mut store, &universe_resolver);
 
     let resolver = SimpleTypeResolver::new();
@@ -66,10 +66,7 @@ enum Option<T> {
     let decls = extract_source_declarations(&core_mod, &program);
     let merged = merge_surfaces(&decls, NATIVE_SURFACES);
 
-    let opt_merged = merged
-        .iter()
-        .find(|d| d.name == "Option")
-        .expect("Option enum in merged surfaces");
+    let opt_merged = merged.iter().find(|d| d.name == "Option").expect("Option enum in merged surfaces");
     assert!(opt_merged.source_enum().is_some());
     assert_eq!(opt_merged.source_enum().unwrap().variants.len(), 2);
 }

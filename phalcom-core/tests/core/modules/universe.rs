@@ -176,17 +176,17 @@ fn curated_prelude_exposes_public_names_and_hides_internal_classes() {
         "SelectorPattern",
     ] {
         let sym = vm.interner.intern(name);
-        assert!(vm.prelude_names.contains(&sym), "prelude must contain {name}");
+        assert!(vm.prelude_bindings.contains_key(&sym), "prelude must contain {name}");
     }
     // PRE-02: Behavior, Metaclass, Message are NOT in prelude
     for name in ["Behavior", "Metaclass", "Message"] {
         let sym = vm.interner.intern(name);
-        assert!(!vm.prelude_names.contains(&sym), "prelude must NOT contain {name}");
+        assert!(!vm.prelude_bindings.contains_key(&sym), "prelude must NOT contain {name}");
     }
 
     // NONE-01: Prelude None is immediate Value::none(); universe.None is the None class object
     let none_sym = vm.interner.intern("None");
-    assert!(vm.prelude_names.contains(&none_sym));
+    assert!(vm.prelude_bindings.contains_key(&none_sym));
     let universe_pkg = vm.create_builtin_package("universe");
     let none_cls = vm.universe.classes.none_class;
     assert_eq!(vm.heap.module(universe_pkg).get(none_sym).unwrap(), Value::obj(none_cls));

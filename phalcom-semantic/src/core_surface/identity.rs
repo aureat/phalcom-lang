@@ -1,5 +1,19 @@
 use crate::identity::DeclarationId;
-use phalcom_modules::identity::ModuleId;
+use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath};
+use phalcom_native_meta::UniverseKey;
+
+fn universe_module(components: &[&str]) -> ModuleId {
+    let components = components
+        .iter()
+        .map(|component| ModuleComponent::from_identifier(component).expect("canonical Universe component"))
+        .collect::<Vec<_>>();
+    ModuleId::universe(ModulePath::from_components(components))
+}
+
+/// Returns declaration identity owned by canonical Universe source module.
+pub fn universe_declaration(key: UniverseKey) -> DeclarationId {
+    DeclarationId::new(universe_module(key.source_path()), key.name().into())
+}
 
 /// Canonical declaration IDs for core types and forms.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -23,23 +37,22 @@ pub struct CoreDeclarationIds {
 
 impl Default for CoreDeclarationIds {
     fn default() -> Self {
-        let module = ModuleId::universe_root();
         Self {
-            object: DeclarationId::new(module.clone(), "Object".into()),
-            bool_: DeclarationId::new(module.clone(), "Bool".into()),
-            int: DeclarationId::new(module.clone(), "Int".into()),
-            float: DeclarationId::new(module.clone(), "Float".into()),
-            string: DeclarationId::new(module.clone(), "String".into()),
-            symbol: DeclarationId::new(module.clone(), "Symbol".into()),
-            number: DeclarationId::new(module.clone(), "Number".into()),
-            list: DeclarationId::new(module.clone(), "List".into()),
-            set: DeclarationId::new(module.clone(), "Set".into()),
-            map: DeclarationId::new(module.clone(), "Map".into()),
-            function: DeclarationId::new(module.clone(), "Function".into()),
-            closure: DeclarationId::new(module.clone(), "Closure".into()),
-            option: DeclarationId::new(module.clone(), "Option".into()),
-            result: DeclarationId::new(module.clone(), "Result".into()),
-            ordering: DeclarationId::new(module, "Ordering".into()),
+            object: universe_declaration(UniverseKey::Object),
+            bool_: universe_declaration(UniverseKey::Bool),
+            int: universe_declaration(UniverseKey::Int),
+            float: universe_declaration(UniverseKey::Float),
+            string: universe_declaration(UniverseKey::String),
+            symbol: universe_declaration(UniverseKey::Symbol),
+            number: universe_declaration(UniverseKey::Number),
+            list: universe_declaration(UniverseKey::List),
+            set: universe_declaration(UniverseKey::Set),
+            map: universe_declaration(UniverseKey::Map),
+            function: universe_declaration(UniverseKey::Function),
+            closure: universe_declaration(UniverseKey::Closure),
+            option: universe_declaration(UniverseKey::Option),
+            result: universe_declaration(UniverseKey::Result),
+            ordering: universe_declaration(UniverseKey::Ordering),
         }
     }
 }

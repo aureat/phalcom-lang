@@ -1,6 +1,6 @@
 
 // The throw -> value bridge (error-handling.md §5): runs `self` (0-arity),
-// capturing a `throw` into `Err(e)`; success is `Ok(v)`. Pure `.ph` over
+// capturing a `throw` into `Result::Error(e)`; success is `Result::Ok(v)`. Pure `.ph` over
 // `on(_)(_)` (U-ERR, ADR-0038) — no floor cost. Installed on the abstract
 // `Function` root so both `Closure` and (reflectively) `Method` inherit it,
 // mirroring how `call`/`on`/`ensure` are native on both.

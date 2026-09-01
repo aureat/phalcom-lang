@@ -226,7 +226,7 @@ impl<'vm> StackWalk<'vm> {
             line,
             span,
             source,
-            is_core: self.is_core_module(module_id),
+            is_core: self.is_universe_module(module_id),
             fiber: self.vm.heap.fiber(self.fiber).seq,
             class_name: class_name_sym,
         }
@@ -270,15 +270,14 @@ impl<'vm> StackWalk<'vm> {
             && closure.callable.name_sym == module.name_sym
     }
 
-    /// Whether `module_id` is the bootstrap core module, by handle identity.
+    /// Whether `module_id` is the Universe root, by handle identity.
     ///
-    /// Resolves the core module's own handle through its well-known name
-    /// ([`CORE_MODULE_NAME`]) exactly once per call and compares [`ObjRef`]s — the
+    /// Resolves the Universe root handle and compares [`ObjRef`]s — the
     /// identity comparison IS §2.1 requires, not a name comparison against the
     /// *frame's* module (which would misclassify any module a user happens to name
     /// `"core"`).
-    fn is_core_module(&self, module_id: ObjRef) -> bool {
-        self.vm.core_module() == Some(module_id)
+    fn is_universe_module(&self, module_id: ObjRef) -> bool {
+        self.vm.universe_module() == Some(module_id)
     }
 }
 

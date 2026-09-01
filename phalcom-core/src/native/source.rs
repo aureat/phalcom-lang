@@ -1,6 +1,6 @@
 //! Parsed AST source index for native universe classes and members.
 
-use phalcom_ast::ast::{ClassDef, ClassMember, MemberBody, MethodDef, Program, RestMode, Statement};
+use phalcom_ast::ast::{ClassDef, ClassMember, DependencyDecl, ImportDecl, ImportPath, ImportRoot, MemberBody, MethodDef, Program, RestMode, Statement};
 use phalcom_common::range::SourceRange;
 use phalcom_modules::builtin::UniverseSourceProvider;
 use phalcom_modules::identity::{ModuleId, ModulePath};
@@ -137,6 +137,65 @@ impl NativeSourceIndex {
         Ok(index)
     }
 
+    /// Returns canonical source units in dependency-first initialization order.
+    ///
+    /// Bootstrap source is already parsed and indexed here, so this derives
+    /// only the small runtime graph represented by each unit's preamble. It
+    /// deliberately does not use provider enumeration order.
+    pub fn initialization_order(&self) -> Result<Vec<Arc<ParsedModuleUnit>>, String> {
+        let by_id = self
+            .units
+            .iter()
+            .enumerate()
+            .map(|(index, unit)| (unit.id.clone(), index))
+            .collect::<HashMap<_, _>>();
+        let mut indegree = vec![0usize; self.units.len()];
+        let mut dependents = vec![Vec::<usize>::new(); self.units.len()];
+
+        for (importer_index, unit) in self.units.iter().enumerate() {
+            let mut dependencies = std::collections::BTreeSet::new();
+            for dependency in &unit.program.preamble.dependencies {
+                let path = match dependency {
+                    DependencyDecl::Import(ImportDecl::Module(decl)) => Some(&decl.path),
+                    DependencyDecl::Import(ImportDecl::Selective(decl)) => Some(&decl.path),
+                    DependencyDecl::ReExport(decl) => Some(&decl.path),
+                    DependencyDecl::Expose(_) => None,
+                };
+                let Some(path) = path else { continue };
+                let Some(target) = universe_dependency_target(unit, path) else { continue };
+                let Some(&target_index) = by_id.get(&target) else {
+                    return Err(format!("Universe dependency {} referenced by {} is not materialized", target, unit.id));
+                };
+                if dependencies.insert(target_index) {
+                    indegree[importer_index] += 1;
+                    dependents[target_index].push(importer_index);
+                }
+            }
+        }
+
+        let mut ready = std::collections::BTreeSet::new();
+        for (index, degree) in indegree.iter().enumerate() {
+            if *degree == 0 {
+                ready.insert((self.units[index].id.clone(), index));
+            }
+        }
+
+        let mut order = Vec::with_capacity(self.units.len());
+        while let Some((_, index)) = ready.pop_first() {
+            order.push(self.units[index].clone());
+            for dependent in &dependents[index] {
+                indegree[*dependent] -= 1;
+                if indegree[*dependent] == 0 {
+                    ready.insert((self.units[*dependent].id.clone(), *dependent));
+                }
+            }
+        }
+        if order.len() != self.units.len() {
+            return Err("canonical Universe source initialization cycle".into());
+        }
+        Ok(order)
+    }
+
     /// Builds an index from one parsed program.
     ///
     /// Kept public so verifier tests can exercise source contracts without
@@ -247,30 +306,34 @@ impl NativeSourceIndex {
                     self.index_member(module, owner_key, &enum_def.name, &class_member)?;
                 }
                 phalcom_ast::ast::EnumMember::Variant(variant) => {
-                    if owner_key == UniverseKey::Option {
-                        if let Some(variant_key) = UniverseKey::from_name(&variant.name) {
-                            let row = UniverseClassRow {
-                                module: module.clone(),
-                                name: variant.name.clone(),
-                                range: variant.range,
-                                universe_key: Some(variant_key),
-                                native: has_native_attr,
-                                superclass: Some("Option".to_owned()),
-                                documented: false,
-                            };
-                            if self.presentations.insert(variant_key, row.clone()).is_some() {
-                                return Err(format!("duplicate universe variant presentation for {}", variant.name));
-                            }
-                            self.census.classes.push(row);
-                        }
+                    // Only Native Option variants have support-class
+                    // presentations and implicit constructor descriptors.
+                    // Result and Ordering variants are semantic ADT variants,
+                    // not top-level Universe classes.
+                    if owner_key != UniverseKey::Option {
+                        continue;
                     }
+                    let Some(variant_key) = UniverseKey::from_name(&variant.name) else {
+                        continue;
+                    };
+                    let row = UniverseClassRow {
+                        module: module.clone(),
+                        name: variant.name.clone(),
+                        range: variant.range,
+                        universe_key: Some(variant_key),
+                        native: has_native_attr,
+                        superclass: Some("Option".to_owned()),
+                        documented: false,
+                    };
+                    if self.presentations.insert(variant_key, row.clone()).is_some() {
+                        return Err(format!("duplicate universe variant presentation for {}", variant.name));
+                    }
+                    self.census.classes.push(row);
+
                     // Native Option's payload variant has hidden runtime
                     // constructor surfaces on its support class. They are
                     // generated descriptors, so retain matching source anchors
                     // even though constructors are implicit in enum syntax.
-                    let Some(variant_key) = UniverseKey::from_name(&variant.name) else {
-                        continue;
-                    };
                     if !has_native_attr || variant.payload.is_none() {
                         continue;
                     }
@@ -506,6 +569,30 @@ impl NativeSourceIndex {
 
         Ok(())
     }
+}
+
+fn universe_dependency_target(importer: &ParsedModuleUnit, path: &ImportPath) -> Option<ModuleId> {
+    let mut components = match &path.root {
+        ImportRoot::Absolute(root) if root.name == "universe" => Vec::new(),
+        ImportRoot::Absolute(_) => return None,
+        ImportRoot::Relative { dots, .. } => {
+            let mut base = if importer.kind == ModuleKind::Package {
+                importer.id.path.clone()
+            } else {
+                importer.id.path.parent().unwrap_or_else(ModulePath::root)
+            };
+            for _ in 1..usize::from(*dots) {
+                base = base.parent().unwrap_or_else(ModulePath::root);
+            }
+            base.components().to_vec()
+        }
+    };
+    components.extend(
+        path.segments
+            .iter()
+            .map(|segment| phalcom_modules::ModuleComponent::from_identifier(&segment.name).expect("canonical Universe component")),
+    );
+    Some(ModuleId::universe(ModulePath::from_components(components)))
 }
 
 fn source_method_selector(method: &MethodDef) -> String {

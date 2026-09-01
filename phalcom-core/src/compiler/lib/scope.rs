@@ -266,25 +266,26 @@ impl<'vm> Compiler<'vm> {
         }
     }
 
-    /// Same visibility order as runtime `GetGlobal`, but only recognizes
-    /// bindings already known during compilation.
+    /// Recognizes only bindings already known during compilation.
     pub(super) fn resolves_known_global(&self, name: Symbol) -> bool {
         self.known_globals.contains(&name)
             || self.global_bindings.contains_key(&name)
             || self.import_bindings.contains_key(&name)
             || self.vm.heap.module(self.module).slot_of(name).is_some()
             || self
-                .vm
-                .core_module()
-                .is_some_and(|core_module| self.vm.heap.module(core_module).slot_of(name).is_some())
+                .linked_bindings
+                .as_ref()
+                .is_some_and(|bindings| bindings.prelude.contains_key(self.vm.resolve_symbol(name)))
     }
 
     /// Returns the pre-linked import index for a local binding.
     pub(super) fn linked_binding(&self, name: Symbol) -> Option<ImportBindingId> {
-        self.linked_bindings
-            .as_ref()
-            .and_then(|bindings| bindings.import(self.vm.resolve_symbol(name)))
-            .map(|info| info.binding)
+        self.linked_bindings.as_ref().and_then(|bindings| {
+            bindings
+                .import(self.vm.resolve_symbol(name))
+                .map(|info| info.binding)
+                .or_else(|| bindings.prelude.get(self.vm.resolve_symbol(name)).copied())
+        })
     }
 
     /// Resolves `name` as an upvalue of the function at `func_idx`, recursing

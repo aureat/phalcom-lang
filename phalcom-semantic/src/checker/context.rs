@@ -127,11 +127,7 @@ pub(crate) struct LoopFlowFrame {
 /// identities are query-owned and must participate in dependency tracking.
 fn is_query_owned_module(module: &ModuleId) -> bool {
     let components = module.path.components();
-    !(matches!(
-        module.project,
-        phalcom_modules::ProjectIdentity::Universe
-    ) && components.len() == 1
-        && components[0].as_str() == "core")
+    !(matches!(module.project, phalcom_modules::ProjectIdentity::Universe) && components.len() == 1 && components[0].as_str() == "core")
 }
 
 fn record_query_dependency(dependencies: &SharedSemanticDependencies, dependency: SemanticDependency) {
@@ -1914,7 +1910,7 @@ impl<'a> CheckingContext<'a> {
 /// Workspace sessions normally publish these declarations from the embedded
 /// core source; direct checker fixtures intentionally do not load that module.
 pub(crate) fn ensure_core_object_type_tests(store: &mut TypeStore, declarations: &DeclarationTypeTable, dispatch: &mut SurfaceDispatchResolver) {
-    let class = DeclarationId::new(ModuleId::universe_root(), "Class".into());
+    let class = crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Class);
     let mut class_surface = dispatch
         .get_surface(&class)
         .cloned()

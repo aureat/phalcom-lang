@@ -235,7 +235,7 @@ impl<'vm> Compiler<'vm> {
             CompileMode::Release => self.vm.strip_contract_metadata,
             CompileMode::Unchecked => true,
         };
-        let is_privileged = self.compiling_privileged_core();
+        let is_privileged = self.compiling_privileged_universe();
         if !allow_synthetic_internal {
             if !is_privileged {
                 if class_def.attributes.iter().any(|a| a.name == "native") {
@@ -327,7 +327,7 @@ impl<'vm> Compiler<'vm> {
         // mutably (borrow-order matters, see the handoff's "still unknown"
         // list — `class_parents` is read-only here, `interner` mutable).
         let is_attribute_class = class_def.superclass_ref().is_some_and(|sc| sc.leaf_name() == "Attribute");
-        let core_module = self.vm.core_module();
+        let universe_module = self.vm.universe_module();
         let mut ctx = ExpandCtx {
             interner: &mut self.vm.interner,
             compile_mode: self.vm.compile_mode,
@@ -335,8 +335,8 @@ impl<'vm> Compiler<'vm> {
             class_parents: &self.vm.class_parents,
             sealed_classes: &self.vm.sealed_classes,
             module: self.module,
-            core_module,
-            privileged_core: is_privileged,
+            universe_module,
+            privileged_universe: is_privileged,
         };
         let registry = AttributeRegistry::new();
         // DEC-ANNOT-G (U-ANNOT-LAYOUT §3.4): `expand_class_attributes`
@@ -421,7 +421,7 @@ impl<'vm> Compiler<'vm> {
                     }
                     ClassMember::Variant(_) => continue,
                 };
-                if self.vm.core_module() != Some(self.module)
+                if self.vm.universe_module() != Some(self.module)
                     && let MemberKey::Selector(_, selector) = &key
                     && matches!(selector.as_str(), "===(_)" | "===")
                 {
@@ -601,22 +601,22 @@ impl<'vm> Compiler<'vm> {
         // 1b. Classes are closed (PDR-0001, U-CLASSCLOSE §2.1/§4). A
         // class is defined exactly once, by exactly one module; there is no
         // reopening. "The class being declared" is looked up by an
-        // own-module-only key — **no core-module fallback** — per
+        // own-module-only key — **no Universe-module fallback** — per
         // U-CLASSNS §4.1's ruling for this site: falling back here would
-        // let a non-core module's `class List {}` silently resolve onto the
+        // let a non-Universe module's `class List {}` silently resolve onto the
         // kernel `List`'s `ClassId` (the exact hazard that ruling names).
         let name_key = self.class_key(name_sym);
-        let is_core_module = self.vm.core_module() == Some(self.module);
+        let is_universe_module = self.vm.is_privileged_universe_module(self.module);
 
         // Reserved kernel names (ruling 3): exactly `VM::kernel_class_names`
         // — the primitives `add_class!` binds (`Object`, `List`, `Number`,
-        // `Error`, …), not every class `core.ph` itself goes on to declare.
-        // A core-library class like `ArgumentError` (`extends Error {}` in
+        // `Error`, …), not every Universe source itself goes on to declare.
+        // A library class like `ArgumentError` (`extends Error {}` in
         // `.ph`) is module-scoped like any other (ruling 1) and carries no
         // literal-bound `ClassId`, so redeclaring or subclassing *that* name
-        // from a non-core module is not the trap this ruling guards
+        // from a non-Universe module is not the trap this ruling guards
         // against — only the primitives are. Bootstrap-owned universe source
-        // is privileged alongside the core module for these declarations.
+        // is privileged alongside the Universe package for these declarations.
         if !is_privileged && self.vm.kernel_class_names.contains(&name_sym) {
             return Err(CompilerError::ClassReservedName(class_def.name.clone(), class_def.name_range));
         }
@@ -661,8 +661,8 @@ impl<'vm> Compiler<'vm> {
         // assertion that can never fire is the cheapest documentation of the
         // invariant ruling 4 asks for.
         debug_assert!(
-            !classes_hit || field_layouts_hit || is_core_module,
-            "stub completion reachable only in the core module"
+            !classes_hit || field_layouts_hit || is_universe_module,
+            "stub completion reachable only in the Universe package"
         );
 
         // A class name colliding with an `import … as Name` already bound
@@ -841,7 +841,7 @@ impl<'vm> Compiler<'vm> {
                         }
                     }
                 }
-            } else if is_core_module || name_sym != self.vm.interner.intern("Object") {
+            } else if is_universe_module || name_sym != self.vm.interner.intern("Object") {
                 let object_class = self.vm.universe.classes.object_class;
                 let class_obj = self.vm.heap.class(object_class);
                 for (k, v) in &class_obj.field_slots {
@@ -875,7 +875,7 @@ impl<'vm> Compiler<'vm> {
 
         if self.unit_kind != UnitKind::Repl && classes_hit {
             // Stub completion (§5.1's core gate — `classes_hit` without a
-            // `field_layouts` hit is unreachable outside the core module,
+            // `field_layouts` hit is unreachable outside the Universe package,
             // asserted above): the compiler already knows this is not an
             // allocate-fresh, so it emits `Constant` rather than `Class`,
             // and the runtime's `Bytecode::Class` arm never needs to probe
@@ -892,8 +892,7 @@ impl<'vm> Compiler<'vm> {
             // implicitly inherits from `Object`.
             if let Some(sc_ref) = class_def.superclass_ref() {
                 let sc_sym = self.vm.interner.intern(sc_ref.leaf_name());
-                let sc_name_idx = self.add_constant(Value::symbol(sc_sym));
-                self.emit(Bytecode::GetGlobal(sc_name_idx), sc_ref.range);
+                self.emit_global_reference(sc_sym, sc_ref.range);
             } else {
                 let object_class = self.vm.universe.classes.object_class;
                 let superclass_idx = self.add_constant(Value::obj(object_class));
@@ -1184,7 +1183,7 @@ impl<'vm> Compiler<'vm> {
         // `None` and `Nil` have hidden class rows whose public names denote
         // immediate values (or no value at all). Preserve those bindings while
         // still allowing canonical source presentations to reopen their rows.
-        let is_hidden_value_class = is_core_module && (self.vm.interner.find("None") == Some(name_sym) || self.vm.interner.find("Nil") == Some(name_sym));
+        let is_hidden_value_class = is_universe_module && (self.vm.interner.find("None") == Some(name_sym) || self.vm.interner.find("Nil") == Some(name_sym));
         if is_hidden_value_class {
             self.emit(Bytecode::Pop, range);
         } else {

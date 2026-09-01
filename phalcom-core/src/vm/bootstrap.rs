@@ -1,5 +1,4 @@
 use crate::error::PhResult;
-use crate::heap::CORE_MODULE_NAME;
 use crate::heap::{ClassId, Object};
 use crate::universe::Universe;
 use crate::value::Value;
@@ -10,7 +9,7 @@ use super::{NativeInstallMode, VM};
 
 impl VM {
     /// Creates a new VM: builds the heap, bootstraps the kernel tower, and
-    /// installs the core module and native primitives.
+    /// installs the Universe package and native primitives.
     pub fn new() -> Self {
         Self::new_with_native_install_mode(NativeInstallMode::DescriptorOnly)
     }
@@ -49,7 +48,7 @@ impl VM {
             },
             classes: HashMap::new(),
             kernel_class_names: std::collections::HashSet::new(),
-            prelude_names: std::collections::HashSet::new(),
+            prelude_bindings: HashMap::new(),
             universe,
             next_frame_generation: 0,
             // The root fiber's `seq` is hardcoded to 1 (`FiberObject::root`); the
@@ -80,9 +79,6 @@ impl VM {
             fiber_pool: Vec::new(),
         };
 
-        // Bootstrap core module and primitive methods
-        vm.install_core();
-
         // Source/native preflight runs before native installation. The parsed
         // units retained by this index are the same units compiled below, so
         // verification and execution cannot observe different source text.
@@ -90,24 +86,15 @@ impl VM {
         let descriptors = crate::native::PRIMITIVES.iter().collect::<Vec<_>>();
         crate::native::verify_native_contracts(&source_index, &descriptors).expect("canonical native source contracts must verify");
 
-        // Populate prelude_names from UNIVERSE_BINDINGS
-        for binding in phalcom_native_meta::UNIVERSE_BINDINGS {
-            if binding.prelude {
-                let sym = vm.interner.intern(binding.name);
-                vm.prelude_names.insert(sym);
-            }
-        }
         let universe_sym = vm.interner.intern("universe");
-        vm.prelude_names.insert(universe_sym);
-        let none_sym = vm.interner.intern("None");
-        vm.prelude_names.insert(none_sym);
 
         // Initialize canonical builtin 'universe' package with native bindings & exports
         let universe_pkg = crate::modules::builtin_materialize::initialize_canonical_universe(&mut vm).expect("canonical universe package initializes");
-
-        // Expose 'universe' as a global in core module
-        let core_module = vm.core_module().expect("core module");
-        vm.define_global(core_module, universe_sym, Value::obj(universe_pkg)).unwrap();
+        vm.define_global(universe_pkg, universe_sym, Value::obj(universe_pkg)).unwrap();
+        // Bind primordial classes into their canonical modules and retain root
+        // aliases for source prelude compatibility.
+        vm.bind_primordial_universe();
+        vm.sync_universe_class_aliases();
 
         // Stamp the kernel `Message` class's fixed-slot count (U8,
         // method-lookup.md §2). `Message` instances are built
@@ -205,7 +192,7 @@ impl VM {
         // happens to touch. A `.ph` reopen below re-finalizes its own row
         // anyway (`Bytecode::FinalizeClass`, idempotent rebuild), so this
         // pass is never stale — only ever a floor under it.
-        vm.finalize_all_core_base_names();
+        vm.finalize_all_primordial_base_names();
 
         // Compile and run the registered universe modules now that every native
         // primitive is installed: this is what actually attaches each
@@ -214,25 +201,19 @@ impl VM {
         // `install_primitives` so a reopen can call the primitives it wraps
         // (e.g. `List.at(_:)` calling `at_(_:)`).
         vm.run_universe_modules(&source_index).expect("universe modules must compile and run cleanly");
+        vm.sync_universe_class_aliases();
 
         // Semantic roots are late-bound to the exact values exported by the
         // universe sources. No Rust replacement is valid for these identities.
         {
-            let core = vm.core_module().expect("core module registered by install_core");
             let unsupported = vm
-                .heap
-                .module(core)
-                .get(vm.interner.intern("unsupported"))
+                .universe_global(&["errors", "unsupported"], "unsupported")
                 .expect("universe must export canonical unsupported");
             let ellipsis = vm
-                .heap
-                .module(core)
-                .get(vm.interner.intern("ellipsis"))
+                .universe_global(&["object", "ellipsis"], "ellipsis")
                 .expect("universe must export canonical ellipsis");
             let ordering = vm
-                .heap
-                .module(core)
-                .get(vm.interner.intern("Ordering"))
+                .universe_global(&["object", "ordering"], "Ordering")
                 .and_then(|value| value.as_obj())
                 .expect("universe must export Ordering class");
             vm.semantic_roots = crate::vm::SemanticRoots {
@@ -240,20 +221,6 @@ impl VM {
                 ellipsis,
                 ordering_class: ordering,
             };
-        }
-
-        // Populate prelude_names with universe globals for compatibility,
-        // excluding types explicitly prohibited from prelude by Spec §13.1.
-        {
-            let non_prelude_names: std::collections::HashSet<&str> = ["Behavior", "Metaclass", "Message", "Nil"].into_iter().collect();
-
-            let core_mod = vm.core_module().expect("core module");
-            for sym in vm.heap.module(core_mod).name_to_slot.keys().copied().collect::<Vec<_>>() {
-                let name = vm.resolve_symbol(sym).to_string();
-                if !non_prelude_names.contains(name.as_str()) {
-                    vm.prelude_names.insert(sym);
-                }
-            }
         }
 
         // Snapshot the leaf `toString` override-epoch flags now that
@@ -266,13 +233,13 @@ impl VM {
 
         // R-INV-0.3 (global half) — the `None` **global** resolves to the immediate
         // value, not the `None` class object (ADR-0007/0010). This
-        // half needs the core module (its globals table), so it lives here rather
+        // half needs the Universe module globals table, so it lives here rather
         // than in `verify_invariants`, which is heap-structural (`&Heap` only) and
         // cannot read module globals (U-CORE-1 spec SD-1).
         {
-            let core = vm.core_module().expect("core module registered by install_core");
-            let none_sym = vm.interner.intern("None");
-            let none_value = vm.heap.module(core).get(none_sym).expect("None global must be bound by install_core");
+            let none_value = vm
+                .universe_global(&["option", "option"], "None")
+                .expect("None global must be bound by canonical Option module");
             assert_eq!(none_value, Value::none(), "None global must resolve to immediate absence");
             assert_ne!(
                 none_value,
@@ -295,8 +262,15 @@ impl VM {
     ///
     /// Returns any [`crate::error::PhError`] raised while compiling or executing universe modules.
     fn run_universe_modules(&mut self, source_index: &crate::native::NativeSourceIndex) -> PhResult<()> {
-        let module = self.core_module().expect("core module registered by install_core");
-        for parsed in &source_index.units {
+        let units = source_index
+            .initialization_order()
+            .map_err(crate::error::RuntimeError::Internal)?;
+        for parsed in units {
+            let module = self
+                .module_registry
+                .get(&parsed.id)
+                .ok_or_else(|| crate::error::RuntimeError::Internal(format!("Universe module {} is not materialized", parsed.id)))?
+                .object;
             let source_id = self.heap.module_mut(module).push_source(std::sync::Arc::new(parsed.text.to_string()));
             let closure = self.compile_ast_as(module, source_id, (*parsed.program).clone(), crate::compiler::lib::UnitKind::File)?;
             self.run_in_module(module, closure)?;
@@ -304,12 +278,12 @@ impl VM {
         Ok(())
     }
 
-    /// Bootstraps the core module and exposes each kernel class as a global.
-    pub fn install_core(&mut self) {
-        let core_id = phalcom_modules::ModuleId::universe_root();
-        let m = self.create_module_with_id(core_id, crate::heap::ModuleKind::Module, CORE_MODULE_NAME, "<internal core module>");
-        self.runtime_roots = Some(crate::vm::RuntimeRoots { core: m, entry: None });
-        self.privileged_modules.insert(m);
+    /// Binds primordial runtime classes to canonical Universe modules and
+    /// exposes root package aliases for compatibility.
+    pub fn bind_primordial_universe(&mut self) {
+        let m = self.universe_root_module();
+        self.runtime_roots = Some(crate::vm::RuntimeRoots { universe: m, entry: None });
+        self.privileged_modules.extend(self.module_registry.iter().map(|(_, record)| record.object));
 
         macro_rules! add_class {
             ($field:ident) => {
@@ -366,7 +340,7 @@ impl VM {
         // immediate variant — not the `None` class — so `None` in source resolves
         // to the immediate value (values-and-absence.md §3.1).
         //
-        // All three (`Option`/`Some`/`None`) are sealed to the core module at
+        // All three (`Option`/`Some`/`None`) are sealed to the Universe package at
         // bootstrap (U-ANNOT-LAYOUT §3.4, `attr.sealed_violation`): user `.ph`
         // code must not extend them. This is registered directly in
         // `self.sealed_classes` here (rather than via the `@sealed` decorator)
@@ -379,6 +353,8 @@ impl VM {
             self.sealed_classes.insert(option_key, m);
         }
         add_class!(some_class);
+        add_class!(result_class);
+        add_class!(ordering_class);
         add_class!(unit_class);
         {
             let some_sym = self.interner.intern(&self.heap.class(self.universe.classes.some_class).name.clone());
@@ -421,7 +397,7 @@ impl VM {
 
         // Typing reflection rows are allocated with the VM universe because
         // native typing primitives need them before source execution. Register
-        // those same rows under the core module so canonical `.ph` class
+        // those same rows under the Universe root so canonical `.ph` class
         // presentations complete the preallocated identities instead of
         // allocating shadow classes during universe bootstrap.
         for (name, class_id) in self.universe.typing_classes.iter() {
@@ -460,7 +436,7 @@ impl VM {
         };
         self.classes.insert(nil_class_key, nil_class);
         self.kernel_class_names.insert(nil_class_sym);
-        // Seal `None` to the core module too (see the sealing note above the
+        // Seal `None` to the Universe package too (see the sealing note above the
         // `Option`/`Some` rows): `class MyNone is None {}` in user code
         // must raise `attr.sealed_violation` the same as the other two.
         let none_class_key_sealed = crate::vm::ClassKey {
@@ -473,24 +449,131 @@ impl VM {
         let none_global_sym = self.interner.intern("None");
         self.define_global(m, none_global_sym, Value::none()).ok();
 
+        // The root aliases above preserve bare prelude reads. The authoritative
+        // ClassKey for every primordial declaration belongs to its source module.
+        for binding in phalcom_native_meta::UNIVERSE_BINDINGS {
+            let owner_id = Self::canonical_universe_module_id(binding.key);
+            let owner = self
+                .module_registry
+                .get(&owner_id)
+                .expect("canonical Universe owner module")
+                .object;
+            let name_sym = self.interner.intern(binding.name);
+            let class_id = self.universe.classes.resolve(binding.key);
+            self.classes.insert(crate::vm::ClassKey { module: owner, name: name_sym }, class_id);
+            self.kernel_class_names.insert(name_sym);
+        }
+
+        for key in [
+            phalcom_native_meta::UniverseKey::Option,
+            phalcom_native_meta::UniverseKey::Some,
+            phalcom_native_meta::UniverseKey::None,
+        ] {
+            let owner_id = phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(
+                key.source_path()
+                    .iter()
+                    .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).expect("canonical Universe component"))
+                    .collect::<Vec<_>>(),
+            ));
+            let owner = self.module_registry.get(&owner_id).expect("canonical Option owner module").object;
+            let name = self.interner.intern(key.name());
+            self.sealed_classes.insert(crate::vm::ClassKey { module: owner, name }, m);
+        }
+
         // The private `nil` sentinel has no surface class global: there is no
         // `Nil` name reachable from user code (Invariant 4). The `Nil` class row
         // still exists in the tower to back `Value::Nil::class`, but it is
         // internal only.
     }
 
-    /// Finalizes every kernel class row's (and its metaclass's) base-name
+    fn sync_universe_class_aliases(&mut self) {
+        let root = self.universe_root_module();
+        self.prelude_bindings.clear();
+        for binding in phalcom_native_meta::UNIVERSE_BINDINGS {
+            let owner_id = Self::canonical_universe_module_id(binding.key);
+            let owner = self.module_registry.get(&owner_id).expect("canonical Universe owner module").object;
+            let name = self.interner.intern(binding.name);
+            let value = self.heap.module(owner).get(name).unwrap_or_else(|| {
+                if binding.key == phalcom_native_meta::UniverseKey::None {
+                    Value::none()
+                } else {
+                    Value::obj(self.universe.classes.resolve(binding.key))
+                }
+            });
+            let slot = self.heap.module_mut(root).declare(name).expect("Universe root alias slot");
+            self.heap.module_mut(root).set_global(slot, value).expect("Universe root alias value");
+            if binding.prelude || matches!(binding.key, phalcom_native_meta::UniverseKey::Some | phalcom_native_meta::UniverseKey::None) {
+                self.prelude_bindings.insert(
+                    name,
+                    crate::modules::BindingRef {
+                        module: owner,
+                        slot: u16::try_from(self.heap.module(owner).slot_of(name).expect("canonical Universe binding slot")).expect("Universe slot fits u16"),
+                    },
+                );
+            }
+        }
+
+        // Source-authored class declarations keep their defining module
+        // identity, but remain available through bare prelude reads. Record
+        // only class declarations here; package children and context
+        // intrinsics stay reachable through qualified module paths.
+        let universe_modules = self
+            .module_registry
+            .iter()
+            .filter_map(|(id, record)| id.project.is_universe().then_some(record.object))
+            .collect::<Vec<_>>();
+        let native_names = phalcom_native_meta::UNIVERSE_BINDINGS
+            .iter()
+            .map(|binding| (binding.name, binding.prelude))
+            .collect::<HashMap<_, _>>();
+        let source_bindings = self
+            .classes
+            .keys()
+            .filter(|key| key.module != root)
+            .filter(|key| universe_modules.contains(&key.module))
+            .filter_map(|key| {
+                let name_text = self.resolve_symbol(key.name);
+                if let Some(&is_prelude) = native_names.get(name_text) {
+                    if !is_prelude && !matches!(name_text, "Some" | "None") {
+                        return None;
+                    }
+                }
+                let slot = self.heap.module(key.module).slot_of(key.name)?;
+                Some((key.name, crate::modules::BindingRef { module: key.module, slot: u16::try_from(slot).ok()? }))
+            })
+            .collect::<Vec<_>>();
+        for (name, binding) in source_bindings {
+            self.prelude_bindings.insert(name, binding);
+        }
+
+        // The root package itself is a linked prelude target for explicit
+        // `universe` reads, while its child package names are not prelude
+        // bindings.
+        let universe_name = self.interner.intern("universe");
+        let universe_slot = self.heap.module(root).slot_of(universe_name);
+        if let Some(slot) = universe_slot {
+            self.prelude_bindings.insert(
+                universe_name,
+                crate::modules::BindingRef {
+                    module: root,
+                    slot: u16::try_from(slot).expect("Universe root slot fits u16"),
+                },
+            );
+        }
+    }
+
+    /// Finalizes every primordial class row's (and its metaclass's) base-name
     /// index (selectors.md §3.1, U16-Open) right after
     /// [`Universe::install_primitives`] wires up the native floor.
     ///
     /// The list is in dependency order (each row's superclass appears
     /// earlier), matching [`Self::finalize_class_base_names`]'s precondition.
-    /// A later `.ph` reopen in `core.ph` (or user code) re-finalizes its own
+    /// A later `.ph` reopen in a Universe source (or user code) re-finalizes its own
     /// row idempotently via [`crate::bytecode::Bytecode::FinalizeClass`] —
     /// this pass only guarantees every row has *some* finalized index, even
-    /// one `core.ph` never touches (`Behavior`, `Metaclass`, `Message`,
+    /// one Universe source never touches (`Behavior`, `Metaclass`, `Message`,
     /// `Fiber`, …).
-    fn finalize_all_core_base_names(&mut self) {
+    fn finalize_all_primordial_base_names(&mut self) {
         let c = self.universe.classes;
         let rows = [
             c.object_class,

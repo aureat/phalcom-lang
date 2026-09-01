@@ -49,10 +49,10 @@ fn immediate_option_reflection_and_dispatch_are_ordinary() {
 #[test]
 fn bootstrap_binds_immediate_none_and_zero_field_variants() {
     let mut vm = VM::new();
-    let core = vm.core_module().expect("core module");
+    let universe = vm.universe_module().expect("Universe root");
     let none_name = vm.interner.intern("None");
 
-    assert_eq!(vm.heap.module(core).get(none_name), Some(Value::none()));
+    assert_eq!(vm.heap.module(universe).get(none_name), Some(Value::none()));
     assert_eq!(vm.heap.class(vm.universe.classes.some_class).field_count, 0);
     assert_eq!(vm.heap.class(vm.universe.classes.none_class).field_count, 0);
     assert_eq!(Value::none().class(&vm), vm.universe.classes.none_class);

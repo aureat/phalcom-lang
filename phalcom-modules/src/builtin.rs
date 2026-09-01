@@ -174,10 +174,15 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     UniverseNodeSpec {
         path: &["errors"],
         kind: ModuleKind::Package,
-        children: &["error", "argument", "indexing", "contracts", "unsupported", "unimplemented"],
+        children: &["error", "result", "argument", "indexing", "contracts", "unsupported", "unimplemented"],
     },
     UniverseNodeSpec {
         path: &["errors", "error"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    UniverseNodeSpec {
+        path: &["errors", "result"],
         kind: ModuleKind::Module,
         children: &[],
     },
@@ -234,7 +239,7 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     UniverseNodeSpec {
         path: &["option"],
         kind: ModuleKind::Package,
-        children: &["option"],
+        children: &["option", "unit"],
     },
     UniverseNodeSpec {
         path: &["option", "option"],
@@ -535,19 +540,19 @@ impl UniverseSourceProvider {
         let components = id.path.components();
         let content = match components {
             [] => include_str!("../../phalcom-core/core/universe/src/package.ph"),
-            [c] if c.as_str() == "io" => include_str!("../../phalcom-core/core/std/src/io/package.ph"),
-            [c] if c.as_str() == "fs" => include_str!("../../phalcom-core/core/std/src/fs/package.ph"),
-            [c] if c.as_str() == "path" => include_str!("../../phalcom-core/core/std/src/path/package.ph"),
-            [c] if c.as_str() == "text" => include_str!("../../phalcom-core/core/std/src/text/package.ph"),
-            [c] if c.as_str() == "regex" => include_str!("../../phalcom-core/core/std/src/regex/package.ph"),
-            [c] if c.as_str() == "json" => include_str!("../../phalcom-core/core/std/src/json/package.ph"),
-            [c] if c.as_str() == "math" => include_str!("../../phalcom-core/core/std/src/math/package.ph"),
-            [c] if c.as_str() == "random" => include_str!("../../phalcom-core/core/std/src/random/package.ph"),
-            [c] if c.as_str() == "time" => include_str!("../../phalcom-core/core/std/src/time/package.ph"),
-            [c] if c.as_str() == "process" => include_str!("../../phalcom-core/core/std/src/process/package.ph"),
-            [c] if c.as_str() == "net" => include_str!("../../phalcom-core/core/std/src/net/package.ph"),
-            [c] if c.as_str() == "concurrent" => include_str!("../../phalcom-core/core/std/src/concurrent/package.ph"),
-            [c] if c.as_str() == "testing" => include_str!("../../phalcom-core/core/std/src/testing/package.ph"),
+            [c] if c.as_str() == "io" => include_str!("../../phalcom-core/core/universe/src/io/package.ph"),
+            [c] if c.as_str() == "fs" => include_str!("../../phalcom-core/core/universe/src/fs/package.ph"),
+            [c] if c.as_str() == "path" => include_str!("../../phalcom-core/core/universe/src/path/package.ph"),
+            [c] if c.as_str() == "text" => include_str!("../../phalcom-core/core/universe/src/text/package.ph"),
+            [c] if c.as_str() == "regex" => include_str!("../../phalcom-core/core/universe/src/regex/package.ph"),
+            [c] if c.as_str() == "json" => include_str!("../../phalcom-core/core/universe/src/json/package.ph"),
+            [c] if c.as_str() == "math" => include_str!("../../phalcom-core/core/universe/src/math/package.ph"),
+            [c] if c.as_str() == "random" => include_str!("../../phalcom-core/core/universe/src/random/package.ph"),
+            [c] if c.as_str() == "time" => include_str!("../../phalcom-core/core/universe/src/time/package.ph"),
+            [c] if c.as_str() == "process" => include_str!("../../phalcom-core/core/universe/src/process/package.ph"),
+            [c] if c.as_str() == "net" => include_str!("../../phalcom-core/core/universe/src/net/package.ph"),
+            [c] if c.as_str() == "concurrent" => include_str!("../../phalcom-core/core/universe/src/concurrent/package.ph"),
+            [c] if c.as_str() == "testing" => include_str!("../../phalcom-core/core/universe/src/testing/package.ph"),
             [c] if c.as_str() == "object" => include_str!("../../phalcom-core/core/universe/src/object/package.ph"),
             [c, m] if c.as_str() == "object" && m.as_str() == "object" => {
                 include_str!("../../phalcom-core/core/universe/src/object/object.ph")
@@ -631,6 +636,9 @@ impl UniverseSourceProvider {
             [c] if c.as_str() == "errors" => include_str!("../../phalcom-core/core/universe/src/errors/package.ph"),
             [c, m] if c.as_str() == "errors" && m.as_str() == "error" => {
                 include_str!("../../phalcom-core/core/universe/src/errors/error.ph")
+            }
+            [c, m] if c.as_str() == "errors" && m.as_str() == "result" => {
+                include_str!("../../phalcom-core/core/universe/src/errors/result.ph")
             }
             [c, m] if c.as_str() == "errors" && m.as_str() == "argument" => {
                 include_str!("../../phalcom-core/core/universe/src/errors/argument.ph")

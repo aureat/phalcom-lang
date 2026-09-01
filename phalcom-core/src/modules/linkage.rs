@@ -64,6 +64,8 @@ pub struct CompileBindings {
     pub entries: BTreeMap<Box<str>, TopLevelBindingInfo>,
     /// Detailed imported reads.
     pub imports: BTreeMap<Box<str>, LinkedImportInfo>,
+    /// Canonical prelude reads appended to the module's runtime linked-read table.
+    pub prelude: BTreeMap<Box<str>, ImportBindingId>,
 }
 
 impl CompileBindings {
@@ -108,5 +110,10 @@ impl CompileBindings {
     /// Returns an immutable linked import by local name.
     pub fn import(&self, name: &str) -> Option<&LinkedImportInfo> {
         self.imports.get(name)
+    }
+
+    /// Adds one compiler-visible canonical prelude read.
+    pub fn add_prelude(&mut self, name: impl Into<Box<str>>, binding: ImportBindingId) {
+        self.prelude.insert(name.into(), binding);
     }
 }

@@ -84,11 +84,11 @@ pub struct ExpandCtx<'a> {
     /// The module handle for the currently-compiling unit. Used to build a
     /// [`ClassKey`] for lookups in `class_parents` and `sealed_classes`.
     pub module: ObjRef,
-    /// Handle to the core module, used for the core-module fallback in
+    /// Handle to the Universe root, used for canonical builtin fallback in
     /// [`ClassKey`]-based lookups (when a name resolves from the core module).
-    pub core_module: Option<ObjRef>,
-    /// Whether the currently-compiling module is privileged bootstrap core.
-    pub privileged_core: bool,
+    pub universe_module: Option<ObjRef>,
+    /// Whether the currently-compiling module is privileged bootstrap Universe.
+    pub privileged_universe: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -807,7 +807,7 @@ impl AttributeExpander for NativeExpander {
     }
 
     fn expand(&self, ctx: &mut ExpandCtx, _member: &mut ClassMember, _args: &[Expr]) -> Result<(), CompilerError> {
-        if !ctx.privileged_core {
+        if !ctx.privileged_universe {
             return Err(CompilerError::NativeAttributeRequiresPrivilegedCore((0..0).into()));
         }
         Ok(())
@@ -1977,7 +1977,7 @@ fn resolves_to_attribute_class(
     interner: &mut crate::interner::Interner,
     name: &str,
     module: ObjRef,
-    core_module: Option<ObjRef>,
+    universe_module: Option<ObjRef>,
 ) -> bool {
     let attribute_sym = interner.intern("Attribute");
     let mut sym = interner.intern(name);
@@ -1990,9 +1990,9 @@ fn resolves_to_attribute_class(
         let key = ClassKey { module, name: sym };
         let parent = if let Some(&p) = class_parents.get(&key) {
             Some(p.name)
-        } else if let Some(core_mod) = core_module {
-            let core_key = ClassKey { module: core_mod, name: sym };
-            class_parents.get(&core_key).map(|p| p.name)
+        } else if let Some(universe_mod) = universe_module {
+            let universe_key = ClassKey { module: universe_mod, name: sym };
+            class_parents.get(&universe_key).map(|p| p.name)
         } else {
             None
         };
@@ -2257,7 +2257,7 @@ pub fn expand_class_attributes(
                 },
                 AttrKind::User(_) => {}
             }
-        } else if attr.name == "__synthetic" || resolves_to_attribute_class(ctx.class_parents, ctx.interner, &attr.name, ctx.module, ctx.core_module) {
+        } else if attr.name == "__synthetic" || resolves_to_attribute_class(ctx.class_parents, ctx.interner, &attr.name, ctx.module, ctx.universe_module) {
             // M-ATTR-ROOT: an unrecognized name that resolves to a user
             // `Attribute` subclass is retained silently — its runtime
             // instantiate+attach codegen is emitted separately by
@@ -2350,7 +2350,7 @@ pub fn expand_class_attributes(
                     )));
                 }
                 expander.expand(ctx, member, &attr.args)?;
-            } else if attr.name == "__synthetic" || resolves_to_attribute_class(ctx.class_parents, ctx.interner, &attr.name, ctx.module, ctx.core_module) {
+            } else if attr.name == "__synthetic" || resolves_to_attribute_class(ctx.class_parents, ctx.interner, &attr.name, ctx.module, ctx.universe_module) {
                 // Retained silently — see the class-level branch above.
             } else {
                 return Err(CompilerError::Message(format!("attr.unknown: unknown attribute `@{}`", attr.name)));

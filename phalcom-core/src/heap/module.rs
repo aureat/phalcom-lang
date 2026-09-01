@@ -17,8 +17,6 @@ use std::sync::Arc;
 /// Hard limit on the number of globals a single module may declare.
 pub const MAX_GLOBALS: usize = 1 << 16; // = 65,536
 
-/// Logical name of the bootstrap core module.
-pub const CORE_MODULE_NAME: &str = "core";
 /// Logical name of the program entry module.
 pub const MAIN_MODULE_NAME: &str = "main";
 

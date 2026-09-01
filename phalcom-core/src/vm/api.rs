@@ -137,7 +137,7 @@ impl VM {
     /// already-finalized (and thus already-flattened) index.
     ///
     /// Idempotent — safe to call repeatedly (once per kernel row at
-    /// bootstrap, `VM::install_core`; again on every `.ph` class body or
+    /// bootstrap, `VM::bind_primordial_universe`; again on every `.ph` class body or
     /// reopen, [`crate::bytecode::Bytecode::FinalizeClass`])
     /// since it always recomputes from the row's current
     /// [`methods`](crate::heap::ClassObject::methods) table rather than

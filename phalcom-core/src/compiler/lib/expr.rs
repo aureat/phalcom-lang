@@ -387,7 +387,7 @@ impl<'vm> Compiler<'vm> {
                 self.check_bounded_method_call(&method_call)?;
                 let internal_call = method_call.method.starts_with("_$");
                 let is_invariant_guard = method_call.method == "_$invariantEnter" || method_call.method == "_$invariantExit";
-                if internal_call && !is_invariant_guard && !self.compiling_privileged_core() && !self.compiler_internal {
+                if internal_call && !is_invariant_guard && !self.compiling_privileged_universe() && !self.compiler_internal {
                     return Err(CompilerError::InternalNamespaceReserved(method_call.method.clone(), method_call.range));
                 }
                 if method_call.method == "call"
@@ -1024,7 +1024,7 @@ impl<'vm> Compiler<'vm> {
                 }
             }
             Expr::ImplementationSelector { value, range } => {
-                if !self.compiling_privileged_core() {
+                if !self.compiling_privileged_universe() {
                     return Err(CompilerError::InternalNamespaceReserved(value, range));
                 }
                 self.emit_self(range);
@@ -1033,7 +1033,7 @@ impl<'vm> Compiler<'vm> {
                 self.emit(Bytecode::Invoke(0, selector_idx), range);
             }
             Expr::Field { value, kind, range } => {
-                if matches!(kind, phalcom_ast::ast::FieldKind::Implementation) && !self.compiling_privileged_core() {
+                if matches!(kind, phalcom_ast::ast::FieldKind::Implementation) && !self.compiling_privileged_universe() {
                     return Err(CompilerError::InternalNamespaceReserved(value, range));
                 }
                 let name_sym = self.vm.interner.intern(&value);
@@ -1113,7 +1113,7 @@ impl<'vm> Compiler<'vm> {
                         }
                     }
                     Expr::Field { value, kind, range } => {
-                        if matches!(kind, phalcom_ast::ast::FieldKind::Implementation) && !self.compiling_privileged_core() {
+                        if matches!(kind, phalcom_ast::ast::FieldKind::Implementation) && !self.compiling_privileged_universe() {
                             return Err(CompilerError::InternalNamespaceReserved(value, range));
                         }
                         let name_sym = self.vm.interner.intern(&value);

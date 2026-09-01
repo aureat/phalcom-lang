@@ -1,8 +1,10 @@
 //! Linked project-aware type resolver.
 
 use crate::identity::{DeclarationId, ModuleId};
+use crate::core_surface::universe_declaration;
 use crate::types::annotation::TypeResolver;
 use phalcom_modules::linker::{LinkedProgram, LinkedReadSpec};
+use phalcom_native_meta::UniverseKey;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -67,9 +69,13 @@ impl TypeResolver for LinkedTypeResolver {
                 return Some(prelude_decl);
             }
 
-            let core_decl = DeclarationId::new(ModuleId::universe_root(), root.into());
-            if self.known_declarations.contains(&core_decl) {
-                return Some(core_decl);
+            // Canonical Universe declarations are owned by their source modules,
+            // while their names remain available as prelude type names.
+            if let Some(key) = UniverseKey::from_name(root) {
+                let universe_decl = universe_declaration(key);
+                if self.known_declarations.contains(&universe_decl) {
+                    return Some(universe_decl);
+                }
             }
 
             None

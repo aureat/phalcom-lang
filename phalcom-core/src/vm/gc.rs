@@ -62,8 +62,6 @@ impl VM {
             classes,
             // Symbols only (no object handles) — not a GC root.
             kernel_class_names: _,
-            prelude_names: _,
-
             // The pinned kernel + the import registry (Invariant M5).
             universe,
 
@@ -106,6 +104,7 @@ impl VM {
             numeric_policy: _,
             adt_registry,
             typing_registry: _,
+            prelude_bindings: _,
             #[cfg(feature = "fiber-pool")]
                 fiber_pool: _,
         } = self;
@@ -124,7 +123,7 @@ impl VM {
         out.extend(temp_roots.iter().copied());
         module_registry.each_handle(&mut |id| out.push(id));
         if let Some(roots) = runtime_roots {
-            out.push(roots.core);
+            out.push(roots.universe);
             out.extend(roots.entry.iter().copied());
         }
         out.extend(privileged_modules.iter().copied());

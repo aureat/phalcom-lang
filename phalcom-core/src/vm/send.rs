@@ -137,7 +137,7 @@ impl VM {
             return false;
         };
         let closure_module = self.heap.closure(frame.closure).module;
-        self.is_privileged_core_module(closure_module)
+        self.is_privileged_universe_module(closure_module)
     }
 
     fn is_subclass_of(&self, mut class: ClassId, ancestor: ClassId) -> bool {

@@ -96,6 +96,9 @@ impl Universe {
         heap.class_mut(option_class).is_abstract = true;
         let some_class = make_core_class(heap, "Some", option_class, metaclass_class);
         let none_class = make_core_class(heap, "None", option_class, metaclass_class);
+        let result_class = make_core_class(heap, "Result", object_class, metaclass_class);
+        heap.class_mut(result_class).is_abstract = true;
+        let ordering_class = make_core_class(heap, "Ordering", object_class, metaclass_class);
 
         // Unit is the zero-arity product type, a singleton immediate with no
         // fields. It is not a semantic declaration, but a native runtime type.
@@ -220,6 +223,8 @@ impl Universe {
             option_class,
             some_class,
             none_class,
+            result_class,
+            ordering_class,
             unit_class,
             iterable_class,
             list_class,
@@ -309,6 +314,8 @@ impl Universe {
             res.option_class,
             res.some_class,
             res.none_class,
+            res.result_class,
+            res.ordering_class,
             res.project_manifest_class,
             res.package_info_class,
             res.package_author_class,
@@ -428,6 +435,10 @@ pub struct CoreClasses {
     pub some_class: ClassId,
     /// `None`, the final immediate absent-value `Option` variant.
     pub none_class: ClassId,
+    /// `Result`, the canonical success/error ADT root.
+    pub result_class: ClassId,
+    /// `Ordering`, the canonical four-state comparison ADT root.
+    pub ordering_class: ClassId,
     /// `Unit`, the immediate zero-arity product.
     pub unit_class: ClassId,
     /// `Iterable`, the kernel iterable root (ADR-0048).
@@ -571,6 +582,8 @@ impl CoreClasses {
             UniverseKey::BoundMethodFamily => self.bound_method_family_class,
             UniverseKey::Family => self.family_class,
             UniverseKey::Option => self.option_class,
+            UniverseKey::Result => self.result_class,
+            UniverseKey::Ordering => self.ordering_class,
             UniverseKey::Some => self.some_class,
             UniverseKey::None => self.none_class,
             UniverseKey::Unit => self.unit_class,
@@ -656,6 +669,8 @@ impl CoreClasses {
             option_class,
             some_class,
             none_class,
+            result_class,
+            ordering_class,
             unit_class,
             iterable_class,
             list_class,
@@ -719,6 +734,8 @@ impl CoreClasses {
             option_class,
             some_class,
             none_class,
+            result_class,
+            ordering_class,
             unit_class,
             iterable_class,
             list_class,

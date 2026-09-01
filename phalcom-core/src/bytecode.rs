@@ -391,7 +391,7 @@ pub enum Bytecode {
     /// brand-new class's index from its own directly-defined methods merged
     /// with its superclass's — there is no reopen case to distinguish it
     /// from. The kernel's native-only rows (no `.ph` class body) are
-    /// finalized once directly in `VM::install_core`, mirroring this same
+    /// finalized once directly in `VM::bind_primordial_universe`, mirroring this same
     /// rebuild; `core.ph`'s own stub-completion classes (`Constant`, not
     /// `Class`) still emit this too, once, when their `.ph` body compiles.
     FinalizeClass,

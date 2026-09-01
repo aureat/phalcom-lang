@@ -164,7 +164,7 @@ fn render_json_traceback(vm: &mut VM, err: &PhError) -> String {
                         let module_name = vm.resolve_symbol(*module).to_string();
                         let file = format!("{}.ph", module_name);
                         let name = vm.resolve_symbol(*method).to_string();
-                        let is_core = is_core_module(vm, *module);
+                        let is_core = is_universe_module(vm, *module);
                         json_frames.push(json_frame(&module_name, &file, *line, &name, is_core, 1));
                     }
                 }
@@ -478,7 +478,7 @@ fn records_to_views(vm: &mut VM, records: &[FrameRecord], fiber_seq: u32) -> Vec
             let source = vm
                 .find_module_by_symbol(*module)
                 .and_then(|mod_ref| vm.heap.module(mod_ref).source_at(0).cloned());
-            let is_core = is_core_module(vm, *module);
+            let is_core = is_universe_module(vm, *module);
             views.push(FrameView {
                 module: *module,
                 name: FrameName::Method(*method),
@@ -515,14 +515,14 @@ fn frame_name_to_string(vm: &VM, name: &FrameName) -> String {
     }
 }
 
-/// Returns `true` when `module_sym` resolves to the bootstrap core module.
+/// Returns `true` when `module_sym` resolves to the Universe root module.
 ///
 /// Uses handle identity (IS §2.1: "not a name check").
-fn is_core_module(vm: &VM, module_sym: Symbol) -> bool {
-    let Some(core_ref) = vm.core_module() else {
+fn is_universe_module(vm: &VM, module_sym: Symbol) -> bool {
+    let Some(universe_ref) = vm.universe_module() else {
         return false;
     };
-    vm.find_module_by_symbol(module_sym).is_some_and(|m| m == core_ref)
+    vm.find_module_by_symbol(module_sym).is_some_and(|m| m == universe_ref)
 }
 
 /// Returns the `kind` string for an error, or `""` when none applies.
@@ -611,10 +611,10 @@ fn get_help_suggestion(vm: &mut VM, err: &PhError, config: &RenderConfig, styler
                 }
             }
 
-            // 3. Core globals
-            if let Some(core_module_ref) = vm.core_module() {
-                let core_module = vm.heap.module(core_module_ref);
-                for &sym in core_module.name_to_slot.keys() {
+            // 3. Universe globals
+            if let Some(universe_module_ref) = vm.universe_module() {
+                let universe_module = vm.heap.module(universe_module_ref);
+                for &sym in universe_module.name_to_slot.keys() {
                     candidates.push(vm.resolve_symbol(sym).to_string());
                 }
             }

@@ -8,6 +8,19 @@ expose .option
 expose .concurrency
 expose .collections
 expose .reflection
+expose .io
+expose .fs
+expose .path
+expose .text
+expose .regex
+expose .json
+expose .math
+expose .random
+expose .time
+expose .process
+expose .net
+expose .concurrent
+expose .testing
 
 import .object
 import .scalar
@@ -17,6 +30,19 @@ import .option
 import .concurrency
 import .collections
 import .reflection
+import .io
+import .fs
+import .path
+import .text
+import .regex
+import .json
+import .math
+import .random
+import .time
+import .process
+import .net
+import .concurrent
+import .testing
 
 export object
 export scalar
@@ -26,3 +52,16 @@ export option
 export concurrency
 export collections
 export reflection
+export io
+export fs
+export path
+export text
+export regex
+export json
+export math
+export random
+export time
+export process
+export net
+export concurrent
+export testing

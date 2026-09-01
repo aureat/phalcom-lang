@@ -4,7 +4,6 @@ use super::merge::{MergedClassSurface, SurfaceMergeOutcome};
 use crate::identity::{DeclarationId, DispatchSide};
 use phalcom_native_meta::{EffectSpec, ImplementationKind, NativeIntrinsicId, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
 use phalcom_native_surface::NativeSurfaceId;
-use std::sync::Arc;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MethodPresentation {
@@ -227,21 +226,4 @@ impl ClassPresentation {
         out.push_str("}\n");
         out
     }
-}
-
-/// Renders the stable read-only source document used to present canonical
-/// builtin declaration provenance. This text is a presentation product only:
-/// it is never linked, type checked, or executed.
-pub fn render_canonical_core_source() -> Arc<str> {
-    let mut bindings = phalcom_native_meta::universe::UNIVERSE_BINDINGS.iter().collect::<Vec<_>>();
-    bindings.sort_by(|left, right| left.name.cmp(right.name));
-
-    let mut out = String::from("// Generated Canonical Core Surface — Read Only\n");
-    out.push_str("// Semantic identities and runtime behavior remain compiler-owned.\n\n");
-    for binding in bindings {
-        out.push_str("class ");
-        out.push_str(binding.name);
-        out.push_str(" {}\n\n");
-    }
-    Arc::from(out)
 }

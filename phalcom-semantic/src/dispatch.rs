@@ -1,6 +1,6 @@
 //! Dispatch models, callable signatures, and selector resolution.
 
-use crate::identity::{CallableId, DeclarationId, ModuleId};
+use crate::identity::{CallableId, DeclarationId};
 
 pub use crate::identity::DispatchSide;
 use crate::surface::DeclarationSurface;
@@ -245,7 +245,7 @@ impl SurfaceDispatchResolver {
             } else if owner.side == DispatchSide::Class && !entered_class_object_root {
                 entered_class_object_root = true;
                 Some(DispatchOwner {
-                    declaration: DeclarationId::new(ModuleId::universe_root(), "Class".into()),
+                    declaration: crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Class),
                     side: DispatchSide::Instance,
                 })
             } else {

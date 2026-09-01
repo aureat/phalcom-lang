@@ -338,9 +338,9 @@ impl VM {
             .get(&program.entry)
             .ok_or_else(|| RuntimeError::Internal(format!("entry module {} not registered", program.entry)))?
             .object;
-        let core_obj = self.core_module().unwrap_or(entry_obj);
+        let universe_obj = self.universe_module().unwrap_or(entry_obj);
         self.runtime_roots = Some(RuntimeRoots {
-            core: core_obj,
+            universe: universe_obj,
             entry: Some(entry_obj),
         });
 
@@ -353,16 +353,24 @@ impl VM {
             )?;
             self.typing_registry.register_pool(pool);
 
-            // Register nominal class bindings for all universe/core classes
+            // Register nominal class bindings with their canonical Universe
+            // source-module identity.
             for binding in phalcom_native_meta::UNIVERSE_BINDINGS.iter() {
                 let class_id = self.universe.classes.resolve(binding.key);
+                let module_path = binding
+                    .key
+                    .source_path()
+                    .iter()
+                    .map(|component| (*component).into())
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
                 let decl_ref = phalcom_type_meta::identity::StableDeclarationRef {
                     module: phalcom_type_meta::identity::StableModuleRef {
                         project: phalcom_type_meta::identity::StableProjectRef::Builtin {
-                            namespace: "std".into(),
+                            namespace: "universe".into(),
                             version: "0.1.0".into(),
                         },
-                        path: Box::new([binding.name.into()]),
+                        path: module_path,
                     },
                     path: Box::new([binding.name.into()]),
                 };

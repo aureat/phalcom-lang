@@ -207,13 +207,13 @@ fn import_native_type(
 pub fn register_native_surfaces(
     store: &mut TypeStore,
     declarations: &DeclarationTypeTable,
-    resolver: &dyn crate::types::annotation::TypeResolver,
-    current_module: &crate::identity::ModuleId,
+    _resolver: &dyn crate::types::annotation::TypeResolver,
+    _current_module: &crate::identity::ModuleId,
     dispatch: &mut crate::dispatch::SurfaceDispatchResolver,
 ) -> Result<NativeSurfaceImportReport, NativeSurfaceImportError> {
     use crate::surface::DeclarationSurface;
 
-    let universe_resolver = |key: UniverseKey| -> DeclarationId { DeclarationId::new(crate::identity::ModuleId::universe_root(), key.name().into()) };
+    let universe_resolver = |key: UniverseKey| -> DeclarationId { crate::core_surface::universe_declaration(key) };
 
     let empty_params = HashMap::new();
     let mut surfaces_by_decl: HashMap<DeclarationId, DeclarationSurface> = HashMap::new();
@@ -226,17 +226,10 @@ pub fn register_native_surfaces(
             continue;
         }
 
-        let owner_name = record.owner().name();
-        let decl = match resolver.resolve_type_name(current_module, owner_name, &[]) {
-            Some(d) => d,
-            None => {
-                let fallback = DeclarationId::new(crate::identity::ModuleId::universe_root(), owner_name.into());
-                if declarations.form(&fallback).is_none() {
-                    return Err(NativeSurfaceImportError::OwnerMissing { key: record.surface.key });
-                }
-                fallback
-            }
-        };
+        let decl = crate::core_surface::universe_declaration(record.owner());
+        if declarations.form(&decl).is_none() {
+            return Err(NativeSurfaceImportError::OwnerMissing { key: record.surface.key });
+        }
 
         if let Some(t_self) = declarations.form(&decl) {
             dispatch.register_type(t_self, decl.clone());

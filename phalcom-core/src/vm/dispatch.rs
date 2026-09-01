@@ -1277,20 +1277,8 @@ impl VM {
                         let (resolved_module, slot) = match self.heap.module(module_id).slot_of(name_sym) {
                             Some(slot) => (module_id, slot),
                             None => {
-                                // Not in the current module — try the core module if caller is core or name is in prelude_names
-                                let core_module = self.core_module().expect("core module");
-                                if module_id == core_module || self.prelude_names.contains(&name_sym) {
-                                    match self.heap.module(core_module).slot_of(name_sym) {
-                                        Some(slot) => (core_module, slot),
-                                        None => {
-                                            let name = self.resolve_symbol(name_sym).to_string();
-                                            return Err(RuntimeError::UndefinedVariable { name }.into());
-                                        }
-                                    }
-                                } else {
-                                    let name = self.resolve_symbol(name_sym).to_string();
-                                    return Err(RuntimeError::UndefinedVariable { name }.into());
-                                }
+                                let name = self.resolve_symbol(name_sym).to_string();
+                                return Err(RuntimeError::UndefinedVariable { name }.into());
                             }
                         };
 
@@ -1506,12 +1494,6 @@ impl VM {
                     };
                     let parent = if let Some(&c) = self.classes.get(&defining_key) {
                         self.heap.class(c).superclass
-                    } else if let Some(core_mod) = self.core_module() {
-                        let core_key = crate::vm::ClassKey {
-                            module: core_mod,
-                            name: defining_sym,
-                        };
-                        self.classes.get(&core_key).and_then(|&c| self.heap.class(c).superclass)
                     } else {
                         None
                     };

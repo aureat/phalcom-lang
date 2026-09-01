@@ -39,6 +39,8 @@ pub enum UniverseKey {
     Family,
 
     Option,
+    Result,
+    Ordering,
     Some,
     None,
     Unit,
@@ -148,6 +150,14 @@ pub const UNIVERSE_CLASS_RELATIONS: &[UniverseClassRelationSpec] = &[
     },
     UniverseClassRelationSpec {
         class: UniverseKey::Option,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Result,
+        superclass: Some(UniverseKey::Object),
+    },
+    UniverseClassRelationSpec {
+        class: UniverseKey::Ordering,
         superclass: Some(UniverseKey::Object),
     },
     UniverseClassRelationSpec {
@@ -329,6 +339,62 @@ pub const UNIVERSE_CLASS_RELATIONS: &[UniverseClassRelationSpec] = &[
 ];
 
 impl UniverseKey {
+    /// Canonical source module path that owns this declaration or runtime
+    /// support class. The path is semantic identity, not a leaf-name lookup.
+    pub const fn source_path(&self) -> &'static [&'static str] {
+        match self {
+            Self::Object => &["object", "object"],
+            Self::Behavior => &["object", "behavior"],
+            Self::Class => &["object", "class"],
+            Self::Metaclass => &["object", "metaclass"],
+            Self::Number | Self::Int | Self::Float => &["scalar", "number"],
+            Self::String => &["scalar", "string"],
+            Self::Nil => &["scalar", "nil"],
+            Self::Bool | Self::True | Self::False => &["scalar", "bool"],
+            Self::Symbol => &["scalar", "symbol"],
+            Self::Selector | Self::SelectorPattern => &["reflection", "selector"],
+            Self::Function => &["callable", "function"],
+            Self::Closure => &["callable", "closure"],
+            Self::BoundMethod | Self::Method => &["callable", "method"],
+            Self::MethodFamily | Self::BoundMethodFamily | Self::Family => &["callable", "family"],
+            Self::Option | Self::Some | Self::None => &["option", "option"],
+            Self::Unit => &["option", "unit"],
+            Self::Result => &["errors", "result"],
+            Self::Ordering => &["object", "ordering"],
+            Self::Iterable => &["collections", "iterable"],
+            Self::List => &["collections", "list"],
+            Self::Map => &["collections", "map"],
+            Self::Set => &["collections", "set"],
+            Self::Tuple => &["collections", "tuple"],
+            Self::Record => &["collections", "record"],
+            Self::Range => &["collections", "range"],
+            Self::Bytes | Self::Resource => &["collections", "bytes"],
+            Self::Module => &["reflection", "module"],
+            Self::Package => &["reflection", "package_object"],
+            Self::Project => &["reflection", "project"],
+            Self::System | Self::Fiber => &["concurrency", "fiber"],
+            Self::Message => &["reflection", "message"],
+            Self::Attribute => &["reflection", "attribute"],
+            Self::Error | Self::MessageNotUnderstood | Self::CannotYieldAcrossNativeFrame | Self::UseAfterCloseError => {
+                &["errors", "error"]
+            }
+            Self::ProjectManifest => &["reflection", "project_manifest"],
+            Self::PackageInfo => &["reflection", "package_info"],
+            Self::PackageAuthor => &["reflection", "package_author"],
+            Self::PackageRequirement => &["reflection", "package_requirement"],
+            Self::ResolvedProjectDependency => &["reflection", "resolved_project_dependency"],
+            Self::ModuleDependency => &["reflection", "module_dependency"],
+            Self::ExportTable => &["reflection", "export_table"],
+            Self::Export => &["reflection", "export"],
+            Self::ExportKind => &["reflection", "export_kind"],
+            Self::ChildModuleTable => &["reflection", "child_module_table"],
+            Self::ModuleIdentity => &["reflection", "module_identity"],
+            Self::PackageIdentity => &["reflection", "package_identity"],
+            Self::ProjectIdentity => &["reflection", "project_identity"],
+            Self::Uri => &["reflection", "uri"],
+        }
+    }
+
     pub const fn name(&self) -> &'static str {
         match self {
             Self::Object => "Object",
@@ -354,6 +420,8 @@ impl UniverseKey {
             Self::BoundMethodFamily => "BoundMethodFamily",
             Self::Family => "Family",
             Self::Option => "Option",
+            Self::Result => "Result",
+            Self::Ordering => "Ordering",
             Self::Some => "Some",
             Self::None => "None",
             Self::Unit => "Unit",
@@ -419,6 +487,8 @@ impl UniverseKey {
             "BoundMethodFamily" => Some(Self::BoundMethodFamily),
             "Family" => Some(Self::Family),
             "Option" => Some(Self::Option),
+            "Result" => Some(Self::Result),
+            "Ordering" => Some(Self::Ordering),
             "Some" => Some(Self::Some),
             "None" => Some(Self::None),
             "Unit" => Some(Self::Unit),
@@ -639,6 +709,20 @@ pub const UNIVERSE_BINDINGS: &[UniverseBindingSpec] = &[
     UniverseBindingSpec {
         key: UniverseKey::Option,
         name: "Option",
+        kind: UniverseBindingKind::Class,
+        exported: true,
+        prelude: true,
+    },
+    UniverseBindingSpec {
+        key: UniverseKey::Result,
+        name: "Result",
+        kind: UniverseBindingKind::Class,
+        exported: true,
+        prelude: true,
+    },
+    UniverseBindingSpec {
+        key: UniverseKey::Ordering,
+        name: "Ordering",
         kind: UniverseBindingKind::Class,
         exported: true,
         prelude: true,
@@ -940,6 +1024,19 @@ pub const UNIVERSE_TYPE_FORMS: &[UniverseTypeFormSpec] = &[
             name: "T",
             kind: KindSpec::Type,
         }],
+    },
+    UniverseTypeFormSpec {
+        owner: UniverseKey::Result,
+        parameters: &[
+            TypeParameterDeclSpec {
+                name: "T",
+                kind: KindSpec::Type,
+            },
+            TypeParameterDeclSpec {
+                name: "E",
+                kind: KindSpec::Type,
+            },
+        ],
     },
     UniverseTypeFormSpec {
         owner: UniverseKey::Some,

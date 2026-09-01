@@ -221,7 +221,7 @@ pub enum CompilerError {
     DuplicateField(String, String, SourceRange, SourceRange, usize, usize),
 
     /// A kernel class name (e.g. `List`, `Object`, `Number` — the exact set
-    /// `VM::install_core`'s `add_class!` binds) declared by a non-core
+    /// `VM::bind_primordial_universe`'s `add_class!` binds) declared by a non-core
     /// module (PDR-0001 ruling 3, U-CLASSCLOSE §4).
     ///
     /// Module-scoped class identity alone would already make a user's own

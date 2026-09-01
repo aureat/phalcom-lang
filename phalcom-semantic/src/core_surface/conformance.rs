@@ -19,17 +19,15 @@ pub struct ConformanceReport {
 pub fn validate_native_surface_conformance(
     store: &mut TypeStore,
     declarations: &DeclarationTypeTable,
-    resolver: &dyn crate::types::annotation::TypeResolver,
-    current_module: &ModuleId,
+    _resolver: &dyn crate::types::annotation::TypeResolver,
+    _current_module: &ModuleId,
 ) -> ConformanceReport {
     let mut report = ConformanceReport::default();
     if let Err(failures) = phalcom_native_surface::validate_native_surface_catalog(NATIVE_SURFACES) {
         report.failures.extend(failures);
     }
     let universe_resolver = |key: phalcom_native_meta::UniverseKey| -> crate::identity::DeclarationId {
-        resolver
-            .resolve_type_name(current_module, key.name(), &[])
-            .unwrap_or_else(|| crate::identity::DeclarationId::new(ModuleId::universe_root(), key.name().into()))
+        crate::core_surface::universe_declaration(key)
     };
     let empty_params = HashMap::new();
 

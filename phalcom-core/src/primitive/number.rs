@@ -633,8 +633,8 @@ fn ordering_value(vm: &mut VM, selector: &str) -> PhResult<Value> {
     Number,
     "compare(_)",
     params = [Number],
-    returns = Symbol,
-    types = "(Number) -> Symbol",
+    returns = Ordering,
+    types = "(Number) -> Ordering",
     effects = pure
 )]
 pub fn number_compare(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
