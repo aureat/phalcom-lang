@@ -134,23 +134,35 @@ impl Fixture {
 
     pub fn assert_binding_applied(&self, callable: &CallableAnalysis, name: &str, origin: &str, args: &[Ty<'_>]) -> TypeId {
         let binding = self.binding(callable, name);
-        let ty = binding.current.ty().unwrap_or_else(|| panic!("binding `{name}` has no known type: {binding:#?}"));
+        let ty = binding
+            .current
+            .ty()
+            .unwrap_or_else(|| panic!("binding `{name}` has no known type: {binding:#?}"));
         self.assert_type(ty, &Ty::Applied(origin, args.to_vec()));
         self.family_type(ty)
     }
 
     pub fn assert_binding_nominal(&self, callable: &CallableAnalysis, name: &str, expected: &str) -> TypeId {
         let binding = self.binding(callable, name);
-        let ty = binding.current.ty().unwrap_or_else(|| panic!("binding `{name}` has no known type: {binding:#?}"));
+        let ty = binding
+            .current
+            .ty()
+            .unwrap_or_else(|| panic!("binding `{name}` has no known type: {binding:#?}"));
         self.assert_type(ty, &Ty::Nominal(expected));
         ty
     }
 
     pub fn assert_known_generic_binding(&self, callable: &CallableAnalysis, name: &str, expected: &Ty<'_>) {
         let binding = self.binding(callable, name);
-        let ty = binding.current.ty().unwrap_or_else(|| panic!("binding `{name}` has no known type: {binding:#?}"));
+        let ty = binding
+            .current
+            .ty()
+            .unwrap_or_else(|| panic!("binding `{name}` has no known type: {binding:#?}"));
         self.assert_type(ty, expected);
-        assert!(matches!(binding.current, TypeKnowledge::Known(_)), "binding `{name}` must be statically known: {binding:#?}");
+        assert!(
+            matches!(binding.current, TypeKnowledge::Known(_)),
+            "binding `{name}` must be statically known: {binding:#?}"
+        );
     }
 
     pub fn assert_ready(&self, expression: &ExpressionAnalysis) {
@@ -169,11 +181,18 @@ impl Fixture {
         match expected {
             Ty::Nominal(name) => match self.analysis.snapshot.store.get(actual) {
                 TypeData::Nominal { declaration } if declaration.name.as_ref() == *name => {}
-                other => panic!("expected nominal `{name}`, got {other:?} ({})", self.analysis.snapshot.store.format_type(actual)),
+                other => panic!(
+                    "expected nominal `{name}`, got {other:?} ({})",
+                    self.analysis.snapshot.store.format_type(actual)
+                ),
             },
             Ty::Applied(name, args) => {
                 let TypeData::Applied { origin, arguments } = self.analysis.snapshot.store.get(actual) else {
-                    panic!("expected applied `{name}`, got {:?} ({})", self.analysis.snapshot.store.get(actual), self.analysis.snapshot.store.format_type(actual));
+                    panic!(
+                        "expected applied `{name}`, got {:?} ({})",
+                        self.analysis.snapshot.store.get(actual),
+                        self.analysis.snapshot.store.format_type(actual)
+                    );
                 };
                 self.assert_type(*origin, &Ty::Nominal(name));
                 assert_eq!(arguments.len(), args.len(), "wrong generic arity for `{name}`");
@@ -218,13 +237,7 @@ impl Fixture {
         );
     }
 
-    pub fn assert_generic_solution(
-        &self,
-        callable: &CallableAnalysis,
-        expression: &ExpressionAnalysis,
-        parameter_name: &str,
-        expected: &Ty<'_>,
-    ) {
+    pub fn assert_generic_solution(&self, callable: &CallableAnalysis, expression: &ExpressionAnalysis, parameter_name: &str, expected: &Ty<'_>) {
         let trace = self.generic_trace(callable, expression);
         let solution = trace.iter().find_map(|node| match &node.step {
             ExplanationStep::GenericSolution { parameter, ty, status } if self.parameter_name(*parameter) == parameter_name => Some((*ty, *status)),
