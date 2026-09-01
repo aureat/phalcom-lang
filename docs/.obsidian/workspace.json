@@ -187,6 +187,9 @@
   },
   "active": "46e666892420d783",
   "lastOpenFiles": [
+    "impl/semantic/semantic-completeness/universe-complete/phalcom-canonical-universe-integration-technical-spec.md",
+    "impl/semantic/semantic-completeness/universe-complete/phalcom-canonical-universe-integration-implementation-plan.md",
+    "impl/semantic/semantic-completeness/universe-complete",
     "impl/semantic/semantic-completeness/univere-complete/phalcom-canonical-universe-integration-implementation-plan.md",
     "impl/semantic/semantic-completeness/univere-complete/phalcom-canonical-universe-integration-technical-spec.md",
     "impl/semantic/semantic-completeness/univere-complete",
@@ -218,10 +221,7 @@
     "impl/adt-gadt-associated-lookup/part-3.5/03.5-part3-forward-compatibility-integration-and-verification-checklist.md",
     "impl/adt-gadt-associated-lookup/part-3.5/03.5-g1-boundary-option-b-ready-family-type-source-design-spec.md",
     "impl/adt-gadt-associated-lookup/part-3.5",
-    "impl/adt-gadt-associated-lookup/part-3/03-associated-resolution-family-values-generic-specialization-invocation-typing-implementation-plan.md",
-    "impl/adt-gadt-associated-lookup/part-3/03-associated-resolution-family-values-generic-specialization-invocation-typing-technical-spec.md",
     "impl/adt-gadt-associated-lookup/part-3",
-    "work/pending/lsp",
-    "work/pending/untitled folder"
+    "work/pending/lsp"
   ]
 }
