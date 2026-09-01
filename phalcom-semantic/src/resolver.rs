@@ -104,13 +104,18 @@ impl TypeResolver for LinkedTypeResolver {
 
             None
         } else {
-            // Qualified path: e.g. root is a module alias in current_module.
-            // Deep traversal is intentionally left to the resolver/match
-            // identity slice; this path must not influence bare prelude lookup.
+            // Qualified lookup can currently resolve only one declaration
+            // member directly from an imported module alias. Until linked
+            // products expose namespace traversal for every intermediate
+            // component, fail closed rather than reinterpret
+            // `root.a.Leaf` as `root.Leaf`.
+            if members.len() != 1 {
+                return None;
+            }
             if let Some(linked_mod) = self.linked.modules.get(current_module) {
                 if let Some(&import_id) = linked_mod.bindings.imports.get::<str>(root) {
                     if let Some(LinkedReadSpec::Module(target_mod)) = linked_mod.linked_reads.get(import_id.0 as usize) {
-                        let leaf_name = members.last().unwrap();
+                        let leaf_name = &members[0];
                         let decl = DeclarationId::new(target_mod.clone(), leaf_name.clone().into());
                         if self.known_declarations.contains(&decl) {
                             return Some(decl);
