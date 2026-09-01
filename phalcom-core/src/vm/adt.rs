@@ -188,7 +188,8 @@ impl VM {
         let root_class_id = class_binding.root;
         let enum_id = self
             .adt_registry
-            .register_enum_with_representation(spec.owner.clone(), root_class_id, spec.representation);
+            .register_enum_with_representation(spec.owner.clone(), root_class_id, spec.representation)
+            .map_err(|error| RuntimeError::Internal(error.to_string()))?;
 
         let mut some_runtime_opt = None;
         let mut none_runtime_opt = None;
@@ -197,9 +198,7 @@ impl VM {
             let case_class_id = *class_binding
                 .variants
                 .get(&var_spec.id)
-                .ok_or_else(|| RuntimeError::Internal(
-                    format!("missing runtime behavior class for variant `{}`", var_spec.id.selector)
-                ))?;
+                .ok_or_else(|| RuntimeError::Internal(format!("missing runtime behavior class for variant `{}`", var_spec.id.selector)))?;
             let discriminant =
                 CaseDiscriminant(u32::try_from(idx).map_err(|_| RuntimeError::Message(format!("enum `{}` has too many variants", spec.owner.name)))?);
             let shape = match var_spec.shape {
@@ -223,7 +222,6 @@ impl VM {
                 }
             }
 
-            // Register payload field getters on the case behavior class
             if let Some(module) = self.entry_module().or_else(|| self.universe_module()) {
                 for field in var_spec.payload_fields.iter() {
                     let slot = field.slot;
@@ -313,20 +311,14 @@ impl VM {
 
                 if variant == ids.none {
                     if !payload.is_empty() {
-                        return Err(RuntimeError::Message(format!(
-                            "variant None takes 0 arguments, got {}",
-                            payload.len()
-                        )));
+                        return Err(RuntimeError::Message(format!("variant None takes 0 arguments, got {}", payload.len())));
                     }
                     return Ok(Value::none());
                 }
 
                 if variant == ids.some {
                     let [value] = payload.as_slice() else {
-                        return Err(RuntimeError::Message(format!(
-                            "variant Some takes 1 argument, got {}",
-                            payload.len()
-                        )));
+                        return Err(RuntimeError::Message(format!("variant Some takes 1 argument, got {}", payload.len())));
                     };
                     return Ok(value.wrap_some()?);
                 }
@@ -358,11 +350,7 @@ impl VM {
         }
         if value.is_option() {
             if let Some(variants) = self.adt_registry.native_option_variants() {
-                return Some(if value.is_none() {
-                    variants.none
-                } else {
-                    variants.some
-                });
+                return Some(if value.is_none() { variants.none } else { variants.some });
             }
         }
         None
