@@ -1,7 +1,6 @@
 class Probe {
     @class
-    run() {
-        let source: Either<String, Int> = Either::Left("error")
+    run(_ source: Either<String, Int>) {
         let bad: Either<Int, Int> = source.mapLeft(|value| { true })
     }
 }
