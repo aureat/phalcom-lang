@@ -26,5 +26,10 @@ skills-lock.json
 # git worktrees used by agents
 .claude/worktrees/
 
+# Local AI-agent runtimes and generated instruction surfaces
+/.codex/
+/.claude/
+/.superpowers/
+
 # REPL history
 .phalcom_history
