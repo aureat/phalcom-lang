@@ -10,7 +10,7 @@ use phalcom_semantic::types::denotation::{AssociatedValueDenotation, SemanticDen
 
 #[test]
 fn captured_variant_family_preserves_exact_authorized_member_shapes() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
 enum Weird {

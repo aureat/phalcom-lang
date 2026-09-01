@@ -32,7 +32,7 @@ pub struct AdtCase {
 
 /// Analyze one source fixture through the production semantic entry point.
 pub fn analyze_adt(source: &str) -> AdtCase {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(source);
     let parsed = parse_source(&source, 0).unwrap_or_else(|error| panic!("source should parse cleanly: {error:#?}\nsource:\n{source}"));
     let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed));

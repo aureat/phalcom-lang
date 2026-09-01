@@ -7,7 +7,7 @@ use phalcom_semantic::types::store::TypeStore;
 use phalcom_semantic::{SnapshotTypeRef, TypeHierarchy};
 
 fn decl(name: &str) -> DeclarationId {
-    DeclarationId::new(ModuleId::core(), name.into())
+    DeclarationId::new(ModuleId::universe_root(), name.into())
 }
 
 #[test]
@@ -130,7 +130,7 @@ fn inheritance_cycle_terminates_and_refutes() {
 #[test]
 fn clean_vs_incremental_differential_equivalence() {
     let mut db = SemanticDb::new();
-    let module_a = ModuleId::core();
+    let module_a = ModuleId::universe_root();
     let key_parsed = QueryKey::ParsedModule(module_a.clone());
     let key_unlinked = QueryKey::UnlinkedInterface(module_a.clone());
     let key_linked = QueryKey::LinkedInterface(module_a.clone());

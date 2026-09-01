@@ -293,13 +293,13 @@ mod tests {
     fn list_decomposition_preserves_known_parent_authority() {
         let mut store = TypeStore::new();
         let declarations = crate::declarations::bootstrap_universe_declarations(&mut store, &|key| {
-            crate::identity::DeclarationId::new(crate::identity::ModuleId::core(), key.name().into())
+            crate::identity::DeclarationId::new(crate::identity::ModuleId::universe_root(), key.name().into())
         });
         let list_origin = declarations
-            .form(&crate::identity::DeclarationId::new(crate::identity::ModuleId::core(), "List".into()))
+            .form(&crate::identity::DeclarationId::new(crate::identity::ModuleId::universe_root(), "List".into()))
             .expect("List form");
         let int_ty = declarations
-            .form(&crate::identity::DeclarationId::new(crate::identity::ModuleId::core(), "Int".into()))
+            .form(&crate::identity::DeclarationId::new(crate::identity::ModuleId::universe_root(), "Int".into()))
             .expect("Int form");
         let list_ty = store.apply_type_form(list_origin, &[int_ty]).expect("List<Int>");
         let parent = TypeKnowledge::established(list_ty, EvidenceOrigin::Syntax);

@@ -8,7 +8,7 @@ use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide, Invoca
 
 #[test]
 fn inherited_associated_lookup_keeps_descendant_lookup_and_ancestor_definition() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
 class Base {

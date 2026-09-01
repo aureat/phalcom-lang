@@ -93,7 +93,7 @@ fn tracked_hierarchy_records_every_mutable_edge_traversed() {
 #[test]
 fn builtin_seed_reads_do_not_create_query_dependencies() {
     let current = user_module(1, "client");
-    let core = ModuleId::core();
+    let core = ModuleId::universe_root();
     let int_decl = DeclarationId::new(core.clone(), "Int".into());
     let object_decl = DeclarationId::new(core, "Object".into());
     let owner = DeclarationId::new(current.clone(), "Client".into());

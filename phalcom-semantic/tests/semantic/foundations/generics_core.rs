@@ -13,7 +13,7 @@ use phalcom_semantic::types::type_lambda::{BetaResult, ScopedTypeData, TypeLambd
 use phalcom_semantic::types::variance::{Variance, VarianceStep, compute_variance_occurrence};
 
 fn core_decl(name: &str) -> DeclarationId {
-    DeclarationId::new(ModuleId::core(), name.into())
+    DeclarationId::new(ModuleId::universe_root(), name.into())
 }
 
 #[test]

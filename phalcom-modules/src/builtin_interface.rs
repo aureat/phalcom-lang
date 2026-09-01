@@ -1,8 +1,8 @@
 //! Source-derived builtin interface generation with native metadata overlay.
 
-use crate::builtin::BuiltinProjectSourceProvider;
+use crate::builtin::UniverseSourceProvider;
 use crate::error::{ModuleLoadError, ModuleResolutionError};
-use crate::identity::{BuiltinPackage, ModuleId, ProjectIdentity, SourceLocation};
+use crate::identity::{ModuleId, ProjectIdentity, SourceLocation};
 use crate::interface::{DeclarationSurface, ExportSurface, InterfaceBuilder, UnlinkedExportTarget, UnlinkedModuleInterface};
 use crate::source::ParsedModuleUnit;
 use phalcom_common::range::SourceRange;
@@ -29,7 +29,7 @@ pub struct BuiltinInterfaceBuilder;
 
 impl BuiltinInterfaceBuilder {
     /// Loads or retrieves the cached parsed unit for a builtin module identity.
-    pub fn load_parsed(provider: &BuiltinProjectSourceProvider, id: &ModuleId) -> Result<Arc<ParsedModuleUnit>, ModuleLoadError> {
+    pub fn load_parsed(provider: &UniverseSourceProvider, id: &ModuleId) -> Result<Arc<ParsedModuleUnit>, ModuleLoadError> {
         let mut guard = parsed_cache().lock().unwrap();
         if let Some(cached) = guard.get(id) {
             return cached.clone();
@@ -40,7 +40,7 @@ impl BuiltinInterfaceBuilder {
         result
     }
 
-    fn load_parsed_uncached(provider: &BuiltinProjectSourceProvider, id: &ModuleId) -> Result<Arc<ParsedModuleUnit>, ModuleLoadError> {
+    fn load_parsed_uncached(provider: &UniverseSourceProvider, id: &ModuleId) -> Result<Arc<ParsedModuleUnit>, ModuleLoadError> {
         let source_text = provider.source_text(id)?;
         let source_id = provider.source_id(id)?;
         let display_path = std::path::PathBuf::from(source_id.0.as_ref());
@@ -68,7 +68,7 @@ impl BuiltinInterfaceBuilder {
     }
 
     /// Builds or retrieves the cached unlinked interface for a builtin module identity.
-    pub fn build(provider: &BuiltinProjectSourceProvider, id: &ModuleId) -> Result<UnlinkedModuleInterface, ModuleLoadError> {
+    pub fn build(provider: &UniverseSourceProvider, id: &ModuleId) -> Result<UnlinkedModuleInterface, ModuleLoadError> {
         let mut guard = interface_cache().lock().unwrap();
         if let Some(cached) = guard.get(id) {
             return cached.clone();
@@ -81,13 +81,13 @@ impl BuiltinInterfaceBuilder {
     }
 
     /// Derives unlinked module interface from the canonical parsed source.
-    pub fn build_from_parsed(_provider: &BuiltinProjectSourceProvider, parsed: &ParsedModuleUnit) -> Result<UnlinkedModuleInterface, ModuleLoadError> {
+    pub fn build_from_parsed(_provider: &UniverseSourceProvider, parsed: &ParsedModuleUnit) -> Result<UnlinkedModuleInterface, ModuleLoadError> {
         let mut iface = InterfaceBuilder::build(parsed.id.clone(), parsed.kind, &parsed.program).map_err(|e| ModuleLoadError::Interface {
             module: parsed.id.clone(),
             error: e,
         })?;
 
-        if parsed.id.project == ProjectIdentity::Builtin(BuiltinPackage::Universe) {
+        if parsed.id.project == ProjectIdentity::Universe {
             if parsed.id.path.is_root() {
                 // Root/prelude bindings are policy data, not source declarations.
                 // Module and class presentation data comes exclusively from the

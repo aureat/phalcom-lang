@@ -194,7 +194,7 @@ impl Fixture {
     }
 
     pub fn new_allowing_internal_incidents(source_text: &str) -> Self {
-        let module = ModuleId::core();
+        let module = ModuleId::universe_root();
         let source: Arc<str> = Arc::from(source_text);
         let parsed = parse(&source, 0);
         assert!(parsed.errors.is_empty(), "parse errors: {:#?}\nsource:\n{source_text}", parsed.errors);

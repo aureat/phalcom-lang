@@ -26,7 +26,7 @@ use std::sync::Arc;
 const RANGE: SourceRange = SourceRange { start: 0, end: 0 };
 
 fn test_callable_id(name: &str) -> CallableId {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let decl = DeclarationId::new(module, "Test".into());
     CallableId::new(decl, Selector::getter(name).unwrap(), DispatchSide::Instance)
 }
@@ -36,7 +36,7 @@ fn test_expr_id(local: u32) -> ExpressionId {
 }
 
 fn test_decl(name: &str) -> DeclarationId {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     DeclarationId::new(module, name.into())
 }
 

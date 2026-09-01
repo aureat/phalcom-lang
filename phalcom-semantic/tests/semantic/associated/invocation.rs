@@ -9,7 +9,7 @@ use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide, Invoca
 
 #[test]
 fn associated_variant_forms_keep_value_and_constructor_invocation_distinct() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
 enum Weird {

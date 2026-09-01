@@ -26,7 +26,7 @@ fn test_expression_analysis_ready_and_invalid() {
 #[test]
 fn test_binding_state_and_flow_state_operations() {
     let mut store = TypeStore::new();
-    let module = phalcom_modules::identity::ModuleId::core();
+    let module = phalcom_modules::identity::ModuleId::universe_root();
     let int_decl = phalcom_modules::DeclarationId::new(module.clone(), "Int".into());
     let float_decl = phalcom_modules::DeclarationId::new(module.clone(), "Float".into());
     let num_decl = phalcom_modules::DeclarationId::new(module.clone(), "Number".into());

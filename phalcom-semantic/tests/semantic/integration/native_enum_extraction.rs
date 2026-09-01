@@ -12,7 +12,7 @@ enum Maybe<T> {
 }
 "#;
     let program = parse_source(source, 0).expect("parse program");
-    let module_id = ModuleId::core();
+    let module_id = ModuleId::universe_root();
 
     let declarations = extract_source_declarations(&module_id, &program);
     assert_eq!(declarations.len(), 1);

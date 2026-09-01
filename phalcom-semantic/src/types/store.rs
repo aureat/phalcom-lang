@@ -873,7 +873,7 @@ mod tests {
     use phalcom_modules::identity::ModuleId;
 
     fn test_decl(name: &str) -> DeclarationId {
-        let module = ModuleId::core();
+        let module = ModuleId::universe_root();
         DeclarationId::new(module, name.into())
     }
 

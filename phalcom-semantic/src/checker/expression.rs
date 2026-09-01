@@ -1112,7 +1112,7 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
                 }
             }
 
-            let object_decl = crate::identity::DeclarationId::new(crate::identity::ModuleId::core(), "Object".into());
+            let object_decl = crate::identity::DeclarationId::new(crate::identity::ModuleId::universe_root(), "Object".into());
             let object_ty = ctx.store.nominal(object_decl);
             let parameters = constructor
                 .parameters

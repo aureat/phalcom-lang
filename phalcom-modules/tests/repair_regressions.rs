@@ -31,8 +31,8 @@ fn test_real_project_cannot_equal_core_identity() {
         project: root_id.into(),
         path: ModulePath::from_components(vec![ModuleComponent::from_identifier("core").unwrap()]),
     };
-    assert_ne!(module_id, ModuleId::core());
-    assert!(matches!(ModuleId::core().project, ProjectIdentity::Builtin(_)));
+    assert_ne!(module_id, ModuleId::universe_root());
+    assert!(matches!(ModuleId::universe_root().project, ProjectIdentity::Universe));
 }
 
 #[test]

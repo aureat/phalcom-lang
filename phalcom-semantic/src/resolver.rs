@@ -67,7 +67,7 @@ impl TypeResolver for LinkedTypeResolver {
                 return Some(prelude_decl);
             }
 
-            let core_decl = DeclarationId::new(ModuleId::core(), root.into());
+            let core_decl = DeclarationId::new(ModuleId::universe_root(), root.into());
             if self.known_declarations.contains(&core_decl) {
                 return Some(core_decl);
             }

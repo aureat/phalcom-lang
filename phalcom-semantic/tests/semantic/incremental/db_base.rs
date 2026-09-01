@@ -6,7 +6,7 @@ use phalcom_semantic::db::{
 use std::sync::Arc;
 
 fn module() -> ModuleId {
-    ModuleId::core()
+    ModuleId::universe_root()
 }
 
 #[test]
@@ -132,7 +132,7 @@ fn test_body_query_execution_and_invalidation() {
     let resolver = SimpleTypeResolver::new();
     let decls = DeclarationTypeTable::new();
     let dispatch = phalcom_semantic::dispatch::SurfaceDispatchResolver::new();
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let cancel = CancellationToken::new();
     let budget = QueryBudget::default();
 
@@ -307,7 +307,7 @@ fn callable_body_query_fails_closed_when_consumed_signature_product_is_missing()
     let hierarchy = MapTypeHierarchy::new();
     let resolver = SimpleTypeResolver::new();
     let declarations = DeclarationTypeTable::new();
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let cancel = CancellationToken::new();
     let budget = QueryBudget::default();
 

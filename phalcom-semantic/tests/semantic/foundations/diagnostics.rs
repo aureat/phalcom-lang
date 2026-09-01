@@ -7,12 +7,12 @@ use phalcom_semantic::identity::{DiagnosticCauseId, DispatchSide, ExplanationId,
 fn test_structured_diagnostic_extensions() {
     let range = SourceRange { start: 5, end: 15 };
     let callable = phalcom_semantic::identity::CallableId::new(
-        phalcom_semantic::identity::DeclarationId::new(ModuleId::core(), "Probe".into()),
+        phalcom_semantic::identity::DeclarationId::new(ModuleId::universe_root(), "Probe".into()),
         phalcom_common::selector::Selector::getter("run").unwrap(),
         DispatchSide::Class,
     );
     let explanation = ExplanationRef::new(callable, ExplanationId(42));
-    let diag = SemanticDiagnostic::error_in(ModuleId::core(), DiagnosticCode::TypeMismatch, "type mismatch occurred", range)
+    let diag = SemanticDiagnostic::error_in(ModuleId::universe_root(), DiagnosticCode::TypeMismatch, "type mismatch occurred", range)
         .with_note("expected Int, found String")
         .with_help("try converting with asInt")
         .with_explanation(explanation.clone())

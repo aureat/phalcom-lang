@@ -30,12 +30,12 @@ fn export_type_form_nominal_applied_union_tuple_record_callable_parameter() {
     assert_eq!(export_type_form(&store, store.unit()).unwrap(), CompiledTypeRef::Unit);
 
     // 2. Nominal
-    let decl = DeclarationId::new(ModuleId::core(), "Int".into());
+    let decl = DeclarationId::new(ModuleId::universe_root(), "Int".into());
     let int_ty = store.nominal_type(decl.clone());
     assert_eq!(export_type_form(&store, int_ty).unwrap(), CompiledTypeRef::Nominal(decl.clone()));
 
     // 3. Applied generic
-    let list_decl = DeclarationId::new(ModuleId::core(), "List".into());
+    let list_decl = DeclarationId::new(ModuleId::universe_root(), "List".into());
     let list_kind = store.arrow_kind(Box::new([KindId::TYPE]), KindId::TYPE);
     let list_ctor = store.nominal_form(list_decl.clone(), list_kind);
     let list_int = store.apply_type_form(list_ctor, &[int_ty]).unwrap();
@@ -48,7 +48,7 @@ fn export_type_form_nominal_applied_union_tuple_record_callable_parameter() {
     );
 
     // 4. Union
-    let str_decl = DeclarationId::new(ModuleId::core(), "String".into());
+    let str_decl = DeclarationId::new(ModuleId::universe_root(), "String".into());
     let str_ty = store.nominal_type(str_decl.clone());
     let union_ty = store.union(&[int_ty, str_ty]);
     assert_eq!(
@@ -135,7 +135,7 @@ fn export_rejects_class_object() {
     let mut store = TypeStore::new();
 
     // ClassObject rejected as non-exportable
-    let decl = DeclarationId::new(ModuleId::core(), "Point".into());
+    let decl = DeclarationId::new(ModuleId::universe_root(), "Point".into());
     let class_obj = store.class_object_type(decl);
     assert_eq!(
         export_type_form(&store, class_obj),

@@ -7,8 +7,8 @@ use phalcom_type_meta::identity::{StableCallableRef, StableDeclarationRef, Stabl
 
 pub fn to_stable_project(proj: &ProjectIdentity) -> StableProjectRef {
     match proj {
-        ProjectIdentity::Builtin(ns) => StableProjectRef::Builtin {
-            namespace: ns.to_string().into_boxed_str(),
+        ProjectIdentity::Universe => StableProjectRef::Builtin {
+            namespace: "universe".into(),
             version: "0.1.0".into(),
         },
         ProjectIdentity::Resolved(res_id) => StableProjectRef::SourceArtifact {

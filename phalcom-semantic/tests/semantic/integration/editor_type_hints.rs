@@ -10,7 +10,7 @@ fn source_index_retains_explicit_annotation_truth() {
     let source = "const plain = 1\nconst typed: Int = 2\nclass Sample { run(annotated: Int, inferred) { inferred } }\n";
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "parser errors: {:?}", parsed.errors);
-    let index = build_source_scope_index(ModuleId::core(), &parsed.program, &SourceIndexContext::default());
+    let index = build_source_scope_index(ModuleId::universe_root(), &parsed.program, &SourceIndexContext::default());
 
     let binding = |name: &str, kind: SourceBindingKind| {
         index
@@ -31,7 +31,7 @@ fn inferred_local_formal_binding_attaches_to_exact_name_site() {
     let source = "class Sample { run() { const inferred = 1; inferred } }\n";
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "parser errors: {:?}", parsed.errors);
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program));
     let module_index = analysis.snapshot.source_index.modules.get(&module).expect("module source index");
     let source_binding = module_index
@@ -65,7 +65,7 @@ fn editor_type_hints_suppress_explicit_local_annotations() {
     let source = "class Sample {\n  run() {\n    const inferred = 1\n    const explicit: Int = 2\n    inferred\n  }\n}\n";
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "parser errors: {:?}", parsed.errors);
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program));
     let hints = analysis.snapshot.editor().type_hints(&module, SourceRange::new(0, source.len()));
 

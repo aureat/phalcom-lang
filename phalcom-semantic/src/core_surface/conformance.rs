@@ -29,7 +29,7 @@ pub fn validate_native_surface_conformance(
     let universe_resolver = |key: phalcom_native_meta::UniverseKey| -> crate::identity::DeclarationId {
         resolver
             .resolve_type_name(current_module, key.name(), &[])
-            .unwrap_or_else(|| crate::identity::DeclarationId::new(ModuleId::core(), key.name().into()))
+            .unwrap_or_else(|| crate::identity::DeclarationId::new(ModuleId::universe_root(), key.name().into()))
     };
     let empty_params = HashMap::new();
 

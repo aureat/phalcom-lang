@@ -9,7 +9,7 @@ use phalcom_semantic::types::store::TypeStore;
 #[test]
 fn flow_merge_preserves_identical_family_capability_denotation() {
     let mut store = TypeStore::new();
-    let owner = DeclarationId::new(ModuleId::core(), "Option".into());
+    let owner = DeclarationId::new(ModuleId::universe_root(), "Option".into());
     let family = AssociatedFamilyId::new(owner.clone(), SelectorBase::Named("make".into()));
     let variant = VariantId::new(owner.clone(), Selector::getter("None").expect("None"));
     let captured = CapturedAssociatedMember {
@@ -21,8 +21,8 @@ fn flow_merge_preserves_identical_family_capability_denotation() {
         ))),
     };
     let denotation = SemanticDenotation::AssociatedValue(Box::new(AssociatedValueDenotation::family(
-        store.nominal_type(DeclarationId::new(ModuleId::core(), "Option".into())),
-        DeclarationId::new(ModuleId::core(), "Option".into()),
+        store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "Option".into())),
+        DeclarationId::new(ModuleId::universe_root(), "Option".into()),
         family,
         vec![captured],
     )));
@@ -39,7 +39,7 @@ fn flow_merge_preserves_identical_family_capability_denotation() {
 #[test]
 fn flow_merge_drops_different_family_capabilities() {
     let mut store = TypeStore::new();
-    let owner = DeclarationId::new(ModuleId::core(), "Option".into());
+    let owner = DeclarationId::new(ModuleId::universe_root(), "Option".into());
     let family = AssociatedFamilyId::new(owner.clone(), SelectorBase::Named("make".into()));
     let owner_form = store.nominal_type(owner.clone());
     let left = SemanticDenotation::AssociatedValue(Box::new(AssociatedValueDenotation::family(

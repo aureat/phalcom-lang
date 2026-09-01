@@ -28,7 +28,7 @@ fn user_object_name_is_not_universal_supertype() {
     assert!(!is_subtype(&mut store, &hier, t_unrelated, t_user_obj));
 
     // But Unrelated IS a subtype of canonical core Object
-    let core_object = DeclarationId::new(ModuleId::core(), "Object".into());
+    let core_object = DeclarationId::new(ModuleId::universe_root(), "Object".into());
     let t_core_obj = store.nominal(core_object);
     assert!(is_subtype(&mut store, &hier, t_unrelated, t_core_obj));
 }
@@ -53,7 +53,7 @@ fn user_function_name_is_not_callable_supertype() {
     assert!(!is_subtype(&mut store, &hier, callable_ty, t_user_func));
 
     // Callable IS a subtype of core Function
-    let core_func = DeclarationId::new(ModuleId::core(), "Function".into());
+    let core_func = DeclarationId::new(ModuleId::universe_root(), "Function".into());
     let t_core_func = store.nominal(core_func);
     assert!(is_subtype(&mut store, &hier, callable_ty, t_core_func));
 }
@@ -63,8 +63,8 @@ fn proven_relation_does_not_upgrade_assumed_actual() {
     let mut store = TypeStore::new();
     let mut hier = MapTypeHierarchy::new();
 
-    let int_decl = DeclarationId::new(ModuleId::core(), "Int".into());
-    let num_decl = DeclarationId::new(ModuleId::core(), "Number".into());
+    let int_decl = DeclarationId::new(ModuleId::universe_root(), "Int".into());
+    let num_decl = DeclarationId::new(ModuleId::universe_root(), "Number".into());
     hier.insert(int_decl.clone(), num_decl.clone());
 
     let t_int = store.nominal(int_decl);
@@ -83,7 +83,7 @@ fn proven_relation_does_not_upgrade_assumed_actual() {
 fn generic_supertype_specialization_materializes_in_live_store() {
     let mut store = TypeStore::new();
     let mut hierarchy = MapTypeHierarchy::new();
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let names_decl = DeclarationId::new(module.clone(), "Names".into());
     let sequence_decl = DeclarationId::new(module.clone(), "Sequence".into());
     let int_decl = DeclarationId::new(module.clone(), "Int".into());
@@ -92,7 +92,7 @@ fn generic_supertype_specialization_materializes_in_live_store() {
     let unary_kind = store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
     let names_form = store.nominal_form(names_decl.clone(), unary_kind);
     let sequence_form = store.nominal_form(sequence_decl, unary_kind);
-    store.set_parameter_variance(DeclarationId::new(ModuleId::core(), "Sequence".into()), 0, Variance::Covariant);
+    store.set_parameter_variance(DeclarationId::new(ModuleId::universe_root(), "Sequence".into()), 0, Variance::Covariant);
     let int = store.nominal_type(int_decl);
     let object = store.nominal_type(object_decl);
     let parameter = store.intern_type_parameter(TypeParameterData::new(
@@ -211,9 +211,9 @@ class Probe {
 fn contextual_empty_map_preserves_expected_type() {
     let mut store = TypeStore::new();
     let map_kind = store.arrow_kind(vec![KindId::TYPE, KindId::TYPE].into_boxed_slice(), KindId::TYPE);
-    let map_form = store.nominal_form(DeclarationId::new(ModuleId::core(), "Map".into()), map_kind);
-    let string = store.nominal_type(DeclarationId::new(ModuleId::core(), "String".into()));
-    let int = store.nominal_type(DeclarationId::new(ModuleId::core(), "Int".into()));
+    let map_form = store.nominal_form(DeclarationId::new(ModuleId::universe_root(), "Map".into()), map_kind);
+    let string = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "String".into()));
+    let int = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "Int".into()));
     let expected = store.map_of(map_form, string, int).expect("well-kinded Map application");
 
     let contextual = ExpectedType::proper_from(expected, ExpectationOrigin::DeclarationContract)

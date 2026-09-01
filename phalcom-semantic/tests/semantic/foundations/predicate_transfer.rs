@@ -13,7 +13,7 @@ use phalcom_semantic::types::store::TypeStore;
 fn test_predicate_transfer_pure_matrix() {
     let mut store = TypeStore::new();
     let mut hierarchy = MapTypeHierarchy::new();
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
 
     let obj_decl = DeclarationId::new(module.clone(), "Object".into());
     let int_decl = DeclarationId::new(module.clone(), "Int".into());

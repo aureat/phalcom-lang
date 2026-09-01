@@ -8,7 +8,7 @@ use phalcom_semantic::types::denotation::SemanticDenotation;
 
 #[test]
 fn stored_family_capture_preserves_its_denotation_through_local_flow() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
 enum State {

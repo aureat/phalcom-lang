@@ -1978,7 +1978,7 @@ mod tests {
         use crate::checker::flow::{FieldContractValidity, FieldInitialization};
         use crate::identity::{DeclarationId, DispatchSide, FieldId, ModuleId};
 
-        let field = FieldId::new(DeclarationId::new(ModuleId::core(), "Cell".into()), "_value", DispatchSide::Instance);
+        let field = FieldId::new(DeclarationId::new(ModuleId::universe_root(), "Cell".into()), "_value", DispatchSide::Instance);
         let contract = TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::MissingInitializer);
         let current = TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::MissingInitializer);
 

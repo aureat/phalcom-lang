@@ -12,7 +12,7 @@ fn setup_phase2_env() -> (TypeStore, MapTypeHierarchy, SimpleTypeResolver, Decla
     let mut store = TypeStore::new();
     let mut hierarchy = MapTypeHierarchy::new();
     let mut resolver = SimpleTypeResolver::new();
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
 
     let declarations = bootstrap_universe_declarations(&mut store, &|k| DeclarationId::new(module.clone(), k.name().into()));
 

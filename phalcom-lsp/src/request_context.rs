@@ -88,7 +88,7 @@ fn canonical_module_for_uri(snapshot: &SemanticSnapshot, uri: &Url) -> Option<Mo
         return Some(module.clone());
     }
     if uri.as_str() == crate::core_documents::CORE_MODULE_URI {
-        return Some(ModuleId::core());
+        return Some(ModuleId::universe_root());
     }
     if let Some(module) = crate::analysis_service::builtin_module_from_uri(uri)
         && snapshot.sources.contains_key(&module)
@@ -173,7 +173,7 @@ mod tests {
     fn compiler_core_presentation_text_is_an_exact_source() {
         let (_uri, location) = source();
         let snapshot = published_snapshot(location, "class Request {}\n");
-        let core = ModuleId::core();
+        let core = ModuleId::universe_root();
         let text = snapshot
             .presentation_source(&core)
             .expect("semantic publication must retain canonical core presentation text")

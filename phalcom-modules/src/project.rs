@@ -2,7 +2,7 @@
 
 use crate::error::ProjectError;
 use crate::identity::{
-    BuiltinPackage, ImportRootTarget, ModuleComponent, ModulePath, ProjectSourceIdentity, ResolvedProjectId, SyntheticProjectId, SyntheticProjectIdAllocator,
+    ImportRootTarget, ModuleComponent, ModulePath, ProjectSourceIdentity, ResolvedProjectId, SyntheticProjectId, SyntheticProjectIdAllocator,
 };
 use crate::manifest::{DependencyProvider, DependencySpec, NullDependencyProvider, ProjectManifest};
 use std::collections::{BTreeMap, HashSet};
@@ -213,9 +213,7 @@ impl ProjectUniverse {
 
         let mut import_roots = BTreeMap::new();
         let universe_comp = ModuleComponent::from_identifier("universe").expect("valid identifier");
-        let std_comp = ModuleComponent::from_identifier("std").expect("valid identifier");
-        import_roots.insert(universe_comp, (ImportRootTarget::Builtin(BuiltinPackage::Universe), false));
-        import_roots.insert(std_comp, (ImportRootTarget::Builtin(BuiltinPackage::Std), false));
+        import_roots.insert(universe_comp, (ImportRootTarget::Universe, false));
         import_roots.insert(validated.namespace.clone(), (ImportRootTarget::Resolved(next_id), true));
         for (alias, dep_id) in &resolved_dependencies {
             import_roots.insert(alias.clone(), (ImportRootTarget::Resolved(*dep_id), false));
@@ -263,9 +261,7 @@ impl ProjectUniverse {
 
         let mut import_roots = BTreeMap::new();
         let universe_comp = ModuleComponent::from_identifier("universe").expect("valid identifier");
-        let std_comp = ModuleComponent::from_identifier("std").expect("valid identifier");
-        import_roots.insert(universe_comp, (ImportRootTarget::Builtin(BuiltinPackage::Universe), false));
-        import_roots.insert(std_comp, (ImportRootTarget::Builtin(BuiltinPackage::Std), false));
+        import_roots.insert(universe_comp, (ImportRootTarget::Universe, false));
         import_roots.insert(namespace.clone(), (ImportRootTarget::Resolved(next_id), true));
 
         let resolved_project = ResolvedProject {

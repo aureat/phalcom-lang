@@ -227,8 +227,8 @@ mod tests {
     #[test]
     fn reconcile_field_write_preserves_actual_and_derives_correct_validity() {
         let mut store = TypeStore::new();
-        let int_ty = store.nominal_type(DeclarationId::new(ModuleId::core(), "Int".into()));
-        let string_ty = store.nominal_type(DeclarationId::new(ModuleId::core(), "String".into()));
+        let int_ty = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "Int".into()));
+        let string_ty = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "String".into()));
         let contract = TypeKnowledge::assumed(int_ty, EvidenceOrigin::DeveloperAnnotation);
 
         let established_int = TypeKnowledge::established(int_ty, EvidenceOrigin::Syntax);

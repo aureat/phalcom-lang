@@ -191,7 +191,7 @@ fn parameter_fact(
 /// Standalone checker contexts project this declaration into dispatch, while
 /// workspace sessions also retain it in `CallableSignatureTable`.
 pub(crate) fn canonical_core_class_new_signature(store: &mut crate::types::store::TypeStore) -> CallableSemanticSignature {
-    let owner = DeclarationId::new(crate::identity::ModuleId::core(), "Class".into());
+    let owner = DeclarationId::new(crate::identity::ModuleId::universe_root(), "Class".into());
     let selector = Selector::method("new", Vec::new()).expect("root Class.new selector must be valid");
     let callable = CallableId::new(owner.clone(), selector.clone(), DispatchSide::Instance);
     let self_type = store.self_type(crate::types::parameter::SelfTypeTerm {

@@ -18,7 +18,7 @@ fn test_preexisting_diagnostic_does_not_claim_expression_ownership() {
     let hierarchy = MapTypeHierarchy::new();
     let resolver = SimpleTypeResolver::new();
     let decls = DeclarationTypeTable::new();
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
 
     let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &decls, module);
 

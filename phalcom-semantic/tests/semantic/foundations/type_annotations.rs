@@ -43,7 +43,7 @@ fn application(origin: TypeAnnotation, arguments: Vec<TypeAnnotation>) -> TypeAn
 
 fn setup() -> TestEnv {
     let mut store = TypeStore::new();
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(module.clone(), key.name().into()));
     let mut resolver = SimpleTypeResolver::new();
     for name in ["Int", "String", "Bool", "List", "Map", "Object"] {

@@ -107,10 +107,7 @@ pub fn module_package_info(vm: &mut VM, receiver: &Value, _args: &[Value]) -> Ph
         }
 
         match &pkg.id.project {
-            phalcom_modules::ProjectIdentity::Builtin(b) => match b {
-                phalcom_modules::BuiltinPackage::Universe => PackageInfoDescriptor::builtin_universe(None),
-                phalcom_modules::BuiltinPackage::Std => PackageInfoDescriptor::builtin_std(None),
-            },
+            phalcom_modules::ProjectIdentity::Universe => PackageInfoDescriptor::builtin_universe(None),
             phalcom_modules::ProjectIdentity::Resolved(_) => {
                 let name = pkg.name.clone();
                 PackageInfoDescriptor::standalone(&name)
@@ -412,10 +409,7 @@ pub fn package_package_info(vm: &mut VM, receiver: &Value, _args: &[Value]) -> P
     }
 
     let desc = match &root.id.project {
-        phalcom_modules::ProjectIdentity::Builtin(b) => match b {
-            phalcom_modules::BuiltinPackage::Universe => PackageInfoDescriptor::builtin_universe(None),
-            phalcom_modules::BuiltinPackage::Std => PackageInfoDescriptor::builtin_std(None),
-        },
+        phalcom_modules::ProjectIdentity::Universe => PackageInfoDescriptor::builtin_universe(None),
         phalcom_modules::ProjectIdentity::Resolved(_) => {
             let name = root.name.clone();
             PackageInfoDescriptor::standalone(&name)

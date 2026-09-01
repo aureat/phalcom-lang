@@ -8,7 +8,7 @@ use phalcom_semantic::identity::{AssociatedFamilyId, CallableId, DeclarationId, 
 
 #[test]
 fn weird_variant_forms_compose_into_one_associated_family_with_three_resolutions() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
 enum Weird {

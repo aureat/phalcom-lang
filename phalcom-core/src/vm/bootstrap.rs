@@ -306,7 +306,7 @@ impl VM {
 
     /// Bootstraps the core module and exposes each kernel class as a global.
     pub fn install_core(&mut self) {
-        let core_id = phalcom_modules::ModuleId::core();
+        let core_id = phalcom_modules::ModuleId::universe_root();
         let m = self.create_module_with_id(core_id, crate::heap::ModuleKind::Module, CORE_MODULE_NAME, "<internal core module>");
         self.runtime_roots = Some(crate::vm::RuntimeRoots { core: m, entry: None });
         self.privileged_modules.insert(m);
@@ -540,7 +540,7 @@ impl VM {
     /// Allocates a builtin package with `logical_name` and registers it in `vm.module_registry`.
     pub fn create_builtin_package(&mut self, logical_name: &str) -> crate::heap::ObjRef {
         if logical_name == "universe" {
-            let id = phalcom_modules::ModuleId::builtin(phalcom_modules::BuiltinPackage::Universe, phalcom_modules::ModulePath::root());
+            let id = phalcom_modules::ModuleId::universe_root();
             if let Some(rec) = self.module_registry.get(&id) {
                 return rec.object;
             }

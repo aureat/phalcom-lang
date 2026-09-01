@@ -45,7 +45,7 @@ impl AdvisoryBuiltins {
     /// produce advisory `Unknown` facts.
     pub fn from_declarations(declarations: &DeclarationTypeTable) -> Self {
         fn lookup(declarations: &DeclarationTypeTable, name: &str) -> Option<DeclarationId> {
-            let declaration = DeclarationId::new(crate::identity::ModuleId::core(), name.into());
+            let declaration = DeclarationId::new(crate::identity::ModuleId::universe_root(), name.into());
             declarations.get(&declaration).map(|_| declaration)
         }
 

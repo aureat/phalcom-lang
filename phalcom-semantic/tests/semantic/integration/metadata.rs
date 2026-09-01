@@ -9,8 +9,7 @@ use phalcom_type_meta::header::MetadataProfile;
 use phalcom_type_meta::validate::{ValidationLimits, validate_metadata_bundle};
 
 fn dummy_module() -> ModuleId {
-    ModuleId::builtin(
-        phalcom_modules::BuiltinPackage::Std,
+    ModuleId::universe(
         ModulePath::from_components(vec![
             ModuleComponent::from_identifier("collections").unwrap(),
             ModuleComponent::from_identifier("list").unwrap(),

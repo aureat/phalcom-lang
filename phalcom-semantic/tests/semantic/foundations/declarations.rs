@@ -8,7 +8,7 @@ use phalcom_semantic::types::parameter::TypeParameterOwner;
 use phalcom_semantic::types::store::TypeStore;
 
 fn test_universe_resolver(key: UniverseKey) -> DeclarationId {
-    DeclarationId::new(ModuleId::core(), key.name().into())
+    DeclarationId::new(ModuleId::universe_root(), key.name().into())
 }
 
 #[test]
@@ -93,12 +93,12 @@ fn option_case_behavior_classes_are_not_semantic_declarations() {
     let mut store = TypeStore::new();
     let declarations = bootstrap_universe_declarations(
         &mut store,
-        &|key| DeclarationId::new(ModuleId::core(), key.name().into()),
+        &|key| DeclarationId::new(ModuleId::universe_root(), key.name().into()),
     );
 
-    let option = DeclarationId::new(ModuleId::core(), "Option".into());
-    let some = DeclarationId::new(ModuleId::core(), "Some".into());
-    let none = DeclarationId::new(ModuleId::core(), "None".into());
+    let option = DeclarationId::new(ModuleId::universe_root(), "Option".into());
+    let some = DeclarationId::new(ModuleId::universe_root(), "Some".into());
+    let none = DeclarationId::new(ModuleId::universe_root(), "None".into());
 
     assert!(declarations.get(&option).is_some());
     assert!(declarations.get(&some).is_none());

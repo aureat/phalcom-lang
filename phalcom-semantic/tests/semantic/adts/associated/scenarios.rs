@@ -171,7 +171,7 @@ fn adt_assoc_16_family_value_does_not_escape_member_visibility() {
 
 #[allow(dead_code)]
 fn _canonical_ids() -> (DeclarationId, CallableId, Selector) {
-    let owner = DeclarationId::new(phalcom_modules::identity::ModuleId::core(), "Animal".into());
+    let owner = DeclarationId::new(phalcom_modules::identity::ModuleId::universe_root(), "Animal".into());
     let callable = CallableId::new(owner.clone(), Selector::method("run", []).expect("run"), DispatchSide::Instance);
     let selector = Selector::method("Dog", [SelectorSlot::Positional]).expect("Dog");
     (owner, callable, selector)

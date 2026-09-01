@@ -8,7 +8,7 @@ use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide, Invoca
 
 #[test]
 fn immediate_family_call_publishes_static_application_resolution() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
 enum Weird {
@@ -36,7 +36,7 @@ class Probe {
 
 #[test]
 fn stored_family_call_publishes_static_application_resolution() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
 enum Weird {
@@ -67,7 +67,7 @@ class Probe {
 
 #[test]
 fn stored_family_dynamic_pack_publishes_frozen_candidates() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
 enum Weird {

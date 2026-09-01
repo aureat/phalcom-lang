@@ -1,18 +1,18 @@
 use phalcom_ast::ast::DependencyDecl;
 use phalcom_ast::parser::parse;
 use phalcom_modules::{
-    BuiltinPackage, BuiltinProjectSourceProvider, ModuleComponent, ModuleId, ModuleKind, ModuleLoadError, ModulePath, ModuleResolutionError, UNIVERSE_NODES,
+UniverseSourceProvider, ModuleComponent, ModuleId, ModuleKind, ModuleLoadError, ModulePath, ModuleResolutionError, UNIVERSE_NODES,
 };
 
 fn make_universe_id(path: &[&str]) -> ModuleId {
     let components: Vec<ModuleComponent> = path.iter().map(|s| ModuleComponent::from_identifier(s).expect("valid identifier")).collect();
-    ModuleId::builtin(BuiltinPackage::Universe, ModulePath::from_components(components))
+    ModuleId::universe( ModulePath::from_components(components))
 }
 
 /// BCAT-01 — Every path in UNIVERSE_NODES has a source_text arm (catalog/source parity)
 #[test]
 fn bcat_01_universe_nodes_source_parity() {
-    let provider = BuiltinProjectSourceProvider::new(BuiltinPackage::Universe);
+    let provider = UniverseSourceProvider::new();
     for node in UNIVERSE_NODES {
         let id = make_universe_id(node.path);
         let src = provider.source_text(&id);
@@ -25,7 +25,7 @@ fn bcat_01_universe_nodes_source_parity() {
 /// BCAT-02 — Every path exposed in reflection/package.ph has a node in UNIVERSE_NODES
 #[test]
 fn bcat_02_reflection_exposed_children_in_nodes() {
-    let provider = BuiltinProjectSourceProvider::new(BuiltinPackage::Universe);
+    let provider = UniverseSourceProvider::new();
     let reflection_pkg_id = make_universe_id(&["reflection"]);
     let src = provider.source_text(&reflection_pkg_id).expect("reflection package source");
     let parse_result = parse(&src, 0);
@@ -49,7 +49,7 @@ fn bcat_02_reflection_exposed_children_in_nodes() {
         let node = UNIVERSE_NODES.iter().find(|n| n.path == path);
         assert!(
             node.is_some(),
-            "exposed child {:?} has no corresponding BuiltinNodeSpec in UNIVERSE_NODES",
+            "exposed child {:?} has no corresponding UniverseNodeSpec in UNIVERSE_NODES",
             path
         );
         let node = node.unwrap();
@@ -61,7 +61,7 @@ fn bcat_02_reflection_exposed_children_in_nodes() {
 /// BCAT-03 — contains returns false for a path not in the catalog
 #[test]
 fn bcat_03_contains_false_for_missing_path() {
-    let provider = BuiltinProjectSourceProvider::new(BuiltinPackage::Universe);
+    let provider = UniverseSourceProvider::new();
     let path = ModulePath::from_components(vec![
         ModuleComponent::from_identifier("reflection").unwrap(),
         ModuleComponent::from_identifier("nonexistent").unwrap(),
@@ -72,7 +72,7 @@ fn bcat_03_contains_false_for_missing_path() {
 /// BCAT-04 — load_interface for a missing path returns ModuleNotFound
 #[test]
 fn bcat_04_load_interface_missing_path_returns_module_not_found() {
-    let provider = BuiltinProjectSourceProvider::new(BuiltinPackage::Universe);
+    let provider = UniverseSourceProvider::new();
     let id = make_universe_id(&["reflection", "nonexistent"]);
     let result = provider.load_interface(&id);
     assert!(
@@ -85,7 +85,7 @@ fn bcat_04_load_interface_missing_path_returns_module_not_found() {
 /// BCAT-05 — load_interface for universe.errors.unsupported returns an interface with unsupported in exports
 #[test]
 fn bcat_05_load_interface_selector_exports_selector() {
-    let provider = BuiltinProjectSourceProvider::new(BuiltinPackage::Universe);
+    let provider = UniverseSourceProvider::new();
     let id = make_universe_id(&["errors", "unsupported"]);
     let iface = provider.load_interface(&id).expect("load unsupported interface");
     assert!(
@@ -98,7 +98,7 @@ fn bcat_05_load_interface_selector_exports_selector() {
 /// BCAT-06 — load_interface for universe (root) has all native bindings from UNIVERSE_BINDINGS in exports
 #[test]
 fn bcat_06_load_interface_root_exports_universe_bindings() {
-    let provider = BuiltinProjectSourceProvider::new(BuiltinPackage::Universe);
+    let provider = UniverseSourceProvider::new();
     let id = make_universe_id(&[]);
     let iface = provider.load_interface(&id).expect("load universe root interface");
 
@@ -114,7 +114,7 @@ fn bcat_06_load_interface_root_exports_universe_bindings() {
 /// BCAT-07 — source_text for a pure-native package root returns Ok (no source panic)
 #[test]
 fn bcat_07_source_text_root_ok() {
-    let provider = BuiltinProjectSourceProvider::new(BuiltinPackage::Universe);
+    let provider = UniverseSourceProvider::new();
     let id = make_universe_id(&[]);
     let src = provider.source_text(&id).expect("root source text");
     assert!(src.contains("expose"), "root source text should contain expose declarations");

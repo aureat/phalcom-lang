@@ -8,7 +8,7 @@ use phalcom_semantic::{DeclaredTypeBasis, DeclaredTypeState};
 
 #[test]
 fn partial_callable_signature_survives_unknown_return() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
 class Probe {
@@ -42,7 +42,7 @@ class Probe {
 
 #[test]
 fn source_fields_publish_canonical_field_signatures() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
 class Probe {

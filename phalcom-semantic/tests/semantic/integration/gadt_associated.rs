@@ -9,7 +9,7 @@ use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 
 #[test]
 fn gadt_constructor_resolution_refines_owner_and_keeps_runtime_result_known() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
 enum Expr<T> {

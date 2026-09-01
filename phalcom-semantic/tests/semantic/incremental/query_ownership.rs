@@ -164,7 +164,7 @@ class Owner {
 
     let mut store = TypeStore::new();
     let mut declarations = bootstrap_universe_declarations(&mut store, &|key| {
-        DeclarationId::new(phalcom_semantic::identity::ModuleId::core(), key.name().into())
+        DeclarationId::new(phalcom_semantic::identity::ModuleId::universe_root(), key.name().into())
     });
     let owner = DeclarationId::new(module.clone(), "Owner".into());
     declarations.insert(DeclarationTypeInfo {
@@ -176,7 +176,7 @@ class Owner {
         supertype_template: None,
     });
 
-    let int = DeclarationId::new(phalcom_semantic::identity::ModuleId::core(), "Int".into());
+    let int = DeclarationId::new(phalcom_semantic::identity::ModuleId::universe_root(), "Int".into());
     let mut resolver = SimpleTypeResolver::new();
     resolver.insert("Int", int);
     let hierarchy = MapTypeHierarchy::new();

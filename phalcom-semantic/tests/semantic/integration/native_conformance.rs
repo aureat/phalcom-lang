@@ -8,8 +8,8 @@ use phalcom_semantic::types::store::TypeStore;
 #[test]
 fn test_native_surface_conformance() {
     let mut store = TypeStore::new();
-    let core_mod = ModuleId::core();
-    let universe_resolver = |key: phalcom_native_meta::UniverseKey| -> DeclarationId { DeclarationId::new(ModuleId::core(), key.name().into()) };
+    let core_mod = ModuleId::universe_root();
+    let universe_resolver = |key: phalcom_native_meta::UniverseKey| -> DeclarationId { DeclarationId::new(ModuleId::universe_root(), key.name().into()) };
     let declarations = bootstrap_universe_declarations(&mut store, &universe_resolver);
 
     let resolver = SimpleTypeResolver::new();
@@ -62,7 +62,7 @@ enum Option<T> {
 }
 "#;
     let program = phalcom_ast::parser::parse_source(source, 0).expect("parse option source");
-    let core_mod = ModuleId::core();
+    let core_mod = ModuleId::universe_root();
     let decls = extract_source_declarations(&core_mod, &program);
     let merged = merge_surfaces(&decls, NATIVE_SURFACES);
 

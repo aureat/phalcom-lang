@@ -213,7 +213,7 @@ pub fn register_native_surfaces(
 ) -> Result<NativeSurfaceImportReport, NativeSurfaceImportError> {
     use crate::surface::DeclarationSurface;
 
-    let universe_resolver = |key: UniverseKey| -> DeclarationId { DeclarationId::new(crate::identity::ModuleId::core(), key.name().into()) };
+    let universe_resolver = |key: UniverseKey| -> DeclarationId { DeclarationId::new(crate::identity::ModuleId::universe_root(), key.name().into()) };
 
     let empty_params = HashMap::new();
     let mut surfaces_by_decl: HashMap<DeclarationId, DeclarationSurface> = HashMap::new();
@@ -230,7 +230,7 @@ pub fn register_native_surfaces(
         let decl = match resolver.resolve_type_name(current_module, owner_name, &[]) {
             Some(d) => d,
             None => {
-                let fallback = DeclarationId::new(crate::identity::ModuleId::core(), owner_name.into());
+                let fallback = DeclarationId::new(crate::identity::ModuleId::universe_root(), owner_name.into());
                 if declarations.form(&fallback).is_none() {
                     return Err(NativeSurfaceImportError::OwnerMissing { key: record.surface.key });
                 }

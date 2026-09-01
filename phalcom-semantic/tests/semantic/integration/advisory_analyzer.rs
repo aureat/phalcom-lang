@@ -10,7 +10,7 @@ use phalcom_semantic::source_index::build_source_scope_index;
 use phalcom_semantic::{AdvisoryConfidence, AdvisoryFact, ModuleId, SourceIndexContext, ValueShape};
 
 fn declaration(name: &str) -> DeclarationId {
-    DeclarationId::new(ModuleId::core(), name.into())
+    DeclarationId::new(ModuleId::universe_root(), name.into())
 }
 
 fn context<'a>(
@@ -48,7 +48,7 @@ fn context<'a>(
 fn analyzer_preserves_exact_collection_shapes_with_canonical_builtin_ids() {
     let parsed = parse("[1, 2]", 0);
     assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
-    let source = build_source_scope_index(ModuleId::core(), &parsed.program, &SourceIndexContext::default());
+    let source = build_source_scope_index(ModuleId::universe_root(), &parsed.program, &SourceIndexContext::default());
     let builtins = AdvisoryBuiltins {
         int: Some(declaration("Int")),
         ..AdvisoryBuiltins::default()
@@ -58,7 +58,7 @@ fn analyzer_preserves_exact_collection_shapes_with_canonical_builtin_ids() {
     let returns = BTreeMap::new();
     let site_for_range = |range: SourceRange| {
         Some(SourceSiteId {
-            owner: SourceOwner::Module(ModuleId::core()),
+            owner: SourceOwner::Module(ModuleId::universe_root()),
             local: SourceSiteLocalId(range.start as u32),
         })
     };
@@ -78,7 +78,7 @@ fn analyzer_preserves_exact_collection_shapes_with_canonical_builtin_ids() {
 fn analyzer_resolves_locals_through_compiler_scope_identity() {
     let parsed = parse("let value = [1, 2]\nvalue", 0);
     assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
-    let source = build_source_scope_index(ModuleId::core(), &parsed.program, &SourceIndexContext::default());
+    let source = build_source_scope_index(ModuleId::universe_root(), &parsed.program, &SourceIndexContext::default());
     let binding = source
         .bindings
         .values()
@@ -95,7 +95,7 @@ fn analyzer_resolves_locals_through_compiler_scope_identity() {
     let builtins = AdvisoryBuiltins::default();
     let site_for_range = |range: SourceRange| {
         Some(SourceSiteId {
-            owner: SourceOwner::Module(ModuleId::core()),
+            owner: SourceOwner::Module(ModuleId::universe_root()),
             local: SourceSiteLocalId(range.start as u32),
         })
     };
@@ -119,7 +119,7 @@ fn analyzer_resolves_locals_through_compiler_scope_identity() {
 fn analyzer_reuses_formal_resolved_callable_for_return_shape() {
     let parsed = parse("answer()", 0);
     assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
-    let source = build_source_scope_index(ModuleId::core(), &parsed.program, &SourceIndexContext::default());
+    let source = build_source_scope_index(ModuleId::universe_root(), &parsed.program, &SourceIndexContext::default());
     let target = CallableId::new(declaration("Answer"), Selector::getter("answer").unwrap(), DispatchSide::Instance);
     let returns = BTreeMap::from([(
         target.clone(),
@@ -144,7 +144,7 @@ fn analyzer_reuses_formal_resolved_callable_for_return_shape() {
 fn analyzer_does_not_fabricate_missing_builtin_identity() {
     let parsed = parse("1", 0);
     assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
-    let source = build_source_scope_index(ModuleId::core(), &parsed.program, &SourceIndexContext::default());
+    let source = build_source_scope_index(ModuleId::universe_root(), &parsed.program, &SourceIndexContext::default());
     let bindings = BTreeMap::new();
     let returns = BTreeMap::new();
     let fields = BTreeMap::new();
@@ -164,7 +164,7 @@ fn analyzer_does_not_fabricate_missing_builtin_identity() {
 fn flow_product_shares_binding_environment_across_initializer_and_use() {
     let parsed = parse("let values = [1, 2]\nvalues", 0);
     assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
-    let source = build_source_scope_index(ModuleId::core(), &parsed.program, &SourceIndexContext::default());
+    let source = build_source_scope_index(ModuleId::universe_root(), &parsed.program, &SourceIndexContext::default());
     let fields = BTreeMap::new();
     let returns = BTreeMap::new();
     let builtins = AdvisoryBuiltins {
@@ -173,7 +173,7 @@ fn flow_product_shares_binding_environment_across_initializer_and_use() {
     };
     let site_for_range = |range: SourceRange| {
         Some(SourceSiteId {
-            owner: SourceOwner::Module(ModuleId::core()),
+            owner: SourceOwner::Module(ModuleId::universe_root()),
             local: SourceSiteLocalId(range.start as u32),
         })
     };

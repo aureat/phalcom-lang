@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 #[test]
 fn constructor_factory_publishes_target_and_inferred_signature() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
 class CellNum {
@@ -87,7 +87,7 @@ const x: Int = CellNum.of(42)
 
 #[test]
 fn constructorless_class_inherits_canonical_class_new() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
 class Person {}
@@ -111,7 +111,7 @@ class Probe {
     let probe = DeclarationId::new(module.clone(), "Probe".into());
     let make = CallableId::new(probe, Selector::method("make", Vec::new()).unwrap(), DispatchSide::Instance);
     let default_new = CallableId::new(
-        DeclarationId::new(ModuleId::core(), "Class".into()),
+        DeclarationId::new(ModuleId::universe_root(), "Class".into()),
         Selector::method("new", Vec::new()).unwrap(),
         DispatchSide::Instance,
     );
@@ -189,7 +189,7 @@ class Probe {
     let probe = DeclarationId::new(module.clone(), "Probe".into());
     let make = CallableId::new(probe, Selector::method("make", Vec::new()).unwrap(), DispatchSide::Instance);
     let default_new = CallableId::new(
-        DeclarationId::new(ModuleId::core(), "Class".into()),
+        DeclarationId::new(ModuleId::universe_root(), "Class".into()),
         Selector::method("new", Vec::new()).unwrap(),
         DispatchSide::Instance,
     );
@@ -227,7 +227,7 @@ class Probe {
 
 #[test]
 fn receiver_query_falls_back_to_authoritative_binding_fact() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
 class CellNum {
@@ -298,7 +298,7 @@ class Probe {
 
 #[test]
 fn advisory_inherited_call_publishes_defining_callable_target() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
 class Animal {
@@ -327,7 +327,7 @@ dog.speak()
 
 #[test]
 fn partial_call_candidates_are_selected_by_canonical_receiver_surface() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
 class Service {
@@ -383,7 +383,7 @@ const family = Person::new
     let snapshot = analysis.snapshot;
 
     let default_new = CallableId::new(
-        DeclarationId::new(ModuleId::core(), "Class".into()),
+        DeclarationId::new(ModuleId::universe_root(), "Class".into()),
         Selector::method("new", Vec::new()).unwrap(),
         DispatchSide::Instance,
     );
@@ -410,7 +410,7 @@ fn builtin_annotation_snapshot() -> (ModuleId, Arc<str>, Arc<phalcom_semantic::S
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
     let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
-    let target = SemanticTargetId::Declaration(DeclarationId::new(ModuleId::core(), "Int".into()));
+    let target = SemanticTargetId::Declaration(DeclarationId::new(ModuleId::universe_root(), "Int".into()));
     (module, source, analysis.snapshot, target)
 }
 
@@ -436,14 +436,14 @@ fn builtin_declaration_has_canonical_definition_site() {
     );
     let site = snapshot.source_site(&sites[0]).expect("builtin declaration source site");
     assert!(
-        matches!(&site.id.owner, phalcom_semantic::SourceOwner::Module(owner) if owner == &ModuleId::core()),
+        matches!(&site.id.owner, phalcom_semantic::SourceOwner::Module(owner) if owner == &ModuleId::universe_root()),
         "builtin definition site must belong to the compiler-owned core presentation shard: {site:#?}"
     );
 }
 
 #[test]
 fn native_callable_presentation_is_compiler_owned() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from("let x = true.ifTrue || { 1 };\n");
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);

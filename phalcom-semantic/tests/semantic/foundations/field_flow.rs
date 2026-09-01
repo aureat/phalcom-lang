@@ -8,7 +8,7 @@ use phalcom_semantic::types::outcome::{BlockReason, DynamicBoundaryObligation};
 use phalcom_semantic::types::store::TypeStore;
 
 fn make_field(name: &str) -> FieldId {
-    FieldId::new(DeclarationId::new(ModuleId::core(), "Cell".into()), name, DispatchSide::Instance)
+    FieldId::new(DeclarationId::new(ModuleId::universe_root(), "Cell".into()), name, DispatchSide::Instance)
 }
 
 #[test]
@@ -34,8 +34,8 @@ fn field_validity_join_never_strengthens_a_reachable_path() {
 #[test]
 fn field_join_with_incompatible_reachable_paths_records_refuted_and_unioned_knowledge() {
     let mut store = TypeStore::new();
-    let int_ty = store.nominal_type(DeclarationId::new(ModuleId::core(), "Int".into()));
-    let string_ty = store.nominal_type(DeclarationId::new(ModuleId::core(), "String".into()));
+    let int_ty = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "Int".into()));
+    let string_ty = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "String".into()));
     let id = make_field("_value");
     let contract = TypeKnowledge::assumed(int_ty, EvidenceOrigin::DeveloperAnnotation);
 

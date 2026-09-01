@@ -282,15 +282,15 @@ mod tests {
             code: phalcom_semantic::DiagnosticCode::BindingInitializerMismatch,
             severity: phalcom_semantic::DiagnosticSeverity::Error,
             headline: "initializer conflicts with declared type".into(),
-            primary: phalcom_semantic::SemanticSourceSpan::new(phalcom_modules::identity::ModuleId::core(), (14..17).into()),
+            primary: phalcom_semantic::SemanticSourceSpan::new(phalcom_modules::identity::ModuleId::universe_root(), (14..17).into()),
             labels: vec![
                 phalcom_semantic::PresentedLabel {
-                    span: phalcom_semantic::SemanticSourceSpan::new(phalcom_modules::identity::ModuleId::core(), (14..17).into()),
+                    span: phalcom_semantic::SemanticSourceSpan::new(phalcom_modules::identity::ModuleId::universe_root(), (14..17).into()),
                     message: "required `Int`".into(),
                     role: phalcom_semantic::PresentedLabelRole::Required,
                 },
                 phalcom_semantic::PresentedLabel {
-                    span: phalcom_semantic::SemanticSourceSpan::new(phalcom_modules::identity::ModuleId::core(), (20..35).into()),
+                    span: phalcom_semantic::SemanticSourceSpan::new(phalcom_modules::identity::ModuleId::universe_root(), (20..35).into()),
                     message: "proven `CellNum`".into(),
                     role: phalcom_semantic::PresentedLabelRole::Established,
                 },
@@ -331,7 +331,7 @@ mod tests {
         let index = LineIndex::new(source);
         let uri = tower_lsp::lsp_types::Url::parse("file:///workspace/main.ph").unwrap();
         let semantic = phalcom_semantic::SemanticDiagnostic::error_in(
-            phalcom_modules::identity::ModuleId::core(),
+            phalcom_modules::identity::ModuleId::universe_root(),
             phalcom_semantic::DiagnosticCode::BindingInitializerMismatch,
             "binding initializer is incompatible",
             (4..9).into(),

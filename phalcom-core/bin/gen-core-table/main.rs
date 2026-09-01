@@ -109,7 +109,7 @@ fn main() {
 /// Parses every canonical universe module and harvests every class's declared selectors in
 /// comma-form.
 fn harvest_universe_sources(classes: &mut BTreeMap<String, Vec<SelectorEntry>>) {
-    let provider = phalcom_modules::builtin::BuiltinProjectSourceProvider::new(phalcom_modules::identity::BuiltinPackage::Universe);
+    let provider = phalcom_modules::builtin::UniverseSourceProvider::new();
     for node in provider.nodes() {
         let path = phalcom_modules::identity::ModulePath::from_components(
             node.path
@@ -117,7 +117,7 @@ fn harvest_universe_sources(classes: &mut BTreeMap<String, Vec<SelectorEntry>>) 
                 .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).expect("valid builtin component"))
                 .collect::<Vec<_>>(),
         );
-        let module = phalcom_modules::identity::ModuleId::builtin(phalcom_modules::identity::BuiltinPackage::Universe, path);
+        let module = phalcom_modules::identity::ModuleId::universe(path);
         let source = provider.source_text(&module).unwrap_or_else(|e| panic!("failed to read {module}: {e}"));
         let program = phalcom_ast::parse_source(&source, 0).unwrap_or_else(|e| panic!("failed to parse {module}: {e:?}"));
 

@@ -565,11 +565,11 @@ pub fn query_hierarchy_edge(
             let members = super_ref.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
             resolver.resolve_type_name(&class_decl.module, &super_ref.root, &members)
         } else {
-            let object = DeclarationId::new(ModuleId::core(), "Object".into());
+            let object = DeclarationId::new(ModuleId::universe_root(), "Object".into());
             (class_decl != object).then_some(object)
         }
     } else {
-        Some(DeclarationId::new(ModuleId::core(), "Object".into()))
+        Some(DeclarationId::new(ModuleId::universe_root(), "Object".into()))
     };
     let input_fingerprint = if let Some(class_def) = class_def {
         crate::db::fingerprint::hierarchy_edge_input_fingerprint(&class_decl, superclass_source(&unit, class_def), &super_decl)

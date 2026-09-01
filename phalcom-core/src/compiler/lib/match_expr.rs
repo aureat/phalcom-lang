@@ -151,7 +151,7 @@ fn synthesize_fallback_pattern(
             let is_core = owner_name == "Option" || owner_name == "Result" || owner_name == "Ordering";
             let owner_decl = DeclarationId::new(
                 if is_core {
-                    ModuleId::core()
+                    ModuleId::universe_root()
                 } else {
                     module_id.clone()
                 },

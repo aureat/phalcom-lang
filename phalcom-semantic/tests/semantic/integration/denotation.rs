@@ -15,7 +15,7 @@ use phalcom_semantic::types::relation::MapTypeHierarchy;
 use phalcom_semantic::types::store::TypeStore;
 
 fn test_universe_resolver(key: UniverseKey) -> DeclarationId {
-    DeclarationId::new(ModuleId::core(), key.name().into())
+    DeclarationId::new(ModuleId::universe_root(), key.name().into())
 }
 
 #[test]
@@ -24,7 +24,7 @@ fn class_name_has_class_object_value_type_and_type_form_denotation() {
     let hierarchy = MapTypeHierarchy::new();
     let mut resolver = SimpleTypeResolver::new();
     let declarations = bootstrap_universe_declarations(&mut store, &test_universe_resolver);
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
 
     let int_decl = test_universe_resolver(UniverseKey::Int);
     resolver.insert("Int", int_decl.clone());
@@ -53,7 +53,7 @@ fn generic_class_name_denotes_constructor_kind() {
     let hierarchy = MapTypeHierarchy::new();
     let mut resolver = SimpleTypeResolver::new();
     let declarations = bootstrap_universe_declarations(&mut store, &test_universe_resolver);
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
 
     let list_decl = test_universe_resolver(UniverseKey::List);
     resolver.insert("List", list_decl.clone());
@@ -82,7 +82,7 @@ fn ordinary_literal_has_no_denotation() {
     let hierarchy = MapTypeHierarchy::new();
     let mut resolver = SimpleTypeResolver::new();
     let declarations = bootstrap_universe_declarations(&mut store, &test_universe_resolver);
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
 
     let int_decl = test_universe_resolver(UniverseKey::Int);
     resolver.insert("Int", int_decl);
@@ -106,7 +106,7 @@ fn const_binding_preserves_denotation() {
     let hierarchy = MapTypeHierarchy::new();
     let mut resolver = SimpleTypeResolver::new();
     let declarations = bootstrap_universe_declarations(&mut store, &test_universe_resolver);
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
 
     let int_decl = test_universe_resolver(UniverseKey::Int);
     resolver.insert("Int", int_decl.clone());
@@ -127,7 +127,7 @@ fn reassignment_replaces_or_clears_denotation() {
     let hierarchy = MapTypeHierarchy::new();
     let mut resolver = SimpleTypeResolver::new();
     let declarations = bootstrap_universe_declarations(&mut store, &test_universe_resolver);
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
 
     let int_decl = test_universe_resolver(UniverseKey::Int);
     let string_decl = test_universe_resolver(UniverseKey::String);
@@ -170,7 +170,7 @@ fn flow_join_preserves_only_identical_denotation() {
     let hierarchy = MapTypeHierarchy::new();
     let mut resolver = SimpleTypeResolver::new();
     let declarations = bootstrap_universe_declarations(&mut store, &test_universe_resolver);
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
 
     let int_decl = test_universe_resolver(UniverseKey::Int);
     let string_decl = test_universe_resolver(UniverseKey::String);
@@ -210,7 +210,7 @@ fn type_form_expression_synthesizes_class_object_and_applied_denotation() {
     let hierarchy = MapTypeHierarchy::new();
     let mut resolver = SimpleTypeResolver::new();
     let declarations = bootstrap_universe_declarations(&mut store, &test_universe_resolver);
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
 
     let int_decl = test_universe_resolver(UniverseKey::Int);
     let list_decl = test_universe_resolver(UniverseKey::List);

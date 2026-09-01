@@ -447,7 +447,7 @@ pub fn specialize_associated_member(
                 })
             } else if let Some(constructor) = &variant_info.constructor {
                 let constructor_result = TypeView::new(constructor.exact_case_template, env.clone()).materialize(ctx.store);
-                let object_decl = crate::identity::DeclarationId::new(crate::identity::ModuleId::core(), "Object".into());
+                let object_decl = crate::identity::DeclarationId::new(crate::identity::ModuleId::universe_root(), "Object".into());
                 let object_ty = ctx.store.nominal(object_decl);
                 let parameters: Vec<CallableParameterType> = constructor
                     .parameters

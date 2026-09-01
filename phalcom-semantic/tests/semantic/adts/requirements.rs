@@ -15,7 +15,7 @@ use std::collections::HashMap;
 
 #[test]
 fn adt_req_00_requirement_identity_is_owner_and_selector_qualified() {
-    let owner = DeclarationId::new(ModuleId::core(), "Shape".into());
+    let owner = DeclarationId::new(ModuleId::universe_root(), "Shape".into());
     let describe = Selector::getter("describe").expect("describe selector");
     let other = Selector::getter("render").expect("render selector");
 
@@ -83,7 +83,7 @@ fn signature(owner: DeclarationId, selector: Selector, return_type: DeclaredType
 
 #[test]
 fn adt_req_03_selector_or_arity_mismatch_is_missing_not_satisfied() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let owner = DeclarationId::new(module.clone(), "Shape".into());
     let mut store = TypeStore::new();
     let root = store.nominal_type(owner.clone());
@@ -130,7 +130,7 @@ fn adt_req_03_selector_or_arity_mismatch_is_missing_not_satisfied() {
 
 #[test]
 fn adt_req_05_generic_requirement_specializes_through_case_environment() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let owner = DeclarationId::new(module.clone(), "Expr".into());
     let mut store = TypeStore::new();
     let parameter = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(owner.clone()), 0, "T", KindId::TYPE));

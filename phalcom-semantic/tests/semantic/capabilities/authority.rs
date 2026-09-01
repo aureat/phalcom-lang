@@ -14,7 +14,7 @@ type Analysis = phalcom_semantic::workspace::SemanticAnalysis;
 use crate::semantic::support::Fixture;
 
 fn analyze(source_text: &str) -> (ModuleId, Arc<str>, Analysis) {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(source_text);
     let parsed = parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);

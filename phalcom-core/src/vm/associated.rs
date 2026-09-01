@@ -25,7 +25,7 @@ impl VM {
         }
 
         // 2. Check builtin classes
-        if matches!(decl.module.project, phalcom_modules::ProjectIdentity::Builtin(_)) {
+        if decl.module.project.is_universe() {
             if let Some(class_id) = self.resolve_builtin_class_name(&decl.name) {
                 return Ok(class_id);
             }

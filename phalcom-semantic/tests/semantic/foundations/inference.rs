@@ -12,7 +12,7 @@ use phalcom_semantic::types::relation::MapTypeHierarchy;
 use phalcom_semantic::types::store::TypeStore;
 
 fn test_decl(name: &str) -> DeclarationId {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     DeclarationId::new(module, name.into())
 }
 

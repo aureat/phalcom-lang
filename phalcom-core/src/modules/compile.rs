@@ -2,7 +2,7 @@
 
 use super::artifact::ModuleMaterializationPlan;
 use phalcom_modules::{
-    BuiltinPackage, BuiltinProjectSourceProvider, FilesystemSourceProvider, InterfaceBuilder, InterfaceError, LinkError, LinkedModule, LinkedProgram,
+    UniverseSourceProvider, FilesystemSourceProvider, InterfaceBuilder, InterfaceError, LinkError, LinkedModule, LinkedProgram,
     ModuleComponent, ModuleId, ModuleKind, ModuleLinker, ModulePath, ModuleResolutionError, ModuleResolver, ProjectError, ProjectUniverse, SourceError,
     SourceId, SourceLocation, discover_owning_project,
 };
@@ -336,9 +336,8 @@ impl ProgramAnalyzer {
                 }
             };
 
-            let builtin = match &path.root {
-                phalcom_ast::ast::ImportRoot::Absolute(root) if root.name == "universe" => BuiltinPackage::Universe,
-                phalcom_ast::ast::ImportRoot::Absolute(root) if root.name == "std" => BuiltinPackage::Std,
+            match &path.root {
+                phalcom_ast::ast::ImportRoot::Absolute(root) if root.name == "universe" => {}
                 _ => {
                     return Err(ProgramCompileError::StandaloneImportRequiresPackageContext {
                         import_name: path.to_string().into(),
@@ -352,8 +351,8 @@ impl ProgramAnalyzer {
                     .collect::<Result<Vec<_>, _>>()
                     .map_err(|e| ProgramCompileError::Io(e.to_string()))?,
             );
-            let target_id = ModuleId::builtin(builtin, target_path);
-            let provider = BuiltinProjectSourceProvider::new(builtin);
+            let target_id = ModuleId::universe(target_path);
+            let provider = UniverseSourceProvider::new();
             let target_interface = provider.load_interface(&target_id)?;
             let target_parsed = provider.load_parsed(&target_id)?;
             interfaces.entry(target_id.clone()).or_insert(target_interface);

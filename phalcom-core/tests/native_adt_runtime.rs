@@ -9,7 +9,7 @@ use phalcom_semantic::identity::{VariantFieldId, VariantId};
 #[test]
 fn test_native_option_runtime_representation_seam() {
     let mut vm = VM::new();
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let option_decl = DeclarationId::new(module.clone(), "Option".into());
 
     let some_sel = Selector::method("Some", vec![phalcom_common::selector::SelectorSlot::Positional]).unwrap();

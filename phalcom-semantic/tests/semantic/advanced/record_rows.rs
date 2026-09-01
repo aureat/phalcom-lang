@@ -8,7 +8,7 @@ use phalcom_semantic::types::row_solver::{RecordRowFailure, RecordRowSolver, Rec
 use phalcom_semantic::types::store::TypeStore;
 
 fn test_decl(name: &str) -> DeclarationId {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     DeclarationId::new(module, name.into())
 }
 

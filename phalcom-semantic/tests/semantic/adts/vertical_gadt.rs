@@ -25,7 +25,7 @@ class Evaluator {
     case.assert_no_diagnostics();
 
     // 1. Declarations & EnumInfo
-    let expr_decl = DeclarationId::new(ModuleId::core(), "Expr".into());
+    let expr_decl = DeclarationId::new(ModuleId::universe_root(), "Expr".into());
     let enum_info = case.analysis.snapshot.enum_semantics.enum_info(&expr_decl).expect("Expr enum info");
     assert_eq!(enum_info.variants.len(), 2);
     assert_eq!(enum_info.variant_families.len(), 2);

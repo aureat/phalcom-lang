@@ -29,10 +29,7 @@ impl VM {
                 module_obj.metadata = Some(Arc::new(compiled_mod.interface.metadata.clone()));
                 module_obj.lowering = Some(compiled_mod.lowering.clone());
                 let obj_ref = self.heap.alloc(Object::Module(Box::new(module_obj)));
-                if matches!(
-                    id.project,
-                    phalcom_modules::ProjectIdentity::Builtin(phalcom_modules::identity::BuiltinPackage::Universe)
-                ) {
+                if id.project.is_universe() {
                     self.privileged_modules.insert(obj_ref);
                 }
                 self.module_registry
@@ -80,17 +77,17 @@ impl VM {
                     };
                     (parent, root, if is_standalone { None } else { Some(*pid) })
                 }
-                phalcom_modules::ProjectIdentity::Builtin(bid) => {
+                phalcom_modules::ProjectIdentity::Universe => {
                     let parent = if id.path.is_root() {
                         if compiled_mod.kind == phalcom_modules::ModuleKind::Package {
                             None
                         } else {
-                            Some(phalcom_modules::ModuleId::builtin(*bid, phalcom_modules::ModulePath::root()))
+                            Some(phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::root()))
                         }
                     } else {
-                        id.path.parent().map(|p| phalcom_modules::ModuleId::builtin(*bid, p))
+                        id.path.parent().map(phalcom_modules::ModuleId::universe)
                     };
-                    let root = Some(phalcom_modules::ModuleId::builtin(*bid, phalcom_modules::ModulePath::root()));
+                    let root = Some(phalcom_modules::ModuleId::universe_root());
                     (parent, root, None)
                 }
                 phalcom_modules::ProjectIdentity::Synthetic(sid) => {
@@ -271,7 +268,7 @@ impl VM {
                             Some(s) => s,
                             None => self.heap.module_mut(target_obj).declare(sym)?,
                         };
-                        if symbol_id.module.project.as_builtin().is_some() {
+                        if symbol_id.module.project.is_universe() {
                             if let Some(class_id) = self.resolve_builtin_class_name(&symbol_id.name) {
                                 self.heap.module_mut(target_obj).set_global(slot, crate::value::Value::obj(class_id))?;
                             }
@@ -307,7 +304,7 @@ impl VM {
                             Some(s) => s,
                             None => self.heap.module_mut(target_mod_obj).declare(target_sym)?,
                         };
-                        if symbol.module.project.as_builtin().is_some() {
+                        if symbol.module.project.is_universe() {
                             if let Some(class_id) = self.resolve_builtin_class_name(&symbol.name) {
                                 self.heap.module_mut(target_mod_obj).set_global(slot, crate::value::Value::obj(class_id))?;
                             }

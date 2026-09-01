@@ -6,7 +6,7 @@ use phalcom_semantic::{CallableId, CallableParameterId, DeclarationId, DispatchS
 
 #[test]
 fn callable_parameter_identity_connects_signature_binding_and_source_site() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
 class ParameterProbe {

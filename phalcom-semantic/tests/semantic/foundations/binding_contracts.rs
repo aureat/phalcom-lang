@@ -8,7 +8,7 @@ use phalcom_semantic::types::store::TypeStore;
 fn established_actual_is_retained_and_validated_against_contract() {
     let mut store = TypeStore::new();
     let hierarchy = MapTypeHierarchy::new();
-    let actual_ty = store.nominal(phalcom_modules::DeclarationId::new(phalcom_modules::identity::ModuleId::core(), "Int".into()));
+    let actual_ty = store.nominal(phalcom_modules::DeclarationId::new(phalcom_modules::identity::ModuleId::universe_root(), "Int".into()));
     let contract_ty = actual_ty;
     let actual = TypeKnowledge::established(actual_ty, EvidenceOrigin::Syntax);
     let contract = BindingContract {
@@ -26,7 +26,7 @@ fn established_actual_is_retained_and_validated_against_contract() {
 fn eligible_no_evidence_receives_assumption_but_coverage_gap_does_not() {
     let mut store = TypeStore::new();
     let hierarchy = MapTypeHierarchy::new();
-    let int_ty = store.nominal(phalcom_modules::DeclarationId::new(phalcom_modules::identity::ModuleId::core(), "Int".into()));
+    let int_ty = store.nominal(phalcom_modules::DeclarationId::new(phalcom_modules::identity::ModuleId::universe_root(), "Int".into()));
     let contract = BindingContract {
         ty: int_ty,
         origin: BindingContractOrigin::SourceAnnotation,
@@ -56,9 +56,9 @@ fn eligible_no_evidence_receives_assumption_but_coverage_gap_does_not() {
 fn refuted_contract_does_not_replace_actual_knowledge() {
     let mut store = TypeStore::new();
     let hierarchy = MapTypeHierarchy::new();
-    let int_ty = store.nominal(phalcom_modules::DeclarationId::new(phalcom_modules::identity::ModuleId::core(), "Int".into()));
+    let int_ty = store.nominal(phalcom_modules::DeclarationId::new(phalcom_modules::identity::ModuleId::universe_root(), "Int".into()));
     let string_ty = store.nominal(phalcom_modules::DeclarationId::new(
-        phalcom_modules::identity::ModuleId::core(),
+        phalcom_modules::identity::ModuleId::universe_root(),
         "String".into(),
     ));
     let actual = TypeKnowledge::established(int_ty, EvidenceOrigin::Syntax);

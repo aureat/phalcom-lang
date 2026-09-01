@@ -8,7 +8,7 @@ use std::collections::HashSet;
 
 #[test]
 fn associated_lookup_returns_exact_variant_members_in_declaration_order() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let owner = DeclarationId::new(module.clone(), "Animal".into());
     let variants = vec![
         VariantId::new(owner.clone(), Selector::method("Dog", [SelectorSlot::Positional]).expect("dog selector")),

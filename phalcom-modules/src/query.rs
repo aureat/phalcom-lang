@@ -62,22 +62,13 @@ impl<'a> ModuleQueryFacade<'a> {
 
     /// Returns canonical import root entries including `is_self` indicators.
     pub fn import_root_entries(&self, importer: &ModuleId) -> BTreeMap<ModuleComponent, ImportRootQueryTarget> {
-        let mut roots = BTreeMap::from([
-            (
-                ModuleComponent::from_identifier("std").expect("std is canonical"),
-                ImportRootQueryTarget {
-                    target: ImportRootTarget::Builtin(crate::identity::BuiltinPackage::Std),
-                    is_self: false,
-                },
-            ),
-            (
-                ModuleComponent::from_identifier("universe").expect("universe is canonical"),
-                ImportRootQueryTarget {
-                    target: ImportRootTarget::Builtin(crate::identity::BuiltinPackage::Universe),
-                    is_self: false,
-                },
-            ),
-        ]);
+        let mut roots = BTreeMap::from([(
+            ModuleComponent::from_identifier("universe").expect("universe is canonical"),
+            ImportRootQueryTarget {
+                target: ImportRootTarget::Universe,
+                is_self: false,
+            },
+        )]);
 
         if let ProjectIdentity::Resolved(project) = importer.project
             && let Some(project) = self.universe.get_project(project)

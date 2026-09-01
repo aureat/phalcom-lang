@@ -1,6 +1,6 @@
-use crate::builtin::BuiltinProjectSourceProvider;
+use crate::builtin::UniverseSourceProvider;
 use crate::error::{ModuleLoadError, ModuleResolutionError};
-use crate::identity::{ImportRootTarget, ModuleComponent, ModuleId, ModulePath, ResolvedProjectId, SourceLocation};
+use crate::identity::{ImportRootTarget, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, ResolvedProjectId, SourceLocation};
 use crate::interface::{InterfaceBuilder, PackagePathSurface, UnlinkedModuleInterface};
 use crate::project::ProjectUniverse;
 use crate::source::{ModuleKind, ParsedModuleUnit, SourceProvider, SourceUnit};
@@ -56,9 +56,7 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                     ModuleComponent::from_identifier(&root_seg.name).map_err(|e| ModuleResolutionError::InvalidModuleName(root_seg.name.clone(), e))?;
 
                 let (target_root, is_self) = if root_seg.name == "universe" {
-                    (ImportRootTarget::Builtin(crate::identity::BuiltinPackage::Universe), false)
-                } else if root_seg.name == "std" {
-                    (ImportRootTarget::Builtin(crate::identity::BuiltinPackage::Std), false)
+                    (ImportRootTarget::Universe, false)
                 } else if let Some(proj) = importer_project {
                     let roots = proj.import_roots();
                     roots
@@ -81,12 +79,13 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                 let target_path = ModulePath::from_components(components);
 
                 let target_project_id = match target_root {
-                    ImportRootTarget::Builtin(builtin) => {
-                        let provider = BuiltinProjectSourceProvider::new(builtin);
+                    ImportRootTarget::Universe => {
+                        let provider = UniverseSourceProvider::new();
                         let kind = provider
                             .kind(&target_path)
-                            .ok_or_else(|| ModuleResolutionError::ModuleNotFound(format!("builtin module {builtin}.{target_path} not found")))?;
-                        let source_id = provider.source_id(&ModuleId::builtin(builtin, target_path.clone())).map_err(|e| match e {
+                            .ok_or_else(|| ModuleResolutionError::ModuleNotFound(format!("Universe module universe.{target_path} not found")))?;
+                        let id = ModuleId::universe(target_path.clone());
+                        let source_id = provider.source_id(&id).map_err(|e| match e {
                             ModuleLoadError::Resolution(r) => r,
                             _ => ModuleResolutionError::ModuleNotFound(format!("{e}")),
                         })?;
@@ -97,11 +96,11 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                         };
                         return Ok(ImportResolutionTrace {
                             target: SourceUnit {
-                                id: ModuleId::builtin(builtin, target_path.clone()),
+                                id,
                                 kind,
                                 source: SourceLocation {
                                     source_id,
-                                    display_path: PathBuf::from(format!("<builtin:{builtin}>/{uri_path}")),
+                                    display_path: PathBuf::from(format!("<universe>/{uri_path}")),
                                 },
                             },
                             package_interfaces,
@@ -244,8 +243,8 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
             return res.clone();
         }
 
-        if let crate::identity::ProjectIdentity::Builtin(builtin) = module_id.project {
-            let result = BuiltinProjectSourceProvider::new(builtin).load_parsed(module_id);
+        if module_id.project == ProjectIdentity::Universe {
+            let result = UniverseSourceProvider::new().load_parsed(module_id);
             self.parsed_cache.insert(module_id.clone(), result.clone());
             return result;
         }
@@ -294,8 +293,8 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
 
         let parsed = self.load_parsed(module_id)?;
 
-        if let crate::identity::ProjectIdentity::Builtin(builtin) = module_id.project {
-            let provider = BuiltinProjectSourceProvider::new(builtin);
+        if module_id.project == ProjectIdentity::Universe {
+            let provider = UniverseSourceProvider::new();
             let result = crate::builtin_interface::BuiltinInterfaceBuilder::build_from_parsed(&provider, &parsed);
             self.interface_cache.insert(module_id.clone(), result.clone());
             return result;

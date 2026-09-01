@@ -146,14 +146,14 @@ impl SemanticWorkspaceSession {
         let db = SemanticDb::with_workspace(workspace);
         let mut store = TypeStore::new();
 
-        let mut base_declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(ModuleId::core(), key.name().into()));
+        let mut base_declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(ModuleId::universe_root(), key.name().into()));
 
         let mut base_hierarchy = MapTypeHierarchy::new();
         for relation in phalcom_native_meta::UNIVERSE_CLASS_RELATIONS {
             if let Some(superclass) = relation.superclass {
                 base_hierarchy.insert(
-                    DeclarationId::new(ModuleId::core(), relation.class.name().into()),
-                    DeclarationId::new(ModuleId::core(), superclass.name().into()),
+                    DeclarationId::new(ModuleId::universe_root(), relation.class.name().into()),
+                    DeclarationId::new(ModuleId::universe_root(), superclass.name().into()),
                 );
             }
         }
@@ -164,11 +164,11 @@ impl SemanticWorkspaceSession {
             universe: Arc::new(phalcom_modules::project::ProjectUniverse::new()),
             modules: BTreeMap::new(),
             graphs: phalcom_modules::graph::ModuleGraphs::default(),
-            entry: ModuleId::core(),
-            initialization_order: vec![ModuleId::core()],
+            entry: ModuleId::universe_root(),
+            initialization_order: vec![ModuleId::universe_root()],
         });
-        let resolver = LinkedTypeResolver::new(dummy_linked, known_declarations, ModuleId::core());
-        let native_report = register_native_surfaces(&mut store, &base_declarations, &resolver, &ModuleId::core(), &mut base_dispatch)
+        let resolver = LinkedTypeResolver::new(dummy_linked, known_declarations, ModuleId::universe_root());
+        let native_report = register_native_surfaces(&mut store, &base_declarations, &resolver, &ModuleId::universe_root(), &mut base_dispatch)
             .expect("canonical native surface must import during semantic bootstrap");
         crate::checker::context::ensure_core_object_type_tests(&mut store, &base_declarations, &mut base_dispatch);
 
@@ -188,7 +188,7 @@ impl SemanticWorkspaceSession {
         let mut base_enum_requirements = EnumRequirementTable::new();
         let mut base_enum_requirement_products = Vec::new();
 
-        let provider = phalcom_modules::BuiltinProjectSourceProvider::new(phalcom_modules::BuiltinPackage::Universe);
+        let provider = phalcom_modules::UniverseSourceProvider::new();
 
         // Canonical source enums are not native-meta classes. Add their
         // declaration forms before constructing the linked resolver so
@@ -202,7 +202,7 @@ impl SemanticWorkspaceSession {
                     .map(|p| phalcom_modules::ModuleComponent::from_identifier(p).expect("valid component"))
                     .collect::<Vec<_>>(),
             );
-            let module_id = phalcom_modules::ModuleId::builtin(phalcom_modules::BuiltinPackage::Universe, path);
+            let module_id = phalcom_modules::ModuleId::universe(path);
             let parsed = provider
                 .load_parsed(&module_id)
                 .unwrap_or_else(|e| panic!("failed to load universe module {module_id}: {e}"));
@@ -210,7 +210,7 @@ impl SemanticWorkspaceSession {
                 let phalcom_ast::ast::Statement::Enum(enum_def) = stmt else {
                     continue;
                 };
-                let decl_id = DeclarationId::new(ModuleId::core(), enum_def.name.clone().into());
+                let decl_id = DeclarationId::new(ModuleId::universe_root(), enum_def.name.clone().into());
                 if base_declarations.get(&decl_id).is_some() {
                     continue;
                 }
@@ -259,20 +259,20 @@ impl SemanticWorkspaceSession {
                     .map(|p| phalcom_modules::ModuleComponent::from_identifier(p).expect("valid component"))
                     .collect::<Vec<_>>(),
             );
-            let module_id = phalcom_modules::ModuleId::builtin(phalcom_modules::BuiltinPackage::Universe, path);
+            let module_id = phalcom_modules::ModuleId::universe(path);
             let parsed = provider
                 .load_parsed(&module_id)
                 .unwrap_or_else(|e| panic!("failed to load universe module {module_id}: {e}"));
             for stmt in &parsed.program.statements {
                 if let phalcom_ast::ast::Statement::Enum(enum_def) = stmt {
-                    let decl_id = DeclarationId::new(ModuleId::core(), enum_def.name.clone().into());
+                    let decl_id = DeclarationId::new(ModuleId::universe_root(), enum_def.name.clone().into());
                     let enum_product = crate::checker::enum_declaration::build_enum_semantics(
                         &decl_id,
                         enum_def,
                         &mut store,
                         &base_declarations,
                         &resolver,
-                        &ModuleId::core(),
+                        &ModuleId::universe_root(),
                     );
                     base_enum_semantics.insert_enum(enum_product.info.clone());
                     for v in enum_product.variants.iter() {
@@ -286,7 +286,7 @@ impl SemanticWorkspaceSession {
                         &resolver,
                         &base_declarations,
                         &base_dispatch,
-                        ModuleId::core(),
+                        ModuleId::universe_root(),
                     );
                     behavior_ctx.attach_enum_semantics(&base_enum_semantics);
                     let behavior_product = crate::checker::enum_behavior::build_enum_behavior(&mut behavior_ctx, &decl_id, enum_def);
@@ -337,8 +337,8 @@ impl SemanticWorkspaceSession {
                         ),
                         &behavior_bases,
                         &std::collections::HashSet::new(),
-                        &ModuleId::core(),
-                        Some(crate::diagnostic::SemanticSourceSpan::new(ModuleId::core(), enum_def.range)),
+                        &ModuleId::universe_root(),
+                        Some(crate::diagnostic::SemanticSourceSpan::new(ModuleId::universe_root(), enum_def.range)),
                     );
                     base_associated_surfaces.insert(decl_id.clone(), assoc_surface.clone());
                     base_associated_surface_products.push(assoc_surface);
@@ -369,7 +369,7 @@ impl SemanticWorkspaceSession {
                         &case_methods_map,
                         &mut store,
                         &base_hierarchy,
-                        &ModuleId::core(),
+                        &ModuleId::universe_root(),
                     );
                     base_enum_requirements.insert(decl_id.clone(), Arc::from(behavior_product.root_requirements.clone()), case_statuses.clone());
                     let req_product = Arc::new(EnumRequirementsProduct {
@@ -664,7 +664,7 @@ impl SemanticWorkspaceSession {
 
         // 3. Construct LinkedTypeResolver
         let known_declarations: HashSet<DeclarationId> = declarations.iter().map(|(decl_id, _)| decl_id.clone()).collect();
-        let resolver = LinkedTypeResolver::new(input.linked.clone(), known_declarations, ModuleId::core());
+        let resolver = LinkedTypeResolver::new(input.linked.clone(), known_declarations, ModuleId::universe_root());
 
         // 4. Enrich Semantic Graph
         let mut semantic_graph = input.linked.graphs.semantics.clone();
@@ -1964,7 +1964,7 @@ fn build_source_semantic_index(
     }
 
     let mut presentation_sources = BTreeMap::new();
-    let core = ModuleId::core();
+    let core = ModuleId::universe_root();
     if !sources.contains_key(&core) {
         let text = render_canonical_core_source();
         let parsed = phalcom_ast::parse(&text, 0);

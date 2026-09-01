@@ -594,7 +594,7 @@ impl WorkspaceModuleSession {
                 universe: Arc::new(self.universe.clone()),
                 modules: BTreeMap::new(),
                 graphs: crate::graph::ModuleGraphs::default(),
-                entry: ModuleId::core(),
+                entry: ModuleId::universe_root(),
                 initialization_order: Vec::new(),
             })
         } else {

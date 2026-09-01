@@ -7,28 +7,6 @@ use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// A toolchain-owned builtin project identity.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum BuiltinPackage {
-    Universe,
-    Std,
-}
-
-impl BuiltinPackage {
-    pub const fn import_root(self) -> &'static str {
-        match self {
-            Self::Universe => "universe",
-            Self::Std => "std",
-        }
-    }
-}
-
-impl fmt::Display for BuiltinPackage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.import_root())
-    }
-}
-
 /// Opaque graph-node identity for a resolved user project.
 ///
 /// Zero is unrepresentable: builtin and synthetic identities are separate enum
@@ -97,7 +75,7 @@ impl SyntheticProjectIdAllocator {
 /// Semantic project category. The variants are intentionally disjoint.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ProjectIdentity {
-    Builtin(BuiltinPackage),
+    Universe,
     Resolved(ResolvedProjectId),
     Synthetic(SyntheticProjectId),
 }
@@ -113,11 +91,8 @@ impl ProjectIdentity {
         }
     }
 
-    pub const fn as_builtin(self) -> Option<BuiltinPackage> {
-        match self {
-            Self::Builtin(id) => Some(id),
-            _ => None,
-        }
+    pub const fn is_universe(self) -> bool {
+        matches!(self, Self::Universe)
     }
 
     pub const fn as_synthetic(self) -> Option<SyntheticProjectId> {
@@ -143,7 +118,7 @@ impl From<SyntheticProjectId> for ProjectIdentity {
 impl fmt::Display for ProjectIdentity {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Builtin(builtin) => write!(f, "builtin:{builtin}"),
+            Self::Universe => f.write_str("universe"),
             Self::Resolved(project) => project.fmt(f),
             Self::Synthetic(project) => project.fmt(f),
         }
@@ -153,7 +128,7 @@ impl fmt::Display for ProjectIdentity {
 /// Target of an absolute import root in a resolved project's root table.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ImportRootTarget {
-    Builtin(BuiltinPackage),
+    Universe,
     Resolved(ResolvedProjectId),
 }
 
@@ -304,20 +279,16 @@ impl ModuleId {
         }
     }
 
-    pub fn builtin(project: BuiltinPackage, path: ModulePath) -> Self {
+    pub fn universe(path: ModulePath) -> Self {
         Self {
-            project: ProjectIdentity::Builtin(project),
+            project: ProjectIdentity::Universe,
             path,
         }
     }
 
-    /// Temporary compatibility identity for the legacy core module.
-    /// It remains structurally builtin while staying distinct from `universe/`.
-    pub fn core() -> Self {
-        Self::builtin(
-            BuiltinPackage::Universe,
-            ModulePath::from_components(vec![ModuleComponent::from_identifier("core").expect("valid identifier")]),
-        )
+    /// Returns the canonical root module of the toolchain-owned Universe.
+    pub fn universe_root() -> Self {
+        Self::universe(ModulePath::root())
     }
 
     /// Synthetic module identity. The path does not participate in allocation;
@@ -416,21 +387,38 @@ impl ProjectRevisionFingerprint {
     }
 }
 
-/// Derives the canonical virtual document URI for a builtin module.
-pub fn builtin_module_uri(id: &ModuleId) -> Option<String> {
-    match id.project {
-        ProjectIdentity::Builtin(builtin) => {
-            let path = if id.path.is_root() {
-                String::new()
-            } else {
-                id.path.components().iter().map(|part| part.as_str()).collect::<Vec<_>>().join("/")
-            };
-            if path.is_empty() {
-                Some(format!("phalcom://{builtin}"))
-            } else {
-                Some(format!("phalcom://{builtin}/{path}"))
-            }
-        }
-        _ => None,
+/// Derives canonical virtual document URI for actual Universe module.
+pub fn universe_module_uri(id: &ModuleId) -> Option<String> {
+    if !id.project.is_universe() {
+        return None;
     }
+
+    let path = id.path.components().iter().map(ModuleComponent::as_str).collect::<Vec<_>>().join("/");
+    if path.is_empty() {
+        Some("phalcom://universe/".to_string())
+    } else {
+        Some(format!("phalcom://universe/{path}"))
+    }
+}
+
+/// Parses the canonical virtual document URI for an actual Universe module.
+pub fn universe_module_from_uri(raw: &str) -> Option<ModuleId> {
+    const PREFIX: &str = "phalcom://universe/";
+    if !raw.starts_with(PREFIX) || raw.contains('?') || raw.contains('#') {
+        return None;
+    }
+
+    let path = &raw[PREFIX.len()..];
+    if path.is_empty() {
+        return Some(ModuleId::universe_root());
+    }
+
+    let mut components = Vec::new();
+    for segment in path.split('/') {
+        if segment.is_empty() {
+            return None;
+        }
+        components.push(ModuleComponent::from_identifier(segment).ok()?);
+    }
+    Some(ModuleId::universe(ModulePath::from_components(components)))
 }

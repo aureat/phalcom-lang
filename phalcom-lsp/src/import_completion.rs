@@ -162,7 +162,7 @@ pub fn import_completions(snapshot: &phalcom_semantic::SemanticSnapshot, importe
                 && let Some(root_target) = roots.get(&comp)
             {
                 let project = match root_target.target {
-                    ImportRootTarget::Builtin(b) => ProjectIdentity::Builtin(b),
+                    ImportRootTarget::Universe => ProjectIdentity::Universe,
                     ImportRootTarget::Resolved(r) => ProjectIdentity::Resolved(r),
                 };
                 let path_components: Vec<ModuleComponent> = segments.iter().filter_map(|s| ModuleComponent::from_identifier(s).ok()).collect();
@@ -222,7 +222,7 @@ pub fn import_completions(snapshot: &phalcom_semantic::SemanticSnapshot, importe
                 && let Some(root_target) = roots.get(&comp)
             {
                 let project = match root_target.target {
-                    ImportRootTarget::Builtin(b) => ProjectIdentity::Builtin(b),
+                    ImportRootTarget::Universe => ProjectIdentity::Universe,
                     ImportRootTarget::Resolved(r) => ProjectIdentity::Resolved(r),
                 };
                 let path_components: Vec<ModuleComponent> = segments.iter().filter_map(|s| ModuleComponent::from_identifier(s).ok()).collect();

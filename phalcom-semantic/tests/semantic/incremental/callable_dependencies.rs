@@ -357,7 +357,7 @@ class Client {
     let client_advisory_v1 = update1.snapshot.advisory().callable(&client_run_id).expect("Client.run advisory v1");
     assert_eq!(
         client_advisory_v1.return_fact.shape,
-        ValueShape::Instance(DeclarationId::new(phalcom_modules::ModuleId::core(), "Int".into()))
+        ValueShape::Instance(DeclarationId::new(phalcom_modules::ModuleId::universe_root(), "Int".into()))
     );
 
     // Revision 2: Api module changes Service.serve return type from Int to String
@@ -624,7 +624,7 @@ class Client {
     let string_ty = update_v3
         .snapshot
         .declarations
-        .form(&DeclarationId::new(ModuleId::core(), "String".into()))
+        .form(&DeclarationId::new(ModuleId::universe_root(), "String".into()))
         .expect("String type");
     let call_v3 = client_v3
         .expressions

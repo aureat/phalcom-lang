@@ -2,7 +2,7 @@ use phalcom_modules::ModuleId;
 use phalcom_semantic::db::{DependencyRecorder, InputFingerprint, ProductFingerprint, QueryKey, QueryState, QueryValue, SemanticDb};
 
 fn mod_a() -> ModuleId {
-    ModuleId::core()
+    ModuleId::universe_root()
 }
 
 #[test]

@@ -23,7 +23,7 @@ pub struct CoreDeclarationIds {
 
 impl Default for CoreDeclarationIds {
     fn default() -> Self {
-        let module = ModuleId::core();
+        let module = ModuleId::universe_root();
         Self {
             object: DeclarationId::new(module.clone(), "Object".into()),
             bool_: DeclarationId::new(module.clone(), "Bool".into()),

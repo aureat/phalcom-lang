@@ -21,7 +21,7 @@ fn setup_test_env() -> (TypeStore, MapTypeHierarchy, SimpleTypeResolver, Declara
     let mut store = TypeStore::new();
     let mut hierarchy = MapTypeHierarchy::new();
     let mut resolver = SimpleTypeResolver::new();
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
 
     let declarations = bootstrap_universe_declarations(&mut store, &|k| DeclarationId::new(module.clone(), k.name().into()));
 
@@ -164,7 +164,7 @@ fn test_predicate_extraction_from_ast() {
 fn test_predicate_refinement_and_inversion() {
     let mut store = TypeStore::new();
     let hierarchy = MapTypeHierarchy::new();
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let int_decl = DeclarationId::new(module.clone(), "Int".into());
     let str_decl = DeclarationId::new(module.clone(), "String".into());
 
@@ -211,8 +211,8 @@ fn test_predicate_refinement_and_inversion() {
 #[test]
 fn test_flow_join_is_epistemically_conservative_and_deterministic() {
     let mut store = TypeStore::new();
-    let int_ty = store.nominal(DeclarationId::new(ModuleId::core(), "Int".into()));
-    let string_ty = store.nominal(DeclarationId::new(ModuleId::core(), "String".into()));
+    let int_ty = store.nominal(DeclarationId::new(ModuleId::universe_root(), "Int".into()));
+    let string_ty = store.nominal(DeclarationId::new(ModuleId::universe_root(), "String".into()));
     let binding = BindingId(7);
 
     let mut established = FlowState::new();
@@ -270,8 +270,8 @@ fn test_flow_join_is_epistemically_conservative_and_deterministic() {
 #[test]
 fn divergent_branch_contracts_fail_closed_without_first_branch_metadata() {
     let mut store = TypeStore::new();
-    let int_ty = store.nominal(DeclarationId::new(ModuleId::core(), "Int".into()));
-    let string_ty = store.nominal(DeclarationId::new(ModuleId::core(), "String".into()));
+    let int_ty = store.nominal(DeclarationId::new(ModuleId::universe_root(), "Int".into()));
+    let string_ty = store.nominal(DeclarationId::new(ModuleId::universe_root(), "String".into()));
     let binding = BindingId(11);
 
     let mut int_branch = FlowState::new();
@@ -296,7 +296,7 @@ fn divergent_branch_contracts_fail_closed_without_first_branch_metadata() {
 #[test]
 fn divergent_branch_mutability_is_a_flow_invariant_failure() {
     let mut store = TypeStore::new();
-    let int_ty = store.nominal(DeclarationId::new(ModuleId::core(), "Int".into()));
+    let int_ty = store.nominal(DeclarationId::new(ModuleId::universe_root(), "Int".into()));
     let binding = BindingId(12);
     let mut mutable_branch = FlowState::new();
     mutable_branch.declare(
@@ -318,7 +318,7 @@ fn divergent_branch_mutability_is_a_flow_invariant_failure() {
 #[test]
 fn current_value_disagreement_is_a_normal_flow_join() {
     let mut store = TypeStore::new();
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let int_ty = store.nominal(DeclarationId::new(module.clone(), "Int".into()));
     let string_ty = store.nominal(DeclarationId::new(module, "String".into()));
     let binding = BindingId(13);
@@ -352,7 +352,7 @@ fn current_value_disagreement_is_a_normal_flow_join() {
 #[test]
 fn loop_widening_rejects_divergent_persistent_contracts() {
     let mut store = TypeStore::new();
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let int_ty = store.nominal(DeclarationId::new(module.clone(), "Int".into()));
     let string_ty = store.nominal(DeclarationId::new(module, "String".into()));
     let binding = BindingId(14);
@@ -388,7 +388,7 @@ fn loop_widening_rejects_divergent_persistent_contracts() {
 fn test_mutation_invalidation_kills_dependent_facts() {
     let mut store = TypeStore::new();
     let hierarchy = MapTypeHierarchy::new();
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let int_decl = DeclarationId::new(module.clone(), "Int".into());
     let str_decl = DeclarationId::new(module.clone(), "String".into());
 
@@ -443,7 +443,7 @@ fn test_mutation_invalidation_kills_dependent_facts() {
 fn test_flow_state_conservative_join_and_loop_widening() {
     let mut store = TypeStore::new();
     let hierarchy = MapTypeHierarchy::new();
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let int_decl = DeclarationId::new(module.clone(), "Int".into());
     let str_decl = DeclarationId::new(module.clone(), "String".into());
 

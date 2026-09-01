@@ -21,7 +21,7 @@ enum Shape {
 }
 "#,
     );
-    let owner = DeclarationId::new(ModuleId::core(), "Shape".into());
+    let owner = DeclarationId::new(ModuleId::universe_root(), "Shape".into());
     let requirements = case
         .analysis
         .snapshot
@@ -57,7 +57,7 @@ enum Shape {
 }
 "#,
     );
-    let owner = DeclarationId::new(ModuleId::core(), "Shape".into());
+    let owner = DeclarationId::new(ModuleId::universe_root(), "Shape".into());
     let circle_variant = VariantId::new(owner.clone(), Selector::getter("Circle").unwrap());
     let circle = case
         .analysis
@@ -81,7 +81,7 @@ enum Shape {
 }
 "#,
     );
-    let owner = DeclarationId::new(ModuleId::core(), "Shape".into());
+    let owner = DeclarationId::new(ModuleId::universe_root(), "Shape".into());
     let requirements = case
         .analysis
         .snapshot

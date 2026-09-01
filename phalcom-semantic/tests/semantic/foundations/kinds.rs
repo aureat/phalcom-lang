@@ -6,7 +6,7 @@ use phalcom_semantic::types::kind::KindData;
 use phalcom_semantic::types::store::TypeStore;
 
 fn test_decl(name: &str) -> DeclarationId {
-    DeclarationId::new(ModuleId::core(), name.into())
+    DeclarationId::new(ModuleId::universe_root(), name.into())
 }
 
 #[test]

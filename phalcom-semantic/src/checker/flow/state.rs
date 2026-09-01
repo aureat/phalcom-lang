@@ -40,14 +40,14 @@ mod field_tests {
     use crate::types::evidence::EvidenceOrigin;
 
     fn field() -> FieldId {
-        FieldId::new(DeclarationId::new(ModuleId::core(), "Counter".into()), "_value", DispatchSide::Instance)
+        FieldId::new(DeclarationId::new(ModuleId::universe_root(), "Counter".into()), "_value", DispatchSide::Instance)
     }
 
     #[test]
     fn field_state_keeps_contract_current_and_initialization_separate() {
         let mut store = TypeStore::new();
-        let int_ty = store.nominal_type(DeclarationId::new(ModuleId::core(), "Int".into()));
-        let string_ty = store.nominal_type(DeclarationId::new(ModuleId::core(), "String".into()));
+        let int_ty = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "Int".into()));
+        let string_ty = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "String".into()));
         let id = field();
         let contract = TypeKnowledge::assumed(int_ty, EvidenceOrigin::DeveloperAnnotation);
         let mut flow = FlowState::new();
@@ -76,8 +76,8 @@ mod field_tests {
     #[test]
     fn field_join_tracks_current_and_definite_initialization_over_reachable_paths() {
         let mut store = TypeStore::new();
-        let int_ty = store.nominal_type(DeclarationId::new(ModuleId::core(), "Int".into()));
-        let float_ty = store.nominal_type(DeclarationId::new(ModuleId::core(), "Float".into()));
+        let int_ty = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "Int".into()));
+        let float_ty = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "Float".into()));
         let id = field();
         let contract = TypeKnowledge::assumed(int_ty, EvidenceOrigin::DeveloperAnnotation);
         let seed = |current, initialization| FieldState {
@@ -902,7 +902,7 @@ mod fixpoint_projection_tests {
     #[test]
     fn fixpoint_key_ignores_versions_and_explanation_ids() {
         let mut store = TypeStore::new();
-        let int_ty = store.nominal_type(DeclarationId::new(ModuleId::core(), "Int".into()));
+        let int_ty = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "Int".into()));
         let binding_id = BindingId(1);
 
         let mut left = FlowState::new();
@@ -944,8 +944,8 @@ mod fixpoint_projection_tests {
     #[test]
     fn weaken_unstable_fixpoint_facts_weakens_only_changing_dimensions() {
         let mut store = TypeStore::new();
-        let int_ty = store.nominal_type(DeclarationId::new(ModuleId::core(), "Int".into()));
-        let string_ty = store.nominal_type(DeclarationId::new(ModuleId::core(), "String".into()));
+        let int_ty = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "Int".into()));
+        let string_ty = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "String".into()));
         let stable_id = BindingId(1);
         let unstable_id = BindingId(2);
 

@@ -1,25 +1,25 @@
-use phalcom_modules::{BuiltinPackage, BuiltinProjectSourceProvider, ModuleId, ModulePath, ProjectIdentity};
+use phalcom_modules::{ModuleId, ModulePath, ProjectIdentity, SyntheticProjectIdAllocator, UniverseSourceProvider};
 
 #[test]
 fn builtin_universe_provider_has_virtual_identity_and_exports() {
-    let id = ModuleId::builtin(BuiltinPackage::Universe, ModulePath::root());
-    let provider = BuiltinProjectSourceProvider::new(BuiltinPackage::Universe);
+    let id = ModuleId::universe(ModulePath::root());
+    let provider = UniverseSourceProvider::new();
     assert_eq!(provider.source_id(&id).unwrap().0.as_ref(), "phalcom://universe/");
     let interface = provider.load_interface(&id).unwrap();
     assert!(interface.exports.contains_key("Object"));
-    assert_eq!(id.project, ProjectIdentity::Builtin(BuiltinPackage::Universe));
+    assert_eq!(id.project, ProjectIdentity::Universe);
 }
 
 #[test]
-fn builtin_projects_are_disjoint() {
-    let universe = ModuleId::builtin(BuiltinPackage::Universe, ModulePath::root());
-    let std = ModuleId::builtin(BuiltinPackage::Std, ModulePath::root());
-    assert_ne!(universe.project, std.project);
+fn universe_identity_is_disjoint_from_resolved_and_synthetic() {
+    let mut allocator = SyntheticProjectIdAllocator;
+    assert_ne!(ModuleId::universe_root().project, ProjectIdentity::from(phalcom_modules::ResolvedProjectId::from_raw(1)));
+    assert_ne!(ModuleId::universe_root().project, ProjectIdentity::from(allocator.allocate()));
 }
 
 #[test]
 fn builtin_universe_reflection_children_load() {
-    let provider = BuiltinProjectSourceProvider::new(BuiltinPackage::Universe);
+    let provider = UniverseSourceProvider::new();
     let children = [
         "module",
         "package_object",
@@ -48,7 +48,7 @@ fn builtin_universe_reflection_children_load() {
             phalcom_modules::ModuleComponent::from_identifier("reflection").unwrap(),
             phalcom_modules::ModuleComponent::from_identifier(child).unwrap(),
         ]);
-        let id = ModuleId::builtin(BuiltinPackage::Universe, path);
+        let id = ModuleId::universe(path);
         assert!(provider.contains(&id.path), "module path {id} should exist in provider");
         let iface = provider.load_interface(&id).unwrap_or_else(|_| panic!("interface for {id} should load"));
         assert_eq!(iface.kind, phalcom_modules::ModuleKind::Module);

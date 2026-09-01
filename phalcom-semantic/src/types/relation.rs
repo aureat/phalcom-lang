@@ -43,7 +43,7 @@ impl MapTypeHierarchy {
     pub fn insert_template(&mut self, template: GenericSupertypeTemplate) {
         self.superclasses.insert(
             template.declaration.clone(),
-            DeclarationId::new(phalcom_modules::identity::ModuleId::core(), "generic_super".into()),
+            DeclarationId::new(phalcom_modules::identity::ModuleId::universe_root(), "generic_super".into()),
         );
         self.templates.insert(template.declaration.clone(), template);
     }
@@ -646,7 +646,7 @@ mod tests {
     use phalcom_modules::identity::ModuleId;
 
     fn test_decl(name: &str) -> DeclarationId {
-        let module = ModuleId::core();
+        let module = ModuleId::universe_root();
         DeclarationId::new(module, name.into())
     }
 

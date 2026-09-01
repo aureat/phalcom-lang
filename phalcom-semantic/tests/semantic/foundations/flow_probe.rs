@@ -16,11 +16,11 @@ fn flow_probe_isolates_diagnostics_explanations_and_exits() {
     let hierarchy = MapTypeHierarchy::default();
     let resolver = SimpleTypeResolver::new();
     let declarations = DeclarationTypeTable::new();
-    let module_id = ModuleId::core();
+    let module_id = ModuleId::universe_root();
 
     let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module_id);
-    let int_ty = ctx.nominal_type_of(&DeclarationId::new(ModuleId::core(), "Int".into()));
-    let string_ty = ctx.nominal_type_of(&DeclarationId::new(ModuleId::core(), "String".into()));
+    let int_ty = ctx.nominal_type_of(&DeclarationId::new(ModuleId::universe_root(), "Int".into()));
+    let string_ty = ctx.nominal_type_of(&DeclarationId::new(ModuleId::universe_root(), "String".into()));
 
     let binding_id = ctx.alloc_binding();
     ctx.flow.declare(
@@ -39,7 +39,7 @@ fn flow_probe_isolates_diagnostics_explanations_and_exits() {
     let probe_result = ctx.run_flow_probe(initial_flow.clone(), |probe_ctx| {
         // Emit diagnostic in probe
         probe_ctx.emit_diagnostic(SemanticDiagnostic::error_in(
-            ModuleId::core(),
+            ModuleId::universe_root(),
             DiagnosticCode::TypeMismatch,
             "probe error",
             SourceRange::default(),

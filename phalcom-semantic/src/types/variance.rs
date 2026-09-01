@@ -120,7 +120,7 @@ pub fn compute_variance_occurrence(
                 let origin_decl = if let TypeData::Nominal { declaration } = store.get(*origin) {
                     declaration.clone()
                 } else {
-                    DeclarationId::new(phalcom_modules::identity::ModuleId::core(), "AppliedOrigin".into())
+                    DeclarationId::new(phalcom_modules::identity::ModuleId::universe_root(), "AppliedOrigin".into())
                 };
 
                 path.push(VarianceStep::AppliedArgument {

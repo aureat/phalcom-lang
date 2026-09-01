@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 fn declaration(name: &str) -> DeclarationId {
-    DeclarationId::new(ModuleId::core(), name.into())
+    DeclarationId::new(ModuleId::universe_root(), name.into())
 }
 
 #[test]
@@ -153,7 +153,7 @@ fn type_presenter_formats_generic_specializations_from_canonical_products() {
 
 #[test]
 fn presentation_index_projects_formal_sites_without_reanalysis() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let mut store = TypeStore::new();
     let int = store.nominal(declaration("Int"));
     let callable = CallableId::new(declaration("Demo"), Selector::getter("value").unwrap(), DispatchSide::Instance);
@@ -206,7 +206,7 @@ fn presentation_index_projects_formal_sites_without_reanalysis() {
 
 #[test]
 fn presentation_preserves_non_ready_formal_states() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let store = TypeStore::new();
     let presenter = TypePresenter::new(&store);
 

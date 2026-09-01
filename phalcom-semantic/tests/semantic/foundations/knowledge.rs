@@ -38,8 +38,8 @@ fn type_transformation_preserves_epistemic_status_origin_and_provenance() {
 #[test]
 fn flow_join_is_fail_closed_and_preserves_epistemic_status() {
     let mut store = TypeStore::new();
-    let left = store.nominal(DeclarationId::new(ModuleId::core(), "JoinLeft".into()));
-    let right = store.nominal(DeclarationId::new(ModuleId::core(), "JoinRight".into()));
+    let left = store.nominal(DeclarationId::new(ModuleId::universe_root(), "JoinLeft".into()));
+    let right = store.nominal(DeclarationId::new(ModuleId::universe_root(), "JoinRight".into()));
     let established = TypeKnowledge::established(left, EvidenceOrigin::Syntax);
     let assumed = TypeKnowledge::assumed(right, EvidenceOrigin::DeveloperAnnotation);
 
@@ -59,7 +59,7 @@ fn flow_join_is_fail_closed_and_preserves_epistemic_status() {
 #[test]
 fn normal_return_summary_preserves_assumed_exit_evidence() {
     let mut store = TypeStore::new();
-    let int = store.nominal(DeclarationId::new(ModuleId::core(), "Int".into()));
+    let int = store.nominal(DeclarationId::new(ModuleId::universe_root(), "Int".into()));
 
     let exit = phalcom_semantic::checker::analysis::NormalReturnFact {
         knowledge: TypeKnowledge::assumed(int, EvidenceOrigin::CallableSignature),

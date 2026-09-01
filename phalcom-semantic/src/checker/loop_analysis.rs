@@ -134,10 +134,10 @@ mod tests {
         let hierarchy = MapTypeHierarchy::default();
         let resolver = SimpleTypeResolver::new();
         let declarations = DeclarationTypeTable::new();
-        let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, ModuleId::core());
+        let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, ModuleId::universe_root());
 
-        let int_ty = ctx.nominal_type_of(&DeclarationId::new(ModuleId::core(), "Int".into()));
-        let string_ty = ctx.nominal_type_of(&DeclarationId::new(ModuleId::core(), "String".into()));
+        let int_ty = ctx.nominal_type_of(&DeclarationId::new(ModuleId::universe_root(), "Int".into()));
+        let string_ty = ctx.nominal_type_of(&DeclarationId::new(ModuleId::universe_root(), "String".into()));
 
         let b_id = ctx.alloc_binding();
         let mut entry = FlowState::new();
@@ -179,10 +179,10 @@ mod tests {
         let hierarchy = MapTypeHierarchy::default();
         let resolver = SimpleTypeResolver::new();
         let declarations = DeclarationTypeTable::new();
-        let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, ModuleId::core());
+        let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, ModuleId::universe_root());
 
-        let int_ty = ctx.nominal_type_of(&DeclarationId::new(ModuleId::core(), "Int".into()));
-        let string_ty = ctx.nominal_type_of(&DeclarationId::new(ModuleId::core(), "String".into()));
+        let int_ty = ctx.nominal_type_of(&DeclarationId::new(ModuleId::universe_root(), "Int".into()));
+        let string_ty = ctx.nominal_type_of(&DeclarationId::new(ModuleId::universe_root(), "String".into()));
 
         let b_id = ctx.alloc_binding();
         let mut entry = FlowState::new();

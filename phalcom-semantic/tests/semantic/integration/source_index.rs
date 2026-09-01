@@ -16,7 +16,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 fn declaration(name: &str) -> DeclarationId {
-    DeclarationId::new(ModuleId::core(), name.into())
+    DeclarationId::new(ModuleId::universe_root(), name.into())
 }
 
 #[test]
@@ -45,7 +45,7 @@ fn source_site_ref_rejects_stale_snapshot() {
     let first_snapshot = SnapshotId::new(WorkspaceId::from_raw(1), SemanticRevision::from_raw(1), store);
     let second_snapshot = SnapshotId::new(WorkspaceId::from_raw(1), SemanticRevision::from_raw(2), store);
     let site = SourceSiteId {
-        owner: SourceOwner::Module(ModuleId::core()),
+        owner: SourceOwner::Module(ModuleId::universe_root()),
         local: SourceSiteLocalId(3),
     };
     let site_ref = SourceSiteRef::new(first_snapshot, site.clone());
@@ -58,7 +58,7 @@ fn source_site_ref_rejects_stale_snapshot() {
 fn source_site_identity_is_owner_qualified() {
     let callable = CallableId::new(declaration("Widget"), Selector::getter("value").unwrap(), DispatchSide::Instance);
     let module_site = SourceSiteId {
-        owner: SourceOwner::Module(ModuleId::core()),
+        owner: SourceOwner::Module(ModuleId::universe_root()),
         local: SourceSiteLocalId(0),
     };
     let callable_site = SourceSiteId {
@@ -75,7 +75,7 @@ fn lexical_scope_preserves_source_order_and_nested_shadowing() {
     let source = "let value = 1\nclass Sample {\n  method(value) { value }\n}\n";
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
-    let index = build_source_scope_index(ModuleId::core(), &parsed.program, &SourceIndexContext::default());
+    let index = build_source_scope_index(ModuleId::universe_root(), &parsed.program, &SourceIndexContext::default());
     let use_offset = source.rfind("value }").expect("method use") + 1;
     let method_scope = index.scope_at(use_offset);
     let visible = index.visible_bindings_at(use_offset);
@@ -103,7 +103,7 @@ fn source_index_publishes_canonical_member_source_metadata() {
     let source = "class Sample {\n  const _field: Int = 1\n  compute(value: Int) -> Int { value }\n}\n";
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let index = build_source_scope_index(module.clone(), &parsed.program, &SourceIndexContext::default());
     let declaration = DeclarationId::new(module.clone(), "Sample".into());
     let callable = CallableId::new(
@@ -141,7 +141,7 @@ fn source_index_records_implicit_receiver_identity() {
     let source = "class Base { value() {} }\nclass Child is Base { show() { self.value(); super.value() } }\n";
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let scopes = build_source_scope_index(module.clone(), &parsed.program, &SourceIndexContext::default());
     let programs = BTreeMap::from([(
         module.clone(),
@@ -175,7 +175,7 @@ fn same_scope_redeclaration_keeps_first_lexical_target() {
     let source = "let value = 1\nlet value = 2\nvalue\n";
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
-    let index = build_source_scope_index(ModuleId::core(), &parsed.program, &SourceIndexContext::default());
+    let index = build_source_scope_index(ModuleId::universe_root(), &parsed.program, &SourceIndexContext::default());
     let values = index.bindings.values().filter(|binding| binding.name.as_ref() == "value").collect::<Vec<_>>();
     assert_eq!(values.len(), 2);
     let first = values.iter().find(|binding| binding.redeclaration_of.is_none()).expect("first binding");
@@ -194,7 +194,7 @@ fn compiler_scope_index_covers_closure_and_destructure_bindings() {
     let source = "let mapper = |value| value\nlet (x, y) = (1, \"hello\")\n";
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
-    let index = build_source_scope_index(ModuleId::core(), &parsed.program, &SourceIndexContext::default());
+    let index = build_source_scope_index(ModuleId::universe_root(), &parsed.program, &SourceIndexContext::default());
 
     let parameter_start = source.find("value").expect("closure parameter");
     let parameter = index
@@ -217,12 +217,12 @@ fn imports_attach_only_to_canonical_linked_targets() {
     let source = "from .shapes import Circle\nCircle\n";
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
-    let shapes = ModuleId::core();
+    let shapes = ModuleId::universe_root();
     let circle = DeclarationId::new(shapes.clone(), "Circle".into());
     let context = SourceIndexContext::default()
         .with_module(".shapes", shapes.clone())
         .with_target(shapes, "Circle", SemanticTargetId::Declaration(circle));
-    let index = build_source_scope_index(ModuleId::core(), &parsed.program, &context);
+    let index = build_source_scope_index(ModuleId::universe_root(), &parsed.program, &context);
     let binding = index
         .bindings
         .values()
@@ -238,7 +238,7 @@ fn for_binding_is_owned_by_loop_scope_and_is_mutable() {
     let source = "let values = [1, 2]\nfor value in values { value }\n";
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
-    let index = build_source_scope_index(ModuleId::core(), &parsed.program, &SourceIndexContext::default());
+    let index = build_source_scope_index(ModuleId::universe_root(), &parsed.program, &SourceIndexContext::default());
     let value = index.bindings.values().find(|binding| binding.name.as_ref() == "value").expect("for binding");
 
     assert_eq!(value.kind, SourceBindingKind::ForBinding);
@@ -248,7 +248,7 @@ fn for_binding_is_owned_by_loop_scope_and_is_mutable() {
 
 #[test]
 fn occurrence_index_selects_nested_site_and_keeps_unresolved_hint_advisory() {
-    let owner = SourceOwner::Module(ModuleId::core());
+    let owner = SourceOwner::Module(ModuleId::universe_root());
     let outer = SourceSiteId {
         owner: owner.clone(),
         local: SourceSiteLocalId(10),
@@ -257,7 +257,7 @@ fn occurrence_index_selects_nested_site_and_keeps_unresolved_hint_advisory() {
         owner: owner.clone(),
         local: SourceSiteLocalId(11),
     };
-    let target = SemanticTargetId::Module(ModuleId::core());
+    let target = SemanticTargetId::Module(ModuleId::universe_root());
     let occurrences = vec![
         SemanticOccurrence {
             site: outer.clone(),
@@ -288,7 +288,7 @@ fn occurrence_index_selects_nested_site_and_keeps_unresolved_hint_advisory() {
         index.occurrences_for_target(&target),
         Some(
             [SourceSiteId {
-                owner: SourceOwner::Module(ModuleId::core()),
+                owner: SourceOwner::Module(ModuleId::universe_root()),
                 local: SourceSiteLocalId(10)
             }]
             .as_slice()
@@ -298,7 +298,7 @@ fn occurrence_index_selects_nested_site_and_keeps_unresolved_hint_advisory() {
 
 #[test]
 fn occurrence_interval_queries_remain_bounded_for_large_indexes() {
-    let owner = SourceOwner::Module(ModuleId::core());
+    let owner = SourceOwner::Module(ModuleId::universe_root());
     let occurrences = (0..4096)
         .map(|offset| SemanticOccurrence {
             site: SourceSiteId {
@@ -324,7 +324,7 @@ fn formal_products_attach_by_callable_and_checker_ids() {
     let source = "class Sample { method(value) { value } }\n";
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "{:?}", parsed.errors);
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let scopes = build_source_scope_index(module.clone(), &parsed.program, &SourceIndexContext::default());
     let mut index = SourceSemanticIndex::from_scope_indices(BTreeMap::from([(module.clone(), scopes)]));
     let declaration = DeclarationId::new(module.clone(), "Sample".into());

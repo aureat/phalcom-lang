@@ -1,7 +1,7 @@
 use phalcom_common::range::SourceRange;
 use phalcom_modules::interface::{LinkedExport, LinkedExportTarget, LinkedModuleInterface, UnlinkedModuleInterface};
 use phalcom_modules::metadata::ModuleMetadata;
-use phalcom_modules::{BuiltinPackage, ModuleComponent, ModuleId, ModuleKind, ModulePath, ModuleQueryFacade, ProjectUniverse, SourceId, SourceLocation};
+use phalcom_modules::{ModuleComponent, ModuleId, ModuleKind, ModulePath, ModuleQueryFacade, ProjectUniverse, SourceId, SourceLocation};
 use std::collections::{BTreeMap, BTreeSet};
 
 fn component(name: &str) -> ModuleComponent {
@@ -15,8 +15,8 @@ fn path(name: &str) -> ModulePath {
 #[test]
 fn facade_exposes_canonical_roots_children_exports_and_provenance() {
     let universe = ProjectUniverse::new();
-    let root = ModuleId::builtin(BuiltinPackage::Std, ModulePath::root());
-    let child = ModuleId::builtin(BuiltinPackage::Std, path("math"));
+    let root = ModuleId::universe(ModulePath::root());
+    let child = ModuleId::universe(path("math"));
 
     let mut unlinked = BTreeMap::new();
     unlinked.insert(
@@ -51,7 +51,7 @@ fn facade_exposes_canonical_roots_children_exports_and_provenance() {
     );
 
     let mut resolved = BTreeMap::new();
-    resolved.insert((root.clone(), "std.math".to_string()), child.clone());
+    resolved.insert((root.clone(), "universe.math".to_string()), child.clone());
     let mut sources = BTreeMap::new();
     sources.insert(
         child.clone(),
@@ -65,11 +65,10 @@ fn facade_exposes_canonical_roots_children_exports_and_provenance() {
     let display_path_modules = BTreeMap::from([(std::path::PathBuf::from("/workspace/src/math.ph"), child.clone())]);
     let facade = ModuleQueryFacade::new(&universe, &unlinked, &linked, &resolved, &sources, &source_modules, &display_path_modules);
     let roots = facade.import_roots(&root);
-    assert!(roots.contains_key(&component("std")));
     assert!(roots.contains_key(&component("universe")));
     assert_eq!(facade.import_children(&root, &ModulePath::root()), vec![child.clone()]);
     assert!(facade.public_exports(&child).unwrap().contains_key("answer"));
-    assert_eq!(facade.resolved_import_target(&root, "std.math"), Some(&child));
+    assert_eq!(facade.resolved_import_target(&root, "universe.math"), Some(&child));
     assert_eq!(facade.reverse_importers(&child), vec![root.clone()]);
     assert_eq!(
         facade.definition_source(&child).unwrap().display_path.to_string_lossy(),
@@ -82,8 +81,8 @@ fn facade_exposes_canonical_roots_children_exports_and_provenance() {
 #[test]
 fn facade_rejects_unexposed_package_children() {
     let universe = ProjectUniverse::new();
-    let root = ModuleId::builtin(BuiltinPackage::Std, ModulePath::root());
-    let child = ModuleId::builtin(BuiltinPackage::Std, path("private"));
+    let root = ModuleId::universe(ModulePath::root());
+    let child = ModuleId::universe(path("private"));
     let unlinked = BTreeMap::from([(
         root.clone(),
         UnlinkedModuleInterface {

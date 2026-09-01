@@ -261,7 +261,7 @@ mod tests {
 
     #[test]
     fn published_return_knowledge_source_annotation_is_assumed_until_satisfied_established() {
-        let owner = DeclarationId::new(crate::identity::ModuleId::core(), "Test".into());
+        let owner = DeclarationId::new(crate::identity::ModuleId::universe_root(), "Test".into());
         let selector = Selector::method("run", vec![]).unwrap();
         let callable = CallableId::new(owner.clone(), selector.clone(), DispatchSide::Instance);
         let int_fact = DeclaredTypeFact::known(TypeTerm::Canonical(TypeId(1)), DeclaredTypeBasis::SourceAnnotation);
@@ -296,7 +296,7 @@ mod tests {
 
     #[test]
     fn published_return_term_preserves_declared_term() {
-        let owner = DeclarationId::new(crate::identity::ModuleId::core(), "Test".into());
+        let owner = DeclarationId::new(crate::identity::ModuleId::universe_root(), "Test".into());
         let selector = Selector::method("run", vec![]).unwrap();
         let callable = CallableId::new(owner.clone(), selector.clone(), DispatchSide::Instance);
         let declared = DeclaredTypeFact::known(TypeTerm::Canonical(TypeId(10)), DeclaredTypeBasis::SourceAnnotation);

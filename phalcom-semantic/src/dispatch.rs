@@ -245,7 +245,7 @@ impl SurfaceDispatchResolver {
             } else if owner.side == DispatchSide::Class && !entered_class_object_root {
                 entered_class_object_root = true;
                 Some(DispatchOwner {
-                    declaration: DeclarationId::new(ModuleId::core(), "Class".into()),
+                    declaration: DeclarationId::new(ModuleId::universe_root(), "Class".into()),
                     side: DispatchSide::Instance,
                 })
             } else {

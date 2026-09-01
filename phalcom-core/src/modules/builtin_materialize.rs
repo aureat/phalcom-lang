@@ -6,8 +6,8 @@ use crate::modules::linkage::BindingRef;
 use crate::modules::registry::{ModulePlanFingerprint, ModuleRecord, RuntimeProgramId};
 use crate::value::Value;
 use crate::vm::VM;
-use phalcom_modules::builtin::BuiltinProjectSourceProvider;
-use phalcom_modules::identity::{BuiltinPackage, ModuleId, ModulePath};
+use phalcom_modules::builtin::UniverseSourceProvider;
+use phalcom_modules::identity::{ModuleId, ModulePath};
 use phalcom_modules::source::ModuleKind;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -15,8 +15,8 @@ use std::sync::Arc;
 /// Initializes the canonical builtin `universe` package in the module registry
 /// and populates its native bindings and export table.
 pub fn initialize_canonical_universe(vm: &mut VM) -> PhResult<ObjRef> {
-    let universe_root_id = ModuleId::builtin(BuiltinPackage::Universe, ModulePath::root());
-    let provider = BuiltinProjectSourceProvider::new(BuiltinPackage::Universe);
+    let universe_root_id = ModuleId::universe(ModulePath::root());
+    let provider = UniverseSourceProvider::new();
     let iface = provider
         .load_interface(&universe_root_id)
         .map_err(|e| RuntimeError::Internal(format!("failed to load builtin universe interface: {e}")))?;

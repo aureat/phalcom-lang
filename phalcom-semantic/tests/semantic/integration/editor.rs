@@ -9,7 +9,7 @@ fn editor_facade_returns_canonical_members_and_targets() {
     let source = "class Box { @constructor new() {} value() -> Int { 1 } }\n";
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "parser errors: {:?}", parsed.errors);
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program));
     let snapshot = analysis.snapshot;
     let owner = DeclarationId::new(module.clone(), "Box".into());
@@ -48,7 +48,7 @@ fn editor_facade_returns_canonical_members_and_targets() {
 fn editor_facade_fails_closed_for_unknown_receiver() {
     let source = "class Box {}\n";
     let parsed = parse(source, 0);
-    let analysis = analyze_single_module(ModuleId::core(), Arc::from(source), Arc::new(parsed.program));
+    let analysis = analyze_single_module(ModuleId::universe_root(), Arc::from(source), Arc::new(parsed.program));
     let snapshot = analysis.snapshot;
     let receiver = ResolvedReceiver { alternatives: Arc::from([]) };
     assert!(

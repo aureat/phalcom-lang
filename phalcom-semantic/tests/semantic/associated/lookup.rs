@@ -9,7 +9,7 @@ use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 
 #[test]
 fn associated_owner_rejects_runtime_value_type_form() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
 class Probe {
@@ -39,7 +39,7 @@ class Probe {
 
 #[test]
 fn associated_owner_rejects_generic_parameter() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
 class Box<T> {
@@ -68,7 +68,7 @@ class Box<T> {
 
 #[test]
 fn associated_lookup_resolves_variant_invocation_and_singleton_getter() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
 enum Option<T> {
@@ -121,7 +121,7 @@ class Test {
 
 #[test]
 fn associated_inheritance_keeps_lookup_owner_and_defining_owner_distinct() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
 class Animal {
@@ -184,7 +184,7 @@ class Probe {
 
 #[test]
 fn associated_owner_rejects_conflicting_gadt_specialization() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
 enum Expr<T> {
@@ -222,7 +222,7 @@ class Test {
 
 #[test]
 fn associated_reification_rejects_unconstrained_generic_owner() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
 enum Option<T> {

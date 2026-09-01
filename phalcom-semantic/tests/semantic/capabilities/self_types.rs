@@ -30,7 +30,7 @@ class Client {
 }
 "#;
 
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(source_text);
     let parse_res = parse(&source, 0);
     let program = Arc::new(parse_res.program);

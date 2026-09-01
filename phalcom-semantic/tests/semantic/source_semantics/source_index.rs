@@ -5,7 +5,7 @@ use phalcom_semantic::analyze_single_module;
 
 #[test]
 fn associated_expression_attaches_to_one_formal_source_site() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
 enum State {

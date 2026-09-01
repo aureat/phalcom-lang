@@ -66,7 +66,7 @@ fn semantic_batch_publishes_once_and_retains_workspace_store_and_modules() {
 
 #[test]
 fn single_module_analysis_succeeds() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from("class Point { getX() -> Int { 42 } }");
     let parse_res = phalcom_ast::parse(&source, 0);
     let program = Arc::new(parse_res.program);
@@ -203,7 +203,7 @@ export Client
     let int_ty = analysis
         .snapshot
         .declarations
-        .form(&DeclarationId::new(ModuleId::core(), "Int".into()))
+        .form(&DeclarationId::new(ModuleId::universe_root(), "Int".into()))
         .expect("Int type");
     assert_eq!(serve.knowledge.ty(), Some(int_ty));
     assert_eq!(
@@ -569,7 +569,7 @@ fn same_leaf_name_in_two_modules_stays_distinct() {
 
 #[test]
 fn generation_retains_clean_snapshot_and_removes_stale_declarations() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source_v1: Arc<str> = Arc::from("class OldName { val() -> Int { 1 } }");
     let analysis_v1 = analyze_single_module(
         module.clone(),
@@ -740,7 +740,7 @@ fn deterministic_fresh_store_analysis_matches_structurally() {
 
 #[test]
 fn workspace_generic_class_and_callable_signature_publication() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> =
         Arc::from("class Container<T> {\n  value(_ v: T) -> T { v }\n}\nclass Box<U> is Container<U> {\n  unbox() -> U { self.value(1) }\n}\n");
     let parse_res = phalcom_ast::parse(&source, 0);

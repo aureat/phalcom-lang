@@ -6,8 +6,8 @@ use crate::modules::compile::{EntrySelection, ProgramCompiler};
 use crate::modules::linkage::{BindingRef, CompileBindings, LinkedImportInfo, RuntimeLinkedRead, TopLevelBindingInfo, TopLevelBindingKind};
 use crate::vm::VM;
 use phalcom_ast::ast::{DependencyDecl, ImportDecl, ImportRoot, Program};
-use phalcom_modules::builtin::BuiltinProjectSourceProvider;
-use phalcom_modules::identity::{BuiltinPackage, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, ResolvedProjectId, SyntheticProjectIdAllocator};
+use phalcom_modules::builtin::UniverseSourceProvider;
+use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ProjectIdentity, ResolvedProjectId, SyntheticProjectIdAllocator};
 use phalcom_modules::linker::{ImportBindingId, LinkedReadSpec, SymbolId};
 use phalcom_modules::project::{ProjectUniverse, discover_owning_project};
 use phalcom_modules::resolver::ModuleResolver;
@@ -219,8 +219,8 @@ impl ModuleExecutionContext {
 
         // Compile and materialize the target module
         match &id.project {
-            ProjectIdentity::Builtin(bid) => {
-                let provider = BuiltinProjectSourceProvider::new(*bid);
+            ProjectIdentity::Universe => {
+                let provider = UniverseSourceProvider::new();
                 let iface = provider
                     .load_interface(id)
                     .map_err(|e| RuntimeError::Internal(format!("failed to load builtin interface for {id}: {e}")))?;
@@ -233,15 +233,13 @@ impl ModuleExecutionContext {
                         .map(|c| c.as_str().to_string())
                         .unwrap_or_else(|| "package".to_string()),
                 );
-                let path = format!("<builtin:{id}>");
+                let path = format!("<universe:{id}>");
 
                 let mut module_obj = crate::heap::ModuleObject::new(id.clone(), iface.kind, display_name, name_sym, path, None, true);
                 module_obj.metadata = Some(Arc::new(iface.metadata.clone()));
 
                 let obj_ref = vm.heap.alloc(crate::heap::Object::Module(Box::new(module_obj)));
-                if *bid == BuiltinPackage::Universe {
-                    vm.privileged_modules.insert(obj_ref);
-                }
+                vm.privileged_modules.insert(obj_ref);
                 vm.module_registry
                     .register_new(
                         id.clone(),

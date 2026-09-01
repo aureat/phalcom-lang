@@ -8,12 +8,12 @@ use phalcom_semantic::{
 };
 
 fn declaration(name: &str) -> DeclarationId {
-    DeclarationId::new(ModuleId::core(), name.into())
+    DeclarationId::new(ModuleId::universe_root(), name.into())
 }
 
 fn site(local: u32) -> SourceSiteId {
     SourceSiteId {
-        owner: SourceOwner::Module(ModuleId::core()),
+        owner: SourceOwner::Module(ModuleId::universe_root()),
         local: SourceSiteLocalId(local),
     }
 }
@@ -78,7 +78,7 @@ fn parameter_contributions_replace_and_remove_only_touched_slots() {
     let int = AdvisoryFact::flow(declaration_shape("Int"), AdvisoryOrigin::Binding(site(1)));
     let string = AdvisoryFact::flow(declaration_shape("String"), AdvisoryOrigin::Binding(site(2)));
     let source_a = AdvisoryContributionSource::Callable(callable.clone());
-    let source_b = AdvisoryContributionSource::Module(ModuleId::core());
+    let source_b = AdvisoryContributionSource::Module(ModuleId::universe_root());
     let mut contributions = AdvisoryParameterContributions::default();
 
     assert_eq!(

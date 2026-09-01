@@ -879,24 +879,7 @@ struct CompilerWorkspaceState {
 }
 
 pub(crate) fn builtin_module_from_uri(uri: &Url) -> Option<phalcom_modules::ModuleId> {
-    if uri.scheme() != "phalcom" {
-        return None;
-    }
-    let project = match uri.host_str()? {
-        "universe" => phalcom_modules::BuiltinPackage::Universe,
-        "std" => phalcom_modules::BuiltinPackage::Std,
-        _ => return None,
-    };
-    let components = uri
-        .path_segments()?
-        .filter(|segment| !segment.is_empty())
-        .map(phalcom_modules::ModuleComponent::from_identifier)
-        .collect::<Result<Vec<_>, _>>()
-        .ok()?;
-    Some(phalcom_modules::ModuleId::builtin(
-        project,
-        phalcom_modules::ModulePath::from_components(components),
-    ))
+    phalcom_modules::universe_module_from_uri(uri.as_str())
 }
 
 fn publication_effects_from_compiler(effects: &phalcom_semantic::SemanticPublicationEffects) -> PublicationEffects {

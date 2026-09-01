@@ -129,7 +129,7 @@ fn is_query_owned_module(module: &ModuleId) -> bool {
     let components = module.path.components();
     !(matches!(
         module.project,
-        phalcom_modules::ProjectIdentity::Builtin(phalcom_modules::BuiltinPackage::Universe)
+        phalcom_modules::ProjectIdentity::Universe
     ) && components.len() == 1
         && components[0].as_str() == "core")
 }
@@ -347,7 +347,7 @@ impl<'a> CheckingContext<'a> {
         let has_complete_native_core = NATIVE_SURFACES.iter().all(|record| {
             let owner = resolver
                 .resolve_type_name(&current_module, record.owner().name(), &[])
-                .unwrap_or_else(|| DeclarationId::new(ModuleId::core(), record.owner().name().into()));
+                .unwrap_or_else(|| DeclarationId::new(ModuleId::universe_root(), record.owner().name().into()));
             declarations.form(&owner).is_some()
         });
         if has_complete_native_core {
@@ -1914,7 +1914,7 @@ impl<'a> CheckingContext<'a> {
 /// Workspace sessions normally publish these declarations from the embedded
 /// core source; direct checker fixtures intentionally do not load that module.
 pub(crate) fn ensure_core_object_type_tests(store: &mut TypeStore, declarations: &DeclarationTypeTable, dispatch: &mut SurfaceDispatchResolver) {
-    let class = DeclarationId::new(ModuleId::core(), "Class".into());
+    let class = DeclarationId::new(ModuleId::universe_root(), "Class".into());
     let mut class_surface = dispatch
         .get_surface(&class)
         .cloned()
@@ -1929,8 +1929,8 @@ pub(crate) fn ensure_core_object_type_tests(store: &mut TypeStore, declarations:
     dispatch.register_type(declarations.form(&class).unwrap_or_else(|| store.nominal_type(class.clone())), class.clone());
     dispatch.register_surface(class, class_surface);
 
-    let object = DeclarationId::new(ModuleId::core(), "Object".into());
-    if let Some(bool_ty) = declarations.form(&DeclarationId::new(ModuleId::core(), "Bool".into())) {
+    let object = DeclarationId::new(ModuleId::universe_root(), "Object".into());
+    if let Some(bool_ty) = declarations.form(&DeclarationId::new(ModuleId::universe_root(), "Bool".into())) {
         let mut surface = dispatch
             .get_surface(&object)
             .cloned()
@@ -1975,7 +1975,7 @@ mod tests {
 
     #[test]
     fn published_annotation_diagnostics_join_all_error_causes() {
-        let module = ModuleId::core();
+        let module = ModuleId::universe_root();
         let mut store = TypeStore::new();
         let declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(module.clone(), key.name().into()));
         let resolver = SimpleTypeResolver::new();
@@ -1996,7 +1996,7 @@ mod tests {
 
     #[test]
     fn flow_invariant_is_recorded_before_callable_containment() {
-        let module = ModuleId::core();
+        let module = ModuleId::universe_root();
         let mut store = TypeStore::new();
         let declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(module.clone(), key.name().into()));
         let resolver = SimpleTypeResolver::new();
@@ -2036,7 +2036,7 @@ mod tests {
 
     #[test]
     fn fail_fast_policy_panics_only_after_recording_incident() {
-        let module = ModuleId::core();
+        let module = ModuleId::universe_root();
         let mut store = TypeStore::new();
         let declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(module.clone(), key.name().into()));
         let resolver = SimpleTypeResolver::new();
@@ -2062,7 +2062,7 @@ mod tests {
 
     #[test]
     fn dispatch_target_preserves_callable_identity() {
-        let module = ModuleId::core();
+        let module = ModuleId::universe_root();
         let mut store = TypeStore::new();
         let declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(module.clone(), key.name().into()));
         let resolver = SimpleTypeResolver::new();

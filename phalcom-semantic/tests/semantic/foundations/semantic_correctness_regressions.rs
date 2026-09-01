@@ -26,7 +26,7 @@ use phalcom_semantic::types::relation::{MapTypeHierarchy, RefutationReason};
 use phalcom_semantic::types::store::TypeStore;
 
 fn test_decl(name: &str) -> DeclarationId {
-    DeclarationId::new(ModuleId::core(), name.into())
+    DeclarationId::new(ModuleId::universe_root(), name.into())
 }
 
 /// Part 1 invariant:

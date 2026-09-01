@@ -7,7 +7,7 @@ use phalcom_semantic::types::store::{CallableParameterType, CallableType, TypeDa
 #[test]
 fn structural_family_type_canonicalizes_member_order() {
     let mut store = TypeStore::new();
-    let value_type = store.nominal_type(DeclarationId::new(ModuleId::core(), "Int".into()));
+    let value_type = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "Int".into()));
     let callable_type = store.callable(CallableType {
         parameters: Box::new([CallableParameterType::new(value_type)]),
         return_type: value_type,
@@ -30,8 +30,8 @@ fn structural_family_type_canonicalizes_member_order() {
 #[test]
 fn structural_family_type_rejects_conflicting_duplicate_operation_shapes() {
     let mut store = TypeStore::new();
-    let int_type = store.nominal_type(DeclarationId::new(ModuleId::core(), "Int".into()));
-    let string_type = store.nominal_type(DeclarationId::new(ModuleId::core(), "String".into()));
+    let int_type = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "Int".into()));
+    let string_type = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "String".into()));
     let operation = FamilyOperationShape::getter();
 
     let error = store

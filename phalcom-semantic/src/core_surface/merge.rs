@@ -129,7 +129,7 @@ pub fn merge_surfaces<'a>(
         let key = (side, n_rec.selector().to_string());
 
         let native_declaration =
-            DeclarationId::new(crate::identity::ModuleId::core(), owner_name.into());
+            DeclarationId::new(crate::identity::ModuleId::universe_root(), owner_name.into());
         let entry = by_id
             .entry(native_declaration.clone())
             .or_insert_with(|| MergedDeclarationSurface {

@@ -89,7 +89,7 @@ fn snapshot_publishes_formal_source_and_advisory_products_together() {
         .unwrap();
     assert_eq!(
         update.snapshot.advisory().binding(&top_binding.declaration_site).map(|fact| &fact.shape),
-        Some(&ValueShape::Instance(DeclarationId::new(ModuleId::core(), "Int".into())))
+        Some(&ValueShape::Instance(DeclarationId::new(ModuleId::universe_root(), "Int".into())))
     );
     let site_view = update.snapshot.semantic_site_at(&module, top_binding.declaration_range.start);
     assert_eq!(site_view.source_site.as_ref(), Some(&top_binding.declaration_site));
@@ -104,7 +104,7 @@ fn snapshot_publishes_formal_source_and_advisory_products_together() {
     assert_eq!(summary.status, AdvisoryProductStatus::Complete);
     assert_eq!(
         summary.return_fact.shape,
-        ValueShape::Instance(DeclarationId::new(ModuleId::core(), "Int".into()))
+        ValueShape::Instance(DeclarationId::new(ModuleId::universe_root(), "Int".into()))
     );
     assert_eq!(update.snapshot.id().workspace(), session.workspace());
 }
@@ -196,12 +196,12 @@ fn binding_attachment_incident_does_not_hide_expression_attachment() {
 #[test]
 fn advisory_query_distinguishes_missing_coverage_from_published_unknown() {
     let site = SourceSiteId {
-        owner: SourceOwner::Module(ModuleId::core()),
+        owner: SourceOwner::Module(ModuleId::universe_root()),
         local: SourceSiteLocalId(1),
     };
     let unknown = AdvisoryFact::unknown().derive(AdvisoryConfidence::Heuristic, AdvisoryOrigin::Syntax(site.clone()));
     let shard = AdvisoryModuleProduct::new(
-        ModuleId::core(),
+        ModuleId::universe_root(),
         BTreeMap::from([(site.clone(), unknown.clone())]),
         BTreeMap::new(),
         BTreeMap::new(),
@@ -210,14 +210,14 @@ fn advisory_query_distinguishes_missing_coverage_from_published_unknown() {
         AdvisoryProductStatus::Complete,
     );
     let workspace = AdvisoryWorkspace::from_parts(
-        BTreeMap::from([(ModuleId::core(), Arc::new(shard))]),
+        BTreeMap::from([(ModuleId::universe_root(), Arc::new(shard))]),
         BTreeMap::new(),
         AdvisoryProductStatus::Complete,
     );
 
     assert_eq!(workspace.expression(&site), Some(&unknown));
     let missing = SourceSiteId {
-        owner: SourceOwner::Module(ModuleId::core()),
+        owner: SourceOwner::Module(ModuleId::universe_root()),
         local: SourceSiteLocalId(2),
     };
     assert!(workspace.expression(&missing).is_none());
@@ -256,11 +256,11 @@ fn advisory_disagreement_is_unknown_for_all_non_ready_formal_states() {
     let int = update
         .snapshot
         .declarations
-        .form(&DeclarationId::new(ModuleId::core(), "Int".into()))
+        .form(&DeclarationId::new(ModuleId::universe_root(), "Int".into()))
         .expect("Int declaration");
     let expression_id = phalcom_semantic::identity::ExpressionId::new(phalcom_semantic::identity::BodyId(1), phalcom_semantic::identity::LocalExpressionId(1));
     let advisory = AdvisoryFact::new(
-        ValueShape::Instance(DeclarationId::new(ModuleId::core(), "String".into())),
+        ValueShape::Instance(DeclarationId::new(ModuleId::universe_root(), "String".into())),
         AdvisoryConfidence::Exact,
     );
     let statuses = [
@@ -317,7 +317,7 @@ fn advisory_disagreement_keeps_ready_formal_product_unchanged() {
     let expression = analysis.expressions.values().next().expect("expression product");
     let before = expression.clone();
     let advisory = AdvisoryFact::new(
-        ValueShape::Instance(DeclarationId::new(ModuleId::core(), "String".into())),
+        ValueShape::Instance(DeclarationId::new(ModuleId::universe_root(), "String".into())),
         AdvisoryConfidence::Exact,
     );
     let relation = compare_expression(&update.snapshot.store, expression, &advisory);

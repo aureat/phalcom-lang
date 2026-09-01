@@ -15,7 +15,7 @@ use phalcom_semantic::{CheckingContext, SimpleTypeResolver};
 #[test]
 fn direct_and_nested_and_composite_substitution() {
     let mut store = TypeStore::new();
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let decl_box = DeclarationId::new(module.clone(), "Box".into());
     let decl_list = DeclarationId::new(module.clone(), "List".into());
     let decl_int = DeclarationId::new(module.clone(), "Int".into());
@@ -119,7 +119,7 @@ fn direct_and_nested_and_composite_substitution() {
 #[test]
 fn applied_member_views_on_box_int() {
     let mut store = TypeStore::new();
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let decl_box = DeclarationId::new(module.clone(), "Box".into());
     let decl_int = DeclarationId::new(module.clone(), "Int".into());
 
@@ -200,7 +200,7 @@ fn applied_member_views_on_box_int() {
 #[test]
 fn applied_generic_subtyping_is_invariant_and_class_object_is_hierarchical() {
     let mut store = TypeStore::new();
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let decl_box = DeclarationId::new(module.clone(), "Box".into());
     let decl_num = DeclarationId::new(module.clone(), "Number".into());
     let decl_int = DeclarationId::new(module.clone(), "Int".into());

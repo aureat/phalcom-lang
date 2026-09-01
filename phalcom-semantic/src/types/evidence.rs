@@ -439,7 +439,7 @@ mod required_composition_tests {
     use phalcom_modules::identity::ModuleId;
 
     fn nominal(store: &mut TypeStore, name: &str) -> TypeId {
-        store.nominal(DeclarationId::new(ModuleId::core(), name.into()))
+        store.nominal(DeclarationId::new(ModuleId::universe_root(), name.into()))
     }
 
     #[test]

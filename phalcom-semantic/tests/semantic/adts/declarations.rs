@@ -320,7 +320,7 @@ const none_case = Option::None
 
 #[test]
 fn singleton_associated_getter_publishes_exact_value_resolution() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
 class Probe {
@@ -363,7 +363,7 @@ enum State {
 
 #[test]
 fn variant_constructor_invocation_uses_canonical_call_binding() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
 class Probe {

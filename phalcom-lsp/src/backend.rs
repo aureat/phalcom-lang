@@ -195,7 +195,7 @@ fn combined_diagnostics_for(
 
 fn compiler_module_for_uri<'a>(compiler: &'a phalcom_semantic::SemanticSnapshot, uri: &Url) -> Option<&'a phalcom_modules::ModuleId> {
     if uri.as_str() == crate::core_documents::CORE_MODULE_URI {
-        return compiler.sources.keys().find(|module| **module == phalcom_modules::ModuleId::core());
+        return compiler.sources.keys().find(|module| **module == phalcom_modules::ModuleId::universe_root());
     }
     if let Ok(path) = uri.to_file_path() {
         return compiler.module_for_display_path(&path);
@@ -205,14 +205,14 @@ fn compiler_module_for_uri<'a>(compiler: &'a phalcom_semantic::SemanticSnapshot,
 }
 
 fn compiler_uri_for_module(compiler: &phalcom_semantic::SemanticSnapshot, module: &phalcom_modules::ModuleId) -> Option<Url> {
-    if *module == phalcom_modules::ModuleId::core() {
+    if *module == phalcom_modules::ModuleId::universe_root() {
         return Url::parse(crate::core_documents::CORE_MODULE_URI).ok();
     }
     let source = compiler.sources.get(module)?.source.as_ref()?;
     Url::from_file_path(&source.display_path)
         .ok()
         .or_else(|| Url::parse(source.source_id.0.as_ref()).ok())
-        .or_else(|| phalcom_modules::builtin_module_uri(module).and_then(|raw| Url::parse(&raw).ok()))
+        .or_else(|| phalcom_modules::universe_module_uri(module).and_then(|raw| Url::parse(&raw).ok()))
 }
 
 /// Parameters for the read-only virtual source provider request.
@@ -434,7 +434,7 @@ impl Backend {
 
         if params.uri.as_str() == crate::core_documents::CORE_MODULE_URI {
             if let Some(snapshot) = self.analysis.snapshot()
-                && let Some(text) = snapshot.presentation_source(&phalcom_modules::ModuleId::core())
+                && let Some(text) = snapshot.presentation_source(&phalcom_modules::ModuleId::universe_root())
             {
                 return Ok(Some(text.to_string()));
             }
@@ -1594,8 +1594,7 @@ impl LanguageServer for Backend {
 
 fn virtual_source_text(uri: &Url) -> Option<String> {
     let module = builtin_module_from_uri(uri)?;
-    let builtin = module.project.as_builtin()?;
-    phalcom_modules::BuiltinProjectSourceProvider::new(builtin)
+    phalcom_modules::UniverseSourceProvider::new()
         .source_text(&module)
         .ok()
         .map(|text| text.to_string())

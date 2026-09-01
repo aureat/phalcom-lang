@@ -60,7 +60,7 @@ fn workspace_input(module: ModuleId, source: &str) -> SemanticWorkspaceInput {
 #[test]
 fn advisory_parameter_contributions_use_canonical_parameter_identity() {
     let callable = CallableId::new(
-        DeclarationId::new(ModuleId::core(), "Probe".into()),
+        DeclarationId::new(ModuleId::universe_root(), "Probe".into()),
         Selector::method("consume", [SelectorSlot::Positional]).unwrap(),
         DispatchSide::Instance,
     );

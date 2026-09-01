@@ -1,4 +1,4 @@
-use phalcom_modules::identity::{BuiltinPackage, ModuleId, ModulePath, ResolvedProjectId};
+use phalcom_modules::identity::{ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_modules::project::ProjectUniverse;
 use phalcom_modules::resolver::ModuleResolver;
 use phalcom_modules::source::{FilesystemSourceProvider, ModuleKind};
@@ -51,8 +51,7 @@ fn builtin_parsed_module_caching() {
     let fs = FilesystemSourceProvider::new();
     let mut resolver = ModuleResolver::new(&universe, &fs);
 
-    let list_id = ModuleId::builtin(
-        BuiltinPackage::Universe,
+    let list_id = ModuleId::universe(
         ModulePath::from_components(vec![
             phalcom_modules::identity::ModuleComponent::from_identifier("collections").unwrap(),
             phalcom_modules::identity::ModuleComponent::from_identifier("list").unwrap(),

@@ -104,7 +104,7 @@ class Demo {
         .expect("System.print call expression");
 
     let advisory = AdvisoryFact::new(
-        ValueShape::Instance(DeclarationId::new(ModuleId::core(), "Int".into())),
+        ValueShape::Instance(DeclarationId::new(ModuleId::universe_root(), "Int".into())),
         AdvisoryConfidence::Exact,
     );
     assert_eq!(compare_expression(&snapshot.store, call, &advisory), AdvisoryAgreement::Incomparable);

@@ -6,7 +6,7 @@ use phalcom_semantic::identity::{DeclarationId, VariantFamilyId, VariantId};
 
 #[test]
 fn overloaded_variant_selectors_share_one_variant_family() {
-    let owner = DeclarationId::new(ModuleId::core(), "Animal".into());
+    let owner = DeclarationId::new(ModuleId::universe_root(), "Animal".into());
     let short = VariantId::new(owner.clone(), Selector::method("Dog", [SelectorSlot::Positional]).expect("selector"));
     let long = VariantId::new(
         owner,

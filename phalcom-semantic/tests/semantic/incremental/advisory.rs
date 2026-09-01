@@ -11,7 +11,7 @@ use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide, Module
 
 fn callable(name: &str) -> CallableId {
     CallableId::new(
-        DeclarationId::new(ModuleId::core(), "Solver".into()),
+        DeclarationId::new(ModuleId::universe_root(), "Solver".into()),
         Selector::method(name, []).unwrap(),
         DispatchSide::Instance,
     )
@@ -42,7 +42,7 @@ fn recursive_summaries_converge_to_deterministic_bounded_join() {
         node(
             left.clone(),
             AdvisoryFact::new(
-                ValueShape::Instance(DeclarationId::new(ModuleId::core(), "Left".into())),
+                ValueShape::Instance(DeclarationId::new(ModuleId::universe_root(), "Left".into())),
                 phalcom_semantic::AdvisoryConfidence::Exact,
             ),
             vec![right.clone()],
@@ -53,7 +53,7 @@ fn recursive_summaries_converge_to_deterministic_bounded_join() {
         node(
             right.clone(),
             AdvisoryFact::new(
-                ValueShape::Instance(DeclarationId::new(ModuleId::core(), "Right".into())),
+                ValueShape::Instance(DeclarationId::new(ModuleId::universe_root(), "Right".into())),
                 phalcom_semantic::AdvisoryConfidence::Exact,
             ),
             vec![left.clone()],
@@ -95,11 +95,11 @@ fn contribution_replacement_and_removal_do_not_retain_stale_facts() {
     let source_a = AdvisoryContributionSource::Callable(callable("caller_a"));
     let source_b = AdvisoryContributionSource::Callable(callable("caller_b"));
     let int = AdvisoryFact::new(
-        ValueShape::Instance(DeclarationId::new(ModuleId::core(), "Int".into())),
+        ValueShape::Instance(DeclarationId::new(ModuleId::universe_root(), "Int".into())),
         phalcom_semantic::AdvisoryConfidence::Exact,
     );
     let string = AdvisoryFact::new(
-        ValueShape::Instance(DeclarationId::new(ModuleId::core(), "String".into())),
+        ValueShape::Instance(DeclarationId::new(ModuleId::universe_root(), "String".into())),
         phalcom_semantic::AdvisoryConfidence::Exact,
     );
     let mut contributions = AdvisoryParameterContributions::default();
@@ -110,7 +110,7 @@ fn contribution_replacement_and_removal_do_not_retain_stale_facts() {
     assert_eq!(
         contributions.get(&slot).unwrap(),
         &AdvisoryFact::new(
-            ValueShape::Instance(DeclarationId::new(ModuleId::core(), "String".into())),
+            ValueShape::Instance(DeclarationId::new(ModuleId::universe_root(), "String".into())),
             phalcom_semantic::AdvisoryConfidence::Exact,
         )
     );

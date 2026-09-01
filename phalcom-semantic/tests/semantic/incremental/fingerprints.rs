@@ -42,7 +42,7 @@ fn module(name: &str) -> ModuleId {
 }
 
 fn declaration(name: &str) -> DeclarationId {
-    DeclarationId::new(ModuleId::core(), name.into())
+    DeclarationId::new(ModuleId::universe_root(), name.into())
 }
 
 fn declaration_shell() -> DeclarationTypeInfo {
@@ -95,7 +95,7 @@ fn semantic_signature() -> CallableSemanticSignature {
         declared_return: phalcom_semantic::DeclaredTypeFact::known(TypeTerm::Canonical(TypeId(1)), phalcom_semantic::DeclaredTypeBasis::SourceAnnotation),
         return_validation: phalcom_semantic::ReturnContractValidation::Unchecked,
         inferred_return: None,
-        source: Some(SemanticSourceSpan::new(ModuleId::core(), SourceRange { start: 10, end: 20 })),
+        source: Some(SemanticSourceSpan::new(ModuleId::universe_root(), SourceRange { start: 10, end: 20 })),
         implementation: ImplementationKind::Source,
         native_id: None,
         effects: EffectSpec::Unknown,
@@ -137,7 +137,7 @@ fn callable_internal_failure_fingerprint_ignores_local_incident_id() {
     let left_incident = InternalSemanticIncident {
         id: InternalSemanticIncidentId(3),
         kind: InternalSemanticIncidentKind::FlowInvariantViolation,
-        module: ModuleId::core(),
+        module: ModuleId::universe_root(),
         callable: Some(left.callable.clone()),
         expression: None,
         range: None,
@@ -432,7 +432,7 @@ fn callable_signature_product_includes_generics_effects_and_lifecycle() {
 fn callable_signature_product_ignores_source_movement_but_input_tracks_it() {
     let left = semantic_signature();
     let mut right = left.clone();
-    right.source = Some(SemanticSourceSpan::new(ModuleId::core(), SourceRange { start: 110, end: 120 }));
+    right.source = Some(SemanticSourceSpan::new(ModuleId::universe_root(), SourceRange { start: 110, end: 120 }));
 
     assert_eq!(callable_signature_product_fingerprint(&left), callable_signature_product_fingerprint(&right));
     assert_ne!(callable_signature_input_fingerprint(&left), callable_signature_input_fingerprint(&right));
@@ -624,14 +624,14 @@ fn callable_body_product_ignores_diagnostic_details() {
     let mut left = callable_analysis();
     left.diagnostics = Arc::from(
         vec![
-            SemanticDiagnostic::error_in(ModuleId::core(), DiagnosticCode::TypeMismatch, "mismatch", SourceRange { start: 1, end: 2 }).with_note("first note"),
+            SemanticDiagnostic::error_in(ModuleId::universe_root(), DiagnosticCode::TypeMismatch, "mismatch", SourceRange { start: 1, end: 2 }).with_note("first note"),
         ]
         .into_boxed_slice(),
     );
     let mut right = left.clone();
     right.diagnostics = Arc::from(
         vec![
-            SemanticDiagnostic::error_in(ModuleId::core(), DiagnosticCode::TypeMismatch, "mismatch", SourceRange { start: 1, end: 2 })
+            SemanticDiagnostic::error_in(ModuleId::universe_root(), DiagnosticCode::TypeMismatch, "mismatch", SourceRange { start: 1, end: 2 })
                 .with_note("different note"),
         ]
         .into_boxed_slice(),
@@ -675,7 +675,7 @@ fn callable_body_product_ignores_flow_source_ranges() {
 
 #[test]
 fn module_diagnostics_product_includes_secondary_details() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let left = SemanticDiagnostic::error_in(module.clone(), DiagnosticCode::TypeMismatch, "mismatch", SourceRange { start: 1, end: 2 }).with_note("first note");
     let right =
         SemanticDiagnostic::error_in(module.clone(), DiagnosticCode::TypeMismatch, "mismatch", SourceRange { start: 1, end: 2 }).with_note("different note");
@@ -688,7 +688,7 @@ fn module_diagnostics_product_includes_secondary_details() {
 
 #[test]
 fn module_diagnostics_product_ignores_snapshot_local_cause_numbers() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let left = SemanticDiagnostic::error_in(module.clone(), DiagnosticCode::TypeMismatch, "mismatch", SourceRange { start: 1, end: 2 })
         .with_root_cause(DiagnosticCauseId(17));
     let right = SemanticDiagnostic::error_in(module.clone(), DiagnosticCode::TypeMismatch, "mismatch", SourceRange { start: 1, end: 2 })

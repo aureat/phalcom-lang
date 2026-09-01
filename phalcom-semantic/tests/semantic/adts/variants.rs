@@ -8,7 +8,7 @@ use phalcom_semantic::identity::{DeclarationId, VariantId};
 
 #[test]
 fn singleton_and_constructor_variants_have_distinct_identities_in_one_family() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
 enum Weird {
@@ -49,7 +49,7 @@ enum Weird {
 
 #[test]
 fn variant_payload_field_identity_uses_declaration_order() {
-    let module = ModuleId::core();
+    let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
 enum Pair {
