@@ -4,11 +4,11 @@
 
 Active checkpoint: Slice 8 — broad amendment-owned validation
 Completed checkpoints: S0, Slice 4, Slice 5, Slice 6, Slice 7; Slices 1–3 inherited and previously landed
-Current task: close Slice 8 evidence without misclassifying inherited core runtime failures
+Current task: finish bounded Slice 8 core/reflection/workspace evidence after repairing canonical Universe lowering
 Next concrete action: run bounded workspace compile/test gates, then decide whether Slice 9 is warranted; do not claim broad correctness while core blockers remain
-Last verified evidence: Slice 4 semantic matching filter `162 passed, 0 failed, 22 ignored`; Slice 5 semantic metadata `21 passed`, native conformance `3 passed`, module identity `4 passed`; Slice 6 focused Universe exposure/relative identity, package intrinsic, bootstrap measurement, standalone package/module, builtin-client, and dependency-sentinel gates pass; Slice 7 Option typing `4 passed`, GATE-01 `1 passed`, GATE-02 `1 passed`, and adjacent positional/keyword argument tests `1 passed` each; Slice 8 module target `107 passed, 0 failed`, semantic target `927 passed, 0 failed, 48 ignored`, and required core `native_adt_runtime` filter `6 passed, 0 failed`
+Last verified evidence: Slice 4 semantic matching filter `162 passed, 0 failed, 22 ignored`; Slice 5 semantic metadata `21 passed`, native conformance `3 passed`, module identity `4 passed`; Slice 6 focused Universe exposure/relative identity, package intrinsic, bootstrap measurement, standalone package/module, builtin-client, and dependency-sentinel gates pass; Slice 7 Option typing `4 passed`, GATE-01 `1 passed`, GATE-02 `1 passed`, and adjacent positional/keyword argument tests `1 passed` each; Slice 8 module target `107 passed, 0 failed`, semantic target `927 passed, 0 failed, 48 ignored`, required core `native_adt_runtime` filter `6 passed, 0 failed`, canonical range regression `1 passed`, and curated prelude regression `1 passed`
 Do not rerun unless changed: S0 preflight baseline at `4148de61f5415729fe5fe4ccfcef383292548ffe`
-Active incident: Slice 8 core full-target evidence remains incomplete: deterministic collection variant-registration failure, missing `universe.None` exposure, and bounded reflection run without final summary
+Active incident: Slice 8 core full-target evidence remains incomplete only for the previously interrupted broad reflection run; the deterministic range-variant and `universe.None` exposure failures are repaired and focused-green
 
 ## Working inputs
 
@@ -87,7 +87,21 @@ Slice 7 reconciliation: active GATE-01 keyword mismatch now follows the shared a
 
 Slice 8 semantic/module evidence is clean after a narrow regression correction in `phalcom-semantic/src/checker/call.rs`: retain the initial underconstrained outcome for diagnostics unless post-context solving has established value support. Focused regressions for expected-context underconstraint, both underconstrained diagnostic presentations, and `option_flat_map` passed `1/1` each; the Option group passed `4/4`; the complete semantic target passed `927/0/48`; the complete modules package passed `107/0/0`.
 
-Core evidence is partial and bounded. `native_adt_runtime` passed `6/6`. The complete core target was interrupted while progressing after a deterministic `core_collections::range_literals_drive_collection_slices` failure (`StrError("unregistered variant")`); its focused rerun failed `0 passed, 1 failed, 438 filtered out`. The `universe` filter reached `15 passed, 1 failed, 423 filtered out`, with `curated_prelude_exposes_public_names_and_hides_internal_classes` observing missing `universe.None` exposure. The reflection filter was stopped after repeated long-running tests before its final summary; no failure was emitted before stopping. These core failures/incomplete evidence are outside the Slice 8 semantic-call correction and remain deferred.
+Earlier Slice 8 core evidence was partial and bounded. `native_adt_runtime` passed `6/6`. The complete core target was interrupted while progressing after deterministic `core_collections::range_literals_drive_collection_slices` (`StrError("unregistered variant")`) and `curated_prelude_exposes_public_names_and_hides_internal_classes` (`universe.None` exposure); both are dispositioned by the repair checkpoint below. The reflection filter was stopped after repeated long-running tests before its final summary; no failure was emitted before stopping.
+
+### Slice 8 core repair checkpoint
+
+The canonical lowering repair is now focused-green. `VM::universe_lowerings` performs one source-complete semantic analysis over the linked Universe corpus, so `Result::Ok`/`Result::Error` lowering retains canonical `Universe::errors.result::Result` variant owners instead of reaching compiler fallback identity. The semantic session permits only the exact bundled-source erased `Universe::Iterable` superclass form; ordinary/user source keeps the `KindExpectedType` rejection. Root prelude synchronization now exposes `UniverseKey::None` through the canonical `none_class` object even when the owner module binding is not materialized.
+
+Focused evidence:
+
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo +nightly test -p phalcom-semantic --test semantic written_invalid_superclass_does_not_publish_ready_declaration -- --nocapture` — passed: `1 passed, 0 failed, 974 filtered out`.
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo +nightly test -p phalcom-core --test core range_literals_drive_collection_slices -- --nocapture` — passed: `1 passed, 0 failed, 438 filtered out`, finished in `71.43s`.
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo +nightly test -p phalcom-core --test core curated_prelude_exposes_public_names_and_hides_internal_classes -- --nocapture` — passed: `1 passed, 0 failed, 438 filtered out`, finished in `71.11s`.
+- `rg` debug-probe deletion gate — passed; no `RANGE DEBUG`, `RESOLVE DEBUG`, `INFERENCE DEBUG`, `GEN DEBUG`, `QUERY DEBUG`, `SUPER DEBUG`, or `SESSION DEBUG` remains in core/semantic source.
+- `git diff --check` — passed.
+
+The broad reflection filter remains incomplete because repeated runs reached a 0%-CPU hang and were interrupted; do not loop that filter before bounded disposition. Slice 9 remains last and is not started.
 
 Search/deletion gates produced no forbidden semantic shortcut hits; remaining `UniverseKey::from_name` hits are pre-resolution source/catalog or presentation lookups. `git diff --check` is clean. Slice 8 implementation checkpoint contains only the semantic-call correction and this state record; the inherited seven-file Slice 5/6 dirty set and handoff remain unstaged. Broad acceptance remains open, and Slice 9 must not start until core/workspace evidence is clean or explicitly dispositioned by the authoritative plan.
 

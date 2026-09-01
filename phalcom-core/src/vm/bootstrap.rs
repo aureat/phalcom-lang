@@ -288,7 +288,9 @@ impl VM {
             })?;
             self.heap.module_mut(module).lowering = Some(lowering.clone());
             let source_id = self.heap.module_mut(module).push_source(std::sync::Arc::new(parsed.text.to_string()));
-            let closure = self.compile_ast_as(module, source_id, (*parsed.program).clone(), crate::compiler::lib::UnitKind::File)?;
+            let closure = self
+                .compile_ast_as(module, source_id, (*parsed.program).clone(), crate::compiler::lib::UnitKind::File)
+                .map_err(|error| crate::error::RuntimeError::Internal(format!("failed to compile Universe module {}: {error}", parsed.id)))?;
             self.run_in_module(module, closure)?;
             self.module_registry.get_mut(&parsed.id).expect("bootstrapped Universe module is registered").state = crate::modules::registry::ModuleState::Initialized;
         }
@@ -330,20 +332,23 @@ impl VM {
         let linked = phalcom_modules::ModuleLinker::new(universe.clone(), interfaces)
             .link_all(phalcom_modules::ModuleId::universe_root(), &resolved)
             .map_err(|error| crate::error::RuntimeError::Internal(format!("failed to link canonical Universe sources: {error}")))?;
+        let sources = source_index
+            .units
+            .iter()
+            .map(|unit| (unit.id.clone(), unit.clone()))
+            .collect();
+        let analysis = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput {
+                linked: std::sync::Arc::new(linked),
+                sources,
+                generation: 0,
+            })
+        }))
+        .map_err(|_| crate::error::RuntimeError::Internal("canonical Universe semantic analysis panicked".into()))?;
         source_index
             .units
             .iter()
             .map(|unit| {
-                let mut unit_sources = std::collections::BTreeMap::new();
-                unit_sources.insert(unit.id.clone(), unit.clone());
-                let analysis = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput {
-                        linked: std::sync::Arc::new(linked.clone()),
-                        sources: unit_sources,
-                        generation: 0,
-                    })
-                }))
-                .map_err(|_| crate::error::RuntimeError::Internal(format!("canonical Universe semantic analysis panicked for {}", unit.id)))?;
                 let lowering = crate::modules::semantic_lowering::build_module_lowering_semantics(&unit.id, &analysis.snapshot).map_err(|error| {
                     crate::error::RuntimeError::Internal(format!("failed to project Universe lowering for {}: {error}", unit.id))
                 })?;
@@ -567,13 +572,11 @@ impl VM {
             let owner_id = Self::canonical_universe_module_id(binding.key);
             let owner = self.module_registry.get(&owner_id).expect("canonical Universe owner module").object;
             let name = self.interner.intern(binding.name);
-            let value = self.heap.module(owner).get(name).unwrap_or_else(|| {
-                if binding.key == phalcom_native_meta::UniverseKey::None {
-                    Value::none()
-                } else {
-                    Value::obj(self.universe.classes.resolve(binding.key))
-                }
-            });
+            let value = if binding.key == phalcom_native_meta::UniverseKey::None {
+                Value::obj(self.universe.classes.none_class)
+            } else {
+                self.heap.module(owner).get(name).unwrap_or_else(|| Value::obj(self.universe.classes.resolve(binding.key)))
+            };
             let slot = self.heap.module_mut(root).declare(name).expect("Universe root alias slot");
             self.heap.module_mut(root).set_global(slot, value).expect("Universe root alias value");
             if binding.prelude || matches!(binding.key, phalcom_native_meta::UniverseKey::Some | phalcom_native_meta::UniverseKey::None) {
