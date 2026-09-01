@@ -5,9 +5,7 @@ class Probe {
     }
 
     @class
-    run() {
-        let inner: Either<Bool, Int> = Either::Right(1)
-        let outer: Either<String, Either<Bool, Int>> = Either::Right(inner)
+    run(_ outer: Either<String, Either<Bool, Int>>) {
         let bad = Probe.flatten(outer)
     }
 }
