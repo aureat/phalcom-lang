@@ -195,10 +195,7 @@ impl NativeSourceIndex {
     pub fn reachable_units_from_roots(&self, roots: &[ModuleId]) -> Result<Vec<ModuleId>, String> {
         let dependencies = self.dependency_indices()?;
         let reachable = self.reachable_indices_from_roots(roots, &dependencies)?;
-        let mut modules = reachable
-            .into_iter()
-            .map(|index| self.units[index].id.clone())
-            .collect::<Vec<_>>();
+        let mut modules = reachable.into_iter().map(|index| self.units[index].id.clone()).collect::<Vec<_>>();
         modules.sort();
         Ok(modules)
     }
@@ -209,13 +206,12 @@ impl NativeSourceIndex {
     /// without becoming roots merely because they are shipped.
     pub fn bootstrap_roots(&self) -> Vec<ModuleId> {
         let mut roots = BTreeSet::from([ModuleId::universe_root()]);
-        roots.extend(self.units.iter().filter_map(|unit| {
-            unit.program
-                .statements
+        roots.extend(
+            self.units
                 .iter()
-                .any(|statement| !matches!(statement, Statement::Export(_)))
-                .then(|| unit.id.clone())
-        }));
+                .filter(|unit| unit.program.statements.iter().any(|statement| !matches!(statement, Statement::Export(_))))
+                .map(|unit| unit.id.clone()),
+        );
         roots.into_iter().collect()
     }
 
