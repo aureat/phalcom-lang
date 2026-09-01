@@ -887,6 +887,10 @@ fn apply_generic_callable_inner(
     }
 
     let argument_outcome = ctx.solve_inference(&mut session);
+    let argument_underconstrained = match &argument_outcome {
+        crate::checker::inference::InferenceOutcome::Underconstrained(value) => Some(value.clone()),
+        _ => None,
+    };
     let pre_context_result = match &argument_outcome {
         crate::checker::inference::InferenceOutcome::Solved(_) => {
             Some(publish_generic_return(ctx, &session, return_term.as_ref(), &signature.return_type, call_range))
@@ -916,9 +920,19 @@ fn apply_generic_callable_inner(
     } else {
         argument_outcome
     };
-    let underconstrained = match &outcome {
-        crate::checker::inference::InferenceOutcome::Underconstrained(value) => Some(value),
-        _ => None,
+    let context_resolved_with_value_support = match (&argument_underconstrained, &outcome) {
+        (Some(initial), crate::checker::inference::InferenceOutcome::Solved(solution)) => initial.unsolved_vars.iter().all(|variable| {
+            matches!(solution.support.get(variable), Some(InferenceSupport::Established))
+        }),
+        _ => false,
+    };
+    let underconstrained = if context_resolved_with_value_support {
+        None
+    } else {
+        argument_underconstrained.as_ref().or(match &outcome {
+            crate::checker::inference::InferenceOutcome::Underconstrained(value) => Some(value),
+            _ => None,
+        })
     };
 
     if let Some(underconstrained) = underconstrained
