@@ -12,6 +12,7 @@ use crate::match_semantics::{
     PatternBindingResolution, PatternResolution, ResolvedFieldPattern, ResolvedListPattern, ResolvedOrPattern, ResolvedVariantCandidate,
     ResolvedVariantPattern, VariantSelectorConstraint,
 };
+use crate::types::annotation::TypeResolver;
 use crate::types::denotation::ValueSemanticFact;
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
 use crate::types::id::TypeId;
@@ -449,96 +450,129 @@ fn remap_pattern_bindings(resolution: &mut PatternResolution, replacements: &BTr
 fn try_resolve_contextual_singleton(
     ctx: &mut CheckingContext<'_>,
     name: &str,
-    _range: SourceRange,
+    range: SourceRange,
     expected_ty: TypeId,
     _expected_space: &PatternSpace,
 ) -> Option<(ResolvedVariantPattern, PatternSpace)> {
-    let enum_table = ctx.enum_table?;
-    let owner = ctx.store.nominal_origin_declaration(expected_ty)?.clone();
-    let enum_info = enum_table.enums.get(&owner)?;
-
+    let enum_table = ctx.enum_table.cloned()?;
     let target_selector = Selector::getter(name).ok()?;
-    let variant_id = enum_info.variants.iter().find(|variant| variant.selector == target_selector)?;
-    let variant_info = enum_table.variants.get(variant_id)?.clone();
 
-    if variant_info.shape != VariantShape::Singleton {
-        return None;
+    // A union scrutinee has no single nominal origin. Keep each member's
+    // declaration-backed type while looking up its variant; never construct an
+    // owner from the contextual leaf spelling.
+    let owner_types = nominal_owner_types(ctx.store, expected_ty);
+    let mut matches = Vec::new();
+    for (owner, owner_ty) in owner_types {
+        let Some(enum_info) = enum_table.enums.get(&owner) else {
+            continue;
+        };
+        let Some(variant_id) = enum_info.variants.iter().find(|variant| variant.selector == target_selector) else {
+            continue;
+        };
+        let Some(variant_info) = enum_table.variants.get(variant_id).cloned() else {
+            continue;
+        };
+        if variant_info.shape != VariantShape::Singleton {
+            continue;
+        }
+
+        ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::EnumDeclaration(owner.clone()));
+        let (proof, exact_case) = match crate::checker::gadt_proof::solve_gadt_branch_proof(ctx.store, &ctx.hierarchy, &owner, &variant_info, owner_ty) {
+            crate::checker::gadt_proof::GadtProofResult::Reachable { proof, exact_case } => (proof, exact_case),
+            crate::checker::gadt_proof::GadtProofResult::Refuted => continue,
+        };
+        matches.push((owner, variant_id.clone(), variant_info, exact_case, proof));
     }
 
-    ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::EnumDeclaration(owner.clone()));
+    if matches.is_empty() {
+        return None;
+    }
+    matches.sort_by(|left, right| left.1.cmp(&right.1));
 
-    let (proof, exact_case) = match crate::checker::gadt_proof::solve_gadt_branch_proof(ctx.store, &ctx.hierarchy, &owner, &variant_info, expected_ty) {
-        crate::checker::gadt_proof::GadtProofResult::Reachable { proof, exact_case } => (proof, exact_case),
-        crate::checker::gadt_proof::GadtProofResult::Refuted => return None,
+    let mut owner_candidates = Vec::new();
+    let mut candidates = Vec::with_capacity(matches.len());
+    let mut spaces = Vec::with_capacity(matches.len());
+    for (owner, variant_id, _variant_info, exact_case, proof) in matches.iter() {
+        if !owner_candidates.contains(owner) {
+            owner_candidates.push(owner.clone());
+        }
+        candidates.push(ResolvedVariantCandidate {
+            variant: variant_id.clone(),
+            exact_case: *exact_case,
+            fields: Box::new([]),
+            proof: proof.clone(),
+        });
+        spaces.push(PatternSpace::Variant(VariantSpace {
+            variant: variant_id.clone(),
+            exact_case: *exact_case,
+            fields: Box::new([]),
+            proof: proof.clone(),
+        }));
+    }
+
+    if owner_candidates.len() > 1 {
+        let owners = owner_candidates.iter().map(|owner| owner.name.to_string()).collect::<Vec<_>>().join(", ");
+        ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            crate::diagnostic::DiagnosticCode::MatchPatternUnresolved,
+            format!("contextual variant `{name}` is ambiguous; candidate owners: {owners}"),
+            range,
+        ));
+    }
+
+    let family = if owner_candidates.len() == 1 {
+        matches
+            .first()
+            .and_then(|(_, _, variant_info, _, _)| variant_info.family.clone())
+            .or_else(|| Some(VariantFamilyId::new(owner_candidates[0].clone(), name)))
+    } else {
+        None
     };
-    let family_id = variant_info.family.clone().unwrap_or_else(|| VariantFamilyId::new(owner.clone(), name));
-
-    let candidate = ResolvedVariantCandidate {
-        variant: variant_id.clone(),
-        exact_case,
-        fields: Box::new([]),
-        proof: proof.clone(),
+    let space = match spaces.len() {
+        1 => spaces.pop().expect("single contextual variant space exists"),
+        _ => PatternSpace::Union(spaces.into_boxed_slice()).normalize(),
     };
-
     let resolution = ResolvedVariantPattern {
-        owner,
-        family: family_id,
+        owner: (owner_candidates.len() == 1).then(|| owner_candidates[0].clone()),
+        family,
+        owner_candidates: owner_candidates.into_boxed_slice(),
         selector: VariantSelectorConstraint::Exact(target_selector),
-        candidates: Box::new([candidate]),
+        candidates: candidates.into_boxed_slice(),
     };
-
-    let space = PatternSpace::Variant(VariantSpace {
-        variant: variant_id.clone(),
-        exact_case,
-        fields: Box::new([]),
-        proof,
-    });
 
     Some((resolution, space))
 }
 
-fn resolve_variant_pattern(
-    ctx: &mut CheckingContext<'_>,
-    variant_pat: &VariantPattern,
-    expected_ty: TypeId,
-    _expected_space: &PatternSpace,
-    bindings: &mut Vec<PatternBindingResolution>,
-    binding_mode: BindingMode,
-) -> (ResolvedVariantPattern, PatternSpace) {
-    let expected_nominal_decl = ctx.store.nominal_origin_declaration(expected_ty).cloned();
-
-    let owner_decl = if let Some(ref owner_ref) = variant_pat.owner {
-        let decl = DeclarationId::new(ctx.current_module.clone(), owner_ref.root.clone().into());
-        if let Some(ref exp_decl) = expected_nominal_decl {
-            if &decl != exp_decl {
-                ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
-                    ctx.current_module.clone(),
-                    crate::diagnostic::DiagnosticCode::MatchPatternContradictory,
-                    format!("pattern type `{}` cannot match scrutinee nominal type `{}`", decl.name, exp_decl.name),
-                    variant_pat.range,
-                ));
+/// Returns nominal owners and the corresponding expected type for each union
+/// member. The type is retained so GADT proof solving stays member-specific.
+fn nominal_owner_types(store: &crate::types::store::TypeStore, ty: TypeId) -> Vec<(DeclarationId, TypeId)> {
+    fn collect(store: &crate::types::store::TypeStore, ty: TypeId, seen: &mut BTreeSet<TypeId>, owners: &mut Vec<(DeclarationId, TypeId)>) {
+        if !seen.insert(ty) {
+            return;
+        }
+        match store.get(ty) {
+            TypeData::Union(members) => {
+                for member in members.iter().copied() {
+                    collect(store, member, seen, owners);
+                }
+            }
+            _ => {
+                if let Some(owner) = store.nominal_origin_declaration(ty).cloned() {
+                    if !owners.iter().any(|(known, known_ty)| known == &owner && known_ty == &ty) {
+                        owners.push((owner, ty));
+                    }
+                }
             }
         }
-        decl
-    } else {
-        expected_nominal_decl.unwrap_or_else(|| DeclarationId::new(ctx.current_module.clone(), variant_pat.base.clone().into()))
-    };
-
-    ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::EnumDeclaration(owner_decl.clone()));
-
-    let enum_table = ctx.enum_table.cloned();
-    let enum_info = enum_table.as_ref().and_then(|table| table.enums.get(&owner_decl).cloned());
-
-    if enum_info.is_none() {
-        ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
-            ctx.current_module.clone(),
-            crate::diagnostic::DiagnosticCode::MatchPatternUnresolved,
-            format!("type `{}` is not an enum or cannot be resolved", owner_decl.name),
-            variant_pat.range,
-        ));
     }
 
-    let constraint = match &variant_pat.mode {
+    let mut owners = Vec::new();
+    collect(store, ty, &mut BTreeSet::new(), &mut owners);
+    owners
+}
+
+fn variant_selector_constraint(variant_pat: &VariantPattern) -> VariantSelectorConstraint {
+    match &variant_pat.mode {
         VariantPatternMode::WholeFamily { .. } => VariantSelectorConstraint::WholeFamily,
         VariantPatternMode::Singleton => {
             let selector =
@@ -563,7 +597,112 @@ fn resolve_variant_pattern(
             });
             VariantSelectorConstraint::Pattern(pattern)
         }
+    }
+}
+
+fn format_variant_reference(variant_pat: &VariantPattern) -> String {
+    let Some(owner) = variant_pat.owner.as_ref() else {
+        return variant_pat.base.clone();
     };
+    let mut reference = owner.root.clone();
+    for member in &owner.members {
+        reference.push('.');
+        reference.push_str(&member.name);
+    }
+    reference.push_str("::");
+    reference.push_str(&variant_pat.base);
+    reference
+}
+
+fn resolve_variant_pattern(
+    ctx: &mut CheckingContext<'_>,
+    variant_pat: &VariantPattern,
+    expected_ty: TypeId,
+    _expected_space: &PatternSpace,
+    bindings: &mut Vec<PatternBindingResolution>,
+    binding_mode: BindingMode,
+) -> (ResolvedVariantPattern, PatternSpace) {
+    let expected_nominal_decl = ctx.store.nominal_origin_declaration(expected_ty).cloned();
+    let expected_owners = nominal_owner_types(ctx.store, expected_ty);
+    let constraint = variant_selector_constraint(variant_pat);
+
+    let owner_decl = if let Some(ref owner_ref) = variant_pat.owner {
+        let members = owner_ref.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
+        let Some(decl) = ctx.resolver.resolve_type_name(&ctx.current_module, &owner_ref.root, &members) else {
+            ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                crate::diagnostic::DiagnosticCode::MatchPatternUnresolved,
+                format!("cannot resolve explicit variant owner `{}`", format_variant_reference(variant_pat)),
+                variant_pat.range,
+            ));
+            return (
+                ResolvedVariantPattern {
+                    owner: None,
+                    family: None,
+                    owner_candidates: Box::new([]),
+                    selector: constraint,
+                    candidates: Box::new([]),
+                },
+                PatternSpace::Empty,
+            );
+        };
+        if !expected_owners.is_empty() && !expected_owners.iter().any(|(expected, _)| expected == &decl) {
+            let expected_names = expected_owners.iter().map(|(owner, _)| owner.name.to_string()).collect::<Vec<_>>().join(", ");
+            ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                crate::diagnostic::DiagnosticCode::MatchPatternContradictory,
+                format!("pattern owner `{}` cannot match scrutinee owner(s) `{expected_names}`", decl.name),
+                variant_pat.range,
+            ));
+        }
+        decl
+    } else if let Some(decl) = expected_nominal_decl {
+        decl
+    } else {
+        ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            crate::diagnostic::DiagnosticCode::MatchPatternUnresolved,
+            format!(
+                "variant `{}` has no declaration-backed owner for scrutinee type",
+                format_variant_reference(variant_pat)
+            ),
+            variant_pat.range,
+        ));
+        return (
+            ResolvedVariantPattern {
+                owner: None,
+                family: None,
+                owner_candidates: Box::new([]),
+                selector: constraint,
+                candidates: Box::new([]),
+            },
+            PatternSpace::Empty,
+        );
+    };
+
+    ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::EnumDeclaration(owner_decl.clone()));
+
+    let enum_table = ctx.enum_table.cloned();
+    let enum_info = enum_table.as_ref().and_then(|table| table.enums.get(&owner_decl).cloned());
+
+    if enum_info.is_none() {
+        ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            crate::diagnostic::DiagnosticCode::MatchPatternUnresolved,
+            format!("type `{}` is not an enum or cannot be resolved", owner_decl.name),
+            variant_pat.range,
+        ));
+        return (
+            ResolvedVariantPattern {
+                owner: Some(owner_decl.clone()),
+                family: None,
+                owner_candidates: Box::new([owner_decl]),
+                selector: constraint,
+                candidates: Box::new([]),
+            },
+            PatternSpace::Empty,
+        );
+    }
 
     let mut candidate_resolutions = Vec::new();
     let mut candidate_spaces = Vec::new();
@@ -863,8 +1002,9 @@ fn resolve_variant_pattern(
     };
 
     let resolution = ResolvedVariantPattern {
-        owner: owner_decl,
-        family: family_id,
+        owner: Some(owner_decl.clone()),
+        family: Some(family_id),
+        owner_candidates: Box::new([owner_decl]),
         selector: constraint,
         candidates: candidate_resolutions.into_boxed_slice(),
     };

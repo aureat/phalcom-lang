@@ -2,11 +2,11 @@
 
 ## Current position
 
-Active checkpoint: Slice 1 — canonical Universe source/interface authority
-Completed checkpoints: S0
-Current task: verify and complete the partially-landed Slice 1 implementation on `fix/sc1-correctness-amendment`
-Next concrete action: run PR CI against the existing module-layer authority changes, then complete the semantic source-declaration/conformance half
-Last verified evidence: S0 baseline recorded `builtin_catalog` 7/0/0 and unified `semantic` 905 passed, 2 known active failures, 51 ignored
+Active checkpoint: Slice 7 — active semantic gate repair
+Completed checkpoints: S0, Slice 4, Slice 5; Slices 1–3 inherited and previously landed
+Current task: finish Option higher-order generic inference, then run Slice 6/7 checkpoint gates
+Next concrete action: repair callable generic inference for `Option.map`/`flatMap`, validate exact active gates, then reconcile Slice 6
+Last verified evidence: Slice 4 semantic matching filter `162 passed, 0 failed, 22 ignored`; Slice 5 semantic metadata `21 passed`, native conformance `3 passed`, module identity `4 passed`; Slice 7 GATE-01/GATE-02 focused tests pass
 Do not rerun unless changed: S0 preflight baseline at `4148de61f5415729fe5fe4ccfcef383292548ffe`
 Active incident: none
 
@@ -72,3 +72,11 @@ Evidence:
 Deferred evidence: Slice 1/2 red-green fixtures and package gates; Slice 7 owns repair of the two active failures. No amendment regression existed at S0 because no production/test change had been made.
 
 Resume pointer: Slice 1 is now active. The landed WIP baseline already contains the module-layer root-alias/non-root-export work and BCAT-08/09; verify that through PR CI, then complete source-driven semantic declaration shells and conformance before declaring Slice 1 complete.
+
+## Reconciliation — Slices 4–6
+
+Slice 4 focused evidence: semantic `matching` filter passed with `162 passed, 0 failed, 22 ignored`, including promoted ambiguous contextual-owner, inaccessible explicit-owner, and no-arbitrary-candidate tests. Dirty changes cover declaration-backed contextual variant ownership, candidate sets, match-product fingerprinting, and corresponding test models. Slice 4 is checkpoint-ready.
+
+Slice 5 focused evidence: semantic `metadata` filter passed with `21 passed`; semantic `native_conformance` passed with `3 passed`; module `identity_foundation` passed with `4 passed`. Dirty changes cover context-aware durable identity, revision fingerprints, source/native conformance, declaration-aware runtime class lookup, and Iterable source/native arity alignment. Slice 5 is checkpoint-ready.
+
+Slice 6 reconciliation: inherited dirty changes cover Universe exposure/relative resolution, package intrinsics, canonical bootstrap dependency ordering, bootstrap measurement, and legacy identity cleanup. Focused core reflection execution exposed existing `modules_project_reflection::test_standalone_has_no_project` failure on `LegacyStdImportRemoved`; remaining Slice 6 focused evidence is pending classification and repair.

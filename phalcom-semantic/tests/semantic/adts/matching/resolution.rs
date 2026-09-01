@@ -37,8 +37,9 @@ fn match_product_model_shape() {
         arms: Box::new([MatchArmResolution {
             arm_index: 0,
             pattern: PatternResolution::Variant(ResolvedVariantPattern {
-                owner: decl.clone(),
-                family: fam_id,
+                owner: Some(decl.clone()),
+                family: Some(fam_id),
+                owner_candidates: Box::new([decl.clone()]),
                 selector: VariantSelectorConstraint::WholeFamily,
                 candidates: Box::new([ResolvedVariantCandidate {
                     variant: var_id,
@@ -165,13 +166,27 @@ fn match_res_07_contextual_none_resolves_singleton_member() {
 }
 
 #[test]
-#[ignore = "GATED: ambiguous contextual owner fixture requires multi-module/domain union support"]
 fn match_res_08_ambiguous_contextual_owner_reports_no_arbitrary_candidate() {
-    let case =
-        analyze_adt("enum Left { @variant Same }\nenum Right { @variant Same }\nclass Test { run(_ value: Object) { match value { Same => 1 _ => 0 } } }\n");
-    assert!(
-        case.diagnostics()
-            .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::MatchPatternUnresolved)
+    let case = analyze_adt(
+        "enum Left { @variant Same }\nenum Right { @variant Same }\nclass Test { run(_ value: Left | Right) { match value { Same => 1 _ => 0 } } }\n",
+    );
+    case.assert_diagnostic_primary_contains(phalcom_semantic::diagnostic::DiagnosticCode::MatchPatternUnresolved, "Same");
+    let handle = case.only_match();
+    let arm = handle.arm(0);
+    let PatternResolution::Variant(pattern) = &arm.resolution().pattern else {
+        panic!("expected contextual variant resolution");
+    };
+    assert!(pattern.owner.is_none(), "ambiguous contextual owner must remain absent");
+    assert!(pattern.family.is_none(), "ambiguous contextual family must remain absent");
+    assert_eq!(pattern.owner_candidates.len(), 2);
+    assert_eq!(pattern.candidates.len(), 2);
+    assert_eq!(
+        pattern.candidates[0].variant.owner,
+        case.variant_id("Left", Selector::getter("Same").expect("selector")).owner
+    );
+    assert_eq!(
+        pattern.candidates[1].variant.owner,
+        case.variant_id("Right", Selector::getter("Same").expect("selector")).owner
     );
 }
 
