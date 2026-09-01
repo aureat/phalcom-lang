@@ -1121,3 +1121,184 @@ fn parse_type_syntax_diagnostics_and_recovery() {
         _ => false,
     }));
 }
+
+#[test]
+fn enum_generic_method_accepts_where_on_line_after_nested_return_type() {
+    let source = r#"
+enum Result<T, E> {
+    transpose<U>() -> Option<Result<U, E>>
+        where T == Option<U>
+    {
+    }
+}
+"#;
+
+    let program = parse_source(source, 0)
+        .expect("generic enum method with multiline where clause should parse");
+
+    let Statement::Enum(result) = &program.statements[0] else {
+        panic!("expected enum");
+    };
+
+    assert_eq!(result.name, "Result");
+    assert_eq!(result.members.len(), 1);
+
+    let EnumMember::Behavior(
+        phalcom_ast::ast::EnumBehaviorMember::Method(method)
+    ) = &result.members[0]
+    else {
+        panic!("expected enum behavior method");
+    };
+
+    assert_eq!(method.name, "transpose");
+    assert_eq!(method.generic_parameters.len(), 1);
+
+    let where_clause = method
+        .where_clause
+        .as_ref()
+        .expect("expected method where clause");
+
+    assert_eq!(where_clause.constraints.len(), 1);
+
+    assert!(
+        matches!(
+            &where_clause.constraints[0],
+            GenericConstraintSyntax::Equivalent { .. }
+        ),
+        "expected equivalence constraint"
+    );
+
+    assert!(
+        matches!(&method.body, MemberBody::Block(_)),
+        "expected braced method body"
+    );
+}
+
+#[test]
+fn newline_after_nested_return_type_still_terminates_declaration_only_method() {
+    let source = r#"
+class Example {
+    first<T>() -> Option<Result<T, Error>>
+    second() -> Int {
+        1
+    }
+}
+"#;
+
+    let program = parse_source(source, 0)
+        .expect("declaration-only method followed by method should parse");
+
+    let Statement::Class(class) = &program.statements[0] else {
+        panic!("expected class");
+    };
+
+    assert_eq!(class.members.len(), 2);
+
+    let ClassMember::Method(first) = &class.members[0] else {
+        panic!("expected first method");
+    };
+
+    let ClassMember::Method(second) = &class.members[1] else {
+        panic!("expected second method");
+    };
+
+    assert!(matches!(first.body, MemberBody::Declaration));
+    assert!(matches!(second.body, MemberBody::Block(_)));
+}
+
+#[test]
+fn method_body_may_follow_nested_return_type_on_next_line() {
+    let source = r#"
+class Example {
+    compute() -> Option<Result<Int, Error>>
+    {
+        1
+    }
+}
+"#;
+
+    let program = parse_source(source, 0)
+        .expect("body after nested generic return type should parse");
+
+    let Statement::Class(class) = &program.statements[0] else {
+        panic!("expected class");
+    };
+
+    let ClassMember::Method(method) = &class.members[0] else {
+        panic!("expected method");
+    };
+
+    assert!(matches!(method.body, MemberBody::Block(_)));
+}
+
+#[test]
+fn multiline_where_layout_is_independent_of_return_type_nesting_depth() {
+    let return_types = [
+        "T",
+        "Option<T>",
+        "Result<T, E>",
+        "Option<Result<T, E>>",
+        "Option<Result<List<T>, E>>",
+        "Outer<Option<Result<List<T>, E>>>",
+    ];
+
+    for return_type in return_types {
+        let source = format!(
+            r#"
+class Example<T, E> {{
+    method<U>() -> {return_type}
+        where U == Option<T>
+    {{
+    }}
+}}
+"#
+        );
+
+        parse_source(&source, 0).unwrap_or_else(|error| {
+            panic!(
+                "return type `{return_type}` changed multiline method-header parsing: {error:?}"
+            )
+        });
+    }
+}
+
+#[test]
+fn method_body_may_follow_nested_where_constraint_on_next_line() {
+    let source = r#"
+class Example<T, E> {
+    method<U>() -> U
+        where T == Option<Result<U, E>>
+    {
+    }
+}
+"#;
+
+    parse_source(source, 0)
+        .expect("nested where constraint may precede body on separate line");
+}
+
+#[test]
+fn class_and_enum_declaration_headers_support_multiline_where_and_brace() {
+    let source = r#"
+class Base<T> {}
+
+class Foo<T> is Base<Option<Result<T, Error>>>
+    where T <: Object
+{
+}
+
+enum Bar<T>
+    where T <: Object
+{
+    A
+}
+
+type Baz<T>
+    where T <: Object
+    = Option<Result<T, Error>>
+"#;
+
+    parse_source(source, 0)
+        .expect("class, enum, and type alias headers with multiline where and body should parse");
+}
+

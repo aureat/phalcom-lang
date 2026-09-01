@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "spec/primitives/Enum II.md",
+                "file": "spec/primitives/Untitled.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "Enum II"
+              "title": "Untitled"
             }
           }
         ]
@@ -187,6 +187,13 @@
   },
   "active": "46e666892420d783",
   "lastOpenFiles": [
+    "work/deferred/generic-on-getter.md",
+    "impl/adt-gadt-associated-lookup/part-6/06-detailed-implementation-walkthrough.md",
+    "impl/adt-gadt-associated-lookup/part-6/writing-block.md",
+    "spec/design-notes/raise() vs return Result.md",
+    "spec/design-notes/bytecode-representation-and-borrowed-techniques.md",
+    "spec/primitives/Untitled.md",
+    "spec/primitives/Enum II.md",
     "spec/associated-lookup-surface.md",
     "spec/nullary-adt-variant.md",
     "spec/adts.md",
@@ -209,16 +216,9 @@
     "spec/primitives/float.md",
     "spec/primitives/Loops I.md",
     "spec/selectors.md",
-    "spec/primitives/Enum II.md",
     "impl/semantic/phalcom-adts-gadts-technical-spec.md",
-    "spec/type system foundations.md",
-    "impl/semantic/semantic-correctness/part-4/2026-08-29-semantic-authority-audit.md",
-    "spec/symbols.md",
-    "spec/README.md",
-    "spec/typing/01-core-type-lattice-and-unit.md",
     "work/pending/lsp",
     "work/pending/untitled folder",
-    "agents/detailed-impl-spec-prompt.md",
     "agents",
     "spec/primitives",
     "work/pending/phalcom_a1_a3_fix_package/tests/product_regression_tests.ph",

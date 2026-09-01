@@ -1,7 +1,55 @@
 use super::support::*;
 use phalcom_common::selector::Selector;
+use phalcom_semantic::CoreDeclarationIds;
 use phalcom_semantic::enum_semantics::VariantShape;
 use phalcom_semantic::identity::{DeclarationId, ModuleId, VariantId};
+
+#[test]
+fn bootstrapped_core_option_is_canonical_enum() {
+    let option = CoreDeclarationIds::default().option;
+    let case = analyze_adt(r#"
+class Test {
+    check_option(_ opt: Option<Int>) {
+        match opt {
+            Some(value) => value
+            None => 0
+        }
+    }
+}
+"#);
+
+    let enum_info = case
+        .analysis
+        .snapshot
+        .enum_semantics
+        .enum_info(&option)
+        .expect("core Option must be an enum");
+
+    assert_eq!(enum_info.variants.len(), 2);
+
+    let some_sel = Selector::method("Some", vec![phalcom_common::selector::SelectorSlot::Positional]).unwrap();
+    let some = VariantId::new(option.clone(), some_sel);
+    let none_sel = Selector::getter("None").unwrap();
+    let none = VariantId::new(option.clone(), none_sel);
+
+    assert_eq!(
+        case.analysis.snapshot.enum_semantics.variant_info(&some).unwrap().shape,
+        VariantShape::Constructor,
+    );
+
+    assert_eq!(
+        case.analysis.snapshot.enum_semantics.variant_info(&none).unwrap().shape,
+        VariantShape::Singleton,
+    );
+
+    assert!(
+        case.analysis
+            .snapshot
+            .enum_semantics
+            .enum_info(&DeclarationId::new(ModuleId::core(), "Some".into()))
+            .is_none()
+    );
+}
 
 #[test]
 fn test_native_option_canonical_enum_semantics() {

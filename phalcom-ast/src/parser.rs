@@ -36,7 +36,7 @@
 //! single-error contract by returning the first collected error.
 //!
 //! See `docs/spec/lexical-structure.md` and `docs/spec/classes.md` for the
-//! surface syntax realised here.
+//! surface syntax realized here.
 
 use crate::ast::*;
 use crate::error::{RestParameterErrorKind, SyntaxError, SyntaxErrorKind};
@@ -158,9 +158,9 @@ fn primary_expected() -> Vec<String> {
         "\"|\"",
         "\"{\"",
     ]
-    .iter()
-    .map(|s| (*s).to_string())
-    .collect()
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect()
 }
 
 /// Converts a slice of `&str` labels into an owned `expected` list.
@@ -360,6 +360,52 @@ impl<'source> Parser<'source> {
     }
 
     // ── Token cursor ────────────────────────────────────────────────────────
+
+    /// Consumes a run of newline tokens only when the next non-newline token is
+    /// `expected`.
+    ///
+    /// This is used at declaration-header continuation points where a newline is
+    /// normally significant, but a specific following token proves that the
+    /// declaration continues.
+    ///
+    /// For example:
+    ///
+    /// ```text
+    /// method<T>() -> Option<Result<T, E>>
+    ///     where T == Option<U>
+    /// {
+    ///     ...
+    /// }
+    /// ```
+    ///
+    /// A newline before an unrelated token is left untouched so it can continue to
+    /// serve as a declaration/member terminator.
+    fn skip_newlines_if_followed_by(&mut self, expected: &Token) -> bool {
+        if !matches!(self.peek(), Token::Newline) {
+            return false;
+        }
+
+        let mut lookahead = self.pos;
+
+        while matches!(
+        self.tokens.get(lookahead).map(|lexeme| &lexeme.token),
+        Some(Token::Newline)
+    ) {
+            lookahead += 1;
+        }
+
+        let followed_by_expected = self
+            .tokens
+            .get(lookahead)
+            .is_some_and(|lexeme| &lexeme.token == expected);
+
+        if followed_by_expected {
+            self.skip_newlines();
+            true
+        } else {
+            false
+        }
+    }
 
     /// Returns the current lookahead token without consuming it.
     fn peek(&self) -> &Token {
@@ -1290,11 +1336,13 @@ impl<'source> Parser<'source> {
         } else {
             Vec::new()
         };
+        self.skip_newlines_if_followed_by(&Token::Where);
         let where_clause = if matches!(self.peek(), Token::Where) {
             Some(self.parse_where_clause()?)
         } else {
             None
         };
+        self.skip_newlines_if_followed_by(&Token::Equal);
         self.expect(&Token::Equal, &["\"=\""])?;
         let body = self.parse_type_form()?;
         let range = (start..self.prev_end).into();
@@ -2679,11 +2727,15 @@ impl<'source> Parser<'source> {
             None
         };
 
+        self.skip_newlines_if_followed_by(&Token::Where);
+
         let where_clause = if matches!(self.peek(), Token::Where) {
             Some(self.parse_where_clause()?)
         } else {
             None
         };
+
+        self.skip_newlines_if_followed_by(&Token::LBrace);
 
         self.expect(&Token::LBrace, &["\"{\""])?;
         let previous_class_context = self.in_class_body;
@@ -2804,11 +2856,15 @@ impl<'source> Parser<'source> {
             Vec::new()
         };
 
+        self.skip_newlines_if_followed_by(&Token::Where);
+
         let where_clause = if matches!(self.peek(), Token::Where) {
             Some(self.parse_where_clause()?)
         } else {
             None
         };
+
+        self.skip_newlines_if_followed_by(&Token::LBrace);
 
         self.expect(&Token::LBrace, &["\"{\""])?;
         let members = self.parse_enum_body()?;
@@ -2987,6 +3043,7 @@ impl<'source> Parser<'source> {
                 range: (start_put..self.prev_end).into(),
             };
             let return_annotation = if self.eat(&Token::Arrow) { Some(self.parse_type_annotation()?) } else { None };
+            self.skip_newlines_if_followed_by(&Token::LBrace);
             let body = self.parse_member_body()?;
             let range = (start..self.prev_end).into();
             return Ok(EnumBehaviorMember::Setter(SetterDef {
@@ -3013,11 +3070,17 @@ impl<'source> Parser<'source> {
             None
         };
         let return_annotation = if self.eat(&Token::Arrow) { Some(self.parse_type_annotation()?) } else { None };
+
+        self.skip_newlines_if_followed_by(&Token::Where);
+
         let where_clause = if matches!(self.peek(), Token::Where) {
             Some(self.parse_where_clause()?)
         } else {
             None
         };
+
+        self.skip_newlines_if_followed_by(&Token::LBrace);
+
         let body = self.parse_member_body()?;
         let range = (start..self.prev_end).into();
         if let Some(params) = params {
@@ -3304,6 +3367,7 @@ impl<'source> Parser<'source> {
                 range: (start_put..self.prev_end).into(),
             };
             let return_annotation = if self.eat(&Token::Arrow) { Some(self.parse_type_annotation()?) } else { None };
+            self.skip_newlines_if_followed_by(&Token::LBrace);
             let body = self.parse_member_body()?;
             let range = (start..self.prev_end).into();
             return Ok(ClassMember::Setter(SetterDef {
@@ -3330,11 +3394,17 @@ impl<'source> Parser<'source> {
             None
         };
         let return_annotation = if self.eat(&Token::Arrow) { Some(self.parse_type_annotation()?) } else { None };
+
+        self.skip_newlines_if_followed_by(&Token::Where);
+
         let where_clause = if matches!(self.peek(), Token::Where) {
             Some(self.parse_where_clause()?)
         } else {
             None
         };
+
+        self.skip_newlines_if_followed_by(&Token::LBrace);
+
         let body = self.parse_member_body()?;
         let range = (start..self.prev_end).into();
         if let Some(params) = params {
@@ -3413,6 +3483,7 @@ impl<'source> Parser<'source> {
             IndexAccessor::Get
         };
         let return_annotation = if self.eat(&Token::Arrow) { Some(self.parse_type_annotation()?) } else { None };
+        self.skip_newlines_if_followed_by(&Token::LBrace);
         let body = self.parse_method_block()?;
         let range = (start..self.prev_end).into();
         Ok(ClassMember::Index(IndexMethodDef {
@@ -5000,10 +5071,10 @@ impl<'source> Parser<'source> {
         self.tokens.get(pos).is_some_and(|lexeme| Self::label_name(&lexeme.token).is_some())
             && matches!(self.tokens.get(pos + 1).map(|lexeme| &lexeme.token), Some(Token::Colon))
             && (self.starts_braced_closure_literal(pos + 2)
-                // A bare brace is contextual zero-argument trailing-closure
-                // sugar, valid here because the label already establishes a
-                // member-send argument position.
-                || matches!(self.tokens.get(pos + 2).map(|lexeme| &lexeme.token), Some(Token::LBrace)))
+            // A bare brace is contextual zero-argument trailing-closure
+            // sugar, valid here because the label already establishes a
+            // member-send argument position.
+            || matches!(self.tokens.get(pos + 2).map(|lexeme| &lexeme.token), Some(Token::LBrace)))
     }
 
     /// Parses the closure-only, unparenthesized arguments attached to an
@@ -5802,10 +5873,10 @@ impl<'source> Parser<'source> {
             Token::QuotedSymbol(_) if matches!(self.peek_next(), Token::Colon) => Some(ProductLabelStart::ExplicitSymbol),
             Token::Identifier(name) if matches!(self.peek_next(), Token::Colon) => Some(ProductLabelStart::BareName(name.clone())),
             Token::Identifier(name)
-                if matches!(self.peek_next(), Token::Question) && matches!(self.tokens.get(self.pos + 2).map(|t| &t.token), Some(Token::Colon)) =>
-            {
-                Some(ProductLabelStart::BareName(format!("{name}?")))
-            }
+            if matches!(self.peek_next(), Token::Question) && matches!(self.tokens.get(self.pos + 2).map(|t| &t.token), Some(Token::Colon)) =>
+                {
+                    Some(ProductLabelStart::BareName(format!("{name}?")))
+                }
             Token::Identifier(name) if matches!(self.peek_next(), Token::LParen) && self.looks_like_delimited_label(&Token::LParen, &Token::RParen) => {
                 Some(ProductLabelStart::BareSelector(name.clone()))
             }
@@ -5816,12 +5887,12 @@ impl<'source> Parser<'source> {
                 Some(ProductLabelStart::BareName(Self::bare_product_label_name(token).unwrap().to_string()))
             }
             token
-                if Self::bare_product_label_name(token).is_some()
-                    && matches!(self.peek_next(), Token::LParen)
-                    && self.looks_like_delimited_label(&Token::LParen, &Token::RParen) =>
-            {
-                Some(ProductLabelStart::BareSelector(Self::bare_product_label_name(token).unwrap().to_string()))
-            }
+            if Self::bare_product_label_name(token).is_some()
+                && matches!(self.peek_next(), Token::LParen)
+                && self.looks_like_delimited_label(&Token::LParen, &Token::RParen) =>
+                {
+                    Some(ProductLabelStart::BareSelector(Self::bare_product_label_name(token).unwrap().to_string()))
+                }
             _ => None,
         }
     }

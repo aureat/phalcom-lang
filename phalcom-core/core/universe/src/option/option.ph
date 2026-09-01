@@ -1,200 +1,274 @@
-
-// Absence is an Option (ADR-0007), not a surface `nil`. `Option` is abstract;
-// `Some` wraps one value and `None` is an immediate variant. These are
-// bootstrapped in Rust (universe.rs): the classes, the `Some(_)` construction
-// primitive, and the `match(some:, none:)` eliminator. The skeletons below only
-// *reopen* those bootstrapped rows so the class names are surface-visible.
-//
-// U-CORE-2 (catalog-delta.md §2.2) adds the four combinators that make
-// `ifTrue`/`ifFalse`'s newly-well-formed `Option` result actually chainable —
-// `ifNone(_)`, `orElse(_)`, `isSome`, `isNone`, every one defined over `match`
-// (values-and-absence.md §3.3), so `Some>>_` / `None>>_` branching stays
-// dispatch, not a variant check. The richer suite (`map`, `flatMap`,
-// `filter`, `ifSome`, `unwrapOr`, …) is still deliberately NOT defined here —
-// that remains U-STD's job. Do not add those bodies to this skeleton.
-//
-// `None` (the name) resolves to the immediate *value*, not the `None`
-// class; that global is bound in Rust (VM::install_core).
-//
-// `None` has a source presentation below. The compiler preserves its special
-// public immediate-value binding while reopening the hidden class row.
-
+/// Represents the presence or absence of a value.
+///
+/// `Option<T>` contains either `Some(value)`, which carries a value of type `T`,
+/// or `None`, which represents absence.
+///
+/// `Option` is the standard way to represent values that may be absent. Phalcom
+/// does not expose a general-purpose `nil` value for this purpose.
+///
+/// Most operations preserve absence: transformations are applied to `Some`
+/// values while `None` propagates through the operation.
+///
+/// @typeparam T The type of value carried by `Some`.
 @native
-class Option<T> is Object {
+enum Option<T> {
 
+  /// An `Option` containing a value.
+  ///
+  /// @param value The wrapped value.
+  @variant
+  Some(_ value: T)
+
+  /// An `Option` containing no value.
+  @variant
+  None
+
+  /// Eliminates this option by invoking the callback corresponding to its
+  /// current variant.
+  ///
+  /// When this option is `Some(value)`, `some` is invoked with the wrapped
+  /// value. When this option is `None`, the zero-argument `none` callback is
+  /// invoked.
+  ///
+  /// Exactly one callback is invoked.
+  ///
+  /// @param some A one-argument callback invoked with the wrapped value when
+  /// this option is `Some`.
+  /// @param none A zero-argument callback invoked when this option is `None`.
+  /// @returns The value returned by the invoked callback.
   @native
   match(some: Dynamic, none: Dynamic) -> Dynamic
 
-  // Runs `f` (0-arity) for its side effect when `self` is `None`; passes
-  // `Some` through untouched. Never extracts — returns `self` so calls chain
-  // (values-and-absence.md §3.3's "Effect" group).
+  /// Performs an action when this option is `None`.
+  ///
+  /// If this option is `None`, invokes the zero-argument callback `f`. If this
+  /// option is `Some`, the callback is not invoked.
+  ///
+  /// The option itself is returned unchanged, making this operation suitable
+  /// for observing absence inside a chain without extracting or transforming
+  /// the contained value.
+  ///
+  /// @param f A zero-argument callback invoked only when this option is `None`.
+  /// @returns This option unchanged.
   ifNone(_ f) -> Self {
     match(
-      some: |v| self, 
-      none: || { 
+      some: |v| self,
+      none: || {
         f.call()
-        self 
+        self
       }
     )
   }
 
-  // `Some` passes through unchanged; `None` becomes `f`'s (0-arity) `Option`
-  // result (values-and-absence.md §3.3's "Transform" group). This is the
-  // `??` operator's target (§3.4: `a ?? b` === `a.orElse || { b }`).
+  /// Returns this option when it contains a value, or computes an alternative
+  /// option when it is `None`.
+  ///
+  /// The fallback is evaluated lazily: `f` is invoked only when this option is
+  /// `None`.
+  ///
+  /// This operation is the method-level target of the `??` operator.
+  ///
+  /// @param f A zero-argument callback that produces the fallback option.
+  /// @returns This option when it is `Some`; otherwise, the option returned by
+  /// `f`.
   orElse(_ f) -> Self | Dynamic {
     match(
-      some: |v| self, 
+      some: |v| self,
       none: || f.call()
     )
   }
 
-  isSome -> Bool { 
+  /// Tests whether this option contains a value.
+  ///
+  /// @returns `true` when this option is `Some`; otherwise `false`.
+  isSome -> Bool {
     match(
-      some: |v| true, 
+      some: |v| true,
       none: || false
-    ) 
+    )
   }
 
-  isNone -> Bool { 
+  /// Tests whether this option represents absence.
+  ///
+  /// @returns `true` when this option is `None`; otherwise `false`.
+  isNone -> Bool {
     match(
-      some: |v| false, 
+      some: |v| false,
       none: || true
-    ) 
+    )
   }
 
-  // U-STD (values-and-absence.md §3.3's "Transform" group; catalog-delta §2.2):
-  // `Some(v)` becomes `Some(f(v))`; `None` passes through untouched. `f` is a
-  // 1-arity block over the wrapped value; the result is re-wrapped so the
-  // chain stays an `Option`.
+  /// Transforms the value contained by this option.
+  ///
+  /// If this option is `Some(value)`, invokes `f` with `value` and wraps the
+  /// returned value in `Some`. If this option is `None`, the callback is not
+  /// invoked and absence is propagated unchanged.
+  ///
+  /// @param f A one-argument callback that transforms the wrapped value.
+  /// @returns `Some` containing the transformed value when this option is
+  /// `Some`; otherwise `None`.
   map(_ f) -> Self | Option<Dynamic> {
     match(
-      some: |v| Some(f.call(v)), 
-      none: || self 
+      some: |v| Some(f.call(v)),
+      none: || self
     )
   }
 
-  // U-STD (values-and-absence.md §3.3's "Transform" group): like `map`, but `f`
-  // already returns an `Option`, so its result is used directly rather than
-  // re-wrapped — the monadic bind (`>>=`). `None` short-circuits to `self`.
+  /// Transforms the value contained by this option using an operation that
+  /// itself returns an `Option`.
+  ///
+  /// Unlike `map`, the option returned by `f` is used directly rather than
+  /// being wrapped in another `Some`. This allows option-producing operations
+  /// to be chained without creating nested options.
+  ///
+  /// If this option is `None`, `f` is not invoked and absence is propagated.
+  ///
+  /// @param f A one-argument callback that receives the wrapped value and
+  /// returns an option.
+  /// @returns The option returned by `f` when this option is `Some`; otherwise
+  /// `None`.
   flatMap(_ f) -> Self | Option<Dynamic> {
     match(
-      some: |v| f.call(v), 
+      some: |v| f.call(v),
       none: || self
     )
   }
 
-  // U-STD (values-and-absence.md §3.3's "Filter" group): `Some(v)` stays `Some(v)`
-  // when `pred(v)` is `true`, otherwise collapses to immediate `None`;
-  // `None` passes through. `pred` must return a real `Bool` (ADR-0021).
+  /// Retains a contained value only when it satisfies a predicate.
+  ///
+  /// If this option is `Some(value)`, invokes `pred` with `value`. The original
+  /// `Some` is retained when the predicate returns `true`; otherwise the result
+  /// is `None`.
+  ///
+  /// If this option is already `None`, the predicate is not invoked and
+  /// absence is propagated unchanged.
+  ///
+  /// @param pred A one-argument predicate evaluated for a contained value.
+  /// @returns This option when it is `None` or when the predicate succeeds;
+  /// otherwise `None`.
   filter(_ pred) -> Self | Option<Dynamic> {
     match(
-      some: |v| { if (pred.call(v)) { self } else { None } }, 
-      none: || { self }
+      some: |v| {
+        if (pred.call(v)) {
+          self
+        } else {
+          None
+        }
+      },
+      none: || {
+        self
+      }
     )
   }
 
-  // U-STD (values-and-absence.md §3.3's "Effect" group; mirror of `ifNone`): runs
-  // the 1-arity block `f` for its side effect on the wrapped value when `Some`,
-  // then returns `self` so calls chain; a `None` is passed through untouched.
+  /// Performs an action on the contained value without changing this option.
+  ///
+  /// If this option is `Some(value)`, invokes `f` with `value`. If this option
+  /// is `None`, the callback is not invoked.
+  ///
+  /// The option itself is returned unchanged, making this operation suitable
+  /// for observation, logging, or other side effects within an option chain.
+  ///
+  /// @param f A one-argument callback invoked with the wrapped value when this
+  /// option is `Some`.
+  /// @returns This option unchanged.
   ifSome(_ f) -> Self {
     match(
-      some: |v| { 
+      some: |v| {
         f.call(v)
-        self 
-      }, 
+        self
+      },
       none: || self
     )
   }
 
-  // U-STD (values-and-absence.md §3.3's "Extract" group): unwraps a `Some` to its
-  // value, or yields `default` for a `None`. The eager sibling of `orElse`
-  // (which takes a block); here `default` is an already-evaluated fallback value.
+  /// Extracts the contained value or returns a fallback value.
+  ///
+  /// If this option is `Some(value)`, returns `value`. If this option is
+  /// `None`, returns `default`.
+  ///
+  /// The fallback value is evaluated before this method is called. Use
+  /// `orElse` when the fallback should be produced lazily as another option.
+  ///
+  /// @typeparam U The type of the fallback and resulting value.
+  /// @param default The value to return when this option is `None`.
+  /// @returns The contained value when this option is `Some`; otherwise
+  /// `default`.
   unwrapOr<U>(_ default: U) -> U {
     match(
-      some: |v| v, 
+      some: |v| v,
       none: || default
     )
   }
 
-  // Display (values-and-absence §3, U-CORE-4, R-INV-4.3). Derived over
-  // `match`, so a user-overridden `match` is respected (R-INV-2.4) and the
-  // inner value is rendered via its OWN `toString` message (so a
-  // value-typed payload agrees with the print path, R-INV-4.1).
-  toString -> String { 
+  /// Returns a string representation of this option.
+  ///
+  /// A `Some(value)` is represented as `Some(<value>)`, using the contained
+  /// value's own `toString` representation. `None` is represented as `None`.
+  ///
+  /// @returns The string representation of this option.
+  toString -> String {
     match(
-      some: |v| "Some(" + v.toString + ")", 
-      none: || "None" 
-    ) 
-  }
-
-  // absence -> error bridge (error-handling.md §5, result.md §2, ADR-0007):
-  // `Some(v)` already carries a real value, so no reason is needed; `None`
-  // has no value, so `err` fills in the failure reason. Round-trips with
-  // `Result#ok()` below (`Some(v).okOr(_)` -> `Ok(v)` -> `.ok()` -> `Some(v)`).
-  okOr<E>(_ err) -> Result<T, E> {
-    match(
-      some: |v| Ok.new(v), 
-      none: || Err.new(err) 
+      some: |v| "Some(" + v.toString + ")",
+      none: || "None"
     )
   }
 
+  /// Converts this option into a `Result`, supplying an error for the absent
+  /// case.
+  ///
+  /// `Some(value)` becomes `Ok(value)`. `None` becomes `Err(err)`.
+  ///
+  /// The error value is used only for the `None` case.
+  ///
+  /// @typeparam E The error type of the resulting `Result`.
+  /// @param err The error value to use when this option is `None`.
+  /// @returns `Ok` containing the wrapped value when this option is `Some`;
+  /// otherwise `Err` containing `err`.
+  okOr<E>(_ err) -> Result<T, E> {
+    match(
+      some: |v| Ok.new(v),
+      none: || Err.new(err)
+    )
+  }
+
+  /// Tests this option for value equality with another option.
+  ///
+  /// Two `Some` values are equal when their wrapped values are equal. Two
+  /// `None` values are equal. A `Some` and a `None` are never equal.
+  ///
+  /// Values that are not options compare unequal.
+  ///
+  /// @param other The value to compare with this option.
+  /// @returns `true` when `other` is an equivalent option; otherwise `false`.
   ==(_ other) -> Bool {
-    other.is(Option).ifFalse { 
-      return false 
+    other.is(Option).ifFalse {
+      return false
     }
 
     match(
-      some: |v| { 
+      some: |v| {
         other.match(
-          some: |ov| v == ov, 
+          some: |ov| v == ov,
           none: || false
-        ) 
+        )
       },
       none: || other.isNone
     )
   }
 
-  hash -> Int { 
+  /// Computes the hash value of this option.
+  ///
+  /// `Some(value)` uses the wrapped value's hash. `None` uses the canonical
+  /// hash value for absence.
+  ///
+  /// Equal options produce equal hash values.
+  ///
+  /// @returns The hash value of this option.
+  hash -> Int {
     self.match(
-      some: |v| v.hash, 
-      none: || 0 
-    ) 
+      some: |v| v.hash,
+      none: || 0
+    )
   }
 }
-
-@native
-class Some<T> is Option<T> {
-
-  @class
-  @native
-  call(_ value: Dynamic) -> Some
-
-  @class
-  @native
-  new(_ value: Dynamic) -> Some
-
-}
-
-@native
-class None is Option {}
-
-@native
-class Unit is Object {
-
-  toString -> String { "()" }
-
-  hash -> Int { 0 }
-
-}
-
-// `Result`/`Ok`/`Err` (U-ERR, result.md §1-§3; ADR-0008 the error model,
-// ADR-0007 the abstract-root-plus-two-subclasses machinery `Option`/`Some`/
-// `None` already established). Unlike `Some`/`None` — bootstrapped natively
-// because U6 predated U7's user-facing `@constructor` — `Result`/`Ok`/`Err` are
-// **pure `.ph`**: U7's `@constructor` + `_`-prefixed instance fields need no
-// floor primitive at all (net floor delta for this whole file: **0**).
-//
-// `Result` gets its **own** `match(ok:,err:)`, deliberately not reusing
-// `Option`'s native one (forward-compat.md §2: the two must not couple, so a
-// future migration of `Option` to `.ph` stays symmetric and doesn't touch
-// `Result`).

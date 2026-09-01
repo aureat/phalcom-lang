@@ -142,27 +142,3 @@ pub fn bootstrap_universe_declarations(store: &mut TypeStore, universe_resolver:
 
     table
 }
-
-mod tests {
-    use super::*;
-    use crate::identity::DeclarationId;
-    use crate::types::store::TypeStore;
-    use phalcom_modules::ModuleId;
-
-    #[test]
-    fn option_case_behavior_classes_are_not_semantic_declarations() {
-        let mut store = TypeStore::new();
-        let declarations = bootstrap_universe_declarations(
-            &mut store,
-            &|key| DeclarationId::new(ModuleId::core(), key.name().into()),
-        );
-
-        let option = DeclarationId::new(ModuleId::core(), "Option".into());
-        let some = DeclarationId::new(ModuleId::core(), "Some".into());
-        let none = DeclarationId::new(ModuleId::core(), "None".into());
-
-        assert!(declarations.get(&option).is_some());
-        assert!(declarations.get(&some).is_none());
-        assert!(declarations.get(&none).is_none());
-    }
-}

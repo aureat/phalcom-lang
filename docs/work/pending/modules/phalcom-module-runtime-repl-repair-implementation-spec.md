@@ -80,7 +80,7 @@ Read these files once, in this order:
    - import root construction
    - synthetic root construction
 3. `phalcom-modules/src/identity.rs`
-   - `BuiltinProject`
+   - `BuiltinPackage`
    - `ProjectIdentity`
    - `ModuleId`
    - `ModuleComponent`
