@@ -45,6 +45,10 @@ pub enum MetadataExportError {
     InvalidGenericSignature(GenericSignaturePublicationError),
     #[error("non-exportable internal form: {0:?}")]
     NonExportableForm(TypeId),
+    #[error("resolved-project metadata requires ProjectUniverse identity context")]
+    MissingProjectIdentityContext,
+    #[error("resolved project {0} is absent from ProjectUniverse")]
+    MissingResolvedProject(phalcom_modules::ResolvedProjectId),
 }
 
 /// Exporter context driving hash-consing and topological node indexing.
@@ -55,6 +59,7 @@ pub struct MetadataExporter<'a> {
     callables: Option<&'a CallableSignatureTable>,
     fields: Option<&'a FieldSignatureTable>,
     profile: MetadataProfile,
+    identity_context: Option<StableIdentityContext<'a>>,
 
     // Deduplication index maps
     kind_map: HashMap<KindData, KindNodeId>,
@@ -74,6 +79,31 @@ pub struct MetadataExporter<'a> {
 }
 
 impl<'a> MetadataExporter<'a> {
+    fn stable_module(&self, module: &phalcom_modules::ModuleId) -> phalcom_type_meta::identity::StableModuleRef {
+        self.identity_context
+            .as_ref()
+            .map_or_else(|| to_stable_module(module), |context| to_stable_module_with_context(module, context))
+    }
+
+    fn stable_declaration(&self, declaration: &crate::identity::DeclarationId) -> phalcom_type_meta::identity::StableDeclarationRef {
+        self.identity_context.as_ref().map_or_else(
+            || to_stable_declaration(declaration),
+            |context| to_stable_declaration_with_context(declaration, context),
+        )
+    }
+
+    fn stable_callable(&self, callable: &crate::identity::CallableId) -> phalcom_type_meta::identity::StableCallableRef {
+        self.identity_context
+            .as_ref()
+            .map_or_else(|| to_stable_callable(callable), |context| to_stable_callable_with_context(callable, context))
+    }
+
+    fn stable_field(&self, field: &crate::identity::FieldId) -> phalcom_type_meta::identity::StableFieldRef {
+        self.identity_context
+            .as_ref()
+            .map_or_else(|| to_stable_field(field), |context| to_stable_field_with_context(field, context))
+    }
+
     pub fn new(
         store: &'a TypeStore,
         declarations: Option<&'a DeclarationTypeTable>,
@@ -88,6 +118,7 @@ impl<'a> MetadataExporter<'a> {
             callables,
             fields,
             profile,
+            identity_context: None,
             kind_map: HashMap::new(),
             kinds: Vec::new(),
             type_map: HashMap::new(),
@@ -99,6 +130,12 @@ impl<'a> MetadataExporter<'a> {
             generic_signatures: Vec::new(),
             sig_map: HashMap::new(),
         }
+    }
+
+    /// Supplies source/project authority for durable identity export.
+    pub fn with_project_universe(mut self, projects: &'a phalcom_modules::ProjectUniverse) -> Self {
+        self.identity_context = Some(StableIdentityContext::new(projects));
+        self
     }
 
     /// Attaches the canonical transparent-alias table for durable export.
@@ -153,8 +190,8 @@ impl<'a> MetadataExporter<'a> {
         }
         let data = self.store.type_parameter(param);
         let owner_ref = match &data.owner {
-            TypeParameterOwner::Declaration(d) => StableTypeParameterOwnerRef::Declaration(to_stable_declaration(d)),
-            TypeParameterOwner::Callable(c) => StableTypeParameterOwnerRef::Callable(to_stable_callable(c)),
+            TypeParameterOwner::Declaration(d) => StableTypeParameterOwnerRef::Declaration(self.stable_declaration(d)),
+            TypeParameterOwner::Callable(c) => StableTypeParameterOwnerRef::Callable(self.stable_callable(c)),
         };
         let param_ref = StableTypeParameterRef {
             owner: owner_ref,
@@ -355,7 +392,7 @@ impl<'a> MetadataExporter<'a> {
             TypeData::Never => TypeNode::Never,
             TypeData::Unit => TypeNode::Unit,
             TypeData::Nominal { declaration } => TypeNode::Nominal {
-                declaration: to_stable_declaration(&declaration),
+                declaration: self.stable_declaration(&declaration),
             },
             TypeData::Applied { origin, ref arguments } => {
                 let origin_id = self.export_type_form(origin)?;
@@ -423,7 +460,7 @@ impl<'a> MetadataExporter<'a> {
                 TypeNode::Parameter(stable_param)
             }
             TypeData::SelfType(s) => TypeNode::SelfType(SelfTypeRef {
-                owner: to_stable_declaration(&s.owner),
+                owner: self.stable_declaration(&s.owner),
                 side: to_stable_dispatch_side(s.side),
                 role: match s.role {
                     SelfRole::InstanceType => SelfRoleRef::InstanceType,
@@ -540,7 +577,7 @@ impl<'a> MetadataExporter<'a> {
             TypeTerm::Canonical(ty) => self.export_type_form(*ty),
             TypeTerm::SelfType(s) => {
                 let self_node = TypeNode::SelfType(SelfTypeRef {
-                    owner: to_stable_declaration(&s.owner),
+                    owner: self.stable_declaration(&s.owner),
                     side: to_stable_dispatch_side(s.side),
                     role: match s.role {
                         SelfRole::InstanceType => SelfRoleRef::InstanceType,
@@ -553,7 +590,7 @@ impl<'a> MetadataExporter<'a> {
                 let kind_id = self.export_kind(self.store.kind_of(self.store.unit()));
                 let mut fp_b = FingerprintBuilder::new();
                 fp_b.write_u8(10);
-                let stable_owner = to_stable_declaration(&s.owner);
+                let stable_owner = self.stable_declaration(&s.owner);
                 for c in stable_owner.module.path.iter() {
                     fp_b.write_str(c);
                 }
@@ -590,8 +627,8 @@ impl<'a> MetadataExporter<'a> {
         }
 
         let owner_ref = match &sig.owner {
-            TypeParameterOwner::Declaration(d) => StableTypeParameterOwnerRef::Declaration(to_stable_declaration(d)),
-            TypeParameterOwner::Callable(c) => StableTypeParameterOwnerRef::Callable(to_stable_callable(c)),
+            TypeParameterOwner::Declaration(d) => StableTypeParameterOwnerRef::Declaration(self.stable_declaration(d)),
+            TypeParameterOwner::Callable(c) => StableTypeParameterOwnerRef::Callable(self.stable_callable(c)),
         };
 
         let mut param_refs = Vec::new();
@@ -672,6 +709,44 @@ impl<'a> MetadataExporter<'a> {
         let mut out_fields = Vec::new();
         let mut out_roots = Vec::new();
 
+        // Durable references to resolved projects must never fall back to
+        // graph-node display IDs or a made-up fingerprint.
+        let require_project = |project: &phalcom_modules::ProjectIdentity| -> Result<(), MetadataExportError> {
+            let phalcom_modules::ProjectIdentity::Resolved(id) = project else {
+                return Ok(());
+            };
+            let Some(context) = self.identity_context.as_ref() else {
+                return Err(MetadataExportError::MissingProjectIdentityContext);
+            };
+            if context.projects.get_project(*id).is_none() {
+                return Err(MetadataExportError::MissingResolvedProject(*id));
+            }
+            Ok(())
+        };
+        if let Some(declarations) = self.declarations {
+            for declaration in declarations.iter().map(|(id, _)| id) {
+                require_project(&declaration.module.project)?;
+            }
+        }
+        if let Some(aliases) = self.aliases {
+            for declaration in aliases.iter().map(|(id, _)| id) {
+                require_project(&declaration.module.project)?;
+            }
+        }
+        if let Some(callables) = self.callables {
+            for callable in callables.iter().map(|(id, _)| id) {
+                require_project(&callable.declaration_owner().module.project)?;
+            }
+        }
+        if let Some(fields) = self.fields {
+            for field in fields.iter().map(|(id, _)| id) {
+                require_project(&field.owner.module.project)?;
+            }
+        }
+        for (module, _, _) in runtime_roots {
+            require_project(&module.project)?;
+        }
+
         if let Some(decls) = self.declarations {
             for (decl_id, info) in decls.iter() {
                 let form_id = self.export_type_form(info.form)?;
@@ -688,7 +763,7 @@ impl<'a> MetadataExporter<'a> {
                 };
 
                 out_declarations.push(DeclarationTypeRecord {
-                    declaration: to_stable_declaration(decl_id),
+                    declaration: self.stable_declaration(decl_id),
                     form: form_id,
                     kind: kind_id,
                     generic_signature: sig_id,
@@ -712,7 +787,7 @@ impl<'a> MetadataExporter<'a> {
                     None
                 };
                 out_aliases.push(phalcom_type_meta::declaration::TypeAliasRecord {
-                    declaration: to_stable_declaration(decl_id),
+                    declaration: self.stable_declaration(decl_id),
                     generic_signature,
                     target,
                     source: Some(SourceSpanRef {
@@ -758,7 +833,7 @@ impl<'a> MetadataExporter<'a> {
                     self.export_declared_type_fact(&sig.declared_return)
                 };
                 out_callables.push(CallableSemanticRecord {
-                    callable: to_stable_callable(call_id),
+                    callable: self.stable_callable(call_id),
                     generic_signature: sig_id,
                     parameters: params.into_boxed_slice(),
                     return_type: return_slot,
@@ -771,7 +846,7 @@ impl<'a> MetadataExporter<'a> {
             for (field_id, sig) in field_table.iter() {
                 let ty_slot = self.export_declared_type_fact(&sig.declared_type);
                 out_fields.push(FieldSemanticRecord {
-                    field: to_stable_field(field_id),
+                    field: self.stable_field(field_id),
                     mutability: match sig.mutable {
                         false => FieldMutabilityRef::Immutable,
                         true => FieldMutabilityRef::Mutable,
@@ -785,12 +860,37 @@ impl<'a> MetadataExporter<'a> {
         for &(mod_id, key, ty) in runtime_roots {
             let form_id = self.export_type_form(ty)?;
             out_roots.push(RuntimeTypeFormRoot {
-                module: to_stable_module(mod_id),
+                module: self.stable_module(mod_id),
                 local_key: RuntimeTypeFormKey(key.into()),
                 form: form_id,
             });
         }
 
+        let revision_fingerprint = self.identity_context.as_ref().map_or_else(
+            || {
+                let mut builder = FingerprintBuilder::new();
+                builder.write_u64(out_declarations.len() as u64);
+                builder.write_u64(out_aliases.len() as u64);
+                builder.write_u64(out_callables.len() as u64);
+                builder.write_u64(out_fields.len() as u64);
+                builder.finish()
+            },
+            |context| {
+                let mut builder = FingerprintBuilder::new();
+                let mut projects = context
+                    .projects
+                    .projects()
+                    .iter()
+                    .map(|project| (project.source_identity.0.to_string_lossy().into_owned(), project.revision_fingerprint()))
+                    .collect::<Vec<_>>();
+                projects.sort_by(|left, right| left.0.cmp(&right.0));
+                for (source, revision) in projects {
+                    builder.write_str(&source);
+                    builder.write_fingerprint(Fingerprint128(revision.0));
+                }
+                builder.finish()
+            },
+        );
         let header = SemanticMetadataHeader {
             schema_version: TYPE_METADATA_SCHEMA_VERSION,
             semantic_model_version: SEMANTIC_MODEL_VERSION,
@@ -806,8 +906,8 @@ impl<'a> MetadataExporter<'a> {
                 advanced_sections: Box::new([]),
             },
             identity_scheme: ArtifactIdentityScheme::V1Standard,
-            source_fingerprint: Fingerprint128::ZERO,
-            interface_fingerprint: Fingerprint128::ZERO,
+            source_fingerprint: revision_fingerprint,
+            interface_fingerprint: revision_fingerprint,
         };
 
         Ok(SemanticMetadataBundle {

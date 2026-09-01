@@ -1,3 +1,4 @@
+use phalcom_native_meta::universe::{UNIVERSE_BINDINGS, UniverseBindingKind};
 use phalcom_native_surface::NATIVE_SURFACES;
 use phalcom_semantic::core_surface::*;
 use phalcom_semantic::declarations::bootstrap_universe_declarations;
@@ -12,7 +13,12 @@ fn test_native_surface_conformance() {
     let universe_resolver = phalcom_semantic::core_surface::universe_declaration;
     let declarations = bootstrap_universe_declarations(&mut store, &universe_resolver);
 
-    let resolver = SimpleTypeResolver::new();
+    let mut resolver = SimpleTypeResolver::new();
+    for binding in UNIVERSE_BINDINGS {
+        if binding.kind == UniverseBindingKind::Class {
+            resolver.insert(binding.name, phalcom_semantic::core_surface::universe_declaration(binding.key));
+        }
+    }
 
     let report = validate_native_surface_conformance(&mut store, &declarations, &resolver, &core_mod);
     assert_eq!(

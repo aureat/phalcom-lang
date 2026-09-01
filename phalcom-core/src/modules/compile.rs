@@ -479,6 +479,7 @@ impl ProgramCompiler {
             None,
             phalcom_type_meta::header::MetadataProfile::RuntimePublic,
         )
+        .with_project_universe(&analyzed.project_universe)
         .with_aliases(analyzed.semantic.type_aliases.as_ref());
         let metadata_bundle = exporter.build_bundle(&[]).ok().map(Arc::new);
 

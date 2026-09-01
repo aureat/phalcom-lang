@@ -992,6 +992,13 @@ use crate::types::{KindSpec, TypeParameterDeclSpec, UniverseTypeFormSpec};
 
 pub const UNIVERSE_TYPE_FORMS: &[UniverseTypeFormSpec] = &[
     UniverseTypeFormSpec {
+        owner: UniverseKey::Iterable,
+        parameters: &[TypeParameterDeclSpec {
+            name: "T",
+            kind: KindSpec::Type,
+        }],
+    },
+    UniverseTypeFormSpec {
         owner: UniverseKey::List,
         parameters: &[TypeParameterDeclSpec {
             name: "T",

@@ -55,6 +55,7 @@ impl VM {
     /// `None`), and the class itself is an instance of that metaclass with the
     /// requested `superclass`.
     pub fn create_class(&mut self, module: ObjRef, name: &str, superclass: Option<ClassId>) -> ClassId {
+        let module_id = self.heap.module(module).id.clone();
         let metaclass_class = self.universe.classes.metaclass_class;
         let metaclass_superclass = match superclass {
             Some(sc) => self.heap.class(sc).class,
@@ -83,6 +84,10 @@ impl VM {
         let meta_key = super::ClassKey { module, name: meta_sym };
         self.classes.insert(class_key, class);
         self.classes.insert(meta_key, metaclass);
+
+        if let Some(declaration) = self.typing_registry.declaration_identity(&module_id, name).cloned() {
+            self.typing_registry.register_nominal_binding(declaration, class);
+        }
 
         class
     }

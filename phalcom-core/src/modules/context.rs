@@ -256,7 +256,8 @@ impl ModuleExecutionContext {
                 for name in iface.exports.keys() {
                     let sym = vm.interner.intern(name);
                     let slot = vm.heap.module_mut(obj_ref).declare(sym)?;
-                    if let Some(class_id) = vm.resolve_builtin_class_name(name) {
+                    let declaration = phalcom_modules::DeclarationId::new(id.clone(), name.as_str().into());
+                    if let Some(class_id) = vm.resolve_universe_declaration_class(&declaration) {
                         vm.heap.module_mut(obj_ref).set_global(slot, crate::value::Value::obj(class_id))?;
                     }
                     exports.insert(

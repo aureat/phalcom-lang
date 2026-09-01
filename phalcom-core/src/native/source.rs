@@ -201,8 +201,15 @@ impl NativeSourceIndex {
     /// Kept public so verifier tests can exercise source contracts without
     /// changing the bundled universe corpus.
     pub fn from_program(program: &Program) -> Result<Self, String> {
+        Self::from_program_at(&ModuleId::universe_root(), program)
+    }
+
+    /// Builds an index from one parsed program with its canonical module
+    /// identity. This is the fixture/test equivalent of the provider-backed
+    /// path used by [`Self::build`].
+    pub fn from_program_at(module: &ModuleId, program: &Program) -> Result<Self, String> {
         let mut index = Self::default();
-        index.index_program(&ModuleId::universe_root(), ModuleKind::Module, None, program)?;
+        index.index_program(module, ModuleKind::Module, None, program)?;
         Ok(index)
     }
 
@@ -247,7 +254,19 @@ impl NativeSourceIndex {
 
     fn index_enum(&mut self, module: &ModuleId, enum_def: &phalcom_ast::ast::EnumDef) -> Result<(), String> {
         let has_native_attr = enum_def.attributes.iter().any(|a| a.name == "native");
-        let universe_key = UniverseKey::from_name(&enum_def.name);
+        let named_key = UniverseKey::from_name(&enum_def.name);
+        let universe_key = named_key.filter(|key| {
+            let expected = ModulePath::from_components(
+                key.source_path()
+                    .iter()
+                    .map(|part| phalcom_modules::ModuleComponent::from_identifier(part).expect("valid component"))
+                    .collect::<Vec<_>>(),
+            );
+            module.path == expected
+        });
+        if has_native_attr && named_key.is_some() && universe_key.is_none() {
+            return Err(format!("native enum {} is declared outside canonical source module", enum_def.name));
+        }
 
         if let Some(key) = universe_key {
             let row = UniverseClassRow {
@@ -379,7 +398,19 @@ impl NativeSourceIndex {
 
     fn index_class(&mut self, module: &ModuleId, class_def: &ClassDef) -> Result<(), String> {
         let has_native_attr = class_def.attributes.iter().any(|a| a.name == "native");
-        let universe_key = UniverseKey::from_name(&class_def.name);
+        let named_key = UniverseKey::from_name(&class_def.name);
+        let universe_key = named_key.filter(|key| {
+            let expected = ModulePath::from_components(
+                key.source_path()
+                    .iter()
+                    .map(|part| phalcom_modules::ModuleComponent::from_identifier(part).expect("valid component"))
+                    .collect::<Vec<_>>(),
+            );
+            module.path == expected
+        });
+        if has_native_attr && named_key.is_some() && universe_key.is_none() {
+            return Err(format!("native class {} is declared outside canonical source module", class_def.name));
+        }
         let superclass = class_def.superclass_ref().map(|reference| reference.leaf_name().to_owned());
 
         if let Some(key) = universe_key {
@@ -627,7 +658,13 @@ mod tests {
     #[test]
     fn source_anchor_uses_owned_selector_key_and_preserves_body_kind() {
         let program = parse_program("class String {\n  @native\n  @internal\n  _$byteAt(_ index: Int) -> String\n}\n");
-        let index = NativeSourceIndex::from_program(&program).expect("source index builds");
+        let module = ModuleId::universe(ModulePath::from_components(
+            ["scalar", "string"]
+                .into_iter()
+                .map(|part| phalcom_modules::ModuleComponent::from_identifier(part).unwrap())
+                .collect(),
+        ));
+        let index = NativeSourceIndex::from_program_at(&module, &program).expect("source index builds");
         let key = NativeMemberKey {
             owner: UniverseKey::String,
             side: NativeDispatch::Instance,
@@ -647,7 +684,13 @@ mod tests {
     #[test]
     fn duplicate_source_anchor_is_rejected() {
         let program = parse_program("class String {\n  @native\n  @internal\n  _$byteCount\n  @native\n  @internal\n  _$byteCount\n}\n");
-        let error = NativeSourceIndex::from_program(&program).expect_err("duplicate anchor must fail");
+        let module = ModuleId::universe(ModulePath::from_components(
+            ["scalar", "string"]
+                .into_iter()
+                .map(|part| phalcom_modules::ModuleComponent::from_identifier(part).unwrap())
+                .collect(),
+        ));
+        let error = NativeSourceIndex::from_program_at(&module, &program).expect_err("duplicate anchor must fail");
         assert!(error.contains("duplicate @native member anchor"), "{error}");
     }
 
@@ -657,9 +700,22 @@ mod tests {
     }
 
     #[test]
+    fn native_class_with_familiar_name_at_wrong_path_is_not_associated() {
+        let program = parse_program("@native\nclass String { }\n");
+        let error = NativeSourceIndex::from_program(&program).expect_err("wrong-path native class must fail closed");
+        assert!(error.contains("outside canonical source module"), "{error}");
+    }
+
+    #[test]
     fn implementation_anchor_requires_explicit_internal_attribute() {
         let program = parse_program("class String {\n  @native\n  _$byteCount\n}\n");
-        let error = NativeSourceIndex::from_program(&program).expect_err("implementation anchor must be explicit");
+        let module = ModuleId::universe(ModulePath::from_components(
+            ["scalar", "string"]
+                .into_iter()
+                .map(|part| phalcom_modules::ModuleComponent::from_identifier(part).unwrap())
+                .collect(),
+        ));
+        let error = NativeSourceIndex::from_program_at(&module, &program).expect_err("implementation anchor must be explicit");
         assert!(error.contains("must carry @internal"), "{error}");
     }
 }

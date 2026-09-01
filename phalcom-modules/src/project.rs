@@ -8,6 +8,13 @@ use crate::manifest::{DependencyProvider, DependencySpec, NullDependencyProvider
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
+fn update_revision_hash(state: &mut u128, bytes: &[u8]) {
+    for byte in bytes {
+        *state ^= u128::from(*byte);
+        *state = state.wrapping_mul(0x1000000000000000000013b);
+    }
+}
+
 /// A fully resolved project in the `ProjectUniverse`.
 #[derive(Debug, Clone)]
 pub struct ResolvedProject {
@@ -37,6 +44,40 @@ impl ResolvedProject {
     /// Maps each recognized root component (Universe, self namespace, and dependency aliases) to (ImportRootTarget, is_self).
     pub fn import_roots(&self) -> &BTreeMap<ModuleComponent, (ImportRootTarget, bool)> {
         &self.import_roots
+    }
+
+    /// Computes a deterministic fingerprint from the project's source tree.
+    ///
+    /// File paths are sorted before hashing so filesystem enumeration order and
+    /// project-graph allocation order cannot affect durable identity.
+    pub fn revision_fingerprint(&self) -> crate::identity::ProjectRevisionFingerprint {
+        let mut files = Vec::new();
+        collect_source_files(&self.source_root, &mut files);
+        files.sort();
+
+        let mut state = 0x6c62272e07bb014262b821756295c58du128;
+        for path in files {
+            let relative = path.strip_prefix(&self.source_root).unwrap_or(&path);
+            update_revision_hash(&mut state, relative.to_string_lossy().as_bytes());
+            if let Ok(bytes) = std::fs::read(&path) {
+                update_revision_hash(&mut state, &bytes);
+            } else {
+                update_revision_hash(&mut state, b"<unreadable>");
+            }
+        }
+        crate::identity::ProjectRevisionFingerprint::from_bytes(state.to_be_bytes())
+    }
+}
+
+fn collect_source_files(root: &Path, files: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(root) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_source_files(&path, files);
+        } else if path.is_file() {
+            files.push(path);
+        }
     }
 }
 
