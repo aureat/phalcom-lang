@@ -343,7 +343,7 @@ impl<'a> CheckingContext<'a> {
         let has_complete_native_core = NATIVE_SURFACES.iter().all(|record| {
             let owner = resolver
                 .resolve_type_name(&current_module, record.owner().name(), &[])
-                .unwrap_or_else(|| DeclarationId::new(ModuleId::universe_root(), record.owner().name().into()));
+                .unwrap_or_else(|| crate::core_surface::universe_declaration(record.owner()));
             declarations.form(&owner).is_some()
         });
         if has_complete_native_core {
@@ -1925,8 +1925,9 @@ pub(crate) fn ensure_core_object_type_tests(store: &mut TypeStore, declarations:
     dispatch.register_type(declarations.form(&class).unwrap_or_else(|| store.nominal_type(class.clone())), class.clone());
     dispatch.register_surface(class, class_surface);
 
-    let object = DeclarationId::new(ModuleId::universe_root(), "Object".into());
-    if let Some(bool_ty) = declarations.form(&DeclarationId::new(ModuleId::universe_root(), "Bool".into())) {
+    let object = crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Object);
+    let bool_decl = crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Bool);
+    if let Some(bool_ty) = declarations.form(&bool_decl) {
         let mut surface = dispatch
             .get_surface(&object)
             .cloned()

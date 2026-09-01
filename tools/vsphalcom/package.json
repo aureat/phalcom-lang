@@ -93,11 +93,6 @@
           "default": "",
           "description": "Explicit path to the phalcom-lsp server executable. When empty, the extension prefers a bundled platform binary and then phalcom-lsp on PATH."
         },
-        "phalcom.lsp.sysrootPath": {
-          "type": "string",
-          "default": "",
-          "description": "Optional Phalcom sysroot or core.ph path used for live core semantic indexing."
-        },
         "phalcom.analysis.mode": {
           "type": "string",
           "enum": ["local", "workspace"],

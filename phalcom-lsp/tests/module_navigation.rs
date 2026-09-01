@@ -1,4 +1,4 @@
-//! Integration tests for module occurrences, navigation, and core source provenance (Tasks 13 & 14).
+//! Integration tests for module occurrences, navigation, and Universe source provenance (Tasks 13 & 14).
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -301,7 +301,7 @@ async fn unresolved_import_does_not_crash_definition_or_hover() {
 }
 
 #[tokio::test]
-async fn goto_definition_on_core_class_returns_virtual_location() {
+async fn goto_definition_on_universe_class_returns_canonical_location() {
     let workspace = ScratchWorkspace::new("core_nav");
     let main_path = workspace.write("main.ph", "class MyClass is Object {\n}\n");
 
@@ -359,6 +359,6 @@ async fn goto_definition_on_core_class_returns_virtual_location() {
     let uri_str = locs[0]["uri"].as_str().unwrap_or("");
     assert!(
         uri_str.starts_with("phalcom://") || uri_str.ends_with(".ph"),
-        "expected virtual or physical core location, got {uri_str}"
+        "expected canonical Universe or physical location, got {uri_str}"
     );
 }

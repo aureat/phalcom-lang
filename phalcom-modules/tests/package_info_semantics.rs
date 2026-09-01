@@ -83,9 +83,4 @@ fn test_builtin_package_info() {
     assert_eq!(&*uni.name, "universe");
     assert_eq!(&*uni.namespace, "universe");
     assert_eq!(uni.identity.canonical_uri(), "pkg:universe");
-
-    let std = PackageInfoDescriptor::builtin_std(None);
-    assert_eq!(&*std.name, "std");
-    assert_eq!(&*std.namespace, "std");
-    assert_eq!(std.identity.canonical_uri(), "pkg:std");
 }

@@ -110,9 +110,6 @@ function readInitializationOptions() {
     const config = workspace.getConfiguration("phalcom")
     return {
         phalcom: {
-            lsp: {
-                sysrootPath: config.get<string>("lsp.sysrootPath", "")
-            },
             analysis: {
                 mode: config.get<string>("analysis.mode", "local"),
                 exclude: config.get<string[]>("analysis.exclude", []),

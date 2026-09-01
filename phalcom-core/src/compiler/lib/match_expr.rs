@@ -148,15 +148,12 @@ fn synthesize_fallback_pattern(
                     ""
                 }
             });
-            let is_core = owner_name == "Option" || owner_name == "Result" || owner_name == "Ordering";
-            let owner_decl = DeclarationId::new(
-                if is_core {
-                    ModuleId::universe_root()
-                } else {
-                    module_id.clone()
-                },
-                owner_name.into(),
-            );
+            let owner_decl = match owner_name {
+                "Option" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Option),
+                "Result" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Result),
+                "Ordering" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Ordering),
+                _ => DeclarationId::new(module_id.clone(), owner_name.into()),
+            };
 
             let (selector, field_patterns) = match &v.mode {
                 VariantPatternMode::Singleton => {

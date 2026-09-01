@@ -7,9 +7,9 @@ use phalcom_modules::interface::LinkedModuleInterface;
 use phalcom_modules::linker::{LinkedModule, LinkedProgram, ModuleBindingLayout};
 use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::source::ModuleKind;
-use phalcom_semantic::advisory::{AdvisoryAgreement, AdvisoryModuleProduct, AdvisoryProductStatus, AdvisoryWorkspace, compare_expression};
-use phalcom_semantic::checker::BindingConsistency;
+use phalcom_semantic::advisory::{compare_expression, AdvisoryAgreement, AdvisoryModuleProduct, AdvisoryProductStatus, AdvisoryWorkspace};
 use phalcom_semantic::checker::analysis::{AnalysisStatus, ExpressionAnalysis};
+use phalcom_semantic::checker::BindingConsistency;
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide, SourceOwner, SourceSiteId, SourceSiteLocalId};
 use phalcom_semantic::session::SemanticWorkspaceSession;
 use phalcom_semantic::source::ParsedModuleUnit;
@@ -89,7 +89,9 @@ fn snapshot_publishes_formal_source_and_advisory_products_together() {
         .unwrap();
     assert_eq!(
         update.snapshot.advisory().binding(&top_binding.declaration_site).map(|fact| &fact.shape),
-        Some(&ValueShape::Instance(DeclarationId::new(ModuleId::universe_root(), "Int".into())))
+        Some(&ValueShape::Instance(phalcom_semantic::core_surface::universe_declaration(
+            phalcom_native_meta::UniverseKey::Int
+        )))
     );
     let site_view = update.snapshot.semantic_site_at(&module, top_binding.declaration_range.start);
     assert_eq!(site_view.source_site.as_ref(), Some(&top_binding.declaration_site));
@@ -104,7 +106,7 @@ fn snapshot_publishes_formal_source_and_advisory_products_together() {
     assert_eq!(summary.status, AdvisoryProductStatus::Complete);
     assert_eq!(
         summary.return_fact.shape,
-        ValueShape::Instance(DeclarationId::new(ModuleId::universe_root(), "Int".into()))
+        ValueShape::Instance(phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Int))
     );
     assert_eq!(update.snapshot.id().workspace(), session.workspace());
 }
@@ -256,11 +258,11 @@ fn advisory_disagreement_is_unknown_for_all_non_ready_formal_states() {
     let int = update
         .snapshot
         .declarations
-        .form(&DeclarationId::new(ModuleId::universe_root(), "Int".into()))
+        .form(&phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Int))
         .expect("Int declaration");
     let expression_id = phalcom_semantic::identity::ExpressionId::new(phalcom_semantic::identity::BodyId(1), phalcom_semantic::identity::LocalExpressionId(1));
     let advisory = AdvisoryFact::new(
-        ValueShape::Instance(DeclarationId::new(ModuleId::universe_root(), "String".into())),
+        ValueShape::Instance(phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::String)),
         AdvisoryConfidence::Exact,
     );
     let statuses = [
@@ -317,7 +319,7 @@ fn advisory_disagreement_keeps_ready_formal_product_unchanged() {
     let expression = analysis.expressions.values().next().expect("expression product");
     let before = expression.clone();
     let advisory = AdvisoryFact::new(
-        ValueShape::Instance(DeclarationId::new(ModuleId::universe_root(), "String".into())),
+        ValueShape::Instance(phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::String)),
         AdvisoryConfidence::Exact,
     );
     let relation = compare_expression(&update.snapshot.store, expression, &advisory);

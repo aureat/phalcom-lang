@@ -226,23 +226,6 @@ impl PackageInfoDescriptor {
         }
     }
 
-    /// Constructs the canonical `PackageInfoDescriptor` for the builtin `std` package.
-    pub fn builtin_std(version: Option<&str>) -> Self {
-        Self {
-            name: "std".to_string(),
-            namespace: "std".to_string().into_boxed_str(),
-            version: version.map(|v| v.to_string()).or_else(|| Some(env!("CARGO_PKG_VERSION").to_string())),
-            authors: vec![],
-            description: Some("Phalcom standard library.".to_string()),
-            license: Some("Apache-2.0 OR MIT".to_string()),
-            homepage: None,
-            repository: Some("https://github.com/aureat/phalcom-lang".to_string()),
-            requirements: vec![],
-            default_entry: None,
-            identity: PackageArtifactIdentity::Builtin("std".to_string().into_boxed_str()),
-        }
-    }
-
     /// Constructs a minimal `PackageInfoDescriptor` for a standalone package without a manifest.
     pub fn standalone(namespace: &str) -> Self {
         Self {

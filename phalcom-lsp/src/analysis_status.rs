@@ -1,8 +1,8 @@
 //! LSP analysis status notifications and state machine tracking.
 
 use serde::{Deserialize, Serialize};
-use tower_lsp::lsp_types::Url;
 use tower_lsp::lsp_types::notification::Notification;
+use tower_lsp::lsp_types::Url;
 
 use crate::workspace_scan::AnalysisMode;
 
@@ -12,8 +12,6 @@ use crate::workspace_scan::AnalysisMode;
 pub enum AnalysisPhase {
     /// Analysis worker starting or initializing.
     Starting,
-    /// Resolving and loading the physical or bundled core runtime source.
-    SelectingCore,
     /// Discovering and shallow-indexing workspace files.
     Indexing,
     /// Performing flow analysis and type solving on source files.
@@ -254,10 +252,10 @@ mod tests {
         assert_eq!(initial.sequence, 1);
         assert_eq!(initial.phase, AnalysisPhase::Starting);
 
-        let second = tracker.transition(AnalysisPhase::SelectingCore, Some(AnalysisStep::Solving));
+        let second = tracker.transition(AnalysisPhase::Indexing, Some(AnalysisStep::Discovering));
         assert_eq!(second.session, 1);
         assert_eq!(second.sequence, 2);
-        assert_eq!(second.phase, AnalysisPhase::SelectingCore);
+        assert_eq!(second.phase, AnalysisPhase::Indexing);
 
         let new_session = tracker.increment_session(AnalysisMode::Workspace);
         assert_eq!(new_session.session, 2);

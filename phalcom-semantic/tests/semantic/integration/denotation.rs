@@ -15,7 +15,7 @@ use phalcom_semantic::types::relation::MapTypeHierarchy;
 use phalcom_semantic::types::store::TypeStore;
 
 fn test_universe_resolver(key: UniverseKey) -> DeclarationId {
-    DeclarationId::new(ModuleId::universe_root(), key.name().into())
+    phalcom_semantic::core_surface::universe_declaration(key)
 }
 
 #[test]

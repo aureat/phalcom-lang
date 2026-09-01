@@ -43,7 +43,6 @@ pub mod analysis_service;
 pub mod analysis_status;
 pub mod backend;
 pub mod completion;
-pub(crate) mod core_documents;
 pub mod diagnostics;
 pub mod documents;
 pub mod hover;

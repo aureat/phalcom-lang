@@ -1,6 +1,7 @@
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
+use phalcom_native_meta::UniverseKey;
 use phalcom_semantic::checker::analysis::{CallableAnalysisStatus, SemanticDependency};
 use phalcom_semantic::dispatch::{CallableSignature, DispatchLookup, SurfaceDispatchResolver};
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
@@ -91,11 +92,10 @@ fn tracked_hierarchy_records_every_mutable_edge_traversed() {
 }
 
 #[test]
-fn builtin_seed_reads_do_not_create_query_dependencies() {
+fn canonical_universe_reads_track_canonical_query_dependencies() {
     let current = user_module(1, "client");
-    let core = ModuleId::universe_root();
-    let int_decl = DeclarationId::new(core.clone(), "Int".into());
-    let object_decl = DeclarationId::new(core, "Object".into());
+    let int_decl = phalcom_semantic::core_surface::universe_declaration(UniverseKey::Int);
+    let object_decl = phalcom_semantic::core_surface::universe_declaration(UniverseKey::Object);
     let owner = DeclarationId::new(current.clone(), "Client".into());
     let mut store = TypeStore::new();
     let int_ty = store.nominal_type(int_decl.clone());
@@ -122,7 +122,16 @@ fn builtin_seed_reads_do_not_create_query_dependencies() {
     assert!(ctx.hierarchy.is_subclass(&int_decl, &object_decl));
     assert!(ctx.resolve_dispatch(int_ty, &selector, DispatchLookup::Normal).is_found());
     let analysis = ctx.finalize(callable(owner), SourceRange::default(), CallableAnalysisStatus::Complete);
-    assert!(analysis.semantic_dependencies.is_empty(), "legacy core reads have no staged DB products");
+    assert!(
+        analysis.semantic_dependencies.iter().all(|dependency| {
+            !matches!(dependency, SemanticDependency::DeclarationShell(decl) if decl.module == ModuleId::universe_root())
+                && !matches!(dependency, SemanticDependency::DeclarationSurface(decl) if decl.module == ModuleId::universe_root())
+                && !matches!(dependency, SemanticDependency::HierarchyEdge(decl) if decl.module == ModuleId::universe_root())
+        }),
+        "canonical reads must not reintroduce aggregate Universe-root dependencies: {:?}",
+        analysis.semantic_dependencies
+    );
+    assert!(analysis.semantic_dependencies.contains(&SemanticDependency::DeclarationShell(int_decl)));
 }
 
 #[test]
@@ -172,11 +181,9 @@ fn dispatch_lookup_records_surfaces_for_every_owner_inspected() {
     let analysis = ctx.finalize(callable(owner), SourceRange::default(), CallableAnalysisStatus::Complete);
     assert!(analysis.semantic_dependencies.contains(&SemanticDependency::DeclarationSurface(child)));
     assert!(analysis.semantic_dependencies.contains(&SemanticDependency::DeclarationSurface(base.clone())));
-    assert!(
-        analysis
-            .semantic_dependencies
-            .contains(&SemanticDependency::CallableSignature(CallableId::new(base, selector, DispatchSide::Instance,)))
-    );
+    assert!(analysis
+        .semantic_dependencies
+        .contains(&SemanticDependency::CallableSignature(CallableId::new(base, selector, DispatchSide::Instance,))));
 }
 
 #[test]

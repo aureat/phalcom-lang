@@ -21,7 +21,6 @@ fn structured_analysis_log_events_emitted_with_session_sequence() {
         roots: vec![root.clone()],
         mode: AnalysisMode::Local,
         excludes: Vec::new(),
-        core_source_path: None,
     });
     service.flush();
 
@@ -44,7 +43,6 @@ fn structured_analysis_log_events_emitted_with_session_sequence() {
         logs.iter().any(|l| l.event == "workspace.session.started" && l.session == 2),
         "expected workspace.session.started log event"
     );
-    assert!(logs.iter().any(|l| l.event == "core.surface.loaded"), "expected core.surface.loaded log event");
 
     // Now edit file
     let uri = tower_lsp::lsp_types::Url::from_file_path(&file_path).unwrap();

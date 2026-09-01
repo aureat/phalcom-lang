@@ -23,7 +23,6 @@
 //! pass ([`crate::semantic_tokens`]).
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 
 use crate::analysis_service::{AnalysisEvent, AnalysisService, CachedSource, DiskRefresh, SourceCache, WorkspaceScanRequest, builtin_module_from_uri};
@@ -226,8 +225,6 @@ pub struct SourceTextParams {
 /// Runtime configuration that affects semantic source discovery and hint UI.
 #[derive(Clone, Debug)]
 pub struct ServerConfig {
-    /// Explicit sysroot/core source directory, if configured.
-    pub sysroot_path: Option<PathBuf>,
     /// Analysis scope mode.
     pub analysis_mode: AnalysisMode,
     /// Glob-style workspace paths excluded from Phalcom source indexing.
@@ -241,7 +238,6 @@ pub struct ServerConfig {
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            sysroot_path: None,
             analysis_mode: AnalysisMode::Local,
             analysis_exclude: Vec::new(),
             inlay_hints: HintPolicy::Stable,
@@ -257,15 +253,6 @@ impl ServerConfig {
         let root = value.get("phalcom").unwrap_or(value);
         let lsp = root.get("lsp").unwrap_or(root);
         let analysis = root.get("analysis").unwrap_or(root);
-
-        if let Some(path) = value.get("phalcom.lsp.sysrootPath").and_then(JsonValue::as_str) {
-            config.sysroot_path = Some(PathBuf::from(path));
-        }
-        if let Some(path) = root.get("lsp").and_then(|value| value.get("sysrootPath")).and_then(JsonValue::as_str) {
-            config.sysroot_path = Some(PathBuf::from(path));
-        } else if let Some(path) = lsp.get("sysrootPath").and_then(JsonValue::as_str) {
-            config.sysroot_path = Some(PathBuf::from(path));
-        }
 
         if let Some(mode) = value.get("phalcom.analysis.mode").and_then(JsonValue::as_str) {
             config.analysis_mode = mode.parse().unwrap_or(AnalysisMode::Local);
@@ -311,8 +298,6 @@ impl ServerConfig {
 /// Semantic analysis configuration subset used to determine invalidation on setting changes.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AnalysisConfig {
-    /// Configured sysroot path.
-    pub sysroot_path: Option<PathBuf>,
     /// Analysis scope mode.
     pub mode: AnalysisMode,
     /// Workspace path fragments or file patterns excluded from indexing.
@@ -323,7 +308,6 @@ impl ServerConfig {
     /// Extracts the semantic analysis configuration subset.
     pub fn analysis_config(&self) -> AnalysisConfig {
         AnalysisConfig {
-            sysroot_path: self.sysroot_path.clone(),
             mode: self.analysis_mode,
             excludes: self.analysis_exclude.clone(),
         }
@@ -426,7 +410,7 @@ impl Backend {
         self.analysis.semantic_publication_handle()
     }
 
-    /// Serves canonical builtin/core source text to an editor content
+    /// Serves canonical Universe source text to an editor content
     /// provider without mutating or refreshing semantic state.
     pub async fn source_text(&self, params: SourceTextParams) -> Result<Option<String>> {
         if let Some(text) = virtual_source_text(&params.uri) {
@@ -500,7 +484,6 @@ impl Backend {
             roots: filesystem_roots,
             mode: config.analysis_mode,
             excludes: config.analysis_exclude,
-            core_source_path: config.sysroot_path,
         });
     }
 
@@ -1185,7 +1168,6 @@ impl LanguageServer for Backend {
             tokio::spawn(async move {
                 while let Some(event) = events.recv().await {
                     match event {
-                        AnalysisEvent::CoreSourceSelected { uri: _ } => {}
                         AnalysisEvent::WorkspaceFileIndexed { uri, text: _, revision: _ } => {
                             let source = closed_sources.read().expect("closed source cache lock poisoned").get(&uri).cloned();
                             let Some(source) = source else { continue };
@@ -1260,7 +1242,7 @@ impl LanguageServer for Backend {
             .await;
     }
 
-    /// Applies changed settings and refreshes the configured core source if analysis configuration changed.
+    /// Applies changed settings and refreshes semantic analysis when configuration changes.
     async fn did_change_configuration(&self, params: DidChangeConfigurationParams) {
         let new_config = ServerConfig::from_json(Some(&params.settings));
         let old_analysis_config = self.config.read().expect("server config lock poisoned").analysis_config();
@@ -1387,7 +1369,7 @@ impl LanguageServer for Backend {
     /// (`Self::occurrences_to_locations`).
     ///
     /// Returns `Ok(None)` if the cursor sits on no selector-bearing node, or
-    /// the selector has no recorded definition (e.g. a builtin core-class
+    /// the selector has no recorded definition (e.g. a builtin Universe class
     /// method — the index only covers user `.ph` source; `core-table.json`
     /// lookup is a later stage, plan DEC-LSP-B).
     async fn goto_definition(&self, params: GotoDefinitionParams) -> Result<Option<GotoDefinitionResponse>> {
@@ -1576,17 +1558,15 @@ mod tests {
     use phalcom_modules::SourceRevision;
 
     #[test]
-    fn server_config_parses_nested_stable_hint_policy_and_sysroot_directory() {
+    fn server_config_parses_nested_stable_hint_policy() {
         let settings = json!({
             "phalcom": {
-                "lsp": { "sysrootPath": "/opt/phalcom" },
                 "inlayHints": { "types": "stable", "suppressObvious": false }
             }
         });
 
         let config = ServerConfig::from_json(Some(&settings));
 
-        assert_eq!(config.sysroot_path.as_deref(), Some(std::path::Path::new("/opt/phalcom")));
         assert_eq!(config.inlay_hints, HintPolicy::Stable);
         assert!(!config.suppress_obvious);
     }
@@ -1626,16 +1606,11 @@ mod tests {
     #[test]
     fn server_config_parses_dotted_off_hint_policy() {
         let settings = json!({
-            "phalcom.lsp.sysrootPath": "/opt/phalcom/phalcom-core/core/universe/src/package.ph",
             "phalcom.inlayHints.types": "off"
         });
 
         let config = ServerConfig::from_json(Some(&settings));
 
-        assert_eq!(
-            config.sysroot_path.as_deref(),
-            Some(std::path::Path::new("/opt/phalcom/phalcom-core/core/universe/src/package.ph"))
-        );
         assert_eq!(config.inlay_hints, HintPolicy::Off);
     }
 
@@ -1870,7 +1845,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn presentation_configuration_does_not_rebuild_core() {
+    async fn presentation_configuration_does_not_rebuild_semantics() {
         let (service, _socket) = LspService::new(super::Backend::new);
         let backend = service.inner();
         backend
@@ -1880,7 +1855,7 @@ mod tests {
             .await;
         backend.analysis.flush();
         let snapshot = backend.perf_counters().snapshot();
-        assert_eq!(snapshot.semantic_batches_started, 0, "presentation-only configuration must not rebuild core");
+        assert_eq!(snapshot.semantic_batches_started, 0, "presentation-only configuration must not rebuild semantics");
         assert!(backend.analysis.snapshot().is_none());
         drop(service);
     }

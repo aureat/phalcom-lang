@@ -221,9 +221,6 @@ pub struct WorkspaceScanState {
     excluded: ExcludeMatcher,
     /// Analysis mode: controls whether background deep analysis is scheduled.
     pub mode: AnalysisMode,
-    /// Physical path of the selected core source file, if any.
-    /// Files at this path are skipped from ordinary workspace registration.
-    core_physical_path: Option<PathBuf>,
 }
 
 impl WorkspaceScanState {
@@ -238,7 +235,6 @@ impl WorkspaceScanState {
             roots: Vec::new(),
             excluded,
             mode,
-            core_physical_path: None,
         }
     }
 
@@ -251,12 +247,11 @@ impl WorkspaceScanState {
     ///
     /// This replaces all pending work so that discovery restarts from the new
     /// roots (e.g. after `workspaceFolders/didChange`).
-    pub fn set_roots(&mut self, roots: Vec<PathBuf>, core_physical_path: Option<PathBuf>) {
+    pub fn set_roots(&mut self, roots: Vec<PathBuf>) {
         self.roots = roots;
         self.pending_dirs.clear();
         self.active_dir = None;
         self.pending_files.clear();
-        self.core_physical_path = core_physical_path.map(|path| path.canonicalize().unwrap_or(path));
         // Seed dirs from roots.
         for root in &self.roots {
             if root.is_dir() && !self.excluded.is_excluded(root) {
@@ -338,11 +333,6 @@ impl WorkspaceScanState {
             let Some(path) = self.pending_files.pop_front() else {
                 break;
             };
-            // Skip selected physical core path; canonical Universe sources are indexed by provider.
-            let canonical_path = path.canonicalize().unwrap_or_else(|_| path.clone());
-            if self.core_physical_path.as_deref().is_some_and(|cp| cp == canonical_path.as_path()) {
-                continue;
-            }
             if let Ok(uri) = Url::from_file_path(&path) {
                 discovered.push(DiscoveredFile { path, uri });
             }
@@ -382,7 +372,7 @@ mod tests {
         fs::write(root.join("not_phalcom.rs"), "").unwrap();
 
         let mut scanner = WorkspaceScanState::new(AnalysisMode::Local, ExcludeMatcher::new(&[]));
-        scanner.set_roots(vec![root.clone()], None);
+        scanner.set_roots(vec![root.clone()]);
 
         let mut all = Vec::new();
         loop {
@@ -412,7 +402,7 @@ mod tests {
         fs::write(root.join("tests/test.ph"), "").unwrap();
 
         let mut scanner = WorkspaceScanState::new(AnalysisMode::Local, ExcludeMatcher::new(&["tests".to_string()]));
-        scanner.set_roots(vec![root.clone()], None);
+        scanner.set_roots(vec![root.clone()]);
 
         let mut all = Vec::new();
         loop {
@@ -432,34 +422,6 @@ mod tests {
     }
 
     #[test]
-    fn scanner_skips_canonical_core_physical_path() {
-        let root = tmpdir("core_skip");
-        fs::create_dir_all(root.join("core/universe/src")).unwrap();
-        let core_path = root.join("core/universe/src/package.ph");
-        let other_path = root.join("other.ph");
-        fs::write(&core_path, "").unwrap();
-        fs::write(&other_path, "").unwrap();
-
-        let mut scanner = WorkspaceScanState::new(AnalysisMode::Workspace, ExcludeMatcher::new(&[]));
-        scanner.set_roots(vec![root.clone()], Some(core_path.clone()));
-
-        let mut all = Vec::new();
-        loop {
-            let batch = scanner.step(SCAN_BUDGET);
-            if batch.is_empty() && !scanner.has_work() {
-                break;
-            }
-            all.extend(batch);
-        }
-
-        let paths: std::collections::BTreeSet<_> = all.iter().map(|f| f.path.clone()).collect();
-        assert!(!paths.contains(&core_path), "canonical core source should be skipped from ordinary scan");
-        assert!(paths.contains(&other_path), "other.ph should be discovered");
-
-        let _ = fs::remove_dir_all(&root);
-    }
-
-    #[test]
     fn scanner_bounds_wide_directory_entries_and_finishes_later() {
         let root = tmpdir("wide_directory");
         let file_count = 2_048;
@@ -468,7 +430,7 @@ mod tests {
         }
 
         let mut scanner = WorkspaceScanState::new(AnalysisMode::Local, ExcludeMatcher::new(&[]));
-        scanner.set_roots(vec![root.clone()], None);
+        scanner.set_roots(vec![root.clone()]);
         let budget = ScanBudget {
             max_dirs_started: 1,
             max_entries: 16,

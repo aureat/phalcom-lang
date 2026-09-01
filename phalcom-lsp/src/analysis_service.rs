@@ -49,8 +49,6 @@ pub struct WorkspaceScanRequest {
     pub mode: AnalysisMode,
     /// User-configured path exclusions.
     pub excludes: Vec<String>,
-    /// Selected physical core source, kept out of ordinary indexing.
-    pub core_source_path: Option<PathBuf>,
 }
 
 /// Pending work batch coalesced by the worker loop before execution.
@@ -201,11 +199,6 @@ impl TestScanGate {
 /// Events emitted by the background analysis worker thread.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AnalysisEvent {
-    /// Reports worker-selected physical core source identity.
-    CoreSourceSelected {
-        /// Physical URI of selected source, or `None` for bundled fallback.
-        uri: Option<Url>,
-    },
     /// A new semantic snapshot generation was published.
     Published {
         /// Published generation counter.
@@ -506,11 +499,7 @@ fn worker_loop(
     // cell only exposes immutable snapshots to concurrent request readers.
     let mut compiler_workspace_state = CompilerWorkspaceState::default();
     let mut scanner = None;
-    let mut selected_core_uri = None;
-    let mut core_initialized = false;
     let mut discovered_files = BTreeSet::new();
-    let mut workspace_roots = Vec::new();
-    let mut configured_sysroot = None;
     let mut status_tracker = StatusTracker::new(AnalysisMode::Local);
     let _ = event_tx.send(AnalysisEvent::Status(status_tracker.snapshot()));
 
@@ -525,17 +514,10 @@ fn worker_loop(
             break;
         }
 
-        let mut core_reselect = false;
         if let Some(request) = pending.workspace_scan.take() {
             let mut next = WorkspaceScanState::new(request.mode, ExcludeMatcher::new(&request.excludes));
-            // Core selection happens below on worker-owned filesystem access.
-            next.set_roots(request.roots.clone(), None);
+            next.set_roots(request.roots.clone());
             scanner = Some(next);
-            workspace_roots = request.roots;
-            if configured_sysroot != request.core_source_path {
-                configured_sysroot = request.core_source_path;
-                core_reselect = true;
-            }
             let status = status_tracker.increment_session(request.mode);
             let _ = event_tx.send(AnalysisEvent::Status(status.clone()));
             let _ = event_tx.send(AnalysisEvent::Log(Box::new(AnalysisLogEvent {
@@ -558,43 +540,6 @@ fn worker_loop(
         // Interactive semantic work always wins over one background scan chunk.
         if !has_analysis_work(&pending) {
             drop(pending);
-            if core_reselect || !core_initialized {
-                let status = status_tracker.transition(AnalysisPhase::SelectingCore, Some(AnalysisStep::Solving));
-                let _ = event_tx.send(AnalysisEvent::Status(status));
-                let _span = PerfSpan::start_with_context_and_counters(
-                    "core_select_analyze",
-                    PerfContext {
-                        generation: compiler_workspace_state.session.last_snapshot().map(|snapshot| snapshot.generation),
-                        epoch: Some(shared.epoch.load(Ordering::Acquire)),
-                    },
-                    shared.counters.clone(),
-                );
-                let core_source = crate::core_documents::CoreSource::select(configured_sysroot.as_deref(), &workspace_roots);
-                selected_core_uri = core_source.physical_uri().cloned();
-                let _ = event_tx.send(AnalysisEvent::CoreSourceSelected {
-                    uri: selected_core_uri.clone(),
-                });
-                // Core declarations and native surfaces are bootstrapped by
-                // `SemanticWorkspaceSession`; selected source remains an LSP
-                // virtual-document concern and is not a second semantic input.
-                core_initialized = true;
-                let _ = event_tx.send(AnalysisEvent::Log(Box::new(AnalysisLogEvent {
-                    session: status_tracker.snapshot().session,
-                    sequence: status_tracker.snapshot().sequence,
-                    level: AnalysisLogLevel::Info,
-                    phase: AnalysisPhase::SelectingCore,
-                    event: "core.surface.loaded".to_string(),
-                    epoch: Some(shared.epoch.load(Ordering::Acquire)),
-                    generation: compiler_workspace_state.session.last_snapshot().map(|snapshot| snapshot.generation),
-                    uri: selected_core_uri.clone(),
-                    revision: Some(1),
-                    batch_size: None,
-                    duration_ms: None,
-                    message: Some("core surface loaded".to_string()),
-                    counters: Some(shared.counters.snapshot()),
-                })));
-                continue;
-            }
             if let Some(scan) = scanner.as_mut() {
                 let status = status_tracker.transition(AnalysisPhase::Indexing, Some(AnalysisStep::Discovering));
                 let _ = event_tx.send(AnalysisEvent::Status(status));
@@ -605,14 +550,7 @@ fn worker_loop(
                     shared: &shared,
                     event_tx: &event_tx,
                 };
-                process_scan_batch(
-                    &scan_env,
-                    &mut compiler_workspace_state,
-                    scan.mode,
-                    batch,
-                    &mut discovered_files,
-                    selected_core_uri.as_ref(),
-                );
+                process_scan_batch(&scan_env, &mut compiler_workspace_state, scan.mode, batch, &mut discovered_files);
                 let snap = shared.counters.snapshot();
                 let status = status_tracker.update_counts(
                     snap.workspace_files_discovered,
@@ -662,14 +600,7 @@ fn worker_loop(
                     shared: &shared,
                     event_tx: &event_tx,
                 };
-                process_scan_batch(
-                    &scan_env,
-                    &mut compiler_workspace_state,
-                    scan.mode,
-                    batch,
-                    &mut discovered_files,
-                    selected_core_uri.as_ref(),
-                );
+                process_scan_batch(&scan_env, &mut compiler_workspace_state, scan.mode, batch, &mut discovered_files);
                 let snap = shared.counters.snapshot();
                 let status = status_tracker.update_counts(
                     snap.workspace_files_discovered,
@@ -975,7 +906,6 @@ fn process_scan_batch(
     _mode: AnalysisMode,
     files: Vec<crate::workspace_scan::DiscoveredFile>,
     discovered_files: &mut BTreeSet<Url>,
-    selected_core_uri: Option<&Url>,
 ) {
     #[cfg(test)]
     if let Some(gate) = env.shared.test_scan_gate.lock().expect("test scan gate lock poisoned").clone() {
@@ -984,9 +914,6 @@ fn process_scan_batch(
 
     let mut semantic_files = Vec::new();
     for discovered in files {
-        if Some(&discovered.uri) == selected_core_uri {
-            continue;
-        }
         let ticket = env.shared.epoch.load(Ordering::Acquire);
         let source_ticket = source_epoch(env.shared, &discovered.uri);
         if is_open_source(env.shared, &discovered.uri) {

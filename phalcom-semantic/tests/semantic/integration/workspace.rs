@@ -203,7 +203,7 @@ export Client
     let int_ty = analysis
         .snapshot
         .declarations
-        .form(&DeclarationId::new(ModuleId::universe_root(), "Int".into()))
+        .form(&phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Int))
         .expect("Int type");
     assert_eq!(serve.knowledge.ty(), Some(int_ty));
     assert_eq!(

@@ -6,11 +6,12 @@ use phalcom_modules::interface::LinkedModuleInterface;
 use phalcom_modules::linker::{LinkedModule, LinkedProgram, ModuleBindingLayout};
 use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::source::ModuleKind;
+use phalcom_native_meta::UniverseKey;
 use phalcom_semantic::db::{
-    CallableBodyQuery, CancellationToken, DeclarationSurfaceQuery, FormalQueryInputs, QueryBudget, QueryKey, query_callable_body_with_formal_inputs,
-    query_declaration_surface,
+    query_callable_body_with_formal_inputs, query_declaration_surface, CallableBodyQuery, CancellationToken, DeclarationSurfaceQuery, FormalQueryInputs,
+    QueryBudget, QueryKey,
 };
-use phalcom_semantic::declarations::{DeclarationTypeInfo, bootstrap_universe_declarations};
+use phalcom_semantic::declarations::{bootstrap_universe_declarations, DeclarationTypeInfo};
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 use phalcom_semantic::session::SemanticWorkspaceSession;
 use phalcom_semantic::source::ParsedModuleUnit;
@@ -163,9 +164,7 @@ class Owner {
     let linked_interface = Arc::new(input.linked.modules[&module].interface.clone());
 
     let mut store = TypeStore::new();
-    let mut declarations = bootstrap_universe_declarations(&mut store, &|key| {
-        DeclarationId::new(phalcom_semantic::identity::ModuleId::universe_root(), key.name().into())
-    });
+    let mut declarations = bootstrap_universe_declarations(&mut store, &phalcom_semantic::core_surface::universe_declaration);
     let owner = DeclarationId::new(module.clone(), "Owner".into());
     declarations.insert(DeclarationTypeInfo {
         declaration: owner.clone(),
@@ -176,11 +175,14 @@ class Owner {
         supertype_template: None,
     });
 
-    let int = DeclarationId::new(phalcom_semantic::identity::ModuleId::universe_root(), "Int".into());
+    let int = phalcom_semantic::core_surface::universe_declaration(UniverseKey::Int);
     let mut resolver = SimpleTypeResolver::new();
     resolver.insert("Int", int);
     let hierarchy = MapTypeHierarchy::new();
     let mut db = phalcom_semantic::db::SemanticDb::new();
+    for info in declarations.iter().map(|(_, info)| info) {
+        let _ = phalcom_semantic::db::query_declaration_shell(&mut db, Arc::new(info.clone()));
+    }
 
     let surface = match query_declaration_surface(
         &mut db,

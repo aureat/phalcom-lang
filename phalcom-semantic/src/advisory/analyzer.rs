@@ -45,7 +45,16 @@ impl AdvisoryBuiltins {
     /// produce advisory `Unknown` facts.
     pub fn from_declarations(declarations: &DeclarationTypeTable) -> Self {
         fn lookup(declarations: &DeclarationTypeTable, name: &str) -> Option<DeclarationId> {
-            let declaration = DeclarationId::new(crate::identity::ModuleId::universe_root(), name.into());
+            let key = match name {
+                "Int" => phalcom_native_meta::UniverseKey::Int,
+                "Float" => phalcom_native_meta::UniverseKey::Float,
+                "String" => phalcom_native_meta::UniverseKey::String,
+                "Bool" => phalcom_native_meta::UniverseKey::Bool,
+                "Symbol" => phalcom_native_meta::UniverseKey::Symbol,
+                "Ordering" => phalcom_native_meta::UniverseKey::Ordering,
+                _ => return None,
+            };
+            let declaration = crate::core_surface::universe_declaration(key);
             declarations.get(&declaration).map(|_| declaration)
         }
 

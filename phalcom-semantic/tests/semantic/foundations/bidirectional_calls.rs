@@ -2,11 +2,12 @@
 
 use phalcom_ast::parse_source;
 use phalcom_modules::identity::ModuleId;
+use phalcom_native_meta::UniverseKey;
 use phalcom_semantic::checker::context::CheckingContext;
 use phalcom_semantic::checker::expected::ExpectedType;
 use phalcom_semantic::checker::expression::{analyze_expression, check_expr};
 use phalcom_semantic::checker::statement::check_statement;
-use phalcom_semantic::declarations::{DeclarationTypeTable, bootstrap_universe_declarations};
+use phalcom_semantic::declarations::{bootstrap_universe_declarations, DeclarationTypeTable};
 use phalcom_semantic::identity::{BodyId, CallableId, DeclarationId, DispatchSide, ExpressionId, LocalExpressionId};
 use phalcom_semantic::types::annotation::{SimpleTypeResolver, TypeResolver};
 use phalcom_semantic::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
@@ -20,15 +21,15 @@ fn setup_wave3_test_env() -> (TypeStore, MapTypeHierarchy, SimpleTypeResolver, D
     let mut resolver = SimpleTypeResolver::new();
     let module = ModuleId::universe_root();
 
-    let declarations = bootstrap_universe_declarations(&mut store, &|k| DeclarationId::new(module.clone(), k.name().into()));
+    let declarations = bootstrap_universe_declarations(&mut store, &phalcom_semantic::core_surface::universe_declaration);
 
-    let int_decl = DeclarationId::new(module.clone(), "Int".into());
-    let string_decl = DeclarationId::new(module.clone(), "String".into());
-    let bool_decl = DeclarationId::new(module.clone(), "Bool".into());
-    let obj_decl = DeclarationId::new(module.clone(), "Object".into());
-    let list_decl = DeclarationId::new(module.clone(), "List".into());
-    let set_decl = DeclarationId::new(module.clone(), "Set".into());
-    let map_decl = DeclarationId::new(module.clone(), "Map".into());
+    let int_decl = phalcom_semantic::core_surface::universe_declaration(UniverseKey::Int);
+    let string_decl = phalcom_semantic::core_surface::universe_declaration(UniverseKey::String);
+    let bool_decl = phalcom_semantic::core_surface::universe_declaration(UniverseKey::Bool);
+    let obj_decl = phalcom_semantic::core_surface::universe_declaration(UniverseKey::Object);
+    let list_decl = phalcom_semantic::core_surface::universe_declaration(UniverseKey::List);
+    let set_decl = phalcom_semantic::core_surface::universe_declaration(UniverseKey::Set);
+    let map_decl = phalcom_semantic::core_surface::universe_declaration(UniverseKey::Map);
 
     hierarchy.insert(int_decl.clone(), obj_decl.clone());
     hierarchy.insert(string_decl.clone(), obj_decl.clone());

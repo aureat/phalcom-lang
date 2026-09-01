@@ -30,7 +30,6 @@ fn analysis_status_transitions_and_session_increment() {
         roots: vec![root.clone()],
         mode: AnalysisMode::Local,
         excludes: Vec::new(),
-        core_source_path: None,
     });
 
     service.flush();
@@ -55,7 +54,6 @@ fn analysis_status_transitions_and_session_increment() {
         roots: vec![root.clone()],
         mode: AnalysisMode::Workspace,
         excludes: Vec::new(),
-        core_source_path: None,
     });
 
     service.flush();
@@ -96,7 +94,6 @@ fn edit_only_batch_returns_to_ready_after_publication() {
         roots: vec![root.clone()],
         mode: AnalysisMode::Local,
         excludes: Vec::new(),
-        core_source_path: None,
     });
     service.flush();
 
