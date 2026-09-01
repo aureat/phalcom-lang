@@ -2,6 +2,7 @@
 
 use crate::advisory::{AdvisoryFact, ValueShape, advisory_shape_from_formal};
 use crate::identity::{CallableId, DeclarationId, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId};
+use crate::prelude::PreludeTypeMap;
 use crate::presentation::{CallablePresentation, FieldPresentation, FormalFactStatus, FormalPresentation, TypePresenter, present_declared_type};
 use crate::snapshot::SemanticSnapshot;
 use crate::source_index::{OccurrenceHint, OccurrenceRole, SourceBindingInfo, SourceBindingKind};
@@ -76,12 +77,15 @@ impl PartialCallPattern {
     }
 }
 
-/// One visible lexical symbol and its canonical target.
+/// One compiler-owned visible symbol and its canonical target.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VisibleSymbol {
     pub name: Box<str>,
-    pub declaration_site: SourceSiteId,
     pub target: SemanticTargetId,
+    /// Declaration site in the current source shard, when this symbol is
+    /// introduced locally. Canonical prelude symbols deliberately have no
+    /// fabricated local declaration site.
+    pub local_declaration_site: Option<SourceSiteId>,
 }
 
 /// Compiler-owned presentation metadata for a canonical native callable.
@@ -634,7 +638,7 @@ impl<'a> EditorSemanticQuery<'a> {
         candidates
     }
 
-    /// Returns compiler-owned lexical bindings visible at a source position.
+    /// Returns compiler-owned lexical/module/prelude symbols visible at a source position.
     pub fn visible_symbols_at(&self, module: &ModuleId, offset: usize) -> Vec<VisibleSymbol> {
         let Some(index) = self.snapshot.source_index.module(module) else {
             return Vec::new();
@@ -654,8 +658,24 @@ impl<'a> EditorSemanticQuery<'a> {
                 .filter(|declaration| !binding_names.contains(&declaration.name))
                 .map(|declaration| VisibleSymbol {
                     name: declaration.name.clone(),
-                    declaration_site: declaration.declaration_site.clone(),
                     target: SemanticTargetId::Declaration(declaration.id.clone()),
+                    local_declaration_site: Some(declaration.declaration_site.clone()),
+                }),
+        );
+
+        let visible_names = symbols.iter().map(|symbol| symbol.name.clone()).collect::<BTreeSet<_>>();
+        let prelude = PreludeTypeMap::shared_canonical_universe();
+        symbols.extend(
+            prelude
+                .iter()
+                .filter(|(name, declaration)| {
+                    !visible_names.iter().any(|visible| visible.as_ref() == *name)
+                        && self.snapshot.declarations.get(declaration).is_some()
+                })
+                .map(|(name, declaration)| VisibleSymbol {
+                    name: name.into(),
+                    target: SemanticTargetId::Declaration(declaration.clone()),
+                    local_declaration_site: None,
                 }),
         );
         symbols.sort_by(|left, right| left.name.cmp(&right.name));
@@ -718,7 +738,7 @@ fn visible_binding(index: &crate::source_index::SourceScopeIndex, binding: &Sour
         .unwrap_or_else(|| SemanticTargetId::Binding(binding.declaration_site.clone()));
     VisibleSymbol {
         name: binding.name.clone(),
-        declaration_site: binding.declaration_site.clone(),
         target,
+        local_declaration_site: Some(binding.declaration_site.clone()),
     }
 }
