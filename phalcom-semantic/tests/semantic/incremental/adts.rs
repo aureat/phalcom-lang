@@ -78,7 +78,6 @@ fn adt_incr_03_adding_family_member_changes_family_candidate_set() {
 }
 
 #[test]
-#[ignore = "RED: selector-family callable candidate invalidation remains incomplete"]
 fn adt_incr_04_adding_callable_family_member_changes_gap_candidates() {
     let module = module();
     let mut session = SemanticWorkspaceSession::new();

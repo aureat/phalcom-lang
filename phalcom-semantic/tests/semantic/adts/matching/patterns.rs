@@ -120,7 +120,6 @@ fn match_pat_05_nested_or_pattern_remains_one_resolved_or_node() {
 }
 
 #[test]
-#[ignore = "RED: family candidate-specific child projection remains incomplete"]
 fn match_pat_06_family_pattern_joins_candidate_specific_field_projections() {
     let case = analyze_adt(
         "enum Animal { @variant Dog(_ name: String) @variant Dog(_ name: String, age: Int) }\nclass Test { run(_ value: Animal) { match value { Dog(name, ...) => name _ => \"unknown\" } } }\n",

@@ -120,7 +120,6 @@ fn adt_gadt_02_multi_parameter_relationship_is_recorded() {
 }
 
 #[test]
-#[ignore = "RED: contradictory declaration specialization must be rejected during elimination"]
 fn adt_gadt_03_contradictory_specialization_is_not_ordinary_subtyping_failure() {
     let case = super::support::analyze_adt(
         "enum Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { run(_ value: Expr<Bool>) { match value { Expr::Int(x) => x } } }\n",

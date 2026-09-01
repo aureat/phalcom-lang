@@ -171,21 +171,18 @@ fn match_exh_08_alias_union_exhaustiveness_is_not_root_widened() {
 }
 
 #[test]
-#[ignore = "GATED: closed-plus-opaque union fixture is required"]
 fn match_exh_09_mixed_closed_and_opaque_union_retains_opaque_witness() {
     let case = analyze_adt("enum Choice { @variant A @variant B }\nclass Test { run(_ value: Object) { match value { Choice::A => 1 } } }\n");
     case.only_match().assert_not_exhaustive();
 }
 
 #[test]
-#[ignore = "GATED: opaque domain fixture is required"]
 fn match_exh_10_wildcard_closes_opaque_residual() {
     let case = analyze_adt("class Test { run(_ value: Object) { match value { _ => 1 } } }\n");
     case.only_match().assert_exhaustive();
 }
 
 #[test]
-#[ignore = "RED: nested exact residual witness is not stable"]
 fn match_exh_11_nested_totality_preserves_child_coverage() {
     let case = analyze_adt(
         "enum Option<T> { @variant Some(_ value: T) -> Option<T> @variant None -> Option<T> }\nenum Choice { @variant Left @variant Right }\nclass Test { run(_ value: Option<Choice>) { match value { Some(Choice::Left) => 1 Some(Choice::Right) => 2 None => 0 } } }\n",
@@ -194,7 +191,6 @@ fn match_exh_11_nested_totality_preserves_child_coverage() {
 }
 
 #[test]
-#[ignore = "RED: nested exact residual witness is not stable"]
 fn match_exh_12_nested_missing_witness_preserves_shape() {
     let case = analyze_adt(
         "enum Option<T> { @variant Some(_ value: T) -> Option<T> @variant None -> Option<T> }\nenum Choice { @variant Left @variant Right }\nclass Test { run(_ value: Option<Choice>) { match value { Some(Choice::Left) => 1 None => 0 } } }\n",
@@ -237,7 +233,6 @@ fn match_use_02_exact_duplicate_arm_is_redundant() {
 }
 
 #[test]
-#[ignore = "RED: family usefulness projection remains incomplete"]
 fn match_use_03_family_subsumes_exact_member() {
     let case = analyze_adt(
         "enum Animal { @variant Dog @variant Dog() @variant Cat }\nclass Test { run(_ value: Animal) { match value { Dog* => 1 Dog() => 2 _ => 0 } } }\n",
@@ -246,7 +241,6 @@ fn match_use_03_family_subsumes_exact_member() {
 }
 
 #[test]
-#[ignore = "RED: nested or usefulness product remains incomplete"]
 fn match_use_04_duplicate_or_alternative_is_redundant() {
     let case = analyze_adt(
         "enum Choice { @variant Left @variant Right }\nclass Test { run(_ value: Choice) { match value { Choice::Left | Choice::Left => 1 _ => 0 } } }\n",
@@ -255,7 +249,6 @@ fn match_use_04_duplicate_or_alternative_is_redundant() {
 }
 
 #[test]
-#[ignore = "RED: family usefulness projection remains incomplete"]
 fn match_use_05_family_alternative_subsumes_exact_member() {
     let case = analyze_adt(
         "enum Animal { @variant Dog @variant Dog() @variant Cat }\nclass Test { run(_ value: Animal) { match value { Dog* => 1 Dog => 2 _ => 0 } } }\n",
@@ -272,7 +265,6 @@ fn match_imp_01_gadt_impossible_arm_is_classified_impossible() {
 }
 
 #[test]
-#[ignore = "RED: static union contradiction fixture is not yet available"]
 fn match_imp_02_disjoint_union_pattern_is_impossible() {
     let case = analyze_adt(
         "enum Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Test { run(_ value: Expr<Int>) { match value { Expr::Bool(x) => x } } }\n",

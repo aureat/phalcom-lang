@@ -142,3 +142,224 @@ claim that deeper oracle merely because the branch value tests are green.
 | C15 incremental equivalence | READY | `incremental::type_store_revisions`, `incremental::fingerprints`, `incremental::callable_dependencies` |
 | C16 presentation non-authority | READY | `integration::{advisory_analysis,presentation,editor_type_hints}` |
 | C17 no hidden language design | READY | membership and unsupported comparison links stay `Unknown(UncheckedExpression)` |
+
+## Semantic gate ignore audit — 2026-09-01
+
+This section records the ignore-marker audit for the crate's unified
+`tests/semantic.rs` integration binary. It is a crate-local tracking record,
+not a workspace completion claim.
+
+### Scope and current result
+
+Command:
+
+```text
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic -- --nocapture
+```
+
+This is the `phalcom-semantic` package integration test only. It is not
+`cargo test --workspace`; workspace-wide tests were not run.
+
+The source contains 100 `#[ignore]` markers. The earlier count of 99 omitted
+the intentionally ignored fail-fast child-process test. This audit removed 48
+requested markers and corrected/activated one additional diagnostic fixture,
+leaving 51 ignored tests.
+
+Current working-tree result:
+
+```text
+active semantic gate: 905 passed, 2 failed, 51 ignored
+forced ignored run:   20 passed, 31 failed
+```
+
+All 49 newly active tests passed. The corrected test is now named
+`match_diag_04_payload_arity_mismatch_points_at_projection`; its fixture tests
+payload arity and diagnostic range, rather than claiming unimplemented private
+cross-module visibility.
+
+### Two active failures
+
+These are the only failures in the active gate after the 49-test activation:
+
+| Test | Classification | Observation |
+| --- | --- | --- |
+| `foundations::expression_engine::test_keyword_argument_mismatch_detected` | Semantic implementation bug | Passing `"invalid"` to an `Int` keyword parameter produces no `ArgumentMismatch`. The call checker is not validating this keyword argument path. |
+| `support::regressions::union_expectation_rejects_wrong_structural_members` | Test-harness bug | The oracle intentionally panics, but the workspace uses `panic = "abort"`; `catch_unwind` cannot catch it. Use a child-process assertion or a non-panicking oracle API. |
+
+### Remaining ignored tests: 51
+
+#### 31 fail when explicitly forced
+
+These remain ignored because they expose actual prerequisites, implementation
+gaps, placeholder fixtures, stale logic, or intentional process termination.
+
+Parser/fixture prerequisites — 10:
+
+```text
+semantic::adts::matching::bindings::review_m6_04_outer_same_name_binding_is_restored_after_match
+semantic::adts::matching::exhaustiveness::match_exh_13_tuple_product_is_exhaustive_when_all_products_are_covered
+semantic::adts::matching::exhaustiveness::match_exh_14_list_partition_is_exhaustive
+semantic::adts::matching::exhaustiveness::review_m5_02_missing_two_field_combination_is_complete
+semantic::adts::matching::exhaustiveness::review_m5_03_nested_multi_field_witness_preserves_child_tree
+semantic::adts::matching::exhaustiveness::review_m5_04_labeled_multi_field_witness_maps_external_labels
+semantic::adts::matching::flow::match_flow_03_abrupt_arm_is_excluded_from_normal_result_join
+semantic::adts::matching::flow::match_flow_04_all_abrupt_arms_have_never_result
+semantic::adts::matching::flow::match_flow_10_branch_writes_join_after_match
+semantic::adts::variants::adt_variant_08_private_variant_name_is_not_explicitly_acquirable
+```
+
+The source fixtures use syntax the parser currently rejects: missing statement
+separators, tuple/list pattern forms, string literal patterns, `return` as a
+match-arm expression, or `_Dog` as a variant name. These are parser or fixture
+gaps, not evidence against the underlying semantic law.
+
+Semantic diagnostic, resolution, exhaustiveness, and GADT gaps — 5:
+
+```text
+semantic::adts::matching::diagnostics::match_diag_02_ambiguous_variant_has_owner_candidates
+semantic::adts::matching::diagnostics::match_diag_03_inaccessible_variant_points_at_explicit_name
+semantic::adts::matching::exhaustiveness::match_exh_06_callable_family_leaves_singleton_residual
+semantic::adts::matching::gadt_refinement::match_gadt_06_nested_gadt_proof_is_branch_local
+semantic::adts::matching::resolution::match_res_08_ambiguous_contextual_owner_reports_no_arbitrary_candidate
+```
+
+These are genuine semantic implementation gaps: missing ambiguity/visibility
+diagnostics, incorrect callable-family residual classification, missing nested
+GADT branch proof, and missing ambiguous-owner resolution behavior.
+
+Golden pipeline implementation gaps — 12:
+
+```text
+semantic::golden::golden_01_generic_self_chain
+semantic::golden::golden_02_flow_pattern_publication
+semantic::golden::golden_03_iterator_chain
+semantic::golden::golden_04_family_callable
+semantic::golden::golden_05_program_parses
+semantic::golden::golden_05_type_lambda_constraints
+semantic::golden::golden_06_workspace_chain
+semantic::golden::golden_08_variance_recovery
+semantic::golden::golden_09_closure_flow
+semantic::golden::golden_10_mixed_pipeline
+semantic::golden::golden_11_recursive_fixed_point
+semantic::golden::golden_15_row_effect_contract
+```
+
+These cover generic `Self`, component-wise flow products, iterator inference,
+formal Family calls, type-lambda parsing/constraints, linked workspace
+publication, variance recovery, closure typing, record publication, recursive
+fixed points, and row/effect contracts. They are broader implementation gaps,
+not canonical-Universe integration failures.
+
+Explicit placeholder visibility tests — 2:
+
+```text
+semantic::adts::variants::adt_variant_09_construction_visibility_is_independent_from_match_universe
+semantic::adts::variants::adt_variant_10_private_payload_rejects_projection_but_allows_wildcard_ignore
+```
+
+`adt_variant_09` creates one local module and then explicitly panics because it
+has no producer/consumer fixture for construction versus match visibility.
+`adt_variant_10` does the same for private payload projection versus wildcard
+matching. Neither test currently provides a product verdict.
+
+Stale logical test — 1:
+
+```text
+semantic::incremental::adts::adt_incr_09_visibility_edit_invalidates_acquisition_without_shrinking_match_universe
+```
+
+The fixture changes a branch literal from `1` to `2`; it does not edit
+visibility. The expected debug-product difference is therefore logically
+stale. Rewrite the scenario around an actual cross-module visibility edit.
+
+Intentional fail-fast child — 1:
+
+```text
+semantic::support::regressions::fail_fast_policy_panics_only_after_recording_incident_child
+```
+
+The parent test launches this child in a subprocess, enables `FailFast`, and
+asserts that the child exits unsuccessfully only after recording the internal
+incident. Running the child directly is supposed to fail; it remains ignored
+so the ordinary test gate does not treat intentional termination as a product
+failure.
+
+#### 20 pass when explicitly forced
+
+One is the benchmark and remains ignored by policy:
+
+```text
+semantic::adts::matching::pattern_space::review_m2_05_union_normalization_benchmark_shapes_are_registered
+```
+
+The other 19 are green but remain gated because they are vacuous, unsupported,
+performance-only, or do not exercise the complete claimed boundary:
+
+Alias dependency/contraction coverage — 5:
+
+```text
+semantic::adts::exact_cases::adt_exact_06_transparent_alias_union_matches_direct_exact_union
+semantic::adts::matching::exhaustiveness::match_exh_08_alias_union_exhaustiveness_is_not_root_widened
+semantic::incremental::adts::adt_incr_07_alias_union_expansion_invalidates_exhaustiveness
+semantic::incremental::adts::adt_incr_08_alias_union_contraction_updates_residual_witness
+semantic::incremental::match_analysis::adt_incr_match_analysis_records_alias_union_dependency
+```
+
+These local alias checks now pass, but complete alias dependency/publication
+semantics have not been promoted as a release claim. They are next candidates
+for unignore after the current uncommitted alias work is explicitly accepted.
+
+Visibility and associated-family coverage — 5:
+
+```text
+semantic::adts::associated::scenarios::adt_assoc_11_inherited_family_keeps_lookup_and_definition_owners
+semantic::adts::associated::scenarios::adt_assoc_14_private_member_is_not_explicitly_acquirable
+semantic::adts::associated::scenarios::adt_assoc_15_frozen_family_does_not_acquire_later_members
+semantic::adts::associated::scenarios::adt_assoc_16_family_value_does_not_escape_member_visibility
+semantic::adts::associated::visibility::visibility_scenarios_require_cross_module_fixture_support
+```
+
+These fixtures remain single-module or assert only non-empty/exact local
+products. They do not prove inheritance ownership, private acquisition,
+frozen-family behavior, capability escape, or cross-module visibility.
+
+Unsupported record/map pattern coverage — 5:
+
+```text
+semantic::adts::matching::patterns::review_c4_01_record_pattern_is_not_silently_converted_to_wildcard
+semantic::adts::matching::patterns::review_c4_02_map_pattern_is_not_silently_converted_to_wildcard
+semantic::adts::matching::patterns::review_c4_03_unsupported_record_does_not_make_match_exhaustive
+semantic::adts::matching::patterns::review_c4_04_unsupported_map_does_not_make_later_arm_redundant
+semantic::adts::matching::patterns::review_c4_05_resolver_has_no_catch_all_wildcard_fallback
+```
+
+These are conservative-fallback safety checks. They do not establish that
+record/map pattern resolution has landed.
+
+Other incomplete boundaries — 4:
+
+```text
+semantic::adts::matching::exhaustiveness::match_exh_15_open_object_requires_wildcard
+semantic::adts::matching::gadt_refinement::match_gadt_10_branch_proof_does_not_leak_after_match
+semantic::adts::matching::conformance::review_x_02_invalid_semantic_match_never_reaches_lowering
+semantic::adts::matching::pattern_space::review_m2_04_union_dedup_growth_is_near_linear
+```
+
+`match_exh_15` depends on unsupported record-pattern behavior. `match_gadt_10`
+has no post-match use that could observe leakage. `review_x_02` runs semantic
+analysis but not the lowering boundary. `review_m2_04` lacks the instrumentation
+needed to prove normalization complexity.
+
+### Historical 16-failure comparison
+
+On clean pushed commit `1c78f5d2`, the semantic gate had 16 failures: 14
+tests could not retrieve their `Probe` callable through the fixture semantic
+index, one refined-return diagnostic was missing, and one body-query
+invalidation test returned a non-ready product. Later uncommitted semantic
+edits make those 16 pass in the current working tree. The current two active
+failures are the keyword-argument checker bug and the panic-abort test-harness
+bug recorded above.
+
+This audit does not claim semantic or workspace completion. The remaining
+ignored failures and the two active failures require the classifications and
+follow-up work recorded here.

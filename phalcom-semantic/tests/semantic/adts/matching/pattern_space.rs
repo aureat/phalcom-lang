@@ -429,7 +429,6 @@ fn review_m2_02_duplicate_heavy_union_has_unique_structural_members() {
 }
 
 #[test]
-#[ignore = "GATED: generated wide source enum fixture is not needed for algebra unit coverage"]
 fn review_m2_03_wide_enum_initial_space_smoke() {
     let variants = (0..64).map(|index| format!("@variant V{index}")).collect::<Vec<_>>().join(" ");
     let source = format!("enum Wide {{ {variants} }}\nclass Test {{ run(_ value: Wide) {{ match value {{ _ => 0 }} }} }}\n");

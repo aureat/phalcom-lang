@@ -195,19 +195,14 @@ fn match_diag_03_inaccessible_variant_points_at_explicit_name() {
 }
 
 #[test]
-#[ignore = "GATED: private payload fixture is required"]
-fn match_diag_04_inaccessible_payload_points_at_projection() {
+fn match_diag_04_payload_arity_mismatch_points_at_projection() {
     let case = super::super::support::analyze_adt(
         "enum Choice { @variant Ready(_ value: Int) }\nclass Test { run(_ value: Choice) { match value { Choice::Ready() => 1 _ => 0 } } }\n",
     );
-    assert!(
-        case.diagnostics()
-            .any(|diagnostic| diagnostic.code == DiagnosticCode::MatchPatternArityMismatch)
-    );
+    case.assert_diagnostic_primary_contains(DiagnosticCode::MatchPatternArityMismatch, "Choice::Ready()");
 }
 
 #[test]
-#[ignore = "GATED: selector constraint validator fixture is required"]
 fn match_diag_05_invalid_selector_is_machine_diagnostic() {
     let case = super::super::support::analyze_adt(
         "enum Choice { @variant Ready(_ value: Int) }\nclass Test { run(_ value: Choice) { match value { Choice::Ready(x, y) => 1 _ => 0 } } }\n",
@@ -256,7 +251,6 @@ fn match_diag_10_or_binding_mismatch_is_precise_machine_code() {
 }
 
 #[test]
-#[ignore = "RED: alternative usefulness diagnostic is not yet published"]
 fn match_diag_11_or_redundant_alternative_has_its_own_code() {
     let case = super::super::support::analyze_adt(
         "enum Choice { @variant Left @variant Right }\nclass Test { run(_ value: Choice) { match value { Choice::Left | Choice::Left => 1 _ => 0 } } }\n",
@@ -295,7 +289,6 @@ fn match_diag_14_non_exhaustive_has_witness_and_machine_code() {
 }
 
 #[test]
-#[ignore = "GATED: blocked compatibility boundary fixture is required"]
 fn match_diag_15_blocked_analysis_is_not_reported_as_non_exhaustive_proof() {
     let case = super::super::support::analyze_adt("class Test { run(_ value: MissingType) { match value { _ => 0 } } }\n");
     assert!(!case.diagnostics_for(DiagnosticCode::MatchNonExhaustive).iter().any(|_| true));
@@ -329,7 +322,6 @@ fn review_m4_02_missing_payload_presentation_has_structured_witness() {
 }
 
 #[test]
-#[ignore = "GATED: external-label witness renderer is not yet source-owned"]
 fn review_m4_03_missing_labeled_payload_presentation_uses_external_label() {
     let case = super::super::support::analyze_adt(
         "enum Maybe { @variant Some(named value: Int) @variant None }\nclass Test { run(_ value: Maybe) { match value { Maybe::None => 0 } } }\n",
@@ -340,7 +332,6 @@ fn review_m4_03_missing_labeled_payload_presentation_uses_external_label() {
 }
 
 #[test]
-#[ignore = "RED: singleton/nullary witness rendering needs final presentation contract"]
 fn review_m4_04_missing_singleton_and_nullary_render_differently() {
     let case = super::super::support::analyze_adt(
         "enum Maybe { @variant Some @variant Some() }\nclass Test { run(_ value: Maybe) { match value { Maybe::Some => 0 } } }\n",

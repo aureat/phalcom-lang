@@ -96,7 +96,6 @@ fn match_flow_11_later_arm_residual_excludes_earlier_case() {
 }
 
 #[test]
-#[ignore = "RED: nested residual must remain PatternSpace-shaped through flow projection"]
 fn match_flow_12_nested_residual_is_not_forced_to_root_type() {
     let case = analyze_adt(
         "enum Option<T> { @variant Some(_ value: T) -> Option<T> @variant None -> Option<T> }\nenum Choice { @variant Left @variant Right }\nclass Test { run(_ value: Option<Choice>) { match value { Some(Choice::Left) => 1 None => 0 } } }\n",
@@ -126,7 +125,6 @@ fn match_flow_04_all_abrupt_arms_have_never_result() {
 }
 
 #[test]
-#[ignore = "GATED: expected-type match fixture is required"]
 fn match_flow_05_expected_type_is_checked_per_reachable_arm() {
     let case = analyze_adt(
         "enum Choice { @variant Left @variant Right }\nclass Test { run(_ value: Choice) -> Int { match value { Choice::Left => 1 Choice::Right => 2 } } }\n",
@@ -135,7 +133,6 @@ fn match_flow_05_expected_type_is_checked_per_reachable_arm() {
 }
 
 #[test]
-#[ignore = "GATED: expected-type diagnostic fixture is required"]
 fn match_flow_06_wrong_branch_result_points_to_offending_arm() {
     let case = analyze_adt(
         "enum Choice { @variant Left @variant Right }\nclass Test { run(_ value: Choice) -> Int { match value { Choice::Left => 1 Choice::Right => \"wrong\" } } }\n",

@@ -185,7 +185,6 @@ fn match_res_09_nested_contextual_resolution_uses_specialized_payload_domain() {
 }
 
 #[test]
-#[ignore = "RED: selector-family gap projection remains incomplete"]
 fn match_res_10_callable_family_includes_only_callable_candidates() {
     let case = analyze_adt(
         "enum Animal { @variant Dog @variant Dog(_ name: String) @variant Cat }\nclass Test { run(_ value: Animal) { match value { Dog(...) => 1 _ => 0 } } }\n",
@@ -194,7 +193,6 @@ fn match_res_10_callable_family_includes_only_callable_candidates() {
 }
 
 #[test]
-#[ignore = "RED: selector-family gap projection remains incomplete"]
 fn match_res_11_prefix_gap_records_candidate_specific_projection() {
     let case = analyze_adt(
         "enum Animal { @variant Dog(_ name: String) @variant Dog(_ name: String, age: Int, breed: String) }\nclass Test { run(_ value: Animal) { match value { Dog(name, ..., breed: b) => 1 _ => 0 } } }\n",
@@ -206,7 +204,6 @@ fn match_res_11_prefix_gap_records_candidate_specific_projection() {
 }
 
 #[test]
-#[ignore = "RED: selector-family gap projection remains incomplete"]
 fn match_res_12_suffix_label_gap_matches_canonical_selector_pattern() {
     let case = analyze_adt(
         "enum Animal { @variant Dog(_ name: String) @variant Dog(_ name: String, age: Int, breed: String) }\nclass Test { run(_ value: Animal) { match value { Dog(..., breed: b) => 1 _ => 0 } } }\n",
@@ -218,7 +215,6 @@ fn match_res_12_suffix_label_gap_matches_canonical_selector_pattern() {
 }
 
 #[test]
-#[ignore = "RED: selector-family gap projection remains incomplete"]
 fn match_res_13_prefix_and_suffix_gap_join_field_projections() {
     let case = analyze_adt(
         "enum Animal { @variant Dog(_ name: String) @variant Dog(_ name: String, age: Int, breed: String) }\nclass Test { run(_ value: Animal) { match value { Dog(name, ..., breed: b) => name _ => \"unknown\" } } }\n",

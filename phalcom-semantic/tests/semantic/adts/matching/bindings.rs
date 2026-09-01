@@ -172,7 +172,6 @@ fn review_c1_02_or_binding_join_uses_all_alternative_types() {
 }
 
 #[test]
-#[ignore = "GATED: branch-visible binding lifetime fixture is required"]
 fn review_c1_03_or_binding_common_scope_is_not_a_hidden_staging_slot() {
     let case = analyze_adt(
         "enum Either { @variant Left(_ value: Int) @variant Right(_ value: Int) }\nclass Test { inspect(_ value: Either) { match value { Either::Left(x) | Either::Right(x) => x } } }\n",
@@ -183,7 +182,6 @@ fn review_c1_03_or_binding_common_scope_is_not_a_hidden_staging_slot() {
 }
 
 #[test]
-#[ignore = "GATED: explicit or-pattern binding-set mismatch notes are not exposed"]
 fn review_c1_04_or_binding_mismatch_preserves_both_alternative_sets() {
     let case = analyze_adt(
         "enum Either { @variant Left(_ value: Int) @variant Right(_ value: String) }\nclass Test { inspect(_ value: Either) { match value { Either::Left(x) | Either::Right(y) => 1 _ => 0 } } }\n",
@@ -192,7 +190,6 @@ fn review_c1_04_or_binding_mismatch_preserves_both_alternative_sets() {
 }
 
 #[test]
-#[ignore = "GATED: multi-level nested or binding fixture is required"]
 fn review_c1_05_nested_or_binding_join_is_recursive() {
     let case = analyze_adt(
         "enum Inner { @variant A(_ value: Int) @variant B(_ value: Int) }\nenum Outer { @variant Boxed(_ value: Inner) }\nclass Test { inspect(_ value: Outer) { match value { Outer::Boxed(Inner::A(x) | Inner::B(x)) => x } } }\n",
@@ -201,7 +198,6 @@ fn review_c1_05_nested_or_binding_join_is_recursive() {
 }
 
 #[test]
-#[ignore = "GATED: explicit binding-source product is not yet published for every alternative"]
 fn review_c1_06_joined_binding_source_ranges_cover_each_alternative() {
     let case = analyze_adt(
         "enum Either { @variant Left(_ value: Int) @variant Right(_ value: Int) }\nclass Test { inspect(_ value: Either) { match value { Either::Left(x) | Either::Right(x) => x } } }\n",
@@ -223,7 +219,6 @@ fn review_m6_01_pattern_binding_is_not_available_after_match() {
 }
 
 #[test]
-#[ignore = "GATED: FlowState product is not exposed through source fixture"]
 fn review_m6_02_pattern_binding_is_absent_from_joined_flow_state() {
     let case = analyze_adt(
         "enum Choice { @variant A(_ value: Int) @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A(x) => x Choice::B => 0 } } }\n",
@@ -232,7 +227,6 @@ fn review_m6_02_pattern_binding_is_absent_from_joined_flow_state() {
 }
 
 #[test]
-#[ignore = "GATED: branch-local fact product is not exposed through source fixture"]
 fn review_m6_03_branch_local_facts_are_removed_with_binding() {
     let case = analyze_adt(
         "enum Choice { @variant A(_ value: Int) @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A(x) => x Choice::B => 0 } } }\n",
@@ -269,7 +263,6 @@ fn review_m6_06_or_joined_binding_exists_only_for_arm_body() {
 }
 
 #[test]
-#[ignore = "GATED: direct scope cleanup authority seam is not public"]
 fn review_m6_07_scope_cleanup_is_owned_by_one_authority() {
     let case = analyze_adt(
         "enum Choice { @variant A(_ value: Int) @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A(x) => x Choice::B => 0 } } }\n",
