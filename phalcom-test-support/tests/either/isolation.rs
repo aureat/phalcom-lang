@@ -1,4 +1,4 @@
-use super::support::{Fixture, either, nominal, semantic_source};
+use super::support::{Fixture, either, nominal, semantic_source, with_either};
 use phalcom_semantic::identity::DispatchSide;
 
 fn isolated_fixture() -> Fixture {
@@ -37,6 +37,13 @@ class EitherIsolationProbe {
 }
 "#
     ))
+}
+
+/// Diagnostic isolation: the user-space `Either` declaration and its method bodies are valid on their own.
+#[test]
+fn either_definition_is_semantically_well_formed() {
+    let f = Fixture::new(&with_either(""));
+    f.assert_no_errors();
 }
 
 /// Diagnostic isolation: receiver specialization without any variant-constructor inference.
