@@ -251,7 +251,10 @@ mod tests {
     #[test]
     fn migration_mode_accepts_unanchored_required_descriptors() {
         let program = parser::parse("class String { }", 0).program;
-        let index = NativeSourceIndex::from_program(&program).expect("index builds");
+        let module = phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(
+            ["scalar", "string"].into_iter().map(|part| phalcom_modules::ModuleComponent::from_identifier(part).unwrap()).collect(),
+        ));
+        let index = NativeSourceIndex::from_program_at(&module, &program).expect("index builds");
         verify_native_contracts_with_mode(&index, &[], NativeContractMode::AnchorsMustResolve).expect("migration mode passes");
     }
 
@@ -259,7 +262,10 @@ mod tests {
     fn migration_mode_rejects_source_anchor_without_descriptor() {
         let parsed = parser::parse("class String {\n  @native\n  @internal\n  _$byteCount\n}\n", 0);
         assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
-        let index = NativeSourceIndex::from_program(&parsed.program).expect("index builds");
+        let module = phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(
+            ["scalar", "string"].into_iter().map(|part| phalcom_modules::ModuleComponent::from_identifier(part).unwrap()).collect(),
+        ));
+        let index = NativeSourceIndex::from_program_at(&module, &parsed.program).expect("index builds");
         let error = verify_native_contracts_with_mode(&index, &[], NativeContractMode::AnchorsMustResolve).expect_err("orphan source anchor must fail");
         assert!(matches!(error, NativeContractError::MissingNativeDescriptor { .. }));
     }
@@ -267,7 +273,10 @@ mod tests {
     #[test]
     fn strict_mode_rejects_required_descriptor_without_source_anchor() {
         let program = parser::parse("class String { }", 0).program;
-        let index = NativeSourceIndex::from_program(&program).expect("index builds");
+        let module = phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(
+            ["scalar", "string"].into_iter().map(|part| phalcom_modules::ModuleComponent::from_identifier(part).unwrap()).collect(),
+        ));
+        let index = NativeSourceIndex::from_program_at(&module, &program).expect("index builds");
         let error = verify_native_contracts(&index, &[&DESCRIPTOR]).expect_err("strict mode must require the source anchor");
         assert!(matches!(error, NativeContractError::MissingSourceAnchor { .. }));
     }

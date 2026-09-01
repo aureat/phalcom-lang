@@ -37,10 +37,11 @@ impl<'vm> Compiler<'vm> {
 
         // 1. Locate or synthesize EnumLoweringSpec
         let spec = if let Some(lowering) = self.lowering() {
+            let module_id = self.vm.heap.module(self.module).id.clone();
             lowering
                 .enums
                 .iter()
-                .find(|e| e.owner.name.as_ref() == enum_def.name)
+                .find(|e| e.owner.module == module_id && e.owner.name.as_ref() == enum_def.name)
                 .cloned()
                 .ok_or(CompilerError::MissingEnumLoweringSemantics(enum_def.range))?
         } else {
