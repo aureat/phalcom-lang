@@ -6,7 +6,7 @@ Active checkpoint: Slice 8 — bounded evidence closed; Slice 9 prerequisite rev
 Completed checkpoints: S0, Slice 4, Slice 5, Slice 6, Slice 7, Slice 8 bounded evidence; Slices 1–3 inherited and previously landed
 Current task: finish non-blocking Slice 8 audit checks and preserve exact CI/current-head classification
 Next concrete action: use current-head CI and targeted evidence to decide Slice 9 eligibility; do not claim broad correctness while complete-core evidence remains incomplete
-Last verified evidence: Slice 4 semantic matching filter `162 passed, 0 failed, 22 ignored`; Slice 5 semantic metadata `21 passed`, native conformance `3 passed`, module identity `4 passed`; Slice 6 focused Universe exposure/relative identity, package intrinsic, bootstrap measurement, standalone package/module, builtin-client, and dependency-sentinel gates pass; Slice 7 Option typing `4 passed`, GATE-01 `1 passed`, GATE-02 `1 passed`, and adjacent positional/keyword argument tests `1 passed` each; Slice 8 module target `107 passed, 0 failed`, semantic target `927 passed, 0 failed, 48 ignored`, required core `native_adt_runtime` filter `6 passed, 0 failed`, canonical range regression `1 passed`, curated prelude regression `1 passed`, workspace check passed, module unit tests `4 passed, 0 failed`, bounded reflection/core filters below all passed, and core `semantic_boundary` filter `3 passed, 0 failed`
+Last verified evidence: Slice 4 semantic matching filter `162 passed, 0 failed, 22 ignored`; Slice 5 semantic metadata `21 passed`, native conformance `3 passed`, module identity `4 passed`; Slice 6 focused Universe exposure/relative identity, package intrinsic, bootstrap measurement, standalone package/module, builtin-client, and dependency-sentinel gates pass; Slice 7 Option typing `4 passed`, GATE-01 `1 passed`, GATE-02 `1 passed`, and adjacent positional/keyword argument tests `1 passed` each; Slice 8 module target `107 passed, 0 failed`, semantic target `927 passed, 0 failed, 48 ignored`, required core `native_adt_runtime` filter `6 passed, 0 failed`, canonical range regression `1 passed`, curated prelude regression `1 passed`, workspace check passed, module unit tests `4 passed, 0 failed`, bounded reflection/core filters below all passed, and core `semantic_boundary` filter `3 passed, 0 failed`; current-head CI run `33568347551` Build, Miri, and VS Code E2E passed, with Test still active
 Do not rerun unless changed: S0 preflight baseline at `4148de61f5415729fe5fe4ccfcef383292548ffe`
 Active incident: Slice 8 complete-core evidence remains incomplete because the serial target is impractical and the broad reflection run repeatedly reached a 0%-CPU stall; bounded non-hanging reflection/core filters are green, and the deterministic range-variant and `universe.None` exposure failures are repaired and focused-green
 
@@ -130,11 +130,14 @@ Follow-up commit `06191894` applied formatter-required layout to those new
 fixture expressions and replaced the introduced `bool.then` lint in
 `NativeSourceIndex::bootstrap_roots` with `filter`/`map`.
 
-CI run `33567928233` targets `0619189432bb8dedc5b76b72e91027ea81e798d6`.
+CI run `33568347551` targets `5068a88e9dc583d5027729327a07da76fe602a56`.
 Its Test Build, Miri, and VS Code extension E2E steps passed. Repository-wide
-Rustfmt and Clippy remain red on baseline diagnostics; local Clippy after the
-scoped fix reports no remaining native fixture lint. The remote workspace Test
-step was still running when this checkpoint was recorded.
+Rustfmt failed with exit 1 and Clippy failed with exit 101 on the same baseline
+diagnostics identified locally; native fixture formatting and lint introduced
+by the compile repair are clean. The workspace Test step started at `22:53:55Z`
+and remained `in_progress` roughly 15 minutes later. GitHub made its logs
+unavailable while the job remained active. This is classified as a duration
+constraint, not a test result; no restart was issued.
 
 Slice 9 remains ineligible: the amendment permits baseline extraction only
 after clean Slice 8 broad correctness evidence, while complete-core execution
