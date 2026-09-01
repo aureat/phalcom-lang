@@ -1,12 +1,13 @@
 //! Parsed AST source index for native universe classes and members.
 
-use phalcom_ast::ast::{ClassDef, ClassMember, DependencyDecl, ImportDecl, ImportPath, ImportRoot, MemberBody, MethodDef, Program, RestMode, Statement};
+use phalcom_ast::ast::{ClassDef, ClassMember, DependencyDecl, ImportDecl, MemberBody, MethodDef, Program, RestMode, Statement};
 use phalcom_common::range::SourceRange;
 use phalcom_modules::builtin::UniverseSourceProvider;
 use phalcom_modules::identity::{ModuleId, ModulePath};
 use phalcom_modules::source::{ModuleKind, ParsedModuleUnit};
+use phalcom_modules::{FilesystemSourceProvider, ModuleResolver, ProjectUniverse};
 use phalcom_native_meta::{NativeDispatch, NativeVisibility, UniverseKey};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 /// Deterministic VM-free record for one canonical universe source module.
@@ -137,50 +138,42 @@ impl NativeSourceIndex {
         Ok(index)
     }
 
-    /// Returns canonical source units in dependency-first initialization order.
+    /// Returns all canonical source units in dependency-first order.
     ///
-    /// Bootstrap source is already parsed and indexed here, so this derives
-    /// only the small runtime graph represented by each unit's preamble. It
-    /// deliberately does not use provider enumeration order.
+    /// This is a census/testing helper. VM bootstrap uses
+    /// [`Self::initialization_order_from_roots`] with explicit eager roots.
     pub fn initialization_order(&self) -> Result<Vec<Arc<ParsedModuleUnit>>, String> {
-        let by_id = self
-            .units
-            .iter()
-            .enumerate()
-            .map(|(index, unit)| (unit.id.clone(), index))
-            .collect::<HashMap<_, _>>();
+        let roots = self.units.iter().map(|unit| unit.id.clone()).collect::<Vec<_>>();
+        self.initialization_order_from_roots(&roots)
+    }
+
+    /// Returns canonical source units required by explicit runtime roots in
+    /// dependency-first order. Source discovery remains complete and is not
+    /// reduced to this execution closure.
+    pub fn initialization_order_from_roots(&self, roots: &[ModuleId]) -> Result<Vec<Arc<ParsedModuleUnit>>, String> {
+        let dependencies = self.dependency_indices()?;
+        let reachable = self.reachable_indices_from_roots(roots, &dependencies)?;
         let mut indegree = vec![0usize; self.units.len()];
         let mut dependents = vec![Vec::<usize>::new(); self.units.len()];
 
-        for (importer_index, unit) in self.units.iter().enumerate() {
-            let mut dependencies = std::collections::BTreeSet::new();
-            for dependency in &unit.program.preamble.dependencies {
-                let path = match dependency {
-                    DependencyDecl::Import(ImportDecl::Module(decl)) => Some(&decl.path),
-                    DependencyDecl::Import(ImportDecl::Selective(decl)) => Some(&decl.path),
-                    DependencyDecl::ReExport(decl) => Some(&decl.path),
-                    DependencyDecl::Expose(_) => None,
-                };
-                let Some(path) = path else { continue };
-                let Some(target) = universe_dependency_target(unit, path) else { continue };
-                let Some(&target_index) = by_id.get(&target) else {
-                    return Err(format!("Universe dependency {} referenced by {} is not materialized", target, unit.id));
-                };
-                if dependencies.insert(target_index) {
-                    indegree[importer_index] += 1;
-                    dependents[target_index].push(importer_index);
+        for &importer_index in &reachable {
+            for &dependency_index in &dependencies[importer_index] {
+                if !reachable.contains(&dependency_index) {
+                    continue;
                 }
+                indegree[importer_index] += 1;
+                dependents[dependency_index].push(importer_index);
             }
         }
 
         let mut ready = std::collections::BTreeSet::new();
-        for (index, degree) in indegree.iter().enumerate() {
-            if *degree == 0 {
+        for &index in &reachable {
+            if indegree[index] == 0 {
                 ready.insert((self.units[index].id.clone(), index));
             }
         }
 
-        let mut order = Vec::with_capacity(self.units.len());
+        let mut order = Vec::with_capacity(reachable.len());
         while let Some((_, index)) = ready.pop_first() {
             order.push(self.units[index].clone());
             for dependent in &dependents[index] {
@@ -190,10 +183,102 @@ impl NativeSourceIndex {
                 }
             }
         }
-        if order.len() != self.units.len() {
+        if order.len() != reachable.len() {
             return Err("canonical Universe source initialization cycle".into());
         }
         Ok(order)
+    }
+
+    /// Returns canonical module IDs reachable from explicit roots through
+    /// resolved runtime imports/re-exports. Result ordering is canonical and
+    /// independent of provider enumeration.
+    pub fn reachable_units_from_roots(&self, roots: &[ModuleId]) -> Result<Vec<ModuleId>, String> {
+        let dependencies = self.dependency_indices()?;
+        let reachable = self.reachable_indices_from_roots(roots, &dependencies)?;
+        let mut modules = reachable
+            .into_iter()
+            .map(|index| self.units[index].id.clone())
+            .collect::<Vec<_>>();
+        modules.sort();
+        Ok(modules)
+    }
+
+    /// Returns explicit eager roots for VM bootstrap. Units with source
+    /// declarations or top-level executable bindings must run to materialize
+    /// their runtime surface; package-only catalog nodes remain discoverable
+    /// without becoming roots merely because they are shipped.
+    pub fn bootstrap_roots(&self) -> Vec<ModuleId> {
+        let mut roots = BTreeSet::from([ModuleId::universe_root()]);
+        roots.extend(self.units.iter().filter_map(|unit| {
+            unit.program
+                .statements
+                .iter()
+                .any(|statement| !matches!(statement, Statement::Export(_)))
+                .then(|| unit.id.clone())
+        }));
+        roots.into_iter().collect()
+    }
+
+    fn dependency_indices(&self) -> Result<Vec<BTreeSet<usize>>, String> {
+        let by_id = self
+            .units
+            .iter()
+            .enumerate()
+            .map(|(index, unit)| (unit.id.clone(), index))
+            .collect::<HashMap<_, _>>();
+        let universe = ProjectUniverse::new();
+        let provider = FilesystemSourceProvider::new();
+        let mut resolver = ModuleResolver::new(&universe, &provider);
+        let mut dependencies = vec![BTreeSet::new(); self.units.len()];
+
+        for (importer_index, unit) in self.units.iter().enumerate() {
+            for dependency in &unit.program.preamble.dependencies {
+                let path = match dependency {
+                    DependencyDecl::Import(ImportDecl::Module(decl)) => Some(&decl.path),
+                    DependencyDecl::Import(ImportDecl::Selective(decl)) => Some(&decl.path),
+                    DependencyDecl::ReExport(decl) => Some(&decl.path),
+                    DependencyDecl::Expose(_) => None,
+                };
+                let Some(path) = path else { continue };
+                let target = resolver
+                    .resolve_import(&unit.id, path)
+                    .map_err(|error| format!("failed to resolve Universe dependency {path} from {}: {error}", unit.id))?
+                    .id;
+                let Some(&target_index) = by_id.get(&target) else {
+                    return Err(format!("Universe dependency {target} referenced by {} is not materialized", unit.id));
+                };
+                dependencies[importer_index].insert(target_index);
+            }
+        }
+
+        Ok(dependencies)
+    }
+
+    fn reachable_indices_from_roots(&self, roots: &[ModuleId], dependencies: &[BTreeSet<usize>]) -> Result<BTreeSet<usize>, String> {
+        let by_id = self
+            .units
+            .iter()
+            .enumerate()
+            .map(|(index, unit)| (unit.id.clone(), index))
+            .collect::<HashMap<_, _>>();
+        let mut reachable = BTreeSet::new();
+        let mut pending = BTreeSet::new();
+
+        for root in roots {
+            let Some(&index) = by_id.get(root) else {
+                return Err(format!("Universe initialization root {root} is not in source index"));
+            };
+            pending.insert(index);
+        }
+
+        while let Some(index) = pending.pop_first() {
+            if !reachable.insert(index) {
+                continue;
+            }
+            pending.extend(dependencies[index].iter().copied());
+        }
+
+        Ok(reachable)
     }
 
     /// Builds an index from one parsed program.
@@ -600,30 +685,6 @@ impl NativeSourceIndex {
 
         Ok(())
     }
-}
-
-fn universe_dependency_target(importer: &ParsedModuleUnit, path: &ImportPath) -> Option<ModuleId> {
-    let mut components = match &path.root {
-        ImportRoot::Absolute(root) if root.name == "universe" => Vec::new(),
-        ImportRoot::Absolute(_) => return None,
-        ImportRoot::Relative { dots, .. } => {
-            let mut base = if importer.kind == ModuleKind::Package {
-                importer.id.path.clone()
-            } else {
-                importer.id.path.parent().unwrap_or_else(ModulePath::root)
-            };
-            for _ in 1..usize::from(*dots) {
-                base = base.parent().unwrap_or_else(ModulePath::root);
-            }
-            base.components().to_vec()
-        }
-    };
-    components.extend(
-        path.segments
-            .iter()
-            .map(|segment| phalcom_modules::ModuleComponent::from_identifier(&segment.name).expect("canonical Universe component")),
-    );
-    Some(ModuleId::universe(ModulePath::from_components(components)))
 }
 
 fn source_method_selector(method: &MethodDef) -> String {

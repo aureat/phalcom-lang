@@ -40,6 +40,7 @@ impl VM {
             module_registry: crate::modules::ModuleRegistry::new(),
             typing_registry: crate::typing::RuntimeTypingRegistry::new(),
             runtime_roots: None,
+            universe_bootstrap_measurement: crate::vm::UniverseBootstrapMeasurement::default(),
             privileged_modules: std::collections::HashSet::new(),
             semantic_roots: crate::vm::SemanticRoots {
                 unsupported: Value::nil(),
@@ -262,20 +263,93 @@ impl VM {
     ///
     /// Returns any [`crate::error::PhError`] raised while compiling or executing universe modules.
     fn run_universe_modules(&mut self, source_index: &crate::native::NativeSourceIndex) -> PhResult<()> {
-        let units = source_index
-            .initialization_order()
+        let root = phalcom_modules::ModuleId::universe_root();
+        let root_reachable_units = source_index
+            .reachable_units_from_roots(std::slice::from_ref(&root))
             .map_err(crate::error::RuntimeError::Internal)?;
+        let bootstrap_roots = source_index.bootstrap_roots();
+        let units = source_index
+            .initialization_order_from_roots(&bootstrap_roots)
+            .map_err(crate::error::RuntimeError::Internal)?;
+        let lowerings = self.universe_lowerings(source_index)?;
+        self.universe_bootstrap_measurement = crate::vm::UniverseBootstrapMeasurement {
+            discovered_units: source_index.units.len(),
+            root_reachable_units: root_reachable_units.len(),
+            executed_units: units.len(),
+        };
         for parsed in units {
             let module = self
                 .module_registry
                 .get(&parsed.id)
                 .ok_or_else(|| crate::error::RuntimeError::Internal(format!("Universe module {} is not materialized", parsed.id)))?
                 .object;
+            let lowering = lowerings.get(&parsed.id).ok_or_else(|| {
+                crate::error::RuntimeError::Internal(format!("Universe semantic lowering missing for {}", parsed.id))
+            })?;
+            self.heap.module_mut(module).lowering = Some(lowering.clone());
             let source_id = self.heap.module_mut(module).push_source(std::sync::Arc::new(parsed.text.to_string()));
             let closure = self.compile_ast_as(module, source_id, (*parsed.program).clone(), crate::compiler::lib::UnitKind::File)?;
             self.run_in_module(module, closure)?;
+            self.module_registry.get_mut(&parsed.id).expect("bootstrapped Universe module is registered").state = crate::modules::registry::ModuleState::Initialized;
         }
         Ok(())
+    }
+
+    fn universe_lowerings(
+        &self,
+        source_index: &crate::native::NativeSourceIndex,
+    ) -> PhResult<std::collections::BTreeMap<phalcom_modules::ModuleId, std::sync::Arc<crate::modules::semantic_lowering::ModuleLoweringSemantics>>> {
+        let universe = std::sync::Arc::new(phalcom_modules::ProjectUniverse::new());
+        let provider = phalcom_modules::UniverseSourceProvider::new();
+        let filesystem = phalcom_modules::FilesystemSourceProvider::new();
+        let mut resolver = phalcom_modules::ModuleResolver::new(&universe, &filesystem);
+        let mut interfaces = std::collections::BTreeMap::new();
+
+        for unit in &source_index.units {
+            let interface = resolver
+                .load_interface(&unit.id)
+                .map_err(|error| crate::error::RuntimeError::Internal(format!("failed to load Universe interface {}: {error}", unit.id)))?;
+            interfaces.insert(unit.id.clone(), interface);
+        }
+
+        let mut resolved = std::collections::BTreeMap::new();
+        for (module, interface) in &interfaces {
+            for import in &interface.imports {
+                let path = match import {
+                    phalcom_modules::ImportSurface::Module(decl) => &decl.path,
+                    phalcom_modules::ImportSurface::Selective(decl) => &decl.path,
+                    phalcom_modules::ImportSurface::ReExport(decl) => &decl.path,
+                };
+                let target = resolver
+                    .resolve_import(module, path)
+                    .map_err(|error| crate::error::RuntimeError::Internal(format!("failed to resolve Universe import {path} from {module}: {error}")))?;
+                resolved.insert((module.clone(), path.to_string()), target.id);
+            }
+        }
+
+        let linked = phalcom_modules::ModuleLinker::new(universe.clone(), interfaces)
+            .link_all(phalcom_modules::ModuleId::universe_root(), &resolved)
+            .map_err(|error| crate::error::RuntimeError::Internal(format!("failed to link canonical Universe sources: {error}")))?;
+        source_index
+            .units
+            .iter()
+            .map(|unit| {
+                let mut unit_sources = std::collections::BTreeMap::new();
+                unit_sources.insert(unit.id.clone(), unit.clone());
+                let analysis = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput {
+                        linked: std::sync::Arc::new(linked.clone()),
+                        sources: unit_sources,
+                        generation: 0,
+                    })
+                }))
+                .map_err(|_| crate::error::RuntimeError::Internal(format!("canonical Universe semantic analysis panicked for {}", unit.id)))?;
+                let lowering = crate::modules::semantic_lowering::build_module_lowering_semantics(&unit.id, &analysis.snapshot).map_err(|error| {
+                    crate::error::RuntimeError::Internal(format!("failed to project Universe lowering for {}: {error}", unit.id))
+                })?;
+                Ok((unit.id.clone(), std::sync::Arc::new(lowering)))
+            })
+            .collect()
     }
 
     /// Binds primordial runtime classes to canonical Universe modules and

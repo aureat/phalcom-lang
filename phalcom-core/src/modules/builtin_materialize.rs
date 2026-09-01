@@ -38,15 +38,7 @@ pub fn initialize_canonical_universe(vm: &mut VM) -> PhResult<ObjRef> {
             .map_err(|e| RuntimeError::Internal(format!("failed to identify builtin universe source {id}: {e}")))?;
         let name = id.path.components().last().map(|component| component.as_str()).unwrap_or("universe");
         let name_sym = vm.interner.intern(name);
-        let mut module_obj = ModuleObject::new(
-            id.clone(),
-            node.kind,
-            name.to_owned(),
-            name_sym,
-            source_id.to_string(),
-            None,
-            true,
-        );
+        let mut module_obj = ModuleObject::new(id.clone(), node.kind, name.to_owned(), name_sym, source_id.to_string(), None, true);
         module_obj.metadata = Some(Arc::new(iface.metadata));
         let object = vm.heap.alloc(Object::Module(Box::new(module_obj)));
         vm.privileged_modules.insert(object);
@@ -73,7 +65,7 @@ pub fn initialize_canonical_universe(vm: &mut VM) -> PhResult<ObjRef> {
         }
         let parent_id = ModuleId::universe(id.path.parent().expect("non-root Universe module has parent"));
         let parent = modules[&parent_id];
-        vm.heap.module_mut(object).package = Some(if node.kind == ModuleKind::Package { parent } else { parent });
+        vm.heap.module_mut(object).package = Some(if node.kind == ModuleKind::Package { object } else { parent });
         vm.heap.module_mut(object).root_package = Some(root);
     }
 
@@ -96,7 +88,9 @@ pub fn install_universe_native_bindings(
         let class_id = vm.universe.classes.resolve(binding.key);
         let name_sym = vm.interner.intern(binding.name);
         let owner_id = VM::canonical_universe_module_id(binding.key);
-        let owner = *modules.get(&owner_id).ok_or_else(|| RuntimeError::Internal(format!("Universe owner module {owner_id} is not materialized")))?;
+        let owner = *modules
+            .get(&owner_id)
+            .ok_or_else(|| RuntimeError::Internal(format!("Universe owner module {owner_id} is not materialized")))?;
         let slot = vm.heap.module_mut(owner).declare(name_sym)?;
         let value = if binding.key == phalcom_native_meta::UniverseKey::None {
             Value::none()
@@ -130,23 +124,30 @@ pub fn install_universe_native_bindings(
     let module_ids = modules.keys().cloned().collect::<Vec<_>>();
     for id in module_ids {
         let module = modules[&id];
-    let mod_sym = vm.interner.intern("__module__");
-    let slot = vm.heap.module_mut(module).declare(mod_sym)?;
-    vm.heap.module_mut(module).set_global(slot, Value::obj(module))?;
+        let mod_sym = vm.interner.intern("__module__");
+        let slot = vm.heap.module_mut(module).declare(mod_sym)?;
+        vm.heap.module_mut(module).set_global(slot, Value::obj(module))?;
 
-    let pkg_sym = vm.interner.intern("__package__");
-    let pkg_val = vm.heap.module(module).package.map(Value::obj).map(|v| v.wrap_some()).transpose()?.unwrap_or(Value::none());
-    let slot = vm.heap.module_mut(module).declare(pkg_sym)?;
-    vm.heap.module_mut(module).set_global(slot, pkg_val)?;
+        let pkg_sym = vm.interner.intern("__package__");
+        let pkg_val = vm
+            .heap
+            .module(module)
+            .package
+            .map(Value::obj)
+            .map(|v| v.wrap_some())
+            .transpose()?
+            .unwrap_or(Value::none());
+        let slot = vm.heap.module_mut(module).declare(pkg_sym)?;
+        vm.heap.module_mut(module).set_global(slot, pkg_val)?;
 
-    let root_sym = vm.interner.intern("__root__");
-    let slot = vm.heap.module_mut(module).declare(root_sym)?;
-    let root_val = Value::obj(universe_root).wrap_some()?;
-    vm.heap.module_mut(module).set_global(slot, root_val)?;
+        let root_sym = vm.interner.intern("__root__");
+        let slot = vm.heap.module_mut(module).declare(root_sym)?;
+        let root_val = Value::obj(universe_root).wrap_some()?;
+        vm.heap.module_mut(module).set_global(slot, root_val)?;
 
-    let proj_sym = vm.interner.intern("__project__");
-    let slot = vm.heap.module_mut(module).declare(proj_sym)?;
-    vm.heap.module_mut(module).set_global(slot, Value::none())?;
+        let proj_sym = vm.interner.intern("__project__");
+        let slot = vm.heap.module_mut(module).declare(proj_sym)?;
+        vm.heap.module_mut(module).set_global(slot, Value::none())?;
     }
 
     Ok(())

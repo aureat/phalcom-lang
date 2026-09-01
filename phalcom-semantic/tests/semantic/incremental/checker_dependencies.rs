@@ -136,6 +136,27 @@ fn canonical_universe_reads_track_canonical_query_dependencies() {
 }
 
 #[test]
+fn legacy_universe_core_path_is_not_a_dependency_sentinel() {
+    let legacy_core = ModuleId::universe(ModulePath::from_components(vec![ModuleComponent::from_identifier("core").unwrap()]));
+    let target = DeclarationId::new(legacy_core.clone(), "LegacySurface".into());
+    let owner = DeclarationId::new(user_module(1, "client"), "Client".into());
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let resolver = SimpleTypeResolver::new();
+    let declarations = DeclarationTypeTable::new();
+    let dispatch = SurfaceDispatchResolver::new();
+
+    let ctx = CheckingContext::new_with_dispatch_ref(&mut store, &hierarchy, &resolver, &declarations, &dispatch, owner.module.clone());
+    let _ = ctx.declaration_generic_signature(&target);
+    let analysis = ctx.finalize(callable(owner), SourceRange::default(), CallableAnalysisStatus::Complete);
+
+    assert!(
+        analysis.semantic_dependencies.contains(&SemanticDependency::DeclarationShell(target)),
+        "legacy-looking Universe paths remain ordinary dependency identities"
+    );
+}
+
+#[test]
 fn builtin_type_test_dispatch_does_not_require_source_signature_product() {
     let current = user_module(1, "client");
     let object_decl = phalcom_semantic::core_surface::universe_declaration(UniverseKey::Object);

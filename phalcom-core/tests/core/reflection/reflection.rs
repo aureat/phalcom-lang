@@ -55,10 +55,10 @@ fn tuple_values(vm: &VM, value: Value) -> Vec<Value> {
 fn test_module() -> StableModuleRef {
     StableModuleRef {
         project: StableProjectRef::Builtin {
-            namespace: "core".into(),
+            namespace: "universe".into(),
             version: "1.0".into(),
         },
-        path: vec!["core".into()].into_boxed_slice(),
+        path: Box::new([]),
     }
 }
 

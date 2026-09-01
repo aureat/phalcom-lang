@@ -83,6 +83,7 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
 
                 let target_project_id = match target_root {
                     ImportRootTarget::Universe => {
+                        self.validate_path_with_trace(ProjectIdentity::Universe, &target_path, &mut package_interfaces)?;
                         let provider = UniverseSourceProvider::new();
                         let kind = provider
                             .kind(&target_path)
@@ -133,16 +134,12 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                     ));
                 }
 
-                let importer_project = importer_project.ok_or_else(|| {
-                    ModuleResolutionError::ModuleNotFound(format!(
-                        "standalone module {} cannot perform relative imports without a project context",
-                        importer
-                    ))
-                })?;
-
                 // Determine importer package depth
-                let importer_unit = self.source.locate(importer_project, &importer.path)?;
-                let package_path = match importer_unit.kind {
+                let importer_kind = self
+                    .load_parsed(importer)
+                    .map_err(|error| ModuleResolutionError::ModuleNotFound(format!("cannot load importer {importer}: {error}")))?
+                    .kind;
+                let package_path = match importer_kind {
                     ModuleKind::Package => importer.path.clone(),
                     ModuleKind::Module => importer.path.parent().unwrap_or_else(ModulePath::root),
                 };
@@ -166,7 +163,14 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                 }
 
                 let target_path = ModulePath::from_components(resolved_components);
-                let target = self.source.locate(importer_project, &target_path)?;
+                let target_project = importer.project;
+                if !matches!(target_project, ProjectIdentity::Universe | ProjectIdentity::Resolved(_)) {
+                    return Err(ModuleResolutionError::ModuleNotFound(format!(
+                        "standalone module {} cannot perform relative imports without a project context",
+                        importer
+                    )));
+                }
+                let target = self.locate_project_module(target_project, &target_path)?;
                 Ok(ImportResolutionTrace { target, package_interfaces })
             }
         }
@@ -185,32 +189,53 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
         path: &ModulePath,
         package_interfaces: &mut BTreeSet<ModuleId>,
     ) -> Result<(), ModuleResolutionError> {
+        self.validate_path_with_trace(ProjectIdentity::Resolved(target_project_id), path, package_interfaces)
+    }
+
+    /// Validates hierarchical package exposure for either a filesystem project
+    /// or the provider-backed Universe. Provider choice must not change import
+    /// visibility semantics.
+    fn validate_path_with_trace(
+        &mut self,
+        target_project: ProjectIdentity,
+        path: &ModulePath,
+        package_interfaces: &mut BTreeSet<ModuleId>,
+    ) -> Result<(), ModuleResolutionError> {
         let components = path.components();
         // Root package `[]` is always addressable
         if components.is_empty() {
             return Ok(());
         }
 
-        let target_project = self
-            .universe
-            .get_project(target_project_id)
-            .ok_or_else(|| ModuleResolutionError::ModuleNotFound(format!("Target project {:?} not found", target_project_id)))?;
+        let target_name = match target_project {
+            ProjectIdentity::Universe => "universe".to_owned(),
+            ProjectIdentity::Resolved(project_id) => self
+                .universe
+                .get_project(project_id)
+                .map(|project| project.name.clone())
+                .ok_or_else(|| ModuleResolutionError::ModuleNotFound(format!("Target project {:?} not found", project_id)))?,
+            ProjectIdentity::Synthetic(project_id) => {
+                return Err(ModuleResolutionError::ModuleNotFound(format!(
+                    "synthetic project {project_id} has no import provider"
+                )));
+            }
+        };
 
         // Hierarchical exposure check: start at root package `[]`
         let mut current_pkg_path = ModulePath::root();
 
         for comp in components {
             let pkg_mod_id = ModuleId {
-                project: target_project_id.into(),
+                project: target_project,
                 path: current_pkg_path.clone(),
             };
             package_interfaces.insert(pkg_mod_id);
-            let surface = self.load_package_surface(target_project_id, &current_pkg_path)?;
+            let surface = self.load_package_surface_for(target_project, &current_pkg_path)?;
             if !surface.exposed_children.contains(comp) {
                 let exposed_names = surface.exposed_children.iter().map(|c| c.as_str().to_string()).collect();
                 return Err(ModuleResolutionError::ModulePathNotExposed {
                     path: path.to_string(),
-                    project: target_project.name.clone(),
+                    project: target_name.clone(),
                     exposed: exposed_names,
                 });
             }
@@ -222,8 +247,12 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
 
     /// Loads package exposure surface for a given package module.
     pub fn load_package_surface(&mut self, project_id: ResolvedProjectId, package_path: &ModulePath) -> Result<PackagePathSurface, ModuleResolutionError> {
+        self.load_package_surface_for(ProjectIdentity::Resolved(project_id), package_path)
+    }
+
+    fn load_package_surface_for(&mut self, project: ProjectIdentity, package_path: &ModulePath) -> Result<PackagePathSurface, ModuleResolutionError> {
         let module_id = ModuleId {
-            project: project_id.into(),
+            project,
             path: package_path.clone(),
         };
 
@@ -238,6 +267,43 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
         Ok(PackagePathSurface {
             exposed_children: interface.exposed_children.clone(),
         })
+    }
+
+    fn locate_project_module(&self, project: ProjectIdentity, path: &ModulePath) -> Result<SourceUnit, ModuleResolutionError> {
+        let module_id = ModuleId { project, path: path.clone() };
+        match project {
+            ProjectIdentity::Universe => {
+                let provider = UniverseSourceProvider::new();
+                let kind = provider
+                    .kind(path)
+                    .ok_or_else(|| ModuleResolutionError::ModuleNotFound(format!("Universe module universe.{path} not found")))?;
+                let source_id = provider.source_id(&module_id).map_err(|error| match error {
+                    ModuleLoadError::Resolution(resolution) => resolution,
+                    other => ModuleResolutionError::ModuleNotFound(format!("{other}")),
+                })?;
+                Ok(SourceUnit {
+                    id: module_id,
+                    kind,
+                    source: SourceLocation {
+                        source_id,
+                        display_path: PathBuf::from(format!(
+                            "<universe>/{}",
+                            path.components().iter().map(|c| c.as_str()).collect::<Vec<_>>().join("/")
+                        )),
+                    },
+                })
+            }
+            ProjectIdentity::Resolved(project_id) => {
+                let project = self
+                    .universe
+                    .get_project(project_id)
+                    .ok_or_else(|| ModuleResolutionError::ModuleNotFound(format!("Target project {:?} not found", project_id)))?;
+                self.source.locate(project, path)
+            }
+            ProjectIdentity::Synthetic(project_id) => Err(ModuleResolutionError::ModuleNotFound(format!(
+                "synthetic project {project_id} has no import provider"
+            ))),
+        }
     }
 
     /// Loads and parses a module unit, caching the parsed AST and source artifact.

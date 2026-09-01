@@ -55,6 +55,7 @@ impl VM {
             // Module handles.
             module_registry,
             runtime_roots,
+            universe_bootstrap_measurement: _,
             privileged_modules,
             semantic_roots,
 

@@ -122,12 +122,13 @@ pub(crate) struct LoopFlowFrame {
     pub breaks: Vec<FlowState>,
 }
 
-/// The compatibility `core` surface is bootstrapped as an immutable session seed
-/// and currently has no corresponding staged DB products. All other module
-/// identities are query-owned and must participate in dependency tracking.
+/// Every module identity participates in dependency tracking. Bootstrap
+/// declarations are filtered separately by [`is_bootstrap_declaration`]; a
+/// legacy-looking module path must not silently become a dependency-free
+/// sentinel.
 fn is_query_owned_module(module: &ModuleId) -> bool {
-    let components = module.path.components();
-    !(matches!(module.project, phalcom_modules::ProjectIdentity::Universe) && components.len() == 1 && components[0].as_str() == "core")
+    let _ = module;
+    true
 }
 
 /// Returns whether declaration belongs to immutable canonical Universe input.
