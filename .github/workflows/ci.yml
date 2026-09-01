@@ -25,6 +25,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-07-10
+          components: rustc-dev
       - uses: Swatinem/rust-cache@v2
       - name: Build
         run: >-
@@ -47,6 +48,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-07-10
+          components: rustc-dev
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
@@ -87,7 +89,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-07-10
-          components: clippy
+          components: clippy,rustc-dev
       - uses: Swatinem/rust-cache@v2
       - run: cargo +nightly-2026-07-10 --config 'unstable.codegen-backend=false' clippy --workspace --all-targets -- -D warnings
 
@@ -101,7 +103,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-07-10
-          components: miri
+          components: miri,rustc-dev
       - uses: Swatinem/rust-cache@v2
       # Snapshot integration tests invoke cargo through insta, which Miri cannot
       # emulate (socketpair/process spawning). The AST unit lane still covers
