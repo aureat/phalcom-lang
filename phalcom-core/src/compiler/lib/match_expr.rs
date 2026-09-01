@@ -233,3 +233,34 @@ fn synthesize_fallback_pattern(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use phalcom_ast::ast::VariantPattern;
+
+    #[test]
+    fn fallback_variant_pattern_requires_semantic_identity() {
+        let range = SourceRange::new(0, 4);
+        let pattern = Pattern::Variant(VariantPattern {
+            owner: None,
+            base: "None".into(),
+            base_range: range,
+            mode: VariantPatternMode::Singleton,
+            range,
+        });
+        let mut binding_counter = 0;
+        let mut bindings = Vec::new();
+
+        assert!(
+            synthesize_fallback_pattern(
+                &pattern,
+                &ModuleId::universe_root(),
+                &mut binding_counter,
+                &mut bindings,
+            )
+            .is_err(),
+            "fallback compilation must never infer Option::None from spelling alone"
+        );
+    }
+}
