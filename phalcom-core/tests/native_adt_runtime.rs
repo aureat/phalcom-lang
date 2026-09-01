@@ -1,9 +1,9 @@
 use phalcom_common::selector::Selector;
-use phalcom_core::adt::RuntimeAdtRepresentation;
+use phalcom_core::adt::{RuntimeAdtRegistrationError, RuntimeAdtRepresentation};
 use phalcom_core::modules::semantic_lowering::{EnumLoweringSpec, VariantFieldLoweringSpec, VariantLoweringSpec};
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
-use phalcom_modules::{DeclarationId, ModuleId, ModulePath, SyntheticProjectIdAllocator};
+use phalcom_modules::{DeclarationId, ModuleComponent, ModuleId, ModulePath, SyntheticProjectIdAllocator};
 use phalcom_native_meta::UniverseKey;
 use phalcom_semantic::core_surface::universe_declaration;
 use phalcom_semantic::enum_semantics::VariantShape;
@@ -146,18 +146,54 @@ fn user_result_does_not_reuse_universe_result_root() {
 }
 
 #[test]
-fn conflicting_duplicate_registry_registration_is_not_silently_accepted() {
+fn conflicting_duplicate_registry_registration_is_rejected() {
     let vm = VM::new();
     let mut registry = phalcom_core::adt::RuntimeAdtRegistry::new();
     let owner = synthetic_declaration("Choice");
     let first_root = vm.universe.classes.result_class;
     let conflicting_root = vm.universe.classes.ordering_class;
 
-    let first = registry.register_enum_with_representation(owner.clone(), first_root, RuntimeAdtRepresentation::General);
-    let conflicting = registry.register_enum_with_representation(owner, conflicting_root, RuntimeAdtRepresentation::General);
+    let first = registry
+        .register_enum_with_representation(owner.clone(), first_root, RuntimeAdtRepresentation::General)
+        .expect("initial registration");
+    let same = registry
+        .register_enum_with_representation(owner.clone(), first_root, RuntimeAdtRepresentation::General)
+        .expect("identical registration is idempotent");
+    assert_eq!(first, same);
 
-    assert_ne!(
-        first, conflicting,
-        "a conflicting duplicate registration must not be silently treated as the original registration"
+    let conflict = registry
+        .register_enum_with_representation(owner.clone(), conflicting_root, RuntimeAdtRepresentation::General)
+        .expect_err("different root must be rejected");
+    assert!(matches!(conflict, RuntimeAdtRegistrationError::ConflictingEnumRegistration { .. }));
+
+    let representation_conflict = registry
+        .register_enum_with_representation(owner.clone(), first_root, RuntimeAdtRepresentation::NativeOption)
+        .expect_err("different representation must be rejected");
+    assert!(matches!(
+        representation_conflict,
+        RuntimeAdtRegistrationError::ConflictingEnumRegistration { .. }
+    ));
+
+    let other_owner = synthetic_declaration("OtherChoice");
+    let root_conflict = registry
+        .register_enum_with_representation(other_owner, first_root, RuntimeAdtRepresentation::General)
+        .expect_err("one root class cannot back two semantic enum declarations");
+    assert!(matches!(
+        root_conflict,
+        RuntimeAdtRegistrationError::RootClassAlreadyRegistered { .. }
+    ));
+}
+
+#[test]
+fn universe_leaf_name_cannot_reconstruct_a_different_declaration_owner() {
+    let vm = VM::new();
+    let wrong_module = ModuleId::universe(ModulePath::from_components(vec![
+        ModuleComponent::from_identifier("object").expect("valid component"),
+    ]));
+    let forged_result = DeclarationId::new(wrong_module, "Result".into());
+
+    assert!(
+        vm.resolve_declaration_class(&forged_result).is_err(),
+        "a Universe leaf name must not resolve unless the full DeclarationId is canonical"
     );
 }
