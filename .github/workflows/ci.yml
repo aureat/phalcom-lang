@@ -24,19 +24,17 @@ jobs:
           toolchain: nightly-2026-07-10
           components: rustfmt,clippy
       - uses: Swatinem/rust-cache@v2
+      - name: Force LLVM in verification checkout
+        run: sed -i 's/codegen-backend = "cranelift"/codegen-backend = "llvm"/g' Cargo.toml
       - name: Format package Rust files
         run: rustfmt +nightly-2026-07-10 --edition 2024 --check phalcom-test-support/tests/either/*.rs
       - name: Clippy package test target
         run: >-
           cargo +nightly-2026-07-10
-          --config 'profile.dev.codegen-backend="llvm"'
-          --config 'profile.test.codegen-backend="llvm"'
           --config 'build.rustc-wrapper=""'
           clippy -p phalcom-test-support --test either -- -D warnings
       - name: Test package
         run: >-
           cargo +nightly-2026-07-10
-          --config 'profile.dev.codegen-backend="llvm"'
-          --config 'profile.test.codegen-backend="llvm"'
           --config 'build.rustc-wrapper=""'
           test -p phalcom-test-support --test either -- --nocapture
