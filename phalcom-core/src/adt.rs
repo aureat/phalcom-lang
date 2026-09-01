@@ -58,9 +58,10 @@ impl CaseDiscriminant {
 /// Strategy for physical runtime representation of an enum.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RuntimeAdtRepresentation {
+    /// Normal ADT singleton/AdtCaseObject representation.
     General,
+    /// Core Option uses Value's nested Some-depth immediate representation.
     NativeOption,
-    NativeResult,
 }
 
 /// Runtime shape of a variant.
@@ -68,6 +69,13 @@ pub enum RuntimeAdtRepresentation {
 pub enum RuntimeVariantShape {
     Singleton,
     Constructor,
+}
+
+/// Bound runtime IDs for native Option variants.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NativeOptionVariantIds {
+    pub some: RuntimeVariantId,
+    pub none: RuntimeVariantId,
 }
 
 /// Runtime descriptor for an enum root.
@@ -102,11 +110,28 @@ pub struct RuntimeAdtRegistry {
     variant_by_semantic_id: HashMap<VariantId, RuntimeVariantId>,
     variant_by_behavior_class: HashMap<ClassId, RuntimeVariantId>,
     enum_by_root_class: HashMap<ClassId, RuntimeEnumId>,
+    native_option: Option<NativeOptionVariantIds>,
 }
 
 impl RuntimeAdtRegistry {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn bind_native_option_variants(
+        &mut self,
+        some: RuntimeVariantId,
+        none: RuntimeVariantId,
+    ) -> Result<(), &'static str> {
+        if self.native_option.is_some() {
+            return Err("native Option variant identities already bound");
+        }
+        self.native_option = Some(NativeOptionVariantIds { some, none });
+        Ok(())
+    }
+
+    pub fn native_option_variants(&self) -> Option<NativeOptionVariantIds> {
+        self.native_option
     }
 
     /// Registers a new enum root with default general representation.

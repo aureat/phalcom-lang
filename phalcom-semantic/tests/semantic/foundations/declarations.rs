@@ -21,7 +21,6 @@ fn declaration_kinds_and_forms_are_correct() {
     let set_decl = test_universe_resolver(UniverseKey::Set);
     let map_decl = test_universe_resolver(UniverseKey::Map);
     let opt_decl = test_universe_resolver(UniverseKey::Option);
-    let some_decl = test_universe_resolver(UniverseKey::Some);
 
     // Int :: Type
     assert_eq!(table.kind(&int_decl), Some(KindId::TYPE));
@@ -69,16 +68,6 @@ fn declaration_kinds_and_forms_are_correct() {
         }
     );
 
-    // Some :: Type -> Type
-    let some_kind = table.kind(&some_decl).unwrap();
-    assert_eq!(
-        store.get_kind(some_kind),
-        &KindData::Arrow {
-            parameters: vec![KindId::TYPE].into_boxed_slice(),
-            result: KindId::TYPE,
-        }
-    );
-
     // ClassObject proper types all have kind Type and are distinct from form
     let int_class_obj = table.class_object_type(&int_decl).unwrap();
     assert_ne!(int_class_obj, int_form);
@@ -97,4 +86,21 @@ fn declaration_kinds_and_forms_are_correct() {
     assert_eq!(p_info.index, 0);
     assert_eq!(p_info.name.as_ref(), "T");
     assert_eq!(p_info.kind, KindId::TYPE);
+}
+
+#[test]
+fn option_case_behavior_classes_are_not_semantic_declarations() {
+    let mut store = TypeStore::new();
+    let declarations = bootstrap_universe_declarations(
+        &mut store,
+        &|key| DeclarationId::new(ModuleId::core(), key.name().into()),
+    );
+
+    let option = DeclarationId::new(ModuleId::core(), "Option".into());
+    let some = DeclarationId::new(ModuleId::core(), "Some".into());
+    let none = DeclarationId::new(ModuleId::core(), "None".into());
+
+    assert!(declarations.get(&option).is_some());
+    assert!(declarations.get(&some).is_none());
+    assert!(declarations.get(&none).is_none());
 }

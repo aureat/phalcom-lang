@@ -60,11 +60,12 @@ class Evaluator {
     let int_refl = VariantReflection::from_variant_info(int_variant);
     assert_eq!(int_refl.shape, VariantShape::Constructor);
 
+    let mut store = (*case.analysis.snapshot.store).clone();
     let exact_int_refl = ExactCaseTypeReflection::from_exact_case(
         int_variant.exact_case_template,
         int_variant,
         int_variant.result_type_template,
-        &case.analysis.snapshot.store,
+        &mut store,
     );
     assert_eq!(exact_int_refl.variant, int_id);
     assert_eq!(exact_int_refl.fields.len(), 1);

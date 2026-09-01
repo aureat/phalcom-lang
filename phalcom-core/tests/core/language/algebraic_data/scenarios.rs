@@ -187,3 +187,70 @@ fn adt_vert_06_cross_module_labeled_payload_uses_imported_field_slot() {
     let (vm, module) = run_inline(source).expect("labeled payload fixture should execute");
     assert_eq!(slot(&vm, module, "result"), Some(Value::int(42)));
 }
+
+#[test]
+fn adt_vert_07_core_option_native_representation_execution() {
+    let source = r#"
+let some_val = Option<Int>::Some(42)
+let none_val = Option<Int>::None
+let a = match some_val {
+    Some(x) => x
+    None => 0
+}
+let b = match none_val {
+    Some(x) => x
+    None => 100
+}
+"#;
+    let (vm, module) = run_inline(source).expect("Option matching should execute");
+    assert_eq!(slot(&vm, module, "a"), Some(Value::int(42)));
+    assert_eq!(slot(&vm, module, "b"), Some(Value::int(100)));
+}
+
+#[test]
+fn adt_vert_08_core_result_error_variant_execution() {
+    let source = r#"
+let ok_val = Result<Int, String>::Ok(10)
+let err_val = Result<Int, String>::Error("fail")
+let a = match ok_val {
+    Ok(v) => v
+    Error(_) => -1
+}
+let b = match err_val {
+    Ok(v) => v
+    Error(_) => -1
+}
+"#;
+    let (vm, module) = run_inline(source).expect("Result matching should execute");
+    assert_eq!(slot(&vm, module, "a"), Some(Value::int(10)));
+    assert_eq!(slot(&vm, module, "b"), Some(Value::int(-1)));
+}
+
+#[test]
+fn adt_vert_09_core_ordering_four_state_execution() {
+    let source = r#"
+let l = Ordering::Less
+let e = Ordering::Equal
+let g = Ordering::Greater
+let u = Ordering::Unordered
+
+let check = fn(ord: Ordering) {
+    match ord {
+        Less => 1
+        Equal => 2
+        Greater => 3
+        Unordered => 4
+    }
+}
+let res_l = check(l)
+let res_e = check(e)
+let res_g = check(g)
+let res_u = check(u)
+"#;
+    let (vm, module) = run_inline(source).expect("Ordering matching should execute");
+    assert_eq!(slot(&vm, module, "res_l"), Some(Value::int(1)));
+    assert_eq!(slot(&vm, module, "res_e"), Some(Value::int(2)));
+    assert_eq!(slot(&vm, module, "res_g"), Some(Value::int(3)));
+    assert_eq!(slot(&vm, module, "res_u"), Some(Value::int(4)));
+}
+

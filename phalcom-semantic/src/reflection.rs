@@ -92,23 +92,45 @@ impl VariantReflection {
     }
 }
 
+use crate::types::parameter::TypeParameterOwner;
+use crate::types::substitution::TypeSubstitution;
+
 impl ExactCaseTypeReflection {
-    pub fn from_exact_case(ty: TypeId, variant_info: &VariantInfo, enum_type: TypeId, _store: &TypeStore) -> Self {
+    pub fn from_exact_case(
+        ty: TypeId,
+        variant_info: &VariantInfo,
+        enum_type: TypeId,
+        store: &mut TypeStore,
+    ) -> Self {
+        let mut subst = TypeSubstitution::new();
+        if let Some((decl, args)) = store.applied_nominal_parts(enum_type) {
+            let owner = TypeParameterOwner::Declaration(decl);
+            for (idx, &arg) in args.iter().enumerate() {
+                if let Some(param_id) = store.find_type_parameter_id(&owner, idx as u32) {
+                    subst.bind(param_id, arg);
+                }
+            }
+        }
+
         let mut fields = Vec::new();
         for f in variant_info.fields.iter() {
+            let spec_ty = f.declared_type.canonical_type().map(|t| subst.apply(store, t));
             fields.push(SpecializedVariantFieldReflection {
                 id: f.id.clone(),
                 local_name: f.local_name.clone(),
                 external_label: f.external_label.clone(),
-                specialized_type: f.declared_type.canonical_type(),
+                specialized_type: spec_ty,
             });
         }
+
+        let result_type = subst.apply(store, variant_info.result_type_template);
+
         Self {
             ty,
             variant: variant_info.id.clone(),
             enum_type,
             fields: fields.into_boxed_slice(),
-            result_type: enum_type,
+            result_type,
         }
     }
 }

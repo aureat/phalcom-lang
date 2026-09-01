@@ -78,8 +78,15 @@ impl<'vm> Compiler<'vm> {
                     });
                 }
             }
+            let core_ids = phalcom_semantic::core_surface::CoreDeclarationIds::default();
+            let representation = if core_ids.is_option(&owner) {
+                crate::adt::RuntimeAdtRepresentation::NativeOption
+            } else {
+                crate::adt::RuntimeAdtRepresentation::General
+            };
             EnumLoweringSpec {
                 owner,
+                representation,
                 variants: variants.into_boxed_slice(),
             }
         };

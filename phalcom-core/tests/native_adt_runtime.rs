@@ -21,6 +21,7 @@ fn test_native_option_runtime_representation_seam() {
 
     let option_spec = EnumLoweringSpec {
         owner: option_decl.clone(),
+        representation: phalcom_core::adt::RuntimeAdtRepresentation::NativeOption,
         variants: Box::new([
             VariantLoweringSpec {
                 id: some_var_id.clone(),

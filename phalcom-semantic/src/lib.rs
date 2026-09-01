@@ -35,6 +35,7 @@ pub mod signature;
 pub mod snapshot;
 pub mod source;
 pub mod source_index;
+pub mod stable_identity;
 pub mod surface;
 pub mod termination;
 pub mod tooling;
@@ -123,6 +124,7 @@ pub use source_index::{
     SourceBindingInfo, SourceBindingKind, SourceIndexContext, SourceNameResolution, SourceScope, SourceScopeId, SourceScopeIndex, build_source_scope_index,
 };
 pub use source_index::{SourceSite, SourceSiteKind};
+pub use stable_identity::*;
 pub use surface::{DeclarationSurface, MemberVisibility};
 pub use types::{
     Assignability, BlockReason, BudgetKind, BudgetReport, CallableParameterType, CallableType, CancellationToken, ConstraintSet, ContractAssumptionEligibility,

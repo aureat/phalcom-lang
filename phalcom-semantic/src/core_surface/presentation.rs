@@ -158,7 +158,7 @@ impl ClassPresentation {
             name: merged.name.clone(),
             superclass: merged.superclass.clone(),
             members,
-            documentation: merged.source_class.and_then(|s| s.doc_comment.clone()),
+            documentation: merged.doc_comment().map(str::to_owned),
         }
     }
 

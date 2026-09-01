@@ -453,11 +453,20 @@ pub enum DeclarationDocTarget {
         /// Class name span.
         name: phalcom_common::range::SourceRange,
     },
+    /// An enum declaration.
+    Enum {
+        /// Declaration span, including attached attributes.
+        declaration: phalcom_common::range::SourceRange,
+        /// Enum name span.
+        name: phalcom_common::range::SourceRange,
+    },
 }
 
 fn target_declaration_range(target: DeclarationDocTarget) -> phalcom_common::range::SourceRange {
     match target {
-        DeclarationDocTarget::Member { declaration, .. } | DeclarationDocTarget::Class { declaration, .. } => declaration,
+        DeclarationDocTarget::Member { declaration, .. }
+        | DeclarationDocTarget::Class { declaration, .. }
+        | DeclarationDocTarget::Enum { declaration, .. } => declaration,
     }
 }
 

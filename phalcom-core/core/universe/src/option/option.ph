@@ -109,7 +109,7 @@ enum Option<T> {
   /// `Some`; otherwise `None`.
   map(_ f) -> Self | Option<Dynamic> {
     match(
-      some: |v| Some(f.call(v)),
+      some: |v| Option::Some(f.call(v)),
       none: || self
     )
   }
@@ -152,7 +152,7 @@ enum Option<T> {
         if (pred.call(v)) {
           self
         } else {
-          None
+          Option::None
         }
       },
       none: || {
@@ -217,18 +217,18 @@ enum Option<T> {
   /// Converts this option into a `Result`, supplying an error for the absent
   /// case.
   ///
-  /// `Some(value)` becomes `Ok(value)`. `None` becomes `Err(err)`.
+  /// `Some(value)` becomes `Ok(value)`. `None` becomes `Error(err)`.
   ///
   /// The error value is used only for the `None` case.
   ///
   /// @typeparam E The error type of the resulting `Result`.
   /// @param err The error value to use when this option is `None`.
   /// @returns `Ok` containing the wrapped value when this option is `Some`;
-  /// otherwise `Err` containing `err`.
+  /// otherwise `Error` containing `err`.
   okOr<E>(_ err) -> Result<T, E> {
     match(
-      some: |v| Ok.new(v),
-      none: || Err.new(err)
+      some: |v| Result::Ok(v),
+      none: || Result::Error(err)
     )
   }
 

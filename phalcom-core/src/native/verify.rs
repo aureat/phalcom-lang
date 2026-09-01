@@ -150,6 +150,13 @@ pub fn verify_native_contracts_with_mode(
 
 fn verify_class_presentations(ast_index: &NativeSourceIndex) -> Result<(), NativeContractError> {
     for relation in UNIVERSE_CLASS_RELATIONS {
+        let is_runtime_support = phalcom_native_meta::UNIVERSE_BINDINGS
+            .iter()
+            .any(|b| b.key == relation.class && b.kind == phalcom_native_meta::UniverseBindingKind::RuntimeSupportClass);
+        if is_runtime_support {
+            continue;
+        }
+
         let Some(row) = ast_index.presentations.get(&relation.class) else {
             return Err(NativeContractError::MissingClassPresentation { key: relation.class });
         };

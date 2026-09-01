@@ -135,6 +135,7 @@ enum Ordering {
     @variant Less
     @variant Equal
     @variant Greater
+    @variant Unordered
 }
 
 class Test {
@@ -143,6 +144,7 @@ class Test {
             Less => 0
             Equal => 1
             Greater => 2
+            Unordered => 3
         }
     }
 }
@@ -151,10 +153,10 @@ class Test {
     case.assert_no_diagnostics();
 
     let enum_info = case.enum_info("Ordering");
-    assert_eq!(enum_info.variants.len(), 3);
-    assert_eq!(enum_info.variant_families.len(), 3);
+    assert_eq!(enum_info.variants.len(), 4);
+    assert_eq!(enum_info.variant_families.len(), 4);
 
-    for name in &["Less", "Equal", "Greater"] {
+    for name in &["Less", "Equal", "Greater", "Unordered"] {
         let sel = Selector::getter(*name).unwrap();
         let var_id = VariantId::new(DeclarationId::new(ModuleId::core(), "Ordering".into()), sel);
         let var_info = case.analysis.snapshot.enum_semantics.variant_info(&var_id).expect("ordering variant");

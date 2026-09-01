@@ -23,13 +23,13 @@ enum Result<T, E> {
     ///
     /// @param error The failure value.
     @variant
-    Err(_ error: E)
+    Error(_ error: E)
 
     /// Eliminates this result by invoking the callback corresponding to its
     /// current variant.
     ///
     /// If this result is `Ok(value)`, invokes `ok` with the successful value.
-    /// If this result is `Err(error)`, invokes `err` with the error.
+    /// If this result is `Error(error)`, invokes `err` with the error.
     ///
     /// Exactly one callback is invoked. Both callbacks produce the same result
     /// type, making `match` the general-purpose eliminator for `Result`.
@@ -37,7 +37,7 @@ enum Result<T, E> {
     /// @typeparam R The type produced by either callback.
     /// @param ok A callback invoked with the successful value when this result
     /// is `Ok`.
-    /// @param err A callback invoked with the error when this result is `Err`.
+    /// @param err A callback invoked with the error when this result is `Error`.
     /// @returns The value returned by the invoked callback.
     match<R>(
         ok: (value: T) -> R,
@@ -45,7 +45,7 @@ enum Result<T, E> {
     ) -> R {
         match self {
             Ok(value) => ok.call(value)
-            Err(error) => err.call(error)
+            Error(error) => err.call(error)
         }
     }
 
@@ -61,7 +61,7 @@ enum Result<T, E> {
 
     /// Tests whether this result represents failure.
     ///
-    /// @returns `true` when this result is `Err`; otherwise `false`.
+    /// @returns `true` when this result is `Error`; otherwise `false`.
     isErr -> Bool {
         match(
             ok: |v| { false },
@@ -72,43 +72,43 @@ enum Result<T, E> {
     /// Transforms the successful value of this result.
     ///
     /// If this result is `Ok(value)`, invokes `f` with `value` and returns a
-    /// new `Ok` containing the transformed value. If this result is `Err`, the
+    /// new `Ok` containing the transformed value. If this result is `Error`, the
     /// callback is not invoked and the error is propagated unchanged.
     ///
     /// @typeparam U The type of successful value produced by the transformation.
     /// @param f A callback that transforms the successful value.
     /// @returns A result containing the transformed success value, or the
-    /// original error when this result is `Err`.
+    /// original error when this result is `Error`.
     map<U>(_ f: (value: T) -> U) -> Result<U, E> {
         self.match(
             ok: |v| { Result::Ok(f.call(v)) },
-            err: |e| { Result::Err(e) }
+            err: |e| { Result::Error(e) }
         )
     }
 
     /// Transforms the error of this result.
     ///
-    /// If this result is `Err(error)`, invokes `f` with `error` and returns a
-    /// new `Err` containing the transformed error. If this result is `Ok`, the
+    /// If this result is `Error(error)`, invokes `f` with `error` and returns a
+    /// new `Error` containing the transformed error. If this result is `Ok`, the
     /// callback is not invoked and the successful value is propagated
     /// unchanged.
     ///
     /// @typeparam F The error type produced by the transformation.
     /// @param f A callback that transforms the error value.
     /// @returns A result containing the original successful value, or the
-    /// transformed error when this result is `Err`.
+    /// transformed error when this result is `Error`.
     mapErr<F>(_ f: (error: E) -> F) -> Result<T, F> {
         self.match(
             ok: |v| { Result::Ok(v) },
-            err: |e| { Result::Err(f.call(e)) }
+            err: |e| { Result::Error(f.call(e)) }
         )
     }
 
     /// Transforms both possible values of this result.
     ///
     /// If this result is `Ok(value)`, invokes `ok` and wraps its result in
-    /// `Ok`. If this result is `Err(error)`, invokes `err` and wraps its result
-    /// in `Err`.
+    /// `Ok`. If this result is `Error(error)`, invokes `err` and wraps its result
+    /// in `Error`.
     ///
     /// Exactly one callback is invoked.
     ///
@@ -124,14 +124,14 @@ enum Result<T, E> {
     ) -> Result<U, F> {
         match self {
             Ok(value) => Result::Ok(ok.call(value))
-            Err(error) => Result::Err(err.call(error))
+            Error(error) => Result::Error(err.call(error))
         }
     }
 
     /// Chains another result-producing operation after a successful result.
     ///
     /// If this result is `Ok(value)`, invokes `f` with `value` and returns the
-    /// result produced by `f` directly. If this result is `Err`, `f` is not
+    /// result produced by `f` directly. If this result is `Error`, `f` is not
     /// invoked and the error is propagated unchanged.
     ///
     /// Unlike `map`, this method does not wrap the callback result in another
@@ -148,13 +148,13 @@ enum Result<T, E> {
     ) -> Result<U, E> {
         self.match(
             ok: |v| { f.call(v) },
-            err: |e| { Result::Err(e) }
+            err: |e| { Result::Error(e) }
         )
     }
 
     /// Recovers from a failed result using another result-producing operation.
     ///
-    /// If this result is `Err(error)`, invokes `f` with `error` and returns the
+    /// If this result is `Error(error)`, invokes `f` with `error` and returns the
     /// result produced by `f` directly. If this result is `Ok`, `f` is not
     /// invoked and the successful value is propagated unchanged.
     ///
@@ -181,7 +181,7 @@ enum Result<T, E> {
     /// Tests whether this result is `Ok` and its successful value satisfies a
     /// predicate.
     ///
-    /// The predicate is evaluated only for an `Ok` value. An `Err` result
+    /// The predicate is evaluated only for an `Ok` value. An `Error` result
     /// always produces `false`.
     ///
     /// @param predicate A predicate evaluated against the successful value.
@@ -194,13 +194,13 @@ enum Result<T, E> {
         )
     }
 
-    /// Tests whether this result is `Err` and its error satisfies a predicate.
+    /// Tests whether this result is `Error` and its error satisfies a predicate.
     ///
-    /// The predicate is evaluated only for an `Err` value. An `Ok` result
+    /// The predicate is evaluated only for an `Error` value. An `Ok` result
     /// always produces `false`.
     ///
     /// @param predicate A predicate evaluated against the error value.
-    /// @returns `true` when this result is `Err` and `predicate` returns
+    /// @returns `true` when this result is `Error` and `predicate` returns
     /// `true`; otherwise `false`.
     isErrAnd(_ predicate: (error: E) -> Bool) -> Bool {
         self.match(
@@ -212,7 +212,7 @@ enum Result<T, E> {
     /// Performs an action on the successful value without changing the result.
     ///
     /// If this result is `Ok(value)`, invokes `f` with `value`. If this result
-    /// is `Err`, the callback is not invoked.
+    /// is `Error`, the callback is not invoked.
     ///
     /// This method is intended for observation, logging, instrumentation, and
     /// other side effects within a result chain.
@@ -230,20 +230,20 @@ enum Result<T, E> {
                 Result::Ok(value)
             },
             err: |error| {
-                Result::Err(error)
+                Result::Error(error)
             }
         )
     }
 
     /// Performs an action on the error without changing the result.
     ///
-    /// If this result is `Err(error)`, invokes `f` with `error`. If this result
+    /// If this result is `Error(error)`, invokes `f` with `error`. If this result
     /// is `Ok`, the callback is not invoked.
     ///
     /// This method is intended for observation, logging, instrumentation, and
     /// other side effects within a result chain.
     ///
-    /// @param f A callback invoked with the error when this result is `Err`.
+    /// @param f A callback invoked with the error when this result is `Error`.
     /// @returns An equivalent result containing the original success or error
     /// value.
     inspectErr(
@@ -255,7 +255,7 @@ enum Result<T, E> {
             },
             err: |error| {
                 f.call(error)
-                Result::Err(error)
+                Result::Error(error)
             }
         )
     }
@@ -263,7 +263,7 @@ enum Result<T, E> {
     /// Extracts the successful value from this result.
     ///
     /// If this result is `Ok(value)`, returns `value`. If this result is
-    /// `Err(error)`, raises an `UnwrapError` containing the error.
+    /// `Error(error)`, raises an `UnwrapError` containing the error.
     ///
     /// Use this operation only when failure represents an unrecoverable
     /// condition or has already been ruled out. Prefer `match`, `map`,
@@ -277,7 +277,7 @@ enum Result<T, E> {
             },
             err: |error| {
                 UnwrapError(
-                    "called Result.unwrap on an Err value",
+                    "called Result.unwrap on an Error value",
                     error
                 ).raise()
             }
@@ -286,10 +286,10 @@ enum Result<T, E> {
 
     /// Extracts the error from this result.
     ///
-    /// If this result is `Err(error)`, returns `error`. If this result is
+    /// If this result is `Error(error)`, returns `error`. If this result is
     /// `Ok(value)`, raises an `UnwrapError` containing the successful value.
     ///
-    /// @returns The error carried by `Err`.
+    /// @returns The error carried by `Error`.
     unwrapErr -> E {
         self.match(
             ok: |value| {
@@ -307,13 +307,13 @@ enum Result<T, E> {
     /// Extracts the successful value or returns a fallback value.
     ///
     /// If this result is `Ok(value)`, returns `value`. If this result is
-    /// `Err`, returns `default`.
+    /// `Error`, returns `default`.
     ///
     /// `default` is an already-evaluated value. Use `unwrapOrElse` when
     /// computing the fallback should be deferred until an error actually
     /// occurs.
     ///
-    /// @param default The fallback value to use when this result is `Err`.
+    /// @param default The fallback value to use when this result is `Error`.
     /// @returns The successful value when this result is `Ok`; otherwise
     /// `default`.
     unwrapOr(_ default: T) -> T {
@@ -326,7 +326,7 @@ enum Result<T, E> {
     /// Extracts the successful value or computes a fallback from the error.
     ///
     /// If this result is `Ok(value)`, returns `value` without invoking `f`.
-    /// If this result is `Err(error)`, invokes `f` with `error` and returns the
+    /// If this result is `Error(error)`, invokes `f` with `error` and returns the
     /// resulting value.
     ///
     /// The fallback is therefore evaluated lazily and may depend on the
@@ -352,7 +352,7 @@ enum Result<T, E> {
     /// extraction fails.
     ///
     /// If this result is `Ok(value)`, returns `value`. If this result is
-    /// `Err(error)`, raises an `UnwrapError` containing `message` and the
+    /// `Error(error)`, raises an `UnwrapError` containing `message` and the
     /// underlying error.
     ///
     /// @param message The diagnostic message to associate with a failed
@@ -372,13 +372,13 @@ enum Result<T, E> {
     /// Extracts the error, using a caller-provided message when the result is
     /// unexpectedly successful.
     ///
-    /// If this result is `Err(error)`, returns `error`. If this result is
+    /// If this result is `Error(error)`, returns `error`. If this result is
     /// `Ok(value)`, raises an `UnwrapError` containing `message` and the
     /// successful value.
     ///
     /// @param message The diagnostic message to associate with a failed error
     /// extraction.
-    /// @returns The error carried by `Err`.
+    /// @returns The error carried by `Error`.
     expectErr(_ message: String) -> E {
         self.match(
             ok: |value| {
@@ -395,11 +395,11 @@ enum Result<T, E> {
     /// This operation is available when the successful value of this result is
     /// itself a `Result<U, E>`.
     ///
-    /// `Ok(Ok(value))` becomes `Ok(value)`, `Ok(Err(error))` becomes
-    /// `Err(error)`, and an outer `Err(error)` is propagated unchanged.
+    /// `Ok(Ok(value))` becomes `Ok(value)`, `Ok(Error(error))` becomes
+    /// `Error(error)`, and an outer `Error(error)` is propagated unchanged.
     ///
     /// @typeparam U The successful value type of the nested result.
-    /// @returns The inner result when this result is `Ok`; otherwise an `Err`
+    /// @returns The inner result when this result is `Ok`; otherwise an `Error`
     /// containing the outer error.
     flatten<U>() -> Result<U, E>
         where T == Result<U, E>
@@ -409,7 +409,7 @@ enum Result<T, E> {
                 result
             },
             err: |error| {
-                Result::Err(error)
+                Result::Error(error)
             }
         )
     }
@@ -420,7 +420,7 @@ enum Result<T, E> {
     /// an `Option<U>`.
     ///
     /// `Ok(Some(value))` becomes `Some(Ok(value))`, `Ok(None)` becomes `None`,
-    /// and `Err(error)` becomes `Some(Err(error))`.
+    /// and `Error(error)` becomes `Some(Error(error))`.
     ///
     /// @typeparam U The value type contained by the nested option.
     /// @returns The corresponding optional result.
@@ -438,14 +438,14 @@ enum Result<T, E> {
                 )
             },
             err: |error| {
-                Option::Some(Result::Err(error))
+                Option::Some(Result::Error(error))
             }
         )
     }
 
     /// Converts the successful side of this result into an `Option`.
     ///
-    /// `Ok(value)` becomes `Some(value)`. `Err` becomes `None`, discarding the
+    /// `Ok(value)` becomes `Some(value)`. `Error` becomes `None`, discarding the
     /// error.
     ///
     /// @returns `Some` containing the successful value when this result is
@@ -459,10 +459,10 @@ enum Result<T, E> {
 
     /// Converts the error side of this result into an `Option`.
     ///
-    /// `Err(error)` becomes `Some(error)`. `Ok` becomes `None`, discarding the
+    /// `Error(error)` becomes `Some(error)`. `Ok` becomes `None`, discarding the
     /// successful value.
     ///
-    /// @returns `Some` containing the error when this result is `Err`;
+    /// @returns `Some` containing the error when this result is `Error`;
     /// otherwise `None`.
     err -> Option<E> {
         self.match(
@@ -473,15 +473,15 @@ enum Result<T, E> {
 
     /// Returns a string representation of this result.
     ///
-    /// `Ok(value)` is represented as `Result::Ok(<value>)` and `Err(error)` as
-    /// `Result::Err(<error>)`. The contained value or error is rendered using
+    /// `Ok(value)` is represented as `Result::Ok(<value>)` and `Error(error)` as
+    /// `Result::Error(<error>)`. The contained value or error is rendered using
     /// its own `toString` representation.
     ///
     /// @returns The string representation of this result.
     toString -> String {
         self.match(
             ok: |v| { "Result::Ok(" + v.toString + ")" },
-            err: |e| { "Result::Err(" + e.toString + ")" }
+            err: |e| { "Result::Error(" + e.toString + ")" }
         )
     }
 }
@@ -490,13 +490,13 @@ enum Result<T, E> {
 /// `Result`.
 ///
 /// An `UnwrapError` is raised when an operation requiring `Ok` receives an
-/// `Err`, or when an operation requiring `Err` receives an `Ok`.
+/// `Error`, or when an operation requiring `Error` receives an `Ok`.
 class UnwrapError is Error {
 
     /// Returns the diagnostic description of this unwrap failure.
     ///
     /// @returns A human-readable description of the invalid extraction.
     toString -> String {
-        "called `Result::unwrap()` on an `Err` value"
+        "called `Result::unwrap()` on an `Error` value"
     }
 }

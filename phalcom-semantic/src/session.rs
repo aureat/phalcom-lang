@@ -117,6 +117,7 @@ pub struct SemanticWorkspaceSession {
     base_hierarchy: MapTypeHierarchy,
     base_dispatch: SurfaceDispatchResolver,
     base_callable_signatures: CallableSignatureTable,
+    base_enum_semantics: EnumSemanticTable,
     sources: BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
     source_fingerprints: BTreeMap<ModuleId, u64>,
     last_snapshot: Option<Arc<SemanticSnapshot>>,
@@ -175,6 +176,38 @@ impl SemanticWorkspaceSession {
             base_callable_signatures.insert(core_class_new);
         }
 
+        let mut base_enum_semantics = EnumSemanticTable::new();
+        let provider = phalcom_modules::BuiltinProjectSourceProvider::new(phalcom_modules::BuiltinPackage::Universe);
+        for node in provider.nodes() {
+            let path = phalcom_modules::ModulePath::from_components(
+                node.path
+                    .iter()
+                    .map(|p| phalcom_modules::ModuleComponent::from_identifier(p).expect("valid component"))
+                    .collect::<Vec<_>>(),
+            );
+            let module_id = phalcom_modules::ModuleId::builtin(phalcom_modules::BuiltinPackage::Universe, path);
+            let parsed = provider
+                .load_parsed(&module_id)
+                .unwrap_or_else(|e| panic!("failed to load universe module {module_id}: {e}"));
+            for stmt in &parsed.program.statements {
+                if let phalcom_ast::ast::Statement::Enum(enum_def) = stmt {
+                    let decl_id = DeclarationId::new(ModuleId::core(), enum_def.name.clone().into());
+                    let enum_product = crate::checker::enum_declaration::build_enum_semantics(
+                        &decl_id,
+                        enum_def,
+                        &mut store,
+                        &base_declarations,
+                        &resolver,
+                        &ModuleId::core(),
+                    );
+                    base_enum_semantics.insert_enum(enum_product.info.clone());
+                    for v in enum_product.variants.iter() {
+                        base_enum_semantics.insert_variant(Arc::new(v.clone()));
+                    }
+                }
+            }
+        }
+
         Self {
             workspace,
             module_session: WorkspaceModuleSession::new(),
@@ -184,6 +217,7 @@ impl SemanticWorkspaceSession {
             base_hierarchy,
             base_dispatch,
             base_callable_signatures,
+            base_enum_semantics,
             sources: BTreeMap::new(),
             source_fingerprints: BTreeMap::new(),
             last_snapshot: None,
@@ -776,7 +810,7 @@ impl SemanticWorkspaceSession {
         }
 
         // 6b. Compile and publish enum declarations, associated surfaces, and closed-enum requirements.
-        let mut enum_semantics = EnumSemanticTable::new();
+        let mut enum_semantics = self.base_enum_semantics.clone();
         let mut enum_requirements_table = EnumRequirementTable::new();
         let mut associated_surfaces_table = AssociatedFamilyTable::new();
 

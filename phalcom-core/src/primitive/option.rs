@@ -28,7 +28,8 @@ pub(crate) fn wrap_some(_vm: &mut VM, value: Value) -> Result<Value, RuntimeErro
     returns = Option,
     types = "(Object) -> Option",
     side = class,
-    effects = pure
+    effects = pure,
+    anchor = hidden
 )]
 pub fn some_call(_vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     Ok(wrap_some(_vm, args[0])?)
@@ -42,7 +43,8 @@ pub fn some_call(_vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Va
     returns = Option,
     types = "(Object) -> Option",
     side = class,
-    effects = pure
+    effects = pure,
+    anchor = hidden
 )]
 pub fn some_new(_vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     Ok(wrap_some(_vm, args[0])?)

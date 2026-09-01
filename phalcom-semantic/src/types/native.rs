@@ -222,6 +222,10 @@ pub fn register_native_surfaces(
     records.sort_by_key(|record| record.surface.key.sort_key());
 
     for record in records {
+        if record.surface.anchor == phalcom_native_meta::NativeAnchorPolicy::Hidden {
+            continue;
+        }
+
         let owner_name = record.owner().name();
         let decl = match resolver.resolve_type_name(current_module, owner_name, &[]) {
             Some(d) => d,

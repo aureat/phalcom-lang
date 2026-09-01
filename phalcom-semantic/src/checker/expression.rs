@@ -716,15 +716,23 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
 fn synthesize_associated_lookup(ctx: &mut CheckingContext<'_>, lookup: &AssociatedLookupExpr, expected: &ExpectedType) -> TypedExpression {
     let receiver = analyze_expression(ctx, &lookup.receiver, &ExpectedType::None);
 
-    // Only declaration-backed type forms can enter the associated namespace.
-    // Every other receiver, and every type form without a reserved associated
-    // base, keeps ordinary receiver-bound `::` semantics.
+    let is_getter_only = match &lookup.member {
+        AssociatedMemberSyntax::Named(named) => matches!(named.mode, AssociatedNamedMode::Getter { explicit_separator_range: None }),
+        _ => false,
+    };
+
     let owner = match receiver.denotation.as_ref() {
         Some(SemanticDenotation::TypeForm(_)) => match resolve_associated_owner(ctx, &receiver, lookup.range) {
             Ok(owner) => Some(owner),
             Err(_) => return TypedExpression::unknown(UnknownReason::UncheckedExpression),
         },
-        _ => None,
+        _ => {
+            if is_getter_only {
+                let _ = resolve_associated_owner(ctx, &receiver, lookup.range);
+                return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+            }
+            None
+        }
     };
 
     match &lookup.member {
@@ -1187,6 +1195,10 @@ fn synthesize_bound_behavioral_invoke(
     match ctx.resolve_dispatch_target(receiver_type, &selector, receiver.dispatch_lookup.clone()) {
         ResolvedDispatchResult::Found(resolved) => {
             let callable = resolved.callable.clone();
+            let lookup_owner = ctx
+                .dispatch_owner_for_lookup(receiver_type, receiver.dispatch_lookup.clone())
+                .map(|(owner, _)| owner)
+                .unwrap_or_else(|| callable.owner.declaration().clone());
             let target = CallableApplicationTarget::from_dispatch(resolved);
             let result = apply_resolved_callable(ctx, &target, &premise, arguments, expected, invoke.range);
             if let Some(result_type) = result.knowledge.ty() {
@@ -1195,7 +1207,7 @@ fn synthesize_bound_behavioral_invoke(
                         expression,
                         AssociatedResolution {
                             owner_form: receiver_type,
-                            lookup_owner: callable.owner.declaration().clone(),
+                            lookup_owner,
                             family: None,
                             kind: AssociatedResolutionKind::BoundBehavioralInvoke {
                                 target: InvocationTargetId::Behavioral(callable),

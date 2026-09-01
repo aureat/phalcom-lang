@@ -1,53 +1,41 @@
-@sealed
-class Ordering {
-  @get _kind
+@native
+enum Ordering {
+    @variant Less
+    @variant Equal
+    @variant Greater
+    @variant Unordered
 
-  @class _less
-  @class _equal
-  @class _greater
-  @class _unordered
+    @class
+    less { Ordering::Less }
 
-  @private
-  @constructor
-  create(_ kind) {
-    _kind = kind
-  }
+    @class
+    equal { Ordering::Equal }
 
-  @class
-  less {
-    if (_less == None) { _less = Ordering.create(#less) }
-    _less
-  }
+    @class
+    greater { Ordering::Greater }
 
-  @class
-  equal {
-    if (_equal == None) { _equal = Ordering.create(#equal) }
-    _equal
-  }
+    @class
+    unordered { Ordering::Unordered }
 
-  @class
-  greater {
-    if (_greater == None) { _greater = Ordering.create(#greater) }
-    _greater
-  }
+    reverse {
+        match self {
+            Less => Ordering::Greater
+            Equal => Ordering::Equal
+            Greater => Ordering::Less
+            Unordered => Ordering::Unordered
+        }
+    }
 
-  @class
-  unordered {
-    if (_unordered == None) { _unordered = Ordering.create(#unordered) }
-    _unordered
-  }
+    toString { toRepr }
 
-  @class
-  new() { Error.new("Ordering values cannot be constructed directly").raise() }
-
-  reverse {
-    if (self === Ordering.less) { return Ordering.greater }
-    if (self === Ordering.greater) { return Ordering.less }
-    self
-  }
-
-  toString { toRepr }
-  toRepr { "Ordering.\(kind.toString.trimStart("#"))" }
+    toRepr {
+        match self {
+            Less => "Ordering.less"
+            Equal => "Ordering.equal"
+            Greater => "Ordering.greater"
+            Unordered => "Ordering.unordered"
+        }
+    }
 }
 
 export Ordering

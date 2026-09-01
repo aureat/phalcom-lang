@@ -1863,8 +1863,8 @@ impl VM {
                     let runtime_var_id = self.adt_registry.variant_by_semantic(variant_id).ok_or("unregistered variant")?;
                     let argc = arity as usize;
                     let payload: Vec<Value> = self.stack.drain(self.stack.len() - argc..).collect();
-                    let case_ref = self.heap.alloc_adt_case(runtime_var_id, payload.into_boxed_slice());
-                    self.stack.push(Value::obj(case_ref));
+                    let val = self.construct_variant_value(runtime_var_id, payload)?;
+                    self.stack.push(val);
                 }
                 Bytecode::MakeResolvedBoundMethod(target_idx) => {
                     let target = callable.chunk.executable_semantics.associated_target(target_idx).clone();

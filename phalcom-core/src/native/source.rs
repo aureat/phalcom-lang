@@ -177,10 +177,76 @@ impl NativeSourceIndex {
             });
         }
         for stmt in &program.statements {
-            if let Statement::Class(class_def) = stmt {
-                self.index_class(module, class_def)?;
+            match stmt {
+                Statement::Class(class_def) => self.index_class(module, class_def)?,
+                Statement::Enum(enum_def) => self.index_enum(module, enum_def)?,
+                _ => {}
             }
         }
+        Ok(())
+    }
+
+    fn index_enum(&mut self, module: &ModuleId, enum_def: &phalcom_ast::ast::EnumDef) -> Result<(), String> {
+        let has_native_attr = enum_def.attributes.iter().any(|a| a.name == "native");
+        let universe_key = UniverseKey::from_name(&enum_def.name);
+
+        if let Some(key) = universe_key {
+            let row = UniverseClassRow {
+                module: module.clone(),
+                name: enum_def.name.clone(),
+                range: enum_def.range,
+                universe_key: Some(key),
+                native: has_native_attr,
+                superclass: Some("Object".to_string()),
+                documented: false,
+            };
+            if self.census.classes.iter().any(|existing| existing.universe_key == Some(key)) {
+                return Err(format!("duplicate universe class presentation for {}", key.name()));
+            }
+            self.presentations.insert(key, row.clone());
+            self.census.classes.push(row);
+        } else {
+            self.census.classes.push(UniverseClassRow {
+                module: module.clone(),
+                name: enum_def.name.clone(),
+                range: enum_def.range,
+                universe_key: None,
+                native: has_native_attr,
+                superclass: Some("Object".to_string()),
+                documented: false,
+            });
+        }
+
+        if has_native_attr {
+            if let Some(uk) = universe_key {
+                let anchor = NativeClassAnchor {
+                    name: enum_def.name.clone(),
+                    universe_key: uk,
+                    superclass: Some("Object".to_string()),
+                    range: enum_def.range,
+                };
+                if self.classes.insert(uk, anchor).is_some() {
+                    return Err(format!("duplicate @native class anchor for {}", uk.name()));
+                }
+            }
+        }
+
+        let Some(owner_key) = universe_key else {
+            return Ok(());
+        };
+
+        for member in &enum_def.members {
+            if let phalcom_ast::ast::EnumMember::Behavior(b) = member {
+                let class_member = match b {
+                    phalcom_ast::ast::EnumBehaviorMember::Method(m) => ClassMember::Method(m.clone()),
+                    phalcom_ast::ast::EnumBehaviorMember::Getter(g) => ClassMember::Getter(g.clone()),
+                    phalcom_ast::ast::EnumBehaviorMember::Setter(s) => ClassMember::Setter(s.clone()),
+                    phalcom_ast::ast::EnumBehaviorMember::Index(i) => ClassMember::Index(i.clone()),
+                };
+                self.index_member(module, owner_key, &enum_def.name, &class_member)?;
+            }
+        }
+
         Ok(())
     }
 

@@ -48,3 +48,28 @@ fn test_presentation_ir_and_virtual_source() {
     assert!(virt.contains("@intrinsic(BoolNot)"));
     assert!(virt.contains("@pure"));
 }
+
+#[test]
+fn test_native_enum_merge_preserves_declarations() {
+    let source = r#"
+@native
+enum Option<T> {
+    @variant Some(_ value: T)
+    @variant None
+
+    @native
+    match(some: Dynamic, none: Dynamic) -> Dynamic
+}
+"#;
+    let program = phalcom_ast::parser::parse_source(source, 0).expect("parse option source");
+    let core_mod = ModuleId::core();
+    let decls = extract_source_declarations(&core_mod, &program);
+    let merged = merge_surfaces(&decls, NATIVE_SURFACES);
+
+    let opt_merged = merged
+        .iter()
+        .find(|d| d.name == "Option")
+        .expect("Option enum in merged surfaces");
+    assert!(opt_merged.source_enum().is_some());
+    assert_eq!(opt_merged.source_enum().unwrap().variants.len(), 2);
+}

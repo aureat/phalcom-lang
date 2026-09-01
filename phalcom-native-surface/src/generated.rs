@@ -6462,7 +6462,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             },
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
-            anchor: NativeAnchorPolicy::Required,
+            anchor: NativeAnchorPolicy::Hidden,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],
@@ -6510,7 +6510,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             },
             visibility: NativeVisibility::Public,
             stability: NativeStability::Unspecified,
-            anchor: NativeAnchorPolicy::Required,
+            anchor: NativeAnchorPolicy::Hidden,
             params: &::phalcom_native_meta::ParameterTupleSpec {
                 positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Object)],
                 labeled: &[],

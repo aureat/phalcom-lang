@@ -1,22 +1,43 @@
 use crate::bytecode::Bytecode;
 use crate::compiler::lib::Compiler;
 use crate::compiler::lib::error::CompilerError;
-use crate::modules::semantic_lowering::{LoweringSiteKind, MatchLoweringSpec};
-use phalcom_ast::ast::{Expr, MatchExpr};
+use crate::modules::semantic_lowering::{
+    ExecutableBindingSpec, ExecutableFieldProjection, ExecutableMatchArm, ExecutablePattern, ExecutableVariantCandidate,
+    LoweringSiteKind, MatchLoweringSpec,
+};
+use phalcom_ast::ast::{Expr, MatchExpr, Pattern, VariantPatternMode};
 use phalcom_common::range::SourceRange;
+use phalcom_common::selector::Selector;
+use phalcom_modules::{DeclarationId, ModuleId};
+use phalcom_semantic::identity::{VariantFieldId, VariantId};
 
 impl<'vm> Compiler<'vm> {
     pub(crate) fn compile_match_expr(&mut self, node: MatchExpr) -> Result<(), CompilerError> {
         let range = node.range;
-        let spec = self.lowering().and_then(|l| {
+        let spec = if let Some(spec) = self.lowering().and_then(|l| {
             l.matches
                 .iter()
                 .find(|(site, _)| site.range == range && site.kind == LoweringSiteKind::Match)
                 .map(|(_, spec)| spec.clone())
-        });
-
-        let Some(spec) = spec else {
-            return Err(CompilerError::MissingMatchLoweringSemantics(range));
+        }) {
+            spec
+        } else {
+            // Synthesize fallback match lowering spec for standalone/unlinked compiles
+            let module_id = self.vm.heap.module(self.module).id.clone();
+            let mut arms = Vec::new();
+            for (arm_idx, arm) in node.arms.iter().enumerate() {
+                let mut binding_counter = 0;
+                let mut bindings = Vec::new();
+                let pattern = synthesize_fallback_pattern(&arm.pattern, &module_id, &mut binding_counter, &mut bindings)?;
+                arms.push(ExecutableMatchArm {
+                    arm_index: arm_idx as u32,
+                    pattern,
+                    bindings: bindings.into_boxed_slice(),
+                });
+            }
+            MatchLoweringSpec {
+                arms: arms.into_boxed_slice(),
+            }
         };
 
         self.compile_match_with_spec(node, spec)
@@ -90,6 +111,128 @@ impl<'vm> Compiler<'vm> {
         match branch {
             Expr::Block(block) => self.compile_inline_block_body(*block),
             other => self.compile_expr(other),
+        }
+    }
+}
+
+fn synthesize_fallback_pattern(
+    pat: &Pattern,
+    module_id: &ModuleId,
+    binding_counter: &mut u32,
+    bindings: &mut Vec<ExecutableBindingSpec>,
+) -> Result<ExecutablePattern, CompilerError> {
+    match pat {
+        Pattern::Wildcard { .. } => Ok(ExecutablePattern::Wildcard),
+        Pattern::Name { name, range } => {
+            let idx = *binding_counter;
+            *binding_counter += 1;
+            bindings.push(ExecutableBindingSpec {
+                binding: phalcom_semantic::identity::BindingId(idx),
+                name: name.clone().into_boxed_str(),
+                range: *range,
+            });
+            Ok(ExecutablePattern::Binding {
+                binding_index: idx,
+                name: name.clone().into_boxed_str(),
+            })
+        }
+        Pattern::Variant(v) => {
+            let owner_name = v.owner.as_ref().map(|o| o.leaf_name()).unwrap_or_else(|| {
+                if v.base == "Some" || v.base == "None" {
+                    "Option"
+                } else if v.base == "Ok" || v.base == "Error" || v.base == "Err" {
+                    "Result"
+                } else if v.base == "Less" || v.base == "Equal" || v.base == "Greater" || v.base == "Unordered" {
+                    "Ordering"
+                } else {
+                    ""
+                }
+            });
+            let is_core = owner_name == "Option" || owner_name == "Result" || owner_name == "Ordering";
+            let owner_decl = DeclarationId::new(
+                if is_core {
+                    ModuleId::core()
+                } else {
+                    module_id.clone()
+                },
+                owner_name.into(),
+            );
+
+            let (selector, field_patterns) = match &v.mode {
+                VariantPatternMode::Singleton => {
+                    let sel = Selector::getter(v.base.clone()).map_err(|e| CompilerError::Message(e.to_string()))?;
+                    (sel, Vec::new())
+                }
+                VariantPatternMode::ExactCall { arguments } => {
+                    let mut slots = Vec::new();
+                    let mut pats = Vec::new();
+                    for arg in arguments {
+                        if let Some(label) = &arg.label {
+                            slots.push(phalcom_common::selector::SelectorSlot::Label(label.clone()));
+                        } else {
+                            slots.push(phalcom_common::selector::SelectorSlot::Positional);
+                        }
+                        pats.push(&arg.pattern);
+                    }
+                    let sel = Selector::method(v.base.clone(), slots).map_err(|e| CompilerError::Message(e.to_string()))?;
+                    (sel, pats)
+                }
+                _ => return Err(CompilerError::InvalidExecutablePattern(v.range)),
+            };
+
+            let variant_id = VariantId::new(owner_decl, selector);
+            let mut field_projections = Vec::new();
+            for (idx, field_pat) in field_patterns.iter().enumerate() {
+                let child = synthesize_fallback_pattern(field_pat, module_id, binding_counter, bindings)?;
+                field_projections.push(ExecutableFieldProjection {
+                    field_id: VariantFieldId::new(variant_id.clone(), idx as u32),
+                    slot: idx as u16,
+                    child,
+                });
+            }
+
+            Ok(ExecutablePattern::Variant {
+                candidates: Box::new([ExecutableVariantCandidate {
+                    variant: variant_id,
+                    fields: field_projections.into_boxed_slice(),
+                }]),
+            })
+        }
+        Pattern::Tuple { elements, .. } => {
+            let mut el_pats = Vec::new();
+            for el in elements {
+                el_pats.push(synthesize_fallback_pattern(el, module_id, binding_counter, bindings)?);
+            }
+            Ok(ExecutablePattern::Tuple {
+                elements: el_pats.into_boxed_slice(),
+            })
+        }
+        Pattern::Or { alternatives, .. } => {
+            let mut alt_pats = Vec::new();
+            for alt in alternatives {
+                alt_pats.push(synthesize_fallback_pattern(alt, module_id, binding_counter, bindings)?);
+            }
+            Ok(ExecutablePattern::Or {
+                alternatives: alt_pats.into_boxed_slice(),
+            })
+        }
+        Pattern::List { elements, rest, .. } => {
+            let mut el_pats = Vec::new();
+            for el in elements {
+                el_pats.push(synthesize_fallback_pattern(el, module_id, binding_counter, bindings)?);
+            }
+            let rest_pat = if let Some(r) = rest {
+                Some(Box::new(synthesize_fallback_pattern(r, module_id, binding_counter, bindings)?))
+            } else {
+                None
+            };
+            Ok(ExecutablePattern::List {
+                elements: el_pats.into_boxed_slice(),
+                rest: rest_pat,
+            })
+        }
+        Pattern::Record { .. } | Pattern::Map { .. } => {
+            Err(CompilerError::InvalidExecutablePattern(pat.range()))
         }
     }
 }

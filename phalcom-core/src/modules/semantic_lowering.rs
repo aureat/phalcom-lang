@@ -161,6 +161,7 @@ pub struct VariantLoweringSpec {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EnumLoweringSpec {
     pub owner: DeclarationId,
+    pub representation: crate::adt::RuntimeAdtRepresentation,
     pub variants: Box<[VariantLoweringSpec]>,
 }
 
@@ -296,6 +297,7 @@ pub fn build_module_lowering_semantics(module: &ModuleId, snapshot: &SemanticSna
     };
 
     // 1. Project Enums in this module
+    let core_ids = phalcom_semantic::core_surface::CoreDeclarationIds::default();
     let mut enums = Vec::new();
     for (owner, enum_info) in &snapshot.enum_semantics.enums {
         if owner.module != *module {
@@ -323,8 +325,14 @@ pub fn build_module_lowering_semantics(module: &ModuleId, snapshot: &SemanticSna
                 payload_fields: payload_fields.into_boxed_slice(),
             });
         }
+        let representation = if core_ids.is_option(owner) {
+            crate::adt::RuntimeAdtRepresentation::NativeOption
+        } else {
+            crate::adt::RuntimeAdtRepresentation::General
+        };
         enums.push(EnumLoweringSpec {
             owner: owner.clone(),
+            representation,
             variants: variants.into_boxed_slice(),
         });
     }
