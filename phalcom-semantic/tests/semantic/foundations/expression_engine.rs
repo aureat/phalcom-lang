@@ -147,6 +147,29 @@ class Navigator {
 }
 
 #[test]
+fn test_mixed_positional_and_keyword_argument_mismatches_detected() {
+    let (mut store, hier, resolver, decls, module) = setup_phase2_env();
+    let source = r#"
+class Navigator {
+  move(_ value: Int, to target: Int) -> Int {
+    value + target
+  }
+  navigate -> Int {
+    self.move("invalid", to: "also invalid")
+  }
+}
+"#;
+    let program = parse_source(source, 0).expect("valid parse");
+    let report = check_program(&mut store, &hier, &resolver, &decls, module, &program);
+    let mismatches = report
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code == DiagnosticCode::ArgumentMismatch)
+        .count();
+    assert_eq!(mismatches, 2, "both positional and keyword arguments must use shared assignability");
+}
+
+#[test]
 fn test_member_and_subscript_typing() {
     let (mut store, hier, resolver, decls, module) = setup_phase2_env();
     let source = r#"

@@ -269,7 +269,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                         TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause)
                     }
                 } else {
-                    let Some(ty) = ctx.nominal_type_of(&class_decl) else {
+                    let Some(ty) = ctx.instance_type_of(&class_decl) else {
                         return TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause);
                     };
                     TypedExpression::established(ty, EvidenceOrigin::Flow, *range)
@@ -294,7 +294,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                         TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause).with_dispatch_lookup(lookup)
                     }
                 } else {
-                    let Some(ty) = ctx.nominal_type_of(&class_decl) else {
+                    let Some(ty) = ctx.instance_type_of(&class_decl) else {
                         return TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause).with_dispatch_lookup(lookup);
                     };
                     TypedExpression::established(ty, EvidenceOrigin::Flow, *range).with_dispatch_lookup(lookup)
@@ -1119,7 +1119,17 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
             };
 
             let mut env = crate::types::environment::TypeEnvironment::new();
-            for (idx, &arg) in owner.supplied_arguments.iter().enumerate() {
+            let contextual_arguments = if owner.supplied_arguments.is_empty() {
+                expected
+                    .ty()
+                    .and_then(|expected_ty| ctx.store.applied_nominal_parts(expected_ty))
+                    .filter(|(expected_owner, _)| expected_owner == &owner.lookup_owner)
+                    .map(|(_, arguments)| arguments)
+            } else {
+                None
+            };
+            let supplied_arguments = contextual_arguments.as_deref().unwrap_or(&owner.supplied_arguments);
+            for (idx, &arg) in supplied_arguments.iter().enumerate() {
                 if let Some(param_id) = ctx.store.find_type_parameter_id(
                     &crate::types::parameter::TypeParameterOwner::Declaration(owner.lookup_owner.clone()),
                     idx as u32,
@@ -2132,7 +2142,7 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
                 ctx.nominal_type_of(class_decl)
             }
         } else {
-            ctx.nominal_type_of(class_decl)
+            ctx.instance_type_of(class_decl)
         };
         let Some(class_ty) = class_ty else {
             return TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause);

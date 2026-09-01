@@ -422,6 +422,23 @@ impl Fixture {
         self.assert_type_expectation(actual, &expected.into());
     }
 
+    /// Checks a type expectation without relying on test-process unwinding.
+    ///
+    /// Regression oracles that intentionally test rejection must use this
+    /// result path because the workspace may compile tests with aborting panic
+    /// behavior. Ordinary assertions continue to use [`Self::assert_type`].
+    pub fn check_type(&self, actual: TypeId, expected: impl Into<TypeExpectation>) -> Result<(), String> {
+        let expected = expected.into();
+        if self.type_matches(actual, &expected) {
+            Ok(())
+        } else {
+            Err(format!(
+                "type expectation rejected: actual `{}` does not match `{expected:?}`",
+                self.analysis.snapshot.store.format_type(actual)
+            ))
+        }
+    }
+
     pub fn assert_knowledge(&self, actual: &TypeKnowledge, expected: &KnowledgeExpectation) {
         match (&expected.state, actual) {
             (KnowledgeStateExpectation::Known, TypeKnowledge::Known(_)) => {}

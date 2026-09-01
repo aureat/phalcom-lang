@@ -2,11 +2,11 @@
 
 ## Current position
 
-Active checkpoint: Slice 7 — active semantic gate repair
-Completed checkpoints: S0, Slice 4, Slice 5; Slices 1–3 inherited and previously landed
-Current task: commit Slice 6 reconciliation, then finish Option higher-order generic inference for Slice 7
-Next concrete action: run semantic legacy dependency sentinel, inspect/stage Slice 6 only, commit it, then validate Option.map/flatMap and complete Slice 7
-Last verified evidence: Slice 4 semantic matching filter `162 passed, 0 failed, 22 ignored`; Slice 5 semantic metadata `21 passed`, native conformance `3 passed`, module identity `4 passed`; Slice 6 package intrinsic and bootstrap measurement tests pass; standalone package/module and builtin-client reflection gates pass; Slice 7 GATE-01/GATE-02 focused tests pass
+Active checkpoint: Slice 8 — broad amendment-owned validation
+Completed checkpoints: S0, Slice 4, Slice 5, Slice 6, Slice 7; Slices 1–3 inherited and previously landed
+Current task: validate the repaired semantic call/inference path against Slice 8 broad gates
+Next concrete action: run focused Slice 8 semantic/core/module gates, classify any failures without weakening assertions, then update state before Slice 9 baseline extraction
+Last verified evidence: Slice 4 semantic matching filter `162 passed, 0 failed, 22 ignored`; Slice 5 semantic metadata `21 passed`, native conformance `3 passed`, module identity `4 passed`; Slice 6 focused Universe exposure/relative identity, package intrinsic, bootstrap measurement, standalone package/module, builtin-client, and dependency-sentinel gates pass; Slice 7 Option typing `4 passed`, GATE-01 `1 passed`, GATE-02 `1 passed`, and adjacent positional/keyword argument tests `1 passed` each
 Do not rerun unless changed: S0 preflight baseline at `4148de61f5415729fe5fe4ccfcef383292548ffe`
 Active incident: none
 
@@ -80,3 +80,5 @@ Slice 4 focused evidence: semantic `matching` filter passed with `162 passed, 0 
 Slice 5 focused evidence: semantic `metadata` filter passed with `21 passed`; semantic `native_conformance` passed with `3 passed`; module `identity_foundation` passed with `4 passed`. Dirty changes cover context-aware durable identity, revision fingerprints, source/native conformance, declaration-aware runtime class lookup, and Iterable source/native arity alignment. Slice 5 is checkpoint-ready.
 
 Slice 6 reconciliation: inherited dirty changes cover Universe exposure/relative resolution, package intrinsics, canonical bootstrap dependency ordering, bootstrap measurement, and legacy identity cleanup. Stale `std.json` imports in standalone fixtures were removed or replaced with `universe.json`; unused canonical selector imports were removed after duplicate-source execution surfaced. VM bootstrap now marks successfully executed canonical modules `Initialized`, preventing imported Universe modules from being recompiled. Focused evidence: modules `integration` Universe exposure/relative identity `3 passed`; core `universe_package_intrinsics_match_provider_neutral_package_rules` `1 passed`; core `boot_01_bootstrap_measurement_separates_catalog_closure_and_execution` `1 passed`; core standalone package, standalone module, and builtin-client reflection gates each `1 passed`. Slice 6 is checkpoint-ready pending semantic dependency-sentinel validation and focused commit.
+
+Slice 7 reconciliation: active GATE-01 keyword mismatch now follows the shared argument assignability path; focused semantic gate passed. GATE-02 uses a result-returning type oracle instead of abort-sensitive unwind capture; focused regression passed. Generic callable inference now structurally relates canonical callable types, exact enum cases, contextual generic constructor results, and final expected-result constraints; Option `map`, `flatMap`, `unwrapOr`, and `okOr` focused tests passed `4/4`. Slice 7 adjacent positional/keyword binding tests passed `1/1` each. Slice 7 is checkpoint-ready.
