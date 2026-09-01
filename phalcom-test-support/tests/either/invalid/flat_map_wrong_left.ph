@@ -1,9 +1,7 @@
 class Probe {
     @class
-    run() {
-        let source: Either<String, Int> = Either::Right(1)
+    run(_ source: Either<String, Int>, _ wrong: Either<Int, Bool>) {
         let bad = source.flatMap(|value| {
-            let wrong: Either<Int, Bool> = Either::Right(true)
             wrong
         })
     }
