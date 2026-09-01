@@ -1,6 +1,7 @@
 use phalcom_ast::parse;
 use phalcom_common::selector::{Selector, SelectorBase};
 use phalcom_modules::identity::ModuleId;
+use phalcom_native_meta::UniverseKey;
 use phalcom_semantic::checker::BindingConsistency;
 use phalcom_semantic::checker::analysis::{BindingState, CallableAnalysis, ExpressionAnalysis};
 use phalcom_semantic::diagnostic::{DiagnosticCode, SemanticDiagnostic};
@@ -23,7 +24,22 @@ fn analyze(source_text: &str) -> (ModuleId, Arc<str>, Analysis) {
 }
 
 fn decl(module: &ModuleId, name: &str) -> DeclarationId {
-    DeclarationId::new(module.clone(), name.into())
+    let key = match name {
+        "Object" => Some(UniverseKey::Object),
+        "Class" => Some(UniverseKey::Class),
+        "Number" => Some(UniverseKey::Number),
+        "Int" => Some(UniverseKey::Int),
+        "Float" => Some(UniverseKey::Float),
+        "String" => Some(UniverseKey::String),
+        "Bool" => Some(UniverseKey::Bool),
+        "Option" => Some(UniverseKey::Option),
+        "Result" => Some(UniverseKey::Result),
+        "List" => Some(UniverseKey::List),
+        "Map" => Some(UniverseKey::Map),
+        _ => None,
+    };
+    key.map(phalcom_semantic::core_surface::universe_declaration)
+        .unwrap_or_else(|| DeclarationId::new(module.clone(), name.into()))
 }
 
 fn ty(analysis: &Analysis, module: &ModuleId, name: &str) -> TypeId {

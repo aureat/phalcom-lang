@@ -10,6 +10,7 @@
 use phalcom_ast::parse_source;
 use phalcom_common::selector::Selector;
 use phalcom_modules::identity::ModuleId;
+use phalcom_native_meta::UniverseKey;
 use phalcom_semantic::analyze_single_module;
 use phalcom_semantic::declarations::DeclarationTypeInfo;
 use phalcom_semantic::diagnostic::{DiagnosticCode, SemanticDiagnostic};
@@ -55,7 +56,12 @@ impl AdtCase {
     }
 
     pub fn declaration(&self, name: &str) -> &DeclarationTypeInfo {
-        let id = DeclarationId::new(self.module.clone(), name.into());
+        let local = DeclarationId::new(self.module.clone(), name.into());
+        let id = if self.analysis.snapshot.declarations.get(&local).is_some() {
+            local
+        } else {
+            canonical_universe_declaration(name).unwrap_or(local)
+        };
         self.analysis
             .snapshot
             .declarations
@@ -160,6 +166,20 @@ impl AdtCase {
             .unwrap_or_else(|| panic!("missing match {index} in callable {callable_id:?}"));
         MatchHandle::new(resolution, self.analysis.snapshot.as_ref())
     }
+}
+
+fn canonical_universe_declaration(name: &str) -> Option<DeclarationId> {
+    let key = match name {
+        "Int" => UniverseKey::Int,
+        "String" => UniverseKey::String,
+        "Bool" => UniverseKey::Bool,
+        "Number" => UniverseKey::Number,
+        "Option" => UniverseKey::Option,
+        "Result" => UniverseKey::Result,
+        "Ordering" => UniverseKey::Ordering,
+        _ => return None,
+    };
+    Some(phalcom_semantic::core_surface::universe_declaration(key))
 }
 
 pub struct MatchHandle<'a> {

@@ -1,5 +1,6 @@
 use phalcom_ast::parse_source;
 use phalcom_modules::identity::ModuleId;
+use phalcom_native_meta::UniverseKey;
 use phalcom_semantic::DeclarationId;
 use phalcom_semantic::checker::check_program;
 use phalcom_semantic::declarations::{DeclarationTypeTable, bootstrap_universe_declarations};
@@ -14,13 +15,13 @@ pub fn setup_test_env() -> (TypeStore, MapTypeHierarchy, SimpleTypeResolver, Dec
     let mut resolver = SimpleTypeResolver::new();
     let module = ModuleId::universe_root();
 
-    let declarations = bootstrap_universe_declarations(&mut store, &|k| DeclarationId::new(module.clone(), k.name().into()));
+    let declarations = bootstrap_universe_declarations(&mut store, &phalcom_semantic::core_surface::universe_declaration);
 
-    let int_decl = DeclarationId::new(module.clone(), "Int".into());
-    let string_decl = DeclarationId::new(module.clone(), "String".into());
-    let bool_decl = DeclarationId::new(module.clone(), "Bool".into());
-    let obj_decl = DeclarationId::new(module.clone(), "Object".into());
-    let num_decl = DeclarationId::new(module.clone(), "Number".into());
+    let int_decl = phalcom_semantic::core_surface::universe_declaration(UniverseKey::Int);
+    let string_decl = phalcom_semantic::core_surface::universe_declaration(UniverseKey::String);
+    let bool_decl = phalcom_semantic::core_surface::universe_declaration(UniverseKey::Bool);
+    let obj_decl = phalcom_semantic::core_surface::universe_declaration(UniverseKey::Object);
+    let num_decl = phalcom_semantic::core_surface::universe_declaration(UniverseKey::Number);
 
     hierarchy.insert(num_decl.clone(), obj_decl.clone());
     hierarchy.insert(int_decl.clone(), num_decl.clone());

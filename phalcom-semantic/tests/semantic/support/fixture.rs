@@ -4,6 +4,7 @@ use phalcom_ast::parse;
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::SelectorBase;
 use phalcom_modules::identity::ModuleId;
+use phalcom_native_meta::UniverseKey;
 use phalcom_semantic::checker::analysis::SemanticDependency;
 use phalcom_semantic::checker::analysis::{AnalysisStatus, BindingState, CallableAnalysis, ExpressionAnalysis};
 use phalcom_semantic::checker::causal::CausalInvalidity;
@@ -203,7 +204,12 @@ impl Fixture {
     }
 
     pub fn decl(&self, name: &str) -> DeclarationId {
-        DeclarationId::new(self.module.clone(), name.into())
+        let local = DeclarationId::new(self.module.clone(), name.into());
+        if self.analysis.snapshot.declarations.get(&local).is_some() {
+            local
+        } else {
+            canonical_universe_declaration(name).unwrap_or(local)
+        }
     }
 
     pub fn ty(&self, name: &str) -> TypeId {
@@ -706,6 +712,31 @@ impl Fixture {
             }
         }
     }
+}
+
+fn canonical_universe_declaration(name: &str) -> Option<DeclarationId> {
+    let key = match name {
+        "Object" => UniverseKey::Object,
+        "Class" => UniverseKey::Class,
+        "Number" => UniverseKey::Number,
+        "Int" => UniverseKey::Int,
+        "Float" => UniverseKey::Float,
+        "String" => UniverseKey::String,
+        "Bool" => UniverseKey::Bool,
+        "Symbol" => UniverseKey::Symbol,
+        "Option" => UniverseKey::Option,
+        "Result" => UniverseKey::Result,
+        "Ordering" => UniverseKey::Ordering,
+        "List" => UniverseKey::List,
+        "Map" => UniverseKey::Map,
+        "Set" => UniverseKey::Set,
+        "Function" => UniverseKey::Function,
+        "Closure" => UniverseKey::Closure,
+        "Tuple" => UniverseKey::Tuple,
+        "Record" => UniverseKey::Record,
+        _ => return None,
+    };
+    Some(phalcom_semantic::core_surface::universe_declaration(key))
 }
 
 pub fn assert_validated(binding: &BindingState) {
