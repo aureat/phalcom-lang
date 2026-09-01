@@ -723,7 +723,7 @@ mod tests {
             ["scalar", "string"]
                 .into_iter()
                 .map(|part| phalcom_modules::ModuleComponent::from_identifier(part).unwrap())
-                .collect(),
+                .collect::<Vec<_>>(),
         ));
         let index = NativeSourceIndex::from_program_at(&module, &program).expect("source index builds");
         let key = NativeMemberKey {
@@ -749,7 +749,7 @@ mod tests {
             ["scalar", "string"]
                 .into_iter()
                 .map(|part| phalcom_modules::ModuleComponent::from_identifier(part).unwrap())
-                .collect(),
+                .collect::<Vec<_>>(),
         ));
         let error = NativeSourceIndex::from_program_at(&module, &program).expect_err("duplicate anchor must fail");
         assert!(error.contains("duplicate @native member anchor"), "{error}");
@@ -774,7 +774,7 @@ mod tests {
             ["scalar", "string"]
                 .into_iter()
                 .map(|part| phalcom_modules::ModuleComponent::from_identifier(part).unwrap())
-                .collect(),
+                .collect::<Vec<_>>(),
         ));
         let error = NativeSourceIndex::from_program_at(&module, &program).expect_err("implementation anchor must be explicit");
         assert!(error.contains("must carry @internal"), "{error}");
