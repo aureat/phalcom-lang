@@ -11,3 +11,11 @@ tempfile = "3"
 
 [dev-dependencies]
 phalcom-ast = { path = "../phalcom-ast" }
+phalcom-common = { path = "../phalcom-common" }
+phalcom-core = { path = "../phalcom-core" }
+phalcom-modules = { path = "../phalcom-modules" }
+phalcom-semantic = { path = "../phalcom-semantic" }
+
+[[test]]
+name = "either"
+path = "tests/either/mod.rs"
