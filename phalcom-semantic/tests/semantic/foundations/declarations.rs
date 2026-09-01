@@ -1,5 +1,6 @@
 use phalcom_modules::identity::ModuleId;
 use phalcom_native_meta::universe::UniverseKey;
+use phalcom_semantic::core_surface::universe_declaration;
 use phalcom_semantic::declarations::bootstrap_universe_declarations;
 use phalcom_semantic::identity::DeclarationId;
 use phalcom_semantic::types::id::KindId;
@@ -103,4 +104,35 @@ fn option_case_behavior_classes_are_not_semantic_declarations() {
     assert!(declarations.get(&option).is_some());
     assert!(declarations.get(&some).is_none());
     assert!(declarations.get(&none).is_none());
+}
+
+#[test]
+fn source_declared_runtime_support_class_remains_semantic_declaration() {
+    let mut store = TypeStore::new();
+    let declarations = bootstrap_universe_declarations(&mut store, &universe_declaration);
+    let unit = universe_declaration(UniverseKey::Unit);
+
+    assert!(
+        declarations.get(&unit).is_some(),
+        "Unit is declared in canonical Universe source and must not disappear merely because native metadata classifies it as runtime support"
+    );
+}
+
+#[test]
+fn production_universe_declarations_keep_source_owned_identity() {
+    let mut store = TypeStore::new();
+    let declarations = bootstrap_universe_declarations(&mut store, &universe_declaration);
+
+    for key in [UniverseKey::Int, UniverseKey::List, UniverseKey::Option, UniverseKey::Result, UniverseKey::Ordering, UniverseKey::Unit] {
+        let declaration = universe_declaration(key);
+        let info = declarations
+            .get(&declaration)
+            .unwrap_or_else(|| panic!("missing source-owned semantic declaration for {key:?}: {declaration}"));
+        assert_eq!(info.declaration, declaration);
+        assert_ne!(
+            info.declaration.module,
+            ModuleId::universe_root(),
+            "{key:?} must be owned by its canonical source module, not fabricated in the Universe root"
+        );
+    }
 }
