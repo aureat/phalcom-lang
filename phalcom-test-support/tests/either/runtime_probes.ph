@@ -92,24 +92,4 @@ let zipValue = zipped.fold(
     }
 )
 
-let runtimeAll = (
-    runtimeLeftIsLeft
-    and not runtimeLeftIsRight
-    and not runtimeRightIsLeft
-    and runtimeRightIsRight
-    and mappedRightValue == 42
-    and mappedLeftPreserved
-    and mappedLeftSideValue
-    and bimapRightValue == 42
-    and flatMappedValue
-    and flatMappedLeftPreserved
-    and swappedLeftValue
-    and swappedRightValue
-    and fallbackValue == 99
-    and preservedValue == 41
-    and recoveredValue == 77
-    and unrecoveredValue == 41
-    and orElseLeftValue == 100
-    and orElseRightValue == 41
-    and zipValue == 41
-)
+let runtimeAll = runtimeLeftIsLeft and not runtimeLeftIsRight and not runtimeRightIsLeft and runtimeRightIsRight and mappedRightValue == 42 and mappedLeftPreserved and mappedLeftSideValue and bimapRightValue == 42 and flatMappedValue and flatMappedLeftPreserved and swappedLeftValue and swappedRightValue and fallbackValue == 99 and preservedValue == 41 and recoveredValue == 77 and unrecoveredValue == 41 and orElseLeftValue == 100 and orElseRightValue == 41 and zipValue == 41
