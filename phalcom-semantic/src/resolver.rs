@@ -27,7 +27,7 @@ impl LinkedTypeResolver {
     /// represented by `PreludeTypeMap`, never by synthetic declarations in a
     /// chosen module.
     pub fn new(linked: Arc<LinkedProgram>, known_declarations: HashSet<DeclarationId>, _legacy_prelude_module: ModuleId) -> Self {
-        Self::with_prelude(linked, known_declarations, Arc::new(PreludeTypeMap::canonical_universe()))
+        Self::with_prelude(linked, known_declarations, PreludeTypeMap::shared_canonical_universe())
     }
 
     /// Constructs a resolver with an explicitly shared prelude map.
