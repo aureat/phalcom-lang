@@ -234,18 +234,30 @@ let e = Ordering::Equal
 let g = Ordering::Greater
 let u = Ordering::Unordered
 
-let check = fn(ord: Ordering) {
-    match ord {
-        Less => 1
-        Equal => 2
-        Greater => 3
-        Unordered => 4
-    }
+let res_l = match l {
+    Less => 1
+    Equal => 2
+    Greater => 3
+    Unordered => 4
 }
-let res_l = check(l)
-let res_e = check(e)
-let res_g = check(g)
-let res_u = check(u)
+let res_e = match e {
+    Less => 1
+    Equal => 2
+    Greater => 3
+    Unordered => 4
+}
+let res_g = match g {
+    Less => 1
+    Equal => 2
+    Greater => 3
+    Unordered => 4
+}
+let res_u = match u {
+    Less => 1
+    Equal => 2
+    Greater => 3
+    Unordered => 4
+}
 "#;
     let (vm, module) = run_inline(source).expect("Ordering matching should execute");
     assert_eq!(slot(&vm, module, "res_l"), Some(Value::int(1)));
@@ -253,4 +265,3 @@ let res_u = check(u)
     assert_eq!(slot(&vm, module, "res_g"), Some(Value::int(3)));
     assert_eq!(slot(&vm, module, "res_u"), Some(Value::int(4)));
 }
-

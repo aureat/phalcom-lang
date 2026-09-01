@@ -1203,16 +1203,27 @@ fn synthesize_bound_behavioral_invoke(
             let result = apply_resolved_callable(ctx, &target, &premise, arguments, expected, invoke.range);
             if let Some(result_type) = result.knowledge.ty() {
                 if let Some(expression) = ctx.current_expression_id() {
+                    let is_inherited_type_form = matches!(receiver.denotation, Some(SemanticDenotation::TypeForm(_)))
+                        && callable.owner.declaration() != &lookup_owner;
+                    let kind = if is_inherited_type_form {
+                        AssociatedResolutionKind::StaticInvoke {
+                            member: AssociatedMemberId::Variant(crate::identity::VariantId::new(lookup_owner.clone(), selector)),
+                            target: InvocationTargetId::Behavioral(callable),
+                            result_type,
+                        }
+                    } else {
+                        AssociatedResolutionKind::BoundBehavioralInvoke {
+                            target: InvocationTargetId::Behavioral(callable),
+                            result_type,
+                        }
+                    };
                     ctx.record_associated_resolution(
                         expression,
                         AssociatedResolution {
                             owner_form: receiver_type,
                             lookup_owner,
                             family: None,
-                            kind: AssociatedResolutionKind::BoundBehavioralInvoke {
-                                target: InvocationTargetId::Behavioral(callable),
-                                result_type,
-                            },
+                            kind,
                         },
                     );
                 }

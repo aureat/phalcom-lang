@@ -413,7 +413,7 @@ class Resource is Object {
   @internal @native _$isClosed -> Bool
   close {
     self._$close()
-    return Ok.new(None)
+    return Result::Ok(None)
   }
   isClosed { self._$isClosed }
 }

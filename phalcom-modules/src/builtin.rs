@@ -155,6 +155,11 @@ pub const UNIVERSE_NODES: &[BuiltinNodeSpec] = &[
         children: &[],
     },
     BuiltinNodeSpec {
+        path: &["option", "unit"],
+        kind: ModuleKind::Module,
+        children: &[],
+    },
+    BuiltinNodeSpec {
         path: &["concurrency"],
         kind: ModuleKind::Package,
         children: &["fiber"],
@@ -587,6 +592,9 @@ impl BuiltinProjectSourceProvider {
             (BuiltinPackage::Universe, [c]) if c.as_str() == "option" => include_str!("../../phalcom-core/core/universe/src/option/package.ph"),
             (BuiltinPackage::Universe, [c, m]) if c.as_str() == "option" && m.as_str() == "option" => {
                 include_str!("../../phalcom-core/core/universe/src/option/option.ph")
+            }
+            (BuiltinPackage::Universe, [c, m]) if c.as_str() == "option" && m.as_str() == "unit" => {
+                include_str!("../../phalcom-core/core/universe/src/option/unit.ph")
             }
             (BuiltinPackage::Universe, [c]) if c.as_str() == "collections" => include_str!("../../phalcom-core/core/universe/src/collections/package.ph"),
             (BuiltinPackage::Universe, [c, m]) if c.as_str() == "collections" && m.as_str() == "iterable" => {

@@ -14,7 +14,7 @@ class Function is Object {
   // …`) so the call-site selector encodes as `attempt()`, matching the
   // spec's `{ risky() }.attempt()` call form (error-handling.md §5) exactly.
   attempt() {
-    return || { Ok.new(self.call()) }.on(Error) |e| { Err.new(e) }
+    return || { Result::Ok(self.call()) }.on(Error) |e| { Result::Error(e) }
   }
 }
 

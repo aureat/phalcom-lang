@@ -54,7 +54,7 @@ class Range is Iterable {
     if (lower.isSome) {
       let coordinate = lower.unwrapOr(None)
       if (not self.isSliceCoordinate(coordinate)) {
-        return Err.new(SliceError.new("Range lower bound must be an integer coordinate"))
+        return Result::Error(SliceError.new("Range lower bound must be an integer coordinate"))
       }
       start = self.sliceBoundary(coordinate, size)
     }
@@ -62,7 +62,7 @@ class Range is Iterable {
     if (upper.isSome) {
       let coordinate = upper.unwrapOr(None)
       if (not self.isSliceCoordinate(coordinate)) {
-        return Err.new(SliceError.new("Range upper bound must be an integer coordinate"))
+        return Result::Error(SliceError.new("Range upper bound must be an integer coordinate"))
       }
       if (self._$upperInclusive) {
         end = self.sliceInclusiveEnd(coordinate, size)
@@ -70,7 +70,7 @@ class Range is Iterable {
         end = self.sliceBoundary(coordinate, size)
       }
     }
-    return Ok.new((start, end))
+    return Result::Ok((start, end))
   }
 
   // iterate and iteratorValue for forward integer iteration (E.2).

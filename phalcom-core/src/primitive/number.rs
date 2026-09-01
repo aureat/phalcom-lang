@@ -9,6 +9,9 @@ use num_traits::FromPrimitive;
 use num_traits::cast::ToPrimitive;
 use num_traits::identities::Zero;
 use num_traits::sign::Signed;
+use phalcom_ast::selector::Selector;
+use phalcom_semantic::core_surface::CoreDeclarationIds;
+use phalcom_semantic::identity::VariantId;
 
 pub const NUM_0: Value = Value::int(0);
 pub const NUM_1: Value = Value::int(1);
@@ -603,34 +606,26 @@ pub fn number_ge(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Valu
 }
 
 fn ordering_value(vm: &mut VM, selector: &str) -> PhResult<Value> {
-    let ordering_class = vm.semantic_roots.ordering_class;
-    let static_name = vm.interner.intern(&format!("_{selector}"));
-    let meta = vm.heap.class(ordering_class).class;
-    let static_slot = vm
-        .heap
-        .class(meta)
-        .field_slots
-        .get(&static_name)
-        .copied()
-        .ok_or_else(|| RuntimeError::Internal(format!("Ordering static field `{static_name:?}` unavailable")))?;
-    if let Some(value) = vm.heap.class(ordering_class).static_slots.get(static_slot as usize).copied()
-        && !value.is_nil()
+    let variant_name = match selector {
+        "less" => "Less",
+        "equal" => "Equal",
+        "greater" => "Greater",
+        "unordered" => "Unordered",
+        _ => return Err(RuntimeError::Internal(format!("unknown Ordering variant `{selector}`")).into()),
+    };
+    let variant = VariantId::new(CoreDeclarationIds::default().ordering, Selector::getter(variant_name).expect("valid Ordering variant selector"));
+    let runtime_variant = vm
+        .adt_registry
+        .variant_by_semantic(&variant)
+        .ok_or_else(|| RuntimeError::Internal(format!("Ordering variant `{variant_name}` unavailable")))?;
+    if let Some(value) = vm
+        .adt_registry
+        .variant_descriptor(runtime_variant)
+        .and_then(|descriptor| descriptor.singleton)
     {
         return Ok(value);
     }
-
-    let kind_slot = vm
-        .heap
-        .class(ordering_class)
-        .field_slots
-        .get(&vm.interner.intern("_kind"))
-        .copied()
-        .ok_or_else(|| RuntimeError::Internal("Ordering kind field unavailable".to_string()))?;
-    let mut instance = crate::heap::InstanceObject::new(ordering_class, vm.heap.class(ordering_class).field_count);
-    instance.slots[kind_slot as usize] = Value::symbol(vm.interner.intern(selector));
-    let value = Value::obj(vm.heap.alloc(crate::heap::Object::Instance(instance)));
-    vm.heap.class_mut(ordering_class).static_slots[static_slot as usize] = value;
-    Ok(value)
+    vm.construct_variant_value(runtime_variant, Vec::new()).map_err(Into::into)
 }
 
 /// Signature: `Number::<=> ( _)` — returns the canonical Ordering singleton.

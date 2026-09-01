@@ -556,17 +556,26 @@ pub fn query_hierarchy_edge(
         QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
     }
 
-    let Some(class_def) = class_definition_for(&unit, &class_decl) else {
+    let class_def = class_definition_for(&unit, &class_decl);
+    if class_def.is_none() && enum_definition_for(&unit, &class_decl).is_none() {
         return query_failure(db, key, format!("source declaration {class_decl:?} was not found in its parsed module"));
-    };
-    let super_decl = if let Some(super_ref) = class_def.superclass_ref() {
-        let members = super_ref.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
-        resolver.resolve_type_name(&class_decl.module, &super_ref.root, &members)
+    }
+    let super_decl = if let Some(class_def) = class_def {
+        if let Some(super_ref) = class_def.superclass_ref() {
+            let members = super_ref.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
+            resolver.resolve_type_name(&class_decl.module, &super_ref.root, &members)
+        } else {
+            let object = DeclarationId::new(ModuleId::core(), "Object".into());
+            (class_decl != object).then_some(object)
+        }
     } else {
-        let object = DeclarationId::new(ModuleId::core(), "Object".into());
-        (class_decl != object).then_some(object)
+        Some(DeclarationId::new(ModuleId::core(), "Object".into()))
     };
-    let input_fingerprint = crate::db::fingerprint::hierarchy_edge_input_fingerprint(&class_decl, superclass_source(&unit, class_def), &super_decl);
+    let input_fingerprint = if let Some(class_def) = class_def {
+        crate::db::fingerprint::hierarchy_edge_input_fingerprint(&class_decl, superclass_source(&unit, class_def), &super_decl)
+    } else {
+        crate::db::fingerprint::hierarchy_edge_input_fingerprint(&class_decl, Some("Object"), &super_decl)
+    };
 
     if db.validate_reuse(&key, input_fingerprint) {
         if let Some(product) = db.product(&key).and_then(|product| product.as_hierarchy_edge()) {
@@ -747,14 +756,19 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
         return query_failure(db, key, format!("declaration-surface query inputs do not belong to declaration {decl_id:?}"));
     }
 
-    let Some(class_def) = class_definition_for(&unit, &decl_id) else {
+    let class_def = class_definition_for(&unit, &decl_id);
+    if class_def.is_none() && enum_definition_for(&unit, &decl_id).is_none() {
         return query_failure(db, key, format!("source declaration {decl_id:?} was not found in its parsed module"));
-    };
+    }
 
     let Some(declaration_info) = declarations.get(&decl_id).cloned() else {
         return query_failure(db, key, format!("declaration metadata was not found for {decl_id:?}"));
     };
-    let input_fingerprint = crate::db::fingerprint::declaration_surface_source_input_fingerprint(&unit, &decl_id, class_def);
+    let input_fingerprint = if let Some(class_def) = class_def {
+        crate::db::fingerprint::declaration_surface_source_input_fingerprint(&unit, &decl_id, class_def)
+    } else {
+        crate::db::fingerprint::declaration_surface_enum_input_fingerprint(&unit, &decl_id, enum_definition_for(&unit, &decl_id).unwrap())
+    };
 
     match query_declaration_shell(db, Arc::new(declaration_info)) {
         QueryOutcome::Ready(_) => {}
@@ -787,7 +801,14 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
     // cache lookup misses. Body-only source edits therefore avoid this branch.
     let (computed_surface, computed_diagnostics, captured_dependencies) = {
         let mut context = crate::checker::context::CheckingContext::new(store, hierarchy, resolver, declarations, decl_id.module.clone());
-        crate::checker::declaration::register_class_surface(&mut context, class_def);
+        if let Some(class_def) = class_def {
+            crate::checker::declaration::register_class_surface(&mut context, class_def);
+        } else {
+            // Enum root surfaces are assembled by the enum semantic pass. This
+            // product anchors dependency readiness; body queries consume the
+            // already-published dispatch surface from the workspace session.
+            context.register_surface(decl_id.clone(), DeclarationSurface::new(Some(decl_id.clone())));
+        }
         let computed_surface = context.dispatch_ref().get_surface(&decl_id).cloned();
         let captured_dependencies = context.semantic_dependencies_snapshot();
         let diagnostics = Arc::<[crate::diagnostic::SemanticDiagnostic]>::from(context.diagnostics.into_boxed_slice());

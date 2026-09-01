@@ -224,6 +224,18 @@ pub fn declaration_surface_source_input_fingerprint(
     finish_input(hasher)
 }
 
+/// Computes source identity for an enum declaration-surface readiness product.
+pub fn declaration_surface_enum_input_fingerprint(
+    unit: &phalcom_modules::source::ParsedModuleUnit,
+    declaration: &DeclarationId,
+    enum_def: &phalcom_ast::ast::EnumDef,
+) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    declaration.hash(&mut hasher);
+    hash_optional_source_region(&unit.text, Some(enum_def.range), &mut hasher);
+    InputFingerprint::new(hasher.finish())
+}
+
 fn hash_import_path(path: &ImportPath, include_ranges: bool, hasher: &mut impl Hasher) {
     match &path.root {
         ImportRoot::Absolute(segment) => {

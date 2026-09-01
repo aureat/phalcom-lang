@@ -236,14 +236,78 @@ impl NativeSourceIndex {
         };
 
         for member in &enum_def.members {
-            if let phalcom_ast::ast::EnumMember::Behavior(b) = member {
-                let class_member = match b {
-                    phalcom_ast::ast::EnumBehaviorMember::Method(m) => ClassMember::Method(m.clone()),
-                    phalcom_ast::ast::EnumBehaviorMember::Getter(g) => ClassMember::Getter(g.clone()),
-                    phalcom_ast::ast::EnumBehaviorMember::Setter(s) => ClassMember::Setter(s.clone()),
-                    phalcom_ast::ast::EnumBehaviorMember::Index(i) => ClassMember::Index(i.clone()),
-                };
-                self.index_member(module, owner_key, &enum_def.name, &class_member)?;
+            match member {
+                phalcom_ast::ast::EnumMember::Behavior(b) => {
+                    let class_member = match b {
+                        phalcom_ast::ast::EnumBehaviorMember::Method(m) => ClassMember::Method(m.clone()),
+                        phalcom_ast::ast::EnumBehaviorMember::Getter(g) => ClassMember::Getter(g.clone()),
+                        phalcom_ast::ast::EnumBehaviorMember::Setter(s) => ClassMember::Setter(s.clone()),
+                        phalcom_ast::ast::EnumBehaviorMember::Index(i) => ClassMember::Index(i.clone()),
+                    };
+                    self.index_member(module, owner_key, &enum_def.name, &class_member)?;
+                }
+                phalcom_ast::ast::EnumMember::Variant(variant) => {
+                    if owner_key == UniverseKey::Option {
+                        if let Some(variant_key) = UniverseKey::from_name(&variant.name) {
+                            let row = UniverseClassRow {
+                                module: module.clone(),
+                                name: variant.name.clone(),
+                                range: variant.range,
+                                universe_key: Some(variant_key),
+                                native: has_native_attr,
+                                superclass: Some("Option".to_owned()),
+                                documented: false,
+                            };
+                            if self.presentations.insert(variant_key, row.clone()).is_some() {
+                                return Err(format!("duplicate universe variant presentation for {}", variant.name));
+                            }
+                            self.census.classes.push(row);
+                        }
+                    }
+                    // Native Option's payload variant has hidden runtime
+                    // constructor surfaces on its support class. They are
+                    // generated descriptors, so retain matching source anchors
+                    // even though constructors are implicit in enum syntax.
+                    let Some(variant_key) = UniverseKey::from_name(&variant.name) else {
+                        continue;
+                    };
+                    if !has_native_attr || variant.payload.is_none() {
+                        continue;
+                    }
+                    for selector in ["call(_)".to_owned(), "new(_)".to_owned()] {
+                        let key = NativeMemberKey {
+                            owner: variant_key,
+                            side: NativeDispatch::Class,
+                            selector: selector.clone(),
+                        };
+                        self.census.members.push(UniverseMemberRow {
+                            module: module.clone(),
+                            owner: Some(variant_key),
+                            class_name: variant.name.clone(),
+                            side: NativeDispatch::Class,
+                            selector: selector.clone(),
+                            native: true,
+                            internal: false,
+                            declaration_only: false,
+                            typed: true,
+                            documented: false,
+                            range: variant.range,
+                        });
+                        let anchor = NativeMemberAnchor {
+                            key: key.clone(),
+                            class_name: variant.name.clone(),
+                            side: NativeDispatch::Class,
+                            selector,
+                            visibility: NativeVisibility::Public,
+                            range: variant.range,
+                            is_declaration: false,
+                            typed: true,
+                        };
+                        if self.members.insert(key.clone(), anchor).is_some() {
+                            return Err(format!("duplicate implicit native variant anchor for {}", key.owner.name()));
+                        }
+                    }
+                }
             }
         }
 

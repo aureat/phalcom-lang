@@ -223,11 +223,11 @@ class Iterable<T> is Object {
     for entry in self {
       let key = entry.key
       if (result.includes(key)) {
-        return Err.new(DuplicateKeyError.new(key))
+        return Result::Error(DuplicateKeyError.new(key))
       }
       result.insert(entry.value, for: key)
     }
-    return Ok.new(result)
+    return Result::Ok(result)
   }
 
   toMap(merging block) {

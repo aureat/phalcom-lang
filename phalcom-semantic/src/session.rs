@@ -37,7 +37,7 @@ use crate::source_index::{SourceIndexContext, SourceSemanticIndex, build_source_
 use crate::types::annotation::{TypeResolver, resolve_generic_signature, resolve_kind_syntax};
 use crate::types::id::KindId;
 use crate::types::native::register_native_surfaces;
-use crate::types::parameter::TypeParameterOwner;
+use crate::types::parameter::{TypeParameterData, TypeParameterOwner};
 use crate::types::relation::MapTypeHierarchy;
 use crate::types::store::TypeStore;
 use crate::workspace::SemanticWorkspaceInput;
@@ -118,6 +118,11 @@ pub struct SemanticWorkspaceSession {
     base_dispatch: SurfaceDispatchResolver,
     base_callable_signatures: CallableSignatureTable,
     base_enum_semantics: EnumSemanticTable,
+    base_enum_products: Vec<Arc<crate::db::product::EnumDeclarationProduct>>,
+    base_associated_surfaces: AssociatedFamilyTable,
+    base_associated_surface_products: Vec<Arc<crate::associated::AssociatedSurface>>,
+    base_enum_requirements: EnumRequirementTable,
+    base_enum_requirement_products: Vec<(DeclarationId, Arc<crate::db::product::EnumRequirementsProduct>)>,
     sources: BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
     source_fingerprints: BTreeMap<ModuleId, u64>,
     last_snapshot: Option<Arc<SemanticSnapshot>>,
@@ -141,7 +146,7 @@ impl SemanticWorkspaceSession {
         let db = SemanticDb::with_workspace(workspace);
         let mut store = TypeStore::new();
 
-        let base_declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(ModuleId::core(), key.name().into()));
+        let mut base_declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(ModuleId::core(), key.name().into()));
 
         let mut base_hierarchy = MapTypeHierarchy::new();
         for relation in phalcom_native_meta::UNIVERSE_CLASS_RELATIONS {
@@ -177,7 +182,76 @@ impl SemanticWorkspaceSession {
         }
 
         let mut base_enum_semantics = EnumSemanticTable::new();
+        let mut base_enum_products = Vec::new();
+        let mut base_associated_surfaces = AssociatedFamilyTable::new();
+        let mut base_associated_surface_products = Vec::new();
+        let mut base_enum_requirements = EnumRequirementTable::new();
+        let mut base_enum_requirement_products = Vec::new();
+
         let provider = phalcom_modules::BuiltinProjectSourceProvider::new(phalcom_modules::BuiltinPackage::Universe);
+
+        // Canonical source enums are not native-meta classes. Add their
+        // declaration forms before constructing the linked resolver so
+        // source users can resolve `Result` and `Ordering` through the same
+        // core identity path as native declarations. `Option` already has a
+        // native declaration form and keeps that canonical generic identity.
+        for node in provider.nodes() {
+            let path = phalcom_modules::ModulePath::from_components(
+                node.path
+                    .iter()
+                    .map(|p| phalcom_modules::ModuleComponent::from_identifier(p).expect("valid component"))
+                    .collect::<Vec<_>>(),
+            );
+            let module_id = phalcom_modules::ModuleId::builtin(phalcom_modules::BuiltinPackage::Universe, path);
+            let parsed = provider
+                .load_parsed(&module_id)
+                .unwrap_or_else(|e| panic!("failed to load universe module {module_id}: {e}"));
+            for stmt in &parsed.program.statements {
+                let phalcom_ast::ast::Statement::Enum(enum_def) = stmt else {
+                    continue;
+                };
+                let decl_id = DeclarationId::new(ModuleId::core(), enum_def.name.clone().into());
+                if base_declarations.get(&decl_id).is_some() {
+                    continue;
+                }
+
+                let mut parameter_ids = Vec::new();
+                let mut parameter_kinds = Vec::new();
+                for (index, parameter) in enum_def.generic_parameters.iter().enumerate() {
+                    let kind = parameter.kind.as_ref().map_or(KindId::TYPE, |syntax| resolve_kind_syntax(&mut store, syntax));
+                    let parameter_id = store.intern_type_parameter(TypeParameterData::new(
+                        TypeParameterOwner::Declaration(decl_id.clone()),
+                        index as u32,
+                        parameter.name.clone(),
+                        kind,
+                    ));
+                    parameter_ids.push(parameter_id);
+                    parameter_kinds.push(kind);
+                }
+
+                let (form, kind, generic_signature) = if parameter_ids.is_empty() {
+                    (store.nominal_type(decl_id.clone()), KindId::TYPE, None)
+                } else {
+                    let kind = store.arrow_kind(parameter_kinds.into_boxed_slice(), KindId::TYPE);
+                    let form = store.nominal_form(decl_id.clone(), kind);
+                    let signature = crate::types::parameter::GenericSignature::new(
+                        TypeParameterOwner::Declaration(decl_id.clone()),
+                        parameter_ids.into_boxed_slice(),
+                    );
+                    (form, kind, Some(signature))
+                };
+
+                base_declarations.insert(DeclarationTypeInfo {
+                    declaration: decl_id.clone(),
+                    form,
+                    class_object_type: store.class_object_type(decl_id),
+                    kind,
+                    generic_signature,
+                    supertype_template: None,
+                });
+            }
+        }
+
         for node in provider.nodes() {
             let path = phalcom_modules::ModulePath::from_components(
                 node.path
@@ -204,6 +278,106 @@ impl SemanticWorkspaceSession {
                     for v in enum_product.variants.iter() {
                         base_enum_semantics.insert_variant(Arc::new(v.clone()));
                     }
+                    base_enum_products.push(Arc::new(enum_product));
+
+                    let mut behavior_ctx = crate::checker::CheckingContext::new_with_dispatch_ref(
+                        &mut store,
+                        &base_hierarchy,
+                        &resolver,
+                        &base_declarations,
+                        &base_dispatch,
+                        ModuleId::core(),
+                    );
+                    behavior_ctx.attach_enum_semantics(&base_enum_semantics);
+                    let behavior_product = crate::checker::enum_behavior::build_enum_behavior(&mut behavior_ctx, &decl_id, enum_def);
+
+                    let mut surface = base_dispatch.surface(&decl_id).cloned().unwrap_or_default();
+                    for default_sig in behavior_product.root_defaults.iter() {
+                        base_callable_signatures.insert(default_sig.clone());
+                        let projection = crate::checker::declaration_signature::project_semantic_signature(default_sig);
+                        surface.add_callable(default_sig.side, projection);
+                    }
+                    base_dispatch.register_surface(decl_id.clone(), surface);
+                    if let Some(ty) = base_declarations.form(&decl_id) {
+                        base_dispatch.register_type(ty, decl_id.clone());
+                    }
+
+                    for case_sigs in behavior_product.case_implementations.values() {
+                        for case_sig in case_sigs.iter() {
+                            base_callable_signatures.insert(case_sig.clone());
+                        }
+                    }
+
+                    let behavior_bases: std::collections::HashSet<phalcom_common::selector::SelectorBase> = enum_def
+                        .members
+                        .iter()
+                        .filter_map(|m| match m {
+                            phalcom_ast::ast::EnumMember::Behavior(b) => {
+                                let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(b);
+                                Some(syntax.selector_base())
+                            }
+                            _ => None,
+                        })
+                        .collect();
+
+                    let (assoc_surface, _assoc_diags) = build_associated_surface(
+                        &decl_id,
+                        Some(
+                            &enum_def
+                                .members
+                                .iter()
+                                .filter_map(|m| match m {
+                                    phalcom_ast::ast::EnumMember::Variant(v) => {
+                                        let sel = phalcom_ast::selector::selector_from_variant(v);
+                                        Some(crate::identity::VariantId::new(decl_id.clone(), sel))
+                                    }
+                                    _ => None,
+                                })
+                                .collect::<Vec<_>>(),
+                        ),
+                        &behavior_bases,
+                        &std::collections::HashSet::new(),
+                        &ModuleId::core(),
+                        Some(crate::diagnostic::SemanticSourceSpan::new(ModuleId::core(), enum_def.range)),
+                    );
+                    base_associated_surfaces.insert(decl_id.clone(), assoc_surface.clone());
+                    base_associated_surface_products.push(assoc_surface);
+
+                    let variants_info: Vec<VariantInfo> = enum_def
+                        .members
+                        .iter()
+                        .filter_map(|m| match m {
+                            phalcom_ast::ast::EnumMember::Variant(v) => {
+                                let sel = phalcom_ast::selector::selector_from_variant(v);
+                                let vid = crate::identity::VariantId::new(decl_id.clone(), sel);
+                                base_enum_semantics.variant_info(&vid).cloned()
+                            }
+                            _ => None,
+                        })
+                        .collect();
+
+                    let mut case_methods_map: HashMap<crate::identity::VariantId, Vec<crate::signature::CallableSemanticSignature>> = HashMap::new();
+                    for (v_id, sigs) in &behavior_product.case_implementations {
+                        case_methods_map.insert(v_id.clone(), sigs.to_vec());
+                    }
+
+                    let (case_statuses, req_diags) = check_enum_requirements(
+                        &decl_id,
+                        base_enum_semantics.enum_info(&decl_id).unwrap(),
+                        &variants_info,
+                        &behavior_product.root_requirements,
+                        &case_methods_map,
+                        &mut store,
+                        &base_hierarchy,
+                        &ModuleId::core(),
+                    );
+                    base_enum_requirements.insert(decl_id.clone(), Arc::from(behavior_product.root_requirements.clone()), case_statuses.clone());
+                    let req_product = Arc::new(EnumRequirementsProduct {
+                        requirements: Arc::from(behavior_product.root_requirements),
+                        case_statuses,
+                        diagnostics: req_diags,
+                    });
+                    base_enum_requirement_products.push((decl_id, req_product));
                 }
             }
         }
@@ -218,6 +392,11 @@ impl SemanticWorkspaceSession {
             base_dispatch,
             base_callable_signatures,
             base_enum_semantics,
+            base_enum_products,
+            base_associated_surfaces,
+            base_associated_surface_products,
+            base_enum_requirements,
+            base_enum_requirement_products,
             sources: BTreeMap::new(),
             source_fingerprints: BTreeMap::new(),
             last_snapshot: None,
@@ -711,6 +890,18 @@ impl SemanticWorkspaceSession {
                             super_ref.range,
                         ));
                     }
+                } else if let Statement::Enum(enum_def) = stmt {
+                    let enum_decl = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
+                    let edge = match query_hierarchy_edge(&mut self.db, enum_decl.clone(), parsed_unit.clone(), linked_interface.clone(), &resolver) {
+                        QueryOutcome::Ready(edge) => edge,
+                        QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                        QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                        QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                        QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                    };
+                    if let Some(super_decl) = &edge.super_decl {
+                        hierarchy.insert(enum_decl, super_decl.clone());
+                    }
                 }
             }
         }
@@ -811,8 +1002,18 @@ impl SemanticWorkspaceSession {
 
         // 6b. Compile and publish enum declarations, associated surfaces, and closed-enum requirements.
         let mut enum_semantics = self.base_enum_semantics.clone();
-        let mut enum_requirements_table = EnumRequirementTable::new();
-        let mut associated_surfaces_table = AssociatedFamilyTable::new();
+        let mut enum_requirements_table = self.base_enum_requirements.clone();
+        let mut associated_surfaces_table = self.base_associated_surfaces.clone();
+
+        for base_prod in &self.base_enum_products {
+            let _ = query_enum_declaration(&mut self.db, base_prod.clone());
+        }
+        for base_assoc in &self.base_associated_surface_products {
+            let _ = query_associated_surface(&mut self.db, base_assoc.clone());
+        }
+        for (decl_id, base_req) in &self.base_enum_requirement_products {
+            let _ = query_enum_requirements(&mut self.db, decl_id.clone(), base_req.clone());
+        }
 
         for (module_id, parsed_unit) in &input.sources {
             for stmt in &parsed_unit.program.statements {
@@ -855,6 +1056,27 @@ impl SemanticWorkspaceSession {
                 dispatch.register_surface(decl_id.clone(), surface);
                 if let Some(ty) = declarations.form(&decl_id) {
                     dispatch.register_type(ty, decl_id.clone());
+                }
+                let Some(linked_module) = input.linked.modules.get(module_id) else {
+                    return Err(QueryOutcome::Failed(format!("linked module prerequisite is missing for enum {decl_id:?}")));
+                };
+                match query_declaration_surface(
+                    &mut self.db,
+                    DeclarationSurfaceQuery {
+                        decl_id: decl_id.clone(),
+                        unit: parsed_unit.clone(),
+                        linked_interface: Arc::new(linked_module.interface.clone()),
+                        store: &mut self.store,
+                        hierarchy: &hierarchy,
+                        resolver: &resolver,
+                        declarations: &declarations,
+                    },
+                ) {
+                    QueryOutcome::Ready(_) => {}
+                    QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                    QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                    QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                    QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
                 }
 
                 // Publish case implementations to callable_signatures
@@ -1235,7 +1457,9 @@ impl SemanticWorkspaceSession {
                                         QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
                                         QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
                                         QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
-                                        QueryOutcome::Failed(err) => return Err(QueryOutcome::Failed(err)),
+                                        QueryOutcome::Failed(err) => {
+                                            return Err(QueryOutcome::Failed(err));
+                                        }
                                     }
                                 }
                             }

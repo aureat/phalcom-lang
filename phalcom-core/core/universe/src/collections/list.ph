@@ -111,11 +111,11 @@ class List<T> is Iterable {
     let p = index
     if (p < 0) { p = n + p }
     if (p < 0 or p > n) {
-      return Err.new(IndexError.new("List#insert: index out of bounds"))
+      return Result::Error(IndexError.new("List#insert: index out of bounds"))
     }
     let oneElementList = [value]
     self._$replaceSlice(p, p, oneElementList)
-    return Ok.new(())
+    return Result::Ok(())
   }
 
   remove(at index) {
@@ -123,12 +123,12 @@ class List<T> is Iterable {
     let p = index
     if (p < 0) { p = n + p }
     if (p < 0 or p >= n) {
-      return Err.new(IndexError.new("List#remove: index out of bounds"))
+      return Result::Error(IndexError.new("List#remove: index out of bounds"))
     }
     let captured = self._$at(p)
     let emptyList = []
     self._$replaceSlice(p, p + 1, emptyList)
-    return Ok.new(captured)
+    return Result::Ok(captured)
   }
 
   popFirst {
@@ -168,21 +168,21 @@ class List<T> is Iterable {
     let idxA = a
     if (idxA < 0) { idxA = n + idxA }
     if (idxA < 0 or idxA >= n) {
-      return Err.new(IndexError.new("List#swap: first index out of bounds"))
+      return Result::Error(IndexError.new("List#swap: first index out of bounds"))
     }
     let idxB = b
     if (idxB < 0) { idxB = n + idxB }
     if (idxB < 0 or idxB >= n) {
-      return Err.new(IndexError.new("List#swap: second index out of bounds"))
+      return Result::Error(IndexError.new("List#swap: second index out of bounds"))
     }
     if (idxA == idxB) {
-      return Ok.new(())
+      return Result::Ok(())
     }
     let valA = self._$at(idxA)
     let valB = self._$at(idxB)
     self._$set(idxA, valB)
     self._$set(idxB, valA)
-    return Ok.new(())
+    return Result::Ok(())
   }
 
   // U-STD item 4 (U-ITER-FIX plan §"Not in this unit", DEC-ITER-A resolved):
@@ -216,10 +216,10 @@ class List<T> is Iterable {
   // Iterable replacement waits for Spec E's boundedness and re-entrancy rules.
   replace(_ range, with replacements) {
     if (not range.is(Range)) {
-      return Err.new(SliceError.new("List#replace: first argument must be a Range"))
+      return Result::Error(SliceError.new("List#replace: first argument must be a Range"))
     }
     if (not replacements.is(List)) {
-      return Err.new(SliceError.new("List#replace: replacement must be a List"))
+      return Result::Error(SliceError.new("List#replace: replacement must be a List"))
     }
     return range._$sliceBounds(self.size).match(
       ok: |bounds| {
@@ -227,9 +227,9 @@ class List<T> is Iterable {
         let end = bounds[1]
         if (start > end) { end = start }
         self._$replaceSlice(start, end, replacements)
-        Ok.new(())
+        Result::Ok(())
       },
-      err: |error| { Err.new(error) }
+      err: |error| { Result::Error(error) }
     )
   }
 
