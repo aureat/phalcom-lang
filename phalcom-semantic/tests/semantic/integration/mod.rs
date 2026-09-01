@@ -12,6 +12,7 @@ mod imported_resolution;
 mod metadata;
 mod native_conformance;
 mod native_enum_extraction;
+mod option_typing;
 mod parameter_identity;
 mod prelude;
 mod presentation;
