@@ -34,6 +34,15 @@ default-members = [
     "phalcom-type-meta",
 ]
 
+[profile.dev]
+debug = "line-tables-only"
+strip = "debuginfo"
+incremental = true
+
+[profile.dev.package."*"]
+debug = false
+opt-level = 3
+
 [profile.test]
 # Preserve line-level panic locations while reducing debug-info generation and
 # test-binary link work. Incremental artifacts are essential to edit-test loops.

@@ -1,7 +1,12 @@
 [build]
 # macOS frontend stability: `-Zthreads=8` repeatedly hangs fresh builds here.
 # Two workers complete reliably; retain until a newer pinned nightly proves safe.
-rustflags = ["-Zthreads=2", "-C", "target-cpu=native"]
+rustflags = ["-Zthreads=8", "-C", "target-cpu=native"]
+rustc-wrapper = "sccache"
+jobs = 8
+
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
 
 [env]
 # core.ph bootstrap and compiler-deopt tests exceed macOS's default Rust test
