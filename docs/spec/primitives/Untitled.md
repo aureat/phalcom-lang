@@ -1,5 +1,13 @@
-## Backlog
+I'll organize later
 
-#### Result Type
+### Types
 
-- [ ] Result should be implemented
+- `User?` => `Option<User>`
+-
+
+### Language
+
+- `<:` `>:`
+- `<~>`
+- `as`, `as?`
+-
