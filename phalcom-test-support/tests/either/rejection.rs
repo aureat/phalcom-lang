@@ -74,7 +74,10 @@ fn assert_probe_call_invalid_not_dynamic(f: &Fixture, needle: &str) {
     let run = f.callable("Probe", "run", DispatchSide::Class);
     let call = f.expression_containing(run, needle);
     assert!(matches!(call.status, AnalysisStatus::Invalid(_)), "{call:#?}");
-    assert!(!matches!(call.knowledge, TypeKnowledge::Dynamic(_)), "conflict must not escape through Dynamic: {call:#?}");
+    assert!(
+        !matches!(call.knowledge, TypeKnowledge::Dynamic(_)),
+        "conflict must not escape through Dynamic: {call:#?}"
+    );
 }
 
 fn assert_has_probe_generic_or_binding_conflict(f: &Fixture, probe_start: usize) {
