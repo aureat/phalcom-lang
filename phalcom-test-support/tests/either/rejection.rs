@@ -65,5 +65,9 @@ fn assert_has_generic_or_binding_conflict(f: &Fixture) {
     let has = !f.diagnostics(DiagnosticCode::GenericInferenceConflict).is_empty()
         || !f.diagnostics(DiagnosticCode::BindingInitializerMismatch).is_empty()
         || !f.diagnostics(DiagnosticCode::GenericConstraintUnsatisfied).is_empty();
-    assert!(has, "expected generic/binding conflict, got diagnostics: {:#?}", f.analysis.snapshot.all_diagnostics().collect::<Vec<_>>());
+    assert!(
+        has,
+        "expected generic/binding conflict, got diagnostics: {:#?}",
+        f.analysis.snapshot.all_diagnostics().collect::<Vec<_>>()
+    );
 }
