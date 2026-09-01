@@ -1,13 +1,11 @@
 //! Linked project-aware type resolver.
 
-use crate::core_surface::universe_declaration;
 use crate::identity::{DeclarationId, ModuleId};
+use crate::prelude::PreludeTypeMap;
 use crate::types::annotation::TypeResolver;
 use phalcom_modules::linker::{LinkedProgram, LinkedReadSpec};
-use phalcom_native_meta::UniverseKey;
-use std::collections::HashSet;
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 /// A project-aware type resolver that resolves type names through the linker layout
@@ -16,18 +14,38 @@ use std::sync::Arc;
 pub struct LinkedTypeResolver {
     linked: Arc<LinkedProgram>,
     known_declarations: HashSet<DeclarationId>,
-    prelude_module: ModuleId,
+    prelude_types: Arc<PreludeTypeMap>,
     alias_forms: RefCell<BTreeMap<DeclarationId, crate::types::id::TypeId>>,
 }
 
 impl LinkedTypeResolver {
-    pub fn new(linked: Arc<LinkedProgram>, known_declarations: HashSet<DeclarationId>, prelude_module: ModuleId) -> Self {
+    /// Constructs a resolver with the canonical source-backed Universe prelude.
+    ///
+    /// The third parameter is retained temporarily for source compatibility
+    /// with session/bootstrap call sites that historically supplied a fake
+    /// prelude module. It is deliberately ignored: prelude identity is now
+    /// represented by `PreludeTypeMap`, never by synthetic declarations in a
+    /// chosen module.
+    pub fn new(linked: Arc<LinkedProgram>, known_declarations: HashSet<DeclarationId>, _legacy_prelude_module: ModuleId) -> Self {
+        Self::with_prelude(linked, known_declarations, Arc::new(PreludeTypeMap::canonical_universe()))
+    }
+
+    /// Constructs a resolver with an explicitly shared prelude map.
+    pub fn with_prelude(
+        linked: Arc<LinkedProgram>,
+        known_declarations: HashSet<DeclarationId>,
+        prelude_types: Arc<PreludeTypeMap>,
+    ) -> Self {
         Self {
             linked,
             known_declarations,
-            prelude_module,
+            prelude_types,
             alias_forms: RefCell::new(BTreeMap::new()),
         }
+    }
+
+    pub fn prelude_types(&self) -> &Arc<PreludeTypeMap> {
+        &self.prelude_types
     }
 
     pub fn insert_alias_form(&self, declaration: DeclarationId, form: crate::types::id::TypeId) {
@@ -42,13 +60,13 @@ impl TypeResolver for LinkedTypeResolver {
 
     fn resolve_type_name(&self, current_module: &ModuleId, root: &str, members: &[String]) -> Option<DeclarationId> {
         if members.is_empty() {
-            // 1. Local declaration in current_module
+            // 1. Local declaration in current_module.
             let local_decl = DeclarationId::new(current_module.clone(), root.into());
             if self.known_declarations.contains(&local_decl) {
                 return Some(local_decl);
             }
 
-            // 2. Selective import binding in current_module
+            // 2. Selective import binding in current_module.
             if let Some(linked_mod) = self.linked.modules.get(current_module) {
                 if let Some(&import_id) = linked_mod.bindings.imports.get::<str>(root) {
                     if let Some(LinkedReadSpec::Binding(sym)) = linked_mod.linked_reads.get(import_id.0 as usize) {
@@ -60,7 +78,7 @@ impl TypeResolver for LinkedTypeResolver {
                 }
             }
 
-            // 3. Re-export in current_module
+            // 3. Re-export/current linked namespace.
             if let Some(linked_mod) = self.linked.modules.get(current_module) {
                 if let Some(export) = linked_mod.interface.exports.get::<str>(root) {
                     match &export.target {
@@ -75,24 +93,20 @@ impl TypeResolver for LinkedTypeResolver {
                 }
             }
 
-            // 4. Builtin / prelude declaration
-            let prelude_decl = DeclarationId::new(self.prelude_module.clone(), root.into());
-            if self.known_declarations.contains(&prelude_decl) {
-                return Some(prelude_decl);
-            }
-
-            // Canonical Universe declarations are owned by their source modules,
-            // while their names remain available as prelude type names.
-            if let Some(key) = UniverseKey::from_name(root) {
-                let universe_decl = universe_declaration(key);
-                if self.known_declarations.contains(&universe_decl) {
-                    return Some(universe_decl);
+            // 4. Canonical prelude declaration. The map contains only names
+            // explicitly admitted by prelude policy and points at their real
+            // source-owned DeclarationId.
+            if let Some(decl) = self.prelude_types.get(root) {
+                if self.known_declarations.contains(decl) {
+                    return Some(decl.clone());
                 }
             }
 
             None
         } else {
-            // Qualified path: e.g. root is a module alias in current_module
+            // Qualified path: e.g. root is a module alias in current_module.
+            // Deep traversal is intentionally left to the resolver/match
+            // identity slice; this path must not influence bare prelude lookup.
             if let Some(linked_mod) = self.linked.modules.get(current_module) {
                 if let Some(&import_id) = linked_mod.bindings.imports.get::<str>(root) {
                     if let Some(LinkedReadSpec::Module(target_mod)) = linked_mod.linked_reads.get(import_id.0 as usize) {
