@@ -38,7 +38,7 @@ enum Option<T> {
   /// @param none A zero-argument callback invoked when this option is `None`.
   /// @returns The value returned by the invoked callback.
   @native
-  match<R>(some: (value: T) -> R, none: () -> R) -> R
+  match<R>(some: (T) -> R, none: () -> R) -> R
 
   /// Performs an action when this option is `None`.
   ///
@@ -109,7 +109,7 @@ enum Option<T> {
   /// @param f A one-argument callback that transforms the wrapped value.
   /// @returns `Some` containing the transformed value when this option is
   /// `Some`; otherwise `None`.
-  map<U>(_ f: (value: T) -> U) -> Option<U> {
+  map<U>(_ f: (T) -> U) -> Option<U> {
     match(
       some: |v| Option::Some(f.call(v)),
       none: || self
@@ -130,7 +130,7 @@ enum Option<T> {
   /// returns an option.
   /// @returns The option returned by `f` when this option is `Some`; otherwise
   /// `None`.
-  flatMap<U>(_ f: (value: T) -> Option<U>) -> Option<U> {
+  flatMap<U>(_ f: (T) -> Option<U>) -> Option<U> {
     match(
       some: |v| f.call(v),
       none: || self
@@ -149,7 +149,7 @@ enum Option<T> {
   /// @param pred A one-argument predicate evaluated for a contained value.
   /// @returns This option when it is `None` or when the predicate succeeds;
   /// otherwise `None`.
-  filter(_ pred: (value: T) -> Bool) -> Option<T> {
+  filter(_ pred: (T) -> Bool) -> Option<T> {
     match(
       some: |v| {
         if (pred.call(v)) {
@@ -175,7 +175,7 @@ enum Option<T> {
   /// @param f A one-argument callback invoked with the wrapped value when this
   /// option is `Some`.
   /// @returns This option unchanged.
-  ifSome(_ f: (value: T) -> Unit) -> Option<T> {
+  ifSome(_ f: (T) -> Unit) -> Option<T> {
     match(
       some: |v| {
         f.call(v)
