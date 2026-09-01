@@ -9,8 +9,8 @@ use crate::types::store::TypeStore;
 use phalcom_ast::ast::{GenericParameterSyntax, Statement};
 use phalcom_modules::{ModuleComponent, ModuleId, ModulePath, UniverseSourceProvider};
 use phalcom_native_meta::types::KindSpec;
-use phalcom_native_meta::universe::{UniverseBindingKind, UniverseKey, UNIVERSE_BINDINGS};
-use std::collections::HashMap;
+use phalcom_native_meta::universe::{UNIVERSE_BINDINGS, UniverseBindingKind, UniverseKey};
+use std::collections::{HashMap, HashSet};
 
 /// Generic supertype template: records static generic supertype (e.g. `Names<T> is Sequence<Option<T>>`).
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -179,12 +179,7 @@ fn source_parameter_kind(store: &mut TypeStore, parameter: &GenericParameterSynt
     }
 }
 
-fn insert_source_nominal(
-    table: &mut DeclarationTypeTable,
-    store: &mut TypeStore,
-    declaration: DeclarationId,
-    parameters: &[GenericParameterSyntax],
-) {
+fn insert_source_nominal(table: &mut DeclarationTypeTable, store: &mut TypeStore, declaration: DeclarationId, parameters: &[GenericParameterSyntax]) {
     let mut parameter_ids = Vec::with_capacity(parameters.len());
     let mut parameter_kinds = Vec::with_capacity(parameters.len());
 
@@ -219,15 +214,24 @@ fn insert_source_nominal(
     });
 }
 
+fn source_declaration_identity(module: &ModuleId, name: &str, universe_resolver: &dyn Fn(UniverseKey) -> DeclarationId) -> DeclarationId {
+    if let Some(key) = UniverseKey::from_name(name) {
+        if source_module_id(key.source_path()) == *module {
+            return universe_resolver(key);
+        }
+    }
+    DeclarationId::new(module.clone(), name.into())
+}
+
 /// Bootstraps canonical declaration type forms from authoritative Universe source.
 ///
-/// Native metadata may describe runtime attachment and native call surfaces, but it
-/// must not manufacture ordinary source-semantic declarations. Runtime-support-only
-/// classes such as Option case behavior classes therefore remain absent here unless
-/// a real top-level source declaration exists for the same canonical identity.
+/// Source owns declaration existence and generic shape. `universe_resolver` remains
+/// an identity-injection seam for isolated tests; production passes the canonical
+/// source-aware resolver. Native metadata is attachment/conformance data only.
 pub fn bootstrap_universe_declarations(store: &mut TypeStore, universe_resolver: &dyn Fn(UniverseKey) -> DeclarationId) -> DeclarationTypeTable {
     let provider = UniverseSourceProvider::new();
     let mut table = DeclarationTypeTable::new();
+    let mut source_nominals = HashSet::<(ModuleId, String)>::new();
 
     for node in provider.nodes() {
         let module = source_module_id(node.path);
@@ -238,11 +242,13 @@ pub fn bootstrap_universe_declarations(store: &mut TypeStore, universe_resolver:
         for statement in &parsed.program.statements {
             match statement {
                 Statement::Class(class_def) => {
-                    let declaration = DeclarationId::new(module.clone(), class_def.name.clone().into());
+                    source_nominals.insert((module.clone(), class_def.name.clone()));
+                    let declaration = source_declaration_identity(&module, &class_def.name, universe_resolver);
                     insert_source_nominal(&mut table, store, declaration, &class_def.generic_parameters);
                 }
                 Statement::Enum(enum_def) => {
-                    let declaration = DeclarationId::new(module.clone(), enum_def.name.clone().into());
+                    source_nominals.insert((module.clone(), enum_def.name.clone()));
+                    let declaration = source_declaration_identity(&module, &enum_def.name, universe_resolver);
                     insert_source_nominal(&mut table, store, declaration, &enum_def.generic_parameters);
                 }
                 _ => {}
@@ -250,25 +256,18 @@ pub fn bootstrap_universe_declarations(store: &mut TypeStore, universe_resolver:
         }
     }
 
-    // Native metadata is an attachment contract. For every ordinary native binding,
-    // its declared canonical identity must point at a source-owned declaration.
-    // Runtime-support rows are allowed to have no source declaration; if a source
-    // declaration does exist (for example Unit), source still owns the semantic shell.
+    // Ordinary native rows must attach to real source declarations. Runtime-support
+    // rows may be source-less; when a real declaration exists (for example Unit),
+    // the source scan above still creates its semantic shell.
     for binding in UNIVERSE_BINDINGS {
-        let native_identity = universe_resolver(binding.key);
-        let source_identity = DeclarationId::new(source_module_id(binding.key.source_path()), binding.key.name().into());
-        assert_eq!(
-            native_identity, source_identity,
-            "native Universe key {:?} resolved to a declaration owner different from canonical source",
-            binding.key
-        );
-
         if binding.kind == UniverseBindingKind::Class {
+            let source_owner = source_module_id(binding.key.source_path());
             assert!(
-                table.get(&source_identity).is_some(),
-                "ordinary native Universe binding {:?} has no canonical source declaration at {}",
+                source_nominals.contains(&(source_owner.clone(), binding.key.name().to_string())),
+                "ordinary native Universe binding {:?} has no canonical source declaration at {}::{}",
                 binding.key,
-                source_identity
+                source_owner,
+                binding.key.name()
             );
         }
     }
