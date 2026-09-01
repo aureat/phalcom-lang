@@ -338,7 +338,7 @@ impl WorkspaceScanState {
             let Some(path) = self.pending_files.pop_front() else {
                 break;
             };
-            // Skip selected physical core path — registered under CORE_MODULE_URI separately.
+            // Skip selected physical core path; canonical Universe sources are indexed by provider.
             let canonical_path = path.canonicalize().unwrap_or_else(|_| path.clone());
             if self.core_physical_path.as_deref().is_some_and(|cp| cp == canonical_path.as_path()) {
                 continue;

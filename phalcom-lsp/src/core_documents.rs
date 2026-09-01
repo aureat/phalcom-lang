@@ -7,9 +7,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tower_lsp::lsp_types::Url;
 
-/// Stable URI used for the canonical virtual core module.
-pub const CORE_MODULE_URI: &str = "phalcom://core";
-
 /// Source location and text selected for core transport.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CoreSource {
@@ -51,13 +48,6 @@ impl CoreSource {
         } else {
             Self::Workspace { physical_uri, text }
         })
-    }
-
-    /// Returns selected source text.
-    pub fn text(&self) -> &str {
-        match self {
-            Self::Configured { text, .. } | Self::Workspace { text, .. } | Self::Bundled { text } => text,
-        }
     }
 
     /// Returns physical URI when selected source came from disk.

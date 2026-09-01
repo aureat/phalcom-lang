@@ -194,19 +194,20 @@ fn combined_diagnostics_for(
 }
 
 fn compiler_module_for_uri<'a>(compiler: &'a phalcom_semantic::SemanticSnapshot, uri: &Url) -> Option<&'a phalcom_modules::ModuleId> {
-    if uri.as_str() == crate::core_documents::CORE_MODULE_URI {
-        return compiler.sources.keys().find(|module| **module == phalcom_modules::ModuleId::universe_root());
-    }
     if let Ok(path) = uri.to_file_path() {
         return compiler.module_for_display_path(&path);
     }
     let module = crate::analysis_service::builtin_module_from_uri(uri)?;
-    compiler.sources.keys().find(|candidate| **candidate == module)
+    compiler
+        .sources
+        .keys()
+        .find(|candidate| **candidate == module)
+        .or_else(|| compiler.presentation_sources.keys().find(|candidate| **candidate == module))
 }
 
 fn compiler_uri_for_module(compiler: &phalcom_semantic::SemanticSnapshot, module: &phalcom_modules::ModuleId) -> Option<Url> {
-    if *module == phalcom_modules::ModuleId::universe_root() {
-        return Url::parse(crate::core_documents::CORE_MODULE_URI).ok();
+    if let Some(raw) = phalcom_modules::universe_module_uri(module) {
+        return Url::parse(&raw).ok();
     }
     let source = compiler.sources.get(module)?.source.as_ref()?;
     Url::from_file_path(&source.display_path)
@@ -430,29 +431,6 @@ impl Backend {
     pub async fn source_text(&self, params: SourceTextParams) -> Result<Option<String>> {
         if let Some(text) = virtual_source_text(&params.uri) {
             return Ok(Some(text));
-        }
-
-        if params.uri.as_str() == crate::core_documents::CORE_MODULE_URI {
-            if let Some(snapshot) = self.analysis.snapshot()
-                && let Some(text) = snapshot.presentation_source(&phalcom_modules::ModuleId::universe_root())
-            {
-                return Ok(Some(text.to_string()));
-            }
-
-            // Before the first semantic publication, retain the transport-only
-            // fallback so an editor can still open the configured/bundled core
-            // document. Once a snapshot exists, its presentation text is the
-            // source of truth for every semantic range into `phalcom://core`.
-            let config = self.config.read().expect("server config lock poisoned").clone();
-            let roots = self
-                .workspace_roots
-                .read()
-                .expect("workspace root lock poisoned")
-                .iter()
-                .filter_map(|uri| uri.to_file_path().ok())
-                .collect::<Vec<_>>();
-            let source = crate::core_documents::CoreSource::select(config.sysroot_path.as_deref(), &roots);
-            return Ok(Some(source.text().to_string()));
         }
 
         if let Some(document) = self.documents.snapshot(&params.uri) {
@@ -877,22 +855,6 @@ impl Backend {
             let parse_result = phalcom_ast::parser::parse(&text, 0);
             let line_index = LineIndex::new(&text);
             return Some(f(&text, &parse_result.program, &line_index));
-        }
-
-        if uri.as_str() == crate::core_documents::CORE_MODULE_URI {
-            let config = self.config.read().expect("server config lock poisoned").clone();
-            let roots = self
-                .workspace_roots
-                .read()
-                .expect("workspace root lock poisoned")
-                .iter()
-                .filter_map(|uri| uri.to_file_path().ok())
-                .collect::<Vec<_>>();
-            let source = crate::core_documents::CoreSource::select(config.sysroot_path.as_deref(), &roots);
-            let text = source.text();
-            let parse_result = phalcom_ast::parser::parse(text, 0);
-            let line_index = LineIndex::new(text);
-            return Some(f(text, &parse_result.program, &line_index));
         }
 
         None

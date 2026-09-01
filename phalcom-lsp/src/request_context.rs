@@ -87,11 +87,8 @@ fn canonical_module_for_uri(snapshot: &SemanticSnapshot, uri: &Url) -> Option<Mo
     {
         return Some(module.clone());
     }
-    if uri.as_str() == crate::core_documents::CORE_MODULE_URI {
-        return Some(ModuleId::universe_root());
-    }
     if let Some(module) = crate::analysis_service::builtin_module_from_uri(uri)
-        && snapshot.sources.contains_key(&module)
+        && (snapshot.sources.contains_key(&module) || snapshot.presentation_sources.contains_key(&module))
     {
         return Some(module);
     }
@@ -170,15 +167,15 @@ mod tests {
     }
 
     #[test]
-    fn compiler_core_presentation_text_is_an_exact_source() {
+    fn canonical_universe_presentation_text_is_an_exact_source() {
         let (_uri, location) = source();
         let snapshot = published_snapshot(location, "class Request {}\n");
-        let core = ModuleId::universe_root();
+        let core = phalcom_modules::universe_module_from_uri("phalcom://universe/object/object").expect("canonical module");
         let text = snapshot
             .presentation_source(&core)
             .expect("semantic publication must retain canonical core presentation text")
             .to_owned();
-        let core_uri = Url::parse(crate::core_documents::CORE_MODULE_URI).expect("core URI");
+        let core_uri = Url::parse("phalcom://universe/object/object").expect("canonical URI");
 
         let request = context(&core_uri, &text, snapshot);
         assert_eq!(request.compiler_module(), Some(&core));
