@@ -13,6 +13,7 @@ mod metadata;
 mod native_conformance;
 mod native_enum_extraction;
 mod parameter_identity;
+mod prelude;
 mod presentation;
 mod source_index;
 mod self_formation;
