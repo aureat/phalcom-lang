@@ -6,11 +6,14 @@
 
 use super::context::CheckingContext;
 use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact};
+use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::{CallableParameter, CallableSemanticKind, CallableSignature};
 use crate::identity::{CallableId, CallableOwnerId, CallableParameterId, DeclarationId, DispatchSide, FieldId};
 use crate::signature::{CallableParameterSemantic, CallableSemanticSignature, FieldSemanticSignature};
+use crate::types::annotation::{type_level_binding_for_parameter, TypeFormationOutcome, TypeFormationSite};
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
 use crate::types::parameter::TypeParameterOwner;
+use std::collections::HashMap;
 use phalcom_ast::ast::{ClassMember, EnumBehaviorMember, GetterDef, IndexMethodDef, MethodDef, ParameterDef, SetterDef};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
@@ -156,13 +159,16 @@ pub(crate) fn callable_id_for_member(owner: &DeclarationId, member: &ClassMember
 fn annotation_fact(
     ctx: &mut CheckingContext<'_>,
     resolver: &dyn crate::types::annotation::TypeResolver,
+    site: &TypeFormationSite,
     annotation: Option<&phalcom_ast::ast::TypeAnnotation>,
     missing: UnknownReason,
 ) -> DeclaredTypeFact {
     let Some(annotation) = annotation else {
         return DeclaredTypeFact::unknown(missing);
     };
-    let (knowledge, _) = ctx.resolve_type_annotation(resolver, annotation);
+    let mut diagnostics = Vec::new();
+    let knowledge = crate::types::annotation::resolve_type_annotation(ctx.store, ctx.declarations, resolver, site, annotation, &mut diagnostics);
+    ctx.publish_diagnostics(diagnostics);
     DeclaredTypeFact::from_knowledge_with_basis(&knowledge, DeclaredTypeBasis::SourceAnnotation)
 }
 
@@ -172,9 +178,10 @@ fn parameter_fact(
     index: usize,
     parameter: &ParameterDef,
     resolver: &dyn crate::types::annotation::TypeResolver,
+    site: &TypeFormationSite,
     missing: UnknownReason,
 ) -> CallableParameterSemantic {
-    let declared_type = annotation_fact(ctx, resolver, parameter.annotation.as_ref(), missing);
+    let declared_type = annotation_fact(ctx, resolver, site, parameter.annotation.as_ref(), missing);
     let mut semantic = CallableParameterSemantic::new(CallableParameterId::new(callable.clone(), index as u32), parameter.name.clone(), declared_type)
         .with_rest(parameter.rest_mode)
         .with_source(crate::diagnostic::SemanticSourceSpan::new(ctx.current_module.clone(), parameter.name_range));
@@ -182,6 +189,32 @@ fn parameter_fact(
         semantic = semantic.with_label(label.clone());
     }
     semantic
+}
+
+pub(crate) fn declaration_type_level_bindings_for_side(
+    ctx: &mut CheckingContext<'_>,
+    owner: &DeclarationId,
+    side: DispatchSide,
+) -> HashMap<String, crate::types::annotation::TypeLevelBinding> {
+    if side == DispatchSide::Class {
+        return HashMap::new();
+    }
+
+    let parameter_ids = ctx
+        .declaration_generic_signature(owner)
+        .map(|signature| signature.parameters.to_vec())
+        .unwrap_or_default();
+    let parameters = parameter_ids
+        .into_iter()
+        .map(|parameter_id| {
+            let data = ctx.store.type_parameter(parameter_id);
+            (data.name.to_string(), parameter_id)
+        })
+        .collect::<Vec<_>>();
+    parameters
+        .into_iter()
+        .map(|(name, parameter_id)| (name, type_level_binding_for_parameter(ctx.store, parameter_id)))
+        .collect()
 }
 
 /// Canonical declaration for the root `Class.new()` allocator behavior.
@@ -237,26 +270,14 @@ pub(crate) fn semantic_field_signature_for_member(
     };
     let field_id = field_id_for_member(owner, member)?;
     let side = field_id.side;
-    let declaration_type_parameters = ctx
-        .declaration_generic_signature(owner)
-        .map(|signature| {
-            signature
-                .parameters
-                .iter()
-                .map(|&parameter_id| {
-                    let name = ctx.store.type_parameter(parameter_id).name.to_string();
-                    let form = ctx.store.parameter_form(parameter_id);
-                    (name, form)
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    let declaration_type_parameters = declaration_type_level_bindings_for_side(ctx, owner, side);
     let parent_resolver = ctx.resolver.clone();
     let declaration_resolver = crate::types::annotation::ScopedTypeResolver {
         parent: &parent_resolver,
         type_parameters: declaration_type_parameters,
     };
-    let declared_type = annotation_fact(ctx, &declaration_resolver, field.annotation.as_ref(), UnknownReason::UnannotatedDeclaration);
+    let formation_site = TypeFormationSite::member(ctx.current_module.clone(), owner.clone(), side);
+    let declared_type = annotation_fact(ctx, &declaration_resolver, &formation_site, field.annotation.as_ref(), UnknownReason::UnannotatedDeclaration);
     Some(FieldSemanticSignature {
         field: field_id,
         owner: owner.clone(),
@@ -297,25 +318,14 @@ pub(crate) fn semantic_signature_for_syntax(
     let callable = callable_id_for_syntax(owner, syntax, declared_side)?;
     let declaration_owner = owner.declaration();
 
-    let declaration_type_parameters = ctx
-        .declaration_generic_signature(declaration_owner)
-        .map(|signature| {
-            signature
-                .parameters
-                .iter()
-                .map(|&parameter_id| {
-                    let name = ctx.store.type_parameter(parameter_id).name.to_string();
-                    let form = ctx.store.parameter_form(parameter_id);
-                    (name, form)
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    let formation_side = callable.side;
+    let declaration_type_parameters = declaration_type_level_bindings_for_side(ctx, declaration_owner, formation_side);
     let parent_resolver = ctx.resolver.clone();
     let declaration_resolver = crate::types::annotation::ScopedTypeResolver {
         parent: &parent_resolver,
         type_parameters: declaration_type_parameters,
     };
+    let formation_site = TypeFormationSite::member(ctx.current_module.clone(), declaration_owner.clone(), formation_side);
 
     let (generics, parameters, declared_return) = match syntax {
         CallableSyntaxRef::Method(method) => {
@@ -327,29 +337,88 @@ pub(crate) fn semantic_signature_for_syntax(
                     ctx.store,
                     ctx.declarations,
                     &declaration_resolver,
-                    &ctx.current_module,
+                    &formation_site,
                     TypeParameterOwner::Callable(callable.clone()),
+                    crate::types::annotation::GenericBinderSite::Callable,
                     &method.generic_parameters,
                     method.where_clause.as_ref(),
                     &mut diagnostics,
                 );
+                let signature = match signature {
+                    TypeFormationOutcome::Ready(signature) => Some(signature),
+                    TypeFormationOutcome::Dynamic => {
+                        diagnostics.push(SemanticDiagnostic::error_in(
+                            ctx.current_module.clone(),
+                            DiagnosticCode::AnnotationUnsupported,
+                            "generic method signature depends on a dynamic type-form boundary",
+                            syntax.range(),
+                        ));
+                        None
+                    }
+                    TypeFormationOutcome::Missing(reason) => {
+                        diagnostics.push(SemanticDiagnostic::error_in(
+                            ctx.current_module.clone(),
+                            DiagnosticCode::AnnotationUnresolved,
+                            format!("generic method signature publication missing: {reason:?}"),
+                            syntax.range(),
+                        ));
+                        None
+                    }
+                    TypeFormationOutcome::Unresolved(_) => None,
+                    TypeFormationOutcome::Invalid(_) => None,
+                    TypeFormationOutcome::Blocked(reason) => {
+                        diagnostics.push(SemanticDiagnostic::error_in(
+                            ctx.current_module.clone(),
+                            DiagnosticCode::AnalysisBlocked,
+                            format!("generic method signature publication blocked: {reason:?}"),
+                            syntax.range(),
+                        ));
+                        None
+                    }
+                    TypeFormationOutcome::Cancelled => {
+                        diagnostics.push(SemanticDiagnostic::error_in(
+                            ctx.current_module.clone(),
+                            DiagnosticCode::AnalysisBlocked,
+                            "generic method signature publication cancelled",
+                            syntax.range(),
+                        ));
+                        None
+                    }
+                    TypeFormationOutcome::BudgetExceeded(report) => {
+                        diagnostics.push(SemanticDiagnostic::error_in(
+                            ctx.current_module.clone(),
+                            DiagnosticCode::AnalysisBudgetExceeded,
+                            format!("generic method signature publication exceeded budget: {report:?}"),
+                            syntax.range(),
+                        ));
+                        None
+                    }
+                    TypeFormationOutcome::InternalFailure(failure) => {
+                        diagnostics.push(SemanticDiagnostic::error_in(
+                            ctx.current_module.clone(),
+                            DiagnosticCode::AnalysisInternalFailure,
+                            format!("generic method signature publication failed: {failure}"),
+                            syntax.range(),
+                        ));
+                        None
+                    }
+                };
                 ctx.publish_diagnostics(diagnostics);
-                Some(signature)
+                signature
             };
             let method_type_parameters = generic_signature
                 .as_ref()
-                .map(|signature| {
-                    signature
-                        .parameters
-                        .iter()
-                        .map(|&parameter_id| {
-                            let name = ctx.store.type_parameter(parameter_id).name.to_string();
-                            let form = ctx.store.parameter_form(parameter_id);
-                            (name, form)
-                        })
-                        .collect()
+                .map(|signature| signature.parameters.to_vec())
+                .unwrap_or_default()
+                .into_iter()
+                .map(|parameter_id| {
+                    let name = ctx.store.type_parameter(parameter_id).name.to_string();
+                    (name, parameter_id)
                 })
-                .unwrap_or_default();
+                .collect::<Vec<_>>()
+                .into_iter()
+                .map(|(name, parameter_id)| (name, type_level_binding_for_parameter(ctx.store, parameter_id)))
+                .collect();
             let method_resolver = crate::types::annotation::ScopedTypeResolver {
                 parent: &declaration_resolver,
                 type_parameters: method_type_parameters,
@@ -358,7 +427,7 @@ pub(crate) fn semantic_signature_for_syntax(
                 .params
                 .iter()
                 .enumerate()
-                .map(|(index, parameter)| parameter_fact(ctx, &callable, index, parameter, &method_resolver, UnknownReason::NoTypeEvidence))
+                .map(|(index, parameter)| parameter_fact(ctx, &callable, index, parameter, &method_resolver, &formation_site, UnknownReason::NoTypeEvidence))
                 .collect::<Vec<_>>()
                 .into_boxed_slice();
             let is_constructor = method.is_constructor || method.attributes.iter().any(|attribute| attribute.name == "constructor");
@@ -371,7 +440,7 @@ pub(crate) fn semantic_signature_for_syntax(
                 let knowledge = TypeKnowledge::established(self_type, EvidenceOrigin::ConstructorSemantics);
                 DeclaredTypeFact::from_knowledge_with_basis(&knowledge, DeclaredTypeBasis::ConstructorSemantics)
             } else {
-                annotation_fact(ctx, &method_resolver, method.return_annotation.as_ref(), UnknownReason::UnannotatedDeclaration)
+                annotation_fact(ctx, &method_resolver, &formation_site, method.return_annotation.as_ref(), UnknownReason::UnannotatedDeclaration)
             };
             (generic_signature, parameters, declared_return)
         }
@@ -381,12 +450,13 @@ pub(crate) fn semantic_signature_for_syntax(
             annotation_fact(
                 ctx,
                 &declaration_resolver,
+                &formation_site,
                 getter.return_annotation.as_ref(),
                 UnknownReason::UnannotatedDeclaration,
             ),
         ),
         CallableSyntaxRef::Setter(setter) => {
-            let parameter = parameter_fact(ctx, &callable, 0, &setter.param, &declaration_resolver, UnknownReason::UnannotatedDeclaration);
+            let parameter = parameter_fact(ctx, &callable, 0, &setter.param, &declaration_resolver, &formation_site, UnknownReason::UnannotatedDeclaration);
             let unit = TypeKnowledge::established(ctx.store.unit(), EvidenceOrigin::DeclarationSemantics);
             (
                 None,
@@ -400,15 +470,15 @@ pub(crate) fn semantic_signature_for_syntax(
                 .iter()
                 .enumerate()
                 .map(|(parameter_index, parameter)| {
-                    parameter_fact(ctx, &callable, parameter_index, parameter, &declaration_resolver, UnknownReason::NoTypeEvidence)
+                    parameter_fact(ctx, &callable, parameter_index, parameter, &declaration_resolver, &formation_site, UnknownReason::NoTypeEvidence)
                 })
                 .collect::<Vec<_>>();
             let declared_return = match &index.accessor {
                 phalcom_ast::ast::IndexAccessor::Get => {
-                    annotation_fact(ctx, &declaration_resolver, index.return_annotation.as_ref(), UnknownReason::NoTypeEvidence)
+                    annotation_fact(ctx, &declaration_resolver, &formation_site, index.return_annotation.as_ref(), UnknownReason::NoTypeEvidence)
                 }
                 phalcom_ast::ast::IndexAccessor::Set { put } => {
-                    let put_semantic = parameter_fact(ctx, &callable, parameters.len(), put, &declaration_resolver, UnknownReason::NoTypeEvidence);
+                    let put_semantic = parameter_fact(ctx, &callable, parameters.len(), put, &declaration_resolver, &formation_site, UnknownReason::NoTypeEvidence);
                     let result = put_semantic.declared_type.clone();
                     parameters.push(put_semantic);
                     result

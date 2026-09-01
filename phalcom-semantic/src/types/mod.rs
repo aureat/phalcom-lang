@@ -21,7 +21,10 @@ pub mod substitution;
 pub mod type_lambda;
 pub mod variance;
 
-pub use annotation::{SimpleTypeResolver, TypeFormResolution, TypeResolver, resolve_type_annotation, resolve_type_form};
+pub use annotation::{
+    KindResolution, SimpleTypeResolver, TypeFormResolution, TypeFormationInvalid, TypeFormationMissing, TypeFormationOutcome, TypeFormationUnresolved,
+    TypeLevelBinding, TypeResolver, resolve_type_annotation, resolve_type_form, type_level_binding_for_parameter,
+};
 pub use application::TypeApplicationError;
 pub use case_environment::{CaseEnvironmentError, CaseTypeEnvironment, derive_case_environment};
 pub use constraint::{ConstraintSet, TypeConstraint};

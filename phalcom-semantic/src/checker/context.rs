@@ -14,7 +14,7 @@ use crate::identity::{
 };
 use crate::signature::FieldSignatureTable;
 use crate::surface::DeclarationSurface;
-use crate::types::annotation::TypeResolver;
+use crate::types::annotation::{TypeFormationSite, TypeLevelBinding, TypeResolver};
 use crate::types::denotation::{SemanticDenotation, ValueSemanticFact};
 use crate::types::evidence::{ContractAssumptionEligibility, EvidenceOrigin, TypeKnowledge, UnknownReason};
 use crate::types::id::TypeId;
@@ -186,13 +186,10 @@ impl TypeResolver for TrackingTypeResolver<'_> {
         Some(declaration)
     }
 
-    fn resolve_type_parameter(&self, name: &str) -> Option<TypeId> {
-        self.inner.resolve_type_parameter(name)
+    fn resolve_type_level_binding(&self, name: &str) -> Option<TypeLevelBinding> {
+        self.inner.resolve_type_level_binding(name)
     }
 
-    fn current_declaration(&self) -> Option<DeclarationId> {
-        self.inner.current_declaration()
-    }
 }
 
 /// Hierarchy wrapper that records each mutable direct edge consumed by body checking.
@@ -888,8 +885,13 @@ impl<'a> CheckingContext<'a> {
         annotation: &phalcom_ast::ast::TypeAnnotation,
     ) -> (TypeKnowledge, crate::checker::causal::CausalInvalidity) {
         let mut diagnostics = Vec::new();
+        let site = if let Some(owner) = self.current_class.clone() {
+            TypeFormationSite::member(self.current_module.clone(), owner, self.current_side)
+        } else {
+            TypeFormationSite::module(self.current_module.clone())
+        };
         let knowledge =
-            crate::types::annotation::resolve_type_annotation(self.store, self.declarations, resolver, &self.current_module, annotation, &mut diagnostics);
+            crate::types::annotation::resolve_type_annotation(self.store, self.declarations, resolver, &site, annotation, &mut diagnostics);
         let causal_invalidity = self.publish_diagnostics(diagnostics);
         (knowledge, causal_invalidity)
     }

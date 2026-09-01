@@ -1,11 +1,12 @@
 //! Canonical declaration type forms and metadata table.
 
 use crate::identity::DeclarationId;
+use crate::type_alias::TypeAliasInfo;
 use crate::types::id::{KindId, TypeId};
 use crate::types::parameter::{GenericSignature, TypeParameterData, TypeParameterOwner};
 use crate::types::store::TypeStore;
 use phalcom_native_meta::types::{KindSpec, UniverseTypeFormSpec};
-use phalcom_native_meta::universe::{UNIVERSE_BINDINGS, UNIVERSE_TYPE_FORMS, UniverseKey};
+use phalcom_native_meta::universe::{UniverseKey, UNIVERSE_BINDINGS, UNIVERSE_TYPE_FORMS};
 use std::collections::HashMap;
 
 /// Generic supertype template: records static generic supertype (e.g. `Names<T> is Sequence<Option<T>>`).
@@ -13,6 +14,17 @@ use std::collections::HashMap;
 pub struct GenericSupertypeTemplate {
     pub declaration: DeclarationId,
     pub supertype: TypeId,
+    pub structural_form: Option<Box<str>>,
+}
+
+impl GenericSupertypeTemplate {
+    pub fn from_type(store: &TypeStore, declaration: DeclarationId, supertype: TypeId) -> Self {
+        Self {
+            declaration,
+            structural_form: Some(store.format_type(supertype).into_boxed_str()),
+            supertype,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -23,6 +35,64 @@ pub struct DeclarationTypeInfo {
     pub kind: KindId,
     pub generic_signature: Option<GenericSignature>,
     pub supertype_template: Option<GenericSupertypeTemplate>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TypeDeclarationShell {
+    Nominal(DeclarationTypeInfo),
+    Alias(TypeAliasInfo),
+}
+
+impl TypeDeclarationShell {
+    pub fn declaration(&self) -> &DeclarationId {
+        match self {
+            Self::Nominal(info) => &info.declaration,
+            Self::Alias(info) => &info.declaration,
+        }
+    }
+}
+
+/// Final declaration header assembled from one validated generic signature.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NominalDeclarationHeader {
+    pub declaration: DeclarationId,
+    pub form: TypeId,
+    pub class_object_type: TypeId,
+    pub kind: KindId,
+    pub generic_signature: Option<GenericSignature>,
+}
+
+impl NominalDeclarationHeader {
+    pub fn from_signature(store: &mut TypeStore, declaration: DeclarationId, generic_signature: Option<GenericSignature>) -> Self {
+        let kind = generic_signature.as_ref().map_or(KindId::TYPE, |signature| {
+            let parameter_kinds = signature
+                .parameters
+                .iter()
+                .map(|&parameter| store.type_parameter(parameter).kind)
+                .collect::<Vec<_>>();
+            store.arrow_kind(parameter_kinds.into_boxed_slice(), KindId::TYPE)
+        });
+        let form = store.nominal_form(declaration.clone(), kind);
+        let class_object_type = store.class_object_type(declaration.clone());
+        Self {
+            declaration,
+            form,
+            class_object_type,
+            kind,
+            generic_signature,
+        }
+    }
+
+    pub fn into_type_info(self, supertype_template: Option<GenericSupertypeTemplate>) -> DeclarationTypeInfo {
+        DeclarationTypeInfo {
+            declaration: self.declaration,
+            form: self.form,
+            class_object_type: self.class_object_type,
+            kind: self.kind,
+            generic_signature: self.generic_signature,
+            supertype_template,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -37,6 +107,10 @@ impl DeclarationTypeTable {
 
     pub fn insert(&mut self, info: DeclarationTypeInfo) {
         self.entries.insert(info.declaration.clone(), info);
+    }
+
+    pub fn remove(&mut self, declaration: &DeclarationId) -> Option<DeclarationTypeInfo> {
+        self.entries.remove(declaration)
     }
 
     pub fn get(&self, declaration: &DeclarationId) -> Option<&DeclarationTypeInfo> {
@@ -63,7 +137,7 @@ impl DeclarationTypeTable {
         self.entries.get(declaration).and_then(|info| info.supertype_template.as_ref())
     }
 
-    pub fn iter(&self) -> impl Iterator<Item=(&DeclarationId, &DeclarationTypeInfo)> {
+    pub fn iter(&self) -> impl Iterator<Item = (&DeclarationId, &DeclarationTypeInfo)> {
         self.entries.iter()
     }
 }

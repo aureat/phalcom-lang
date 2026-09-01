@@ -181,7 +181,10 @@ class Owner {
     let hierarchy = MapTypeHierarchy::new();
     let mut db = phalcom_semantic::db::SemanticDb::new();
     for info in declarations.iter().map(|(_, info)| info) {
-        let _ = phalcom_semantic::db::query_declaration_shell(&mut db, Arc::new(info.clone()));
+        let _ = phalcom_semantic::db::query_declaration_shell(
+            &mut db,
+            Arc::new(phalcom_semantic::TypeDeclarationShell::Nominal(info.clone())),
+        );
     }
 
     let surface = match query_declaration_surface(

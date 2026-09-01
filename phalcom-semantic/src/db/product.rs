@@ -3,7 +3,7 @@
 use crate::advisory::{AdvisoryCallableSummary, AdvisoryModuleProduct};
 use crate::checker::analysis::CallableAnalysis;
 use crate::db::state::QueryValue;
-use crate::declarations::DeclarationTypeInfo;
+use crate::declarations::TypeDeclarationShell;
 use crate::diagnostic::SemanticDiagnostic;
 use crate::hierarchy_product::HierarchyEdgeProduct;
 use crate::module_product::ResolvedImportsProduct;
@@ -62,7 +62,7 @@ pub enum SemanticProduct {
     UnlinkedInterface(Arc<UnlinkedModuleInterface>),
     ResolvedImports(Arc<ResolvedImportsProduct>),
     LinkedInterface(Arc<LinkedModuleInterface>),
-    DeclarationShell(Arc<DeclarationTypeInfo>),
+    DeclarationShell(Arc<TypeDeclarationShell>),
     DeclarationSurface(Arc<DeclarationSurfaceProduct>),
     HierarchyEdge(Arc<HierarchyEdgeProduct>),
     CallableSignature(Arc<CallableSemanticSignature>),
@@ -109,7 +109,7 @@ impl SemanticProduct {
     }
 
     /// Returns canonical declaration type metadata published as a shell product.
-    pub fn as_declaration_shell(&self) -> Option<&Arc<DeclarationTypeInfo>> {
+    pub fn as_declaration_shell(&self) -> Option<&Arc<TypeDeclarationShell>> {
         match self {
             Self::DeclarationShell(info) => Some(info),
             _ => None,

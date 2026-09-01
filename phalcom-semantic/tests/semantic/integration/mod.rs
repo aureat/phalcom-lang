@@ -15,4 +15,5 @@ mod native_enum_extraction;
 mod parameter_identity;
 mod presentation;
 mod source_index;
+mod self_formation;
 mod workspace;

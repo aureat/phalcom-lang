@@ -7,10 +7,10 @@ use phalcom_semantic::identity::DeclarationId;
 use phalcom_semantic::types::environment::{TypeEnvironment, TypeView};
 use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::parameter::{GenericConstraint, GenericSignature, TypeParameterData, TypeParameterOwner, TypeTerm};
-use phalcom_semantic::types::relation::{MapTypeHierarchy, is_subtype};
+use phalcom_semantic::types::relation::{is_subtype, MapTypeHierarchy};
 use phalcom_semantic::types::store::{RecordTypeField, TypeStore};
 use phalcom_semantic::types::type_lambda::{BetaResult, ScopedTypeData, TypeLambdaArena, TypeLambdaProvenance};
-use phalcom_semantic::types::variance::{Variance, VarianceStep, compute_variance_occurrence};
+use phalcom_semantic::types::variance::{compute_variance_occurrence, Variance, VarianceStep};
 
 fn core_decl(name: &str) -> DeclarationId {
     DeclarationId::new(ModuleId::universe_root(), name.into())
@@ -219,6 +219,7 @@ fn gate_01_5_d_variance_subtyping_and_generic_inheritance() {
     hier.insert_template(GenericSupertypeTemplate {
         declaration: decl_names.clone(),
         supertype: seq_template,
+        structural_form: None,
     });
 
     let names_int = store.apply_type_form(names_form, &[int_ty]).unwrap();

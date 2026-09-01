@@ -38,6 +38,7 @@ pub mod source_index;
 pub mod stable_identity;
 pub mod surface;
 pub mod termination;
+pub mod type_alias;
 pub mod tooling;
 pub mod types;
 pub mod workspace;
@@ -59,7 +60,8 @@ pub use contracts::{ConditionKind, ContractCondition, ContractSpec};
 pub use control_summary::{ControlFacts, DivergenceKnowledge, DivergenceOpaqueReason, ExitSummary, RaiseKnowledge, RaiseOpaqueReason};
 pub use core_surface::*;
 pub use declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeState};
-pub use declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, bootstrap_universe_declarations, lower_kind_spec};
+pub use declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, TypeDeclarationShell, bootstrap_universe_declarations, lower_kind_spec};
+pub use type_alias::{TypeAliasInfo, TypeAliasTable};
 pub use diagnostic::{
     DiagnosticCode, DiagnosticFix, DiagnosticGuidance, DiagnosticLabel, DiagnosticSeverity, ExplanationRef, SemanticDiagnostic, SemanticSourceSpan,
 };
@@ -131,9 +133,10 @@ pub use types::{
     DynamicBoundaryObligation, DynamicReason, EvidenceOrigin, EvidenceSet, EvidenceStatus, GenericSignature, InferVarId, KindData, KindId, MapTypeHierarchy,
     NativeSurfaceImportError, NativeSurfaceImportReport, NativeTypeResolutionError, QueryBudget, RecordTypeField, RefutationReason, RelationEvidence,
     RelationFailure, RelationOutcome, SemanticDenotation, SimpleTypeResolver, TupleTypeElement, TypeApplicationError, TypeConstraint, TypeData, TypeEvidence,
-    TypeHierarchy, TypeId, TypeKnowledge, TypeParameterData, TypeParameterId, TypeParameterOwner, TypeResolver, TypeStore, TypeSubstitution, UnknownReason,
-    ValueSemanticFact, VariantTypeId, check_assignability, check_assignability_bounded, check_knowledge_against_type, check_knowledge_against_type_bounded,
-    check_subtype_bounded, is_subtype, normalize_native_type, register_native_surfaces, resolve_native_type_form, resolve_type_annotation, resolve_type_form,
+    TypeFormResolution, TypeFormationInvalid, TypeFormationMissing, TypeFormationOutcome, TypeFormationUnresolved, TypeHierarchy, TypeId, TypeKnowledge,
+    TypeLevelBinding, TypeParameterData, TypeParameterId, TypeParameterOwner, TypeResolver, TypeStore, TypeSubstitution, UnknownReason, ValueSemanticFact,
+    VariantTypeId, check_assignability, check_assignability_bounded, check_knowledge_against_type, check_knowledge_against_type_bounded, check_subtype_bounded,
+    is_subtype, normalize_native_type, register_native_surfaces, resolve_native_type_form, resolve_type_annotation, resolve_type_form,
     substitution_for_applied,
 };
 pub use workspace::{SemanticAnalysis, SemanticWorkspaceInput, analyze_single_module, analyze_workspace};

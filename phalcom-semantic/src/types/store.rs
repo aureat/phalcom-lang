@@ -170,7 +170,11 @@ impl TypeStore {
 
     pub fn proper_type(&self, id: TypeId) -> Result<ProperTypeId, KindId> {
         let kind = self.kind_of(id);
-        if kind == KindId::TYPE { Ok(ProperTypeId(id)) } else { Err(kind) }
+        if kind == KindId::TYPE {
+            Ok(ProperTypeId(id))
+        } else {
+            Err(kind)
+        }
     }
 
     pub fn intern_type_parameter(&mut self, data: TypeParameterData) -> TypeParameterId {
@@ -261,6 +265,10 @@ impl TypeStore {
         self.intern_with_kind(TypeData::Parameter(id), kind)
     }
 
+    pub fn contains_parameter_type(&self, parameter: TypeParameterId) -> bool {
+        self.types.iter().any(|ty| matches!(ty, TypeData::Parameter(id) if *id == parameter))
+    }
+
     #[inline]
     pub fn never(&self) -> TypeId {
         self.never_id
@@ -283,6 +291,17 @@ impl TypeStore {
 
     pub fn get_kind(&self, id: KindId) -> &KindData {
         &self.kinds[id.index()]
+    }
+
+    pub fn format_kind(&self, id: KindId) -> String {
+        match self.get_kind(id) {
+            KindData::Type => "Type".to_string(),
+            KindData::RecordRow => "RecordRow".to_string(),
+            KindData::Arrow { parameters, result } => {
+                let parameters = parameters.iter().map(|&parameter| self.format_kind(parameter)).collect::<Vec<_>>().join(", ");
+                format!("({parameters}) -> {}", self.format_kind(*result))
+            }
+        }
     }
 
     pub fn arrow_kind(&mut self, parameters: Box<[KindId]>, result: KindId) -> KindId {
@@ -667,7 +686,11 @@ impl TypeStore {
                     .iter()
                     .map(|elem| {
                         let t_str = self.format_type(elem.ty);
-                        if let Some(ref l) = elem.label { format!("{l}: {t_str}") } else { t_str }
+                        if let Some(ref l) = elem.label {
+                            format!("{l}: {t_str}")
+                        } else {
+                            t_str
+                        }
                     })
                     .collect::<Vec<_>>()
                     .join(", ");

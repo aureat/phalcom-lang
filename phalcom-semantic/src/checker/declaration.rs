@@ -124,46 +124,34 @@ pub fn check_class_field_initializers(ctx: &mut CheckingContext<'_>, class_def: 
 /// Checks the member bodies of an already-registered class declaration.
 pub fn check_class_bodies(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) {
     let decl_id = DeclarationId::new(ctx.current_module.clone(), class_def.name.clone().into());
-    let type_params_map = if let Some(sig) = ctx.declaration_generic_signature(&decl_id) {
-        let mut map = std::collections::HashMap::new();
-        for &param_id in sig.parameters.iter() {
-            let name = ctx.store.type_parameter(param_id).name.to_string();
-            let param_form = ctx.store.parameter_form(param_id);
-            map.insert(name, param_form);
-        }
-        map
-    } else {
-        std::collections::HashMap::new()
-    };
     // Keep resolver ownership independent from `ctx` while checking bodies. The
     // body checker mutably borrows the full context, so a scoped resolver that
     // directly borrows `ctx.resolver` would create an overlapping borrow.
     let parent_resolver = ctx.resolver.clone();
-    let scoped_resolver = crate::types::annotation::ScopedTypeResolver {
-        parent: &parent_resolver,
-        type_parameters: type_params_map,
-    };
-    let resolver = &scoped_resolver;
-    let old_class = ctx.current_class.replace(decl_id);
+    let old_class = ctx.current_class.replace(decl_id.clone());
 
     for member in &class_def.members {
         let side = member_side(member);
+        let scoped_resolver = crate::types::annotation::ScopedTypeResolver {
+            parent: &parent_resolver,
+            type_parameters: super::declaration_signature::declaration_type_level_bindings_for_side(ctx, &decl_id, side),
+        };
         let old_side = ctx.current_side;
         ctx.current_side = side;
         match member {
             ClassMember::Field(f) => {
-                check_field_initializer(ctx, resolver, f);
+                check_field_initializer(ctx, &scoped_resolver, f);
             }
             ClassMember::Method(m) => {
-                check_callable_body(ctx, resolver, &m.params, m.return_annotation.as_ref(), m.body.statements().unwrap_or(&[]));
+                check_callable_body(ctx, &scoped_resolver, &m.params, m.return_annotation.as_ref(), m.body.statements().unwrap_or(&[]));
             }
             ClassMember::Getter(g) => {
-                check_callable_body(ctx, resolver, &[], g.return_annotation.as_ref(), g.body.statements().unwrap_or(&[]));
+                check_callable_body(ctx, &scoped_resolver, &[], g.return_annotation.as_ref(), g.body.statements().unwrap_or(&[]));
             }
             ClassMember::Setter(s) => {
                 check_callable_body(
                     ctx,
-                    resolver,
+                    &scoped_resolver,
                     std::slice::from_ref(&s.param),
                     s.return_annotation.as_ref(),
                     s.body.statements().unwrap_or(&[]),
@@ -174,7 +162,7 @@ pub fn check_class_bodies(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) {
                 if let phalcom_ast::ast::IndexAccessor::Set { put } = &i.accessor {
                     params.push((**put).clone());
                 }
-                check_callable_body(ctx, resolver, &params, i.return_annotation.as_ref(), &i.body);
+                check_callable_body(ctx, &scoped_resolver, &params, i.return_annotation.as_ref(), &i.body);
             }
             _ => {}
         }

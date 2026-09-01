@@ -7,8 +7,10 @@ use phalcom_modules::project::ProjectUniverse;
 use phalcom_modules::source::{ModuleKind, ParsedModuleUnit};
 use phalcom_modules::{SourceId, SourceLocation, SourceRevision, WorkspaceSourceBatchMutation};
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
+use phalcom_semantic::types::environment::{TypeEnvironment, TypeView};
 use phalcom_semantic::types::id::KindId;
-use phalcom_semantic::{SemanticWorkspaceInput, SemanticWorkspaceSession, TypeHierarchy, analyze_single_module, analyze_workspace};
+use phalcom_semantic::types::store::TypeData;
+use phalcom_semantic::{analyze_single_module, analyze_workspace, SemanticWorkspaceInput, SemanticWorkspaceSession, TypeHierarchy};
 use std::collections::BTreeMap;
 use std::fs;
 use std::sync::Arc;
@@ -75,6 +77,125 @@ fn single_module_analysis_succeeds() {
     assert!(!analysis.snapshot.has_errors());
     assert!(analysis.snapshot.sources.contains_key(&module));
     assert!(analysis.snapshot.surfaces.contains_key(&DeclarationId::new(module.clone(), "Point".into())));
+}
+
+#[test]
+fn generic_declaration_kind_matches_published_signature() {
+    let module = ModuleId::universe_root();
+    let source: Arc<str> = Arc::from(
+        r#"
+class Box<T> {}
+class Transformer<F: Type -> Type, T> {}
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let mut store = (*analysis.snapshot.store).clone();
+    for (name, expected_parameter_kinds) in [
+        ("Box", vec![KindId::TYPE]),
+        ("Transformer", vec![store.arrow_kind(Box::new([KindId::TYPE]), KindId::TYPE), KindId::TYPE]),
+    ] {
+        let declaration = DeclarationId::new(module.clone(), name.into());
+        let info = analysis.snapshot.declarations.get(&declaration).expect("declaration header");
+        let signature = info.generic_signature.as_ref().expect("generic signature");
+        let parameter_kinds = signature
+            .parameters
+            .iter()
+            .map(|&parameter| analysis.snapshot.store.type_parameter(parameter).kind)
+            .collect::<Vec<_>>();
+        assert_eq!(parameter_kinds, expected_parameter_kinds);
+        let derived_kind = store.arrow_kind(parameter_kinds.into_boxed_slice(), KindId::TYPE);
+        assert_eq!(info.kind, derived_kind, "kind mismatch for {name}");
+    }
+}
+
+#[test]
+fn invalid_generic_kind_does_not_publish_ready_declaration_header() {
+    let module = ModuleId::universe_root();
+    let source: Arc<str> = Arc::from("class Broken<T: ?> {}\n");
+    let parsed = phalcom_ast::parse(&source, 0);
+    let phalcom_ast::ast::Statement::Class(class_def) = &parsed.program.statements[0] else {
+        panic!("expected class declaration")
+    };
+    assert!(matches!(
+        class_def.generic_parameters[0].kind,
+        Some(phalcom_ast::ast::KindSyntax::Invalid { .. })
+    ));
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let declaration = DeclarationId::new(module, "Broken".into());
+    assert!(analysis.snapshot.declarations.get(&declaration).is_none());
+}
+
+#[test]
+fn written_invalid_superclass_does_not_publish_ready_declaration() {
+    let module = ModuleId::universe_root();
+    let source: Arc<str> = Arc::from(
+        "class ConstructorBase<T> {}\nclass ConstructorKind is ConstructorBase {}\nclass MissingBase is MissingBaseType {}\n",
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    assert_eq!(parsed.program.statements.len(), 3, "parsed source statements");
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    assert!(analysis
+        .snapshot
+        .all_diagnostics()
+        .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::KindExpectedType),
+        "diagnostics: {:?}, declarations: {:?}",
+        analysis.snapshot.diagnostics,
+        analysis.snapshot.declarations.iter().map(|(id, _)| id).collect::<Vec<_>>());
+    assert!(analysis
+        .snapshot
+        .all_diagnostics()
+        .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::AnnotationUnresolved));
+    assert!(analysis
+        .snapshot
+        .declarations
+        .get(&DeclarationId::new(module.clone(), "ConstructorKind".into()))
+        .is_none());
+    assert!(analysis
+        .snapshot
+        .surfaces
+        .get(&DeclarationId::new(module.clone(), "ConstructorKind".into()))
+        .is_none());
+    assert!(analysis
+        .snapshot
+        .declarations
+        .get(&DeclarationId::new(module, "MissingBase".into()))
+        .is_none());
+}
+
+#[test]
+fn transparent_aliases_preserve_canonical_forms_and_kinds() {
+    let module = ModuleId::universe_root();
+    let source: Arc<str> = Arc::from(
+        "type UserId = Int\ntype Pair<T> = (T, T)\ntype ListAlias = List\nclass Uses { id(_ value: UserId) -> UserId { value } }\n",
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    assert!(!analysis.snapshot.has_errors(), "diagnostics: {:?}", analysis.snapshot.diagnostics);
+
+    let user_id = DeclarationId::new(module.clone(), "UserId".into());
+    let int = phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Int);
+    assert_eq!(analysis.snapshot.type_aliases.get(&user_id).unwrap().kind, KindId::TYPE);
+    assert_eq!(analysis.snapshot.type_aliases.form(&user_id), analysis.snapshot.declarations.form(&int));
+
+    let pair = analysis
+        .snapshot
+        .type_aliases
+        .get(&DeclarationId::new(module.clone(), "Pair".into()))
+        .unwrap();
+    assert_ne!(pair.kind, KindId::TYPE);
+    assert!(matches!(analysis.snapshot.store.get(pair.form), TypeData::Lambda(_)));
+
+    let list_alias = analysis
+        .snapshot
+        .type_aliases
+        .get(&DeclarationId::new(module.clone(), "ListAlias".into()))
+        .unwrap();
+    assert_ne!(list_alias.kind, KindId::TYPE);
+    assert_eq!(analysis.snapshot.store.format_kind(list_alias.kind), "(Type) -> Type");
 }
 
 /// COMPOSED: an exported class method remains callable through an imported class identity.
@@ -577,12 +698,10 @@ fn generation_retains_clean_snapshot_and_removes_stale_declarations() {
         Arc::new(phalcom_ast::parse("class OldName { val() -> Int { 1 } }", 0).program),
     );
 
-    assert!(
-        analysis_v1
-            .snapshot
-            .surfaces
-            .contains_key(&DeclarationId::new(module.clone(), "OldName".into()))
-    );
+    assert!(analysis_v1
+        .snapshot
+        .surfaces
+        .contains_key(&DeclarationId::new(module.clone(), "OldName".into())));
 
     let source_v2: Arc<str> = Arc::from("class NewName { val() -> Int { 2 } }");
     let analysis_v2 = analyze_single_module(
@@ -591,18 +710,14 @@ fn generation_retains_clean_snapshot_and_removes_stale_declarations() {
         Arc::new(phalcom_ast::parse("class NewName { val() -> Int { 2 } }", 0).program),
     );
 
-    assert!(
-        analysis_v2
-            .snapshot
-            .surfaces
-            .contains_key(&DeclarationId::new(module.clone(), "NewName".into()))
-    );
-    assert!(
-        !analysis_v2
-            .snapshot
-            .surfaces
-            .contains_key(&DeclarationId::new(module.clone(), "OldName".into()))
-    );
+    assert!(analysis_v2
+        .snapshot
+        .surfaces
+        .contains_key(&DeclarationId::new(module.clone(), "NewName".into())));
+    assert!(!analysis_v2
+        .snapshot
+        .surfaces
+        .contains_key(&DeclarationId::new(module.clone(), "OldName".into())));
 }
 
 #[test]
@@ -760,6 +875,27 @@ fn workspace_generic_class_and_callable_signature_publication() {
     let box_info = analysis.snapshot.declarations.get(&box_id).expect("Box declaration info");
     assert_ne!(box_info.kind, KindId::TYPE);
     assert!(box_info.supertype_template.is_some(), "Box must have supertype template");
+
+    let box_parameter = box_info.generic_signature.as_ref().unwrap().parameters[0];
+    let template = box_info.supertype_template.as_ref().unwrap();
+    let TypeData::Applied { origin, arguments } = analysis.snapshot.store.get(template.supertype) else {
+        panic!("Box superclass should be applied Container<U>");
+    };
+    assert_eq!(*origin, container_info.form);
+    assert!(matches!(analysis.snapshot.store.get(arguments[0]), TypeData::Parameter(parameter) if *parameter == box_parameter));
+    let int = analysis
+        .snapshot
+        .declarations
+        .form(&phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Int))
+        .expect("Int declaration form");
+    let mut environment = TypeEnvironment::new();
+    environment.bind_param(box_parameter, int);
+    let mut store = (*analysis.snapshot.store).clone();
+    let specialized = TypeView::new(template.supertype, environment).materialize(&mut store);
+    let TypeData::Applied { arguments, .. } = store.get(specialized) else {
+        panic!("specialized superclass should remain applied");
+    };
+    assert_eq!(arguments[0], int);
 
     let sel = phalcom_common::selector::Selector::method("value", vec![phalcom_common::selector::SelectorSlot::Positional]).unwrap();
     let callable_id = phalcom_semantic::identity::CallableId::new(container_id, sel, phalcom_semantic::identity::DispatchSide::Instance);

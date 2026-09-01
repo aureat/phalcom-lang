@@ -170,3 +170,29 @@ fn iface_10_enum_and_class_duplicate_name_rejected() {
         result
     );
 }
+
+#[test]
+fn iface_11_type_alias_is_declaration_and_exportable() {
+    let id = make_test_id("test_mod");
+    let src = "type UserId = Int\nexport UserId\n";
+    let parse_result = parse(src, 0);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let iface = InterfaceBuilder::build(id, ModuleKind::Module, &parse_result.program).expect("build interface");
+    assert!(iface.declarations.contains_key("UserId"));
+    assert_eq!(
+        iface.exports.get("UserId").map(|e| &e.target),
+        Some(&UnlinkedExportTarget::Local("UserId".to_string()))
+    );
+}
+
+#[test]
+fn iface_12_type_alias_collides_with_class() {
+    let id = make_test_id("test_mod");
+    let src = "class UserId {}\ntype UserId = Int\n";
+    let parse_result = parse(src, 0);
+    assert!(parse_result.errors.is_empty(), "parse errors: {:?}", parse_result.errors);
+
+    let result = InterfaceBuilder::build(id, ModuleKind::Module, &parse_result.program);
+    assert!(matches!(result, Err(InterfaceError::DuplicateDeclaration { ref name, .. }) if name == "UserId"));
+}

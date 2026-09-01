@@ -11,7 +11,8 @@ use crate::checker::causal::CausalInvalidity;
 use crate::checker::flow::graph::{FlowEdgeKind, FlowGraph, FlowNodeKind};
 use crate::checker::incident::{BindingContractSummary, InternalSemanticIncident, InternalSemanticIncidentDetails, InternalSemanticIncidentKind};
 use crate::db::key::{InputFingerprint, ProductFingerprint};
-use crate::declarations::{DeclarationTypeInfo, GenericSupertypeTemplate};
+use crate::declarations::{DeclarationTypeInfo, GenericSupertypeTemplate, TypeDeclarationShell};
+use crate::type_alias::TypeAliasInfo;
 use crate::diagnostic::{DiagnosticFix, SemanticDiagnostic, SemanticSourceSpan};
 use crate::identity::{CallableId, DeclarationId, ModuleId};
 use crate::signature::{CallableSemanticSignature, FieldSemanticSignature, ReturnContractValidation};
@@ -31,7 +32,7 @@ use phalcom_modules::manifest::{DependencySpec, ValidatedProjectManifest};
 use phalcom_modules::metadata::{MetadataTarget, ModuleMetadata};
 use phalcom_modules::project::ProjectUniverse;
 use phalcom_modules::source::ModuleKind;
-use std::collections::{BTreeMap, hash_map::DefaultHasher};
+use std::collections::{hash_map::DefaultHasher, BTreeMap};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
@@ -474,19 +475,29 @@ fn hash_type_knowledge(knowledge: &TypeKnowledge, include_provenance: bool, hash
 
 fn hash_generic_signature(signature: &GenericSignature, hasher: &mut impl Hasher) {
     signature.owner.hash(hasher);
-    signature.parameters.hash(hasher);
-    signature.constraints.hash(hasher);
+    if signature.parameter_kind_shapes.len() == signature.parameters.len() && signature.parameter_variances.len() == signature.parameters.len() {
+        signature.parameter_kind_shapes.hash(hasher);
+        signature.parameter_variances.hash(hasher);
+    } else {
+        "legacy-generic-parameter-metadata-absent".hash(hasher);
+    }
+    if signature.constraint_shapes.len() == signature.constraints.len() {
+        signature.constraint_shapes.hash(hasher);
+    } else {
+        "legacy-generic-constraint-metadata-absent".hash(hasher);
+    }
 }
 
 fn hash_generic_supertype_template(template: &GenericSupertypeTemplate, hasher: &mut impl Hasher) {
     template.declaration.hash(hasher);
-    template.supertype.hash(hasher);
+    match &template.structural_form {
+        Some(structural_form) => structural_form.hash(hasher),
+        None => "legacy-supertype-structural-metadata-absent".hash(hasher),
+    }
 }
 
 fn hash_declaration_type_info(info: &DeclarationTypeInfo, hasher: &mut impl Hasher) {
     info.declaration.hash(hasher);
-    info.form.hash(hasher);
-    info.class_object_type.hash(hasher);
     info.kind.hash(hasher);
     match &info.generic_signature {
         Some(signature) => {
@@ -501,6 +512,51 @@ fn hash_declaration_type_info(info: &DeclarationTypeInfo, hasher: &mut impl Hash
             hash_generic_supertype_template(template, hasher);
         }
         None => 0u8.hash(hasher),
+    }
+}
+
+fn hash_type_alias_info(info: &TypeAliasInfo, hasher: &mut impl Hasher) {
+    info.declaration.hash(hasher);
+    info.kind_shape.hash(hasher);
+    match &info.generic_signature {
+        Some(signature) => {
+            1u8.hash(hasher);
+            hash_generic_signature(signature, hasher);
+        }
+        None => 0u8.hash(hasher),
+    }
+    info.structural_form.hash(hasher);
+    let mut dependencies = info.dependencies.iter().collect::<Vec<_>>();
+    dependencies.sort();
+    dependencies.hash(hasher);
+}
+
+fn hash_type_declaration_shell(shell: &TypeDeclarationShell, hasher: &mut impl Hasher) {
+    match shell {
+        TypeDeclarationShell::Nominal(info) => {
+            0u8.hash(hasher);
+            hash_declaration_type_info(info, hasher);
+        }
+        TypeDeclarationShell::Alias(info) => {
+            1u8.hash(hasher);
+            hash_type_alias_info(info, hasher);
+        }
+    }
+}
+
+pub trait DeclarationShellFingerprintInput {
+    fn hash_declaration_shell(&self, hasher: &mut impl Hasher);
+}
+
+impl DeclarationShellFingerprintInput for DeclarationTypeInfo {
+    fn hash_declaration_shell(&self, hasher: &mut impl Hasher) {
+        hash_declaration_type_info(self, hasher);
+    }
+}
+
+impl DeclarationShellFingerprintInput for TypeDeclarationShell {
+    fn hash_declaration_shell(&self, hasher: &mut impl Hasher) {
+        hash_type_declaration_shell(self, hasher);
     }
 }
 
@@ -1286,16 +1342,16 @@ pub fn linked_interface_product_fingerprint(interface: &LinkedModuleInterface) -
 }
 
 /// Computes the direct semantic input identity of declaration type metadata.
-pub fn declaration_shell_input_fingerprint(info: &DeclarationTypeInfo) -> InputFingerprint {
+pub fn declaration_shell_input_fingerprint<T: DeclarationShellFingerprintInput>(info: &T) -> InputFingerprint {
     let mut hasher = DefaultHasher::new();
-    hash_declaration_type_info(info, &mut hasher);
+    info.hash_declaration_shell(&mut hasher);
     finish_input(hasher)
 }
 
 /// Computes the semantic product identity of declaration type metadata.
-pub fn declaration_shell_product_fingerprint(info: &DeclarationTypeInfo) -> ProductFingerprint {
+pub fn declaration_shell_product_fingerprint<T: DeclarationShellFingerprintInput>(info: &T) -> ProductFingerprint {
     let mut hasher = DefaultHasher::new();
-    hash_declaration_type_info(info, &mut hasher);
+    info.hash_declaration_shell(&mut hasher);
     finish_product(hasher)
 }
 

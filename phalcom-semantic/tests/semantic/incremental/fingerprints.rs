@@ -5,13 +5,12 @@ use phalcom_modules::{
     InterfaceBuilder, ModuleComponent, ModuleId, ModuleKind, ModuleLinker, ModulePath, ProjectUniverse, ResolvedProjectId, UnlinkedModuleInterface,
 };
 use phalcom_native_meta::{EffectSpec, ImplementationKind, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
-use phalcom_semantic::checker::BindingConsistency;
 use phalcom_semantic::checker::analysis::{
     AnalysisStatus, BindingState, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, FlowBindingSummary, FlowStateSummary,
 };
 use phalcom_semantic::checker::flow::graph::{FlowGraph, FlowNodeKind};
 use phalcom_semantic::checker::incident::{InternalSemanticIncident, InternalSemanticIncidentDetails, InternalSemanticIncidentKind};
-use phalcom_semantic::db::ProductFingerprint;
+use phalcom_semantic::checker::BindingConsistency;
 use phalcom_semantic::db::fingerprint::{
     callable_body_product_fingerprint, callable_signature_input_fingerprint, callable_signature_product_fingerprint, declaration_shell_input_fingerprint,
     declaration_shell_product_fingerprint, declaration_surface_input_fingerprint, declaration_surface_product_fingerprint,
@@ -19,6 +18,7 @@ use phalcom_semantic::db::fingerprint::{
     module_diagnostics_product_fingerprint, semantic_component_product_fingerprint, unlinked_interface_input_fingerprint,
     unlinked_interface_product_fingerprint,
 };
+use phalcom_semantic::db::ProductFingerprint;
 use phalcom_semantic::declarations::{DeclarationTypeInfo, GenericSupertypeTemplate};
 use phalcom_semantic::diagnostic::{DiagnosticCode, SemanticDiagnostic, SemanticSourceSpan};
 use phalcom_semantic::dispatch::{CallableSemanticKind, CallableSignature, DispatchSide};
@@ -253,7 +253,7 @@ fn declaration_shell_product_changes_when_kind_changes() {
 }
 
 #[test]
-fn declaration_shell_product_changes_when_generic_parameter_version_changes() {
+fn declaration_shell_product_uses_stable_marker_when_generic_metadata_is_absent() {
     let mut left = declaration_shell();
     left.generic_signature = Some(GenericSignature::new(
         TypeParameterOwner::Declaration(left.declaration.clone()),
@@ -265,23 +265,54 @@ fn declaration_shell_product_changes_when_generic_parameter_version_changes() {
         Box::new([TypeParameterId(2)]),
     ));
 
-    assert_ne!(declaration_shell_product_fingerprint(&left), declaration_shell_product_fingerprint(&right));
+    assert_eq!(declaration_shell_product_fingerprint(&left), declaration_shell_product_fingerprint(&right));
 }
 
 #[test]
-fn declaration_shell_product_changes_when_supertype_template_changes() {
+fn declaration_shell_product_uses_stable_marker_when_supertype_metadata_is_absent() {
     let mut left = declaration_shell();
     left.supertype_template = Some(GenericSupertypeTemplate {
         declaration: left.declaration.clone(),
         supertype: TypeId(3),
+        structural_form: None,
     });
     let mut right = left.clone();
     right.supertype_template = Some(GenericSupertypeTemplate {
         declaration: right.declaration.clone(),
         supertype: TypeId(4),
+        structural_form: None,
     });
 
-    assert_ne!(declaration_shell_product_fingerprint(&left), declaration_shell_product_fingerprint(&right));
+    assert_eq!(declaration_shell_product_fingerprint(&left), declaration_shell_product_fingerprint(&right));
+}
+
+#[test]
+fn declaration_shell_fingerprint_uses_generic_and_supertype_structure() {
+    let mut left = declaration_shell();
+    left.generic_signature = Some(
+        GenericSignature::new(TypeParameterOwner::Declaration(left.declaration.clone()), Box::new([TypeParameterId(1)]))
+            .with_parameter_kind_shapes(Box::new(["Type".into()]))
+            .with_parameter_metadata(Box::new([KindId::TYPE]), Box::new([phalcom_semantic::types::variance::Variance::Invariant]))
+            .with_constraint_shapes(Box::new([])),
+    );
+    left.supertype_template = Some(GenericSupertypeTemplate {
+        declaration: left.declaration.clone(),
+        supertype: TypeId(3),
+        structural_form: Some("Base<Type>".into()),
+    });
+    let mut same = left.clone();
+    same.generic_signature = Some(
+        GenericSignature::new(TypeParameterOwner::Declaration(same.declaration.clone()), Box::new([TypeParameterId(99)]))
+            .with_parameter_kind_shapes(Box::new(["Type".into()]))
+            .with_parameter_metadata(Box::new([KindId::TYPE]), Box::new([phalcom_semantic::types::variance::Variance::Invariant]))
+            .with_constraint_shapes(Box::new([])),
+    );
+    same.supertype_template.as_mut().unwrap().supertype = TypeId(44);
+    assert_eq!(declaration_shell_product_fingerprint(&left), declaration_shell_product_fingerprint(&same));
+
+    let mut changed = same.clone();
+    changed.supertype_template.as_mut().unwrap().structural_form = Some("Other<Type>".into());
+    assert_ne!(declaration_shell_product_fingerprint(&left), declaration_shell_product_fingerprint(&changed));
 }
 
 #[test]
@@ -356,15 +387,23 @@ fn declaration_surface_product_includes_callable_generic_contract() {
         Vec::new(),
         TypeKnowledge::assumed(TypeId(1), EvidenceOrigin::DeveloperAnnotation),
     );
-    left_signature.generics = Some(GenericSignature::new(
-        TypeParameterOwner::Declaration(owner.clone()),
-        Box::new([TypeParameterId(1)]),
-    ));
+    left_signature.generics = Some(
+        GenericSignature::new(TypeParameterOwner::Declaration(owner.clone()), Box::new([TypeParameterId(1)]))
+            .with_parameter_kind_shapes(Box::new(["Type".into()]))
+            .with_parameter_metadata(Box::new([KindId::TYPE]), Box::new([phalcom_semantic::types::variance::Variance::Invariant])),
+    );
     left.add_callable(DispatchSide::Instance, left_signature);
 
     let mut right = DeclarationSurface::new(Some(owner.clone()));
     let mut right_signature = CallableSignature::new(selector, Vec::new(), TypeKnowledge::assumed(TypeId(1), EvidenceOrigin::DeveloperAnnotation));
-    right_signature.generics = Some(GenericSignature::new(TypeParameterOwner::Declaration(owner), Box::new([TypeParameterId(2)])));
+    right_signature.generics = Some(
+        GenericSignature::new(TypeParameterOwner::Declaration(owner), Box::new([TypeParameterId(2)]))
+            .with_parameter_kind_shapes(Box::new(["RecordRow".into()]))
+            .with_parameter_metadata(
+                Box::new([KindId::RECORD_ROW]),
+                Box::new([phalcom_semantic::types::variance::Variance::Invariant]),
+            ),
+    );
     right.add_callable(DispatchSide::Instance, right_signature);
 
     assert_ne!(declaration_surface_product_fingerprint(&left), declaration_surface_product_fingerprint(&right));
@@ -623,17 +662,24 @@ fn callable_body_product_ignores_explanation_presentation() {
 fn callable_body_product_ignores_diagnostic_details() {
     let mut left = callable_analysis();
     left.diagnostics = Arc::from(
-        vec![
-            SemanticDiagnostic::error_in(ModuleId::universe_root(), DiagnosticCode::TypeMismatch, "mismatch", SourceRange { start: 1, end: 2 }).with_note("first note"),
-        ]
+        vec![SemanticDiagnostic::error_in(
+            ModuleId::universe_root(),
+            DiagnosticCode::TypeMismatch,
+            "mismatch",
+            SourceRange { start: 1, end: 2 },
+        )
+        .with_note("first note")]
         .into_boxed_slice(),
     );
     let mut right = left.clone();
     right.diagnostics = Arc::from(
-        vec![
-            SemanticDiagnostic::error_in(ModuleId::universe_root(), DiagnosticCode::TypeMismatch, "mismatch", SourceRange { start: 1, end: 2 })
-                .with_note("different note"),
-        ]
+        vec![SemanticDiagnostic::error_in(
+            ModuleId::universe_root(),
+            DiagnosticCode::TypeMismatch,
+            "mismatch",
+            SourceRange { start: 1, end: 2 },
+        )
+        .with_note("different note")]
         .into_boxed_slice(),
     );
 

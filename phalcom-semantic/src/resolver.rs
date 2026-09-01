@@ -1,11 +1,13 @@
 //! Linked project-aware type resolver.
 
-use crate::identity::{DeclarationId, ModuleId};
 use crate::core_surface::universe_declaration;
+use crate::identity::{DeclarationId, ModuleId};
 use crate::types::annotation::TypeResolver;
 use phalcom_modules::linker::{LinkedProgram, LinkedReadSpec};
 use phalcom_native_meta::UniverseKey;
 use std::collections::HashSet;
+use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 /// A project-aware type resolver that resolves type names through the linker layout
@@ -15,6 +17,7 @@ pub struct LinkedTypeResolver {
     linked: Arc<LinkedProgram>,
     known_declarations: HashSet<DeclarationId>,
     prelude_module: ModuleId,
+    alias_forms: RefCell<BTreeMap<DeclarationId, crate::types::id::TypeId>>,
 }
 
 impl LinkedTypeResolver {
@@ -23,11 +26,20 @@ impl LinkedTypeResolver {
             linked,
             known_declarations,
             prelude_module,
+            alias_forms: RefCell::new(BTreeMap::new()),
         }
+    }
+
+    pub fn insert_alias_form(&self, declaration: DeclarationId, form: crate::types::id::TypeId) {
+        self.alias_forms.borrow_mut().insert(declaration, form);
     }
 }
 
 impl TypeResolver for LinkedTypeResolver {
+    fn resolve_alias_form(&self, declaration: &DeclarationId) -> Option<crate::types::id::TypeId> {
+        self.alias_forms.borrow().get(declaration).copied()
+    }
+
     fn resolve_type_name(&self, current_module: &ModuleId, root: &str, members: &[String]) -> Option<DeclarationId> {
         if members.is_empty() {
             // 1. Local declaration in current_module

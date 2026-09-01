@@ -7,10 +7,10 @@ use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic, SemanticSourceSpan};
 use crate::enum_semantics::{
     EnumInfo, VariantConstructorParameter, VariantConstructorSignature, VariantFieldSemantic, VariantInfo, VariantShape, VariantVisibility,
 };
-use crate::identity::{DeclarationId, ModuleId, VariantConstructorId, VariantFamilyId, VariantFieldId, VariantId};
+use crate::identity::{DeclarationId, DispatchSide, ModuleId, VariantConstructorId, VariantFamilyId, VariantFieldId, VariantId};
 use crate::resolver::LinkedTypeResolver;
 use crate::surface::MemberVisibility;
-use crate::types::annotation::{ScopedTypeResolver, resolve_type_annotation, resolve_type_form};
+use crate::types::annotation::{ScopedTypeResolver, TypeFormationSite, resolve_type_annotation, resolve_type_form, type_level_binding_for_parameter};
 use crate::types::case_environment::{CaseEnvironmentError, CaseTypeEnvironment, derive_case_environment};
 use crate::types::evidence::TypeKnowledge;
 use crate::types::id::{KindId, TypeId, TypeParameterId};
@@ -46,8 +46,8 @@ pub fn build_enum_semantics(
     if let Some(ref sig) = generic_sig {
         for &p in sig.parameters.iter() {
             let p_name = store.type_parameter(p).name.to_string();
-            let p_form = store.parameter_form(p);
-            type_params_map.insert(p_name, p_form);
+            let binding = type_level_binding_for_parameter(store, p);
+            type_params_map.insert(p_name, binding);
         }
     }
 
@@ -55,6 +55,7 @@ pub fn build_enum_semantics(
         parent: resolver,
         type_parameters: type_params_map,
     };
+    let formation_site = TypeFormationSite::member(module_id.clone(), owner.clone(), DispatchSide::Instance);
 
     let mut variant_ids = Vec::new();
     let mut variant_infos = Vec::new();
@@ -95,11 +96,11 @@ pub fn build_enum_semantics(
         // Result type and GADT case environment
         let (result_type_template, case_env) = if let Some(ref ret_ann) = variant.result_annotation {
             let mut ann_diags = Vec::new();
-            let form_res = resolve_type_form(store, declarations, &scoped_resolver, module_id, ret_ann, &mut ann_diags);
+            let form_res = resolve_type_form(store, declarations, &scoped_resolver, &formation_site, ret_ann, &mut ann_diags);
             diagnostics.extend(ann_diags);
 
             match form_res {
-                crate::types::annotation::TypeFormResolution::Known(ret_ty) => {
+                crate::types::annotation::TypeFormResolution::Ready(ret_ty) => {
                     if store.kind_of(ret_ty) != KindId::TYPE {
                         diagnostics.push(SemanticDiagnostic::error_in(
                             module_id.clone(),
@@ -167,7 +168,14 @@ pub fn build_enum_semantics(
                         }
                     }
                 }
-                _ => {
+                crate::types::annotation::TypeFormResolution::Dynamic
+                | crate::types::annotation::TypeFormResolution::Missing(_)
+                | crate::types::annotation::TypeFormResolution::Unresolved(_)
+                | crate::types::annotation::TypeFormResolution::Invalid(_)
+                | crate::types::annotation::TypeFormResolution::Blocked(_)
+                | crate::types::annotation::TypeFormResolution::Cancelled
+                | crate::types::annotation::TypeFormResolution::BudgetExceeded(_)
+                | crate::types::annotation::TypeFormResolution::InternalFailure(_) => {
                     diagnostics.push(SemanticDiagnostic::error_in(
                         module_id.clone(),
                         DiagnosticCode::EnumVariantResultInvalid,
@@ -206,7 +214,7 @@ pub fn build_enum_semantics(
 
                 let declared_type = if let Some(ref ann) = param.annotation {
                     let mut ann_diags = Vec::new();
-                    let raw_knowledge = resolve_type_annotation(store, declarations, &scoped_resolver, module_id, ann, &mut ann_diags);
+                    let raw_knowledge = resolve_type_annotation(store, declarations, &scoped_resolver, &formation_site, ann, &mut ann_diags);
                     diagnostics.extend(ann_diags);
 
                     match raw_knowledge {

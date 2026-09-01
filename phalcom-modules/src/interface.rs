@@ -136,6 +136,11 @@ impl InterfaceBuilder {
                     Self::validate_dunder(&enum_def.name, DunderRole::Binding, range)?;
                     Self::collect_declaration(&enum_def.name, true, range, &mut namespace, &mut declarations)?;
                 }
+                Statement::TypeAlias(alias) => {
+                    let range = (alias.range.start..alias.name_range.end).into();
+                    Self::validate_dunder(&alias.name, DunderRole::Binding, range)?;
+                    Self::collect_declaration(&alias.name, true, range, &mut namespace, &mut declarations)?;
+                }
                 Statement::Let(let_binding) => {
                     let is_const = let_binding.kind == BindingKind::Const;
                     Self::collect_pattern_declarations(&let_binding.pattern, is_const, &mut namespace, &mut declarations)?;

@@ -717,7 +717,12 @@ fn synthesize_associated_lookup(ctx: &mut CheckingContext<'_>, lookup: &Associat
     let receiver = analyze_expression(ctx, &lookup.receiver, &ExpectedType::None);
 
     let is_getter_only = match &lookup.member {
-        AssociatedMemberSyntax::Named(named) => matches!(named.mode, AssociatedNamedMode::Getter { explicit_separator_range: None }),
+        AssociatedMemberSyntax::Named(named) => matches!(
+            named.mode,
+            AssociatedNamedMode::Getter {
+                explicit_separator_range: None
+            }
+        ),
         _ => false,
     };
 
@@ -1203,8 +1208,8 @@ fn synthesize_bound_behavioral_invoke(
             let result = apply_resolved_callable(ctx, &target, &premise, arguments, expected, invoke.range);
             if let Some(result_type) = result.knowledge.ty() {
                 if let Some(expression) = ctx.current_expression_id() {
-                    let is_inherited_type_form = matches!(receiver.denotation, Some(SemanticDenotation::TypeForm(_)))
-                        && callable.owner.declaration() != &lookup_owner;
+                    let is_inherited_type_form =
+                        matches!(receiver.denotation, Some(SemanticDenotation::TypeForm(_))) && callable.owner.declaration() != &lookup_owner;
                     let kind = if is_inherited_type_form {
                         AssociatedResolutionKind::StaticInvoke {
                             member: AssociatedMemberId::Variant(crate::identity::VariantId::new(lookup_owner.clone(), selector)),

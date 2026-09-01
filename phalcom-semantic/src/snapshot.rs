@@ -1,6 +1,7 @@
 use crate::advisory::AdvisoryWorkspace;
 use crate::checker::incident::InternalSemanticIncident;
 use crate::declarations::DeclarationTypeTable;
+use crate::type_alias::TypeAliasTable;
 use crate::diagnostic::{DiagnosticSeverity, SemanticDiagnostic};
 use crate::dispatch::SurfaceDispatchResolver;
 use crate::identity::{DeclarationId, ModuleId, SemanticRevision, SnapshotId, SourceSiteId, SourceSiteRef, WorkspaceId};
@@ -124,6 +125,7 @@ pub struct SemanticSnapshot {
     pub callable_signatures: Arc<CallableSignatureTable>,
     pub field_signatures: Arc<FieldSignatureTable>,
     pub declarations: Arc<DeclarationTypeTable>,
+    pub type_aliases: Arc<TypeAliasTable>,
     pub hierarchy: Arc<MapTypeHierarchy>,
     pub diagnostics: Arc<BTreeMap<ModuleId, Arc<[SemanticDiagnostic]>>>,
     pub semantic_graph: Arc<SemanticGraph>,
@@ -171,6 +173,7 @@ impl SemanticSnapshot {
             callable_signatures,
             field_signatures: Arc::new(FieldSignatureTable::new()),
             declarations,
+            type_aliases: Arc::new(TypeAliasTable::new()),
             hierarchy,
             diagnostics,
             semantic_graph,
@@ -218,6 +221,7 @@ impl SemanticSnapshot {
             callable_signatures,
             field_signatures: Arc::new(FieldSignatureTable::new()),
             declarations,
+            type_aliases: Arc::new(TypeAliasTable::new()),
             hierarchy,
             diagnostics,
             semantic_graph,
@@ -246,6 +250,11 @@ impl SemanticSnapshot {
 
     pub fn with_associated_surfaces(mut self, associated_surfaces: Arc<AssociatedFamilyTable>) -> Self {
         self.associated_surfaces = associated_surfaces;
+        self
+    }
+
+    pub fn with_type_aliases(mut self, aliases: Arc<TypeAliasTable>) -> Self {
+        self.type_aliases = aliases;
         self
     }
 

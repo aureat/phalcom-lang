@@ -7,7 +7,7 @@ use crate::db::key::{InputFingerprint, ProductFingerprint, QueryKey};
 use crate::db::product::DeclarationSurfaceProduct;
 use crate::db::state::{QueryOutcome, QueryState};
 use crate::db::{DependencyEdge, SemanticDb, SemanticProduct};
-use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable};
+use crate::declarations::{DeclarationTypeTable, TypeDeclarationShell};
 use crate::diagnostic::SemanticDiagnostic;
 use crate::dispatch::SurfaceDispatchResolver;
 use crate::hierarchy_product::HierarchyEdgeProduct;
@@ -651,9 +651,9 @@ pub fn query_bootstrap_hierarchy_edge(
 }
 
 /// Evaluates or retrieves canonical declaration type metadata for one declaration.
-pub fn query_declaration_shell(db: &mut SemanticDb, info: Arc<DeclarationTypeInfo>) -> QueryOutcome<Arc<DeclarationTypeInfo>> {
-    let key = QueryKey::DeclarationShell(info.declaration.clone());
-    let input_fingerprint = crate::db::fingerprint::declaration_shell_input_fingerprint(&info);
+pub fn query_declaration_shell(db: &mut SemanticDb, shell: Arc<TypeDeclarationShell>) -> QueryOutcome<Arc<TypeDeclarationShell>> {
+    let key = QueryKey::DeclarationShell(shell.declaration().clone());
+    let input_fingerprint = crate::db::fingerprint::declaration_shell_input_fingerprint(shell.as_ref());
     if db.validate_reuse(&key, input_fingerprint) {
         if let Some(product) = db.product(&key).and_then(|product| product.as_declaration_shell()) {
             db.metrics().record_hit();
@@ -665,18 +665,18 @@ pub fn query_declaration_shell(db: &mut SemanticDb, info: Arc<DeclarationTypeInf
     }
     db.metrics().record_miss();
 
-    let product_fingerprint = crate::db::fingerprint::declaration_shell_product_fingerprint(&info);
+    let product_fingerprint = crate::db::fingerprint::declaration_shell_product_fingerprint(shell.as_ref());
     if let Err(error) = publish_current_product(
         db,
         key.clone(),
         input_fingerprint,
         product_fingerprint,
-        SemanticProduct::DeclarationShell(info.clone()),
+        SemanticProduct::DeclarationShell(shell.clone()),
         Vec::new(),
     ) {
         return query_failure(db, key, error);
     }
-    QueryOutcome::Ready(info)
+    QueryOutcome::Ready(shell)
 }
 
 /// Publishes one canonical bootstrap declaration surface before source-owned
@@ -847,7 +847,7 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
         crate::db::fingerprint::declaration_surface_enum_input_fingerprint(&unit, &decl_id, enum_definition_for(&unit, &decl_id).unwrap())
     };
 
-    match query_declaration_shell(db, Arc::new(declaration_info)) {
+    match query_declaration_shell(db, Arc::new(TypeDeclarationShell::Nominal(declaration_info))) {
         QueryOutcome::Ready(_) => {}
         QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
         QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
@@ -977,7 +977,7 @@ pub fn query_callable_signature(
     let Some(declaration_info) = declarations.get(callable.declaration_owner()).cloned() else {
         return query_failure(db, key, format!("missing declaration metadata for {:?}", callable.owner));
     };
-    match query_declaration_shell(db, Arc::new(declaration_info)) {
+    match query_declaration_shell(db, Arc::new(TypeDeclarationShell::Nominal(declaration_info))) {
         QueryOutcome::Ready(_) => {}
         QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
         QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
@@ -1135,7 +1135,7 @@ pub fn query_field_signature(
     let Some(declaration_info) = declarations.get(&field.owner).cloned() else {
         return query_failure(db, key, format!("missing declaration metadata for {:?}", field.owner));
     };
-    match query_declaration_shell(db, Arc::new(declaration_info)) {
+    match query_declaration_shell(db, Arc::new(TypeDeclarationShell::Nominal(declaration_info))) {
         QueryOutcome::Ready(_) => {}
         QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
         QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
@@ -1280,11 +1280,11 @@ fn declaration_signature_id_for_body(callable: &CallableId, unit: &ParsedModuleU
     None
 }
 
-fn ensure_declaration_shell(db: &mut SemanticDb, declaration: &DeclarationId, declarations: &DeclarationTypeTable) -> QueryOutcome<Arc<DeclarationTypeInfo>> {
+fn ensure_declaration_shell(db: &mut SemanticDb, declaration: &DeclarationId, declarations: &DeclarationTypeTable) -> QueryOutcome<Arc<TypeDeclarationShell>> {
     let Some(info) = declarations.get(declaration).cloned() else {
         return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
     };
-    query_declaration_shell(db, Arc::new(info))
+    query_declaration_shell(db, Arc::new(TypeDeclarationShell::Nominal(info)))
 }
 
 fn ensure_linked_interface(db: &mut SemanticDb, module: &ModuleId, linked: &LinkedProgram) -> QueryOutcome<Arc<LinkedModuleInterface>> {

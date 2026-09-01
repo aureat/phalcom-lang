@@ -78,7 +78,10 @@ fn declaration_shell_query_publishes_typed_product_and_reuses_it() {
     });
     let mut db = SemanticDb::new();
 
-    let first = phalcom_semantic::db::query_declaration_shell(&mut db, info.clone());
+    let first = phalcom_semantic::db::query_declaration_shell(
+        &mut db,
+        Arc::new(phalcom_semantic::TypeDeclarationShell::Nominal((*info).clone())),
+    );
     let first_product = match first {
         QueryOutcome::Ready(product) => product,
         other => panic!("expected shell product, got {other:?}"),
@@ -86,7 +89,10 @@ fn declaration_shell_query_publishes_typed_product_and_reuses_it() {
     let key = QueryKey::DeclarationShell(declaration.clone());
     assert!(db.product(&key).and_then(|product| product.as_declaration_shell()).is_some());
 
-    let second = phalcom_semantic::db::query_declaration_shell(&mut db, info);
+    let second = phalcom_semantic::db::query_declaration_shell(
+        &mut db,
+        Arc::new(phalcom_semantic::TypeDeclarationShell::Nominal((*info).clone())),
+    );
     match second {
         QueryOutcome::Ready(product) => assert!(Arc::ptr_eq(&first_product, &product)),
         other => panic!("expected cached shell product, got {other:?}"),

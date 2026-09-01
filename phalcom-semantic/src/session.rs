@@ -1,47 +1,51 @@
 //! Compiler-owned incremental workspace session (Spec 04.5 / Wave 5 / Tasks 16-18).
 
 use crate::advisory::{
-    AdvisoryBuiltins, AdvisoryCallableSummary, AdvisoryConfidence, AdvisoryFact, AdvisoryFlowContext, AdvisoryModuleProduct, AdvisoryOrigin,
-    AdvisoryProductStatus, AdvisorySolver, AdvisorySolverBudget, AdvisorySolverNode, AdvisoryTargetResolution, AdvisoryWorkspace, CallableForShapeResolver,
-    FormalCallResultResolver, MethodFamilyResolver, ModuleMemberResolver, advisory_shape_from_formal, advisory_shape_from_formal_for_receiver, analyze_expr,
-    analyze_statements,
+    advisory_shape_from_formal, advisory_shape_from_formal_for_receiver, analyze_expr, analyze_statements, AdvisoryBuiltins, AdvisoryCallableSummary,
+    AdvisoryConfidence, AdvisoryFact, AdvisoryFlowContext, AdvisoryModuleProduct, AdvisoryOrigin, AdvisoryProductStatus, AdvisorySolver, AdvisorySolverBudget,
+    AdvisorySolverNode, AdvisoryTargetResolution, AdvisoryWorkspace, CallableForShapeResolver, FormalCallResultResolver, MethodFamilyResolver,
+    ModuleMemberResolver,
 };
-use crate::associated::{AssociatedFamilyTable, build_associated_surface};
+use crate::associated::{build_associated_surface, AssociatedFamilyTable};
 use crate::checker::analysis::normal_return_summary;
 use crate::checker::context::CheckingContext;
 use crate::checker::declaration::check_class_field_initializers;
 use crate::checker::statement::check_statement;
-use crate::db::SemanticDb;
 use crate::db::budget::{CancellationToken, QueryBudget};
 use crate::db::key::QueryKey;
 use crate::db::product::EnumRequirementsProduct;
 use crate::db::query::{
-    CallableBodyQuery, DeclarationSurfaceQuery, FormalQueryInputs, bootstrap_advisory_callable, query_advisory_callable, query_advisory_module,
-    query_associated_surface, query_bootstrap_callable_signature, query_bootstrap_declaration_surface, query_bootstrap_hierarchy_edge,
-    query_callable_body_with_formal_inputs, query_callable_signature, query_declaration_shell, query_declaration_surface, query_enum_declaration,
-    query_enum_requirements, query_field_signature, query_hierarchy_edge, query_linked_interface, query_source_formal_attachment, query_source_structure,
-    query_unlinked_interface,
+    bootstrap_advisory_callable, query_advisory_callable, query_advisory_module, query_associated_surface, query_bootstrap_callable_signature,
+    query_bootstrap_declaration_surface, query_bootstrap_hierarchy_edge, query_callable_body_with_formal_inputs, query_callable_signature,
+    query_declaration_shell, query_declaration_surface, query_enum_declaration, query_enum_requirements, query_field_signature, query_hierarchy_edge,
+    query_linked_interface, query_source_formal_attachment, query_source_structure, query_unlinked_interface, CallableBodyQuery, DeclarationSurfaceQuery,
+    FormalQueryInputs,
 };
 use crate::db::state::QueryOutcome;
-use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, bootstrap_universe_declarations};
+use crate::db::SemanticDb;
+use crate::declarations::{bootstrap_universe_declarations, DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, NominalDeclarationHeader, TypeDeclarationShell};
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::SurfaceDispatchResolver;
-use crate::enum_requirements::{EnumRequirementTable, check_enum_requirements};
+use crate::enum_requirements::{check_enum_requirements, EnumRequirementTable};
 use crate::enum_semantics::{EnumSemanticTable, VariantInfo};
 use crate::identity::{CallableId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId, WorkspaceId};
 use crate::resolver::LinkedTypeResolver;
 use crate::signature::{CallableSignatureTable, FieldSignatureTable};
 use crate::snapshot::SemanticSnapshot;
 use crate::source::ParsedModuleUnit;
-use crate::source_index::{SourceIndexContext, SourceSemanticIndex, build_source_scope_index, resolve_type_reference_targets};
-use crate::types::annotation::{TypeResolver, resolve_generic_signature, resolve_kind_syntax};
+use crate::source_index::{build_source_scope_index, resolve_type_reference_targets, SourceIndexContext, SourceSemanticIndex};
+use crate::types::annotation::{
+    lower_scoped_type_alias_form, resolve_generic_signature, resolve_kind_syntax, type_level_binding_for_parameter, GenericBinderSite,
+    TypeFormationOutcome, TypeFormationSite, TypeResolver,
+};
 use crate::types::id::KindId;
 use crate::types::native::register_native_surfaces;
-use crate::types::parameter::{TypeParameterData, TypeParameterOwner};
+use crate::types::parameter::{GenericSignature, TypeParameterData, TypeParameterOwner};
 use crate::types::relation::MapTypeHierarchy;
 use crate::types::store::TypeStore;
 use crate::workspace::SemanticWorkspaceInput;
-use phalcom_ast::ast::{ClassMember, DependencyDecl, ImportDecl, PackItem, PackLabel, Statement};
+use crate::type_alias::{TypeAliasInfo, TypeAliasTable};
+use phalcom_ast::ast::{ClassMember, DependencyDecl, ImportDecl, PackItem, PackLabel, Statement, TypeAnnotation, TypeAnnotationExpr};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
 use phalcom_modules::declaration::{DeclarationBlueprint, DeclarationKind, DeclarationRealizationError, DeclarationShellTable};
@@ -71,6 +75,88 @@ pub struct SemanticUpdateStats {
 enum CallableRevisionDisposition {
     Reused,
     Recomputed,
+}
+
+fn retain_generic_signature(
+    outcome: TypeFormationOutcome<GenericSignature>,
+    module: &ModuleId,
+    range: SourceRange,
+    diagnostics: &mut Vec<SemanticDiagnostic>,
+) -> Option<GenericSignature> {
+    match outcome {
+        TypeFormationOutcome::Ready(signature) => Some(signature),
+        TypeFormationOutcome::Dynamic => {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                module.clone(),
+                DiagnosticCode::AnnotationUnsupported,
+                "generic signature depends on a dynamic type-form boundary",
+                range,
+            ));
+            None
+        }
+        TypeFormationOutcome::Missing(reason) => {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                module.clone(),
+                DiagnosticCode::AnnotationUnresolved,
+                format!("generic signature publication missing: {reason:?}"),
+                range,
+            ));
+            None
+        }
+        TypeFormationOutcome::Unresolved(_) | TypeFormationOutcome::Invalid(_) => None,
+        TypeFormationOutcome::Blocked(reason) => {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                module.clone(),
+                DiagnosticCode::AnalysisBlocked,
+                format!("generic signature publication blocked: {reason:?}"),
+                range,
+            ));
+            None
+        }
+        TypeFormationOutcome::Cancelled => {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                module.clone(),
+                DiagnosticCode::AnalysisBlocked,
+                "generic signature publication cancelled",
+                range,
+            ));
+            None
+        }
+        TypeFormationOutcome::BudgetExceeded(report) => {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                module.clone(),
+                DiagnosticCode::AnalysisBudgetExceeded,
+                format!("generic signature publication exceeded budget: {report:?}"),
+                range,
+            ));
+            None
+        }
+        TypeFormationOutcome::InternalFailure(failure) => {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                module.clone(),
+                DiagnosticCode::AnalysisInternalFailure,
+                format!("generic signature publication failed: {failure}"),
+                range,
+            ));
+            None
+        }
+    }
+}
+
+fn ready_kind_for_predeclaration(store: &mut TypeStore, syntax: Option<&phalcom_ast::ast::KindSyntax>) -> Option<KindId> {
+    match syntax.map_or(crate::types::annotation::KindResolution::Ready(KindId::TYPE), |kind| {
+        resolve_kind_syntax(store, kind)
+    }) {
+        crate::types::annotation::KindResolution::Ready(kind) => Some(kind),
+        crate::types::annotation::KindResolution::Dynamic
+        | crate::types::annotation::KindResolution::Missing(_)
+        | crate::types::annotation::KindResolution::Unresolved(_)
+        | crate::types::annotation::KindResolution::Invalid(_)
+        | crate::types::annotation::KindResolution::Blocked(_)
+        | crate::types::annotation::KindResolution::Cancelled
+        | crate::types::annotation::KindResolution::BudgetExceeded(_)
+        | crate::types::annotation::KindResolution::InternalFailure(_) => None,
+    }
 }
 
 fn canonical_runtime_support_superclass(root: &str, members: &[String]) -> Option<DeclarationId> {
@@ -248,7 +334,10 @@ impl SemanticWorkspaceSession {
                 let mut parameter_ids = Vec::new();
                 let mut parameter_kinds = Vec::new();
                 for (index, parameter) in enum_def.generic_parameters.iter().enumerate() {
-                    let kind = parameter.kind.as_ref().map_or(KindId::TYPE, |syntax| resolve_kind_syntax(&mut store, syntax));
+                    let Some(kind) = ready_kind_for_predeclaration(&mut store, parameter.kind.as_ref()) else {
+                        parameter_ids.clear();
+                        break;
+                    };
                     let parameter_id = store.intern_type_parameter(TypeParameterData::new(
                         TypeParameterOwner::Declaration(decl_id.clone()),
                         index as u32,
@@ -257,6 +346,10 @@ impl SemanticWorkspaceSession {
                     ));
                     parameter_ids.push(parameter_id);
                     parameter_kinds.push(kind);
+                }
+
+                if parameter_ids.len() != enum_def.generic_parameters.len() {
+                    continue;
                 }
 
                 let (form, kind, generic_signature) = if parameter_ids.is_empty() {
@@ -607,6 +700,7 @@ impl SemanticWorkspaceSession {
         let mut declarations = self.base_declarations.clone();
         let mut hierarchy = self.base_hierarchy.clone();
         let mut shell_table = DeclarationShellTable::default();
+        let mut alias_declarations = BTreeSet::new();
         let mut initial_blueprints: Vec<DeclarationBlueprint> = declarations
             .iter()
             .map(|(decl_id, _)| DeclarationBlueprint {
@@ -624,11 +718,17 @@ impl SemanticWorkspaceSession {
                         kind: DeclarationKind::Class,
                     });
                     let kind = if !class_def.generic_parameters.is_empty() {
-                        let param_kinds: Vec<KindId> = class_def
-                            .generic_parameters
-                            .iter()
-                            .map(|p| p.kind.as_ref().map_or(KindId::TYPE, |k| resolve_kind_syntax(&mut self.store, k)))
-                            .collect();
+                        let mut param_kinds = Vec::with_capacity(class_def.generic_parameters.len());
+                        for parameter in &class_def.generic_parameters {
+                            let Some(kind) = ready_kind_for_predeclaration(&mut self.store, parameter.kind.as_ref()) else {
+                                param_kinds.clear();
+                                break;
+                            };
+                            param_kinds.push(kind);
+                        }
+                        if param_kinds.len() != class_def.generic_parameters.len() {
+                            continue;
+                        }
                         self.store.arrow_kind(param_kinds.into_boxed_slice(), KindId::TYPE)
                     } else {
                         KindId::TYPE
@@ -655,11 +755,17 @@ impl SemanticWorkspaceSession {
                         kind: DeclarationKind::Class,
                     });
                     let kind = if !enum_def.generic_parameters.is_empty() {
-                        let param_kinds: Vec<KindId> = enum_def
-                            .generic_parameters
-                            .iter()
-                            .map(|p| p.kind.as_ref().map_or(KindId::TYPE, |k| resolve_kind_syntax(&mut self.store, k)))
-                            .collect();
+                        let mut param_kinds = Vec::with_capacity(enum_def.generic_parameters.len());
+                        for parameter in &enum_def.generic_parameters {
+                            let Some(kind) = ready_kind_for_predeclaration(&mut self.store, parameter.kind.as_ref()) else {
+                                param_kinds.clear();
+                                break;
+                            };
+                            param_kinds.push(kind);
+                        }
+                        if param_kinds.len() != enum_def.generic_parameters.len() {
+                            continue;
+                        }
                         self.store.arrow_kind(param_kinds.into_boxed_slice(), KindId::TYPE)
                     } else {
                         KindId::TYPE
@@ -679,13 +785,21 @@ impl SemanticWorkspaceSession {
                         generic_signature: None,
                         supertype_template: None,
                     });
+                } else if let Statement::TypeAlias(alias) = stmt {
+                    let decl_id = DeclarationId::new(module_id.clone(), alias.name.clone().into());
+                    initial_blueprints.push(DeclarationBlueprint {
+                        id: decl_id.clone(),
+                        kind: DeclarationKind::Alias,
+                    });
+                    alias_declarations.insert(decl_id);
                 }
             }
         }
         shell_table.predeclare(initial_blueprints);
 
         // 3. Construct LinkedTypeResolver
-        let known_declarations: HashSet<DeclarationId> = declarations.iter().map(|(decl_id, _)| decl_id.clone()).collect();
+        let mut known_declarations: HashSet<DeclarationId> = declarations.iter().map(|(decl_id, _)| decl_id.clone()).collect();
+        known_declarations.extend(alias_declarations.iter().cloned());
         let resolver = LinkedTypeResolver::new(input.linked.clone(), known_declarations, ModuleId::universe_root());
 
         // 4. Enrich Semantic Graph
@@ -722,6 +836,8 @@ impl SemanticWorkspaceSession {
 
         // 5. Realize Declaration Shells
         let mut diags_by_module: BTreeMap<ModuleId, Vec<SemanticDiagnostic>> = BTreeMap::new();
+        let mut blocked_declarations = BTreeSet::new();
+        let mut type_aliases = TypeAliasTable::new();
         if let Err(err) = shell_table.realize_semantic_graph(&semantic_graph) {
             match err {
                 DeclarationRealizationError::InheritanceCycle { cycle } => {
@@ -753,33 +869,121 @@ impl SemanticWorkspaceSession {
             }
         }
 
-        // Generic signatures and supertype templates
+        // Lower transparent aliases before class signatures so alias references
+        // resolve through the same linked declaration resolver.
         for (module_id, parsed_unit) in &input.sources {
             for stmt in &parsed_unit.program.statements {
+                let Statement::TypeAlias(alias) = stmt else {
+                    continue;
+                };
+                let declaration = DeclarationId::new(module_id.clone(), alias.name.clone().into());
+                let signature = if alias.generic_parameters.is_empty() {
+                    None
+                } else {
+                    let outcome = resolve_generic_signature(
+                        &mut self.store,
+                        &declarations,
+                        &resolver,
+                        &TypeFormationSite::module(module_id.clone()),
+                        TypeParameterOwner::Declaration(declaration.clone()),
+                        GenericBinderSite::TypeAlias,
+                        &alias.generic_parameters,
+                        alias.where_clause.as_ref(),
+                        diags_by_module.entry(module_id.clone()).or_default(),
+                    );
+                    retain_generic_signature(
+                        outcome,
+                        module_id,
+                        alias.range,
+                        diags_by_module.entry(module_id.clone()).or_default(),
+                    )
+                };
+                if !alias.generic_parameters.is_empty() && signature.is_none() {
+                    continue;
+                }
+                let site = TypeFormationSite::module(module_id.clone());
+                let mut diagnostics = Vec::new();
+                let form = match signature.as_ref() {
+                    Some(signature) => lower_scoped_type_alias_form(
+                        &mut self.store,
+                        &declarations,
+                        &resolver,
+                        &site,
+                        signature,
+                        &alias.body,
+                        &mut diagnostics,
+                    ),
+                    None => crate::types::annotation::resolve_type_form(
+                        &mut self.store,
+                        &declarations,
+                        &resolver,
+                        &site,
+                        &alias.body,
+                        &mut diagnostics,
+                    ),
+                };
+                diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics);
+                let TypeFormationOutcome::Ready(form) = form else {
+                    continue;
+                };
+                let mut dependencies = BTreeSet::new();
+                collect_alias_dependencies(&alias.body, module_id, &resolver, &alias_declarations, &mut dependencies);
+                let info = TypeAliasInfo {
+                    declaration: declaration.clone(),
+                    kind: self.store.kind_of(form),
+                    kind_shape: self.store.format_kind(self.store.kind_of(form)).into_boxed_str(),
+                    generic_signature: signature,
+                    structural_form: self.store.format_type(form).into_boxed_str(),
+                    form,
+                    dependencies: dependencies.into_iter().collect::<Vec<_>>().into_boxed_slice(),
+                    source: crate::diagnostic::SemanticSourceSpan::new(module_id.clone(), alias.range),
+                };
+                resolver.insert_alias_form(declaration, form);
+                type_aliases.insert(info);
+            }
+        }
+
+        // Generic signatures and supertype templates
+        for (module_id, parsed_unit) in &input.sources {
+            'source_declaration: for stmt in &parsed_unit.program.statements {
                 if let Statement::Class(class_def) = stmt {
                     let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                    let formation_site = TypeFormationSite::member(module_id.clone(), decl_id.clone(), DispatchSide::Instance);
                     let generic_signature = if !class_def.generic_parameters.is_empty() {
-                        Some(resolve_generic_signature(
+                        let outcome = resolve_generic_signature(
                             &mut self.store,
                             &declarations,
                             &resolver,
-                            module_id,
+                            &formation_site,
                             TypeParameterOwner::Declaration(decl_id.clone()),
+                            GenericBinderSite::NominalDeclaration,
                             &class_def.generic_parameters,
                             class_def.where_clause.as_ref(),
                             diags_by_module.entry(module_id.clone()).or_default(),
+                        );
+                        Some(retain_generic_signature(
+                            outcome,
+                            module_id,
+                            class_def.range,
+                            diags_by_module.entry(module_id.clone()).or_default(),
                         ))
+                        .flatten()
                     } else {
                         None
                     };
 
+                    if !class_def.generic_parameters.is_empty() && generic_signature.is_none() {
+                        continue;
+                    }
+                    let header = NominalDeclarationHeader::from_signature(&mut self.store, decl_id.clone(), generic_signature);
+
                     let supertype_template = if let Some(super_ann) = &class_def.superclass {
-                        let type_params_map = if let Some(ref sig) = generic_signature {
+                        let type_params_map = if let Some(ref sig) = header.generic_signature {
                             let mut map = std::collections::HashMap::new();
                             for &param_id in sig.parameters.iter() {
                                 let name = self.store.type_parameter(param_id).name.to_string();
-                                let param_form = self.store.parameter_form(param_id);
-                                map.insert(name, param_form);
+                                let binding = type_level_binding_for_parameter(&mut self.store, param_id);
+                                map.insert(name, binding);
                             }
                             map
                         } else {
@@ -791,57 +995,74 @@ impl SemanticWorkspaceSession {
                         };
                         let mut diags = Vec::new();
                         let form_res =
-                            crate::types::annotation::resolve_type_form(&mut self.store, &declarations, &scoped_resolver, module_id, super_ann, &mut diags);
+                            crate::types::annotation::resolve_type_form(&mut self.store, &declarations, &scoped_resolver, &formation_site, super_ann, &mut diags);
                         let super_ty = match form_res {
-                            crate::types::annotation::TypeFormResolution::Known(ty) => Some(ty),
-                            crate::types::annotation::TypeFormResolution::Dynamic | crate::types::annotation::TypeFormResolution::Unknown(_) => None,
+                            crate::types::annotation::TypeFormResolution::Ready(ty) => {
+                                if self.store.kind_of(ty) != KindId::TYPE {
+                                    diags.push(SemanticDiagnostic::error_in(
+                                        module_id.clone(),
+                                        DiagnosticCode::KindExpectedType,
+                                        "superclass must be a proper type",
+                                        super_ann.range,
+                                    ));
+                                    diags_by_module.entry(module_id.clone()).or_default().extend(diags);
+                                    blocked_declarations.insert(decl_id.clone());
+                                    continue 'source_declaration;
+                                }
+                                Some(ty)
+                            }
+                            crate::types::annotation::TypeFormResolution::Dynamic
+                            | crate::types::annotation::TypeFormResolution::Missing(_)
+                            | crate::types::annotation::TypeFormResolution::Unresolved(_)
+                            | crate::types::annotation::TypeFormResolution::Invalid(_)
+                            | crate::types::annotation::TypeFormResolution::Blocked(_)
+                            | crate::types::annotation::TypeFormResolution::Cancelled
+                            | crate::types::annotation::TypeFormResolution::BudgetExceeded(_)
+                            | crate::types::annotation::TypeFormResolution::InternalFailure(_) => {
+                                diags_by_module.entry(module_id.clone()).or_default().extend(diags);
+                                blocked_declarations.insert(decl_id.clone());
+                                continue 'source_declaration;
+                            }
                         };
                         diags_by_module.entry(module_id.clone()).or_default().extend(diags);
-                        super_ty.map(|ty| GenericSupertypeTemplate {
-                            declaration: decl_id.clone(),
-                            supertype: ty,
-                        })
+                        super_ty.map(|ty| GenericSupertypeTemplate::from_type(&self.store, decl_id.clone(), ty))
                     } else {
                         None
                     };
 
-                    if let Some(info) = declarations.get(&decl_id).cloned() {
-                        declarations.insert(DeclarationTypeInfo {
-                            declaration: info.declaration,
-                            form: info.form,
-                            class_object_type: info.class_object_type,
-                            kind: info.kind,
-                            generic_signature,
-                            supertype_template,
-                        });
-                    }
+                    declarations.insert(header.into_type_info(supertype_template));
                 } else if let Statement::Enum(enum_def) = stmt {
                     let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
+                    let formation_site = TypeFormationSite::member(module_id.clone(), decl_id.clone(), DispatchSide::Instance);
                     let generic_signature = if !enum_def.generic_parameters.is_empty() {
-                        Some(resolve_generic_signature(
+                        let outcome = resolve_generic_signature(
                             &mut self.store,
                             &declarations,
                             &resolver,
-                            module_id,
+                            &formation_site,
                             TypeParameterOwner::Declaration(decl_id.clone()),
+                            GenericBinderSite::NominalDeclaration,
                             &enum_def.generic_parameters,
                             enum_def.where_clause.as_ref(),
                             diags_by_module.entry(module_id.clone()).or_default(),
+                        );
+                        Some(retain_generic_signature(
+                            outcome,
+                            module_id,
+                            enum_def.range,
+                            diags_by_module.entry(module_id.clone()).or_default(),
                         ))
+                        .flatten()
                     } else {
                         None
                     };
 
-                    if let Some(info) = declarations.get(&decl_id).cloned() {
-                        declarations.insert(DeclarationTypeInfo {
-                            declaration: info.declaration,
-                            form: info.form,
-                            class_object_type: info.class_object_type,
-                            kind: info.kind,
-                            generic_signature,
-                            supertype_template: None,
-                        });
+                    if !enum_def.generic_parameters.is_empty() && generic_signature.is_none() {
+                        continue;
                     }
+                    let header = NominalDeclarationHeader::from_signature(&mut self.store, decl_id.clone(), generic_signature);
+
+                    declarations.insert(header.into_type_info(None));
                 }
             }
         }
@@ -851,7 +1072,7 @@ impl SemanticWorkspaceSession {
         let mut published_shells = BTreeSet::new();
         for (declaration, info) in self.base_declarations.iter() {
             published_shells.insert(declaration.clone());
-            match query_declaration_shell(&mut self.db, Arc::new(info.clone())) {
+            match query_declaration_shell(&mut self.db, Arc::new(TypeDeclarationShell::Nominal(info.clone()))) {
                 QueryOutcome::Ready(_) => {}
                 QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
                 QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
@@ -893,15 +1114,23 @@ impl SemanticWorkspaceSession {
                 let decl_name = match statement {
                     Statement::Class(class_def) => Some(class_def.name.as_str()),
                     Statement::Enum(enum_def) => Some(enum_def.name.as_str()),
+                    Statement::TypeAlias(alias) => Some(alias.name.as_str()),
                     _ => None,
                 };
                 if let Some(name) = decl_name {
                     let declaration = DeclarationId::new(module_id.clone(), name.into());
+                    if blocked_declarations.contains(&declaration) {
+                        continue;
+                    }
                     if published_shells.insert(declaration.clone()) {
-                        let Some(info) = declarations.get(&declaration).cloned() else {
+                        let shell = if let Some(info) = declarations.get(&declaration).cloned() {
+                            TypeDeclarationShell::Nominal(info)
+                        } else if let Some(info) = type_aliases.get(&declaration).cloned() {
+                            TypeDeclarationShell::Alias(info)
+                        } else {
                             return Err(QueryOutcome::Failed(format!("missing declaration metadata for {declaration:?}")));
                         };
-                        match query_declaration_shell(&mut self.db, Arc::new(info)) {
+                        match query_declaration_shell(&mut self.db, Arc::new(shell)) {
                             QueryOutcome::Ready(_) => {}
                             QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
                             QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
@@ -936,6 +1165,9 @@ impl SemanticWorkspaceSession {
             for stmt in &parsed_unit.program.statements {
                 if let Statement::Class(class_def) = stmt {
                     let class_decl = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                    if blocked_declarations.contains(&class_decl) {
+                        continue;
+                    }
                     let edge = match query_hierarchy_edge(&mut self.db, class_decl.clone(), parsed_unit.clone(), linked_interface.clone(), &resolver) {
                         QueryOutcome::Ready(edge) => edge,
                         QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
@@ -988,6 +1220,9 @@ impl SemanticWorkspaceSession {
                     continue;
                 };
                 let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                if blocked_declarations.contains(&decl_id) {
+                    continue;
+                }
                 for member in &class_def.members {
                     let Some(field_id) = crate::checker::declaration_signature::field_id_for_member(&decl_id, member) else {
                         continue;
@@ -1063,7 +1298,6 @@ impl SemanticWorkspaceSession {
                 }
             }
         }
-
         // 6b. Compile and publish enum declarations, associated surfaces, and closed-enum requirements.
         let mut enum_semantics = self.base_enum_semantics.clone();
         let mut enum_requirements_table = self.base_enum_requirements.clone();
@@ -1244,6 +1478,10 @@ impl SemanticWorkspaceSession {
             ctx.attach_associated_families(&associated_surfaces_table);
             for stmt in &parsed_unit.program.statements {
                 if let Statement::Class(class_def) = stmt {
+                    let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                    if blocked_declarations.contains(&decl_id) {
+                        continue;
+                    }
                     default_field_lifecycle.extend(crate::checker::field_lifecycle::default_field_seeds(&mut ctx, class_def));
                 }
             }
@@ -1255,12 +1493,15 @@ impl SemanticWorkspaceSession {
                 for stmt in &parsed_unit.program.statements {
                     if let Statement::Class(class_def) = stmt {
                         let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                        if blocked_declarations.contains(&decl_id) {
+                            continue;
+                        }
                         let type_params_map = if let Some(sig) = declarations.generic_signature(&decl_id) {
                             let mut map = std::collections::HashMap::new();
                             for &param_id in sig.parameters.iter() {
                                 let name = self.store.type_parameter(param_id).name.to_string();
-                                let param_form = self.store.parameter_form(param_id);
-                                map.insert(name, param_form);
+                                let binding = type_level_binding_for_parameter(&mut self.store, param_id);
+                                map.insert(name, binding);
                             }
                             map
                         } else {
@@ -1394,8 +1635,8 @@ impl SemanticWorkspaceSession {
                             let mut map = std::collections::HashMap::new();
                             for &param_id in sig.parameters.iter() {
                                 let name = self.store.type_parameter(param_id).name.to_string();
-                                let param_form = self.store.parameter_form(param_id);
-                                map.insert(name, param_form);
+                                let binding = type_level_binding_for_parameter(&mut self.store, param_id);
+                                map.insert(name, binding);
                             }
                             map
                         } else {
@@ -1687,6 +1928,10 @@ impl SemanticWorkspaceSession {
             for stmt in &parsed_unit.program.statements {
                 match stmt {
                     Statement::Class(class_def) => {
+                        let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                        if blocked_declarations.contains(&decl_id) {
+                            continue;
+                        }
                         check_class_field_initializers(&mut ctx, class_def);
                     }
                     _ => {
@@ -1834,6 +2079,9 @@ impl SemanticWorkspaceSession {
         if let Some(error) = advisory_query_failed {
             advisory = advisory.with_status(AdvisoryProductStatus::InternalFailure(error.into_boxed_str()));
         }
+        for declaration in &blocked_declarations {
+            declarations.remove(declaration);
+        }
         let mut snapshot_obj = SemanticSnapshot::new_with_callable_analyses(
             self.workspace,
             self.db.revision(),
@@ -1855,6 +2103,7 @@ impl SemanticWorkspaceSession {
         snapshot_obj = snapshot_obj.with_enum_semantics(Arc::new(enum_semantics));
         snapshot_obj = snapshot_obj.with_enum_requirements(Arc::new(enum_requirements_table));
         snapshot_obj = snapshot_obj.with_associated_surfaces(Arc::new(associated_surfaces_table));
+        snapshot_obj = snapshot_obj.with_type_aliases(Arc::new(type_aliases));
         snapshot_obj.advisory = Arc::new(advisory);
         snapshot_obj.module_products = module_products;
         let snapshot = Arc::new(snapshot_obj);
@@ -1925,6 +2174,58 @@ impl SemanticWorkspaceSession {
             stats,
             effects,
         })
+    }
+}
+
+fn collect_alias_dependencies(
+    annotation: &TypeAnnotation,
+    module: &ModuleId,
+    resolver: &dyn TypeResolver,
+    aliases: &BTreeSet<DeclarationId>,
+    dependencies: &mut BTreeSet<DeclarationId>,
+) {
+    match &annotation.expr {
+        TypeAnnotationExpr::Reference(reference) => {
+            let members = reference.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
+            if let Some(declaration) = resolver.resolve_type_name(module, &reference.root, &members) {
+                if aliases.contains(&declaration) {
+                    dependencies.insert(declaration);
+                }
+            }
+        }
+        TypeAnnotationExpr::Application { origin, arguments, .. } => {
+            collect_alias_dependencies(origin, module, resolver, aliases, dependencies);
+            for argument in arguments {
+                collect_alias_dependencies(argument, module, resolver, aliases, dependencies);
+            }
+        }
+        TypeAnnotationExpr::Union { members, .. } => {
+            for member in members {
+                collect_alias_dependencies(member, module, resolver, aliases, dependencies);
+            }
+        }
+        TypeAnnotationExpr::Tuple { elements, .. } => {
+            for element in elements {
+                collect_alias_dependencies(&element.ty, module, resolver, aliases, dependencies);
+            }
+        }
+        TypeAnnotationExpr::Callable { parameters, result, .. } => {
+            for parameter in parameters {
+                collect_alias_dependencies(&parameter.ty, module, resolver, aliases, dependencies);
+            }
+            collect_alias_dependencies(result, module, resolver, aliases, dependencies);
+        }
+        TypeAnnotationExpr::Record { fields, .. } => {
+            for field in fields {
+                collect_alias_dependencies(&field.ty, module, resolver, aliases, dependencies);
+            }
+        }
+        TypeAnnotationExpr::TypeLambda { body, .. } => collect_alias_dependencies(body, module, resolver, aliases, dependencies),
+        TypeAnnotationExpr::Unit { .. }
+        | TypeAnnotationExpr::Dynamic { .. }
+        | TypeAnnotationExpr::Never { .. }
+        | TypeAnnotationExpr::SelfType { .. }
+        | TypeAnnotationExpr::Invalid { .. } => {}
     }
 }
 
@@ -2852,8 +3153,8 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
                     let mut map = std::collections::HashMap::new();
                     for &param_id in sig.parameters.iter() {
                         let name = store.type_parameter(param_id).name.to_string();
-                        let param_form = store.parameter_form(param_id);
-                        map.insert(name, param_form);
+                        let binding = type_level_binding_for_parameter(store, param_id);
+                        map.insert(name, binding);
                     }
                     map
                 } else {

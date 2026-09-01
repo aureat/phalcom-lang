@@ -1,6 +1,7 @@
 //! Type parameter identities and generic signatures.
 
 use super::id::{InferVarId, KindId, TypeId, TypeParameterId};
+use super::store::TypeStore;
 use super::variance::Variance;
 use crate::diagnostic::SemanticSourceSpan;
 use crate::identity::{CallableId, DeclarationId, DispatchSide};
@@ -86,7 +87,21 @@ pub enum GenericConstraint {
 pub struct GenericSignature {
     pub owner: TypeParameterOwner,
     pub parameters: Box<[TypeParameterId]>,
+    pub parameter_kinds: Box<[KindId]>,
+    pub parameter_kind_shapes: Box<[Box<str>]>,
+    pub parameter_variances: Box<[Variance]>,
+    pub constraint_shapes: Box<[Box<str>]>,
     pub constraints: Box<[GenericConstraint]>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum GenericSignaturePublicationError {
+    MissingParameter { index: u32, parameter: TypeParameterId },
+    OwnerMismatch { parameter: TypeParameterId },
+    NonContiguousParameter { parameter: TypeParameterId, expected: u32, actual: u32 },
+    RecordRowParameterForm { parameter: TypeParameterId },
+    InvalidCanonicalType { ty: TypeId },
+    InferenceVariable { variable: InferVarId },
 }
 
 impl GenericSignature {
@@ -94,6 +109,10 @@ impl GenericSignature {
         Self {
             owner,
             parameters,
+            parameter_kinds: Box::new([]),
+            parameter_kind_shapes: Box::new([]),
+            parameter_variances: Box::new([]),
+            constraint_shapes: Box::new([]),
             constraints: Box::new([]),
         }
     }
@@ -102,8 +121,28 @@ impl GenericSignature {
         Self {
             owner,
             parameters,
+            parameter_kinds: Box::new([]),
+            parameter_kind_shapes: Box::new([]),
+            parameter_variances: Box::new([]),
+            constraint_shapes: Box::new([]),
             constraints,
         }
+    }
+
+    pub fn with_parameter_metadata(mut self, kinds: Box<[KindId]>, variances: Box<[Variance]>) -> Self {
+        self.parameter_kinds = kinds;
+        self.parameter_variances = variances;
+        self
+    }
+
+    pub fn with_parameter_kind_shapes(mut self, shapes: Box<[Box<str>]>) -> Self {
+        self.parameter_kind_shapes = shapes;
+        self
+    }
+
+    pub fn with_constraint_shapes(mut self, shapes: Box<[Box<str>]>) -> Self {
+        self.constraint_shapes = shapes;
+        self
     }
 
     pub fn parameter_count(&self) -> usize {
@@ -120,5 +159,51 @@ impl GenericSignature {
 
     pub fn constraint_at(&self, index: usize) -> Option<&GenericConstraint> {
         self.constraints.get(index)
+    }
+
+    pub fn validate_publishable(&self, store: &TypeStore) -> Result<(), GenericSignaturePublicationError> {
+        for (index, &parameter) in self.parameters.iter().enumerate() {
+            let expected = index as u32;
+            let Some(found) = store.find_type_parameter_id(&self.owner, expected) else {
+                return Err(GenericSignaturePublicationError::MissingParameter { index: expected, parameter });
+            };
+            if found != parameter {
+                return Err(GenericSignaturePublicationError::OwnerMismatch { parameter });
+            }
+            let data = store.type_parameter(parameter);
+            if data.owner != self.owner {
+                return Err(GenericSignaturePublicationError::OwnerMismatch { parameter });
+            }
+            if data.index != expected {
+                return Err(GenericSignaturePublicationError::NonContiguousParameter {
+                    parameter,
+                    expected,
+                    actual: data.index,
+                });
+            }
+            if data.kind == KindId::RECORD_ROW && store.contains_parameter_type(parameter) {
+                return Err(GenericSignaturePublicationError::RecordRowParameterForm { parameter });
+            }
+        }
+
+        let validate_term = |term: &TypeTerm| match term {
+            TypeTerm::Canonical(ty) if ty.index() < store.type_count() => Ok(()),
+            TypeTerm::Canonical(ty) => Err(GenericSignaturePublicationError::InvalidCanonicalType { ty: *ty }),
+            TypeTerm::SelfType(_) => Ok(()),
+            TypeTerm::Infer(variable) => Err(GenericSignaturePublicationError::InferenceVariable { variable: *variable }),
+        };
+        for constraint in self.constraints.iter() {
+            match constraint {
+                GenericConstraint::Subtype { lower, upper } => {
+                    validate_term(lower)?;
+                    validate_term(upper)?;
+                }
+                GenericConstraint::Equivalent { left, right } => {
+                    validate_term(left)?;
+                    validate_term(right)?;
+                }
+            }
+        }
+        Ok(())
     }
 }
