@@ -2,11 +2,14 @@
 
 use crate::identity::DeclarationId;
 use crate::type_alias::TypeAliasInfo;
+use crate::types::annotation::{KindResolution, resolve_kind_syntax};
 use crate::types::id::{KindId, TypeId};
 use crate::types::parameter::{GenericSignature, TypeParameterData, TypeParameterOwner};
 use crate::types::store::TypeStore;
-use phalcom_native_meta::types::{KindSpec, UniverseTypeFormSpec};
-use phalcom_native_meta::universe::{UniverseKey, UNIVERSE_BINDINGS, UNIVERSE_TYPE_FORMS};
+use phalcom_ast::ast::{GenericParameterSyntax, Statement};
+use phalcom_modules::{ModuleComponent, ModuleId, ModulePath, UniverseSourceProvider};
+use phalcom_native_meta::types::KindSpec;
+use phalcom_native_meta::universe::{UniverseBindingKind, UniverseKey, UNIVERSE_BINDINGS};
 use std::collections::HashMap;
 
 /// Generic supertype template: records static generic supertype (e.g. `Names<T> is Sequence<Option<T>>`).
@@ -154,63 +157,119 @@ pub fn lower_kind_spec(store: &mut TypeStore, spec: &KindSpec) -> KindId {
     }
 }
 
-/// Bootstraps canonical declaration type forms for all core universe classes.
-pub fn bootstrap_universe_declarations(store: &mut TypeStore, universe_resolver: &dyn Fn(UniverseKey) -> DeclarationId) -> DeclarationTypeTable {
-    let mut table = DeclarationTypeTable::new();
+fn source_module_id(path: &[&str]) -> ModuleId {
+    let components = path
+        .iter()
+        .map(|component| ModuleComponent::from_identifier(component).expect("canonical Universe component"))
+        .collect::<Vec<_>>();
+    ModuleId::universe(ModulePath::from_components(components))
+}
 
-    let mut generic_specs: HashMap<UniverseKey, &UniverseTypeFormSpec> = HashMap::new();
-    for spec in UNIVERSE_TYPE_FORMS {
-        generic_specs.insert(spec.owner, spec);
+fn source_parameter_kind(store: &mut TypeStore, parameter: &GenericParameterSyntax) -> KindId {
+    match parameter
+        .kind
+        .as_ref()
+        .map_or(KindResolution::Ready(KindId::TYPE), |syntax| resolve_kind_syntax(store, syntax))
+    {
+        KindResolution::Ready(kind) => kind,
+        other => panic!(
+            "canonical Universe generic parameter {} has non-ready kind during bootstrap: {other:?}",
+            parameter.name
+        ),
+    }
+}
+
+fn insert_source_nominal(
+    table: &mut DeclarationTypeTable,
+    store: &mut TypeStore,
+    declaration: DeclarationId,
+    parameters: &[GenericParameterSyntax],
+) {
+    let mut parameter_ids = Vec::with_capacity(parameters.len());
+    let mut parameter_kinds = Vec::with_capacity(parameters.len());
+
+    for (index, parameter) in parameters.iter().enumerate() {
+        let kind = source_parameter_kind(store, parameter);
+        let parameter_id = store.intern_type_parameter(TypeParameterData::new(
+            TypeParameterOwner::Declaration(declaration.clone()),
+            index as u32,
+            parameter.name.clone(),
+            kind,
+        ));
+        parameter_ids.push(parameter_id);
+        parameter_kinds.push(kind);
     }
 
-    for binding in UNIVERSE_BINDINGS {
-        if binding.kind == phalcom_native_meta::universe::UniverseBindingKind::RuntimeSupportClass {
-            continue;
-        }
+    let (form, kind, generic_signature) = if parameter_ids.is_empty() {
+        (store.nominal_type(declaration.clone()), KindId::TYPE, None)
+    } else {
+        let kind = store.arrow_kind(parameter_kinds.into_boxed_slice(), KindId::TYPE);
+        let form = store.nominal_form(declaration.clone(), kind);
+        let signature = GenericSignature::new(TypeParameterOwner::Declaration(declaration.clone()), parameter_ids.into_boxed_slice());
+        (form, kind, Some(signature))
+    };
 
-        let key = binding.key;
-        let decl = universe_resolver(key);
+    table.insert(DeclarationTypeInfo {
+        class_object_type: store.class_object_type(declaration.clone()),
+        declaration,
+        form,
+        kind,
+        generic_signature,
+        supertype_template: None,
+    });
+}
 
-        if let Some(spec) = generic_specs.get(&key) {
-            let mut param_ids = Vec::new();
-            let mut param_kinds = Vec::new();
+/// Bootstraps canonical declaration type forms from authoritative Universe source.
+///
+/// Native metadata may describe runtime attachment and native call surfaces, but it
+/// must not manufacture ordinary source-semantic declarations. Runtime-support-only
+/// classes such as Option case behavior classes therefore remain absent here unless
+/// a real top-level source declaration exists for the same canonical identity.
+pub fn bootstrap_universe_declarations(store: &mut TypeStore, universe_resolver: &dyn Fn(UniverseKey) -> DeclarationId) -> DeclarationTypeTable {
+    let provider = UniverseSourceProvider::new();
+    let mut table = DeclarationTypeTable::new();
 
-            for (idx, p) in spec.parameters.iter().enumerate() {
-                let p_kind = lower_kind_spec(store, &p.kind);
-                let param_id = store.intern_type_parameter(TypeParameterData::new(
-                    TypeParameterOwner::Declaration(decl.clone()),
-                    idx as u32,
-                    p.name,
-                    p_kind,
-                ));
-                param_ids.push(param_id);
-                param_kinds.push(p_kind);
+    for node in provider.nodes() {
+        let module = source_module_id(node.path);
+        let parsed = provider
+            .load_parsed(&module)
+            .unwrap_or_else(|error| panic!("failed to load canonical Universe source module {module}: {error}"));
+
+        for statement in &parsed.program.statements {
+            match statement {
+                Statement::Class(class_def) => {
+                    let declaration = DeclarationId::new(module.clone(), class_def.name.clone().into());
+                    insert_source_nominal(&mut table, store, declaration, &class_def.generic_parameters);
+                }
+                Statement::Enum(enum_def) => {
+                    let declaration = DeclarationId::new(module.clone(), enum_def.name.clone().into());
+                    insert_source_nominal(&mut table, store, declaration, &enum_def.generic_parameters);
+                }
+                _ => {}
             }
+        }
+    }
 
-            let decl_kind = store.arrow_kind(param_kinds.into_boxed_slice(), KindId::TYPE);
-            let form = store.nominal_form(decl.clone(), decl_kind);
-            let class_obj_type = store.class_object_type(decl.clone());
+    // Native metadata is an attachment contract. For every ordinary native binding,
+    // its declared canonical identity must point at a source-owned declaration.
+    // Runtime-support rows are allowed to have no source declaration; if a source
+    // declaration does exist (for example Unit), source still owns the semantic shell.
+    for binding in UNIVERSE_BINDINGS {
+        let native_identity = universe_resolver(binding.key);
+        let source_identity = DeclarationId::new(source_module_id(binding.key.source_path()), binding.key.name().into());
+        assert_eq!(
+            native_identity, source_identity,
+            "native Universe key {:?} resolved to a declaration owner different from canonical source",
+            binding.key
+        );
 
-            table.insert(DeclarationTypeInfo {
-                declaration: decl.clone(),
-                form,
-                class_object_type: class_obj_type,
-                kind: decl_kind,
-                generic_signature: Some(GenericSignature::new(TypeParameterOwner::Declaration(decl), param_ids.into_boxed_slice())),
-                supertype_template: None,
-            });
-        } else {
-            let form = store.nominal_type(decl.clone());
-            let class_obj_type = store.class_object_type(decl.clone());
-
-            table.insert(DeclarationTypeInfo {
-                declaration: decl,
-                form,
-                class_object_type: class_obj_type,
-                kind: KindId::TYPE,
-                generic_signature: None,
-                supertype_template: None,
-            });
+        if binding.kind == UniverseBindingKind::Class {
+            assert!(
+                table.get(&source_identity).is_some(),
+                "ordinary native Universe binding {:?} has no canonical source declaration at {}",
+                binding.key,
+                source_identity
+            );
         }
     }
 
