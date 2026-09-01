@@ -14,26 +14,37 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
   RUSTFLAGS: ""
+  RUSTC_WRAPPER: ""
 
 jobs:
   test:
-    name: Test (stable)
+    name: Test (nightly-2026-07-10)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@nightly-2026-07-10
       - uses: Swatinem/rust-cache@v2
       - name: Build
-        run: cargo +stable build --workspace --all-targets
+        run: >-
+          cargo +nightly-2026-07-10
+          --config 'profile.dev.codegen-backend="llvm"'
+          --config 'profile.test.codegen-backend="llvm"'
+          --config 'build.rustc-wrapper=""'
+          build --workspace --all-targets
       - name: Test
-        run: cargo +stable test --workspace --all-targets
+        run: >-
+          cargo +nightly-2026-07-10
+          --config 'profile.dev.codegen-backend="llvm"'
+          --config 'profile.test.codegen-backend="llvm"'
+          --config 'build.rustc-wrapper=""'
+          test --workspace --all-targets
 
   vsphalcom:
     name: VS Code extension E2E
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@nightly-2026-07-10
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
@@ -41,7 +52,12 @@ jobs:
           cache: npm
           cache-dependency-path: tools/vsphalcom/package-lock.json
       - name: Build language server
-        run: cargo +stable build -p phalcom-lsp
+        run: >-
+          cargo +nightly-2026-07-10
+          --config 'profile.dev.codegen-backend="llvm"'
+          --config 'profile.test.codegen-backend="llvm"'
+          --config 'build.rustc-wrapper=""'
+          build -p phalcom-lsp
       - name: Install extension dependencies
         run: npm ci --prefix tools/vsphalcom
       - name: Install virtual display
@@ -56,21 +72,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@nightly-2026-07-10
         with:
           components: rustfmt
-      - run: cargo +stable fmt --all -- --check
+      - run: cargo +nightly-2026-07-10 fmt --all -- --check
 
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@nightly-2026-07-10
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo +stable clippy --workspace --all-targets -- -D warnings
+      - run: cargo +nightly-2026-07-10 clippy --workspace --all-targets -- -D warnings
 
   miri:
     name: Miri (phalcom-ast)
@@ -79,11 +95,11 @@ jobs:
       MIRIFLAGS: -Zmiri-disable-isolation
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@nightly-2026-07-10
         with:
           components: miri
       - uses: Swatinem/rust-cache@v2
       # Snapshot integration tests invoke cargo through insta, which Miri cannot
       # emulate (socketpair/process spawning). The AST unit lane still covers
       # lexer/parser behavior under Miri without crossing that harness boundary.
-      - run: cargo +nightly miri test -p phalcom-ast --lib
+      - run: cargo +nightly-2026-07-10 miri test -p phalcom-ast --lib
