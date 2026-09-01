@@ -116,6 +116,8 @@ Final targeted-audit additions: `RUSTFLAGS='' RUSTC_WRAPPER='' cargo +nightly te
 
 Current-head CI audit: `gh run list --repo aureat/phalcom-lang --commit 89c336d86f7059354158b6449f06b077c24d3083` returned no run. Latest available branch run `33538642588` targets older `55bf6a5e7cda4d788a1fe3591caed7caa993e0e7`: Miri and VS Code extension E2E passed; workspace Test, Clippy, and Rustfmt failed. It is not current-head evidence. Workspace compile at current HEAD passed with `RUSTFLAGS='' RUSTC_WRAPPER='' cargo +nightly check --workspace`; `git diff --check` and debug-probe deletion checks passed.
 
+Release disposition at `a8f5a175`: Slice 9 baseline extraction is required by the amendment only after Slice 8 broad correctness is clean, so it is not eligible while complete-core execution has no completion summary. Current-head CI is also absent. The amendment worktree is clean, but fast-forwarding `fix/sc1-correctness-amendment` into `main` is blocked safely: the main checkout contains extensive uncommitted user changes, including overlapping SC-1 implementation files. No reset, stash, overwrite, or mixed commit was performed. Merge remains pending a clean main checkout and current-head CI result.
+
 Search/deletion gates produced no forbidden semantic shortcut hits; remaining `UniverseKey::from_name` hits are pre-resolution source/catalog or presentation lookups. `git diff --check` is clean. Slice 8 implementation and evidence commits are complete. `CONTINUATION-HANDOFF.md` is task-owned state documentation and is committed with this checkpoint, so no task-owned untracked file remains. Broad acceptance is not claimed; Slice 9 baseline extraction is not started because its prerequisite is not met.
 
 ## Reconciliation — inherited implementation residue
