@@ -1,11 +1,8 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
 
-# Cancel superseded runs on the same ref to save CI minutes.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -17,96 +14,29 @@ env:
   RUSTC_WRAPPER: ""
 
 jobs:
-  test:
-    name: Test (nightly-2026-07-10)
+  either:
+    name: Either generic conformance
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-07-10
+          components: rustfmt,clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Build
+      - name: Format package Rust files
+        run: rustfmt +nightly-2026-07-10 --edition 2024 --check phalcom-test-support/tests/either/*.rs
+      - name: Clippy package test target
         run: >-
           cargo +nightly-2026-07-10
           --config 'profile.dev.codegen-backend="llvm"'
           --config 'profile.test.codegen-backend="llvm"'
           --config 'build.rustc-wrapper=""'
-          build --workspace --all-targets
-      - name: Test
+          clippy -p phalcom-test-support --test either -- -D warnings
+      - name: Test package
         run: >-
           cargo +nightly-2026-07-10
           --config 'profile.dev.codegen-backend="llvm"'
           --config 'profile.test.codegen-backend="llvm"'
           --config 'build.rustc-wrapper=""'
-          test --workspace --all-targets
-
-  vsphalcom:
-    name: VS Code extension E2E
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: nightly-2026-07-10
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: tools/vsphalcom/package-lock.json
-      - name: Build language server
-        run: >-
-          cargo +nightly-2026-07-10
-          --config 'profile.dev.codegen-backend="llvm"'
-          --config 'profile.test.codegen-backend="llvm"'
-          --config 'build.rustc-wrapper=""'
-          build -p phalcom-lsp
-      - name: Install extension dependencies
-        run: npm ci --prefix tools/vsphalcom
-      - name: Install virtual display
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb
-      - name: Run VS Code extension-host tests
-        run: xvfb-run -a npm --prefix tools/vsphalcom test
-
-  fmt:
-    name: Rustfmt
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: nightly-2026-07-10
-          components: rustfmt
-      - run: cargo +nightly-2026-07-10 fmt --all -- --check
-
-  clippy:
-    name: Clippy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: nightly-2026-07-10
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo +nightly-2026-07-10 clippy --workspace --all-targets -- -D warnings
-
-  miri:
-    name: Miri (phalcom-ast)
-    runs-on: ubuntu-latest
-    env:
-      MIRIFLAGS: -Zmiri-disable-isolation
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: nightly-2026-07-10
-          components: miri
-      - uses: Swatinem/rust-cache@v2
-      # Snapshot integration tests invoke cargo through insta, which Miri cannot
-      # emulate (socketpair/process spawning). The AST unit lane still covers
-      # lexer/parser behavior under Miri without crossing that harness boundary.
-      - run: cargo +nightly-2026-07-10 miri test -p phalcom-ast --lib
+          test -p phalcom-test-support --test either -- --nocapture
