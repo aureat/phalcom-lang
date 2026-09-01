@@ -1,0 +1,2 @@
+- Separate singleton instance for each specialized type
+- Selective reification
