@@ -5,6 +5,7 @@
 
 mod higher_order;
 mod inference;
+mod isolation;
 mod nested;
 mod rejection;
 mod runtime;
