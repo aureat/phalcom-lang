@@ -8,8 +8,7 @@ class Probe {
     }
 
     @class
-    run() {
-        let source: Either<Int, String> = Either::Right("hello")
+    run(_ source: Either<Int, String>) {
         let bad = Probe.merge(source)
     }
 }
