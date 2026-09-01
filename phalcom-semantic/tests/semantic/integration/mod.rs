@@ -16,6 +16,7 @@ mod option_typing;
 mod parameter_identity;
 mod prelude;
 mod presentation;
+mod resolver;
 mod source_index;
 mod self_formation;
 mod workspace;
