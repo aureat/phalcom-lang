@@ -32,12 +32,13 @@ enum Option<T> {
   ///
   /// Exactly one callback is invoked.
   ///
+  /// @typeparam R The common return type of both callbacks.
   /// @param some A one-argument callback invoked with the wrapped value when
   /// this option is `Some`.
   /// @param none A zero-argument callback invoked when this option is `None`.
   /// @returns The value returned by the invoked callback.
   @native
-  match(some: Dynamic, none: Dynamic) -> Dynamic
+  match<R>(some: (value: T) -> R, none: () -> R) -> R
 
   /// Performs an action when this option is `None`.
   ///
@@ -50,7 +51,7 @@ enum Option<T> {
   ///
   /// @param f A zero-argument callback invoked only when this option is `None`.
   /// @returns This option unchanged.
-  ifNone(_ f) -> Self {
+  ifNone(_ f: () -> Unit) -> Option<T> {
     match(
       some: |v| self,
       none: || {
@@ -71,7 +72,7 @@ enum Option<T> {
   /// @param f A zero-argument callback that produces the fallback option.
   /// @returns This option when it is `Some`; otherwise, the option returned by
   /// `f`.
-  orElse(_ f) -> Self | Dynamic {
+  orElse(_ f: () -> Option<T>) -> Option<T> {
     match(
       some: |v| self,
       none: || f.call()
@@ -104,10 +105,11 @@ enum Option<T> {
   /// returned value in `Some`. If this option is `None`, the callback is not
   /// invoked and absence is propagated unchanged.
   ///
+  /// @typeparam U The transformed payload type.
   /// @param f A one-argument callback that transforms the wrapped value.
   /// @returns `Some` containing the transformed value when this option is
   /// `Some`; otherwise `None`.
-  map(_ f) -> Self | Option<Dynamic> {
+  map<U>(_ f: (value: T) -> U) -> Option<U> {
     match(
       some: |v| Option::Some(f.call(v)),
       none: || self
@@ -123,11 +125,12 @@ enum Option<T> {
   ///
   /// If this option is `None`, `f` is not invoked and absence is propagated.
   ///
+  /// @typeparam U The payload type of the returned option.
   /// @param f A one-argument callback that receives the wrapped value and
   /// returns an option.
   /// @returns The option returned by `f` when this option is `Some`; otherwise
   /// `None`.
-  flatMap(_ f) -> Self | Option<Dynamic> {
+  flatMap<U>(_ f: (value: T) -> Option<U>) -> Option<U> {
     match(
       some: |v| f.call(v),
       none: || self
@@ -146,7 +149,7 @@ enum Option<T> {
   /// @param pred A one-argument predicate evaluated for a contained value.
   /// @returns This option when it is `None` or when the predicate succeeds;
   /// otherwise `None`.
-  filter(_ pred) -> Self | Option<Dynamic> {
+  filter(_ pred: (value: T) -> Bool) -> Option<T> {
     match(
       some: |v| {
         if (pred.call(v)) {
@@ -172,7 +175,7 @@ enum Option<T> {
   /// @param f A one-argument callback invoked with the wrapped value when this
   /// option is `Some`.
   /// @returns This option unchanged.
-  ifSome(_ f) -> Self {
+  ifSome(_ f: (value: T) -> Unit) -> Option<T> {
     match(
       some: |v| {
         f.call(v)
@@ -190,11 +193,11 @@ enum Option<T> {
   /// The fallback value is evaluated before this method is called. Use
   /// `orElse` when the fallback should be produced lazily as another option.
   ///
-  /// @typeparam U The type of the fallback and resulting value.
-  /// @param default The value to return when this option is `None`.
+  /// @param default A value of the option's payload type `T` to return when
+  /// this option is `None`.
   /// @returns The contained value when this option is `Some`; otherwise
-  /// `default`.
-  unwrapOr<U>(_ default: U) -> U {
+  /// `default`. The result type is `T`.
+  unwrapOr(_ default: T) -> T {
     match(
       some: |v| v,
       none: || default
@@ -225,7 +228,7 @@ enum Option<T> {
   /// @param err The error value to use when this option is `None`.
   /// @returns `Ok` containing the wrapped value when this option is `Some`;
   /// otherwise `Error` containing `err`.
-  okOr<E>(_ err) -> Result<T, E> {
+  okOr<E>(_ err: E) -> Result<T, E> {
     match(
       some: |v| Result::Ok(v),
       none: || Result::Error(err)
