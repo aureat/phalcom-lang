@@ -41,7 +41,6 @@ fn prelude_map_contains_only_explicit_source_backed_type_names() {
 fn linked_type_resolver_uses_prelude_only_after_local_resolution() {
     let current = synthetic_module();
     let prelude = Arc::new(PreludeTypeMap::canonical_universe());
-    let universe_int = universe_declaration(phalcom_native_meta::UniverseKey::Int);
     let local_int = DeclarationId::new(current.clone(), "Int".into());
 
     let mut known = phalcom_native_meta::UNIVERSE_BINDINGS
