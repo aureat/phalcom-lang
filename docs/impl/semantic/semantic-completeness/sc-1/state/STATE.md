@@ -2,13 +2,13 @@
 
 ## Current position
 
-Active checkpoint: Slice 8 — broad amendment-owned validation
-Completed checkpoints: S0, Slice 4, Slice 5, Slice 6, Slice 7; Slices 1–3 inherited and previously landed
-Current task: finish bounded Slice 8 core/reflection/workspace evidence after repairing canonical Universe lowering
-Next concrete action: complete bounded non-hanging core/reflection disposition, then decide whether Slice 9 is warranted; do not claim broad correctness while those gates remain incomplete
-Last verified evidence: Slice 4 semantic matching filter `162 passed, 0 failed, 22 ignored`; Slice 5 semantic metadata `21 passed`, native conformance `3 passed`, module identity `4 passed`; Slice 6 focused Universe exposure/relative identity, package intrinsic, bootstrap measurement, standalone package/module, builtin-client, and dependency-sentinel gates pass; Slice 7 Option typing `4 passed`, GATE-01 `1 passed`, GATE-02 `1 passed`, and adjacent positional/keyword argument tests `1 passed` each; Slice 8 module target `107 passed, 0 failed`, semantic target `927 passed, 0 failed, 48 ignored` both before and after core repair, required core `native_adt_runtime` filter `6 passed, 0 failed`, canonical range regression `1 passed`, curated prelude regression `1 passed`, workspace check passed, and module unit tests `4 passed, 0 failed`
+Active checkpoint: Slice 8 — bounded evidence closed; Slice 9 prerequisite review
+Completed checkpoints: S0, Slice 4, Slice 5, Slice 6, Slice 7, Slice 8 bounded evidence; Slices 1–3 inherited and previously landed
+Current task: preserve bounded Slice 8 reflection/core evidence and classify incomplete broad-target runs without masking failures
+Next concrete action: review Slice 9 prerequisite; do not claim broad correctness or begin baseline extraction while complete-core evidence remains incomplete
+Last verified evidence: Slice 4 semantic matching filter `162 passed, 0 failed, 22 ignored`; Slice 5 semantic metadata `21 passed`, native conformance `3 passed`, module identity `4 passed`; Slice 6 focused Universe exposure/relative identity, package intrinsic, bootstrap measurement, standalone package/module, builtin-client, and dependency-sentinel gates pass; Slice 7 Option typing `4 passed`, GATE-01 `1 passed`, GATE-02 `1 passed`, and adjacent positional/keyword argument tests `1 passed` each; Slice 8 module target `107 passed, 0 failed`, semantic target `927 passed, 0 failed, 48 ignored`, required core `native_adt_runtime` filter `6 passed, 0 failed`, canonical range regression `1 passed`, curated prelude regression `1 passed`, workspace check passed, module unit tests `4 passed, 0 failed`, and bounded reflection/core filters below all passed
 Do not rerun unless changed: S0 preflight baseline at `4148de61f5415729fe5fe4ccfcef383292548ffe`
-Active incident: Slice 8 core full-target evidence remains incomplete only for the previously interrupted broad reflection run; the deterministic range-variant and `universe.None` exposure failures are repaired and focused-green
+Active incident: Slice 8 complete-core evidence remains incomplete because the serial target is impractical and the broad reflection run repeatedly reached a 0%-CPU stall; bounded non-hanging reflection/core filters are green, and the deterministic range-variant and `universe.None` exposure failures are repaired and focused-green
 
 ## Working inputs
 
@@ -101,9 +101,18 @@ Focused evidence:
 - `rg` debug-probe deletion gate — passed; no `RANGE DEBUG`, `RESOLVE DEBUG`, `INFERENCE DEBUG`, `GEN DEBUG`, `QUERY DEBUG`, `SUPER DEBUG`, or `SESSION DEBUG` remains in core/semantic source.
 - `git diff --check` — passed.
 
-The broad reflection filter remains incomplete because repeated runs reached a 0%-CPU hang and were interrupted; do not loop that filter before bounded disposition. A serial complete-core probe was separately interrupted after about three minutes while CPU-bound and advancing at roughly one test per minute; it was projected to take several hours because each test reboots Universe. This is duration classification, not a semantic failure. Slice 9 remains last and is not started.
+The broad reflection filter remains incomplete because repeated runs reached a 0%-CPU hang and were interrupted; no failure was emitted. A serial complete-core probe was separately interrupted after about three minutes while CPU-bound and advancing at roughly one test per minute; it was projected to take several hours because each test reboots Universe. This is duration classification, not a semantic failure. Bounded individual gates were then run without repeating either broad target:
 
-Search/deletion gates produced no forbidden semantic shortcut hits; remaining `UniverseKey::from_name` hits are pre-resolution source/catalog or presentation lookups. `git diff --check` is clean. Slice 8 now has focused semantic-call and canonical-Universe core-repair commits; the inherited seven-file Slice 5/6 dirty set and handoff remain unstaged. Broad acceptance remains open, and Slice 9 must not start until core/reflection evidence is clean or explicitly dispositioned by the authoritative plan.
+- `native_method_reflection_reports_native_metadata` — passed: `1 passed, 0 failed, 438 filtered out`, `67.28s`.
+- `source_method_reflection_reports_source_metadata` — passed: `1 passed, 0 failed, 438 filtered out`, `66.43s`.
+- `reified_nominal_types_preserve_canonical_identity` — passed: `1 passed, 0 failed, 438 filtered out`, `66.32s`.
+- `synthetic_type_descriptors_use_weak_cache_entries` — passed: `1 passed, 0 failed, 438 filtered out`, `65.03s`.
+- `canonical_surface_census_is_unique_and_actionable` — passed: `1 passed, 0 failed, 438 filtered out`, `0.00s`.
+- `canonical_bootstrap_relations_have_one_row_per_class` — passed: `1 passed, 0 failed, 438 filtered out`, `0.00s`.
+
+The next `runtime_bootstrap_matches_canonical_relations` probe was aborted before its test body completed and is not counted as evidence. No true failure appeared in bounded reflection/core gates. Slice 8 evidence is closed with the broad-target limitation explicitly classified; Slice 9 remains gated by the amendment’s requirement that broad correctness evidence be clean.
+
+Search/deletion gates produced no forbidden semantic shortcut hits; remaining `UniverseKey::from_name` hits are pre-resolution source/catalog or presentation lookups. `git diff --check` is clean. Slice 8 implementation and evidence commits are complete. `CONTINUATION-HANDOFF.md` is task-owned state documentation and is committed with this checkpoint, so no task-owned untracked file remains. Broad acceptance is not claimed; Slice 9 baseline extraction is not started because its prerequisite is not met.
 
 ## Reconciliation — inherited implementation residue
 
