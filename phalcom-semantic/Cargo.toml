@@ -13,8 +13,8 @@ phalcom-native-meta = { path = "../phalcom-native-meta" }
 phalcom-native-surface = { path = "../phalcom-native-surface" }
 phalcom-type-meta = { path = "../phalcom-type-meta" }
 thiserror = { workspace = true }
-serde = { workspace = true }
-indexmap = { workspace = true }
+#serde = { workspace = true }
+#indexmap = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3.17"

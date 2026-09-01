@@ -5,6 +5,6 @@ edition = "2024"
 description = "VM-free native primitive metadata models and universe keys for Phalcom."
 
 [dependencies]
-phalcom-type-syntax = { path = "../phalcom-type-syntax" }
+#phalcom-type-syntax = { path = "../phalcom-type-syntax" }
 
 [dev-dependencies]

@@ -1,3 +1,5 @@
+cargo-features = ["codegen-backend"]
+
 [workspace]
 members = [
     "phalcom-ast",
@@ -35,19 +37,36 @@ default-members = [
 ]
 
 [profile.dev]
-debug = "line-tables-only"
-strip = "debuginfo"
+debug = 0
+strip = "none"
 incremental = true
+codegen-backend = "cranelift"
 
 [profile.dev.package."*"]
 debug = false
 opt-level = 3
 
+[profile.dev.package.phalcom-core]
+codegen-backend = "llvm"
+
 [profile.test]
 # Preserve line-level panic locations while reducing debug-info generation and
 # test-binary link work. Incremental artifacts are essential to edit-test loops.
-debug = 1
+debug = 0
+strip = "none"
 incremental = true
+codegen-backend = "cranelift"
+inherits = "dev"
+opt-level = 0
+lto = false
+codegen-units = 256
+
+[profile.test.package."*"]
+debug = false
+opt-level = 3
+
+[profile.test.package.phalcom-core]
+codegen-backend = "llvm"
 
 [profile.release]
 opt-level = 3          # Maximum optimizations (Default for release)

@@ -245,27 +245,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b94f61472cee1439c0b966b47e3aca9ae07e45d070759512cd390ea2bebc6675"
 
 [[package]]
-name = "color-print"
-version = "0.3.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3aa954171903797d5623e047d9ab69d91b493657917bdfb8c2c80ecaf9cdb6f4"
-dependencies = [
- "color-print-proc-macro",
-]
-
-[[package]]
-name = "color-print-proc-macro"
-version = "0.3.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "692186b5ebe54007e45a59aea47ece9eb4108e141326c304cdc91699a7118a22"
-dependencies = [
- "nom",
- "proc-macro2",
- "quote",
- "syn 2.0.104",
-]
-
-[[package]]
 name = "colorchoice"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -896,12 +875,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a282da65faaf38286cf3be983213fcf1d2e2a58700e808f83f4ea9a4804bc0"
 
 [[package]]
-name = "minimal-lexical"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
-
-[[package]]
 name = "mio"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -911,16 +884,6 @@ dependencies = [
  "log",
  "wasi 0.11.1+wasi-snapshot-preview1",
  "windows-sys 0.59.0",
-]
-
-[[package]]
-name = "nom"
-version = "7.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d273983c5a657a70a3e8f2a01329822f3b8c8172b73826411a55751e404a0a4a"
-dependencies = [
- "memchr",
- "minimal-lexical",
 ]
 
 [[package]]
@@ -1045,10 +1008,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "color-print",
  "criterion",
  "indexmap",
- "lazy_static",
  "linkme",
  "num-bigint",
  "num-integer",
@@ -1062,8 +1023,6 @@ dependencies = [
  "phalcom-native-surface",
  "phalcom-semantic",
  "phalcom-type-meta",
- "phalcom-type-syntax",
- "rand",
  "ryu",
  "serde",
  "serde_json",
@@ -1072,7 +1031,6 @@ dependencies = [
  "thiserror",
  "tracing",
  "tracing-subscriber",
- "unicode-width",
 ]
 
 [[package]]
@@ -1140,9 +1098,6 @@ dependencies = [
 [[package]]
 name = "phalcom-native-meta"
 version = "0.1.0"
-dependencies = [
- "phalcom-type-syntax",
-]
 
 [[package]]
 name = "phalcom-native-surface"
@@ -1171,7 +1126,6 @@ dependencies = [
  "nu-ansi-term 0.50.1",
  "phalcom-ast",
  "phalcom-core",
- "phalcom-lsp",
  "reedline",
  "unicode-segmentation",
 ]
@@ -1180,7 +1134,6 @@ dependencies = [
 name = "phalcom-semantic"
 version = "0.1.0"
 dependencies = [
- "indexmap",
  "phalcom-ast",
  "phalcom-common",
  "phalcom-diagnostics",
@@ -1188,7 +1141,6 @@ dependencies = [
  "phalcom-native-meta",
  "phalcom-native-surface",
  "phalcom-type-meta",
- "serde",
  "tempfile",
  "thiserror",
 ]
@@ -1207,7 +1159,6 @@ dependencies = [
 name = "phalcom-type-meta"
 version = "0.1.0"
 dependencies = [
- "phalcom-common",
  "serde",
  "serde_json",
  "thiserror",
@@ -1284,15 +1235,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ppv-lite86"
-version = "0.2.21"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9"
-dependencies = [
- "zerocopy",
-]
-
-[[package]]
 name = "proc-macro2"
 version = "1.0.95"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1315,35 +1257,6 @@ name = "r-efi"
 version = "5.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f"
-
-[[package]]
-name = "rand"
-version = "0.9.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6db2770f06117d490610c7488547d543617b21bfa07796d7a12f6f1bd53850d1"
-dependencies = [
- "rand_chacha",
- "rand_core",
-]
-
-[[package]]
-name = "rand_chacha"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3022b5f1df60f26e1ffddd6c66e8aa15de382ae63b3a0c1bfc0e4d3e3f325cb"
-dependencies = [
- "ppv-lite86",
- "rand_core",
-]
-
-[[package]]
-name = "rand_core"
-version = "0.9.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99d9a13982dcf210057a8a78572b2217b667c3beacbf3a0d8b454f6f82837d38"
-dependencies = [
- "getrandom",
-]
 
 [[package]]
 name = "rayon"
