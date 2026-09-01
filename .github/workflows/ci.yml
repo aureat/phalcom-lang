@@ -32,7 +32,7 @@ jobs:
         run: >-
           cargo +nightly-2026-07-10
           --config 'build.rustc-wrapper=""'
-          clippy -p phalcom-test-support --test either -- -D warnings
+          clippy --no-deps -p phalcom-test-support --test either -- -D warnings
       - name: Test package
         run: >-
           cargo +nightly-2026-07-10
