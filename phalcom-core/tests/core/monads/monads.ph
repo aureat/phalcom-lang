@@ -43,3 +43,5 @@ class Monad<F: Type -> Type> is Applicative<F> {
 class BoxMonad is Monad<Box> {}
 
 class EitherMonad<E> is Monad<<X> =>> Either<E, X>> {}
+
+class StringEitherMonad is EitherMonad<String> {}
