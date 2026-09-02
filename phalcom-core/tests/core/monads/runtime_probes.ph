@@ -8,11 +8,16 @@ let monadMappedRightValue = monadMappedRight.fold(
     right: |value| { value }
 )
 
-let monadMappedLeft = runtimeMonad.map(runtimeLeft, |value| { value + 1 })
+let mapLeftTransformCalls = 0
+let monadMappedLeft = runtimeMonad.map(runtimeLeft, |value| {
+    mapLeftTransformCalls = mapLeftTransformCalls + 1
+    value + 1
+})
 let monadMappedLeftPreserved = monadMappedLeft.fold(
     left: |error| { error == "boom" },
     right: |value| { false }
 )
+let monadMapLeftShortCircuited = mapLeftTransformCalls == 0
 
 let monadPure = runtimeMonad.pure(7)
 let monadPureValue = monadPure.fold(
@@ -28,12 +33,29 @@ let monadMap2Value = monadMap2.fold(
     right: |value| { value }
 )
 
+let map2LeftFailureCalls = 0
 let map2Failure: Either<String, Int> = Either::Left("map2-fail")
-let monadMap2Failure = runtimeMonad.map2(map2Failure, map2Other, |a, b| { a + b })
+let monadMap2Failure = runtimeMonad.map2(map2Failure, map2Other, |a, b| {
+    map2LeftFailureCalls = map2LeftFailureCalls + 1
+    a + b
+})
 let monadMap2FailurePreserved = monadMap2Failure.fold(
     left: |error| { error == "map2-fail" },
     right: |value| { false }
 )
+let monadMap2LeftShortCircuited = map2LeftFailureCalls == 0
+
+let map2RightFailureCalls = 0
+let map2RightFailure: Either<String, Int> = Either::Left("map2-right-fail")
+let monadMap2RightFailure = runtimeMonad.map2(map2Right, map2RightFailure, |a, b| {
+    map2RightFailureCalls = map2RightFailureCalls + 1
+    a + b
+})
+let monadMap2RightFailurePreserved = monadMap2RightFailure.fold(
+    left: |error| { error == "map2-right-fail" },
+    right: |value| { false }
+)
+let monadMap2RightShortCircuited = map2RightFailureCalls == 0
 
 let flatMapNext: (Int) -> Either<String, Bool> = |value| {
     let next: Either<String, Bool> = Either::Right(value == 41)
@@ -44,11 +66,19 @@ let monadFlatMapValue = monadFlatMap.fold(
     left: |error| { false },
     right: |value| { value }
 )
-let monadFlatMapFailure = runtimeMonad.flatMap(runtimeLeft, flatMapNext)
+
+let flatMapFailureNextCalls = 0
+let flatMapFailureNext: (Int) -> Either<String, Bool> = |value| {
+    flatMapFailureNextCalls = flatMapFailureNextCalls + 1
+    let next: Either<String, Bool> = Either::Right(value == 41)
+    next
+}
+let monadFlatMapFailure = runtimeMonad.flatMap(runtimeLeft, flatMapFailureNext)
 let monadFlatMapFailurePreserved = monadFlatMapFailure.fold(
     left: |error| { error == "boom" },
     right: |value| { false }
 )
+let monadFlatMapShortCircuited = flatMapFailureNextCalls == 0
 
 let kleisliFirst: (Int) -> Either<String, Int> = |value| {
     let next: Either<String, Int> = Either::Right(value + 1)
@@ -76,7 +106,9 @@ let runtimeTraverseSuccessValue = runtimeTraverseSuccess.fold(
     }
 )
 
+let traverseFailureTransformCalls = 0
 let traverseFailureTransform: (Int) -> Either<String, Int> = |value| {
+    traverseFailureTransformCalls = traverseFailureTransformCalls + 1
     if (value == 2) {
         let failed: Either<String, Int> = Either::Left("traverse-fail")
         failed
@@ -90,5 +122,6 @@ let runtimeTraverseFailurePreserved = runtimeTraverseFailure.fold(
     left: |error| { error == "traverse-fail" },
     right: |values| { false }
 )
+let runtimeTraverseShortCircuited = traverseFailureTransformCalls == 2
 
-let runtimeAll = monadMappedRightValue == 42 and monadMappedLeftPreserved and monadPureValue == 7 and monadMap2Value == 3 and monadMap2FailurePreserved and monadFlatMapValue and monadFlatMapFailurePreserved and runtimeKleisliValue and runtimeTraverseSuccessValue and runtimeTraverseFailurePreserved
+let runtimeAll = monadMappedRightValue == 42 and monadMappedLeftPreserved and monadMapLeftShortCircuited and monadPureValue == 7 and monadMap2Value == 3 and monadMap2FailurePreserved and monadMap2LeftShortCircuited and monadMap2RightFailurePreserved and monadMap2RightShortCircuited and monadFlatMapValue and monadFlatMapFailurePreserved and monadFlatMapShortCircuited and runtimeKleisliValue and runtimeTraverseSuccessValue and runtimeTraverseFailurePreserved and runtimeTraverseShortCircuited
