@@ -106,5 +106,5 @@ class UnderconstrainedConstructorProbe {
     assert!(matches!(call.status, AnalysisStatus::Blocked(_)), "underconstrained call should be blocked: {call:#?}");
 }
 
-/// MON-REJECT-04/05 are the kind-level rejection laws exercised in kinds.rs:
-/// a proper Type and a binary constructor cannot inhabit F: Type -> Type.
+// MON-REJECT-04/05 are the kind-level rejection laws exercised in kinds.rs:
+// a proper Type and a binary constructor cannot inhabit F: Type -> Type.
