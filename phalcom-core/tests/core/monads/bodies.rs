@@ -3,11 +3,19 @@ use phalcom_semantic::explain::{GenericConstraintOrigin, GenericConstraintRelati
 use phalcom_semantic::identity::DispatchSide;
 use phalcom_semantic::types::evidence::EvidenceStatus;
 use phalcom_semantic::types::id::{TypeId, TypeParameterId};
+use phalcom_semantic::types::store::TypeData;
 
 fn parameter_form(f: &Fixture, parameter: TypeParameterId) -> TypeId {
-    let mut store = (*f.analysis.snapshot.store).clone();
-    let form = store.parameter_form(parameter);
-    assert!(form.index() < f.analysis.snapshot.store.type_count());
+    let mut cloned = (*f.analysis.snapshot.store).clone();
+    let form = cloned.parameter_form(parameter);
+    assert!(
+        form.index() < f.analysis.snapshot.store.type_count(),
+        "symbolic parameter form was interned only in cloned store: {form:?}"
+    );
+    assert!(
+        matches!(f.analysis.snapshot.store.get(form), TypeData::Parameter(found) if *found == parameter),
+        "original store does not contain the same canonical parameter form for {parameter:?}"
+    );
     form
 }
 
