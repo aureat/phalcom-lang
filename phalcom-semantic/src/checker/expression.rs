@@ -11,9 +11,9 @@ use super::typed_expr::TypedExpression;
 use crate::associated::AssociatedMemberId;
 use crate::checker::analysis::AnalysisStatus;
 use crate::checker::associated::{
-    AssociatedResolution, AssociatedResolutionKind, BehavioralFamilySpec, FamilyApplicationCandidate, FamilyApplicationResolution, FamilyApplicationSelection,
-    check_reification_underconstrained, contains_any_type_parameter, resolve_associated_owner, resolve_bound_behavioral_family, resolve_effective_associated_family,
-    specialize_associated_member,
+    AssociatedOwnerResolution, AssociatedResolution, AssociatedResolutionKind, BehavioralFamilySpec, FamilyApplicationCandidate, FamilyApplicationResolution,
+    FamilyApplicationSelection, check_reification_underconstrained, contains_any_type_parameter, resolve_associated_owner, resolve_bound_behavioral_family,
+    resolve_effective_associated_family, specialize_associated_member,
 };
 use crate::checker::binding::{BindingConsistency, BindingWriteResult, reconcile_binding_relation};
 use crate::checker::causal::CausalInvalidity;
@@ -1021,7 +1021,7 @@ fn synthesize_bound_behavioral_lookup(
     ctx: &mut CheckingContext<'_>,
     receiver: TypedExpression,
     lookup: &AssociatedLookupExpr,
-    expected: &ExpectedType,
+    _expected: &ExpectedType,
 ) -> TypedExpression {
     let Some(receiver_type) = receiver.knowledge.ty() else {
         return TypedExpression::unknown(UnknownReason::DynamicMessageSend);
@@ -1033,9 +1033,9 @@ fn synthesize_bound_behavioral_lookup(
     let Ok((lookup_owner, family_type, members)) = resolve_bound_behavioral_family(ctx, receiver_type, dispatch_lookup, spec.clone(), lookup.range) else {
         return TypedExpression::unknown(UnknownReason::UncheckedExpression);
     };
-    let Ok(family_type) = check_reification_underconstrained(ctx, family_type, expected, lookup.range) else {
-        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
-    };
+    // A bound behavioral family retains canonical callable targets. Generic
+    // binders on those declarations are solved when one family member is
+    // invoked, so they are not an underconstrained reified value here.
     let captured = members
         .iter()
         .map(|member| CapturedBehavioralMember {
@@ -1687,11 +1687,60 @@ fn captured_family_target(denotation: Option<&SemanticDenotation>, operation: &F
 }
 
 fn family_callable_application_target(
-    ctx: &CheckingContext<'_>,
+    ctx: &mut CheckingContext<'_>,
     callable_type: TypeId,
-    target: Option<&InvocationTargetId>,
+    denotation: Option<&SemanticDenotation>,
     authority: EvidenceStatus,
+    operation: &FamilyOperationShape,
+    range: SourceRange,
 ) -> Option<CallableApplicationTarget> {
+    let target = captured_family_target(denotation, operation);
+    if let Some(SemanticDenotation::AssociatedValue(assoc)) = denotation {
+        match &**assoc {
+            AssociatedValueDenotation::BehavioralFamily { receiver_type, members, .. } => {
+                let Some(InvocationTargetId::Behavioral(callable)) = members.iter().find(|member| &member.operation == operation).map(|member| &member.target)
+                else {
+                    return None;
+                };
+                let ResolvedDispatchResult::Found(resolved) =
+                    ctx.resolve_dispatch_target(*receiver_type, &callable.selector, crate::dispatch::DispatchLookup::Normal)
+                else {
+                    return None;
+                };
+                if resolved.callable != *callable {
+                    return None;
+                }
+                return Some(CallableApplicationTarget::from_dispatch(resolved));
+            }
+            AssociatedValueDenotation::Family {
+                owner_form,
+                lookup_owner,
+                members,
+                ..
+            } => {
+                if let Some(InvocationTargetId::VariantConstructor(_)) = target.as_ref() {
+                    let (actual_owner, supplied_arguments) = ctx.store.applied_nominal_parts(*owner_form)?;
+                    if actual_owner != *lookup_owner {
+                        return None;
+                    }
+                    let member = members.iter().find(|member| &member.operation == operation)?;
+                    let owner = AssociatedOwnerResolution {
+                        owner_form: *owner_form,
+                        lookup_owner: lookup_owner.clone(),
+                        supplied_arguments,
+                        residual_kind: ctx.store.kind_of(*owner_form),
+                    };
+                    let recovered = associated_variant_constructor_target(ctx, &owner, &member.member, range)?;
+                    if recovered.target.as_ref() != target.as_ref() {
+                        return None;
+                    }
+                    return Some(recovered);
+                }
+            }
+            AssociatedValueDenotation::Exact { .. } => return None,
+        }
+    }
+
     let mut application_target = callable_value_target(ctx.store, callable_type, authority)?;
     if let Some(target) = target {
         application_target.target = Some(target.clone());
@@ -1702,6 +1751,68 @@ fn family_callable_application_target(
         };
     }
     Some(application_target)
+}
+
+fn associated_variant_constructor_target(
+    ctx: &mut CheckingContext<'_>,
+    owner: &AssociatedOwnerResolution,
+    member_id: &AssociatedMemberId,
+    range: SourceRange,
+) -> Option<CallableApplicationTarget> {
+    let AssociatedMemberId::Variant(variant) = member_id;
+    let variant_info = ctx.variant_info(variant).cloned()?;
+    let constructor = variant_info.constructor.clone()?;
+
+    // Reuse associated specialization as the canonical validation path for
+    // GADT equalities and incomplete constructor payload declarations.
+    specialize_associated_member(ctx, owner, member_id, range).ok()?;
+
+    let environment =
+        crate::types::specialization::specialize_receiver_to_owner(ctx.store, &ctx.hierarchy, owner.owner_form, &owner.lookup_owner, &ctx.control)
+            .ok()?
+            .environment;
+
+    let mut fixed_generics = Vec::with_capacity(owner.supplied_arguments.len());
+    for (index, &argument) in owner.supplied_arguments.iter().enumerate() {
+        if let Some(parameter) = ctx.store.find_type_parameter_id(
+            &crate::types::parameter::TypeParameterOwner::Declaration(owner.lookup_owner.clone()),
+            index as u32,
+        ) {
+            fixed_generics.push((parameter, argument));
+        }
+    }
+
+    let parameters = constructor
+        .parameters
+        .iter()
+        .map(|parameter| {
+            let ty = TypeView::new(parameter.declared_type.canonical_type()?, environment.clone()).materialize(ctx.store);
+            let mut callable_parameter = crate::dispatch::CallableParameter::new(
+                parameter.local_name.to_string(),
+                TypeKnowledge::established(ty, EvidenceOrigin::ConstructorSemantics),
+            );
+            if let Some(label) = &parameter.external_label {
+                callable_parameter = callable_parameter.with_label(label.to_string());
+            }
+            Some(callable_parameter)
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let result_type = TypeView::new(constructor.exact_case_template, environment).materialize(ctx.store);
+    let selector = variant.selector.clone();
+    let mut signature = CallableSignature::new(
+        selector,
+        parameters,
+        TypeKnowledge::established(result_type, EvidenceOrigin::ConstructorSemantics),
+    );
+    if let Some(enum_signature) = ctx.enum_info(&owner.lookup_owner).and_then(|info| info.generic_signature.clone()) {
+        let mut enum_signature = enum_signature;
+        let mut constraints = enum_signature.constraints.to_vec();
+        constraints.extend(variant_info.case_environment.equalities.iter().cloned());
+        enum_signature.constraints = constraints.into_boxed_slice();
+        signature = signature.with_generics(enum_signature);
+    }
+
+    Some(CallableApplicationTarget::variant_constructor(variant.clone(), signature).with_fixed_generics(fixed_generics))
 }
 
 fn independent_callable_return_type(ctx: &CheckingContext<'_>, callable_type: TypeId) -> Option<TypeId> {
@@ -1736,9 +1847,9 @@ fn synthesize_family_value_call(
             };
 
             let callable_type = member.ty;
-            let target = captured_family_target(denotation, &operation);
             let authority = premise.knowledge.status().unwrap_or(EvidenceStatus::Assumed);
-            let Some(application_target) = family_callable_application_target(ctx, callable_type, target.as_ref(), authority) else {
+            let target = captured_family_target(denotation, &operation);
+            let Some(application_target) = family_callable_application_target(ctx, callable_type, denotation, authority, &operation, range) else {
                 return analyze_unresolved_application(ctx, premise, arguments, UnresolvedApplicationReason::DispatchMissing).into();
             };
             let fallback_result_type = independent_callable_return_type(ctx, callable_type);

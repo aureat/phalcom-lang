@@ -109,7 +109,6 @@ class Probe {
 }
 
 #[test]
-#[ignore = "RED: generic family application must not publish fallback result after inference failure"]
 fn generic_family_failure_does_not_publish_fallback_result() {
     let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
@@ -162,6 +161,85 @@ class Probe {
         "failed generic application must not publish fallback family result: {:?}",
         callable.family_applications.get(&expression.id)
     );
+}
+
+#[test]
+fn generic_behavioral_family_recovers_canonical_signature_for_expected_result() {
+    let module = ModuleId::universe_root();
+    let source: Arc<str> = Arc::from(
+        r#"
+class Box<T> {
+  convert<U>() -> U { 42 }
+}
+
+class Probe {
+  @class
+  run(_ box: Box<Int>) {
+    let family = box::convert::*;
+    let value: Int = family();
+  }
+}
+"#,
+    );
+    let analysis = analyze_source(module.clone(), source.clone());
+    let probe = DeclarationId::new(module, "Probe".into());
+    let callable_id = CallableId::new(
+        probe,
+        phalcom_common::selector::Selector::method("run", [SelectorSlot::Positional]).expect("callable selector"),
+        DispatchSide::Class,
+    );
+    let callable = analysis.snapshot.callable_analyses.get(&callable_id).expect("callable analysis");
+    let expression = callable
+        .expressions
+        .values()
+        .find(|candidate| source.get(candidate.range.start..candidate.range.end) == Some("family()"))
+        .expect("family application expression");
+    let result_type = expression.knowledge.ty().expect("expected generic family result");
+    assert_eq!(analysis.snapshot.store.format_type(result_type), "Int");
+}
+
+#[test]
+fn generic_associated_variant_family_recovers_constructor_signature() {
+    let module = ModuleId::universe_root();
+    let source: Arc<str> = Arc::from(
+        r#"
+enum Option<T> {
+  @variant Some(_ value: T) -> Option<T>
+}
+
+class Probe {
+  @class
+  run() {
+    let family = Option<Int>::Some::*;
+    let value = family(1);
+  }
+}
+"#,
+    );
+    let analysis = analyze_source(module.clone(), source.clone());
+    let probe = DeclarationId::new(module, "Probe".into());
+    let callable_id = CallableId::new(
+        probe,
+        phalcom_common::selector::Selector::method("run", []).expect("callable selector"),
+        DispatchSide::Class,
+    );
+    let callable = analysis.snapshot.callable_analyses.get(&callable_id).expect("callable analysis");
+    let expression = callable
+        .expressions
+        .values()
+        .find(|candidate| source.get(candidate.range.start..candidate.range.end) == Some("family(1)"))
+        .expect("family application expression");
+    let result_type = expression.knowledge.ty().expect("associated family result");
+    assert!(matches!(
+        analysis.snapshot.store.get(result_type),
+        phalcom_semantic::types::store::TypeData::ExactCase { .. }
+    ));
+
+    let resolution = callable.family_applications.get(&expression.id).expect("family application resolution");
+    let FamilyApplicationSelection::Static { target, .. } = &resolution.selection else {
+        panic!("expected static family application, got {:?}", resolution.selection);
+    };
+    assert!(matches!(target, Some(InvocationTargetId::VariantConstructor(_))));
 }
 
 fn analyze_source(module: ModuleId, source: Arc<str>) -> phalcom_semantic::workspace::SemanticAnalysis {
