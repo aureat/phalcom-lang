@@ -153,6 +153,17 @@ pub struct SemanticRoots {
     pub ordering_class: ClassId,
 }
 
+/// Bootstrap census separating complete Universe discovery from runtime work.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct UniverseBootstrapMeasurement {
+    /// Number of parsed canonical Universe units retained for discovery.
+    pub discovered_units: usize,
+    /// Number of units reachable from the Universe root through canonical imports.
+    pub root_reachable_units: usize,
+    /// Number of units whose source bodies bootstrap executed.
+    pub executed_units: usize,
+}
+
 /// The bytecode virtual machine: owns the [`Heap`], the operand stack, and the
 /// call stack, and drives dispatch.
 ///
@@ -223,6 +234,8 @@ pub struct VM {
     pub typing_registry: crate::typing::RuntimeTypingRegistry,
     /// Direct runtime roots for Universe and entry modules.
     pub runtime_roots: Option<RuntimeRoots>,
+    /// Source/bootstrap census captured during VM construction.
+    pub(crate) universe_bootstrap_measurement: UniverseBootstrapMeasurement,
     /// Set of modules with privileged Universe status.
     pub privileged_modules: std::collections::HashSet<ObjRef>,
     /// Canonical semantic values, initialized after universe bootstrap.
@@ -446,6 +459,11 @@ impl VM {
     #[inline]
     pub fn entry_module(&self) -> Option<ObjRef> {
         self.runtime_roots.and_then(|r| r.entry)
+    }
+
+    /// Returns source discovery and bootstrap execution counts from VM startup.
+    pub fn universe_bootstrap_measurement(&self) -> UniverseBootstrapMeasurement {
+        self.universe_bootstrap_measurement
     }
 
     /// Checks if a module has privileged Universe status.

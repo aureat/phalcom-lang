@@ -4,6 +4,7 @@
 //! META-01..03, SEL-01..03, SHADOW-01..03, STD-01, SCC-01..03.
 
 use phalcom_core::modules::compile::{EntrySelection, ProgramCompileError, ProgramCompiler};
+use phalcom_core::native::NativeSourceIndex;
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
 use phalcom_modules::{DunderPolicy, DunderRole, ModuleId, ModulePath, ProjectUniverse};
@@ -112,6 +113,46 @@ fn builtin_client_resolves_prelude_and_standard_library() {
 
     let res = vm.run_compiled(&program);
     assert!(res.is_ok(), "builtin client runs: {:?}", res.err());
+}
+
+#[test]
+fn universe_package_intrinsics_match_provider_neutral_package_rules() {
+    let vm = VM::new();
+    let root = vm.module_registry.get(&ModuleId::universe_root()).expect("Universe root materialized").object;
+    let collections = ModuleId::universe(ModulePath::from_components(vec![phalcom_modules::ModuleComponent::from_identifier("collections").unwrap()]));
+    let collections = vm.module_registry.get(&collections).expect("collections package materialized").object;
+    let list = ModuleId::universe(ModulePath::from_components(vec![
+        phalcom_modules::ModuleComponent::from_identifier("collections").unwrap(),
+        phalcom_modules::ModuleComponent::from_identifier("list").unwrap(),
+    ]));
+    let list = vm.module_registry.get(&list).expect("collections.list module materialized").object;
+
+    assert_eq!(vm.heap.module(root).package, Some(root));
+    assert_eq!(vm.heap.module(collections).package, Some(collections));
+    assert_eq!(vm.heap.module(list).package, Some(collections));
+}
+
+#[test]
+fn boot_01_bootstrap_measurement_separates_catalog_closure_and_execution() {
+    let index = NativeSourceIndex::build().expect("canonical Universe source index builds");
+    let root = ModuleId::universe_root();
+    let reachable = index
+        .reachable_units_from_roots(std::slice::from_ref(&root))
+        .expect("Universe root dependency closure resolves");
+    let ordered = index
+        .initialization_order_from_roots(std::slice::from_ref(&root))
+        .expect("Universe root dependency order resolves");
+
+    assert_eq!(ordered.len(), reachable.len());
+    assert!(reachable.contains(&root));
+    assert!(reachable.len() < index.units.len(), "root closure must remain distinct from full source catalog");
+
+    let vm = VM::new();
+    let measurement = vm.universe_bootstrap_measurement();
+    assert_eq!(measurement.discovered_units, index.units.len());
+    assert_eq!(measurement.root_reachable_units, reachable.len());
+    assert!(measurement.executed_units <= measurement.discovered_units);
+    assert!(measurement.executed_units > 0);
 }
 
 #[test]

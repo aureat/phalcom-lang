@@ -15,23 +15,33 @@ pub struct ResolvedBehavioralAssociatedTarget {
 }
 
 impl VM {
+    /// Resolves a canonical Universe declaration through its complete semantic
+    /// identity. A matching leaf name in another Universe module is not enough.
+    pub fn resolve_universe_declaration_class(&self, decl: &DeclarationId) -> Option<ClassId> {
+        let binding = phalcom_native_meta::UNIVERSE_BINDINGS
+            .iter()
+            .find(|binding| phalcom_semantic::core_surface::universe_declaration(binding.key) == *decl)?;
+        Some(self.universe.classes.resolve(binding.key))
+    }
+
     /// Resolves a DeclarationId to its runtime ClassId.
     pub fn resolve_declaration_class(&self, decl: &DeclarationId) -> Result<ClassId, RuntimeError> {
-        // 1. Check ADT enum registry
+        // 1. Check ADT enum registry.
         if let Some(enum_id) = self.adt_registry.enum_by_declaration(decl) {
             if let Some(desc) = self.adt_registry.enum_descriptor(enum_id) {
                 return Ok(desc.root_class);
             }
         }
 
-        // 2. Check builtin classes
-        if decl.module.project.is_universe() {
-            if let Some(class_id) = self.resolve_builtin_class_name(&decl.name) {
-                return Ok(class_id);
-            }
+        // 2. Check exact canonical Universe declaration identity. Do not
+        // reconstruct a resolved declaration from leaf spelling.
+        if decl.module.project.is_universe()
+            && let Some(class_id) = self.resolve_universe_declaration_class(decl)
+        {
+            return Ok(class_id);
         }
 
-        // 3. Check module registry
+        // 3. Check module registry.
         if let Some(record) = self.module_registry.get(&decl.module) {
             let name_sym = self.interner.find(&decl.name);
             if let Some(sym) = name_sym {

@@ -831,7 +831,7 @@ fn apply_generic_callable_inner(
             continue;
         };
         let parameter_term = session.type_id_to_inference(parameter_ty, &var_map, ctx.store);
-        let argument_expected = ExpectedType::inference_from(parameter_term.clone(), ExpectationOrigin::GenericArgument);
+        let argument_expected = ExpectedType::proper_from(parameter_ty, ExpectationOrigin::GenericArgument);
         let argument_typed = analyze_application_argument(ctx, argument, &argument_expected);
         record_generic_argument_capture(ctx, &argument_typed);
         let explanation = argument_typed.expression_id.and_then(|id| ctx.explanation_for_expression(id));
@@ -868,8 +868,9 @@ fn apply_generic_callable_inner(
         match &argument_typed.knowledge {
             TypeKnowledge::Known(evidence) => {
                 if let Some(support) = inference_support(&argument_typed.knowledge) {
+                    let argument_term = session.type_id_to_inference(evidence.ty(), &var_map, ctx.store);
                     session.add_constraint_with_support(
-                        InferenceRelation::Subtype(InferenceTerm::Canonical(evidence.ty()), parameter_term),
+                        InferenceRelation::Subtype(argument_term, parameter_term),
                         origin,
                         stable_constraint_explanation,
                         support,
@@ -886,15 +887,14 @@ fn apply_generic_callable_inner(
     }
 
     let argument_outcome = ctx.solve_inference(&mut session);
+    let argument_underconstrained = match &argument_outcome {
+        crate::checker::inference::InferenceOutcome::Underconstrained(value) => Some(value.clone()),
+        _ => None,
+    };
     let pre_context_result = match &argument_outcome {
         crate::checker::inference::InferenceOutcome::Solved(_) => {
             Some(publish_generic_return(ctx, &session, return_term.as_ref(), &signature.return_type, call_range))
         }
-        _ => None,
-    };
-
-    let argument_underconstrained = match &argument_outcome {
-        crate::checker::inference::InferenceOutcome::Underconstrained(value) => Some(value.clone()),
         _ => None,
     };
 
@@ -920,11 +920,20 @@ fn apply_generic_callable_inner(
     } else {
         argument_outcome
     };
-
-    let underconstrained = argument_underconstrained.as_ref().or(match &outcome {
-        crate::checker::inference::InferenceOutcome::Underconstrained(value) => Some(value),
-        _ => None,
-    });
+    let context_resolved_with_value_support = match (&argument_underconstrained, &outcome) {
+        (Some(initial), crate::checker::inference::InferenceOutcome::Solved(solution)) => initial.unsolved_vars.iter().all(|variable| {
+            matches!(solution.support.get(variable), Some(InferenceSupport::Established))
+        }),
+        _ => false,
+    };
+    let underconstrained = if context_resolved_with_value_support {
+        None
+    } else {
+        argument_underconstrained.as_ref().or(match &outcome {
+            crate::checker::inference::InferenceOutcome::Underconstrained(value) => Some(value),
+            _ => None,
+        })
+    };
 
     if let Some(underconstrained) = underconstrained
         && !ctx.call_status_is_recorded()

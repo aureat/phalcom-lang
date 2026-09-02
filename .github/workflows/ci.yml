@@ -22,20 +22,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly-2026-07-10
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-10
+          components: rustc-codegen-cranelift-preview
       - uses: Swatinem/rust-cache@v2
       - name: Build
         run: >-
           cargo +nightly-2026-07-10
-          --config 'profile.dev.codegen-backend="llvm"'
-          --config 'profile.test.codegen-backend="llvm"'
           --config 'build.rustc-wrapper=""'
           build --workspace --all-targets
       - name: Test
         run: >-
           cargo +nightly-2026-07-10
-          --config 'profile.dev.codegen-backend="llvm"'
-          --config 'profile.test.codegen-backend="llvm"'
           --config 'build.rustc-wrapper=""'
           test --workspace --all-targets
 
@@ -44,7 +43,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly-2026-07-10
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-10
+          components: rustc-codegen-cranelift-preview
       - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
@@ -54,8 +56,6 @@ jobs:
       - name: Build language server
         run: >-
           cargo +nightly-2026-07-10
-          --config 'profile.dev.codegen-backend="llvm"'
-          --config 'profile.test.codegen-backend="llvm"'
           --config 'build.rustc-wrapper=""'
           build -p phalcom-lsp
       - name: Install extension dependencies
@@ -72,8 +72,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly-2026-07-10
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: nightly-2026-07-10
           components: rustfmt
       - run: cargo +nightly-2026-07-10 fmt --all -- --check
 
@@ -82,9 +83,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly-2026-07-10
+      - uses: dtolnay/rust-toolchain@master
         with:
-          components: clippy
+          toolchain: nightly-2026-07-10
+          components: clippy,rustc-codegen-cranelift-preview
       - uses: Swatinem/rust-cache@v2
       - run: cargo +nightly-2026-07-10 clippy --workspace --all-targets -- -D warnings
 
@@ -95,9 +97,10 @@ jobs:
       MIRIFLAGS: -Zmiri-disable-isolation
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly-2026-07-10
+      - uses: dtolnay/rust-toolchain@master
         with:
-          components: miri
+          toolchain: nightly-2026-07-10
+          components: miri,rustc-codegen-cranelift-preview
       - uses: Swatinem/rust-cache@v2
       # Snapshot integration tests invoke cargo through insta, which Miri cannot
       # emulate (socketpair/process spawning). The AST unit lane still covers

@@ -5,6 +5,7 @@ use crate::typing::context::TypingContextData;
 use crate::typing::handle::{RuntimeKindRef, RuntimeOverlayTypeId, RuntimeTypeRef};
 use crate::typing::overlay::{RuntimeOverlayKindNode, RuntimeOverlayTypeNode};
 use crate::typing::registry::RuntimeTypingRegistry;
+use crate::universe::Universe;
 use phalcom_type_meta::type_node::TypeNode;
 
 const MAX_DISPLAY_DEPTH: usize = 64;
@@ -72,14 +73,11 @@ pub fn arguments(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
     }
 }
 
-fn class_constructor_arity(heap: &Heap, class: ClassId) -> usize {
-    let name = heap.class(class).name.as_str();
-    for spec in phalcom_native_meta::universe::UNIVERSE_TYPE_FORMS {
-        if spec.owner.name() == name {
-            return spec.parameters.len();
-        }
-    }
-    0
+fn class_constructor_arity(universe: &Universe, class: ClassId) -> usize {
+    phalcom_native_meta::universe::UNIVERSE_TYPE_FORMS
+        .iter()
+        .find(|spec| universe.classes.resolve(spec.owner) == class)
+        .map_or(0, |spec| spec.parameters.len())
 }
 
 fn base_constructor_arity(
@@ -103,15 +101,15 @@ fn base_constructor_arity(
     }
 }
 
-pub fn remaining_parameter_count(context: &TypingContextData, registry: &RuntimeTypingRegistry, heap: &Heap, handle: RuntimeTypeRef) -> usize {
+pub fn remaining_parameter_count(context: &TypingContextData, registry: &RuntimeTypingRegistry, universe: &Universe, handle: RuntimeTypeRef) -> usize {
     match handle {
         RuntimeTypeRef::Overlay(id) => match context.overlay.type_node(id) {
-            Some(RuntimeOverlayTypeNode::Nominal { class }) => class_constructor_arity(heap, *class),
+            Some(RuntimeOverlayTypeNode::Nominal { class }) => class_constructor_arity(universe, *class),
             Some(RuntimeOverlayTypeNode::Applied { origin, arguments }) => {
                 let arity = match origin {
                     RuntimeTypeRef::Overlay(origin_id) => match context.overlay.type_node(*origin_id) {
-                        Some(RuntimeOverlayTypeNode::Nominal { class }) => class_constructor_arity(heap, *class),
-                        Some(RuntimeOverlayTypeNode::Applied { .. }) => remaining_parameter_count(context, registry, heap, *origin) + arguments.len(),
+                        Some(RuntimeOverlayTypeNode::Nominal { class }) => class_constructor_arity(universe, *class),
+                        Some(RuntimeOverlayTypeNode::Applied { .. }) => remaining_parameter_count(context, registry, universe, *origin) + arguments.len(),
                         _ => 0,
                     },
                     RuntimeTypeRef::Base { pool, node } => base_constructor_arity(registry, *pool, *node),
@@ -797,12 +795,11 @@ pub fn type_use_written(registry: &RuntimeTypingRegistry, handle: crate::typing:
 pub fn declaration_record_for_class<'a>(
     registry: &'a RuntimeTypingRegistry,
     class_id: ClassId,
-    heap: &Heap,
 ) -> Option<(crate::typing::handle::MetadataPoolId, &'a phalcom_type_meta::declaration::DeclarationTypeRecord)> {
-    let class_name = &heap.class(class_id).name;
+    let declaration = registry.declaration_for_nominal(class_id)?;
     for (pool_idx, loaded) in registry.pools().iter().enumerate() {
         for decl in loaded.bundle.declarations.iter() {
-            if decl.declaration.path.last().map(|s| s.as_ref()) == Some(class_name.as_str()) {
+            if decl.declaration == *declaration {
                 return Some((crate::typing::handle::MetadataPoolId(pool_idx as u32), decl));
             }
         }
@@ -813,14 +810,14 @@ pub fn declaration_record_for_class<'a>(
 pub fn generic_signature_of_declaration(
     registry: &RuntimeTypingRegistry,
     class_id: ClassId,
-    heap: &Heap,
+    _heap: &Heap,
 ) -> Option<crate::typing::handle::RuntimeGenericSignatureRef> {
-    let (pool, decl) = declaration_record_for_class(registry, class_id, heap)?;
+    let (pool, decl) = declaration_record_for_class(registry, class_id)?;
     decl.generic_signature.map(|id| crate::typing::handle::RuntimeGenericSignatureRef { pool, id })
 }
 
-pub fn declared_supertype_of_declaration(registry: &RuntimeTypingRegistry, class_id: ClassId, heap: &Heap) -> Option<RuntimeTypeRef> {
-    let (pool, decl) = declaration_record_for_class(registry, class_id, heap)?;
+pub fn declared_supertype_of_declaration(registry: &RuntimeTypingRegistry, class_id: ClassId, _heap: &Heap) -> Option<RuntimeTypeRef> {
+    let (pool, decl) = declaration_record_for_class(registry, class_id)?;
     decl.superclass_template.map(|node| RuntimeTypeRef::Base { pool, node })
 }
 
@@ -877,7 +874,7 @@ pub fn lookup_member(
         }
     };
 
-    let (pool, decl) = declaration_record_for_class(registry, nominal_class, heap)?;
+    let (pool, decl) = declaration_record_for_class(registry, nominal_class)?;
     let callables = if is_class_side { &decl.class_callables } else { &decl.instance_callables };
 
     let loaded = registry.get_pool(pool)?;

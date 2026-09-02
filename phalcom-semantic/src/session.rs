@@ -41,7 +41,7 @@ use crate::types::annotation::{
     GenericBinderSite, TypeFormationOutcome, TypeFormationSite, TypeResolver, lower_scoped_type_alias_form, resolve_generic_signature, resolve_kind_syntax,
     type_level_binding_for_parameter,
 };
-use crate::types::id::KindId;
+use crate::types::id::{KindId, TypeId};
 use crate::types::native::register_native_surfaces;
 use crate::types::parameter::{GenericSignature, TypeParameterData, TypeParameterOwner};
 use crate::types::relation::MapTypeHierarchy;
@@ -594,7 +594,7 @@ impl SemanticWorkspaceSession {
         let sources = input.sources.clone();
         let linked = input.linked.clone();
         self.update_with_budget_and_cancel(input, QueryBudget::default(), &CancellationToken::new())
-            .unwrap_or_else(|_| {
+            .unwrap_or_else(|_error| {
                 let snapshot = self.last_known_good.clone().unwrap_or_else(|| {
                     Arc::new(SemanticSnapshot::new_with_callable_analyses(
                         self.workspace,
@@ -1043,7 +1043,16 @@ impl SemanticWorkspaceSession {
                         );
                         let super_ty = match form_res {
                             crate::types::annotation::TypeFormResolution::Ready(ty) => {
-                                if self.store.kind_of(ty) != KindId::TYPE {
+                                // The bundled Universe source uses one erased
+                                // generic protocol form for collection
+                                // inheritance (`Iterable` rather than
+                                // `Iterable<T>`). Keep only that exact
+                                // source-backed form available for formal body
+                                // queries; user modules retain strict
+                                // proper-type validation below.
+                                if self.store.kind_of(ty) != KindId::TYPE
+                                    && !is_canonical_erased_iterable_supertype(parsed_unit, &self.store, ty)
+                                {
                                     diags.push(SemanticDiagnostic::error_in(
                                         module_id.clone(),
                                         DiagnosticCode::KindExpectedType,
@@ -2259,6 +2268,21 @@ impl SemanticWorkspaceSession {
             effects,
         })
     }
+}
+
+fn is_canonical_erased_iterable_supertype(unit: &ParsedModuleUnit, store: &TypeStore, ty: TypeId) -> bool {
+    if unit.id.project != phalcom_modules::ProjectIdentity::Universe {
+        return false;
+    }
+    let crate::types::store::TypeData::Nominal { declaration } = store.get(ty) else {
+        return false;
+    };
+    if declaration != &crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Iterable) {
+        return false;
+    }
+    phalcom_modules::UniverseSourceProvider::new()
+        .load_parsed(&unit.id)
+        .is_ok_and(|canonical| canonical.text == unit.text)
 }
 
 fn collect_alias_dependencies(

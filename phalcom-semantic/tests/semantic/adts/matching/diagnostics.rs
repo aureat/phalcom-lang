@@ -1,8 +1,11 @@
 use std::sync::Arc;
 
+use phalcom_common::selector::Selector;
 use phalcom_modules::identity::{ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_semantic::analyze_single_module;
 use phalcom_semantic::diagnostic::DiagnosticCode;
+use phalcom_semantic::identity::DeclarationId;
+use phalcom_semantic::match_semantics::PatternResolution;
 
 fn test_module() -> ModuleId {
     ModuleId::resolved(ResolvedProjectId::from_raw(42), ModulePath::root())
@@ -177,21 +180,55 @@ class Test {
 }
 
 #[test]
-#[ignore = "GATED: ambiguous contextual owner fixture requires union-domain support"]
 fn match_diag_02_ambiguous_variant_has_owner_candidates() {
     let case = super::super::support::analyze_adt(
-        "enum Left { @variant Same }\nenum Right { @variant Same }\nclass Test { run(_ value: Object) { match value { Same => 1 _ => 0 } } }\n",
+        "enum Left { @variant Same }\nenum Right { @variant Same }\nclass Test { run(_ value: Left | Right) { match value { Same => 1 _ => 0 } } }\n",
     );
-    assert!(case.diagnostics().any(|diagnostic| diagnostic.code == DiagnosticCode::MatchPatternUnresolved));
+    case.assert_diagnostic_primary_contains(DiagnosticCode::MatchPatternUnresolved, "Same");
+    let diagnostic = case.diagnostic(DiagnosticCode::MatchPatternUnresolved);
+    assert!(diagnostic.message.contains("Left"));
+    assert!(diagnostic.message.contains("Right"));
+    let handle = case.only_match();
+    let arm = handle.arm(0);
+    let PatternResolution::Variant(pattern) = &arm.resolution().pattern else {
+        panic!("expected contextual variant resolution");
+    };
+    assert_eq!(
+        pattern.owner_candidates.as_ref(),
+        &[
+            DeclarationId::new(case.module.clone(), "Left".into()),
+            DeclarationId::new(case.module.clone(), "Right".into()),
+        ]
+    );
+    assert!(pattern.owner.is_none(), "ambiguous pattern must not select an owner");
+    assert!(pattern.family.is_none(), "ambiguous pattern must not select a family");
+    assert_eq!(
+        pattern.candidates.iter().map(|candidate| candidate.variant.clone()).collect::<Vec<_>>(),
+        vec![
+            case.variant_id("Left", Selector::getter("Same").expect("selector")),
+            case.variant_id("Right", Selector::getter("Same").expect("selector")),
+        ]
+    );
 }
 
 #[test]
-#[ignore = "GATED: cross-module visibility fixture is required"]
 fn match_diag_03_inaccessible_variant_points_at_explicit_name() {
     let case = super::super::support::analyze_adt(
-        "enum Choice { @variant Ready }\nclass Test { run(_ value: Choice) { match value { Other::Ready => 1 _ => 0 } } }\n",
+        "enum Choice { @variant Ready }\nenum Other { @variant Ready }\nclass Test { run(_ value: Choice) { match value { Other::Ready => 1 _ => 0 } } }\n",
     );
-    assert!(!case.diagnostics().collect::<Vec<_>>().is_empty());
+    case.assert_diagnostic_primary_contains(DiagnosticCode::MatchPatternContradictory, "Other::Ready");
+    let handle = case.only_match();
+    let arm = handle.arm(0);
+    let PatternResolution::Variant(pattern) = &arm.resolution().pattern else {
+        panic!("expected explicit variant resolution");
+    };
+    let other = DeclarationId::new(case.module.clone(), "Other".into());
+    assert_eq!(pattern.owner.as_ref(), Some(&other));
+    assert_eq!(pattern.owner_candidates.as_ref(), &[other]);
+    assert_eq!(
+        pattern.candidates.iter().map(|candidate| candidate.variant.clone()).collect::<Vec<_>>(),
+        vec![case.variant_id("Other", Selector::getter("Ready").expect("selector"))]
+    );
 }
 
 #[test]

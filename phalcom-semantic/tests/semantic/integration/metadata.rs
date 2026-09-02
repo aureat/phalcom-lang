@@ -1,15 +1,18 @@
 use phalcom_common::range::SourceRange;
-use phalcom_modules::{DeclarationId, ModuleComponent, ModuleId, ModulePath};
+use phalcom_modules::{DeclarationId, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, ProjectUniverse};
 use phalcom_semantic::declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate};
 use phalcom_semantic::diagnostic::SemanticSourceSpan;
 use phalcom_semantic::identity::DispatchSide;
+use phalcom_semantic::metadata::stable_identity::StableIdentityContext;
 use phalcom_semantic::metadata::MetadataExporter;
 use phalcom_semantic::type_alias::{TypeAliasInfo, TypeAliasTable};
 use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::parameter::{GenericConstraint, GenericSignature, SelfRole, SelfTypeTerm, TypeParameterData, TypeParameterOwner, TypeTerm};
 use phalcom_semantic::types::store::TypeStore;
 use phalcom_semantic::types::variance::Variance;
+use phalcom_type_meta::fingerprint::Fingerprint128;
 use phalcom_type_meta::header::MetadataProfile;
+use phalcom_type_meta::identity::StableProjectRef;
 use phalcom_type_meta::validate::{ValidationLimits, validate_metadata_bundle};
 
 fn dummy_module() -> ModuleId {
@@ -21,6 +24,61 @@ fn dummy_module() -> ModuleId {
 
 fn dummy_decl(name: &str) -> DeclarationId {
     DeclarationId::new(dummy_module(), name.into())
+}
+
+#[test]
+fn stable_project_identity_ignores_graph_allocation_order() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("main.ph"), "value").unwrap();
+    let other = tempfile::tempdir().unwrap();
+
+    let mut first = ProjectUniverse::new();
+    let first_id = first.load_synthetic_root("sample", root.path(), "main").unwrap();
+
+    let mut second = ProjectUniverse::new();
+    second.load_synthetic_root("other", other.path(), "main").unwrap();
+    let second_id = second.load_synthetic_root("sample", root.path(), "main").unwrap();
+
+    let first_decl = DeclarationId::new(ModuleId::resolved(first_id, ModulePath::root()), "Thing".into());
+    let second_decl = DeclarationId::new(ModuleId::resolved(second_id, ModulePath::root()), "Thing".into());
+    let first_ref = phalcom_semantic::metadata::stable_identity::to_stable_declaration_with_context(&first_decl, &StableIdentityContext::new(&first));
+    let second_ref = phalcom_semantic::metadata::stable_identity::to_stable_declaration_with_context(&second_decl, &StableIdentityContext::new(&second));
+    assert_eq!(first_ref, second_ref);
+}
+
+#[test]
+fn stable_project_identity_distinguishes_roots_and_revisions() {
+    let left = tempfile::tempdir().unwrap();
+    let right = tempfile::tempdir().unwrap();
+    std::fs::write(left.path().join("main.ph"), "value").unwrap();
+    std::fs::write(right.path().join("main.ph"), "value").unwrap();
+
+    let mut projects = ProjectUniverse::new();
+    let left_id = projects.load_synthetic_root("sample", left.path(), "main").unwrap();
+    let right_id = projects.load_synthetic_root("sample", right.path(), "main").unwrap();
+    let left_decl = DeclarationId::new(ModuleId::resolved(left_id, ModulePath::root()), "Thing".into());
+    let right_decl = DeclarationId::new(ModuleId::resolved(right_id, ModulePath::root()), "Thing".into());
+    let context = StableIdentityContext::new(&projects);
+    assert_ne!(
+        phalcom_semantic::metadata::stable_identity::to_stable_declaration_with_context(&left_decl, &context),
+        phalcom_semantic::metadata::stable_identity::to_stable_declaration_with_context(&right_decl, &context)
+    );
+
+    let before = projects.get_project(left_id).unwrap().revision_fingerprint();
+    std::fs::write(left.path().join("main.ph"), "changed").unwrap();
+    let after = projects.get_project(left_id).unwrap().revision_fingerprint();
+    assert_ne!(before, after);
+}
+
+#[test]
+fn stable_builtin_and_synthetic_projects_remain_explicitly_scoped() {
+    let builtin = phalcom_semantic::metadata::stable_identity::to_stable_project(&ProjectIdentity::Universe);
+    assert!(matches!(builtin, StableProjectRef::Builtin { namespace, .. } if namespace.as_ref() == "universe"));
+
+    let mut projects = ProjectUniverse::new();
+    let synthetic = projects.allocate_synthetic_id();
+    let session = phalcom_semantic::metadata::stable_identity::to_stable_project(&ProjectIdentity::Synthetic(synthetic));
+    assert!(matches!(session, StableProjectRef::Session { session_fingerprint } if session_fingerprint != Fingerprint128::ZERO));
 }
 
 #[test]

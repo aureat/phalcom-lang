@@ -1,15 +1,9 @@
 use crate::bytecode::Bytecode;
 use crate::compiler::lib::Compiler;
 use crate::compiler::lib::error::CompilerError;
-use crate::modules::semantic_lowering::{
-    ExecutableBindingSpec, ExecutableFieldProjection, ExecutableMatchArm, ExecutablePattern, ExecutableVariantCandidate,
-    LoweringSiteKind, MatchLoweringSpec,
-};
-use phalcom_ast::ast::{Expr, MatchExpr, Pattern, VariantPatternMode};
+use crate::modules::semantic_lowering::{ExecutableBindingSpec, ExecutableMatchArm, ExecutablePattern, LoweringSiteKind, MatchLoweringSpec};
+use phalcom_ast::ast::{Expr, MatchExpr, Pattern};
 use phalcom_common::range::SourceRange;
-use phalcom_common::selector::Selector;
-use phalcom_modules::{DeclarationId, ModuleId};
-use phalcom_semantic::identity::{VariantFieldId, VariantId};
 
 impl<'vm> Compiler<'vm> {
     pub(crate) fn compile_match_expr(&mut self, node: MatchExpr) -> Result<(), CompilerError> {
@@ -22,13 +16,14 @@ impl<'vm> Compiler<'vm> {
         }) {
             spec
         } else {
-            // Synthesize fallback match lowering spec for standalone/unlinked compiles
-            let module_id = self.vm.heap.module(self.module).id.clone();
+            // Standalone/unlinked compilation may synthesize only structural
+            // patterns whose runtime meaning is syntax-complete. Variant
+            // identity is semantic and therefore cannot be guessed here.
             let mut arms = Vec::new();
             for (arm_idx, arm) in node.arms.iter().enumerate() {
                 let mut binding_counter = 0;
                 let mut bindings = Vec::new();
-                let pattern = synthesize_fallback_pattern(&arm.pattern, &module_id, &mut binding_counter, &mut bindings)?;
+                let pattern = synthesize_fallback_pattern(&arm.pattern, &mut binding_counter, &mut bindings)?;
                 arms.push(ExecutableMatchArm {
                     arm_index: arm_idx as u32,
                     pattern,
@@ -117,7 +112,6 @@ impl<'vm> Compiler<'vm> {
 
 fn synthesize_fallback_pattern(
     pat: &Pattern,
-    module_id: &ModuleId,
     binding_counter: &mut u32,
     bindings: &mut Vec<ExecutableBindingSpec>,
 ) -> Result<ExecutablePattern, CompilerError> {
@@ -136,69 +130,11 @@ fn synthesize_fallback_pattern(
                 name: name.clone().into_boxed_str(),
             })
         }
-        Pattern::Variant(v) => {
-            let owner_name = v.owner.as_ref().map(|o| o.leaf_name()).unwrap_or_else(|| {
-                if v.base == "Some" || v.base == "None" {
-                    "Option"
-                } else if v.base == "Ok" || v.base == "Error" || v.base == "Err" {
-                    "Result"
-                } else if v.base == "Less" || v.base == "Equal" || v.base == "Greater" || v.base == "Unordered" {
-                    "Ordering"
-                } else {
-                    ""
-                }
-            });
-            let owner_decl = match owner_name {
-                "Option" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Option),
-                "Result" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Result),
-                "Ordering" => phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Ordering),
-                _ => DeclarationId::new(module_id.clone(), owner_name.into()),
-            };
-
-            let (selector, field_patterns) = match &v.mode {
-                VariantPatternMode::Singleton => {
-                    let sel = Selector::getter(v.base.clone()).map_err(|e| CompilerError::Message(e.to_string()))?;
-                    (sel, Vec::new())
-                }
-                VariantPatternMode::ExactCall { arguments } => {
-                    let mut slots = Vec::new();
-                    let mut pats = Vec::new();
-                    for arg in arguments {
-                        if let Some(label) = &arg.label {
-                            slots.push(phalcom_common::selector::SelectorSlot::Label(label.clone()));
-                        } else {
-                            slots.push(phalcom_common::selector::SelectorSlot::Positional);
-                        }
-                        pats.push(&arg.pattern);
-                    }
-                    let sel = Selector::method(v.base.clone(), slots).map_err(|e| CompilerError::Message(e.to_string()))?;
-                    (sel, pats)
-                }
-                _ => return Err(CompilerError::InvalidExecutablePattern(v.range)),
-            };
-
-            let variant_id = VariantId::new(owner_decl, selector);
-            let mut field_projections = Vec::new();
-            for (idx, field_pat) in field_patterns.iter().enumerate() {
-                let child = synthesize_fallback_pattern(field_pat, module_id, binding_counter, bindings)?;
-                field_projections.push(ExecutableFieldProjection {
-                    field_id: VariantFieldId::new(variant_id.clone(), idx as u32),
-                    slot: idx as u16,
-                    child,
-                });
-            }
-
-            Ok(ExecutablePattern::Variant {
-                candidates: Box::new([ExecutableVariantCandidate {
-                    variant: variant_id,
-                    fields: field_projections.into_boxed_slice(),
-                }]),
-            })
-        }
+        Pattern::Variant(v) => Err(CompilerError::MissingMatchLoweringSemantics(v.range)),
         Pattern::Tuple { elements, .. } => {
             let mut el_pats = Vec::new();
             for el in elements {
-                el_pats.push(synthesize_fallback_pattern(el, module_id, binding_counter, bindings)?);
+                el_pats.push(synthesize_fallback_pattern(el, binding_counter, bindings)?);
             }
             Ok(ExecutablePattern::Tuple {
                 elements: el_pats.into_boxed_slice(),
@@ -207,7 +143,7 @@ fn synthesize_fallback_pattern(
         Pattern::Or { alternatives, .. } => {
             let mut alt_pats = Vec::new();
             for alt in alternatives {
-                alt_pats.push(synthesize_fallback_pattern(alt, module_id, binding_counter, bindings)?);
+                alt_pats.push(synthesize_fallback_pattern(alt, binding_counter, bindings)?);
             }
             Ok(ExecutablePattern::Or {
                 alternatives: alt_pats.into_boxed_slice(),
@@ -216,10 +152,10 @@ fn synthesize_fallback_pattern(
         Pattern::List { elements, rest, .. } => {
             let mut el_pats = Vec::new();
             for el in elements {
-                el_pats.push(synthesize_fallback_pattern(el, module_id, binding_counter, bindings)?);
+                el_pats.push(synthesize_fallback_pattern(el, binding_counter, bindings)?);
             }
             let rest_pat = if let Some(r) = rest {
-                Some(Box::new(synthesize_fallback_pattern(r, module_id, binding_counter, bindings)?))
+                Some(Box::new(synthesize_fallback_pattern(r, binding_counter, bindings)?))
             } else {
                 None
             };
@@ -228,8 +164,31 @@ fn synthesize_fallback_pattern(
                 rest: rest_pat,
             })
         }
-        Pattern::Record { .. } | Pattern::Map { .. } => {
-            Err(CompilerError::InvalidExecutablePattern(pat.range()))
-        }
+        Pattern::Record { .. } | Pattern::Map { .. } => Err(CompilerError::InvalidExecutablePattern(pat.range())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use phalcom_ast::ast::{VariantPattern, VariantPatternMode};
+
+    #[test]
+    fn fallback_variant_pattern_requires_semantic_identity() {
+        let range = SourceRange::new(0, 4);
+        let pattern = Pattern::Variant(VariantPattern {
+            owner: None,
+            base: "None".into(),
+            base_range: range,
+            mode: VariantPatternMode::Singleton,
+            range,
+        });
+        let mut binding_counter = 0;
+        let mut bindings = Vec::new();
+
+        assert!(matches!(
+            synthesize_fallback_pattern(&pattern, &mut binding_counter, &mut bindings),
+            Err(CompilerError::MissingMatchLoweringSemantics(error_range)) if error_range == range
+        ));
     }
 }

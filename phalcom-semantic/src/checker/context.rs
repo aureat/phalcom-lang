@@ -122,12 +122,13 @@ pub(crate) struct LoopFlowFrame {
     pub breaks: Vec<FlowState>,
 }
 
-/// The compatibility `core` surface is bootstrapped as an immutable session seed
-/// and currently has no corresponding staged DB products. All other module
-/// identities are query-owned and must participate in dependency tracking.
+/// Every module identity participates in dependency tracking. Bootstrap
+/// declarations are filtered separately by [`is_bootstrap_declaration`]; a
+/// legacy-looking module path must not silently become a dependency-free
+/// sentinel.
 fn is_query_owned_module(module: &ModuleId) -> bool {
-    let components = module.path.components();
-    !(matches!(module.project, phalcom_modules::ProjectIdentity::Universe) && components.len() == 1 && components[0].as_str() == "core")
+    let _ = module;
+    true
 }
 
 /// Returns whether declaration belongs to immutable canonical Universe input.
@@ -1535,6 +1536,7 @@ impl<'a> CheckingContext<'a> {
         loop {
             match self.store.get(current) {
                 TypeData::Applied { origin, .. } => current = *origin,
+                TypeData::ExactCase { enum_type, .. } => current = *enum_type,
                 TypeData::Nominal { declaration } | TypeData::ClassObject { declaration } => return Some(declaration.clone()),
                 _ => return None,
             }
@@ -1577,6 +1579,7 @@ impl<'a> CheckingContext<'a> {
                         None
                     }
                 }
+                TypeData::ExactCase { enum_type, .. } => self.dispatch_owner_for_lookup(*enum_type, lookup),
                 _ => None,
             },
         }
@@ -1746,6 +1749,32 @@ impl<'a> CheckingContext<'a> {
     pub fn nominal_type_of(&mut self, decl: &DeclarationId) -> Option<TypeId> {
         record_declaration_shell_dependency(&self.semantic_dependencies, decl);
         self.declarations.form(decl)
+    }
+
+    /// Returns the proper instance type for a declaration in its generic body.
+    ///
+    /// A declaration form is intentionally constructor-kinded while its generic
+    /// parameters are unsaturated. An instance expression such as `self` must
+    /// carry that declaration's canonical parameter forms instead of exposing
+    /// the constructor as a value type.
+    pub fn instance_type_of(&mut self, decl: &DeclarationId) -> Option<TypeId> {
+        record_declaration_shell_dependency(&self.semantic_dependencies, decl);
+        let Some(info) = self.declarations.get(decl) else {
+            return Some(self.store.nominal(decl.clone()));
+        };
+        let form = info.form;
+        let Some(signature) = info.generic_signature.as_ref() else {
+            return Some(form);
+        };
+        let parameters = signature.parameters.to_vec();
+        let arguments = parameters
+            .iter()
+            .map(|&parameter| {
+                (self.store.type_parameter(parameter).kind == crate::types::id::KindId::TYPE)
+                    .then(|| self.store.parameter_form(parameter))
+            })
+            .collect::<Option<Vec<_>>>()?;
+        self.store.apply_type_form(form, &arguments).ok()
     }
 
     pub(crate) fn core_type(&mut self, decl: &DeclarationId) -> Option<TypeId> {

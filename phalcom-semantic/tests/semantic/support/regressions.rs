@@ -6,7 +6,6 @@ use phalcom_semantic::identity::DispatchSide;
 use phalcom_semantic::types::annotation::SimpleTypeResolver;
 use phalcom_semantic::types::relation::MapTypeHierarchy;
 use phalcom_semantic::types::store::TypeStore;
-use std::panic::{AssertUnwindSafe, catch_unwind};
 
 fn fail_fast_context() -> CheckingContext<'static> {
     let module = phalcom_semantic::identity::ModuleId::universe_root();
@@ -94,9 +93,7 @@ class Probe {
     let run = f.callable("Probe", "run", DispatchSide::Class);
     let actual = f.binding(run, "value").current.ty().expect("branch union");
 
-    let rejected = catch_unwind(AssertUnwindSafe(|| {
-        f.assert_type(actual, union([tuple([int_ty.into()]), tuple([string_ty.into()])]));
-    }));
+    let rejected = f.check_type(actual, union([tuple([int_ty.into()]), tuple([string_ty.into()])]));
 
     assert!(rejected.is_err(), "wrong structural union members were accepted by the test oracle");
 }

@@ -6,6 +6,8 @@ use crate::heap::{ClassId, ClassObject, Object};
 use crate::modules::semantic_lowering::EnumLoweringSpec;
 use crate::value::Value;
 use crate::vm::VM;
+use phalcom_modules::DeclarationId;
+use phalcom_semantic::core_surface::CoreDeclarationIds;
 use phalcom_semantic::enum_semantics::VariantShape;
 use phalcom_semantic::identity::VariantId;
 use std::collections::BTreeMap;
@@ -16,6 +18,21 @@ struct RuntimeEnumClassBinding {
 }
 
 impl VM {
+    fn canonical_universe_enum_root(&self, owner: &DeclarationId) -> Option<ClassId> {
+        let ids = CoreDeclarationIds::default();
+        let key = if ids.is_option(owner) {
+            phalcom_native_meta::UniverseKey::Option
+        } else if ids.is_result(owner) {
+            phalcom_native_meta::UniverseKey::Result
+        } else if ids.is_ordering(owner) {
+            phalcom_native_meta::UniverseKey::Ordering
+        } else {
+            return None;
+        };
+
+        Some(self.universe.classes.resolve(key))
+    }
+
     fn bind_native_option_classes(
         &mut self,
         spec: &EnumLoweringSpec,
@@ -67,15 +84,11 @@ impl VM {
         })
     }
 
-    fn allocate_general_enum_classes(
+    fn allocate_general_variant_classes(
         &mut self,
         spec: &EnumLoweringSpec,
-    ) -> Result<RuntimeEnumClassBinding, RuntimeError> {
-        let mut root_class = ClassObject::bare(&spec.owner.name);
-        root_class.class = self.universe.classes.class_class;
-        root_class.superclass = Some(self.universe.classes.object_class);
-        let root_class_id = self.heap.alloc_class(root_class);
-
+        root_class_id: ClassId,
+    ) -> Result<BTreeMap<VariantId, ClassId>, RuntimeError> {
         let mut variants = BTreeMap::new();
         for var_spec in spec.variants.iter() {
             let case_class_name = format!("{}::{}", spec.owner.name, var_spec.id.selector);
@@ -85,6 +98,18 @@ impl VM {
             let case_class_id = self.heap.alloc_class(case_class);
             variants.insert(var_spec.id.clone(), case_class_id);
         }
+        Ok(variants)
+    }
+
+    fn allocate_general_enum_classes(
+        &mut self,
+        spec: &EnumLoweringSpec,
+    ) -> Result<RuntimeEnumClassBinding, RuntimeError> {
+        let mut root_class = ClassObject::bare(&spec.owner.name);
+        root_class.class = self.universe.classes.class_class;
+        root_class.superclass = Some(self.universe.classes.object_class);
+        let root_class_id = self.heap.alloc_class(root_class);
+        let variants = self.allocate_general_variant_classes(spec, root_class_id)?;
 
         Ok(RuntimeEnumClassBinding {
             root: root_class_id,
@@ -92,12 +117,47 @@ impl VM {
         })
     }
 
+    fn bind_canonical_universe_enum_classes(
+        &mut self,
+        spec: &EnumLoweringSpec,
+    ) -> Result<Option<RuntimeEnumClassBinding>, RuntimeError> {
+        let Some(root) = self.canonical_universe_enum_root(&spec.owner) else {
+            return Ok(None);
+        };
+
+        let ids = CoreDeclarationIds::default();
+        if ids.is_option(&spec.owner) {
+            if spec.representation != crate::adt::RuntimeAdtRepresentation::NativeOption {
+                return Err(RuntimeError::Internal(
+                    "canonical Universe Option must use NativeOption representation".into(),
+                ));
+            }
+            return self.bind_native_option_classes(spec).map(Some);
+        }
+
+        if spec.representation != crate::adt::RuntimeAdtRepresentation::General {
+            return Err(RuntimeError::Internal(format!(
+                "canonical Universe enum `{}` must use General representation",
+                spec.owner.name
+            )));
+        }
+
+        let variants = self.allocate_general_variant_classes(spec, root)?;
+        Ok(Some(RuntimeEnumClassBinding { root, variants }))
+    }
+
     fn class_binding_for_enum(
         &mut self,
         spec: &EnumLoweringSpec,
     ) -> Result<RuntimeEnumClassBinding, RuntimeError> {
+        if let Some(binding) = self.bind_canonical_universe_enum_classes(spec)? {
+            return Ok(binding);
+        }
+
         match spec.representation {
-            crate::adt::RuntimeAdtRepresentation::NativeOption => self.bind_native_option_classes(spec),
+            crate::adt::RuntimeAdtRepresentation::NativeOption => Err(RuntimeError::Internal(
+                "NativeOption representation is reserved for canonical Universe Option".into(),
+            )),
             crate::adt::RuntimeAdtRepresentation::General => self.allocate_general_enum_classes(spec),
         }
     }
@@ -106,6 +166,20 @@ impl VM {
     pub fn register_enum_from_spec(&mut self, spec: &EnumLoweringSpec) -> Result<ClassId, RuntimeError> {
         if let Some(enum_id) = self.adt_registry.enum_by_declaration(&spec.owner) {
             if let Some(desc) = self.adt_registry.enum_descriptor(enum_id) {
+                if desc.representation != spec.representation {
+                    return Err(RuntimeError::Internal(format!(
+                        "enum `{}` is already registered with representation {:?}, requested {:?}",
+                        spec.owner.name, desc.representation, spec.representation
+                    )));
+                }
+                if let Some(expected_root) = self.canonical_universe_enum_root(&spec.owner)
+                    && desc.root_class != expected_root
+                {
+                    return Err(RuntimeError::Internal(format!(
+                        "canonical Universe enum `{}` is registered with a non-canonical runtime root",
+                        spec.owner.name
+                    )));
+                }
                 return Ok(desc.root_class);
             }
         }
@@ -114,7 +188,8 @@ impl VM {
         let root_class_id = class_binding.root;
         let enum_id = self
             .adt_registry
-            .register_enum_with_representation(spec.owner.clone(), root_class_id, spec.representation);
+            .register_enum_with_representation(spec.owner.clone(), root_class_id, spec.representation)
+            .map_err(|error| RuntimeError::Internal(error.to_string()))?;
 
         let mut some_runtime_opt = None;
         let mut none_runtime_opt = None;
@@ -123,9 +198,7 @@ impl VM {
             let case_class_id = *class_binding
                 .variants
                 .get(&var_spec.id)
-                .ok_or_else(|| RuntimeError::Internal(
-                    format!("missing runtime behavior class for variant `{}`", var_spec.id.selector)
-                ))?;
+                .ok_or_else(|| RuntimeError::Internal(format!("missing runtime behavior class for variant `{}`", var_spec.id.selector)))?;
             let discriminant =
                 CaseDiscriminant(u32::try_from(idx).map_err(|_| RuntimeError::Message(format!("enum `{}` has too many variants", spec.owner.name)))?);
             let shape = match var_spec.shape {
@@ -149,7 +222,6 @@ impl VM {
                 }
             }
 
-            // Register payload field getters on the case behavior class
             if let Some(module) = self.entry_module().or_else(|| self.universe_module()) {
                 for field in var_spec.payload_fields.iter() {
                     let slot = field.slot;
@@ -239,20 +311,14 @@ impl VM {
 
                 if variant == ids.none {
                     if !payload.is_empty() {
-                        return Err(RuntimeError::Message(format!(
-                            "variant None takes 0 arguments, got {}",
-                            payload.len()
-                        )));
+                        return Err(RuntimeError::Message(format!("variant None takes 0 arguments, got {}", payload.len())));
                     }
                     return Ok(Value::none());
                 }
 
                 if variant == ids.some {
                     let [value] = payload.as_slice() else {
-                        return Err(RuntimeError::Message(format!(
-                            "variant Some takes 1 argument, got {}",
-                            payload.len()
-                        )));
+                        return Err(RuntimeError::Message(format!("variant Some takes 1 argument, got {}", payload.len())));
                     };
                     return Ok(value.wrap_some()?);
                 }
@@ -284,11 +350,7 @@ impl VM {
         }
         if value.is_option() {
             if let Some(variants) = self.adt_registry.native_option_variants() {
-                return Some(if value.is_none() {
-                    variants.none
-                } else {
-                    variants.some
-                });
+                return Some(if value.is_none() { variants.none } else { variants.some });
             }
         }
         None

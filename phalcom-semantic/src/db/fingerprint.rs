@@ -12,12 +12,12 @@ use crate::checker::flow::graph::{FlowEdgeKind, FlowGraph, FlowNodeKind};
 use crate::checker::incident::{BindingContractSummary, InternalSemanticIncident, InternalSemanticIncidentDetails, InternalSemanticIncidentKind};
 use crate::db::key::{InputFingerprint, ProductFingerprint};
 use crate::declarations::{DeclarationTypeInfo, GenericSupertypeTemplate, TypeDeclarationShell};
-use crate::type_alias::TypeAliasInfo;
 use crate::diagnostic::{DiagnosticFix, SemanticDiagnostic, SemanticSourceSpan};
 use crate::identity::{CallableId, DeclarationId, ModuleId};
 use crate::signature::{CallableSemanticSignature, FieldSemanticSignature, ReturnContractValidation};
 use crate::source::ParsedModuleUnit;
 use crate::surface::DeclarationSurface;
+use crate::type_alias::TypeAliasInfo;
 use crate::types::denotation::SemanticDenotation;
 use crate::types::evidence::TypeKnowledge;
 use crate::types::outcome::{BlockReason, BudgetReport};
@@ -32,7 +32,7 @@ use phalcom_modules::manifest::{DependencySpec, ValidatedProjectManifest};
 use phalcom_modules::metadata::{MetadataTarget, ModuleMetadata};
 use phalcom_modules::project::ProjectUniverse;
 use phalcom_modules::source::ModuleKind;
-use std::collections::{hash_map::DefaultHasher, BTreeMap};
+use std::collections::{BTreeMap, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
@@ -1630,6 +1630,10 @@ fn hash_pattern_resolution(pat: &crate::match_semantics::PatternResolution, hash
             2u8.hash(hasher);
             v.owner.hash(hasher);
             v.family.hash(hasher);
+            v.owner_candidates.len().hash(hasher);
+            for owner in v.owner_candidates.iter() {
+                owner.hash(hasher);
+            }
             match &v.selector {
                 crate::match_semantics::VariantSelectorConstraint::Exact(sel) => {
                     0u8.hash(hasher);

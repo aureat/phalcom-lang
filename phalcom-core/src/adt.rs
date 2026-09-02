@@ -9,6 +9,7 @@ use crate::value::Value;
 use phalcom_modules::DeclarationId;
 use phalcom_semantic::identity::VariantId;
 use std::collections::HashMap;
+use thiserror::Error;
 
 /// VM-local runtime identity of an enum root.
 #[repr(transparent)]
@@ -62,6 +63,29 @@ pub enum RuntimeAdtRepresentation {
     General,
     /// Core Option uses Value's nested Some-depth immediate representation.
     NativeOption,
+}
+
+/// A repeated runtime enum registration disagreed with already-published identity.
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
+pub enum RuntimeAdtRegistrationError {
+    #[error(
+        "conflicting runtime enum registration for {semantic_owner:?}: existing root {existing_root:?} / {existing_representation:?}, requested root {requested_root:?} / {requested_representation:?}"
+    )]
+    ConflictingEnumRegistration {
+        semantic_owner: DeclarationId,
+        existing_root: ClassId,
+        existing_representation: RuntimeAdtRepresentation,
+        requested_root: ClassId,
+        requested_representation: RuntimeAdtRepresentation,
+    },
+    #[error(
+        "runtime enum root {root_class:?} is already owned by {existing_owner:?}; cannot also bind it to {requested_owner:?}"
+    )]
+    RootClassAlreadyRegistered {
+        root_class: ClassId,
+        existing_owner: DeclarationId,
+        requested_owner: DeclarationId,
+    },
 }
 
 /// Runtime shape of a variant.
@@ -135,19 +159,51 @@ impl RuntimeAdtRegistry {
     }
 
     /// Registers a new enum root with default general representation.
-    pub fn register_enum(&mut self, semantic_owner: DeclarationId, root_class: ClassId) -> RuntimeEnumId {
+    pub fn register_enum(
+        &mut self,
+        semantic_owner: DeclarationId,
+        root_class: ClassId,
+    ) -> Result<RuntimeEnumId, RuntimeAdtRegistrationError> {
         self.register_enum_with_representation(semantic_owner, root_class, RuntimeAdtRepresentation::General)
     }
 
     /// Registers a new enum root with an explicit representation strategy.
+    ///
+    /// Repeating an identical registration is idempotent. Repeating a semantic
+    /// owner with a different root/representation, or attempting to bind one
+    /// root class to a second semantic owner, is rejected instead of silently
+    /// letting whichever registration happened first become runtime authority.
     pub fn register_enum_with_representation(
         &mut self,
         semantic_owner: DeclarationId,
         root_class: ClassId,
         representation: RuntimeAdtRepresentation,
-    ) -> RuntimeEnumId {
+    ) -> Result<RuntimeEnumId, RuntimeAdtRegistrationError> {
         if let Some(&existing) = self.enum_by_declaration.get(&semantic_owner) {
-            return existing;
+            let descriptor = self
+                .enum_descriptor(existing)
+                .expect("enum_by_declaration must reference a live enum descriptor");
+            if descriptor.root_class != root_class || descriptor.representation != representation {
+                return Err(RuntimeAdtRegistrationError::ConflictingEnumRegistration {
+                    semantic_owner,
+                    existing_root: descriptor.root_class,
+                    existing_representation: descriptor.representation,
+                    requested_root: root_class,
+                    requested_representation: representation,
+                });
+            }
+            return Ok(existing);
+        }
+
+        if let Some(&existing) = self.enum_by_root_class.get(&root_class) {
+            let descriptor = self
+                .enum_descriptor(existing)
+                .expect("enum_by_root_class must reference a live enum descriptor");
+            return Err(RuntimeAdtRegistrationError::RootClassAlreadyRegistered {
+                root_class,
+                existing_owner: descriptor.semantic_owner.clone(),
+                requested_owner: semantic_owner,
+            });
         }
 
         let runtime_id = RuntimeEnumId(self.enums.len() as u32);
@@ -162,7 +218,7 @@ impl RuntimeAdtRegistry {
         self.enums.push(desc);
         self.enum_by_declaration.insert(semantic_owner, runtime_id);
         self.enum_by_root_class.insert(root_class, runtime_id);
-        runtime_id
+        Ok(runtime_id)
     }
 
     /// Registers a variant for an existing enum.

@@ -1023,7 +1023,7 @@ fn descriptor_remaining_count(vm: &mut VM, receiver: &Value, _args: &[Value]) ->
         _ => unreachable!(),
     };
     Ok(Value::int(
-        inspect::remaining_parameter_count(context_data, &vm.typing_registry, &vm.heap, handle) as i64,
+        inspect::remaining_parameter_count(context_data, &vm.typing_registry, &vm.universe, handle) as i64,
     ))
 }
 

@@ -269,7 +269,8 @@ impl VM {
                             None => self.heap.module_mut(target_obj).declare(sym)?,
                         };
                         if symbol_id.module.project.is_universe() {
-                            if let Some(class_id) = self.resolve_builtin_class_name(&symbol_id.name) {
+                            let declaration = phalcom_modules::DeclarationId::new(symbol_id.module.clone(), symbol_id.name.clone());
+                            if let Some(class_id) = self.resolve_universe_declaration_class(&declaration) {
                                 self.heap.module_mut(target_obj).set_global(slot, crate::value::Value::obj(class_id))?;
                             }
                         }
@@ -305,7 +306,8 @@ impl VM {
                             None => self.heap.module_mut(target_mod_obj).declare(target_sym)?,
                         };
                         if symbol.module.project.is_universe() {
-                            if let Some(class_id) = self.resolve_builtin_class_name(&symbol.name) {
+                            let declaration = phalcom_modules::DeclarationId::new(symbol.module.clone(), symbol.name.clone());
+                            if let Some(class_id) = self.resolve_universe_declaration_class(&declaration) {
                                 self.heap.module_mut(target_mod_obj).set_global(slot, crate::value::Value::obj(class_id))?;
                             }
                         }
@@ -352,6 +354,17 @@ impl VM {
                 &phalcom_type_meta::validate::ValidationLimits::default(),
             )?;
             self.typing_registry.register_pool(pool);
+
+            let identity_context = phalcom_semantic::metadata::stable_identity::StableIdentityContext::new(&program.project_universe);
+            for module_id in program.modules.keys() {
+                let stable_module = phalcom_semantic::metadata::stable_identity::to_stable_module_with_context(module_id, &identity_context);
+                for declaration in metadata_bundle.declarations.iter().filter(|record| record.declaration.module == stable_module) {
+                    if let Some(name) = declaration.declaration.path.last() {
+                        self.typing_registry
+                            .register_declaration_identity(module_id.clone(), name.clone(), declaration.declaration.clone());
+                    }
+                }
+            }
 
             // Register nominal class bindings with their canonical Universe
             // source-module identity.

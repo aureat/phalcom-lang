@@ -60,11 +60,17 @@ pub enum PatternResolution {
     Map(Box<[ResolvedMapEntryPattern]>),
 }
 
-/// Variant pattern resolution containing owner, family, selector constraint, and exact candidates.
+/// Variant pattern resolution containing declaration-backed owner evidence,
+/// selector constraint, and exact candidates.
+///
+/// `owner` and `family` are present only when one canonical owner/family can be
+/// established. Ambiguous contextual patterns retain every declaration-backed
+/// owner in `owner_candidates` instead of selecting one from spelling order.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolvedVariantPattern {
-    pub owner: DeclarationId,
-    pub family: VariantFamilyId,
+    pub owner: Option<DeclarationId>,
+    pub family: Option<VariantFamilyId>,
+    pub owner_candidates: Box<[DeclarationId]>,
     pub selector: VariantSelectorConstraint,
     pub candidates: Box<[ResolvedVariantCandidate]>,
 }

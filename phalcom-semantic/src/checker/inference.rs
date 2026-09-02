@@ -1251,6 +1251,13 @@ impl InferenceSession {
             }
             (InferenceTerm::Canonical(ty), InferenceTerm::Applied { origin, arguments })
             | (InferenceTerm::Applied { origin, arguments }, InferenceTerm::Canonical(ty)) => {
+                if let TypeData::ExactCase { enum_type, .. } = store.get(*ty).clone() {
+                    let applied = InferenceTerm::Applied {
+                        origin: origin.clone(),
+                        arguments: arguments.clone(),
+                    };
+                    return self.unify_terms(&InferenceTerm::Canonical(enum_type), &applied, store);
+                }
                 if let TypeData::Applied {
                     origin: orig_ty,
                     arguments: args_ty,
@@ -1275,6 +1282,52 @@ impl InferenceSession {
                         right: Box::new(right.clone()),
                     })
                 }
+            }
+            (InferenceTerm::Canonical(ty), InferenceTerm::Callable(callable))
+            | (InferenceTerm::Callable(callable), InferenceTerm::Canonical(ty)) => {
+                let TypeData::Callable(canonical) = store.get(*ty).clone() else {
+                    return Err(InferenceFailureReason::StructuralMismatch {
+                        left: Box::new(left.clone()),
+                        right: Box::new(right.clone()),
+                    });
+                };
+                let canonical_term = InferenceTerm::Callable(InferenceCallable {
+                    parameters: canonical
+                        .parameters
+                        .iter()
+                        .map(|parameter| InferenceCallableParameter {
+                            label: parameter.label.clone(),
+                            term: InferenceTerm::Canonical(parameter.ty),
+                            rest: parameter.rest,
+                        })
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice(),
+                    return_type: Box::new(InferenceTerm::Canonical(canonical.return_type)),
+                });
+                self.unify_terms(&canonical_term, &InferenceTerm::Callable(callable.clone()), store)
+            }
+            (InferenceTerm::ExactCase { enum_type, .. }, other) | (other, InferenceTerm::ExactCase { enum_type, .. }) => {
+                self.unify_terms(enum_type, other, store)
+            }
+            (InferenceTerm::Callable(left_callable), InferenceTerm::Callable(right_callable)) => {
+                if left_callable.parameters.len() != right_callable.parameters.len() {
+                    return Err(InferenceFailureReason::StructuralMismatch {
+                        left: Box::new(left.clone()),
+                        right: Box::new(right.clone()),
+                    });
+                }
+                let mut changed = false;
+                for (left_parameter, right_parameter) in left_callable.parameters.iter().zip(right_callable.parameters.iter()) {
+                    if left_parameter.label != right_parameter.label || left_parameter.rest != right_parameter.rest {
+                        return Err(InferenceFailureReason::StructuralMismatch {
+                            left: Box::new(left.clone()),
+                            right: Box::new(right.clone()),
+                        });
+                    }
+                    changed |= self.unify_terms(&left_parameter.term, &right_parameter.term, store)?.is_changed();
+                }
+                changed |= self.unify_terms(&left_callable.return_type, &right_callable.return_type, store)?.is_changed();
+                Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
             }
             _ => Err(InferenceFailureReason::StructuralMismatch {
                 left: Box::new(left.clone()),

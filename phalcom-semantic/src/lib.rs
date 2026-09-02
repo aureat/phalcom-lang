@@ -25,6 +25,7 @@ pub mod invalidation;
 pub mod match_semantics;
 pub mod metadata;
 pub mod module_product;
+pub mod prelude;
 pub mod presentation;
 pub mod prover;
 pub mod reflection;
@@ -97,6 +98,7 @@ pub use identity::{
 pub use invalidation::{DeclarationFingerprint, InvalidationIndex};
 pub use match_semantics::*;
 pub use phalcom_modules::WorkspaceSourceBatchMutation;
+pub use prelude::PreludeTypeMap;
 pub use presentation::{
     AdvisoryPresenter, CallablePresentation, FieldPresentation, FormalContractRelation, FormalFactRef, FormalFactSite, FormalFactStatus, FormalPresentation,
     FormalSemanticProjection, FormalSiteId, FormalTypeSite, ParameterPresentation, SemanticPresentationIndex, SemanticSiteView, TypePresenter,

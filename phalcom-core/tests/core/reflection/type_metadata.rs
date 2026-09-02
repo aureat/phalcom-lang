@@ -22,10 +22,10 @@ fn reified_nominal_types_preserve_canonical_identity() {
     let int_decl = phalcom_type_meta::identity::StableDeclarationRef {
         module: phalcom_type_meta::identity::StableModuleRef {
             project: phalcom_type_meta::identity::StableProjectRef::Builtin {
-                namespace: "std".into(),
+                namespace: "universe".into(),
                 version: "0.1.0".into(),
             },
-            path: Box::new(["Int".into()]),
+            path: Box::new(["scalar".into(), "number".into()]),
         },
         path: Box::new(["Int".into()]),
     };
@@ -37,10 +37,10 @@ fn reified_nominal_types_preserve_canonical_identity() {
     let list_decl = phalcom_type_meta::identity::StableDeclarationRef {
         module: phalcom_type_meta::identity::StableModuleRef {
             project: phalcom_type_meta::identity::StableProjectRef::Builtin {
-                namespace: "std".into(),
+                namespace: "universe".into(),
                 version: "0.1.0".into(),
             },
-            path: Box::new(["List".into()]),
+            path: Box::new(["collections".into(), "list".into()]),
         },
         path: Box::new(["List".into()]),
     };

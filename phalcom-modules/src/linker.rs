@@ -133,6 +133,19 @@ impl ModuleLinker {
         self.link_inner(entry, resolved, true)
     }
 
+    /// Links every interface supplied to this linker, retaining the complete
+    /// source universe for workspace-wide semantic analysis.
+    pub fn link_all(&self, entry: ModuleId, resolved: &BTreeMap<(ModuleId, String), ModuleId>) -> Result<LinkedProgram, LinkError> {
+        let mut context = LinkContext::new(self, resolved, false);
+        context.build().map(|(modules, graphs, initialization_order)| LinkedProgram {
+            universe: self.universe.clone(),
+            modules,
+            graphs,
+            entry,
+            initialization_order,
+        })
+    }
+
     fn link_inner(
         &self,
         entry: ModuleId,

@@ -34,3 +34,16 @@ fn project_revision_fingerprint_is_copyable_and_byte_addressable() {
     assert_eq!(fingerprint.as_bytes(), &[7; 16]);
     assert_eq!(fingerprint, fingerprint);
 }
+
+#[test]
+fn project_revision_fingerprint_changes_when_source_changes() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("main.ph"), "export value\n").unwrap();
+    let mut universe = phalcom_modules::ProjectUniverse::new();
+    let id = universe.load_synthetic_root("sample", root.path(), "main").unwrap();
+    let before = universe.get_project(id).unwrap().revision_fingerprint();
+
+    std::fs::write(root.path().join("main.ph"), "export changed\n").unwrap();
+    let after = universe.get_project(id).unwrap().revision_fingerprint();
+    assert_ne!(before, after);
+}
