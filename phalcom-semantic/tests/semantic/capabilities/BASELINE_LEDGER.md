@@ -77,7 +77,7 @@ tests are tracked separately in `generics.rs`.
 - `assumed_generic_argument_yields_assumed_generic_return`
 - `mixed_generic_return_uses_weakest_value_support`
 - `independent_fixed_generic_return_stays_established`
-- `expected_context_cannot_fabricate_missing_generic_return`
+- `expected_context_selects_but_does_not_establish_result_only_generic`
 
 ## Part 06 — Semantic completeness and identity hardening (9)
 

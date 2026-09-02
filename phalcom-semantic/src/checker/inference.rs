@@ -342,6 +342,14 @@ impl InferenceSession {
         });
     }
 
+    /// Records that an expected type selected the variables in `term`.
+    /// Contextual selection is weaker than value evidence, but it must still
+    /// make an otherwise solvable result publishable. Existing unknown or
+    /// dynamic premises remain weakest through the proof-state meet.
+    pub fn record_context_selection(&mut self, term: &InferenceTerm) {
+        self.record_term_proof_state(term, InferenceProofState::Assumed);
+    }
+
     /// Returns proof state for all inference variables occurring in a term.
     pub fn proof_state_for_term(&self, term: &InferenceTerm) -> InferenceProofState {
         let mut variables = self.term_variables(term).into_iter();
@@ -490,6 +498,78 @@ impl InferenceSession {
                 })
             }
             _ => InferenceTerm::Canonical(ty),
+        }
+    }
+
+    /// Materializes an inference term for bidirectional checking while
+    /// retaining unresolved generic variables as inference terms. Solved
+    /// variables become canonical types; unresolved ones stay solver-local so
+    /// nested callable expectations can continue constraining one session.
+    pub fn materialize_for_expected(
+        &self,
+        term: &InferenceTerm,
+        generic_parameters: &HashMap<TypeParameterId, InferenceTerm>,
+        store: &mut TypeStore,
+    ) -> Option<TypeId> {
+        match term {
+            InferenceTerm::Canonical(ty) => Some(*ty),
+            InferenceTerm::Var(variable) => {
+                let representative = self.find_var(*variable);
+                if let Some(&ty) = self.substitutions.get(&representative) {
+                    return Some(ty);
+                }
+                None
+            }
+            InferenceTerm::Applied { origin, arguments } => {
+                let origin = self.materialize_for_expected(origin, generic_parameters, store)?;
+                let arguments = arguments
+                    .iter()
+                    .map(|argument| self.materialize_for_expected(argument, generic_parameters, store))
+                    .collect::<Option<Vec<_>>>()?;
+                store.apply_type_form(origin, &arguments).ok()
+            }
+            InferenceTerm::ExactCase { variant, enum_type } => {
+                let enum_type = self.materialize_for_expected(enum_type, generic_parameters, store)?;
+                let variant_id = store.variant_identity(*variant).clone();
+                store.exact_case_type(&variant_id, enum_type).ok()
+            }
+            InferenceTerm::Union(members) => {
+                let members = members
+                    .iter()
+                    .map(|member| self.materialize_for_expected(member, generic_parameters, store))
+                    .collect::<Option<Vec<_>>>()?;
+                Some(store.union(&members))
+            }
+            InferenceTerm::Tuple(elements) => {
+                let elements = elements
+                    .iter()
+                    .map(|element| {
+                        Some(TupleTypeElement {
+                            label: element.label.clone(),
+                            ty: self.materialize_for_expected(&element.term, generic_parameters, store)?,
+                        })
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                Some(store.tuple(elements.into_boxed_slice()))
+            }
+            InferenceTerm::Callable(callable) => {
+                let callable_parameters = callable
+                    .parameters
+                    .iter()
+                    .map(|parameter| {
+                        Some(CallableParameterType {
+                            label: parameter.label.clone(),
+                            ty: self.materialize_for_expected(&parameter.term, generic_parameters, store)?,
+                            rest: parameter.rest,
+                        })
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                let return_type = self.materialize_for_expected(&callable.return_type, generic_parameters, store)?;
+                Some(store.callable(CallableType {
+                    parameters: callable_parameters.into_boxed_slice(),
+                    return_type,
+                }))
+            }
         }
     }
 
@@ -1305,6 +1385,31 @@ impl InferenceSession {
                     return_type: Box::new(InferenceTerm::Canonical(canonical.return_type)),
                 });
                 self.unify_terms(&canonical_term, &InferenceTerm::Callable(callable.clone()), store)
+            }
+            (InferenceTerm::Canonical(ty), InferenceTerm::Tuple(tuple))
+            | (InferenceTerm::Tuple(tuple), InferenceTerm::Canonical(ty)) => {
+                let TypeData::Tuple(canonical) = store.get(*ty).clone() else {
+                    return Err(InferenceFailureReason::StructuralMismatch {
+                        left: Box::new(left.clone()),
+                        right: Box::new(right.clone()),
+                    });
+                };
+                if canonical.len() != tuple.len()
+                    || canonical
+                        .iter()
+                        .zip(tuple.iter())
+                        .any(|(canonical, inferred)| canonical.label != inferred.label)
+                {
+                    return Err(InferenceFailureReason::StructuralMismatch {
+                        left: Box::new(left.clone()),
+                        right: Box::new(right.clone()),
+                    });
+                }
+                let mut changed = false;
+                for (canonical, inferred) in canonical.iter().zip(tuple.iter()) {
+                    changed |= self.unify_terms(&InferenceTerm::Canonical(canonical.ty), &inferred.term, store)?.is_changed();
+                }
+                Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
             }
             (InferenceTerm::ExactCase { enum_type, .. }, other) | (other, InferenceTerm::ExactCase { enum_type, .. }) => {
                 self.unify_terms(enum_type, other, store)

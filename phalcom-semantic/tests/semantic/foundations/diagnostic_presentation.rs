@@ -1,4 +1,5 @@
 use crate::semantic::support::Fixture;
+use phalcom_semantic::types::evidence::EvidenceStatus;
 use phalcom_semantic::{DerivationRule, DiagnosticCode, DiagnosticDetail, DiagnosticPresenter, PresentedLabelRole};
 
 #[test]
@@ -42,7 +43,7 @@ class Probe {
 }
 
 #[test]
-fn underconstrained_presentation_does_not_turn_unavailable_evidence_into_a_contradiction() {
+fn expected_context_selection_is_not_presented_as_underconstrained() {
     let fixture = Fixture::new(
         r#"
 class Probe {
@@ -56,21 +57,11 @@ class Probe {
 }
 "#,
     );
-    let diagnostic = fixture
-        .diagnostics(DiagnosticCode::GenericInferenceUnderconstrained)
-        .into_iter()
-        .next()
-        .expect("underconstrained diagnostic");
-    assert!(
-        diagnostic.root_cause.is_none(),
-        "presentation diagnostic must not manufacture formal invalidity"
-    );
-
-    let presented = DiagnosticPresenter::new(&fixture.analysis.snapshot).present(diagnostic, DiagnosticDetail::Trace);
-    assert_eq!(presented.headline, "generic parameter is underconstrained");
-    assert!(!presented.headline.contains("found Unknown"));
-    assert!(!presented.explanation.iter().any(|line| line.text.contains("not assignable")));
-    assert!(presented.trace.iter().any(|node| node.rule == DerivationRule::UnknownPropagation));
+    let run = fixture.callable("Probe", "run", phalcom_semantic::identity::DispatchSide::Class);
+    let call = fixture.expression(run, "Probe.make()");
+    assert_eq!(call.knowledge.ty(), Some(fixture.ty("Int")));
+    assert_eq!(call.knowledge.status(), Some(EvidenceStatus::Assumed));
+    fixture.assert_no_diagnostic(DiagnosticCode::GenericInferenceUnderconstrained);
 }
 
 #[test]

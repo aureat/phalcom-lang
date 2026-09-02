@@ -1,10 +1,15 @@
 //! Constructor surface and exact variant identity scenarios.
 
 use super::support::analyze_adt;
+use crate::semantic::support::{Fixture, applied};
+use phalcom_semantic::checker::analysis::AnalysisStatus;
+use phalcom_semantic::types::evidence::{TypeKnowledge, UnknownReason};
+use phalcom_semantic::types::store::TypeData;
 use phalcom_common::selector::{Selector, SelectorSlot};
 use phalcom_semantic::checker::AssociatedResolutionKind;
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::enum_semantics::VariantShape;
+use phalcom_semantic::identity::DispatchSide;
 
 #[test]
 fn singleton_nullary_and_payload_constructors_remain_distinct() {
@@ -93,4 +98,127 @@ fn adt_constr_06_exact_constructor_and_family_keep_distinct_member_identity() {
     assert_eq!(info.variant_families.as_ref(), [family.clone()]);
     assert!(info.variants.iter().all(|variant| variant.family() == Some(family.clone())));
     assert_eq!(info.variants.len(), 3);
+}
+
+#[test]
+fn adt_constr_07_payload_constructor_keeps_unmentioned_owner_parameter_underconstrained() {
+    let fixture = Fixture::new(
+        r#"
+enum Result<T, E> {
+  @variant Ok(_ value: T) -> Result<T, E>
+  @variant Err(_ error: E) -> Result<T, E>
+}
+
+class Probe {
+  @class
+  run() {
+    let value = Result::Ok(1)
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+    let call = fixture.expression(run, "Result::Ok(1)");
+    assert_eq!(call.knowledge, TypeKnowledge::Unknown(UnknownReason::UnderconstrainedTypeVariable));
+    assert!(matches!(call.status, AnalysisStatus::Blocked(_)));
+}
+
+#[test]
+fn adt_constr_08_context_selects_all_result_constructor_parameters() {
+    let fixture = Fixture::new(
+        r#"
+enum Result<T, E> {
+  @variant Ok(_ value: T) -> Result<T, E>
+  @variant Err(_ error: E) -> Result<T, E>
+}
+
+class Probe {
+  @class
+  run() {
+    let value: Result<Int, String> = Result::Ok(1)
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+    let call = fixture.expression(run, "Result::Ok(1)");
+    let enum_type = match fixture.analysis.snapshot.store.get(call.knowledge.ty().expect("contextual constructor result")) {
+        TypeData::ExactCase { enum_type, .. } => *enum_type,
+        other => panic!("expected exact constructor case, got {other:?}"),
+    };
+    fixture.assert_type(enum_type, applied("Result", [fixture.ty("Int").into(), fixture.ty("String").into()]));
+    assert!(matches!(call.status, AnalysisStatus::Ready));
+}
+
+#[test]
+fn adt_constr_09_nullary_constructor_uses_result_context_for_owner_parameter() {
+    let fixture = Fixture::new(
+        r#"
+enum Option<T> {
+  @variant Some(_ value: T) -> Option<T>
+  @variant None() -> Option<T>
+}
+
+class Probe {
+  @class
+  run() {
+    let value: Option<Int> = Option::None()
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+    let call = fixture.expression(run, "Option::None()");
+    let enum_type = match fixture.analysis.snapshot.store.get(call.knowledge.ty().expect("contextual nullary result")) {
+        TypeData::ExactCase { enum_type, .. } => *enum_type,
+        other => panic!("expected exact constructor case, got {other:?}"),
+    };
+    fixture.assert_type(enum_type, applied("Option", [fixture.ty("Int").into()]));
+}
+
+#[test]
+fn adt_constr_10_nullary_constructor_without_context_remains_underconstrained() {
+    let fixture = Fixture::new(
+        r#"
+enum Option<T> {
+  @variant Some(_ value: T) -> Option<T>
+  @variant None() -> Option<T>
+}
+
+class Probe {
+  @class
+  run() {
+    let value = Option::None()
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+    let call = fixture.expression(run, "Option::None()");
+    assert_eq!(call.knowledge, TypeKnowledge::Unknown(UnknownReason::UnderconstrainedTypeVariable));
+    assert!(matches!(call.status, AnalysisStatus::Blocked(_)));
+    fixture.assert_diagnostic(DiagnosticCode::GenericInferenceUnderconstrained, 1);
+}
+
+#[test]
+#[ignore = "SC-2 Task 8: ordinary generic constructor application"]
+fn ordinary_constructor_infers_from_formal_parameter_types_not_argument_position() {
+    let fixture = Fixture::new(
+        r#"
+class Pair<A, B> {
+  @constructor
+  new(_ second: B, _ first: A) {}
+}
+
+class Probe {
+  @class
+  run() {
+    let value = Pair.new("text", 1)
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+    let value = fixture.binding(run, "value");
+    fixture.assert_type(value.current.ty().expect("constructor result"), applied("Pair", [fixture.ty("Int").into(), fixture.ty("String").into()]));
 }

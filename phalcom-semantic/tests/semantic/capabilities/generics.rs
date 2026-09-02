@@ -91,7 +91,10 @@ class Probe {
     let number = f.ty("Number");
     let run = f.callable("Probe", "run", DispatchSide::Class);
     let call = f.expression(run, "Factory.choose(42)");
-    f.assert_expression_established(call, int_ty);
+    f.assert_expression_knowledge(
+        call,
+        known(int_ty).assumed().origin(phalcom_semantic::EvidenceOrigin::GenericInference),
+    );
     let x = f.binding(run, "x");
     assert_eq!(x.declared_type(), Some(number));
     assert_eq!(x.current.ty(), Some(int_ty));
@@ -226,9 +229,9 @@ class Probe {
     assert_eq!(result.declared_type(), Some(int_ty));
 }
 
-/// LAW: expected context cannot fabricate an underconstrained generic result.
+/// LAW: expected context selects a result-only generic but contributes only assumed evidence.
 #[test]
-fn expected_context_cannot_fabricate_missing_generic_return() {
+fn expected_context_selects_but_does_not_establish_result_only_generic() {
     let f = Fixture::new(
         r#"
 class Probe {
@@ -246,18 +249,12 @@ class Probe {
     );
     let run = f.callable("Probe", "run", DispatchSide::Class);
     let call = f.expression(run, "Probe.make()");
-    assert_eq!(call.knowledge.ty(), None, "expected context cannot fabricate generic return evidence");
-    assert!(matches!(call.status, AnalysisStatus::Blocked(_)), "{call:#?}");
-    f.assert_diagnostic(DiagnosticCode::GenericInferenceUnderconstrained, 1);
-    let diagnostic = f
-        .diagnostics(DiagnosticCode::GenericInferenceUnderconstrained)
-        .into_iter()
-        .next()
-        .expect("underconstrained diagnostic");
-    assert!(
-        diagnostic.root_cause.is_none(),
-        "underconstrained presentation must not create formal invalidity"
+    f.assert_expression_knowledge(
+        call,
+        known(f.ty("Int")).assumed().origin(phalcom_semantic::EvidenceOrigin::GenericInference),
     );
+    assert!(matches!(call.status, AnalysisStatus::Ready), "{call:#?}");
+    f.assert_no_diagnostic(DiagnosticCode::GenericInferenceUnderconstrained);
 }
 
 /// G03: repeated calls in one body solve independent substitutions independently.

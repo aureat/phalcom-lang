@@ -1,7 +1,7 @@
 use crate::semantic::support::Fixture;
 use phalcom_semantic::dispatch::CallableSemanticKind;
 use phalcom_semantic::identity::DispatchSide;
-use phalcom_semantic::{DiagnosticCode, DiagnosticDetail, DiagnosticPresenter, ExplanationStep, RelationOutcome, UnknownReason};
+use phalcom_semantic::{DiagnosticCode, DiagnosticDetail, DiagnosticPresenter, ExplanationStep, RelationOutcome};
 
 fn trace_has(fixture: &Fixture, code: DiagnosticCode, predicate: impl Fn(&ExplanationStep) -> bool) {
     let diagnostic = fixture
@@ -128,7 +128,7 @@ class Probe {
 }
 
 #[test]
-fn rich_diagnostic_e_underconstrained_boundary_is_explicit_without_formal_invalidity() {
+fn rich_diagnostic_e_expected_context_selection_is_not_underconstrained() {
     let fixture = Fixture::new(
         r#"
 class Probe {
@@ -142,17 +142,11 @@ class Probe {
 }
 "#,
     );
-    let diagnostic = fixture.diagnostics(DiagnosticCode::GenericInferenceUnderconstrained)[0];
-    assert!(diagnostic.root_cause.is_none());
-    trace_has(&fixture, DiagnosticCode::GenericInferenceUnderconstrained, |step| {
-        matches!(
-            step,
-            ExplanationStep::UnknownBoundary {
-                reason: UnknownReason::UnderconstrainedTypeVariable,
-                ..
-            }
-        )
-    });
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+    let call = fixture.expression(run, "Probe.make()");
+    assert_eq!(call.knowledge.ty(), Some(fixture.ty("Int")));
+    assert_eq!(call.knowledge.status(), Some(phalcom_semantic::types::evidence::EvidenceStatus::Assumed));
+    assert!(fixture.diagnostics(DiagnosticCode::GenericInferenceUnderconstrained).is_empty());
 }
 
 #[test]

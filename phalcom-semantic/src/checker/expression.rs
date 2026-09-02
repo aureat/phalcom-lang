@@ -27,7 +27,7 @@ use crate::types::environment::TypeView;
 use crate::types::evidence::{DynamicReason, EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
 use crate::types::family::{FamilyMemberTypeKind, FamilyOperationShape};
 use crate::types::id::{KindId, TypeId};
-use crate::types::outcome::{DynamicBoundaryObligation, RelationOutcome};
+use crate::types::outcome::{BlockReason, DynamicBoundaryObligation, RelationOutcome};
 use crate::types::relation::{TypeHierarchy, is_subtype};
 use crate::types::store::{RecordTypeField, TupleTypeElement, TypeData};
 use phalcom_ast::ast::{
@@ -1109,7 +1109,7 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
         return TypedExpression::unknown(UnknownReason::UncheckedExpression);
     };
 
-    let (target, fallback_result_type) = match &member_id {
+    let target = match &member_id {
         AssociatedMemberId::Variant(variant) => {
             let Some(variant_info) = ctx.variant_info(variant).cloned() else {
                 return TypedExpression::unknown(UnknownReason::UncheckedExpression);
@@ -1119,22 +1119,14 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
             };
 
             let mut env = crate::types::environment::TypeEnvironment::new();
-            let contextual_arguments = if owner.supplied_arguments.is_empty() {
-                expected
-                    .ty()
-                    .and_then(|expected_ty| ctx.store.applied_nominal_parts(expected_ty))
-                    .filter(|(expected_owner, _)| expected_owner == &owner.lookup_owner)
-                    .map(|(_, arguments)| arguments)
-            } else {
-                None
-            };
-            let supplied_arguments = contextual_arguments.as_deref().unwrap_or(&owner.supplied_arguments);
-            for (idx, &arg) in supplied_arguments.iter().enumerate() {
+            let mut fixed_generics = Vec::with_capacity(owner.supplied_arguments.len());
+            for (idx, &arg) in owner.supplied_arguments.iter().enumerate() {
                 if let Some(param_id) = ctx.store.find_type_parameter_id(
                     &crate::types::parameter::TypeParameterOwner::Declaration(owner.lookup_owner.clone()),
                     idx as u32,
                 ) {
                     env.bind_param(param_id, arg);
+                    fixed_generics.push((param_id, arg));
                 }
             }
 
@@ -1161,13 +1153,13 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
                 }
             }
 
-            let object_decl = ctx.core_ids.object.clone();
-            let object_ty = ctx.store.nominal(object_decl);
             let parameters = constructor
                 .parameters
                 .iter()
                 .map(|parameter| {
-                    let p_ty = parameter.declared_type.canonical_type().unwrap_or(object_ty);
+                    let Some(p_ty) = parameter.declared_type.canonical_type() else {
+                        return Err(());
+                    };
                     let ty = TypeView::new(p_ty, env.clone()).materialize(ctx.store);
                     let mut callable_parameter = crate::dispatch::CallableParameter::new(
                         parameter.local_name.to_string(),
@@ -1176,19 +1168,27 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
                     if let Some(label) = &parameter.external_label {
                         callable_parameter = callable_parameter.with_label(label.to_string());
                     }
-                    callable_parameter
+                    Ok(callable_parameter)
                 })
-                .collect();
+                .collect::<Result<Vec<_>, ()>>();
+            let Ok(parameters) = parameters else {
+                ctx.record_call_status(AnalysisStatus::Blocked(BlockReason::InvalidAnnotation(DiagnosticCode::AssociatedMemberMissing)));
+                return TypedExpression::unknown(UnknownReason::InferenceBlocked);
+            };
             let constructor_result_type = TypeView::new(constructor.exact_case_template, env).materialize(ctx.store);
-            let signature = CallableSignature::new(
+            let mut signature = CallableSignature::new(
                 selector.clone(),
                 parameters,
                 TypeKnowledge::established(constructor_result_type, EvidenceOrigin::ConstructorSemantics),
             );
-            (
-                CallableApplicationTarget::variant_constructor(variant.clone(), signature),
-                constructor_result_type,
-            )
+            if let Some(enum_signature) = ctx.enum_info(&owner.lookup_owner).and_then(|info| info.generic_signature.clone()) {
+                let mut enum_signature = enum_signature;
+                let mut constraints = enum_signature.constraints.to_vec();
+                constraints.extend(variant_info.case_environment.equalities.iter().cloned());
+                enum_signature.constraints = constraints.into_boxed_slice();
+                signature = signature.with_generics(enum_signature);
+            }
+            CallableApplicationTarget::variant_constructor(variant.clone(), signature).with_fixed_generics(fixed_generics)
         }
     };
 
@@ -1198,8 +1198,7 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
 
     let premise = CallPremise::from_typed(ctx, &receiver);
     let result = apply_resolved_callable(ctx, &target, &premise, &arguments, expected, invoke.range);
-    let result_type = result.knowledge.ty().unwrap_or(fallback_result_type);
-    if let Some(expression) = ctx.current_expression_id() {
+    if let (Some(result_type), Some(expression)) = (result.knowledge.ty(), ctx.current_expression_id()) {
         ctx.record_associated_resolution(
             expression,
             AssociatedResolution {

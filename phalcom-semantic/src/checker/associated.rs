@@ -10,7 +10,7 @@ use crate::types::denotation::SemanticDenotation;
 use crate::types::environment::TypeView;
 use crate::types::family::FamilyOperationShape;
 use crate::types::id::{KindId, TypeId};
-use crate::types::relation::{TypeHierarchy, is_subtype};
+use crate::types::relation::is_subtype;
 use crate::types::store::{CallableParameterType, CallableType, TypeData, TypeStore};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorBase, SelectorKind, SelectorPattern, SelectorSlot};
@@ -339,49 +339,6 @@ fn callable_type_from_signature(ctx: &mut CheckingContext<'_>, signature: &crate
     }))
 }
 
-/// Projects generic type arguments across class inheritance hops from child to ancestor.
-pub fn project_supertype_arguments(
-    store: &mut TypeStore,
-    hierarchy: &dyn TypeHierarchy,
-    start_decl: &DeclarationId,
-    start_args: &[TypeId],
-    target_decl: &DeclarationId,
-) -> Vec<TypeId> {
-    if start_decl == target_decl {
-        return start_args.to_vec();
-    }
-
-    let mut current_decl = start_decl.clone();
-    let mut current_args = start_args.to_vec();
-    let mut visited = HashSet::new();
-
-    while visited.insert(current_decl.clone()) {
-        if &current_decl == target_decl {
-            return current_args;
-        }
-        let Some(template) = hierarchy.supertype_template(&current_decl) else {
-            break;
-        };
-
-        let mut env = crate::types::environment::TypeEnvironment::new();
-        for (idx, &arg) in current_args.iter().enumerate() {
-            if let Some(param_id) = store.find_type_parameter_id(&crate::types::parameter::TypeParameterOwner::Declaration(current_decl.clone()), idx as u32) {
-                env.bind_param(param_id, arg);
-            }
-        }
-
-        let specialized_super = TypeView::new(template.supertype, env).materialize(store);
-        let Some((next_decl, next_args)) = store.applied_nominal_parts(specialized_super) else {
-            break;
-        };
-
-        current_decl = next_decl;
-        current_args = next_args;
-    }
-
-    Vec::new()
-}
-
 /// Specializes an associated member against the owner's supplied type arguments,
 /// verifying GADT owner compatibility and producing specialized types/signatures.
 pub fn specialize_associated_member(
@@ -402,22 +359,29 @@ pub fn specialize_associated_member(
                 return Err(AssociatedResolutionError);
             };
 
-            // Build TypeEnvironment from owner.supplied_arguments
-            let mut env = crate::types::environment::TypeEnvironment::new();
-            for (idx, &arg) in owner.supplied_arguments.iter().enumerate() {
-                if let Some(param_id) = ctx.store.find_type_parameter_id(
-                    &crate::types::parameter::TypeParameterOwner::Declaration(owner.lookup_owner.clone()),
-                    idx as u32,
-                ) {
-                    env.bind_param(param_id, arg);
-                }
-            }
+            let env = crate::types::specialization::specialize_receiver_to_owner(
+                ctx.store,
+                &ctx.hierarchy,
+                owner.owner_form,
+                &owner.lookup_owner,
+                &ctx.control,
+            )
+            .map_err(|failure| {
+                ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    DiagnosticCode::AssociatedOwnerUnresolved,
+                    format!("cannot specialize associated owner: {failure:?}"),
+                    range,
+                ));
+                AssociatedResolutionError
+            })?
+            .environment;
 
             // GADT verification: check if owner supplied arguments conflict with variant GADT constraints
             for (param_id, &constrained_ty) in &variant_info.case_environment.bindings {
                 if let Some(supplied) = env.get_param(*param_id) {
-                    let matches = is_subtype(ctx.store, ctx.hierarchy.inner(), supplied, constrained_ty)
-                        && is_subtype(ctx.store, ctx.hierarchy.inner(), constrained_ty, supplied);
+                    let matches = is_subtype(ctx.store, &ctx.hierarchy, supplied, constrained_ty)
+                        && is_subtype(ctx.store, &ctx.hierarchy, constrained_ty, supplied);
 
                     if !matches {
                         ctx.emit_diagnostic(SemanticDiagnostic::error_in(

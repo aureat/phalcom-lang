@@ -13,7 +13,7 @@ use crate::dispatch::{CallableParameter, CallableSemanticKind, CallableSignature
 use crate::identity::{CallableId, ExplanationId};
 use crate::types::evidence::DynamicReason;
 use crate::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
-use crate::types::id::TypeId;
+use crate::types::id::{TypeId, TypeParameterId};
 use crate::types::parameter::{GenericConstraint, TypeParameterOwner};
 use crate::types::store::{TypeData, TypeStore};
 use phalcom_ast::ast::{Expr, PackItem, PackLabel, RestMode};
@@ -34,6 +34,7 @@ pub(crate) struct CallableApplicationTarget {
     pub target: Option<crate::identity::InvocationTargetId>,
     pub authority: CallTargetAuthority,
     pub specialization: Option<DispatchSignatureSpecialization>,
+    pub fixed_generics: Vec<(TypeParameterId, TypeId)>,
 }
 
 impl CallableApplicationTarget {
@@ -44,6 +45,7 @@ impl CallableApplicationTarget {
             target: Some(crate::identity::InvocationTargetId::Behavioral(callable)),
             authority: CallTargetAuthority::ExactDispatch,
             specialization: None,
+            fixed_generics: Vec::new(),
         }
     }
 
@@ -54,7 +56,13 @@ impl CallableApplicationTarget {
             target: Some(crate::identity::InvocationTargetId::variant_constructor(variant)),
             authority: CallTargetAuthority::ExactDispatch,
             specialization: None,
+            fixed_generics: Vec::new(),
         }
+    }
+
+    pub(crate) fn with_fixed_generics(mut self, fixed_generics: Vec<(TypeParameterId, TypeId)>) -> Self {
+        self.fixed_generics = fixed_generics;
+        self
     }
 
     pub(crate) fn from_dispatch(resolved: Box<crate::dispatch::ResolvedDispatch>) -> Self {
@@ -70,6 +78,7 @@ impl CallableApplicationTarget {
             target: None,
             authority: CallTargetAuthority::CallableValue(status),
             specialization: None,
+            fixed_generics: Vec::new(),
         }
     }
 
@@ -80,6 +89,7 @@ impl CallableApplicationTarget {
             target: None,
             authority: CallTargetAuthority::StructuralBuiltin,
             specialization: None,
+            fixed_generics: Vec::new(),
         }
     }
 }
@@ -746,6 +756,7 @@ fn promote_exact_return(return_type: &TypeKnowledge, origin: ExactReturnOrigin, 
 fn apply_generic_callable_inner(
     ctx: &mut CheckingContext<'_>,
     signature: &CallableSignature,
+    fixed_generics: &[(TypeParameterId, TypeId)],
     args: &[ApplicationArgument<'_>],
     expected: &ExpectedType,
     call_range: SourceRange,
@@ -755,7 +766,10 @@ fn apply_generic_callable_inner(
     };
 
     let mut session = InferenceSession::new();
-    let var_map = session.instantiate_generic_signature(generic_sig, ctx.store);
+    let mut var_map = session.instantiate_generic_signature(generic_sig, ctx.store);
+    for &(parameter, ty) in fixed_generics {
+        var_map.insert(parameter, InferenceTerm::Canonical(ty));
+    }
     let Some(call_id) = ctx.current_expression_id() else {
         ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
         return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
@@ -831,7 +845,12 @@ fn apply_generic_callable_inner(
             continue;
         };
         let parameter_term = session.type_id_to_inference(parameter_ty, &var_map, ctx.store);
-        let argument_expected = ExpectedType::proper_from(parameter_ty, ExpectationOrigin::GenericArgument);
+        let argument_expected = session
+            .materialize_for_expected(&parameter_term, &var_map, ctx.store)
+            .map_or_else(
+                || ExpectedType::inference_from(parameter_term.clone(), ExpectationOrigin::GenericArgument),
+                |ty| ExpectedType::proper_from(ty, ExpectationOrigin::GenericArgument),
+            );
         let argument_typed = analyze_application_argument(ctx, argument, &argument_expected);
         record_generic_argument_capture(ctx, &argument_typed);
         let explanation = argument_typed.expression_id.and_then(|id| ctx.explanation_for_expression(id));
@@ -868,7 +887,10 @@ fn apply_generic_callable_inner(
         match &argument_typed.knowledge {
             TypeKnowledge::Known(evidence) => {
                 if let Some(support) = inference_support(&argument_typed.knowledge) {
-                    let argument_term = session.type_id_to_inference(evidence.ty(), &var_map, ctx.store);
+                    // Actual argument types belong to caller scope. Keep their
+                    // canonical generic parameters rigid; only the callable's
+                    // signature terms use this invocation's fresh variables.
+                    let argument_term = session.type_id_to_inference(evidence.ty(), &std::collections::HashMap::new(), ctx.store);
                     session.add_constraint_with_support(
                         InferenceRelation::Subtype(argument_term, parameter_term),
                         origin,
@@ -883,6 +905,13 @@ fn apply_generic_callable_inner(
             TypeKnowledge::Dynamic(reason) => {
                 ctx.record_call_status(AnalysisStatus::DynamicBoundary(reason.clone()));
             }
+        }
+
+        // Solve the prefix before analyzing the next argument. The single
+        // session is retained; only its established substitutions are exposed
+        // as contextual expectations to later arguments such as closures.
+        if argument_index + 1 < args.len() {
+            let _ = ctx.solve_inference(&mut session);
         }
     }
 
@@ -914,19 +943,37 @@ fn apply_generic_callable_inner(
                     ConstraintOrigin::ExpectedResult { expression: call_id },
                     None,
                 );
+                session.record_context_selection(return_term);
+                if let Some(expected_ty) = expected.ty() {
+                    for parameter in session.projected_parameters_for_term(return_term, &var_map) {
+                        let explanation = ctx.record_derivation(
+                            crate::explain::ExplanationStep::GenericConstraint {
+                                parameter,
+                                origin: crate::explain::GenericConstraintOrigin::ExpectedResult,
+                                relation: crate::explain::GenericConstraintRelation::SupertypeOf(expected_ty),
+                            },
+                            crate::explain::DerivationRule::GenericConstraint,
+                            EvidenceStatus::Assumed,
+                            EvidenceOrigin::ContextualDerivation,
+                            vec![crate::explain::EvidenceRef::TypeId(expected_ty)],
+                            Vec::new(),
+                        );
+                        ctx.record_call_dependency(CausalInvalidity::Clean, Some(explanation));
+                    }
+                }
             }
         }
         ctx.solve_inference(&mut session)
     } else {
         argument_outcome
     };
-    let context_resolved_with_value_support = match (&argument_underconstrained, &outcome) {
+    let context_resolved = match (&argument_underconstrained, &outcome) {
         (Some(initial), crate::checker::inference::InferenceOutcome::Solved(solution)) => initial.unsolved_vars.iter().all(|variable| {
-            matches!(solution.support.get(variable), Some(InferenceSupport::Established))
+            solution.substitutions.contains_key(variable)
         }),
         _ => false,
     };
-    let underconstrained = if context_resolved_with_value_support {
+    let underconstrained = if context_resolved {
         None
     } else {
         argument_underconstrained.as_ref().or(match &outcome {
@@ -1172,7 +1219,7 @@ fn apply_generic_callable(
     expected: &ExpectedType,
     call_range: SourceRange,
 ) -> TypeKnowledge {
-    apply_generic_callable_inner(ctx, &target.signature, arguments, expected, call_range)
+    apply_generic_callable_inner(ctx, &target.signature, &target.fixed_generics, arguments, expected, call_range)
 }
 
 pub(crate) fn apply_resolved_callable(
@@ -1189,6 +1236,8 @@ pub(crate) fn apply_resolved_callable(
             crate::explain::ExplanationStep::CallableSelection {
                 callable: callable.clone(),
                 receiver: specialization.receiver,
+                declaring_owner: specialization.declaring_owner.clone(),
+                specialization_path: specialization.path.iter().map(|step| step.owner.clone()).collect(),
             },
             crate::explain::DerivationRule::CallableSelection,
             EvidenceStatus::Established,
@@ -1267,9 +1316,10 @@ pub(crate) fn apply_resolved_callable(
             explanation_parents.push(explanation);
         }
     }
-    let status = captured_status
+    let status = owning_cause
+        .map(AnalysisStatus::Invalid)
+        .or(captured_status)
         .or_else(|| (!premise.status.is_ready()).then(|| premise.status.clone()))
-        .or_else(|| owning_cause.map(AnalysisStatus::Invalid))
         .unwrap_or_else(|| match &knowledge {
             TypeKnowledge::Dynamic(reason) => AnalysisStatus::DynamicBoundary(reason.clone()),
             _ => AnalysisStatus::Ready,

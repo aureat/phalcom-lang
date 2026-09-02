@@ -15,6 +15,7 @@ mod expression_engine;
 mod field_flow;
 mod flow_graph;
 mod flow_probe;
+mod generic_application;
 
 mod generic_inference_proof_integrity;
 mod generics_core;
@@ -23,7 +24,9 @@ mod inference;
 mod kinds;
 mod knowledge;
 mod predicate_transfer;
+mod receiver_specialization;
 mod semantic_correctness_regressions;
 mod substitution;
 mod type_annotations;
 mod type_model;
+mod union_calls;

@@ -17,6 +17,7 @@ pub mod relation;
 pub mod row;
 pub mod row_solver;
 pub mod store;
+pub mod specialization;
 pub mod substitution;
 pub mod type_lambda;
 pub mod variance;
@@ -53,6 +54,7 @@ pub use row_solver::{
     RecordRowVarId, RowBudgetReport,
 };
 pub use store::{CallableParameterType, CallableType, RecordTypeField, TupleTypeElement, TypeData, TypeStore};
+pub use specialization::{ReceiverSpecialization, ReceiverSpecializationFailure, ReceiverSpecializationStep, SpecializationControl, specialize_receiver_to_owner};
 pub use substitution::{TypeSubstitution, substitution_for_applied};
 pub use type_lambda::{
     BetaReductionError, BetaResult, ScopedCallableParameter, ScopedCallableType, ScopedRecordField, ScopedTupleElement, ScopedTypeData, TypeLambdaArena,

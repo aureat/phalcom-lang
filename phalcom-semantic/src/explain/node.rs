@@ -4,7 +4,7 @@ use crate::checker::binding::BindingConsistency;
 use crate::checker::expected::ExpectationOrigin;
 use crate::diagnostic::{DiagnosticCode, SemanticSourceSpan};
 use crate::dispatch::CallableSemanticKind;
-use crate::identity::{BindingId, CallResolutionId, CallableId, DiagnosticCauseId, ExplanationId, ExpressionId};
+use crate::identity::{BindingId, CallResolutionId, CallableId, DeclarationId, DiagnosticCauseId, ExplanationId, ExpressionId};
 use crate::types::evidence::{DynamicReason, EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
 use crate::types::id::{TypeId, TypeParameterId};
 use crate::types::outcome::{BlockReason, RelationOutcome};
@@ -191,6 +191,8 @@ pub enum ExplanationStep {
     CallableSelection {
         callable: CallableId,
         receiver: TypeId,
+        declaring_owner: DeclarationId,
+        specialization_path: Box<[DeclarationId]>,
     },
     CallableKind {
         callable: CallableId,

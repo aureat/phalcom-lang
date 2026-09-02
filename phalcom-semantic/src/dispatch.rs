@@ -5,8 +5,10 @@ use crate::identity::{CallableId, DeclarationId};
 pub use crate::identity::DispatchSide;
 use crate::surface::DeclarationSurface;
 use crate::types::evidence::TypeKnowledge;
+use crate::types::environment::TypeEnvironment;
 use crate::types::id::TypeId;
 use crate::types::relation::TypeHierarchy;
+use crate::types::specialization::ReceiverSpecializationStep;
 use phalcom_common::selector::Selector;
 use std::collections::{HashMap, HashSet};
 
@@ -114,6 +116,9 @@ impl CallableSignature {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DispatchSignatureSpecialization {
     pub receiver: TypeId,
+    pub declaring_owner: DeclarationId,
+    pub environment: TypeEnvironment,
+    pub path: Box<[ReceiverSpecializationStep]>,
     pub unspecialized_return: TypeKnowledge,
 }
 

@@ -51,7 +51,7 @@ a named source test and a concrete semantic oracle.
 | G05 | STAGED | Generic receiver and argument constraints across nested source applications |
 | G06 | READY | `generics::expected_result_context_constrains...` |
 | G07 | READY | `generics::conflicting_generic_constraints...` |
-| G08 | READY | `generics::expected_context_cannot_fabricate...` |
+| G08 | READY | `generics::expected_context_selects_but_does_not_establish_result_only_generic` |
 | G09 | STAGED | Multi-hop specialized generic callable publication |
 | C01 | GATED | Source `where T <: Number` checking and bound diagnostics |
 | C02 | GATED | Method-owned source bound invocation checking |

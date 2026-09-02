@@ -21,6 +21,8 @@ use crate::types::id::TypeId;
 use crate::types::native::register_native_surfaces;
 use crate::types::outcome::{DynamicBoundaryObligation, RelationOutcome};
 use crate::types::relation::{TypeHierarchy, check_assignability_bounded, check_knowledge_against_type_bounded};
+use crate::types::specialization::SpecializationControl;
+use crate::types::specialization::{ReceiverSpecialization, ReceiverSpecializationFailure, specialize_receiver_to_owner};
 use crate::types::store::{TypeData, TypeStore};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
@@ -86,6 +88,16 @@ type SharedSemanticDependencies = Rc<RefCell<BTreeSet<SemanticDependency>>>;
 pub struct CheckerControl {
     budget: Rc<RefCell<QueryBudget>>,
     cancellation: CancellationToken,
+}
+
+impl SpecializationControl for CheckerControl {
+    fn charge_step(&self) -> Result<(), crate::types::outcome::BudgetReport> {
+        Self::charge_step(self)
+    }
+
+    fn is_cancelled(&self) -> bool {
+        Self::is_cancelled(self)
+    }
 }
 
 impl Default for CheckerControl {
@@ -229,12 +241,13 @@ impl TypeResolver for TrackingTypeResolver<'_> {
 #[derive(Clone)]
 pub struct TrackingTypeHierarchy<'a> {
     inner: &'a dyn TypeHierarchy,
+    declarations: &'a DeclarationTypeTable,
     dependencies: SharedSemanticDependencies,
 }
 
 impl<'a> TrackingTypeHierarchy<'a> {
-    fn new(inner: &'a dyn TypeHierarchy, dependencies: SharedSemanticDependencies) -> Self {
-        Self { inner, dependencies }
+    fn new(inner: &'a dyn TypeHierarchy, declarations: &'a DeclarationTypeTable, dependencies: SharedSemanticDependencies) -> Self {
+        Self { inner, declarations, dependencies }
     }
 
     pub(crate) fn inner(&self) -> &'a dyn TypeHierarchy {
@@ -270,7 +283,7 @@ impl TypeHierarchy for TrackingTypeHierarchy<'_> {
 
     fn supertype_template(&self, declaration: &DeclarationId) -> Option<&crate::declarations::GenericSupertypeTemplate> {
         record_hierarchy_dependency(&self.dependencies, declaration);
-        self.inner.supertype_template(declaration)
+        self.inner.supertype_template(declaration).or_else(|| self.declarations.supertype_template(declaration))
     }
 }
 
@@ -398,7 +411,7 @@ impl<'a> CheckingContext<'a> {
         let semantic_dependencies = Rc::new(RefCell::new(BTreeSet::new()));
         Self {
             store,
-            hierarchy: TrackingTypeHierarchy::new(hierarchy, semantic_dependencies.clone()),
+            hierarchy: TrackingTypeHierarchy::new(hierarchy, declarations, semantic_dependencies.clone()),
             resolver: TrackingTypeResolver::new(resolver, semantic_dependencies.clone()),
             declarations,
             current_module,
@@ -467,7 +480,7 @@ impl<'a> CheckingContext<'a> {
         let semantic_dependencies = Rc::new(RefCell::new(BTreeSet::new()));
         Self {
             store,
-            hierarchy: TrackingTypeHierarchy::new(hierarchy, semantic_dependencies.clone()),
+            hierarchy: TrackingTypeHierarchy::new(hierarchy, declarations, semantic_dependencies.clone()),
             resolver: TrackingTypeResolver::new(resolver, semantic_dependencies.clone()),
             declarations,
             current_module,
@@ -515,7 +528,7 @@ impl<'a> CheckingContext<'a> {
     pub fn with_resolver<'b>(&'b mut self, resolver: &'b dyn TypeResolver) -> CheckingContext<'b> {
         CheckingContext {
             store: self.store,
-            hierarchy: TrackingTypeHierarchy::new(self.hierarchy.inner, self.semantic_dependencies.clone()),
+            hierarchy: TrackingTypeHierarchy::new(self.hierarchy.inner, self.declarations, self.semantic_dependencies.clone()),
             resolver: TrackingTypeResolver::new(resolver, self.semantic_dependencies.clone()),
             declarations: self.declarations,
             current_module: self.current_module.clone(),
@@ -1543,13 +1556,6 @@ impl<'a> CheckingContext<'a> {
         }
     }
 
-    fn substitution_for_applied_receiver(&self, receiver: TypeId) -> Option<crate::types::substitution::TypeSubstitution> {
-        if let Some(origin) = self.receiver_declaration(receiver) {
-            record_declaration_shell_dependency(&self.semantic_dependencies, &origin);
-        }
-        crate::types::substitution::substitution_for_applied(self.declarations, self.store, receiver)
-    }
-
     fn specialize_self_type(&mut self, receiver: TypeId, ty: TypeId) -> TypeId {
         if let Some(origin) = self.receiver_declaration(receiver) {
             record_declaration_shell_dependency(&self.semantic_dependencies, &origin);
@@ -1585,18 +1591,66 @@ impl<'a> CheckingContext<'a> {
         }
     }
 
-    fn specialize_dispatch_signature(&mut self, receiver: TypeId, mut signature: crate::dispatch::CallableSignature) -> crate::dispatch::CallableSignature {
-        if let Some(subst) = self.substitution_for_applied_receiver(receiver) {
-            for parameter in &mut signature.parameters {
-                parameter.ty = parameter.ty.map_type(|ty| subst.apply(self.store, ty));
-            }
-            signature.return_type = signature.return_type.map_type(|ty| subst.apply(self.store, ty));
-        }
+    fn specialize_dispatch_signature(
+        &mut self,
+        receiver: TypeId,
+        declaring_owner: &DeclarationId,
+        mut signature: crate::dispatch::CallableSignature,
+    ) -> Result<(crate::dispatch::CallableSignature, ReceiverSpecialization), ReceiverSpecializationFailure> {
+        let specialization = specialize_receiver_to_owner(&mut *self.store, &self.hierarchy, receiver, declaring_owner, &self.control)?;
+        let environment = specialization.environment.clone();
+        let specialize_type = |ctx: &mut Self, ty| {
+            let self_specialized = ctx.specialize_self_type(receiver, ty);
+            crate::types::environment::TypeView::new(self_specialized, environment.clone()).materialize(ctx.store)
+        };
         for parameter in &mut signature.parameters {
-            parameter.ty = parameter.ty.map_type(|ty| self.specialize_self_type(receiver, ty));
+            parameter.ty = parameter.ty.map_type(|ty| specialize_type(self, ty));
         }
-        signature.return_type = signature.return_type.map_type(|ty| self.specialize_self_type(receiver, ty));
-        signature
+        signature.return_type = signature.return_type.map_type(|ty| specialize_type(self, ty));
+        if let Some(mut generics) = signature.generics.take() {
+            let specialize_term = |ctx: &mut Self, term: &crate::types::parameter::TypeTerm| match term {
+                crate::types::parameter::TypeTerm::Canonical(ty) => crate::types::parameter::TypeTerm::Canonical(specialize_type(ctx, *ty)),
+                crate::types::parameter::TypeTerm::SelfType(self_term) => {
+                    let self_ty = ctx.store.self_type(self_term.clone());
+                    crate::types::parameter::TypeTerm::Canonical(ctx.specialize_self_type(receiver, self_ty))
+                }
+                crate::types::parameter::TypeTerm::Infer(variable) => crate::types::parameter::TypeTerm::Infer(*variable),
+            };
+            generics.constraints = generics
+                .constraints
+                .iter()
+                .map(|constraint| match constraint {
+                    crate::types::parameter::GenericConstraint::Subtype { lower, upper } => crate::types::parameter::GenericConstraint::Subtype {
+                        lower: specialize_term(self, lower),
+                        upper: specialize_term(self, upper),
+                    },
+                    crate::types::parameter::GenericConstraint::Equivalent { left, right } => crate::types::parameter::GenericConstraint::Equivalent {
+                        left: specialize_term(self, left),
+                        right: specialize_term(self, right),
+                    },
+                })
+                .collect();
+            let constraint_mentions_parameter = |term: &crate::types::parameter::TypeTerm, parameter| match term {
+                crate::types::parameter::TypeTerm::Canonical(ty) => self.store.contains_type_parameter(*ty, parameter),
+                crate::types::parameter::TypeTerm::SelfType(_) | crate::types::parameter::TypeTerm::Infer(_) => false,
+            };
+            let remains_in_signature = generics.parameters.iter().copied().any(|parameter| {
+                signature
+                    .parameters
+                    .iter()
+                    .filter_map(|parameter| parameter.ty.ty())
+                    .any(|ty| self.store.contains_type_parameter(ty, parameter))
+                    || signature.return_type.ty().is_some_and(|ty| self.store.contains_type_parameter(ty, parameter))
+                    || generics.constraints.iter().any(|constraint| match constraint {
+                        crate::types::parameter::GenericConstraint::Subtype { lower, upper }
+                        | crate::types::parameter::GenericConstraint::Equivalent { left: lower, right: upper } => {
+                            constraint_mentions_parameter(lower, parameter) || constraint_mentions_parameter(upper, parameter)
+                        }
+                    })
+            });
+            signature.generics = remains_in_signature.then_some(generics);
+        }
+        Ok((signature, specialization))
     }
 
     pub(crate) fn resolve_dispatch_target(&mut self, receiver: TypeId, selector: &Selector, lookup: crate::dispatch::DispatchLookup) -> ResolvedDispatchResult {
@@ -1612,11 +1666,19 @@ impl<'a> CheckingContext<'a> {
                 }
                 self.dependencies.insert(resolved.callable.clone());
                 self.record_consumed_callable_signature(&resolved.callable, &resolved.signature);
+                let unspecialized_return = resolved.signature.return_type.clone();
+                let declaring_owner = resolved.callable.declaration_owner().clone();
+                let Ok((signature, specialization)) = self.specialize_dispatch_signature(receiver, &declaring_owner, resolved.signature) else {
+                    return ResolvedDispatchResult::Dynamic;
+                };
                 resolved.specialization = Some(crate::dispatch::DispatchSignatureSpecialization {
                     receiver,
-                    unspecialized_return: resolved.signature.return_type.clone(),
+                    declaring_owner,
+                    environment: specialization.environment,
+                    path: specialization.path,
+                    unspecialized_return,
                 });
-                resolved.signature = self.specialize_dispatch_signature(receiver, resolved.signature);
+                resolved.signature = signature;
                 if let Some(expression) = self.current_expression_id() {
                     self.resolved_callables.insert(expression, resolved.callable.clone());
                 }
@@ -1629,11 +1691,19 @@ impl<'a> CheckingContext<'a> {
                     }
                     self.dependencies.insert(resolved.callable.clone());
                     self.record_consumed_callable_signature(&resolved.callable, &resolved.signature);
+                    let unspecialized_return = resolved.signature.return_type.clone();
+                    let declaring_owner = resolved.callable.declaration_owner().clone();
+                    let Ok((signature, specialization)) = self.specialize_dispatch_signature(receiver, &declaring_owner, resolved.signature.clone()) else {
+                        return ResolvedDispatchResult::Dynamic;
+                    };
                     resolved.specialization = Some(crate::dispatch::DispatchSignatureSpecialization {
                         receiver,
-                        unspecialized_return: resolved.signature.return_type.clone(),
+                        declaring_owner,
+                        environment: specialization.environment,
+                        path: specialization.path,
+                        unspecialized_return,
                     });
-                    resolved.signature = self.specialize_dispatch_signature(receiver, resolved.signature.clone());
+                    resolved.signature = signature;
                 }
                 ResolvedDispatchResult::Ambiguous(ambiguous)
             }

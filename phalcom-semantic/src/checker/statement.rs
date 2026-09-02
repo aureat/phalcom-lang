@@ -121,14 +121,16 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                 val_typed.invalidate(cause);
                 causal_invalidity = val_typed.causal_invalidity.join(annotation_invalidity);
             } else {
-                val_typed.status = match relation {
-                    RelationOutcome::Blocked(reason) => AnalysisStatus::Blocked(reason),
-                    RelationOutcome::Cancelled => AnalysisStatus::Cancelled,
-                    RelationOutcome::BudgetExceeded(report) => AnalysisStatus::BudgetExceeded(report),
-                    RelationOutcome::InternalFailure(message) => AnalysisStatus::InternalFailure(ctx.publish_analysis_incident(message)),
-                    RelationOutcome::DynamicBoundary(_) => AnalysisStatus::DynamicBoundary(DynamicReason::RuntimeReflection),
-                    _ => val_typed.status.clone(),
-                };
+                if !matches!(val_typed.status, AnalysisStatus::Invalid(_)) {
+                    val_typed.status = match relation {
+                        RelationOutcome::Blocked(reason) => AnalysisStatus::Blocked(reason),
+                        RelationOutcome::Cancelled => AnalysisStatus::Cancelled,
+                        RelationOutcome::BudgetExceeded(report) => AnalysisStatus::BudgetExceeded(report),
+                        RelationOutcome::InternalFailure(message) => AnalysisStatus::InternalFailure(ctx.publish_analysis_incident(message)),
+                        RelationOutcome::DynamicBoundary(_) => AnalysisStatus::DynamicBoundary(DynamicReason::RuntimeReflection),
+                        _ => val_typed.status.clone(),
+                    };
+                }
             }
             ctx.sync_expression_outcome(&val_typed);
 
