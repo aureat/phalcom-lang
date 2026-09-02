@@ -11,6 +11,7 @@ use crate::types::id::{KindId, TypeId, TypeParameterId, VariantTypeId};
 use crate::types::outcome::{BlockReason, BudgetReport};
 use crate::types::relation::{TypeHierarchy, is_subtype};
 use crate::types::store::{CallableParameterType, CallableType, TypeData, TypeStore};
+use crate::types::type_lambda::ScopedTypeData;
 use crate::types::variance::Variance;
 use crate::types::{FamilyMemberType, FamilyMemberTypeKind, FamilyOperationShape, RecordRowTail, TupleTypeElement};
 use std::collections::{HashMap, HashSet};
@@ -740,6 +741,200 @@ impl InferenceSession {
                 store.family_type(members).ok()
             }
         }
+    }
+
+    /// Lowers an application of a canonical type lambda into an inference term.
+    ///
+    /// Ordinary beta reduction requires canonical arguments. During generic
+    /// application, however, the argument may still be a solver variable. The
+    /// symbolic form must survive until that variable receives its value so
+    /// fixed constructors such as `Either<E, X>` can still constrain `X`.
+    fn symbolic_beta_reduce(&self, term: &InferenceTerm, store: &TypeStore) -> Option<InferenceTerm> {
+        let InferenceTerm::Applied { origin, arguments } = term else { return None };
+        let InferenceTerm::Canonical(origin_ty) = origin.as_ref() else { return None };
+        let TypeData::Lambda(lambda_id) = store.get(*origin_ty) else { return None };
+        let lambda = store.arena().get_lambda(*lambda_id);
+        if arguments.len() > lambda.parameter_kinds.len() {
+            return None;
+        }
+
+        self.scoped_to_inference(lambda.body, 0, arguments, store)
+    }
+
+    fn scoped_to_inference(
+        &self,
+        scoped: crate::types::id::ScopedTypeId,
+        depth: u32,
+        arguments: &[InferenceTerm],
+        store: &TypeStore,
+    ) -> Option<InferenceTerm> {
+        match store.arena().get_scoped(scoped).clone() {
+            ScopedTypeData::Bound { depth: bound_depth, index } => {
+                (bound_depth == depth).then(|| arguments.get(index as usize).cloned()).flatten()
+            }
+            ScopedTypeData::Free(ty) => Some(self.type_id_to_inference(ty, &HashMap::new(), store)),
+            ScopedTypeData::Applied { origin, arguments: nested_arguments } => Some(InferenceTerm::Applied {
+                origin: Box::new(self.scoped_to_inference(origin, depth, arguments, store)?),
+                arguments: nested_arguments
+                    .iter()
+                    .map(|&argument| self.scoped_to_inference(argument, depth, arguments, store))
+                    .collect::<Option<Vec<_>>>()?
+                    .into_boxed_slice(),
+            }),
+            ScopedTypeData::Union(members) => Some(InferenceTerm::Union(
+                members
+                    .iter()
+                    .map(|&member| self.scoped_to_inference(member, depth, arguments, store))
+                    .collect::<Option<Vec<_>>>()?
+                    .into_boxed_slice(),
+            )),
+            ScopedTypeData::Tuple(elements) => Some(InferenceTerm::Tuple(
+                elements
+                    .iter()
+                    .map(|element| {
+                        Some(InferenceTupleElement {
+                            label: element.label.clone(),
+                            term: self.scoped_to_inference(element.ty, depth, arguments, store)?,
+                        })
+                    })
+                    .collect::<Option<Vec<_>>>()?
+                    .into_boxed_slice(),
+            )),
+            ScopedTypeData::Record(fields) => Some(InferenceTerm::Record(InferenceRecord {
+                fields: fields
+                    .iter()
+                    .map(|field| {
+                        Some(InferenceRecordField {
+                            name: field.name.clone(),
+                            term: self.scoped_to_inference(field.ty, depth, arguments, store)?,
+                        })
+                    })
+                    .collect::<Option<Vec<_>>>()?
+                    .into_boxed_slice(),
+                tail: RecordRowTail::Closed,
+            })),
+            ScopedTypeData::Callable(callable) => Some(InferenceTerm::Callable(InferenceCallable {
+                parameters: callable
+                    .parameters
+                    .iter()
+                    .map(|parameter| {
+                        Some(InferenceCallableParameter {
+                            label: parameter.label.clone(),
+                            term: self.scoped_to_inference(parameter.ty, depth, arguments, store)?,
+                            rest: if parameter.rest { RestMode::Positional } else { RestMode::None },
+                        })
+                    })
+                    .collect::<Option<Vec<_>>>()?
+                    .into_boxed_slice(),
+                return_type: Box::new(self.scoped_to_inference(callable.return_type, depth, arguments, store)?),
+            })),
+            // Nested lambdas need their own bound-depth shifting. No current
+            // generic-call boundary requires lowering one, so retain it as an
+            // unavailable symbolic form rather than inventing a canonical type.
+            ScopedTypeData::Lambda(_) => None,
+        }
+    }
+
+    /// Matches an applied term whose constructor is a solver variable against
+    /// a canonical applied constructor. When the canonical application has
+    /// extra trailing arguments, the variable is bound to a residual lambda
+    /// that captures the fixed prefix. This is the structural rule behind
+    /// `F<A>` matching `Either<String, Int>` as
+    /// `F = <X> => Either<String, X>` and `A = Int`.
+    fn match_applied_constructor_shapes(
+        &mut self,
+        left_origin: &InferenceTerm,
+        left_arguments: &[InferenceTerm],
+        right_origin: &InferenceTerm,
+        right_arguments: &[InferenceTerm],
+        store: &mut TypeStore,
+    ) -> Result<Option<SolveEffect>, InferenceFailureReason> {
+        let (variable, concrete_origin, concrete_arguments, variable_arguments) = match (left_origin, right_origin) {
+            (InferenceTerm::Var(variable), InferenceTerm::Canonical(concrete_origin)) => {
+                (*variable, *concrete_origin, right_arguments, left_arguments)
+            }
+            (InferenceTerm::Canonical(concrete_origin), InferenceTerm::Var(variable)) => {
+                (*variable, *concrete_origin, left_arguments, right_arguments)
+            }
+            _ => return Ok(None),
+        };
+
+        if variable_arguments.len() > concrete_arguments.len() {
+            return Ok(None);
+        }
+
+        let constructor = if variable_arguments.len() == concrete_arguments.len() {
+            concrete_origin
+        } else {
+            self.synthesize_partial_constructor(concrete_origin, concrete_arguments, variable_arguments.len(), store)
+                .ok_or_else(|| InferenceFailureReason::StructuralMismatch {
+                    left: Box::new(InferenceTerm::Applied {
+                        origin: Box::new(left_origin.clone()),
+                        arguments: left_arguments.to_vec().into_boxed_slice(),
+                    }),
+                    right: Box::new(InferenceTerm::Applied {
+                        origin: Box::new(right_origin.clone()),
+                        arguments: right_arguments.to_vec().into_boxed_slice(),
+                    }),
+                })?
+        };
+
+        let mut changed = self
+            .unify_terms(&InferenceTerm::Var(variable), &InferenceTerm::Canonical(constructor), store)?
+            .is_changed();
+        let suffix = &concrete_arguments[concrete_arguments.len() - variable_arguments.len()..];
+        for (variable_argument, concrete_argument) in variable_arguments.iter().zip(suffix.iter()) {
+            changed |= self.unify_terms(variable_argument, concrete_argument, store)?.is_changed();
+        }
+        Ok(Some(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged }))
+    }
+
+    fn synthesize_partial_constructor(
+        &mut self,
+        origin: TypeId,
+        arguments: &[InferenceTerm],
+        residual_arity: usize,
+        store: &mut TypeStore,
+    ) -> Option<TypeId> {
+        if residual_arity == 0 || arguments.len() <= residual_arity {
+            return None;
+        }
+        let canonical_arguments = arguments
+            .iter()
+            .map(|argument| match argument {
+                InferenceTerm::Canonical(ty) => Some(*ty),
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>()?;
+        let prefix_len = canonical_arguments.len() - residual_arity;
+        let prefix = &canonical_arguments[..prefix_len];
+        let prefix_kinds = prefix.iter().map(|&argument| store.kind_of(argument)).collect::<Vec<_>>();
+        let residual_kind = store.apply_kind(store.kind_of(origin), &prefix_kinds).ok()?;
+        let crate::types::kind::KindData::Arrow { parameters, result } = store.get_kind(residual_kind).clone() else {
+            return None;
+        };
+        if parameters.len() != residual_arity {
+            return None;
+        }
+
+        let arena = store.arena_mut();
+        let scoped_origin = arena.intern_scoped(ScopedTypeData::Free(origin));
+        let mut scoped_arguments = prefix
+            .iter()
+            .map(|&argument| arena.intern_scoped(ScopedTypeData::Free(argument)))
+            .collect::<Vec<_>>();
+        scoped_arguments.extend((0..residual_arity).map(|index| {
+            arena.intern_scoped(ScopedTypeData::Bound {
+                depth: 0,
+                index: index as u32,
+            })
+        }));
+        let scoped_body = arena.intern_scoped(ScopedTypeData::Applied {
+            origin: scoped_origin,
+            arguments: scoped_arguments.into_boxed_slice(),
+        });
+        let lambda_id = arena.intern_lambda(parameters, scoped_body, result, None);
+        Some(store.type_lambda(lambda_id))
     }
 
     /// Rewrites solved inference variables inside a contextual expectation
@@ -1498,6 +1693,12 @@ impl InferenceSession {
     }
 
     fn unify_terms(&mut self, left: &InferenceTerm, right: &InferenceTerm, store: &mut TypeStore) -> Result<SolveEffect, InferenceFailureReason> {
+        if let Some(reduced) = self.symbolic_beta_reduce(left, store) {
+            return self.unify_terms(&reduced, right, store);
+        }
+        if let Some(reduced) = self.symbolic_beta_reduce(right, store) {
+            return self.unify_terms(left, &reduced, store);
+        }
         match (left, right) {
             (InferenceTerm::Var(v1), InferenceTerm::Var(v2)) => {
                 let rep1 = self.find_var(*v1);
@@ -1652,6 +1853,9 @@ impl InferenceSession {
                 }
             }
             (InferenceTerm::Applied { origin: o1, arguments: a1 }, InferenceTerm::Applied { origin: o2, arguments: a2 }) => {
+                if let Some(effect) = self.match_applied_constructor_shapes(o1, a1, o2, a2, store)? {
+                    return Ok(effect);
+                }
                 if a1.len() != a2.len() {
                     return Err(InferenceFailureReason::StructuralMismatch {
                         left: Box::new(left.clone()),
@@ -1852,6 +2056,12 @@ impl InferenceSession {
         store: &mut TypeStore,
         hier: &dyn TypeHierarchy,
     ) -> Result<SolveEffect, InferenceFailureReason> {
+        if let Some(reduced) = self.symbolic_beta_reduce(sub, store) {
+            return self.subtype_terms(&reduced, sup, store, hier);
+        }
+        if let Some(reduced) = self.symbolic_beta_reduce(sup, store) {
+            return self.subtype_terms(sub, &reduced, store, hier);
+        }
         // Once both terms are canonical, use the single bounded relation
         // semantics. This keeps solver-local inference from inventing a second
         // subtype algebra for nominal, union, and structural types.
@@ -1951,6 +2161,9 @@ impl InferenceSession {
                     arguments: right_arguments,
                 },
             ) => {
+                if let Some(effect) = self.match_applied_constructor_shapes(left_origin, left_arguments, right_origin, right_arguments, store)? {
+                    return Ok(effect);
+                }
                 if left_origin == right_origin {
                     if left_arguments.len() != right_arguments.len() {
                         return Err(InferenceFailureReason::StructuralMismatch {

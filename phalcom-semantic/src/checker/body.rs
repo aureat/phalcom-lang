@@ -8,7 +8,7 @@ use crate::checker::statement::check_statement;
 use crate::db::budget::{CancellationToken, QueryBudget};
 use crate::declarations::DeclarationTypeTable;
 use crate::identity::{CallableId, ModuleId};
-use crate::types::annotation::TypeResolver;
+use crate::types::annotation::{ScopedTypeResolver, TypeResolver, type_level_binding_for_parameter};
 use crate::types::evidence::DynamicReason;
 use crate::types::outcome::RelationOutcome;
 use crate::types::relation::TypeHierarchy;
@@ -82,7 +82,31 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
         associated_families,
     } = request;
     let control = CheckerControl::new(budget, cancel);
-    let mut ctx = CheckingContext::new_with_dispatch_ref_and_control(store, hierarchy, resolver, declarations, dispatch, module, control);
+    // Body annotations are resolved in the callable's lexical type scope. The
+    // canonical signature already owns the parameter identities; expose those
+    // identities through the same resolver overlay used while lowering the
+    // signature itself. Declaration parameters form the outer scope and
+    // callable parameters shadow them (notably for constructors).
+    let owner_parameters = (callable.side == crate::identity::DispatchSide::Instance)
+        .then(|| {
+            declarations
+                .generic_signature(callable.declaration_owner())
+                .map(|signature| signature.parameters.to_vec())
+                .unwrap_or_default()
+        })
+        .unwrap_or_default();
+    let callable_parameters = declared_signature
+        .and_then(|(_, signature)| signature.generics.as_ref())
+        .map(|signature| signature.parameters.to_vec())
+        .unwrap_or_default();
+    let mut type_parameters = std::collections::HashMap::new();
+    for parameter in owner_parameters.into_iter().chain(callable_parameters) {
+        let name = store.type_parameter(parameter).name.to_string();
+        let binding = type_level_binding_for_parameter(store, parameter);
+        type_parameters.insert(name, binding);
+    }
+    let scoped_resolver = ScopedTypeResolver { parent: resolver, type_parameters };
+    let mut ctx = CheckingContext::new_with_dispatch_ref_and_control(store, hierarchy, &scoped_resolver, declarations, dispatch, module, control);
     if let Some(field_signatures) = field_signatures {
         ctx.attach_field_signatures(field_signatures);
     }

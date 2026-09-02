@@ -89,10 +89,13 @@ impl Fixture {
     }
 
     pub fn ty(&self, name: &str) -> TypeId {
+        let declaration = phalcom_native_meta::universe::UniverseKey::from_name(name)
+            .map(phalcom_semantic::core_surface::universe_declaration)
+            .unwrap_or_else(|| self.decl(name));
         self.analysis
             .snapshot
             .declarations
-            .form(&self.decl(name))
+            .form(&declaration)
             .unwrap_or_else(|| panic!("missing canonical type form for `{name}`"))
     }
 
@@ -161,7 +164,9 @@ impl Fixture {
     }
 
     pub fn assert_nominal(&self, ty: TypeId, expected: &str) {
-        let expected_decl = self.decl(expected);
+        let expected_decl = phalcom_native_meta::universe::UniverseKey::from_name(expected)
+            .map(phalcom_semantic::core_surface::universe_declaration)
+            .unwrap_or_else(|| self.decl(expected));
         match self.analysis.snapshot.store.get(ty) {
             TypeData::Nominal { declaration } if declaration == &expected_decl => {}
             other => panic!(

@@ -164,7 +164,15 @@ fn materialize_view(store: &mut TypeStore, ty: TypeId, env: &TypeEnvironment) ->
                 .collect();
             store.family_type(subst_members).unwrap_or(ty)
         }
-        TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::ClassObject { .. } | TypeData::Lambda(_) => ty,
+        TypeData::Lambda(lambda_id) => {
+            let substitution = env.to_substitution();
+            if substitution.is_empty() {
+                ty
+            } else {
+                store.substitute_type_lambda(lambda_id, &substitution)
+            }
+        }
+        TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::ClassObject { .. } => ty,
     }
 }
 

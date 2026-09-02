@@ -498,6 +498,10 @@ pub fn check_knowledge_against_type_bounded(
         };
     };
 
+    if actual_evidence.ty() == expected {
+        return RelationOutcome::proven(());
+    }
+
     if matches!(store.get(actual_evidence.ty()), TypeData::Parameter(_)) || matches!(store.get(expected), TypeData::Parameter(_)) {
         return RelationOutcome::Blocked(BlockReason::RecursiveFixpoint);
     }

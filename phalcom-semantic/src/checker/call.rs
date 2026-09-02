@@ -1068,7 +1068,7 @@ fn apply_generic_callable_inner(
                 format!("generic inference has {} admissible solutions", ambiguity.candidates.len()),
                 call_range,
             );
-            if let Some(owner) = ctx.current_callable.clone() {
+            let explanation = if ctx.current_callable.is_some() {
                 let explanation = ctx.record_derivation(
                     crate::explain::ExplanationStep::UnknownBoundary {
                         reason: UnknownReason::InferenceAmbiguous,
@@ -1080,9 +1080,17 @@ fn apply_generic_callable_inner(
                     vec![crate::explain::EvidenceRef::SourceSpan(call_range)],
                     session.all_constraint_explanation_roots(),
                 );
-                diagnostic = diagnostic.with_explanation(crate::diagnostic::ExplanationRef::new(owner, explanation));
-            }
+                if let Some(owner) = ctx.current_callable.clone() {
+                    diagnostic = diagnostic.with_explanation(crate::diagnostic::ExplanationRef::new(owner, explanation));
+                }
+                Some(explanation)
+            } else {
+                None
+            };
             if let Some(cause) = ctx.emit_diagnostic(diagnostic) {
+                if let Some(explanation) = explanation {
+                    ctx.record_call_dependency(CausalInvalidity::One(cause), Some(explanation));
+                }
                 ctx.record_call_status(AnalysisStatus::Invalid(cause));
             }
         }
@@ -1127,6 +1135,7 @@ fn apply_generic_callable_inner(
                 diagnostic = diagnostic.with_explanation(crate::diagnostic::ExplanationRef::new(owner, explanation));
             }
             if let Some(cause) = ctx.emit_diagnostic(diagnostic) {
+                ctx.record_call_dependency(CausalInvalidity::One(cause), Some(explanation));
                 ctx.record_call_status(AnalysisStatus::Invalid(cause));
             }
         }

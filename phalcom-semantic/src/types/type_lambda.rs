@@ -2,6 +2,7 @@
 
 use super::id::{KindId, ScopedTypeId, TypeId, TypeLambdaId};
 use super::store::{TypeData, TypeStore};
+use super::substitution::TypeSubstitution;
 use crate::diagnostic::SemanticSourceSpan;
 use std::collections::HashMap;
 
@@ -232,6 +233,85 @@ impl TypeLambdaArena {
             let shifted_body = self.subst_scoped_partial(lambda.body, 0, args, store);
             let residual_id = self.intern_lambda(residual_kinds, shifted_body, lambda.result_kind, None);
             Ok(BetaResult::ResidualLambda(residual_id))
+        }
+    }
+
+    /// Substitutes canonical free types captured by a lambda while preserving
+    /// its bound variables. Receiver specialization uses this when a generic
+    /// superclass passes a constructor lambda that closes over an owner
+    /// parameter, for example `Either<E, X>`.
+    pub fn substitute_free_types(&mut self, lambda_id: TypeLambdaId, substitution: &TypeSubstitution, store: &mut TypeStore) -> TypeLambdaId {
+        let lambda = self.get_lambda(lambda_id).clone();
+        let body = self.substitute_free_scoped(lambda.body, substitution, store);
+        self.intern_lambda(lambda.parameter_kinds, body, lambda.result_kind, None)
+    }
+
+    fn substitute_free_scoped(&mut self, scoped: ScopedTypeId, substitution: &TypeSubstitution, store: &mut TypeStore) -> ScopedTypeId {
+        match self.get_scoped(scoped).clone() {
+            ScopedTypeData::Bound { .. } => scoped,
+            ScopedTypeData::Free(ty) => {
+                let replacement = substitution.apply(store, ty);
+                self.intern_scoped(ScopedTypeData::Free(replacement))
+            }
+            ScopedTypeData::Applied { origin, arguments } => {
+                let origin = self.substitute_free_scoped(origin, substitution, store);
+                let arguments = arguments
+                    .iter()
+                    .map(|&argument| self.substitute_free_scoped(argument, substitution, store))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                self.intern_scoped(ScopedTypeData::Applied { origin, arguments })
+            }
+            ScopedTypeData::Union(members) => {
+                let members = members
+                    .iter()
+                    .map(|&member| self.substitute_free_scoped(member, substitution, store))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                self.intern_scoped(ScopedTypeData::Union(members))
+            }
+            ScopedTypeData::Tuple(elements) => {
+                let elements = elements
+                    .iter()
+                    .map(|element| ScopedTupleElement {
+                        label: element.label.clone(),
+                        ty: self.substitute_free_scoped(element.ty, substitution, store),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                self.intern_scoped(ScopedTypeData::Tuple(elements))
+            }
+            ScopedTypeData::Record(fields) => {
+                let fields = fields
+                    .iter()
+                    .map(|field| ScopedRecordField {
+                        name: field.name.clone(),
+                        ty: self.substitute_free_scoped(field.ty, substitution, store),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                self.intern_scoped(ScopedTypeData::Record(fields))
+            }
+            ScopedTypeData::Callable(callable) => {
+                let parameters = callable
+                    .parameters
+                    .iter()
+                    .map(|parameter| ScopedCallableParameter {
+                        label: parameter.label.clone(),
+                        ty: self.substitute_free_scoped(parameter.ty, substitution, store),
+                        rest: parameter.rest,
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                let return_type = self.substitute_free_scoped(callable.return_type, substitution, store);
+                self.intern_scoped(ScopedTypeData::Callable(ScopedCallableType { parameters, return_type }))
+            }
+            ScopedTypeData::Lambda(nested_id) => {
+                let nested = self.get_lambda(nested_id).clone();
+                let body = self.substitute_free_scoped(nested.body, substitution, store);
+                let nested_id = self.intern_lambda(nested.parameter_kinds, body, nested.result_kind, None);
+                self.intern_scoped(ScopedTypeData::Lambda(nested_id))
+            }
         }
     }
 

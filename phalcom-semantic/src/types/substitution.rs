@@ -120,7 +120,13 @@ impl TypeSubstitution {
                 store.family_type(subst_members).unwrap_or(ty)
             }
             TypeData::SelfType(_) => ty,
-            TypeData::Lambda(_) => ty,
+            TypeData::Lambda(lambda_id) => {
+                if self.is_empty() {
+                    ty
+                } else {
+                    store.substitute_type_lambda(lambda_id, self)
+                }
+            }
             TypeData::Never | TypeData::Unit | TypeData::Nominal { .. } | TypeData::ClassObject { .. } => ty,
         }
     }

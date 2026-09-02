@@ -1084,7 +1084,11 @@ impl SemanticWorkspaceSession {
                         None
                     };
 
-                    declarations.insert(header.into_type_info(supertype_template));
+                    let type_info = header.into_type_info(supertype_template);
+                    if let Some(template) = type_info.supertype_template.clone() {
+                        hierarchy.insert_template(template);
+                    }
+                    declarations.insert(type_info);
                 } else if let Statement::Enum(enum_def) = stmt {
                     let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
                     let formation_site = TypeFormationSite::member(module_id.clone(), decl_id.clone(), DispatchSide::Instance);

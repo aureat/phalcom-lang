@@ -245,6 +245,14 @@ impl TypeStore {
         self.intern_with_kind(TypeData::Lambda(lambda_id), kind)
     }
 
+    /// Returns a canonical lambda with its captured free types specialized.
+    pub fn substitute_type_lambda(&mut self, lambda_id: TypeLambdaId, substitution: &super::substitution::TypeSubstitution) -> TypeId {
+        let mut arena = self.lambda_arena.clone();
+        let specialized = arena.substitute_free_types(lambda_id, substitution, self);
+        self.lambda_arena = arena;
+        self.type_lambda(specialized)
+    }
+
     /// Interns an owner-relative `Self` type term.
     pub fn self_type(&mut self, term: SelfTypeTerm) -> TypeId {
         self.intern_with_kind(TypeData::SelfType(term), KindId::TYPE)
