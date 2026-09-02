@@ -1,5 +1,4 @@
 [unstable]
-codegen-backend = true
 feature-unification = true
 
 [resolver]
