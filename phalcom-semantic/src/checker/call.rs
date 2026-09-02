@@ -845,12 +845,11 @@ fn apply_generic_callable_inner(
             continue;
         };
         let parameter_term = session.type_id_to_inference(parameter_ty, &var_map, ctx.store);
-        let argument_expected = session
-            .materialize_for_expected(&parameter_term, &var_map, ctx.store)
-            .map_or_else(
-                || ExpectedType::inference_from(parameter_term.clone(), ExpectationOrigin::GenericArgument),
-                |ty| ExpectedType::proper_from(ty, ExpectationOrigin::GenericArgument),
-            );
+        let expected_term = session.term_for_expected(&parameter_term);
+        let argument_expected = session.materialize_for_expected(&expected_term, &var_map, ctx.store).map_or_else(
+            || ExpectedType::inference_from(expected_term, ExpectationOrigin::GenericArgument),
+            |ty| ExpectedType::proper_from(ty, ExpectationOrigin::GenericArgument),
+        );
         let argument_typed = analyze_application_argument(ctx, argument, &argument_expected);
         record_generic_argument_capture(ctx, &argument_typed);
         let explanation = argument_typed.expression_id.and_then(|id| ctx.explanation_for_expression(id));
@@ -968,9 +967,9 @@ fn apply_generic_callable_inner(
         argument_outcome
     };
     let context_resolved = match (&argument_underconstrained, &outcome) {
-        (Some(initial), crate::checker::inference::InferenceOutcome::Solved(solution)) => initial.unsolved_vars.iter().all(|variable| {
-            solution.substitutions.contains_key(variable)
-        }),
+        (Some(initial), crate::checker::inference::InferenceOutcome::Solved(solution)) => {
+            initial.unsolved_vars.iter().all(|variable| solution.substitutions.contains_key(variable))
+        }
         _ => false,
     };
     let underconstrained = if context_resolved {

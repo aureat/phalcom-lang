@@ -7,13 +7,32 @@ use phalcom_semantic::checker::inference::{
 };
 use phalcom_semantic::db::{CancellationToken, QueryBudget};
 use phalcom_semantic::types::evidence::{DynamicReason, EvidenceOrigin, TypeKnowledge, UnknownReason};
-use phalcom_semantic::types::id::KindId;
+use phalcom_semantic::types::id::{KindId, TypeId};
+use phalcom_semantic::types::parameter::{TypeParameterData, TypeParameterOwner};
 use phalcom_semantic::types::relation::MapTypeHierarchy;
-use phalcom_semantic::types::store::TypeStore;
+use phalcom_semantic::types::store::{TypeData, TypeStore};
 
 fn test_decl(name: &str) -> DeclarationId {
     let module = ModuleId::universe_root();
     DeclarationId::new(module, name.into())
+}
+
+fn unary_form(store: &mut TypeStore, name: &str) -> TypeId {
+    let kind = store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
+    store.nominal_form(test_decl(name), kind)
+}
+
+fn rigid_parameter(store: &mut TypeStore) -> TypeId {
+    let owner = TypeParameterOwner::Declaration(test_decl("Caller"));
+    let parameter = store.intern_type_parameter(TypeParameterData::new(owner, 0, "P", KindId::TYPE));
+    store.parameter_form(parameter)
+}
+
+fn unary_application(form: TypeId, variable: phalcom_semantic::identity::InferVarId) -> InferenceTerm {
+    InferenceTerm::Applied {
+        origin: Box::new(InferenceTerm::Canonical(form)),
+        arguments: Box::new([InferenceTerm::Var(variable)]),
+    }
 }
 
 #[test]
@@ -537,4 +556,143 @@ fn inference_solver_observes_cancellation_and_budget() {
         budgeted.solve_with_control(&mut store, &hierarchy, &control),
         InferenceOutcome::BudgetExceeded(_)
     ));
+}
+
+#[test]
+fn rigid_rhs_canonical_parameter_does_not_recurse_or_instantiate() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let form = unary_form(&mut store, "Applied");
+    let rigid = rigid_parameter(&mut store);
+    let mut session = InferenceSession::new();
+    let argument = session.fresh_variable(KindId::TYPE);
+
+    session.add_constraint(
+        InferenceRelation::Subtype(unary_application(form, argument), InferenceTerm::Canonical(rigid)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+
+    let outcome = session.solve(&mut store, &hierarchy);
+    assert!(matches!(outcome, InferenceOutcome::Underconstrained(result) if result.unsolved_vars == vec![argument]));
+    assert!(matches!(store.get(rigid), TypeData::Parameter(_)));
+}
+
+#[test]
+fn rigid_lhs_canonical_parameter_preserves_subtype_direction() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let form = unary_form(&mut store, "Applied");
+    let rigid = rigid_parameter(&mut store);
+    let mut session = InferenceSession::new();
+    let argument = session.fresh_variable(KindId::TYPE);
+
+    session.add_constraint(
+        InferenceRelation::Subtype(InferenceTerm::Canonical(rigid), unary_application(form, argument)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    let int = store.nominal(test_decl("Int"));
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(argument), InferenceTerm::Canonical(int)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+
+    let InferenceOutcome::Conflicting(conflict) = session.solve(&mut store, &hierarchy) else {
+        panic!("rigid lhs relation must be checked in its original direction after materialization");
+    };
+    let InferenceFailureReason::StructuralMismatch { left, right } = conflict.failure else {
+        panic!("expected canonical subtype mismatch after deferred materialization");
+    };
+    assert_eq!(*left, InferenceTerm::Canonical(rigid));
+    assert_eq!(
+        *right,
+        InferenceTerm::Applied {
+            origin: Box::new(InferenceTerm::Canonical(form)),
+            arguments: Box::new([InferenceTerm::Var(argument)]),
+        }
+    );
+    assert!(matches!(store.get(rigid), TypeData::Parameter(_)));
+}
+
+#[test]
+fn deferred_subtype_is_rechecked_after_nested_variable_solves() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let form = unary_form(&mut store, "Applied");
+    let rigid = rigid_parameter(&mut store);
+    let int = store.nominal(test_decl("Int"));
+    let mut session = InferenceSession::new();
+    let argument = session.fresh_variable(KindId::TYPE);
+
+    session.add_constraint(
+        InferenceRelation::Subtype(unary_application(form, argument), InferenceTerm::Canonical(rigid)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(argument), InferenceTerm::Canonical(int)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+
+    let InferenceOutcome::Conflicting(conflict) = session.solve(&mut store, &hierarchy) else {
+        panic!("deferred subtype must be checked after its nested variable is solved");
+    };
+    let InferenceFailureReason::StructuralMismatch { left, right } = conflict.failure else {
+        panic!("expected canonical subtype mismatch after deferred materialization");
+    };
+    assert_eq!(*right, InferenceTerm::Canonical(rigid));
+    assert_eq!(
+        *left,
+        InferenceTerm::Applied {
+            origin: Box::new(InferenceTerm::Canonical(form)),
+            arguments: Box::new([InferenceTerm::Var(argument)]),
+        }
+    );
+    let expected = store.apply_type_form(form, &[int]).unwrap();
+    assert_eq!(session.materialize(&left, &mut store), Ok(expected));
+}
+
+#[test]
+fn deferred_unification_reaches_underconstrained_fixed_point() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let form = unary_form(&mut store, "Applied");
+    let mut session = InferenceSession::new();
+    let outer = session.fresh_variable(KindId::TYPE);
+    let nested = session.fresh_variable(KindId::TYPE);
+    let term = unary_application(form, nested);
+
+    session.add_constraint(InferenceRelation::Equivalent(InferenceTerm::Var(outer), term), ConstraintOrigin::Explicit, None);
+
+    let outcome = session.solve(&mut store, &hierarchy);
+    assert!(matches!(outcome, InferenceOutcome::Underconstrained(result) if result.unsolved_vars == vec![outer, nested]));
+}
+
+#[test]
+fn fixed_point_solves_deferred_unification_after_nested_binding() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let form = unary_form(&mut store, "Applied");
+    let int = store.nominal(test_decl("Int"));
+    let expected = store.apply_type_form(form, &[int]).unwrap();
+    let mut session = InferenceSession::new();
+    let outer = session.fresh_variable(KindId::TYPE);
+    let nested = session.fresh_variable(KindId::TYPE);
+
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(outer), unary_application(form, nested)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(nested), InferenceTerm::Canonical(int)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+
+    assert!(session.solve(&mut store, &hierarchy).is_solved());
+    assert_eq!(session.materialize(&InferenceTerm::Var(outer), &mut store), Ok(expected));
 }

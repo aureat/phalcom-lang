@@ -474,8 +474,7 @@ impl<'vm> Compiler<'vm> {
         self.emit(Bytecode::GetLocal(value_slot), range);
         self.emit_getter_send("class", range);
         let class_symbol = self.vm.interner.intern(class_name);
-        let class_idx = self.add_constant(Value::symbol(class_symbol));
-        self.emit(Bytecode::GetGlobal(class_idx), range);
+        self.emit_global_reference(class_symbol, range);
         self.emit(Bytecode::Same, range);
         failures.push(self.emit_forward_jump(Bytecode::JumpIfFalse, range));
     }
@@ -484,8 +483,7 @@ impl<'vm> Compiler<'vm> {
         self.emit(Bytecode::GetLocal(value_slot), range);
         self.emit_getter_send("class", range);
         let class_symbol = self.vm.interner.intern(class_name);
-        let class_idx = self.add_constant(Value::symbol(class_symbol));
-        self.emit(Bytecode::GetGlobal(class_idx), range);
+        self.emit_global_reference(class_symbol, range);
         self.emit(Bytecode::Same, range);
         self.emit_required_predicate_result(format!("pattern expected {}", class_name), range);
     }

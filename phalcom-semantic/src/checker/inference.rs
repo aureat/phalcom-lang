@@ -742,6 +742,87 @@ impl InferenceSession {
         }
     }
 
+    /// Rewrites solved inference variables inside a contextual expectation
+    /// while retaining unresolved variables for later constraints. This is
+    /// intentionally term-preserving: a callable can have a known parameter
+    /// type while its return type is still being inferred.
+    pub fn term_for_expected(&self, term: &InferenceTerm) -> InferenceTerm {
+        match term {
+            InferenceTerm::Canonical(ty) => InferenceTerm::Canonical(*ty),
+            InferenceTerm::Var(variable) => self
+                .substitutions
+                .get(&self.find_var(*variable))
+                .copied()
+                .map(InferenceTerm::Canonical)
+                .unwrap_or_else(|| InferenceTerm::Var(self.find_var(*variable))),
+            InferenceTerm::Applied { origin, arguments } => InferenceTerm::Applied {
+                origin: Box::new(self.term_for_expected(origin)),
+                arguments: arguments
+                    .iter()
+                    .map(|argument| self.term_for_expected(argument))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            },
+            InferenceTerm::ExactCase { variant, enum_type } => InferenceTerm::ExactCase {
+                variant: *variant,
+                enum_type: Box::new(self.term_for_expected(enum_type)),
+            },
+            InferenceTerm::Union(members) => InferenceTerm::Union(
+                members
+                    .iter()
+                    .map(|member| self.term_for_expected(member))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            ),
+            InferenceTerm::Tuple(elements) => InferenceTerm::Tuple(
+                elements
+                    .iter()
+                    .map(|element| InferenceTupleElement {
+                        label: element.label.clone(),
+                        term: self.term_for_expected(&element.term),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            ),
+            InferenceTerm::Callable(callable) => InferenceTerm::Callable(InferenceCallable {
+                parameters: callable
+                    .parameters
+                    .iter()
+                    .map(|parameter| InferenceCallableParameter {
+                        label: parameter.label.clone(),
+                        term: self.term_for_expected(&parameter.term),
+                        rest: parameter.rest,
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+                return_type: Box::new(self.term_for_expected(&callable.return_type)),
+            }),
+            InferenceTerm::Record(record) => InferenceTerm::Record(InferenceRecord {
+                fields: record
+                    .fields
+                    .iter()
+                    .map(|field| InferenceRecordField {
+                        name: field.name.clone(),
+                        term: self.term_for_expected(&field.term),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+                tail: record.tail,
+            }),
+            InferenceTerm::Family(family) => InferenceTerm::Family(
+                family
+                    .iter()
+                    .map(|member| InferenceFamilyMember {
+                        operation: member.operation.clone(),
+                        member_kind: member.member_kind,
+                        term: self.term_for_expected(&member.term),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            ),
+        }
+    }
+
     /// Converts a `TypeTerm` to an `InferenceTerm`.
     pub fn type_term_to_inference(
         &self,
@@ -1519,8 +1600,14 @@ impl InferenceSession {
                 } else if let Ok(ty) = self.materialize(term, store) {
                     self.bind(rep, ty, store)
                 } else {
-                    self.var_terms.insert(rep, term.clone());
-                    Ok(SolveEffect::Changed)
+                    // Constraint replay is expected to revisit the same
+                    // deferred term. Only publish progress for a new term.
+                    if self.var_terms.get(&rep) == Some(term) {
+                        Ok(SolveEffect::Unchanged)
+                    } else {
+                        self.var_terms.insert(rep, term.clone());
+                        Ok(SolveEffect::Changed)
+                    }
                 }
             }
             (InferenceTerm::Canonical(t1), InferenceTerm::Canonical(t2)) => {
@@ -1721,6 +1808,12 @@ impl InferenceSession {
             (InferenceTerm::Canonical(ty), other @ (InferenceTerm::Record(_) | InferenceTerm::Family(_)))
             | (other @ (InferenceTerm::Record(_) | InferenceTerm::Family(_)), InferenceTerm::Canonical(ty)) => {
                 let canonical = self.type_id_to_inference(*ty, &HashMap::new(), store);
+                if canonical == InferenceTerm::Canonical(*ty) {
+                    return Err(InferenceFailureReason::StructuralMismatch {
+                        left: Box::new(left.clone()),
+                        right: Box::new(right.clone()),
+                    });
+                }
                 self.unify_terms(&canonical, other, store)
             }
             _ => Err(InferenceFailureReason::StructuralMismatch {
@@ -1883,17 +1976,40 @@ impl InferenceSession {
                     }
                     Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
                 } else if let Some(projected) = self.project_supertype_term(left_origin, left_arguments, store, hier) {
+                    if projected == *sub {
+                        return Ok(SolveEffect::Unchanged);
+                    }
                     self.subtype_terms(&projected, sup, store, hier)
                 } else {
                     Ok(SolveEffect::Unchanged)
                 }
             }
-            (InferenceTerm::Canonical(ty), other) | (other, InferenceTerm::Canonical(ty)) => {
-                let canonical = self.type_id_to_inference(*ty, &HashMap::new(), store);
-                if canonical == *other {
+            (InferenceTerm::Canonical(ty), other) => {
+                let expanded = self.type_id_to_inference(*ty, &HashMap::new(), store);
+                // Caller-owned parameters are rigid. If canonical expansion
+                // leaves this type atomic, this relation is pending until
+                // the other side becomes materializable; re-entering with
+                // the same terms would never make structural progress.
+                if expanded == InferenceTerm::Canonical(*ty) {
                     return Ok(SolveEffect::Unchanged);
                 }
-                self.subtype_terms(&canonical, other, store, hier)
+                if expanded == *other {
+                    return Ok(SolveEffect::Unchanged);
+                }
+                self.subtype_terms(&expanded, other, store, hier)
+            }
+            (other, InferenceTerm::Canonical(ty)) => {
+                let expanded = self.type_id_to_inference(*ty, &HashMap::new(), store);
+                // Keep subtype direction intact when expanding the right
+                // canonical term. Rigid canonical types cannot be solved by
+                // the opposite compound term.
+                if expanded == InferenceTerm::Canonical(*ty) {
+                    return Ok(SolveEffect::Unchanged);
+                }
+                if expanded == *other {
+                    return Ok(SolveEffect::Unchanged);
+                }
+                self.subtype_terms(other, &expanded, store, hier)
             }
             (InferenceTerm::Callable(left), InferenceTerm::Callable(right)) => {
                 if left.parameters.len() != right.parameters.len() {
@@ -2072,8 +2188,8 @@ impl InferenceSession {
 #[cfg(test)]
 mod tests {
     use super::{
-        ConstraintOrigin, InferenceCallable, InferenceCallableParameter, InferenceFailureReason, InferenceOutcome, InferenceRelation, InferenceSession,
-        InferenceTerm,
+        ConstraintOrigin, InferenceCallable, InferenceCallableParameter, InferenceFailureReason, InferenceOutcome, InferenceRecord, InferenceRelation,
+        InferenceSession, InferenceTerm,
     };
     use crate::identity::{DeclarationId, InferVarId};
     use crate::types::id::KindId;
@@ -2221,5 +2337,77 @@ mod tests {
             )
             .expect_err("proper type cannot be applied");
         assert!(matches!(error, super::InferenceMaterializationFailure::TypeApplication(_)));
+    }
+
+    #[test]
+    fn repeated_deferred_unification_is_idempotent() {
+        let mut store = TypeStore::new();
+        let form = store.nominal_form(test_decl("Applied"), KindId::TYPE);
+        let mut session = InferenceSession::new();
+        let outer = session.fresh_variable(KindId::TYPE);
+        let nested = session.fresh_variable(KindId::TYPE);
+        let term = InferenceTerm::Applied {
+            origin: Box::new(InferenceTerm::Canonical(form)),
+            arguments: Box::new([InferenceTerm::Var(nested)]),
+        };
+
+        assert_eq!(
+            session.unify_terms(&InferenceTerm::Var(outer), &term, &mut store),
+            Ok(super::SolveEffect::Changed)
+        );
+        assert_eq!(
+            session.unify_terms(&InferenceTerm::Var(outer), &term, &mut store),
+            Ok(super::SolveEffect::Unchanged)
+        );
+    }
+
+    #[test]
+    fn rigid_parameter_unification_against_structural_term_terminates() {
+        use crate::types::parameter::{TypeParameterData, TypeParameterOwner};
+        use crate::types::row::RecordRowTail;
+
+        let mut store = TypeStore::new();
+        let owner = TypeParameterOwner::Declaration(test_decl("Caller"));
+        let parameter = store.intern_type_parameter(TypeParameterData::new(owner, 0, "P", KindId::TYPE));
+        let rigid = store.parameter_form(parameter);
+        let record = InferenceTerm::Record(InferenceRecord {
+            fields: Box::new([]),
+            tail: RecordRowTail::Closed,
+        });
+
+        let mut session = InferenceSession::new();
+        let result = session.unify_terms(&InferenceTerm::Canonical(rigid), &record, &mut store);
+        assert!(matches!(result, Err(InferenceFailureReason::StructuralMismatch { .. })));
+    }
+
+    #[test]
+    fn expected_term_rewrites_solved_nested_variables() {
+        let mut store = TypeStore::new();
+        let int = store.nominal(test_decl("Int"));
+        let mut session = InferenceSession::new();
+        let parameter = session.fresh_variable(KindId::TYPE);
+        let result = session.fresh_variable(KindId::TYPE);
+        let callable = InferenceTerm::Callable(InferenceCallable {
+            parameters: Box::new([InferenceCallableParameter {
+                label: None,
+                term: InferenceTerm::Var(parameter),
+                rest: phalcom_ast::ast::RestMode::None,
+            }]),
+            return_type: Box::new(InferenceTerm::Var(result)),
+        });
+
+        session.bind(parameter, int, &store).expect("parameter binding should be valid");
+
+        assert_eq!(
+            session.term_for_expected(&callable),
+            InferenceTerm::Callable(InferenceCallable {
+                parameters: Box::new([InferenceCallableParameter {
+                    label: None,
+                    term: InferenceTerm::Canonical(int),
+                    rest: phalcom_ast::ast::RestMode::None,
+                }]),
+                return_type: Box::new(InferenceTerm::Var(result)),
+            })
+        );
     }
 }
