@@ -1032,6 +1032,74 @@ fn parse_type_syntax_generic_class_and_token_fission() {
 }
 
 #[test]
+fn parse_compact_type_lambda_as_generic_argument() {
+    let program = parse_source("type M<E> = Monad<<X> =>> Either<E, X>>\n", 0)
+        .expect("compact type-lambda generic argument should parse");
+    let Statement::TypeAlias(alias) = &program.statements[0] else {
+        panic!("expected type alias");
+    };
+
+    let TypeAnnotationExpr::Application { arguments, .. } = &alias.body.expr else {
+        panic!("expected outer type application");
+    };
+    assert_eq!(arguments.len(), 1);
+
+    let TypeAnnotationExpr::TypeLambda { parameters, body, .. } = &arguments[0].expr else {
+        panic!("expected type-lambda argument");
+    };
+    assert_eq!(parameters.len(), 1);
+    assert_eq!(parameters[0].name, "X");
+    assert!(matches!(body.expr, TypeAnnotationExpr::Application { .. }));
+}
+
+#[test]
+fn parse_compact_type_lambda_as_value_type_application() {
+    let program = parse_source("let m = Monad<<X> =>> Either<E, X>>\n", 0)
+        .expect("compact value-space type application should parse");
+    let Statement::Let(binding) = &program.statements[0] else {
+        panic!("expected let binding");
+    };
+    let Some(Expr::TypeForm(application)) = binding.value.as_ref() else {
+        panic!("expected type-form value");
+    };
+    let TypeAnnotationExpr::Application { arguments, .. } = &application.expr else {
+        panic!("expected outer type application");
+    };
+    assert!(matches!(arguments[0].expr, TypeAnnotationExpr::TypeLambda { .. }));
+}
+
+#[test]
+fn compact_shift_tokens_remain_binary_operators_outside_type_application() {
+    let program = parse_source("let left = 8<<1\nlet right = 8>>1\nlet chain = 8<<1>>2\n", 0)
+        .expect("compact shift operators should parse");
+
+    let Statement::Let(left) = &program.statements[0] else {
+        panic!("expected left-shift binding");
+    };
+    let Some(Expr::Binary(left_binary)) = left.value.as_ref() else {
+        panic!("expected left-shift expression");
+    };
+    assert!(matches!(left_binary.op, phalcom_ast::ast::BinaryOp::ShiftLeft));
+
+    let Statement::Let(right) = &program.statements[1] else {
+        panic!("expected right-shift binding");
+    };
+    let Some(Expr::Binary(right_binary)) = right.value.as_ref() else {
+        panic!("expected right-shift expression");
+    };
+    assert!(matches!(right_binary.op, phalcom_ast::ast::BinaryOp::ShiftRight));
+
+    let Statement::Let(chain) = &program.statements[2] else {
+        panic!("expected shift chain binding");
+    };
+    let Some(Expr::Binary(chain_binary)) = chain.value.as_ref() else {
+        panic!("expected shift chain expression");
+    };
+    assert!(matches!(chain_binary.left, Expr::Binary(_)));
+    assert!(matches!(chain_binary.op, phalcom_ast::ast::BinaryOp::ShiftRight));
+}
+
+#[test]
 fn parse_type_alias_and_type_precedence() {
     let p = parse_source("type Callback<T> = (T) -> String | None\n", 0).expect("type alias with callable and union should parse");
     let Statement::TypeAlias(alias) = &p.statements[0] else { panic!() };
@@ -1301,4 +1369,3 @@ type Baz<T>
     parse_source(source, 0)
         .expect("class, enum, and type alias headers with multiline where and body should parse");
 }
-

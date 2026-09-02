@@ -510,6 +510,26 @@ impl<'source> Parser<'source> {
         }
     }
 
+    /// Consumes a `<` token, fissioning a compact `<<` opener when it starts a
+    /// type application whose first argument is a type lambda. The lexer keeps
+    /// maximal munch so ordinary shift expressions retain `Token::ShiftLeft`.
+    fn eat_less(&mut self) -> bool {
+        if matches!(self.peek(), Token::Less) {
+            self.advance();
+            true
+        } else if matches!(self.peek(), Token::ShiftLeft) {
+            let lex = &mut self.tokens[self.pos];
+            let start = lex.start;
+            let mid = start + 1;
+            lex.start = mid;
+            lex.token = Token::Less;
+            self.prev_end = mid;
+            true
+        } else {
+            false
+        }
+    }
+
     /// Consumes a `>` token, handling nested `>>` token fission when needed (Spec 04 §15.5).
     fn eat_greater(&mut self) -> bool {
         if matches!(self.peek(), Token::Greater) {
@@ -569,24 +589,37 @@ impl<'source> Parser<'source> {
 
     /// Checks if a balanced angle bracket list `<...>` is ahead.
     fn is_type_arguments_ahead(&self) -> bool {
-        if self.peek() != &Token::Less {
+        let compact_type_lambda = matches!(self.peek(), Token::ShiftLeft);
+        if !matches!(self.peek(), Token::Less | Token::ShiftLeft) {
             return false;
         }
         let mut depth: i32 = 0;
+        let mut saw_compact_type_lambda = false;
         let mut i = self.pos;
         while i < self.tokens.len() {
             match &self.tokens[i].token {
                 Token::Less => depth += 1,
+                Token::ShiftLeft => depth += 2,
                 Token::Greater => {
                     depth -= 1;
+                    if compact_type_lambda && !saw_compact_type_lambda && depth == 1 {
+                        if !self
+                            .tokens
+                            .get(i + 1)
+                            .is_some_and(|lexeme| matches!(lexeme.token, Token::TypeLambdaArrow))
+                        {
+                            return false;
+                        }
+                        saw_compact_type_lambda = true;
+                    }
                     if depth == 0 {
-                        return true;
+                        return !compact_type_lambda || saw_compact_type_lambda;
                     }
                 }
                 Token::ShiftRight => {
                     depth -= 2;
                     if depth <= 0 {
-                        return true;
+                        return !compact_type_lambda || saw_compact_type_lambda;
                     }
                 }
                 Token::Newline | Token::Semicolon | Token::Eof | Token::LBrace | Token::RBrace => return false,
@@ -1793,9 +1826,9 @@ impl<'source> Parser<'source> {
     /// Parses a postfix type with angle-bracket application `<...>` (Spec 04 §5.4).
     pub fn parse_postfix_type(&mut self) -> ParserResult<TypeAnnotation> {
         let mut atom = self.parse_type_atom()?;
-        while matches!(self.peek(), Token::Less) {
+        while matches!(self.peek(), Token::Less | Token::ShiftLeft) {
             let start = atom.range.start;
-            self.advance(); // '<'
+            self.eat_less();
             let mut arguments = Vec::new();
             while !matches!(self.peek(), Token::Greater | Token::ShiftRight | Token::Eof) {
                 arguments.push(self.parse_type_form()?);
@@ -4589,9 +4622,12 @@ impl<'source> Parser<'source> {
                 }
             }
 
-            if matches!(self.peek(), Token::Less) && self.cur_start() == self.prev_end && self.is_type_arguments_ahead() {
+            if matches!(self.peek(), Token::Less | Token::ShiftLeft)
+                && self.cur_start() == self.prev_end
+                && self.is_type_arguments_ahead()
+            {
                 if let Some(origin) = Self::expr_to_type_annotation(&expr) {
-                    self.advance(); // '<'
+                    self.eat_less();
                     let mut arguments = Vec::new();
                     while !matches!(self.peek(), Token::Greater | Token::ShiftRight | Token::Eof) {
                         arguments.push(self.parse_type_form()?);
