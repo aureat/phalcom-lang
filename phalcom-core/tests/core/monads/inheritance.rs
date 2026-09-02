@@ -2,7 +2,8 @@ use super::support::{Fixture, monads_source};
 use phalcom_semantic::types::parameter::TypeParameterOwner;
 use phalcom_semantic::types::store::TypeData;
 
-/// MON-INHERIT-01/02: each generic superclass template passes through the same constructor-kinded parameter rather than replacing it with a proper type.
+/// MON-INHERIT-01/02: each generic superclass template passes through the exact
+/// constructor-kinded parameter identity rather than replacing it with a proper type.
 #[test]
 fn generic_hierarchy_templates_preserve_constructor_parameter() {
     let f = Fixture::new(monads_source());
@@ -17,33 +18,49 @@ fn generic_hierarchy_templates_preserve_constructor_parameter() {
     assert_eq!(monad_args[0], f.type_parameter_form("Monad", 0));
 }
 
-/// MON-INHERIT-03/04: a concrete Either specialization projects through Monad -> Applicative -> Functor with one coherent constructor substitution.
+/// MON-INHERIT-03/04: a concrete Either specialization projects through
+/// Monad -> Applicative -> Functor with one coherent constructor substitution,
+/// and the projected constructor still applies to the exact concrete Either type.
 #[test]
-fn either_monad_projects_constructor_through_full_generic_hierarchy() {
+fn either_monad_projects_exact_constructor_through_full_generic_hierarchy() {
     let f = Fixture::new(monads_source());
     f.assert_no_errors();
 
     let string = f.ty("String");
-    let (store, specialization) = f.specialize_receiver("EitherMonad", &[string], "Functor");
-    let owners = specialization.path.iter().map(|step| step.owner.name.as_ref()).collect::<Vec<_>>();
-    assert_eq!(owners, ["EitherMonad", "Monad", "Applicative", "Functor"]);
+    let int = f.ty("Int");
+    let (mut store, specialization) = f.specialize_receiver("EitherMonad", &[string], "Functor");
+    let owners = specialization.path.iter().map(|step| step.owner.clone()).collect::<Vec<_>>();
+    assert_eq!(owners, [f.decl("EitherMonad"), f.decl("Monad"), f.decl("Applicative"), f.decl("Functor")]);
 
     let functor_f = store
         .find_type_parameter_id(&TypeParameterOwner::Declaration(f.decl("Functor")), 0)
         .expect("Functor.F parameter");
     let constructor = specialization.environment.get_param(functor_f).expect("specialized Functor.F");
     assert!(matches!(store.get(constructor), TypeData::Lambda(_)), "Functor.F must remain a constructor lambda");
+
+    let applied = store.apply_type_form(constructor, &[int]).expect("projected Functor.F<Int> must apply");
+    let TypeData::Applied { origin, arguments } = store.get(applied) else {
+        panic!("expected Either<String, Int>, got {:?}", store.get(applied))
+    };
+    assert_eq!(*origin, f.ty("Either"));
+    assert_eq!(arguments.as_ref(), [string, int]);
 }
 
-/// MON-INHERIT-05: substitution composes correctly through an additional non-generic concrete subclass hop.
+/// MON-INHERIT-05: substitution composes correctly through an additional
+/// non-generic concrete subclass hop and retains the exact captured constructor.
 #[test]
-fn concrete_subclass_hop_preserves_higher_kinded_specialization() {
+fn concrete_subclass_hop_preserves_exact_higher_kinded_specialization() {
     let f = Fixture::new(monads_source());
     f.assert_no_errors();
 
-    let (store, specialization) = f.specialize_receiver("StringEitherMonad", &[], "Functor");
-    let owners = specialization.path.iter().map(|step| step.owner.name.as_ref()).collect::<Vec<_>>();
-    assert_eq!(owners, ["StringEitherMonad", "EitherMonad", "Monad", "Applicative", "Functor"]);
+    let int = f.ty("Int");
+    let string = f.ty("String");
+    let (mut store, specialization) = f.specialize_receiver("StringEitherMonad", &[], "Functor");
+    let owners = specialization.path.iter().map(|step| step.owner.clone()).collect::<Vec<_>>();
+    assert_eq!(
+        owners,
+        [f.decl("StringEitherMonad"), f.decl("EitherMonad"), f.decl("Monad"), f.decl("Applicative"), f.decl("Functor")]
+    );
 
     let functor_f = store
         .find_type_parameter_id(&TypeParameterOwner::Declaration(f.decl("Functor")), 0)
@@ -55,5 +72,12 @@ fn concrete_subclass_hop_preserves_higher_kinded_specialization() {
     let lambda = store.arena().get_lambda(*lambda_id);
     let mut free = Vec::new();
     store.arena().collect_free_types(lambda.body, &mut free);
-    assert!(free.contains(&f.ty("String")), "concrete subclass projection must preserve E = String: {free:#?}");
+    assert!(free.contains(&string), "concrete subclass projection must preserve E = String: {free:#?}");
+
+    let applied = store.apply_type_form(constructor, &[int]).expect("projected Functor.F<Int> must apply");
+    let TypeData::Applied { origin, arguments } = store.get(applied) else {
+        panic!("expected Either<String, Int>, got {:?}", store.get(applied))
+    };
+    assert_eq!(*origin, f.ty("Either"));
+    assert_eq!(arguments.as_ref(), [string, int]);
 }
