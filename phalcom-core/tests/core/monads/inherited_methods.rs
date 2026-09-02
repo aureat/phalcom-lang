@@ -19,22 +19,12 @@ fn inherited_map_specializes_constructor_and_proves_method_generics() {
         run,
         call,
         "Functor",
-        &["StringEitherMonad", "EitherMonad", "Monad", "Applicative", "Functor"],
+        &["StringContractEitherMonad", "ContractEitherMonad", "Monad", "Applicative", "Functor"],
     );
     f.assert_generic_solution(run, call, "A", f.ty("Int"));
     f.assert_generic_solution(run, call, "B", f.ty("Bool"));
-    f.assert_generic_constraint_origin(
-        run,
-        call,
-        "A",
-        GenericConstraintOrigin::Argument { parameter_index: 0 },
-    );
-    f.assert_generic_constraint_origin(
-        run,
-        call,
-        "B",
-        GenericConstraintOrigin::Argument { parameter_index: 1 },
-    );
+    f.assert_generic_constraint_origin(run, call, "A", GenericConstraintOrigin::Argument { parameter_index: 0 });
+    f.assert_generic_constraint_origin(run, call, "B", GenericConstraintOrigin::Argument { parameter_index: 1 });
 }
 
 /// MON-CALL-05: an inherited Applicative method sees the same specialized F and
@@ -53,15 +43,10 @@ fn inherited_pure_specializes_through_applicative() {
         run,
         call,
         "Applicative",
-        &["StringEitherMonad", "EitherMonad", "Monad", "Applicative"],
+        &["StringContractEitherMonad", "ContractEitherMonad", "Monad", "Applicative"],
     );
     f.assert_generic_solution(run, call, "A", f.ty("Int"));
-    f.assert_generic_constraint_origin(
-        run,
-        call,
-        "A",
-        GenericConstraintOrigin::Argument { parameter_index: 0 },
-    );
+    f.assert_generic_constraint_origin(run, call, "A", GenericConstraintOrigin::Argument { parameter_index: 0 });
 }
 
 /// MON-CALL-02/05: Monad.flatMap combines class-level F specialization with
@@ -80,7 +65,7 @@ fn inherited_flat_map_keeps_class_and_method_generic_scopes_distinct() {
         run,
         call,
         "Monad",
-        &["StringEitherMonad", "EitherMonad", "Monad"],
+        &["StringContractEitherMonad", "ContractEitherMonad", "Monad"],
     );
     f.assert_generic_solution(run, call, "A", f.ty("Int"));
     f.assert_generic_solution(run, call, "B", f.ty("Bool"));

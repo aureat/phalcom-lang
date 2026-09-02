@@ -66,6 +66,12 @@ class Monad<F: Type -> Type> is Applicative<F> {
 
 class BoxMonad is Monad<Box> {}
 
+// Pure inheritance probe: deliberately no overrides. Calls through this class
+// must resolve to Functor / Applicative / Monad and specialize their F.
+class ContractEitherMonad<E> is Monad<<X> =>> Either<E, X>> {}
+class StringContractEitherMonad is ContractEitherMonad<String> {}
+
+// Executable specialization: concrete operations are supplied for VM tests.
 class EitherMonad<E> is Monad<<X> =>> Either<E, X>> {
     map<A, B>(
         _ value: Either<E, A>,

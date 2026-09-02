@@ -1,7 +1,7 @@
 class MonadSemanticProbe {
     @class
     inheritedMap(
-        _ monad: StringEitherMonad,
+        _ monad: StringContractEitherMonad,
         _ source: Either<String, Int>
     ) {
         let mapped = monad.map(
@@ -11,13 +11,13 @@ class MonadSemanticProbe {
     }
 
     @class
-    inheritedPure(_ monad: StringEitherMonad) {
+    inheritedPure(_ monad: StringContractEitherMonad) {
         let lifted = monad.pure(42)
     }
 
     @class
     inheritedFlatMap(
-        _ monad: StringEitherMonad,
+        _ monad: StringContractEitherMonad,
         _ source: Either<String, Int>,
         _ next: (Int) -> Either<String, Bool>
     ) {
