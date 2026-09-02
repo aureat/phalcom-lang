@@ -4,6 +4,57 @@ use phalcom_semantic::identity::DispatchSide;
 use phalcom_semantic::types::evidence::EvidenceStatus;
 use phalcom_semantic::types::store::TypeData;
 
+/// MON-COMP-01: a real generic sequence implementation consumes List<F<A>>
+/// and returns F<List<A>> with constructor and element evidence preserved.
+#[test]
+fn sequence_specializes_nested_effects_to_either_of_list() {
+    let f = Fixture::new(&semantic_source());
+    f.assert_no_errors();
+
+    let run = f.callable("MonadSemanticProbe", "sequenceEvidence", DispatchSide::Class);
+    let sequenced = f.binding(run, "sequenced").current.ty().expect("sequenced type");
+    let either_args = f.assert_applied(sequenced, "Either", 2);
+    assert_eq!(either_args[0], f.ty("String"));
+    let list_args = f.assert_applied(either_args[1], "List", 1);
+    assert_eq!(list_args[0], f.ty("Int"));
+
+    let call = f.expression_containing(run, "MonadAlgorithms.sequence(monad, values)");
+    let target = f.callable_id("MonadAlgorithms", "sequence", DispatchSide::Class);
+    f.assert_expression_call(call, &target, sequenced);
+
+    let constructor_parameter = f.callable_generic_parameter("MonadAlgorithms", "sequence", DispatchSide::Class, 0);
+    let a = f.callable_generic_parameter("MonadAlgorithms", "sequence", DispatchSide::Class, 1);
+    let constructor = f.generic_solution_type_for(run, call, constructor_parameter);
+    f.assert_unary_constructor_kind(f.analysis.snapshot.store.kind_of(constructor));
+    f.assert_generic_solution_exact(run, call, constructor_parameter, constructor, EvidenceStatus::Assumed);
+    f.assert_generic_solution_exact(run, call, a, f.ty("Int"), EvidenceStatus::Assumed);
+
+    let monad_ty = f.binding(run, "monad").current.ty().expect("monad type");
+    let values_ty = f.binding(run, "values").current.ty().expect("values type");
+    f.assert_generic_constraint_exact(
+        run,
+        call,
+        constructor_parameter,
+        GenericConstraintOrigin::Argument { parameter_index: 0 },
+        GenericConstraintRelation::SupertypeOf(monad_ty),
+    );
+    f.assert_generic_constraint_exact(
+        run,
+        call,
+        constructor_parameter,
+        GenericConstraintOrigin::Argument { parameter_index: 1 },
+        GenericConstraintRelation::SupertypeOf(values_ty),
+    );
+    f.assert_generic_constraint_exact(
+        run,
+        call,
+        a,
+        GenericConstraintOrigin::Argument { parameter_index: 1 },
+        GenericConstraintRelation::SupertypeOf(values_ty),
+    );
+    assert!(f.generic_constraint_count(run, call, constructor_parameter) >= 2);
+}
+
 /// MON-COMP-02/05: F must propagate through both callable return positions in
 /// Kleisli composition and independent constructor evidence must converge on
 /// one canonical solution.
