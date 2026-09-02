@@ -238,6 +238,124 @@ class Child is B {
 }
 
 #[test]
+fn case_j_generic_supertype_template_edit_invalidates_specialized_caller_and_matches_cold_rebuild() {
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(1),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("main").unwrap()]),
+    );
+    let consumer_decl = DeclarationId::new(module.clone(), "Consumer".into());
+    let consumer_read_id = CallableId::new(
+        consumer_decl,
+        Selector::method("read", [phalcom_common::selector::SelectorSlot::Positional]).unwrap(),
+        DispatchSide::Class,
+    );
+    let middle_decl = DeclarationId::new(module.clone(), "Middle".into());
+    let source_v1 = r#"
+class Box<T> {}
+class Other<T> {}
+
+class Parent<T> {
+  value() -> T { mystery() }
+}
+
+class Middle<T> is Parent<Box<T>> {}
+class Child<T> is Middle<T> {}
+
+class Consumer {
+  @class
+  read(_ child: Child<Int>) { child.value() }
+}
+"#;
+    let source_v2 = r#"
+class Box<T> {}
+class Other<T> {}
+
+class Parent<T> {
+  value() -> T { mystery() }
+}
+
+class Middle<T> is Parent<Other<T>> {}
+class Child<T> is Middle<T> {}
+
+class Consumer {
+  @class
+  read(_ child: Child<Int>) { child.value() }
+}
+"#;
+
+    let mut session = SemanticWorkspaceSession::new();
+    let update1 = session.update(single_module_input(module.clone(), source_v1, 1));
+    let consumer_v1 = update1
+        .snapshot
+        .callable_analyses
+        .get(&consumer_read_id)
+        .cloned()
+        .expect("Consumer.read v1");
+    let call_v1 = consumer_v1
+        .expressions
+        .values()
+        .find(|expression| source_v1.get(expression.range.start..expression.range.end) == Some("child.value()"))
+        .expect("inherited call v1");
+    let result_v1 = call_v1.knowledge.ty().expect("specialized Parent<Box<Int>> result");
+    let dependencies = session
+        .db()
+        .index()
+        .dependencies_of(&QueryKey::CallableBody(consumer_read_id.clone()))
+        .expect("Consumer.read dependency edges");
+    assert!(
+        dependencies.iter().any(|edge| edge.dependency == QueryKey::HierarchyEdge(middle_decl.clone())),
+        "specialized inherited call must retain Middle's generic supertype template dependency: {dependencies:#?}"
+    );
+
+    let update2 = session.update(single_module_input(module.clone(), source_v2, 2));
+    assert!(
+        update2.recomputed.contains(&QueryKey::CallableBody(consumer_read_id.clone())),
+        "generic template change must recompute affected caller; recomputed: {:#?}; stats: {:#?}",
+        update2.recomputed,
+        update2.stats
+    );
+    let consumer_v2 = update2
+        .snapshot
+        .callable_analyses
+        .get(&consumer_read_id)
+        .cloned()
+        .expect("Consumer.read v2");
+    assert!(!Arc::ptr_eq(&consumer_v1, &consumer_v2), "generic supertype edit must not reuse Consumer.read");
+    let call_v2 = consumer_v2
+        .expressions
+        .values()
+        .find(|expression| source_v2.get(expression.range.start..expression.range.end) == Some("child.value()"))
+        .expect("inherited call v2");
+    let result_v2 = call_v2.knowledge.ty().expect("specialized Parent<Other<Int>> result");
+    assert_ne!(
+        update2.snapshot.store.format_type(result_v1),
+        update2.snapshot.store.format_type(result_v2),
+        "changing Middle's template must change inherited call result"
+    );
+    assert!(update2.snapshot.store.format_type(result_v1).contains("Box"));
+    assert!(update2.snapshot.store.format_type(result_v2).contains("Other"));
+
+    let mut cold = SemanticWorkspaceSession::new();
+    let cold_update = cold.update(single_module_input(module, source_v2, 1));
+    let cold_consumer = cold_update
+        .snapshot
+        .callable_analyses
+        .get(&consumer_read_id)
+        .expect("cold Consumer.read");
+    let cold_call = cold_consumer
+        .expressions
+        .values()
+        .find(|expression| source_v2.get(expression.range.start..expression.range.end) == Some("child.value()"))
+        .expect("cold inherited call");
+    assert_eq!(
+        update2.snapshot.store.format_type(result_v2),
+        cold_update.snapshot.store.format_type(cold_call.knowledge.ty().expect("cold result"))
+    );
+    assert_eq!(call_v2.knowledge.status(), cold_call.knowledge.status());
+    assert_eq!(call_v2.status, cold_call.status);
+}
+
+#[test]
 fn case_e_imported_linked_surface_change_recomputes_importer() {
     let proj_id = ResolvedProjectId::from_raw(1);
     let api_mod = ModuleId::resolved(proj_id, ModulePath::from_components(vec![ModuleComponent::from_identifier("api").unwrap()]));

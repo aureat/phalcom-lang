@@ -559,6 +559,7 @@ pub fn query_hierarchy_edge(
     if class_def.is_none() && enum_definition_for(&unit, &class_decl).is_none() {
         return query_failure(db, key, format!("source declaration {class_decl:?} was not found in its parsed module"));
     }
+    let superclass_syntax = class_def.and_then(|class_def| superclass_source(&unit, class_def));
     let super_decl = if let Some(class_def) = class_def {
         if let Some(super_ref) = class_def.superclass_ref() {
             let members = super_ref.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
@@ -599,7 +600,7 @@ pub fn query_hierarchy_edge(
     }
 
     let product = Arc::new(HierarchyEdgeProduct::new(class_decl.clone(), super_decl));
-    let product_fingerprint = crate::db::fingerprint::hierarchy_edge_product_fingerprint(&class_decl, &product.super_decl);
+    let product_fingerprint = crate::db::fingerprint::hierarchy_edge_product_fingerprint(&class_decl, &product.super_decl, superclass_syntax);
     let dependencies = recorder.finish();
     if let Err(error) = publish_current_product(
         db,
@@ -635,7 +636,7 @@ pub fn query_bootstrap_hierarchy_edge(
     db.metrics().record_miss();
 
     let product = Arc::new(HierarchyEdgeProduct::new(class_decl.clone(), super_decl.clone()));
-    let product_fingerprint = crate::db::fingerprint::hierarchy_edge_product_fingerprint(&class_decl, &super_decl);
+    let product_fingerprint = crate::db::fingerprint::hierarchy_edge_product_fingerprint(&class_decl, &super_decl, None);
     if let Err(error) = publish_current_product(
         db,
         key.clone(),

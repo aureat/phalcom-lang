@@ -1439,10 +1439,21 @@ pub fn hierarchy_edge_input_fingerprint(
 }
 
 /// Computes product fingerprint for a hierarchy edge.
-pub fn hierarchy_edge_product_fingerprint(class_decl: &DeclarationId, super_decl: &Option<DeclarationId>) -> ProductFingerprint {
+///
+/// The direct declaration identity alone is insufficient for generic
+/// inheritance: `Parent<List<T>>` and `Parent<Set<T>>` resolve to the same
+/// superclass declaration while publishing different owner environments to
+/// inherited call sites. Keep the source template in the semantic product
+/// fingerprint so those callers cannot reuse a stale specialization.
+pub fn hierarchy_edge_product_fingerprint(
+    class_decl: &DeclarationId,
+    super_decl: &Option<DeclarationId>,
+    superclass_syntax: Option<&str>,
+) -> ProductFingerprint {
     let mut hasher = DefaultHasher::new();
     class_decl.hash(&mut hasher);
     super_decl.hash(&mut hasher);
+    superclass_syntax.map(str::as_bytes).hash(&mut hasher);
     finish_product(hasher)
 }
 
