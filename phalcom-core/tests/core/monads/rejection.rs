@@ -30,7 +30,7 @@ class ConstructorConflictProbe {
     let call = f.expression_containing(run, "MonadAlgorithms.bind(monad, value, next)");
     assert!(matches!(call.status, AnalysisStatus::Invalid(_)), "conflicting HKT call must be invalid: {call:#?}");
     let trace = f.generic_trace(run, call);
-    assert!(trace.iter().any(|node| matches!(node.step, ExplanationStep::GenericConflict { .. })), "missing formal generic-conflict proof: {trace:#?}");
+    assert!(trace.iter().any(|node| matches!(&node.step, ExplanationStep::GenericConflict { .. })), "missing formal generic-conflict proof: {trace:#?}");
 }
 
 /// MON-REJECT-02: two partially-applied Either constructors with different
@@ -67,7 +67,7 @@ class FixedArgumentConflictProbe {
     let call = f.expression_containing(run, "ConstructorAgreement.same(left, right)");
     assert!(matches!(call.status, AnalysisStatus::Invalid(_)));
     let trace = f.generic_trace(run, call);
-    assert!(trace.iter().any(|node| matches!(node.step, ExplanationStep::GenericConflict { .. })), "missing constructor conflict proof: {trace:#?}");
+    assert!(trace.iter().any(|node| matches!(&node.step, ExplanationStep::GenericConflict { .. })), "missing constructor conflict proof: {trace:#?}");
 }
 
 /// MON-REJECT-03: a genuinely unconstrained constructor parameter remains
