@@ -117,12 +117,41 @@ class MonadAlgorithms {
     }
 
     @class
+    sameConstructor<F: Type -> Type, A, B>(
+        _ left: F<A>,
+        _ right: F<B>
+    ) -> F<B> {
+        right
+    }
+
+    @class
     sequenceSeed<F: Type -> Type, A>(
         _ monad: Monad<F>,
         _ values: List<F<A>>,
         _ initial: F<List<A>>
     ) -> F<List<A>> {
         initial
+    }
+
+    @class
+    sequence<F: Type -> Type, A>(
+        _ monad: Monad<F>,
+        _ values: List<F<A>>
+    ) -> F<List<A>> {
+        let empty: List<A> = []
+        let state = monad.pure(empty)
+        let index = 0
+        while (index < values.size) {
+            let current = values[index]
+            state = monad.flatMap(state, |items| {
+                monad.map(current, |value| {
+                    items.append(value)
+                    items
+                })
+            })
+            index = index + 1
+        }
+        state
     }
 
     @class
