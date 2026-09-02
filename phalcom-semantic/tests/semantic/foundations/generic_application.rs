@@ -1,6 +1,6 @@
 //! SC-2 generic application and expected-context laws.
 
-use crate::semantic::support::Fixture;
+use crate::semantic::support::{applied, nominal, Fixture};
 use phalcom_semantic::checker::analysis::AnalysisStatus;
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::DispatchSide;
@@ -147,4 +147,30 @@ class Probe {
     assert!(call.knowledge.ty().is_none());
     assert!(matches!(call.status, AnalysisStatus::Invalid(_)));
     fixture.assert_diagnostic(DiagnosticCode::GenericConstraintUnsatisfied, 1);
+}
+
+#[test]
+fn expected_context_solves_nested_generic_result() {
+    let fixture = Fixture::new(
+        r#"
+class Box<T> {
+  @constructor new(_ value: T) {}
+}
+
+class Probe {
+  @class
+  make<T>() -> Box<T> { Box<Int>.new(1) }
+
+  @class
+  run() {
+    let result: Box<Int> = Probe.make()
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+    let call = fixture.expression(run, "Probe.make()");
+    fixture.assert_type(call.knowledge.ty().expect("nested generic result"), applied("Box", [nominal("Int")]));
+    assert_eq!(call.knowledge.status(), Some(EvidenceStatus::Assumed));
+    assert!(matches!(call.status, AnalysisStatus::Ready), "{call:#?}");
 }

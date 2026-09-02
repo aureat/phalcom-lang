@@ -1,4 +1,4 @@
-use crate::semantic::support::{Fixture, binding, known};
+use crate::semantic::support::{binding, known, Fixture};
 use phalcom_semantic::checker::analysis::AnalysisStatus;
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::DispatchSide;
@@ -353,4 +353,75 @@ class Probe {
     let string_ty = f.ty("String");
     let run = f.callable("Probe", "run", DispatchSide::Class);
     f.assert_binding_expectation(run, "result", binding().current(known(string_ty).assumed()));
+}
+
+#[test]
+fn higher_kinded_parameter_infers_list_constructor_and_element() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  keep<F: Type -> Type, A>(_ value: F<A>) -> F<A> { value }
+
+  @class
+  run() {
+    let result = Probe.keep([1])
+  }
+}
+"#,
+    );
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let result_ty = f.binding(run, "result").current.ty().expect("HKT result");
+    f.assert_type(result_ty, crate::semantic::support::applied("List", [crate::semantic::support::nominal("Int")]));
+    let call = f.expression(run, "Probe.keep([1])");
+    assert!(matches!(call.status, AnalysisStatus::Ready), "{call:#?}");
+    assert_eq!(f.binding(run, "result").current.ty(), Some(result_ty));
+    f.assert_no_error_diagnostics();
+}
+
+#[test]
+fn wrong_kind_higher_kinded_argument_is_rejected_structurally() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  keep<F: Type -> Type, A>(_ value: F<A>) -> F<A> { value }
+
+  @class
+  run(_ value: Int) {
+    let bad = Probe.keep(value)
+  }
+}
+"#,
+    );
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let call = f.expression(run, "Probe.keep(value)");
+    assert!(!matches!(call.status, AnalysisStatus::Ready), "wrong-kind HKT call must not pass: {call:#?}");
+    assert!(f
+        .analysis
+        .snapshot
+        .all_diagnostics()
+        .any(|diagnostic| diagnostic.severity == phalcom_semantic::diagnostic::DiagnosticSeverity::Error));
+}
+
+#[test]
+fn closed_tuple_shape_exposes_nested_generic_argument() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  keep<T>(_ value: (T, String)) -> (T, String) { value }
+
+  @class
+  run(_ value: (Int, String)) {
+    let result = Probe.keep(value)
+  }
+}
+"#,
+    );
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let result = f.binding(run, "result").current.ty().expect("tuple result");
+    f.assert_tuple_types(result, &[f.ty("Int"), f.ty("String")]);
+    f.assert_expression_ready(f.expression(run, "Probe.keep(value)"));
+    f.assert_no_error_diagnostics();
 }
