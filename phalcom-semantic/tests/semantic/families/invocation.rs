@@ -108,6 +108,62 @@ class Probe {
     ));
 }
 
+#[test]
+#[ignore = "RED: generic family application must not publish fallback result after inference failure"]
+fn generic_family_failure_does_not_publish_fallback_result() {
+    let module = ModuleId::universe_root();
+    let source: Arc<str> = Arc::from(
+        r#"
+class Box<T> {
+  convert<U>() -> U { 42 }
+}
+
+class Probe {
+  @class
+  run(_ box: Box<Int>) {
+    let family = box::convert::*;
+    let value = family()
+  }
+}
+"#,
+    );
+    let analysis = analyze_source(module.clone(), source.clone());
+    let probe = DeclarationId::new(module, "Probe".into());
+    let callable_id = CallableId::new(
+        probe,
+        phalcom_common::selector::Selector::method("run", [SelectorSlot::Positional]).expect("callable selector"),
+        DispatchSide::Class,
+    );
+    let callable = analysis.snapshot.callable_analyses.get(&callable_id).expect("callable analysis");
+    let family_capture = callable
+        .expressions
+        .values()
+        .find(|candidate| source.get(candidate.range.start..candidate.range.end) == Some("box::convert::*"))
+        .expect("generic family capture expression");
+    assert!(
+        family_capture.knowledge.is_known(),
+        "generic family capture must retain a callable family, got {:?}",
+        family_capture.knowledge
+    );
+
+    let expression = callable
+        .expressions
+        .values()
+        .find(|candidate| source.get(candidate.range.start..candidate.range.end) == Some("family()"))
+        .expect("family application expression");
+
+    assert!(
+        expression.knowledge.ty().is_none(),
+        "expected failed generic application, got {:?}",
+        expression.knowledge
+    );
+    assert!(
+        !callable.family_applications.contains_key(&expression.id),
+        "failed generic application must not publish fallback family result: {:?}",
+        callable.family_applications.get(&expression.id)
+    );
+}
+
 fn analyze_source(module: ModuleId, source: Arc<str>) -> phalcom_semantic::workspace::SemanticAnalysis {
     let parsed = phalcom_ast::parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
