@@ -6,6 +6,9 @@
 #[path = "either/mod.rs"]
 mod either;
 
+#[path = "monads/mod.rs"]
+mod monads;
+
 #[path = "language/mod.rs"]
 mod language;
 
