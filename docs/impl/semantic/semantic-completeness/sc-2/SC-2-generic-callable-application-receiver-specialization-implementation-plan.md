@@ -2036,104 +2036,104 @@ SC-2 is complete only when every checkbox is true.
 
 ## Specialization
 
-- [ ] Direct generic receiver specialization remains correct.
-- [ ] Inherited generic receiver specialization uses selected declaring owner.
-- [ ] Transformed superclass arguments work.
-- [ ] Multi-hop transformed inheritance works.
-- [ ] `Self` uses actual receiver.
-- [ ] Receiver params inside callable `where` constraints specialize.
-- [ ] Associated lookup uses the same specialization implementation.
+- [x] Direct generic receiver specialization remains correct.
+- [x] Inherited generic receiver specialization uses selected declaring owner.
+- [x] Transformed superclass arguments work.
+- [x] Multi-hop transformed inheritance works.
+- [x] `Self` uses actual receiver.
+- [x] Receiver params inside callable `where` constraints specialize.
+- [x] Associated lookup uses the same specialization implementation.
 
 ## Solver
 
-- [ ] Compound subtype no longer defaults to equality/unification.
-- [ ] Applied variance matches canonical relation semantics.
-- [ ] Callable variance matches canonical relation semantics.
-- [ ] Generic supertype projection participates in inference relations.
-- [ ] HKT constructor variables infer with correct kinds.
-- [ ] Type-lambda constructor candidates work where allowed.
-- [ ] Closed structural nested generic occurrences are not hidden.
-- [ ] Row-kind variables remain outside ordinary type inference.
+- [x] Compound subtype no longer defaults to equality/unification.
+- [x] Applied variance matches canonical relation semantics.
+- [x] Callable variance matches canonical relation semantics.
+- [x] Generic supertype projection participates in inference relations.
+- [x] HKT constructor variables infer with correct kinds.
+- [x] Type-lambda constructor candidates work where allowed.
+- [x] Closed structural nested generic occurrences are not hidden.
+- [x] Row-kind variables remain outside ordinary type inference.
 
 ## Selection/evidence
 
-- [ ] Expected-only generic selection works.
-- [ ] Expected-only result is not established merely by context.
-- [ ] No-context result-only generic remains underconstrained.
-- [ ] One-sided declaration bound does not default variable.
-- [ ] Argument-derived precision survives later contextual contradiction.
-- [ ] Unknown/Dynamic required premises are not erased by context.
-- [ ] F-bounds are relations, not recursive equalities.
+- [x] Expected-only generic selection works.
+- [x] Expected-only result is not established merely by context.
+- [x] No-context result-only generic remains underconstrained.
+- [x] One-sided declaration bound does not default variable.
+- [x] Argument-derived precision survives later contextual contradiction.
+- [x] Unknown/Dynamic required premises are not erased by context.
+- [x] F-bounds are relations, not recursive equalities.
 
 ## Outcomes
 
-- [ ] Underconstrained exists and is tested.
-- [ ] Finite Ambiguous exists and is tested.
-- [ ] Conflicting exists and is tested.
-- [ ] DynamicBoundary remains distinct.
-- [ ] Blocked remains distinct.
-- [ ] Cancelled remains distinct.
-- [ ] BudgetExceeded remains distinct.
-- [ ] InternalFailure remains distinct.
-- [ ] Materialization errors are not encoded as empty underconstraint.
+- [x] Underconstrained exists and is tested.
+- [x] Finite Ambiguous exists and is tested.
+- [x] Conflicting exists and is tested.
+- [x] DynamicBoundary remains distinct.
+- [x] Blocked remains distinct.
+- [x] Cancelled remains distinct.
+- [x] BudgetExceeded remains distinct.
+- [x] InternalFailure remains distinct.
+- [x] Materialization errors are not encoded as empty underconstraint.
 
 ## Executable surfaces
 
-- [ ] Ordinary generic methods use canonical application funnel.
-- [ ] Ordinary generic source constructors use canonical application funnel.
-- [ ] No runtime-arg/declaration-generic positional heuristic remains.
-- [ ] Variant constructors infer residual owner generics.
-- [ ] Nullary variant constructors can use expected context.
-- [ ] No variant `Object` generic fallback remains.
-- [ ] No dependent generic fallback result masks terminal failure.
-- [ ] Generic behavioral family invocation recovers declaration semantics.
-- [ ] Generic associated variant invocation recovers variant semantic products.
-- [ ] Ordinary callable values remain monomorphic.
+- [x] Ordinary generic methods use canonical application funnel.
+- [x] Ordinary generic source constructors use canonical application funnel.
+- [x] No runtime-arg/declaration-generic positional heuristic remains.
+- [x] Variant constructors infer residual owner generics.
+- [x] Nullary variant constructors can use expected context.
+- [x] No variant `Object` generic fallback remains.
+- [x] No dependent generic fallback result masks terminal failure.
+- [x] Generic behavioral family invocation recovers declaration semantics.
+- [x] Generic associated variant invocation recovers variant semantic products.
+- [x] Ordinary callable values remain monomorphic.
 
 ## Union calls
 
-- [ ] Every receiver arm is checked.
-- [ ] One missing arm invalidates static call.
-- [ ] Source arguments are analyzed once.
-- [ ] Common contextual expectations are reused safely.
-- [ ] Incompatible closure expectations fail explicitly.
-- [ ] Results join canonically.
-- [ ] Evidence/status joins conservatively.
+- [x] Every receiver arm is checked.
+- [x] One missing arm invalidates static call.
+- [x] Source arguments are analyzed once.
+- [x] Common contextual expectations are reused safely.
+- [x] Incompatible closure expectations fail explicitly.
+- [x] Results join canonically.
+- [x] Evidence/status joins conservatively.
 
 ## Incremental/conformance
 
-- [ ] Generic superclass template edit invalidates affected callers.
-- [ ] Unrelated body edit does not invalidate unchanged call signatures.
-- [ ] Signature edits invalidate callers.
-- [ ] Cold/incremental final facts match.
-- [ ] Source/native/generated generic solution mathematics match.
-- [ ] Source/native enum constructor semantics match where equivalent.
+- [x] Generic superclass template edit invalidates affected callers.
+- [x] Unrelated body edit does not invalidate unchanged call signatures.
+- [x] Signature edits invalidate callers.
+- [x] Cold/incremental final facts match.
+- [x] Source/native/generated generic solution mathematics match.
+- [x] Source/native enum constructor semantics match where equivalent.
 
 ## Deletion/audit
 
-- [ ] No ordinary production `TypeData::Infer` regression.
-- [ ] No ordinary production `LocalConstraintSolver` regression.
-- [ ] No positional constructor generic guessing.
-- [ ] No variant `Object` fallback.
-- [ ] No duplicated complete generic-supertype projection algorithm.
-- [ ] No generic family call relying only on lost monomorphic callable type when target is recoverable.
-- [ ] Old expected-only-underconstrained test replaced by new selection/evidence law.
+- [x] No ordinary production `TypeData::Infer` regression.
+- [x] No ordinary production `LocalConstraintSolver` regression.
+- [x] No positional constructor generic guessing.
+- [x] No variant `Object` fallback.
+- [x] No duplicated complete generic-supertype projection algorithm.
+- [x] No generic family call relying only on lost monomorphic callable type when target is recoverable.
+- [x] Old expected-only-underconstrained test replaced by new selection/evidence law.
 
 ## Verification
 
 - [ ] `cargo fmt --all -- --check`
-- [ ] `cargo check -p phalcom-semantic`
-- [ ] focused SC-2 foundations GREEN
-- [ ] capability generic/HKT suites GREEN
-- [ ] ADT constructor/associated suites GREEN
-- [ ] incremental suites GREEN
-- [ ] `cargo test -p phalcom-semantic --test semantic` GREEN
-- [ ] `cargo test -p phalcom-semantic` GREEN
-- [ ] clippy affected/workspace target GREEN
-- [ ] workspace test GREEN or explicitly documented unavailable
-- [ ] deletion ledger searches reviewed
-- [ ] performance metrics recorded
-- [ ] decision/status documents updated
+- [x] `cargo check -p phalcom-semantic`
+- [x] focused SC-2 foundations GREEN
+- [x] capability generic/HKT suites GREEN
+- [x] ADT constructor/associated suites GREEN
+- [x] incremental suites GREEN
+- [x] `cargo test -p phalcom-semantic --test semantic` GREEN
+- [x] `cargo test -p phalcom-semantic` GREEN
+- [x] clippy affected/workspace target GREEN
+- [x] workspace test GREEN or explicitly documented unavailable
+- [x] deletion ledger searches reviewed
+- [x] performance metrics recorded
+- [x] decision/status documents updated
 
 ---
 

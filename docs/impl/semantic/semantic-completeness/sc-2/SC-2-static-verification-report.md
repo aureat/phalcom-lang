@@ -1,10 +1,10 @@
 # SC-2 — Static Verification and Repository Reconciliation Report
 
 **Project:** Phalcom  
-**Date:** 2026-09-01  
+**Date:** 2026-09-02
 **Repository:** `aureat/phalcom-lang`  
-**Verified source baseline:** `main@01e19adb86186d67212b558ba76f54f79e2b5d9f`  
-**Commit:** `feat(core,semantic,vm): canonical native enums and associated lookup implementation`  
+**Verified source baseline:** `main@c5916d14`
+**Commit:** `fix(semantic): satisfy SC-2 final lint gate`
 **Artifacts verified:**
 
 ```text
@@ -12,7 +12,7 @@ SC-2-generic-callable-application-receiver-specialization-technical-spec.md
 SC-2-generic-callable-application-receiver-specialization-implementation-plan.md
 ```
 
-**Verification class:** source/static planning verification only. No repository checkout or executable test runner was available in this ChatGPT session, and GitHub reported no CI status checks/workflow runs for the pinned commit. This report therefore does **not** claim that current `main` passes cargo tests or that SC-2 has been implemented.
+**Verification class:** source/static planning verification plus local executable verification. The historical sections below retain their original static-reconciliation evidence; the executable completion addendum records current local results and remaining repository-wide baseline boundaries.
 
 ---
 
@@ -475,5 +475,59 @@ The deliverables are suitable as SC-2 implementation authority because they:
 - do not claim implementation or executable verification that has not occurred.
 
 **Static planning verification: PASS.**  
-**SC-2 implementation status: NOT EXECUTED by this deliverable.**  
-**Executable verification status: PENDING implementation environment.**
+**SC-2 implementation status at `main@c5916d14`: Tasks 0–14 implemented and locally verified for semantic scope.**
+**Repository-wide release gates:** formatting remains blocked by pre-existing repository-wide rustfmt drift; full workspace sweep was stopped after unrelated core runtime/corpus failures while the focused SC-2 and monad gates passed.
+
+---
+
+# 12. Executable completion addendum — 2026-09-02
+
+## SC-2 semantic gates
+
+All commands used `RUSTFLAGS=''` to neutralize repository-local incompatible flag injection.
+
+```text
+phalcom-semantic check --tests                              PASS
+receiver_specialization                                    6 passed
+generic_application                                        7 passed
+union_calls                                                6 passed
+capabilities::generics                                    15 passed
+capabilities::higher_order                                5 passed
+capabilities::type_lambdas                                1 passed
+adts::constructors                                       13 passed
+adts::associated                                   15 passed, 5 GATED
+incremental::callable_dependencies                        12 passed
+incremental::checker_dependencies                         10 passed
+phalcom-semantic unit tests                                59 passed
+phalcom-semantic semantic integration                     969 passed, 48 ignored
+strict semantic clippy                                    PASS
+```
+
+The monad conformance request was run with the libtest spelling `--nocapture`:
+
+```text
+phalcom-core --test core monads                             35 passed
+```
+
+The user's literal `--no-capture` spelling is rejected by libtest as an unknown option; it does not represent a test failure.
+
+## Verified SC-2 decisions
+
+```text
+expected-only inference is selection, not value evidence
+one-sided bounds are not defaults
+finite ambiguity differs from underconstraint
+owner-relative receiver specialization is canonical
+union receiver calls check all arms
+cold and incremental results are equivalent
+```
+
+Task 12 retained row polymorphism and Task 13 generic-getter work outside SC-2; those remain SC-3 and SC-7 boundaries. Five associated visibility/inheritance tests and many broader ADT/match fixtures remain explicitly GATED by missing cross-module or lowering fixtures. No SC-2 test assertions were weakened.
+
+## Task 14 audit and remaining gates
+
+The required deletion searches found no ordinary production `TypeData::Infer`, `TypeStore::infer`, `LocalConstraintSolver`, positional constructor generic guessing, or duplicated receiver-specialization implementation. `fallback_result_type` is restricted to an independent, already-canonical family return type; dependent generic terminal outcomes remain structured and are covered by `generic_family_failure_does_not_publish_fallback_result` and generic proof-integrity tests.
+
+`cargo fmt --all -- --check` was run and fails on repository-wide pre-existing formatting drift, including unrelated AST/core/modules/LSP files. The full `RUSTFLAGS='' cargo test --workspace` sweep was started; it reached unrelated core runtime/corpus tests with failures including `core_collections::range_literals_drive_collection_slices`, ADT runtime/conformance cases, and corpus `booleans`/`bytes_negative`, and was stopped after the slow compiler-fixture sweep continued. The focused core monad suite and all SC-2 semantic gates are green.
+
+No dedicated SC-2 benchmark harness exposes before/after receiver-step, solver-iteration, relation-pair, TypeStore-delta, or union-arm counters. This unavailability is recorded rather than inventing thresholds or measurements.
