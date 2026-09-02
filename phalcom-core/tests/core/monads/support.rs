@@ -2,6 +2,10 @@
 
 use phalcom_ast::parse;
 use phalcom_common::selector::SelectorBase;
+use phalcom_core::error::PhError;
+use phalcom_core::modules::compile::{EntrySelection, ProgramCompiler};
+use phalcom_core::value::Value;
+use phalcom_core::vm::VM;
 use phalcom_modules::identity::ModuleId;
 use phalcom_semantic::checker::analysis::{BindingState, CallableAnalysis, ExpressionAnalysis};
 use phalcom_semantic::declarations::DeclarationTypeInfo;
@@ -20,6 +24,7 @@ use std::sync::Arc;
 
 const MONADS_SOURCE: &str = include_str!("monads.ph");
 const SEMANTIC_PROBES: &str = include_str!("semantic_probes.ph");
+const RUNTIME_PROBES: &str = include_str!("runtime_probes.ph");
 
 pub fn monads_source() -> &'static str {
     MONADS_SOURCE
@@ -27,6 +32,10 @@ pub fn monads_source() -> &'static str {
 
 pub fn semantic_source() -> String {
     format!("{MONADS_SOURCE}\n{SEMANTIC_PROBES}")
+}
+
+pub fn runtime_source() -> String {
+    format!("{MONADS_SOURCE}\n{RUNTIME_PROBES}")
 }
 
 pub fn with_monads(extra: &str) -> String {
@@ -327,4 +336,18 @@ impl Fixture {
             .collect::<Vec<_>>();
         assert!(errors.is_empty(), "unexpected semantic errors: {errors:#?}");
     }
+}
+
+pub fn run_inline(source: &str) -> Result<(VM, phalcom_core::heap::ObjRef), PhError> {
+    let mut vm = VM::new();
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).map_err(PhError::from)?;
+    vm.run_compiled(&program)?;
+    let entry_id = program.initialization_order.last().expect("entry module");
+    let module = vm.module_registry.get(entry_id).expect("entry module registered").object;
+    Ok((vm, module))
+}
+
+pub fn slot(vm: &VM, module: phalcom_core::heap::ObjRef, name: &str) -> Option<Value> {
+    let symbol = vm.interner.find(name)?;
+    vm.heap.module(module).get(symbol)
 }
