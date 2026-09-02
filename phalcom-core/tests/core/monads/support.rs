@@ -7,10 +7,10 @@ use phalcom_core::modules::compile::{EntrySelection, ProgramCompiler};
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
 use phalcom_modules::identity::ModuleId;
-use phalcom_semantic::checker::analysis::{BindingState, CallableAnalysis, ExpressionAnalysis};
+use phalcom_semantic::checker::analysis::{AnalysisStatus, BindingState, CallableAnalysis, ExpressionAnalysis};
 use phalcom_semantic::declarations::DeclarationTypeInfo;
-use phalcom_semantic::diagnostic::DiagnosticSeverity;
-use phalcom_semantic::explain::{ExplanationStep, GenericConstraintOrigin};
+use phalcom_semantic::diagnostic::{DiagnosticCode, DiagnosticSeverity, SemanticDiagnostic};
+use phalcom_semantic::explain::{ExplanationStep, GenericConstraintOrigin, GenericConstraintRelation};
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 use phalcom_semantic::types::evidence::EvidenceStatus;
 use phalcom_semantic::types::id::{KindId, TypeId, TypeParameterId};
@@ -104,10 +104,34 @@ impl Fixture {
             .unwrap_or_else(|| panic!("missing parameter {owner}[{index}]"))
     }
 
+    pub fn callable_generic_parameter(&self, owner: &str, name: &str, side: DispatchSide, index: usize) -> TypeParameterId {
+        let callable = self.callable_id(owner, name, side);
+        let signature = self
+            .analysis
+            .snapshot
+            .callable_signatures
+            .get(&callable)
+            .unwrap_or_else(|| panic!("missing canonical callable signature for {callable:?}"));
+        signature
+            .generics
+            .as_ref()
+            .and_then(|generics| generics.parameter_at(index))
+            .unwrap_or_else(|| panic!("missing generic parameter {index} for {callable:?}"))
+    }
+
     pub fn type_parameter_form(&self, owner: &str, index: u32) -> TypeId {
         let parameter = self.type_parameter(owner, index);
-        let mut store = (*self.analysis.snapshot.store).clone();
-        store.parameter_form(parameter)
+        let mut cloned = (*self.analysis.snapshot.store).clone();
+        let form = cloned.parameter_form(parameter);
+        assert!(
+            form.index() < self.analysis.snapshot.store.type_count(),
+            "test helper would return a TypeId interned only in a cloned store: {form:?}"
+        );
+        assert!(
+            matches!(self.analysis.snapshot.store.get(form), TypeData::Parameter(found) if *found == parameter),
+            "canonical parameter form in original store does not match {parameter:?}"
+        );
+        form
     }
 
     pub fn unary_kind(&self) -> KindId {
@@ -137,10 +161,11 @@ impl Fixture {
     }
 
     pub fn assert_nominal(&self, ty: TypeId, expected: &str) {
+        let expected_decl = self.decl(expected);
         match self.analysis.snapshot.store.get(ty) {
-            TypeData::Nominal { declaration } if declaration.name.as_ref() == expected => {}
+            TypeData::Nominal { declaration } if declaration == &expected_decl => {}
             other => panic!(
-                "expected nominal `{expected}`, got {other:?} ({})",
+                "expected nominal `{expected}` ({expected_decl:?}), got {other:?} ({})",
                 self.analysis.snapshot.store.format_type(ty)
             ),
         }
@@ -230,6 +255,17 @@ impl Fixture {
         shortest
     }
 
+    pub fn assert_expression_call(
+        &self,
+        expression: &ExpressionAnalysis,
+        expected_callable: &CallableId,
+        expected_type: TypeId,
+    ) {
+        assert!(matches!(expression.status, AnalysisStatus::Ready), "call expression must be ready: {expression:#?}");
+        assert_eq!(expression.callable.as_ref(), Some(expected_callable), "unexpected resolved callable: {expression:#?}");
+        assert_eq!(expression.knowledge.ty(), Some(expected_type), "unexpected call result type: {expression:#?}");
+    }
+
     pub fn generic_trace<'a>(&'a self, callable: &'a CallableAnalysis, expression: &ExpressionAnalysis) -> Vec<&'a phalcom_semantic::ExplanationNode> {
         let id = expression.explanation.expect("expression must have an explanation");
         causal_trace(&callable.explanations, id)
@@ -239,15 +275,63 @@ impl Fixture {
         self.analysis.snapshot.store.type_parameter(parameter).name.as_ref()
     }
 
-    pub fn generic_solution_type(&self, callable: &CallableAnalysis, expression: &ExpressionAnalysis, parameter_name: &str) -> TypeId {
+    pub fn generic_solution_type_for(&self, callable: &CallableAnalysis, expression: &ExpressionAnalysis, parameter: TypeParameterId) -> TypeId {
         let trace = self.generic_trace(callable, expression);
-        trace
+        let matches = trace
             .iter()
-            .find_map(|node| match &node.step {
-                ExplanationStep::GenericSolution { parameter, ty, .. } if self.parameter_name(*parameter) == parameter_name => Some(*ty),
+            .filter_map(|node| match &node.step {
+                ExplanationStep::GenericSolution { parameter: found, ty, .. } if *found == parameter => Some(*ty),
                 _ => None,
             })
-            .unwrap_or_else(|| panic!("missing generic solution for `{parameter_name}`: {trace:#?}"))
+            .collect::<Vec<_>>();
+        assert_eq!(matches.len(), 1, "expected one generic solution for {parameter:?}: {trace:#?}");
+        matches[0]
+    }
+
+    pub fn generic_solution_type(&self, callable: &CallableAnalysis, expression: &ExpressionAnalysis, parameter_name: &str) -> TypeId {
+        let trace = self.generic_trace(callable, expression);
+        let matches = trace
+            .iter()
+            .filter_map(|node| match &node.step {
+                ExplanationStep::GenericSolution { parameter, ty, .. } if self.parameter_name(*parameter) == parameter_name => Some((*parameter, *ty)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            matches.len(),
+            1,
+            "name-based generic solution lookup for `{parameter_name}` is ambiguous or missing; use exact TypeParameterId when scopes overlap: {trace:#?}"
+        );
+        matches[0].1
+    }
+
+    pub fn assert_callable_selection(
+        &self,
+        callable: &CallableAnalysis,
+        expression: &ExpressionAnalysis,
+        expected_callable: &CallableId,
+        expected_receiver: TypeId,
+        expected_declaring_owner: &DeclarationId,
+        expected_path: &[DeclarationId],
+    ) {
+        let trace = self.generic_trace(callable, expression);
+        let matches = trace
+            .iter()
+            .filter_map(|node| match &node.step {
+                ExplanationStep::CallableSelection {
+                    callable,
+                    receiver,
+                    declaring_owner,
+                    specialization_path,
+                } if callable == expected_callable => Some((*receiver, declaring_owner, specialization_path)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(matches.len(), 1, "expected one callable selection for {expected_callable:?}: {trace:#?}");
+        let (receiver, owner, path) = matches[0];
+        assert_eq!(receiver, expected_receiver, "wrong receiver in callable selection");
+        assert_eq!(owner, expected_declaring_owner, "wrong declaring owner in callable selection");
+        assert_eq!(path.as_ref(), expected_path, "wrong receiver specialization path");
     }
 
     pub fn assert_callable_selection_path(
@@ -258,18 +342,41 @@ impl Fixture {
         expected_path: &[&str],
     ) {
         let trace = self.generic_trace(callable, expression);
-        let selection = trace.iter().find_map(|node| match &node.step {
-            ExplanationStep::CallableSelection {
-                declaring_owner,
-                specialization_path,
-                ..
-            } => Some((declaring_owner, specialization_path)),
-            _ => None,
-        });
-        let (owner, path) = selection.unwrap_or_else(|| panic!("missing callable selection: {trace:#?}"));
-        assert_eq!(owner.name.as_ref(), declaring_owner);
-        let actual = path.iter().map(|owner| owner.name.as_ref()).collect::<Vec<_>>();
-        assert_eq!(actual, expected_path);
+        let expected_owner = self.decl(declaring_owner);
+        let expected_path = expected_path.iter().map(|name| self.decl(name)).collect::<Vec<_>>();
+        let matches = trace
+            .iter()
+            .filter_map(|node| match &node.step {
+                ExplanationStep::CallableSelection {
+                    declaring_owner,
+                    specialization_path,
+                    ..
+                } if declaring_owner == &expected_owner && specialization_path.as_ref() == expected_path.as_slice() => Some(()),
+                _ => None,
+            })
+            .count();
+        assert_eq!(matches, 1, "expected one exact owner/path callable selection: {trace:#?}");
+    }
+
+    pub fn assert_generic_solution_exact(
+        &self,
+        callable: &CallableAnalysis,
+        expression: &ExpressionAnalysis,
+        parameter: TypeParameterId,
+        expected: TypeId,
+        expected_status: EvidenceStatus,
+    ) {
+        let trace = self.generic_trace(callable, expression);
+        let matches = trace
+            .iter()
+            .filter_map(|node| match &node.step {
+                ExplanationStep::GenericSolution { parameter: found, ty, status } if *found == parameter => Some((*ty, *status)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(matches.len(), 1, "expected one generic solution for {parameter:?}: {trace:#?}");
+        assert_eq!(matches[0].0, expected, "wrong generic solution for {parameter:?}");
+        assert_eq!(matches[0].1, expected_status, "wrong evidence status for {parameter:?}");
     }
 
     pub fn assert_generic_solution(
@@ -280,13 +387,49 @@ impl Fixture {
         expected: TypeId,
     ) {
         let trace = self.generic_trace(callable, expression);
-        let solution = trace.iter().find_map(|node| match &node.step {
-            ExplanationStep::GenericSolution { parameter, ty, status } if self.parameter_name(*parameter) == parameter_name => Some((*ty, *status)),
-            _ => None,
-        });
-        let (actual, status) = solution.unwrap_or_else(|| panic!("missing generic solution for `{parameter_name}`: {trace:#?}"));
-        assert_eq!(actual, expected, "wrong solution for `{parameter_name}`");
-        assert!(matches!(status, EvidenceStatus::Established | EvidenceStatus::Assumed));
+        let matches = trace
+            .iter()
+            .filter_map(|node| match &node.step {
+                ExplanationStep::GenericSolution { parameter, ty, status } if self.parameter_name(*parameter) == parameter_name => {
+                    Some((*parameter, *ty, *status))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            matches.len(),
+            1,
+            "name-based generic solution lookup for `{parameter_name}` is ambiguous or missing; use exact TypeParameterId when scopes overlap: {trace:#?}"
+        );
+        assert_eq!(matches[0].1, expected, "wrong solution for `{parameter_name}`");
+    }
+
+    pub fn assert_generic_constraint_exact(
+        &self,
+        callable: &CallableAnalysis,
+        expression: &ExpressionAnalysis,
+        parameter: TypeParameterId,
+        expected_origin: GenericConstraintOrigin,
+        expected_relation: GenericConstraintRelation,
+    ) {
+        let trace = self.generic_trace(callable, expression);
+        assert!(
+            trace.iter().any(|node| {
+                matches!(
+                    &node.step,
+                    ExplanationStep::GenericConstraint { parameter: found, origin, relation }
+                        if *found == parameter && *origin == expected_origin && *relation == expected_relation
+                )
+            }),
+            "missing exact generic constraint for {parameter:?} from {expected_origin:?} with {expected_relation:?}: {trace:#?}"
+        );
+    }
+
+    pub fn generic_constraint_count(&self, callable: &CallableAnalysis, expression: &ExpressionAnalysis, parameter: TypeParameterId) -> usize {
+        self.generic_trace(callable, expression)
+            .iter()
+            .filter(|node| matches!(&node.step, ExplanationStep::GenericConstraint { parameter: found, .. } if *found == parameter))
+            .count()
     }
 
     pub fn assert_generic_constraint_origin(
@@ -297,15 +440,18 @@ impl Fixture {
         expected_origin: GenericConstraintOrigin,
     ) {
         let trace = self.generic_trace(callable, expression);
-        assert!(
-            trace.iter().any(|node| {
-                matches!(
-                    &node.step,
-                    ExplanationStep::GenericConstraint { parameter, origin, .. }
-                        if self.parameter_name(*parameter) == parameter_name && *origin == expected_origin
-                )
-            }),
-            "missing generic constraint `{parameter_name}` from {expected_origin:?}: {trace:#?}"
+        let matching_parameters = trace
+            .iter()
+            .filter_map(|node| match &node.step {
+                ExplanationStep::GenericConstraint { parameter, origin, .. }
+                    if self.parameter_name(*parameter) == parameter_name && *origin == expected_origin => Some(*parameter),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            matching_parameters.len(),
+            1,
+            "name-based generic constraint lookup for `{parameter_name}` is ambiguous or missing; use exact TypeParameterId when scopes overlap: {trace:#?}"
         );
     }
 
@@ -316,15 +462,36 @@ impl Fixture {
         parameter_name: &str,
     ) {
         let trace = self.generic_trace(callable, expression);
-        let parameter = trace.iter().find_map(|node| match &node.step {
-            ExplanationStep::GenericSolution { parameter, .. } if self.parameter_name(*parameter) == parameter_name => Some(*parameter),
-            _ => None,
-        });
-        let parameter = parameter.unwrap_or_else(|| panic!("missing generic solution for `{parameter_name}`: {trace:#?}"));
+        let parameters = trace
+            .iter()
+            .filter_map(|node| match &node.step {
+                ExplanationStep::GenericSolution { parameter, .. } if self.parameter_name(*parameter) == parameter_name => Some(*parameter),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(parameters.len(), 1, "expected one solution parameter named `{parameter_name}`: {trace:#?}");
         assert!(
-            matches!(self.analysis.snapshot.store.type_parameter(parameter).owner, TypeParameterOwner::Callable(_)),
+            matches!(self.analysis.snapshot.store.type_parameter(parameters[0]).owner, TypeParameterOwner::Callable(_)),
             "method parameter `{parameter_name}` must remain callable-owned"
         );
+    }
+
+    pub fn diagnostics(&self, code: DiagnosticCode) -> Vec<&SemanticDiagnostic> {
+        self.analysis.snapshot.all_diagnostics().filter(|diagnostic| diagnostic.code == code).collect()
+    }
+
+    pub fn assert_only_error_codes(&self, expected: &[DiagnosticCode]) {
+        let mut actual = self
+            .analysis
+            .snapshot
+            .all_diagnostics()
+            .filter(|diagnostic| diagnostic.severity == DiagnosticSeverity::Error)
+            .map(|diagnostic| diagnostic.code)
+            .collect::<Vec<_>>();
+        actual.sort_by_key(|code| code.as_str());
+        let mut expected = expected.to_vec();
+        expected.sort_by_key(|code| code.as_str());
+        assert_eq!(actual, expected, "unexpected diagnostics");
     }
 
     pub fn assert_no_errors(&self) {
