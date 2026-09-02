@@ -1,10 +1,12 @@
 use super::support::{Fixture, semantic_source};
-use phalcom_semantic::explain::GenericConstraintOrigin;
+use phalcom_semantic::explain::{GenericConstraintOrigin, GenericConstraintRelation};
 use phalcom_semantic::identity::DispatchSide;
+use phalcom_semantic::types::evidence::EvidenceStatus;
 use phalcom_semantic::types::store::TypeData;
 
 /// MON-COMP-02/05: F must propagate through both callable return positions in
-/// Kleisli composition and the proof graph must retain the argument evidence.
+/// Kleisli composition and independent constructor evidence must converge on
+/// one canonical solution.
 #[test]
 fn kleisli_composition_preserves_higher_kinded_callable_shape_and_proof() {
     let f = Fixture::new(&semantic_source());
@@ -20,25 +22,50 @@ fn kleisli_composition_preserves_higher_kinded_callable_shape_and_proof() {
     f.assert_either(signature.return_type, f.ty("String"), f.ty("Bool"));
 
     let call = f.expression_containing(run, "MonadAlgorithms.kleisli(monad, first, second)");
-    f.assert_generic_solution(run, call, "A", f.ty("String"));
-    f.assert_generic_solution(run, call, "B", f.ty("Int"));
-    f.assert_generic_solution(run, call, "C", f.ty("Bool"));
-    f.assert_generic_constraint_origin(
+    let target = f.callable_id("MonadAlgorithms", "kleisli", DispatchSide::Class);
+    f.assert_expression_call(call, &target, composed);
+
+    let constructor_parameter = f.callable_generic_parameter("MonadAlgorithms", "kleisli", DispatchSide::Class, 0);
+    let a = f.callable_generic_parameter("MonadAlgorithms", "kleisli", DispatchSide::Class, 1);
+    let b = f.callable_generic_parameter("MonadAlgorithms", "kleisli", DispatchSide::Class, 2);
+    let c = f.callable_generic_parameter("MonadAlgorithms", "kleisli", DispatchSide::Class, 3);
+    let constructor = f.generic_solution_type_for(run, call, constructor_parameter);
+    f.assert_unary_constructor_kind(f.analysis.snapshot.store.kind_of(constructor));
+    f.assert_generic_solution_exact(run, call, constructor_parameter, constructor, EvidenceStatus::Assumed);
+    f.assert_generic_solution_exact(run, call, a, f.ty("String"), EvidenceStatus::Assumed);
+    f.assert_generic_solution_exact(run, call, b, f.ty("Int"), EvidenceStatus::Assumed);
+    f.assert_generic_solution_exact(run, call, c, f.ty("Bool"), EvidenceStatus::Assumed);
+
+    let monad_ty = f.binding(run, "monad").current.ty().expect("monad type");
+    let first_ty = f.binding(run, "first").current.ty().expect("first type");
+    let second_ty = f.binding(run, "second").current.ty().expect("second type");
+    f.assert_generic_constraint_exact(
         run,
         call,
-        "B",
+        constructor_parameter,
+        GenericConstraintOrigin::Argument { parameter_index: 0 },
+        GenericConstraintRelation::SupertypeOf(monad_ty),
+    );
+    f.assert_generic_constraint_exact(
+        run,
+        call,
+        constructor_parameter,
         GenericConstraintOrigin::Argument { parameter_index: 1 },
+        GenericConstraintRelation::SupertypeOf(first_ty),
     );
-    f.assert_generic_constraint_origin(
+    f.assert_generic_constraint_exact(
         run,
         call,
-        "C",
+        constructor_parameter,
         GenericConstraintOrigin::Argument { parameter_index: 2 },
+        GenericConstraintRelation::SupertypeOf(second_ty),
     );
+    assert!(f.generic_constraint_count(run, call, constructor_parameter) >= 3);
 }
 
 /// MON-COMP-03/04/05: traverse reconciles Monad<F>, List<A>, and
-/// (A) -> F<B>, then beta-reduces F<List<B>> to the concrete Either result.
+/// (A) -> F<B>, beta-reduces F<List<B>>, and records both independent F evidence
+/// paths instead of relying on a late Dynamic fallback.
 #[test]
 fn traverse_specializes_to_either_of_list_and_records_independent_evidence() {
     let f = Fixture::new(&semantic_source());
@@ -52,18 +79,48 @@ fn traverse_specializes_to_either_of_list_and_records_independent_evidence() {
     assert_eq!(list_args[0], f.ty("Bool"));
 
     let call = f.expression_containing(run, "MonadAlgorithms.traverse(monad, values, transform)");
-    f.assert_generic_solution(run, call, "A", f.ty("Int"));
-    f.assert_generic_solution(run, call, "B", f.ty("Bool"));
-    f.assert_generic_constraint_origin(
+    let target = f.callable_id("MonadAlgorithms", "traverse", DispatchSide::Class);
+    f.assert_expression_call(call, &target, traversed);
+
+    let constructor_parameter = f.callable_generic_parameter("MonadAlgorithms", "traverse", DispatchSide::Class, 0);
+    let a = f.callable_generic_parameter("MonadAlgorithms", "traverse", DispatchSide::Class, 1);
+    let b = f.callable_generic_parameter("MonadAlgorithms", "traverse", DispatchSide::Class, 2);
+    let constructor = f.generic_solution_type_for(run, call, constructor_parameter);
+    f.assert_unary_constructor_kind(f.analysis.snapshot.store.kind_of(constructor));
+    f.assert_generic_solution_exact(run, call, constructor_parameter, constructor, EvidenceStatus::Assumed);
+    f.assert_generic_solution_exact(run, call, a, f.ty("Int"), EvidenceStatus::Assumed);
+    f.assert_generic_solution_exact(run, call, b, f.ty("Bool"), EvidenceStatus::Assumed);
+
+    let monad_ty = f.binding(run, "monad").current.ty().expect("monad type");
+    let values_ty = f.binding(run, "values").current.ty().expect("values type");
+    let transform_ty = f.binding(run, "transform").current.ty().expect("transform type");
+    f.assert_generic_constraint_exact(
         run,
         call,
-        "A",
-        GenericConstraintOrigin::Argument { parameter_index: 1 },
+        constructor_parameter,
+        GenericConstraintOrigin::Argument { parameter_index: 0 },
+        GenericConstraintRelation::SupertypeOf(monad_ty),
     );
-    f.assert_generic_constraint_origin(
+    f.assert_generic_constraint_exact(
         run,
         call,
-        "B",
+        constructor_parameter,
         GenericConstraintOrigin::Argument { parameter_index: 2 },
+        GenericConstraintRelation::SupertypeOf(transform_ty),
     );
+    f.assert_generic_constraint_exact(
+        run,
+        call,
+        a,
+        GenericConstraintOrigin::Argument { parameter_index: 1 },
+        GenericConstraintRelation::SupertypeOf(values_ty),
+    );
+    f.assert_generic_constraint_exact(
+        run,
+        call,
+        b,
+        GenericConstraintOrigin::Argument { parameter_index: 2 },
+        GenericConstraintRelation::SupertypeOf(transform_ty),
+    );
+    assert!(f.generic_constraint_count(run, call, constructor_parameter) >= 2);
 }
