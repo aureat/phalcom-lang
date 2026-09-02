@@ -1613,11 +1613,13 @@ fn expected_record_field(ctx: &CheckingContext<'_>, expected: &ExpectedType, nam
         }
     }
 
-    if let ExpectedType::Inference { term, origin } = expected {
-        if let crate::checker::inference::InferenceTerm::Record(record) = term {
-            if let Some(field) = record.fields.iter().find(|field| field.name.as_ref() == name) {
-                return ExpectedType::inference_from(field.term.clone(), *origin);
-            }
+    if let ExpectedType::Inference {
+        term: crate::checker::inference::InferenceTerm::Record(record),
+        origin,
+    } = expected
+    {
+        if let Some(field) = record.fields.iter().find(|field| field.name.as_ref() == name) {
+            return ExpectedType::inference_from(field.term.clone(), *origin);
         }
     }
 

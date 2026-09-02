@@ -988,9 +988,11 @@ fn apply_generic_callable_inner(
             row_session.as_mut(),
             row_outcome.as_ref(),
             Some(solution),
-            return_term.as_ref(),
-            &signature.return_type,
-            call_range,
+            GenericReturnPublication {
+                return_term: return_term.as_ref(),
+                signature_return: &signature.return_type,
+                call_range,
+            },
         )),
         _ => None,
     };
@@ -1247,9 +1249,11 @@ fn apply_generic_callable_inner(
             row_session.as_mut(),
             row_outcome.as_ref(),
             Some(solution),
-            return_term.as_ref(),
-            &signature.return_type,
-            call_range,
+            GenericReturnPublication {
+                return_term: return_term.as_ref(),
+                signature_return: &signature.return_type,
+                call_range,
+            },
         ),
         crate::checker::inference::InferenceOutcome::Ambiguous(_) => terminal_generic_return(&outcome, fixed_return),
         crate::checker::inference::InferenceOutcome::Conflicting(_)
@@ -1327,16 +1331,25 @@ fn publish_generic_return(
     }
 }
 
+struct GenericReturnPublication<'a> {
+    return_term: Option<&'a InferenceTerm>,
+    signature_return: &'a TypeKnowledge,
+    call_range: SourceRange,
+}
+
 fn publish_generic_return_with_rows(
     ctx: &mut CheckingContext<'_>,
     session: &InferenceSession,
     row_session: Option<&mut GenericApplicationSession>,
     row_outcome: Option<&crate::types::row_solver::RecordRowSolveResult>,
     type_solution: Option<&crate::checker::inference::InferenceSolution>,
-    return_term: Option<&InferenceTerm>,
-    signature_return: &TypeKnowledge,
-    call_range: SourceRange,
+    publication: GenericReturnPublication<'_>,
 ) -> TypeKnowledge {
+    let GenericReturnPublication {
+        return_term,
+        signature_return,
+        call_range,
+    } = publication;
     let Some(rows) = row_session else {
         return publish_generic_return(ctx, session, return_term, signature_return, call_range);
     };

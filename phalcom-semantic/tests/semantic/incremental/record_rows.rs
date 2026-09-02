@@ -226,7 +226,7 @@ fn cold_and_incremental_row_semantics_match() {
         .snapshot
         .callable_analyses
         .get(&consumer_callable(&module))
-        .map(|analysis| analysis.status.clone());
+        .map(|analysis| analysis.status);
 
     let mut cold = SemanticWorkspaceSession::new();
     let cold_result = cold.update(single_module_input(module.clone(), &source_c, 1));
@@ -235,7 +235,7 @@ fn cold_and_incremental_row_semantics_match() {
         .snapshot
         .callable_analyses
         .get(&consumer_callable(&module))
-        .map(|analysis| analysis.status.clone());
+        .map(|analysis| analysis.status);
 
     assert_eq!(incremental_codes, cold_codes, "incremental and cold diagnostics must agree");
     assert_eq!(incremental_status, cold_status, "incremental and cold callable status must agree");
