@@ -12,7 +12,7 @@ use crate::associated::AssociatedMemberId;
 use crate::checker::analysis::AnalysisStatus;
 use crate::checker::associated::{
     AssociatedResolution, AssociatedResolutionKind, BehavioralFamilySpec, FamilyApplicationCandidate, FamilyApplicationResolution, FamilyApplicationSelection,
-    check_reification_underconstrained, resolve_associated_owner, resolve_bound_behavioral_family, resolve_effective_associated_family,
+    check_reification_underconstrained, contains_any_type_parameter, resolve_associated_owner, resolve_bound_behavioral_family, resolve_effective_associated_family,
     specialize_associated_member,
 };
 use crate::checker::binding::{BindingConsistency, BindingWriteResult, reconcile_binding_relation};
@@ -931,19 +931,25 @@ fn synthesize_associated_lookup(ctx: &mut CheckingContext<'_>, lookup: &Associat
                     let mut captured_members = Vec::new();
 
                     for member_id in &family.members {
-                        if let Ok(spec) = specialize_associated_member(ctx, &owner, member_id, lookup.range) {
-                            let member_type = match spec.target {
-                                Some(_) => crate::types::family::FamilyMemberType::callable(spec.operation.clone(), spec.value_type),
-                                None => crate::types::family::FamilyMemberType::value(spec.operation.clone(), spec.value_type),
-                            };
-                            family_member_types.push(member_type);
-                            captured_members.push(crate::types::denotation::CapturedAssociatedMember {
-                                operation: spec.operation.clone(),
-                                member: member_id.clone(),
-                                target: spec.target.clone(),
-                            });
-                            specialized_members.push(spec);
-                        }
+                        let Ok(spec) = specialize_associated_member(ctx, &owner, member_id, lookup.range) else {
+                            ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::InvalidAnnotation(
+                                DiagnosticCode::AssociatedMemberMissing,
+                            )));
+                            return TypedExpression::unknown(UnknownReason::InferenceBlocked).with_status(AnalysisStatus::Blocked(
+                                crate::types::outcome::BlockReason::InvalidAnnotation(DiagnosticCode::AssociatedMemberMissing),
+                            ));
+                        };
+                        let member_type = match spec.target {
+                            Some(_) => crate::types::family::FamilyMemberType::callable(spec.operation.clone(), spec.value_type),
+                            None => crate::types::family::FamilyMemberType::value(spec.operation.clone(), spec.value_type),
+                        };
+                        family_member_types.push(member_type);
+                        captured_members.push(crate::types::denotation::CapturedAssociatedMember {
+                            operation: spec.operation.clone(),
+                            member: member_id.clone(),
+                            target: spec.target.clone(),
+                        });
+                        specialized_members.push(spec);
                     }
 
                     let Ok(family_type) = ctx.store.family_type(family_member_types) else {
@@ -1173,7 +1179,8 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
                 .collect::<Result<Vec<_>, ()>>();
             let Ok(parameters) = parameters else {
                 ctx.record_call_status(AnalysisStatus::Blocked(BlockReason::InvalidAnnotation(DiagnosticCode::AssociatedMemberMissing)));
-                return TypedExpression::unknown(UnknownReason::InferenceBlocked);
+                return TypedExpression::unknown(UnknownReason::InferenceBlocked)
+                    .with_status(AnalysisStatus::Blocked(BlockReason::InvalidAnnotation(DiagnosticCode::AssociatedMemberMissing)));
             };
             let constructor_result_type = TypeView::new(constructor.exact_case_template, env).materialize(ctx.store);
             let mut signature = CallableSignature::new(
@@ -1679,13 +1686,6 @@ fn captured_family_target(denotation: Option<&SemanticDenotation>, operation: &F
         .and_then(|member| member.target.clone())
 }
 
-fn callable_return_type(ctx: &CheckingContext<'_>, callable_type: TypeId) -> Option<TypeId> {
-    let TypeData::Callable(callable) = ctx.store.get(callable_type) else {
-        return None;
-    };
-    Some(callable.return_type)
-}
-
 fn family_callable_application_target(
     ctx: &CheckingContext<'_>,
     callable_type: TypeId,
@@ -1702,6 +1702,13 @@ fn family_callable_application_target(
         };
     }
     Some(application_target)
+}
+
+fn independent_callable_return_type(ctx: &CheckingContext<'_>, callable_type: TypeId) -> Option<TypeId> {
+    let TypeData::Callable(callable) = ctx.store.get(callable_type) else {
+        return None;
+    };
+    (!contains_any_type_parameter(ctx.store, callable.return_type)).then_some(callable.return_type)
 }
 
 fn synthesize_family_value_call(
@@ -1734,7 +1741,7 @@ fn synthesize_family_value_call(
             let Some(application_target) = family_callable_application_target(ctx, callable_type, target.as_ref(), authority) else {
                 return analyze_unresolved_application(ctx, premise, arguments, UnresolvedApplicationReason::DispatchMissing).into();
             };
-            let fallback_result_type = callable_return_type(ctx, callable_type);
+            let fallback_result_type = independent_callable_return_type(ctx, callable_type);
             let result = apply_resolved_callable(ctx, &application_target, premise, arguments, expected, range);
             let Some(result_type) = result.knowledge.ty().or(fallback_result_type) else {
                 return result.into();

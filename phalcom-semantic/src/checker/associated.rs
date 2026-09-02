@@ -411,21 +411,27 @@ pub fn specialize_associated_member(
                 })
             } else if let Some(constructor) = &variant_info.constructor {
                 let constructor_result = TypeView::new(constructor.exact_case_template, env.clone()).materialize(ctx.store);
-                let object_decl = ctx.core_ids.object.clone();
-                let object_ty = ctx.store.nominal(object_decl);
-                let parameters: Vec<CallableParameterType> = constructor
-                    .parameters
-                    .iter()
-                    .map(|p| {
-                        let p_ty = p.declared_type.canonical_type().unwrap_or(object_ty);
-                        let ty = TypeView::new(p_ty, env.clone()).materialize(ctx.store);
-                        CallableParameterType {
-                            label: p.external_label.clone(),
-                            ty,
-                            rest: phalcom_ast::ast::RestMode::None,
-                        }
-                    })
-                    .collect();
+                let mut parameters = Vec::with_capacity(constructor.parameters.len());
+                for parameter in &constructor.parameters {
+                    let Some(parameter_type) = parameter.declared_type.canonical_type() else {
+                        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                            ctx.current_module.clone(),
+                            DiagnosticCode::AssociatedMemberMissing,
+                            format!(
+                                "variant `{}` has unresolved constructor parameter `{}`",
+                                variant_id.selector, parameter.local_name
+                            ),
+                            range,
+                        ));
+                        return Err(AssociatedResolutionError);
+                    };
+                    let ty = TypeView::new(parameter_type, env.clone()).materialize(ctx.store);
+                    parameters.push(CallableParameterType {
+                        label: parameter.external_label.clone(),
+                        ty,
+                        rest: phalcom_ast::ast::RestMode::None,
+                    });
+                }
 
                 let callable_ty = ctx.store.callable(CallableType {
                     parameters: parameters.into_boxed_slice(),

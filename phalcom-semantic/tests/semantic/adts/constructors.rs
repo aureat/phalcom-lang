@@ -201,6 +201,34 @@ class Probe {
 }
 
 #[test]
+fn adt_constr_11_unresolved_payload_type_blocks_without_object_fallback() {
+    let fixture = Fixture::new(
+        r#"
+enum Broken<T> {
+  @variant Value(_ payload: MissingType) -> Broken<T>
+}
+
+class Probe {
+  @class
+  run() {
+    let family = Broken::Value::*
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+    let family = fixture.expression(run, "Broken::Value::*");
+    assert_eq!(family.knowledge.ty(), None);
+    assert!(matches!(family.knowledge, TypeKnowledge::Unknown(UnknownReason::InferenceBlocked)));
+    assert!(
+        matches!(family.status, AnalysisStatus::Blocked(_) | AnalysisStatus::Invalid(_)),
+        "unexpected family status: {:?}",
+        family.status
+    );
+    fixture.assert_diagnostic(DiagnosticCode::AssociatedMemberMissing, 1);
+}
+
+#[test]
 fn ordinary_constructor_infers_from_formal_parameter_types_not_argument_position() {
     let fixture = Fixture::new(
         r#"
