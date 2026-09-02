@@ -122,6 +122,11 @@ impl CheckerControl {
         self.budget.borrow_mut().charge_step()
     }
 
+    /// Charges one shared fixed-point iteration against query policy.
+    pub fn charge_scc_iteration(&self) -> Result<(), BudgetReport> {
+        self.budget.borrow_mut().charge_scc_iteration()
+    }
+
     pub fn relation<R>(&self, f: impl FnOnce(&mut QueryBudget, &CancellationToken) -> R) -> R {
         let mut budget = self.budget.borrow_mut();
         f(&mut budget, &self.cancellation)

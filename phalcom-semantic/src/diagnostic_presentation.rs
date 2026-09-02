@@ -170,6 +170,7 @@ impl<'a> DiagnosticPresenter<'a> {
             DiagnosticCode::CallShapeMismatch => "call does not match the callable shape".into(),
             DiagnosticCode::GenericInferenceConflict => "generic constraints conflict".into(),
             DiagnosticCode::GenericInferenceUnderconstrained => "generic parameter is underconstrained".into(),
+            DiagnosticCode::GenericInferenceAmbiguous => "generic inference has multiple admissible solutions".into(),
             DiagnosticCode::GenericConstraintUnsatisfied => "generic constraint is not satisfied".into(),
             DiagnosticCode::KindExpectedType => "type constructor used where a proper type is required".into(),
             DiagnosticCode::ApplicationTooManyArguments => "too many type arguments".into(),

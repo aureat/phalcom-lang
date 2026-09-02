@@ -1042,6 +1042,31 @@ fn apply_generic_callable_inner(
 
     match &outcome {
         crate::checker::inference::InferenceOutcome::Underconstrained(_) => {}
+        crate::checker::inference::InferenceOutcome::Ambiguous(ambiguity) => {
+            let mut diagnostic = SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::GenericInferenceAmbiguous,
+                format!("generic inference has {} admissible solutions", ambiguity.candidates.len()),
+                call_range,
+            );
+            if let Some(owner) = ctx.current_callable.clone() {
+                let explanation = ctx.record_derivation(
+                    crate::explain::ExplanationStep::UnknownBoundary {
+                        reason: UnknownReason::InferenceAmbiguous,
+                        source: Some(call_range),
+                    },
+                    crate::explain::DerivationRule::UnknownPropagation,
+                    EvidenceStatus::Assumed,
+                    EvidenceOrigin::GenericInference,
+                    vec![crate::explain::EvidenceRef::SourceSpan(call_range)],
+                    session.all_constraint_explanation_roots(),
+                );
+                diagnostic = diagnostic.with_explanation(crate::diagnostic::ExplanationRef::new(owner, explanation));
+            }
+            if let Some(cause) = ctx.emit_diagnostic(diagnostic) {
+                ctx.record_call_status(AnalysisStatus::Invalid(cause));
+            }
+        }
         crate::checker::inference::InferenceOutcome::Conflicting(conflict) => {
             let range = conflict_source_range(ctx, &session, conflict, call_range);
             let parameter = match &conflict.failure {
@@ -1110,6 +1135,7 @@ fn apply_generic_callable_inner(
         crate::checker::inference::InferenceOutcome::Solved(_) => {
             publish_generic_return(ctx, &session, return_term.as_ref(), &signature.return_type, call_range)
         }
+        crate::checker::inference::InferenceOutcome::Ambiguous(_) => terminal_generic_return(&outcome, fixed_return),
         crate::checker::inference::InferenceOutcome::Conflicting(_)
         | crate::checker::inference::InferenceOutcome::Blocked(_)
         | crate::checker::inference::InferenceOutcome::Cancelled
@@ -1432,6 +1458,7 @@ fn terminal_generic_return(outcome: &crate::checker::inference::InferenceOutcome
     }
     match outcome {
         crate::checker::inference::InferenceOutcome::Underconstrained(_) => TypeKnowledge::Unknown(UnknownReason::UnderconstrainedTypeVariable),
+        crate::checker::inference::InferenceOutcome::Ambiguous(_) => TypeKnowledge::Unknown(UnknownReason::InferenceAmbiguous),
         crate::checker::inference::InferenceOutcome::Conflicting(_) => TypeKnowledge::Unknown(UnknownReason::InferenceConflict),
         crate::checker::inference::InferenceOutcome::Blocked(_) => TypeKnowledge::Unknown(UnknownReason::InferenceBlocked),
         crate::checker::inference::InferenceOutcome::Cancelled => TypeKnowledge::Unknown(UnknownReason::InferenceCancelled),

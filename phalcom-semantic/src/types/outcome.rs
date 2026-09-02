@@ -65,6 +65,7 @@ pub struct QueryBudget {
 
     pub steps_taken: u64,
     pub pairs_checked: u32,
+    pub scc_iterations_taken: u32,
 }
 
 /// Error returned when a cancellation token observes cancellation.
@@ -81,6 +82,7 @@ impl Default for QueryBudget {
             max_diagnostic_notes: 32,
             steps_taken: 0,
             pairs_checked: 0,
+            scc_iterations_taken: 0,
         }
     }
 }
@@ -95,6 +97,7 @@ impl QueryBudget {
             max_diagnostic_notes: 32,
             steps_taken: 0,
             pairs_checked: 0,
+            scc_iterations_taken: 0,
         }
     }
 
@@ -114,6 +117,20 @@ impl QueryBudget {
                 BudgetKind::RelationPairs,
                 self.max_relation_pairs as u64,
                 self.pairs_checked as u64,
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Charges one shared fixed-point iteration used by inference and SCC queries.
+    pub fn charge_scc_iteration(&mut self) -> Result<(), BudgetReport> {
+        self.scc_iterations_taken += 1;
+        if self.scc_iterations_taken > self.max_scc_iterations {
+            Err(BudgetReport::new(
+                BudgetKind::SccIterations,
+                self.max_scc_iterations as u64,
+                self.scc_iterations_taken as u64,
             ))
         } else {
             Ok(())
@@ -154,6 +171,7 @@ pub enum BlockReason {
     UnresolvedDependency(StableModuleKey),
     InvalidAnnotation(DiagnosticCode),
     RecursiveFixpoint,
+    InferenceDidNotConverge,
     OpaqueNative(Box<str>),
     ReflectionBoundary,
     BudgetExceeded(BudgetReport),

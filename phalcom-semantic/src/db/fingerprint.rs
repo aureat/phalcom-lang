@@ -734,6 +734,7 @@ fn hash_block_reason(reason: &BlockReason, hasher: &mut impl Hasher) {
             code.hash(hasher);
         }
         BlockReason::RecursiveFixpoint => 3u8.hash(hasher),
+        BlockReason::InferenceDidNotConverge => 8u8.hash(hasher),
         BlockReason::OpaqueNative(name) => {
             4u8.hash(hasher);
             name.hash(hasher);

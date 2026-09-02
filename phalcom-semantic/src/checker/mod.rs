@@ -51,7 +51,10 @@ pub use incident::{BindingContractSummary, InternalFailurePolicy, InternalSemant
 
 pub use flow::FlowState;
 pub use gadt_proof::{GadtProofResult, solve_gadt_branch_proof};
-pub use inference::{InferenceOutcome, InferenceSession, InferenceSupport, InferenceTerm};
+pub use inference::{
+    AmbiguousInference, InferenceCandidate, InferenceConstraintRole, InferenceMaterializationFailure, InferenceOutcome, InferenceSession, InferenceSupport,
+    InferenceTerm,
+};
 pub use pattern::resolve_pattern;
 pub use pattern_space::{ListSpace, PatternSpace, VariantSpace};
 pub use result::TypeCheckReport;
