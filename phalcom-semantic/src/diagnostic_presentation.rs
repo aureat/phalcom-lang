@@ -381,6 +381,16 @@ impl<'a> DiagnosticPresenter<'a> {
                 }
             }
             ExplanationStep::CallableSelection { callable, .. } => format!("selected callable `{}`", callable.selector),
+            ExplanationStep::UnionArm { receiver, outcome, .. } => match outcome {
+                crate::explain::UnionArmOutcome::Resolved => format!("union receiver arm `{}` resolved selector", self.types.present_type(*receiver)),
+                crate::explain::UnionArmOutcome::Missing { .. } => format!("union receiver arm `{}` has no matching selector", self.types.present_type(*receiver)),
+                crate::explain::UnionArmOutcome::Ambiguous => format!("union receiver arm `{}` has an ambiguous selector", self.types.present_type(*receiver)),
+                crate::explain::UnionArmOutcome::Dynamic { .. } => format!("union receiver arm `{}` crosses a dynamic boundary", self.types.present_type(*receiver)),
+                crate::explain::UnionArmOutcome::Invalid => format!("union receiver arm `{}` has an invalid application", self.types.present_type(*receiver)),
+                crate::explain::UnionArmOutcome::ContextConflict => {
+                    format!("union receiver arm `{}` conflicts with contextual closure expectations", self.types.present_type(*receiver))
+                }
+            },
             ExplanationStep::CallableKind { kind, .. } => match kind {
                 crate::dispatch::CallableSemanticKind::Constructor => "the selected callable is an @constructor".into(),
                 crate::dispatch::CallableSemanticKind::Ordinary => "the selected callable is an ordinary method".into(),

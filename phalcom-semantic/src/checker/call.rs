@@ -12,7 +12,7 @@ use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::{CallableParameter, CallableSemanticKind, CallableSignature, DispatchSignatureSpecialization};
 use crate::identity::{CallableId, ExplanationId};
 use crate::types::evidence::DynamicReason;
-use crate::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
+use crate::types::evidence::{join_type_knowledge, EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
 use crate::types::id::{TypeId, TypeParameterId};
 use crate::types::parameter::{GenericConstraint, TypeParameterOwner};
 use crate::types::store::{TypeData, TypeStore};
@@ -35,6 +35,26 @@ pub(crate) struct CallableApplicationTarget {
     pub authority: CallTargetAuthority,
     pub specialization: Option<DispatchSignatureSpecialization>,
     pub fixed_generics: Vec<(TypeParameterId, TypeId)>,
+}
+
+/// Dispatch result for one canonical member of a union receiver.
+#[derive(Clone, Debug)]
+pub(crate) enum UnionCallArm {
+    Found {
+        receiver: TypeId,
+        target: CallableApplicationTarget,
+    },
+    Missing {
+        receiver: TypeId,
+        visited_owners: Box<[crate::identity::DeclarationId]>,
+    },
+    Ambiguous {
+        receiver: TypeId,
+    },
+    Dynamic {
+        receiver: TypeId,
+        reason: DynamicReason,
+    },
 }
 
 impl CallableApplicationTarget {
@@ -1355,6 +1375,347 @@ pub(crate) fn apply_resolved_callable(
         causal_invalidity,
         explanation_parents,
         callable: target.callable.clone(),
+    };
+    debug_assert_call_result_coherent(&result);
+    result
+}
+
+fn union_status_priority(status: &AnalysisStatus) -> u8 {
+    match status {
+        AnalysisStatus::Ready => 0,
+        AnalysisStatus::DynamicBoundary(_) => 1,
+        AnalysisStatus::Suppressed(_) => 2,
+        AnalysisStatus::Blocked(_) => 3,
+        AnalysisStatus::BudgetExceeded(_) => 4,
+        AnalysisStatus::Cancelled => 5,
+        AnalysisStatus::InternalFailure(_) => 6,
+        AnalysisStatus::Invalid(_) => 7,
+    }
+}
+
+fn meet_union_status(status: &mut Option<AnalysisStatus>, candidate: AnalysisStatus) {
+    if candidate.is_ready() {
+        return;
+    }
+    if status.as_ref().is_none_or(|current| union_status_priority(&candidate) > union_status_priority(current)) {
+        *status = Some(candidate);
+    }
+}
+
+fn union_publication_knowledge(knowledge: TypeKnowledge, status: &AnalysisStatus) -> TypeKnowledge {
+    if status.is_ready() {
+        return knowledge;
+    }
+    match knowledge {
+        TypeKnowledge::Dynamic(reason) => TypeKnowledge::Dynamic(reason),
+        TypeKnowledge::Known(_) | TypeKnowledge::Unknown(_) => match status {
+            AnalysisStatus::Blocked(_) | AnalysisStatus::BudgetExceeded(_) | AnalysisStatus::Cancelled => {
+                TypeKnowledge::Unknown(UnknownReason::InferenceBlocked)
+            }
+            _ => TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause),
+        },
+    }
+}
+
+fn record_union_arm_explanation(
+    ctx: &mut CheckingContext<'_>,
+    receiver: TypeId,
+    callable: Option<CallableId>,
+    outcome: crate::explain::UnionArmOutcome,
+    parents: Vec<ExplanationId>,
+) -> ExplanationId {
+    let (status, origin) = match &outcome {
+        crate::explain::UnionArmOutcome::Dynamic { .. } => (EvidenceStatus::Assumed, EvidenceOrigin::DeclarationSemantics),
+        crate::explain::UnionArmOutcome::Resolved => (EvidenceStatus::Established, EvidenceOrigin::DeclarationSemantics),
+        _ => (EvidenceStatus::Assumed, EvidenceOrigin::DeclarationSemantics),
+    };
+    ctx.record_derivation(
+        crate::explain::ExplanationStep::UnionArm { receiver, callable, outcome },
+        crate::explain::DerivationRule::UnionArm,
+        status,
+        origin,
+        vec![crate::explain::EvidenceRef::TypeId(receiver)],
+        parents,
+    )
+}
+
+fn emit_union_dispatch_failure(ctx: &mut CheckingContext<'_>, message: String, range: SourceRange) -> (AnalysisStatus, CausalInvalidity) {
+    let cause = ctx
+        .emit_diagnostic(SemanticDiagnostic::error_in(ctx.current_module.clone(), DiagnosticCode::TypeMismatch, message, range))
+        .unwrap_or_else(|| ctx.alloc_diagnostic_cause());
+    (AnalysisStatus::Invalid(cause), CausalInvalidity::One(cause))
+}
+
+/// Applies one source call to every statically reachable union receiver arm.
+/// Receiver dispatch is resolved before this function, while argument ASTs are
+/// analyzed once and reused through `PreAnalyzed` application arguments.
+pub(crate) fn apply_union_resolved_call(
+    ctx: &mut CheckingContext<'_>,
+    premise: &CallPremise,
+    arms: &[UnionCallArm],
+    arguments: &[ApplicationArgument<'_>],
+    expected: &ExpectedType,
+    call_range: SourceRange,
+    selector: &Selector,
+) -> CallCheckResult {
+    ctx.begin_call_causal_capture();
+
+    let mut common_expectations = vec![None; arguments.len()];
+    let mut expectation_counts = vec![0usize; arguments.len()];
+    let mut found_counts = vec![0usize; arguments.len()];
+    let mut expectation_conflicts = vec![false; arguments.len()];
+    for arm in arms {
+        let UnionCallArm::Found { target, .. } = arm else {
+            continue;
+        };
+        let Ok(plan) = bind_static_arguments(arguments, &target.signature.parameters) else {
+            continue;
+        };
+        for argument_index in 0..arguments.len() {
+            let Some(parameter) = parameter_for_argument(&plan, argument_index, &target.signature.parameters) else {
+                continue;
+            };
+            found_counts[argument_index] += 1;
+            let Some(parameter_ty) = parameter.ty.ty() else {
+                continue;
+            };
+            expectation_counts[argument_index] += 1;
+            match common_expectations[argument_index] {
+                None => common_expectations[argument_index] = Some(parameter_ty),
+                Some(common) if common != parameter_ty => expectation_conflicts[argument_index] = true,
+                Some(_) => {}
+            }
+        }
+    }
+
+    let contextual_conflicts = arguments
+        .iter()
+        .enumerate()
+        .filter_map(|(index, argument)| {
+            (expectation_conflicts[index]
+                && found_counts[index] > 0
+                && expectation_counts[index] == found_counts[index]
+                && argument.expression().is_some_and(|expression| matches!(expression, Expr::Block(_))))
+            .then_some(index)
+        })
+        .collect::<Vec<_>>();
+
+    let mut typed_arguments = Vec::with_capacity(arguments.len());
+    for (index, argument) in arguments.iter().copied().enumerate() {
+        let argument_expected = if contextual_conflicts.contains(&index) {
+            ExpectedType::None
+        } else if !expectation_conflicts[index] && expectation_counts[index] == found_counts[index] {
+            common_expectations[index]
+                .map(|ty| ExpectedType::proper_from(ty, ExpectationOrigin::CallableSignature))
+                .unwrap_or_default()
+        } else {
+            ExpectedType::None
+        };
+        let typed = analyze_application_argument(ctx, argument, &argument_expected);
+        record_generic_argument_capture(ctx, &typed);
+        typed_arguments.push(typed);
+    }
+    let pre_analyzed = arguments
+        .iter()
+        .enumerate()
+        .map(|(index, argument)| {
+            let label = match argument {
+                ApplicationArgument::Labeled { label, .. } => Some(*label),
+                _ => None,
+            };
+            ApplicationArgument::PreAnalyzed {
+                label,
+                typed: &typed_arguments[index],
+                range: argument.range(),
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let context_cause = if contextual_conflicts.is_empty() {
+        None
+    } else {
+        let positions = contextual_conflicts
+            .iter()
+            .map(|index| (index + 1).to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let (status, causal) = emit_union_dispatch_failure(
+            ctx,
+            format!("union receiver arms require incompatible contextual closure expectations for argument position(s) {positions}"),
+            call_range,
+        );
+        let cause = match status {
+            AnalysisStatus::Invalid(cause) => cause,
+            _ => unreachable!("union contextual conflict emits an error"),
+        };
+        ctx.record_call_dependency(causal, None);
+        Some(cause)
+    };
+
+    let mut status = None;
+    if !premise.status.is_ready() {
+        meet_union_status(&mut status, premise.status.clone());
+    }
+    let mut causal_invalidity = premise.causal_invalidity;
+    let mut explanation_parents = Vec::new();
+    let mut publication_inputs = Vec::with_capacity(arms.len() + 1);
+    let mut first_callable = None;
+    let mut have_callable = false;
+    let mut callable_consistent = true;
+    let mut all_found = true;
+
+    if !premise.status.is_ready() {
+        publication_inputs.push(union_publication_knowledge(premise.knowledge.clone(), &premise.status));
+    }
+
+    for arm in arms {
+        match arm {
+            UnionCallArm::Found { receiver, target } => {
+                if let Some(cause) = context_cause {
+                    let arm_status = AnalysisStatus::Invalid(cause);
+                    let arm_explanation = record_union_arm_explanation(
+                        ctx,
+                        *receiver,
+                        target.callable.clone(),
+                        crate::explain::UnionArmOutcome::ContextConflict,
+                        Vec::new(),
+                    );
+                    explanation_parents.push(arm_explanation);
+                    meet_union_status(&mut status, arm_status.clone());
+                    causal_invalidity = causal_invalidity.join(CausalInvalidity::One(cause));
+                    ctx.record_call_dependency(CausalInvalidity::One(cause), Some(arm_explanation));
+                    publication_inputs.push(TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause));
+                    all_found = false;
+                    continue;
+                }
+
+                let result = apply_resolved_callable(ctx, target, premise, &pre_analyzed, expected, call_range);
+                let outcome = if result.status.is_ready() {
+                    crate::explain::UnionArmOutcome::Resolved
+                } else {
+                    crate::explain::UnionArmOutcome::Invalid
+                };
+                let arm_explanation = record_union_arm_explanation(
+                    ctx,
+                    *receiver,
+                    target.callable.clone(),
+                    outcome,
+                    result.explanation_parents.clone(),
+                );
+                explanation_parents.push(arm_explanation);
+                for parent in result.explanation_parents.iter().copied() {
+                    ctx.record_call_dependency(CausalInvalidity::Clean, Some(parent));
+                }
+                ctx.record_call_dependency(result.causal_invalidity, Some(arm_explanation));
+                causal_invalidity = causal_invalidity.join(result.causal_invalidity);
+                meet_union_status(&mut status, result.status.clone());
+                publication_inputs.push(union_publication_knowledge(result.knowledge, &result.status));
+                if result.status.is_ready() {
+                    if !have_callable {
+                        first_callable = Some(result.callable);
+                        have_callable = true;
+                    } else if first_callable.as_ref().and_then(|callable| callable.as_ref()) != result.callable.as_ref() {
+                        callable_consistent = false;
+                    }
+                } else {
+                    all_found = false;
+                }
+            }
+            UnionCallArm::Missing {
+                receiver,
+                visited_owners,
+            } => {
+                let (arm_status, arm_causal) = emit_union_dispatch_failure(
+                    ctx,
+                    format!("union receiver arm `{}` does not support selector `{selector}`", ctx.store.format_type(*receiver)),
+                    call_range,
+                );
+                let cause = match arm_status {
+                    AnalysisStatus::Invalid(cause) => cause,
+                    _ => unreachable!("union missing arm emits an error"),
+                };
+                let arm_explanation = record_union_arm_explanation(
+                    ctx,
+                    *receiver,
+                    None,
+                    crate::explain::UnionArmOutcome::Missing {
+                        visited_owners: visited_owners.clone(),
+                    },
+                    Vec::new(),
+                );
+                explanation_parents.push(arm_explanation);
+                ctx.record_call_dependency(arm_causal, Some(arm_explanation));
+                causal_invalidity = causal_invalidity.join(arm_causal);
+                meet_union_status(&mut status, AnalysisStatus::Invalid(cause));
+                publication_inputs.push(TypeKnowledge::Unknown(UnknownReason::DynamicMessageSend));
+                all_found = false;
+            }
+            UnionCallArm::Ambiguous { receiver } => {
+                let (arm_status, arm_causal) = emit_union_dispatch_failure(
+                    ctx,
+                    format!("union receiver arm `{}` has ambiguous selector `{selector}`", ctx.store.format_type(*receiver)),
+                    call_range,
+                );
+                let cause = match arm_status {
+                    AnalysisStatus::Invalid(cause) => cause,
+                    _ => unreachable!("union ambiguous arm emits an error"),
+                };
+                let arm_explanation = record_union_arm_explanation(
+                    ctx,
+                    *receiver,
+                    None,
+                    crate::explain::UnionArmOutcome::Ambiguous,
+                    Vec::new(),
+                );
+                explanation_parents.push(arm_explanation);
+                ctx.record_call_dependency(arm_causal, Some(arm_explanation));
+                causal_invalidity = causal_invalidity.join(arm_causal);
+                meet_union_status(&mut status, AnalysisStatus::Invalid(cause));
+                publication_inputs.push(TypeKnowledge::Unknown(UnknownReason::DynamicMessageSend));
+                all_found = false;
+            }
+            UnionCallArm::Dynamic { receiver, reason } => {
+                let arm_explanation = record_union_arm_explanation(
+                    ctx,
+                    *receiver,
+                    None,
+                    crate::explain::UnionArmOutcome::Dynamic { reason: reason.clone() },
+                    Vec::new(),
+                );
+                explanation_parents.push(arm_explanation);
+                ctx.record_call_dependency(CausalInvalidity::Clean, Some(arm_explanation));
+                meet_union_status(&mut status, AnalysisStatus::DynamicBoundary(reason.clone()));
+                publication_inputs.push(TypeKnowledge::Dynamic(reason.clone()));
+                all_found = false;
+            }
+        }
+    }
+
+    let (captured_causal, captured_explanations, captured_status) = ctx.end_call_causal_capture();
+    causal_invalidity = causal_invalidity.join(captured_causal);
+    explanation_parents.extend(captured_explanations);
+    if let Some(captured_status) = captured_status {
+        meet_union_status(&mut status, captured_status);
+    }
+    if let Some(premise_explanation) = premise.explanation {
+        if !explanation_parents.contains(&premise_explanation) {
+            explanation_parents.push(premise_explanation);
+        }
+    }
+    let knowledge = join_type_knowledge(ctx.store, publication_inputs);
+    let status = status.unwrap_or_else(|| match &knowledge {
+        TypeKnowledge::Dynamic(reason) => AnalysisStatus::DynamicBoundary(reason.clone()),
+        _ => AnalysisStatus::Ready,
+    });
+    if let AnalysisStatus::Invalid(cause) = status {
+        causal_invalidity = causal_invalidity.join(CausalInvalidity::One(cause));
+    }
+    let result = CallCheckResult {
+        knowledge,
+        status,
+        causal_invalidity,
+        explanation_parents,
+        callable: (all_found && callable_consistent).then(|| first_callable).flatten().flatten(),
     };
     debug_assert_call_result_coherent(&result);
     result

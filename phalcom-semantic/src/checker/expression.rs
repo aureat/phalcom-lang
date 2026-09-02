@@ -2,7 +2,8 @@
 
 use super::call::{
     CallPremise, CallTargetAuthority, CallableApplicationTarget, StaticCallShape, UnresolvedApplicationReason, analyze_non_callable_invocation,
-    analyze_unresolved_application, application_arguments, apply_resolved_callable, callable_value_target, static_call_shape,
+    UnionCallArm, analyze_unresolved_application, application_arguments, apply_resolved_callable, apply_union_resolved_call, callable_value_target,
+    static_call_shape,
 };
 use super::context::CheckingContext;
 use super::expected::{ExpectationOrigin, ExpectedType};
@@ -1956,6 +1957,27 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, 
     let Ok(selector) = Selector::method(&call.method, slots) else {
         return analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchMissing).into();
     };
+    if let TypeData::Union(members) = ctx.store.get(receiver_ty).clone() {
+        let arms = members
+            .iter()
+            .map(|&receiver| match ctx.resolve_dispatch_target(receiver, &selector, recv_typed.dispatch_lookup.clone()) {
+                ResolvedDispatchResult::Found(resolved) => UnionCallArm::Found {
+                    receiver,
+                    target: CallableApplicationTarget::from_dispatch(resolved),
+                },
+                ResolvedDispatchResult::Missing { visited_owners } => UnionCallArm::Missing {
+                    receiver,
+                    visited_owners,
+                },
+                ResolvedDispatchResult::Ambiguous(_) => UnionCallArm::Ambiguous { receiver },
+                ResolvedDispatchResult::Dynamic => UnionCallArm::Dynamic {
+                    receiver,
+                    reason: DynamicReason::RuntimeReflection,
+                },
+            })
+            .collect::<Vec<_>>();
+        return apply_union_resolved_call(ctx, &premise, &arms, &arguments, expected, call.range, &selector).into();
+    }
     match ctx.resolve_dispatch_target(receiver_ty, &selector, recv_typed.dispatch_lookup.clone()) {
         ResolvedDispatchResult::Found(resolved) => {
             let target = CallableApplicationTarget::from_dispatch(resolved);

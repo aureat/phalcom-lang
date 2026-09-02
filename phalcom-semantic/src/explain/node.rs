@@ -23,6 +23,7 @@ pub enum DerivationRule {
     TypeRequirement,
     TypeRelation,
     CallableSelection,
+    UnionArm,
     CallableReturn,
     SelfSpecialization,
     ArgumentChecking,
@@ -61,6 +62,7 @@ impl DerivationRule {
             Self::TypeRequirement => "type_requirement",
             Self::TypeRelation => "type_relation",
             Self::CallableSelection => "callable_selection",
+            Self::UnionArm => "union_arm",
             Self::CallableReturn => "callable_return",
             Self::SelfSpecialization => "self_specialization",
             Self::ArgumentChecking => "argument_checking",
@@ -151,6 +153,17 @@ pub enum GenericConstraintRelation {
     AssignableTo(TypeId),
 }
 
+/// Outcome of resolving one arm of a union receiver call.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum UnionArmOutcome {
+    Resolved,
+    Missing { visited_owners: Box<[DeclarationId]> },
+    Ambiguous,
+    Dynamic { reason: DynamicReason },
+    Invalid,
+    ContextConflict,
+}
+
 /// A formal step in explaining why a type was inferred, checked, or refuted.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExplanationStep {
@@ -193,6 +206,11 @@ pub enum ExplanationStep {
         receiver: TypeId,
         declaring_owner: DeclarationId,
         specialization_path: Box<[DeclarationId]>,
+    },
+    UnionArm {
+        receiver: TypeId,
+        callable: Option<CallableId>,
+        outcome: UnionArmOutcome,
     },
     CallableKind {
         callable: CallableId,
@@ -317,6 +335,7 @@ impl ExplanationStep {
             Self::TypeRequirement { .. } => DerivationRule::TypeRequirement,
             Self::TypeRelation { .. } => DerivationRule::TypeRelation,
             Self::CallableSelection { .. } => DerivationRule::CallableSelection,
+            Self::UnionArm { .. } => DerivationRule::UnionArm,
             Self::CallableKind { .. } => DerivationRule::CallableSelection,
             Self::CallableReturn { .. } => DerivationRule::CallableReturn,
             Self::SelfTypeSpecialization { .. } => DerivationRule::SelfSpecialization,
