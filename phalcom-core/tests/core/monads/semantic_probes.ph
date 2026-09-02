@@ -23,4 +23,22 @@ class MonadSemanticProbe {
     ) {
         let chained = monad.flatMap(source, next)
     }
+
+    @class
+    algorithmBind(
+        _ monad: StringEitherMonad,
+        _ source: Either<String, Int>,
+        _ next: (Int) -> Either<String, Bool>
+    ) {
+        let bound = MonadAlgorithms.bind(monad, source, next)
+    }
+
+    @class
+    nestedSequenceEvidence(
+        _ monad: StringEitherMonad,
+        _ values: List<Either<String, Int>>,
+        _ initial: Either<String, List<Int>>
+    ) {
+        let sequenced = MonadAlgorithms.sequenceSeed(monad, values, initial)
+    }
 }

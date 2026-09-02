@@ -29,6 +29,10 @@ pub fn semantic_source() -> String {
     format!("{MONADS_SOURCE}\n{SEMANTIC_PROBES}")
 }
 
+pub fn with_monads(extra: &str) -> String {
+    format!("{MONADS_SOURCE}\n{extra}")
+}
+
 #[derive(Default)]
 pub struct UnlimitedSpecialization;
 
@@ -224,6 +228,17 @@ impl Fixture {
 
     fn parameter_name(&self, parameter: TypeParameterId) -> &str {
         self.analysis.snapshot.store.type_parameter(parameter).name.as_ref()
+    }
+
+    pub fn generic_solution_type(&self, callable: &CallableAnalysis, expression: &ExpressionAnalysis, parameter_name: &str) -> TypeId {
+        let trace = self.generic_trace(callable, expression);
+        trace
+            .iter()
+            .find_map(|node| match &node.step {
+                ExplanationStep::GenericSolution { parameter, ty, .. } if self.parameter_name(*parameter) == parameter_name => Some(*ty),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("missing generic solution for `{parameter_name}`: {trace:#?}"))
     }
 
     pub fn assert_callable_selection_path(

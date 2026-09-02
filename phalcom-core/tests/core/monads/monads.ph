@@ -45,3 +45,30 @@ class BoxMonad is Monad<Box> {}
 class EitherMonad<E> is Monad<<X> =>> Either<E, X>> {}
 
 class StringEitherMonad is EitherMonad<String> {}
+
+class MonadAlgorithms {
+    @class
+    bind<F: Type -> Type, A, B>(
+        _ monad: Monad<F>,
+        _ value: F<A>,
+        _ next: (A) -> F<B>
+    ) -> F<B> {
+        monad.flatMap(value, next)
+    }
+
+    @class
+    sequenceSeed<F: Type -> Type, A>(
+        _ monad: Monad<F>,
+        _ values: List<F<A>>,
+        _ initial: F<List<A>>
+    ) -> F<List<A>> {
+        initial
+    }
+
+    @class
+    constructorIdentity<F: Type -> Type, A>(
+        _ value: F<A>
+    ) -> F<A> {
+        value
+    }
+}
