@@ -3,21 +3,36 @@
 use phalcom_ast::parse;
 use phalcom_common::selector::SelectorBase;
 use phalcom_modules::identity::ModuleId;
+use phalcom_semantic::analyze_single_module;
 use phalcom_semantic::checker::analysis::{BindingState, CallableAnalysis, ExpressionAnalysis};
 use phalcom_semantic::declarations::DeclarationTypeInfo;
 use phalcom_semantic::diagnostic::DiagnosticSeverity;
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
-use phalcom_semantic::types::id::{KindId, TypeId};
+use phalcom_semantic::types::id::{KindId, TypeId, TypeParameterId};
 use phalcom_semantic::types::kind::KindData;
+use phalcom_semantic::types::outcome::BudgetReport;
 use phalcom_semantic::types::parameter::TypeParameterOwner;
-use phalcom_semantic::types::store::TypeData;
-use phalcom_semantic::analyze_single_module;
+use phalcom_semantic::types::specialization::{ReceiverSpecialization, SpecializationControl, specialize_receiver_to_owner};
+use phalcom_semantic::types::store::{TypeData, TypeStore};
 use std::sync::Arc;
 
 const MONADS_SOURCE: &str = include_str!("monads.ph");
 
 pub fn monads_source() -> &'static str {
     MONADS_SOURCE
+}
+
+#[derive(Default)]
+pub struct UnlimitedSpecialization;
+
+impl SpecializationControl for UnlimitedSpecialization {
+    fn charge_step(&self) -> Result<(), BudgetReport> {
+        Ok(())
+    }
+
+    fn is_cancelled(&self) -> bool {
+        false
+    }
 }
 
 pub struct Fixture {
@@ -53,6 +68,28 @@ impl Fixture {
             .unwrap_or_else(|| panic!("missing declaration type info for `{name}`"))
     }
 
+    pub fn ty(&self, name: &str) -> TypeId {
+        self.analysis
+            .snapshot
+            .declarations
+            .form(&self.decl(name))
+            .unwrap_or_else(|| panic!("missing canonical type form for `{name}`"))
+    }
+
+    pub fn type_parameter(&self, owner: &str, index: u32) -> TypeParameterId {
+        self.analysis
+            .snapshot
+            .store
+            .find_type_parameter_id(&TypeParameterOwner::Declaration(self.decl(owner)), index)
+            .unwrap_or_else(|| panic!("missing parameter {owner}[{index}]"))
+    }
+
+    pub fn type_parameter_form(&self, owner: &str, index: u32) -> TypeId {
+        let parameter = self.type_parameter(owner, index);
+        let mut store = (*self.analysis.snapshot.store).clone();
+        store.parameter_form(parameter)
+    }
+
     pub fn unary_kind(&self) -> KindId {
         self.info("Functor")
             .generic_signature
@@ -66,8 +103,7 @@ impl Fixture {
 
     pub fn assert_unary_constructor_kind(&self, kind: KindId) {
         match self.analysis.snapshot.store.get_kind(kind) {
-            KindData::Arrow { parameters, result }
-                if parameters.as_ref() == [KindId::TYPE] && *result == KindId::TYPE => {}
+            KindData::Arrow { parameters, result } if parameters.as_ref() == [KindId::TYPE] && *result == KindId::TYPE => {}
             other => panic!(
                 "expected unary constructor kind Type -> Type, got {other:?} ({})",
                 self.analysis.snapshot.store.format_kind(kind)
@@ -76,12 +112,7 @@ impl Fixture {
     }
 
     pub fn parameter_kind(&self, owner: &str, index: u32) -> KindId {
-        let parameter = self
-            .analysis
-            .snapshot
-            .store
-            .find_type_parameter_id(&TypeParameterOwner::Declaration(self.decl(owner)), index)
-            .unwrap_or_else(|| panic!("missing parameter {owner}[{index}]"));
+        let parameter = self.type_parameter(owner, index);
         self.analysis.snapshot.store.type_parameter(parameter).kind
     }
 
@@ -106,6 +137,26 @@ impl Fixture {
         self.assert_nominal(*origin, expected_origin);
         assert_eq!(arguments.len(), expected_arity, "wrong arity for `{expected_origin}`");
         arguments
+    }
+
+    pub fn applied_receiver(&self, store: &mut TypeStore, owner: &str, arguments: &[TypeId]) -> TypeId {
+        store
+            .apply_type_form(self.ty(owner), arguments)
+            .unwrap_or_else(|error| panic!("failed to apply `{owner}`: {error:?}"))
+    }
+
+    pub fn specialize_receiver(&self, receiver_owner: &str, arguments: &[TypeId], target_owner: &str) -> (TypeStore, ReceiverSpecialization) {
+        let mut store = (*self.analysis.snapshot.store).clone();
+        let receiver = self.applied_receiver(&mut store, receiver_owner, arguments);
+        let specialization = specialize_receiver_to_owner(
+            &mut store,
+            self.analysis.snapshot.hierarchy.as_ref(),
+            receiver,
+            &self.decl(target_owner),
+            &UnlimitedSpecialization,
+        )
+        .unwrap_or_else(|error| panic!("failed to specialize {receiver_owner} to {target_owner}: {error:?}"));
+        (store, specialization)
     }
 
     pub fn callable_id(&self, owner: &str, name: &str, side: DispatchSide) -> CallableId {
