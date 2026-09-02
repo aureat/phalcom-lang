@@ -4,7 +4,7 @@
 **Deliverable:** Technical specification  
 **Date:** 2026-09-01  
 **Repository:** `aureat/phalcom-lang`  
-**Repository baseline inspected:** `main@01e19adb86186d67212b558ba76f54f79e2b5d9f` (`feat(core,semantic,vm): canonical native enums and associated lookup implementation`)  
+**Repository baseline inspected:** `main@3a7300082368214c04552f425edf4649ba1597b5` (`test: move Either conformance into core`)
 **Status:** implementation-ready after SC-1 acceptance; repository-grounded against the baseline above  
 **Primary owner:** `phalcom-semantic`  
 **Depends on:** SC-1 — Type Formation, Kinds, Generic Declarations, and Type-Level Source Semantics  

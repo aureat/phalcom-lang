@@ -4,7 +4,7 @@
 **Project:** Phalcom  
 **Date:** 2026-09-01  
 **Repository:** `aureat/phalcom-lang`  
-**Pinned planning baseline:** `main@01e19adb86186d67212b558ba76f54f79e2b5d9f`  
+**Pinned planning baseline:** `main@3a7300082368214c04552f425edf4649ba1597b5`
 **Companion specification:** `SC-2-generic-callable-application-receiver-specialization-technical-spec.md`  
 **Execution prerequisite:** SC-1 acceptance gate complete on the implementation branch; re-pin SHA before coding if `main` has moved  
 **Method:** tests-first, one semantic owner, no parallel compatibility solver
