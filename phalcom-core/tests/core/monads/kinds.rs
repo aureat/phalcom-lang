@@ -1,4 +1,5 @@
-use super::support::{Fixture, monads_source};
+use super::support::{Fixture, monads_source, with_monads};
+use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::store::TypeData;
 
@@ -35,4 +36,21 @@ fn type_lambda_constructor_can_specialize_monad() {
     let args = f.assert_applied(template.supertype, "Monad", 1);
     assert!(matches!(f.analysis.snapshot.store.get(args[0]), TypeData::Lambda(_)), "expected type-lambda argument");
     f.assert_unary_constructor_kind(f.analysis.snapshot.store.kind_of(args[0]));
+}
+
+/// MON-KIND-04: a proper type cannot inhabit a constructor-kinded parameter.
+#[test]
+fn proper_type_cannot_specialize_unary_constructor_parameter() {
+    let source = with_monads("class BadProperType is Monad<Int> {}\n");
+    let f = Fixture::new(&source);
+    f.assert_only_error_codes(&[DiagnosticCode::ApplicationArgumentKindMismatch]);
+}
+
+/// MON-KIND-05: a constructor with incompatible arity/kind cannot inhabit a
+/// unary constructor-kinded parameter.
+#[test]
+fn binary_constructor_cannot_specialize_unary_constructor_parameter() {
+    let source = with_monads("class BadBinaryConstructor is Monad<Either> {}\n");
+    let f = Fixture::new(&source);
+    f.assert_only_error_codes(&[DiagnosticCode::ApplicationArgumentKindMismatch]);
 }
