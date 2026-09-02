@@ -87,14 +87,14 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
     // identities through the same resolver overlay used while lowering the
     // signature itself. Declaration parameters form the outer scope and
     // callable parameters shadow them (notably for constructors).
-    let owner_parameters = (callable.side == crate::identity::DispatchSide::Instance)
-        .then(|| {
-            declarations
-                .generic_signature(callable.declaration_owner())
-                .map(|signature| signature.parameters.to_vec())
-                .unwrap_or_default()
-        })
-        .unwrap_or_default();
+    let owner_parameters = if callable.side == crate::identity::DispatchSide::Instance {
+        declarations
+            .generic_signature(callable.declaration_owner())
+            .map(|signature| signature.parameters.to_vec())
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     let callable_parameters = declared_signature
         .and_then(|(_, signature)| signature.generics.as_ref())
         .map(|signature| signature.parameters.to_vec())

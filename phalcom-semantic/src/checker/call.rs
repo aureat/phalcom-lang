@@ -42,7 +42,7 @@ pub(crate) struct CallableApplicationTarget {
 pub(crate) enum UnionCallArm {
     Found {
         receiver: TypeId,
-        target: CallableApplicationTarget,
+        target: Box<CallableApplicationTarget>,
     },
     Missing {
         receiver: TypeId,
@@ -866,7 +866,7 @@ fn apply_generic_callable_inner(
         };
         let parameter_term = session.type_id_to_inference(parameter_ty, &var_map, ctx.store);
         let expected_term = session.term_for_expected(&parameter_term);
-        let argument_expected = session.materialize_for_expected(&expected_term, &var_map, ctx.store).map_or_else(
+        let argument_expected = session.materialize_for_expected(&expected_term, ctx.store).map_or_else(
             || ExpectedType::inference_from(expected_term, ExpectationOrigin::GenericArgument),
             |ty| ExpectedType::proper_from(ty, ExpectationOrigin::GenericArgument),
         );
@@ -1724,7 +1724,7 @@ pub(crate) fn apply_union_resolved_call(
         status,
         causal_invalidity,
         explanation_parents,
-        callable: (all_found && callable_consistent).then(|| first_callable).flatten().flatten(),
+        callable: (all_found && callable_consistent).then_some(first_callable).flatten().flatten(),
     };
     debug_assert_call_result_coherent(&result);
     result

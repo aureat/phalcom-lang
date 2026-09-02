@@ -127,7 +127,7 @@ fn match_exh_03_singleton_coverage_does_not_cover_nullary_constructor() {
     let case = analyze_adt("enum Animal { @variant Dog @variant Dog() }\nclass Test { run(_ value: Animal) { match value { Animal::Dog => 1 } } }\n");
     let handle = case.only_match();
     handle.assert_not_exhaustive();
-    assert!(case.diagnostics_for(DiagnosticCode::MatchNonExhaustive).len() >= 1);
+    assert!(!case.diagnostics_for(DiagnosticCode::MatchNonExhaustive).is_empty());
 }
 
 #[test]

@@ -1963,7 +1963,7 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, 
             .map(|&receiver| match ctx.resolve_dispatch_target(receiver, &selector, recv_typed.dispatch_lookup.clone()) {
                 ResolvedDispatchResult::Found(resolved) => UnionCallArm::Found {
                     receiver,
-                    target: CallableApplicationTarget::from_dispatch(resolved),
+                    target: Box::new(CallableApplicationTarget::from_dispatch(resolved)),
                 },
                 ResolvedDispatchResult::Missing { visited_owners } => UnionCallArm::Missing {
                     receiver,

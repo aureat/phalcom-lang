@@ -137,7 +137,7 @@ fn adt_variant_07_all_same_base_variants_share_one_family_identity() {
     let case = super::support::analyze_adt("enum Animal { @variant Dog @variant Dog() @variant Dog(_ name: String) }\n");
     let family = case.family_id("Animal", "Dog");
     let info = case.enum_info("Animal");
-    assert_eq!(info.variant_families.as_ref(), [family.clone()]);
+    assert_eq!(info.variant_families.as_ref(), std::slice::from_ref(&family));
     assert!(info.variants.iter().all(|variant| variant.family().as_ref() == Some(&family)));
 }
 

@@ -95,7 +95,7 @@ fn adt_constr_06_exact_constructor_and_family_keep_distinct_member_identity() {
     let case = analyze_adt("enum Animal { @variant Dog @variant Dog() @variant Dog(_ name: String) }\n");
     let info = case.enum_info("Animal");
     let family = case.family_id("Animal", "Dog");
-    assert_eq!(info.variant_families.as_ref(), [family.clone()]);
+    assert_eq!(info.variant_families.as_ref(), std::slice::from_ref(&family));
     assert!(info.variants.iter().all(|variant| variant.family() == Some(family.clone())));
     assert_eq!(info.variants.len(), 3);
 }

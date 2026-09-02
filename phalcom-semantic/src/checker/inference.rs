@@ -647,7 +647,6 @@ impl InferenceSession {
     pub fn materialize_for_expected(
         &self,
         term: &InferenceTerm,
-        generic_parameters: &HashMap<TypeParameterId, InferenceTerm>,
         store: &mut TypeStore,
     ) -> Option<TypeId> {
         match term {
@@ -660,22 +659,22 @@ impl InferenceSession {
                 None
             }
             InferenceTerm::Applied { origin, arguments } => {
-                let origin = self.materialize_for_expected(origin, generic_parameters, store)?;
+                let origin = self.materialize_for_expected(origin, store)?;
                 let arguments = arguments
                     .iter()
-                    .map(|argument| self.materialize_for_expected(argument, generic_parameters, store))
+                    .map(|argument| self.materialize_for_expected(argument, store))
                     .collect::<Option<Vec<_>>>()?;
                 store.apply_type_form(origin, &arguments).ok()
             }
             InferenceTerm::ExactCase { variant, enum_type } => {
-                let enum_type = self.materialize_for_expected(enum_type, generic_parameters, store)?;
+                let enum_type = self.materialize_for_expected(enum_type, store)?;
                 let variant_id = store.variant_identity(*variant).clone();
                 store.exact_case_type(&variant_id, enum_type).ok()
             }
             InferenceTerm::Union(members) => {
                 let members = members
                     .iter()
-                    .map(|member| self.materialize_for_expected(member, generic_parameters, store))
+                    .map(|member| self.materialize_for_expected(member, store))
                     .collect::<Option<Vec<_>>>()?;
                 Some(store.union(&members))
             }
@@ -685,7 +684,7 @@ impl InferenceSession {
                     .map(|element| {
                         Some(TupleTypeElement {
                             label: element.label.clone(),
-                            ty: self.materialize_for_expected(&element.term, generic_parameters, store)?,
+                            ty: self.materialize_for_expected(&element.term, store)?,
                         })
                     })
                     .collect::<Option<Vec<_>>>()?;
@@ -698,12 +697,12 @@ impl InferenceSession {
                     .map(|parameter| {
                         Some(CallableParameterType {
                             label: parameter.label.clone(),
-                            ty: self.materialize_for_expected(&parameter.term, generic_parameters, store)?,
+                            ty: self.materialize_for_expected(&parameter.term, store)?,
                             rest: parameter.rest,
                         })
                     })
                     .collect::<Option<Vec<_>>>()?;
-                let return_type = self.materialize_for_expected(&callable.return_type, generic_parameters, store)?;
+                let return_type = self.materialize_for_expected(&callable.return_type, store)?;
                 Some(store.callable(CallableType {
                     parameters: callable_parameters.into_boxed_slice(),
                     return_type,
@@ -716,7 +715,7 @@ impl InferenceSession {
                     .map(|field| {
                         Some(crate::types::row::RecordRowField {
                             name: field.name.clone(),
-                            ty: self.materialize_for_expected(&field.term, generic_parameters, store)?,
+                            ty: self.materialize_for_expected(&field.term, store)?,
                         })
                     })
                     .collect::<Option<Vec<_>>>()?;
@@ -734,7 +733,7 @@ impl InferenceSession {
                         Some(FamilyMemberType {
                             operation: member.operation.clone(),
                             member_kind: member.member_kind,
-                            ty: self.materialize_for_expected(&member.term, generic_parameters, store)?,
+                            ty: self.materialize_for_expected(&member.term, store)?,
                         })
                     })
                     .collect::<Option<Vec<_>>>()?;
@@ -2141,15 +2140,11 @@ impl InferenceSession {
                 }
                 Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
             }
-            (sub, InferenceTerm::Union(_)) => {
+            (_sub, InferenceTerm::Union(_)) => {
                 // A non-materializable right union has alternatives. Do not
                 // choose an arm speculatively; canonical relation handles the
                 // finite arm rule once the left term is materializable.
-                Ok(if self.term_has_variables(sub) {
-                    SolveEffect::Unchanged
-                } else {
-                    SolveEffect::Unchanged
-                })
+                Ok(SolveEffect::Unchanged)
             }
             (
                 InferenceTerm::Applied {
