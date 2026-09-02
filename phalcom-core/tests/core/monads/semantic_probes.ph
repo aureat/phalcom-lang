@@ -34,12 +34,28 @@ class MonadSemanticProbe {
     }
 
     @class
+    constructorAgreement(
+        _ left: Either<String, Int>,
+        _ right: Either<String, Bool>
+    ) {
+        let agreed = MonadAlgorithms.sameConstructor(left, right)
+    }
+
+    @class
     nestedSequenceEvidence(
         _ monad: StringEitherMonad,
         _ values: List<Either<String, Int>>,
         _ initial: Either<String, List<Int>>
     ) {
         let sequenced = MonadAlgorithms.sequenceSeed(monad, values, initial)
+    }
+
+    @class
+    sequenceEvidence(
+        _ monad: StringEitherMonad,
+        _ values: List<Either<String, Int>>
+    ) {
+        let sequenced = MonadAlgorithms.sequence(monad, values)
     }
 
     @class
