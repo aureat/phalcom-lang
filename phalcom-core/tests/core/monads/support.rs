@@ -3,23 +3,30 @@
 use phalcom_ast::parse;
 use phalcom_common::selector::SelectorBase;
 use phalcom_modules::identity::ModuleId;
-use phalcom_semantic::analyze_single_module;
 use phalcom_semantic::checker::analysis::{BindingState, CallableAnalysis, ExpressionAnalysis};
 use phalcom_semantic::declarations::DeclarationTypeInfo;
 use phalcom_semantic::diagnostic::DiagnosticSeverity;
+use phalcom_semantic::explain::{ExplanationStep, GenericConstraintOrigin};
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
+use phalcom_semantic::types::evidence::EvidenceStatus;
 use phalcom_semantic::types::id::{KindId, TypeId, TypeParameterId};
 use phalcom_semantic::types::kind::KindData;
 use phalcom_semantic::types::outcome::BudgetReport;
 use phalcom_semantic::types::parameter::TypeParameterOwner;
 use phalcom_semantic::types::specialization::{ReceiverSpecialization, SpecializationControl, specialize_receiver_to_owner};
 use phalcom_semantic::types::store::{TypeData, TypeStore};
+use phalcom_semantic::{analyze_single_module, causal_trace};
 use std::sync::Arc;
 
 const MONADS_SOURCE: &str = include_str!("monads.ph");
+const SEMANTIC_PROBES: &str = include_str!("semantic_probes.ph");
 
 pub fn monads_source() -> &'static str {
     MONADS_SOURCE
+}
+
+pub fn semantic_source() -> String {
+    format!("{MONADS_SOURCE}\n{SEMANTIC_PROBES}")
 }
 
 #[derive(Default)]
@@ -139,6 +146,11 @@ impl Fixture {
         arguments
     }
 
+    pub fn assert_either(&self, ty: TypeId, left: TypeId, right: TypeId) {
+        let arguments = self.assert_applied(ty, "Either", 2);
+        assert_eq!(arguments, [left, right], "wrong Either specialization: {}", self.analysis.snapshot.store.format_type(ty));
+    }
+
     pub fn applied_receiver(&self, store: &mut TypeStore, owner: &str, arguments: &[TypeId]) -> TypeId {
         store
             .apply_type_form(self.ty(owner), arguments)
@@ -203,6 +215,92 @@ impl Fixture {
             assert_eq!(same_len, 1, "ambiguous shortest expression containing `{needle}`: {matches:#?}");
         }
         shortest
+    }
+
+    pub fn generic_trace<'a>(&'a self, callable: &'a CallableAnalysis, expression: &ExpressionAnalysis) -> Vec<&'a phalcom_semantic::ExplanationNode> {
+        let id = expression.explanation.expect("expression must have an explanation");
+        causal_trace(&callable.explanations, id)
+    }
+
+    fn parameter_name(&self, parameter: TypeParameterId) -> &str {
+        self.analysis.snapshot.store.type_parameter(parameter).name.as_ref()
+    }
+
+    pub fn assert_callable_selection_path(
+        &self,
+        callable: &CallableAnalysis,
+        expression: &ExpressionAnalysis,
+        declaring_owner: &str,
+        expected_path: &[&str],
+    ) {
+        let trace = self.generic_trace(callable, expression);
+        let selection = trace.iter().find_map(|node| match &node.step {
+            ExplanationStep::CallableSelection {
+                declaring_owner,
+                specialization_path,
+                ..
+            } => Some((declaring_owner, specialization_path)),
+            _ => None,
+        });
+        let (owner, path) = selection.unwrap_or_else(|| panic!("missing callable selection: {trace:#?}"));
+        assert_eq!(owner.name.as_ref(), declaring_owner);
+        let actual = path.iter().map(|owner| owner.name.as_ref()).collect::<Vec<_>>();
+        assert_eq!(actual, expected_path);
+    }
+
+    pub fn assert_generic_solution(
+        &self,
+        callable: &CallableAnalysis,
+        expression: &ExpressionAnalysis,
+        parameter_name: &str,
+        expected: TypeId,
+    ) {
+        let trace = self.generic_trace(callable, expression);
+        let solution = trace.iter().find_map(|node| match &node.step {
+            ExplanationStep::GenericSolution { parameter, ty, status } if self.parameter_name(*parameter) == parameter_name => Some((*ty, *status)),
+            _ => None,
+        });
+        let (actual, status) = solution.unwrap_or_else(|| panic!("missing generic solution for `{parameter_name}`: {trace:#?}"));
+        assert_eq!(actual, expected, "wrong solution for `{parameter_name}`");
+        assert!(matches!(status, EvidenceStatus::Established | EvidenceStatus::Assumed));
+    }
+
+    pub fn assert_generic_constraint_origin(
+        &self,
+        callable: &CallableAnalysis,
+        expression: &ExpressionAnalysis,
+        parameter_name: &str,
+        expected_origin: GenericConstraintOrigin,
+    ) {
+        let trace = self.generic_trace(callable, expression);
+        assert!(
+            trace.iter().any(|node| {
+                matches!(
+                    &node.step,
+                    ExplanationStep::GenericConstraint { parameter, origin, .. }
+                        if self.parameter_name(*parameter) == parameter_name && *origin == expected_origin
+                )
+            }),
+            "missing generic constraint `{parameter_name}` from {expected_origin:?}: {trace:#?}"
+        );
+    }
+
+    pub fn assert_solution_parameter_is_callable_owned(
+        &self,
+        callable: &CallableAnalysis,
+        expression: &ExpressionAnalysis,
+        parameter_name: &str,
+    ) {
+        let trace = self.generic_trace(callable, expression);
+        let parameter = trace.iter().find_map(|node| match &node.step {
+            ExplanationStep::GenericSolution { parameter, .. } if self.parameter_name(*parameter) == parameter_name => Some(*parameter),
+            _ => None,
+        });
+        let parameter = parameter.unwrap_or_else(|| panic!("missing generic solution for `{parameter_name}`: {trace:#?}"));
+        assert!(
+            matches!(self.analysis.snapshot.store.type_parameter(parameter).owner, TypeParameterOwner::Callable(_)),
+            "method parameter `{parameter_name}` must remain callable-owned"
+        );
     }
 
     pub fn assert_no_errors(&self) {
