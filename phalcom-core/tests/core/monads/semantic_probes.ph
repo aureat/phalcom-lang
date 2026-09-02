@@ -41,4 +41,22 @@ class MonadSemanticProbe {
     ) {
         let sequenced = MonadAlgorithms.sequenceSeed(monad, values, initial)
     }
+
+    @class
+    kleisliEvidence(
+        _ monad: StringEitherMonad,
+        _ first: (String) -> Either<String, Int>,
+        _ second: (Int) -> Either<String, Bool>
+    ) {
+        let composed = MonadAlgorithms.kleisli(monad, first, second)
+    }
+
+    @class
+    traverseEvidence(
+        _ monad: StringEitherMonad,
+        _ values: List<Int>,
+        _ transform: (Int) -> Either<String, Bool>
+    ) {
+        let traversed = MonadAlgorithms.traverse(monad, values, transform)
+    }
 }

@@ -4,6 +4,30 @@ enum Either<L, R> {
 
     @variant
     Right(_ value: R)
+
+    fold<T>(
+        left: (L) -> T,
+        right: (R) -> T
+    ) -> T {
+        match self {
+            Left(value) => left.call(value)
+            Right(value) => right.call(value)
+        }
+    }
+
+    map<R2>(_ f: (R) -> R2) -> Either<L, R2> {
+        match self {
+            Left(value) => Either::Left(value)
+            Right(value) => Either::Right(f.call(value))
+        }
+    }
+
+    flatMap<R2>(_ f: (R) -> Either<L, R2>) -> Either<L, R2> {
+        match self {
+            Left(value) => Either::Left(value)
+            Right(value) => f.call(value)
+        }
+    }
 }
 
 class Box<T> {}
@@ -42,7 +66,37 @@ class Monad<F: Type -> Type> is Applicative<F> {
 
 class BoxMonad is Monad<Box> {}
 
-class EitherMonad<E> is Monad<<X> =>> Either<E, X>> {}
+class EitherMonad<E> is Monad<<X> =>> Either<E, X>> {
+    map<A, B>(
+        _ value: Either<E, A>,
+        _ f: (A) -> B
+    ) -> Either<E, B> {
+        value.map(f)
+    }
+
+    pure<A>(_ value: A) -> Either<E, A> {
+        Either::Right(value)
+    }
+
+    map2<A, B, C>(
+        _ left: Either<E, A>,
+        _ right: Either<E, B>,
+        _ f: (A, B) -> C
+    ) -> Either<E, C> {
+        left.flatMap(|leftValue| {
+            right.map(|rightValue| {
+                f.call(leftValue, rightValue)
+            })
+        })
+    }
+
+    flatMap<A, B>(
+        _ value: Either<E, A>,
+        _ f: (A) -> Either<E, B>
+    ) -> Either<E, B> {
+        value.flatMap(f)
+    }
+}
 
 class StringEitherMonad is EitherMonad<String> {}
 
@@ -70,5 +124,38 @@ class MonadAlgorithms {
         _ value: F<A>
     ) -> F<A> {
         value
+    }
+
+    @class
+    kleisli<F: Type -> Type, A, B, C>(
+        _ monad: Monad<F>,
+        _ first: (A) -> F<B>,
+        _ second: (B) -> F<C>
+    ) -> (A) -> F<C> {
+        |value| {
+            monad.flatMap(first.call(value), second)
+        }
+    }
+
+    @class
+    traverse<F: Type -> Type, A, B>(
+        _ monad: Monad<F>,
+        _ values: List<A>,
+        _ transform: (A) -> F<B>
+    ) -> F<List<B>> {
+        let empty: List<B> = []
+        let state = monad.pure(empty)
+        let index = 0
+        while (index < values.size) {
+            let value = values[index]
+            state = monad.flatMap(state, |items| {
+                monad.map(transform.call(value), |mapped| {
+                    items.append(mapped)
+                    items
+                })
+            })
+            index = index + 1
+        }
+        state
     }
 }
