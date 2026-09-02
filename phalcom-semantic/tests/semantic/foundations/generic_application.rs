@@ -56,7 +56,6 @@ class Probe {
 }
 
 #[test]
-#[ignore = "SC-2 Task 5: declaration upper-bound defaulting is not closed yet"]
 fn declaration_upper_bound_does_not_default_result_only_generic() {
     let fixture = Fixture::new(
         r#"
@@ -100,4 +99,52 @@ class Probe {
     let call = fixture.expression(run, "Probe.keep(value)");
     assert_eq!(call.knowledge.ty(), Some(fixture.ty("Allowed")));
     assert!(matches!(call.status, AnalysisStatus::Ready));
+}
+
+#[test]
+fn f_bound_is_checked_after_argument_selects_candidate() {
+    let fixture = Fixture::new(
+        r#"
+class Comparable<T> {}
+class User is Comparable<User> {}
+class Probe {
+  @class
+  keep<T>(_ value: T) -> T where T <: Comparable<T> { value }
+
+  @class
+  run(_ value: User) {
+    let result = Probe.keep(value)
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+    let call = fixture.expression(run, "Probe.keep(value)");
+    assert_eq!(call.knowledge.ty(), Some(fixture.ty("User")));
+    assert!(matches!(call.status, AnalysisStatus::Ready));
+    fixture.assert_no_diagnostic(DiagnosticCode::GenericConstraintUnsatisfied);
+}
+
+#[test]
+fn f_bound_refutation_is_reported_as_constraint_failure() {
+    let fixture = Fixture::new(
+        r#"
+class Comparable<T> {}
+class Other {}
+class Probe {
+  @class
+  keep<T>(_ value: T) -> T where T <: Comparable<T> { value }
+
+  @class
+  run(_ value: Other) {
+    let result = Probe.keep(value)
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+    let call = fixture.expression(run, "Probe.keep(value)");
+    assert!(call.knowledge.ty().is_none());
+    assert!(matches!(call.status, AnalysisStatus::Invalid(_)));
+    fixture.assert_diagnostic(DiagnosticCode::GenericConstraintUnsatisfied, 1);
 }

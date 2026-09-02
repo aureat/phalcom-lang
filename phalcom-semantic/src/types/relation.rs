@@ -233,6 +233,13 @@ fn check_subtype_impl(
                 })
             }
         }
+        (TypeData::Nominal { declaration: sub_decl }, TypeData::Applied { .. }) => {
+            if let Some(template) = hierarchy.supertype_template(&sub_decl) {
+                check_subtype_impl(store, hierarchy, template.supertype, sup, budget, cancellation, visited)
+            } else {
+                RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup })
+            }
+        }
 
         (
             TypeData::Applied {

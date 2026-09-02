@@ -2182,40 +2182,9 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
         let Some(ty) = ctx.nominal_type_of(&decl) else {
             return TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause);
         };
-        if let Some(sig) = ctx.declaration_generic_signature(&decl) {
-            if !sig.parameters.is_empty() {
-                let mut arg_tys = Vec::new();
-                for arg in &call.args {
-                    match arg {
-                        PackItem::Positional { expr, .. } => {
-                            let k = analyze_expression(ctx, expr, &ExpectedType::None);
-                            let Some(t) = k.knowledge.ty() else {
-                                return TypedExpression::unknown(UnknownReason::UnderconstrainedTypeVariable);
-                            };
-                            arg_tys.push(t);
-                        }
-                        PackItem::Labeled { value, .. } => {
-                            let k = analyze_expression(ctx, value, &ExpectedType::None);
-                            let Some(t) = k.knowledge.ty() else {
-                                return TypedExpression::unknown(UnknownReason::UnderconstrainedTypeVariable);
-                            };
-                            arg_tys.push(t);
-                        }
-                        PackItem::Expand { expr, .. } => {
-                            analyze_expression(ctx, expr, &ExpectedType::None);
-                        }
-                    }
-                }
-                if arg_tys.len() != sig.parameters.len() {
-                    return TypedExpression::unknown(UnknownReason::UnderconstrainedTypeVariable);
-                }
-                if arg_tys.len() == sig.parameters.len() {
-                    if let Ok(applied) = ctx.store.apply_type_form(ty, &arg_tys) {
-                        return TypedExpression::established(applied, EvidenceOrigin::DeclarationSemantics, call.range);
-                    }
-                }
-            }
-        }
+        // Runtime arguments never double as positional type-form arguments.
+        // Construction uses an explicit constructor selector such as
+        // `TypeName.new(...)`; type-form application remains explicit syntax.
         return TypedExpression::established(ty, EvidenceOrigin::DeclarationSemantics, call.range);
     }
 

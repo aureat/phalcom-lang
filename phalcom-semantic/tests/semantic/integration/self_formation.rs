@@ -120,10 +120,12 @@ class Box<T> {
                 && matches!(&signature.selector.base, phalcom_common::selector::SelectorBase::Named(name) if name == "new")
         })
         .expect("constructor signature");
-    assert!(matches!(
-        constructor.parameter_declared_type_at(0).map(|fact| &fact.state),
-        Some(DeclaredTypeState::Unknown(_))
-    ));
+    let DeclaredTypeState::Known(TypeTerm::Canonical(constructor_parameter_ty)) =
+        &constructor.parameter_declared_type_at(0).expect("constructor parameter").state
+    else {
+        panic!("constructor should resolve owner generic parameter");
+    };
+    assert!(matches!(analysis.snapshot.store.get(*constructor_parameter_ty), TypeData::Parameter(_)));
     let DeclaredTypeState::Known(TypeTerm::Canonical(constructor_ty)) = &constructor.declared_return.state else {
         panic!("constructor should publish Self return");
     };

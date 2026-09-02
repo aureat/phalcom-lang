@@ -9,7 +9,7 @@ use crate::types::application::TypeApplicationError;
 use crate::types::evidence::{DynamicReason, EvidenceStatus, TypeKnowledge, UnknownReason};
 use crate::types::id::{KindId, TypeId, TypeParameterId, VariantTypeId};
 use crate::types::outcome::{BlockReason, BudgetReport};
-use crate::types::relation::{is_subtype, TypeHierarchy};
+use crate::types::relation::{TypeHierarchy, is_subtype};
 use crate::types::store::{CallableParameterType, CallableType, TypeData, TypeStore};
 use crate::types::variance::Variance;
 use crate::types::{FamilyMemberType, FamilyMemberTypeKind, FamilyOperationShape, RecordRowTail, TupleTypeElement};
@@ -335,6 +335,7 @@ pub struct InferenceSession {
     required_premises: Vec<RequiredInferencePremise>,
     subtype_edges: Vec<InferenceSubtypeEdge>,
     bound_origins: HashMap<(InferVarId, TypeId), (u32, ConstraintOrigin)>,
+    bound_roles: HashMap<(InferVarId, TypeId), Vec<InferenceConstraintRole>>,
     variable_constraint_indices: HashMap<InferVarId, Vec<u32>>,
     next_var_index: u32,
 }
@@ -873,7 +874,7 @@ impl InferenceSession {
                             }
                         }
                     } else if let Some(uppers) = self.upper_bounds.get(&rep).cloned() {
-                        if uppers.len() == 1 {
+                        if uppers.len() == 1 && !self.is_declaration_restriction_only(rep, uppers[0]) {
                             match self.bind(rep, uppers[0], store) {
                                 Ok(effect) => changed |= effect.is_changed(),
                                 Err(failure) => {
@@ -993,21 +994,38 @@ impl InferenceSession {
     }
 
     fn record_bound_origin(&mut self, relation: &InferenceRelation, origin: ConstraintOrigin, constraint_index: u32, store: &mut TypeStore) {
+        let role = Self::role_for_origin(&origin);
         match relation {
             InferenceRelation::Subtype(InferenceTerm::Var(variable), term) => {
                 let representative = self.find_var(*variable);
                 if let Ok(ty) = self.materialize(term, store) {
                     self.bound_origins.entry((representative, ty)).or_insert((constraint_index, origin));
+                    self.record_bound_role(representative, ty, role);
                 }
             }
             InferenceRelation::Subtype(term, InferenceTerm::Var(variable)) => {
                 let representative = self.find_var(*variable);
                 if let Ok(ty) = self.materialize(term, store) {
                     self.bound_origins.entry((representative, ty)).or_insert((constraint_index, origin));
+                    self.record_bound_role(representative, ty, role);
                 }
             }
             _ => {}
         }
+    }
+
+    fn record_bound_role(&mut self, variable: InferVarId, ty: TypeId, role: InferenceConstraintRole) {
+        let roles = self.bound_roles.entry((variable, ty)).or_default();
+        if !roles.contains(&role) {
+            roles.push(role);
+        }
+    }
+
+    fn is_declaration_restriction_only(&self, variable: InferVarId, ty: TypeId) -> bool {
+        let representative = self.find_var(variable);
+        self.bound_roles
+            .get(&(representative, ty))
+            .is_some_and(|roles| !roles.is_empty() && roles.iter().all(|role| *role == InferenceConstraintRole::DeclarationRestriction))
     }
 
     #[allow(clippy::result_large_err)]
@@ -1110,6 +1128,31 @@ impl InferenceSession {
     /// Returns whether an inference term contains a generic variable.
     pub fn term_has_variables(&self, term: &InferenceTerm) -> bool {
         !self.term_variables(term).is_empty()
+    }
+
+    /// Solved variables remain in original terms for support/proof publication,
+    /// but must not prevent materialized recursive bounds from reaching the
+    /// canonical relation engine.
+    fn term_has_unresolved_variables(&self, term: &InferenceTerm) -> bool {
+        match term {
+            InferenceTerm::Var(variable) => {
+                let representative = self.find_var(*variable);
+                !self.substitutions.contains_key(&representative)
+            }
+            InferenceTerm::Applied { origin, arguments } => {
+                self.term_has_unresolved_variables(origin) || arguments.iter().any(|argument| self.term_has_unresolved_variables(argument))
+            }
+            InferenceTerm::ExactCase { enum_type, .. } => self.term_has_unresolved_variables(enum_type),
+            InferenceTerm::Union(members) => members.iter().any(|member| self.term_has_unresolved_variables(member)),
+            InferenceTerm::Tuple(elements) => elements.iter().any(|element| self.term_has_unresolved_variables(&element.term)),
+            InferenceTerm::Callable(callable) => {
+                callable.parameters.iter().any(|parameter| self.term_has_unresolved_variables(&parameter.term))
+                    || self.term_has_unresolved_variables(&callable.return_type)
+            }
+            InferenceTerm::Record(record) => record.fields.iter().any(|field| self.term_has_unresolved_variables(&field.term)),
+            InferenceTerm::Family(family) => family.iter().any(|member| self.term_has_unresolved_variables(&member.term)),
+            InferenceTerm::Canonical(_) => false,
+        }
     }
 
     /// Returns aggregate value support for all variables influencing a term.
@@ -1448,6 +1491,16 @@ impl InferenceSession {
                     let representative = if variable == rep1 { rep2 } else { variable };
                     self.bound_origins.entry((representative, ty)).or_insert(origin);
                 }
+                let roles = std::mem::take(&mut self.bound_roles);
+                for ((variable, ty), roles_for_bound) in roles {
+                    let representative = if variable == rep1 { rep2 } else { variable };
+                    let target = self.bound_roles.entry((representative, ty)).or_default();
+                    for role in roles_for_bound {
+                        if !target.contains(&role) {
+                            target.push(role);
+                        }
+                    }
+                }
                 if let Some(indices) = self.variable_constraint_indices.remove(&rep1) {
                     let target = self.variable_constraint_indices.entry(rep2).or_default();
                     target.extend(indices);
@@ -1709,7 +1762,7 @@ impl InferenceSession {
         // Once both terms are canonical, use the single bounded relation
         // semantics. This keeps solver-local inference from inventing a second
         // subtype algebra for nominal, union, and structural types.
-        if !self.term_has_variables(sub) && !self.term_has_variables(sup) {
+        if !self.term_has_unresolved_variables(sub) && !self.term_has_unresolved_variables(sup) {
             if let (Ok(sub_ty), Ok(sup_ty)) = (self.materialize(sub, store), self.materialize(sup, store)) {
                 return if is_subtype(store, hier, sub_ty, sup_ty) {
                     Ok(SolveEffect::Unchanged)

@@ -13,10 +13,10 @@ use crate::signature::{CallableParameterSemantic, CallableSemanticSignature, Fie
 use crate::types::annotation::{type_level_binding_for_parameter, TypeFormationOutcome, TypeFormationSite};
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
 use crate::types::parameter::TypeParameterOwner;
-use std::collections::HashMap;
 use phalcom_ast::ast::{ClassMember, EnumBehaviorMember, GetterDef, IndexMethodDef, MethodDef, ParameterDef, SetterDef};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
+use std::collections::HashMap;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum CallableSyntaxRef<'a> {
@@ -199,7 +199,10 @@ pub(crate) fn declaration_type_level_bindings_for_side(
     if side == DispatchSide::Class {
         return HashMap::new();
     }
+    declaration_type_level_bindings(ctx, owner)
+}
 
+fn declaration_type_level_bindings(ctx: &mut CheckingContext<'_>, owner: &DeclarationId) -> HashMap<String, crate::types::annotation::TypeLevelBinding> {
     let parameter_ids = ctx
         .declaration_generic_signature(owner)
         .map(|signature| signature.parameters.to_vec())
@@ -277,7 +280,13 @@ pub(crate) fn semantic_field_signature_for_member(
         type_parameters: declaration_type_parameters,
     };
     let formation_site = TypeFormationSite::member(ctx.current_module.clone(), owner.clone(), side);
-    let declared_type = annotation_fact(ctx, &declaration_resolver, &formation_site, field.annotation.as_ref(), UnknownReason::UnannotatedDeclaration);
+    let declared_type = annotation_fact(
+        ctx,
+        &declaration_resolver,
+        &formation_site,
+        field.annotation.as_ref(),
+        UnknownReason::UnannotatedDeclaration,
+    );
     Some(FieldSemanticSignature {
         field: field_id,
         owner: owner.clone(),
@@ -319,7 +328,12 @@ pub(crate) fn semantic_signature_for_syntax(
     let declaration_owner = owner.declaration();
 
     let formation_side = callable.side;
-    let declaration_type_parameters = declaration_type_level_bindings_for_side(ctx, declaration_owner, formation_side);
+    let is_constructor = matches!(syntax, CallableSyntaxRef::Method(method) if method.is_constructor || method.attributes.iter().any(|attribute| attribute.name == "constructor"));
+    let declaration_type_parameters = if is_constructor {
+        declaration_type_level_bindings(ctx, declaration_owner)
+    } else {
+        declaration_type_level_bindings_for_side(ctx, declaration_owner, formation_side)
+    };
     let parent_resolver = ctx.resolver.clone();
     let declaration_resolver = crate::types::annotation::ScopedTypeResolver {
         parent: &parent_resolver,
@@ -327,7 +341,7 @@ pub(crate) fn semantic_signature_for_syntax(
     };
     let formation_site = TypeFormationSite::member(ctx.current_module.clone(), declaration_owner.clone(), formation_side);
 
-    let (generics, parameters, declared_return) = match syntax {
+    let (mut generics, parameters, declared_return) = match syntax {
         CallableSyntaxRef::Method(method) => {
             let generic_signature = if method.generic_parameters.is_empty() {
                 None
@@ -427,7 +441,17 @@ pub(crate) fn semantic_signature_for_syntax(
                 .params
                 .iter()
                 .enumerate()
-                .map(|(index, parameter)| parameter_fact(ctx, &callable, index, parameter, &method_resolver, &formation_site, UnknownReason::NoTypeEvidence))
+                .map(|(index, parameter)| {
+                    parameter_fact(
+                        ctx,
+                        &callable,
+                        index,
+                        parameter,
+                        &method_resolver,
+                        &formation_site,
+                        UnknownReason::NoTypeEvidence,
+                    )
+                })
                 .collect::<Vec<_>>()
                 .into_boxed_slice();
             let is_constructor = method.is_constructor || method.attributes.iter().any(|attribute| attribute.name == "constructor");
@@ -440,7 +464,13 @@ pub(crate) fn semantic_signature_for_syntax(
                 let knowledge = TypeKnowledge::established(self_type, EvidenceOrigin::ConstructorSemantics);
                 DeclaredTypeFact::from_knowledge_with_basis(&knowledge, DeclaredTypeBasis::ConstructorSemantics)
             } else {
-                annotation_fact(ctx, &method_resolver, &formation_site, method.return_annotation.as_ref(), UnknownReason::UnannotatedDeclaration)
+                annotation_fact(
+                    ctx,
+                    &method_resolver,
+                    &formation_site,
+                    method.return_annotation.as_ref(),
+                    UnknownReason::UnannotatedDeclaration,
+                )
             };
             (generic_signature, parameters, declared_return)
         }
@@ -456,7 +486,15 @@ pub(crate) fn semantic_signature_for_syntax(
             ),
         ),
         CallableSyntaxRef::Setter(setter) => {
-            let parameter = parameter_fact(ctx, &callable, 0, &setter.param, &declaration_resolver, &formation_site, UnknownReason::UnannotatedDeclaration);
+            let parameter = parameter_fact(
+                ctx,
+                &callable,
+                0,
+                &setter.param,
+                &declaration_resolver,
+                &formation_site,
+                UnknownReason::UnannotatedDeclaration,
+            );
             let unit = TypeKnowledge::established(ctx.store.unit(), EvidenceOrigin::DeclarationSemantics);
             (
                 None,
@@ -470,15 +508,35 @@ pub(crate) fn semantic_signature_for_syntax(
                 .iter()
                 .enumerate()
                 .map(|(parameter_index, parameter)| {
-                    parameter_fact(ctx, &callable, parameter_index, parameter, &declaration_resolver, &formation_site, UnknownReason::NoTypeEvidence)
+                    parameter_fact(
+                        ctx,
+                        &callable,
+                        parameter_index,
+                        parameter,
+                        &declaration_resolver,
+                        &formation_site,
+                        UnknownReason::NoTypeEvidence,
+                    )
                 })
                 .collect::<Vec<_>>();
             let declared_return = match &index.accessor {
-                phalcom_ast::ast::IndexAccessor::Get => {
-                    annotation_fact(ctx, &declaration_resolver, &formation_site, index.return_annotation.as_ref(), UnknownReason::NoTypeEvidence)
-                }
+                phalcom_ast::ast::IndexAccessor::Get => annotation_fact(
+                    ctx,
+                    &declaration_resolver,
+                    &formation_site,
+                    index.return_annotation.as_ref(),
+                    UnknownReason::NoTypeEvidence,
+                ),
                 phalcom_ast::ast::IndexAccessor::Set { put } => {
-                    let put_semantic = parameter_fact(ctx, &callable, parameters.len(), put, &declaration_resolver, &formation_site, UnknownReason::NoTypeEvidence);
+                    let put_semantic = parameter_fact(
+                        ctx,
+                        &callable,
+                        parameters.len(),
+                        put,
+                        &declaration_resolver,
+                        &formation_site,
+                        UnknownReason::NoTypeEvidence,
+                    );
                     let result = put_semantic.declared_type.clone();
                     parameters.push(put_semantic);
                     result
@@ -487,6 +545,18 @@ pub(crate) fn semantic_signature_for_syntax(
             (None, parameters.into_boxed_slice(), declared_return)
         }
     };
+
+    // A constructor application instantiates both its declaration owner and
+    // any constructor-local binders. Owner parameters are not callable-local
+    // syntax, but they are still formal inputs to constructor inference.
+    if is_constructor {
+        if let Some(owner_generics) = ctx.declaration_generic_signature(declaration_owner) {
+            generics = Some(match generics {
+                None => owner_generics,
+                Some(callable_generics) => merge_constructor_generic_signatures(owner_generics, callable_generics, callable.clone()),
+            });
+        }
+    }
 
     let return_validation = initial_return_validation(&declared_return, phalcom_native_meta::ImplementationKind::Source);
 
@@ -508,6 +578,50 @@ pub(crate) fn semantic_signature_for_syntax(
         flow: phalcom_native_meta::ReturnFlowSpec::Value,
         lifecycle: phalcom_native_meta::NativeLifecycleSpec::UNKNOWN,
     })
+}
+
+fn merge_constructor_generic_signatures(
+    owner: crate::types::parameter::GenericSignature,
+    callable: crate::types::parameter::GenericSignature,
+    callable_id: crate::identity::CallableId,
+) -> crate::types::parameter::GenericSignature {
+    let mut parameters = owner.parameters.to_vec();
+    parameters.extend(callable.parameters.iter().copied());
+    let mut constraints = owner.constraints.to_vec();
+    constraints.extend(callable.constraints.iter().cloned());
+    crate::types::parameter::GenericSignature {
+        owner: TypeParameterOwner::Callable(callable_id),
+        parameters: parameters.into_boxed_slice(),
+        parameter_kinds: owner
+            .parameter_kinds
+            .iter()
+            .copied()
+            .chain(callable.parameter_kinds.iter().copied())
+            .collect::<Vec<_>>()
+            .into_boxed_slice(),
+        parameter_kind_shapes: owner
+            .parameter_kind_shapes
+            .iter()
+            .cloned()
+            .chain(callable.parameter_kind_shapes.iter().cloned())
+            .collect::<Vec<_>>()
+            .into_boxed_slice(),
+        parameter_variances: owner
+            .parameter_variances
+            .iter()
+            .copied()
+            .chain(callable.parameter_variances.iter().copied())
+            .collect::<Vec<_>>()
+            .into_boxed_slice(),
+        constraint_shapes: owner
+            .constraint_shapes
+            .iter()
+            .cloned()
+            .chain(callable.constraint_shapes.iter().cloned())
+            .collect::<Vec<_>>()
+            .into_boxed_slice(),
+        constraints: constraints.into_boxed_slice(),
+    }
 }
 
 pub(crate) fn semantic_signature_for_member(ctx: &mut CheckingContext<'_>, owner: &DeclarationId, member: &ClassMember) -> Option<CallableSemanticSignature> {

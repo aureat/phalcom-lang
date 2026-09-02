@@ -163,10 +163,18 @@ pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTyp
         TypeData::SelfType(term) => match term.role {
             crate::types::parameter::SelfRole::ReceiverValue => receiver,
             crate::types::parameter::SelfRole::InstanceType => match store.get(receiver).clone() {
-                TypeData::ClassObject { declaration } => match declarations.form(&declaration) {
-                    Some(form) => form,
-                    None => ty,
-                },
+                TypeData::ClassObject { declaration } => {
+                    let Some(form) = declarations.form(&declaration) else { return ty };
+                    let Some(signature) = declarations.generic_signature(&declaration) else {
+                        return form;
+                    };
+                    let arguments = signature
+                        .parameters
+                        .iter()
+                        .map(|&parameter| store.parameter_form(parameter))
+                        .collect::<Vec<_>>();
+                    store.apply_type_form(form, &arguments).unwrap_or(form)
+                }
                 TypeData::Nominal { .. } | TypeData::Applied { .. } => receiver,
                 _ => match declarations.form(&term.owner) {
                     Some(form) => form,

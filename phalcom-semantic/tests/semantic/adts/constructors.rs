@@ -201,7 +201,6 @@ class Probe {
 }
 
 #[test]
-#[ignore = "SC-2 Task 8: ordinary generic constructor application"]
 fn ordinary_constructor_infers_from_formal_parameter_types_not_argument_position() {
     let fixture = Fixture::new(
         r#"
