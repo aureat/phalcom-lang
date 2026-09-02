@@ -25,6 +25,8 @@ mod kinds;
 mod knowledge;
 mod predicate_transfer;
 mod receiver_specialization;
+mod record_row_inference;
+mod record_row_materialization;
 mod semantic_correctness_regressions;
 mod substitution;
 mod type_annotations;

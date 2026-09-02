@@ -170,11 +170,7 @@ impl TypeStore {
 
     pub fn proper_type(&self, id: TypeId) -> Result<ProperTypeId, KindId> {
         let kind = self.kind_of(id);
-        if kind == KindId::TYPE {
-            Ok(ProperTypeId(id))
-        } else {
-            Err(kind)
-        }
+        if kind == KindId::TYPE { Ok(ProperTypeId(id)) } else { Err(kind) }
     }
 
     pub fn intern_type_parameter(&mut self, data: TypeParameterData) -> TypeParameterId {
@@ -261,6 +257,10 @@ impl TypeStore {
     #[inline]
     pub fn type_parameter(&self, id: TypeParameterId) -> &TypeParameterData {
         &self.type_parameters[id.index()]
+    }
+
+    pub fn try_type_parameter(&self, id: TypeParameterId) -> Option<&TypeParameterData> {
+        self.type_parameters.get(id.index())
     }
 
     pub fn parameter_form(&mut self, id: TypeParameterId) -> TypeId {
@@ -462,6 +462,9 @@ impl TypeStore {
                 }
                 Err(BetaReductionError::UnboundVariable { .. }) => return Err(TypeApplicationError::MalformedLambda),
                 Err(BetaReductionError::Application(error)) => return Err(error),
+                Err(BetaReductionError::UnsupportedRecordRowArgument | BetaReductionError::RecordRowFormation(_)) => {
+                    return Err(TypeApplicationError::MalformedLambda);
+                }
             }
         }
 
@@ -511,7 +514,36 @@ impl TypeStore {
     }
 
     /// Interns a record row into the store.
-    pub fn intern_record_row(&mut self, data: RecordRowData) -> RecordRowId {
+    pub fn record_row_checked(&mut self, fields: Vec<RecordRowField>, tail: RecordRowTail) -> Result<RecordRowId, crate::types::row::RecordRowFormationError> {
+        for field in &fields {
+            if !self.is_proper_type(field.ty) {
+                return Err(crate::types::row::RecordRowFormationError::FieldNotProperType {
+                    field: field.name.clone(),
+                    ty: field.ty,
+                });
+            }
+        }
+
+        if let RecordRowTail::Parameter(parameter) = tail {
+            let Some(data) = self.try_type_parameter(parameter) else {
+                return Err(crate::types::row::RecordRowFormationError::TailParameterMissing(parameter));
+            };
+            if data.kind != KindId::RECORD_ROW {
+                return Err(crate::types::row::RecordRowFormationError::TailParameterWrongKind { parameter, actual: data.kind });
+            }
+        }
+
+        let row = RecordRowData::new_with_tail(fields, tail)
+            .map_err(|crate::types::row::DuplicateFieldError(field)| crate::types::row::RecordRowFormationError::DuplicateField(field))?;
+        Ok(self.intern_record_row(row))
+    }
+
+    pub fn record_row_type_checked(&mut self, fields: Vec<RecordRowField>, tail: RecordRowTail) -> Result<TypeId, crate::types::row::RecordRowFormationError> {
+        let row = self.record_row_checked(fields, tail)?;
+        Ok(self.record_type(row))
+    }
+
+    pub(crate) fn intern_record_row(&mut self, data: RecordRowData) -> RecordRowId {
         if let Some(&id) = self.row_interner.get(&data) {
             return id;
         }
@@ -540,23 +572,12 @@ impl TypeStore {
 
     /// Interns a record type backed by a canonical closed row.
     pub fn record(&mut self, fields: Box<[RecordRowField]>) -> TypeId {
-        for field in fields.iter() {
-            debug_assert!(self.is_proper_type(field.ty), "record field must be a proper type");
-        }
-        let mut sorted_fields = fields.into_vec();
-        sorted_fields.sort_by(|a, b| a.name.cmp(&b.name));
-        for i in 1..sorted_fields.len() {
-            assert_ne!(sorted_fields[i - 1].name, sorted_fields[i].name, "duplicate record field");
-        }
-        let row_id = self.intern_record_row(RecordRowData {
-            fields: sorted_fields.into_boxed_slice(),
-            tail: RecordRowTail::Closed,
-        });
-        self.intern_with_kind(TypeData::Record(row_id), KindId::TYPE)
+        self.record_row_type_checked(fields.into_vec(), RecordRowTail::Closed)
+            .expect("internal closed Record construction must satisfy canonical row invariants")
     }
 
     /// Interns a record type from an already-interned row.
-    pub fn record_type(&mut self, row_id: RecordRowId) -> TypeId {
+    pub(crate) fn record_type(&mut self, row_id: RecordRowId) -> TypeId {
         self.intern_with_kind(TypeData::Record(row_id), KindId::TYPE)
     }
 
@@ -694,11 +715,7 @@ impl TypeStore {
                     .iter()
                     .map(|elem| {
                         let t_str = self.format_type(elem.ty);
-                        if let Some(ref l) = elem.label {
-                            format!("{l}: {t_str}")
-                        } else {
-                            t_str
-                        }
+                        if let Some(ref l) = elem.label { format!("{l}: {t_str}") } else { t_str }
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
@@ -871,6 +888,7 @@ impl TypeStore {
             TypeData::Record(row_id) => {
                 let row = self.record_row(*row_id);
                 row.fields.iter().any(|f| self.contains_type_parameter(f.ty, target))
+                    || matches!(row.tail, RecordRowTail::Parameter(parameter) if parameter == target)
             }
             TypeData::Callable(call) => {
                 call.parameters.iter().any(|p| self.contains_type_parameter(p.ty, target)) || self.contains_type_parameter(call.return_type, target)

@@ -2,7 +2,7 @@ use super::environment::TypeView;
 use super::evidence::TypeKnowledge;
 use super::id::{RecordRowId, TypeId};
 use super::outcome::{BlockReason, BudgetReport, CancellationToken, DynamicBoundaryObligation, QueryBudget, RelationFailure, RelationOutcome};
-use super::row::{RecordAccess, RecordRowTail};
+use super::row::RecordRowTail;
 use super::store::{TypeData, TypeStore};
 use super::variance::Variance;
 use crate::core_surface::CoreDeclarationIds;
@@ -361,18 +361,9 @@ fn check_subtype_impl(
                 RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup })
             }
         }
-        (TypeData::Record(sub_row_id), TypeData::Record(sup_row_id)) => check_record_row_subtype(
-            store,
-            hierarchy,
-            sub_row_id,
-            sup_row_id,
-            sub,
-            sup,
-            RecordAccess::ReadOnly,
-            budget,
-            cancellation,
-            visited,
-        ),
+        (TypeData::Record(sub_row_id), TypeData::Record(sup_row_id)) => {
+            check_record_row_subtype(store, hierarchy, sub_row_id, sup_row_id, sub, sup, budget, cancellation, visited)
+        }
         (TypeData::Callable(sub_call), TypeData::Callable(sup_call)) => {
             if sub_call.parameters.len() == sup_call.parameters.len() {
                 for (sub_p, sup_p) in sub_call.parameters.iter().zip(sup_call.parameters.iter()) {
@@ -560,7 +551,6 @@ pub fn check_record_row_subtype(
     sup_row_id: RecordRowId,
     sub_ty: TypeId,
     sup_ty: TypeId,
-    access: RecordAccess,
     budget: &mut QueryBudget,
     cancellation: &CancellationToken,
     visited: &mut HashSet<(TypeId, TypeId)>,
@@ -568,84 +558,25 @@ pub fn check_record_row_subtype(
     let sub_row = store.record_row(sub_row_id).clone();
     let sup_row = store.record_row(sup_row_id).clone();
 
-    match access {
-        RecordAccess::ReadOnly => {
-            if sub_row.tail != sup_row.tail && (sub_row.tail != RecordRowTail::Closed || sup_row.tail != RecordRowTail::Closed) {
-                return RelationOutcome::Blocked(BlockReason::RecursiveFixpoint);
-            }
-            for sup_f in sup_row.fields.iter() {
-                if let Some(sub_f_ty) = sub_row.find_field(&sup_f.name) {
-                    let out = check_subtype_impl(store, hierarchy, sub_f_ty, sup_f.ty, budget, cancellation, visited);
-                    if !out.is_proven() {
-                        return out;
-                    }
-                } else {
-                    return RelationOutcome::Refuted(RelationFailure::TypeMismatch {
-                        actual: sub_ty,
-                        expected: sup_ty,
-                    });
-                }
-            }
-            RelationOutcome::proven(())
+    for required in sup_row.fields.iter() {
+        let Some(actual) = sub_row.find_field(&required.name) else {
+            return RelationOutcome::Refuted(RelationFailure::TypeMismatch {
+                actual: sub_ty,
+                expected: sup_ty,
+            });
+        };
+        let outcome = check_subtype_impl(store, hierarchy, actual, required.ty, budget, cancellation, visited);
+        if !outcome.is_proven() {
+            return outcome;
         }
-        RecordAccess::ReadWrite => {
-            if sub_row.tail != sup_row.tail {
-                return RelationOutcome::Refuted(RelationFailure::TypeMismatch {
-                    actual: sub_ty,
-                    expected: sup_ty,
-                });
-            }
-            if sub_row.fields.len() != sup_row.fields.len() {
-                return RelationOutcome::Refuted(RelationFailure::TypeMismatch {
-                    actual: sub_ty,
-                    expected: sup_ty,
-                });
-            }
-            for (sub_f, sup_f) in sub_row.fields.iter().zip(sup_row.fields.iter()) {
-                if sub_f.name != sup_f.name {
-                    return RelationOutcome::Refuted(RelationFailure::TypeMismatch {
-                        actual: sub_ty,
-                        expected: sup_ty,
-                    });
-                }
-                let cov = check_subtype_impl(store, hierarchy, sub_f.ty, sup_f.ty, budget, cancellation, visited);
-                if !cov.is_proven() {
-                    return cov;
-                }
-                let contra = check_subtype_impl(store, hierarchy, sup_f.ty, sub_f.ty, budget, cancellation, visited);
-                if !contra.is_proven() {
-                    return contra;
-                }
-            }
-            RelationOutcome::proven(())
-        }
-        RecordAccess::WriteOnly => {
-            if sub_row.tail != sup_row.tail {
-                return RelationOutcome::Refuted(RelationFailure::TypeMismatch {
-                    actual: sub_ty,
-                    expected: sup_ty,
-                });
-            }
-            if sub_row.fields.len() != sup_row.fields.len() {
-                return RelationOutcome::Refuted(RelationFailure::TypeMismatch {
-                    actual: sub_ty,
-                    expected: sup_ty,
-                });
-            }
-            for (sub_f, sup_f) in sub_row.fields.iter().zip(sup_row.fields.iter()) {
-                if sub_f.name != sup_f.name {
-                    return RelationOutcome::Refuted(RelationFailure::TypeMismatch {
-                        actual: sub_ty,
-                        expected: sup_ty,
-                    });
-                }
-                let contra = check_subtype_impl(store, hierarchy, sup_f.ty, sub_f.ty, budget, cancellation, visited);
-                if !contra.is_proven() {
-                    return contra;
-                }
-            }
-            RelationOutcome::proven(())
-        }
+    }
+
+    match sup_row.tail {
+        RecordRowTail::Closed => RelationOutcome::proven(()),
+        RecordRowTail::Parameter(required_tail) => match sub_row.tail {
+            RecordRowTail::Parameter(actual_tail) if actual_tail == required_tail => RelationOutcome::proven(()),
+            _ => RelationOutcome::Blocked(BlockReason::RecursiveFixpoint),
+        },
     }
 }
 

@@ -1,9 +1,8 @@
 //! Expression type synthesis, bidirectional checking, and inference engine (Spec 04.5 / Wave 3).
 
 use super::call::{
-    CallPremise, CallTargetAuthority, CallableApplicationTarget, StaticCallShape, UnresolvedApplicationReason, analyze_non_callable_invocation,
-    UnionCallArm, analyze_unresolved_application, application_arguments, apply_resolved_callable, apply_union_resolved_call, callable_value_target,
-    static_call_shape,
+    CallPremise, CallTargetAuthority, CallableApplicationTarget, StaticCallShape, UnionCallArm, UnresolvedApplicationReason, analyze_non_callable_invocation,
+    analyze_unresolved_application, application_arguments, apply_resolved_callable, apply_union_resolved_call, callable_value_target, static_call_shape,
 };
 use super::context::CheckingContext;
 use super::expected::{ExpectationOrigin, ExpectedType};
@@ -30,6 +29,7 @@ use crate::types::family::{FamilyMemberTypeKind, FamilyOperationShape};
 use crate::types::id::{KindId, TypeId};
 use crate::types::outcome::{BlockReason, DynamicBoundaryObligation, RelationOutcome};
 use crate::types::relation::{TypeHierarchy, is_subtype};
+use crate::types::row::RecordRowTail;
 use crate::types::store::{RecordTypeField, TupleTypeElement, TypeData};
 use phalcom_ast::ast::{
     AssociatedInvokeExpr, AssociatedLookupExpr, AssociatedMemberSyntax, AssociatedNamedMode, AssociatedResidualSelectorSyntax, BinaryExpr, BinaryOp,
@@ -1600,15 +1600,40 @@ fn synthesize_tuple_literal(ctx: &mut CheckingContext<'_>, tup: &phalcom_ast::as
     result
 }
 
-fn synthesize_record_literal(ctx: &mut CheckingContext<'_>, rec: &phalcom_ast::ast::RecordLiteralExpr, _expected: &ExpectedType) -> TypedExpression {
-    let mut names = Vec::new();
+fn expected_record_field(ctx: &CheckingContext<'_>, expected: &ExpectedType, name: &str) -> ExpectedType {
+    if let Some(expected_ty) = expected.ty() {
+        let expected_knowledge = match expected.origin() {
+            Some(ExpectationOrigin::ExplicitCheck) => TypeKnowledge::established(expected_ty, EvidenceOrigin::ContextualDerivation),
+            _ => TypeKnowledge::assumed(expected_ty, EvidenceOrigin::ContextualDerivation),
+        };
+        if let Ok(field) = crate::checker::composition::lookup_record_field(ctx.store, &expected_knowledge, name) {
+            if let Some(field_ty) = field.ty() {
+                return ExpectedType::proper_from(field_ty, expected.origin().unwrap_or(ExpectationOrigin::ProductComponent));
+            }
+        }
+    }
+
+    if let ExpectedType::Inference { term, origin } = expected {
+        if let crate::checker::inference::InferenceTerm::Record(record) = term {
+            if let Some(field) = record.fields.iter().find(|field| field.name.as_ref() == name) {
+                return ExpectedType::inference_from(field.term.clone(), *origin);
+            }
+        }
+    }
+
+    ExpectedType::None
+}
+
+fn synthesize_record_literal(ctx: &mut CheckingContext<'_>, rec: &phalcom_ast::ast::RecordLiteralExpr, expected: &ExpectedType) -> TypedExpression {
+    let mut names: Vec<Box<str>> = Vec::new();
     let mut knowledge = Vec::new();
     let mut operands = Vec::new();
+    let mut open_tail = None;
+    let mut invalid_shape = false;
 
     for entry in &rec.entries {
         match entry {
             RecordLiteralEntry::Field(f) => {
-                let typed = analyze_expression(ctx, &f.value, &ExpectedType::None);
                 let name = match &f.label {
                     ProductLabel::Static { symbol, .. } => match symbol {
                         SymbolLiteralKind::Name(n) => n.clone(),
@@ -1617,15 +1642,30 @@ fn synthesize_record_literal(ctx: &mut CheckingContext<'_>, rec: &phalcom_ast::a
                     },
                     _ => "field".into(),
                 };
+                let field_expected = expected_record_field(ctx, expected, &name);
+                let typed = analyze_expression(ctx, &f.value, &field_expected);
+                if names.iter().any(|existing| existing.as_ref() == name.as_str()) {
+                    invalid_shape = true;
+                }
                 names.push(name.into_boxed_str());
                 knowledge.push(typed.knowledge.clone());
                 operands.push(typed);
             }
             RecordLiteralEntry::Expansion { expr, .. } => {
                 let typed = analyze_expression(ctx, expr, &ExpectedType::None);
-                match crate::checker::composition::project_record_fields(ctx.store, &typed.knowledge) {
-                    Ok(fields) => {
-                        for (name, field_knowledge) in fields {
+                match crate::checker::composition::project_record_shape(ctx.store, &typed.knowledge) {
+                    Ok(projection) => {
+                        if let Some(existing_tail) = open_tail {
+                            if existing_tail != projection.tail {
+                                invalid_shape = true;
+                            }
+                        } else if projection.tail != RecordRowTail::Closed {
+                            open_tail = Some(projection.tail);
+                        }
+                        for (name, field_knowledge) in projection.fields {
+                            if names.iter().any(|existing| existing == &name) {
+                                invalid_shape = true;
+                            }
                             names.push(name);
                             knowledge.push(field_knowledge);
                         }
@@ -1641,7 +1681,7 @@ fn synthesize_record_literal(ctx: &mut CheckingContext<'_>, rec: &phalcom_ast::a
     }
 
     let knowledge = crate::types::evidence::compose_required_knowledge(knowledge, EvidenceOrigin::Syntax, |types| {
-        if types.len() != names.len() {
+        if invalid_shape || types.len() != names.len() {
             return Err(UnknownReason::UncheckedExpression);
         }
         let fields = names
@@ -1650,7 +1690,9 @@ fn synthesize_record_literal(ctx: &mut CheckingContext<'_>, rec: &phalcom_ast::a
             .zip(types.iter().copied())
             .map(|(name, ty)| RecordTypeField { name, ty })
             .collect::<Vec<_>>();
-        Ok(ctx.store.record(fields.into_boxed_slice()))
+        ctx.store
+            .record_row_type_checked(fields, open_tail.unwrap_or(RecordRowTail::Closed))
+            .map_err(|_| UnknownReason::UncheckedExpression)
     });
     let mut result = TypedExpression::new(match knowledge {
         TypeKnowledge::Known(_) => knowledge.with_range(rec.range),
@@ -1960,21 +2002,20 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, 
     if let TypeData::Union(members) = ctx.store.get(receiver_ty).clone() {
         let arms = members
             .iter()
-            .map(|&receiver| match ctx.resolve_dispatch_target(receiver, &selector, recv_typed.dispatch_lookup.clone()) {
-                ResolvedDispatchResult::Found(resolved) => UnionCallArm::Found {
-                    receiver,
-                    target: Box::new(CallableApplicationTarget::from_dispatch(resolved)),
+            .map(
+                |&receiver| match ctx.resolve_dispatch_target(receiver, &selector, recv_typed.dispatch_lookup.clone()) {
+                    ResolvedDispatchResult::Found(resolved) => UnionCallArm::Found {
+                        receiver,
+                        target: Box::new(CallableApplicationTarget::from_dispatch(resolved)),
+                    },
+                    ResolvedDispatchResult::Missing { visited_owners } => UnionCallArm::Missing { receiver, visited_owners },
+                    ResolvedDispatchResult::Ambiguous(_) => UnionCallArm::Ambiguous { receiver },
+                    ResolvedDispatchResult::Dynamic => UnionCallArm::Dynamic {
+                        receiver,
+                        reason: DynamicReason::RuntimeReflection,
+                    },
                 },
-                ResolvedDispatchResult::Missing { visited_owners } => UnionCallArm::Missing {
-                    receiver,
-                    visited_owners,
-                },
-                ResolvedDispatchResult::Ambiguous(_) => UnionCallArm::Ambiguous { receiver },
-                ResolvedDispatchResult::Dynamic => UnionCallArm::Dynamic {
-                    receiver,
-                    reason: DynamicReason::RuntimeReflection,
-                },
-            })
+            )
             .collect::<Vec<_>>();
         return apply_union_resolved_call(ctx, &premise, &arms, &arguments, expected, call.range, &selector).into();
     }

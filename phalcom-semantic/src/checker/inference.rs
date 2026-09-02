@@ -4,6 +4,7 @@
 //! never interned into canonical TypeStore or published in snapshots.
 
 use super::context::CheckerControl;
+use super::row_inference::{InferenceRecord, InferenceRecordField, InferenceRecordTail};
 use crate::identity::{CallableId, ExplanationId, ExpressionId, InferVarId};
 use crate::types::application::TypeApplicationError;
 use crate::types::evidence::{DynamicReason, EvidenceStatus, TypeKnowledge, UnknownReason};
@@ -11,7 +12,7 @@ use crate::types::id::{KindId, TypeId, TypeParameterId, VariantTypeId};
 use crate::types::outcome::{BlockReason, BudgetReport};
 use crate::types::relation::{TypeHierarchy, is_subtype};
 use crate::types::store::{CallableParameterType, CallableType, TypeData, TypeStore};
-use crate::types::type_lambda::ScopedTypeData;
+use crate::types::type_lambda::{ScopedRecordTail, ScopedTypeData};
 use crate::types::variance::Variance;
 use crate::types::{FamilyMemberType, FamilyMemberTypeKind, FamilyOperationShape, RecordRowTail, TupleTypeElement};
 use std::collections::{HashMap, HashSet};
@@ -55,19 +56,6 @@ pub struct InferenceCallableParameter {
 pub struct InferenceCallable {
     pub parameters: Box<[InferenceCallableParameter]>,
     pub return_type: Box<InferenceTerm>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct InferenceRecordField {
-    pub name: Box<str>,
-    pub term: InferenceTerm,
-}
-
-/// Solver-local closed record shape with recursively lifted field terms.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct InferenceRecord {
-    pub fields: Box<[InferenceRecordField]>,
-    pub tail: RecordRowTail,
 }
 
 /// Solver-local associated-family member with a recursively lifted type term.
@@ -376,6 +364,10 @@ impl InferenceSession {
         v
     }
 
+    pub fn solved_type_for(&self, solution: &InferenceSolution, variable: InferVarId) -> Option<TypeId> {
+        solution.substitutions.get(&self.find_var(variable)).copied()
+    }
+
     /// Adds a constraint to the session.
     pub fn add_constraint(&mut self, relation: InferenceRelation, origin: ConstraintOrigin, explanation: Option<ExplanationId>) {
         let role = Self::role_for_origin(&origin);
@@ -547,8 +539,10 @@ impl InferenceSession {
     pub fn instantiate_generic_signature(&mut self, generic_sig: &GenericSignature, store: &TypeStore) -> HashMap<TypeParameterId, InferenceTerm> {
         let mut map = HashMap::new();
         for &param in &generic_sig.parameters {
-            let var = self.fresh_variable(store.type_parameter(param).kind);
-            map.insert(param, InferenceTerm::Var(var));
+            if store.type_parameter(param).kind != KindId::RECORD_ROW {
+                let var = self.fresh_variable(store.type_parameter(param).kind);
+                map.insert(param, InferenceTerm::Var(var));
+            }
         }
         map
     }
@@ -620,7 +614,10 @@ impl InferenceSession {
                         })
                         .collect::<Vec<_>>()
                         .into_boxed_slice(),
-                    tail: row.tail,
+                    tail: match row.tail {
+                        RecordRowTail::Closed => InferenceRecordTail::Closed,
+                        RecordRowTail::Parameter(parameter) => InferenceRecordTail::Parameter(parameter),
+                    },
                 })
             }
             TypeData::Family(family_id) => InferenceTerm::Family(
@@ -640,15 +637,102 @@ impl InferenceSession {
         }
     }
 
+    /// Converts a canonical type while mapping only row parameters owned by
+    /// the current generic application into row-domain variables.
+    pub fn type_id_to_inference_with_rows(
+        &self,
+        ty: TypeId,
+        subst: &HashMap<TypeParameterId, InferenceTerm>,
+        row_subst: &HashMap<TypeParameterId, crate::types::row_solver::RecordRowVarId>,
+        store: &TypeStore,
+    ) -> InferenceTerm {
+        match store.get(ty) {
+            TypeData::Parameter(parameter) => subst.get(parameter).cloned().unwrap_or(InferenceTerm::Canonical(ty)),
+            TypeData::Applied { origin, arguments } => InferenceTerm::Applied {
+                origin: Box::new(self.type_id_to_inference_with_rows(*origin, subst, row_subst, store)),
+                arguments: arguments
+                    .iter()
+                    .map(|&argument| self.type_id_to_inference_with_rows(argument, subst, row_subst, store))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            },
+            TypeData::ExactCase { variant, enum_type } => InferenceTerm::ExactCase {
+                variant: *variant,
+                enum_type: Box::new(self.type_id_to_inference_with_rows(*enum_type, subst, row_subst, store)),
+            },
+            TypeData::Union(members) => InferenceTerm::Union(
+                members
+                    .iter()
+                    .map(|&member| self.type_id_to_inference_with_rows(member, subst, row_subst, store))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            ),
+            TypeData::Tuple(elements) => InferenceTerm::Tuple(
+                elements
+                    .iter()
+                    .map(|element| InferenceTupleElement {
+                        label: element.label.clone(),
+                        term: self.type_id_to_inference_with_rows(element.ty, subst, row_subst, store),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            ),
+            TypeData::Callable(callable) => InferenceTerm::Callable(InferenceCallable {
+                parameters: callable
+                    .parameters
+                    .iter()
+                    .map(|parameter| InferenceCallableParameter {
+                        label: parameter.label.clone(),
+                        term: self.type_id_to_inference_with_rows(parameter.ty, subst, row_subst, store),
+                        rest: parameter.rest,
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+                return_type: Box::new(self.type_id_to_inference_with_rows(callable.return_type, subst, row_subst, store)),
+            }),
+            TypeData::Record(row_id) => {
+                let row = store.record_row(*row_id);
+                InferenceTerm::Record(InferenceRecord {
+                    fields: row
+                        .fields
+                        .iter()
+                        .map(|field| InferenceRecordField {
+                            name: field.name.clone(),
+                            term: self.type_id_to_inference_with_rows(field.ty, subst, row_subst, store),
+                        })
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice(),
+                    tail: match row.tail {
+                        RecordRowTail::Closed => InferenceRecordTail::Closed,
+                        RecordRowTail::Parameter(parameter) => row_subst
+                            .get(&parameter)
+                            .copied()
+                            .map_or(InferenceRecordTail::Parameter(parameter), InferenceRecordTail::Var),
+                    },
+                })
+            }
+            TypeData::Family(family_id) => InferenceTerm::Family(
+                store
+                    .get_family(*family_id)
+                    .members
+                    .iter()
+                    .map(|member| InferenceFamilyMember {
+                        operation: member.operation.clone(),
+                        member_kind: member.member_kind,
+                        term: self.type_id_to_inference_with_rows(member.ty, subst, row_subst, store),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            ),
+            _ => InferenceTerm::Canonical(ty),
+        }
+    }
+
     /// Materializes an inference term for bidirectional checking while
     /// retaining unresolved generic variables as inference terms. Solved
     /// variables become canonical types; unresolved ones stay solver-local so
     /// nested callable expectations can continue constraining one session.
-    pub fn materialize_for_expected(
-        &self,
-        term: &InferenceTerm,
-        store: &mut TypeStore,
-    ) -> Option<TypeId> {
+    pub fn materialize_for_expected(&self, term: &InferenceTerm, store: &mut TypeStore) -> Option<TypeId> {
         match term {
             InferenceTerm::Canonical(ty) => Some(*ty),
             InferenceTerm::Var(variable) => {
@@ -719,12 +803,12 @@ impl InferenceSession {
                         })
                     })
                     .collect::<Option<Vec<_>>>()?;
-                let row = crate::types::row::RecordRowData {
-                    fields: fields.into_boxed_slice(),
-                    tail: record.tail,
+                let tail = match record.tail {
+                    InferenceRecordTail::Closed => RecordRowTail::Closed,
+                    InferenceRecordTail::Parameter(parameter) => RecordRowTail::Parameter(parameter),
+                    InferenceRecordTail::Var(_) => return None,
                 };
-                let row_id = store.intern_record_row(row);
-                Some(store.record_type(row_id))
+                store.record_row_type_checked(fields, tail).ok()
             }
             InferenceTerm::Family(family) => {
                 let members = family
@@ -760,19 +844,14 @@ impl InferenceSession {
         self.scoped_to_inference(lambda.body, 0, arguments, store)
     }
 
-    fn scoped_to_inference(
-        &self,
-        scoped: crate::types::id::ScopedTypeId,
-        depth: u32,
-        arguments: &[InferenceTerm],
-        store: &TypeStore,
-    ) -> Option<InferenceTerm> {
+    fn scoped_to_inference(&self, scoped: crate::types::id::ScopedTypeId, depth: u32, arguments: &[InferenceTerm], store: &TypeStore) -> Option<InferenceTerm> {
         match store.arena().get_scoped(scoped).clone() {
-            ScopedTypeData::Bound { depth: bound_depth, index } => {
-                (bound_depth == depth).then(|| arguments.get(index as usize).cloned()).flatten()
-            }
+            ScopedTypeData::Bound { depth: bound_depth, index } => (bound_depth == depth).then(|| arguments.get(index as usize).cloned()).flatten(),
             ScopedTypeData::Free(ty) => Some(self.type_id_to_inference(ty, &HashMap::new(), store)),
-            ScopedTypeData::Applied { origin, arguments: nested_arguments } => Some(InferenceTerm::Applied {
+            ScopedTypeData::Applied {
+                origin,
+                arguments: nested_arguments,
+            } => Some(InferenceTerm::Applied {
                 origin: Box::new(self.scoped_to_inference(origin, depth, arguments, store)?),
                 arguments: nested_arguments
                     .iter()
@@ -810,8 +889,28 @@ impl InferenceSession {
                     })
                     .collect::<Option<Vec<_>>>()?
                     .into_boxed_slice(),
-                tail: RecordRowTail::Closed,
+                tail: InferenceRecordTail::Closed,
             })),
+            ScopedTypeData::OpenRecord(record) => {
+                let tail = match record.tail {
+                    ScopedRecordTail::FreeParameter(parameter) => InferenceRecordTail::Parameter(parameter),
+                    ScopedRecordTail::Bound { .. } => return None,
+                };
+                Some(InferenceTerm::Record(InferenceRecord {
+                    fields: record
+                        .fields
+                        .iter()
+                        .map(|field| {
+                            Some(InferenceRecordField {
+                                name: field.name.clone(),
+                                term: self.scoped_to_inference(field.ty, depth, arguments, store)?,
+                            })
+                        })
+                        .collect::<Option<Vec<_>>>()?
+                        .into_boxed_slice(),
+                    tail,
+                }))
+            }
             ScopedTypeData::Callable(callable) => Some(InferenceTerm::Callable(InferenceCallable {
                 parameters: callable
                     .parameters
@@ -849,12 +948,8 @@ impl InferenceSession {
         store: &mut TypeStore,
     ) -> Result<Option<SolveEffect>, InferenceFailureReason> {
         let (variable, concrete_origin, concrete_arguments, variable_arguments) = match (left_origin, right_origin) {
-            (InferenceTerm::Var(variable), InferenceTerm::Canonical(concrete_origin)) => {
-                (*variable, *concrete_origin, right_arguments, left_arguments)
-            }
-            (InferenceTerm::Canonical(concrete_origin), InferenceTerm::Var(variable)) => {
-                (*variable, *concrete_origin, left_arguments, right_arguments)
-            }
+            (InferenceTerm::Var(variable), InferenceTerm::Canonical(concrete_origin)) => (*variable, *concrete_origin, right_arguments, left_arguments),
+            (InferenceTerm::Canonical(concrete_origin), InferenceTerm::Var(variable)) => (*variable, *concrete_origin, left_arguments, right_arguments),
             _ => return Ok(None),
         };
 
@@ -888,13 +983,7 @@ impl InferenceSession {
         Ok(Some(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged }))
     }
 
-    fn synthesize_partial_constructor(
-        &mut self,
-        origin: TypeId,
-        arguments: &[InferenceTerm],
-        residual_arity: usize,
-        store: &mut TypeStore,
-    ) -> Option<TypeId> {
+    fn synthesize_partial_constructor(&mut self, origin: TypeId, arguments: &[InferenceTerm], residual_arity: usize, store: &mut TypeStore) -> Option<TypeId> {
         if residual_arity == 0 || arguments.len() <= residual_arity {
             return None;
         }
@@ -922,12 +1011,7 @@ impl InferenceSession {
             .iter()
             .map(|&argument| arena.intern_scoped(ScopedTypeData::Free(argument)))
             .collect::<Vec<_>>();
-        scoped_arguments.extend((0..residual_arity).map(|index| {
-            arena.intern_scoped(ScopedTypeData::Bound {
-                depth: 0,
-                index: index as u32,
-            })
-        }));
+        scoped_arguments.extend((0..residual_arity).map(|index| arena.intern_scoped(ScopedTypeData::Bound { depth: 0, index: index as u32 })));
         let scoped_body = arena.intern_scoped(ScopedTypeData::Applied {
             origin: scoped_origin,
             arguments: scoped_arguments.into_boxed_slice(),
@@ -2370,11 +2454,16 @@ impl InferenceSession {
                         })
                     })
                     .collect::<Result<Vec<_>, InferenceMaterializationFailure>>()?;
-                let row_id = store.intern_record_row(crate::types::row::RecordRowData {
-                    fields: fields.into_boxed_slice(),
-                    tail: record.tail,
-                });
-                Ok(store.record_type(row_id))
+                store
+                    .record_row_type_checked(
+                        fields,
+                        match record.tail {
+                            InferenceRecordTail::Closed => RecordRowTail::Closed,
+                            InferenceRecordTail::Parameter(parameter) => RecordRowTail::Parameter(parameter),
+                            InferenceRecordTail::Var(_) => return Err(InferenceMaterializationFailure::InternalInvariant),
+                        },
+                    )
+                    .map_err(|_| InferenceMaterializationFailure::InternalInvariant)
             }
             InferenceTerm::Family(family) => {
                 let members = family
@@ -2571,8 +2660,8 @@ mod tests {
 
     #[test]
     fn rigid_parameter_unification_against_structural_term_terminates() {
+        use super::InferenceRecordTail;
         use crate::types::parameter::{TypeParameterData, TypeParameterOwner};
-        use crate::types::row::RecordRowTail;
 
         let mut store = TypeStore::new();
         let owner = TypeParameterOwner::Declaration(test_decl("Caller"));
@@ -2580,7 +2669,7 @@ mod tests {
         let rigid = store.parameter_form(parameter);
         let record = InferenceTerm::Record(InferenceRecord {
             fields: Box::new([]),
-            tail: RecordRowTail::Closed,
+            tail: InferenceRecordTail::Closed,
         });
 
         let mut session = InferenceSession::new();

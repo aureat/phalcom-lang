@@ -172,6 +172,13 @@ impl<'a> DiagnosticPresenter<'a> {
             DiagnosticCode::GenericInferenceUnderconstrained => "generic parameter is underconstrained".into(),
             DiagnosticCode::GenericInferenceAmbiguous => "generic inference has multiple admissible solutions".into(),
             DiagnosticCode::GenericConstraintUnsatisfied => "generic constraint is not satisfied".into(),
+            DiagnosticCode::RecordDuplicateField => "record contains duplicate field".into(),
+            DiagnosticCode::RecordRowTailUnresolved => "record row tail cannot be resolved".into(),
+            DiagnosticCode::RecordRowTailKindMismatch => "record row tail has the wrong kind".into(),
+            DiagnosticCode::RecordRowLacksViolation => "record row contains a forbidden field".into(),
+            DiagnosticCode::RecordRowOccursCheck => "record row is recursive".into(),
+            DiagnosticCode::RecordRowInferenceUnderconstrained => "record row is underconstrained".into(),
+            DiagnosticCode::RecordRowInferenceConflict => "record row constraints conflict".into(),
             DiagnosticCode::KindExpectedType => "type constructor used where a proper type is required".into(),
             DiagnosticCode::ApplicationTooManyArguments => "too many type arguments".into(),
             _ => diagnostic.message.clone(),
@@ -383,12 +390,19 @@ impl<'a> DiagnosticPresenter<'a> {
             ExplanationStep::CallableSelection { callable, .. } => format!("selected callable `{}`", callable.selector),
             ExplanationStep::UnionArm { receiver, outcome, .. } => match outcome {
                 crate::explain::UnionArmOutcome::Resolved => format!("union receiver arm `{}` resolved selector", self.types.present_type(*receiver)),
-                crate::explain::UnionArmOutcome::Missing { .. } => format!("union receiver arm `{}` has no matching selector", self.types.present_type(*receiver)),
+                crate::explain::UnionArmOutcome::Missing { .. } => {
+                    format!("union receiver arm `{}` has no matching selector", self.types.present_type(*receiver))
+                }
                 crate::explain::UnionArmOutcome::Ambiguous => format!("union receiver arm `{}` has an ambiguous selector", self.types.present_type(*receiver)),
-                crate::explain::UnionArmOutcome::Dynamic { .. } => format!("union receiver arm `{}` crosses a dynamic boundary", self.types.present_type(*receiver)),
+                crate::explain::UnionArmOutcome::Dynamic { .. } => {
+                    format!("union receiver arm `{}` crosses a dynamic boundary", self.types.present_type(*receiver))
+                }
                 crate::explain::UnionArmOutcome::Invalid => format!("union receiver arm `{}` has an invalid application", self.types.present_type(*receiver)),
                 crate::explain::UnionArmOutcome::ContextConflict => {
-                    format!("union receiver arm `{}` conflicts with contextual closure expectations", self.types.present_type(*receiver))
+                    format!(
+                        "union receiver arm `{}` conflicts with contextual closure expectations",
+                        self.types.present_type(*receiver)
+                    )
                 }
             },
             ExplanationStep::CallableKind { kind, .. } => match kind {

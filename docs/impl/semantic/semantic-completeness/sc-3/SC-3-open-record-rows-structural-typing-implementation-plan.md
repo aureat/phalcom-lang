@@ -3342,6 +3342,15 @@ A failed, blocked, cancelled, or budget-exhausted row solve should not intern sp
 
 # Plan self-verification record
 
+Execution baseline for this implementation:
+
+```text
+1863dee7f11fe853bb30ea25348ec25b50e40b3a
+```
+
+The execution checkout is `main` with unrelated pre-existing dirty files. Those files
+are outside SC-3 ownership and will remain untouched.
+
 This plan was written against `aureat/phalcom-lang` `main` at:
 
 ```text
@@ -3444,4 +3453,3 @@ Repository-specific corrections deliberately captured by this plan:
 6. The WIP SC-1 foundation is now partially implemented at this pinned baseline: domain-aware binders, explicit formation outcomes, aliases, side-aware generic scope, and capture-safe scoped lowering are live; direct/scoped open Record tails remain the SC-3 handoff gaps.
 7. SC-2's canonical `apply_resolved_callable` funnel exists today and remains the only call-application authority.
 8. General row-valued generic application remains outside SC-3 because current applied-type and beta-reduction argument representations are `TypeId`-only.
-

@@ -3,6 +3,8 @@ use phalcom_semantic::checker::analysis::AnalysisStatus;
 use phalcom_semantic::checker::causal::CausalInvalidity;
 use phalcom_semantic::identity::DispatchSide;
 use phalcom_semantic::types::evidence::{EvidenceStatus, TypeKnowledge, UnknownReason};
+use phalcom_semantic::types::row::RecordRowTail;
+use phalcom_semantic::types::store::TypeData;
 
 #[test]
 fn invalid_initializer_expression_contains_its_own_cause() {
@@ -207,6 +209,7 @@ class Probe {
     let record = #{**source, name: 2}
   }
 }
+
 "#,
     );
     let run = fixture.callable("Probe", "run", DispatchSide::Class);
@@ -214,6 +217,67 @@ class Probe {
     assert!(fixture.binding(run, "tuple").current.ty().is_some());
     assert!(fixture.binding(run, "map").current.ty().is_some());
     assert!(fixture.binding(run, "record").current.ty().is_some());
+}
+
+#[test]
+fn expected_record_field_guides_nested_empty_collection() {
+    let fixture = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let result: #{ values: List<Int> } = #{values: []}
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+    let result = fixture.binding(run, "result").current.ty().expect("record result");
+    let TypeData::Record(row_id) = fixture.analysis.snapshot.store.get(result) else {
+        panic!("expected Record result");
+    };
+    let values = fixture.analysis.snapshot.store.record_row(*row_id).find_field("values").expect("values field");
+    assert_eq!(fixture.analysis.snapshot.store.format_type(values), "List<Int>");
+}
+
+#[test]
+fn open_record_expansion_preserves_tail_and_allows_disjoint_extension() {
+    let fixture = Fixture::new(
+        r#"
+class Probe {
+  @class
+  spread<R: RecordRow>(_ value: #{ known: Int, | R }) -> #{ known: Int, extra: Bool, | R } {
+    let result = #{ **value, extra: true }
+    result
+  }
+}
+"#,
+    );
+    let spread = fixture.callable("Probe", "spread", DispatchSide::Class);
+    let result = fixture.binding(spread, "result").current.ty().expect("expanded record result");
+    let TypeData::Record(row_id) = fixture.analysis.snapshot.store.get(result) else {
+        panic!("expected Record result");
+    };
+    let row = fixture.analysis.snapshot.store.record_row(*row_id);
+    assert!(matches!(row.tail, RecordRowTail::Parameter(_)));
+    assert_eq!(row.fields.iter().map(|field| field.name.as_ref()).collect::<Vec<_>>(), vec!["extra", "known"]);
+}
+
+#[test]
+fn map_expansion_does_not_fabricate_record_row() {
+    let fixture = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let source = { base: 1 }
+    let result = #{ **source, name: 2 }
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+    assert!(matches!(fixture.binding(run, "result").current, TypeKnowledge::Unknown(_)));
 }
 
 #[test]

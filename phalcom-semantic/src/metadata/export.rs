@@ -27,13 +27,14 @@ use phalcom_type_meta::header::{
     TYPE_METADATA_SCHEMA_VERSION,
 };
 use phalcom_type_meta::identity::SourceSpanRef;
+use phalcom_type_meta::identity::{StableDeclarationRef, StableModuleRef, StableProjectRef};
 use phalcom_type_meta::kind::{KindNode, KindNodeEntry, KindNodeId};
 use phalcom_type_meta::scoped_type::{
-    ScopedCallableParamRef, ScopedCallableTypeRef, ScopedRecordFieldRef, ScopedRecordTailRef, ScopedTupleElementRef, ScopedTypeNode, ScopedTypeNodeEntry,
-    ScopedTypeNodeId, TypeLambdaRef,
+    ScopedCallableParamRef, ScopedCallableTypeRef, ScopedOpenRecordTypeRef, ScopedRecordFieldRef, ScopedRecordTailRef, ScopedTupleElementRef, ScopedTypeNode,
+    ScopedTypeNodeEntry, ScopedTypeNodeId, TypeLambdaRef,
 };
 use phalcom_type_meta::type_node::{
-    CallableParamRef, CallableTypeRef, RecordFieldRef, SelfRoleRef, SelfTypeRef, TupleElementRef, TypeNode, TypeNodeEntry, TypeNodeId,
+    CallableParamRef, CallableTypeRef, OpenRecordTypeRef, RecordFieldRef, SelfRoleRef, SelfTypeRef, TupleElementRef, TypeNode, TypeNodeEntry, TypeNodeId,
 };
 use std::collections::HashMap;
 
@@ -49,6 +50,54 @@ pub enum MetadataExportError {
     MissingProjectIdentityContext,
     #[error("resolved project {0} is absent from ProjectUniverse")]
     MissingResolvedProject(phalcom_modules::ResolvedProjectId),
+}
+
+fn write_stable_project_fingerprint(builder: &mut FingerprintBuilder, project: &StableProjectRef) {
+    match project {
+        StableProjectRef::Builtin { namespace, version } => {
+            builder.write_u8(1);
+            builder.write_str(namespace);
+            builder.write_str(version);
+        }
+        StableProjectRef::Package {
+            package,
+            version,
+            artifact_fingerprint,
+        } => {
+            builder.write_u8(2);
+            builder.write_str(package);
+            builder.write_str(version);
+            builder.write_fingerprint(*artifact_fingerprint);
+        }
+        StableProjectRef::SourceArtifact {
+            logical_uri,
+            source_fingerprint,
+        } => {
+            builder.write_u8(3);
+            builder.write_str(logical_uri);
+            builder.write_fingerprint(*source_fingerprint);
+        }
+        StableProjectRef::Session { session_fingerprint } => {
+            builder.write_u8(4);
+            builder.write_fingerprint(*session_fingerprint);
+        }
+    }
+}
+
+fn write_stable_module_fingerprint(builder: &mut FingerprintBuilder, module: &StableModuleRef) {
+    write_stable_project_fingerprint(builder, &module.project);
+    builder.write_u32(module.path.len() as u32);
+    for component in module.path.iter() {
+        builder.write_str(component);
+    }
+}
+
+fn write_stable_declaration_fingerprint(builder: &mut FingerprintBuilder, declaration: &StableDeclarationRef) {
+    write_stable_module_fingerprint(builder, &declaration.module);
+    builder.write_u32(declaration.path.len() as u32);
+    for component in declaration.path.iter() {
+        builder.write_str(component);
+    }
 }
 
 /// Exporter context driving hash-consing and topological node indexing.
@@ -102,6 +151,25 @@ impl<'a> MetadataExporter<'a> {
         self.identity_context
             .as_ref()
             .map_or_else(|| to_stable_field(field), |context| to_stable_field_with_context(field, context))
+    }
+
+    fn write_stable_parameter_fingerprint(&self, builder: &mut FingerprintBuilder, parameter: &StableTypeParameterRef) {
+        match &parameter.owner {
+            StableTypeParameterOwnerRef::Declaration(declaration) => {
+                builder.write_u8(1);
+                write_stable_declaration_fingerprint(builder, declaration);
+            }
+            StableTypeParameterOwnerRef::Callable(callable) => {
+                builder.write_u8(2);
+                write_stable_declaration_fingerprint(builder, &callable.owner);
+                builder.write_u8(match callable.side {
+                    phalcom_type_meta::identity::StableDispatchSide::Instance => 1,
+                    phalcom_type_meta::identity::StableDispatchSide::Class => 2,
+                });
+                builder.write_str(&callable.selector);
+            }
+        }
+        builder.write_u32(parameter.index);
     }
 
     pub fn new(
@@ -260,6 +328,28 @@ impl<'a> MetadataExporter<'a> {
                 }
                 ScopedTypeNode::Record(f_nodes.into_boxed_slice())
             }
+            ScopedTypeData::OpenRecord(ref record) => {
+                let fields = record
+                    .fields
+                    .iter()
+                    .map(|field| {
+                        Ok(ScopedRecordFieldRef {
+                            name: field.name.clone(),
+                            ty: self.export_scoped_type(field.ty)?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, MetadataExportError>>()?;
+                let tail = match record.tail {
+                    crate::types::type_lambda::ScopedRecordTail::Bound { depth, index } => ScopedRecordTailRef::Bound { depth, index },
+                    crate::types::type_lambda::ScopedRecordTail::FreeParameter(parameter) => {
+                        ScopedRecordTailRef::FreeParameter(self.export_type_parameter(parameter))
+                    }
+                };
+                ScopedTypeNode::OpenRecord(ScopedOpenRecordTypeRef {
+                    fields: fields.into_boxed_slice(),
+                    tail,
+                })
+            }
             ScopedTypeData::Callable(ref call) => {
                 let mut params = Vec::new();
                 for p in call.parameters.iter() {
@@ -364,7 +454,7 @@ impl<'a> MetadataExporter<'a> {
                     }
                     ScopedRecordTailRef::FreeParameter(p) => {
                         fp_b.write_u8(2);
-                        fp_b.write_u32(p.index);
+                        self.write_stable_parameter_fingerprint(&mut fp_b, p);
                     }
                 }
             }
@@ -428,7 +518,7 @@ impl<'a> MetadataExporter<'a> {
                 TypeNode::Tuple(elem_refs.into_boxed_slice())
             }
             TypeData::Record(row_id) => {
-                let row = self.store.record_row(row_id);
+                let row = self.store.record_row(row_id).clone();
                 let mut field_refs = Vec::new();
                 for f in row.fields.iter() {
                     let ty_id = self.export_type_form(f.ty)?;
@@ -437,7 +527,13 @@ impl<'a> MetadataExporter<'a> {
                         ty: ty_id,
                     });
                 }
-                TypeNode::Record(field_refs.into_boxed_slice())
+                match row.tail {
+                    crate::types::row::RecordRowTail::Closed => TypeNode::Record(field_refs.into_boxed_slice()),
+                    crate::types::row::RecordRowTail::Parameter(parameter) => TypeNode::OpenRecord(OpenRecordTypeRef {
+                        fields: field_refs.into_boxed_slice(),
+                        tail: self.export_type_parameter(parameter),
+                    }),
+                }
             }
             TypeData::Callable(ref call) => {
                 let mut params = Vec::new();
@@ -530,7 +626,7 @@ impl<'a> MetadataExporter<'a> {
                     fp_b.write_str(&f.name);
                     fp_b.write_fingerprint(self.types[f.ty.0 as usize].structural_fingerprint);
                 }
-                fp_b.write_u32(open_rec.tail.index);
+                self.write_stable_parameter_fingerprint(&mut fp_b, &open_rec.tail);
             }
             TypeNode::Callable(call) => {
                 fp_b.write_u8(8);
@@ -900,7 +996,7 @@ impl<'a> MetadataExporter<'a> {
             profile: self.profile,
             features: MetadataFeatures {
                 type_lambdas: true,
-                record_rows: false,
+                record_rows: true,
                 runtime_type_constants: !out_roots.is_empty(),
                 source_occurrences: false,
                 advanced_sections: Box::new([]),

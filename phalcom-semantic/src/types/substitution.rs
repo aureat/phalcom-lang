@@ -1,7 +1,7 @@
 //! Type parameter substitution for generic declarations and applied member views.
 
 use super::id::{TypeId, TypeParameterId};
-use super::row::{RecordRowData, RecordRowField};
+use super::row::RecordRowField;
 use super::store::{CallableParameterType, CallableType, TupleTypeElement, TypeData, TypeStore};
 use crate::declarations::DeclarationTypeTable;
 use std::collections::HashMap;
@@ -83,12 +83,9 @@ impl TypeSubstitution {
                         ty: self.apply(store, field.ty),
                     })
                     .collect();
-                let row_data = RecordRowData {
-                    fields: subst_fields.into_boxed_slice(),
-                    tail,
-                };
-                let new_row_id = store.intern_record_row(row_data);
-                store.record_type(new_row_id)
+                store
+                    .record_row_type_checked(subst_fields, tail)
+                    .expect("type substitution must preserve canonical Record-row invariants")
             }
             TypeData::Callable(callable) => {
                 let params: Vec<CallableParameterType> = callable
@@ -224,12 +221,9 @@ pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTyp
                     ty: specialize_self_type(store, declarations, receiver, field.ty),
                 })
                 .collect();
-            let row_data = RecordRowData {
-                fields: subst_fields.into_boxed_slice(),
-                tail,
-            };
-            let new_row_id = store.intern_record_row(row_data);
-            store.record_type(new_row_id)
+            store
+                .record_row_type_checked(subst_fields, tail)
+                .expect("Self specialization must preserve canonical Record-row invariants")
         }
         TypeData::Callable(callable) => {
             let params: Vec<CallableParameterType> = callable

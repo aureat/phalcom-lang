@@ -23,6 +23,7 @@ pub(crate) mod loop_analysis;
 pub mod pattern;
 pub mod pattern_space;
 pub mod result;
+pub mod row_inference;
 pub mod statement;
 pub mod typed_expr;
 
@@ -58,6 +59,10 @@ pub use inference::{
 pub use pattern::resolve_pattern;
 pub use pattern_space::{ListSpace, PatternSpace, VariantSpace};
 pub use result::TypeCheckReport;
+pub use row_inference::{
+    CombinedInferenceFailure, GenericApplicationSession, GenericInferenceBinding, InferenceRecord, InferenceRecordField, InferenceRecordTail,
+    term_has_row_variables,
+};
 
 pub use control::StatementControl;
 pub use statement::check_statement;

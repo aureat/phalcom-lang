@@ -8,5 +8,6 @@ mod fingerprints;
 mod match_analysis;
 mod product_stability;
 mod query_ownership;
+mod record_rows;
 mod support;
 mod type_store_revisions;

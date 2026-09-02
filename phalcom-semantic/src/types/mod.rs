@@ -9,6 +9,7 @@ pub mod environment;
 pub mod evidence;
 pub mod family;
 pub mod id;
+pub mod instantiation;
 pub mod kind;
 pub mod native;
 pub mod outcome;
@@ -16,8 +17,8 @@ pub mod parameter;
 pub mod relation;
 pub mod row;
 pub mod row_solver;
-pub mod store;
 pub mod specialization;
+pub mod store;
 pub mod substitution;
 pub mod type_lambda;
 pub mod variance;
@@ -36,6 +37,7 @@ pub use evidence::{
 };
 pub use family::{FamilyMemberType, FamilyMemberTypeKind, FamilyOperationShape, FamilyType, FamilyTypeError, FamilyTypeId};
 pub use id::{InferVarId, KindId, ProperTypeId, RecordRowId, ScopedTypeId, TypeId, TypeLambdaId, TypeParameterId, TypeStoreId, VariantTypeId};
+pub use instantiation::{GenericInstantiation, RowMaterializationMode, TypeMaterializationError, materialize_type};
 pub use kind::{KindApplicationError, KindData};
 pub use native::{
     NativeSurfaceImportError, NativeSurfaceImportReport, NativeTypeResolutionError, normalize_native_type, register_native_surfaces, resolve_native_type_form,
@@ -48,16 +50,18 @@ pub use relation::{
     Assignability, MapTypeHierarchy, RefutationReason, TypeHierarchy, check_assignability, check_assignability_bounded, check_knowledge_against_type,
     check_knowledge_against_type_bounded, check_subtype_bounded, is_subtype,
 };
-pub use row::{DuplicateFieldError, RecordAccess, RecordRowData, RecordRowField, RecordRowTail};
+pub use row::{DuplicateFieldError, RecordRowData, RecordRowField, RecordRowFormationError, RecordRowTail};
 pub use row_solver::{
     IncidentId, RecordRowBlockedReason, RecordRowFailure, RecordRowLacks, RecordRowSolution, RecordRowSolveResult, RecordRowSolver, RecordRowTerm,
-    RecordRowVarId, RowBudgetReport,
+    RecordRowTermTail, RecordRowUnderconstrained, RecordRowVarId, RecordRowZonkError,
+};
+pub use specialization::{
+    ReceiverSpecialization, ReceiverSpecializationFailure, ReceiverSpecializationStep, SpecializationControl, specialize_receiver_to_owner,
 };
 pub use store::{CallableParameterType, CallableType, RecordTypeField, TupleTypeElement, TypeData, TypeStore};
-pub use specialization::{ReceiverSpecialization, ReceiverSpecializationFailure, ReceiverSpecializationStep, SpecializationControl, specialize_receiver_to_owner};
 pub use substitution::{TypeSubstitution, substitution_for_applied};
 pub use type_lambda::{
-    BetaReductionError, BetaResult, ScopedCallableParameter, ScopedCallableType, ScopedRecordField, ScopedTupleElement, ScopedTypeData, TypeLambdaArena,
-    TypeLambdaData, TypeLambdaProvenance,
+    BetaReductionError, BetaResult, ScopedCallableParameter, ScopedCallableType, ScopedOpenRecord, ScopedRecordField, ScopedRecordTail, ScopedTupleElement,
+    ScopedTypeData, TypeLambdaArena, TypeLambdaData, TypeLambdaProvenance,
 };
 pub use variance::{Variance, VarianceDiagnostic, VarianceStep, compute_variance_occurrence};

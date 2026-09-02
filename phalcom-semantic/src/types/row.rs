@@ -1,6 +1,6 @@
 //! Canonical record-row domain and representation.
 
-use super::id::{TypeId, TypeParameterId};
+use super::id::{KindId, TypeId, TypeParameterId};
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct RecordRowField {
@@ -59,9 +59,17 @@ impl RecordRowData {
 #[error("duplicate record field: {0}")]
 pub struct DuplicateFieldError(pub Box<str>);
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum RecordAccess {
-    ReadOnly,
-    WriteOnly,
-    ReadWrite,
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum RecordRowFormationError {
+    #[error("duplicate record field: {0}")]
+    DuplicateField(Box<str>),
+
+    #[error("record field `{field}` is not a proper type")]
+    FieldNotProperType { field: Box<str>, ty: TypeId },
+
+    #[error("record row tail parameter is missing")]
+    TailParameterMissing(TypeParameterId),
+
+    #[error("record row tail parameter must have kind RecordRow")]
+    TailParameterWrongKind { parameter: TypeParameterId, actual: KindId },
 }

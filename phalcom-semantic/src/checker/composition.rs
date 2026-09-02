@@ -104,19 +104,90 @@ pub(crate) fn project_tuple_elements(store: &TypeStore, knowledge: &TypeKnowledg
     }
 }
 
-pub(crate) fn project_record_fields(store: &TypeStore, knowledge: &TypeKnowledge) -> Result<Vec<(Box<str>, TypeKnowledge)>, TypeKnowledge> {
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct RecordProjection {
+    pub fields: Vec<(Box<str>, TypeKnowledge)>,
+    pub tail: RecordRowTail,
+}
+
+/// Projects statically known Record fields without pretending an open row is
+/// complete. The returned tail is owned so callers may continue analysis
+/// without holding a borrow into `TypeStore`.
+pub(crate) fn project_record_shape(store: &TypeStore, knowledge: &TypeKnowledge) -> Result<RecordProjection, TypeKnowledge> {
     match knowledge {
         TypeKnowledge::Known(_) => {
             let Some(source_ty) = knowledge.ty() else {
                 unreachable!("Known knowledge has a type");
             };
             match store.get(source_ty) {
-                TypeData::Record(row_id) if store.record_row(*row_id).tail == RecordRowTail::Closed => Ok(store
-                    .record_row(*row_id)
-                    .fields
-                    .iter()
-                    .map(|field| (field.name.clone(), knowledge.derive_known_type(field.ty, EvidenceOrigin::PatternDecomposition)))
-                    .collect()),
+                TypeData::Record(row_id) => {
+                    let row = store.record_row(*row_id);
+                    if matches!(row.tail, RecordRowTail::Closed) {
+                        return project_complete_record_fields(store, knowledge).map(|fields| RecordProjection {
+                            fields,
+                            tail: RecordRowTail::Closed,
+                        });
+                    }
+                    Ok(RecordProjection {
+                        fields: row
+                            .fields
+                            .iter()
+                            .map(|field| (field.name.clone(), knowledge.derive_known_type(field.ty, EvidenceOrigin::PatternDecomposition)))
+                            .collect(),
+                        tail: row.tail,
+                    })
+                }
+                _ => Err(TypeKnowledge::Unknown(UnknownReason::UncheckedExpression)),
+            }
+        }
+        TypeKnowledge::Unknown(reason) => Err(TypeKnowledge::Unknown(reason.clone())),
+        TypeKnowledge::Dynamic(reason) => Err(TypeKnowledge::Dynamic(reason.clone())),
+    }
+}
+
+/// Complete field enumeration is only sound for a closed Record row.
+pub(crate) fn project_complete_record_fields(store: &TypeStore, knowledge: &TypeKnowledge) -> Result<Vec<(Box<str>, TypeKnowledge)>, TypeKnowledge> {
+    match knowledge {
+        TypeKnowledge::Known(_) => {
+            let Some(source_ty) = knowledge.ty() else {
+                unreachable!("Known knowledge has a type");
+            };
+            match store.get(source_ty) {
+                TypeData::Record(row_id) => {
+                    let row = store.record_row(*row_id);
+                    if !matches!(row.tail, RecordRowTail::Closed) {
+                        return Err(TypeKnowledge::Unknown(UnknownReason::UncheckedExpression));
+                    }
+                    Ok(row
+                        .fields
+                        .iter()
+                        .map(|field| (field.name.clone(), knowledge.derive_known_type(field.ty, EvidenceOrigin::PatternDecomposition)))
+                        .collect())
+                }
+                _ => Err(TypeKnowledge::Unknown(UnknownReason::UncheckedExpression)),
+            }
+        }
+        TypeKnowledge::Unknown(reason) => Err(TypeKnowledge::Unknown(reason.clone())),
+        TypeKnowledge::Dynamic(reason) => Err(TypeKnowledge::Dynamic(reason.clone())),
+    }
+}
+
+/// Projects one known prefix field. Open rows are safe here because a known
+/// prefix is guaranteed; absence from the prefix remains unknown.
+pub(crate) fn lookup_record_field(store: &TypeStore, knowledge: &TypeKnowledge, name: &str) -> Result<TypeKnowledge, TypeKnowledge> {
+    match knowledge {
+        TypeKnowledge::Known(_) => {
+            let Some(source_ty) = knowledge.ty() else {
+                unreachable!("Known knowledge has a type");
+            };
+            match store.get(source_ty) {
+                TypeData::Record(row_id) => {
+                    let row = store.record_row(*row_id);
+                    match row.find_field(name) {
+                        Some(field_ty) => Ok(knowledge.derive_known_type(field_ty, EvidenceOrigin::PatternDecomposition)),
+                        None => Err(TypeKnowledge::Unknown(UnknownReason::UncheckedExpression)),
+                    }
+                }
                 _ => Err(TypeKnowledge::Unknown(UnknownReason::UncheckedExpression)),
             }
         }

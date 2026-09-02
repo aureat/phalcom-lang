@@ -261,11 +261,9 @@ fn apply_substitution_to_fixpoint(store: &mut TypeStore, substitution: &TypeSubs
                         ty: normalize(store, substitution, field.ty, states),
                     })
                     .collect::<Vec<_>>();
-                let row_id = store.intern_record_row(crate::types::row::RecordRowData {
-                    fields: fields.into_boxed_slice(),
-                    tail,
-                });
-                store.record_type(row_id)
+                store
+                    .record_row_type_checked(fields, tail)
+                    .expect("GADT proof normalization must preserve canonical Record-row invariants")
             }
             TypeData::Callable(callable) => {
                 let parameters = callable

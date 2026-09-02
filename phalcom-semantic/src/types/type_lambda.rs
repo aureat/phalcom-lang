@@ -1,6 +1,7 @@
 //! Alpha-normalized Type Lambda calculus and scoped bound representation.
 
-use super::id::{KindId, ScopedTypeId, TypeId, TypeLambdaId};
+use super::id::{KindId, ScopedTypeId, TypeId, TypeLambdaId, TypeParameterId};
+use super::row::{RecordRowFormationError, RecordRowTail};
 use super::store::{TypeData, TypeStore};
 use super::substitution::TypeSubstitution;
 use crate::diagnostic::SemanticSourceSpan;
@@ -21,6 +22,8 @@ pub enum ScopedTypeData {
     Tuple(Box<[ScopedTupleElement]>),
     /// Scoped record type.
     Record(Box<[ScopedRecordField]>),
+    /// Scoped open record type with a capture-safe stable row tail.
+    OpenRecord(ScopedOpenRecord),
     /// Scoped callable type.
     Callable(ScopedCallableType),
     /// Nested lambda reference.
@@ -37,6 +40,18 @@ pub struct ScopedTupleElement {
 pub struct ScopedRecordField {
     pub name: Box<str>,
     pub ty: ScopedTypeId,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ScopedRecordTail {
+    Bound { depth: u32, index: u32 },
+    FreeParameter(TypeParameterId),
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct ScopedOpenRecord {
+    pub fields: Box<[ScopedRecordField]>,
+    pub tail: ScopedRecordTail,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -148,6 +163,10 @@ impl TypeLambdaArena {
             ScopedTypeData::Union(members) => members.iter().any(|&m| self.has_free_bound(m, current_depth)),
             ScopedTypeData::Tuple(elems) => elems.iter().any(|e| self.has_free_bound(e.ty, current_depth)),
             ScopedTypeData::Record(fields) => fields.iter().any(|f| self.has_free_bound(f.ty, current_depth)),
+            ScopedTypeData::OpenRecord(record) => {
+                matches!(record.tail, ScopedRecordTail::Bound { depth, .. } if depth >= current_depth)
+                    || record.fields.iter().any(|f| self.has_free_bound(f.ty, current_depth))
+            }
             ScopedTypeData::Callable(call) => {
                 call.parameters.iter().any(|p| self.has_free_bound(p.ty, current_depth)) || self.has_free_bound(call.return_type, current_depth)
             }
@@ -185,6 +204,11 @@ impl TypeLambdaArena {
             }
             ScopedTypeData::Record(fields) => {
                 for f in fields.iter() {
+                    self.collect_free_types(f.ty, out);
+                }
+            }
+            ScopedTypeData::OpenRecord(record) => {
+                for f in record.fields.iter() {
                     self.collect_free_types(f.ty, out);
                 }
             }
@@ -292,6 +316,18 @@ impl TypeLambdaArena {
                     .into_boxed_slice();
                 self.intern_scoped(ScopedTypeData::Record(fields))
             }
+            ScopedTypeData::OpenRecord(record) => {
+                let fields = record
+                    .fields
+                    .iter()
+                    .map(|field| ScopedRecordField {
+                        name: field.name.clone(),
+                        ty: self.substitute_free_scoped(field.ty, substitution, store),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                self.intern_scoped(ScopedTypeData::OpenRecord(ScopedOpenRecord { fields, tail: record.tail }))
+            }
             ScopedTypeData::Callable(callable) => {
                 let parameters = callable
                     .parameters
@@ -363,6 +399,23 @@ impl TypeLambdaArena {
                     })
                     .collect::<Result<_, BetaReductionError>>()?;
                 Ok(store.record(can_fields.into_boxed_slice()))
+            }
+            ScopedTypeData::OpenRecord(record) => {
+                let can_fields = record
+                    .fields
+                    .iter()
+                    .map(|field| {
+                        Ok(super::store::RecordTypeField {
+                            name: field.name.clone(),
+                            ty: self.subst_scoped_to_canonical(field.ty, depth, args, store)?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, BetaReductionError>>()?;
+                let tail = match record.tail {
+                    ScopedRecordTail::FreeParameter(parameter) => RecordRowTail::Parameter(parameter),
+                    ScopedRecordTail::Bound { .. } => return Err(BetaReductionError::UnsupportedRecordRowArgument),
+                };
+                store.record_row_type_checked(can_fields, tail).map_err(BetaReductionError::RecordRowFormation)
             }
             ScopedTypeData::Callable(call) => {
                 let can_params: Vec<super::store::CallableParameterType> = call
@@ -459,6 +512,18 @@ impl TypeLambdaArena {
                     .collect();
                 self.intern_scoped(ScopedTypeData::Record(s_fields.into_boxed_slice()))
             }
+            ScopedTypeData::OpenRecord(record) => {
+                let fields = record
+                    .fields
+                    .iter()
+                    .map(|field| ScopedRecordField {
+                        name: field.name.clone(),
+                        ty: self.subst_scoped_partial(field.ty, depth, args, store),
+                    })
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                self.intern_scoped(ScopedTypeData::OpenRecord(ScopedOpenRecord { fields, tail: record.tail }))
+            }
             ScopedTypeData::Callable(call) => {
                 let s_params: Vec<ScopedCallableParameter> = call
                     .parameters
@@ -499,6 +564,10 @@ pub enum BetaReductionError {
     KindMismatch { parameter_index: u32, expected: KindId, actual: KindId },
     #[error("type-lambda body contains an unbound variable at depth {depth}, index {index}")]
     UnboundVariable { depth: u32, index: u32 },
+    #[error("type-lambda application cannot supply a RecordRow argument")]
+    UnsupportedRecordRowArgument,
+    #[error(transparent)]
+    RecordRowFormation(#[from] RecordRowFormationError),
     #[error(transparent)]
     Application(#[from] super::application::TypeApplicationError),
 }

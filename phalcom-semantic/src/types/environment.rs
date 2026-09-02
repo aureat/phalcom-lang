@@ -1,7 +1,8 @@
 //! Type environment, specialization views, and lazy member projection.
 
-use super::id::{TypeId, TypeParameterId};
-use super::row::{RecordRowData, RecordRowField};
+use super::id::{RecordRowId, TypeId, TypeParameterId};
+use super::instantiation::{GenericInstantiation, RowMaterializationMode, TypeMaterializationError, materialize_type};
+use super::row::RecordRowField;
 use super::store::{CallableParameterType, CallableType, TupleTypeElement, TypeData, TypeStore};
 use super::substitution::TypeSubstitution;
 use crate::identity::CallableId;
@@ -11,6 +12,7 @@ use std::collections::HashMap;
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TypeEnvironment {
     pub bindings: HashMap<TypeParameterId, TypeId>,
+    pub row_bindings: HashMap<TypeParameterId, RecordRowId>,
     pub self_binding: Option<TypeId>,
 }
 
@@ -23,6 +25,10 @@ impl TypeEnvironment {
         self.bindings.insert(param, ty);
     }
 
+    pub fn bind_row(&mut self, param: TypeParameterId, row: RecordRowId) {
+        self.row_bindings.insert(param, row);
+    }
+
     pub fn bind_self(&mut self, ty: TypeId) {
         self.self_binding = Some(ty);
     }
@@ -31,12 +37,16 @@ impl TypeEnvironment {
         self.bindings.get(&param).copied()
     }
 
+    pub fn get_row(&self, param: TypeParameterId) -> Option<RecordRowId> {
+        self.row_bindings.get(&param).copied()
+    }
+
     pub fn get_self(&self) -> Option<TypeId> {
         self.self_binding
     }
 
     pub fn is_empty(&self) -> bool {
-        self.bindings.is_empty() && self.self_binding.is_none()
+        self.bindings.is_empty() && self.row_bindings.is_empty() && self.self_binding.is_none()
     }
 
     pub fn to_substitution(&self) -> TypeSubstitution {
@@ -45,6 +55,17 @@ impl TypeEnvironment {
             subst.bind(p, t);
         }
         subst
+    }
+
+    pub fn to_generic_instantiation(&self) -> GenericInstantiation {
+        let mut instantiation = GenericInstantiation::default();
+        for (&parameter, &ty) in &self.bindings {
+            instantiation.bind_type(parameter, ty);
+        }
+        for (&parameter, &row) in &self.row_bindings {
+            instantiation.bind_row(parameter, row);
+        }
+        instantiation
     }
 }
 
@@ -73,6 +94,11 @@ impl TypeView {
             return self.root;
         }
         materialize_view(store, self.root, &self.environment)
+    }
+
+    pub fn materialize_checked(&self, store: &mut TypeStore, row_mode: RowMaterializationMode) -> Result<TypeId, TypeMaterializationError> {
+        let instantiation = self.environment.to_generic_instantiation();
+        materialize_type(store, self.root, &instantiation, row_mode)
     }
 }
 
@@ -128,12 +154,9 @@ fn materialize_view(store: &mut TypeStore, ty: TypeId, env: &TypeEnvironment) ->
                     ty: materialize_view(store, f.ty, env),
                 })
                 .collect();
-            let row_data = RecordRowData {
-                fields: subst_fields.into_boxed_slice(),
-                tail,
-            };
-            let new_row_id = store.intern_record_row(row_data);
-            store.record_type(new_row_id)
+            store
+                .record_row_type_checked(subst_fields, tail)
+                .expect("lazy type materialization must preserve canonical Record-row invariants")
         }
         TypeData::Callable(call) => {
             let params: Vec<CallableParameterType> = call

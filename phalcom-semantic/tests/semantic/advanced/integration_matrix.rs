@@ -16,9 +16,10 @@ use phalcom_semantic::prover::ir::{ProofOpaqueReason, ProofTerm};
 use phalcom_semantic::prover::vc::{ProofEvidence, ProofObligationKind, VcStatus, VcUnknownReason, VerificationCondition};
 use phalcom_semantic::termination::{TerminationBlockedReason, TerminationEvidence, TerminationKnowledge, analyze_callable_termination};
 use phalcom_semantic::types::evidence::{DynamicReason, EvidenceOrigin, TypeKnowledge};
+use phalcom_semantic::types::outcome::{CancellationToken, QueryBudget};
 use phalcom_semantic::types::relation::{MapTypeHierarchy, is_subtype};
-use phalcom_semantic::types::row::{RecordRowData, RecordRowField, RecordRowTail};
-use phalcom_semantic::types::row_solver::{RecordRowSolver, RecordRowTerm};
+use phalcom_semantic::types::row::{RecordRowField, RecordRowTail};
+use phalcom_semantic::types::row_solver::{RecordRowSolver, RecordRowTerm, RecordRowTermTail};
 use phalcom_semantic::types::store::TypeStore;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -64,26 +65,22 @@ fn test_matrix_1_record_row_subtyping_and_unification() {
     assert!(!is_subtype(&mut store, &hier, sup, sub), "Narrow cannot subtype wide");
 
     // Row solver unification
-    let empty_row = store.intern_record_row(RecordRowData {
-        fields: Box::new([]),
-        tail: RecordRowTail::Closed,
-    });
-    let single_row = store.intern_record_row(RecordRowData {
-        fields: Box::new([RecordRowField { name: "a".into(), ty: int_ty }]),
-        tail: RecordRowTail::Closed,
-    });
+    let single_row = store
+        .record_row_checked(vec![RecordRowField { name: "a".into(), ty: int_ty }], RecordRowTail::Closed)
+        .unwrap();
 
-    let mut solver = RecordRowSolver::new(100);
+    let mut solver = RecordRowSolver::new();
     let r_var = solver.fresh_var();
-    let left = RecordRowTerm::Canonical(single_row);
-    let right = RecordRowTerm::Extend {
-        fields: vec![RecordRowField { name: "a".into(), ty: int_ty }],
-        tail: Box::new(RecordRowTerm::Var(r_var)),
+    let left = RecordRowTerm::from_canonical(&store, single_row);
+    let right = RecordRowTerm {
+        fields: Box::new([RecordRowField { name: "a".into(), ty: int_ty }]),
+        tail: RecordRowTermTail::Var(r_var),
     };
 
-    let result = solver.solve(&left, &right, &store);
+    let mut budget = QueryBudget::default();
+    let result = solver.solve(&left, &right, &store, &mut budget, &CancellationToken::new());
     assert!(matches!(result, phalcom_semantic::types::row_solver::RecordRowSolveResult::Solved(sol) if {
-        sol.substitutions.get(&r_var) == Some(&RecordRowTerm::Canonical(empty_row))
+        sol.term_for(r_var) == Some(&RecordRowTerm { fields: Box::new([]), tail: RecordRowTermTail::Closed })
     }));
 }
 

@@ -10,11 +10,12 @@ use phalcom_semantic::types::annotation::{
     resolve_type_annotation,
 };
 use phalcom_semantic::types::evidence::{TypeKnowledge, UnknownReason};
-use phalcom_semantic::types::id::{InferVarId, KindId};
+use phalcom_semantic::types::id::{InferVarId, KindId, TypeId};
 use phalcom_semantic::types::parameter::{GenericConstraint, GenericSignature, TypeParameterData, TypeParameterOwner, TypeTerm};
+use phalcom_semantic::types::row::RecordRowTail;
 use phalcom_semantic::types::store::{CallableType, TypeData, TypeStore};
 use phalcom_semantic::types::substitution::TypeSubstitution;
-use phalcom_semantic::types::type_lambda::ScopedTypeData;
+use phalcom_semantic::types::type_lambda::{ScopedOpenRecord, ScopedRecordField, ScopedRecordTail, ScopedTypeData, TypeLambdaArena};
 
 const RANGE: SourceRange = SourceRange { start: 0, end: 1 };
 
@@ -452,8 +453,17 @@ fn lowers_structural_record_annotations() {
 }
 
 #[test]
-fn open_record_tail_is_rejected_without_closed_record_recovery() {
+fn open_record_tail_is_preserved_without_closed_record_recovery() {
     let mut env = setup();
+    let owner_decl = DeclarationId::new(env.module.clone(), "RowCallableOwner".into());
+    let owner = CallableId::new(owner_decl, Selector::getter("row").unwrap(), DispatchSide::Instance);
+    let row_parameter = env.store.intern_type_parameter(phalcom_semantic::types::parameter::TypeParameterData::new(
+        phalcom_semantic::types::parameter::TypeParameterOwner::Callable(owner),
+        0,
+        "R",
+        KindId::RECORD_ROW,
+    ));
+    env.resolver.insert_record_row_binding("R", row_parameter);
     let closed = TypeAnnotation {
         expr: TypeAnnotationExpr::Record {
             fields: vec![phalcom_ast::ast::RecordTypeField {
@@ -486,12 +496,44 @@ fn open_record_tail_is_rejected_without_closed_record_recovery() {
     };
     let mut diagnostics = Vec::new();
     let result = phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &open, &mut diagnostics);
-    assert_eq!(
-        result,
-        TypeFormResolution::Invalid(phalcom_semantic::types::annotation::TypeFormationInvalid::UnsupportedOpenRecordTail)
-    );
+    assert!(matches!(result, TypeFormResolution::Ready(ty) if {
+        matches!(env.store.get(ty), TypeData::Record(row_id) if env.store.record_row(*row_id).tail == RecordRowTail::Parameter(row_parameter))
+    }));
     assert_ne!(result, TypeFormResolution::Ready(closed_type));
-    assert_eq!(diagnostics[0].code, DiagnosticCode::AnnotationUnsupported);
+    assert!(diagnostics.is_empty());
+}
+
+#[test]
+fn wrong_kind_record_row_tail_is_reported_at_checked_boundary() {
+    let mut env = setup();
+    let int_form = env.declarations.form(&DeclarationId::new(env.module.clone(), "Int".into())).expect("Int form");
+    env.resolver.insert_type_form_binding("R", int_form);
+    let annotation = TypeAnnotation {
+        expr: TypeAnnotationExpr::Record {
+            fields: vec![phalcom_ast::ast::RecordTypeField {
+                name: "value".into(),
+                ty: reference("Int"),
+                range: RANGE,
+            }],
+            tail: Some(phalcom_ast::ast::RecordRowTail {
+                name: "R".into(),
+                range: RANGE,
+            }),
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let mut diagnostics = Vec::new();
+    let result =
+        phalcom_semantic::types::annotation::resolve_type_form(&mut env.store, &env.declarations, &env.resolver, &env.site, &annotation, &mut diagnostics);
+    assert!(matches!(
+        result,
+        TypeFormResolution::Invalid(TypeFormationInvalid::RecordRowTailKindMismatch { actual: KindId::TYPE })
+    ));
+    assert_eq!(
+        diagnostics.iter().map(|diagnostic| diagnostic.code).collect::<Vec<_>>(),
+        vec![DiagnosticCode::RecordRowTailKindMismatch]
+    );
 }
 
 #[test]
@@ -517,6 +559,71 @@ fn lowers_type_lambda_annotations() {
     let TypeData::Lambda(lambda_id) = env.store.get(lambda_ty) else { panic!() };
     let lambda = env.store.arena().get_lambda(*lambda_id);
     assert!(matches!(env.store.arena().get_scoped(lambda.body), ScopedTypeData::Free(_)));
+}
+
+#[test]
+fn scoped_open_record_captures_free_record_row_tail() {
+    let mut env = setup();
+    let owner_decl = DeclarationId::new(env.module.clone(), "ScopedRowOwner".into());
+    let owner = CallableId::new(owner_decl, Selector::getter("row").unwrap(), DispatchSide::Instance);
+    let row_parameter = env
+        .store
+        .intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Callable(owner), 0, "R", KindId::RECORD_ROW));
+    env.resolver.insert_record_row_binding("R", row_parameter);
+    let body = TypeAnnotation {
+        expr: TypeAnnotationExpr::Record {
+            fields: vec![phalcom_ast::ast::RecordTypeField {
+                name: "value".into(),
+                ty: reference("T"),
+                range: RANGE,
+            }],
+            tail: Some(phalcom_ast::ast::RecordRowTail {
+                name: "R".into(),
+                range: RANGE,
+            }),
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let mut diagnostics = Vec::new();
+    let result = phalcom_semantic::types::annotation::resolve_type_form(
+        &mut env.store,
+        &env.declarations,
+        &env.resolver,
+        &env.site,
+        &type_lambda(&["T"], body),
+        &mut diagnostics,
+    );
+    assert!(diagnostics.is_empty(), "unexpected diagnostics: {diagnostics:#?}");
+    let TypeFormResolution::Ready(lambda_ty) = result else {
+        panic!("expected scoped open-record lambda")
+    };
+    let TypeData::Lambda(lambda_id) = env.store.get(lambda_ty) else {
+        panic!("expected lambda type")
+    };
+    let lambda = env.store.arena().get_lambda(*lambda_id);
+    let ScopedTypeData::OpenRecord(record) = env.store.arena().get_scoped(lambda.body) else {
+        panic!("expected scoped open record")
+    };
+    assert_eq!(record.fields.len(), 1);
+    assert_eq!(record.tail, ScopedRecordTail::FreeParameter(row_parameter));
+}
+
+#[test]
+fn scoped_bound_row_tail_remains_domain_specific() {
+    let mut arena = TypeLambdaArena::new();
+    let field = arena.intern_scoped(ScopedTypeData::Free(TypeId::DUMMY));
+    let open = arena.intern_scoped(ScopedTypeData::OpenRecord(ScopedOpenRecord {
+        fields: Box::new([ScopedRecordField {
+            name: "value".into(),
+            ty: field,
+        }]),
+        tail: ScopedRecordTail::Bound { depth: 0, index: 0 },
+    }));
+    assert!(arena.has_free_bound(open, 0));
+    let mut free_types = Vec::new();
+    arena.collect_free_types(open, &mut free_types);
+    assert_eq!(free_types, vec![TypeId::DUMMY]);
 }
 
 #[test]
@@ -843,7 +950,9 @@ fn partially_applied_map_has_residual_constructor_kind() {
 #[test]
 fn record_row_generic_binder_does_not_create_type_parameter_form() {
     let mut env = setup();
-    let owner = phalcom_semantic::types::parameter::TypeParameterOwner::Declaration(DeclarationId::new(env.module.clone(), "RowContainer".into()));
+    let owner_decl = DeclarationId::new(env.module.clone(), "RowContainer".into());
+    let owner_callable = CallableId::new(owner_decl, Selector::getter("row").unwrap(), DispatchSide::Instance);
+    let owner = phalcom_semantic::types::parameter::TypeParameterOwner::Callable(owner_callable);
     let params = vec![phalcom_ast::ast::GenericParameterSyntax {
         variance: phalcom_ast::ast::VarianceSyntax::Invariant,
         name: "R".into(),
@@ -858,7 +967,7 @@ fn record_row_generic_binder_does_not_create_type_parameter_form() {
         &env.resolver,
         &env.site,
         owner,
-        phalcom_semantic::types::annotation::GenericBinderSite::NominalDeclaration,
+        phalcom_semantic::types::annotation::GenericBinderSite::Callable,
         &params,
         None,
         &mut diags,

@@ -4,6 +4,7 @@ use super::context::CheckingContext;
 use super::expected::{ExpectationOrigin, ExpectedType};
 use super::expression::analyze_expression;
 use super::inference::{ConstraintOrigin, InferenceRelation, InferenceSession, InferenceSupport, InferenceTerm};
+use super::row_inference::{CombinedInferenceFailure, GenericApplicationSession, term_has_row_variables};
 use crate::checker::analysis::AnalysisStatus;
 use crate::checker::causal::CausalInvalidity;
 use crate::checker::incident::{InternalSemanticIncidentDetails, InternalSemanticIncidentKind};
@@ -12,7 +13,7 @@ use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::{CallableParameter, CallableSemanticKind, CallableSignature, DispatchSignatureSpecialization};
 use crate::identity::{CallableId, ExplanationId};
 use crate::types::evidence::DynamicReason;
-use crate::types::evidence::{join_type_knowledge, EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
+use crate::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason, join_type_knowledge};
 use crate::types::id::{TypeId, TypeParameterId};
 use crate::types::parameter::{GenericConstraint, TypeParameterOwner};
 use crate::types::store::{TypeData, TypeStore};
@@ -786,6 +787,11 @@ fn apply_generic_callable_inner(
     };
 
     let mut session = InferenceSession::new();
+    let has_row_generics = generic_sig
+        .parameters
+        .iter()
+        .any(|parameter| ctx.store.type_parameter(*parameter).kind == crate::types::id::KindId::RECORD_ROW);
+    let mut row_session = has_row_generics.then(|| GenericApplicationSession::new(generic_sig, ctx.store));
     let mut var_map = session.instantiate_generic_signature(generic_sig, ctx.store);
     for &(parameter, ty) in fixed_generics {
         var_map.insert(parameter, InferenceTerm::Canonical(ty));
@@ -794,12 +800,15 @@ fn apply_generic_callable_inner(
         ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
         return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
     };
-    let return_term = signature
-        .return_type
-        .ty()
-        .map(|return_type| session.type_id_to_inference(return_type, &var_map, ctx.store));
+    let return_term = signature.return_type.ty().map(|return_type| {
+        row_session.as_ref().map_or_else(
+            || session.type_id_to_inference(return_type, &var_map, ctx.store),
+            |rows| session.type_id_to_inference_with_rows(return_type, &var_map, &rows.row_terms(), ctx.store),
+        )
+    });
     let fixed_return = return_term.as_ref().and_then(|term| {
-        (!session.term_has_variables(term)).then(|| promote_exact_return(&signature.return_type, ExactReturnOrigin::GenericInference, call_range))
+        (!session.term_has_variables(term) && !term_has_row_variables(term))
+            .then(|| promote_exact_return(&signature.return_type, ExactReturnOrigin::GenericInference, call_range))
     });
 
     let binding_plan = match bind_static_arguments(args, &signature.parameters) {
@@ -864,7 +873,10 @@ fn apply_generic_callable_inner(
             ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
             continue;
         };
-        let parameter_term = session.type_id_to_inference(parameter_ty, &var_map, ctx.store);
+        let parameter_term = row_session.as_ref().map_or_else(
+            || session.type_id_to_inference(parameter_ty, &var_map, ctx.store),
+            |rows| session.type_id_to_inference_with_rows(parameter_ty, &var_map, &rows.row_terms(), ctx.store),
+        );
         let expected_term = session.term_for_expected(&parameter_term);
         let argument_expected = session.materialize_for_expected(&expected_term, ctx.store).map_or_else(
             || ExpectedType::inference_from(expected_term, ExpectationOrigin::GenericArgument),
@@ -903,19 +915,45 @@ fn apply_generic_callable_inner(
                 ctx.record_call_dependency(CausalInvalidity::Clean, Some(constraint));
             }
         }
+        let mut row_argument_constrained = false;
         match &argument_typed.knowledge {
             TypeKnowledge::Known(evidence) => {
                 if let Some(support) = inference_support(&argument_typed.knowledge) {
                     // Actual argument types belong to caller scope. Keep their
                     // canonical generic parameters rigid; only the callable's
                     // signature terms use this invocation's fresh variables.
-                    let argument_term = session.type_id_to_inference(evidence.ty(), &std::collections::HashMap::new(), ctx.store);
-                    session.add_constraint_with_support(
-                        InferenceRelation::Subtype(argument_term, parameter_term),
-                        origin,
-                        stable_constraint_explanation,
-                        support,
-                    );
+                    if let (Some(rows), InferenceTerm::Record(formal_record)) = (row_session.as_mut(), &parameter_term) {
+                        match rows.constrain_known_record_argument(evidence.ty(), formal_record, ctx.store) {
+                            Ok(Some(field_constraints)) => {
+                                row_argument_constrained = true;
+                                for (actual_field, formal_field) in field_constraints {
+                                    session.add_constraint_with_support(
+                                        InferenceRelation::Subtype(actual_field, formal_field),
+                                        origin.clone(),
+                                        stable_constraint_explanation,
+                                        support,
+                                    );
+                                }
+                            }
+                            Ok(None) => {}
+                            Err(failure) => {
+                                row_argument_constrained = true;
+                                record_row_constraint_failure(ctx, failure, call_range);
+                            }
+                        }
+                    }
+                    if !row_argument_constrained {
+                        let argument_term = row_session.as_ref().map_or_else(
+                            || session.type_id_to_inference(evidence.ty(), &std::collections::HashMap::new(), ctx.store),
+                            |rows| session.type_id_to_inference_with_rows(evidence.ty(), &std::collections::HashMap::new(), &rows.row_terms(), ctx.store),
+                        );
+                        session.add_constraint_with_support(
+                            InferenceRelation::Subtype(argument_term, parameter_term),
+                            origin,
+                            stable_constraint_explanation,
+                            support,
+                        );
+                    }
                 }
             }
             TypeKnowledge::Unknown(reason) => {
@@ -935,14 +973,25 @@ fn apply_generic_callable_inner(
     }
 
     let argument_outcome = ctx.solve_inference(&mut session);
+    let mut row_outcome = row_session.as_mut().map(|rows| {
+        let store_ref: &crate::types::store::TypeStore = &*ctx.store;
+        ctx.control.relation(|budget, cancellation| rows.solve_rows(store_ref, budget, cancellation))
+    });
     let argument_underconstrained = match &argument_outcome {
         crate::checker::inference::InferenceOutcome::Underconstrained(value) => Some(value.clone()),
         _ => None,
     };
     let pre_context_result = match &argument_outcome {
-        crate::checker::inference::InferenceOutcome::Solved(_) => {
-            Some(publish_generic_return(ctx, &session, return_term.as_ref(), &signature.return_type, call_range))
-        }
+        crate::checker::inference::InferenceOutcome::Solved(solution) => Some(publish_generic_return_with_rows(
+            ctx,
+            &session,
+            row_session.as_mut(),
+            row_outcome.as_ref(),
+            Some(solution),
+            return_term.as_ref(),
+            &signature.return_type,
+            call_range,
+        )),
         _ => None,
     };
 
@@ -957,11 +1006,35 @@ fn apply_generic_callable_inner(
                 _ => None,
             });
             if let Some(expected_term) = expected_term {
-                session.add_constraint(
-                    InferenceRelation::Subtype(return_term.clone(), expected_term),
-                    ConstraintOrigin::ExpectedResult { expression: call_id },
-                    None,
-                );
+                let mut row_expected_constrained = false;
+                if let (Some(rows), InferenceTerm::Record(return_record)) = (row_session.as_mut(), return_term) {
+                    if let Some(expected_ty) = expected.ty() {
+                        match rows.constrain_known_record_argument(expected_ty, return_record, ctx.store) {
+                            Ok(Some(field_constraints)) => {
+                                row_expected_constrained = true;
+                                for (expected_field, return_field) in field_constraints {
+                                    session.add_constraint(
+                                        InferenceRelation::Subtype(expected_field, return_field),
+                                        ConstraintOrigin::ExpectedResult { expression: call_id },
+                                        None,
+                                    );
+                                }
+                            }
+                            Ok(None) => {}
+                            Err(failure) => {
+                                row_expected_constrained = true;
+                                record_row_constraint_failure(ctx, failure, call_range);
+                            }
+                        }
+                    }
+                }
+                if !row_expected_constrained {
+                    session.add_constraint(
+                        InferenceRelation::Subtype(return_term.clone(), expected_term),
+                        ConstraintOrigin::ExpectedResult { expression: call_id },
+                        None,
+                    );
+                }
                 session.record_context_selection(return_term);
                 if let Some(expected_ty) = expected.ty() {
                     for parameter in session.projected_parameters_for_term(return_term, &var_map) {
@@ -982,10 +1055,18 @@ fn apply_generic_callable_inner(
                 }
             }
         }
-        ctx.solve_inference(&mut session)
+        let result = ctx.solve_inference(&mut session);
+        if let Some(rows) = row_session.as_mut() {
+            let store_ref: &crate::types::store::TypeStore = &*ctx.store;
+            row_outcome = Some(ctx.control.relation(|budget, cancellation| rows.solve_rows(store_ref, budget, cancellation)));
+        }
+        result
     } else {
         argument_outcome
     };
+    if let Some(row_outcome) = row_outcome.as_ref() {
+        record_row_solve_outcome(ctx, row_outcome, call_range);
+    }
     let context_resolved = match (&argument_underconstrained, &outcome) {
         (Some(initial), crate::checker::inference::InferenceOutcome::Solved(solution)) => {
             initial.unsolved_vars.iter().all(|variable| solution.substitutions.contains_key(variable))
@@ -1160,9 +1241,16 @@ fn apply_generic_callable_inner(
     }
 
     match &outcome {
-        crate::checker::inference::InferenceOutcome::Solved(_) => {
-            publish_generic_return(ctx, &session, return_term.as_ref(), &signature.return_type, call_range)
-        }
+        crate::checker::inference::InferenceOutcome::Solved(solution) => publish_generic_return_with_rows(
+            ctx,
+            &session,
+            row_session.as_mut(),
+            row_outcome.as_ref(),
+            Some(solution),
+            return_term.as_ref(),
+            &signature.return_type,
+            call_range,
+        ),
         crate::checker::inference::InferenceOutcome::Ambiguous(_) => terminal_generic_return(&outcome, fixed_return),
         crate::checker::inference::InferenceOutcome::Conflicting(_)
         | crate::checker::inference::InferenceOutcome::Blocked(_)
@@ -1235,6 +1323,169 @@ fn publish_generic_return(
                     unreachable!("proof state matched above")
                 }
             }
+        }
+    }
+}
+
+fn publish_generic_return_with_rows(
+    ctx: &mut CheckingContext<'_>,
+    session: &InferenceSession,
+    row_session: Option<&mut GenericApplicationSession>,
+    row_outcome: Option<&crate::types::row_solver::RecordRowSolveResult>,
+    type_solution: Option<&crate::checker::inference::InferenceSolution>,
+    return_term: Option<&InferenceTerm>,
+    signature_return: &TypeKnowledge,
+    call_range: SourceRange,
+) -> TypeKnowledge {
+    let Some(rows) = row_session else {
+        return publish_generic_return(ctx, session, return_term, signature_return, call_range);
+    };
+    let Some(return_term) = return_term else {
+        return promote_exact_return(signature_return, ExactReturnOrigin::GenericInference, call_range);
+    };
+    let Some(crate::types::row_solver::RecordRowSolveResult::Solved(row_solution)) = row_outcome else {
+        return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
+    };
+    if !session.term_has_variables(return_term) && !term_has_row_variables(return_term) {
+        return promote_exact_return(signature_return, ExactReturnOrigin::GenericInference, call_range);
+    }
+    let proof = session.proof_state_for_term(return_term);
+    match proof {
+        crate::checker::inference::InferenceProofState::Unknown(reason) => TypeKnowledge::Unknown(reason),
+        crate::checker::inference::InferenceProofState::Dynamic(reason) => TypeKnowledge::Dynamic(reason),
+        crate::checker::inference::InferenceProofState::Established | crate::checker::inference::InferenceProofState::Assumed => {
+            let Some(type_solution) = type_solution else {
+                return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
+            };
+            let Ok(instantiation) = rows.build_instantiation_from_types(session, type_solution, row_solution, ctx.store) else {
+                return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
+            };
+            let Some(return_type) = signature_return.ty() else {
+                return promote_exact_return(signature_return, ExactReturnOrigin::GenericInference, call_range);
+            };
+            let Ok(ty) = crate::types::materialize_type(ctx.store, return_type, &instantiation, crate::types::RowMaterializationMode::RequireSolvedTail) else {
+                return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
+            };
+            match proof {
+                crate::checker::inference::InferenceProofState::Established => {
+                    TypeKnowledge::established(ty, EvidenceOrigin::GenericInference).with_range(call_range)
+                }
+                crate::checker::inference::InferenceProofState::Assumed => TypeKnowledge::assumed(ty, EvidenceOrigin::GenericInference).with_range(call_range),
+                crate::checker::inference::InferenceProofState::Unknown(_) | crate::checker::inference::InferenceProofState::Dynamic(_) => unreachable!(),
+            }
+        }
+    }
+}
+
+fn record_row_constraint_failure(ctx: &mut CheckingContext<'_>, failure: CombinedInferenceFailure, range: SourceRange) {
+    let (code, message) = match failure {
+        CombinedInferenceFailure::RowRejected(failure) => row_failure_diagnostic(ctx.store, &failure),
+        CombinedInferenceFailure::RowZonk(_) => (
+            DiagnosticCode::RecordRowInferenceConflict,
+            "record row solution could not be materialized".into(),
+        ),
+        CombinedInferenceFailure::UnderconstrainedType(_) => (
+            DiagnosticCode::GenericInferenceUnderconstrained,
+            "generic type inference is underconstrained".into(),
+        ),
+        CombinedInferenceFailure::UnderconstrainedRow(parameter) => (
+            DiagnosticCode::RecordRowInferenceUnderconstrained,
+            format!("record row parameter `{}` is underconstrained", ctx.store.type_parameter(parameter).name),
+        ),
+        CombinedInferenceFailure::Blocked(reason) => {
+            ctx.record_call_status(AnalysisStatus::Blocked(reason));
+            return;
+        }
+        CombinedInferenceFailure::Cancelled => {
+            ctx.record_call_status(AnalysisStatus::Cancelled);
+            return;
+        }
+        CombinedInferenceFailure::BudgetExceeded(report) => {
+            ctx.record_call_status(AnalysisStatus::BudgetExceeded(report));
+            return;
+        }
+    };
+    let diagnostic = SemanticDiagnostic::error_in(ctx.current_module.clone(), code, message, range);
+    if let Some(cause) = ctx.emit_diagnostic(diagnostic) {
+        ctx.record_call_status(AnalysisStatus::Invalid(cause));
+    } else {
+        ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
+    }
+}
+
+fn row_failure_diagnostic(store: &TypeStore, failure: &crate::types::row_solver::RecordRowFailure) -> (DiagnosticCode, String) {
+    match failure {
+        crate::types::row_solver::RecordRowFailure::LacksViolation { field, .. } => (
+            DiagnosticCode::RecordRowLacksViolation,
+            format!("record row cannot contain forbidden field `{field}`"),
+        ),
+        crate::types::row_solver::RecordRowFailure::OccursCheckFailed { .. } => {
+            (DiagnosticCode::RecordRowOccursCheck, "record row inference would be recursive".into())
+        }
+        crate::types::row_solver::RecordRowFailure::IncompatibleFields { field, expected, actual } => (
+            DiagnosticCode::RecordRowInferenceConflict,
+            format!(
+                "record field `{field}` has incompatible types `{}` and `{}`",
+                store.format_type(*expected),
+                store.format_type(*actual)
+            ),
+        ),
+        crate::types::row_solver::RecordRowFailure::MissingField { field } => (
+            DiagnosticCode::RecordRowInferenceConflict,
+            format!("record argument is missing required field `{field}`"),
+        ),
+        crate::types::row_solver::RecordRowFailure::ExtraField { field } => (
+            DiagnosticCode::RecordRowInferenceConflict,
+            format!("record row cannot accept extra field `{field}`"),
+        ),
+        crate::types::row_solver::RecordRowFailure::DuplicateField(field) => {
+            (DiagnosticCode::RecordDuplicateField, format!("record row contains duplicate field `{field}`"))
+        }
+        crate::types::row_solver::RecordRowFailure::RigidTailMismatch { .. } => {
+            (DiagnosticCode::RecordRowInferenceConflict, "record row tails conflict".into())
+        }
+        crate::types::row_solver::RecordRowFailure::KindMismatch => (DiagnosticCode::RecordRowInferenceConflict, "record row kinds conflict".into()),
+    }
+}
+
+fn record_row_solve_outcome(ctx: &mut CheckingContext<'_>, outcome: &crate::types::row_solver::RecordRowSolveResult, range: SourceRange) {
+    match outcome {
+        crate::types::row_solver::RecordRowSolveResult::Solved(_) => {}
+        crate::types::row_solver::RecordRowSolveResult::Underconstrained(_) => {
+            if !ctx.call_status_is_recorded() {
+                let diagnostic = SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    DiagnosticCode::RecordRowInferenceUnderconstrained,
+                    "record row inference has insufficient constraints",
+                    range,
+                );
+                ctx.diagnostics.push(diagnostic);
+                ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
+            } else {
+                ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
+            }
+        }
+        crate::types::row_solver::RecordRowSolveResult::Rejected(failure) => {
+            if !ctx.call_status_is_recorded() {
+                record_row_constraint_failure(ctx, CombinedInferenceFailure::RowRejected(failure.clone()), range);
+            }
+        }
+        crate::types::row_solver::RecordRowSolveResult::Blocked(_) => {
+            ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
+        }
+        crate::types::row_solver::RecordRowSolveResult::Cancelled => ctx.record_call_status(AnalysisStatus::Cancelled),
+        crate::types::row_solver::RecordRowSolveResult::BudgetExceeded(report) => {
+            ctx.record_call_status(AnalysisStatus::BudgetExceeded(report.clone()));
+        }
+        crate::types::row_solver::RecordRowSolveResult::InternalFailure(_) => {
+            let incident = ctx.record_internal_incident(
+                InternalSemanticIncidentKind::InferenceInvariantViolation,
+                InternalSemanticIncidentDetails::Message {
+                    message: "record row solver reported an internal failure".into(),
+                },
+                Some(range),
+            );
+            ctx.record_call_status(AnalysisStatus::InternalFailure(incident));
         }
     }
 }
@@ -1406,7 +1657,10 @@ fn meet_union_status(status: &mut Option<AnalysisStatus>, candidate: AnalysisSta
     if candidate.is_ready() {
         return;
     }
-    if status.as_ref().is_none_or(|current| union_status_priority(&candidate) > union_status_priority(current)) {
+    if status
+        .as_ref()
+        .is_none_or(|current| union_status_priority(&candidate) > union_status_priority(current))
+    {
         *status = Some(candidate);
     }
 }
@@ -1450,7 +1704,12 @@ fn record_union_arm_explanation(
 
 fn emit_union_dispatch_failure(ctx: &mut CheckingContext<'_>, message: String, range: SourceRange) -> (AnalysisStatus, CausalInvalidity) {
     let cause = ctx
-        .emit_diagnostic(SemanticDiagnostic::error_in(ctx.current_module.clone(), DiagnosticCode::TypeMismatch, message, range))
+        .emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::TypeMismatch,
+            message,
+            range,
+        ))
         .unwrap_or_else(|| ctx.alloc_diagnostic_cause());
     (AnalysisStatus::Invalid(cause), CausalInvalidity::One(cause))
 }
@@ -1543,11 +1802,7 @@ pub(crate) fn apply_union_resolved_call(
     let context_cause = if contextual_conflicts.is_empty() {
         None
     } else {
-        let positions = contextual_conflicts
-            .iter()
-            .map(|index| (index + 1).to_string())
-            .collect::<Vec<_>>()
-            .join(", ");
+        let positions = contextual_conflicts.iter().map(|index| (index + 1).to_string()).collect::<Vec<_>>().join(", ");
         let (status, causal) = emit_union_dispatch_failure(
             ctx,
             format!("union receiver arms require incompatible contextual closure expectations for argument position(s) {positions}"),
@@ -1604,13 +1859,7 @@ pub(crate) fn apply_union_resolved_call(
                 } else {
                     crate::explain::UnionArmOutcome::Invalid
                 };
-                let arm_explanation = record_union_arm_explanation(
-                    ctx,
-                    *receiver,
-                    target.callable.clone(),
-                    outcome,
-                    result.explanation_parents.clone(),
-                );
+                let arm_explanation = record_union_arm_explanation(ctx, *receiver, target.callable.clone(), outcome, result.explanation_parents.clone());
                 explanation_parents.push(arm_explanation);
                 for parent in result.explanation_parents.iter().copied() {
                     ctx.record_call_dependency(CausalInvalidity::Clean, Some(parent));
@@ -1630,13 +1879,13 @@ pub(crate) fn apply_union_resolved_call(
                     all_found = false;
                 }
             }
-            UnionCallArm::Missing {
-                receiver,
-                visited_owners,
-            } => {
+            UnionCallArm::Missing { receiver, visited_owners } => {
                 let (arm_status, arm_causal) = emit_union_dispatch_failure(
                     ctx,
-                    format!("union receiver arm `{}` does not support selector `{selector}`", ctx.store.format_type(*receiver)),
+                    format!(
+                        "union receiver arm `{}` does not support selector `{selector}`",
+                        ctx.store.format_type(*receiver)
+                    ),
                     call_range,
                 );
                 let cause = match arm_status {
@@ -1669,13 +1918,7 @@ pub(crate) fn apply_union_resolved_call(
                     AnalysisStatus::Invalid(cause) => cause,
                     _ => unreachable!("union ambiguous arm emits an error"),
                 };
-                let arm_explanation = record_union_arm_explanation(
-                    ctx,
-                    *receiver,
-                    None,
-                    crate::explain::UnionArmOutcome::Ambiguous,
-                    Vec::new(),
-                );
+                let arm_explanation = record_union_arm_explanation(ctx, *receiver, None, crate::explain::UnionArmOutcome::Ambiguous, Vec::new());
                 explanation_parents.push(arm_explanation);
                 ctx.record_call_dependency(arm_causal, Some(arm_explanation));
                 causal_invalidity = causal_invalidity.join(arm_causal);

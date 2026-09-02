@@ -1,13 +1,15 @@
 use phalcom_common::range::SourceRange;
+use phalcom_common::selector::Selector;
 use phalcom_modules::{DeclarationId, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, ProjectUniverse};
 use phalcom_semantic::declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate};
 use phalcom_semantic::diagnostic::SemanticSourceSpan;
-use phalcom_semantic::identity::DispatchSide;
-use phalcom_semantic::metadata::stable_identity::StableIdentityContext;
+use phalcom_semantic::identity::{CallableId, DispatchSide};
 use phalcom_semantic::metadata::MetadataExporter;
+use phalcom_semantic::metadata::stable_identity::StableIdentityContext;
 use phalcom_semantic::type_alias::{TypeAliasInfo, TypeAliasTable};
 use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::parameter::{GenericConstraint, GenericSignature, SelfRole, SelfTypeTerm, TypeParameterData, TypeParameterOwner, TypeTerm};
+use phalcom_semantic::types::row::{RecordRowField, RecordRowTail};
 use phalcom_semantic::types::store::TypeStore;
 use phalcom_semantic::types::variance::Variance;
 use phalcom_type_meta::fingerprint::Fingerprint128;
@@ -105,6 +107,49 @@ fn test_metadata_fresh_store_determinism() {
 
     assert_eq!(bundle1, bundle2);
     validate_metadata_bundle(&bundle1, &ValidationLimits::default()).unwrap();
+}
+
+#[test]
+fn open_record_metadata_is_tail_sensitive_and_enables_row_feature() {
+    let mut store = TypeStore::new();
+    let int = store.nominal(dummy_decl("Int"));
+    let owner_one = CallableId::new(dummy_decl("Owner"), Selector::getter("row-one").unwrap(), DispatchSide::Instance);
+    let owner_two = CallableId::new(dummy_decl("Owner"), Selector::getter("row-two").unwrap(), DispatchSide::Instance);
+    let row_one = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Callable(owner_one), 0, "R", KindId::RECORD_ROW));
+    let row_two = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Callable(owner_two), 0, "R", KindId::RECORD_ROW));
+    let fields = vec![RecordRowField { name: "value".into(), ty: int }];
+    let closed = store.record_row_type_checked(fields.clone(), RecordRowTail::Closed).unwrap();
+    let open_one = store.record_row_type_checked(fields.clone(), RecordRowTail::Parameter(row_one)).unwrap();
+    let open_two = store.record_row_type_checked(fields, RecordRowTail::Parameter(row_two)).unwrap();
+
+    let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+    let closed_id = exporter.export_type_form(closed).unwrap();
+    let open_one_id = exporter.export_type_form(open_one).unwrap();
+    let open_two_id = exporter.export_type_form(open_two).unwrap();
+    let bundle = exporter.build_bundle(&[]).unwrap();
+
+    assert!(matches!(
+        bundle.types[closed_id.0 as usize].form,
+        phalcom_type_meta::type_node::TypeNode::Record(_)
+    ));
+    let phalcom_type_meta::type_node::TypeNode::OpenRecord(open_ref) = &bundle.types[open_one_id.0 as usize].form else {
+        panic!("open record must use OpenRecord metadata node")
+    };
+    assert_eq!(open_ref.fields.len(), 1);
+    assert_eq!(
+        open_ref.tail,
+        bundle.parameters.iter().find(|parameter| parameter.id == open_ref.tail).unwrap().id
+    );
+    assert_ne!(
+        bundle.types[open_one_id.0 as usize].structural_fingerprint, bundle.types[open_two_id.0 as usize].structural_fingerprint,
+        "stable callable owner must contribute to open-row fingerprint",
+    );
+    assert_ne!(
+        bundle.types[closed_id.0 as usize].structural_fingerprint,
+        bundle.types[open_one_id.0 as usize].structural_fingerprint,
+    );
+    assert!(bundle.header.features.record_rows);
+    validate_metadata_bundle(&bundle, &ValidationLimits::default()).unwrap();
 }
 
 #[test]

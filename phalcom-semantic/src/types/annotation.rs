@@ -6,8 +6,12 @@ use super::id::{KindId, TypeId, TypeParameterId};
 use super::kind::KindApplicationError;
 use super::outcome::{BlockReason, BudgetReport};
 use super::parameter::{GenericConstraint, GenericSignature, SelfRole, SelfTypeTerm, TypeParameterData, TypeParameterOwner, TypeTerm};
+use super::row::RecordRowTail;
 use super::store::{CallableParameterType, CallableType, RecordTypeField, TupleTypeElement, TypeStore};
-use super::type_lambda::{ScopedCallableParameter, ScopedCallableType, ScopedRecordField, ScopedTupleElement, ScopedTypeData, TypeLambdaProvenance};
+use super::type_lambda::{
+    ScopedCallableParameter, ScopedCallableType, ScopedOpenRecord, ScopedRecordField, ScopedRecordTail, ScopedTupleElement, ScopedTypeData,
+    TypeLambdaProvenance,
+};
 use super::variance::Variance;
 use crate::declarations::DeclarationTypeTable;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
@@ -174,7 +178,8 @@ pub enum TypeFormationInvalid {
     DuplicateRecordField(Box<str>),
     GenericConstraintOperandNotType,
     InvalidVariance,
-    UnsupportedOpenRecordTail,
+    RecordRowTailKindMismatch { actual: KindId },
+    UnsupportedRecordRowBinderSite,
 }
 
 /// Result of resolving an AST type annotation into a type form.
@@ -373,7 +378,9 @@ fn scoped_kind(store: &mut TypeStore, scoped: crate::types::id::ScopedTypeId, bi
                 Err(KindApplicationError::ArgumentKindMismatch { .. }) => KindResolution::Invalid(TypeFormationInvalid::TypeArgumentKindMismatch),
             }
         }
-        ScopedTypeData::Union(_) | ScopedTypeData::Tuple(_) | ScopedTypeData::Record(_) | ScopedTypeData::Callable(_) => KindResolution::Ready(KindId::TYPE),
+        ScopedTypeData::Union(_) | ScopedTypeData::Tuple(_) | ScopedTypeData::Record(_) | ScopedTypeData::OpenRecord(_) | ScopedTypeData::Callable(_) => {
+            KindResolution::Ready(KindId::TYPE)
+        }
         ScopedTypeData::Lambda(lambda_id) => {
             let lambda = store.arena().get_lambda(lambda_id).clone();
             if lambda.parameter_kinds.is_empty() {
@@ -526,15 +533,6 @@ fn lower_scoped_type_form(
             TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::Tuple(scoped_elements.into_boxed_slice())))
         }
         TypeAnnotationExpr::Record { fields, tail, .. } => {
-            if let Some(tail) = tail {
-                diagnostics.push(SemanticDiagnostic::error_in(
-                    current_module.clone(),
-                    DiagnosticCode::AnnotationUnsupported,
-                    format!("open record type tail `{}` is not available in scoped type formation", tail.name),
-                    annotation.range,
-                ));
-                return TypeFormationOutcome::Invalid(TypeFormationInvalid::UnsupportedOpenRecordTail);
-            }
             let mut names = std::collections::HashSet::new();
             let mut scoped_fields = Vec::with_capacity(fields.len());
             for field in fields {
@@ -548,7 +546,49 @@ fn lower_scoped_type_form(
                     ty,
                 });
             }
-            TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::Record(scoped_fields.into_boxed_slice())))
+            let scoped_fields = scoped_fields.into_boxed_slice();
+            let Some(tail) = tail else {
+                return TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::Record(scoped_fields)));
+            };
+            let scoped_tail = if let Some((depth, index, kind)) = binders.resolve(&tail.name) {
+                if kind != KindId::RECORD_ROW {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        current_module.clone(),
+                        DiagnosticCode::KindExpectedType,
+                        format!("record row tail `{}` must have kind RecordRow", tail.name),
+                        annotation.range,
+                    ));
+                    return TypeFormationOutcome::Invalid(TypeFormationInvalid::RecordRowTailKindMismatch { actual: kind });
+                }
+                ScopedRecordTail::Bound { depth, index }
+            } else {
+                match resolver.resolve_type_level_binding(&tail.name) {
+                    Some(TypeLevelBinding::RecordRow(parameter)) => ScopedRecordTail::FreeParameter(parameter),
+                    Some(TypeLevelBinding::TypeForm(form)) => {
+                        let actual = store.kind_of(form);
+                        diagnostics.push(SemanticDiagnostic::error_in(
+                            current_module.clone(),
+                            DiagnosticCode::RecordRowTailKindMismatch,
+                            format!("record row tail `{}` must have kind RecordRow", tail.name),
+                            annotation.range,
+                        ));
+                        return TypeFormationOutcome::Invalid(TypeFormationInvalid::RecordRowTailKindMismatch { actual });
+                    }
+                    None => {
+                        diagnostics.push(SemanticDiagnostic::error_in(
+                            current_module.clone(),
+                            DiagnosticCode::RecordRowTailUnresolved,
+                            format!("unresolved record row tail `{}`", tail.name),
+                            annotation.range,
+                        ));
+                        return TypeFormationOutcome::Unresolved(TypeFormationUnresolved::Name(tail.name.clone().into()));
+                    }
+                }
+            };
+            TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::OpenRecord(ScopedOpenRecord {
+                fields: scoped_fields,
+                tail: scoped_tail,
+            })))
         }
         TypeAnnotationExpr::Callable { parameters, result, .. } => {
             let mut scoped_parameters = Vec::with_capacity(parameters.len());
@@ -690,7 +730,17 @@ fn lower_scoped_type_lambda(
             None => KindResolution::Ready(KindId::TYPE),
             Some(kind) => resolve_kind_syntax(store, kind),
         };
-        parameter_kinds.push(scoped_ready_or_propagate!(kind));
+        let kind = scoped_ready_or_propagate!(kind);
+        if kind == KindId::RECORD_ROW {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                current_module.clone(),
+                DiagnosticCode::AnnotationUnsupported,
+                "RecordRow parameters are supported only on callable generic binders",
+                parameter.range,
+            ));
+            return TypeFormationOutcome::Invalid(TypeFormationInvalid::UnsupportedRecordRowBinderSite);
+        }
+        parameter_kinds.push(kind);
     }
     let scoped_binders: Vec<ScopedBinder> = parameters
         .iter()
@@ -893,22 +943,38 @@ pub fn resolve_type_form(
             TypeFormResolution::Ready(tuple_ty)
         }
         TypeAnnotationExpr::Record { fields, tail, range: _ } => {
-            if let Some(tail) = tail {
-                diagnostics.push(SemanticDiagnostic::error_in(
-                    current_module.clone(),
-                    DiagnosticCode::AnnotationUnsupported,
-                    format!("open record type tail `{}` is not available in type formation", tail.name),
-                    annotation.range,
-                ));
-                return TypeFormResolution::Invalid(TypeFormationInvalid::UnsupportedOpenRecordTail);
-            }
+            let record_tail = match tail {
+                None => RecordRowTail::Closed,
+                Some(tail) => match resolver.resolve_type_level_binding(&tail.name) {
+                    Some(TypeLevelBinding::RecordRow(parameter)) => RecordRowTail::Parameter(parameter),
+                    Some(TypeLevelBinding::TypeForm(form)) => {
+                        let actual = store.kind_of(form);
+                        diagnostics.push(SemanticDiagnostic::error_in(
+                            current_module.clone(),
+                            DiagnosticCode::RecordRowTailKindMismatch,
+                            format!("record row tail `{}` must have kind RecordRow", tail.name),
+                            annotation.range,
+                        ));
+                        return TypeFormResolution::Invalid(TypeFormationInvalid::RecordRowTailKindMismatch { actual });
+                    }
+                    None => {
+                        diagnostics.push(SemanticDiagnostic::error_in(
+                            current_module.clone(),
+                            DiagnosticCode::RecordRowTailUnresolved,
+                            format!("unresolved record row tail `{}`", tail.name),
+                            annotation.range,
+                        ));
+                        return TypeFormResolution::Unresolved(TypeFormationUnresolved::Name(tail.name.clone().into()));
+                    }
+                },
+            };
             let mut record_fields = Vec::with_capacity(fields.len());
             let mut seen_names = std::collections::HashSet::new();
             for field in fields {
                 if !seen_names.insert(field.name.clone()) {
                     diagnostics.push(SemanticDiagnostic::error_in(
                         current_module.clone(),
-                        DiagnosticCode::KindExpectedType,
+                        DiagnosticCode::RecordDuplicateField,
                         format!("duplicate field `{}` in record type annotation", field.name),
                         field.range,
                     ));
@@ -942,8 +1008,21 @@ pub fn resolve_type_form(
                     ty,
                 });
             }
-            let rec_ty = store.record(record_fields.into_boxed_slice());
-            TypeFormResolution::Ready(rec_ty)
+            match store.record_row_type_checked(record_fields, record_tail) {
+                Ok(record_ty) => TypeFormResolution::Ready(record_ty),
+                Err(crate::types::row::RecordRowFormationError::DuplicateField(field)) => {
+                    TypeFormResolution::Invalid(TypeFormationInvalid::DuplicateRecordField(field))
+                }
+                Err(crate::types::row::RecordRowFormationError::TailParameterWrongKind { actual, .. }) => {
+                    TypeFormResolution::Invalid(TypeFormationInvalid::RecordRowTailKindMismatch { actual })
+                }
+                Err(crate::types::row::RecordRowFormationError::TailParameterMissing(parameter)) => {
+                    TypeFormResolution::InternalFailure(format!("missing record row tail parameter {parameter:?}"))
+                }
+                Err(crate::types::row::RecordRowFormationError::FieldNotProperType { .. }) => {
+                    TypeFormResolution::InternalFailure("record field escaped proper-type validation".into())
+                }
+            }
         }
         TypeAnnotationExpr::Callable { parameters, result, range: _ } => {
             let mut param_types = Vec::with_capacity(parameters.len());
@@ -1119,6 +1198,15 @@ pub fn resolve_generic_signature(
         }
         let kind = scoped_ready_or_propagate!(kind);
         let variance = lower_variance(p.variance);
+        if kind == KindId::RECORD_ROW && binder_site != GenericBinderSite::Callable {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                current_module.clone(),
+                DiagnosticCode::AnnotationUnsupported,
+                "RecordRow generic binders are supported only on callable declarations",
+                p.range,
+            ));
+            return TypeFormationOutcome::Invalid(TypeFormationInvalid::UnsupportedRecordRowBinderSite);
+        }
         if binder_site != GenericBinderSite::NominalDeclaration && variance != Variance::Invariant {
             diagnostics.push(SemanticDiagnostic::error_in(
                 current_module.clone(),
