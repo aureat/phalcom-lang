@@ -2,14 +2,14 @@
 
 use super::support::analyze_adt;
 use crate::semantic::support::{Fixture, applied};
-use phalcom_semantic::checker::analysis::AnalysisStatus;
-use phalcom_semantic::types::evidence::{TypeKnowledge, UnknownReason};
-use phalcom_semantic::types::store::TypeData;
 use phalcom_common::selector::{Selector, SelectorSlot};
 use phalcom_semantic::checker::AssociatedResolutionKind;
+use phalcom_semantic::checker::analysis::AnalysisStatus;
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::enum_semantics::VariantShape;
 use phalcom_semantic::identity::DispatchSide;
+use phalcom_semantic::types::evidence::{TypeKnowledge, UnknownReason};
+use phalcom_semantic::types::store::TypeData;
 
 #[test]
 fn singleton_nullary_and_payload_constructors_remain_distinct() {
@@ -247,5 +247,8 @@ class Probe {
     );
     let run = fixture.callable("Probe", "run", DispatchSide::Class);
     let value = fixture.binding(run, "value");
-    fixture.assert_type(value.current.ty().expect("constructor result"), applied("Pair", [fixture.ty("Int").into(), fixture.ty("String").into()]));
+    fixture.assert_type(
+        value.current.ty().expect("constructor result"),
+        applied("Pair", [fixture.ty("Int").into(), fixture.ty("String").into()]),
+    );
 }

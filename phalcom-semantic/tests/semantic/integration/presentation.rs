@@ -3,11 +3,13 @@ use phalcom_common::selector::Selector;
 use phalcom_native_meta::{EffectSpec, ImplementationKind, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
 use phalcom_semantic::BlockReason;
 use phalcom_semantic::checker::analysis::{AnalysisStatus, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, FlowStateSummary};
+use phalcom_semantic::checker::causal::SuppressionCause;
 use phalcom_semantic::checker::flow::graph::FlowGraph;
 use phalcom_semantic::db::ProductFingerprint;
 use phalcom_semantic::explain::ExplanationArena;
-use phalcom_semantic::identity::{BodyId, CallableId, DeclarationId, DiagnosticCauseId, ExpressionId, LocalExpressionId, ModuleId};
+use phalcom_semantic::identity::{BodyId, CallableId, DeclarationId, DiagnosticCauseId, ExpressionId, InternalSemanticIncidentId, LocalExpressionId, ModuleId};
 use phalcom_semantic::types::evidence::{DynamicReason, EvidenceOrigin, TypeKnowledge, UnknownReason};
+use phalcom_semantic::types::outcome::{BudgetKind, BudgetReport};
 use phalcom_semantic::{
     AdvisoryPresenter, CallableParameterSemantic, CallablePresentation, CallableSemanticSignature, DispatchSide, FormalPresentation, FormalSiteId,
     SemanticPresentationIndex, TypePresenter, TypeStore,
@@ -207,7 +209,8 @@ fn presentation_index_projects_formal_sites_without_reanalysis() {
 #[test]
 fn presentation_preserves_non_ready_formal_states() {
     let module = ModuleId::universe_root();
-    let store = TypeStore::new();
+    let mut store = TypeStore::new();
+    let int = store.nominal(declaration("Int"));
     let presenter = TypePresenter::new(&store);
 
     assert_eq!(presenter.present_callable_status(CallableAnalysisStatus::Blocked), FormalPresentation::Blocked);
@@ -258,6 +261,43 @@ fn presentation_preserves_non_ready_formal_states() {
             .unwrap()
             .presentation,
         FormalPresentation::Invalid
+    );
+
+    let expression = |status| {
+        ExpressionAnalysis::ready(
+            ExpressionId::new(BodyId(3), LocalExpressionId(1)),
+            SourceRange { start: 3, end: 5 },
+            TypeKnowledge::established(int, EvidenceOrigin::Syntax),
+        )
+        .with_status(status)
+    };
+    assert_eq!(
+        presenter.present_expression(&expression(AnalysisStatus::Ready)),
+        FormalPresentation::Known("Int".into())
+    );
+    assert_eq!(
+        presenter.present_expression(&expression(AnalysisStatus::Invalid(DiagnosticCauseId(4)))),
+        FormalPresentation::Invalid
+    );
+    assert_eq!(
+        presenter.present_expression(&expression(AnalysisStatus::Suppressed(SuppressionCause::One(DiagnosticCauseId(4))))),
+        FormalPresentation::Blocked
+    );
+    assert_eq!(
+        presenter.present_expression(&expression(AnalysisStatus::DynamicBoundary(DynamicReason::ExplicitEscape))),
+        FormalPresentation::Dynamic
+    );
+    assert_eq!(
+        presenter.present_expression(&expression(AnalysisStatus::Cancelled)),
+        FormalPresentation::Cancelled
+    );
+    assert_eq!(
+        presenter.present_expression(&expression(AnalysisStatus::BudgetExceeded(BudgetReport::new(BudgetKind::Steps, 0, 1)))),
+        FormalPresentation::BudgetExceeded
+    );
+    assert_eq!(
+        presenter.present_expression(&expression(AnalysisStatus::InternalFailure(InternalSemanticIncidentId(5)))),
+        FormalPresentation::InternalFailure
     );
 }
 

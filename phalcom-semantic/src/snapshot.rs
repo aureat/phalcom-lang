@@ -1,7 +1,6 @@
 use crate::advisory::AdvisoryWorkspace;
 use crate::checker::incident::InternalSemanticIncident;
 use crate::declarations::DeclarationTypeTable;
-use crate::type_alias::TypeAliasTable;
 use crate::diagnostic::{DiagnosticSeverity, SemanticDiagnostic};
 use crate::dispatch::SurfaceDispatchResolver;
 use crate::identity::{DeclarationId, ModuleId, SemanticRevision, SnapshotId, SourceSiteId, SourceSiteRef, WorkspaceId};
@@ -10,6 +9,7 @@ use crate::signature::{CallableSignatureTable, FieldSignatureTable};
 use crate::source::ParsedModuleUnit;
 use crate::source_index::{OccurrenceView, SourceSemanticIndex, SourceSite};
 use crate::surface::DeclarationSurface;
+use crate::type_alias::TypeAliasTable;
 use crate::types::relation::MapTypeHierarchy;
 use crate::types::store::TypeStore;
 use phalcom_modules::graph::SemanticGraph;

@@ -696,3 +696,168 @@ fn fixed_point_solves_deferred_unification_after_nested_binding() {
     assert!(session.solve(&mut store, &hierarchy).is_solved());
     assert_eq!(session.materialize(&InferenceTerm::Var(outer), &mut store), Ok(expected));
 }
+
+#[test]
+fn constructor_alignment_accepts_binary_kind() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let int = store.nominal(test_decl("Int"));
+    let string = store.nominal(test_decl("String"));
+    let pair_kind = store.arrow_kind(vec![KindId::TYPE, KindId::TYPE].into_boxed_slice(), KindId::TYPE);
+    let pair = store.nominal_form(test_decl("Pair"), pair_kind);
+    let actual = store.apply_type_form(pair, &[int, string]).expect("Pair<Int, String>");
+
+    let mut session = InferenceSession::new();
+    let constructor = session.fresh_variable(pair_kind);
+    let first = session.fresh_variable(KindId::TYPE);
+    let second = session.fresh_variable(KindId::TYPE);
+    session.add_constraint(
+        InferenceRelation::Equivalent(
+            InferenceTerm::Applied {
+                origin: Box::new(InferenceTerm::Var(constructor)),
+                arguments: Box::new([InferenceTerm::Var(first), InferenceTerm::Var(second)]),
+            },
+            InferenceTerm::Canonical(actual),
+        ),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(first), InferenceTerm::Canonical(int)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(second), InferenceTerm::Canonical(string)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+
+    assert!(session.solve(&mut store, &hierarchy).is_solved());
+    let inferred = session.materialize(&InferenceTerm::Var(constructor), &mut store).expect("binary constructor");
+    assert_eq!(store.apply_type_form(inferred, &[int, string]), Ok(actual));
+}
+
+#[test]
+fn constructor_alignment_accepts_higher_order_kind() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let unary_kind = store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
+    let wrapper_kind = store.arrow_kind(vec![unary_kind].into_boxed_slice(), KindId::TYPE);
+    let wrapper = store.nominal_form(test_decl("Wrapper"), wrapper_kind);
+    let list = store.nominal_form(test_decl("List"), unary_kind);
+    let actual = store.apply_type_form(wrapper, &[list]).expect("Wrapper<List>");
+
+    let mut session = InferenceSession::new();
+    let constructor = session.fresh_variable(wrapper_kind);
+    let argument = session.fresh_variable(unary_kind);
+    session.add_constraint(
+        InferenceRelation::Equivalent(
+            InferenceTerm::Applied {
+                origin: Box::new(InferenceTerm::Var(constructor)),
+                arguments: Box::new([InferenceTerm::Var(argument)]),
+            },
+            InferenceTerm::Canonical(actual),
+        ),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(argument), InferenceTerm::Canonical(list)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+
+    assert!(session.solve(&mut store, &hierarchy).is_solved());
+    assert_eq!(session.materialize(&InferenceTerm::Var(constructor), &mut store), Ok(wrapper));
+}
+
+#[test]
+fn sc4_red_constructor_alignment_must_use_non_suffix_evidence() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let int = store.nominal(test_decl("Int"));
+    let string = store.nominal(test_decl("String"));
+    let either_kind = store.arrow_kind(vec![KindId::TYPE, KindId::TYPE].into_boxed_slice(), KindId::TYPE);
+    let either = store.nominal_form(test_decl("Either"), either_kind);
+    let actual = store.apply_type_form(either, &[int, string]).expect("Either<Int, String>");
+
+    let mut session = InferenceSession::new();
+    let constructor = session.fresh_variable(store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE));
+    let argument = session.fresh_variable(KindId::TYPE);
+    session.add_constraint(
+        InferenceRelation::Equivalent(
+            InferenceTerm::Applied {
+                origin: Box::new(InferenceTerm::Var(constructor)),
+                arguments: Box::new([InferenceTerm::Var(argument)]),
+            },
+            InferenceTerm::Canonical(actual),
+        ),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    // A second formal argument fixes the hole at the leading actual position.
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(argument), InferenceTerm::Canonical(int)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+
+    let outcome = session.solve(&mut store, &hierarchy);
+    assert!(
+        outcome.is_solved(),
+        "SC-4 RED: constructor abstraction must honor non-suffix evidence: {outcome:?}"
+    );
+    assert_eq!(session.materialize(&InferenceTerm::Var(argument), &mut store), Ok(int));
+    let inferred = session.materialize(&InferenceTerm::Var(constructor), &mut store).expect("inferred constructor");
+    assert_eq!(store.apply_type_form(inferred, &[int]), Ok(actual));
+}
+
+#[test]
+fn sc4_red_constructor_alignment_must_support_fixed_middle_positions() {
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let string = store.nominal(test_decl("String"));
+    let int = store.nominal(test_decl("Int"));
+    let bool_ty = store.nominal(test_decl("Bool"));
+    let triple_kind = store.arrow_kind(vec![KindId::TYPE, KindId::TYPE, KindId::TYPE].into_boxed_slice(), KindId::TYPE);
+    let triple = store.nominal_form(test_decl("Triple"), triple_kind);
+    let actual = store.apply_type_form(triple, &[string, int, bool_ty]).expect("Triple<String, Int, Bool>");
+
+    let mut session = InferenceSession::new();
+    let constructor = session.fresh_variable(store.arrow_kind(vec![KindId::TYPE, KindId::TYPE].into_boxed_slice(), KindId::TYPE));
+    let first = session.fresh_variable(KindId::TYPE);
+    let second = session.fresh_variable(KindId::TYPE);
+    session.add_constraint(
+        InferenceRelation::Equivalent(
+            InferenceTerm::Applied {
+                origin: Box::new(InferenceTerm::Var(constructor)),
+                arguments: Box::new([InferenceTerm::Var(first), InferenceTerm::Var(second)]),
+            },
+            InferenceTerm::Canonical(actual),
+        ),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    // Formal evidence selects actual positions 0 and 2, leaving position 1 fixed.
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(first), InferenceTerm::Canonical(string)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(second), InferenceTerm::Canonical(bool_ty)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+
+    let outcome = session.solve(&mut store, &hierarchy);
+    assert!(
+        outcome.is_solved(),
+        "SC-4 RED: constructor abstraction must support fixed middle positions: {outcome:?}"
+    );
+    assert_eq!(session.materialize(&InferenceTerm::Var(first), &mut store), Ok(string));
+    assert_eq!(session.materialize(&InferenceTerm::Var(second), &mut store), Ok(bool_ty));
+    let inferred = session.materialize(&InferenceTerm::Var(constructor), &mut store).expect("inferred constructor");
+    assert_eq!(store.apply_type_form(inferred, &[string, bool_ty]), Ok(actual));
+}

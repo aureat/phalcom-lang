@@ -47,6 +47,34 @@ class Probe {
     assert!(f.binding(run, "read").current.ty().is_some());
 }
 
+/// C9/T38: nested closure construction retains one captured outer binding
+/// identity instead of shadowing or copying it into the inner scope.
+#[test]
+fn nested_closure_capture_keeps_outer_binding_identity() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let value = 1
+    let outer = || {
+      let inner = || { value }
+      inner
+    }
+    let copied = value
+  }
+}
+"#,
+    );
+    let int_ty = f.ty("Int");
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let values = f.bindings_named(run, "value");
+    assert_eq!(values.len(), 1);
+    assert_eq!(values[0].current.ty(), Some(int_ty));
+    f.assert_binding_type(run, "copied", int_ty);
+    assert!(f.binding(run, "outer").current.ty().is_some());
+}
+
 /// P06: a published method result can feed a second caller without annotation.
 #[test]
 fn published_method_tail_flows_through_two_callers() {

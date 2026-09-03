@@ -283,16 +283,19 @@ impl VM {
                 .get(&parsed.id)
                 .ok_or_else(|| crate::error::RuntimeError::Internal(format!("Universe module {} is not materialized", parsed.id)))?
                 .object;
-            let lowering = lowerings.get(&parsed.id).ok_or_else(|| {
-                crate::error::RuntimeError::Internal(format!("Universe semantic lowering missing for {}", parsed.id))
-            })?;
+            let lowering = lowerings
+                .get(&parsed.id)
+                .ok_or_else(|| crate::error::RuntimeError::Internal(format!("Universe semantic lowering missing for {}", parsed.id)))?;
             self.heap.module_mut(module).lowering = Some(lowering.clone());
             let source_id = self.heap.module_mut(module).push_source(std::sync::Arc::new(parsed.text.to_string()));
             let closure = self
                 .compile_ast_as(module, source_id, (*parsed.program).clone(), crate::compiler::lib::UnitKind::File)
                 .map_err(|error| crate::error::RuntimeError::Internal(format!("failed to compile Universe module {}: {error}", parsed.id)))?;
             self.run_in_module(module, closure)?;
-            self.module_registry.get_mut(&parsed.id).expect("bootstrapped Universe module is registered").state = crate::modules::registry::ModuleState::Initialized;
+            self.module_registry
+                .get_mut(&parsed.id)
+                .expect("bootstrapped Universe module is registered")
+                .state = crate::modules::registry::ModuleState::Initialized;
         }
         Ok(())
     }
@@ -332,11 +335,7 @@ impl VM {
         let linked = phalcom_modules::ModuleLinker::new(universe.clone(), interfaces)
             .link_all(phalcom_modules::ModuleId::universe_root(), &resolved)
             .map_err(|error| crate::error::RuntimeError::Internal(format!("failed to link canonical Universe sources: {error}")))?;
-        let sources = source_index
-            .units
-            .iter()
-            .map(|unit| (unit.id.clone(), unit.clone()))
-            .collect();
+        let sources = source_index.units.iter().map(|unit| (unit.id.clone(), unit.clone())).collect();
         let analysis = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput {
                 linked: std::sync::Arc::new(linked),
@@ -344,14 +343,13 @@ impl VM {
                 generation: 0,
             })
         }))
-        .map_err(|_| crate::error::RuntimeError::Internal("canonical Universe semantic analysis panicked".into()))?;
+            .map_err(|_| crate::error::RuntimeError::Internal("canonical Universe semantic analysis panicked".into()))?;
         source_index
             .units
             .iter()
             .map(|unit| {
-                let lowering = crate::modules::semantic_lowering::build_module_lowering_semantics(&unit.id, &analysis.snapshot).map_err(|error| {
-                    crate::error::RuntimeError::Internal(format!("failed to project Universe lowering for {}: {error}", unit.id))
-                })?;
+                let lowering = crate::modules::semantic_lowering::build_module_lowering_semantics(&unit.id, &analysis.snapshot)
+                    .map_err(|error| crate::error::RuntimeError::Internal(format!("failed to project Universe lowering for {}: {error}", unit.id)))?;
                 Ok((unit.id.clone(), std::sync::Arc::new(lowering)))
             })
             .collect()
@@ -532,11 +530,7 @@ impl VM {
         // ClassKey for every primordial declaration belongs to its source module.
         for binding in phalcom_native_meta::UNIVERSE_BINDINGS {
             let owner_id = Self::canonical_universe_module_id(binding.key);
-            let owner = self
-                .module_registry
-                .get(&owner_id)
-                .expect("canonical Universe owner module")
-                .object;
+            let owner = self.module_registry.get(&owner_id).expect("canonical Universe owner module").object;
             let name_sym = self.interner.intern(binding.name);
             let class_id = self.universe.classes.resolve(binding.key);
             self.classes.insert(crate::vm::ClassKey { module: owner, name: name_sym }, class_id);
@@ -575,7 +569,10 @@ impl VM {
             let value = if binding.key == phalcom_native_meta::UniverseKey::None {
                 Value::obj(self.universe.classes.none_class)
             } else {
-                self.heap.module(owner).get(name).unwrap_or_else(|| Value::obj(self.universe.classes.resolve(binding.key)))
+                self.heap
+                    .module(owner)
+                    .get(name)
+                    .unwrap_or_else(|| Value::obj(self.universe.classes.resolve(binding.key)))
             };
             let slot = self.heap.module_mut(root).declare(name).expect("Universe root alias slot");
             self.heap.module_mut(root).set_global(slot, value).expect("Universe root alias value");
@@ -616,7 +613,13 @@ impl VM {
                     }
                 }
                 let slot = self.heap.module(key.module).slot_of(key.name)?;
-                Some((key.name, crate::modules::BindingRef { module: key.module, slot: u16::try_from(slot).ok()? }))
+                Some((
+                    key.name,
+                    crate::modules::BindingRef {
+                        module: key.module,
+                        slot: u16::try_from(slot).ok()?,
+                    },
+                ))
             })
             .collect::<Vec<_>>();
         for (name, binding) in source_bindings {

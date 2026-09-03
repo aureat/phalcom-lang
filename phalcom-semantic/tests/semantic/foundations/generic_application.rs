@@ -1,6 +1,6 @@
 //! SC-2 generic application and expected-context laws.
 
-use crate::semantic::support::{applied, nominal, Fixture};
+use crate::semantic::support::{Fixture, applied, nominal};
 use phalcom_semantic::checker::analysis::AnalysisStatus;
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::DispatchSide;

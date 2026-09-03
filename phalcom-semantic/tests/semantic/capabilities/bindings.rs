@@ -26,6 +26,32 @@ class Probe {
     f.assert_binding_type(run, "observed", int_ty);
 }
 
+/// C9/T36: a later write updates path current knowledge while preserving the
+/// broad source contract, including when the new value refutes that contract.
+#[test]
+fn broad_contract_survives_narrow_initializer_and_later_refuted_write() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let value: Number = 1
+    value = "bad"
+    let observed = value
+  }
+}
+"#,
+    );
+    let number = f.ty("Number");
+    let string_ty = f.ty("String");
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let value = f.binding(run, "value");
+    assert_source_contract(value, number);
+    assert_refuted(value, string_ty, number);
+    f.assert_binding_type(run, "observed", string_ty);
+    assert_ne!(value.current.ty(), Some(number));
+}
+
 /// B04: invalid later evidence remains visible for recovery and downstream reads.
 #[test]
 fn invalid_assignment_preserves_actual_evidence_for_downstream_reads() {

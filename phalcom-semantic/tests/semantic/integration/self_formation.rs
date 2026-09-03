@@ -6,7 +6,7 @@ use phalcom_modules::identity::ModuleId;
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 use phalcom_semantic::types::parameter::{SelfTypeTerm, TypeTerm};
 use phalcom_semantic::types::store::TypeData;
-use phalcom_semantic::{analyze_single_module, DeclaredTypeState};
+use phalcom_semantic::{DeclaredTypeState, analyze_single_module};
 
 #[test]
 fn source_self_signature_records_owner_and_dispatch_side() {
@@ -82,10 +82,12 @@ class Box<T> {
     let parsed = parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
     let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
-    assert!(analysis
-        .snapshot
-        .all_diagnostics()
-        .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::AnnotationUnresolved));
+    assert!(
+        analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::AnnotationUnresolved)
+    );
 
     let owner = DeclarationId::new(module, "Box".into());
     let instance = analysis

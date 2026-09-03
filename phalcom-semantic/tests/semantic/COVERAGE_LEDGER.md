@@ -4,9 +4,9 @@ This ledger tracks the 106 laws from Plan 2. A slot is marked `READY` only
 when an enabled source-level test proves the law at its required depth. Foundation
 and database tests remain valuable, but do not satisfy source slots by themselves.
 
-Status vocabulary: `READY`, `RED-CAPABILITY`, `STAGED`, `GATED`.
+Status vocabulary: `READY`, `BLOCKED`, `RED-CAPABILITY`, `STAGED`, `GATED`.
 
-Current ledger count after semantic capability gap closure: **56 READY, 16 STAGED, 34 GATED**.
+Current ledger count after C12 type-system closure: **93 READY, 7 STAGED, 5 GATED, 1 BLOCKED**.
 A green test run never promotes a staged/gated law implicitly; promotion requires
 a named source test and a concrete semantic oracle.
 
@@ -32,49 +32,49 @@ a named source test and a concrete semantic oracle.
 | D03 | READY | `dispatch_capabilities::wrong_class_instance_dispatch_side...` |
 | D04 | READY | `dispatch_class_side::super_send...`; inherited callable tests in `authority` |
 | D05 | READY | `authority::inherited_constructor_specializes_self...`; `self_types` |
-| D06 | STAGED | Nested `Box<Self>` source return publication and Self substitution |
+| D06 | READY | `capabilities::variance::source_nested_and_higher_kinded_self_specialize_to_receiver` |
 | D07 | READY | `dispatch_capabilities::selector_label_mismatch...` |
 | D08 | READY | `dispatch_capabilities::argument_refutation_preserves...` |
-| F01 | GATED | Formal Family capture API and source-level getter capture |
-| F02 | GATED | Formal Family slot/label publication |
-| F03 | GATED | Pattern Family capture semantics |
-| F04 | GATED | Formal Family invocation dispatch integration |
-| F05 | GATED | Family value storage through source binding |
-| F06 | GATED | Formal instance/class Family distinction |
-| F07 | GATED | Family hierarchy dependency publication |
-| F08 | GATED | Wrong-shape Family call diagnostics |
-| F09 | GATED | Generic/Self Family specialization |
-| G01 | STAGED | Source generic owner identity oracle for class and method parameters |
+| F01 | READY | `families::values::captured_variant_family_preserves_exact_authorized_member_shapes`; `families::invocation::behavioral_family_source_preserves_pattern_storage_and_dispatch_side` |
+| F02 | READY | `families::invocation::behavioral_family_source_preserves_pattern_storage_and_dispatch_side` |
+| F03 | READY | `families::values::captured_variant_family_preserves_exact_authorized_member_shapes`; `families::invocation::behavioral_family_source_preserves_pattern_storage_and_dispatch_side` |
+| F04 | READY | `families::invocation::{stored_family_call_publishes_static_application_resolution,behavioral_family_source_preserves_pattern_storage_and_dispatch_side}` |
+| F05 | READY | `integration::family_capabilities::stored_family_capture_preserves_its_denotation_through_local_flow` |
+| F06 | READY | `families::invocation::behavioral_family_source_preserves_pattern_storage_and_dispatch_side` |
+| F07 | READY | `associated::inheritance::inherited_associated_lookup_keeps_descendant_lookup_and_ancestor_definition` |
+| F08 | READY | `families::invocation::family_wrong_shape_reports_associated_call_shape` |
+| F09 | READY | `families::invocation::{generic_behavioral_family_recovers_canonical_signature_for_expected_result,generic_associated_variant_family_recovers_constructor_signature}` |
+| G01 | READY | `capabilities::constraints::source_constraints_preserve_class_and_callable_owners` |
 | G02 | READY | `generics::generic_identity_solves...` |
 | G03 | READY | `generics::generic_pair_solves...` |
-| G04 | STAGED | Source receiver generic application to member return |
-| G05 | STAGED | Generic receiver and argument constraints across nested source applications |
+| G04 | READY | `capabilities::variance::source_nested_and_higher_kinded_self_specialize_to_receiver` |
+| G05 | READY | `capabilities::constraints::source_generic_superclass_constraint_substitutes_owner_parameter` |
 | G06 | READY | `generics::expected_result_context_constrains...` |
 | G07 | READY | `generics::conflicting_generic_constraints...` |
 | G08 | READY | `generics::expected_context_selects_but_does_not_establish_result_only_generic` |
-| G09 | STAGED | Multi-hop specialized generic callable publication |
-| C01 | GATED | Source `where T <: Number` checking and bound diagnostics |
-| C02 | GATED | Method-owned source bound invocation checking |
-| C03 | GATED | Conjunctive source constraint solver |
-| C04 | GATED | Source equivalence constraint syntax and solver |
-| C05 | GATED | Coexisting class/method constraint owners |
-| C06 | GATED | Generic superclass constraint substitution |
-| C07 | GATED | Distinct bound-violation diagnostic |
-| K01 | STAGED | Source-level proper-type/kind publication oracle |
-| K02 | STAGED | Source constructor kind publication |
-| K03 | STAGED | Multi-parameter constructor kind publication |
-| K04 | GATED | Wrong-kinded annotation diagnostic |
-| K05 | GATED | Type-lambda source syntax and lowering |
-| K06 | GATED | Type-lambda alpha normalization |
-| K07 | GATED | Type-lambda beta reduction |
-| K08 | GATED | Nested type-lambda binder scoping |
-| K09 | GATED | Type-lambda arity/kind diagnostics |
-| V01 | GATED | Source variance declaration and relation checking |
-| V02 | GATED | Source contravariant relation checking |
-| V03 | GATED | Source invariant relation checking |
-| V04 | STAGED | Variance-aware binding contract relation |
-| V05 | GATED | Generic superclass variance substitution |
-| V06 | GATED | Nested variance in callable occurrences |
+| G09 | READY | `capabilities::higher_kinded_generics::hkt_self_specializes_through_multi_hop_transformed_inheritance` |
+| C01 | READY | `capabilities::constraints::source_equivalence_and_lower_bound_constraints_control_calls` |
+| C02 | READY | `capabilities::constraints::source_constraints_preserve_class_and_callable_owners` |
+| C03 | READY | `capabilities::constraints::source_equivalence_and_lower_bound_constraints_control_calls` |
+| C04 | READY | `capabilities::constraints::source_equivalence_and_lower_bound_constraints_control_calls` |
+| C05 | READY | `capabilities::constraints::source_constraints_preserve_class_and_callable_owners` |
+| C06 | READY | `capabilities::constraints::source_generic_superclass_constraint_substitutes_owner_parameter` |
+| C07 | READY | `capabilities::constraints::source_equivalence_and_lower_bound_constraints_control_calls` |
+| K01 | READY | `integration::workspace::generic_declaration_kind_matches_published_signature` |
+| K02 | READY | `integration::workspace::generic_declaration_kind_matches_published_signature`; `capabilities::aliases::source_aliases_preserve_canonical_forms_and_generic_inference` |
+| K03 | READY | `integration::workspace::generic_declaration_kind_matches_published_signature` |
+| K04 | READY | `capabilities::generics::wrong_kind_higher_kinded_argument_is_rejected_structurally` |
+| K05 | READY | `capabilities::aliases::source_aliases_preserve_canonical_forms_and_generic_inference` |
+| K06 | READY | `capabilities::aliases::source_aliases_preserve_canonical_forms_and_generic_inference` |
+| K07 | READY | `capabilities::aliases::source_aliases_preserve_canonical_forms_and_generic_inference` |
+| K08 | READY | `capabilities::aliases::source_aliases_preserve_canonical_forms_and_generic_inference` |
+| K09 | BLOCKED | Dedicated source arity/kind diagnostic oracle remains unproven; lower-level kind rejection coverage is retained |
+| V01 | READY | `capabilities::variance::source_variance_reaches_canonical_relation_and_superclass_projection` |
+| V02 | READY | `capabilities::variance::source_variance_reaches_canonical_relation_and_superclass_projection` |
+| V03 | READY | `capabilities::variance::source_variance_reaches_canonical_relation_and_superclass_projection` |
+| V04 | READY | `capabilities::variance::source_variance_reaches_canonical_relation_and_superclass_projection` |
+| V05 | READY | `capabilities::variance::source_variance_reaches_canonical_relation_and_superclass_projection` |
+| V06 | READY | `capabilities::variance::source_nested_callable_occurrence_has_contravariant_polarity` |
 | S01 | READY | `structural::nested_tuple_composes...` |
 | S02 | STAGED | Canonical labeled tuple source structure |
 | S03 | READY | `structural::record_literal_preserves_structural_field_types` asserts exact closed fields |
@@ -106,8 +106,8 @@ a named source test and a concrete semantic oracle.
 | A01 | READY | `fields::field_facts_survive_constructor_and_general_writes`; default and constructor lifecycle tests |
 | A02 | STAGED | Generic receiver field specialization |
 | A03 | GATED | Inherited Self-typed field source API |
-| A04 | GATED | Source alias declaration and provenance |
-| A05 | GATED | Generic/nested alias normalization |
+| A04 | READY | `capabilities::aliases::source_aliases_preserve_canonical_forms_and_generic_inference` |
+| A05 | READY | `capabilities::aliases::source_aliases_preserve_canonical_forms_and_generic_inference`; `integration::workspace::transparent_aliases_preserve_canonical_forms_and_kinds` |
 | M01 | READY | `integration::workspace::same_leaf_name...` |
 | M02 | READY | `integration::workspace` imported inheritance/call target scenarios |
 | M03 | STAGED | Re-export source graph publication |
@@ -122,6 +122,13 @@ a named source test and a concrete semantic oracle.
 The ledger is intentionally honest about product prerequisites. Gated and
 staged slots remain promotion targets; they are not deleted tests or ignored
 coverage. New source fixtures must use canonical pipe-block syntax.
+
+C12 non-type-system remainder: `E05`, `S02`, `S07`, `I04`, `P01`, `P03`,
+`P04`, `P06`, `A02`, `A03`, `M03`, and `X06` remain staged/gated for
+epistemic diagnostics, structural pattern diagnostics, protocol lanes,
+callable/publication depth, generic receiver fields, module re-export, or
+reflection-source coverage. `K09` is explicitly blocked above because no
+dedicated source arity/kind diagnostic oracle is currently ratified.
 
 `BodyExitFacts` trace assertions for nested `return`/`throw` remain a separate
 product-hardening prerequisite: the current published product does not yet

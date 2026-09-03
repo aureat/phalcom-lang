@@ -158,9 +158,9 @@ fn primary_expected() -> Vec<String> {
         "\"|\"",
         "\"{\"",
     ]
-        .iter()
-        .map(|s| (*s).to_string())
-        .collect()
+    .iter()
+    .map(|s| (*s).to_string())
+    .collect()
 }
 
 /// Converts a slice of `&str` labels into an owned `expected` list.
@@ -387,17 +387,11 @@ impl<'source> Parser<'source> {
 
         let mut lookahead = self.pos;
 
-        while matches!(
-        self.tokens.get(lookahead).map(|lexeme| &lexeme.token),
-        Some(Token::Newline)
-    ) {
+        while matches!(self.tokens.get(lookahead).map(|lexeme| &lexeme.token), Some(Token::Newline)) {
             lookahead += 1;
         }
 
-        let followed_by_expected = self
-            .tokens
-            .get(lookahead)
-            .is_some_and(|lexeme| &lexeme.token == expected);
+        let followed_by_expected = self.tokens.get(lookahead).is_some_and(|lexeme| &lexeme.token == expected);
 
         if followed_by_expected {
             self.skip_newlines();
@@ -603,11 +597,7 @@ impl<'source> Parser<'source> {
                 Token::Greater => {
                     depth -= 1;
                     if compact_type_lambda && !saw_compact_type_lambda && depth == 1 {
-                        if !self
-                            .tokens
-                            .get(i + 1)
-                            .is_some_and(|lexeme| matches!(lexeme.token, Token::TypeLambdaArrow))
-                        {
+                        if !self.tokens.get(i + 1).is_some_and(|lexeme| matches!(lexeme.token, Token::TypeLambdaArrow)) {
                             return false;
                         }
                         saw_compact_type_lambda = true;
@@ -3131,15 +3121,11 @@ impl<'source> Parser<'source> {
                 name_range,
             }))
         } else {
-            if !generic_parameters.is_empty() {
-                return Err(SyntaxError {
-                    kind: SyntaxErrorKind::Message("generic parameters not permitted on getters".to_string()),
-                    range: start..self.prev_end,
-                });
-            }
             Ok(EnumBehaviorMember::Getter(GetterDef {
                 name,
+                generic_parameters,
                 return_annotation,
+                where_clause,
                 body,
                 is_static,
                 attributes: pending_attrs,
@@ -3455,15 +3441,11 @@ impl<'source> Parser<'source> {
                 name_range,
             }))
         } else {
-            if !generic_parameters.is_empty() {
-                return Err(SyntaxError {
-                    kind: SyntaxErrorKind::Message("generic parameters not permitted on getters".to_string()),
-                    range: start..self.prev_end,
-                });
-            }
             Ok(ClassMember::Getter(GetterDef {
                 name,
+                generic_parameters,
                 return_annotation,
+                where_clause,
                 body,
                 is_static,
                 attributes: Vec::new(),
@@ -4622,10 +4604,7 @@ impl<'source> Parser<'source> {
                 }
             }
 
-            if matches!(self.peek(), Token::Less | Token::ShiftLeft)
-                && self.cur_start() == self.prev_end
-                && self.is_type_arguments_ahead()
-            {
+            if matches!(self.peek(), Token::Less | Token::ShiftLeft) && self.cur_start() == self.prev_end && self.is_type_arguments_ahead() {
                 if let Some(origin) = Self::expr_to_type_annotation(&expr) {
                     self.eat_less();
                     let mut arguments = Vec::new();
@@ -5909,10 +5888,10 @@ impl<'source> Parser<'source> {
             Token::QuotedSymbol(_) if matches!(self.peek_next(), Token::Colon) => Some(ProductLabelStart::ExplicitSymbol),
             Token::Identifier(name) if matches!(self.peek_next(), Token::Colon) => Some(ProductLabelStart::BareName(name.clone())),
             Token::Identifier(name)
-            if matches!(self.peek_next(), Token::Question) && matches!(self.tokens.get(self.pos + 2).map(|t| &t.token), Some(Token::Colon)) =>
-                {
-                    Some(ProductLabelStart::BareName(format!("{name}?")))
-                }
+                if matches!(self.peek_next(), Token::Question) && matches!(self.tokens.get(self.pos + 2).map(|t| &t.token), Some(Token::Colon)) =>
+            {
+                Some(ProductLabelStart::BareName(format!("{name}?")))
+            }
             Token::Identifier(name) if matches!(self.peek_next(), Token::LParen) && self.looks_like_delimited_label(&Token::LParen, &Token::RParen) => {
                 Some(ProductLabelStart::BareSelector(name.clone()))
             }
@@ -5923,12 +5902,12 @@ impl<'source> Parser<'source> {
                 Some(ProductLabelStart::BareName(Self::bare_product_label_name(token).unwrap().to_string()))
             }
             token
-            if Self::bare_product_label_name(token).is_some()
-                && matches!(self.peek_next(), Token::LParen)
-                && self.looks_like_delimited_label(&Token::LParen, &Token::RParen) =>
-                {
-                    Some(ProductLabelStart::BareSelector(Self::bare_product_label_name(token).unwrap().to_string()))
-                }
+                if Self::bare_product_label_name(token).is_some()
+                    && matches!(self.peek_next(), Token::LParen)
+                    && self.looks_like_delimited_label(&Token::LParen, &Token::RParen) =>
+            {
+                Some(ProductLabelStart::BareSelector(Self::bare_product_label_name(token).unwrap().to_string()))
+            }
             _ => None,
         }
     }

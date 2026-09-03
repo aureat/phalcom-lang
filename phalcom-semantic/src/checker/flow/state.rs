@@ -126,6 +126,55 @@ mod field_tests {
             FieldInitialization::DefinitelyInitialized
         );
     }
+
+    #[test]
+    fn opaque_call_drops_alias_sensitive_facts_without_rewriting_contracts() {
+        let mut store = TypeStore::new();
+        let int_ty = store.nominal_type(DeclarationId::new(ModuleId::universe_root(), "Int".into()));
+        let immutable = BindingId(1);
+        let mutable = BindingId(2);
+        let mut flow = FlowState::new();
+        flow.declare(
+            immutable,
+            "immutable",
+            SourceRange::default(),
+            None,
+            TypeKnowledge::established(int_ty, EvidenceOrigin::Flow),
+            false,
+        );
+        flow.declare(
+            mutable,
+            "mutable",
+            SourceRange::default(),
+            Some(int_ty),
+            TypeKnowledge::established(int_ty, EvidenceOrigin::Flow),
+            true,
+        );
+        flow.facts.insert_unexplained(FlowPredicate::Truthy { binding: immutable });
+        flow.facts.insert_unexplained(FlowPredicate::Truthy { binding: mutable });
+
+        let field_id = field();
+        let contract = TypeKnowledge::assumed(int_ty, EvidenceOrigin::DeveloperAnnotation);
+        flow.seed_field(FieldState {
+            field: field_id.clone(),
+            contract: contract.clone(),
+            current: TypeKnowledge::established(int_ty, EvidenceOrigin::Flow),
+            initialization: FieldInitialization::DefinitelyInitialized,
+            validity: FieldContractValidity::Validated,
+            causal_invalidity: CausalInvalidity::Clean,
+            version: 0,
+        });
+
+        flow.invalidate_opaque_calls();
+
+        assert!(flow.facts.contains(&FlowPredicate::Truthy { binding: immutable }));
+        assert!(!flow.facts.contains(&FlowPredicate::Truthy { binding: mutable }));
+        let field = flow.get_field(&field_id).expect("field state");
+        assert_eq!(field.contract, contract);
+        assert_eq!(field.initialization, FieldInitialization::DefinitelyInitialized);
+        assert_eq!(field.current, TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence));
+        assert_eq!(field.validity, FieldContractValidity::Unchecked);
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -763,9 +812,28 @@ impl FlowState {
         self.bindings.insert(state.binding, state);
     }
 
-    /// Invalidate mutable projection facts on opaque/unknown method calls (F4).
+    /// Invalidate alias-sensitive flow facts at an opaque call boundary (F4).
+    ///
+    /// Binding contracts remain persistent declarations. Immutable local facts
+    /// remain valid because this flow model has no path for an opaque call to
+    /// rewrite them. Mutable local predicates are removed because an aliased
+    /// or captured write cannot be ruled out. Instance-field current facts are
+    /// dropped while their contracts and initialization state remain intact.
     pub fn invalidate_opaque_calls(&mut self) {
-        // Retain direct immutable facts while invalidating volatile projection facts
+        self.facts.facts.retain(|predicate, _| {
+            predicate
+                .binding()
+                .and_then(|binding| self.bindings.get(&binding))
+                .is_some_and(|state| !state.mutable)
+        });
+
+        for field in self.fields.values_mut() {
+            if matches!(field.current, TypeKnowledge::Known(_)) {
+                field.current = TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence);
+                field.validity = FieldContractValidity::Unchecked;
+                field.version += 1;
+            }
+        }
     }
 
     /// Projects the flow state into a semantic key, stripping versions,

@@ -7,10 +7,10 @@ use phalcom_semantic::identity::DeclarationId;
 use phalcom_semantic::types::environment::{TypeEnvironment, TypeView};
 use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::parameter::{GenericConstraint, GenericSignature, TypeParameterData, TypeParameterOwner, TypeTerm};
-use phalcom_semantic::types::relation::{is_subtype, MapTypeHierarchy};
+use phalcom_semantic::types::relation::{MapTypeHierarchy, is_subtype};
 use phalcom_semantic::types::store::{RecordTypeField, TypeStore};
 use phalcom_semantic::types::type_lambda::{BetaResult, ScopedTypeData, TypeLambdaArena, TypeLambdaProvenance};
-use phalcom_semantic::types::variance::{compute_variance_occurrence, Variance, VarianceStep};
+use phalcom_semantic::types::variance::{Variance, VarianceStep, compute_variance_occurrence};
 
 fn core_decl(name: &str) -> DeclarationId {
     DeclarationId::new(ModuleId::universe_root(), name.into())

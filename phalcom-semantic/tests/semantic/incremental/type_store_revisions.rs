@@ -1,4 +1,5 @@
 use super::support::single_module_input;
+use phalcom_common::selector::Selector;
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_semantic::db::QueryKey;
 use phalcom_semantic::identity::DeclarationId;
@@ -484,4 +485,108 @@ fn generic_constraint_edit_recomputes_dependent_consumer_signature() {
 
     assert_ne!(holder_fp1, holder_fp2, "generic constraint edit must change declaration-shell product");
     assert_ne!(signature_revision1, signature_revision2, "constraint-dependent signature must recompute");
+}
+
+#[test]
+fn generic_getter_return_and_constraint_edit_matches_cold_analysis() {
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(97),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("generic_getter").unwrap()]),
+    );
+    let source1 = r#"
+class Number {}
+class Allowed is Number {}
+class Probe {
+  @class
+  value<T> -> T where T <: Number { 0 }
+
+  @class
+  run() {
+    let result: Allowed = Probe.value
+  }
+}
+"#;
+    let source2 = r#"
+class Number {}
+class Allowed is Number {}
+class Probe {
+  @class
+  value<T> -> T where T <: Object { 0 }
+
+  @class
+  run() {
+    let result: Object = Probe.value
+  }
+}
+"#;
+
+    let mut incremental = SemanticWorkspaceSession::new();
+    let first = incremental.update(single_module_input(module.clone(), source1, 1));
+    assert!(!first.snapshot.has_errors(), "diagnostics: {:?}", first.snapshot.diagnostics);
+    let getter = DeclarationId::new(module.clone(), "Probe".into());
+    let getter = phalcom_semantic::identity::CallableId::new(
+        getter,
+        Selector::getter("value").expect("getter selector"),
+        phalcom_semantic::identity::DispatchSide::Class,
+    );
+    let signature_key = QueryKey::CallableSignature(getter.clone());
+    let signature_revision1 = incremental.db().query_state(&signature_key).expect("generic getter signature").revision();
+
+    let second = incremental.update(single_module_input(module.clone(), source2, 2));
+    assert!(!second.snapshot.has_errors(), "diagnostics: {:?}", second.snapshot.diagnostics);
+    let signature_revision2 = incremental
+        .db()
+        .query_state(&signature_key)
+        .expect("updated generic getter signature")
+        .revision();
+    assert_ne!(
+        signature_revision1, signature_revision2,
+        "generic getter return/where edit must recompute signature"
+    );
+
+    let run = phalcom_semantic::identity::CallableId::new(
+        DeclarationId::new(module.clone(), "Probe".into()),
+        Selector::method("run", []).expect("run selector"),
+        phalcom_semantic::identity::DispatchSide::Class,
+    );
+    let incremental_expression = second
+        .snapshot
+        .callable_analyses
+        .get(&run)
+        .expect("incremental run analysis")
+        .expressions
+        .values()
+        .find(|expression| second.snapshot.sources[&module].text.get(expression.range.start..expression.range.end) == Some("Probe.value"))
+        .expect("incremental generic getter access");
+    assert!(matches!(
+        incremental_expression.status,
+        phalcom_semantic::checker::analysis::AnalysisStatus::Ready
+    ));
+
+    let mut cold = SemanticWorkspaceSession::new();
+    let final_cold = cold.update(single_module_input(module.clone(), source2, 1));
+    let cold_expression = final_cold
+        .snapshot
+        .callable_analyses
+        .get(&run)
+        .expect("cold run analysis")
+        .expressions
+        .values()
+        .find(|expression| final_cold.snapshot.sources[&module].text.get(expression.range.start..expression.range.end) == Some("Probe.value"))
+        .expect("cold generic getter access");
+    assert_eq!(
+        second
+            .snapshot
+            .store
+            .format_type(incremental_expression.knowledge.ty().expect("incremental getter result")),
+        final_cold
+            .snapshot
+            .store
+            .format_type(cold_expression.knowledge.ty().expect("cold getter result")),
+        "generic getter final type must match cold analysis"
+    );
+    assert_eq!(
+        incremental_expression.status, cold_expression.status,
+        "generic getter status must match cold analysis"
+    );
 }

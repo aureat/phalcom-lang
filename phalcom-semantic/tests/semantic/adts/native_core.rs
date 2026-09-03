@@ -16,7 +16,8 @@ static GENERATED_LIST_OF_T: phalcom_native_meta::TypeExprSpec = phalcom_native_m
 #[test]
 fn bootstrapped_core_option_is_canonical_enum() {
     let option = CoreDeclarationIds::default().option;
-    let case = analyze_adt(r#"
+    let case = analyze_adt(
+        r#"
 class Test {
     check_option(_ opt: Option<Int>) {
         match opt {
@@ -25,14 +26,10 @@ class Test {
         }
     }
 }
-"#);
+"#,
+    );
 
-    let enum_info = case
-        .analysis
-        .snapshot
-        .enum_semantics
-        .enum_info(&option)
-        .expect("core Option must be an enum");
+    let enum_info = case.analysis.snapshot.enum_semantics.enum_info(&option).expect("core Option must be an enum");
 
     assert_eq!(enum_info.variants.len(), 2);
 
@@ -220,7 +217,10 @@ class Probe {
     )
     .expect("generated generic return form");
 
-    assert_eq!(generated_result, source_result, "source and generated forms must intern the same canonical List<Int> TypeId");
+    assert_eq!(
+        generated_result, source_result,
+        "source and generated forms must intern the same canonical List<Int> TypeId"
+    );
     let call = fixture.expression(run, "Probe.keep(value)");
     assert!(matches!(call.status, phalcom_semantic::checker::analysis::AnalysisStatus::Ready), "{call:#?}");
     assert_eq!(call.knowledge.status(), Some(EvidenceStatus::Assumed));
@@ -264,7 +264,10 @@ class Test {
             .values()
             .find(|expression| case.source.get(expression.range.start..expression.range.end) == Some("Option::Some(1)"))
             .expect("Option constructor expression");
-        (case.analysis.snapshot.store.format_type(expression.knowledge.ty().expect("constructor result")), expression.status.clone())
+        (
+            case.analysis.snapshot.store.format_type(expression.knowledge.ty().expect("constructor result")),
+            expression.status.clone(),
+        )
     };
 
     let (bootstrapped_type, bootstrapped_status) = result(&bootstrapped);

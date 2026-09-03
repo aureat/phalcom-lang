@@ -1,6 +1,6 @@
 //! Higher-order callable capability probes.
 
-use crate::semantic::support::{binding, known, Fixture};
+use crate::semantic::support::{Fixture, binding, known};
 use phalcom_semantic::checker::analysis::AnalysisStatus;
 use phalcom_semantic::identity::DispatchSide;
 use phalcom_semantic::types::evidence::EvidenceOrigin;

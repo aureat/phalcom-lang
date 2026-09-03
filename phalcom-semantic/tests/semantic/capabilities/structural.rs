@@ -1,4 +1,4 @@
-use crate::semantic::support::{Fixture, TypeExpectation, assert_refuted, assert_validated, known, tuple};
+use crate::semantic::support::{Fixture, TypeExpectation, applied, assert_refuted, assert_validated, known, nominal, tuple};
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::DispatchSide;
 use phalcom_semantic::types::evidence::EvidenceStatus;
@@ -146,6 +146,74 @@ class Probe {
         }
         other => panic!("expected List<...>, got {other:?}"),
     }
+}
+
+/// LAW: contextual product components guide nested empty literals without
+/// laundering contextual selection into established syntax evidence.
+#[test]
+fn contextual_product_components_propagate_to_nested_literals() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let pair: (List<Int>, Map<Symbol, List<Int>>) = ([], {key: []})
+  }
+}
+"#,
+    );
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    let pair = f.expression(run, "([], {key: []})");
+    let pair_ty = pair.knowledge.ty().expect("contextual tuple result");
+    f.assert_type(
+        pair_ty,
+        tuple([
+            applied("List", [nominal("Int")]),
+            applied("Map", [nominal("Symbol"), applied("List", [nominal("Int")])]),
+        ]),
+    );
+    assert_eq!(pair.knowledge.status(), Some(EvidenceStatus::Assumed));
+}
+
+/// LAW: ordinary membership is an RHS-owned `contains(_)` send and keeps Bool
+/// result typing for both polarities.
+#[test]
+fn membership_is_owned_by_rhs_contains_protocol() {
+    let f = Fixture::new(
+        r#"
+class Container {
+  contains(_ value: Int) -> Bool { true }
+}
+class Probe {
+  @class
+  run(_ container: Container) {
+    let present = 1 in container
+    let absent = 1 not in container
+  }
+}
+"#,
+    );
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    assert_eq!(f.expression(run, "1 in container").knowledge.ty(), Some(f.ty("Bool")));
+    assert_eq!(f.expression(run, "1 not in container").knowledge.ty(), Some(f.ty("Bool")));
+}
+
+/// LAW: lifted type membership is a Bool result and does not turn its
+/// candidate expression into a value-type fact.
+#[test]
+fn lifted_type_membership_publishes_bool() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run(_ value: Object) {
+    let result = value is in [Object]
+  }
+}
+"#,
+    );
+    let run = f.callable("Probe", "run", DispatchSide::Class);
+    assert_eq!(f.expression(run, "value is in [Object]").knowledge.ty(), Some(f.ty("Bool")));
 }
 
 /// LAW: record literals publish a closed structural row with the exact field

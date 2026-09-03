@@ -1050,9 +1050,7 @@ impl SemanticWorkspaceSession {
                                 // source-backed form available for formal body
                                 // queries; user modules retain strict
                                 // proper-type validation below.
-                                if self.store.kind_of(ty) != KindId::TYPE
-                                    && !is_canonical_erased_iterable_supertype(parsed_unit, &self.store, ty)
-                                {
+                                if self.store.kind_of(ty) != KindId::TYPE && !is_canonical_erased_iterable_supertype(parsed_unit, &self.store, ty) {
                                     diags.push(SemanticDiagnostic::error_in(
                                         module_id.clone(),
                                         DiagnosticCode::KindExpectedType,

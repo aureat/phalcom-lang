@@ -1,15 +1,15 @@
 use phalcom_ast::ast::DependencyDecl;
 use phalcom_ast::parser::parse;
 use phalcom_modules::{
-ModuleComponent, ModuleId, ModuleKind, ModuleLoadError, ModuleLinker, ModulePath, ModuleResolutionError, ProjectUniverse, SymbolId,
-UniverseSourceProvider, UNIVERSE_NODES,
+    ModuleComponent, ModuleId, ModuleKind, ModuleLinker, ModuleLoadError, ModulePath, ModuleResolutionError, ProjectUniverse, SymbolId, UNIVERSE_NODES,
+    UniverseSourceProvider,
 };
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 fn make_universe_id(path: &[&str]) -> ModuleId {
     let components: Vec<ModuleComponent> = path.iter().map(|s| ModuleComponent::from_identifier(s).expect("valid identifier")).collect();
-    ModuleId::universe( ModulePath::from_components(components))
+    ModuleId::universe(ModulePath::from_components(components))
 }
 
 /// BCAT-01 — Every path in UNIVERSE_NODES has a source_text arm (catalog/source parity)

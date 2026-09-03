@@ -5,12 +5,13 @@ use phalcom_modules::{
     InterfaceBuilder, ModuleComponent, ModuleId, ModuleKind, ModuleLinker, ModulePath, ProjectUniverse, ResolvedProjectId, UnlinkedModuleInterface,
 };
 use phalcom_native_meta::{EffectSpec, ImplementationKind, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
+use phalcom_semantic::checker::BindingConsistency;
 use phalcom_semantic::checker::analysis::{
     AnalysisStatus, BindingState, BodyExitFacts, CallableAnalysis, CallableAnalysisStatus, ExpressionAnalysis, FlowBindingSummary, FlowStateSummary,
 };
 use phalcom_semantic::checker::flow::graph::{FlowGraph, FlowNodeKind};
 use phalcom_semantic::checker::incident::{InternalSemanticIncident, InternalSemanticIncidentDetails, InternalSemanticIncidentKind};
-use phalcom_semantic::checker::BindingConsistency;
+use phalcom_semantic::db::ProductFingerprint;
 use phalcom_semantic::db::fingerprint::{
     callable_body_product_fingerprint, callable_signature_input_fingerprint, callable_signature_product_fingerprint, declaration_shell_input_fingerprint,
     declaration_shell_product_fingerprint, declaration_surface_input_fingerprint, declaration_surface_product_fingerprint,
@@ -18,7 +19,6 @@ use phalcom_semantic::db::fingerprint::{
     module_diagnostics_product_fingerprint, semantic_component_product_fingerprint, unlinked_interface_input_fingerprint,
     unlinked_interface_product_fingerprint,
 };
-use phalcom_semantic::db::ProductFingerprint;
 use phalcom_semantic::declarations::{DeclarationTypeInfo, GenericSupertypeTemplate};
 use phalcom_semantic::diagnostic::{DiagnosticCode, SemanticDiagnostic, SemanticSourceSpan};
 use phalcom_semantic::dispatch::{CallableSemanticKind, CallableSignature, DispatchSide};
@@ -662,24 +662,28 @@ fn callable_body_product_ignores_explanation_presentation() {
 fn callable_body_product_ignores_diagnostic_details() {
     let mut left = callable_analysis();
     left.diagnostics = Arc::from(
-        vec![SemanticDiagnostic::error_in(
-            ModuleId::universe_root(),
-            DiagnosticCode::TypeMismatch,
-            "mismatch",
-            SourceRange { start: 1, end: 2 },
-        )
-        .with_note("first note")]
+        vec![
+            SemanticDiagnostic::error_in(
+                ModuleId::universe_root(),
+                DiagnosticCode::TypeMismatch,
+                "mismatch",
+                SourceRange { start: 1, end: 2 },
+            )
+            .with_note("first note"),
+        ]
         .into_boxed_slice(),
     );
     let mut right = left.clone();
     right.diagnostics = Arc::from(
-        vec![SemanticDiagnostic::error_in(
-            ModuleId::universe_root(),
-            DiagnosticCode::TypeMismatch,
-            "mismatch",
-            SourceRange { start: 1, end: 2 },
-        )
-        .with_note("different note")]
+        vec![
+            SemanticDiagnostic::error_in(
+                ModuleId::universe_root(),
+                DiagnosticCode::TypeMismatch,
+                "mismatch",
+                SourceRange { start: 1, end: 2 },
+            )
+            .with_note("different note"),
+        ]
         .into_boxed_slice(),
     );
 

@@ -1,13 +1,13 @@
 use phalcom_ast::parse_source;
 use phalcom_modules::identity::ModuleId;
 use phalcom_native_meta::UniverseKey;
+use phalcom_semantic::DeclarationId;
 use phalcom_semantic::checker::check_program;
-use phalcom_semantic::declarations::{bootstrap_universe_declarations, DeclarationTypeTable};
+use phalcom_semantic::declarations::{DeclarationTypeTable, bootstrap_universe_declarations};
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::types::annotation::SimpleTypeResolver;
 use phalcom_semantic::types::relation::MapTypeHierarchy;
 use phalcom_semantic::types::store::TypeStore;
-use phalcom_semantic::DeclarationId;
 
 fn setup_phase2_env() -> (TypeStore, MapTypeHierarchy, SimpleTypeResolver, DeclarationTypeTable, ModuleId) {
     let mut store = TypeStore::new();

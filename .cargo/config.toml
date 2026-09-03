@@ -7,7 +7,7 @@ feature-unification = "workspace"
 [build]
 # macOS frontend stability: `-Zthreads=8` repeatedly hangs fresh builds here.
 # Two workers complete reliably; retain until a newer pinned nightly proves safe.
-rustflags = ["-Zunstable-options", "-Zthreads=6", "-Ctarget-cpu=native"]
+rustflags = ["-Zunstable-options", "-Ctarget-cpu=native"]
 rustc-wrapper = "sccache"
 jobs = 8
 

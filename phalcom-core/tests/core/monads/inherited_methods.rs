@@ -141,6 +141,10 @@ fn inherited_flat_map_keeps_class_and_method_generic_scopes_distinct() {
         GenericConstraintRelation::SupertypeOf(next_ty),
     );
 
-    assert!(matches!(f.analysis.snapshot.store.type_parameter(a).owner, phalcom_semantic::types::parameter::TypeParameterOwner::Callable(ref owner) if owner == &target));
-    assert!(matches!(f.analysis.snapshot.store.type_parameter(b).owner, phalcom_semantic::types::parameter::TypeParameterOwner::Callable(ref owner) if owner == &target));
+    assert!(
+        matches!(f.analysis.snapshot.store.type_parameter(a).owner, phalcom_semantic::types::parameter::TypeParameterOwner::Callable(ref owner) if owner == &target)
+    );
+    assert!(
+        matches!(f.analysis.snapshot.store.type_parameter(b).owner, phalcom_semantic::types::parameter::TypeParameterOwner::Callable(ref owner) if owner == &target)
+    );
 }

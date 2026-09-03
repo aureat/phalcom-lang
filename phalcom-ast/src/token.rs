@@ -133,10 +133,7 @@ pub enum Token {
     /// `docs/spec/current/string-interpolation.md`.
     StringInterp(Vec<StringSegment>),
     /// An integer literal with normalized digits string and radix (2, 8, 10, 16).
-    Int {
-        digits: String,
-        radix: u32,
-    },
+    Int { digits: String, radix: u32 },
     /// A floating-point literal payload.
     Float(f64),
 
@@ -273,11 +270,17 @@ pub enum Token {
     SlashTilde,
     /// The `%` modulo operator.
     Percent,
+    /// The `<<` bitwise binary left-shift operator.
     ShiftLeft,
+    /// The `>>` bitwise binary right-shift operator.
     ShiftRight,
+    /// The `&` bitwise binary AND operator.
     Ampersand,
+    /// The `|` bitwise binary inclusive-or operator.
     Pipe,
+    /// The `^` bitwise binary exclusive-or operator.
     Caret,
+    /// The `~` unary bitwise complement operator.
     Tilde,
 
     /// The synthetic end-of-file marker injected once after the last real

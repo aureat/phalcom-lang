@@ -3,8 +3,9 @@ use std::sync::Arc;
 use phalcom_common::selector::{SelectorKind, SelectorSlot};
 use phalcom_modules::identity::ModuleId;
 use phalcom_semantic::analyze_single_module;
-use phalcom_semantic::checker::{FamilyApplicationResolution, FamilyApplicationSelection};
+use phalcom_semantic::checker::{AssociatedResolutionKind, FamilyApplicationResolution, FamilyApplicationSelection};
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide, InvocationTargetId};
+use phalcom_semantic::types::denotation::SemanticDenotation;
 
 #[test]
 fn immediate_family_call_publishes_static_application_resolution() {
@@ -240,6 +241,157 @@ class Probe {
         panic!("expected static family application, got {:?}", resolution.selection);
     };
     assert!(matches!(target, Some(InvocationTargetId::VariantConstructor(_))));
+}
+
+#[test]
+fn family_wrong_shape_reports_associated_call_shape() {
+    let module = ModuleId::universe_root();
+    let source: Arc<str> = Arc::from(
+        r#"
+enum Weird {
+  @variant Marker(_ value: Int)
+}
+
+class Probe {
+  @class
+  run() { Weird::Marker(1, 2) }
+}
+"#,
+    );
+    let analysis = analyze_source(module, source);
+    assert!(
+        analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::AssociatedCallShapeMissing)
+    );
+}
+
+#[test]
+fn behavioral_family_source_preserves_pattern_storage_and_dispatch_side() {
+    let module = ModuleId::universe_root();
+    let source: Arc<str> = Arc::from(
+        r#"
+class Service {
+  @class
+  make(_ value: Int) -> Int { value }
+
+  take(_ value: Int) -> Int { value }
+}
+
+class Probe {
+  @class
+  run(_ service: Service) {
+    let instance = service::take::*;
+    let class_side = Service::make::*;
+    let instance_result = instance(1)
+    let class_result = class_side(1)
+  }
+}
+"#,
+    );
+    let analysis = analyze_source(module.clone(), source.clone());
+    assert!(!analysis.snapshot.has_errors(), "diagnostics: {:?}", analysis.snapshot.diagnostics);
+    let probe = DeclarationId::new(module, "Probe".into());
+    let run_id = CallableId::new(
+        probe,
+        phalcom_common::selector::Selector::method("run", [SelectorSlot::Positional]).expect("run selector"),
+        DispatchSide::Class,
+    );
+    let callable = analysis.snapshot.callable_analyses.get(&run_id).expect("run analysis");
+
+    let capture_for = |text: &str| {
+        callable
+            .expressions
+            .values()
+            .find(|expression| source.get(expression.range.start..expression.range.end) == Some(text))
+            .unwrap_or_else(|| panic!("missing family capture {text}"))
+    };
+    for (text, expected_side) in [("service::take::*", DispatchSide::Instance), ("Service::make::*", DispatchSide::Class)] {
+        let capture = capture_for(text);
+        let resolution = callable.associated_resolutions.get(&capture.id).expect("family resolution");
+        let AssociatedResolutionKind::BoundBehavioralFamily { members, .. } = &resolution.kind else {
+            panic!("expected behavioral family resolution for {text}, got {:?}", resolution.kind);
+        };
+        assert_eq!(members.len(), 1, "one exact source method should populate one family member");
+        assert!(matches!(&members[0].target, InvocationTargetId::Behavioral(callable) if callable.side == expected_side));
+    }
+
+    for (text, expected_side) in [("instance(1)", DispatchSide::Instance), ("class_side(1)", DispatchSide::Class)] {
+        let application = callable
+            .expressions
+            .values()
+            .find(|expression| source.get(expression.range.start..expression.range.end) == Some(text))
+            .expect("family application expression");
+        let resolution = callable.family_applications.get(&application.id).expect("family application resolution");
+        let FamilyApplicationSelection::Static { target, .. } = &resolution.selection else {
+            panic!("expected static family invocation for {text}, got {:?}", resolution.selection);
+        };
+        assert!(matches!(target, Some(InvocationTargetId::Behavioral(callable)) if callable.side == expected_side));
+    }
+}
+
+#[test]
+fn structurally_equal_behavioral_families_retain_distinct_denotations_and_targets() {
+    let module = ModuleId::universe_root();
+    let source: Arc<str> = Arc::from(
+        r#"
+class Left {
+  @class
+  make(_ value: Int) -> Int { value }
+}
+class Right {
+  @class
+  make(_ value: Int) -> Int { value }
+}
+class Probe {
+  @class
+  run() {
+    let left = Left::make::*;
+    let right = Right::make::*;
+  }
+}
+"#,
+    );
+    let analysis = analyze_source(module.clone(), source.clone());
+    assert!(!analysis.snapshot.has_errors(), "diagnostics: {:?}", analysis.snapshot.diagnostics);
+    let probe = DeclarationId::new(module, "Probe".into());
+    let run_id = CallableId::new(
+        probe,
+        phalcom_common::selector::Selector::method("run", []).expect("run selector"),
+        DispatchSide::Class,
+    );
+    let callable = analysis.snapshot.callable_analyses.get(&run_id).expect("run analysis");
+    let capture = |text: &str| {
+        callable
+            .expressions
+            .values()
+            .find(|expression| source.get(expression.range.start..expression.range.end) == Some(text))
+            .unwrap_or_else(|| panic!("missing family capture {text}"))
+    };
+    let left = capture("Left::make::*");
+    let right = capture("Right::make::*");
+    assert_eq!(
+        left.knowledge.ty(),
+        right.knowledge.ty(),
+        "same callable shape should intern one structural family type"
+    );
+    assert_ne!(left.denotation, right.denotation, "receiver declaration remains family provenance");
+
+    let target = |expression: &phalcom_semantic::checker::analysis::ExpressionAnalysis| {
+        let SemanticDenotation::AssociatedValue(denotation) = expression.denotation.as_ref().expect("family denotation") else {
+            panic!("expected associated family denotation");
+        };
+        let phalcom_semantic::types::denotation::AssociatedValueDenotation::BehavioralFamily { members, .. } = denotation.as_ref() else {
+            panic!("expected behavioral family denotation");
+        };
+        members[0].target.clone()
+    };
+    let left_target = target(left);
+    let right_target = target(right);
+    assert_ne!(left_target, right_target, "same family shape must retain distinct callable targets");
+    assert!(matches!(left_target, InvocationTargetId::Behavioral(ref callable) if callable.owner.declaration().name.as_ref() == "Left"));
+    assert!(matches!(right_target, InvocationTargetId::Behavioral(ref callable) if callable.owner.declaration().name.as_ref() == "Right"));
 }
 
 fn analyze_source(module: ModuleId, source: Arc<str>) -> phalcom_semantic::workspace::SemanticAnalysis {

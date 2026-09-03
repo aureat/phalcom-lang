@@ -177,7 +177,19 @@ fn check_subtype_impl(
         return RelationOutcome::BudgetExceeded(report);
     }
 
-    if sub == sup || sub == store.never() {
+    if sub == sup {
+        return RelationOutcome::proven(());
+    }
+
+    // Only proper `Type` forms participate in ordinary value subtyping. An
+    // unsaturated constructor or type lambda may be equal to itself, but it
+    // must not inherit the blanket `Object` relation or bottom relation just
+    // because its representation lives in the canonical type store.
+    if store.kind_of(sub) != super::id::KindId::TYPE || store.kind_of(sup) != super::id::KindId::TYPE {
+        return RelationOutcome::Refuted(RelationFailure::TypeMismatch { actual: sub, expected: sup });
+    }
+
+    if sub == store.never() {
         return RelationOutcome::proven(());
     }
 

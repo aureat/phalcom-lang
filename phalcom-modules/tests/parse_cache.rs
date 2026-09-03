@@ -51,12 +51,10 @@ fn builtin_parsed_module_caching() {
     let fs = FilesystemSourceProvider::new();
     let mut resolver = ModuleResolver::new(&universe, &fs);
 
-    let list_id = ModuleId::universe(
-        ModulePath::from_components(vec![
-            phalcom_modules::identity::ModuleComponent::from_identifier("collections").unwrap(),
-            phalcom_modules::identity::ModuleComponent::from_identifier("list").unwrap(),
-        ]),
-    );
+    let list_id = ModuleId::universe(ModulePath::from_components(vec![
+        phalcom_modules::identity::ModuleComponent::from_identifier("collections").unwrap(),
+        phalcom_modules::identity::ModuleComponent::from_identifier("list").unwrap(),
+    ]));
 
     let parsed1 = resolver.load_parsed(&list_id).expect("parsed builtin list");
     let parsed2 = resolver.load_parsed(&list_id).expect("second load parsed builtin list");

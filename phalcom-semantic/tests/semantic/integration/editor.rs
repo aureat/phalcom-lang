@@ -84,16 +84,15 @@ fn editor_visible_symbols_use_prelude_policy_and_preserve_local_shadowing() {
             recovered_program: None,
         }])
         .expect("semantic publication");
-    let module = publication
-        .snapshot
-        .module_for_source(&location.source_id)
-        .cloned()
-        .expect("source module");
+    let module = publication.snapshot.module_for_source(&location.source_id).cloned().expect("source module");
     let offset = source.rfind("Int").expect("local Int read") + 1;
     let symbols = publication.snapshot.editor().visible_symbols_at(&module, offset);
 
     for name in ["Int", "Option", "Result", "List", "Map", "Unit"] {
-        assert!(symbols.iter().any(|symbol| symbol.name.as_ref() == name), "missing prelude symbol {name}: {symbols:#?}");
+        assert!(
+            symbols.iter().any(|symbol| symbol.name.as_ref() == name),
+            "missing prelude symbol {name}: {symbols:#?}"
+        );
     }
     for name in ["Nil", "Some", "None", "Behavior", "Metaclass", "Method", "Family"] {
         assert!(
@@ -102,9 +101,7 @@ fn editor_visible_symbols_use_prelude_policy_and_preserve_local_shadowing() {
         );
     }
 
-    let canonical_int = SemanticTargetId::Declaration(phalcom_semantic::core_surface::universe_declaration(
-        phalcom_native_meta::UniverseKey::Int,
-    ));
+    let canonical_int = SemanticTargetId::Declaration(phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Int));
     let visible_ints = symbols.iter().filter(|symbol| symbol.name.as_ref() == "Int").collect::<Vec<_>>();
     assert_eq!(visible_ints.len(), 1, "local binding must suppress the prelude candidate");
     assert_ne!(visible_ints[0].target, canonical_int, "local Int must win over prelude Int");

@@ -78,9 +78,7 @@ pub enum RuntimeAdtRegistrationError {
         requested_root: ClassId,
         requested_representation: RuntimeAdtRepresentation,
     },
-    #[error(
-        "runtime enum root {root_class:?} is already owned by {existing_owner:?}; cannot also bind it to {requested_owner:?}"
-    )]
+    #[error("runtime enum root {root_class:?} is already owned by {existing_owner:?}; cannot also bind it to {requested_owner:?}")]
     RootClassAlreadyRegistered {
         root_class: ClassId,
         existing_owner: DeclarationId,
@@ -142,11 +140,7 @@ impl RuntimeAdtRegistry {
         Self::default()
     }
 
-    pub fn bind_native_option_variants(
-        &mut self,
-        some: RuntimeVariantId,
-        none: RuntimeVariantId,
-    ) -> Result<(), &'static str> {
+    pub fn bind_native_option_variants(&mut self, some: RuntimeVariantId, none: RuntimeVariantId) -> Result<(), &'static str> {
         if self.native_option.is_some() {
             return Err("native Option variant identities already bound");
         }
@@ -159,11 +153,7 @@ impl RuntimeAdtRegistry {
     }
 
     /// Registers a new enum root with default general representation.
-    pub fn register_enum(
-        &mut self,
-        semantic_owner: DeclarationId,
-        root_class: ClassId,
-    ) -> Result<RuntimeEnumId, RuntimeAdtRegistrationError> {
+    pub fn register_enum(&mut self, semantic_owner: DeclarationId, root_class: ClassId) -> Result<RuntimeEnumId, RuntimeAdtRegistrationError> {
         self.register_enum_with_representation(semantic_owner, root_class, RuntimeAdtRepresentation::General)
     }
 

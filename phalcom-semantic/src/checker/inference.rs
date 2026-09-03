@@ -9,6 +9,7 @@ use crate::identity::{CallableId, ExplanationId, ExpressionId, InferVarId};
 use crate::types::application::TypeApplicationError;
 use crate::types::evidence::{DynamicReason, EvidenceStatus, TypeKnowledge, UnknownReason};
 use crate::types::id::{KindId, TypeId, TypeParameterId, VariantTypeId};
+use crate::types::kind::KindData;
 use crate::types::outcome::{BlockReason, BudgetReport};
 use crate::types::relation::{TypeHierarchy, is_subtype};
 use crate::types::store::{CallableParameterType, CallableType, TypeData, TypeStore};
@@ -35,6 +36,22 @@ pub enum InferenceTerm {
     Callable(InferenceCallable),
     Record(InferenceRecord),
     Family(InferenceFamily),
+}
+
+/// Query-local owner for solver variables shared by nested generic applications.
+///
+/// This identity is intentionally not part of durable semantic products.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct InferenceContextId(pub(crate) u32);
+
+/// Application frame inside one query-local inference context.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct InferenceFrameId(pub(crate) u32);
+
+#[derive(Clone, Debug)]
+struct InferenceFrame {
+    parent: Option<InferenceFrameId>,
+    closed: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -90,6 +107,7 @@ pub enum InferenceFailureReason {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct InferenceVariable {
     pub id: InferVarId,
+    pub(crate) frame: InferenceFrameId,
     pub kind: KindId,
     pub state: InferVarState,
     pub support: Option<InferenceSupport>,
@@ -327,6 +345,17 @@ pub struct InferenceSession {
     bound_roles: HashMap<(InferVarId, TypeId), Vec<InferenceConstraintRole>>,
     variable_constraint_indices: HashMap<InferVarId, Vec<u32>>,
     next_var_index: u32,
+    frames: Vec<InferenceFrame>,
+    root_frame: Option<InferenceFrameId>,
+    next_frame_index: u32,
+}
+
+#[derive(Clone, Debug)]
+struct CanonicalConstructorView {
+    actual: TypeId,
+    origin: TypeId,
+    arguments: Box<[TypeId]>,
+    origin_kind: KindId,
 }
 
 impl InferenceSession {
@@ -334,17 +363,64 @@ impl InferenceSession {
         Self::default()
     }
 
+    /// Returns the root application frame, creating it for standalone callers
+    /// that use an inference session without a [`CheckingContext`].
+    pub(crate) fn root_frame(&mut self) -> InferenceFrameId {
+        if let Some(frame) = self.root_frame {
+            return frame;
+        }
+        let frame = self.begin_frame(None);
+        self.root_frame = Some(frame);
+        frame
+    }
+
+    /// Begins a nested application frame in this session's variable space.
+    pub(crate) fn begin_frame(&mut self, parent: Option<InferenceFrameId>) -> InferenceFrameId {
+        let frame = InferenceFrameId(self.next_frame_index);
+        self.next_frame_index = self.next_frame_index.saturating_add(1);
+        self.frames.push(InferenceFrame { parent, closed: false });
+        frame
+    }
+
+    /// Marks an application frame closed after its result has been consumed.
+    /// Variables remain in the graph until the owning query context is dropped.
+    pub(crate) fn close_frame(&mut self, frame: InferenceFrameId) {
+        let index = frame.0 as usize;
+        if let Some(metadata) = self.frames.get_mut(index) {
+            metadata.closed = true;
+        }
+    }
+
+    pub(crate) fn frame_is_closed(&self, frame: InferenceFrameId) -> bool {
+        self.frames.get(frame.0 as usize).is_some_and(|metadata| metadata.closed)
+    }
+
+    pub(crate) fn frame_parent(&self, frame: InferenceFrameId) -> Option<InferenceFrameId> {
+        self.frames.get(frame.0 as usize).and_then(|metadata| metadata.parent)
+    }
+
     /// Allocates a fresh inference variable with the given kind.
     pub fn fresh_variable(&mut self, kind: KindId) -> InferVarId {
-        self.fresh_variable_with_support(kind, None)
+        let frame = self.root_frame();
+        self.fresh_variable_in_frame(frame, kind)
     }
 
     /// Allocates an inference variable with explicit value support.
     pub fn fresh_variable_with_support(&mut self, kind: KindId, support: Option<InferenceSupport>) -> InferVarId {
+        let frame = self.root_frame();
+        self.fresh_variable_with_support_in_frame(frame, kind, support)
+    }
+
+    pub(crate) fn fresh_variable_in_frame(&mut self, frame: InferenceFrameId, kind: KindId) -> InferVarId {
+        self.fresh_variable_with_support_in_frame(frame, kind, None)
+    }
+
+    pub(crate) fn fresh_variable_with_support_in_frame(&mut self, frame: InferenceFrameId, kind: KindId, support: Option<InferenceSupport>) -> InferVarId {
         let var = InferVarId::from_index(self.next_var_index as usize);
         self.next_var_index += 1;
         self.variables.push(InferenceVariable {
             id: var,
+            frame,
             kind,
             state: InferVarState::Unsolved,
             support,
@@ -537,10 +613,20 @@ impl InferenceSession {
 
     /// Instantiates fresh inference variables for each generic parameter in `generic_sig`.
     pub fn instantiate_generic_signature(&mut self, generic_sig: &GenericSignature, store: &TypeStore) -> HashMap<TypeParameterId, InferenceTerm> {
+        let frame = self.root_frame();
+        self.instantiate_generic_signature_in_frame(generic_sig, store, frame)
+    }
+
+    pub(crate) fn instantiate_generic_signature_in_frame(
+        &mut self,
+        generic_sig: &GenericSignature,
+        store: &TypeStore,
+        frame: InferenceFrameId,
+    ) -> HashMap<TypeParameterId, InferenceTerm> {
         let mut map = HashMap::new();
         for &param in &generic_sig.parameters {
             if store.type_parameter(param).kind != KindId::RECORD_ROW {
-                let var = self.fresh_variable(store.type_parameter(param).kind);
+                let var = self.fresh_variable_in_frame(frame, store.type_parameter(param).kind);
                 map.insert(param, InferenceTerm::Var(var));
             }
         }
@@ -933,12 +1019,28 @@ impl InferenceSession {
         }
     }
 
+    /// Decomposes one canonical application without choosing an abstraction.
+    fn canonical_constructor_view(&self, actual: TypeId, store: &TypeStore) -> Option<CanonicalConstructorView> {
+        match store.get(actual) {
+            TypeData::Applied { origin, arguments } => Some(CanonicalConstructorView {
+                actual,
+                origin: *origin,
+                arguments: arguments.clone(),
+                origin_kind: store.kind_of(*origin),
+            }),
+            TypeData::Nominal { .. } => Some(CanonicalConstructorView {
+                actual,
+                origin: actual,
+                arguments: Box::new([]),
+                origin_kind: store.kind_of(actual),
+            }),
+            _ => None,
+        }
+    }
+
     /// Matches an applied term whose constructor is a solver variable against
-    /// a canonical applied constructor. When the canonical application has
-    /// extra trailing arguments, the variable is bound to a residual lambda
-    /// that captures the fixed prefix. This is the structural rule behind
-    /// `F<A>` matching `Either<String, Int>` as
-    /// `F = <X> => Either<String, X>` and `A = Int`.
+    /// one canonical constructor view. Formal arguments select actual
+    /// positions; no suffix-only correspondence is assumed.
     fn match_applied_constructor_shapes(
         &mut self,
         left_origin: &InferenceTerm,
@@ -957,10 +1059,43 @@ impl InferenceSession {
             return Ok(None);
         }
 
-        let constructor = if variable_arguments.len() == concrete_arguments.len() {
-            concrete_origin
+        let canonical_arguments = concrete_arguments
+            .iter()
+            .map(|argument| match argument {
+                InferenceTerm::Canonical(ty) => Some(*ty),
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>();
+        let Some(canonical_arguments) = canonical_arguments else {
+            return Ok(None);
+        };
+        let actual = store
+            .apply_type_form(concrete_origin, &canonical_arguments)
+            .map_err(|_| InferenceFailureReason::StructuralMismatch {
+                left: Box::new(InferenceTerm::Applied {
+                    origin: Box::new(left_origin.clone()),
+                    arguments: left_arguments.to_vec().into_boxed_slice(),
+                }),
+                right: Box::new(InferenceTerm::Applied {
+                    origin: Box::new(right_origin.clone()),
+                    arguments: right_arguments.to_vec().into_boxed_slice(),
+                }),
+            })?;
+        let Some(view) = self.canonical_constructor_view(actual, store) else {
+            return Ok(None);
+        };
+        let variable_kind = self
+            .variable_by_representative(variable)
+            .map(|candidate| candidate.kind)
+            .ok_or(InferenceFailureReason::MissingVariableMetadata { var: variable })?;
+        let positions = self.select_constructor_positions(variable_arguments, &view.arguments, store);
+        let Some(positions) = positions else {
+            return Ok(None);
+        };
+        let constructor = if positions.iter().copied().eq(0..view.arguments.len()) && view.origin_kind == variable_kind {
+            view.origin
         } else {
-            self.synthesize_partial_constructor(concrete_origin, concrete_arguments, variable_arguments.len(), store)
+            self.synthesize_constructor_candidate(&view, variable_kind, &positions, store)
                 .ok_or_else(|| InferenceFailureReason::StructuralMismatch {
                     left: Box::new(InferenceTerm::Applied {
                         origin: Box::new(left_origin.clone()),
@@ -976,48 +1111,109 @@ impl InferenceSession {
         let mut changed = self
             .unify_terms(&InferenceTerm::Var(variable), &InferenceTerm::Canonical(constructor), store)?
             .is_changed();
-        let suffix = &concrete_arguments[concrete_arguments.len() - variable_arguments.len()..];
-        for (variable_argument, concrete_argument) in variable_arguments.iter().zip(suffix.iter()) {
-            changed |= self.unify_terms(variable_argument, concrete_argument, store)?.is_changed();
+        for (variable_argument, &position) in variable_arguments.iter().zip(positions.iter()) {
+            let concrete_argument = InferenceTerm::Canonical(view.arguments[position]);
+            changed |= self.unify_terms(variable_argument, &concrete_argument, store)?.is_changed();
         }
         Ok(Some(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged }))
     }
 
-    fn synthesize_partial_constructor(&mut self, origin: TypeId, arguments: &[InferenceTerm], residual_arity: usize, store: &mut TypeStore) -> Option<TypeId> {
-        if residual_arity == 0 || arguments.len() <= residual_arity {
+    fn select_constructor_positions(&self, formal_arguments: &[InferenceTerm], actual_arguments: &[TypeId], store: &mut TypeStore) -> Option<Vec<usize>> {
+        if formal_arguments.len() > actual_arguments.len() {
             return None;
         }
-        let canonical_arguments = arguments
-            .iter()
-            .map(|argument| match argument {
-                InferenceTerm::Canonical(ty) => Some(*ty),
+        let mut candidates = Vec::new();
+        Self::enumerate_constructor_positions(formal_arguments.len(), actual_arguments.len(), 0, &mut Vec::new(), &mut candidates);
+        candidates.retain(|positions| {
+            formal_arguments
+                .iter()
+                .zip(positions.iter())
+                .all(|(formal, position)| self.known_type_for_term(formal, store).is_none_or(|known| known == actual_arguments[*position]))
+        });
+        if candidates.len() == 1 {
+            candidates.pop()
+        } else if candidates.len() > 1 && formal_arguments.iter().all(|formal| self.known_type_for_term(formal, store).is_none()) {
+            // Preserve established HKT application convention when no formal
+            // argument carries position evidence: unspecialized arguments
+            // occupy the trailing actual slots. Any known formal evidence
+            // above forces structural selection instead of this fallback.
+            Some((actual_arguments.len() - formal_arguments.len()..actual_arguments.len()).collect())
+        } else {
+            None
+        }
+    }
+
+    fn enumerate_constructor_positions(formal_len: usize, actual_len: usize, next_actual: usize, positions: &mut Vec<usize>, candidates: &mut Vec<Vec<usize>>) {
+        if positions.len() == formal_len {
+            candidates.push(positions.clone());
+            return;
+        }
+        let remaining = formal_len - positions.len();
+        for position in next_actual..=actual_len.saturating_sub(remaining) {
+            positions.push(position);
+            Self::enumerate_constructor_positions(formal_len, actual_len, position + 1, positions, candidates);
+            positions.pop();
+        }
+    }
+
+    fn known_type_for_term(&self, term: &InferenceTerm, store: &mut TypeStore) -> Option<TypeId> {
+        if let Ok(ty) = self.materialize(term, store) {
+            return Some(ty);
+        }
+        let InferenceTerm::Var(variable) = term else { return None };
+        let representative = self.find_var(*variable);
+        self.constraints.iter().find_map(|constraint| {
+            let InferenceRelation::Equivalent(left, right) = &constraint.relation else {
+                return None;
+            };
+            match (left, right) {
+                (InferenceTerm::Var(left), InferenceTerm::Canonical(ty)) if self.find_var(*left) == representative => Some(*ty),
+                (InferenceTerm::Canonical(ty), InferenceTerm::Var(right)) if self.find_var(*right) == representative => Some(*ty),
                 _ => None,
-            })
-            .collect::<Option<Vec<_>>>()?;
-        let prefix_len = canonical_arguments.len() - residual_arity;
-        let prefix = &canonical_arguments[..prefix_len];
-        let prefix_kinds = prefix.iter().map(|&argument| store.kind_of(argument)).collect::<Vec<_>>();
-        let residual_kind = store.apply_kind(store.kind_of(origin), &prefix_kinds).ok()?;
-        let crate::types::kind::KindData::Arrow { parameters, result } = store.get_kind(residual_kind).clone() else {
+            }
+        })
+    }
+
+    fn synthesize_constructor_candidate(
+        &mut self,
+        view: &CanonicalConstructorView,
+        variable_kind: KindId,
+        positions: &[usize],
+        store: &mut TypeStore,
+    ) -> Option<TypeId> {
+        if store.kind_of(view.actual) != KindId::TYPE {
+            return None;
+        }
+        let KindData::Arrow { parameters, result } = store.get_kind(variable_kind).clone() else {
             return None;
         };
-        if parameters.len() != residual_arity {
+        if parameters.len() != positions.len() {
             return None;
         }
-
+        let actual_kinds = view.arguments.iter().map(|argument| store.kind_of(*argument)).collect::<Vec<_>>();
+        if store.apply_kind(view.origin_kind, &actual_kinds).ok()? != KindId::TYPE {
+            return None;
+        }
         let arena = store.arena_mut();
-        let scoped_origin = arena.intern_scoped(ScopedTypeData::Free(origin));
-        let mut scoped_arguments = prefix
-            .iter()
-            .map(|&argument| arena.intern_scoped(ScopedTypeData::Free(argument)))
-            .collect::<Vec<_>>();
-        scoped_arguments.extend((0..residual_arity).map(|index| arena.intern_scoped(ScopedTypeData::Bound { depth: 0, index: index as u32 })));
+        let scoped_origin = arena.intern_scoped(ScopedTypeData::Free(view.origin));
+        let mut scoped_arguments = Vec::with_capacity(view.arguments.len());
+        for (actual_index, &argument) in view.arguments.iter().enumerate() {
+            if let Some(formal_index) = positions.iter().position(|position| *position == actual_index) {
+                scoped_arguments.push(arena.intern_scoped(ScopedTypeData::Bound {
+                    depth: 0,
+                    index: formal_index as u32,
+                }));
+            } else {
+                scoped_arguments.push(arena.intern_scoped(ScopedTypeData::Free(argument)));
+            }
+        }
         let scoped_body = arena.intern_scoped(ScopedTypeData::Applied {
             origin: scoped_origin,
             arguments: scoped_arguments.into_boxed_slice(),
         });
         let lambda_id = arena.intern_lambda(parameters, scoped_body, result, None);
-        Some(store.type_lambda(lambda_id))
+        let lambda = store.type_lambda(lambda_id);
+        (store.kind_of(lambda) == variable_kind).then_some(lambda)
     }
 
     /// Rewrites solved inference variables inside a contextual expectation
@@ -1233,7 +1429,31 @@ impl InferenceSession {
                             }
                         }
                     } else if let Some(uppers) = self.upper_bounds.get(&rep).cloned() {
-                        if uppers.len() == 1 && !self.is_declaration_restriction_only(rep, uppers[0]) {
+                        if let Some(candidate) = self.context_selection_candidate(rep, &uppers) {
+                            if let Some(failed_upper) = uppers
+                                .iter()
+                                .copied()
+                                .find(|upper| *upper != candidate && !is_subtype(store, hierarchy, candidate, *upper))
+                            {
+                                let failure = InferenceFailureReason::ConflictingBounds {
+                                    var: rep,
+                                    lower: candidate,
+                                    upper: failed_upper,
+                                };
+                                let (constraint_index, origin) = self
+                                    .bound_origins
+                                    .get(&(rep, failed_upper))
+                                    .map(|(index, origin)| (Some(*index), Some(origin.clone())))
+                                    .unwrap_or((None, None));
+                                return self.failure_outcome(failure, constraint_index, origin);
+                            }
+                            match self.bind(rep, candidate, store) {
+                                Ok(effect) => changed |= effect.is_changed(),
+                                Err(failure) => {
+                                    return self.failure_outcome(failure, None, None);
+                                }
+                            }
+                        } else if uppers.len() == 1 && !self.is_declaration_restriction_only(rep, uppers[0]) {
                             match self.bind(rep, uppers[0], store) {
                                 Ok(effect) => changed |= effect.is_changed(),
                                 Err(failure) => {
@@ -1241,6 +1461,53 @@ impl InferenceSession {
                                 }
                             }
                         }
+                    }
+                }
+            }
+
+            // A value/equivalence constraint may bind a variable before a
+            // declaration restriction is revisited. Validate both directions
+            // after every reconciliation pass so source lower bounds such as
+            // `Number <: T` cannot be silently bypassed by an argument-derived
+            // substitution.
+            for rep in self.variables.iter().map(|variable| self.find_var(variable.id)).collect::<Vec<_>>() {
+                let Some(candidate) = self.substitutions.get(&rep).copied() else {
+                    continue;
+                };
+                for lower in self.lower_bounds.get(&rep).cloned().unwrap_or_default() {
+                    if !is_subtype(store, hierarchy, lower, candidate) {
+                        let (constraint_index, origin) = self
+                            .bound_origins
+                            .get(&(rep, lower))
+                            .map(|(index, origin)| (Some(*index), Some(origin.clone())))
+                            .unwrap_or((None, None));
+                        return self.failure_outcome(
+                            InferenceFailureReason::ConflictingBounds {
+                                var: rep,
+                                lower,
+                                upper: candidate,
+                            },
+                            constraint_index,
+                            origin,
+                        );
+                    }
+                }
+                for upper in self.upper_bounds.get(&rep).cloned().unwrap_or_default() {
+                    if !is_subtype(store, hierarchy, candidate, upper) {
+                        let (constraint_index, origin) = self
+                            .bound_origins
+                            .get(&(rep, upper))
+                            .map(|(index, origin)| (Some(*index), Some(origin.clone())))
+                            .unwrap_or((None, None));
+                        return self.failure_outcome(
+                            InferenceFailureReason::ConflictingBounds {
+                                var: rep,
+                                lower: candidate,
+                                upper,
+                            },
+                            constraint_index,
+                            origin,
+                        );
                     }
                 }
             }
@@ -1385,6 +1652,15 @@ impl InferenceSession {
         self.bound_roles
             .get(&(representative, ty))
             .is_some_and(|roles| !roles.is_empty() && roles.iter().all(|role| *role == InferenceConstraintRole::DeclarationRestriction))
+    }
+
+    fn context_selection_candidate(&self, variable: InferVarId, bounds: &[TypeId]) -> Option<TypeId> {
+        let representative = self.find_var(variable);
+        bounds.iter().copied().find(|ty| {
+            self.bound_roles
+                .get(&(representative, *ty))
+                .is_some_and(|roles| roles.contains(&InferenceConstraintRole::ContextSelection))
+        })
     }
 
     #[allow(clippy::result_large_err)]
@@ -1965,6 +2241,15 @@ impl InferenceSession {
                     arguments: args_ty,
                 } = store.get(*ty).clone()
                 {
+                    let canonical_arguments = args_ty.iter().copied().map(InferenceTerm::Canonical).collect::<Vec<_>>();
+                    let aligned = if matches!(left, InferenceTerm::Canonical(_)) {
+                        self.match_applied_constructor_shapes(&InferenceTerm::Canonical(orig_ty), &canonical_arguments, origin, arguments, store)?
+                    } else {
+                        self.match_applied_constructor_shapes(origin, arguments, &InferenceTerm::Canonical(orig_ty), &canonical_arguments, store)?
+                    };
+                    if let Some(effect) = aligned {
+                        return Ok(effect);
+                    }
                     if args_ty.len() != arguments.len() {
                         return Err(InferenceFailureReason::StructuralMismatch {
                             left: Box::new(left.clone()),
@@ -2515,6 +2800,36 @@ mod tests {
     }
 
     #[test]
+    fn nested_frames_share_allocator_without_reusing_variables() {
+        let mut session = InferenceSession::new();
+        let root = session.root_frame();
+        let child = session.begin_frame(Some(root));
+        let sibling = session.begin_frame(Some(root));
+        let root_var = session.fresh_variable_in_frame(root, KindId::TYPE);
+        let child_var = session.fresh_variable_in_frame(child, KindId::TYPE);
+        let sibling_var = session.fresh_variable_in_frame(sibling, KindId::TYPE);
+
+        assert_ne!(root_var, child_var);
+        assert_ne!(child_var, sibling_var);
+        assert_eq!(
+            session.variables.iter().find(|variable| variable.id == root_var).map(|variable| variable.frame),
+            Some(root)
+        );
+        assert_eq!(
+            session
+                .variables
+                .iter()
+                .find(|variable| variable.id == child_var)
+                .map(|variable| variable.frame),
+            Some(child)
+        );
+        assert_eq!(session.frame_parent(child), Some(root));
+        assert!(!session.frame_is_closed(child));
+        session.close_frame(child);
+        assert!(session.frame_is_closed(child));
+    }
+
+    #[test]
     fn compound_subtype_uses_declared_variance() {
         use crate::types::parameter::{TypeParameterData, TypeParameterOwner};
         use crate::types::variance::Variance;
@@ -2548,6 +2863,85 @@ mod tests {
             None,
         );
         assert!(session.solve(&mut store, &hierarchy).is_solved());
+    }
+
+    #[test]
+    fn compound_subtype_matches_canonical_variance_directions() {
+        use crate::types::parameter::{TypeParameterData, TypeParameterOwner};
+        use crate::types::variance::Variance;
+        use phalcom_modules::identity::ModuleId;
+
+        let mut store = TypeStore::new();
+        let mut hierarchy = crate::types::relation::MapTypeHierarchy::new();
+        let int_decl = DeclarationId::new(ModuleId::universe_root(), "Int".into());
+        let number_decl = DeclarationId::new(ModuleId::universe_root(), "Number".into());
+        let int = store.nominal(int_decl.clone());
+        let number = store.nominal(number_decl.clone());
+        hierarchy.insert(int_decl, number_decl);
+
+        let kind = store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
+
+        let producer_decl = test_decl("Producer");
+        let producer_owner = TypeParameterOwner::Declaration(producer_decl.clone());
+        store.intern_type_parameter(TypeParameterData::new(producer_owner, 0, "T", KindId::TYPE).with_variance(Variance::Covariant));
+        let producer = store.nominal_form(producer_decl, kind);
+        let producer_int = store.apply_type_form(producer, &[int]).unwrap();
+        let producer_number = store.apply_type_form(producer, &[number]).unwrap();
+
+        let consumer_decl = test_decl("Consumer");
+        let consumer_owner = TypeParameterOwner::Declaration(consumer_decl.clone());
+        store.intern_type_parameter(TypeParameterData::new(consumer_owner, 0, "T", KindId::TYPE).with_variance(Variance::Contravariant));
+        let consumer = store.nominal_form(consumer_decl, kind);
+        let consumer_int = store.apply_type_form(consumer, &[int]).unwrap();
+        let consumer_number = store.apply_type_form(consumer, &[number]).unwrap();
+
+        let mut covariant = InferenceSession::new();
+        let covariant_var = covariant.fresh_variable(KindId::TYPE);
+        covariant.add_constraint(
+            InferenceRelation::Subtype(
+                InferenceTerm::Applied {
+                    origin: Box::new(InferenceTerm::Canonical(producer)),
+                    arguments: Box::new([InferenceTerm::Var(covariant_var)]),
+                },
+                InferenceTerm::Applied {
+                    origin: Box::new(InferenceTerm::Canonical(producer)),
+                    arguments: Box::new([InferenceTerm::Canonical(number)]),
+                },
+            ),
+            ConstraintOrigin::Explicit,
+            None,
+        );
+        covariant.add_constraint(
+            InferenceRelation::Equivalent(InferenceTerm::Var(covariant_var), InferenceTerm::Canonical(int)),
+            ConstraintOrigin::Explicit,
+            None,
+        );
+        assert!(covariant.solve(&mut store, &hierarchy).is_solved());
+        assert!(crate::types::relation::is_subtype(&mut store, &hierarchy, producer_int, producer_number));
+
+        let mut contravariant = InferenceSession::new();
+        let contravariant_var = contravariant.fresh_variable(KindId::TYPE);
+        contravariant.add_constraint(
+            InferenceRelation::Subtype(
+                InferenceTerm::Applied {
+                    origin: Box::new(InferenceTerm::Canonical(consumer)),
+                    arguments: Box::new([InferenceTerm::Canonical(number)]),
+                },
+                InferenceTerm::Applied {
+                    origin: Box::new(InferenceTerm::Canonical(consumer)),
+                    arguments: Box::new([InferenceTerm::Var(contravariant_var)]),
+                },
+            ),
+            ConstraintOrigin::Explicit,
+            None,
+        );
+        contravariant.add_constraint(
+            InferenceRelation::Equivalent(InferenceTerm::Var(contravariant_var), InferenceTerm::Canonical(int)),
+            ConstraintOrigin::Explicit,
+            None,
+        );
+        assert!(contravariant.solve(&mut store, &hierarchy).is_solved());
+        assert!(crate::types::relation::is_subtype(&mut store, &hierarchy, consumer_number, consumer_int));
     }
 
     #[test]

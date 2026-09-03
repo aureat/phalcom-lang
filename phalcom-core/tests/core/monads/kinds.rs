@@ -34,7 +34,10 @@ fn type_lambda_constructor_can_specialize_monad() {
 
     let template = f.info("EitherMonad").supertype_template.as_ref().expect("EitherMonad superclass template");
     let args = f.assert_applied(template.supertype, "Monad", 1);
-    assert!(matches!(f.analysis.snapshot.store.get(args[0]), TypeData::Lambda(_)), "expected type-lambda argument");
+    assert!(
+        matches!(f.analysis.snapshot.store.get(args[0]), TypeData::Lambda(_)),
+        "expected type-lambda argument"
+    );
     f.assert_unary_constructor_kind(f.analysis.snapshot.store.kind_of(args[0]));
 }
 

@@ -204,7 +204,17 @@ fn match_res_10_callable_family_includes_only_callable_candidates() {
     let case = analyze_adt(
         "enum Animal { @variant Dog @variant Dog(_ name: String) @variant Cat }\nclass Test { run(_ value: Animal) { match value { Dog(...) => 1 _ => 0 } } }\n",
     );
-    assert!(case.only_match().arm(0).resolution().bindings.is_empty());
+    let arm = case.only_match().arm(0);
+    assert!(arm.resolution().bindings.is_empty());
+    let PatternResolution::Variant(pattern) = &arm.resolution().pattern else {
+        panic!("expected callable variant pattern");
+    };
+    assert!(
+        pattern
+            .candidates
+            .iter()
+            .all(|candidate| candidate.variant.selector.kind == phalcom_common::selector::SelectorKind::Method)
+    );
 }
 
 #[test]

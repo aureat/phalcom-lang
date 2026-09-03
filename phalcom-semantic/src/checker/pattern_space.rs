@@ -6,6 +6,7 @@ use crate::types::id::TypeId;
 use crate::types::relation::{TypeHierarchy, is_subtype};
 use crate::types::store::TypeStore;
 use phalcom_ast::ast::MapPatternKey;
+use phalcom_native_meta::UniverseKey;
 
 /// Internal representation of a value space during pattern elimination.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -68,7 +69,7 @@ impl PatternSpace {
             Self::Union(spaces) => spaces.is_empty() || spaces.iter().all(Self::is_empty),
             Self::Variant(v) => v.fields.iter().any(Self::is_empty),
             Self::Tuple(elements) => elements.iter().any(Self::is_empty),
-            Self::List(l) => l.prefix.iter().any(Self::is_empty),
+            Self::List(l) => l.prefix.iter().any(Self::is_empty) || l.rest.as_ref().is_some_and(|rest| rest.is_empty()),
             Self::Record(record) => record.fields.iter().any(|(_, space)| space.is_empty()),
             Self::Map(map) => map.entries.iter().any(|(_, space)| space.is_empty()),
             Self::Opaque(_) => false,
@@ -268,6 +269,14 @@ impl PatternSpace {
                 }
                 Self::Tuple(elements.into_boxed_slice()).normalize()
             }
+            (Self::List(left), Self::Opaque(ty)) | (Self::Opaque(ty), Self::List(left)) => {
+                if canonical_list_element(store, *ty).is_some() {
+                    Self::List(left.clone()).normalize()
+                } else {
+                    Self::Empty
+                }
+            }
+            (Self::List(left), Self::List(right)) => intersect_list_spaces(left, right, store, hier),
             (Self::Opaque(_), Self::Record(record)) | (Self::Record(record), Self::Opaque(_)) => Self::Record(record.clone()).normalize(),
             (Self::Opaque(_), Self::Map(map)) | (Self::Map(map), Self::Opaque(_)) => Self::Map(map.clone()).normalize(),
             (Self::Record(left), Self::Record(_right)) => Self::Record(left.clone()).normalize(),
@@ -439,6 +448,15 @@ impl PatternSpace {
                     Self::Union(result_spaces.into_boxed_slice()).normalize()
                 }
             }
+            (Self::Opaque(ty), Self::List(list)) => subtract_opaque_list(*ty, list, store),
+            (Self::List(list), Self::Opaque(ty)) => {
+                if canonical_list_element(store, *ty).is_some() {
+                    Self::Empty
+                } else {
+                    Self::List(list.clone())
+                }
+            }
+            (Self::List(left), Self::List(right)) => subtract_list_spaces(left, right, store, hier),
             _ => self.clone().normalize(),
         }
     }
@@ -460,4 +478,197 @@ impl PatternSpace {
             Self::Map(map) => PatternSpaceSummary::Opaque(map.ty),
         }
     }
+}
+
+/// Returns the element type only for the canonical universe `List<T>`.
+///
+/// Pattern-space algebra has no checking context, so it derives identity from
+/// the same canonical declaration used by core surface registration. A user
+/// declaration merely named `List` must not acquire sequence semantics.
+fn canonical_list_element(store: &TypeStore, ty: TypeId) -> Option<TypeId> {
+    let (declaration, arguments) = store.applied_nominal_parts(ty)?;
+    (declaration == crate::core_surface::universe_declaration(UniverseKey::List) && arguments.len() == 1).then(|| arguments[0])
+}
+
+fn opaque_tail(space: Option<&Box<PatternSpace>>) -> bool {
+    matches!(space, Some(rest) if matches!(rest.as_ref(), PatternSpace::Opaque(_)))
+}
+
+fn intersect_list_spaces(left: &ListSpace, right: &ListSpace, store: &mut TypeStore, hier: &dyn TypeHierarchy) -> PatternSpace {
+    let left_exact = left.rest.is_none();
+    let right_exact = right.rest.is_none();
+
+    if left_exact && right_exact {
+        if left.prefix.len() != right.prefix.len() {
+            return PatternSpace::Empty;
+        }
+        let mut prefix = Vec::with_capacity(left.prefix.len());
+        for (left_field, right_field) in left.prefix.iter().zip(right.prefix.iter()) {
+            let field = left_field.intersect(right_field, store, hier);
+            if field.is_empty() {
+                return PatternSpace::Empty;
+            }
+            prefix.push(field);
+        }
+        return PatternSpace::List(ListSpace {
+            prefix: prefix.into_boxed_slice(),
+            rest: None,
+        })
+        .normalize();
+    }
+
+    if left_exact != right_exact {
+        let (exact, at_least) = if left_exact { (left, right) } else { (right, left) };
+        if exact.prefix.len() < at_least.prefix.len() {
+            return PatternSpace::Empty;
+        }
+        let mut prefix = Vec::with_capacity(exact.prefix.len());
+        for (exact_field, required_field) in exact.prefix.iter().zip(at_least.prefix.iter()) {
+            let field = exact_field.intersect(required_field, store, hier);
+            if field.is_empty() {
+                return PatternSpace::Empty;
+            }
+            prefix.push(field);
+        }
+        if exact.prefix.len() == at_least.prefix.len() && opaque_tail(at_least.rest.as_ref()) {
+            prefix.extend(exact.prefix[at_least.prefix.len()..].iter().cloned());
+            return PatternSpace::List(ListSpace {
+                prefix: prefix.into_boxed_slice(),
+                rest: None,
+            })
+            .normalize();
+        }
+
+        // A constrained tail can still be intersected when the exact list has
+        // no remaining elements. For deeper constrained tails, retain a
+        // conservative list product rather than inventing a length proof.
+        if exact.prefix.len() == at_least.prefix.len() {
+            let tail = PatternSpace::List(ListSpace {
+                prefix: Box::new([]),
+                rest: None,
+            })
+            .intersect(at_least.rest.as_deref().expect("at-least list has a rest"), store, hier);
+            if tail.is_empty() {
+                return PatternSpace::Empty;
+            }
+            return PatternSpace::List(ListSpace {
+                prefix: prefix.into_boxed_slice(),
+                rest: None,
+            })
+            .normalize();
+        }
+
+        return PatternSpace::List(exact.clone()).normalize();
+    }
+
+    // Both patterns have an unbounded tail. Exact prefix alignment is enough
+    // for current source syntax (`[head, *tail]`); differing prefix lengths
+    // retain a conservative over-approximation.
+    if left.prefix.len() != right.prefix.len() {
+        return PatternSpace::List(left.clone()).normalize();
+    }
+    let mut prefix = Vec::with_capacity(left.prefix.len());
+    for (left_field, right_field) in left.prefix.iter().zip(right.prefix.iter()) {
+        let field = left_field.intersect(right_field, store, hier);
+        if field.is_empty() {
+            return PatternSpace::Empty;
+        }
+        prefix.push(field);
+    }
+    let rest =
+        left.rest
+            .as_deref()
+            .expect("unbounded left list has a rest")
+            .intersect(right.rest.as_deref().expect("unbounded right list has a rest"), store, hier);
+    if rest.is_empty() {
+        return PatternSpace::Empty;
+    }
+    PatternSpace::List(ListSpace {
+        prefix: prefix.into_boxed_slice(),
+        rest: Some(Box::new(rest)),
+    })
+    .normalize()
+}
+
+fn subtract_opaque_list(ty: TypeId, list: &ListSpace, store: &mut TypeStore) -> PatternSpace {
+    let Some(element) = canonical_list_element(store, ty) else {
+        return PatternSpace::Opaque(ty);
+    };
+
+    if list.rest.is_some() && opaque_tail(list.rest.as_ref()) {
+        // A wildcard tail pattern `[p1, ..., pn, *rest]` covers every list
+        // whose length is at least n. The finite residual consists of shorter
+        // exact lists, which is representable for the current partition form.
+        let mut residual = Vec::with_capacity(list.prefix.len());
+        for length in 0..list.prefix.len() {
+            residual.push(PatternSpace::List(ListSpace {
+                prefix: vec![PatternSpace::Opaque(element); length].into_boxed_slice(),
+                rest: None,
+            }));
+        }
+        return PatternSpace::Union(residual.into_boxed_slice()).normalize();
+    }
+
+    if list.prefix.is_empty() && list.rest.is_none() {
+        // Removing `[]` leaves all non-empty lists.
+        return PatternSpace::List(ListSpace {
+            prefix: Box::new([PatternSpace::Opaque(element)]),
+            rest: Some(Box::new(PatternSpace::Opaque(ty))),
+        })
+        .normalize();
+    }
+
+    // Excluding one exact non-empty length would require an unbounded union of
+    // length partitions. Keep the canonical list domain as a conservative
+    // residual instead of claiming coverage we cannot represent.
+    PatternSpace::Opaque(ty)
+}
+
+fn subtract_list_spaces(left: &ListSpace, right: &ListSpace, store: &mut TypeStore, hier: &dyn TypeHierarchy) -> PatternSpace {
+    if left.rest.is_none() && right.rest.is_some() {
+        if left.prefix.len() < right.prefix.len() {
+            return PatternSpace::List(left.clone());
+        }
+        if opaque_tail(right.rest.as_ref()) {
+            let covered = left
+                .prefix
+                .iter()
+                .zip(right.prefix.iter())
+                .all(|(left_field, right_field)| left_field.subtract(right_field, store, hier).is_empty());
+            if covered {
+                return PatternSpace::Empty;
+            }
+        }
+        return PatternSpace::List(left.clone());
+    }
+
+    if left.rest.is_some() && right.rest.is_none() {
+        // Removing one exact length from an unbounded tail is not finitely
+        // representable in this product. Preserve residual conservatively.
+        return PatternSpace::List(left.clone());
+    }
+
+    if left.rest.is_none() && right.rest.is_none() {
+        if left.prefix.len() != right.prefix.len() {
+            return PatternSpace::List(left.clone());
+        }
+        let covered = left
+            .prefix
+            .iter()
+            .zip(right.prefix.iter())
+            .all(|(left_field, right_field)| left_field.subtract(right_field, store, hier).is_empty());
+        return if covered { PatternSpace::Empty } else { PatternSpace::List(left.clone()) };
+    }
+
+    if left.prefix.len() == right.prefix.len() && opaque_tail(right.rest.as_ref()) {
+        let covered = left
+            .prefix
+            .iter()
+            .zip(right.prefix.iter())
+            .all(|(left_field, right_field)| left_field.subtract(right_field, store, hier).is_empty());
+        if covered {
+            return PatternSpace::Empty;
+        }
+    }
+    PatternSpace::List(left.clone())
 }

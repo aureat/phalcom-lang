@@ -33,7 +33,10 @@ fn either_monad_supertype_lambda_binds_x_and_captures_e() {
         "outer E must remain free inside the lambda"
     );
     assert!(
-        matches!(f.analysis.snapshot.store.arena().get_scoped(arguments[1]), ScopedTypeData::Bound { depth: 0, index: 0 }),
+        matches!(
+            f.analysis.snapshot.store.arena().get_scoped(arguments[1]),
+            ScopedTypeData::Bound { depth: 0, index: 0 }
+        ),
         "X must be represented by the lambda binder"
     );
 }
@@ -61,7 +64,10 @@ fn receiver_specialization_substitutes_free_outer_parameter_inside_lambda() {
     let outer_e = store.parameter_form(f.type_parameter("EitherMonad", 0));
     assert!(free.contains(&string), "specialized lambda must capture String: {free:#?}");
     assert!(!free.contains(&outer_e), "specialized lambda must not retain EitherMonad.E: {free:#?}");
-    assert!(store.arena().has_free_bound(lambda.body, 0), "lambda-bound X must remain present after outer substitution");
+    assert!(
+        store.arena().has_free_bound(lambda.body, 0),
+        "lambda-bound X must remain present after outer substitution"
+    );
 }
 
 /// MON-LAMBDA-04: applying the constructor obtained from receiver specialization
@@ -105,6 +111,9 @@ class AlphaY is Monad<<Y> =>> Either<String, Y>> {}
     let x_constructor = f.assert_applied(x_template.supertype, "Monad", 1)[0];
     let y_constructor = f.assert_applied(y_template.supertype, "Monad", 1)[0];
 
-    assert_eq!(x_constructor, y_constructor, "alpha-renaming must not allocate a distinct canonical constructor type");
+    assert_eq!(
+        x_constructor, y_constructor,
+        "alpha-renaming must not allocate a distinct canonical constructor type"
+    );
     assert!(matches!(f.analysis.snapshot.store.get(x_constructor), TypeData::Lambda(_)));
 }

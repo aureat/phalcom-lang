@@ -375,9 +375,7 @@ impl UniverseKey {
             Self::System | Self::Fiber => &["concurrency", "fiber"],
             Self::Message => &["reflection", "message"],
             Self::Attribute => &["reflection", "attribute"],
-            Self::Error | Self::MessageNotUnderstood | Self::CannotYieldAcrossNativeFrame | Self::UseAfterCloseError => {
-                &["errors", "error"]
-            }
+            Self::Error | Self::MessageNotUnderstood | Self::CannotYieldAcrossNativeFrame | Self::UseAfterCloseError => &["errors", "error"],
             Self::ProjectManifest => &["reflection", "project_manifest"],
             Self::PackageInfo => &["reflection", "package_info"],
             Self::PackageAuthor => &["reflection", "package_author"],

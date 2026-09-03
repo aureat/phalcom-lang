@@ -407,10 +407,7 @@ impl VM {
     /// any source unit executes, so absence indicates an internal violation.
     pub fn universe_root_module(&self) -> ObjRef {
         let id = phalcom_modules::ModuleId::universe_root();
-        self.module_registry
-            .get(&id)
-            .expect("canonical Universe root is materialized")
-            .object
+        self.module_registry.get(&id).expect("canonical Universe root is materialized").object
     }
 
     /// Reads a binding from an exact canonical Universe module path.
@@ -427,10 +424,7 @@ impl VM {
     /// Resolves a canonical Universe declaration name to its live module slot.
     pub fn canonical_universe_binding(&self, name: Symbol) -> Option<crate::modules::BindingRef> {
         let key = phalcom_native_meta::UniverseKey::from_name(self.resolve_symbol(name))?;
-        let module = self
-            .module_registry
-            .get(&Self::canonical_universe_module_id(key))?
-            .object;
+        let module = self.module_registry.get(&Self::canonical_universe_module_id(key))?.object;
         let slot = self.heap.module(module).slot_of(name)?;
         Some(crate::modules::BindingRef {
             module,

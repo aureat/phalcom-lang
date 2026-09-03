@@ -12,7 +12,7 @@
 
 - Separate singleton instance for each specialized type
 	- native `@singleton`
-- Refection
+- Reflection
 - Simple composable type descriptors
 
 ### Modules

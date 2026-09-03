@@ -139,17 +139,27 @@ fn resolve_pattern_with_mode(
             )
         }
         Pattern::List { elements, rest, .. } => {
-            let elem_ty = ctx.core_type(&ctx.core_ids.object.clone()).unwrap_or(expected_ty);
+            let elem_ty = ctx
+                .store
+                .applied_nominal_parts(expected_ty)
+                .and_then(|(declaration, arguments)| (declaration == ctx.core_ids.list && arguments.len() == 1).then(|| arguments[0]))
+                .or_else(|| ctx.core_type(&ctx.core_ids.object.clone()))
+                .unwrap_or(expected_ty);
             let mut prefix_res = Vec::with_capacity(elements.len());
+            let mut prefix_spaces = Vec::with_capacity(elements.len());
             for elem in elements {
                 let elem_expected_space = PatternSpace::Opaque(elem_ty);
-                let (elem_res, _) = resolve_pattern_with_mode(ctx, elem, elem_ty, &elem_expected_space, bindings, binding_mode);
+                let (elem_res, elem_space) = resolve_pattern_with_mode(ctx, elem, elem_ty, &elem_expected_space, bindings, binding_mode);
                 prefix_res.push(elem_res);
+                prefix_spaces.push(elem_space);
             }
-            let rest_res = rest.as_ref().map(|rest_pattern| {
-                let elem_expected_space = PatternSpace::Opaque(elem_ty);
-                let (rest_resolution, _) = resolve_pattern_with_mode(ctx, rest_pattern, elem_ty, &elem_expected_space, bindings, binding_mode);
-                Box::new(rest_resolution)
+            let (rest_res, rest_space) = rest.as_ref().map_or((None, None), |rest_pattern| {
+                // `*rest` binds the remaining sequence, not one element. Keep
+                // its expected type at the canonical list root so binding
+                // knowledge and residual-space elimination agree.
+                let rest_expected_space = PatternSpace::Opaque(expected_ty);
+                let (rest_resolution, rest_space) = resolve_pattern_with_mode(ctx, rest_pattern, expected_ty, &rest_expected_space, bindings, binding_mode);
+                (Some(Box::new(rest_resolution)), Some(rest_space))
             });
 
             (
@@ -157,7 +167,10 @@ fn resolve_pattern_with_mode(
                     prefix: prefix_res.into_boxed_slice(),
                     rest: rest_res,
                 }),
-                expected_space.clone(),
+                PatternSpace::List(crate::checker::pattern_space::ListSpace {
+                    prefix: prefix_spaces.into_boxed_slice(),
+                    rest: rest_space.map(Box::new),
+                }),
             )
         }
         Pattern::Record { entries, range } => resolve_record_pattern(ctx, entries, *range, expected_ty, bindings, binding_mode),
@@ -588,7 +601,10 @@ fn variant_selector_constraint(variant_pat: &VariantPattern) -> VariantSelectorC
             let pattern = selector_pattern_from_variant_pattern(variant_pat).unwrap_or_else(|_| {
                 phalcom_common::selector::SelectorPattern::named(
                     &variant_pat.base,
-                    phalcom_common::selector::SelectorKindPattern::AnyNamed,
+                    // Callable variant patterns select constructor methods.
+                    // A same-named singleton getter is a distinct variant
+                    // identity and must remain in the residual space.
+                    phalcom_common::selector::SelectorKindPattern::Exact(SelectorKind::Method),
                     vec![],
                     vec![],
                     true,

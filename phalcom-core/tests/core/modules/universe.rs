@@ -119,7 +119,9 @@ fn builtin_client_resolves_prelude_and_standard_library() {
 fn universe_package_intrinsics_match_provider_neutral_package_rules() {
     let vm = VM::new();
     let root = vm.module_registry.get(&ModuleId::universe_root()).expect("Universe root materialized").object;
-    let collections = ModuleId::universe(ModulePath::from_components(vec![phalcom_modules::ModuleComponent::from_identifier("collections").unwrap()]));
+    let collections = ModuleId::universe(ModulePath::from_components(vec![
+        phalcom_modules::ModuleComponent::from_identifier("collections").unwrap(),
+    ]));
     let collections = vm.module_registry.get(&collections).expect("collections package materialized").object;
     let list = ModuleId::universe(ModulePath::from_components(vec![
         phalcom_modules::ModuleComponent::from_identifier("collections").unwrap(),
@@ -145,7 +147,10 @@ fn boot_01_bootstrap_measurement_separates_catalog_closure_and_execution() {
 
     assert_eq!(ordered.len(), reachable.len());
     assert!(reachable.contains(&root));
-    assert!(reachable.len() < index.units.len(), "root closure must remain distinct from full source catalog");
+    assert!(
+        reachable.len() < index.units.len(),
+        "root closure must remain distinct from full source catalog"
+    );
 
     let vm = VM::new();
     let measurement = vm.universe_bootstrap_measurement();

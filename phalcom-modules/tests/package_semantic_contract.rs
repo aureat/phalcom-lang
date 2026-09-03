@@ -1,6 +1,6 @@
+use phalcom_modules::UNIVERSE_NODES;
 use phalcom_modules::builtin::UniverseSourceProvider;
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath};
-use phalcom_modules::UNIVERSE_NODES;
 use phalcom_modules::project::ProjectUniverse;
 use phalcom_modules::source::{FilesystemSourceProvider, ModuleKind, SourceProvider};
 use std::path::PathBuf;
@@ -25,7 +25,21 @@ fn test_builtin_universe_root_is_package() {
 #[test]
 fn test_universe_platform_children_are_packages() {
     let provider = UniverseSourceProvider::new();
-    for child in ["io", "fs", "path", "text", "regex", "json", "math", "random", "time", "process", "net", "concurrent", "testing"] {
+    for child in [
+        "io",
+        "fs",
+        "path",
+        "text",
+        "regex",
+        "json",
+        "math",
+        "random",
+        "time",
+        "process",
+        "net",
+        "concurrent",
+        "testing",
+    ] {
         let id = ModuleId::universe(path(&[child]));
         assert_eq!(provider.load_interface(&id).unwrap().kind, ModuleKind::Package);
     }
@@ -53,7 +67,9 @@ fn test_all_universe_nodes_have_consistent_source_kind() {
     let provider = UniverseSourceProvider::new();
     for node in UNIVERSE_NODES {
         let id = ModuleId::universe(path(node.path));
-        let iface = provider.load_interface(&id).unwrap_or_else(|e| panic!("failed to load interface for {id}: {e}"));
+        let iface = provider
+            .load_interface(&id)
+            .unwrap_or_else(|e| panic!("failed to load interface for {id}: {e}"));
         let _src = provider.source_text(&id).unwrap_or_else(|e| panic!("missing source text for {id}: {e}"));
         assert_eq!(iface.kind, node.kind, "node {id} must retain catalog kind");
     }

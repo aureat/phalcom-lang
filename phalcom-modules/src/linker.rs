@@ -239,9 +239,7 @@ impl ModuleLinker {
                     continue;
                 };
                 if !self.interfaces.contains_key(target) {
-                    return Err(LinkError::MissingModule {
-                        module: target.clone(),
-                    });
+                    return Err(LinkError::MissingModule { module: target.clone() });
                 }
                 if reachable.insert(target.clone()) {
                     pending.push(target.clone());
@@ -674,9 +672,11 @@ impl<'a> LinkContext<'a> {
                 (linked.target, surface.range)
             }
             UnlinkedExportTarget::CanonicalDeclaration { module: target_module, name } => {
-                let target_interface = self.linker.interfaces.get(target_module).ok_or_else(|| LinkError::MissingModule {
-                    module: target_module.clone(),
-                })?;
+                let target_interface = self
+                    .linker
+                    .interfaces
+                    .get(target_module)
+                    .ok_or_else(|| LinkError::MissingModule { module: target_module.clone() })?;
                 if !target_interface.declarations.contains_key(name) {
                     return Err(LinkError::MissingBinding {
                         module: target_module.clone(),

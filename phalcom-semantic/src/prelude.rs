@@ -25,8 +25,7 @@ impl PreludeTypeMap {
     /// source identity.
     pub fn canonical_universe() -> Self {
         let provider = UniverseSourceProvider::new();
-        let catalog = UniverseSourceDeclarationCatalog::build(&provider)
-            .expect("canonical Universe source declaration catalog must build");
+        let catalog = UniverseSourceDeclarationCatalog::build(&provider).expect("canonical Universe source declaration catalog must build");
         let mut entries = BTreeMap::new();
 
         for binding in phalcom_native_meta::UNIVERSE_BINDINGS.iter().filter(|binding| binding.prelude) {
@@ -49,9 +48,7 @@ impl PreludeTypeMap {
     /// no store-local `TypeId` or workspace mutation state, so sharing it is
     /// safe and prevents resolver/editor policy drift.
     pub fn shared_canonical_universe() -> Arc<Self> {
-        CANONICAL_UNIVERSE_PRELUDE
-            .get_or_init(|| Arc::new(Self::canonical_universe()))
-            .clone()
+        CANONICAL_UNIVERSE_PRELUDE.get_or_init(|| Arc::new(Self::canonical_universe())).clone()
     }
 
     pub fn get(&self, name: &str) -> Option<&DeclarationId> {

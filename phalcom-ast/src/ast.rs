@@ -1035,7 +1035,11 @@ pub struct MethodDef {
 #[derive(Debug, Clone)]
 pub struct GetterDef {
     pub name: String,
+    /// Generic parameter binders for this getter (Spec 04).
+    pub generic_parameters: Vec<GenericParameterSyntax>,
     pub return_annotation: Option<TypeAnnotation>,
+    /// Generic `where` constraints attached to this getter (Spec 04).
+    pub where_clause: Option<WhereClauseSyntax>,
     pub body: MemberBody,
     pub is_static: bool,
     /// `@name(args…)` attributes attached to this getter, in declaration

@@ -1033,8 +1033,7 @@ fn parse_type_syntax_generic_class_and_token_fission() {
 
 #[test]
 fn parse_compact_type_lambda_as_generic_argument() {
-    let program = parse_source("type M<E> = Monad<<X> =>> Either<E, X>>\n", 0)
-        .expect("compact type-lambda generic argument should parse");
+    let program = parse_source("type M<E> = Monad<<X> =>> Either<E, X>>\n", 0).expect("compact type-lambda generic argument should parse");
     let Statement::TypeAlias(alias) = &program.statements[0] else {
         panic!("expected type alias");
     };
@@ -1054,8 +1053,7 @@ fn parse_compact_type_lambda_as_generic_argument() {
 
 #[test]
 fn parse_compact_type_lambda_as_value_type_application() {
-    let program = parse_source("let m = Monad<<X> =>> Either<E, X>>\n", 0)
-        .expect("compact value-space type application should parse");
+    let program = parse_source("let m = Monad<<X> =>> Either<E, X>>\n", 0).expect("compact value-space type application should parse");
     let Statement::Let(binding) = &program.statements[0] else {
         panic!("expected let binding");
     };
@@ -1070,8 +1068,7 @@ fn parse_compact_type_lambda_as_value_type_application() {
 
 #[test]
 fn compact_shift_tokens_remain_binary_operators_outside_type_application() {
-    let program = parse_source("let left = 8<<1\nlet right = 8>>1\nlet chain = 8<<1>>2\n", 0)
-        .expect("compact shift operators should parse");
+    let program = parse_source("let left = 8<<1\nlet right = 8>>1\nlet chain = 8<<1>>2\n", 0).expect("compact shift operators should parse");
 
     let Statement::Let(left) = &program.statements[0] else {
         panic!("expected left-shift binding");
@@ -1201,8 +1198,7 @@ enum Result<T, E> {
 }
 "#;
 
-    let program = parse_source(source, 0)
-        .expect("generic enum method with multiline where clause should parse");
+    let program = parse_source(source, 0).expect("generic enum method with multiline where clause should parse");
 
     let Statement::Enum(result) = &program.statements[0] else {
         panic!("expected enum");
@@ -1211,35 +1207,23 @@ enum Result<T, E> {
     assert_eq!(result.name, "Result");
     assert_eq!(result.members.len(), 1);
 
-    let EnumMember::Behavior(
-        phalcom_ast::ast::EnumBehaviorMember::Method(method)
-    ) = &result.members[0]
-    else {
+    let EnumMember::Behavior(phalcom_ast::ast::EnumBehaviorMember::Method(method)) = &result.members[0] else {
         panic!("expected enum behavior method");
     };
 
     assert_eq!(method.name, "transpose");
     assert_eq!(method.generic_parameters.len(), 1);
 
-    let where_clause = method
-        .where_clause
-        .as_ref()
-        .expect("expected method where clause");
+    let where_clause = method.where_clause.as_ref().expect("expected method where clause");
 
     assert_eq!(where_clause.constraints.len(), 1);
 
     assert!(
-        matches!(
-            &where_clause.constraints[0],
-            GenericConstraintSyntax::Equivalent { .. }
-        ),
+        matches!(&where_clause.constraints[0], GenericConstraintSyntax::Equivalent { .. }),
         "expected equivalence constraint"
     );
 
-    assert!(
-        matches!(&method.body, MemberBody::Block(_)),
-        "expected braced method body"
-    );
+    assert!(matches!(&method.body, MemberBody::Block(_)), "expected braced method body");
 }
 
 #[test]
@@ -1253,8 +1237,7 @@ class Example {
 }
 "#;
 
-    let program = parse_source(source, 0)
-        .expect("declaration-only method followed by method should parse");
+    let program = parse_source(source, 0).expect("declaration-only method followed by method should parse");
 
     let Statement::Class(class) = &program.statements[0] else {
         panic!("expected class");
@@ -1285,8 +1268,7 @@ class Example {
 }
 "#;
 
-    let program = parse_source(source, 0)
-        .expect("body after nested generic return type should parse");
+    let program = parse_source(source, 0).expect("body after nested generic return type should parse");
 
     let Statement::Class(class) = &program.statements[0] else {
         panic!("expected class");
@@ -1297,6 +1279,55 @@ class Example {
     };
 
     assert!(matches!(method.body, MemberBody::Block(_)));
+}
+
+#[test]
+fn generic_class_getter_accepts_where_clause() {
+    let source = r#"
+class Box {
+    value<T> -> T
+        where T <: Number
+    {
+    }
+}
+"#;
+    let program = parse_source(source, 0).expect("generic getter with where clause should parse");
+    let Statement::Class(class) = &program.statements[0] else {
+        panic!("expected class");
+    };
+    let ClassMember::Getter(getter) = &class.members[0] else {
+        panic!("expected getter");
+    };
+    assert_eq!(getter.name, "value");
+    assert_eq!(getter.generic_parameters.len(), 1);
+    assert!(getter.where_clause.is_some());
+}
+
+#[test]
+fn generic_enum_getter_accepts_callable_local_binder() {
+    let source = "enum Box { value<T> -> T {} }\n";
+    let program = parse_source(source, 0).expect("generic enum getter should parse");
+    let Statement::Enum(enumeration) = &program.statements[0] else {
+        panic!("expected enum");
+    };
+    let EnumMember::Behavior(phalcom_ast::ast::EnumBehaviorMember::Getter(getter)) = &enumeration.members[0] else {
+        panic!("expected enum getter");
+    };
+    assert_eq!(getter.generic_parameters.len(), 1);
+    assert!(getter.where_clause.is_none());
+}
+
+#[test]
+fn generic_getter_rejects_callable_variance_marker() {
+    let result = parse_with_recovery("class Box { value<+T> -> T {} }\n", 0);
+    assert!(
+        result.errors.iter().any(|error| match &error.kind {
+            SyntaxErrorKind::Message(message) => message.contains("variance marker '+' only permitted on nominal declaration parameters"),
+            _ => false,
+        }),
+        "expected callable getter variance rejection: {:?}",
+        result.errors
+    );
 }
 
 #[test]
@@ -1322,11 +1353,7 @@ class Example<T, E> {{
 "#
         );
 
-        parse_source(&source, 0).unwrap_or_else(|error| {
-            panic!(
-                "return type `{return_type}` changed multiline method-header parsing: {error:?}"
-            )
-        });
+        parse_source(&source, 0).unwrap_or_else(|error| panic!("return type `{return_type}` changed multiline method-header parsing: {error:?}"));
     }
 }
 
@@ -1341,8 +1368,7 @@ class Example<T, E> {
 }
 "#;
 
-    parse_source(source, 0)
-        .expect("nested where constraint may precede body on separate line");
+    parse_source(source, 0).expect("nested where constraint may precede body on separate line");
 }
 
 #[test]
@@ -1366,6 +1392,5 @@ type Baz<T>
     = Option<Result<T, Error>>
 "#;
 
-    parse_source(source, 0)
-        .expect("class, enum, and type alias headers with multiline where and body should parse");
+    parse_source(source, 0).expect("class, enum, and type alias headers with multiline where and body should parse");
 }

@@ -464,9 +464,9 @@ pub enum DeclarationDocTarget {
 
 fn target_declaration_range(target: DeclarationDocTarget) -> phalcom_common::range::SourceRange {
     match target {
-        DeclarationDocTarget::Member { declaration, .. }
-        | DeclarationDocTarget::Class { declaration, .. }
-        | DeclarationDocTarget::Enum { declaration, .. } => declaration,
+        DeclarationDocTarget::Member { declaration, .. } | DeclarationDocTarget::Class { declaration, .. } | DeclarationDocTarget::Enum { declaration, .. } => {
+            declaration
+        }
     }
 }
 

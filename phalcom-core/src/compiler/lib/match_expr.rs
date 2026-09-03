@@ -30,9 +30,7 @@ impl<'vm> Compiler<'vm> {
                     bindings: bindings.into_boxed_slice(),
                 });
             }
-            MatchLoweringSpec {
-                arms: arms.into_boxed_slice(),
-            }
+            MatchLoweringSpec { arms: arms.into_boxed_slice() }
         };
 
         self.compile_match_with_spec(node, spec)

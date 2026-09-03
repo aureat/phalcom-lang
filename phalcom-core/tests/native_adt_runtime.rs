@@ -61,7 +61,10 @@ fn test_native_option_runtime_representation_seam() {
     assert_eq!(vm.heap.class(root_class).name.as_str(), "Option");
 
     let enum_id = vm.adt_registry.enum_by_declaration(&option_decl).expect("Option ADT descriptor");
-    assert_eq!(vm.adt_registry.enum_descriptor(enum_id).expect("Option enum descriptor").root_class, expected_root);
+    assert_eq!(
+        vm.adt_registry.enum_descriptor(enum_id).expect("Option enum descriptor").root_class,
+        expected_root
+    );
 
     let none_val = Value::none();
     let some_val = Value::int(42).wrap_some().unwrap();
@@ -138,9 +141,7 @@ fn user_result_does_not_reuse_universe_result_root() {
     let owner = synthetic_declaration("Result");
     let universe_result = vm.universe.classes.resolve(UniverseKey::Result);
 
-    let user_root = vm
-        .register_enum_from_spec(&empty_general_enum(owner))
-        .expect("register user Result");
+    let user_root = vm.register_enum_from_spec(&empty_general_enum(owner)).expect("register user Result");
 
     assert_ne!(user_root, universe_result);
 }
@@ -178,10 +179,7 @@ fn conflicting_duplicate_registry_registration_is_rejected() {
     let root_conflict = registry
         .register_enum_with_representation(other_owner, first_root, RuntimeAdtRepresentation::General)
         .expect_err("one root class cannot back two semantic enum declarations");
-    assert!(matches!(
-        root_conflict,
-        RuntimeAdtRegistrationError::RootClassAlreadyRegistered { .. }
-    ));
+    assert!(matches!(root_conflict, RuntimeAdtRegistrationError::RootClassAlreadyRegistered { .. }));
 }
 
 #[test]

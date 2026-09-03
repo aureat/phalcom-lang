@@ -1,8 +1,8 @@
 //! LSP analysis status notifications and state machine tracking.
 
 use serde::{Deserialize, Serialize};
-use tower_lsp::lsp_types::notification::Notification;
 use tower_lsp::lsp_types::Url;
+use tower_lsp::lsp_types::notification::Notification;
 
 use crate::workspace_scan::AnalysisMode;
 

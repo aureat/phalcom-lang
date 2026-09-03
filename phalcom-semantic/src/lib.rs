@@ -39,8 +39,8 @@ pub mod source_index;
 pub mod stable_identity;
 pub mod surface;
 pub mod termination;
-pub mod type_alias;
 pub mod tooling;
+pub mod type_alias;
 pub mod types;
 pub mod workspace;
 pub mod workspace_inputs;
@@ -61,8 +61,9 @@ pub use contracts::{ConditionKind, ContractCondition, ContractSpec};
 pub use control_summary::{ControlFacts, DivergenceKnowledge, DivergenceOpaqueReason, ExitSummary, RaiseKnowledge, RaiseOpaqueReason};
 pub use core_surface::*;
 pub use declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeState};
-pub use declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, TypeDeclarationShell, bootstrap_universe_declarations, lower_kind_spec};
-pub use type_alias::{TypeAliasInfo, TypeAliasTable};
+pub use declarations::{
+    DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, TypeDeclarationShell, bootstrap_universe_declarations, lower_kind_spec,
+};
 pub use diagnostic::{
     DiagnosticCode, DiagnosticFix, DiagnosticGuidance, DiagnosticLabel, DiagnosticSeverity, ExplanationRef, SemanticDiagnostic, SemanticSourceSpan,
 };
@@ -118,6 +119,7 @@ pub use termination::{
     RankingMeasure, TerminationBlockedReason, TerminationCounterevidence, TerminationEvidence, TerminationKnowledge, TerminationRequirement,
     analyze_callable_termination, check_cfg_acyclicity,
 };
+pub use type_alias::{TypeAliasInfo, TypeAliasTable};
 pub use workspace_inputs::*;
 
 pub use source::ParsedSourceUnit;

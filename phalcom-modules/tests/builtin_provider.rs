@@ -13,7 +13,10 @@ fn builtin_universe_provider_has_virtual_identity_and_exports() {
 #[test]
 fn universe_identity_is_disjoint_from_resolved_and_synthetic() {
     let mut allocator = SyntheticProjectIdAllocator;
-    assert_ne!(ModuleId::universe_root().project, ProjectIdentity::from(phalcom_modules::ResolvedProjectId::from_raw(1)));
+    assert_ne!(
+        ModuleId::universe_root().project,
+        ProjectIdentity::from(phalcom_modules::ResolvedProjectId::from_raw(1))
+    );
     assert_ne!(ModuleId::universe_root().project, ProjectIdentity::from(allocator.allocate()));
 }
 

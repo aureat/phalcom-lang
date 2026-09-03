@@ -1855,7 +1855,10 @@ mod tests {
             .await;
         backend.analysis.flush();
         let snapshot = backend.perf_counters().snapshot();
-        assert_eq!(snapshot.semantic_batches_started, 0, "presentation-only configuration must not rebuild semantics");
+        assert_eq!(
+            snapshot.semantic_batches_started, 0,
+            "presentation-only configuration must not rebuild semantics"
+        );
         assert!(backend.analysis.snapshot().is_none());
         drop(service);
     }

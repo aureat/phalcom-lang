@@ -13,6 +13,8 @@ mod fields;
 mod flow_branches;
 mod flow_loops;
 mod generics;
+mod getters;
+mod higher_kinded_generics;
 mod higher_order;
 mod iteration;
 mod method_families;

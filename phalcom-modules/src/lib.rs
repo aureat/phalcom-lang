@@ -22,7 +22,7 @@ pub mod stabilization;
 
 // Re-export common types
 pub use artifact::{PackageArtifactProvider, ResolvedPackageArtifact, ResolvedPackageId as PublishedPackageId};
-pub use builtin::{UniverseNodeSpec, UniverseSourceProvider, UNIVERSE_NODES};
+pub use builtin::{UNIVERSE_NODES, UniverseNodeSpec, UniverseSourceProvider};
 pub use declaration::{DeclarationBlueprint, DeclarationId, DeclarationKind, DeclarationRealizationError, DeclarationShell, DeclarationShellTable, ShellState};
 pub use dunder::{DunderCategory, DunderPolicy, DunderPolicyError, DunderRole};
 pub use error::{InterfaceError, ModuleGraphError, ModuleLoadError, ModuleResolutionError, ProjectError, SourceError};
@@ -31,9 +31,8 @@ pub use graph::{
     SemanticEdge, SemanticEdgeKind, SemanticGraph, SemanticNodeId, strongly_connected_components,
 };
 pub use identity::{
-    ImportRootTarget, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, ProjectRevisionFingerprint, ProjectSourceIdentity, ResolvedProjectId,
-    SourceId, SourceLocation, StableModuleKey, StableProjectKey, SyntheticProjectId, SyntheticProjectIdAllocator, universe_module_from_uri,
-    universe_module_uri,
+    ImportRootTarget, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, ProjectRevisionFingerprint, ProjectSourceIdentity, ResolvedProjectId, SourceId,
+    SourceLocation, StableModuleKey, StableProjectKey, SyntheticProjectId, SyntheticProjectIdAllocator, universe_module_from_uri, universe_module_uri,
 };
 pub use interface::{
     DeclarationSurface, ExportSurface, ImportSurface, InterfaceBuilder, LinkedExport, LinkedExportTarget, LinkedModuleInterface, PackagePathSurface,

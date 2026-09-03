@@ -29,7 +29,11 @@ fn prelude_map_contains_only_explicit_source_backed_type_names() {
     for name in ["Object", "Int", "Bool", "String", "Option", "Result", "List", "Map", "Unit"] {
         let declaration = prelude.get(name).unwrap_or_else(|| panic!("{name} must be in the canonical prelude"));
         let key = phalcom_native_meta::UniverseKey::from_name(name).expect("canonical Universe key");
-        assert_eq!(declaration, &universe_declaration(key), "{name} must preserve its source-owned declaration identity");
+        assert_eq!(
+            declaration,
+            &universe_declaration(key),
+            "{name} must preserve its source-owned declaration identity"
+        );
     }
 
     for name in ["Nil", "Some", "None", "Behavior", "Metaclass", "Method", "Family"] {
@@ -69,6 +73,10 @@ fn linked_type_resolver_does_not_reconstruct_non_prelude_universe_names() {
     );
 
     for name in ["Nil", "Some", "None", "Behavior", "Metaclass", "Method", "Family"] {
-        assert_eq!(resolver.resolve_type_name(&current, name, &[]), None, "{name} must not resolve merely because it has a UniverseKey");
+        assert_eq!(
+            resolver.resolve_type_name(&current, name, &[]),
+            None,
+            "{name} must not resolve merely because it has a UniverseKey"
+        );
     }
 }

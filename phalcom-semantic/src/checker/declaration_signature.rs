@@ -10,7 +10,7 @@ use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::{CallableParameter, CallableSemanticKind, CallableSignature};
 use crate::identity::{CallableId, CallableOwnerId, CallableParameterId, DeclarationId, DispatchSide, FieldId};
 use crate::signature::{CallableParameterSemantic, CallableSemanticSignature, FieldSemanticSignature};
-use crate::types::annotation::{type_level_binding_for_parameter, TypeFormationOutcome, TypeFormationSite};
+use crate::types::annotation::{TypeFormationOutcome, TypeFormationSite, type_level_binding_for_parameter};
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
 use crate::types::parameter::TypeParameterOwner;
 use phalcom_ast::ast::{ClassMember, EnumBehaviorMember, GetterDef, IndexMethodDef, MethodDef, ParameterDef, SetterDef};
@@ -343,83 +343,16 @@ pub(crate) fn semantic_signature_for_syntax(
 
     let (mut generics, parameters, declared_return) = match syntax {
         CallableSyntaxRef::Method(method) => {
-            let generic_signature = if method.generic_parameters.is_empty() {
-                None
-            } else {
-                let mut diagnostics = Vec::new();
-                let signature = crate::types::annotation::resolve_generic_signature(
-                    ctx.store,
-                    ctx.declarations,
-                    &declaration_resolver,
-                    &formation_site,
-                    TypeParameterOwner::Callable(callable.clone()),
-                    crate::types::annotation::GenericBinderSite::Callable,
-                    &method.generic_parameters,
-                    method.where_clause.as_ref(),
-                    &mut diagnostics,
-                );
-                let signature = match signature {
-                    TypeFormationOutcome::Ready(signature) => Some(signature),
-                    TypeFormationOutcome::Dynamic => {
-                        diagnostics.push(SemanticDiagnostic::error_in(
-                            ctx.current_module.clone(),
-                            DiagnosticCode::AnnotationUnsupported,
-                            "generic method signature depends on a dynamic type-form boundary",
-                            syntax.range(),
-                        ));
-                        None
-                    }
-                    TypeFormationOutcome::Missing(reason) => {
-                        diagnostics.push(SemanticDiagnostic::error_in(
-                            ctx.current_module.clone(),
-                            DiagnosticCode::AnnotationUnresolved,
-                            format!("generic method signature publication missing: {reason:?}"),
-                            syntax.range(),
-                        ));
-                        None
-                    }
-                    TypeFormationOutcome::Unresolved(_) => None,
-                    TypeFormationOutcome::Invalid(_) => None,
-                    TypeFormationOutcome::Blocked(reason) => {
-                        diagnostics.push(SemanticDiagnostic::error_in(
-                            ctx.current_module.clone(),
-                            DiagnosticCode::AnalysisBlocked,
-                            format!("generic method signature publication blocked: {reason:?}"),
-                            syntax.range(),
-                        ));
-                        None
-                    }
-                    TypeFormationOutcome::Cancelled => {
-                        diagnostics.push(SemanticDiagnostic::error_in(
-                            ctx.current_module.clone(),
-                            DiagnosticCode::AnalysisBlocked,
-                            "generic method signature publication cancelled",
-                            syntax.range(),
-                        ));
-                        None
-                    }
-                    TypeFormationOutcome::BudgetExceeded(report) => {
-                        diagnostics.push(SemanticDiagnostic::error_in(
-                            ctx.current_module.clone(),
-                            DiagnosticCode::AnalysisBudgetExceeded,
-                            format!("generic method signature publication exceeded budget: {report:?}"),
-                            syntax.range(),
-                        ));
-                        None
-                    }
-                    TypeFormationOutcome::InternalFailure(failure) => {
-                        diagnostics.push(SemanticDiagnostic::error_in(
-                            ctx.current_module.clone(),
-                            DiagnosticCode::AnalysisInternalFailure,
-                            format!("generic method signature publication failed: {failure}"),
-                            syntax.range(),
-                        ));
-                        None
-                    }
-                };
-                ctx.publish_diagnostics(diagnostics);
-                signature
-            };
+            let generic_signature = resolve_callable_local_generics(
+                ctx,
+                &declaration_resolver,
+                &formation_site,
+                &callable,
+                &method.generic_parameters,
+                method.where_clause.as_ref(),
+                method.range,
+                "method",
+            );
             let method_type_parameters = generic_signature
                 .as_ref()
                 .map(|signature| signature.parameters.to_vec())
@@ -474,17 +407,46 @@ pub(crate) fn semantic_signature_for_syntax(
             };
             (generic_signature, parameters, declared_return)
         }
-        CallableSyntaxRef::Getter(getter) => (
-            None,
-            Vec::<CallableParameterSemantic>::new().into_boxed_slice(),
-            annotation_fact(
+        CallableSyntaxRef::Getter(getter) => {
+            let generic_signature = resolve_callable_local_generics(
                 ctx,
                 &declaration_resolver,
                 &formation_site,
-                getter.return_annotation.as_ref(),
-                UnknownReason::UnannotatedDeclaration,
-            ),
-        ),
+                &callable,
+                &getter.generic_parameters,
+                getter.where_clause.as_ref(),
+                getter.range,
+                "getter",
+            );
+            let getter_type_parameters = generic_signature
+                .as_ref()
+                .map(|signature| signature.parameters.to_vec())
+                .unwrap_or_default()
+                .into_iter()
+                .map(|parameter_id| {
+                    let name = ctx.store.type_parameter(parameter_id).name.to_string();
+                    (name, parameter_id)
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+                .map(|(name, parameter_id)| (name, type_level_binding_for_parameter(ctx.store, parameter_id)))
+                .collect();
+            let getter_resolver = crate::types::annotation::ScopedTypeResolver {
+                parent: &declaration_resolver,
+                type_parameters: getter_type_parameters,
+            };
+            (
+                generic_signature,
+                Vec::<CallableParameterSemantic>::new().into_boxed_slice(),
+                annotation_fact(
+                    ctx,
+                    &getter_resolver,
+                    &formation_site,
+                    getter.return_annotation.as_ref(),
+                    UnknownReason::UnannotatedDeclaration,
+                ),
+            )
+        }
         CallableSyntaxRef::Setter(setter) => {
             let parameter = parameter_fact(
                 ctx,
@@ -578,6 +540,94 @@ pub(crate) fn semantic_signature_for_syntax(
         flow: phalcom_native_meta::ReturnFlowSpec::Value,
         lifecycle: phalcom_native_meta::NativeLifecycleSpec::UNKNOWN,
     })
+}
+
+fn resolve_callable_local_generics(
+    ctx: &mut CheckingContext<'_>,
+    declaration_resolver: &dyn crate::types::annotation::TypeResolver,
+    formation_site: &TypeFormationSite,
+    callable: &CallableId,
+    generic_parameters: &[phalcom_ast::ast::GenericParameterSyntax],
+    where_clause: Option<&phalcom_ast::ast::WhereClauseSyntax>,
+    range: SourceRange,
+    callable_kind: &str,
+) -> Option<crate::types::parameter::GenericSignature> {
+    if generic_parameters.is_empty() {
+        return None;
+    }
+
+    let mut diagnostics = Vec::new();
+    let signature = crate::types::annotation::resolve_generic_signature(
+        ctx.store,
+        ctx.declarations,
+        declaration_resolver,
+        formation_site,
+        TypeParameterOwner::Callable(callable.clone()),
+        crate::types::annotation::GenericBinderSite::Callable,
+        generic_parameters,
+        where_clause,
+        &mut diagnostics,
+    );
+    let signature = match signature {
+        TypeFormationOutcome::Ready(signature) => Some(signature),
+        TypeFormationOutcome::Dynamic => {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::AnnotationUnsupported,
+                format!("generic {callable_kind} signature depends on a dynamic type-form boundary"),
+                range,
+            ));
+            None
+        }
+        TypeFormationOutcome::Missing(reason) => {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::AnnotationUnresolved,
+                format!("generic {callable_kind} signature publication missing: {reason:?}"),
+                range,
+            ));
+            None
+        }
+        TypeFormationOutcome::Unresolved(_) | TypeFormationOutcome::Invalid(_) => None,
+        TypeFormationOutcome::Blocked(reason) => {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::AnalysisBlocked,
+                format!("generic {callable_kind} signature publication blocked: {reason:?}"),
+                range,
+            ));
+            None
+        }
+        TypeFormationOutcome::Cancelled => {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::AnalysisBlocked,
+                format!("generic {callable_kind} signature publication cancelled"),
+                range,
+            ));
+            None
+        }
+        TypeFormationOutcome::BudgetExceeded(report) => {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::AnalysisBudgetExceeded,
+                format!("generic {callable_kind} signature publication exceeded budget: {report:?}"),
+                range,
+            ));
+            None
+        }
+        TypeFormationOutcome::InternalFailure(failure) => {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::AnalysisInternalFailure,
+                format!("generic {callable_kind} signature publication failed: {failure}"),
+                range,
+            ));
+            None
+        }
+    };
+    ctx.publish_diagnostics(diagnostics);
+    signature
 }
 
 fn merge_constructor_generic_signatures(

@@ -36,7 +36,10 @@ fn either_monad_projects_exact_constructor_through_full_generic_hierarchy() {
         .find_type_parameter_id(&TypeParameterOwner::Declaration(f.decl("Functor")), 0)
         .expect("Functor.F parameter");
     let constructor = specialization.environment.get_param(functor_f).expect("specialized Functor.F");
-    assert!(matches!(store.get(constructor), TypeData::Lambda(_)), "Functor.F must remain a constructor lambda");
+    assert!(
+        matches!(store.get(constructor), TypeData::Lambda(_)),
+        "Functor.F must remain a constructor lambda"
+    );
 
     let applied = store.apply_type_form(constructor, &[int]).expect("projected Functor.F<Int> must apply");
     let TypeData::Applied { origin, arguments } = store.get(applied) else {
@@ -59,7 +62,13 @@ fn concrete_subclass_hop_preserves_exact_higher_kinded_specialization() {
     let owners = specialization.path.iter().map(|step| step.owner.clone()).collect::<Vec<_>>();
     assert_eq!(
         owners,
-        [f.decl("StringEitherMonad"), f.decl("EitherMonad"), f.decl("Monad"), f.decl("Applicative"), f.decl("Functor")]
+        [
+            f.decl("StringEitherMonad"),
+            f.decl("EitherMonad"),
+            f.decl("Monad"),
+            f.decl("Applicative"),
+            f.decl("Functor")
+        ]
     );
 
     let functor_f = store

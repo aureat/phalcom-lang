@@ -191,7 +191,12 @@ impl Fixture {
 
     pub fn assert_either(&self, ty: TypeId, left: TypeId, right: TypeId) {
         let arguments = self.assert_applied(ty, "Either", 2);
-        assert_eq!(arguments, [left, right], "wrong Either specialization: {}", self.analysis.snapshot.store.format_type(ty));
+        assert_eq!(
+            arguments,
+            [left, right],
+            "wrong Either specialization: {}",
+            self.analysis.snapshot.store.format_type(ty)
+        );
     }
 
     pub fn applied_receiver(&self, store: &mut TypeStore, owner: &str, arguments: &[TypeId]) -> TypeId {
@@ -260,14 +265,16 @@ impl Fixture {
         shortest
     }
 
-    pub fn assert_expression_call(
-        &self,
-        expression: &ExpressionAnalysis,
-        expected_callable: &CallableId,
-        expected_type: TypeId,
-    ) {
-        assert!(matches!(expression.status, AnalysisStatus::Ready), "call expression must be ready: {expression:#?}");
-        assert_eq!(expression.callable.as_ref(), Some(expected_callable), "unexpected resolved callable: {expression:#?}");
+    pub fn assert_expression_call(&self, expression: &ExpressionAnalysis, expected_callable: &CallableId, expected_type: TypeId) {
+        assert!(
+            matches!(expression.status, AnalysisStatus::Ready),
+            "call expression must be ready: {expression:#?}"
+        );
+        assert_eq!(
+            expression.callable.as_ref(),
+            Some(expected_callable),
+            "unexpected resolved callable: {expression:#?}"
+        );
         assert_eq!(expression.knowledge.ty(), Some(expected_type), "unexpected call result type: {expression:#?}");
     }
 
@@ -339,13 +346,7 @@ impl Fixture {
         assert_eq!(path.as_ref(), expected_path, "wrong receiver specialization path");
     }
 
-    pub fn assert_callable_selection_path(
-        &self,
-        callable: &CallableAnalysis,
-        expression: &ExpressionAnalysis,
-        declaring_owner: &str,
-        expected_path: &[&str],
-    ) {
+    pub fn assert_callable_selection_path(&self, callable: &CallableAnalysis, expression: &ExpressionAnalysis, declaring_owner: &str, expected_path: &[&str]) {
         let trace = self.generic_trace(callable, expression);
         let expected_owner = self.decl(declaring_owner);
         let expected_path = expected_path.iter().map(|name| self.decl(name)).collect::<Vec<_>>();
@@ -384,13 +385,7 @@ impl Fixture {
         assert_eq!(matches[0].1, expected_status, "wrong evidence status for {parameter:?}");
     }
 
-    pub fn assert_generic_solution(
-        &self,
-        callable: &CallableAnalysis,
-        expression: &ExpressionAnalysis,
-        parameter_name: &str,
-        expected: TypeId,
-    ) {
+    pub fn assert_generic_solution(&self, callable: &CallableAnalysis, expression: &ExpressionAnalysis, parameter_name: &str, expected: TypeId) {
         let trace = self.generic_trace(callable, expression);
         let matches = trace
             .iter()
@@ -449,7 +444,10 @@ impl Fixture {
             .iter()
             .filter_map(|node| match &node.step {
                 ExplanationStep::GenericConstraint { parameter, origin, .. }
-                    if self.parameter_name(*parameter) == parameter_name && *origin == expected_origin => Some(*parameter),
+                    if self.parameter_name(*parameter) == parameter_name && *origin == expected_origin =>
+                {
+                    Some(*parameter)
+                }
                 _ => None,
             })
             .collect::<Vec<_>>();
@@ -460,12 +458,7 @@ impl Fixture {
         );
     }
 
-    pub fn assert_solution_parameter_is_callable_owned(
-        &self,
-        callable: &CallableAnalysis,
-        expression: &ExpressionAnalysis,
-        parameter_name: &str,
-    ) {
+    pub fn assert_solution_parameter_is_callable_owned(&self, callable: &CallableAnalysis, expression: &ExpressionAnalysis, parameter_name: &str) {
         let trace = self.generic_trace(callable, expression);
         let parameters = trace
             .iter()
@@ -476,7 +469,10 @@ impl Fixture {
             .collect::<Vec<_>>();
         assert_eq!(parameters.len(), 1, "expected one solution parameter named `{parameter_name}`: {trace:#?}");
         assert!(
-            matches!(self.analysis.snapshot.store.type_parameter(parameters[0]).owner, TypeParameterOwner::Callable(_)),
+            matches!(
+                self.analysis.snapshot.store.type_parameter(parameters[0]).owner,
+                TypeParameterOwner::Callable(_)
+            ),
             "method parameter `{parameter_name}` must remain callable-owned"
         );
     }

@@ -33,23 +33,16 @@ impl VM {
         Some(self.universe.classes.resolve(key))
     }
 
-    fn bind_native_option_classes(
-        &mut self,
-        spec: &EnumLoweringSpec,
-    ) -> Result<RuntimeEnumClassBinding, RuntimeError> {
+    fn bind_native_option_classes(&mut self, spec: &EnumLoweringSpec) -> Result<RuntimeEnumClassBinding, RuntimeError> {
         let expected_some = VariantId::new(
             spec.owner.clone(),
-            phalcom_common::selector::Selector::method(
-                "Some",
-                vec![phalcom_common::selector::SelectorSlot::Positional],
-            )
-            .map_err(|error| RuntimeError::Internal(error.to_string()))?,
+            phalcom_common::selector::Selector::method("Some", vec![phalcom_common::selector::SelectorSlot::Positional])
+                .map_err(|error| RuntimeError::Internal(error.to_string()))?,
         );
 
         let expected_none = VariantId::new(
             spec.owner.clone(),
-            phalcom_common::selector::Selector::getter("None")
-                .map_err(|error| RuntimeError::Internal(error.to_string()))?,
+            phalcom_common::selector::Selector::getter("None").map_err(|error| RuntimeError::Internal(error.to_string()))?,
         );
 
         let some_spec = spec
@@ -84,11 +77,7 @@ impl VM {
         })
     }
 
-    fn allocate_general_variant_classes(
-        &mut self,
-        spec: &EnumLoweringSpec,
-        root_class_id: ClassId,
-    ) -> Result<BTreeMap<VariantId, ClassId>, RuntimeError> {
+    fn allocate_general_variant_classes(&mut self, spec: &EnumLoweringSpec, root_class_id: ClassId) -> Result<BTreeMap<VariantId, ClassId>, RuntimeError> {
         let mut variants = BTreeMap::new();
         for var_spec in spec.variants.iter() {
             let case_class_name = format!("{}::{}", spec.owner.name, var_spec.id.selector);
@@ -101,26 +90,17 @@ impl VM {
         Ok(variants)
     }
 
-    fn allocate_general_enum_classes(
-        &mut self,
-        spec: &EnumLoweringSpec,
-    ) -> Result<RuntimeEnumClassBinding, RuntimeError> {
+    fn allocate_general_enum_classes(&mut self, spec: &EnumLoweringSpec) -> Result<RuntimeEnumClassBinding, RuntimeError> {
         let mut root_class = ClassObject::bare(&spec.owner.name);
         root_class.class = self.universe.classes.class_class;
         root_class.superclass = Some(self.universe.classes.object_class);
         let root_class_id = self.heap.alloc_class(root_class);
         let variants = self.allocate_general_variant_classes(spec, root_class_id)?;
 
-        Ok(RuntimeEnumClassBinding {
-            root: root_class_id,
-            variants,
-        })
+        Ok(RuntimeEnumClassBinding { root: root_class_id, variants })
     }
 
-    fn bind_canonical_universe_enum_classes(
-        &mut self,
-        spec: &EnumLoweringSpec,
-    ) -> Result<Option<RuntimeEnumClassBinding>, RuntimeError> {
+    fn bind_canonical_universe_enum_classes(&mut self, spec: &EnumLoweringSpec) -> Result<Option<RuntimeEnumClassBinding>, RuntimeError> {
         let Some(root) = self.canonical_universe_enum_root(&spec.owner) else {
             return Ok(None);
         };
@@ -128,9 +108,7 @@ impl VM {
         let ids = CoreDeclarationIds::default();
         if ids.is_option(&spec.owner) {
             if spec.representation != crate::adt::RuntimeAdtRepresentation::NativeOption {
-                return Err(RuntimeError::Internal(
-                    "canonical Universe Option must use NativeOption representation".into(),
-                ));
+                return Err(RuntimeError::Internal("canonical Universe Option must use NativeOption representation".into()));
             }
             return self.bind_native_option_classes(spec).map(Some);
         }
@@ -146,10 +124,7 @@ impl VM {
         Ok(Some(RuntimeEnumClassBinding { root, variants }))
     }
 
-    fn class_binding_for_enum(
-        &mut self,
-        spec: &EnumLoweringSpec,
-    ) -> Result<RuntimeEnumClassBinding, RuntimeError> {
+    fn class_binding_for_enum(&mut self, spec: &EnumLoweringSpec) -> Result<RuntimeEnumClassBinding, RuntimeError> {
         if let Some(binding) = self.bind_canonical_universe_enum_classes(spec)? {
             return Ok(binding);
         }
@@ -285,11 +260,7 @@ impl VM {
     }
 
     /// Central variant value constructor.
-    pub fn construct_variant_value(
-        &mut self,
-        variant: RuntimeVariantId,
-        payload: Vec<Value>,
-    ) -> Result<Value, RuntimeError> {
+    pub fn construct_variant_value(&mut self, variant: RuntimeVariantId, payload: Vec<Value>) -> Result<Value, RuntimeError> {
         let variant_desc = self
             .adt_registry
             .variant_descriptor(variant)
@@ -323,9 +294,7 @@ impl VM {
                     return Ok(value.wrap_some()?);
                 }
 
-                Err(RuntimeError::Internal(
-                    "non-Option variant registered under NativeOption representation".into(),
-                ))
+                Err(RuntimeError::Internal("non-Option variant registered under NativeOption representation".into()))
             }
             crate::adt::RuntimeAdtRepresentation::General => {
                 let case_obj = crate::heap::AdtCaseObject {

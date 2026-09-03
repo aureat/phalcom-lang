@@ -105,7 +105,10 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
         let binding = type_level_binding_for_parameter(store, parameter);
         type_parameters.insert(name, binding);
     }
-    let scoped_resolver = ScopedTypeResolver { parent: resolver, type_parameters };
+    let scoped_resolver = ScopedTypeResolver {
+        parent: resolver,
+        type_parameters,
+    };
     let mut ctx = CheckingContext::new_with_dispatch_ref_and_control(store, hierarchy, &scoped_resolver, declarations, dispatch, module, control);
     if let Some(field_signatures) = field_signatures {
         ctx.attach_field_signatures(field_signatures);

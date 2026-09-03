@@ -2,6 +2,7 @@
 
 use crate::checker::analysis::AnalysisStatus;
 use crate::checker::causal::CausalInvalidity;
+use crate::checker::inference::{InferenceContextId, InferenceTerm};
 use crate::dispatch::DispatchLookup;
 use crate::identity::{CallableId, DiagnosticCauseId, ExplanationId, ExpressionId};
 use crate::types::constraint::TypeConstraint;
@@ -9,6 +10,14 @@ use crate::types::denotation::{SemanticDenotation, ValueSemanticFact};
 use crate::types::evidence::{EvidenceOrigin, EvidenceSet, TypeKnowledge, UnknownReason};
 use crate::types::id::TypeId;
 use phalcom_common::range::SourceRange;
+
+/// Solver-local result retained while one expression is checked inside a live
+/// generic application. It never enters durable expression analysis products.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SymbolicInferenceResult {
+    pub context: InferenceContextId,
+    pub term: InferenceTerm,
+}
 
 /// Semantic typing result for an expression with type knowledge, constraints, and provenance.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -23,6 +32,7 @@ pub struct TypedExpression {
     pub constraints: Vec<TypeConstraint>,
     pub provenance: EvidenceSet,
     pub causal_invalidity: CausalInvalidity,
+    pub(crate) symbolic_result: Option<SymbolicInferenceResult>,
 }
 
 impl TypedExpression {
@@ -68,6 +78,7 @@ impl TypedExpression {
             constraints: Vec::new(),
             provenance,
             causal_invalidity: CausalInvalidity::Clean,
+            symbolic_result: None,
         }
     }
 
@@ -86,6 +97,7 @@ impl TypedExpression {
             constraints: Vec::new(),
             provenance,
             causal_invalidity: CausalInvalidity::Clean,
+            symbolic_result: None,
         }
     }
 
@@ -104,6 +116,7 @@ impl TypedExpression {
             constraints: Vec::new(),
             provenance,
             causal_invalidity: CausalInvalidity::Clean,
+            symbolic_result: None,
         }
     }
 
@@ -119,6 +132,7 @@ impl TypedExpression {
             constraints: Vec::new(),
             provenance: EvidenceSet::default(),
             causal_invalidity: CausalInvalidity::Clean,
+            symbolic_result: None,
         }
     }
 
@@ -134,11 +148,17 @@ impl TypedExpression {
             constraints: Vec::new(),
             provenance: EvidenceSet::default(),
             causal_invalidity: CausalInvalidity::Clean,
+            symbolic_result: None,
         }
     }
 
     pub fn with_denotation(mut self, denotation: SemanticDenotation) -> Self {
         self.denotation = Some(denotation);
+        self
+    }
+
+    pub(crate) fn with_symbolic_result(mut self, result: SymbolicInferenceResult) -> Self {
+        self.symbolic_result = Some(result);
         self
     }
 
@@ -187,6 +207,7 @@ impl From<crate::checker::call::CallCheckResult> for TypedExpression {
         typed.causal_invalidity = result.causal_invalidity;
         typed.explanation_parents = result.explanation_parents;
         typed.callable = result.callable;
+        typed.symbolic_result = result.symbolic_result;
         typed.debug_assert_coherent();
         typed
     }

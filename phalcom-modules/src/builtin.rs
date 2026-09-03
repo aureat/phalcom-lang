@@ -1,7 +1,7 @@
 //! Provider-backed builtin project interfaces and canonical virtual source identity.
 
 use crate::error::{ModuleLoadError, ModuleResolutionError};
-use crate::identity::{universe_module_uri, ModuleId, ModulePath, SourceId};
+use crate::identity::{ModuleId, ModulePath, SourceId, universe_module_uri};
 use crate::interface::UnlinkedModuleInterface;
 use crate::source::ModuleKind;
 

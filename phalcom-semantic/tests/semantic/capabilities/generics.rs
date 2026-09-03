@@ -1,4 +1,4 @@
-use crate::semantic::support::{binding, known, Fixture};
+use crate::semantic::support::{Fixture, binding, known};
 use phalcom_semantic::checker::analysis::AnalysisStatus;
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::DispatchSide;
@@ -91,10 +91,7 @@ class Probe {
     let number = f.ty("Number");
     let run = f.callable("Probe", "run", DispatchSide::Class);
     let call = f.expression(run, "Factory.choose(42)");
-    f.assert_expression_knowledge(
-        call,
-        known(int_ty).assumed().origin(phalcom_semantic::EvidenceOrigin::GenericInference),
-    );
+    f.assert_expression_knowledge(call, known(int_ty).assumed().origin(phalcom_semantic::EvidenceOrigin::GenericInference));
     let x = f.binding(run, "x");
     assert_eq!(x.declared_type(), Some(number));
     assert_eq!(x.current.ty(), Some(int_ty));
@@ -249,10 +246,7 @@ class Probe {
     );
     let run = f.callable("Probe", "run", DispatchSide::Class);
     let call = f.expression(run, "Probe.make()");
-    f.assert_expression_knowledge(
-        call,
-        known(f.ty("Int")).assumed().origin(phalcom_semantic::EvidenceOrigin::GenericInference),
-    );
+    f.assert_expression_knowledge(call, known(f.ty("Int")).assumed().origin(phalcom_semantic::EvidenceOrigin::GenericInference));
     assert!(matches!(call.status, AnalysisStatus::Ready), "{call:#?}");
     f.assert_no_diagnostic(DiagnosticCode::GenericInferenceUnderconstrained);
 }
@@ -397,11 +391,12 @@ class Probe {
     let run = f.callable("Probe", "run", DispatchSide::Class);
     let call = f.expression(run, "Probe.keep(value)");
     assert!(!matches!(call.status, AnalysisStatus::Ready), "wrong-kind HKT call must not pass: {call:#?}");
-    assert!(f
-        .analysis
-        .snapshot
-        .all_diagnostics()
-        .any(|diagnostic| diagnostic.severity == phalcom_semantic::diagnostic::DiagnosticSeverity::Error));
+    assert!(
+        f.analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| diagnostic.severity == phalcom_semantic::diagnostic::DiagnosticSeverity::Error)
+    );
 }
 
 #[test]

@@ -1,4 +1,3 @@
-```md
 # Prompt: Create a Repository-Grounded, Checkpoint-Driven, Patch-Grade Implementation Plan
 
 You are planning implementation work for an existing software repository.
@@ -1742,4 +1741,3 @@ Do not claim tests were run merely because the plan tells the implementing agent
 Do not implement the requested feature unless explicitly instructed to do so; this task is to investigate and produce the implementation plan.
 
 The finished plan must be suitable for direct handoff to a continuous implementing agent supervised checkpoint-by-checkpoint.
-```

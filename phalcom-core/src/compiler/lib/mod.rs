@@ -276,7 +276,11 @@ impl<'vm> Compiler<'vm> {
         if self.vm.field_layouts.contains_key(&own_key) || self.vm.classes.contains_key(&own_key) {
             return Some(own_key);
         }
-        if let Some(binding) = self.vm.canonical_universe_binding(name).or_else(|| self.vm.prelude_bindings.get(&name).copied()) {
+        if let Some(binding) = self
+            .vm
+            .canonical_universe_binding(name)
+            .or_else(|| self.vm.prelude_bindings.get(&name).copied())
+        {
             let prelude_key = ClassKey { module: binding.module, name };
             if self.vm.field_layouts.contains_key(&prelude_key) || self.vm.classes.contains_key(&prelude_key) {
                 return Some(prelude_key);

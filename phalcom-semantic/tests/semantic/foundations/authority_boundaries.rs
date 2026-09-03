@@ -163,7 +163,7 @@ class Probe {
 }
 
 #[test]
-fn membership_fails_closed_to_unknown() {
+fn membership_uses_canonical_contains_and_fails_closed_when_dispatch_is_missing() {
     let f = Fixture::new(
         r#"
 class Container {
@@ -180,7 +180,7 @@ class Probe {
     );
     let run = f.callable("Probe", "run", DispatchSide::Class);
     let res_binding = f.binding(run, "res");
-    assert!(matches!(res_binding.current, TypeKnowledge::Unknown(UnknownReason::UncheckedExpression)));
+    assert!(matches!(res_binding.current, TypeKnowledge::Unknown(UnknownReason::DynamicMessageSend)));
 }
 
 #[test]

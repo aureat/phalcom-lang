@@ -28,7 +28,10 @@ fn generic_bind_reconciles_all_constructor_evidence() {
     assert_ne!(f.analysis.snapshot.store.kind_of(constructor), KindId::TYPE);
     f.assert_unary_constructor_kind(f.analysis.snapshot.store.kind_of(constructor));
     let TypeData::Lambda(lambda_id) = f.analysis.snapshot.store.get(constructor) else {
-        panic!("F must solve to a unary type lambda, got {}", f.analysis.snapshot.store.format_type(constructor))
+        panic!(
+            "F must solve to a unary type lambda, got {}",
+            f.analysis.snapshot.store.format_type(constructor)
+        )
     };
     let lambda = f.analysis.snapshot.store.arena().get_lambda(*lambda_id);
     let mut free = Vec::new();
@@ -156,7 +159,10 @@ class ConstructorInferenceProbe {
     let mut free = Vec::new();
     f.analysis.snapshot.store.arena().collect_free_types(lambda.body, &mut free);
     assert!(free.contains(&f.ty("String")), "synthesized F must preserve fixed String argument: {free:#?}");
-    assert!(f.analysis.snapshot.store.arena().has_free_bound(lambda.body, 0), "synthesized F must retain its bound argument");
+    assert!(
+        f.analysis.snapshot.store.arena().has_free_bound(lambda.body, 0),
+        "synthesized F must retain its bound argument"
+    );
 
     f.assert_generic_solution_exact(run, call, constructor_parameter, constructor, EvidenceStatus::Assumed);
     f.assert_generic_solution_exact(run, call, a, f.ty("Int"), EvidenceStatus::Assumed);

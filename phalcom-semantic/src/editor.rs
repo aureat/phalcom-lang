@@ -669,8 +669,7 @@ impl<'a> EditorSemanticQuery<'a> {
             prelude
                 .iter()
                 .filter(|(name, declaration)| {
-                    !visible_names.iter().any(|visible| visible.as_ref() == *name)
-                        && self.snapshot.declarations.get(declaration).is_some()
+                    !visible_names.iter().any(|visible| visible.as_ref() == *name) && self.snapshot.declarations.get(declaration).is_some()
                 })
                 .map(|(name, declaration)| VisibleSymbol {
                     name: name.into(),

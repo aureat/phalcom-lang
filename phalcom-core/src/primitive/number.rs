@@ -613,16 +613,15 @@ fn ordering_value(vm: &mut VM, selector: &str) -> PhResult<Value> {
         "unordered" => "Unordered",
         _ => return Err(RuntimeError::Internal(format!("unknown Ordering variant `{selector}`")).into()),
     };
-    let variant = VariantId::new(CoreDeclarationIds::default().ordering, Selector::getter(variant_name).expect("valid Ordering variant selector"));
+    let variant = VariantId::new(
+        CoreDeclarationIds::default().ordering,
+        Selector::getter(variant_name).expect("valid Ordering variant selector"),
+    );
     let runtime_variant = vm
         .adt_registry
         .variant_by_semantic(&variant)
         .ok_or_else(|| RuntimeError::Internal(format!("Ordering variant `{variant_name}` unavailable")))?;
-    if let Some(value) = vm
-        .adt_registry
-        .variant_descriptor(runtime_variant)
-        .and_then(|descriptor| descriptor.singleton)
-    {
+    if let Some(value) = vm.adt_registry.variant_descriptor(runtime_variant).and_then(|descriptor| descriptor.singleton) {
         return Ok(value);
     }
     vm.construct_variant_value(runtime_variant, Vec::new()).map_err(Into::into)

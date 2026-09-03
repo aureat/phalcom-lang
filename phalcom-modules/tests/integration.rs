@@ -1,8 +1,7 @@
 use phalcom_ast::ast::{ImportPath, ImportRoot, PathSegment};
 use phalcom_modules::{
     FilesystemSourceProvider, ModuleComponent, ModuleId, ModuleKind, ModulePath, ModuleResolutionError, ModuleResolver, ProjectIdentity, ProjectManifest,
-    ProjectUniverse,
-    ResolvedProjectId, SourceProvider, discover_owning_project,
+    ProjectUniverse, ResolvedProjectId, SourceProvider, discover_owning_project,
 };
 use std::fs;
 use tempfile::TempDir;
@@ -199,31 +198,61 @@ fn test_module_resolver_universe_imports_use_source_exposure() {
     ]));
 
     let visible = ImportPath {
-        root: ImportRoot::Absolute(PathSegment { name: "universe".into(), range: (0..8).into() }),
+        root: ImportRoot::Absolute(PathSegment {
+            name: "universe".into(),
+            range: (0..8).into(),
+        }),
         segments: vec![
-            PathSegment { name: "reflection".into(), range: (9..18).into() },
-            PathSegment { name: "typing".into(), range: (19..25).into() },
-            PathSegment { name: "type_descriptor".into(), range: (26..41).into() },
+            PathSegment {
+                name: "reflection".into(),
+                range: (9..18).into(),
+            },
+            PathSegment {
+                name: "typing".into(),
+                range: (19..25).into(),
+            },
+            PathSegment {
+                name: "type_descriptor".into(),
+                range: (26..41).into(),
+            },
         ],
         range: (0..41).into(),
     };
     let target = resolver.resolve_import(&importer, &visible).expect("exposed Universe path should resolve");
-    assert_eq!(target.id, ModuleId::universe(ModulePath::from_components(vec![
-        ModuleComponent::from_identifier("reflection").unwrap(),
-        ModuleComponent::from_identifier("typing").unwrap(),
-        ModuleComponent::from_identifier("type_descriptor").unwrap(),
-    ])));
+    assert_eq!(
+        target.id,
+        ModuleId::universe(ModulePath::from_components(vec![
+            ModuleComponent::from_identifier("reflection").unwrap(),
+            ModuleComponent::from_identifier("typing").unwrap(),
+            ModuleComponent::from_identifier("type_descriptor").unwrap(),
+        ]))
+    );
 
     let hidden = ImportPath {
-        root: ImportRoot::Absolute(PathSegment { name: "universe".into(), range: (0..8).into() }),
+        root: ImportRoot::Absolute(PathSegment {
+            name: "universe".into(),
+            range: (0..8).into(),
+        }),
         segments: vec![
-            PathSegment { name: "reflection".into(), range: (9..18).into() },
-            PathSegment { name: "typing".into(), range: (19..25).into() },
-            PathSegment { name: "private".into(), range: (26..33).into() },
+            PathSegment {
+                name: "reflection".into(),
+                range: (9..18).into(),
+            },
+            PathSegment {
+                name: "typing".into(),
+                range: (19..25).into(),
+            },
+            PathSegment {
+                name: "private".into(),
+                range: (26..33).into(),
+            },
         ],
         range: (0..33).into(),
     };
-    assert!(matches!(resolver.resolve_import(&importer, &hidden), Err(ModuleResolutionError::ModulePathNotExposed { .. })));
+    assert!(matches!(
+        resolver.resolve_import(&importer, &hidden),
+        Err(ModuleResolutionError::ModulePathNotExposed { .. })
+    ));
 }
 
 #[test]
@@ -237,7 +266,10 @@ fn test_module_resolver_universe_relative_import_preserves_project_identity() {
     ]));
     let relative = ImportPath {
         root: ImportRoot::Relative { dots: 2, range: (0..2).into() },
-        segments: vec![PathSegment { name: "module".into(), range: (2..8).into() }],
+        segments: vec![PathSegment {
+            name: "module".into(),
+            range: (2..8).into(),
+        }],
         range: (0..8).into(),
     };
 

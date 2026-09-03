@@ -192,6 +192,7 @@ pub fn declaration_surface_source_input_fingerprint(
                 hash_dispatch_side(side, &mut hasher);
                 getter.name.hash(&mut hasher);
                 hash_optional_source_region(&unit.text, getter.return_annotation.as_ref().map(|annotation| annotation.range), &mut hasher);
+                hash_generic_contract_source(&unit.text, &getter.generic_parameters, getter.where_clause.as_ref(), &mut hasher);
             }
             ClassMember::Setter(setter) => {
                 3u8.hash(&mut hasher);

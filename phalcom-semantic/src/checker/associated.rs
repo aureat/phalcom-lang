@@ -359,29 +359,24 @@ pub fn specialize_associated_member(
                 return Err(AssociatedResolutionError);
             };
 
-            let env = crate::types::specialization::specialize_receiver_to_owner(
-                ctx.store,
-                &ctx.hierarchy,
-                owner.owner_form,
-                &owner.lookup_owner,
-                &ctx.control,
-            )
-            .map_err(|failure| {
-                ctx.emit_diagnostic(SemanticDiagnostic::error_in(
-                    ctx.current_module.clone(),
-                    DiagnosticCode::AssociatedOwnerUnresolved,
-                    format!("cannot specialize associated owner: {failure:?}"),
-                    range,
-                ));
-                AssociatedResolutionError
-            })?
-            .environment;
+            let env =
+                crate::types::specialization::specialize_receiver_to_owner(ctx.store, &ctx.hierarchy, owner.owner_form, &owner.lookup_owner, &ctx.control)
+                    .map_err(|failure| {
+                        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                            ctx.current_module.clone(),
+                            DiagnosticCode::AssociatedOwnerUnresolved,
+                            format!("cannot specialize associated owner: {failure:?}"),
+                            range,
+                        ));
+                        AssociatedResolutionError
+                    })?
+                    .environment;
 
             // GADT verification: check if owner supplied arguments conflict with variant GADT constraints
             for (param_id, &constrained_ty) in &variant_info.case_environment.bindings {
                 if let Some(supplied) = env.get_param(*param_id) {
-                    let matches = is_subtype(ctx.store, &ctx.hierarchy, supplied, constrained_ty)
-                        && is_subtype(ctx.store, &ctx.hierarchy, constrained_ty, supplied);
+                    let matches =
+                        is_subtype(ctx.store, &ctx.hierarchy, supplied, constrained_ty) && is_subtype(ctx.store, &ctx.hierarchy, constrained_ty, supplied);
 
                     if !matches {
                         ctx.emit_diagnostic(SemanticDiagnostic::error_in(

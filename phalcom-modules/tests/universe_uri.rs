@@ -1,6 +1,5 @@
 use phalcom_modules::{
-    universe_module_from_uri, universe_module_uri, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, ResolvedProjectId,
-    UNIVERSE_NODES,
+    ModuleComponent, ModuleId, ModulePath, ProjectIdentity, ResolvedProjectId, UNIVERSE_NODES, universe_module_from_uri, universe_module_uri,
 };
 
 fn node_id(path: &[&str]) -> ModuleId {

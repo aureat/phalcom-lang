@@ -1,4 +1,4 @@
-use crate::semantic::support::{applied, nominal, Fixture};
+use crate::semantic::support::{Fixture, applied, nominal};
 use phalcom_semantic::checker::analysis::AnalysisStatus;
 use phalcom_semantic::explain::ExplanationStep;
 use phalcom_semantic::identity::DispatchSide;

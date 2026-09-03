@@ -89,10 +89,7 @@ impl VM {
         let start = self.heap.module(module).linked_reads.len();
         for (offset, (name, binding)) in prelude.into_iter().enumerate() {
             let Ok(index) = u32::try_from(start + offset) else { break };
-            self.heap
-                .module_mut(module)
-                .linked_reads
-                .push(RuntimeLinkedRead::Binding(*binding));
+            self.heap.module_mut(module).linked_reads.push(RuntimeLinkedRead::Binding(*binding));
             bindings.add_prelude(self.resolve_symbol(*name).to_owned().into_boxed_str(), ImportBindingId(index));
         }
         bindings

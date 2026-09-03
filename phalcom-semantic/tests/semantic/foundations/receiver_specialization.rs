@@ -1,6 +1,6 @@
 //! SC-2 owner-relative receiver specialization laws.
 
-use crate::semantic::support::{applied, Fixture};
+use crate::semantic::support::{Fixture, applied};
 use phalcom_semantic::checker::analysis::AnalysisStatus;
 use phalcom_semantic::explain::ExplanationStep;
 use phalcom_semantic::identity::DispatchSide;

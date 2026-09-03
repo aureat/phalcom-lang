@@ -164,7 +164,7 @@ pub fn module_understands(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
             expected: 1,
             found: args.len(),
         }
-            .into());
+        .into());
     }
     let name_sym = match args[0].symbol_value() {
         Some(s) => s,
@@ -933,7 +933,7 @@ pub fn export_table_contains(vm: &mut VM, receiver: &Value, args: &[Value]) -> P
             expected: 1,
             found: args.len(),
         }
-            .into());
+        .into());
     }
     let name_sym = match args[0].symbol_value() {
         Some(s) => s,
@@ -965,7 +965,7 @@ pub fn export_table_descriptor(vm: &mut VM, receiver: &Value, args: &[Value]) ->
             expected: 1,
             found: args.len(),
         }
-            .into());
+        .into());
     }
     let name_sym = match args[0].symbol_value() {
         Some(s) => s,
@@ -1001,7 +1001,7 @@ pub fn export_table_get(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
             expected: 1,
             found: args.len(),
         }
-            .into());
+        .into());
     }
     let name_sym = match args[0].symbol_value() {
         Some(s) => s,
@@ -1141,7 +1141,7 @@ pub fn child_module_table_contains(vm: &mut VM, receiver: &Value, args: &[Value]
             expected: 1,
             found: args.len(),
         }
-            .into());
+        .into());
     }
     let name_sym = match args[0].symbol_value() {
         Some(s) => s,
@@ -1173,7 +1173,7 @@ pub fn child_module_table_get(vm: &mut VM, receiver: &Value, args: &[Value]) -> 
             expected: 1,
             found: args.len(),
         }
-            .into());
+        .into());
     }
     let name_sym = match args[0].symbol_value() {
         Some(s) => s,

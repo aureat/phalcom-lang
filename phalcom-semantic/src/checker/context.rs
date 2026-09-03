@@ -252,7 +252,11 @@ pub struct TrackingTypeHierarchy<'a> {
 
 impl<'a> TrackingTypeHierarchy<'a> {
     fn new(inner: &'a dyn TypeHierarchy, declarations: &'a DeclarationTypeTable, dependencies: SharedSemanticDependencies) -> Self {
-        Self { inner, declarations, dependencies }
+        Self {
+            inner,
+            declarations,
+            dependencies,
+        }
     }
 
     pub(crate) fn inner(&self) -> &'a dyn TypeHierarchy {
@@ -288,7 +292,9 @@ impl TypeHierarchy for TrackingTypeHierarchy<'_> {
 
     fn supertype_template(&self, declaration: &DeclarationId) -> Option<&crate::declarations::GenericSupertypeTemplate> {
         record_hierarchy_dependency(&self.dependencies, declaration);
-        self.inner.supertype_template(declaration).or_else(|| self.declarations.supertype_template(declaration))
+        self.inner
+            .supertype_template(declaration)
+            .or_else(|| self.declarations.supertype_template(declaration))
     }
 }
 
@@ -377,6 +383,10 @@ pub struct CheckingContext<'a> {
     pub diagnostics: Vec<SemanticDiagnostic>,
     pub analysis_incidents: BTreeMap<AnalysisIncidentId, InternalSemanticIncident>,
     pub terminal_status: Option<AnalysisStatus>,
+    inference_contexts: BTreeMap<crate::checker::inference::InferenceContextId, Rc<RefCell<crate::checker::inference::InferenceSession>>>,
+    next_inference_context_id: u32,
+    inference_frames: Vec<(crate::checker::inference::InferenceContextId, crate::checker::inference::InferenceFrameId)>,
+    symbolic_inference_results: BTreeMap<ExpressionId, crate::checker::typed_expr::SymbolicInferenceResult>,
 }
 
 impl<'a> CheckingContext<'a> {
@@ -459,6 +469,10 @@ impl<'a> CheckingContext<'a> {
             diagnostics: Vec::new(),
             analysis_incidents: BTreeMap::new(),
             terminal_status: None,
+            inference_contexts: BTreeMap::new(),
+            next_inference_context_id: 0,
+            inference_frames: Vec::new(),
+            symbolic_inference_results: BTreeMap::new(),
         }
     }
 
@@ -527,6 +541,10 @@ impl<'a> CheckingContext<'a> {
             diagnostics: Vec::new(),
             analysis_incidents: BTreeMap::new(),
             terminal_status: None,
+            inference_contexts: BTreeMap::new(),
+            next_inference_context_id: 0,
+            inference_frames: Vec::new(),
+            symbolic_inference_results: BTreeMap::new(),
         }
     }
 
@@ -577,6 +595,10 @@ impl<'a> CheckingContext<'a> {
 
             analysis_incidents: self.analysis_incidents.clone(),
             terminal_status: self.terminal_status.clone(),
+            inference_contexts: self.inference_contexts.clone(),
+            next_inference_context_id: self.next_inference_context_id,
+            inference_frames: self.inference_frames.clone(),
+            symbolic_inference_results: self.symbolic_inference_results.clone(),
         }
     }
 
@@ -611,6 +633,10 @@ impl<'a> CheckingContext<'a> {
         probe.next_local_expr_id = self.next_local_expr_id;
         probe.next_diagnostic_cause = self.next_diagnostic_cause;
         probe.next_analysis_incident = self.next_analysis_incident;
+        probe.inference_contexts = self.inference_contexts.clone();
+        probe.next_inference_context_id = self.next_inference_context_id;
+        probe.inference_frames = self.inference_frames.clone();
+        probe.symbolic_inference_results = self.symbolic_inference_results.clone();
 
         let value = run(&mut probe);
         let flow = probe.flow;
@@ -708,6 +734,81 @@ impl<'a> CheckingContext<'a> {
 
     pub(crate) fn solve_inference(&mut self, session: &mut crate::checker::inference::InferenceSession) -> crate::checker::inference::InferenceOutcome {
         session.solve_with_control(self.store, &self.hierarchy, &self.control)
+    }
+
+    /// Creates one query-local inference graph and its root application frame.
+    pub(crate) fn create_inference_context(&mut self) -> (crate::checker::inference::InferenceContextId, crate::checker::inference::InferenceFrameId) {
+        let mut context = crate::checker::inference::InferenceContextId(self.next_inference_context_id);
+        while self.inference_contexts.contains_key(&context) {
+            self.next_inference_context_id = self.next_inference_context_id.saturating_add(1);
+            context = crate::checker::inference::InferenceContextId(self.next_inference_context_id);
+        }
+        self.next_inference_context_id = self.next_inference_context_id.saturating_add(1);
+        let mut session = crate::checker::inference::InferenceSession::new();
+        let frame = session.root_frame();
+        self.inference_contexts.insert(context, Rc::new(RefCell::new(session)));
+        (context, frame)
+    }
+
+    /// Returns a cloneable handle to an active query-local inference graph.
+    pub(crate) fn inference_session(
+        &self,
+        context: crate::checker::inference::InferenceContextId,
+    ) -> Option<Rc<RefCell<crate::checker::inference::InferenceSession>>> {
+        self.inference_contexts.get(&context).cloned()
+    }
+
+    /// Begins a child application frame in an existing query-local graph.
+    pub(crate) fn begin_inference_frame(
+        &self,
+        context: crate::checker::inference::InferenceContextId,
+        parent: crate::checker::inference::InferenceFrameId,
+    ) -> Option<crate::checker::inference::InferenceFrameId> {
+        let session = self.inference_contexts.get(&context)?.clone();
+        let session_state = session.borrow();
+        if session_state.frame_is_closed(parent) || (parent.0 != 0 && session_state.frame_parent(parent).is_none()) {
+            return None;
+        }
+        drop(session_state);
+        Some(session.borrow_mut().begin_frame(Some(parent)))
+    }
+
+    pub(crate) fn current_inference_frame(
+        &self,
+        context: crate::checker::inference::InferenceContextId,
+    ) -> Option<crate::checker::inference::InferenceFrameId> {
+        self.inference_frames
+            .iter()
+            .rev()
+            .find_map(|(active_context, frame)| (*active_context == context).then_some(*frame))
+    }
+
+    pub(crate) fn push_inference_frame(&mut self, context: crate::checker::inference::InferenceContextId, frame: crate::checker::inference::InferenceFrameId) {
+        self.inference_frames.push((context, frame));
+    }
+
+    pub(crate) fn pop_inference_frame(&mut self, context: crate::checker::inference::InferenceContextId, frame: crate::checker::inference::InferenceFrameId) {
+        if let Some(index) = self
+            .inference_frames
+            .iter()
+            .rposition(|(active_context, active_frame)| *active_context == context && *active_frame == frame)
+        {
+            self.inference_frames.remove(index);
+        }
+    }
+
+    pub(crate) fn publish_symbolic_inference_result(&mut self, expression: ExpressionId, result: crate::checker::typed_expr::SymbolicInferenceResult) {
+        self.symbolic_inference_results.insert(expression, result);
+    }
+
+    pub(crate) fn take_symbolic_inference_result(&mut self, expression: ExpressionId) -> Option<crate::checker::typed_expr::SymbolicInferenceResult> {
+        self.symbolic_inference_results.remove(&expression)
+    }
+
+    /// Drops a completed query-local graph. No solver-local identity survives
+    /// this boundary into snapshots or other durable semantic products.
+    pub(crate) fn finish_inference_context(&mut self, context: crate::checker::inference::InferenceContextId) {
+        self.inference_contexts.remove(&context);
     }
 
     pub fn alloc_expression_id(&mut self) -> ExpressionId {
@@ -1844,10 +1945,7 @@ impl<'a> CheckingContext<'a> {
         let parameters = signature.parameters.to_vec();
         let arguments = parameters
             .iter()
-            .map(|&parameter| {
-                (self.store.type_parameter(parameter).kind == crate::types::id::KindId::TYPE)
-                    .then(|| self.store.parameter_form(parameter))
-            })
+            .map(|&parameter| (self.store.type_parameter(parameter).kind == crate::types::id::KindId::TYPE).then(|| self.store.parameter_form(parameter)))
             .collect::<Option<Vec<_>>>()?;
         self.store.apply_type_form(form, &arguments).ok()
     }

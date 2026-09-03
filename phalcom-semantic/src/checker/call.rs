@@ -737,6 +737,7 @@ pub struct CallCheckResult {
     pub causal_invalidity: crate::checker::causal::CausalInvalidity,
     pub explanation_parents: Vec<crate::identity::ExplanationId>,
     pub callable: Option<crate::identity::CallableId>,
+    pub(crate) symbolic_result: Option<crate::checker::typed_expr::SymbolicInferenceResult>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -786,13 +787,59 @@ fn apply_generic_callable_inner(
         return promote_exact_return(&signature.return_type, exact_return_origin(signature.kind), call_range);
     };
 
-    let mut session = InferenceSession::new();
+    let (context, root_frame, owns_context) = match expected {
+        ExpectedType::Inference { context, .. } => {
+            let Some(parent) = ctx.current_inference_frame(*context) else {
+                ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
+                return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
+            };
+            let Some(frame) = ctx.begin_inference_frame(*context, parent) else {
+                ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
+                return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
+            };
+            (*context, frame, false)
+        }
+        _ => {
+            let (context, frame) = ctx.create_inference_context();
+            (context, frame, true)
+        }
+    };
+    ctx.push_inference_frame(context, root_frame);
+    let result = apply_generic_callable_in_context(ctx, signature, generic_sig, fixed_generics, args, expected, call_range, context, root_frame);
+    ctx.pop_inference_frame(context, root_frame);
+    if let Some(session) = ctx.inference_session(context) {
+        session.borrow_mut().close_frame(root_frame);
+    }
+    if owns_context {
+        ctx.finish_inference_context(context);
+    }
+    result
+}
+
+fn apply_generic_callable_in_context(
+    ctx: &mut CheckingContext<'_>,
+    signature: &CallableSignature,
+    generic_sig: &crate::types::parameter::GenericSignature,
+    fixed_generics: &[(TypeParameterId, TypeId)],
+    args: &[ApplicationArgument<'_>],
+    expected: &ExpectedType,
+    call_range: SourceRange,
+    context: crate::checker::inference::InferenceContextId,
+    frame: crate::checker::inference::InferenceFrameId,
+) -> TypeKnowledge {
+    let Some(session_handle) = ctx.inference_session(context) else {
+        ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
+        return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
+    };
+
     let has_row_generics = generic_sig
         .parameters
         .iter()
         .any(|parameter| ctx.store.type_parameter(*parameter).kind == crate::types::id::KindId::RECORD_ROW);
     let mut row_session = has_row_generics.then(|| GenericApplicationSession::new(generic_sig, ctx.store));
-    let mut var_map = session.instantiate_generic_signature(generic_sig, ctx.store);
+    let mut var_map = session_handle
+        .borrow_mut()
+        .instantiate_generic_signature_in_frame(generic_sig, ctx.store, frame);
     for &(parameter, ty) in fixed_generics {
         var_map.insert(parameter, InferenceTerm::Canonical(ty));
     }
@@ -802,12 +849,16 @@ fn apply_generic_callable_inner(
     };
     let return_term = signature.return_type.ty().map(|return_type| {
         row_session.as_ref().map_or_else(
-            || session.type_id_to_inference(return_type, &var_map, ctx.store),
-            |rows| session.type_id_to_inference_with_rows(return_type, &var_map, &rows.row_terms(), ctx.store),
+            || session_handle.borrow().type_id_to_inference(return_type, &var_map, ctx.store),
+            |rows| {
+                session_handle
+                    .borrow()
+                    .type_id_to_inference_with_rows(return_type, &var_map, &rows.row_terms(), ctx.store)
+            },
         )
     });
     let fixed_return = return_term.as_ref().and_then(|term| {
-        (!session.term_has_variables(term) && !term_has_row_variables(term))
+        (!session_handle.borrow().term_has_variables(term) && !term_has_row_variables(term))
             .then(|| promote_exact_return(&signature.return_type, ExactReturnOrigin::GenericInference, call_range))
     });
 
@@ -830,8 +881,8 @@ fn apply_generic_callable_inner(
     for (constraint_index, constraint) in generic_sig.constraints.iter().enumerate() {
         let relation = match constraint {
             GenericConstraint::Subtype { lower, upper } => {
-                let lower = session.type_term_to_inference(lower, &var_map, ctx.store);
-                let upper = session.type_term_to_inference(upper, &var_map, ctx.store);
+                let lower = session_handle.borrow().type_term_to_inference(lower, &var_map, ctx.store);
+                let upper = session_handle.borrow().type_term_to_inference(upper, &var_map, ctx.store);
                 match (lower, upper) {
                     (Ok(lower), Ok(upper)) => InferenceRelation::Subtype(lower, upper),
                     _ => {
@@ -841,8 +892,8 @@ fn apply_generic_callable_inner(
                 }
             }
             GenericConstraint::Equivalent { left, right } => {
-                let left = session.type_term_to_inference(left, &var_map, ctx.store);
-                let right = session.type_term_to_inference(right, &var_map, ctx.store);
+                let left = session_handle.borrow().type_term_to_inference(left, &var_map, ctx.store);
+                let right = session_handle.borrow().type_term_to_inference(right, &var_map, ctx.store);
                 match (left, right) {
                     (Ok(left), Ok(right)) => InferenceRelation::Equivalent(left, right),
                     _ => {
@@ -852,7 +903,7 @@ fn apply_generic_callable_inner(
                 }
             }
         };
-        session.add_constraint(
+        session_handle.borrow_mut().add_constraint(
             relation,
             ConstraintOrigin::GenericWhere {
                 callable: generic_callable.clone(),
@@ -874,12 +925,16 @@ fn apply_generic_callable_inner(
             continue;
         };
         let parameter_term = row_session.as_ref().map_or_else(
-            || session.type_id_to_inference(parameter_ty, &var_map, ctx.store),
-            |rows| session.type_id_to_inference_with_rows(parameter_ty, &var_map, &rows.row_terms(), ctx.store),
+            || session_handle.borrow().type_id_to_inference(parameter_ty, &var_map, ctx.store),
+            |rows| {
+                session_handle
+                    .borrow()
+                    .type_id_to_inference_with_rows(parameter_ty, &var_map, &rows.row_terms(), ctx.store)
+            },
         );
-        let expected_term = session.term_for_expected(&parameter_term);
-        let argument_expected = session.materialize_for_expected(&expected_term, ctx.store).map_or_else(
-            || ExpectedType::inference_from(expected_term, ExpectationOrigin::GenericArgument),
+        let expected_term = session_handle.borrow().term_for_expected(&parameter_term);
+        let argument_expected = session_handle.borrow().materialize_for_expected(&expected_term, ctx.store).map_or_else(
+            || ExpectedType::inference_from(context, expected_term, ExpectationOrigin::GenericArgument),
             |ty| ExpectedType::proper_from(ty, ExpectationOrigin::GenericArgument),
         );
         let argument_typed = analyze_application_argument(ctx, argument, &argument_expected);
@@ -893,10 +948,19 @@ fn apply_generic_callable_inner(
                 parameter_index: binding.parameter_index as u16,
             })
             .unwrap_or(ConstraintOrigin::Explicit);
-        session.record_required_premise(&parameter_term, origin.clone(), &argument_typed.knowledge, explanation);
+        let symbolic_argument = argument_typed
+            .symbolic_result
+            .as_ref()
+            .filter(|result| result.context == context)
+            .map(|result| result.term.clone());
+        if symbolic_argument.is_none() {
+            session_handle
+                .borrow_mut()
+                .record_required_premise(&parameter_term, origin.clone(), &argument_typed.knowledge, explanation);
+        }
         let mut stable_constraint_explanation = explanation;
         if let Some(argument_ty) = argument_typed.knowledge.ty() {
-            for parameter in session.projected_parameters_for_term(&parameter_term, &var_map) {
+            for parameter in session_handle.borrow().projected_parameters_for_term(&parameter_term, &var_map) {
                 let constraint = ctx.record_derivation(
                     crate::explain::ExplanationStep::GenericConstraint {
                         parameter,
@@ -915,6 +979,14 @@ fn apply_generic_callable_inner(
                 ctx.record_call_dependency(CausalInvalidity::Clean, Some(constraint));
             }
         }
+        if let Some(symbolic_argument) = symbolic_argument {
+            session_handle.borrow_mut().add_constraint_with_support(
+                InferenceRelation::Equivalent(symbolic_argument, parameter_term.clone()),
+                origin.clone(),
+                stable_constraint_explanation,
+                InferenceSupport::Assumed,
+            );
+        }
         let mut row_argument_constrained = false;
         match &argument_typed.knowledge {
             TypeKnowledge::Known(evidence) => {
@@ -927,7 +999,7 @@ fn apply_generic_callable_inner(
                             Ok(Some(field_constraints)) => {
                                 row_argument_constrained = true;
                                 for (actual_field, formal_field) in field_constraints {
-                                    session.add_constraint_with_support(
+                                    session_handle.borrow_mut().add_constraint_with_support(
                                         InferenceRelation::Subtype(actual_field, formal_field),
                                         origin.clone(),
                                         stable_constraint_explanation,
@@ -944,10 +1016,21 @@ fn apply_generic_callable_inner(
                     }
                     if !row_argument_constrained {
                         let argument_term = row_session.as_ref().map_or_else(
-                            || session.type_id_to_inference(evidence.ty(), &std::collections::HashMap::new(), ctx.store),
-                            |rows| session.type_id_to_inference_with_rows(evidence.ty(), &std::collections::HashMap::new(), &rows.row_terms(), ctx.store),
+                            || {
+                                session_handle
+                                    .borrow()
+                                    .type_id_to_inference(evidence.ty(), &std::collections::HashMap::new(), ctx.store)
+                            },
+                            |rows| {
+                                session_handle.borrow().type_id_to_inference_with_rows(
+                                    evidence.ty(),
+                                    &std::collections::HashMap::new(),
+                                    &rows.row_terms(),
+                                    ctx.store,
+                                )
+                            },
                         );
-                        session.add_constraint_with_support(
+                        session_handle.borrow_mut().add_constraint_with_support(
                             InferenceRelation::Subtype(argument_term, parameter_term),
                             origin,
                             stable_constraint_explanation,
@@ -957,7 +1040,9 @@ fn apply_generic_callable_inner(
                 }
             }
             TypeKnowledge::Unknown(reason) => {
-                ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::UnknownType(reason.clone())));
+                if argument_typed.symbolic_result.is_none() {
+                    ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::UnknownType(reason.clone())));
+                }
             }
             TypeKnowledge::Dynamic(reason) => {
                 ctx.record_call_status(AnalysisStatus::DynamicBoundary(reason.clone()));
@@ -968,11 +1053,16 @@ fn apply_generic_callable_inner(
         // session is retained; only its established substitutions are exposed
         // as contextual expectations to later arguments such as closures.
         if argument_index + 1 < args.len() {
-            let _ = ctx.solve_inference(&mut session);
+            let _ = ctx.inference_session(context).map(|session| ctx.solve_inference(&mut session.borrow_mut()));
         }
     }
 
-    let argument_outcome = ctx.solve_inference(&mut session);
+    let argument_outcome = ctx
+        .inference_session(context)
+        .map(|session| ctx.solve_inference(&mut session.borrow_mut()))
+        .unwrap_or(crate::checker::inference::InferenceOutcome::Blocked(
+            crate::types::outcome::BlockReason::RecursiveFixpoint,
+        ));
     let mut row_outcome = row_session.as_mut().map(|rows| {
         let store_ref: &crate::types::store::TypeStore = &*ctx.store;
         ctx.control.relation(|budget, cancellation| rows.solve_rows(store_ref, budget, cancellation))
@@ -984,7 +1074,7 @@ fn apply_generic_callable_inner(
     let pre_context_result = match &argument_outcome {
         crate::checker::inference::InferenceOutcome::Solved(solution) => Some(publish_generic_return_with_rows(
             ctx,
-            &session,
+            &session_handle.borrow(),
             row_session.as_mut(),
             row_outcome.as_ref(),
             Some(solution),
@@ -1004,7 +1094,11 @@ fn apply_generic_callable_inner(
     {
         if let Some(return_term) = return_term.as_ref() {
             let expected_term = expected.ty().map(InferenceTerm::Canonical).or_else(|| match expected {
-                ExpectedType::Inference { term, .. } => Some(term.clone()),
+                ExpectedType::Inference {
+                    context: expected_context,
+                    term,
+                    ..
+                } if *expected_context == context => Some(term.clone()),
                 _ => None,
             });
             if let Some(expected_term) = expected_term {
@@ -1015,7 +1109,7 @@ fn apply_generic_callable_inner(
                             Ok(Some(field_constraints)) => {
                                 row_expected_constrained = true;
                                 for (expected_field, return_field) in field_constraints {
-                                    session.add_constraint(
+                                    session_handle.borrow_mut().add_constraint(
                                         InferenceRelation::Subtype(expected_field, return_field),
                                         ConstraintOrigin::ExpectedResult { expression: call_id },
                                         None,
@@ -1031,15 +1125,15 @@ fn apply_generic_callable_inner(
                     }
                 }
                 if !row_expected_constrained {
-                    session.add_constraint(
+                    session_handle.borrow_mut().add_constraint(
                         InferenceRelation::Subtype(return_term.clone(), expected_term),
                         ConstraintOrigin::ExpectedResult { expression: call_id },
                         None,
                     );
                 }
-                session.record_context_selection(return_term);
+                session_handle.borrow_mut().record_context_selection(return_term);
                 if let Some(expected_ty) = expected.ty() {
-                    for parameter in session.projected_parameters_for_term(return_term, &var_map) {
+                    for parameter in session_handle.borrow().projected_parameters_for_term(return_term, &var_map) {
                         let explanation = ctx.record_derivation(
                             crate::explain::ExplanationStep::GenericConstraint {
                                 parameter,
@@ -1057,7 +1151,12 @@ fn apply_generic_callable_inner(
                 }
             }
         }
-        let result = ctx.solve_inference(&mut session);
+        let result = ctx
+            .inference_session(context)
+            .map(|session| ctx.solve_inference(&mut session.borrow_mut()))
+            .unwrap_or(crate::checker::inference::InferenceOutcome::Blocked(
+                crate::types::outcome::BlockReason::RecursiveFixpoint,
+            ));
         if let Some(rows) = row_session.as_mut() {
             let store_ref: &crate::types::store::TypeStore = &*ctx.store;
             row_outcome = Some(ctx.control.relation(|budget, cancellation| rows.solve_rows(store_ref, budget, cancellation)));
@@ -1086,11 +1185,13 @@ fn apply_generic_callable_inner(
 
     if let Some(underconstrained) = underconstrained
         && !ctx.call_status_is_recorded()
+        && !matches!(expected, ExpectedType::Inference { .. })
     {
         let parameter = underconstrained
             .unsolved_vars
             .iter()
-            .find_map(|variable| session.parameter_for_variable(*variable, &var_map));
+            .find_map(|variable| session_handle.borrow().parameter_for_variable(*variable, &var_map));
+        let constraint_roots = session_handle.borrow().all_constraint_explanation_roots();
         let explanation = ctx.record_derivation(
             crate::explain::ExplanationStep::UnknownBoundary {
                 reason: UnknownReason::UnderconstrainedTypeVariable,
@@ -1100,7 +1201,7 @@ fn apply_generic_callable_inner(
             EvidenceStatus::Assumed,
             EvidenceOrigin::GenericInference,
             vec![crate::explain::EvidenceRef::SourceSpan(call_range)],
-            session.all_constraint_explanation_roots(),
+            constraint_roots,
         );
         let mut diagnostic = SemanticDiagnostic::error_in(
             ctx.current_module.clone(),
@@ -1120,10 +1221,14 @@ fn apply_generic_callable_inner(
 
     if let crate::checker::inference::InferenceOutcome::Solved(_) = &outcome {
         for parameter in generic_sig.parameters.iter().copied() {
-            if let Some(ty) = session.projected_solution(parameter, &var_map, ctx.store) {
+            let projected_solution = {
+                let mut session = session_handle.borrow_mut();
+                session.projected_solution(parameter, &var_map, ctx.store)
+            };
+            if let Some(ty) = projected_solution {
                 let status = var_map
                     .get(&parameter)
-                    .and_then(|term| session.term_support(term))
+                    .and_then(|term| session_handle.borrow().term_support(term))
                     .map(|support| match support {
                         InferenceSupport::Established => EvidenceStatus::Established,
                         InferenceSupport::Assumed => EvidenceStatus::Assumed,
@@ -1152,6 +1257,7 @@ fn apply_generic_callable_inner(
                 call_range,
             );
             let explanation = if ctx.current_callable.is_some() {
+                let constraint_roots = session_handle.borrow().all_constraint_explanation_roots();
                 let explanation = ctx.record_derivation(
                     crate::explain::ExplanationStep::UnknownBoundary {
                         reason: UnknownReason::InferenceAmbiguous,
@@ -1161,7 +1267,7 @@ fn apply_generic_callable_inner(
                     EvidenceStatus::Assumed,
                     EvidenceOrigin::GenericInference,
                     vec![crate::explain::EvidenceRef::SourceSpan(call_range)],
-                    session.all_constraint_explanation_roots(),
+                    constraint_roots,
                 );
                 if let Some(owner) = ctx.current_callable.clone() {
                     diagnostic = diagnostic.with_explanation(crate::diagnostic::ExplanationRef::new(owner, explanation));
@@ -1178,6 +1284,7 @@ fn apply_generic_callable_inner(
             }
         }
         crate::checker::inference::InferenceOutcome::Conflicting(conflict) => {
+            let session = session_handle.borrow();
             let range = conflict_source_range(ctx, &session, conflict, call_range);
             let parameter = match &conflict.failure {
                 crate::checker::inference::InferenceFailureReason::ConflictingBounds { var, .. }
@@ -1242,10 +1349,22 @@ fn apply_generic_callable_inner(
         crate::checker::inference::InferenceOutcome::Solved(_) => {}
     }
 
+    if matches!(outcome, crate::checker::inference::InferenceOutcome::Underconstrained(_)) {
+        if let Some(return_term) = return_term.as_ref() {
+            ctx.publish_symbolic_inference_result(
+                call_id,
+                crate::checker::typed_expr::SymbolicInferenceResult {
+                    context,
+                    term: return_term.clone(),
+                },
+            );
+        }
+    }
+
     match &outcome {
         crate::checker::inference::InferenceOutcome::Solved(solution) => publish_generic_return_with_rows(
             ctx,
-            &session,
+            &session_handle.borrow(),
             row_session.as_mut(),
             row_outcome.as_ref(),
             Some(solution),
@@ -1261,7 +1380,9 @@ fn apply_generic_callable_inner(
         | crate::checker::inference::InferenceOutcome::Cancelled
         | crate::checker::inference::InferenceOutcome::BudgetExceeded(_)
         | crate::checker::inference::InferenceOutcome::InternalFailure(_) => terminal_generic_return_with_fallback(&outcome, pre_context_result, fixed_return),
-        crate::checker::inference::InferenceOutcome::Underconstrained(_) => incomplete_generic_return(&session, return_term.as_ref(), &outcome, fixed_return),
+        crate::checker::inference::InferenceOutcome::Underconstrained(_) => {
+            incomplete_generic_return(&session_handle.borrow(), return_term.as_ref(), &outcome, fixed_return)
+        }
     }
 }
 
@@ -1611,11 +1732,14 @@ pub(crate) fn apply_resolved_callable(
         let _ = call_id;
         ctx.record_call_dependency(CausalInvalidity::Clean, Some(root));
     }
-    let knowledge = if target.signature.generics.as_ref().is_some_and(|generics| !generics.parameters.is_empty()) {
+    let (knowledge, symbolic_result) = if target.signature.generics.as_ref().is_some_and(|generics| !generics.parameters.is_empty()) {
         let result = apply_generic_callable(ctx, target, premise, arguments, expected, call_range);
-        cap_result_to_premise_authority(target, premise, result, call_range)
+        let symbolic_result = ctx
+            .current_expression_id()
+            .and_then(|expression| ctx.take_symbolic_inference_result(expression));
+        (cap_result_to_premise_authority(target, premise, result, call_range), symbolic_result)
     } else {
-        apply_non_generic_callable(ctx, target, premise, arguments, call_range)
+        (apply_non_generic_callable(ctx, target, premise, arguments, call_range), None)
     };
     let (captured_causal_invalidity, mut explanation_parents, captured_status) = ctx.end_call_causal_capture();
     let owning_cause = ctx.owning_cause_for_current_expression();
@@ -1648,7 +1772,9 @@ pub(crate) fn apply_resolved_callable(
         causal_invalidity,
         explanation_parents,
         callable: target.callable.clone(),
+        symbolic_result,
     };
+    ctx.flow.invalidate_opaque_calls();
     debug_assert_call_result_coherent(&result);
     result
 }
@@ -1727,6 +1853,192 @@ fn emit_union_dispatch_failure(ctx: &mut CheckingContext<'_>, message: String, r
     (AnalysisStatus::Invalid(cause), CausalInvalidity::One(cause))
 }
 
+struct UnionGenericInferenceScope {
+    context: crate::checker::inference::InferenceContextId,
+    root: crate::checker::inference::InferenceFrameId,
+    owns_context: bool,
+    typed_arguments: Vec<TypedExpression>,
+    expected_for_arms: ExpectedType,
+}
+
+impl UnionGenericInferenceScope {
+    fn finish(self, ctx: &mut CheckingContext<'_>) {
+        if self.owns_context {
+            ctx.pop_inference_frame(self.context, self.root);
+            if let Some(session) = ctx.inference_session(self.context) {
+                session.borrow_mut().close_frame(self.root);
+            }
+            ctx.finish_inference_context(self.context);
+        }
+    }
+}
+
+/// Pre-analyzes union arguments against one representative generic signature.
+///
+/// Generic receiver arms have distinct declaration-owned parameter ids even
+/// when their callable shapes are equivalent. Comparing those ids as proper
+/// types would reject compatible contextual closures before arm inference can
+/// specialize them. Keep one symbolic argument product in one live context;
+/// each arm then relates that product to its own fresh application variables.
+fn prepare_union_generic_inference(
+    ctx: &mut CheckingContext<'_>,
+    arms: &[UnionCallArm],
+    arguments: &[ApplicationArgument<'_>],
+    expected: &ExpectedType,
+) -> Option<UnionGenericInferenceScope> {
+    if !arguments
+        .iter()
+        .any(|argument| argument.expression().is_some_and(|expression| matches!(expression, Expr::Block(_))))
+    {
+        return None;
+    }
+    let target = arms.iter().find_map(|arm| match arm {
+        UnionCallArm::Found { target, .. } if target.signature.generics.as_ref().is_some_and(|generics| !generics.parameters.is_empty()) => Some(target),
+        _ => None,
+    })?;
+    let generic_sig = target.signature.generics.as_ref()?.clone();
+    let (context, root, owns_context) = match expected {
+        ExpectedType::Inference { context, .. } => {
+            let parent = ctx.current_inference_frame(*context)?;
+            (*context, parent, false)
+        }
+        ExpectedType::Proper { ty, .. } => {
+            let (context, root) = ctx.create_inference_context();
+            ctx.push_inference_frame(context, root);
+            let expected_for_arms = ExpectedType::inference_from(context, InferenceTerm::Canonical(*ty), ExpectationOrigin::GenericResult);
+            return prepare_union_generic_inference_in_context(ctx, target, arguments, generic_sig, context, root, true, expected_for_arms);
+        }
+        ExpectedType::None => return None,
+    };
+
+    let expected_for_arms = expected.clone();
+    prepare_union_generic_inference_in_context(ctx, target, arguments, generic_sig, context, root, owns_context, expected_for_arms)
+}
+
+fn prepare_union_generic_inference_in_context(
+    ctx: &mut CheckingContext<'_>,
+    target: &CallableApplicationTarget,
+    arguments: &[ApplicationArgument<'_>],
+    generic_sig: crate::types::parameter::GenericSignature,
+    context: crate::checker::inference::InferenceContextId,
+    root: crate::checker::inference::InferenceFrameId,
+    owns_context: bool,
+    expected_for_arms: ExpectedType,
+) -> Option<UnionGenericInferenceScope> {
+    let Some(session_handle) = ctx.inference_session(context) else {
+        if owns_context {
+            ctx.pop_inference_frame(context, root);
+            ctx.finish_inference_context(context);
+        }
+        return None;
+    };
+    let Some(probe_frame) = ctx.begin_inference_frame(context, root) else {
+        if owns_context {
+            ctx.pop_inference_frame(context, root);
+            ctx.finish_inference_context(context);
+        }
+        return None;
+    };
+    ctx.push_inference_frame(context, probe_frame);
+    let var_map = session_handle
+        .borrow_mut()
+        .instantiate_generic_signature_in_frame(&generic_sig, ctx.store, probe_frame);
+    let binding_plan = match bind_static_arguments(arguments, &target.signature.parameters) {
+        Ok(plan) => plan,
+        Err(_) => {
+            ctx.pop_inference_frame(context, probe_frame);
+            session_handle.borrow_mut().close_frame(probe_frame);
+            if owns_context {
+                ctx.pop_inference_frame(context, root);
+                ctx.finish_inference_context(context);
+            }
+            return None;
+        }
+    };
+    let call_id = ctx.current_expression_id();
+    let mut typed_arguments = Vec::with_capacity(arguments.len());
+    for (argument_index, argument) in arguments.iter().copied().enumerate() {
+        let Some(binding) = binding_plan.bindings.iter().find(|binding| binding.argument_index == argument_index) else {
+            continue;
+        };
+        let parameter = &target.signature.parameters[binding.parameter_index];
+        let Some(parameter_ty) = parameter.ty.ty() else {
+            ctx.pop_inference_frame(context, probe_frame);
+            session_handle.borrow_mut().close_frame(probe_frame);
+            if owns_context {
+                ctx.pop_inference_frame(context, root);
+                ctx.finish_inference_context(context);
+            }
+            return None;
+        };
+        let parameter_term = session_handle.borrow().type_id_to_inference(parameter_ty, &var_map, ctx.store);
+        let expected_term = session_handle.borrow().term_for_expected(&parameter_term);
+        let argument_expected = session_handle.borrow().materialize_for_expected(&expected_term, ctx.store).map_or_else(
+            || ExpectedType::inference_from(context, expected_term, ExpectationOrigin::GenericArgument),
+            |ty| ExpectedType::proper_from(ty, ExpectationOrigin::GenericArgument),
+        );
+        let typed = analyze_application_argument(ctx, argument, &argument_expected);
+        record_generic_argument_capture(ctx, &typed);
+        let explanation = typed.expression_id.and_then(|id| ctx.explanation_for_expression(id));
+        let origin = match (call_id, typed.expression_id) {
+            (Some(call), Some(argument_id)) => ConstraintOrigin::Argument {
+                call,
+                argument: argument_id,
+                parameter_index: binding.parameter_index as u16,
+            },
+            _ => ConstraintOrigin::Explicit,
+        };
+        let symbolic_argument = typed
+            .symbolic_result
+            .as_ref()
+            .filter(|result| result.context == context)
+            .map(|result| result.term.clone());
+        if let Some(symbolic_argument) = symbolic_argument {
+            session_handle.borrow_mut().add_constraint_with_support(
+                InferenceRelation::Subtype(symbolic_argument, parameter_term.clone()),
+                origin.clone(),
+                explanation,
+                InferenceSupport::Assumed,
+            );
+        } else {
+            session_handle
+                .borrow_mut()
+                .record_required_premise(&parameter_term, origin.clone(), &typed.knowledge, explanation);
+            if let TypeKnowledge::Known(evidence) = &typed.knowledge {
+                if let Some(support) = inference_support(&typed.knowledge) {
+                    let argument_term = session_handle
+                        .borrow()
+                        .type_id_to_inference(evidence.ty(), &std::collections::HashMap::new(), ctx.store);
+                    session_handle.borrow_mut().add_constraint_with_support(
+                        InferenceRelation::Subtype(argument_term, parameter_term),
+                        origin,
+                        explanation,
+                        support,
+                    );
+                }
+            } else if let TypeKnowledge::Unknown(reason) = &typed.knowledge {
+                ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::UnknownType(reason.clone())));
+            } else if let TypeKnowledge::Dynamic(reason) = &typed.knowledge {
+                ctx.record_call_status(AnalysisStatus::DynamicBoundary(reason.clone()));
+            }
+        }
+        typed_arguments.push(typed);
+        if argument_index + 1 < arguments.len() {
+            let _ = ctx.inference_session(context).map(|session| ctx.solve_inference(&mut session.borrow_mut()));
+        }
+    }
+    let _ = ctx.inference_session(context).map(|session| ctx.solve_inference(&mut session.borrow_mut()));
+    ctx.pop_inference_frame(context, probe_frame);
+    session_handle.borrow_mut().close_frame(probe_frame);
+    Some(UnionGenericInferenceScope {
+        context,
+        root,
+        owns_context,
+        typed_arguments,
+        expected_for_arms,
+    })
+}
+
 /// Applies one source call to every statically reachable union receiver arm.
 /// Receiver dispatch is resolved before this function, while argument ASTs are
 /// analyzed once and reused through `PreAnalyzed` application arguments.
@@ -1741,61 +2053,71 @@ pub(crate) fn apply_union_resolved_call(
 ) -> CallCheckResult {
     ctx.begin_call_causal_capture();
 
+    let shared_scope = prepare_union_generic_inference(ctx, arms, arguments, expected);
+    let mut contextual_conflicts = Vec::new();
     let mut common_expectations = vec![None; arguments.len()];
     let mut expectation_counts = vec![0usize; arguments.len()];
     let mut found_counts = vec![0usize; arguments.len()];
     let mut expectation_conflicts = vec![false; arguments.len()];
-    for arm in arms {
-        let UnionCallArm::Found { target, .. } = arm else {
-            continue;
-        };
-        let Ok(plan) = bind_static_arguments(arguments, &target.signature.parameters) else {
-            continue;
-        };
-        for argument_index in 0..arguments.len() {
-            let Some(parameter) = parameter_for_argument(&plan, argument_index, &target.signature.parameters) else {
+    let typed_arguments = if let Some(scope) = shared_scope.as_ref() {
+        scope.typed_arguments.clone()
+    } else {
+        for arm in arms {
+            let UnionCallArm::Found { target, .. } = arm else {
                 continue;
             };
-            found_counts[argument_index] += 1;
-            let Some(parameter_ty) = parameter.ty.ty() else {
+            let Ok(plan) = bind_static_arguments(arguments, &target.signature.parameters) else {
                 continue;
             };
-            expectation_counts[argument_index] += 1;
-            match common_expectations[argument_index] {
-                None => common_expectations[argument_index] = Some(parameter_ty),
-                Some(common) if common != parameter_ty => expectation_conflicts[argument_index] = true,
-                Some(_) => {}
+            for argument_index in 0..arguments.len() {
+                let Some(parameter) = parameter_for_argument(&plan, argument_index, &target.signature.parameters) else {
+                    continue;
+                };
+                found_counts[argument_index] += 1;
+                let Some(parameter_ty) = parameter.ty.ty() else {
+                    continue;
+                };
+                expectation_counts[argument_index] += 1;
+                match common_expectations[argument_index] {
+                    None => common_expectations[argument_index] = Some(parameter_ty),
+                    Some(common) if common != parameter_ty => expectation_conflicts[argument_index] = true,
+                    Some(_) => {}
+                }
             }
         }
-    }
+        contextual_conflicts = arguments
+            .iter()
+            .enumerate()
+            .filter_map(|(index, argument)| {
+                (expectation_conflicts[index]
+                    && found_counts[index] > 0
+                    && expectation_counts[index] == found_counts[index]
+                    && argument.expression().is_some_and(|expression| matches!(expression, Expr::Block(_))))
+                .then_some(index)
+            })
+            .collect();
 
-    let contextual_conflicts = arguments
-        .iter()
-        .enumerate()
-        .filter_map(|(index, argument)| {
-            (expectation_conflicts[index]
-                && found_counts[index] > 0
-                && expectation_counts[index] == found_counts[index]
-                && argument.expression().is_some_and(|expression| matches!(expression, Expr::Block(_))))
-            .then_some(index)
-        })
-        .collect::<Vec<_>>();
-
-    let mut typed_arguments = Vec::with_capacity(arguments.len());
-    for (index, argument) in arguments.iter().copied().enumerate() {
-        let argument_expected = if contextual_conflicts.contains(&index) {
-            ExpectedType::None
-        } else if !expectation_conflicts[index] && expectation_counts[index] == found_counts[index] {
-            common_expectations[index]
-                .map(|ty| ExpectedType::proper_from(ty, ExpectationOrigin::CallableSignature))
-                .unwrap_or_default()
-        } else {
-            ExpectedType::None
-        };
-        let typed = analyze_application_argument(ctx, argument, &argument_expected);
-        record_generic_argument_capture(ctx, &typed);
-        typed_arguments.push(typed);
-    }
+        let mut typed_arguments = Vec::with_capacity(arguments.len());
+        for (index, argument) in arguments.iter().copied().enumerate() {
+            let argument_expected = if contextual_conflicts.contains(&index) {
+                ExpectedType::None
+            } else if !expectation_conflicts[index] && expectation_counts[index] == found_counts[index] {
+                common_expectations[index]
+                    .map(|ty| ExpectedType::proper_from(ty, ExpectationOrigin::CallableSignature))
+                    .unwrap_or_default()
+            } else {
+                ExpectedType::None
+            };
+            let typed = analyze_application_argument(ctx, argument, &argument_expected);
+            record_generic_argument_capture(ctx, &typed);
+            typed_arguments.push(typed);
+        }
+        typed_arguments
+    };
+    let arm_expected = shared_scope
+        .as_ref()
+        .map(|scope| scope.expected_for_arms.clone())
+        .unwrap_or_else(|| expected.clone());
     let pre_analyzed = arguments
         .iter()
         .enumerate()
@@ -1866,7 +2188,7 @@ pub(crate) fn apply_union_resolved_call(
                     continue;
                 }
 
-                let result = apply_resolved_callable(ctx, target, premise, &pre_analyzed, expected, call_range);
+                let result = apply_resolved_callable(ctx, target, premise, &pre_analyzed, &arm_expected, call_range);
                 let outcome = if result.status.is_ready() {
                     crate::explain::UnionArmOutcome::Resolved
                 } else {
@@ -1967,6 +2289,9 @@ pub(crate) fn apply_union_resolved_call(
             explanation_parents.push(premise_explanation);
         }
     }
+    if let Some(scope) = shared_scope {
+        scope.finish(ctx);
+    }
     let knowledge = join_type_knowledge(ctx.store, publication_inputs);
     let status = status.unwrap_or_else(|| match &knowledge {
         TypeKnowledge::Dynamic(reason) => AnalysisStatus::DynamicBoundary(reason.clone()),
@@ -1981,7 +2306,9 @@ pub(crate) fn apply_union_resolved_call(
         causal_invalidity,
         explanation_parents,
         callable: (all_found && callable_consistent).then_some(first_callable).flatten().flatten(),
+        symbolic_result: None,
     };
+    ctx.flow.invalidate_opaque_calls();
     debug_assert_call_result_coherent(&result);
     result
 }
@@ -2051,7 +2378,9 @@ pub(crate) fn analyze_unresolved_application(
         causal_invalidity,
         explanation_parents,
         callable: None,
+        symbolic_result: None,
     };
+    ctx.flow.invalidate_opaque_calls();
     debug_assert_call_result_coherent(&result);
     result
 }

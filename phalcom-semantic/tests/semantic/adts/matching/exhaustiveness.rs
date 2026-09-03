@@ -146,10 +146,8 @@ fn match_exh_05_family_pattern_covers_family_but_not_sibling() {
 }
 
 #[test]
-#[ignore = "RED: callable family and singleton residual distinction remains incomplete"]
 fn match_exh_06_callable_family_leaves_singleton_residual() {
-    let case =
-        analyze_adt("enum Animal { @variant Dog @variant Dog() @variant Cat }\nclass Test { run(_ value: Animal) { match value { Dog(...) => 1 _ => 0 } } }\n");
+    let case = analyze_adt("enum Animal { @variant Dog @variant Dog() @variant Cat }\nclass Test { run(_ value: Animal) { match value { Dog(...) => 1 } } }\n");
     case.only_match().assert_not_exhaustive();
 }
 
@@ -203,18 +201,39 @@ fn match_exh_12_nested_missing_witness_preserves_shape() {
 }
 
 #[test]
-#[ignore = "GATED: tuple product source fixture is required"]
 fn match_exh_13_tuple_product_is_exhaustive_when_all_products_are_covered() {
     let case = analyze_adt(
-        "enum Choice { @variant Left @variant Right }\nclass Test { run(_ value: (Choice, Choice)) { match value { (Choice::Left, Choice::Left) => 1 (Choice::Left, Choice::Right) => 2 (Choice::Right, Choice::Left) => 3 (Choice::Right, Choice::Right) => 4 } } }\n",
+        r#"
+enum Choice { @variant Left @variant Right }
+class Test {
+    run(_ value: (Choice, Choice)) {
+        match value {
+            (Choice::Left, Choice::Left) => 1
+            (Choice::Left, Choice::Right) => 2
+            (Choice::Right, Choice::Left) => 3
+            (Choice::Right, Choice::Right) => 4
+        }
+    }
+}
+"#,
     );
     case.only_match().assert_exhaustive();
 }
 
 #[test]
-#[ignore = "GATED: list pattern source fixture is required"]
 fn match_exh_14_list_partition_is_exhaustive() {
-    let case = analyze_adt("class Test { run(_ value: Object) { match value { [] => 0 [head, *tail] => 1 } } }\n");
+    let case = analyze_adt(
+        r#"
+class Test {
+    run(_ value: List<Int>) {
+        match value {
+            [] => 0
+            [head, *tail] => 1
+        }
+    }
+}
+"#,
+    );
     case.only_match().assert_exhaustive();
 }
 

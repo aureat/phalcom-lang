@@ -57,9 +57,10 @@ impl ModuleReflectionMetadata {
                             slot: slot as u16,
                         });
                     }
-                    let family_key = var_info.family.as_ref().map(|fam| {
-                        StableVariantFamilyKey::new(fam.owner.clone(), fam.base_name.clone())
-                    });
+                    let family_key = var_info
+                        .family
+                        .as_ref()
+                        .map(|fam| StableVariantFamilyKey::new(fam.owner.clone(), fam.base_name.clone()));
                     variants.push(RuntimeVariantReflectionSpec {
                         key: var_key,
                         selector: var_info.id.selector.clone(),

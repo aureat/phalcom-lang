@@ -1190,7 +1190,9 @@ fn derive_accessors(class: &mut ClassDef, ctx: &mut ExpandCtx) -> Result<(), Com
                 check_accessor_collision(class, ctx, &base_name, SignatureKind::Getter, "get")?;
                 class.members.push(ClassMember::Getter(GetterDef {
                     name: base_name.clone(),
+                    generic_parameters: Vec::new(),
                     return_annotation: None,
+                    where_clause: None,
                     body: MemberBody::Block(vec![Statement::Expr {
                         expr: Expr::Field {
                             value: field.name.clone(),
@@ -1614,7 +1616,9 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
             if !class_has_selector(class, ctx, &getter_selector)? {
                 class.members.push(ClassMember::Getter(GetterDef {
                     name: base_name,
+                    generic_parameters: Vec::new(),
                     return_annotation: None,
+                    where_clause: None,
                     body: MemberBody::Block(vec![Statement::Expr {
                         expr: Expr::Field {
                             value: f.name.clone(),
@@ -1664,7 +1668,9 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
         let hash_body = build_data_hash(&fields, attr_range);
         class.members.push(ClassMember::Getter(GetterDef {
             name: "hash".to_string(),
+            generic_parameters: Vec::new(),
             return_annotation: None,
+            where_clause: None,
             body: MemberBody::Block(vec![Statement::Return(ReturnStatement {
                 value: Some(hash_body),
                 range: attr_range,
@@ -1681,7 +1687,9 @@ fn derive_data(class: &mut ClassDef, ctx: &mut ExpandCtx, attr_range: SourceRang
         let ts_body = build_data_to_string(&class.name, &fields, attr_range);
         class.members.push(ClassMember::Getter(GetterDef {
             name: "toString".to_string(),
+            generic_parameters: Vec::new(),
             return_annotation: None,
+            where_clause: None,
             body: MemberBody::Block(vec![Statement::Return(ReturnStatement {
                 value: Some(ts_body),
                 range: attr_range,
@@ -1991,7 +1999,10 @@ fn resolves_to_attribute_class(
         let parent = if let Some(&p) = class_parents.get(&key) {
             Some(p.name)
         } else if let Some(universe_mod) = universe_module {
-            let universe_key = ClassKey { module: universe_mod, name: sym };
+            let universe_key = ClassKey {
+                module: universe_mod,
+                name: sym,
+            };
             class_parents.get(&universe_key).map(|p| p.name)
         } else {
             None

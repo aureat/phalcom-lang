@@ -105,6 +105,20 @@ fn test_bidirectional_empty_collections() {
 }
 
 #[test]
+fn expected_collection_shape_does_not_treat_arbitrary_applied_arguments_as_elements() {
+    let (mut store, _hier, _resolver, _decls, module) = setup_wave3_test_env();
+    let list_decl = phalcom_semantic::core_surface::universe_declaration(UniverseKey::List);
+    let wrapper_decl = phalcom_semantic::identity::DeclarationId::new(module, "Wrapper".into());
+    let wrapper_kind = store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
+    let wrapper_form = store.nominal_form(wrapper_decl, wrapper_kind);
+    let int_ty = store.nominal_type(phalcom_semantic::core_surface::universe_declaration(UniverseKey::Int));
+    let wrapper_int = store.apply_type_form(wrapper_form, &[int_ty]).expect("Wrapper<Int>");
+    let expected = ExpectedType::proper(wrapper_int);
+
+    assert!(expected.collection_element_type(&store, &list_decl).is_none());
+}
+
+#[test]
 fn test_expression_analysis_index_population_and_stability() {
     let (mut store, hier, resolver, decls, module) = setup_wave3_test_env();
     let mut ctx = CheckingContext::new(&mut store, &hier, &resolver, &decls, module);

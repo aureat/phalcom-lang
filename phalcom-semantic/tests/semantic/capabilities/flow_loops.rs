@@ -367,3 +367,31 @@ class Counter {
     f.assert_binding_established(init, "count", int_ty);
     f.assert_no_error_diagnostics();
 }
+
+/// LAW: an opaque call cannot preserve a refined instance-field current fact,
+/// while the field contract remains available for later checking.
+#[test]
+fn opaque_call_drops_refined_field_current_without_rewriting_contract() {
+    let f = Fixture::new(
+        r#"
+class Probe {
+  _value: Object
+
+  run() {
+    self._value = 1
+    self.missing()
+    let observed = self._value
+  }
+}
+"#,
+    );
+    let run = f.callable("Probe", "run", DispatchSide::Instance);
+    let observed = f.binding(run, "observed");
+    assert_eq!(
+        observed.current,
+        phalcom_semantic::types::evidence::TypeKnowledge::Unknown(phalcom_semantic::types::evidence::UnknownReason::NoTypeEvidence)
+    );
+    let field = run.entry_flow.fields.values().next().expect("field flow");
+    assert_eq!(field.contract.ty(), Some(f.ty("Object")));
+    assert_eq!(field.current.ty(), None);
+}

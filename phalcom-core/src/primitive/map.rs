@@ -183,7 +183,11 @@ fn duplicate_key_error(vm: &mut VM) -> RuntimeError {
     let rendered = "duplicate Map literal key".to_string();
     let universe = vm.universe_module().expect("Universe root is loaded before Map literals execute");
     let class_name = vm.interner.intern("DuplicateKeyError");
-    let class_value = vm.heap.module(universe).get(class_name).expect("DuplicateKeyError is defined by the Universe sources");
+    let class_value = vm
+        .heap
+        .module(universe)
+        .get(class_name)
+        .expect("DuplicateKeyError is defined by the Universe sources");
     let class_id = expect_class(vm, &class_value).expect("DuplicateKeyError global is a class");
     let field_count = vm.heap.class(class_id).field_count;
     let mut instance = crate::heap::InstanceObject::new(class_id, field_count);

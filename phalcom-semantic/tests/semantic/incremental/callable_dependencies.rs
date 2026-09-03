@@ -285,12 +285,7 @@ class Consumer {
 
     let mut session = SemanticWorkspaceSession::new();
     let update1 = session.update(single_module_input(module.clone(), source_v1, 1));
-    let consumer_v1 = update1
-        .snapshot
-        .callable_analyses
-        .get(&consumer_read_id)
-        .cloned()
-        .expect("Consumer.read v1");
+    let consumer_v1 = update1.snapshot.callable_analyses.get(&consumer_read_id).cloned().expect("Consumer.read v1");
     let call_v1 = consumer_v1
         .expressions
         .values()
@@ -314,12 +309,7 @@ class Consumer {
         update2.recomputed,
         update2.stats
     );
-    let consumer_v2 = update2
-        .snapshot
-        .callable_analyses
-        .get(&consumer_read_id)
-        .cloned()
-        .expect("Consumer.read v2");
+    let consumer_v2 = update2.snapshot.callable_analyses.get(&consumer_read_id).cloned().expect("Consumer.read v2");
     assert!(!Arc::ptr_eq(&consumer_v1, &consumer_v2), "generic supertype edit must not reuse Consumer.read");
     let call_v2 = consumer_v2
         .expressions
@@ -337,11 +327,7 @@ class Consumer {
 
     let mut cold = SemanticWorkspaceSession::new();
     let cold_update = cold.update(single_module_input(module, source_v2, 1));
-    let cold_consumer = cold_update
-        .snapshot
-        .callable_analyses
-        .get(&consumer_read_id)
-        .expect("cold Consumer.read");
+    let cold_consumer = cold_update.snapshot.callable_analyses.get(&consumer_read_id).expect("cold Consumer.read");
     let cold_call = cold_consumer
         .expressions
         .values()

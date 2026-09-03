@@ -214,4 +214,28 @@ mod tests {
 
         assert_eq!(fixpoint.header.get_binding(b_id).unwrap().current.ty(), Some(int_ty));
     }
+
+    #[test]
+    fn unchanged_backedge_is_not_reported_as_progress() {
+        let mut store = TypeStore::new();
+        let hierarchy = MapTypeHierarchy::default();
+        let resolver = SimpleTypeResolver::new();
+        let declarations = DeclarationTypeTable::new();
+        let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, ModuleId::universe_root());
+        let entry = FlowState::new();
+        let mut probes = 0;
+
+        let fixpoint = solve_loop_header_with_limit(&mut ctx, &entry, 8, |_probe_ctx, current_header| {
+            probes += 1;
+            LoopStepResult {
+                normal_backedge: Some(current_header.clone()),
+                continues: Vec::new(),
+                breaks: Vec::new(),
+            }
+        })
+        .expect("solver succeeds");
+
+        assert_eq!(probes, 1);
+        assert_eq!(fixpoint.convergence, LoopConvergence::Stable { iterations: 1 });
+    }
 }

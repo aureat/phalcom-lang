@@ -37,10 +37,8 @@ impl UniverseSourceDeclarationCatalog {
                 .collect();
             let module = ModuleId::universe(crate::identity::ModulePath::from_components(path));
             let parsed = BuiltinInterfaceBuilder::load_parsed(provider, &module)?;
-            let interface = InterfaceBuilder::build(module.clone(), parsed.kind, &parsed.program).map_err(|error| ModuleLoadError::Interface {
-                module: module.clone(),
-                error,
-            })?;
+            let interface = InterfaceBuilder::build(module.clone(), parsed.kind, &parsed.program)
+                .map_err(|error| ModuleLoadError::Interface { module: module.clone(), error })?;
             declarations.insert(module, interface.declarations);
         }
         Ok(Self { declarations })
@@ -55,11 +53,7 @@ impl UniverseSourceDeclarationCatalog {
             .collect();
         let module = ModuleId::universe(crate::identity::ModulePath::from_components(path));
         let name = key.name().to_string();
-        if self
-            .declarations
-            .get(&module)
-            .is_some_and(|declarations| declarations.contains_key(&name))
-        {
+        if self.declarations.get(&module).is_some_and(|declarations| declarations.contains_key(&name)) {
             Ok((module, name))
         } else {
             Err(ModuleResolutionError::ModuleNotFound(format!("canonical Universe declaration {module}::{name} is absent from source")).into())

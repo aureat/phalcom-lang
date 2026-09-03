@@ -455,7 +455,9 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                     ctx.bind_contextual_block_parameter(p.name.clone(), p_ty, p.range);
                 } else {
                     ctx.bind_untyped_block_parameter(p.name.clone(), p.range);
-                    incomplete_signature = true;
+                    if !matches!(expected_params.get(i), Some(ExpectedType::Inference { .. })) {
+                        incomplete_signature = true;
+                    }
                 }
                 params.push(crate::types::store::CallableParameterType {
                     label: None,
@@ -469,7 +471,9 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                     ctx.bind_contextual_block_parameter(rest_p.name.clone(), rest_ty, rest_p.range);
                 } else {
                     ctx.bind_untyped_block_parameter(rest_p.name.clone(), rest_p.range);
-                    incomplete_signature = true;
+                    if !matches!(expected_params.get(block.params.fixed.len()), Some(ExpectedType::Inference { .. })) {
+                        incomplete_signature = true;
+                    }
                 }
                 params.push(crate::types::store::CallableParameterType {
                     label: None,
@@ -523,6 +527,41 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
 
             let Some(return_type) = closure_return_knowledge.ty() else {
                 ctx.expected_return = outer_expected_return;
+                if let Some(symbolic_body) = tail_typed.symbolic_result.as_ref() {
+                    let symbolic_context = symbolic_body.context;
+                    let symbolic_return = match &expected_ret {
+                        ExpectedType::Inference { context, term, .. } if *context == symbolic_context => term.clone(),
+                        _ => symbolic_body.term.clone(),
+                    };
+                    let symbolic_parameters = params
+                        .iter()
+                        .enumerate()
+                        .map(|(index, parameter)| {
+                            let term = expected_params
+                                .get(index)
+                                .and_then(|expected| match expected {
+                                    ExpectedType::Inference { context, term, .. } if *context == symbolic_context => Some(term.clone()),
+                                    ExpectedType::Proper { ty, .. } => Some(crate::checker::inference::InferenceTerm::Canonical(*ty)),
+                                    _ => None,
+                                })
+                                .unwrap_or(crate::checker::inference::InferenceTerm::Canonical(parameter.ty));
+                            crate::checker::inference::InferenceCallableParameter {
+                                label: parameter.label.clone(),
+                                term,
+                                rest: parameter.rest,
+                            }
+                        })
+                        .collect();
+                    return TypedExpression::unknown(UnknownReason::UncheckedExpression).with_symbolic_result(
+                        crate::checker::typed_expr::SymbolicInferenceResult {
+                            context: symbolic_context,
+                            term: crate::checker::inference::InferenceTerm::Callable(crate::checker::inference::InferenceCallable {
+                                parameters: symbolic_parameters,
+                                return_type: Box::new(symbolic_return),
+                            }),
+                        },
+                    );
+                }
                 return TypedExpression::unknown(UnknownReason::UncheckedExpression);
             };
             if incomplete_signature {
@@ -652,13 +691,13 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
         // --- 6. Message Sends and Invocations (Canonical Resolution E5) ---
         Expr::MethodCall(call) => synthesize_method_call(ctx, call, expected),
         Expr::UnqualifiedCall(call) => synthesize_unqualified_call(ctx, call, expected),
-        Expr::Binary(binary) => synthesize_binary_expr(ctx, binary),
-        Expr::Unary(unary) => synthesize_unary_expr(ctx, unary),
+        Expr::Binary(binary) => synthesize_binary_expr(ctx, binary, expected),
+        Expr::Unary(unary) => synthesize_unary_expr(ctx, unary, expected),
 
         // --- 7. Member and Subscript Access ---
-        Expr::GetProperty(get) => synthesize_get_property(ctx, get),
+        Expr::GetProperty(get) => synthesize_get_property(ctx, get, expected),
         Expr::SetProperty(set) => synthesize_set_property(ctx, set),
-        Expr::Index(idx) => synthesize_index_expr(ctx, idx),
+        Expr::Index(idx) => synthesize_index_expr(ctx, idx, expected),
         Expr::SetIndex(set_idx) => synthesize_set_index_expr(ctx, set_idx),
 
         // --- 7.5 Static Associated Lookup ---
@@ -685,6 +724,8 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             };
             TypedExpression::established(ty, EvidenceOrigin::Flow, r.range)
         }
+        // Ellipsis is a compiler/runtime singleton, not a statically declared
+        // value in the semantic universe surface.
         Expr::Ellipsis { .. } => TypedExpression::unknown(UnknownReason::UncheckedExpression),
         Expr::TypeForm(annotation) => {
             let resolver = ctx.resolver.inner();
@@ -725,7 +766,9 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             typed.causal_invalidity = causal_invalidity;
             typed
         }
-        _ => TypedExpression::unknown(UnknownReason::UncheckedExpression),
+        // Reserved implementation selectors are compiler-internal sends. They
+        // remain explicitly unavailable to ordinary source semantics.
+        Expr::ImplementationSelector { .. } => TypedExpression::unknown(UnknownReason::UncheckedExpression),
     }
 }
 
@@ -1316,7 +1359,7 @@ fn synthesize_symbol_expr(ctx: &mut CheckingContext<'_>, s: &SymbolExpr) -> Type
 
 fn synthesize_list_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::ast::ListLiteralExpr, expected: &ExpectedType) -> TypedExpression {
     let list_decl = ctx.core_ids.list.clone();
-    let expected_elem = expected.collection_element_type(ctx.store);
+    let expected_elem = expected.collection_element_type(ctx.store, &list_decl);
     let list_form = {
         let kind = ctx.store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
         Some(ctx.store.nominal_form(list_decl.clone(), kind))
@@ -1345,10 +1388,8 @@ fn synthesize_list_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::as
 
     let knowledge = if list.elements.is_empty() {
         if let Some(expected_ty) = expected.ty() {
-            if is_applied_core_collection(ctx.store, expected_ty, &list_decl) {
-                expected
-                    .contextual_knowledge(expected_ty)
-                    .unwrap_or(TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence))
+            if is_applied_core_collection(ctx.store, expected_ty, &list_decl, 1) {
+                TypeKnowledge::assumed(expected_ty, EvidenceOrigin::ContextualDerivation)
             } else {
                 TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)
             }
@@ -1376,7 +1417,7 @@ fn synthesize_list_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::as
 
 fn synthesize_set_literal(ctx: &mut CheckingContext<'_>, set: &phalcom_ast::ast::SetLiteralExpr, expected: &ExpectedType) -> TypedExpression {
     let set_decl = ctx.core_ids.set.clone();
-    let expected_elem = expected.collection_element_type(ctx.store);
+    let expected_elem = expected.collection_element_type(ctx.store, &set_decl);
     let set_form = {
         let kind = ctx.store.arrow_kind(vec![KindId::TYPE].into_boxed_slice(), KindId::TYPE);
         Some(ctx.store.nominal_form(set_decl.clone(), kind))
@@ -1404,10 +1445,8 @@ fn synthesize_set_literal(ctx: &mut CheckingContext<'_>, set: &phalcom_ast::ast:
 
     let knowledge = if set.entries.is_empty() {
         if let Some(expected_ty) = expected.ty() {
-            if is_applied_core_collection(ctx.store, expected_ty, &set_decl) {
-                expected
-                    .contextual_knowledge(expected_ty)
-                    .unwrap_or(TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence))
+            if is_applied_core_collection(ctx.store, expected_ty, &set_decl, 1) {
+                TypeKnowledge::assumed(expected_ty, EvidenceOrigin::ContextualDerivation)
             } else {
                 TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)
             }
@@ -1436,7 +1475,7 @@ fn synthesize_set_literal(ctx: &mut CheckingContext<'_>, set: &phalcom_ast::ast:
 fn synthesize_map_literal(ctx: &mut CheckingContext<'_>, map: &phalcom_ast::ast::MapLiteralExpr, expected: &ExpectedType) -> TypedExpression {
     let map_decl = ctx.core_ids.map.clone();
     let symbol_decl = ctx.core_ids.symbol.clone();
-    let (expected_key, expected_val) = expected.map_key_val_types(ctx.store);
+    let (expected_key, expected_val) = expected.map_key_val_types(ctx.store, &map_decl);
     let map_form = {
         let kind = ctx.store.arrow_kind(vec![KindId::TYPE, KindId::TYPE].into_boxed_slice(), KindId::TYPE);
         Some(ctx.store.nominal_form(map_decl.clone(), kind))
@@ -1493,10 +1532,8 @@ fn synthesize_map_literal(ctx: &mut CheckingContext<'_>, map: &phalcom_ast::ast:
     let value_lane = lane(value_knowledge);
     let knowledge = if map.entries.is_empty() {
         if let Some(expected_ty) = expected.ty() {
-            if is_applied_core_collection(ctx.store, expected_ty, &map_decl) {
-                expected
-                    .contextual_knowledge(expected_ty)
-                    .unwrap_or(TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence))
+            if is_applied_core_collection(ctx.store, expected_ty, &map_decl, 2) {
+                TypeKnowledge::assumed(expected_ty, EvidenceOrigin::ContextualDerivation)
             } else {
                 TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence)
             }
@@ -1521,41 +1558,37 @@ fn synthesize_map_literal(ctx: &mut CheckingContext<'_>, map: &phalcom_ast::ast:
     result
 }
 
-fn is_applied_core_collection(store: &crate::types::store::TypeStore, applied_ty: TypeId, core_decl: &DeclarationId) -> bool {
-    if let crate::types::store::TypeData::Applied { origin, .. } = store.get(applied_ty) {
-        if let crate::types::store::TypeData::Nominal { declaration } = store.get(*origin) {
-            return declaration == core_decl;
-        }
-    }
-    false
+fn is_applied_core_collection(store: &crate::types::store::TypeStore, applied_ty: TypeId, core_decl: &DeclarationId, arity: usize) -> bool {
+    let Some((declaration, _)) = store.applied_nominal_parts(applied_ty) else {
+        return false;
+    };
+    declaration == *core_decl && matches!(store.get(applied_ty), TypeData::Applied { arguments, .. } if arguments.len() == arity)
 }
 
-fn synthesize_tuple_literal(ctx: &mut CheckingContext<'_>, tup: &phalcom_ast::ast::TupleLiteralExpr, _expected: &ExpectedType) -> TypedExpression {
+fn synthesize_tuple_literal(ctx: &mut CheckingContext<'_>, tup: &phalcom_ast::ast::TupleLiteralExpr, expected: &ExpectedType) -> TypedExpression {
     let mut labels = Vec::new();
     let mut knowledge = Vec::new();
     let mut operands = Vec::new();
+    let mut expected_index = 0;
 
     for entry in &tup.entries {
         match entry {
             TupleLiteralEntry::Positional { expr, .. } => {
-                let typed = analyze_expression(ctx, expr, &ExpectedType::None);
+                let element_expected = expected_tuple_component(expected, ctx.store, expected_index, None);
+                let typed = analyze_expression(ctx, expr, &element_expected);
                 labels.push(None);
                 knowledge.push(typed.knowledge.clone());
                 operands.push(typed);
+                expected_index += 1;
             }
             TupleLiteralEntry::Labeled { label, value, .. } => {
-                let typed = analyze_expression(ctx, value, &ExpectedType::None);
-                let label_name = match label {
-                    ProductLabel::Static { symbol, .. } => match symbol {
-                        SymbolLiteralKind::Name(n) => Some(n.clone().into_boxed_str()),
-                        SymbolLiteralKind::Selector { name, .. } => Some(name.clone().into_boxed_str()),
-                        _ => None,
-                    },
-                    _ => None,
-                };
+                let label_name = product_label_name(label);
+                let element_expected = expected_tuple_component(expected, ctx.store, expected_index, label_name.as_deref());
+                let typed = analyze_expression(ctx, value, &element_expected);
                 labels.push(label_name);
                 knowledge.push(typed.knowledge.clone());
                 operands.push(typed);
+                expected_index += 1;
             }
             TupleLiteralEntry::Expand { expr, .. } => {
                 let typed = analyze_expression(ctx, expr, &ExpectedType::None);
@@ -1568,6 +1601,7 @@ fn synthesize_tuple_literal(ctx: &mut CheckingContext<'_>, tup: &phalcom_ast::as
                         for (index, component) in projected.into_iter().enumerate() {
                             labels.push(source_labels.as_ref().and_then(|labels| labels.get(index).cloned()).flatten());
                             knowledge.push(component);
+                            expected_index += 1;
                         }
                     }
                     Err(blocker) => {
@@ -1600,6 +1634,45 @@ fn synthesize_tuple_literal(ctx: &mut CheckingContext<'_>, tup: &phalcom_ast::as
     result
 }
 
+fn product_label_name(label: &ProductLabel) -> Option<Box<str>> {
+    match label {
+        ProductLabel::Static { symbol, .. } => match symbol {
+            SymbolLiteralKind::Name(name) | SymbolLiteralKind::Selector { name, .. } => Some(name.clone().into_boxed_str()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn expected_tuple_component(expected: &ExpectedType, store: &crate::types::store::TypeStore, index: usize, label: Option<&str>) -> ExpectedType {
+    match expected {
+        ExpectedType::Proper { ty, origin } => {
+            let TypeData::Tuple(elements) = store.get(*ty) else {
+                return ExpectedType::None;
+            };
+            let element = label
+                .and_then(|name| elements.iter().find(|element| element.label.as_deref() == Some(name)))
+                .or_else(|| elements.get(index));
+            element
+                .map(|element| ExpectedType::proper_from(element.ty, *origin))
+                .unwrap_or(ExpectedType::None)
+        }
+        ExpectedType::Inference {
+            context,
+            term: crate::checker::inference::InferenceTerm::Tuple(elements),
+            origin,
+        } => {
+            let element = label
+                .and_then(|name| elements.iter().find(|element| element.label.as_deref() == Some(name)))
+                .or_else(|| elements.get(index));
+            element
+                .map(|element| ExpectedType::inference_from(*context, element.term.clone(), *origin))
+                .unwrap_or(ExpectedType::None)
+        }
+        _ => ExpectedType::None,
+    }
+}
+
 fn expected_record_field(ctx: &CheckingContext<'_>, expected: &ExpectedType, name: &str) -> ExpectedType {
     if let Some(expected_ty) = expected.ty() {
         let expected_knowledge = match expected.origin() {
@@ -1614,12 +1687,13 @@ fn expected_record_field(ctx: &CheckingContext<'_>, expected: &ExpectedType, nam
     }
 
     if let ExpectedType::Inference {
+        context,
         term: crate::checker::inference::InferenceTerm::Record(record),
         origin,
     } = expected
     {
         if let Some(field) = record.fields.iter().find(|field| field.name.as_ref() == name) {
-            return ExpectedType::inference_from(field.term.clone(), *origin);
+            return ExpectedType::inference_from(*context, field.term.clone(), *origin);
         }
     }
 
@@ -1722,13 +1796,16 @@ fn captured_family_target(denotation: Option<&SemanticDenotation>, operation: &F
     let Some(SemanticDenotation::AssociatedValue(assoc)) = denotation else {
         return None;
     };
-    let AssociatedValueDenotation::Family { members, .. } = &**assoc else {
-        return None;
-    };
-    members
-        .iter()
-        .find(|member| &member.operation == operation)
-        .and_then(|member| member.target.clone())
+    match &**assoc {
+        AssociatedValueDenotation::Family { members, .. } => members
+            .iter()
+            .find(|member| &member.operation == operation)
+            .and_then(|member| member.target.clone()),
+        AssociatedValueDenotation::BehavioralFamily { members, .. } => {
+            members.iter().find(|member| &member.operation == operation).map(|member| member.target.clone())
+        }
+        AssociatedValueDenotation::Exact { .. } => None,
+    }
 }
 
 fn family_callable_application_target(
@@ -1905,7 +1982,7 @@ fn synthesize_family_value_call(
             if matches!(
                 denotation,
                 Some(SemanticDenotation::AssociatedValue(assoc))
-                    if matches!(&**assoc, AssociatedValueDenotation::Family { .. })
+                    if matches!(&**assoc, AssociatedValueDenotation::Family { .. } | AssociatedValueDenotation::BehavioralFamily { .. })
             ) && let Some(expression) = ctx.current_expression_id()
             {
                 ctx.record_family_application(
@@ -1938,7 +2015,7 @@ fn synthesize_family_value_call(
             if matches!(
                 denotation,
                 Some(SemanticDenotation::AssociatedValue(assoc))
-                    if matches!(&**assoc, AssociatedValueDenotation::Family { .. })
+                    if matches!(&**assoc, AssociatedValueDenotation::Family { .. } | AssociatedValueDenotation::BehavioralFamily { .. })
             ) && let Some(expression) = ctx.current_expression_id()
             {
                 ctx.record_family_application(
@@ -2381,6 +2458,7 @@ pub(crate) fn apply_binary_operation_from_typed(
     op: BinaryOp,
     right_expr: &Expr,
     right_typed: &TypedExpression,
+    expected: &ExpectedType,
     range: SourceRange,
 ) -> TypedExpression {
     let op_name = match op {
@@ -2434,7 +2512,7 @@ pub(crate) fn apply_binary_operation_from_typed(
             typed: left_typed,
             range: left_expr.range(),
         }];
-        return apply_resolved_callable(ctx, &target, &premise, &arguments, &ExpectedType::None, range).into();
+        return apply_resolved_callable(ctx, &target, &premise, &arguments, expected, range).into();
     }
 
     let premise = CallPremise::from_typed(ctx, left_typed);
@@ -2454,7 +2532,7 @@ pub(crate) fn apply_binary_operation_from_typed(
     match direct {
         ResolvedDispatchResult::Found(resolved) => {
             let target = CallableApplicationTarget::from_dispatch(resolved);
-            apply_resolved_callable(ctx, &target, &premise, &arguments, &ExpectedType::None, range).into()
+            apply_resolved_callable(ctx, &target, &premise, &arguments, expected, range).into()
         }
         ResolvedDispatchResult::Missing { .. } => {
             analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchMissing).into()
@@ -2472,10 +2550,19 @@ pub(crate) fn apply_binary_operation_from_typed(
     }
 }
 
-fn synthesize_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr) -> TypedExpression {
+fn synthesize_binary_expr(ctx: &mut CheckingContext<'_>, binary: &BinaryExpr, expected: &ExpectedType) -> TypedExpression {
     let left_typed = analyze_expression(ctx, &binary.left, &ExpectedType::None);
     let right_typed = analyze_expression(ctx, &binary.right, &ExpectedType::None);
-    apply_binary_operation_from_typed(ctx, &binary.left, &left_typed, binary.op.clone(), &binary.right, &right_typed, binary.range)
+    apply_binary_operation_from_typed(
+        ctx,
+        &binary.left,
+        &left_typed,
+        binary.op.clone(),
+        &binary.right,
+        &right_typed,
+        expected,
+        binary.range,
+    )
 }
 
 fn synthesize_comparison_chain(ctx: &mut CheckingContext<'_>, chain: &ComparisonChainExpr) -> TypedExpression {
@@ -2498,7 +2585,16 @@ fn synthesize_comparison_chain(ctx: &mut CheckingContext<'_>, chain: &Comparison
         let right_typed = &operands[i + 1];
         let link_range = left_expr.range().merge(&right_expr.range());
         let link_result = match op {
-            RelationOp::Binary(b_op) => apply_binary_operation_from_typed(ctx, left_expr, left_typed, b_op.clone(), right_expr, right_typed, link_range),
+            RelationOp::Binary(b_op) => apply_binary_operation_from_typed(
+                ctx,
+                left_expr,
+                left_typed,
+                b_op.clone(),
+                right_expr,
+                right_typed,
+                &ExpectedType::None,
+                link_range,
+            ),
             RelationOp::Matches | RelationOp::Understands => TypedExpression::unknown(UnknownReason::UncheckedExpression),
         };
         link_results.push(link_result);
@@ -2528,18 +2624,105 @@ fn synthesize_comparison_chain(ctx: &mut CheckingContext<'_>, chain: &Comparison
 fn synthesize_membership_expr(ctx: &mut CheckingContext<'_>, m: &MembershipExpr) -> TypedExpression {
     let left = analyze_expression(ctx, &m.left, &ExpectedType::None);
     let right = analyze_expression(ctx, &m.right, &ExpectedType::None);
-    let mut result = TypedExpression::unknown(UnknownReason::UncheckedExpression);
-    result.causal_invalidity = left.causal_invalidity.join(right.causal_invalidity);
+    let premise = CallPremise::from_typed(ctx, &right);
+    let arguments = [super::call::ApplicationArgument::PreAnalyzed {
+        label: None,
+        typed: &left,
+        range: m.left.range(),
+    }];
+    let bool_expected = boolean_result_expectation(ctx);
+    let Some(right_ty) = right.knowledge.ty() else {
+        let reason = match &right.knowledge {
+            TypeKnowledge::Unknown(_) => {
+                if matches!(right.status, AnalysisStatus::Invalid(_) | AnalysisStatus::Suppressed(_)) {
+                    UnresolvedApplicationReason::PremiseInvalidUnavailable
+                } else {
+                    UnresolvedApplicationReason::PremiseUnknown
+                }
+            }
+            TypeKnowledge::Dynamic(reason) => UnresolvedApplicationReason::PremiseDynamic(reason.clone()),
+            TypeKnowledge::Known(_) => unreachable!("known membership receiver has a type"),
+        };
+        let mut result: TypedExpression = analyze_unresolved_application(ctx, &premise, &arguments, reason).into();
+        crate::checker::composition::propagate_required_dependencies(&mut result, &[left, right]);
+        return result;
+    };
+
+    let Ok(selector) = Selector::method("contains", vec![SelectorSlot::Positional]) else {
+        return TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause);
+    };
+    let mut result: TypedExpression = match ctx.resolve_dispatch_target(right_ty, &selector, right.dispatch_lookup.clone()) {
+        ResolvedDispatchResult::Found(resolved) => {
+            let target = CallableApplicationTarget::from_dispatch(resolved);
+            apply_resolved_callable(ctx, &target, &premise, &arguments, &bool_expected, m.range).into()
+        }
+        ResolvedDispatchResult::Missing { .. } => {
+            analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchMissing).into()
+        }
+        ResolvedDispatchResult::Ambiguous(_) => {
+            analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchAmbiguous).into()
+        }
+        ResolvedDispatchResult::Dynamic => analyze_unresolved_application(
+            ctx,
+            &premise,
+            &arguments,
+            UnresolvedApplicationReason::PremiseDynamic(DynamicReason::RuntimeReflection),
+        )
+        .into(),
+    };
     crate::checker::composition::propagate_required_dependencies(&mut result, &[left, right]);
+    if m.negated {
+        result = apply_boolean_not(ctx, result, &bool_expected, m.range);
+    }
     result
 }
 
 fn synthesize_is_membership_expr(ctx: &mut CheckingContext<'_>, m: &IsMembershipExpr) -> TypedExpression {
     let left = analyze_expression(ctx, &m.left, &ExpectedType::None);
     let candidates = analyze_expression(ctx, &m.candidates, &ExpectedType::None);
-    let mut result = TypedExpression::unknown(UnknownReason::UncheckedExpression);
-    result.causal_invalidity = left.causal_invalidity.join(candidates.causal_invalidity);
+    let bool_ty = ctx.core_type(&ctx.core_ids.bool_.clone());
+    let knowledge = match bool_ty {
+        Some(bool_ty) => {
+            crate::types::evidence::compose_required_knowledge([left.knowledge.clone(), candidates.knowledge.clone()], EvidenceOrigin::Flow, |_| Ok(bool_ty))
+        }
+        None => TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause),
+    };
+    let mut result = TypedExpression::new(knowledge);
     crate::checker::composition::propagate_required_dependencies(&mut result, &[left, candidates]);
+    result
+}
+
+fn boolean_result_expectation(ctx: &mut CheckingContext<'_>) -> ExpectedType {
+    ctx.core_type(&ctx.core_ids.bool_.clone())
+        .map(|ty| ExpectedType::proper_from(ty, ExpectationOrigin::GenericResult))
+        .unwrap_or_default()
+}
+
+fn apply_boolean_not(ctx: &mut CheckingContext<'_>, value: TypedExpression, expected: &ExpectedType, range: SourceRange) -> TypedExpression {
+    let premise = CallPremise::from_typed(ctx, &value);
+    let Some(value_ty) = value.knowledge.ty() else {
+        return value;
+    };
+    let Ok(selector) = Selector::getter("not") else {
+        return value;
+    };
+    let result = match ctx.resolve_dispatch_target(value_ty, &selector, value.dispatch_lookup.clone()) {
+        ResolvedDispatchResult::Found(resolved) => {
+            let target = CallableApplicationTarget::from_dispatch(resolved);
+            apply_resolved_callable(ctx, &target, &premise, &[], expected, range).into()
+        }
+        ResolvedDispatchResult::Missing { .. } => analyze_unresolved_application(ctx, &premise, &[], UnresolvedApplicationReason::DispatchMissing).into(),
+        ResolvedDispatchResult::Ambiguous(_) => analyze_unresolved_application(ctx, &premise, &[], UnresolvedApplicationReason::DispatchAmbiguous).into(),
+        ResolvedDispatchResult::Dynamic => analyze_unresolved_application(
+            ctx,
+            &premise,
+            &[],
+            UnresolvedApplicationReason::PremiseDynamic(DynamicReason::RuntimeReflection),
+        )
+        .into(),
+    };
+    let mut result = result;
+    crate::checker::composition::propagate_required_dependencies(&mut result, &[value]);
     result
 }
 
@@ -2634,7 +2817,7 @@ fn reflected_binary_selector(op: &BinaryOp) -> Option<Selector> {
     }
 }
 
-fn synthesize_unary_expr(ctx: &mut CheckingContext<'_>, unary: &UnaryExpr) -> TypedExpression {
+fn synthesize_unary_expr(ctx: &mut CheckingContext<'_>, unary: &UnaryExpr, expected: &ExpectedType) -> TypedExpression {
     let operand_typed = analyze_expression(ctx, &unary.expr, &ExpectedType::None);
     let premise = CallPremise::from_typed(ctx, &operand_typed);
 
@@ -2659,7 +2842,7 @@ fn synthesize_unary_expr(ctx: &mut CheckingContext<'_>, unary: &UnaryExpr) -> Ty
     match ctx.resolve_dispatch_target(operand_ty, &selector, operand_typed.dispatch_lookup.clone()) {
         ResolvedDispatchResult::Found(resolved) => {
             let target = CallableApplicationTarget::from_dispatch(resolved);
-            apply_resolved_callable(ctx, &target, &premise, &[], &ExpectedType::None, unary.range).into()
+            apply_resolved_callable(ctx, &target, &premise, &[], expected, unary.range).into()
         }
         ResolvedDispatchResult::Missing { .. } => analyze_unresolved_application(ctx, &premise, &[], UnresolvedApplicationReason::DispatchMissing).into(),
         ResolvedDispatchResult::Ambiguous(_) => analyze_unresolved_application(ctx, &premise, &[], UnresolvedApplicationReason::DispatchAmbiguous).into(),
@@ -2673,7 +2856,7 @@ fn synthesize_unary_expr(ctx: &mut CheckingContext<'_>, unary: &UnaryExpr) -> Ty
     }
 }
 
-fn synthesize_get_property(ctx: &mut CheckingContext<'_>, get: &GetPropertyExpr) -> TypedExpression {
+fn synthesize_get_property(ctx: &mut CheckingContext<'_>, get: &GetPropertyExpr, expected: &ExpectedType) -> TypedExpression {
     let recv_typed = analyze_expression(ctx, &get.object, &ExpectedType::None);
     let premise = CallPremise::from_typed(ctx, &recv_typed);
     let Some(recv_ty) = recv_typed.knowledge.ty() else {
@@ -2708,7 +2891,7 @@ fn synthesize_get_property(ctx: &mut CheckingContext<'_>, get: &GetPropertyExpr)
         match ctx.resolve_dispatch_target(recv_ty, &sel, recv_typed.dispatch_lookup.clone()) {
             ResolvedDispatchResult::Found(resolved) => {
                 let target = CallableApplicationTarget::from_dispatch(resolved);
-                return apply_resolved_callable(ctx, &target, &premise, &[], &ExpectedType::None, get.range).into();
+                return apply_resolved_callable(ctx, &target, &premise, &[], expected, get.range).into();
             }
             ResolvedDispatchResult::Missing { .. } => {}
             ResolvedDispatchResult::Ambiguous(_) => {
@@ -2830,7 +3013,7 @@ fn synthesize_set_property(ctx: &mut CheckingContext<'_>, set: &SetPropertyExpr)
     super::call::assignment_result_from_call(ctx, operation, set.range)
 }
 
-fn synthesize_index_expr(ctx: &mut CheckingContext<'_>, idx: &IndexExpr) -> TypedExpression {
+fn synthesize_index_expr(ctx: &mut CheckingContext<'_>, idx: &IndexExpr, expected: &ExpectedType) -> TypedExpression {
     let recv_typed = analyze_expression(ctx, &idx.object, &ExpectedType::None);
     let premise = CallPremise::from_typed(ctx, &recv_typed);
     let arguments = application_arguments(&idx.args);
@@ -2860,7 +3043,7 @@ fn synthesize_index_expr(ctx: &mut CheckingContext<'_>, idx: &IndexExpr) -> Type
     match ctx.resolve_dispatch_target(recv_ty, &selector, recv_typed.dispatch_lookup.clone()) {
         ResolvedDispatchResult::Found(resolved) => {
             let target = CallableApplicationTarget::from_dispatch(resolved);
-            return apply_resolved_callable(ctx, &target, &premise, &arguments, &ExpectedType::None, idx.range).into();
+            return apply_resolved_callable(ctx, &target, &premise, &arguments, expected, idx.range).into();
         }
         ResolvedDispatchResult::Missing { .. } => {}
         ResolvedDispatchResult::Ambiguous(_) => {
@@ -2877,7 +3060,7 @@ fn synthesize_index_expr(ctx: &mut CheckingContext<'_>, idx: &IndexExpr) -> Type
         }
     }
     if let Some(target) = super::call::structural_list_index_get_target(ctx, recv_ty).or_else(|| super::call::structural_map_index_get_target(ctx, recv_ty)) {
-        return apply_resolved_callable(ctx, &target, &premise, &arguments, &ExpectedType::None, idx.range).into();
+        return apply_resolved_callable(ctx, &target, &premise, &arguments, expected, idx.range).into();
     }
     analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchMissing).into()
 }
@@ -2990,7 +3173,7 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
         let (reachable, residual_after, usefulness) =
             crate::checker::exhaustiveness::evaluate_match_arm_usefulness(ctx, &initial_space, &remaining_space, &arm_space, arm.range);
         remaining_space = residual_after.clone();
-        let proof = pattern_common_proof(&pattern_res);
+        let proof = pattern_common_proof(ctx, &pattern_res);
 
         let analyzed_branch = if usefulness == crate::match_semantics::PatternUsefulness::Useful && !reachable.is_empty() {
             if let (Some(binding), Some(exact_case)) = (stable_scrutinee, pattern_exact_case_type(ctx, &pattern_res)) {
@@ -3084,10 +3267,32 @@ fn pattern_exact_case_type(ctx: &mut CheckingContext<'_>, resolution: &crate::ma
 }
 
 /// Keeps only GADT facts established by every reachable pattern alternative.
-fn pattern_common_proof(resolution: &crate::match_semantics::PatternResolution) -> crate::match_semantics::BranchProofEnvironment {
+fn pattern_common_proof(
+    ctx: &mut CheckingContext<'_>,
+    resolution: &crate::match_semantics::PatternResolution,
+) -> crate::match_semantics::BranchProofEnvironment {
     let alternatives = match resolution {
-        crate::match_semantics::PatternResolution::Variant(variant) => variant.candidates.iter().map(|candidate| candidate.proof.clone()).collect::<Vec<_>>(),
-        crate::match_semantics::PatternResolution::Or(or_pattern) => or_pattern.alternatives.iter().map(pattern_common_proof).collect::<Vec<_>>(),
+        crate::match_semantics::PatternResolution::Variant(variant) => variant
+            .candidates
+            .iter()
+            .map(|candidate| {
+                let mut proof = candidate.proof.clone();
+                for field in candidate.fields.iter() {
+                    let nested = pattern_common_proof(ctx, &field.child);
+                    if let crate::checker::gadt_proof::ProofMerge::Compatible(merged) =
+                        crate::checker::gadt_proof::merge_branch_proofs(ctx.store, &proof, &nested)
+                    {
+                        proof = merged;
+                    }
+                }
+                proof
+            })
+            .collect::<Vec<_>>(),
+        crate::match_semantics::PatternResolution::Or(or_pattern) => or_pattern
+            .alternatives
+            .iter()
+            .map(|alternative| pattern_common_proof(ctx, alternative))
+            .collect::<Vec<_>>(),
         _ => return crate::match_semantics::BranchProofEnvironment::default(),
     };
     let Some(first) = alternatives.first() else {

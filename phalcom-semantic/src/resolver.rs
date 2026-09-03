@@ -31,11 +31,7 @@ impl LinkedTypeResolver {
     }
 
     /// Constructs a resolver with an explicitly shared prelude map.
-    pub fn with_prelude(
-        linked: Arc<LinkedProgram>,
-        known_declarations: HashSet<DeclarationId>,
-        prelude_types: Arc<PreludeTypeMap>,
-    ) -> Self {
+    pub fn with_prelude(linked: Arc<LinkedProgram>, known_declarations: HashSet<DeclarationId>, prelude_types: Arc<PreludeTypeMap>) -> Self {
         Self {
             linked,
             known_declarations,

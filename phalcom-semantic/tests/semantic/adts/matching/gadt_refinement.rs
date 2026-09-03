@@ -169,12 +169,19 @@ fn match_gadt_05_multi_parameter_proof_is_complete() {
 }
 
 #[test]
-#[ignore = "GATED: nested GADT source fixture is required"]
 fn match_gadt_06_nested_gadt_proof_is_branch_local() {
     let case = analyze_adt(
         "enum Inner<T> { @variant Int(_ value: Int) -> Inner<Int> }\nenum Outer<T> { @variant Boxed(_ value: Inner<T>) -> Outer<T> }\nclass Eval { eval<U>(_ value: Outer<U>) { match value { Outer::Boxed(Inner::Int(x)) => x } } }\n",
     );
-    assert!(!case.only_match().arm(0).resolution().proof.is_empty());
+    let arm = case.only_match().arm(0);
+    assert!(!arm.resolution().proof.is_empty(), "nested equality must be visible in branch product");
+    let phalcom_semantic::match_semantics::PatternResolution::Variant(outer) = &arm.resolution().pattern else {
+        panic!("expected outer variant resolution");
+    };
+    let phalcom_semantic::match_semantics::PatternResolution::Variant(inner) = outer.candidates[0].fields[0].child.as_ref() else {
+        panic!("expected nested variant resolution");
+    };
+    assert!(!inner.candidates[0].proof.is_empty(), "nested branch must retain its local equality proof");
 }
 
 #[test]

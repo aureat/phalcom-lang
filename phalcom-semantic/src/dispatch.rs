@@ -4,8 +4,8 @@ use crate::identity::{CallableId, DeclarationId};
 
 pub use crate::identity::DispatchSide;
 use crate::surface::DeclarationSurface;
-use crate::types::evidence::TypeKnowledge;
 use crate::types::environment::TypeEnvironment;
+use crate::types::evidence::TypeKnowledge;
 use crate::types::id::TypeId;
 use crate::types::relation::TypeHierarchy;
 use crate::types::specialization::ReceiverSpecializationStep;
