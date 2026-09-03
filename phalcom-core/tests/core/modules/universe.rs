@@ -3,6 +3,7 @@
 //! PRE-01..04, NONE-01, PROJ-01..04, NAME-01..03, PKG-01, EXP-01, REF-01..05,
 //! META-01..03, SEL-01..03, SHADOW-01..03, STD-01, SCC-01..03.
 
+use phalcom_core::modules::RuntimeLinkedRead;
 use phalcom_core::modules::compile::{EntrySelection, ProgramCompileError, ProgramCompiler};
 use phalcom_core::native::NativeSourceIndex;
 use phalcom_core::value::Value;
@@ -158,6 +159,24 @@ fn boot_01_bootstrap_measurement_separates_catalog_closure_and_execution() {
     assert_eq!(measurement.root_reachable_units, reachable.len());
     assert!(measurement.executed_units <= measurement.discovered_units);
     assert!(measurement.executed_units > 0);
+}
+
+#[test]
+fn canonical_root_imports_are_materialized_as_runtime_linked_reads() {
+    let vm = VM::new();
+    let root_id = ModuleId::universe_root();
+    let root = vm.module_registry.get(&root_id).expect("Universe root materialized").object;
+    let reads = &vm.heap.module(root).linked_reads;
+
+    assert!(!reads.is_empty(), "canonical root imports must be materialized as linked reads");
+    for read in reads {
+        if let RuntimeLinkedRead::Module(target) = read {
+            assert!(
+                vm.module_registry.iter().any(|(_, record)| record.object == *target),
+                "canonical linked module target must be registered"
+            );
+        }
+    }
 }
 
 #[test]

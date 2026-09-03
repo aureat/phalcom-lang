@@ -5,7 +5,21 @@ use crate::value::Value;
 use std::collections::{BTreeMap, HashMap};
 use std::time::Instant;
 
+#[cfg(test)]
+use std::cell::Cell;
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use super::{NativeInstallMode, VM};
+
+#[cfg(test)]
+pub(crate) static UNIVERSE_AST_COMPILATIONS: AtomicUsize = AtomicUsize::new(0);
+#[cfg(test)]
+pub(crate) static UNIVERSE_INITIALIZER_EXECUTIONS: AtomicUsize = AtomicUsize::new(0);
+#[cfg(test)]
+thread_local! {
+    static COUNT_UNIVERSE_BOOTSTRAP: Cell<bool> = const { Cell::new(false) };
+}
 
 impl VM {
     /// Creates a new VM: builds the heap, bootstraps the kernel tower, and
@@ -253,6 +267,51 @@ impl VM {
         vm.finalize_all_primordial_base_names();
     }
 
+    fn compile_universe_module(
+        &mut self,
+        canonical: &crate::modules::CanonicalUniverseProgram,
+        id: &phalcom_modules::ModuleId,
+    ) -> PhResult<crate::heap::ObjRef> {
+        let parsed = canonical
+            .source_index()
+            .unit(id)
+            .ok_or_else(|| crate::error::RuntimeError::Internal(format!("Universe source module {id} is missing from canonical index")))?;
+        let compiled = canonical
+            .program()
+            .modules
+            .get(id)
+            .ok_or_else(|| crate::error::RuntimeError::Internal(format!("Universe compiled module {id} is missing from canonical program")))?;
+        let linked = canonical
+            .program()
+            .linked
+            .modules
+            .get(id)
+            .ok_or_else(|| crate::error::RuntimeError::Internal(format!("Universe linked module {id} is missing from canonical program")))?;
+        let module = self
+            .module_registry
+            .get(id)
+            .ok_or_else(|| crate::error::RuntimeError::Internal(format!("Universe module {id} is not materialized")))?
+            .object;
+
+        self.heap.module_mut(module).lowering = Some(compiled.lowering.clone());
+        self.materialize_linked_reads_for_module(id, compiled)?;
+        let bindings = crate::modules::CompileBindings::from_linked_module(linked);
+        let source_id = self.heap.module_mut(module).push_source(std::sync::Arc::new(parsed.text.to_string()));
+        #[cfg(test)]
+        if COUNT_UNIVERSE_BOOTSTRAP.with(Cell::get) {
+            UNIVERSE_AST_COMPILATIONS.fetch_add(1, Ordering::Relaxed);
+        }
+        Ok(self
+            .compile_ast_as_with_bindings(
+                module,
+                source_id,
+                (*parsed.program).clone(),
+                crate::compiler::lib::UnitKind::File,
+                Some(bindings),
+            )
+            .map_err(|error| crate::error::RuntimeError::Internal(format!("failed to compile Universe module {id}: {error}")))?)
+    }
+
     /// Compiles and runs the precomputed Universe modules in topological order.
     ///
     /// See the call site in [`Self::new`] for why this must run after
@@ -263,30 +322,21 @@ impl VM {
     /// Returns any [`crate::error::PhError`] raised while compiling or executing universe modules.
     fn run_universe_modules(&mut self, canonical: &crate::modules::CanonicalUniverseProgram) -> PhResult<()> {
         self.universe_bootstrap_measurement = crate::vm::UniverseBootstrapMeasurement {
-            discovered_units: canonical.source_index.units.len(),
-            root_reachable_units: canonical.root_reachable.len(),
-            executed_units: canonical.bootstrap_order.len(),
+            discovered_units: canonical.source_index().units.len(),
+            root_reachable_units: canonical.root_reachable().len(),
+            executed_units: canonical.bootstrap_order().len(),
         };
-        for id in canonical.bootstrap_order.iter() {
-            let parsed = canonical
-                .source_index
-                .unit(id)
-                .ok_or_else(|| crate::error::RuntimeError::Internal(format!("Universe source module {id} is missing from canonical index")))?;
+        for id in canonical.bootstrap_order().iter() {
+            let closure = self.compile_universe_module(canonical, id)?;
             let module = self
                 .module_registry
                 .get(id)
                 .ok_or_else(|| crate::error::RuntimeError::Internal(format!("Universe module {id} is not materialized")))?
                 .object;
-            let compiled = canonical
-                .program
-                .modules
-                .get(id)
-                .ok_or_else(|| crate::error::RuntimeError::Internal(format!("Universe compiled module {id} is missing from canonical program")))?;
-            self.heap.module_mut(module).lowering = Some(compiled.lowering.clone());
-            let source_id = self.heap.module_mut(module).push_source(std::sync::Arc::new(parsed.text.to_string()));
-            let closure = self
-                .compile_ast_as(module, source_id, (*parsed.program).clone(), crate::compiler::lib::UnitKind::File)
-                .map_err(|error| crate::error::RuntimeError::Internal(format!("failed to compile Universe module {id}: {error}")))?;
+            #[cfg(test)]
+            if COUNT_UNIVERSE_BOOTSTRAP.with(Cell::get) {
+                UNIVERSE_INITIALIZER_EXECUTIONS.fetch_add(1, Ordering::Relaxed);
+            }
             self.run_in_module(module, closure)?;
             self.module_registry.get_mut(id).expect("bootstrapped Universe module is registered").state = crate::modules::registry::ModuleState::Initialized;
         }
@@ -658,7 +708,24 @@ impl VM {
 
 #[cfg(test)]
 mod tests {
-    use super::VM;
+    use super::{UNIVERSE_AST_COMPILATIONS, UNIVERSE_INITIALIZER_EXECUTIONS, VM};
+    use crate::modules::RuntimeLinkedRead;
+    use std::sync::atomic::Ordering;
+
+    struct UniverseBootstrapCounterScope;
+
+    impl UniverseBootstrapCounterScope {
+        fn enter() -> Self {
+            super::COUNT_UNIVERSE_BOOTSTRAP.with(|enabled| enabled.set(true));
+            Self
+        }
+    }
+
+    impl Drop for UniverseBootstrapCounterScope {
+        fn drop(&mut self) {
+            super::COUNT_UNIVERSE_BOOTSTRAP.with(|enabled| enabled.set(false));
+        }
+    }
 
     #[test]
     fn kernel_bootstrap_has_no_native_or_source_state() {
@@ -702,5 +769,74 @@ mod tests {
         assert_eq!(first.heap.module(module).get(symbol), Some(crate::value::Value::int(42)));
         let second_symbol = second.interner.intern("bootstrap_isolation_probe");
         assert!(second.find_module_by_symbol(second_symbol).is_none());
+    }
+
+    #[test]
+    fn full_vm_publishes_semantic_roots_only_after_source_bootstrap() {
+        let vm = VM::new();
+
+        assert!(vm.semantic_roots.is_some());
+        let roots = vm.require_semantic_roots().expect("full VM owns semantic roots");
+        assert!(
+            roots
+                .unsupported
+                .same_as(&vm.universe_global(&["errors", "unsupported"], "unsupported").unwrap())
+        );
+    }
+
+    #[test]
+    fn canonical_linked_prefix_matches_runtime_materialization() {
+        let canonical = crate::modules::canonical_universe_program().expect("canonical Universe compiler product");
+        let (id, linked) = canonical
+            .program()
+            .linked
+            .modules
+            .iter()
+            .find(|(_, module)| !module.bindings.imports.is_empty())
+            .expect("Universe must contain a linked import");
+        let expected_reads = linked.linked_reads.clone();
+        let mut vm = VM::new_native();
+        let _closure = vm
+            .compile_universe_module(canonical, id)
+            .expect("canonical module compiles with linked bindings");
+        let runtime = vm.module_registry.get(id).expect("canonical runtime module").object;
+        let actual_reads = vm.heap.module(runtime).linked_reads.clone();
+
+        assert!(actual_reads.len() >= expected_reads.len());
+        for (expected, actual) in expected_reads.iter().zip(actual_reads.iter()) {
+            match (expected, actual) {
+                (phalcom_modules::LinkedReadSpec::Module(target), RuntimeLinkedRead::Module(actual_target)) => {
+                    assert_eq!(*actual_target, vm.module_registry.get(target).expect("linked module target").object);
+                }
+                (phalcom_modules::LinkedReadSpec::Binding(symbol), RuntimeLinkedRead::Binding(binding)) => {
+                    let target = vm.module_registry.get(&symbol.module).expect("linked binding target").object;
+                    let name = vm.interner.intern(&symbol.name);
+                    assert_eq!(binding.module, target);
+                    assert_eq!(Some(binding.slot as usize), vm.heap.module(target).slot_of(name));
+                }
+                (expected, actual) => panic!("linked read shape changed: {expected:?} -> {actual:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn repeated_full_vms_reuse_global_compiler_work() {
+        let _counter_scope = UniverseBootstrapCounterScope::enter();
+        let canonical = crate::modules::canonical_universe_program().expect("canonical Universe compiler product");
+        let modules_per_vm = canonical.bootstrap_order().len();
+        let compile_before = UNIVERSE_AST_COMPILATIONS.load(Ordering::Relaxed);
+        let execute_before = UNIVERSE_INITIALIZER_EXECUTIONS.load(Ordering::Relaxed);
+
+        let _a = VM::new();
+        let _b = VM::new();
+        let _c = VM::new();
+
+        assert_eq!(crate::modules::canonical_universe::SOURCE_INDEX_BUILDS.load(Ordering::Relaxed), 1);
+        assert_eq!(crate::modules::canonical_universe::NATIVE_CONTRACT_VERIFICATIONS.load(Ordering::Relaxed), 1);
+        assert_eq!(crate::modules::canonical_universe::CANONICAL_LINKS.load(Ordering::Relaxed), 1);
+        assert_eq!(crate::modules::canonical_universe::CANONICAL_SEMANTIC_ANALYSES.load(Ordering::Relaxed), 1);
+        assert_eq!(crate::modules::canonical_universe::CANONICAL_PROGRAM_PROJECTIONS.load(Ordering::Relaxed), 1);
+        assert_eq!(UNIVERSE_AST_COMPILATIONS.load(Ordering::Relaxed) - compile_before, modules_per_vm * 3);
+        assert_eq!(UNIVERSE_INITIALIZER_EXECUTIONS.load(Ordering::Relaxed) - execute_before, modules_per_vm * 3);
     }
 }

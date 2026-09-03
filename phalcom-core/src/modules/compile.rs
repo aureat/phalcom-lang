@@ -152,6 +152,9 @@ pub enum ProgramCompileError {
     /// Generic I/O error.
     #[error("io error: {0}")]
     Io(String),
+    /// Canonical Universe semantic diagnostics differ from their reviewed baseline.
+    #[error("canonical Universe semantic baseline rejected: {0}")]
+    CanonicalSemanticBaseline(String),
 }
 
 /// Fully analyzed program snapshot ready for code generation.
@@ -456,22 +459,23 @@ pub struct ProgramCompiler;
 impl ProgramCompiler {
     /// Compiles an analyzed program into a fully linked `CompiledProgram`.
     pub fn compile_analyzed(analyzed: &AnalyzedProgram) -> Result<CompiledProgram, ProgramCompileError> {
-        Self::compile_analyzed_inner(analyzed, true)
+        if analyzed.semantic.has_errors() {
+            return Err(ProgramCompileError::Semantic(ProgramSemanticDiagnostics::from_snapshot(&analyzed.semantic)));
+        }
+        Self::project_analyzed(analyzed)
     }
 
     /// Compiles the canonical source-complete Universe projection while
-    /// preserving the historical bootstrap policy that accepts its existing
-    /// diagnostics. This remains crate-private so ordinary user/project
-    /// compilation continues to reject semantic errors.
+    /// preserving only the reviewed canonical diagnostic baseline. This remains
+    /// crate-private so ordinary user/project compilation continues to reject
+    /// semantic errors.
     pub(crate) fn compile_analyzed_for_canonical_bootstrap(analyzed: &AnalyzedProgram) -> Result<CompiledProgram, ProgramCompileError> {
-        Self::compile_analyzed_inner(analyzed, false)
+        super::canonical_semantics::validate_canonical_error_baseline(&analyzed.semantic)
+            .map_err(|error| ProgramCompileError::CanonicalSemanticBaseline(error.to_string()))?;
+        Self::project_analyzed(analyzed)
     }
 
-    fn compile_analyzed_inner(analyzed: &AnalyzedProgram, reject_semantic_errors: bool) -> Result<CompiledProgram, ProgramCompileError> {
-        if reject_semantic_errors && analyzed.semantic.has_errors() {
-            return Err(ProgramCompileError::Semantic(ProgramSemanticDiagnostics::from_snapshot(&analyzed.semantic)));
-        }
-
+    fn project_analyzed(analyzed: &AnalyzedProgram) -> Result<CompiledProgram, ProgramCompileError> {
         let mut modules = BTreeMap::new();
         for (id, linked_module) in &analyzed.linked.modules {
             let (source, source_text) = if let Some(parsed_unit) = analyzed.sources.get(id) {

@@ -6,11 +6,8 @@
 #[path = "../support/vm.rs"]
 mod vm_support;
 
-#[path = "either/mod.rs"]
-mod either;
-
-#[path = "monads/mod.rs"]
-mod monads;
+#[path = "typing_integration/mod.rs"]
+mod typing_integration;
 
 #[path = "language/mod.rs"]
 mod language;

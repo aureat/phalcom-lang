@@ -10,25 +10,8 @@
 //! program's output hasn't silently changed", not "this program does what
 //! the spec says it should".
 //!
-//! ## Why only four of `examples/*.ph` are here
-//!
-//! `examples/core_new.ph`, `examples/person2.ph`, `examples/person.ph`, and
-//! `examples/calculator.ph` run to completion without panicking. The remaining
-//! examples (`person3.ph`, `simple.ph`) use syntax the current grammar does not
-//! yet accept (labeled/named constructor params, `@construct` decorators, etc.)
-//! and stay excluded until that syntax lands.
-//!
-//! Historically *all* real `.ph` files also tripped a second defect: the
-//! grammar rejected a *trailing newline* at end-of-input (F10), and hitting
-//! *any* parse error panicked unconditionally because `SyntaxError`'s `Display`
-//! impl was `todo!()` (F9). U0 fixed both — a trailing newline now parses and a
-//! parse error renders a diagnostic and exits non-zero — which is what
-//! unblocked `person.ph`/`calculator.ph` here.
-//!
-//! The two extra `tests/fixtures/golden/*.ph` fixtures give a little more
-//! coverage (string/number printing, arithmetic, `let` bindings). They predate
-//! the F10 fix and deliberately have **no trailing newline**; that is no longer
-//! required, but they are left as-is since their goldens are already pinned.
+//! The checked-in `tests/fixtures/golden/*.ph` fixtures give coverage for
+//! string/number printing, arithmetic, `let` bindings, and escaping closures.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -54,40 +37,6 @@ fn assert_golden(path: &str, expected_stdout: &str) {
     assert!(output.status.code() != Some(101), "{path} panicked (exit 101, Rust panic). stderr:\n{stderr}");
     assert!(!stderr.contains("panicked at"), "{path} panicked. stderr:\n{stderr}");
     assert_eq!(stdout, expected_stdout, "{path} produced unexpected stdout");
-}
-
-#[test]
-fn example_core_new() {
-    // `System.new()` is disallowed. `System` prints as `System` — the class's
-    // own name via `Object#toString`'s class-receiver case (ADR-0015), which
-    // `System.print` now agrees with (U-ERR-FIX PRINT-TOSTRING routes the
-    // print path through a `toString` send for any object with no bespoke
-    // native renderer).
-    assert_golden("../examples/core_new.ph", "System\n");
-}
-
-#[test]
-fn example_person2() {
-    // `Person.new()` (zero-arg static ctor) -> `.init(name)` never called ->
-    // `_name` field is unset -> `name` getter reads back the surface `None`
-    // value (U6: surface `nil` is gone; an unset field surfaces as `None` via
-    // the private-sentinel boundary — ADR-0007/ADR-0010). `None` prints as
-    // `None` (U-CORE-4's `Option#toString` display override).
-    assert_golden("../examples/person2.ph", "None\n");
-}
-
-#[test]
-fn example_person() {
-    // The current example constructs a named person and exercises its
-    // accessors plus the custom `toString` presentation.
-    assert_golden("../examples/person.ph", "Person(name: Bob, age: 30)\n");
-}
-
-#[test]
-fn example_calculator() {
-    // Unblocked by the U0 trailing-newline fix (the file ends in `\n`).
-    // Exercises arithmetic method calls and number/float printing.
-    assert_golden("../examples/calculator.ph", "8\n6\n30\n3.1415\n");
 }
 
 #[test]

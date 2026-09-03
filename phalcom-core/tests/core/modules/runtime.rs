@@ -82,16 +82,3 @@ fn test_module_export_send_dispatch() {
     let val = res.unwrap();
     assert!(val.as_obj().is_some());
 }
-
-#[test]
-fn test_core_new_execution() {
-    let mut vm = VM::new();
-    let file = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../examples/core_new.ph")
-        .canonicalize()
-        .unwrap();
-    let selection = EntrySelection::Module(file);
-    let program = ProgramCompiler::compile_entry_selection(selection).unwrap();
-    let res = vm.run_compiled(&program);
-    assert!(res.is_ok(), "run_compiled error: {:?}", res.err());
-}

@@ -6,7 +6,8 @@
 
 pub mod artifact;
 pub mod builtin_materialize;
-pub mod canonical_universe;
+pub(crate) mod canonical_semantics;
+pub(crate) mod canonical_universe;
 pub mod compile;
 pub mod context;
 pub mod initialize;
@@ -18,7 +19,7 @@ pub mod registry;
 pub mod semantic_lowering;
 
 pub use artifact::{ClassBlueprint, EnumBlueprint, ModuleMaterializationPlan, RuntimeDeclarationBlueprint, VariantBlueprint};
-pub use canonical_universe::{CanonicalUniverseBuildError, CanonicalUniverseProgram, canonical_universe_program};
+pub(crate) use canonical_universe::{CanonicalUniverseProgram, canonical_universe_program};
 pub use compile::{
     AnalyzedProgram, CompiledModule, CompiledProgram, EntrySelection, ProgramAnalyzer, ProgramCompileError, ProgramCompiler, ProgramSemanticDiagnostics,
 };

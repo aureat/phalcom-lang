@@ -21,7 +21,7 @@ jobs:
     name: Test (nightly-2026-07-10)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-07-10
@@ -42,13 +42,13 @@ jobs:
     name: VS Code extension E2E
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-07-10
           components: rustc-codegen-cranelift-preview
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
@@ -71,7 +71,7 @@ jobs:
     name: Rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-07-10
@@ -82,7 +82,7 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-07-10
@@ -96,7 +96,7 @@ jobs:
     env:
       MIRIFLAGS: -Zmiri-disable-isolation
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-07-10

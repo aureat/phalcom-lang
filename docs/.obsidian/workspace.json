@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "backlogging.md",
+                "file": "type tests.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "backlogging"
+              "title": "type tests"
             }
           }
         ]
@@ -187,6 +187,10 @@
   },
   "active": "46e666892420d783",
   "lastOpenFiles": [
+    "impl/semantic/typing-integration/typing-integration-implementation-state.md",
+    "impl/semantic/typing-integration",
+    "impl/semantic/semantic-completeness/phalcom-typing-integration-patch-grade-implementation-plan.md",
+    "backlogging.md",
     "impl/semantic/semantic-completeness/sc-4/SC-4-SC-4.5-implementation-state.md",
     "impl/semantic/semantic-completeness/sc-4/SC-4-SC-4.5-type-system-closure-patch-grade-implementation-plan.md",
     "impl/semantic/semantic-completeness/sc-4",
@@ -195,7 +199,6 @@
     "superpowers/plans/2026-09-02-monads-hkt-inheritance-tests.md",
     "work/logs/2026-09-02-generic-inference-bootstrap-regression.md",
     "type tests.md",
-    "backlogging.md",
     "impl/semantic/semantic-completeness/sc-1/state/CONTINUATION-HANDOFF.md",
     "spec/typing-generics.md",
     "spec/writing-block.md",
@@ -215,13 +218,10 @@
     "impl/semantic/semantic-completeness/SC-3-open-record-rows-structural-typing-implementation-plan.md",
     "impl/semantic/semantic-completeness/sc-blockers-2.md",
     "impl/semantic/semantic-completeness/writing-block.md",
-    "impl/semantic/semantic-completeness/sc-blockers-1.md",
-    "impl/semantic/sc-blockers-1.md",
     "impl/semantic/semantic-completeness/universe-complete",
     "impl/semantic/semantic-completeness/univere-complete",
     "impl/semantic/semantic-completeness/sc-2",
     "impl/semantic/semantic-completeness/sc-1",
-    "impl/adt-gadt-associated-lookup/part-4",
-    "impl/adt-gadt-associated-lookup/untitled folder"
+    "impl/adt-gadt-associated-lookup/part-4"
   ]
 }

@@ -11,6 +11,60 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 impl VM {
+    /// Materializes one module's symbolic linked reads into VM-local entries.
+    pub(crate) fn materialize_linked_reads_for_module(
+        &mut self,
+        id: &phalcom_modules::ModuleId,
+        compiled_mod: &crate::modules::CompiledModule,
+    ) -> PhResult<()> {
+        let obj_ref = self
+            .module_registry
+            .get(id)
+            .ok_or_else(|| RuntimeError::Internal(format!("module {id} not registered for linked reads")))?
+            .object;
+        let mut materialized_reads = Vec::with_capacity(compiled_mod.linked_reads.len());
+
+        for read_spec in &compiled_mod.linked_reads {
+            let runtime_read = match read_spec {
+                LinkedReadSpec::Module(target_id) => {
+                    let target_obj = self
+                        .module_registry
+                        .get(target_id)
+                        .ok_or_else(|| RuntimeError::Internal(format!("linked read target module {target_id} not registered")))?
+                        .object;
+                    RuntimeLinkedRead::Module(target_obj)
+                }
+                LinkedReadSpec::Binding(symbol_id) => {
+                    let target_obj = self
+                        .module_registry
+                        .get(&symbol_id.module)
+                        .ok_or_else(|| RuntimeError::Internal(format!("linked read target module {} not registered", symbol_id.module)))?
+                        .object;
+                    let sym = self.interner.intern(&symbol_id.name);
+                    let slot = match self.heap.module(target_obj).slot_of(sym) {
+                        Some(slot) => slot,
+                        None => self.heap.module_mut(target_obj).declare(sym)?,
+                    };
+                    if symbol_id.module.project.is_universe() {
+                        let declaration = phalcom_modules::DeclarationId::new(symbol_id.module.clone(), symbol_id.name.clone());
+                        if let Some(class_id) = self.resolve_universe_declaration_class(&declaration) {
+                            self.heap.module_mut(target_obj).set_global(slot, crate::value::Value::obj(class_id))?;
+                        }
+                    }
+                    RuntimeLinkedRead::Binding(BindingRef {
+                        module: target_obj,
+                        slot: u16::try_from(slot)
+                            .map_err(|_| RuntimeError::Internal(format!("linked binding slot overflow in {}::{}", symbol_id.module, symbol_id.name)))?,
+                    })
+                }
+            };
+            materialized_reads.push(runtime_read);
+        }
+
+        self.heap.module_mut(obj_ref).linked_reads = materialized_reads;
+        Ok(())
+    }
+
     /// Materializes a closed, linked compiled program into VM module objects,
     /// global layouts, linked read slots, and export tables without running initializers.
     pub fn materialize_program(&mut self, program: &CompiledProgram) -> PhResult<()> {
@@ -244,45 +298,7 @@ impl VM {
 
         // Phase 4: Materialize linked reads (resolve LinkedReadSpec -> RuntimeLinkedRead).
         for (id, compiled_mod) in &program.modules {
-            let obj_ref = self.module_registry.get(id).expect("module allocated").object;
-            let mut materialized_reads = Vec::with_capacity(compiled_mod.linked_reads.len());
-
-            for read_spec in &compiled_mod.linked_reads {
-                let runtime_read = match read_spec {
-                    LinkedReadSpec::Module(target_id) => {
-                        let target_obj = self
-                            .module_registry
-                            .get(target_id)
-                            .ok_or_else(|| RuntimeError::Internal(format!("linked read target module {target_id} not registered")))?
-                            .object;
-                        RuntimeLinkedRead::Module(target_obj)
-                    }
-                    LinkedReadSpec::Binding(symbol_id) => {
-                        let target_obj = self
-                            .module_registry
-                            .get(&symbol_id.module)
-                            .ok_or_else(|| RuntimeError::Internal(format!("linked read target module {} not registered", symbol_id.module)))?
-                            .object;
-                        let sym = self.interner.intern(&symbol_id.name);
-                        let slot = match self.heap.module(target_obj).slot_of(sym) {
-                            Some(s) => s,
-                            None => self.heap.module_mut(target_obj).declare(sym)?,
-                        };
-                        if symbol_id.module.project.is_universe() {
-                            let declaration = phalcom_modules::DeclarationId::new(symbol_id.module.clone(), symbol_id.name.clone());
-                            if let Some(class_id) = self.resolve_universe_declaration_class(&declaration) {
-                                self.heap.module_mut(target_obj).set_global(slot, crate::value::Value::obj(class_id))?;
-                            }
-                        }
-                        RuntimeLinkedRead::Binding(BindingRef {
-                            module: target_obj,
-                            slot: slot as u16,
-                        })
-                    }
-                };
-                materialized_reads.push(runtime_read);
-            }
-            self.heap.module_mut(obj_ref).linked_reads = materialized_reads;
+            self.materialize_linked_reads_for_module(id, compiled_mod)?;
         }
 
         // Phase 5: Materialize export table on ModuleObject.
