@@ -1185,7 +1185,7 @@ impl VM {
                     debug!("Pushing constant: {:?}", constant);
                     self.stack.push(constant);
                 }
-                Bytecode::GetEllipsis => self.stack.push(self.semantic_roots.ellipsis),
+                Bytecode::GetEllipsis => self.stack.push(self.require_semantic_roots()?.ellipsis),
                 Bytecode::Closure(idx) => {
                     // The constant is the *template* closure the compiler emitted
                     // (empty upvalue list). Materialize a fresh instance whose
@@ -1758,7 +1758,7 @@ impl VM {
                 Bytecode::ValidateOrdering { reverse } => {
                     let value = self.pop()?;
                     let class = value.class(self);
-                    let ordering = self.semantic_roots.ordering_class;
+                    let ordering = self.require_semantic_roots()?.ordering_class;
                     if class != ordering && !is_strict_subclass(&self.heap, class, ordering) {
                         return Err(RuntimeError::InvalidCompareReturn {
                             found: self.heap.class(class).name.clone(),
@@ -2144,7 +2144,8 @@ impl VM {
                 }
                 Bytecode::JumpIfUnsupported(offset) => {
                     let value = self.pop()?;
-                    if value.same_as(&self.semantic_roots.unsupported) {
+                    let unsupported = self.require_semantic_roots()?.unsupported;
+                    if value.same_as(&unsupported) {
                         self.apply_jump_offset(offset);
                     } else {
                         self.stack.push(value);

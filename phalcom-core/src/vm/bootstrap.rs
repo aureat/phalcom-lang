@@ -1,5 +1,5 @@
 use crate::error::PhResult;
-use crate::heap::{ClassId, Object};
+use crate::heap::Object;
 use crate::universe::Universe;
 use crate::value::Value;
 use std::collections::{BTreeMap, HashMap};
@@ -14,8 +14,9 @@ impl VM {
         Self::new_with_native_install_mode(NativeInstallMode::DescriptorOnly)
     }
 
-    /// Creates a VM with an explicit native installation path.
-    pub fn new_with_native_install_mode(native_install_mode: NativeInstallMode) -> Self {
+    /// Creates a fresh VM execution kernel without native or source Universe
+    /// bootstrap.
+    pub fn new_kernel() -> Self {
         let interner = crate::interner::Interner::with_capacity(100);
         let mut heap = crate::heap::Heap::new();
         let universe = Universe::new(&mut heap);
@@ -25,7 +26,7 @@ impl VM {
         // Phase 1 is a pure refactor).
         let current = heap.alloc(Object::Fiber(Box::new(crate::heap::FiberObject::root())));
 
-        let mut vm = Self {
+        Self {
             heap,
             frames: Vec::with_capacity(256),
             stack: Vec::with_capacity(1024),
@@ -42,11 +43,7 @@ impl VM {
             runtime_roots: None,
             universe_bootstrap_measurement: crate::vm::UniverseBootstrapMeasurement::default(),
             privileged_modules: std::collections::HashSet::new(),
-            semantic_roots: crate::vm::SemanticRoots {
-                unsupported: Value::nil(),
-                ellipsis: Value::nil(),
-                ordering_class: ClassId::default(),
-            },
+            semantic_roots: None,
             classes: HashMap::new(),
             kernel_class_names: std::collections::HashSet::new(),
             prelude_bindings: HashMap::new(),
@@ -78,122 +75,27 @@ impl VM {
 
             #[cfg(feature = "fiber-pool")]
             fiber_pool: Vec::new(),
-        };
-
-        // Source/native preflight runs before native installation. The parsed
-        // units retained by this index are the same units compiled below, so
-        // verification and execution cannot observe different source text.
-        let source_index = crate::native::NativeSourceIndex::build().expect("canonical universe source must parse");
-        let descriptors = crate::native::PRIMITIVES.iter().collect::<Vec<_>>();
-        crate::native::verify_native_contracts(&source_index, &descriptors).expect("canonical native source contracts must verify");
-
-        let universe_sym = vm.interner.intern("universe");
-
-        // Initialize canonical builtin 'universe' package with native bindings & exports
-        let universe_pkg = crate::modules::builtin_materialize::initialize_canonical_universe(&mut vm).expect("canonical universe package initializes");
-        vm.define_global(universe_pkg, universe_sym, Value::obj(universe_pkg)).unwrap();
-        // Bind primordial classes into their canonical modules and retain root
-        // aliases for source prelude compatibility.
-        vm.bind_primordial_universe();
-        vm.sync_universe_class_aliases();
-
-        // Stamp the kernel `Message` class's fixed-slot count (U8,
-        // method-lookup.md §2). `Message` instances are built
-        // directly in Rust ([`VM::new_message`]) — its four slots
-        // (selector/name/labels/args) carry no `.ph` field layout, so the
-        // count is set here rather than by the compiler's class lowering.
-        {
-            let message_class = vm.universe.classes.message_class;
-            vm.heap.class_mut(message_class).field_count = 4;
         }
+    }
 
-        // Stamp the `Error` root's and `MessageNotUnderstood`'s fixed-slot
-        // layout (U-CORE-6, ADR-0008/ADR-0011). Like `Message`, both
-        // are built directly in Rust — `Error` has one field (`_message`,
-        // slot 0); `MessageNotUnderstood < Error` inherits that slot and adds
-        // one more (`_reifiedMessage`, slot 1), appended after the
-        // superclass's fields per the compiler's field-offset rule
-        // (`compiler/lib.rs`), keeping the two rows' slot 0 consistent.
-        {
-            let error_class = vm.universe.classes.error_class;
-            let msg_sym = vm.interner.intern("_message");
-            let kind_sym = vm.interner.intern("_kind");
-            let cause_sym = vm.interner.intern("_cause");
-            let displaced_sym = vm.interner.intern("_displaced");
-            vm.heap.class_mut(error_class).field_slots.insert(msg_sym, 0);
-            vm.heap.class_mut(error_class).field_slots.insert(kind_sym, 1);
-            vm.heap.class_mut(error_class).field_slots.insert(cause_sym, 2);
-            vm.heap.class_mut(error_class).field_slots.insert(displaced_sym, 3);
-            vm.heap.class_mut(error_class).field_count = 4;
-        }
-        {
-            let mnu = vm.universe.classes.message_not_understood_class;
-            let msg_sym = vm.interner.intern("_message");
-            let kind_sym = vm.interner.intern("_kind");
-            let cause_sym = vm.interner.intern("_cause");
-            let displaced_sym = vm.interner.intern("_displaced");
-            let reified_sym = vm.interner.intern("_reifiedMessage");
-            vm.heap.class_mut(mnu).field_slots.insert(msg_sym, 0);
-            vm.heap.class_mut(mnu).field_slots.insert(kind_sym, 1);
-            vm.heap.class_mut(mnu).field_slots.insert(cause_sym, 2);
-            vm.heap.class_mut(mnu).field_slots.insert(displaced_sym, 3);
-            vm.heap.class_mut(mnu).field_slots.insert(reified_sym, 4);
-            vm.heap.class_mut(mnu).field_count = 5;
-        }
-        // `CannotYieldAcrossNativeFrame < Error` (U-FIBER, D-FIB-1): no
-        // fields beyond the inherited slots — mirrors `Error`
-        // itself rather than adding anything.
-        {
-            let cynf = vm.universe.classes.cannot_yield_across_native_frame_class;
-            let msg_sym = vm.interner.intern("_message");
-            let kind_sym = vm.interner.intern("_kind");
-            let cause_sym = vm.interner.intern("_cause");
-            let displaced_sym = vm.interner.intern("_displaced");
-            vm.heap.class_mut(cynf).field_slots.insert(msg_sym, 0);
-            vm.heap.class_mut(cynf).field_slots.insert(kind_sym, 1);
-            vm.heap.class_mut(cynf).field_slots.insert(cause_sym, 2);
-            vm.heap.class_mut(cynf).field_slots.insert(displaced_sym, 3);
-            vm.heap.class_mut(cynf).field_count = 4;
-        }
+    /// Creates a fresh VM with the native runtime floor, without executing
+    /// source-authored Universe modules.
+    pub fn new_native() -> Self {
+        Self::new_native_with_native_install_mode(NativeInstallMode::DescriptorOnly)
+    }
 
-        // Resource base class field stamp (U-RESOURCE): slot 0 is packed handle
-        {
-            let res_class = vm.universe.classes.resource_class;
-            let handle_sym = vm.interner.intern("_handle");
-            vm.heap.class_mut(res_class).field_slots.insert(handle_sym, 0);
-            vm.heap.class_mut(res_class).field_count = 1;
-        }
+    fn new_native_with_native_install_mode(native_install_mode: NativeInstallMode) -> Self {
+        let mut vm = Self::new_kernel();
+        Self::install_native_runtime(&mut vm, native_install_mode);
+        vm
+    }
 
-        // UseAfterCloseError < Error
-        {
-            let uace = vm.universe.classes.use_after_close_error_class;
-            let msg_sym = vm.interner.intern("_message");
-            let kind_sym = vm.interner.intern("_kind");
-            let cause_sym = vm.interner.intern("_cause");
-            let displaced_sym = vm.interner.intern("_displaced");
-            vm.heap.class_mut(uace).field_slots.insert(msg_sym, 0);
-            vm.heap.class_mut(uace).field_slots.insert(kind_sym, 1);
-            vm.heap.class_mut(uace).field_slots.insert(cause_sym, 2);
-            vm.heap.class_mut(uace).field_slots.insert(displaced_sym, 3);
-            vm.heap.class_mut(uace).field_count = 4;
-        }
-        // Native descriptors are the sole primitive authority. Keep the
-        // public mode parameter for callers during the migration, but never
-        // reinstall the retired hand-written primitive table.
-        let _ = native_install_mode;
-        crate::native::install::install_registered_primitives(&mut vm).expect("registered primitives must install cleanly");
-        // Typing reflection is a separate semantic subsystem whose classes are
-        // not part of the primordial native-surface catalog.
-        crate::primitive::typing::install(&mut vm);
-
-        // Finalize every kernel row's base-name index (selectors.md §3.1,
-        // U16-Open) now that its native primitives are installed, so `::`
-        // works against a kernel class with no `.ph` reopen (e.g. `Behavior`,
-        // `Metaclass`, `Message`, `Fiber`) and not only the ones `core.ph`
-        // happens to touch. A `.ph` reopen below re-finalizes its own row
-        // anyway (`Bytecode::FinalizeClass`, idempotent rebuild), so this
-        // pass is never stale — only ever a floor under it.
-        vm.finalize_all_primordial_base_names();
+    /// Creates a VM with an explicit native installation path.
+    pub fn new_with_native_install_mode(native_install_mode: NativeInstallMode) -> Self {
+        // Canonical source/native verification, linking, semantic analysis, and
+        // lowering are process-shared. Runtime installation remains fresh.
+        let canonical = crate::modules::canonical_universe_program().expect("canonical Universe compiler product must build");
+        let mut vm = Self::new_native_with_native_install_mode(native_install_mode);
 
         // Compile and run the registered universe modules now that every native
         // primitive is installed: this is what actually attaches each
@@ -201,7 +103,7 @@ impl VM {
         // …) to its bootstrapped kernel row. Must run after
         // `install_primitives` so a reopen can call the primitives it wraps
         // (e.g. `List.at(_:)` calling `at_(_:)`).
-        vm.run_universe_modules(&source_index).expect("universe modules must compile and run cleanly");
+        vm.run_universe_modules(canonical).expect("universe modules must compile and run cleanly");
         vm.sync_universe_class_aliases();
 
         // Semantic roots are late-bound to the exact values exported by the
@@ -217,11 +119,11 @@ impl VM {
                 .universe_global(&["object", "ordering"], "Ordering")
                 .and_then(|value| value.as_obj())
                 .expect("universe must export Ordering class");
-            vm.semantic_roots = crate::vm::SemanticRoots {
+            vm.semantic_roots = Some(crate::vm::SemanticRoots {
                 unsupported,
                 ellipsis,
                 ordering_class: ordering,
-            };
+            });
         }
 
         // Snapshot the leaf `toString` override-epoch flags now that
@@ -254,7 +156,104 @@ impl VM {
         vm
     }
 
-    /// Compiles and runs the universe modules in topological order.
+    fn install_native_runtime(vm: &mut Self, native_install_mode: NativeInstallMode) {
+        let universe_sym = vm.interner.intern("universe");
+
+        // Initialize canonical builtin 'universe' package with native bindings & exports.
+        let universe_pkg = crate::modules::builtin_materialize::initialize_canonical_universe(vm).expect("canonical universe package initializes");
+        vm.define_global(universe_pkg, universe_sym, Value::obj(universe_pkg)).unwrap();
+        // Bind primordial classes into their canonical modules and retain root
+        // aliases for source prelude compatibility.
+        vm.bind_primordial_universe();
+        vm.sync_universe_class_aliases();
+
+        // Stamp the kernel `Message` class's fixed-slot count (U8,
+        // method-lookup.md §2). `Message` instances are built directly in Rust
+        // and carry no `.ph` field layout.
+        {
+            let message_class = vm.universe.classes.message_class;
+            vm.heap.class_mut(message_class).field_count = 4;
+        }
+
+        // Stamp fixed layouts for Rust-built error classes. Their fields follow
+        // the same inherited slot order as compiler-produced class layouts.
+        {
+            let error_class = vm.universe.classes.error_class;
+            let msg_sym = vm.interner.intern("_message");
+            let kind_sym = vm.interner.intern("_kind");
+            let cause_sym = vm.interner.intern("_cause");
+            let displaced_sym = vm.interner.intern("_displaced");
+            vm.heap.class_mut(error_class).field_slots.insert(msg_sym, 0);
+            vm.heap.class_mut(error_class).field_slots.insert(kind_sym, 1);
+            vm.heap.class_mut(error_class).field_slots.insert(cause_sym, 2);
+            vm.heap.class_mut(error_class).field_slots.insert(displaced_sym, 3);
+            vm.heap.class_mut(error_class).field_count = 4;
+        }
+        {
+            let mnu = vm.universe.classes.message_not_understood_class;
+            let msg_sym = vm.interner.intern("_message");
+            let kind_sym = vm.interner.intern("_kind");
+            let cause_sym = vm.interner.intern("_cause");
+            let displaced_sym = vm.interner.intern("_displaced");
+            let reified_sym = vm.interner.intern("_reifiedMessage");
+            vm.heap.class_mut(mnu).field_slots.insert(msg_sym, 0);
+            vm.heap.class_mut(mnu).field_slots.insert(kind_sym, 1);
+            vm.heap.class_mut(mnu).field_slots.insert(cause_sym, 2);
+            vm.heap.class_mut(mnu).field_slots.insert(displaced_sym, 3);
+            vm.heap.class_mut(mnu).field_slots.insert(reified_sym, 4);
+            vm.heap.class_mut(mnu).field_count = 5;
+        }
+        // `CannotYieldAcrossNativeFrame < Error` has no fields beyond its
+        // inherited error layout.
+        {
+            let cynf = vm.universe.classes.cannot_yield_across_native_frame_class;
+            let msg_sym = vm.interner.intern("_message");
+            let kind_sym = vm.interner.intern("_kind");
+            let cause_sym = vm.interner.intern("_cause");
+            let displaced_sym = vm.interner.intern("_displaced");
+            vm.heap.class_mut(cynf).field_slots.insert(msg_sym, 0);
+            vm.heap.class_mut(cynf).field_slots.insert(kind_sym, 1);
+            vm.heap.class_mut(cynf).field_slots.insert(cause_sym, 2);
+            vm.heap.class_mut(cynf).field_slots.insert(displaced_sym, 3);
+            vm.heap.class_mut(cynf).field_count = 4;
+        }
+
+        // Resource base class field stamp (U-RESOURCE): slot 0 is packed handle.
+        {
+            let res_class = vm.universe.classes.resource_class;
+            let handle_sym = vm.interner.intern("_handle");
+            vm.heap.class_mut(res_class).field_slots.insert(handle_sym, 0);
+            vm.heap.class_mut(res_class).field_count = 1;
+        }
+
+        // UseAfterCloseError < Error.
+        {
+            let uace = vm.universe.classes.use_after_close_error_class;
+            let msg_sym = vm.interner.intern("_message");
+            let kind_sym = vm.interner.intern("_kind");
+            let cause_sym = vm.interner.intern("_cause");
+            let displaced_sym = vm.interner.intern("_displaced");
+            vm.heap.class_mut(uace).field_slots.insert(msg_sym, 0);
+            vm.heap.class_mut(uace).field_slots.insert(kind_sym, 1);
+            vm.heap.class_mut(uace).field_slots.insert(cause_sym, 2);
+            vm.heap.class_mut(uace).field_slots.insert(displaced_sym, 3);
+            vm.heap.class_mut(uace).field_count = 4;
+        }
+
+        // Native descriptors are the sole primitive authority. Keep the public
+        // mode parameter for callers during the migration, but never reinstall
+        // the retired hand-written primitive table.
+        let _ = native_install_mode;
+        crate::native::install::install_registered_primitives(vm).expect("registered primitives must install cleanly");
+        // Typing reflection is separate from the primordial native-surface catalog.
+        crate::primitive::typing::install(vm);
+
+        // Establish the native floor for base-name dispatch. Source reopens
+        // below may finalize their own rows again.
+        vm.finalize_all_primordial_base_names();
+    }
+
+    /// Compiles and runs the precomputed Universe modules in topological order.
     ///
     /// See the call site in [`Self::new`] for why this must run after
     /// [`Universe::install_primitives`].
@@ -262,97 +261,36 @@ impl VM {
     /// # Errors
     ///
     /// Returns any [`crate::error::PhError`] raised while compiling or executing universe modules.
-    fn run_universe_modules(&mut self, source_index: &crate::native::NativeSourceIndex) -> PhResult<()> {
-        let root = phalcom_modules::ModuleId::universe_root();
-        let root_reachable_units = source_index
-            .reachable_units_from_roots(std::slice::from_ref(&root))
-            .map_err(crate::error::RuntimeError::Internal)?;
-        let bootstrap_roots = source_index.bootstrap_roots();
-        let units = source_index
-            .initialization_order_from_roots(&bootstrap_roots)
-            .map_err(crate::error::RuntimeError::Internal)?;
-        let lowerings = self.universe_lowerings(source_index)?;
+    fn run_universe_modules(&mut self, canonical: &crate::modules::CanonicalUniverseProgram) -> PhResult<()> {
         self.universe_bootstrap_measurement = crate::vm::UniverseBootstrapMeasurement {
-            discovered_units: source_index.units.len(),
-            root_reachable_units: root_reachable_units.len(),
-            executed_units: units.len(),
+            discovered_units: canonical.source_index.units.len(),
+            root_reachable_units: canonical.root_reachable.len(),
+            executed_units: canonical.bootstrap_order.len(),
         };
-        for parsed in units {
+        for id in canonical.bootstrap_order.iter() {
+            let parsed = canonical
+                .source_index
+                .unit(id)
+                .ok_or_else(|| crate::error::RuntimeError::Internal(format!("Universe source module {id} is missing from canonical index")))?;
             let module = self
                 .module_registry
-                .get(&parsed.id)
-                .ok_or_else(|| crate::error::RuntimeError::Internal(format!("Universe module {} is not materialized", parsed.id)))?
+                .get(id)
+                .ok_or_else(|| crate::error::RuntimeError::Internal(format!("Universe module {id} is not materialized")))?
                 .object;
-            let lowering = lowerings
-                .get(&parsed.id)
-                .ok_or_else(|| crate::error::RuntimeError::Internal(format!("Universe semantic lowering missing for {}", parsed.id)))?;
-            self.heap.module_mut(module).lowering = Some(lowering.clone());
+            let compiled = canonical
+                .program
+                .modules
+                .get(id)
+                .ok_or_else(|| crate::error::RuntimeError::Internal(format!("Universe compiled module {id} is missing from canonical program")))?;
+            self.heap.module_mut(module).lowering = Some(compiled.lowering.clone());
             let source_id = self.heap.module_mut(module).push_source(std::sync::Arc::new(parsed.text.to_string()));
             let closure = self
                 .compile_ast_as(module, source_id, (*parsed.program).clone(), crate::compiler::lib::UnitKind::File)
-                .map_err(|error| crate::error::RuntimeError::Internal(format!("failed to compile Universe module {}: {error}", parsed.id)))?;
+                .map_err(|error| crate::error::RuntimeError::Internal(format!("failed to compile Universe module {id}: {error}")))?;
             self.run_in_module(module, closure)?;
-            self.module_registry
-                .get_mut(&parsed.id)
-                .expect("bootstrapped Universe module is registered")
-                .state = crate::modules::registry::ModuleState::Initialized;
+            self.module_registry.get_mut(id).expect("bootstrapped Universe module is registered").state = crate::modules::registry::ModuleState::Initialized;
         }
         Ok(())
-    }
-
-    fn universe_lowerings(
-        &self,
-        source_index: &crate::native::NativeSourceIndex,
-    ) -> PhResult<std::collections::BTreeMap<phalcom_modules::ModuleId, std::sync::Arc<crate::modules::semantic_lowering::ModuleLoweringSemantics>>> {
-        let universe = std::sync::Arc::new(phalcom_modules::ProjectUniverse::new());
-        let provider = phalcom_modules::UniverseSourceProvider::new();
-        let filesystem = phalcom_modules::FilesystemSourceProvider::new();
-        let mut resolver = phalcom_modules::ModuleResolver::new(&universe, &filesystem);
-        let mut interfaces = std::collections::BTreeMap::new();
-
-        for unit in &source_index.units {
-            let interface = resolver
-                .load_interface(&unit.id)
-                .map_err(|error| crate::error::RuntimeError::Internal(format!("failed to load Universe interface {}: {error}", unit.id)))?;
-            interfaces.insert(unit.id.clone(), interface);
-        }
-
-        let mut resolved = std::collections::BTreeMap::new();
-        for (module, interface) in &interfaces {
-            for import in &interface.imports {
-                let path = match import {
-                    phalcom_modules::ImportSurface::Module(decl) => &decl.path,
-                    phalcom_modules::ImportSurface::Selective(decl) => &decl.path,
-                    phalcom_modules::ImportSurface::ReExport(decl) => &decl.path,
-                };
-                let target = resolver
-                    .resolve_import(module, path)
-                    .map_err(|error| crate::error::RuntimeError::Internal(format!("failed to resolve Universe import {path} from {module}: {error}")))?;
-                resolved.insert((module.clone(), path.to_string()), target.id);
-            }
-        }
-
-        let linked = phalcom_modules::ModuleLinker::new(universe.clone(), interfaces)
-            .link_all(phalcom_modules::ModuleId::universe_root(), &resolved)
-            .map_err(|error| crate::error::RuntimeError::Internal(format!("failed to link canonical Universe sources: {error}")))?;
-        let sources = source_index.units.iter().map(|unit| (unit.id.clone(), unit.clone())).collect();
-        let analysis = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput {
-                linked: std::sync::Arc::new(linked),
-                sources,
-                generation: 0,
-            })
-        }))
-            .map_err(|_| crate::error::RuntimeError::Internal("canonical Universe semantic analysis panicked".into()))?;
-        source_index
-            .units
-            .iter()
-            .map(|unit| {
-                let lowering = crate::modules::semantic_lowering::build_module_lowering_semantics(&unit.id, &analysis.snapshot)
-                    .map_err(|error| crate::error::RuntimeError::Internal(format!("failed to project Universe lowering for {}: {error}", unit.id)))?;
-                Ok((unit.id.clone(), std::sync::Arc::new(lowering)))
-            })
-            .collect()
     }
 
     /// Binds primordial runtime classes to canonical Universe modules and
@@ -715,5 +653,54 @@ impl VM {
         let id = phalcom_modules::ModuleId::synthetic(ids.allocate(), path);
         let kind = crate::heap::ModuleKind::Package;
         self.create_module_with_id(id, kind, logical_name, &format!("<builtin:{logical_name}>"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::VM;
+
+    #[test]
+    fn kernel_bootstrap_has_no_native_or_source_state() {
+        let vm = VM::new_kernel();
+
+        assert!(vm.runtime_roots.is_none());
+        assert!(vm.semantic_roots.is_none());
+        assert!(vm.classes.is_empty());
+        assert!(vm.module_registry.iter().next().is_none());
+        assert_eq!(vm.universe_bootstrap_measurement(), super::super::UniverseBootstrapMeasurement::default());
+    }
+
+    #[test]
+    fn native_bootstrap_has_native_floor_without_source_semantic_roots() {
+        let vm = VM::new_native();
+
+        assert!(vm.runtime_roots.is_some());
+        assert!(vm.semantic_roots.is_none());
+        assert!(vm.module_registry.iter().next().is_some());
+        assert_eq!(vm.universe_bootstrap_measurement(), super::super::UniverseBootstrapMeasurement::default());
+    }
+
+    #[test]
+    fn lower_tier_source_root_access_is_explicitly_rejected() {
+        let vm = VM::new_native();
+        let error = vm.require_semantic_roots().expect_err("native VM must not expose source semantic roots");
+
+        assert!(error.to_string().contains("source-authored Universe bootstrap"));
+    }
+
+    #[test]
+    fn full_vms_keep_mutable_module_state_isolated() {
+        let mut first = VM::new();
+        let mut second = VM::new();
+        let module = first.create_module("bootstrap_isolation_probe", "<test>");
+        let symbol = first.interner.intern("value");
+
+        first
+            .define_global(module, symbol, crate::value::Value::int(42))
+            .expect("probe global definition");
+        assert_eq!(first.heap.module(module).get(symbol), Some(crate::value::Value::int(42)));
+        let second_symbol = second.interner.intern("bootstrap_isolation_probe");
+        assert!(second.find_module_by_symbol(second_symbol).is_none());
     }
 }

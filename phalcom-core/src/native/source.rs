@@ -138,6 +138,11 @@ impl NativeSourceIndex {
         Ok(index)
     }
 
+    /// Returns the canonical parsed unit with the requested module identity.
+    pub fn unit(&self, id: &ModuleId) -> Option<Arc<ParsedModuleUnit>> {
+        self.units.iter().find(|unit| unit.id == *id).cloned()
+    }
+
     /// Returns all canonical source units in dependency-first order.
     ///
     /// This is a census/testing helper. VM bootstrap uses

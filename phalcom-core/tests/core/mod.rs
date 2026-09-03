@@ -3,6 +3,9 @@
 //! Modules are grouped by semantic responsibility. Runtime tests consume
 //! compiler output; they do not recreate semantic match proofs.
 
+#[path = "../support/vm.rs"]
+mod vm_support;
+
 #[path = "either/mod.rs"]
 mod either;
 

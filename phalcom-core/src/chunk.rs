@@ -464,15 +464,10 @@ mod tests {
     }
 
     fn ic_add_method_invalidates_impl() {
-        let mut vm = crate::vm::VM::new();
+        let mut vm = crate::vm::VM::new_native();
         let module = vm.create_module("main", "ic_add_method_invalidates");
-        let closure = vm
-            .compile_closure(
-                module,
-                "class A {\n  val { 1 }\n}\nconst a = A.new()\nconst first = a.val\nconst second = a.val\nconst third = a.val\n",
-            )
-            .expect("compiles");
-        vm.run_in_module(module, closure).expect("runs");
+        let class_closure = vm.compile_closure(module, "class A {\n  val { 1 }\n}\n").expect("class compiles");
+        vm.run_in_module(module, class_closure).expect("class runs");
 
         let val_sym = vm.get_or_intern("val");
         let a_key = crate::vm::ClassKey {
@@ -480,6 +475,13 @@ mod tests {
             name: vm.get_or_intern("A"),
         };
         let class_a = *vm.classes.get(&a_key).expect("A must be registered after running its Bytecode::Class");
+        let instance = vm.heap.alloc(crate::heap::Object::Instance(crate::heap::InstanceObject::new(class_a, 0)));
+        let a_sym = vm.get_or_intern("a");
+        vm.define_global(module, a_sym, Value::obj(instance)).expect("test instance global");
+        let closure = vm
+            .compile_closure(module, "const first = a.val\nconst second = a.val\nconst third = a.val\n")
+            .expect("accesses compile");
+        vm.run_in_module(module, closure).expect("accesses run");
 
         let chunk = &vm.heap.closure(closure).callable.chunk;
         let ip = warmed_invoke_index(chunk, val_sym);
@@ -514,14 +516,10 @@ mod tests {
     }
 
     fn ic_override_after_caching_impl() {
-        let mut vm = crate::vm::VM::new();
+        let mut vm = crate::vm::VM::new_native();
         let module = vm.create_module("main", "ic_override_after_caching");
-        let mut source = "class A {\n  get { 1 }\n}\nconst a = A.new()\n".to_string();
-        for index in 0..10 {
-            source.push_str(&format!("const cached{index} = a.get\n"));
-        }
-        let closure = vm.compile_closure(module, &source).expect("compiles");
-        vm.run_in_module(module, closure).expect("runs");
+        let class_closure = vm.compile_closure(module, "class A {\n  get { 1 }\n}\n").expect("class compiles");
+        vm.run_in_module(module, class_closure).expect("class runs");
 
         let get_sym = vm.get_or_intern("get");
         let a_key = crate::vm::ClassKey {
@@ -529,6 +527,16 @@ mod tests {
             name: vm.get_or_intern("A"),
         };
         let class_a = *vm.classes.get(&a_key).expect("A must be registered after running its Bytecode::Class");
+        let instance = vm.heap.alloc(crate::heap::Object::Instance(crate::heap::InstanceObject::new(class_a, 0)));
+        let a_sym = vm.get_or_intern("a");
+        vm.define_global(module, a_sym, Value::obj(instance)).expect("test instance global");
+
+        let mut source = String::new();
+        for index in 0..10 {
+            source.push_str(&format!("const cached{index} = a.get\n"));
+        }
+        let closure = vm.compile_closure(module, &source).expect("compiles");
+        vm.run_in_module(module, closure).expect("runs");
 
         let chunk = &vm.heap.closure(closure).callable.chunk;
         let ip = warmed_invoke_index(chunk, get_sym);

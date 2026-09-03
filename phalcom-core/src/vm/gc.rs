@@ -133,12 +133,14 @@ impl VM {
         out.extend(checking.iter().copied());
         adt_registry.enumerate_class_roots(|id| out.push(id));
         reflection_cache.trace(&mut |id| out.push(id));
-        for value in [semantic_roots.unsupported, semantic_roots.ellipsis] {
-            if let Some(id) = value.gc_obj_ref() {
-                out.push(id);
+        if let Some(semantic_roots) = semantic_roots {
+            for value in [semantic_roots.unsupported, semantic_roots.ellipsis] {
+                if let Some(id) = value.gc_obj_ref() {
+                    out.push(id);
+                }
             }
+            out.push(semantic_roots.ordering_class);
         }
-        out.push(semantic_roots.ordering_class);
         universe.each_handle(&mut |id| out.push(id));
     }
 

@@ -77,7 +77,7 @@ mod tests {
         std::thread::Builder::new()
             .stack_size(32 * 1024 * 1024)
             .spawn(|| {
-                let mut vm = VM::new();
+                let mut vm = VM::new_kernel();
                 let before = vm.heap.live_count();
 
                 assert_eq!(finish_tuple(&mut vm, Vec::new(), Vec::new()), Ok(Value::unit()));

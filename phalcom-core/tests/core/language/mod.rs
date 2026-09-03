@@ -7,8 +7,7 @@
 #[path = "../../support/mod.rs"]
 mod support;
 
-#[path = "../../support/vm.rs"]
-mod vm_support;
+use super::vm_support;
 
 #[path = "corpus.rs"]
 mod corpus;

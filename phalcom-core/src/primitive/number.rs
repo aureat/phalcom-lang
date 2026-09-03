@@ -267,7 +267,7 @@ pub fn number_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
 )]
 pub fn number_add(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let Some(pair) = cooperative_pair(receiver, &args[0], vm)? else {
-        return Ok(vm.semantic_roots.unsupported);
+        return Ok(vm.require_semantic_roots()?.unsupported);
     };
     match pair {
         PromotedPair::Int(a, b) => {
@@ -300,7 +300,7 @@ pub fn number_add(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
 )]
 pub fn number_sub(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let Some(pair) = cooperative_pair(receiver, &args[0], vm)? else {
-        return Ok(vm.semantic_roots.unsupported);
+        return Ok(vm.require_semantic_roots()?.unsupported);
     };
     match pair {
         PromotedPair::Int(a, b) => {
@@ -333,7 +333,7 @@ pub fn number_sub(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
 )]
 pub fn number_mul(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let Some(pair) = cooperative_pair(receiver, &args[0], vm)? else {
-        return Ok(vm.semantic_roots.unsupported);
+        return Ok(vm.require_semantic_roots()?.unsupported);
     };
     match pair {
         PromotedPair::Int(a, b) => {
@@ -365,7 +365,7 @@ pub fn number_mul(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
 )]
 pub fn number_div(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let Some(pair) = cooperative_pair(receiver, &args[0], vm)? else {
-        return Ok(vm.semantic_roots.unsupported);
+        return Ok(vm.require_semantic_roots()?.unsupported);
     };
     let (a, b) = match pair {
         PromotedPair::Int(a, b) => (a as f64, b as f64),
@@ -387,7 +387,7 @@ pub fn number_div(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
 )]
 pub fn number_floor_div(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let Some(pair) = cooperative_pair(receiver, &args[0], vm)? else {
-        return Ok(vm.semantic_roots.unsupported);
+        return Ok(vm.require_semantic_roots()?.unsupported);
     };
     match pair {
         PromotedPair::Int(a, b) => {
@@ -437,7 +437,7 @@ pub fn number_floor_div(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResu
 )]
 pub fn number_mod(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let Some(pair) = cooperative_pair(receiver, &args[0], vm)? else {
-        return Ok(vm.semantic_roots.unsupported);
+        return Ok(vm.require_semantic_roots()?.unsupported);
     };
     match pair {
         PromotedPair::Int(a, b) => {
@@ -473,7 +473,7 @@ pub fn number_pow(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
     let exp_val = &args[0];
 
     let Some(_pair) = cooperative_pair(base_val, exp_val, vm)? else {
-        return Ok(vm.semantic_roots.unsupported);
+        return Ok(vm.require_semantic_roots()?.unsupported);
     };
 
     // Identity check 1: 1 ** y = 1 (or 1.0)
@@ -638,7 +638,7 @@ fn ordering_value(vm: &mut VM, selector: &str) -> PhResult<Value> {
 )]
 pub fn number_compare(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let Some(pair) = cooperative_pair(receiver, &args[0], vm)? else {
-        return Ok(vm.semantic_roots.unsupported);
+        return Ok(vm.require_semantic_roots()?.unsupported);
     };
     let selector = match pair {
         PromotedPair::Int(a, b) => a.cmp(&b),

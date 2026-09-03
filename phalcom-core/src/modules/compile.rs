@@ -456,7 +456,19 @@ pub struct ProgramCompiler;
 impl ProgramCompiler {
     /// Compiles an analyzed program into a fully linked `CompiledProgram`.
     pub fn compile_analyzed(analyzed: &AnalyzedProgram) -> Result<CompiledProgram, ProgramCompileError> {
-        if analyzed.semantic.has_errors() {
+        Self::compile_analyzed_inner(analyzed, true)
+    }
+
+    /// Compiles the canonical source-complete Universe projection while
+    /// preserving the historical bootstrap policy that accepts its existing
+    /// diagnostics. This remains crate-private so ordinary user/project
+    /// compilation continues to reject semantic errors.
+    pub(crate) fn compile_analyzed_for_canonical_bootstrap(analyzed: &AnalyzedProgram) -> Result<CompiledProgram, ProgramCompileError> {
+        Self::compile_analyzed_inner(analyzed, false)
+    }
+
+    fn compile_analyzed_inner(analyzed: &AnalyzedProgram, reject_semantic_errors: bool) -> Result<CompiledProgram, ProgramCompileError> {
+        if reject_semantic_errors && analyzed.semantic.has_errors() {
             return Err(ProgramCompileError::Semantic(ProgramSemanticDiagnostics::from_snapshot(&analyzed.semantic)));
         }
 

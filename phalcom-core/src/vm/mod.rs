@@ -189,7 +189,7 @@ pub struct VM {
     /// ([ADR-0030](../../../docs/adr/0030-fibers-and-futures-cooperative-concurrency.md)
     /// §2–§3). [`Self::frames`]/[`Self::stack`]/[`Self::open_upvalues`] are its
     /// live state; a parked (non-current) fiber holds its own state in its
-    /// [`crate::heap::FiberObject`] fields instead. Initialized in [`VM::new`]
+    /// [`crate::heap::FiberObject`] fields instead. Initialized in [`VM::new_kernel`]
     /// to a fresh **root** fiber ([`crate::heap::FiberObject::root`]) that
     /// wraps the whole program — every VM has always run "inside a fiber",
     /// this just makes it addressable. `Object::Fiber` is not reached through
@@ -238,8 +238,9 @@ pub struct VM {
     pub(crate) universe_bootstrap_measurement: UniverseBootstrapMeasurement,
     /// Set of modules with privileged Universe status.
     pub privileged_modules: std::collections::HashSet<ObjRef>,
-    /// Canonical semantic values, initialized after universe bootstrap.
-    pub semantic_roots: SemanticRoots,
+    /// Canonical source-derived semantic values, absent below full Universe
+    /// bootstrap.
+    pub semantic_roots: Option<SemanticRoots>,
 
     /// Named classes by identity [`ClassKey`], each a [`ClassId`] handle.
     pub classes: HashMap<ClassKey, ClassId>,
@@ -458,6 +459,14 @@ impl VM {
     /// Returns source discovery and bootstrap execution counts from VM startup.
     pub fn universe_bootstrap_measurement(&self) -> UniverseBootstrapMeasurement {
         self.universe_bootstrap_measurement
+    }
+
+    /// Returns source-derived semantic roots when full Universe bootstrap has
+    /// completed.
+    pub(crate) fn require_semantic_roots(&self) -> Result<&SemanticRoots, crate::error::RuntimeError> {
+        self.semantic_roots
+            .as_ref()
+            .ok_or_else(|| crate::error::RuntimeError::Internal("operation requires source-authored Universe bootstrap".into()))
     }
 
     /// Checks if a module has privileged Universe status.

@@ -50,7 +50,7 @@ fn try_int_big(val: &Value, vm: &VM) -> Option<BigInt> {
 pub fn int_and(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let a = expect_int_big(receiver, vm)?;
     let Some(b) = try_int_big(&args[0], vm) else {
-        return Ok(vm.semantic_roots.unsupported);
+        return Ok(vm.require_semantic_roots()?.unsupported);
     };
     let res = a & b;
     Ok(normalize_bigint(res, &mut vm.heap))
@@ -68,7 +68,7 @@ pub fn int_and(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value>
 pub fn int_or(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let a = expect_int_big(receiver, vm)?;
     let Some(b) = try_int_big(&args[0], vm) else {
-        return Ok(vm.semantic_roots.unsupported);
+        return Ok(vm.require_semantic_roots()?.unsupported);
     };
     let res = a | b;
     Ok(normalize_bigint(res, &mut vm.heap))
@@ -86,7 +86,7 @@ pub fn int_or(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> 
 pub fn int_xor(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let a = expect_int_big(receiver, vm)?;
     let Some(b) = try_int_big(&args[0], vm) else {
-        return Ok(vm.semantic_roots.unsupported);
+        return Ok(vm.require_semantic_roots()?.unsupported);
     };
     let res = a ^ b;
     Ok(normalize_bigint(res, &mut vm.heap))
@@ -120,7 +120,7 @@ pub fn int_shl(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value>
     let a = expect_int_big(receiver, vm)?;
     let b_val = &args[0];
     let Some(b) = try_int_big(b_val, vm) else {
-        return Ok(vm.semantic_roots.unsupported);
+        return Ok(vm.require_semantic_roots()?.unsupported);
     };
     if b.is_negative() {
         return Err(vm.raise_numeric_error(RuntimeError::InvalidShift("shift count must be non-negative".to_string())));
@@ -150,7 +150,7 @@ pub fn int_shr(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value>
     let a = expect_int_big(receiver, vm)?;
     let b_val = &args[0];
     let Some(b) = try_int_big(b_val, vm) else {
-        return Ok(vm.semantic_roots.unsupported);
+        return Ok(vm.require_semantic_roots()?.unsupported);
     };
     if b.is_negative() {
         return Err(vm.raise_numeric_error(RuntimeError::InvalidShift("shift count must be non-negative".to_string())));
