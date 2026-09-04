@@ -9,3 +9,4 @@ mod monads;
 mod integration;
 mod expression;
 mod rows;
+mod row_integration;

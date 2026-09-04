@@ -35,6 +35,9 @@ const EXPRESSION_SEMANTIC_PROBES: &str = include_str!("sources/expression_semant
 const EXPRESSION_RUNTIME_PROBES: &str = include_str!("sources/expression_runtime_probes.ph");
 const ROWS_CORE_SOURCE: &str = include_str!("sources/rows/core.ph");
 const ROWS_CALCULUS_SOURCE: &str = include_str!("sources/rows/calculus.ph");
+const ROW_INTEGRATION_PROBES: &str = include_str!("sources/row_integration_probes.ph");
+const ROW_INTEGRATION_INVALID: &str = include_str!("sources/row_integration_invalid.ph");
+const EXPRESSION_ROW_PROBES: &str = include_str!("sources/expression_row_probes.ph");
 
 pub fn either_source() -> &'static str {
     EITHER_SOURCE
@@ -98,6 +101,18 @@ pub fn row_calculus_source() -> String {
 
 pub fn with_rows(extra: &str) -> String {
     format!("{ROWS_CORE_SOURCE}\n{extra}")
+}
+
+pub fn row_integration_source() -> String {
+    format!("{EITHER_SOURCE}\n{MONADS_SOURCE}\n{ROWS_CORE_SOURCE}\n{ROW_INTEGRATION_PROBES}")
+}
+
+pub fn row_integration_invalid_source() -> String {
+    format!("{EITHER_SOURCE}\n{MONADS_SOURCE}\n{ROWS_CORE_SOURCE}\n{ROW_INTEGRATION_INVALID}")
+}
+
+pub fn expression_row_source() -> String {
+    format!("{EITHER_SOURCE}\n{MONADS_SOURCE}\n{ROWS_CORE_SOURCE}\n{EXPRESSION_SOURCE}\n{EXPRESSION_ROW_PROBES}")
 }
 
 #[derive(Default)]
@@ -359,6 +374,22 @@ impl Fixture {
                 assert_eq!(actual_elements.len(), elements.len());
                 for (actual, expected) in actual_elements.iter().zip(elements) {
                     self.assert_type(actual.ty, expected);
+                }
+            }
+            Ty::ClosedRecord(fields) => {
+                let TypeData::Record(row_id) = self.analysis.snapshot.store.get(actual) else {
+                    panic!(
+                        "expected closed Record, got {:?} ({})",
+                        self.analysis.snapshot.store.get(actual),
+                        self.analysis.snapshot.store.format_type(actual)
+                    );
+                };
+                let row = self.analysis.snapshot.store.record_row(*row_id);
+                assert_eq!(row.tail, RecordRowTail::Closed, "expected closed Record row: {row:?}");
+                assert_eq!(row.fields.len(), fields.len(), "wrong Record field count: {row:?}");
+                for (actual_field, (expected_name, expected_ty)) in row.fields.iter().zip(fields) {
+                    assert_eq!(actual_field.name.as_ref(), *expected_name, "wrong Record field name: {row:?}");
+                    self.assert_type(actual_field.ty, expected_ty);
                 }
             }
         }
@@ -694,6 +725,7 @@ pub enum Ty<'a> {
     Nominal(&'a str),
     Applied(&'a str, Vec<Ty<'a>>),
     Tuple(Vec<Ty<'a>>),
+    ClosedRecord(Vec<(&'a str, Ty<'a>)>),
 }
 
 pub fn nominal(name: &str) -> Ty<'_> {
@@ -706,6 +738,10 @@ pub fn either<'a>(left: Ty<'a>, right: Ty<'a>) -> Ty<'a> {
 
 pub fn tuple<'a>(elements: impl IntoIterator<Item = Ty<'a>>) -> Ty<'a> {
     Ty::Tuple(elements.into_iter().collect())
+}
+
+pub fn record<'a>(fields: impl IntoIterator<Item = (&'a str, Ty<'a>)>) -> Ty<'a> {
+    Ty::ClosedRecord(fields.into_iter().collect())
 }
 
 pub fn run_inline(source: &str) -> Result<(VM, phalcom_core::heap::ObjRef), PhError> {
