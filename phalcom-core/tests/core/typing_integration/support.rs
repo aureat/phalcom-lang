@@ -13,10 +13,11 @@ use phalcom_semantic::diagnostic::{DiagnosticCode, DiagnosticSeverity, SemanticD
 use phalcom_semantic::explain::{ExplanationStep, GenericConstraintOrigin, GenericConstraintRelation};
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 use phalcom_semantic::types::evidence::{EvidenceStatus, TypeKnowledge, UnknownReason};
-use phalcom_semantic::types::id::{KindId, TypeId, TypeParameterId};
+use phalcom_semantic::types::id::{KindId, RecordRowId, TypeId, TypeParameterId};
 use phalcom_semantic::types::kind::KindData;
 use phalcom_semantic::types::outcome::BudgetReport;
 use phalcom_semantic::types::parameter::TypeParameterOwner;
+use phalcom_semantic::types::row::RecordRowTail;
 use phalcom_semantic::types::specialization::{ReceiverSpecialization, SpecializationControl, specialize_receiver_to_owner};
 use phalcom_semantic::types::store::{TypeData, TypeStore};
 use phalcom_semantic::{analyze_single_module, causal_trace};
@@ -32,6 +33,8 @@ const INTEGRATION_PROBES: &str = include_str!("sources/integration_probes.ph");
 const EXPRESSION_SOURCE: &str = include_str!("sources/expression.ph");
 const EXPRESSION_SEMANTIC_PROBES: &str = include_str!("sources/expression_semantic_probes.ph");
 const EXPRESSION_RUNTIME_PROBES: &str = include_str!("sources/expression_runtime_probes.ph");
+const ROWS_CORE_SOURCE: &str = include_str!("sources/rows/core.ph");
+const ROWS_CALCULUS_SOURCE: &str = include_str!("sources/rows/calculus.ph");
 
 pub fn either_source() -> &'static str {
     EITHER_SOURCE
@@ -83,6 +86,18 @@ pub fn expression_runtime_source() -> String {
 
 pub fn with_expression(extra: &str) -> String {
     format!("{EITHER_SOURCE}\n{MONADS_SOURCE}\n{EXPRESSION_SOURCE}\n{extra}")
+}
+
+pub fn rows_core_source() -> &'static str {
+    ROWS_CORE_SOURCE
+}
+
+pub fn row_calculus_source() -> String {
+    format!("{ROWS_CORE_SOURCE}\n{ROWS_CALCULUS_SOURCE}")
+}
+
+pub fn with_rows(extra: &str) -> String {
+    format!("{ROWS_CORE_SOURCE}\n{extra}")
 }
 
 #[derive(Default)]
@@ -239,6 +254,50 @@ impl Fixture {
             [left, right],
             "wrong Either specialization: {}",
             self.analysis.snapshot.store.format_type(ty)
+        );
+    }
+
+    pub fn assert_closed_record(&self, actual: TypeId, expected_fields: &[(&str, TypeId)]) -> RecordRowId {
+        let TypeData::Record(row_id) = self.analysis.snapshot.store.get(actual) else {
+            panic!(
+                "expected closed Record, got {:?} ({})",
+                self.analysis.snapshot.store.get(actual),
+                self.analysis.snapshot.store.format_type(actual)
+            );
+        };
+        let row = self.analysis.snapshot.store.record_row(*row_id);
+        assert_eq!(row.tail, RecordRowTail::Closed, "expected closed Record row: {row:?}");
+        assert_eq!(row.fields.len(), expected_fields.len(), "wrong Record field count: {row:?}");
+        for (actual, (expected_name, expected_ty)) in row.fields.iter().zip(expected_fields) {
+            assert_eq!(actual.name.as_ref(), *expected_name, "wrong Record field name: {row:?}");
+            assert_eq!(actual.ty, *expected_ty, "wrong type for Record field `{expected_name}`: {row:?}");
+        }
+        *row_id
+    }
+
+    pub fn assert_open_record(&self, actual: TypeId, expected_fields: &[(&str, TypeId)], expected_tail: TypeParameterId) -> RecordRowId {
+        let TypeData::Record(row_id) = self.analysis.snapshot.store.get(actual) else {
+            panic!(
+                "expected open Record, got {:?} ({})",
+                self.analysis.snapshot.store.get(actual),
+                self.analysis.snapshot.store.format_type(actual)
+            );
+        };
+        let row = self.analysis.snapshot.store.record_row(*row_id);
+        assert_eq!(row.tail, RecordRowTail::Parameter(expected_tail), "wrong Record row tail: {row:?}");
+        assert_eq!(row.fields.len(), expected_fields.len(), "wrong Record field count: {row:?}");
+        for (actual, (expected_name, expected_ty)) in row.fields.iter().zip(expected_fields) {
+            assert_eq!(actual.name.as_ref(), *expected_name, "wrong Record field name: {row:?}");
+            assert_eq!(actual.ty, *expected_ty, "wrong type for Record field `{expected_name}`: {row:?}");
+        }
+        *row_id
+    }
+
+    pub fn assert_record_row_parameter(&self, parameter: TypeParameterId) {
+        assert_eq!(
+            self.analysis.snapshot.store.type_parameter(parameter).kind,
+            KindId::RECORD_ROW,
+            "generic parameter must have RecordRow kind"
         );
     }
 

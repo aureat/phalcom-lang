@@ -8,3 +8,4 @@ mod either;
 mod monads;
 mod integration;
 mod expression;
+mod rows;
