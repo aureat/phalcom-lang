@@ -1138,13 +1138,13 @@ fn apply_generic_callable_in_context(
         // session is retained; only its established substitutions are exposed
         // as contextual expectations to later arguments such as closures.
         if argument_index + 1 < args.len() {
-            let _ = ctx.inference_session(context).map(|session| ctx.solve_inference(&mut session.borrow_mut()));
+            let _ = ctx.inference_session(context).map(|session| ctx.propagate_inference(&mut session.borrow_mut()));
         }
     }
 
     let argument_outcome = ctx
         .inference_session(context)
-        .map(|session| ctx.solve_inference(&mut session.borrow_mut()))
+        .map(|session| ctx.solve_inference_in_frame(&mut session.borrow_mut(), frame))
         .unwrap_or(crate::checker::inference::InferenceOutcome::Blocked(
             crate::types::outcome::BlockReason::RecursiveFixpoint,
         ));
@@ -1160,6 +1160,7 @@ fn apply_generic_callable_in_context(
         crate::checker::inference::InferenceOutcome::Solved(solution) => Some(publish_generic_return_with_rows(
             ctx,
             &session_handle.borrow(),
+            &var_map,
             row_session.as_mut(),
             row_outcome.as_ref(),
             Some(solution),
@@ -1210,8 +1211,29 @@ fn apply_generic_callable_in_context(
                     }
                 }
                 if !row_expected_constrained {
+                    let canonicalized_return_term = if let (Some(rows), Some(crate::types::row_solver::RecordRowSolveResult::Solved(row_solution))) = (row_session.as_ref(), row_outcome.as_ref()) {
+                        if term_has_row_variables(return_term) {
+                            if let Ok(instantiation) = rows.build_instantiation_from_active_terms(&session_handle.borrow(), &var_map, row_solution, ctx.store) {
+                                if let Some(ret_ty) = signature.return_type.ty() {
+                                    crate::types::materialize_type(ctx.store, ret_ty, &instantiation, crate::types::RowMaterializationMode::RequireSolvedTail)
+                                        .ok()
+                                        .map(InferenceTerm::Canonical)
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
+                    let term_to_constrain = canonicalized_return_term.as_ref().unwrap_or(return_term);
                     session_handle.borrow_mut().add_constraint(
-                        InferenceRelation::Subtype(return_term.clone(), expected_term),
+                        InferenceRelation::Subtype(term_to_constrain.clone(), expected_term),
                         ConstraintOrigin::ExpectedResult { expression: call_id },
                         None,
                     );
@@ -1238,7 +1260,7 @@ fn apply_generic_callable_in_context(
         }
         let result = ctx
             .inference_session(context)
-            .map(|session| ctx.solve_inference(&mut session.borrow_mut()))
+            .map(|session| ctx.solve_inference_in_frame(&mut session.borrow_mut(), frame))
             .unwrap_or(crate::checker::inference::InferenceOutcome::Blocked(
                 crate::types::outcome::BlockReason::RecursiveFixpoint,
             ));
@@ -1436,13 +1458,15 @@ fn apply_generic_callable_in_context(
 
     if matches!(outcome, crate::checker::inference::InferenceOutcome::Underconstrained(_)) {
         if let Some(return_term) = return_term.as_ref() {
-            ctx.publish_symbolic_inference_result(
-                call_id,
-                crate::checker::typed_expr::SymbolicInferenceResult {
-                    context,
-                    term: return_term.clone(),
-                },
-            );
+            if !term_has_row_variables(return_term) {
+                ctx.publish_symbolic_inference_result(
+                    call_id,
+                    crate::checker::typed_expr::SymbolicInferenceResult {
+                        context,
+                        term: return_term.clone(),
+                    },
+                );
+            }
         }
     }
 
@@ -1450,6 +1474,7 @@ fn apply_generic_callable_in_context(
         crate::checker::inference::InferenceOutcome::Solved(solution) => publish_generic_return_with_rows(
             ctx,
             &session_handle.borrow(),
+            &var_map,
             row_session.as_mut(),
             row_outcome.as_ref(),
             Some(solution),
@@ -1550,9 +1575,10 @@ struct GenericReturnPublication<'a> {
 fn publish_generic_return_with_rows(
     ctx: &mut CheckingContext<'_>,
     session: &InferenceSession,
+    type_terms: &std::collections::HashMap<TypeParameterId, InferenceTerm>,
     row_session: Option<&mut GenericApplicationSession>,
     row_outcome: Option<&crate::types::row_solver::RecordRowSolveResult>,
-    type_solution: Option<&crate::checker::inference::InferenceSolution>,
+    _type_solution: Option<&crate::checker::inference::InferenceSolution>,
     publication: GenericReturnPublication<'_>,
 ) -> TypeKnowledge {
     let GenericReturnPublication {
@@ -1577,10 +1603,7 @@ fn publish_generic_return_with_rows(
         crate::checker::inference::InferenceProofState::Unknown(reason) => TypeKnowledge::Unknown(reason),
         crate::checker::inference::InferenceProofState::Dynamic(reason) => TypeKnowledge::Dynamic(reason),
         crate::checker::inference::InferenceProofState::Established | crate::checker::inference::InferenceProofState::Assumed => {
-            let Some(type_solution) = type_solution else {
-                return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
-            };
-            let instantiation = match rows.build_instantiation_from_types(session, type_solution, row_solution, ctx.store) {
+            let instantiation = match rows.build_instantiation_from_active_terms(session, type_terms, row_solution, ctx.store) {
                 Ok(instantiation) => instantiation,
                 Err(failure) => {
                     record_row_constraint_failure(ctx, failure, call_range);

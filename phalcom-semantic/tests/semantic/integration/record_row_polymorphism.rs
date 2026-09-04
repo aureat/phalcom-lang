@@ -263,3 +263,43 @@ class Probe {
     assert!(!diagnostic.message.contains("RecordRowVarId"));
     assert!(!diagnostic.message.contains("InferVarId"));
 }
+
+#[test]
+fn nested_row_polymorphic_call_in_generic_closure_preserves_specialized_record() {
+    let fixture = Fixture::new(
+        r#"
+class Mapping {
+  @class
+  apply<T, U>(_ value: T, _ f: (T) -> U) -> U {
+    f.call(value)
+  }
+}
+
+class Probe {
+  @class
+  annotate<A, B, R: RecordRow>(_ record: #{ value: A, | R }, _ f: (A) -> B) -> #{ mapped: B, value: A, | R } {
+    #{ **record, mapped: f.call(record.value) }
+  }
+
+  @class
+  run() {
+    let source: #{ cached: Bool, name: String, value: Int } = #{ cached: false, name: "test", value: 42 }
+    let result = Mapping.apply(source, |record| {
+      Probe.annotate(record, |value| { value == 0 })
+    })
+  }
+}
+"#,
+    );
+    fixture.assert_no_error_diagnostics();
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+    let result_binding = fixture.binding(run, "result");
+    let result_ty = result_binding.current.ty().expect("result type should be known");
+    let TypeData::Record(row_id) = fixture.analysis.snapshot.store.get(result_ty) else {
+        panic!("expected Record result, got {:?}", fixture.analysis.snapshot.store.get(result_ty));
+    };
+    let row = fixture.analysis.snapshot.store.record_row(*row_id);
+    assert_eq!(row.tail, RecordRowTail::Closed);
+    let field_names = row.fields.iter().map(|f| f.name.as_ref()).collect::<Vec<_>>();
+    assert_eq!(field_names, vec!["cached", "mapped", "name", "value"]);
+}

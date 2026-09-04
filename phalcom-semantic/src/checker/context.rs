@@ -777,6 +777,24 @@ impl<'a> CheckingContext<'a> {
         session.solve_with_control(self.store, &self.hierarchy, &self.control)
     }
 
+    pub(crate) fn propagate_inference(
+        &mut self,
+        session: &mut crate::checker::inference::InferenceSession,
+    ) -> Result<bool, crate::checker::inference::InferenceOutcome> {
+        session.propagate_with_control(self.store, &self.hierarchy, &self.control)
+    }
+
+    pub(crate) fn solve_inference_in_frame(
+        &mut self,
+        session: &mut crate::checker::inference::InferenceSession,
+        frame: crate::checker::inference::InferenceFrameId,
+    ) -> crate::checker::inference::InferenceOutcome {
+        match session.propagate_with_control(self.store, &self.hierarchy, &self.control) {
+            Ok(_) => session.finish_frame(frame),
+            Err(outcome) => outcome,
+        }
+    }
+
     /// Creates one query-local inference graph and its root application frame.
     pub(crate) fn create_inference_context(&mut self) -> (crate::checker::inference::InferenceContextId, crate::checker::inference::InferenceFrameId) {
         let mut context = crate::checker::inference::InferenceContextId(self.next_inference_context_id);

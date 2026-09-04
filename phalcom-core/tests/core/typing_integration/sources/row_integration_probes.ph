@@ -30,3 +30,25 @@ class RowNestedAdtProbe {
         )
     }
 }
+
+class RowMonadIntegrationProbe {
+    @class
+    bindRecord(
+        _ monad: StringEitherMonad,
+        _ source: Either<String, #{ cached: Bool, name: String, value: Int }>
+    ) {
+        let result = MonadAlgorithms.bind(
+            monad,
+            source,
+            |record| {
+                let transformed = RowCalculus.annotate(
+                    record,
+                    |value| { value > 0 }
+                )
+                let next: Either<String, #{ cached: Bool, mapped: Bool, name: String, value: Int }> =
+                    Either::Right(transformed)
+                next
+            }
+        )
+    }
+}

@@ -13,7 +13,7 @@ import arbitrary from hypothesis
 class Expression {
   @variant Literal(value: Int)
   @variant Negate(value: Expression)
-  @variant Add(left: Expression, right: Expression)
+  @variant Add(_ left: Expression, _ right: Expression)
 }
 
 class ExpressionProperties is PropertySuite {

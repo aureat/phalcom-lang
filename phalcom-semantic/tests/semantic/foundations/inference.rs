@@ -861,3 +861,95 @@ fn sc4_red_constructor_alignment_must_support_fixed_middle_positions() {
     let inferred = session.materialize(&InferenceTerm::Var(constructor), &mut store).expect("inferred constructor");
     assert_eq!(store.apply_type_form(inferred, &[string, bool_ty]), Ok(actual));
 }
+
+#[test]
+fn test_frame_completion_does_not_fail_on_ancestor_underconstraint() {
+    let mut store = TypeStore::new();
+    let hier = MapTypeHierarchy::new();
+    let mut session = InferenceSession::new();
+    let root = session.root_frame();
+    let ancestor_var = session.fresh_variable_in_frame(root, KindId::TYPE);
+
+    let child = session.begin_frame(Some(root));
+    let child_var_a = session.fresh_variable_in_frame(child, KindId::TYPE);
+    let child_var_b = session.fresh_variable_in_frame(child, KindId::TYPE);
+
+    let int_ty = store.nominal(test_decl("Int"));
+    let bool_ty = store.nominal(test_decl("Bool"));
+
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(child_var_a), InferenceTerm::Canonical(int_ty)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(child_var_b), InferenceTerm::Canonical(bool_ty)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+
+    let control = CheckerControl::default();
+    session
+        .propagate_with_control(&mut store, &hier, &control)
+        .expect("propagation succeeds");
+
+    let child_outcome = session.finish_frame(child);
+    assert!(
+        child_outcome.is_solved(),
+        "child frame with solved variables must be Solved, got {child_outcome:?}"
+    );
+
+    let root_outcome = session.finish_root();
+    assert!(
+        matches!(root_outcome, InferenceOutcome::Underconstrained(_)),
+        "root frame must be Underconstrained while ancestor_var is unconstrained"
+    );
+
+    // Solve ancestor_var and verify root completes
+    let string_ty = store.nominal(test_decl("String"));
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(ancestor_var), InferenceTerm::Canonical(string_ty)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+    session
+        .propagate_with_control(&mut store, &hier, &control)
+        .expect("propagation succeeds");
+    let root_solved = session.finish_root();
+    assert!(
+        root_solved.is_solved(),
+        "root frame must be Solved after ancestor_var is constrained, got {root_solved:?}"
+    );
+}
+
+#[test]
+fn test_frame_completion_with_ancestor_allocated_first() {
+    let mut store = TypeStore::new();
+    let hier = MapTypeHierarchy::new();
+    let mut session = InferenceSession::new();
+    let root = session.root_frame();
+    // Allocate several ancestor variables to shift indices
+    let _anc0 = session.fresh_variable_in_frame(root, KindId::TYPE);
+    let _anc1 = session.fresh_variable_in_frame(root, KindId::TYPE);
+
+    let child = session.begin_frame(Some(root));
+    let child_var = session.fresh_variable_in_frame(child, KindId::TYPE);
+
+    let int_ty = store.nominal(test_decl("Int"));
+    session.add_constraint(
+        InferenceRelation::Equivalent(InferenceTerm::Var(child_var), InferenceTerm::Canonical(int_ty)),
+        ConstraintOrigin::Explicit,
+        None,
+    );
+
+    let control = CheckerControl::default();
+    session
+        .propagate_with_control(&mut store, &hier, &control)
+        .expect("propagation succeeds");
+
+    let child_outcome = session.finish_frame(child);
+    assert!(child_outcome.is_solved());
+    if let InferenceOutcome::Solved(solution) = child_outcome {
+        assert_eq!(session.solved_type_for(&solution, child_var), Some(int_ty));
+    }
+}

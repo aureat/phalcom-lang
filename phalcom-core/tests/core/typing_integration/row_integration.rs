@@ -5,7 +5,7 @@ use phalcom_semantic::checker::analysis::AnalysisStatus;
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::DispatchSide;
 use phalcom_semantic::types::evidence::TypeKnowledge;
-use phalcom_semantic::types::id::TypeId;
+use phalcom_semantic::types::store::TypeData;
 
 /// INT-ROW-01: direct Either preserves row-specialized output.
 #[test]
@@ -105,28 +105,65 @@ fn row_collision_inside_either_map_fails_closed() {
     );
 }
 
-
-
+/// INT-ROW-03: Monad bind solves HKT F and Record A/B simultaneously.
 #[test]
-fn debug_parameters() {
+fn int_row_03_monad_bind_solves_hkt_and_records() {
     let f = Fixture::new(&row_integration_source());
-    println!("--- DUMPING TYPE PARAMETERS ---");
-    let p = phalcom_semantic::types::id::TypeParameterId(75);
-    let data = f.analysis.snapshot.store.type_parameter(p);
-    println!("Param 75: data={data:?}");
-}
+    f.assert_no_errors();
 
+    let run = f.callable("RowMonadIntegrationProbe", "bindRecord", DispatchSide::Class);
+    let expected_record = record([
+        ("cached", nominal("Bool")),
+        ("mapped", nominal("Bool")),
+        ("name", nominal("String")),
+        ("value", nominal("Int")),
+    ]);
+    let expected_either = either(nominal("String"), expected_record);
+    f.assert_known_generic_binding(run, "result", &expected_either);
+    let result_ty = f.binding(run, "result").current.ty().unwrap();
+    let bind_target = f.callable_id("MonadAlgorithms", "bind", DispatchSide::Class);
+    f.assert_expression_call(bind_call, &bind_target, result_ty);
 
-#[test]
-fn test_standalone_annotate() {
-    let f = Fixture::new(&row_integration_source());
-    let run = f.callable("RowEitherIntegrationProbe", "mapRecord", DispatchSide::Class);
-    println!("MAPRECORD STATUS: {:?}", run.status);
-    for (id, expr) in run.expressions.iter() {
-        let text = &f.source[expr.range.start as usize..expr.range.end as usize];
-        println!("{}: status={:?}, knowledge={:?}, text={:?}", id.local.0, expr.status, expr.knowledge, text);
-    }
-    for diag in f.analysis.snapshot.all_diagnostics() {
-        println!("DIAG: {:?} at {:?} msg={:?}", diag.code, diag.primary_range, diag.message);
-    }
+    let constructor_param = f.callable_generic_parameter("MonadAlgorithms", "bind", DispatchSide::Class, 0);
+    let a_param = f.callable_generic_parameter("MonadAlgorithms", "bind", DispatchSide::Class, 1);
+    let b_param = f.callable_generic_parameter("MonadAlgorithms", "bind", DispatchSide::Class, 2);
+
+    let constructor = f.generic_solution_type_for(run, bind_call, constructor_param);
+    f.assert_unary_constructor_kind(f.analysis.snapshot.store.kind_of(constructor));
+    let TypeData::Lambda(lambda_id) = f.analysis.snapshot.store.get(constructor) else {
+        panic!("F must remain a canonical unary type lambda");
+    };
+    let lambda = f.analysis.snapshot.store.arena().get_lambda(*lambda_id);
+    let mut free = Vec::new();
+    f.analysis.snapshot.store.arena().collect_free_types(lambda.body, &mut free);
+    assert!(free.contains(&f.ty("String")), "F must capture String: {free:#?}");
+    assert!(f.analysis.snapshot.store.arena().has_free_bound(lambda.body, 0), "F must retain its bound argument");
+
+    let source_param = f.binding(run, "source").current.ty().unwrap();
+    let source_applied = f.assert_applied(source_param, "Either", 2);
+    let input_record = source_applied[1];
+    f.assert_closed_record(
+        input_record,
+        &[
+            ("cached", f.ty("Bool")),
+            ("name", f.ty("String")),
+            ("value", f.ty("Int")),
+        ],
+    );
+
+    let result_applied = f.assert_applied(result_ty, "Either", 2);
+    let output_record = result_applied[1];
+    f.assert_closed_record(
+        output_record,
+        &[
+            ("cached", f.ty("Bool")),
+            ("mapped", f.ty("Bool")),
+            ("name", f.ty("String")),
+            ("value", f.ty("Int")),
+        ],
+    );
+
+    f.assert_generic_solution_exact(run, bind_call, constructor_param, constructor, phalcom_semantic::types::evidence::EvidenceStatus::Assumed);
+    f.assert_generic_solution_exact(run, bind_call, a_param, input_record, phalcom_semantic::types::evidence::EvidenceStatus::Assumed);
+    f.assert_generic_solution_exact(run, bind_call, b_param, output_record, phalcom_semantic::types::evidence::EvidenceStatus::Established);
 }

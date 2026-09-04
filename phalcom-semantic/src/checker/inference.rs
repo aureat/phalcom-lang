@@ -49,7 +49,7 @@ pub struct InferenceContextId(pub(crate) u32);
 
 /// Application frame inside one query-local inference context.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub(crate) struct InferenceFrameId(pub(crate) u32);
+pub struct InferenceFrameId(pub u32);
 
 #[derive(Clone, Debug)]
 struct InferenceFrame {
@@ -369,7 +369,7 @@ impl InferenceSession {
 
     /// Returns the root application frame, creating it for standalone callers
     /// that use an inference session without a [`CheckingContext`].
-    pub(crate) fn root_frame(&mut self) -> InferenceFrameId {
+    pub fn root_frame(&mut self) -> InferenceFrameId {
         if let Some(frame) = self.root_frame {
             return frame;
         }
@@ -379,7 +379,7 @@ impl InferenceSession {
     }
 
     /// Begins a nested application frame in this session's variable space.
-    pub(crate) fn begin_frame(&mut self, parent: Option<InferenceFrameId>) -> InferenceFrameId {
+    pub fn begin_frame(&mut self, parent: Option<InferenceFrameId>) -> InferenceFrameId {
         let frame = InferenceFrameId(self.next_frame_index);
         self.next_frame_index = self.next_frame_index.saturating_add(1);
         self.frames.push(InferenceFrame { parent, closed: false });
@@ -415,7 +415,7 @@ impl InferenceSession {
         self.fresh_variable_with_support_in_frame(frame, kind, support)
     }
 
-    pub(crate) fn fresh_variable_in_frame(&mut self, frame: InferenceFrameId, kind: KindId) -> InferVarId {
+    pub fn fresh_variable_in_frame(&mut self, frame: InferenceFrameId, kind: KindId) -> InferVarId {
         self.fresh_variable_with_support_in_frame(frame, kind, None)
     }
 
@@ -1333,24 +1333,29 @@ impl InferenceSession {
         self.solve_with_control(store, hierarchy, &control)
     }
 
-    /// Solves all accumulated constraints while consuming the caller's shared
-    /// cancellation token and query budget.
-    pub fn solve_with_control(&mut self, store: &mut TypeStore, hierarchy: &dyn TypeHierarchy, control: &CheckerControl) -> InferenceOutcome {
+    /// Propagates constraints until a fixed point is reached without terminalizing frame/root underconstraint.
+    pub fn propagate_with_control(
+        &mut self,
+        store: &mut TypeStore,
+        hierarchy: &dyn TypeHierarchy,
+        control: &CheckerControl,
+    ) -> Result<bool, InferenceOutcome> {
+        let mut any_changed = false;
         loop {
             if control.is_cancelled() {
-                return InferenceOutcome::Cancelled;
+                return Err(InferenceOutcome::Cancelled);
             }
             if let Err(report) = control.charge_scc_iteration() {
-                return InferenceOutcome::BudgetExceeded(report);
+                return Err(InferenceOutcome::BudgetExceeded(report));
             }
             let mut changed = false;
             let constraints = self.constraints.clone();
             for (constraint_index, constraint) in constraints.iter().enumerate() {
                 if control.is_cancelled() {
-                    return InferenceOutcome::Cancelled;
+                    return Err(InferenceOutcome::Cancelled);
                 }
                 if let Err(report) = control.charge_step() {
-                    return InferenceOutcome::BudgetExceeded(report);
+                    return Err(InferenceOutcome::BudgetExceeded(report));
                 }
                 let effect = match &constraint.relation {
                     InferenceRelation::Equivalent(left, right) => self.unify_terms(left, right, store),
@@ -1364,24 +1369,24 @@ impl InferenceSession {
                     }
                     Err(failure) => {
                         let related = self.related_constraint_indices(&constraint.relation);
-                        return self.failure_outcome_with_related(failure, Some(constraint_index as u32), Some(constraint.origin.clone()), &related);
+                        return Err(self.failure_outcome_with_related(failure, Some(constraint_index as u32), Some(constraint.origin.clone()), &related));
                     }
                 }
             }
 
             match self.propagate_subtype_edges(store, hierarchy, control) {
                 Ok(effect) => changed |= effect.is_changed(),
-                Err(outcome) => return outcome,
+                Err(outcome) => return Err(outcome),
             }
 
             // Try to resolve remaining var_terms
             let var_terms = self.var_terms.clone();
             for (var, term) in var_terms {
                 if control.is_cancelled() {
-                    return InferenceOutcome::Cancelled;
+                    return Err(InferenceOutcome::Cancelled);
                 }
                 if let Err(report) = control.charge_step() {
-                    return InferenceOutcome::BudgetExceeded(report);
+                    return Err(InferenceOutcome::BudgetExceeded(report));
                 }
                 let rep = self.find_var(var);
                 if !self.substitutions.contains_key(&rep) {
@@ -1389,7 +1394,7 @@ impl InferenceSession {
                         match self.bind(rep, ty, store) {
                             Ok(effect) => changed |= effect.is_changed(),
                             Err(failure) => {
-                                return self.failure_outcome(failure, None, None);
+                                return Err(self.failure_outcome(failure, None, None));
                             }
                         }
                     }
@@ -1400,10 +1405,10 @@ impl InferenceSession {
             let vars_to_check: Vec<InferVarId> = self.variables.iter().map(|v| self.find_var(v.id)).collect();
             for rep in vars_to_check {
                 if control.is_cancelled() {
-                    return InferenceOutcome::Cancelled;
+                    return Err(InferenceOutcome::Cancelled);
                 }
                 if let Err(report) = control.charge_step() {
-                    return InferenceOutcome::BudgetExceeded(report);
+                    return Err(InferenceOutcome::BudgetExceeded(report));
                 }
                 if !self.substitutions.contains_key(&rep) {
                     if let Some(lowers) = self.lower_bounds.get(&rep).cloned() {
@@ -1434,13 +1439,13 @@ impl InferenceSession {
                                         .get(&(rep, upper))
                                         .map(|(index, origin)| (Some(*index), Some(origin.clone())))
                                         .unwrap_or((None, None));
-                                    return self.failure_outcome(failure, constraint_index, origin);
+                                    return Err(self.failure_outcome(failure, constraint_index, origin));
                                 }
                             }
                             match self.bind(rep, candidate, store) {
                                 Ok(effect) => changed |= effect.is_changed(),
                                 Err(failure) => {
-                                    return self.failure_outcome(failure, None, None);
+                                    return Err(self.failure_outcome(failure, None, None));
                                 }
                             }
                         }
@@ -1461,19 +1466,19 @@ impl InferenceSession {
                                     .get(&(rep, failed_upper))
                                     .map(|(index, origin)| (Some(*index), Some(origin.clone())))
                                     .unwrap_or((None, None));
-                                return self.failure_outcome(failure, constraint_index, origin);
+                                return Err(self.failure_outcome(failure, constraint_index, origin));
                             }
                             match self.bind(rep, candidate, store) {
                                 Ok(effect) => changed |= effect.is_changed(),
                                 Err(failure) => {
-                                    return self.failure_outcome(failure, None, None);
+                                    return Err(self.failure_outcome(failure, None, None));
                                 }
                             }
                         } else if uppers.len() == 1 && !self.is_declaration_restriction_only(rep, uppers[0]) {
                             match self.bind(rep, uppers[0], store) {
                                 Ok(effect) => changed |= effect.is_changed(),
                                 Err(failure) => {
-                                    return self.failure_outcome(failure, None, None);
+                                    return Err(self.failure_outcome(failure, None, None));
                                 }
                             }
                         }
@@ -1497,7 +1502,7 @@ impl InferenceSession {
                             .get(&(rep, lower))
                             .map(|(index, origin)| (Some(*index), Some(origin.clone())))
                             .unwrap_or((None, None));
-                        return self.failure_outcome(
+                        return Err(self.failure_outcome(
                             InferenceFailureReason::ConflictingBounds {
                                 var: rep,
                                 lower,
@@ -1505,7 +1510,7 @@ impl InferenceSession {
                             },
                             constraint_index,
                             origin,
-                        );
+                        ));
                     }
                 }
                 for upper in self.upper_bounds.get(&rep).cloned().unwrap_or_default() {
@@ -1515,7 +1520,7 @@ impl InferenceSession {
                             .get(&(rep, upper))
                             .map(|(index, origin)| (Some(*index), Some(origin.clone())))
                             .unwrap_or((None, None));
-                        return self.failure_outcome(
+                        return Err(self.failure_outcome(
                             InferenceFailureReason::ConflictingBounds {
                                 var: rep,
                                 lower: candidate,
@@ -1523,11 +1528,12 @@ impl InferenceSession {
                             },
                             constraint_index,
                             origin,
-                        );
+                        ));
                     }
                 }
             }
 
+            any_changed |= changed;
             if !changed {
                 break;
             }
@@ -1541,7 +1547,35 @@ impl InferenceSession {
             }
         }
 
-        // Check for unsolved variables
+        Ok(any_changed)
+    }
+
+    /// Classifies the completion outcome for variables owned by a specific frame.
+    pub fn finish_frame(&self, frame: InferenceFrameId) -> InferenceOutcome {
+        let mut unsolved = Vec::new();
+        for var in &self.variables {
+            if var.frame == frame && !self.substitutions.contains_key(&var.id) {
+                unsolved.push(var.id);
+            }
+        }
+
+        if !unsolved.is_empty() {
+            InferenceOutcome::Underconstrained(UnderconstrainedInference { unsolved_vars: unsolved })
+        } else {
+            InferenceOutcome::Solved(InferenceSolution {
+                substitutions: self.substitutions.clone(),
+                support: self
+                    .variables
+                    .iter()
+                    .filter(|variable| variable.frame == frame)
+                    .filter_map(|variable| variable.support.map(|support| (variable.id, support)))
+                    .collect(),
+            })
+        }
+    }
+
+    /// Classifies the completion outcome across all variables in the graph.
+    pub fn finish_root(&self) -> InferenceOutcome {
         let mut unsolved = Vec::new();
         for var in &self.variables {
             if !self.substitutions.contains_key(&var.id) {
@@ -1560,6 +1594,15 @@ impl InferenceSession {
                     .filter_map(|variable| variable.support.map(|support| (variable.id, support)))
                     .collect(),
             })
+        }
+    }
+
+    /// Solves all accumulated constraints while consuming the caller's shared
+    /// cancellation token and query budget.
+    pub fn solve_with_control(&mut self, store: &mut TypeStore, hierarchy: &dyn TypeHierarchy, control: &CheckerControl) -> InferenceOutcome {
+        match self.propagate_with_control(store, hierarchy, control) {
+            Ok(_) => self.finish_root(),
+            Err(outcome) => outcome,
         }
     }
 

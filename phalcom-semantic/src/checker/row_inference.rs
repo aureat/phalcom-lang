@@ -298,6 +298,39 @@ impl GenericApplicationSession {
         self.build_instantiation_from_types(&self.types, type_solution, row_solution, store)
     }
 
+    pub fn build_instantiation_from_active_terms(
+        &self,
+        session: &super::inference::InferenceSession,
+        type_terms: &std::collections::HashMap<TypeParameterId, InferenceTerm>,
+        row_solution: &RecordRowSolution,
+        store: &mut TypeStore,
+    ) -> Result<GenericInstantiation, CombinedInferenceFailure> {
+        let mut result = GenericInstantiation::default();
+        for (&parameter, binding) in &self.parameter_bindings {
+            match binding {
+                GenericInferenceBinding::Type(_) => {
+                    let Some(term) = type_terms.get(&parameter) else {
+                        return Err(CombinedInferenceFailure::UnderconstrainedType(parameter));
+                    };
+                    let ty = session
+                        .materialize(term, store)
+                        .map_err(|_| CombinedInferenceFailure::UnderconstrainedType(parameter))?;
+                    result.bind_type(parameter, ty);
+                }
+                GenericInferenceBinding::RecordRow(variable) => {
+                    let Some(_) = row_solution.term_for(*variable) else {
+                        return Err(CombinedInferenceFailure::UnderconstrainedRow(parameter));
+                    };
+                    let row = row_solution
+                        .zonk_variable_to_canonical(*variable, store)
+                        .map_err(|error| CombinedInferenceFailure::RowZonk { parameter, error })?;
+                    result.bind_row(parameter, row);
+                }
+            }
+        }
+        Ok(result)
+    }
+
     pub fn build_instantiation_from_types(
         &self,
         types: &super::inference::InferenceSession,
