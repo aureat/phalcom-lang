@@ -1,6 +1,7 @@
 use super::super::support::analyze_adt;
 use phalcom_common::selector::{Selector, SelectorSlot};
 use phalcom_semantic::match_semantics::{PatternResolution, PatternUsefulness};
+use phalcom_semantic::types::LocalType;
 
 #[test]
 fn gadt_branch_proof_refines_type_parameter_and_omits_refuted_cases() {
@@ -298,8 +299,12 @@ class Eval {
     let handle = case.only_match();
     let arm0 = handle.arm(0);
     let arm1 = handle.arm(1);
-    let PatternResolution::Variant(pat0) = &arm0.resolution().pattern else { panic!("expected variant pattern") };
-    let PatternResolution::Variant(pat1) = &arm1.resolution().pattern else { panic!("expected variant pattern") };
+    let PatternResolution::Variant(pat0) = &arm0.resolution().pattern else {
+        panic!("expected variant pattern")
+    };
+    let PatternResolution::Variant(pat1) = &arm1.resolution().pattern else {
+        panic!("expected variant pattern")
+    };
     let cand0 = pat0.candidates.first().expect("cand0");
     let cand1 = pat1.candidates.first().expect("cand1");
     let inst0 = cand0.case_instantiation.as_ref().expect("inst0");
@@ -308,7 +313,10 @@ class Eval {
     assert_ne!(inst0.scope, inst1.scope, "independent observations must have distinct rigid scopes");
     assert_ne!(inst0.local_rigids, inst1.local_rigids, "independent observations must have distinct rigid IDs");
     assert_ne!(inst0.result_type, inst1.result_type, "exact result terms must not be identical by ID");
-    assert!(inst0.result_type.alpha_equivalent(&inst1.result_type), "independent observations must be alpha-equivalent");
+    assert!(
+        inst0.result_type.alpha_equivalent(&inst1.result_type),
+        "independent observations must be alpha-equivalent"
+    );
 }
 
 #[test]
@@ -329,7 +337,9 @@ class Eval {
 "#,
     );
     let arm = case.only_match().arm(0);
-    let PatternResolution::Variant(pat) = &arm.resolution().pattern else { panic!("expected variant pattern") };
+    let PatternResolution::Variant(pat) = &arm.resolution().pattern else {
+        panic!("expected variant pattern")
+    };
     let cand = pat.candidates.first().expect("Item candidate");
     let inst = cand.case_instantiation.as_ref().expect("case instantiation");
     assert_eq!(inst.local_rigids.len(), 1, "only A is constructor-local rigid");
@@ -368,4 +378,101 @@ class Eval {
     let x_binding = arm.find_binding("x").expect("x binding");
     let x_local = x_binding.local_type.as_ref().expect("x local type");
     assert_eq!(x_local.free_rigids().len(), 1, "nested payload must preserve parent rigid");
+}
+
+#[test]
+fn match_gadt_17_r1_t01_exact_nested_local_binding_structure() {
+    let case = analyze_adt(
+        r#"
+enum Inner<U> {
+    @variant Boxed(_ value: U) -> Inner<U>
+}
+
+enum Outer<T> {
+    @variant Wrap<A>(_ inner: Inner<A>) -> Outer<List<A>>
+}
+
+class Eval {
+    eval<T>(_ value: Outer<T>) {
+        match value {
+            Outer::Wrap(Inner::Boxed(x)) => x
+        }
+    }
+}
+"#,
+    );
+    let arm = case.only_match().arm(0);
+    let PatternResolution::Variant(pat) = &arm.resolution().pattern else {
+        panic!("expected variant pattern")
+    };
+    let outer_cand = pat.candidates.first().expect("outer candidate");
+    let outer_field = outer_cand.fields.first().expect("outer field");
+    let outer_field_local = outer_field.local_type.as_ref().expect("outer field local type");
+    // Outer field local type is Inner<ρ>
+    assert!(
+        matches!(outer_field_local, LocalType::Applied { .. }),
+        "outer field must be Applied Inner<ρ>, got {outer_field_local:?}"
+    );
+
+    let x_binding = arm.find_binding("x").expect("x binding");
+    let x_local = x_binding.local_type.as_ref().expect("x local type");
+    // x must be exactly ρ (LocalType::Rigid), NOT Inner<ρ>
+    assert!(
+        matches!(x_local, LocalType::Rigid(_)),
+        "nested x must bind directly to rigid ρ, not ancestor type {x_local:?}"
+    );
+}
+#[test]
+fn match_gadt_18_r1_t02_multiple_nested_bindings_receive_different_local_types() {
+    let case = analyze_adt(
+        r#"
+enum Outer<T> {
+    @variant Wrap<A>(_ pair: (A, List<A>)) -> Outer<A>
+}
+
+class Eval {
+    eval<T>(_ value: Outer<T>) {
+        match value {
+            Outer::Wrap((x, xs)) => x
+        }
+    }
+}
+"#,
+    );
+    let arm = case.only_match().arm(0);
+    let x_binding = arm.find_binding("x").expect("x binding");
+    let x_local = x_binding.local_type.as_ref().expect("x local type");
+    assert!(matches!(x_local, LocalType::Rigid(_)), "x must be rigid ρ, got {x_local:?}");
+
+    let xs_binding = arm.find_binding("xs").expect("xs binding");
+    let xs_local = xs_binding.local_type.as_ref().expect("xs local type");
+    assert!(matches!(xs_local, LocalType::Applied { .. }), "xs must be List<ρ>, got {xs_local:?}");
+    assert_ne!(x_local, xs_local, "x and xs must have distinct local types");
+}
+
+#[test]
+fn match_gadt_19_r1_t05_list_local_rigid_propagation() {
+    let case = analyze_adt(
+        r#"
+enum Wrapper<T> {
+    @variant Wrap<A>(_ items: List<A>) -> Wrapper<A>
+}
+
+class Eval {
+    eval<T>(_ value: Wrapper<T>) {
+        match value {
+            Wrapper::Wrap([head, *tail]) => head
+            _ => 0
+        }
+    }
+}
+"#,
+    );
+    let arm = case.only_match().arm(0);
+    let head_binding = arm.find_binding("head").expect("head binding");
+    let head_local = head_binding.local_type.as_ref().expect("head local type");
+    assert!(
+        matches!(head_local, LocalType::Rigid(_)),
+        "head binding in list pattern must preserve element rigid ρ, got {head_local:?}"
+    );
 }

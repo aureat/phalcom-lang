@@ -574,4 +574,50 @@ None.
 
 Proceed with Checkpoint C4 (retire legacy residual authority and clean up dead code).
 
+## Recursive Match Coverage Corrective R1 Amendment (2026-09-05)
 
+The earlier recursive-coverage C2/C3 completion lines above are historical
+claims from the prior implementation pass and do not certify the corrective
+plan's R1–R2 or final release state. Historical `### Next resume action`
+entries that call for C4 are superseded by this amendment; R2 is next after
+supervisor review. R1 focused correctness is complete after the final guarded
+child-subject and contextual-local repair below. R2, C4, C5, and C6 remain
+deferred.
+
+- R1 root incident: nested `open_variant_case` localized fields from a
+  canonical-specialized type, erasing parent constructor-local rigids before
+  child recursion. A second propagation defect allowed proof equalities to
+  overwrite freshly opened constructor rigids.
+- R1 repair: localize raw field terms against query-local subject/case
+  replacements; preserve canonical field identities when no local rigid is
+  present; keep constructor-local rigid replacements authoritative; preserve
+  local list element/tail subjects. No rigid is materialized into `TypeStore`.
+- R1.1 correction: the authoritative recursive resolver now accepts only
+  `CoverageSubject`; root, tuple/list, structural, and variant child recursion
+  no longer consumes `PatternSpace` or an optional local-type side channel.
+  `OpenedVariantCase.fields` supplies exact child subjects directly.
+- R1 fixture corrections: `match_pat_08` arm 2 is correctly `Redundant`, and
+  `match_pat_09` now uses a family pattern that genuinely selects both
+  candidate layouts.
+
+### Evidence ledger
+
+| Checkpoint | Command | Result | Proves |
+|---|---|---|---|
+| R1 | `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic semantic::adts::matching::gadt_refinement -- --nocapture --test-threads=1` | PASS: 27 passed, 0 failed, 1 ignored | GADT refinement and R1 nested local-subject regressions |
+| R1 | `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic semantic::adts::matching::patterns -- --nocapture --test-threads=1` | PASS: 11 passed, 0 failed, 5 ignored | sparse selector-gap and candidate-specific family layout resolution |
+| R1 | `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic semantic::adts::matching::recursive_coverage -- --nocapture --test-threads=1` | PASS: 3 passed, 0 failed | recursive demand-driven coverage remains terminating and exhaustive |
+| R1 | `git diff --check` scoped to R1-owned paths | PASS | no whitespace defects in corrective slice |
+| R1 | `graphify update .` | PASS; 56,287 nodes, 83,947 edges, 4,298 communities; HTML skipped due graph-size limit | graph reflects final corrective source changes |
+
+R1 is focused-tested only. Package/workspace gates, public-product certification,
+legacy-authority deletion, resource hardening, and typing-integration release
+closure remain open.
+
+### Active incident
+
+None.
+
+### Next resume action
+
+Begin R2 after supervisor review and checkpoint commit authorization.

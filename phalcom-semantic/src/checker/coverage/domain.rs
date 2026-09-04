@@ -10,6 +10,7 @@ use crate::types::outcome::BlockReason;
 use crate::types::relation::TypeHierarchy;
 use crate::types::rigid::{LocalType, RigidArena};
 use crate::types::store::{TypeData, TypeStore};
+use std::collections::HashMap;
 
 use super::subject::CoverageSubject;
 
@@ -63,16 +64,11 @@ pub(crate) fn open_variant_case(
     subject: &CoverageSubject,
     variant_info: &VariantInfo,
 ) -> Option<OpenedVariantCase> {
-    let (mut proof, exact_case) = match crate::checker::gadt_proof::solve_gadt_branch_proof(
-        store,
-        hierarchy,
-        &variant_info.id.owner,
-        variant_info,
-        subject.canonical,
-    ) {
-        crate::checker::gadt_proof::GadtProofResult::Reachable { proof, exact_case } => (proof, exact_case),
-        crate::checker::gadt_proof::GadtProofResult::Refuted => return None,
-    };
+    let (mut proof, exact_case) =
+        match crate::checker::gadt_proof::solve_gadt_branch_proof(store, hierarchy, &variant_info.id.owner, variant_info, subject.canonical) {
+            crate::checker::gadt_proof::GadtProofResult::Reachable { proof, exact_case } => (proof, exact_case),
+            crate::checker::gadt_proof::GadtProofResult::Refuted => return None,
+        };
 
     let case_instantiation = CaseInstantiation::open(store, rigids, variant_info, None);
     let (local_proof_bindings, local_proof_equalities) =
@@ -81,14 +77,31 @@ pub(crate) fn open_variant_case(
     proof.local_equalities = local_proof_equalities;
 
     let substitution = crate::types::substitution::substitution_for_applied(declarations, store, subject.canonical);
-    let replacements = case_instantiation.replacements();
+    let mut replacements = local_subject_replacements(declarations, &variant_info.id.owner, &subject.local);
+    replacements.extend(case_instantiation.replacements());
+    for (k, v) in &proof.local_bindings {
+        // Constructor-local rigids describe payload binders and must remain
+        // authoritative. Local proof equalities may refine enclosing
+        // parameters, but cannot erase a freshly opened constructor rigid.
+        if !case_instantiation.local_rigids.contains_key(k) {
+            replacements.insert(*k, v.clone());
+        }
+    }
 
     let mut fields = Vec::with_capacity(variant_info.fields.len());
     for field in &variant_info.fields {
         let raw = field.declared_type.canonical_type().unwrap_or(subject.canonical);
         let declaration_specialized = substitution.as_ref().map(|sub| sub.apply(store, raw)).unwrap_or(raw);
         let canonical_field_ty = crate::checker::gadt_proof::apply_branch_proof(store, &proof, declaration_specialized);
-        let localized = LocalType::from_canonical(store, canonical_field_ty, &replacements);
+        // Canonical declaration terms retain proof IDs when no local rigid is
+        // present. Once a constructor/local rigid is in scope, localize raw
+        // field terms before canonical substitution so nested recursion keeps it.
+        let has_local_rigid = replacements.values().any(|term| !term.free_rigids().is_empty());
+        let localized = if has_local_rigid {
+            LocalType::from_canonical(store, raw, &replacements)
+        } else {
+            LocalType::from_canonical(store, canonical_field_ty, &replacements)
+        };
         let local_field_ty = crate::checker::gadt_proof::apply_branch_proof_to_local(store, &proof, &localized);
         fields.push(CoverageSubject::from_parts(canonical_field_ty, local_field_ty));
     }
@@ -100,6 +113,23 @@ pub(crate) fn open_variant_case(
         case_instantiation,
         fields: fields.into_boxed_slice(),
     })
+}
+
+/// Maps declaration-owned generic parameters to the local arguments carried by
+/// this query's subject. Canonical substitutions cannot retain parent rigids;
+/// this query-local map keeps them in nested constructor payloads.
+fn local_subject_replacements(
+    declarations: &DeclarationTypeTable,
+    owner: &crate::identity::DeclarationId,
+    local: &LocalType,
+) -> HashMap<crate::types::id::TypeParameterId, LocalType> {
+    let LocalType::Applied { arguments, .. } = local else {
+        return HashMap::new();
+    };
+    let Some(signature) = declarations.generic_signature(owner) else {
+        return HashMap::new();
+    };
+    signature.parameters.iter().copied().zip(arguments.iter().cloned()).collect()
 }
 
 /// Decomposes a coverage subject into its top-level constructors one layer deep.
@@ -165,9 +195,16 @@ pub(crate) fn decompose_domain(
                 exact_case: None,
                 case_instantiation: None,
             };
+            let (local_elem_ty, local_list_ty) = match &subject.local {
+                LocalType::Applied { arguments, .. } if arguments.len() == 1 => (arguments[0].clone(), subject.local.clone()),
+                _ => (LocalType::Canonical(elem_ty), LocalType::Canonical(list_ty)),
+            };
             let cons_case = ConstructorCase {
                 head: ConstructorHead::ListCons,
-                fields: Box::new([CoverageSubject::canonical(elem_ty), CoverageSubject::canonical(list_ty)]),
+                fields: Box::new([
+                    CoverageSubject::from_parts(elem_ty, local_elem_ty),
+                    CoverageSubject::from_parts(list_ty, local_list_ty),
+                ]),
                 proof: BranchProofEnvironment::default(),
                 exact_case: None,
                 case_instantiation: None,

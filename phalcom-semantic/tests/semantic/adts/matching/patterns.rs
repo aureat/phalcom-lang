@@ -3,6 +3,7 @@ use std::sync::Arc;
 use super::super::support::analyze_adt;
 use phalcom_modules::identity::{ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_semantic::analyze_single_module;
+use phalcom_semantic::match_semantics::PatternResolution;
 
 fn test_module() -> ModuleId {
     ModuleId::resolved(ResolvedProjectId::from_raw(42), ModulePath::root())
@@ -144,6 +145,75 @@ fn match_pat_07_list_space_distinguishes_empty_and_non_empty_prefixes() {
     assert_ne!(empty, non_empty);
     assert!(!empty.is_empty());
     assert!(!non_empty.is_empty());
+}
+
+#[test]
+fn match_pat_08_r1_t03_selector_gap_suffix_position() {
+    use phalcom_semantic::match_semantics::PatternResolution;
+    let case = analyze_adt(
+        r#"
+enum Left { @variant A }
+enum Middle { @variant M }
+enum Right { @variant B @variant Other }
+
+enum E {
+    @variant V(_ first: Left, _ middle: Middle, last: Right)
+}
+
+class Test {
+    run(_ value: E) {
+        match value {
+            E::V(Left::A, ..., last: Right::B) => 1
+            E::V(Left::A, ..., last: Right::Other) => 2
+            _ => 3
+        }
+    }
+}
+"#,
+    );
+    let handle = case.only_match();
+    let arm0 = handle.arm(0);
+    let PatternResolution::Variant(pat0) = &arm0.resolution().pattern else {
+        panic!("expected variant pattern")
+    };
+    let cand0 = pat0.candidates.first().expect("cand0");
+    // Check that field identities correspond to index 0 and index 2
+    assert_eq!(cand0.fields.len(), 2);
+    assert_eq!(cand0.fields[0].field.index, 0);
+    assert_eq!(cand0.fields[1].field.index, 2);
+
+    arm0.assert_usefulness(phalcom_semantic::match_semantics::PatternUsefulness::Useful);
+    handle.arm(1).assert_usefulness(phalcom_semantic::match_semantics::PatternUsefulness::Useful);
+    handle.arm(2).assert_usefulness(phalcom_semantic::match_semantics::PatternUsefulness::Redundant);
+}
+
+#[test]
+fn match_pat_09_r1_t04_candidate_specific_family_layouts() {
+    let case = analyze_adt(
+        r#"
+enum Animal {
+    @variant Dog(_ name: String)
+    @variant Dog(_ name: String, _ breed: String, age: Int)
+}
+
+class Test {
+    run(_ value: Animal) {
+        match value {
+            Dog(name, ...) => name
+            _ => "unknown"
+        }
+    }
+}
+"#,
+    );
+    let handle = case.only_match();
+    let arm0 = handle.arm(0);
+    let PatternResolution::Variant(pat0) = &arm0.resolution().pattern else {
+        panic!("expected variant pattern")
+    };
+    assert_eq!(pat0.candidates.len(), 2, "family pattern should resolve 2 candidates");
+    arm0.assert_usefulness(phalcom_semantic::match_semantics::PatternUsefulness::Useful);
+    handle.arm(1).assert_usefulness(phalcom_semantic::match_semantics::PatternUsefulness::Redundant);
 }
 
 #[test]

@@ -40,12 +40,7 @@ pub(crate) type LocalCaseProof = Option<(BTreeMap<TypeParameterId, LocalType>, B
 /// result. Flexible declaration parameters may be mapped to local terms, but
 /// rigid leaves are opaque and are never rewritten.
 #[allow(dead_code)]
-pub(crate) fn solve_local_case_proof(
-    store: &mut TypeStore,
-    proof: &BranchProofEnvironment,
-    expected_ty: TypeId,
-    case: &CaseInstantiation,
-) -> LocalCaseProof {
+pub(crate) fn solve_local_case_proof(store: &mut TypeStore, proof: &BranchProofEnvironment, expected_ty: TypeId, case: &CaseInstantiation) -> LocalCaseProof {
     solve_local_case_proof_against_local(store, proof, &LocalType::Canonical(expected_ty), case)
 }
 
@@ -57,7 +52,7 @@ pub(crate) fn solve_local_case_proof_against_local(
     expected: &LocalType,
     case: &CaseInstantiation,
 ) -> LocalCaseProof {
-    if !case.is_local() {
+    if !case.is_local() && matches!(expected, LocalType::Canonical(_)) && proof.local_bindings.is_empty() {
         return Some((BTreeMap::new(), Box::new([])));
     }
 
@@ -65,7 +60,7 @@ pub(crate) fn solve_local_case_proof_against_local(
     let (expected_term, exact_case_observation) = unpack_expected_local_term(store, specialized_expected, case);
 
     let mut bindings = BTreeMap::new();
-    if !unify_local_types(store, &case.result_type, &expected_term, &mut bindings, exact_case_observation) {
+    if !unify_local_types(store, case, &case.result_type, &expected_term, &mut bindings, exact_case_observation) {
         return None;
     }
 
@@ -77,11 +72,7 @@ pub(crate) fn solve_local_case_proof_against_local(
     Some((bindings, equalities.into_boxed_slice()))
 }
 
-fn unpack_expected_local_term(
-    store: &TypeStore,
-    expected: LocalType,
-    case: &CaseInstantiation,
-) -> (LocalType, bool) {
+fn unpack_expected_local_term(store: &TypeStore, expected: LocalType, case: &CaseInstantiation) -> (LocalType, bool) {
     match expected {
         LocalType::Canonical(ty) => {
             let exact_case_observation = matches!(store.get(ty), TypeData::ExactCase { .. });
@@ -105,11 +96,7 @@ fn unpack_expected_local_term(
 }
 
 /// Applies branch proof substitutions to a LocalType without materializing rigids.
-pub(crate) fn apply_branch_proof_to_local(
-    store: &mut TypeStore,
-    proof: &BranchProofEnvironment,
-    local: &LocalType,
-) -> LocalType {
+pub(crate) fn apply_branch_proof_to_local(store: &mut TypeStore, proof: &BranchProofEnvironment, local: &LocalType) -> LocalType {
     if proof.bindings.is_empty() && proof.local_bindings.is_empty() {
         return local.clone();
     }
@@ -119,29 +106,20 @@ pub(crate) fn apply_branch_proof_to_local(
             if proof.local_bindings.is_empty() {
                 LocalType::Canonical(specialized)
             } else {
-                let replacements: HashMap<_, _> =
-                    proof.local_bindings.iter().map(|(k, v)| (*k, v.clone())).collect();
+                let replacements: HashMap<_, _> = proof.local_bindings.iter().map(|(k, v)| (*k, v.clone())).collect();
                 LocalType::from_canonical(store, specialized, &replacements)
             }
         }
         LocalType::Rigid(id) => LocalType::Rigid(*id),
         LocalType::Applied { origin, arguments } => LocalType::Applied {
             origin: Box::new(apply_branch_proof_to_local(store, proof, origin)),
-            arguments: arguments
-                .iter()
-                .map(|arg| apply_branch_proof_to_local(store, proof, arg))
-                .collect(),
+            arguments: arguments.iter().map(|arg| apply_branch_proof_to_local(store, proof, arg)).collect(),
         },
         LocalType::ExactCase { variant, enum_type } => LocalType::ExactCase {
             variant: variant.clone(),
             enum_type: Box::new(apply_branch_proof_to_local(store, proof, enum_type)),
         },
-        LocalType::Union(members) => LocalType::Union(
-            members
-                .iter()
-                .map(|m| apply_branch_proof_to_local(store, proof, m))
-                .collect(),
-        ),
+        LocalType::Union(members) => LocalType::Union(members.iter().map(|m| apply_branch_proof_to_local(store, proof, m)).collect()),
         LocalType::Tuple(elements) => LocalType::Tuple(
             elements
                 .iter()
@@ -176,6 +154,7 @@ pub(crate) fn apply_branch_proof_to_local(
 
 fn unify_local_types(
     store: &TypeStore,
+    case: &CaseInstantiation,
     left: &LocalType,
     right: &LocalType,
     bindings: &mut BTreeMap<TypeParameterId, LocalType>,
@@ -185,18 +164,34 @@ fn unify_local_types(
         return true;
     }
     match (left, right) {
-        (LocalType::Rigid(_), LocalType::Canonical(ty)) => {
-            if matches!(store.get(*ty), TypeData::Parameter(_)) {
-                bind_local_parameter(store, *ty, left, bindings)
+        (LocalType::Rigid(rigid), other) => {
+            if let Some((&param, _)) = case.local_rigids.iter().find(|(_, r)| *r == rigid) {
+                if let Some(existing) = bindings.get(&param) {
+                    existing == other
+                } else {
+                    bindings.insert(param, other.clone());
+                    true
+                }
             } else {
-                exact_case_observation
+                match other {
+                    LocalType::Canonical(ty) if matches!(store.get(*ty), TypeData::Parameter(_)) => bind_local_parameter(store, *ty, left, bindings),
+                    _ => exact_case_observation,
+                }
             }
         }
-        (LocalType::Canonical(ty), LocalType::Rigid(_)) => {
-            if matches!(store.get(*ty), TypeData::Parameter(_)) {
-                bind_local_parameter(store, *ty, right, bindings)
+        (other, LocalType::Rigid(rigid)) => {
+            if let Some((&param, _)) = case.local_rigids.iter().find(|(_, r)| *r == rigid) {
+                if let Some(existing) = bindings.get(&param) {
+                    existing == other
+                } else {
+                    bindings.insert(param, other.clone());
+                    true
+                }
             } else {
-                exact_case_observation
+                match other {
+                    LocalType::Canonical(ty) if matches!(store.get(*ty), TypeData::Parameter(_)) => bind_local_parameter(store, *ty, right, bindings),
+                    _ => exact_case_observation,
+                }
             }
         }
         (LocalType::Canonical(left), _) => bind_local_parameter(store, *left, right, bindings),
@@ -212,11 +207,11 @@ fn unify_local_types(
             },
         ) => {
             left_arguments.len() == right_arguments.len()
-                && unify_local_types(store, left_origin, right_origin, bindings, exact_case_observation)
+                && unify_local_types(store, case, left_origin, right_origin, bindings, exact_case_observation)
                 && left_arguments
                     .iter()
                     .zip(right_arguments.iter())
-                    .all(|(left, right)| unify_local_types(store, left, right, bindings, exact_case_observation))
+                    .all(|(left, right)| unify_local_types(store, case, left, right, bindings, exact_case_observation))
         }
         (
             LocalType::ExactCase {
@@ -227,28 +222,27 @@ fn unify_local_types(
                 variant: right_variant,
                 enum_type: right_enum,
             },
-        ) => left_variant == right_variant && unify_local_types(store, left_enum, right_enum, bindings, exact_case_observation),
-        (LocalType::Rigid(left), LocalType::Rigid(right)) => left == right,
+        ) => left_variant == right_variant && unify_local_types(store, case, left_enum, right_enum, bindings, exact_case_observation),
         (LocalType::Union(left), LocalType::Union(right)) => {
             left.len() == right.len()
                 && left
                     .iter()
                     .zip(right.iter())
-                    .all(|(left, right)| unify_local_types(store, left, right, bindings, exact_case_observation))
+                    .all(|(left, right)| unify_local_types(store, case, left, right, bindings, exact_case_observation))
         }
         (LocalType::Tuple(left), LocalType::Tuple(right)) => {
             left.len() == right.len()
                 && left
                     .iter()
                     .zip(right.iter())
-                    .all(|(left, right)| left.label == right.label && unify_local_types(store, &left.ty, &right.ty, bindings, exact_case_observation))
+                    .all(|(left, right)| left.label == right.label && unify_local_types(store, case, &left.ty, &right.ty, bindings, exact_case_observation))
         }
         (LocalType::Record(left), LocalType::Record(right)) => {
             left.len() == right.len()
                 && left
                     .iter()
                     .zip(right.iter())
-                    .all(|(left, right)| left.name == right.name && unify_local_types(store, &left.ty, &right.ty, bindings, exact_case_observation))
+                    .all(|(left, right)| left.name == right.name && unify_local_types(store, case, &left.ty, &right.ty, bindings, exact_case_observation))
         }
         (
             LocalType::Callable {
@@ -261,11 +255,12 @@ fn unify_local_types(
             },
         ) => {
             left_parameters.len() == right_parameters.len()
-                && left_parameters
-                    .iter()
-                    .zip(right_parameters.iter())
-                    .all(|(left, right)| left.label == right.label && left.rest == right.rest && unify_local_types(store, &left.ty, &right.ty, bindings, exact_case_observation))
-                && unify_local_types(store, left_return, right_return, bindings, exact_case_observation)
+                && left_parameters.iter().zip(right_parameters.iter()).all(|(left, right)| {
+                    left.label == right.label
+                        && left.rest == right.rest
+                        && unify_local_types(store, case, &left.ty, &right.ty, bindings, exact_case_observation)
+                })
+                && unify_local_types(store, case, left_return, right_return, bindings, exact_case_observation)
         }
         _ => false,
     }

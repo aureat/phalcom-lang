@@ -119,6 +119,11 @@ impl Selector {
         Ok(Self { base, kind, slots })
     }
 
+    /// Returns the number of parameter slots in this selector.
+    pub fn parameter_count(&self) -> usize {
+        self.slots.len()
+    }
+
     /// Returns canonical comma-form selector text.
     pub fn encode(&self) -> String {
         let slots = encode_slots(&self.slots);

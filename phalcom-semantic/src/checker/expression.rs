@@ -3584,29 +3584,24 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
         _ => None,
     };
 
-    let mut engine = crate::checker::coverage::CoverageEngine::new(
-        crate::checker::coverage::CoverageSubject::canonical(scrutinee_ty)
+    let scrutinee_local_ty = scrutinee_typed.local_type.clone();
+    let scrutinee_subject = crate::checker::coverage::CoverageSubject::from_parts(
+        scrutinee_ty,
+        scrutinee_local_ty.clone().unwrap_or_else(|| crate::types::LocalType::Canonical(scrutinee_ty)),
     );
+    let mut engine = crate::checker::coverage::CoverageEngine::new(scrutinee_subject.clone());
     let mut arm_resolutions = Vec::with_capacity(match_expr.arms.len());
     let mut normal_branch_types = Vec::new();
     let mut normal_branch_local_types = Vec::new();
     let mut normal_branch_flows = Vec::new();
 
-    let dummy_space = crate::checker::pattern_space::PatternSpace::Opaque(scrutinee_ty);
     for (arm_index, arm) in match_expr.arms.iter().enumerate() {
         ctx.flow = before_flow.clone();
         ctx.push_scope();
         let mut arm_bindings = Vec::new();
-        let (pattern_res, _) = crate::checker::pattern::resolve_pattern(ctx, &arm.pattern, scrutinee_ty, &dummy_space, &mut arm_bindings);
+        let (pattern_res, _) = crate::checker::pattern::resolve_pattern(ctx, &arm.pattern, &scrutinee_subject, &mut arm_bindings);
         let coverage_pat = crate::checker::pattern::coverage_pattern_for_resolution(engine.arena_mut(), &pattern_res);
-        let usefulness = engine.classify_arm(
-            ctx.declarations,
-            ctx.store,
-            &ctx.hierarchy,
-            &mut ctx.rigids,
-            ctx.enum_table,
-            coverage_pat,
-        );
+        let usefulness = engine.classify_arm(ctx.declarations, ctx.store, &ctx.hierarchy, &mut ctx.rigids, ctx.enum_table, coverage_pat);
         if usefulness == crate::match_semantics::PatternUsefulness::Redundant {
             ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
                 ctx.current_module.clone(),
