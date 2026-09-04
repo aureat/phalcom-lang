@@ -280,7 +280,11 @@ impl ProjectUniverse {
         Ok(next_id)
     }
 
-    /// Loads a synthetic single-module or package project without a `project.toml`.
+    /// Loads a legacy synthetic compatibility context without a `project.toml`.
+    ///
+    /// This helper does not establish filesystem package ownership and must not
+    /// be used for package consumers. Use [`Self::load_standalone_package`] when
+    /// `package.ph` semantics are required.
     pub fn load_synthetic_root(&mut self, name: &str, source_root: impl AsRef<Path>, entry_component: &str) -> Result<ResolvedProjectId, ProjectError> {
         let source_root = source_root.as_ref();
         let canonical_root = source_root
@@ -323,6 +327,71 @@ impl ProjectUniverse {
         self.roots.insert(source_identity, next_id);
         Ok(next_id)
     }
+
+    /// Loads a standalone package rooted at `package_root`.
+    ///
+    /// Requires `package.ph` to exist in `package_root`.
+    pub fn load_standalone_package(
+        &mut self,
+        package_root: impl AsRef<Path>,
+        entry: Option<&str>,
+    ) -> Result<ResolvedProjectId, ProjectError> {
+        let package_root = package_root.as_ref();
+        let canonical_root = package_root
+            .canonicalize()
+            .map_err(|e| ProjectError::InvalidProjectManifest(format!("Failed to canonicalize {}: {}", package_root.display(), e)))?;
+
+        let pkg_file = canonical_root.join("package.ph");
+        if !pkg_file.is_file() {
+            return Err(ProjectError::MissingRootPackage(canonical_root));
+        }
+
+        let source_identity = ProjectSourceIdentity::from_path(&canonical_root);
+        if let Some(&id) = self.roots.get(&source_identity) {
+            return Ok(id);
+        }
+
+        let raw_name = canonical_root
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("package");
+        let safe_name = raw_name.replace('-', "_");
+        let namespace = ModuleComponent::from_identifier(&safe_name)
+            .unwrap_or_else(|_| ModuleComponent::from_identifier("package").expect("valid identifier"));
+
+        let entry_path = if let Some(entry_name) = entry {
+            let entry_comp = ModuleComponent::from_identifier(&entry_name.replace('-', "_"))
+                .map_err(|e| ProjectError::InvalidProjectManifest(format!("Invalid entry identifier: {e}")))?;
+            Some(ModulePath::from_components(vec![entry_comp]))
+        } else {
+            None
+        };
+
+        let next_id = ResolvedProjectId::from_raw((self.projects.len() + 1) as u32);
+
+        let mut import_roots = BTreeMap::new();
+        let universe_comp = ModuleComponent::from_identifier("universe").expect("valid identifier");
+        import_roots.insert(universe_comp, (ImportRootTarget::Universe, false));
+        import_roots.insert(namespace.clone(), (ImportRootTarget::Resolved(next_id), true));
+
+        let resolved_project = ResolvedProject {
+            id: next_id,
+            name: raw_name.to_string(),
+            namespace,
+            root_dir: canonical_root.clone(),
+            source_root: canonical_root,
+            entry: entry_path,
+            dependencies: BTreeMap::new(),
+            import_roots,
+            source_identity: source_identity.clone(),
+            persistent_project: false,
+            manifest: None,
+        };
+
+        self.projects.push(resolved_project);
+        self.roots.insert(source_identity, next_id);
+        Ok(next_id)
+    }
 }
 
 /// Discovers the nearest enclosing project root directory containing `project.toml`.
@@ -342,4 +411,43 @@ pub fn discover_owning_project(source_path: &Path) -> Result<Option<PathBuf>, Pr
     }
 
     Ok(None)
+}
+
+/// Discovers the root directory of an enclosing standalone package.
+///
+/// A standalone package hierarchy is established only by contiguous `package.ph`
+/// files. It walks up directory ancestors starting from `source_path`'s parent
+/// (or `source_path` itself if it is a directory), continuing as long as each
+/// directory contains `package.ph` and does not encounter a `project.toml` boundary.
+pub fn discover_standalone_package_root(source_path: &Path) -> Option<PathBuf> {
+    let canonical = crate::source::canonicalize_path(source_path);
+    let mut current_dir = if canonical.is_dir() {
+        if !canonical.join("package.ph").is_file() {
+            return None;
+        }
+        canonical
+    } else if canonical.file_name().map_or(false, |n| n == "package.ph") {
+        canonical.parent()?.to_path_buf()
+    } else {
+        let parent = canonical.parent()?;
+        if !parent.join("package.ph").is_file() {
+            return None;
+        }
+        parent.to_path_buf()
+    };
+
+    let mut root = current_dir.clone();
+    while let Some(parent) = current_dir.parent() {
+        if parent.join("project.toml").is_file() {
+            break;
+        }
+        if parent.join("package.ph").is_file() {
+            root = parent.to_path_buf();
+            current_dir = parent.to_path_buf();
+        } else {
+            break;
+        }
+    }
+
+    Some(root)
 }

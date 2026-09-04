@@ -2,9 +2,9 @@
 
 use super::artifact::ModuleMaterializationPlan;
 use phalcom_modules::{
-    FilesystemSourceProvider, InterfaceBuilder, InterfaceError, LinkError, LinkedModule, LinkedProgram, ModuleComponent, ModuleId, ModuleKind, ModuleLinker,
-    ModulePath, ModuleResolutionError, ModuleResolver, ProjectError, ProjectUniverse, SourceError, SourceId, SourceLocation, UniverseSourceProvider,
-    discover_owning_project,
+    EntryOwnership, FilesystemSourceProvider, InterfaceBuilder, InterfaceError, LinkError, LinkedModule, LinkedProgram, ModuleComponent, ModuleId, ModuleKind,
+    ModuleLinker, ModulePath, ModuleResolutionError, ModuleResolver, ProjectError, ProjectUniverse, SourceError, SourceId, SourceLocation,
+    UniverseSourceProvider, classify_entry_ownership,
 };
 use phalcom_semantic::SemanticDiagnostic;
 use std::collections::{BTreeMap, HashSet};
@@ -203,13 +203,19 @@ impl ProgramAnalyzer {
                 Self::discover_and_analyze(Arc::new(universe), provider, entry_id)
             }
             EntrySelection::Package(pkg_dir) => {
-                let main_file = pkg_dir.join("main.ph");
-                if !main_file.exists() {
-                    return Err(ProgramCompileError::PackageNotExecutable(pkg_dir.display().to_string()));
+                let canonical_pkg = pkg_dir
+                    .canonicalize()
+                    .map_err(|e| ProgramCompileError::Io(format!("{}: {e}", pkg_dir.display())))?;
+                let pkg_file = canonical_pkg.join("package.ph");
+                if !pkg_file.is_file() {
+                    return Err(ProgramCompileError::Project(ProjectError::MissingRootPackage(canonical_pkg)));
+                }
+                let main_file = canonical_pkg.join("main.ph");
+                if !main_file.is_file() {
+                    return Err(ProgramCompileError::PackageNotExecutable(canonical_pkg.display().to_string()));
                 }
                 let mut universe = ProjectUniverse::new();
-                let name = pkg_dir.file_name().and_then(|s| s.to_str()).unwrap_or("package");
-                let root_id = universe.load_synthetic_root(name, &pkg_dir, "main")?;
+                let root_id = universe.load_standalone_package(&canonical_pkg, Some("main"))?;
                 let entry_id = ModuleId {
                     project: root_id.into(),
                     path: ModulePath::from_components(vec![
@@ -220,25 +226,45 @@ impl ProgramAnalyzer {
                 Self::discover_and_analyze(Arc::new(universe), provider, entry_id)
             }
             EntrySelection::Module(file_path) => {
-                if let Ok(Some(project_root)) = discover_owning_project(&file_path) {
-                    let mut universe = ProjectUniverse::new();
-                    let root_id = universe.load_root(project_root.join("project.toml"))?;
-                    let project = universe.get_project(root_id).unwrap();
-                    let canonical_file = file_path
-                        .canonicalize()
-                        .map_err(|e| ProgramCompileError::Io(format!("{}: {}", file_path.display(), e)))?;
-                    let rel_path = canonical_file.strip_prefix(&project.source_root).map_err(|_| {
-                        ProgramCompileError::Io(format!("file {} not under source root {}", file_path.display(), project.source_root.display()))
-                    })?;
-                    let module_path = relative_path_to_module_path(rel_path)?;
-                    let entry_id = ModuleId {
-                        project: root_id.into(),
-                        path: module_path,
-                    };
-                    let provider = FilesystemSourceProvider::new();
-                    Self::discover_and_analyze(Arc::new(universe), provider, entry_id)
-                } else {
-                    Self::analyze_standalone_module(file_path)
+                let canonical = file_path
+                    .canonicalize()
+                    .map_err(|e| ProgramCompileError::Io(format!("{}: {}", file_path.display(), e)))?;
+                let mut universe = ProjectUniverse::new();
+                let ownership = classify_entry_ownership(&canonical, &mut universe)?;
+                match ownership {
+                    EntryOwnership::ProjectOwned { project: root_id } => {
+                        let project = universe.get_project(root_id).unwrap();
+                        let rel_path = canonical.strip_prefix(&project.source_root).map_err(|_| {
+                            ProgramCompileError::Io(format!("file {} not under source root {}", file_path.display(), project.source_root.display()))
+                        })?;
+                        let module_path = relative_path_to_module_path(rel_path)?;
+                        let entry_id = ModuleId {
+                            project: root_id.into(),
+                            path: module_path,
+                        };
+                        let provider = FilesystemSourceProvider::new();
+                        Self::discover_and_analyze(Arc::new(universe), provider, entry_id)
+                    }
+                    EntryOwnership::StandalonePackageOwned { package_root } => {
+                        let root_id = universe.load_standalone_package(&package_root, None)?;
+                        let project = universe.get_project(root_id).unwrap();
+                        let rel_path = canonical.strip_prefix(&project.source_root).map_err(|_| {
+                            ProgramCompileError::Io(format!("file {} not under package root {}", file_path.display(), project.source_root.display()))
+                        })?;
+                        let module_path = relative_path_to_module_path(rel_path)?;
+                        let entry_id = ModuleId {
+                            project: root_id.into(),
+                            path: module_path,
+                        };
+                        let provider = FilesystemSourceProvider::new();
+                        Self::discover_and_analyze(Arc::new(universe), provider, entry_id)
+                    }
+                    EntryOwnership::StandaloneModule { file } => {
+                        Self::analyze_standalone_module(file)
+                    }
+                    EntryOwnership::Inline { .. } => {
+                        Self::analyze_standalone_module(file_path)
+                    }
                 }
             }
             EntrySelection::Inline(source_text) => {

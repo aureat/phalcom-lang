@@ -2,15 +2,17 @@
 
 use crate::error::{InterfaceError, ModuleLoadError, ModuleResolutionError, ProjectError, SourceError};
 use crate::identity::{
-    ModuleComponent, ModuleId, ModulePath, ProjectSourceIdentity, SourceId, SourceLocation, SyntheticProjectId, SyntheticProjectIdAllocator,
+    ModuleId, ModulePath, ProjectSourceIdentity, SourceId, SourceLocation, SyntheticProjectId, SyntheticProjectIdAllocator,
 };
 use crate::interface::{ImportSurface, InterfaceBuilder};
 use crate::linker::{LinkError, LinkedProgram, ModuleLinker};
 use crate::manifest::DependencyProvider;
-use crate::project::{ProjectUniverse, discover_owning_project};
+use crate::project::ProjectUniverse;
 use crate::resolver::ModuleResolver;
-use crate::source::{FilesystemSourceProvider, ModuleKind, OverlaySourceProvider, ParsedModuleUnit, SourceOverlay, SourceProvider};
-use phalcom_ast::ast::{ImportPath, ImportRoot, Program};
+use crate::source::{
+    classify_entry_ownership, EntryOwnership, FilesystemSourceProvider, ModuleKind, OverlaySourceProvider, ParsedModuleUnit, SourceOverlay, SourceProvider,
+};
+use phalcom_ast::ast::Program;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -441,69 +443,33 @@ impl WorkspaceModuleSession {
             return Ok(module.clone());
         }
 
-        let path = location.display_path.canonicalize().unwrap_or_else(|_| location.display_path.clone());
-        if let Some(root) = discover_owning_project(&path)? {
-            let root = root.canonicalize().unwrap_or(root);
-            let project = if let Some(id) = self.project_roots.get(&ProjectSourceIdentity::from_path(root.clone())) {
-                *id
-            } else {
-                let id = self.universe.load_root(root.join("project.toml"))?;
-                self.project_roots.insert(ProjectSourceIdentity::from_path(root.clone()), id);
-                id
-            };
-            let project_ref = self.universe.get_project(project).expect("loaded project is present");
-            let unit = crate::source::resolve_source_path(project_ref, &path).map_err(WorkspaceModuleSessionError::from)?;
-            return Ok(unit.id);
+        let path = crate::source::canonicalize_path(&location.display_path);
+        let ownership = classify_entry_ownership(&path, &mut self.universe)?;
+        match ownership {
+            EntryOwnership::ProjectOwned { project } => {
+                let project_ref = self.universe.get_project(project).expect("loaded project is present");
+                self.project_roots.insert(ProjectSourceIdentity::from_path(&project_ref.root_dir), project);
+                let unit = crate::source::resolve_source_path(project_ref, &path).map_err(WorkspaceModuleSessionError::from)?;
+                Ok(unit.id)
+            }
+            EntryOwnership::StandalonePackageOwned { package_root } => {
+                let project_id = self.universe.load_standalone_package(&package_root, None)?;
+                self.project_roots.insert(ProjectSourceIdentity::from_path(&package_root), project_id);
+                let project_ref = self.universe.get_project(project_id).expect("loaded package is present");
+                let unit = crate::source::resolve_source_path(project_ref, &path).map_err(WorkspaceModuleSessionError::from)?;
+                Ok(unit.id)
+            }
+            EntryOwnership::StandaloneModule { file: _ } => {
+                let synthetic = *self
+                    .standalone_projects
+                    .entry(location.source_id.clone())
+                    .or_insert_with(|| self.synthetic_ids.allocate());
+                Ok(ModuleId::synthetic(synthetic, ModulePath::root()))
+            }
+            EntryOwnership::Inline { synthetic } => {
+                Ok(ModuleId::synthetic(synthetic, ModulePath::root()))
+            }
         }
-
-        let root = path
-            .parent()
-            .ok_or_else(|| WorkspaceModuleSessionError::InvalidSourcePath(path.clone()))?
-            .to_path_buf();
-        if !root.is_dir() {
-            let synthetic = *self
-                .standalone_projects
-                .entry(location.source_id.clone())
-                .or_insert_with(|| self.synthetic_ids.allocate());
-            return Ok(ModuleId::synthetic(synthetic, ModulePath::root()));
-        }
-        let root_identity = ProjectSourceIdentity::from_path(root.clone());
-        let project = if let Some(id) = self.project_roots.get(&root_identity) {
-            *id
-        } else {
-            let name = root
-                .file_name()
-                .and_then(|name| name.to_str())
-                .map(|name| name.replace('-', "_"))
-                .filter(|name| ModuleComponent::from_identifier(name).is_ok())
-                .unwrap_or_else(|| "standalone".to_string());
-            let id = self.universe.load_synthetic_root(&name, &root, "main")?;
-            self.project_roots.insert(root_identity, id);
-            id
-        };
-        let relative = path
-            .strip_prefix(&root)
-            .map_err(|_| WorkspaceModuleSessionError::InvalidSourcePath(path.clone()))?;
-        let file_name = relative
-            .file_name()
-            .and_then(|name| name.to_str())
-            .ok_or_else(|| WorkspaceModuleSessionError::InvalidSourcePath(path.clone()))?;
-        let mut components = relative
-            .parent()
-            .into_iter()
-            .flat_map(|parent| parent.iter())
-            .map(|component| component.to_string_lossy().replace('-', "_"))
-            .map(|component| ModuleComponent::from_identifier(&component))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| WorkspaceModuleSessionError::InvalidSourcePath(path.clone()))?;
-        if file_name != "package.ph" {
-            let stem = file_name
-                .strip_suffix(".ph")
-                .ok_or_else(|| WorkspaceModuleSessionError::InvalidSourcePath(path.clone()))?
-                .replace('-', "_");
-            components.push(ModuleComponent::from_identifier(&stem).map_err(|_| WorkspaceModuleSessionError::InvalidSourcePath(path.clone()))?);
-        }
-        Ok(ModuleId::resolved(project, ModulePath::from_components(components)))
     }
 
     fn kind_for_source(&self, module: &ModuleId, location: &SourceLocation) -> ModuleKind {
@@ -573,9 +539,6 @@ impl WorkspaceModuleSession {
                 };
                 let target = match resolver.resolve_import(&module, path) {
                     Ok(unit) => unit.id,
-                    Err(error) if module.project.as_synthetic().is_some() => self
-                        .resolve_standalone_import(&module, path)
-                        .ok_or(WorkspaceModuleSessionError::Resolution(error))?,
                     Err(ModuleResolutionError::ModuleNotFound(_)) => continue,
                     Err(error) => return Err(WorkspaceModuleSessionError::Resolution(error)),
                 };
@@ -634,32 +597,6 @@ impl WorkspaceModuleSession {
             removed_modules,
             identity_changes,
         })
-    }
-
-    fn resolve_standalone_import(&self, importer: &ModuleId, path: &ImportPath) -> Option<ModuleId> {
-        let ImportRoot::Relative { dots, .. } = path.root else {
-            return None;
-        };
-        let importer_source = self.sources_by_module.get(importer)?.location.display_path.clone();
-        let mut directory = importer_source.parent()?.to_path_buf();
-        for _ in 1..dots {
-            directory = directory.parent()?.to_path_buf();
-        }
-        for segment in &path.segments {
-            directory.push(segment.name.replace('_', "-"));
-        }
-        let candidate = if path.segments.is_empty() {
-            directory.join("package.ph")
-        } else {
-            directory.with_extension("ph")
-        };
-        let source_id = SourceId(candidate.to_string_lossy().into());
-        if let Some(module) = self.modules_by_source.get(&source_id) {
-            return Some(module.clone());
-        }
-        let canonical = candidate.canonicalize().ok()?;
-        let canonical_source = SourceId(canonical.to_string_lossy().into());
-        self.modules_by_source.get(&canonical_source).cloned()
     }
 }
 

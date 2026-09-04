@@ -8,7 +8,7 @@ use phalcom_core::modules::compile::{EntrySelection, ProgramCompileError, Progra
 use phalcom_core::native::NativeSourceIndex;
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
-use phalcom_modules::{DunderPolicy, DunderRole, ModuleId, ModulePath, ProjectUniverse};
+use phalcom_modules::{DunderPolicy, DunderRole, ModuleId, ModulePath, ProjectError, ProjectUniverse};
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -71,9 +71,11 @@ fn standalone_package_has_no_project_binding() {
     let mut vm = VM::new();
     let fixture_dir = fixture_path("standalone_package");
     let selection = EntrySelection::Package(fixture_dir);
+    eprintln!("STEP 1: compiling");
     let program = ProgramCompiler::compile_entry_selection(selection).expect("standalone package compiles");
-
+    eprintln!("STEP 2: running");
     vm.run_compiled(&program).expect("standalone package runs");
+    eprintln!("STEP 3: done");
 
     // Root package of standalone package has __project__ == None
     let root_mod = program.modules.keys().find(|id| id.path.is_root()).unwrap();
@@ -337,4 +339,40 @@ fn semantic_scc_project_realizes_successfully() {
 
     let mut vm = VM::new();
     vm.run_compiled(&program).expect("semantic_scc runs cleanly");
+}
+
+#[test]
+fn package_entry_requires_package_ph() {
+    let temp = TempDir::new().unwrap();
+    let main_file = temp.path().join("main.ph");
+    fs::write(&main_file, "class Main {}\n").unwrap();
+    // No package.ph in temp.path()!
+    let selection = EntrySelection::Package(temp.path().to_path_buf());
+    let err = ProgramCompiler::compile_entry_selection(selection).unwrap_err();
+    assert!(
+        matches!(err, ProgramCompileError::Project(ProjectError::MissingRootPackage(_))),
+        "EntrySelection::Package must require package.ph: got {err:?}"
+    );
+}
+
+#[test]
+fn main_ph_does_not_create_package_identity() {
+    let temp = TempDir::new().unwrap();
+    let main_file = temp.path().join("main.ph");
+    let helper_file = temp.path().join("helper.ph");
+    fs::write(&main_file, "import .helper as helper\n").unwrap();
+    fs::write(&helper_file, "class Helper {}\nexport Helper\n").unwrap();
+    // No package.ph! Selecting main.ph must be treated as standalone module, which rejects relative import
+    let selection = EntrySelection::Module(main_file.clone());
+    let err = ProgramCompiler::compile_entry_selection(selection).unwrap_err();
+    assert!(
+        matches!(err, ProgramCompileError::StandaloneImportRequiresPackageContext { .. }),
+        "main.ph alone without package.ph must not form a package: got {err:?}"
+    );
+
+    // Now add package.ph: selecting main.ph must succeed as standalone package
+    fs::write(temp.path().join("package.ph"), "").unwrap();
+    let selection = EntrySelection::Module(main_file);
+    let program = ProgramCompiler::compile_entry_selection(selection);
+    assert!(program.is_ok(), "with package.ph, relative import in standalone package must succeed: {program:?}");
 }

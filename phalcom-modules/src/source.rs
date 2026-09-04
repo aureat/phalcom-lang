@@ -9,12 +9,65 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Ownership classification of an entry before compilation/linking.
+///
+/// This classification is authoritative across the compiler, semantic workspace,
+/// and LSP. A directory is only a package when `package.ph` exists.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EntryOwnership {
     ProjectOwned { project: ResolvedProjectId },
     StandalonePackageOwned { package_root: PathBuf },
     StandaloneModule { file: PathBuf },
     Inline { synthetic: crate::identity::SyntheticProjectId },
+}
+
+/// Canonicalizes a path, resolving symlinks. If `path` does not exist on disk
+/// (e.g., an in-memory buffer overlay for an unsaved file), canonicalizes its
+/// nearest existing parent directory and appends the remaining relative path.
+pub fn canonicalize_path(path: &Path) -> PathBuf {
+    if let Ok(c) = path.canonicalize() {
+        return c;
+    }
+    let mut current = path;
+    let mut suffixes = Vec::new();
+    while let Some(parent) = current.parent() {
+        if let Some(file_name) = current.file_name() {
+            suffixes.push(file_name);
+        }
+        if let Ok(canon_parent) = parent.canonicalize() {
+            let mut result = canon_parent;
+            for suffix in suffixes.into_iter().rev() {
+                result.push(suffix);
+            }
+            return result;
+        }
+        current = parent;
+    }
+    path.to_path_buf()
+}
+
+/// Authoritative classification of an entry source before compilation/linking.
+///
+/// Precedence order:
+/// 1. Enclosing persistent Project (with `project.toml`) -> `ProjectOwned`
+/// 2. Enclosing standalone Package hierarchy (with `package.ph`) -> `StandalonePackageOwned`
+/// 3. Otherwise -> `StandaloneModule`
+pub fn classify_entry_ownership(
+    source_path: &Path,
+    universe: &mut crate::project::ProjectUniverse,
+) -> Result<EntryOwnership, crate::error::ProjectError> {
+    let canonical = canonicalize_path(source_path);
+
+    if let Some(project_root) = crate::project::discover_owning_project(&canonical)? {
+        let manifest_path = project_root.join("project.toml");
+        let project_id = universe.load_root(&manifest_path)?;
+        return Ok(EntryOwnership::ProjectOwned { project: project_id });
+    }
+
+    if let Some(package_root) = crate::project::discover_standalone_package_root(&canonical) {
+        return Ok(EntryOwnership::StandalonePackageOwned { package_root });
+    }
+
+    Ok(EntryOwnership::StandaloneModule { file: canonical })
 }
 
 /// Module kind: an ordinary `.ph` file or a package descriptor.
@@ -466,8 +519,8 @@ impl SourceProvider for FilesystemSourceProvider {
 
 /// Canonical reverse physical-to-logical source path resolution.
 pub fn resolve_source_path(project: &ResolvedProject, path: &Path) -> Result<SourceUnit, ModuleResolutionError> {
-    let canonical_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    let canonical_source_root = std::fs::canonicalize(&project.source_root).unwrap_or_else(|_| project.source_root.clone());
+    let canonical_path = canonicalize_path(path);
+    let canonical_source_root = canonicalize_path(&project.source_root);
 
     let relative = match canonical_path.strip_prefix(&canonical_source_root) {
         Ok(r) => r,

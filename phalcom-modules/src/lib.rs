@@ -47,12 +47,12 @@ pub use metadata::{MetadataTarget, ModuleMetadata, ModuleMetadataAttribute};
 pub use package_info::{
     PackageArtifactIdentity, PackageAuthorDescriptor, PackageInfoDescriptor, PackageOrigin, PackageRequirementDescriptor, ResolvedProjectDependencyDescriptor,
 };
-pub use project::{ProjectUniverse, ResolvedProject, discover_owning_project};
+pub use project::{ProjectUniverse, ResolvedProject, discover_owning_project, discover_standalone_package_root};
 pub use query::ModuleQueryFacade;
 pub use resolver::ModuleResolver;
 pub use session::{
     SourceRevision, WorkspaceModuleSession, WorkspaceModuleSessionError, WorkspaceModuleUpdate, WorkspaceSourceBatchMutation, WorkspaceSourceMutation,
     WorkspaceSourceState,
 };
-pub use source::{EntryOwnership, FilesystemSourceProvider, ModuleKind, ParsedModuleUnit, SourceProvider, SourceUnit};
+pub use source::{EntryOwnership, FilesystemSourceProvider, ModuleKind, ParsedModuleUnit, SourceProvider, SourceUnit, classify_entry_ownership};
 pub use stabilization::{ResolvedDocumentIdentity, ResolverGeneration};

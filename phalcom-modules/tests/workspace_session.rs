@@ -1,4 +1,6 @@
-use phalcom_modules::{ModuleId, NullDependencyProvider, SourceId, SourceLocation, SourceRevision, WorkspaceModuleSession, WorkspaceSourceBatchMutation};
+use phalcom_modules::{
+    ModuleId, NullDependencyProvider, ProjectUniverse, SourceId, SourceLocation, SourceRevision, WorkspaceModuleSession, WorkspaceSourceBatchMutation,
+};
 use std::fs;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -117,8 +119,9 @@ fn standalone_move_is_remove_then_add_identity_transition() {
 }
 
 #[test]
-fn standalone_relative_imports_resolve_from_registered_sources() {
+fn standalone_package_supports_relative_children() {
     let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("package.ph"), "").unwrap();
     let mover = temp.path().join("mover.ph");
     let main = temp.path().join("main.ph");
     fs::write(&mover, "class Mover {}\nexport Mover\n").unwrap();
@@ -131,7 +134,98 @@ fn standalone_relative_imports_resolve_from_registered_sources() {
         ])
         .unwrap();
     assert_eq!(update.sources.len(), 2);
-    assert_eq!(update.linked.modules.len(), 2);
+    let main_mod = session.module_for_source(&SourceId(main.to_string_lossy().into())).unwrap();
+    assert!(main_mod.project.as_resolved().is_some());
+    assert!(!session.resolved_imports().is_empty());
+}
+
+#[test]
+fn standalone_sibling_files_do_not_form_package() {
+    let temp = TempDir::new().unwrap();
+    let mover = temp.path().join("mover.ph");
+    let main = temp.path().join("main.ph");
+    fs::write(&mover, "class Mover {}\nexport Mover\n").unwrap();
+    fs::write(&main, "import .mover as MoverModule\n").unwrap();
+    let mut session = WorkspaceModuleSession::new();
+    let _update = session
+        .set_overlays([
+            (location(&mover), Arc::from("class Mover {}\nexport Mover\n"), SourceRevision(1)),
+            (location(&main), Arc::from("import .mover as MoverModule\n"), SourceRevision(1)),
+        ])
+        .unwrap();
+    let mover_mod = session.module_for_source(&SourceId(mover.to_string_lossy().into())).unwrap();
+    let main_mod = session.module_for_source(&SourceId(main.to_string_lossy().into())).unwrap();
+    assert!(mover_mod.project.as_synthetic().is_some());
+    assert!(main_mod.project.as_synthetic().is_some());
+    assert!(session.resolved_imports().is_empty(), "standalone modules without package.ph must not resolve sibling imports");
+}
+
+#[test]
+fn direct_file_inside_standalone_package_uses_package_identity() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("package.ph"), "").unwrap();
+    let util = temp.path().join("util.ph");
+    fs::write(&util, "class Util {}\n").unwrap();
+    let mut session = WorkspaceModuleSession::new();
+    let loc = location(&util);
+    session.set_overlay(loc.clone(), Arc::from("class Util {}\n"), SourceRevision(1)).unwrap();
+    let module = session.module_for_source(&loc.source_id).unwrap().clone();
+    let project_id = module.project.as_resolved().expect("must be resolved project");
+    let proj = session.universe().get_project(project_id).expect("project exists");
+    assert!(proj.is_standalone_package());
+}
+
+#[test]
+fn intermediate_directory_without_package_ph_is_not_package() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("package.ph"), "").unwrap();
+    let sub = temp.path().join("sub");
+    fs::create_dir_all(&sub).unwrap();
+    let leaf = sub.join("leaf.ph");
+    fs::write(&leaf, "class Leaf {}\n").unwrap();
+    let mut universe = ProjectUniverse::new();
+    let ownership = phalcom_modules::classify_entry_ownership(&leaf, &mut universe).unwrap();
+    assert!(matches!(ownership, phalcom_modules::EntryOwnership::StandaloneModule { .. }));
+}
+
+#[test]
+fn nested_standalone_package_ownership_is_preserved() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("package.ph"), "").unwrap();
+    let nested = temp.path().join("tools");
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(nested.join("package.ph"), "").unwrap();
+    let run = nested.join("run.ph");
+    fs::write(&run, "let value = 1\n").unwrap();
+
+    let mut universe = ProjectUniverse::new();
+    let ownership = phalcom_modules::classify_entry_ownership(&run, &mut universe).unwrap();
+    let expected_root = temp.path().canonicalize().unwrap();
+    assert!(matches!(
+        ownership,
+        phalcom_modules::EntryOwnership::StandalonePackageOwned { package_root } if package_root == expected_root
+    ));
+}
+
+#[test]
+fn persistent_project_precedes_ancestor_standalone_package() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("package.ph"), "").unwrap();
+    let project = temp.path().join("project");
+    let source_root = project.join("src");
+    fs::create_dir_all(&source_root).unwrap();
+    fs::write(
+        project.join("project.toml"),
+        "[project]\nname = \"nested-project\"\nnamespace = \"nested_project\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    fs::write(source_root.join("package.ph"), "").unwrap();
+    let main = source_root.join("main.ph");
+    fs::write(&main, "let value = 1\n").unwrap();
+
+    let mut universe = ProjectUniverse::new();
+    let ownership = phalcom_modules::classify_entry_ownership(&main, &mut universe).unwrap();
+    assert!(matches!(ownership, phalcom_modules::EntryOwnership::ProjectOwned { .. }));
 }
 
 #[test]
