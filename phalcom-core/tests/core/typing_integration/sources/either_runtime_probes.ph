@@ -65,21 +65,21 @@ let swappedRightValue = swappedRight.fold(
 
 let fallbackValue = runtimeLeft.getOrElse(99)
 let preservedValue = runtimeRight.getOrElse(99)
-let recoveredValue = runtimeLeft.recover(|error| { 77 })
-let unrecoveredValue = runtimeRight.recover(|error| { 77 })
+let recoveredValue = runtimeLeft.recover(|error| 77)
+let unrecoveredValue = runtimeRight.recover(|error| 77)
 
 let replacement: Either<Bool, Int> = Either::Right(100)
 let orElseLeft = runtimeLeft.orElse(replacement)
 let orElseLeftValue = orElseLeft.fold(
-    left: |value| { -1 },
-    right: |value| { value }
+    left: |value| -1,
+    right: |value| value
 )
 
 let ignoredReplacement: Either<Bool, Int> = Either::Left(false)
 let orElseRight = runtimeRight.orElse(ignoredReplacement)
 let orElseRightValue = orElseRight.fold(
-    left: |value| { -1 },
-    right: |value| { value }
+    left: |value| -1,
+    right: |value| value
 )
 
 let zipOther: Either<String, Bool> = Either::Right(true)

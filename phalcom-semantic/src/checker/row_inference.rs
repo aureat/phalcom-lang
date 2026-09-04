@@ -10,6 +10,7 @@ use crate::types::row_solver::{
     RecordRowFailure, RecordRowSolution, RecordRowSolveResult, RecordRowSolver, RecordRowTerm, RecordRowTermTail, RecordRowVarId, RecordRowZonkError,
 };
 use crate::types::store::{TypeData, TypeStore};
+use std::collections::HashSet;
 
 use super::inference::InferenceTerm;
 
@@ -32,6 +33,14 @@ pub struct InferenceRecord {
     pub tail: InferenceRecordTail,
 }
 
+/// Stable semantic evidence that an open Record tail excludes one field.
+/// This deliberately contains no query-local row-solver identity.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct StableRecordRowLack {
+    pub parameter: TypeParameterId,
+    pub field: Box<str>,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GenericInferenceBinding {
     Type(InferVarId),
@@ -41,12 +50,87 @@ pub enum GenericInferenceBinding {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CombinedInferenceFailure {
     RowRejected(RecordRowFailure),
-    RowZonk(RecordRowZonkError),
+    RowZonk { parameter: TypeParameterId, error: RecordRowZonkError },
     UnderconstrainedType(TypeParameterId),
     UnderconstrainedRow(TypeParameterId),
     Blocked(BlockReason),
     Cancelled,
     BudgetExceeded(BudgetReport),
+}
+
+pub(crate) fn collect_stable_record_row_lacks(store: &TypeStore, ty: TypeId) -> Vec<StableRecordRowLack> {
+    let mut lacks = Vec::new();
+    let mut visited = HashSet::new();
+    let mut emitted = HashSet::new();
+    collect_stable_record_row_lacks_inner(store, ty, &mut visited, &mut emitted, &mut lacks);
+    lacks
+}
+
+fn collect_stable_record_row_lacks_inner(
+    store: &TypeStore,
+    ty: TypeId,
+    visited: &mut HashSet<TypeId>,
+    emitted: &mut HashSet<(TypeParameterId, Box<str>)>,
+    lacks: &mut Vec<StableRecordRowLack>,
+) {
+    if !visited.insert(ty) {
+        return;
+    }
+
+    match store.get(ty) {
+        TypeData::Record(row_id) => {
+            let row = store.record_row(*row_id);
+            if let RecordRowTail::Parameter(parameter) = row.tail {
+                for field in row.fields.iter() {
+                    let key = (parameter, field.name.clone());
+                    if emitted.insert(key) {
+                        lacks.push(StableRecordRowLack {
+                            parameter,
+                            field: field.name.clone(),
+                        });
+                    }
+                }
+            }
+            for field in row.fields.iter() {
+                collect_stable_record_row_lacks_inner(store, field.ty, visited, emitted, lacks);
+            }
+        }
+        TypeData::Applied { origin, arguments } => {
+            collect_stable_record_row_lacks_inner(store, *origin, visited, emitted, lacks);
+            for &argument in arguments.iter() {
+                collect_stable_record_row_lacks_inner(store, argument, visited, emitted, lacks);
+            }
+        }
+        TypeData::ExactCase { enum_type, .. } => collect_stable_record_row_lacks_inner(store, *enum_type, visited, emitted, lacks),
+        TypeData::Union(members) => {
+            for &member in members.iter() {
+                collect_stable_record_row_lacks_inner(store, member, visited, emitted, lacks);
+            }
+        }
+        TypeData::Tuple(elements) => {
+            for element in elements.iter() {
+                collect_stable_record_row_lacks_inner(store, element.ty, visited, emitted, lacks);
+            }
+        }
+        TypeData::Callable(callable) => {
+            for parameter in callable.parameters.iter() {
+                collect_stable_record_row_lacks_inner(store, parameter.ty, visited, emitted, lacks);
+            }
+            collect_stable_record_row_lacks_inner(store, callable.return_type, visited, emitted, lacks);
+        }
+        TypeData::Family(family_id) => {
+            for member in store.get_family(*family_id).members.iter() {
+                collect_stable_record_row_lacks_inner(store, member.ty, visited, emitted, lacks);
+            }
+        }
+        TypeData::Never
+        | TypeData::Unit
+        | TypeData::ClassObject { .. }
+        | TypeData::Nominal { .. }
+        | TypeData::Parameter(_)
+        | TypeData::Lambda(_)
+        | TypeData::SelfType(_) => {}
+    }
 }
 
 /// Coordinates ordinary type inference and query-local row inference without
@@ -71,23 +155,33 @@ pub fn term_has_row_variables(term: &InferenceTerm) -> bool {
             callable.parameters.iter().any(|parameter| term_has_row_variables(&parameter.term)) || term_has_row_variables(&callable.return_type)
         }
         InferenceTerm::Family(members) => members.iter().any(|member| term_has_row_variables(&member.term)),
-        InferenceTerm::Canonical(_) | InferenceTerm::Var(_) => false,
+        InferenceTerm::Canonical(_) | InferenceTerm::Var(_) | InferenceTerm::Rigid(_) => false,
     }
 }
 
 impl GenericApplicationSession {
     pub fn new(generic_signature: &GenericSignature, store: &TypeStore) -> Self {
+        Self::new_for_domains(&[generic_signature], store)
+    }
+
+    /// Creates one combined row/type application session for several
+    /// owner-preserving generic signatures. The signatures remain canonical
+    /// products; only their application variables share this query-local
+    /// session.
+    pub fn new_for_domains(generic_signatures: &[&GenericSignature], store: &TypeStore) -> Self {
         let mut types = super::inference::InferenceSession::new();
         let mut rows = RecordRowSolver::new();
         let mut parameter_bindings = std::collections::HashMap::new();
-        for &parameter in generic_signature.parameters.iter() {
-            let kind = store.type_parameter(parameter).kind;
-            let binding = if kind == KindId::RECORD_ROW {
-                GenericInferenceBinding::RecordRow(rows.fresh_var())
-            } else {
-                GenericInferenceBinding::Type(types.fresh_variable(kind))
-            };
-            parameter_bindings.insert(parameter, binding);
+        for generic_signature in generic_signatures {
+            for &parameter in generic_signature.parameters.iter() {
+                let kind = store.type_parameter(parameter).kind;
+                let binding = if kind == KindId::RECORD_ROW {
+                    GenericInferenceBinding::RecordRow(rows.fresh_var())
+                } else {
+                    GenericInferenceBinding::Type(types.fresh_variable(kind))
+                };
+                parameter_bindings.insert(parameter, binding);
+            }
         }
         Self {
             types,
@@ -119,6 +213,16 @@ impl GenericApplicationSession {
 
     pub fn type_term(&self, ty: TypeId, store: &TypeStore) -> InferenceTerm {
         self.types.type_id_to_inference_with_rows(ty, &self.type_terms(), &self.row_terms(), store)
+    }
+
+    pub fn constrain_signature_type_lacks(&mut self, ty: TypeId, store: &TypeStore) -> Result<(), CombinedInferenceFailure> {
+        for lack in collect_stable_record_row_lacks(store, ty) {
+            let Some(GenericInferenceBinding::RecordRow(variable)) = self.parameter_bindings.get(&lack.parameter).copied() else {
+                continue;
+            };
+            self.rows.add_lacks(variable, lack.field).map_err(CombinedInferenceFailure::RowRejected)?;
+        }
+        Ok(())
     }
 
     pub fn constrain_known_record_argument(
@@ -166,11 +270,6 @@ impl GenericApplicationSession {
                 }
             }
             InferenceRecordTail::Var(variable) => {
-                for field in formal.fields.iter() {
-                    self.rows
-                        .add_lacks(variable, field.name.clone())
-                        .map_err(CombinedInferenceFailure::RowRejected)?;
-                }
                 self.row_equations.push((
                     RecordRowTerm {
                         fields: Box::new([]),
@@ -221,7 +320,7 @@ impl GenericApplicationSession {
                     };
                     let row = row_solution
                         .zonk_variable_to_canonical(*variable, store)
-                        .map_err(CombinedInferenceFailure::RowZonk)?;
+                        .map_err(|error| CombinedInferenceFailure::RowZonk { parameter, error })?;
                     result.bind_row(parameter, row);
                 }
             }

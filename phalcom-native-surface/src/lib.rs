@@ -314,4 +314,33 @@ mod tests {
         reordered.reverse();
         assert_eq!(catalog_fingerprint_for(&reordered), catalog_fingerprint());
     }
+
+    #[test]
+    fn generic_callable_contract_changes_catalog_fingerprint() {
+        static LOWER: TypeExprSpec = TypeExprSpec::Parameter("T");
+        static UPPER: TypeExprSpec = TypeExprSpec::Universe(UniverseKey::Object);
+        static CONSTRAINTS: [GenericConstraintSpec; 1] = [GenericConstraintSpec::Subtype { lower: &LOWER, upper: &UPPER }];
+        static BASE_PARAMS: ParameterTupleSpec = ParameterTupleSpec {
+            positional: &[TypeExprSpec::Universe(UniverseKey::Object)],
+            labeled: &[],
+            rest: None,
+        };
+        static BASE_RETURN: TypeExprSpec = TypeExprSpec::Universe(UniverseKey::Bool);
+        static CONSTRAINED_CALLABLE: CallableTypeSpec = CallableTypeSpec {
+            type_params: &[],
+            params: &BASE_PARAMS,
+            return_type: &BASE_RETURN,
+            constraints: &CONSTRAINTS,
+        };
+
+        let baseline = NATIVE_SURFACES[0];
+        let mut changed_surface = baseline.surface;
+        changed_surface.callable = &CONSTRAINED_CALLABLE;
+        let changed = NativeSurfaceRecord {
+            surface: changed_surface,
+            ..baseline
+        };
+
+        assert_ne!(catalog_fingerprint_for(&[baseline]), catalog_fingerprint_for(&[changed]));
+    }
 }

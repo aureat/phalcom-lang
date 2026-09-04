@@ -194,11 +194,8 @@ fn parameter_fact(
 pub(crate) fn declaration_type_level_bindings_for_side(
     ctx: &mut CheckingContext<'_>,
     owner: &DeclarationId,
-    side: DispatchSide,
+    _side: DispatchSide,
 ) -> HashMap<String, crate::types::annotation::TypeLevelBinding> {
-    if side == DispatchSide::Class {
-        return HashMap::new();
-    }
     declaration_type_level_bindings(ctx, owner)
 }
 
@@ -341,7 +338,7 @@ pub(crate) fn semantic_signature_for_syntax(
     };
     let formation_site = TypeFormationSite::member(ctx.current_module.clone(), declaration_owner.clone(), formation_side);
 
-    let (mut generics, parameters, declared_return) = match syntax {
+    let (generics, parameters, declared_return) = match syntax {
         CallableSyntaxRef::Method(method) => {
             let generic_signature = resolve_callable_local_generics(
                 ctx,
@@ -448,23 +445,71 @@ pub(crate) fn semantic_signature_for_syntax(
             )
         }
         CallableSyntaxRef::Setter(setter) => {
+            let generic_signature = resolve_callable_local_generics(
+                ctx,
+                &declaration_resolver,
+                &formation_site,
+                &callable,
+                &setter.generic_parameters,
+                setter.where_clause.as_ref(),
+                setter.range,
+                "setter",
+            );
+            let setter_type_parameters = generic_signature
+                .as_ref()
+                .map(|signature| signature.parameters.to_vec())
+                .unwrap_or_default()
+                .into_iter()
+                .map(|parameter_id| {
+                    let name = ctx.store.type_parameter(parameter_id).name.to_string();
+                    (name, type_level_binding_for_parameter(ctx.store, parameter_id))
+                })
+                .collect();
+            let setter_resolver = crate::types::annotation::ScopedTypeResolver {
+                parent: &declaration_resolver,
+                type_parameters: setter_type_parameters,
+            };
             let parameter = parameter_fact(
                 ctx,
                 &callable,
                 0,
                 &setter.param,
-                &declaration_resolver,
+                &setter_resolver,
                 &formation_site,
                 UnknownReason::UnannotatedDeclaration,
             );
             let unit = TypeKnowledge::established(ctx.store.unit(), EvidenceOrigin::DeclarationSemantics);
             (
-                None,
+                generic_signature,
                 vec![parameter].into_boxed_slice(),
                 DeclaredTypeFact::from_knowledge_with_basis(&unit, DeclaredTypeBasis::DeclarationSemantics),
             )
         }
         CallableSyntaxRef::Index(index) => {
+            let generic_signature = resolve_callable_local_generics(
+                ctx,
+                &declaration_resolver,
+                &formation_site,
+                &callable,
+                &index.generic_parameters,
+                index.where_clause.as_ref(),
+                index.range,
+                "index member",
+            );
+            let index_type_parameters = generic_signature
+                .as_ref()
+                .map(|signature| signature.parameters.to_vec())
+                .unwrap_or_default()
+                .into_iter()
+                .map(|parameter_id| {
+                    let name = ctx.store.type_parameter(parameter_id).name.to_string();
+                    (name, type_level_binding_for_parameter(ctx.store, parameter_id))
+                })
+                .collect();
+            let index_resolver = crate::types::annotation::ScopedTypeResolver {
+                parent: &declaration_resolver,
+                type_parameters: index_type_parameters,
+            };
             let mut parameters = index
                 .params
                 .iter()
@@ -475,7 +520,7 @@ pub(crate) fn semantic_signature_for_syntax(
                         &callable,
                         parameter_index,
                         parameter,
-                        &declaration_resolver,
+                        &index_resolver,
                         &formation_site,
                         UnknownReason::NoTypeEvidence,
                     )
@@ -484,7 +529,7 @@ pub(crate) fn semantic_signature_for_syntax(
             let declared_return = match &index.accessor {
                 phalcom_ast::ast::IndexAccessor::Get => annotation_fact(
                     ctx,
-                    &declaration_resolver,
+                    &index_resolver,
                     &formation_site,
                     index.return_annotation.as_ref(),
                     UnknownReason::NoTypeEvidence,
@@ -495,7 +540,7 @@ pub(crate) fn semantic_signature_for_syntax(
                         &callable,
                         parameters.len(),
                         put,
-                        &declaration_resolver,
+                        &index_resolver,
                         &formation_site,
                         UnknownReason::NoTypeEvidence,
                     );
@@ -504,21 +549,9 @@ pub(crate) fn semantic_signature_for_syntax(
                     result
                 }
             };
-            (None, parameters.into_boxed_slice(), declared_return)
+            (generic_signature, parameters.into_boxed_slice(), declared_return)
         }
     };
-
-    // A constructor application instantiates both its declaration owner and
-    // any constructor-local binders. Owner parameters are not callable-local
-    // syntax, but they are still formal inputs to constructor inference.
-    if is_constructor {
-        if let Some(owner_generics) = ctx.declaration_generic_signature(declaration_owner) {
-            generics = Some(match generics {
-                None => owner_generics,
-                Some(callable_generics) => merge_constructor_generic_signatures(owner_generics, callable_generics, callable.clone()),
-            });
-        }
-    }
 
     let return_validation = initial_return_validation(&declared_return, phalcom_native_meta::ImplementationKind::Source);
 
@@ -542,6 +575,7 @@ pub(crate) fn semantic_signature_for_syntax(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn resolve_callable_local_generics(
     ctx: &mut CheckingContext<'_>,
     declaration_resolver: &dyn crate::types::annotation::TypeResolver,
@@ -628,50 +662,6 @@ fn resolve_callable_local_generics(
     };
     ctx.publish_diagnostics(diagnostics);
     signature
-}
-
-fn merge_constructor_generic_signatures(
-    owner: crate::types::parameter::GenericSignature,
-    callable: crate::types::parameter::GenericSignature,
-    callable_id: crate::identity::CallableId,
-) -> crate::types::parameter::GenericSignature {
-    let mut parameters = owner.parameters.to_vec();
-    parameters.extend(callable.parameters.iter().copied());
-    let mut constraints = owner.constraints.to_vec();
-    constraints.extend(callable.constraints.iter().cloned());
-    crate::types::parameter::GenericSignature {
-        owner: TypeParameterOwner::Callable(callable_id),
-        parameters: parameters.into_boxed_slice(),
-        parameter_kinds: owner
-            .parameter_kinds
-            .iter()
-            .copied()
-            .chain(callable.parameter_kinds.iter().copied())
-            .collect::<Vec<_>>()
-            .into_boxed_slice(),
-        parameter_kind_shapes: owner
-            .parameter_kind_shapes
-            .iter()
-            .cloned()
-            .chain(callable.parameter_kind_shapes.iter().cloned())
-            .collect::<Vec<_>>()
-            .into_boxed_slice(),
-        parameter_variances: owner
-            .parameter_variances
-            .iter()
-            .copied()
-            .chain(callable.parameter_variances.iter().copied())
-            .collect::<Vec<_>>()
-            .into_boxed_slice(),
-        constraint_shapes: owner
-            .constraint_shapes
-            .iter()
-            .cloned()
-            .chain(callable.constraint_shapes.iter().cloned())
-            .collect::<Vec<_>>()
-            .into_boxed_slice(),
-        constraints: constraints.into_boxed_slice(),
-    }
 }
 
 pub(crate) fn semantic_signature_for_member(ctx: &mut CheckingContext<'_>, owner: &DeclarationId, member: &ClassMember) -> Option<CallableSemanticSignature> {

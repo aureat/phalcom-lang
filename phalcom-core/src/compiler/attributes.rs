@@ -1214,6 +1214,7 @@ fn derive_accessors(class: &mut ClassDef, ctx: &mut ExpandCtx) -> Result<(), Com
                 check_accessor_collision(class, ctx, &base_name, SignatureKind::Setter, "set")?;
                 class.members.push(ClassMember::Setter(SetterDef {
                     name: base_name.clone(),
+                    generic_parameters: Vec::new(),
                     param: ParameterDef {
                         name: "value".to_string(),
                         name_range: attr.range,
@@ -1224,6 +1225,7 @@ fn derive_accessors(class: &mut ClassDef, ctx: &mut ExpandCtx) -> Result<(), Com
                         range: attr.range,
                     },
                     return_annotation: None,
+                    where_clause: None,
                     body: MemberBody::Block(vec![field_assign_stmt(
                         &field.name,
                         Expr::Var {

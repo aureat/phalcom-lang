@@ -72,6 +72,24 @@ fn gadt_syntax_with_return_type_annotation() {
 }
 
 #[test]
+fn variant_local_generics_and_where_clause_are_preserved() {
+    let source = "enum Expr<T> {\n  @variant Pack<U>(_ value: U) -> Expr<U> where U <: Object\n}\n";
+    let program = parse_source(source, 0).expect("variant generic syntax parses");
+    let Statement::Enum(enum_def) = &program.statements[0] else {
+        panic!("expected enum");
+    };
+    let EnumMember::Variant(pack) = &enum_def.members[0] else {
+        panic!("expected variant");
+    };
+
+    assert_eq!(pack.name, "Pack");
+    assert_eq!(pack.generic_parameters.len(), 1);
+    assert_eq!(pack.generic_parameters[0].name, "U");
+    assert_eq!(pack.where_clause.as_ref().expect("where clause").constraints.len(), 1);
+    assert_eq!(selector_from_variant(pack).encode(), "Pack(_)");
+}
+
+#[test]
 fn variant_case_body_and_enum_behavior_members() {
     let source = r#"
 enum Shape {

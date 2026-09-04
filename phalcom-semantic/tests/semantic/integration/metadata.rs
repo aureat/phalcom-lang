@@ -4,8 +4,10 @@ use phalcom_modules::{DeclarationId, ModuleComponent, ModuleId, ModulePath, Proj
 use phalcom_semantic::declarations::{DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate};
 use phalcom_semantic::diagnostic::SemanticSourceSpan;
 use phalcom_semantic::identity::{CallableId, DispatchSide};
+use phalcom_semantic::metadata::MetadataExportError;
 use phalcom_semantic::metadata::MetadataExporter;
 use phalcom_semantic::metadata::stable_identity::StableIdentityContext;
+use phalcom_semantic::signature::{CallableParameterSemantic, CallableSemanticSignature, ReturnContractValidation};
 use phalcom_semantic::type_alias::{TypeAliasInfo, TypeAliasTable};
 use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::parameter::{GenericConstraint, GenericSignature, SelfRole, SelfTypeTerm, TypeParameterData, TypeParameterOwner, TypeTerm};
@@ -107,6 +109,77 @@ fn test_metadata_fresh_store_determinism() {
 
     assert_eq!(bundle1, bundle2);
     validate_metadata_bundle(&bundle1, &ValidationLimits::default()).unwrap();
+}
+
+#[test]
+fn metadata_export_rejects_query_local_rigid_types() {
+    let store = TypeStore::new();
+    let mut arena = phalcom_semantic::types::rigid::RigidArena::new();
+    let scope = arena.fresh_scope(None);
+    let rigid = arena.fresh(scope, KindId::TYPE, phalcom_semantic::types::rigid::RigidOrigin::Synthetic);
+    let local = phalcom_semantic::types::rigid::LocalType::Rigid(rigid);
+    let exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+    assert!(matches!(exporter.validate_local_type_export(&local), Err(MetadataExportError::ScopedLocalType)));
+}
+
+#[test]
+fn metadata_round_trip_preserves_callable_generic_owner_and_constraints() {
+    let mut store = TypeStore::new();
+    let owner = dummy_decl("NativeEquivalent");
+    let selector = Selector::method("identity", [phalcom_common::selector::SelectorSlot::Positional]).unwrap();
+    let callable = CallableId::new(owner.clone(), selector.clone(), DispatchSide::Instance);
+    let parameter = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Callable(callable.clone()), 0, "T", KindId::TYPE));
+    let parameter_form = store.parameter_form(parameter);
+    let signature = GenericSignature::with_constraints(
+        TypeParameterOwner::Callable(callable.clone()),
+        Box::new([parameter]),
+        Box::new([GenericConstraint::Subtype {
+            lower: TypeTerm::Canonical(parameter_form),
+            upper: TypeTerm::Canonical(store.unit()),
+        }]),
+    );
+    let mut callables = phalcom_semantic::signature::CallableSignatureTable::new();
+    callables.insert(CallableSemanticSignature {
+        callable: callable.clone(),
+        owner,
+        side: DispatchSide::Instance,
+        selector,
+        generics: Some(signature),
+        parameters: Box::new([CallableParameterSemantic::new(
+            phalcom_semantic::identity::CallableParameterId::new(callable.clone(), 0),
+            "value",
+            phalcom_semantic::declaration_type::DeclaredTypeFact::known(
+                TypeTerm::Canonical(parameter_form),
+                phalcom_semantic::declaration_type::DeclaredTypeBasis::NativeSignature,
+            ),
+        )]),
+        declared_return: phalcom_semantic::declaration_type::DeclaredTypeFact::known(
+            TypeTerm::Canonical(parameter_form),
+            phalcom_semantic::declaration_type::DeclaredTypeBasis::NativeSignature,
+        ),
+        return_validation: ReturnContractValidation::NotApplicable,
+        inferred_return: None,
+        source: None,
+        implementation: phalcom_native_meta::ImplementationKind::NativePrimitive,
+        native_id: None,
+        effects: phalcom_native_meta::EffectSpec::Pure,
+        raises: phalcom_native_meta::RaisesSpec::Unknown,
+        flow: phalcom_native_meta::ReturnFlowSpec::Value,
+        lifecycle: phalcom_native_meta::NativeLifecycleSpec::UNKNOWN,
+    });
+
+    let exporter = MetadataExporter::new(&store, None, Some(&callables), None, MetadataProfile::RuntimePublic);
+    let bundle = exporter.build_bundle(&[]).expect("callable metadata");
+    validate_metadata_bundle(&bundle, &ValidationLimits::default()).unwrap();
+    let callable_record = bundle.callables.first().expect("callable record");
+    let generic_id = callable_record.generic_signature.expect("callable generic signature");
+    let generic_record = &bundle.generic_signatures[generic_id.0 as usize];
+    assert!(matches!(
+        generic_record.owner,
+        phalcom_type_meta::generic::StableTypeParameterOwnerRef::Callable(_)
+    ));
+    assert_eq!(generic_record.parameters.len(), 1);
+    assert_eq!(generic_record.constraints.len(), 1);
 }
 
 #[test]

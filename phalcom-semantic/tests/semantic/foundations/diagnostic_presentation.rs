@@ -65,6 +65,65 @@ class Probe {
 }
 
 #[test]
+fn record_row_lacks_violation_presentation_is_stable_and_hides_solver_ids() {
+    let fixture = Fixture::new(
+        r#"
+class Probe {
+  @class
+  tagged<R: RecordRow>(
+      _ value: #{ name: String, | R }
+  ) -> #{ name: String, tag: String, | R } {
+      #{ **value, tag: "entity" }
+  }
+
+  @class
+  run() {
+      let result = Probe.tagged(#{ name: "Phalcom", tag: "existing" })
+  }
+}
+"#,
+    );
+    let diagnostic = fixture
+        .diagnostics(DiagnosticCode::RecordRowLacksViolation)
+        .into_iter()
+        .next()
+        .expect("record row lacks diagnostic");
+    let presenter = DiagnosticPresenter::new(&fixture.analysis.snapshot);
+    let presented = presenter.present(diagnostic, DiagnosticDetail::Explain);
+
+    assert_eq!(presented.headline, "record row contains a forbidden field");
+    assert!(diagnostic.message.contains("tag"));
+    assert!(!diagnostic.message.contains("RecordRowVarId"));
+    assert!(!diagnostic.message.contains("InferVarId"));
+}
+
+#[test]
+fn record_row_lacks_unproven_presentation_is_stable_and_names_the_row_field() {
+    let fixture = Fixture::new(
+        r#"
+class Probe {
+  @class
+  extend<R: RecordRow>(_ value: #{ known: Int, | R }) {
+    let result = #{ **value, extra: true }
+  }
+}
+"#,
+    );
+    let diagnostic = fixture
+        .diagnostics(DiagnosticCode::RecordRowLacksUnproven)
+        .into_iter()
+        .next()
+        .expect("unproven record row lack diagnostic");
+    let presenter = DiagnosticPresenter::new(&fixture.analysis.snapshot);
+    let presented = presenter.present(diagnostic, DiagnosticDetail::Explain);
+
+    assert_eq!(presented.headline, "record extension requires a disjoint row field");
+    assert!(diagnostic.message.contains("R"));
+    assert!(diagnostic.message.contains("extra"));
+    assert!(!diagnostic.message.contains("RecordRowVarId"));
+}
+
+#[test]
 fn compact_and_explain_are_projections_of_the_same_semantic_diagnostic() {
     let fixture = Fixture::new(
         r#"

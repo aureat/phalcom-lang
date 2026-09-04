@@ -198,6 +198,9 @@ impl RecordRowSolver {
         if self.term_contains_field(&row_term, &field) {
             return Err(RecordRowFailure::LacksViolation { field, row: row_term });
         }
+        if self.lacks.iter().any(|lack| lack.row == row && lack.field == field) {
+            return Ok(());
+        }
         self.lacks.push(RecordRowLacks { row, field: field.clone() });
         self.propagate_lack_alias(row, field);
         Ok(())

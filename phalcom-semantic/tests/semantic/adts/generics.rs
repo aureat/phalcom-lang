@@ -1,9 +1,15 @@
+use crate::semantic::support::{Fixture, applied, nominal};
 use phalcom_modules::identity::{ModuleId, ModulePath, ResolvedProjectId};
+use phalcom_semantic::checker::analysis::AnalysisStatus;
+use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::DeclarationId;
+use phalcom_semantic::identity::{CallableId, InvocationTargetId};
 use phalcom_semantic::types::case_environment::derive_case_environment;
+use phalcom_semantic::types::case_instantiation::CaseInstantiation;
 use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::parameter::{TypeParameterData, TypeParameterOwner};
-use phalcom_semantic::types::store::TypeStore;
+use phalcom_semantic::types::rigid::RigidArena;
+use phalcom_semantic::types::store::{TypeData, TypeStore};
 
 fn test_module() -> ModuleId {
     ModuleId::resolved(ResolvedProjectId::from_raw(42), ModulePath::root())
@@ -89,6 +95,63 @@ fn adt_gen_03_nested_generic_payload_keeps_application_shape() {
 }
 
 #[test]
+fn adt_gen_04_variant_local_generic_signature_owns_payload_and_result_scope() {
+    let case = super::support::analyze_adt("enum Expr<T> { @variant Pack<U>(_ value: U) -> Expr<U> where U <: Object }\n");
+    let pack = case.variant(
+        "Expr",
+        phalcom_common::selector::Selector::method("Pack", [phalcom_common::selector::SelectorSlot::Positional]).expect("Pack"),
+    );
+    let constructor = pack.constructor.as_ref().expect("Pack constructor");
+    let generic_signature = constructor.generic_signature.as_ref().expect("Pack<U>");
+    let callable = CallableId::variant_constructor(pack.id.clone());
+
+    assert_eq!(generic_signature.parameter_count(), 1);
+    assert_eq!(generic_signature.owner, TypeParameterOwner::Callable(callable.clone()));
+    assert_eq!(generic_signature.constraint_count(), 1);
+    let parameter = generic_signature.parameters[0];
+    assert_eq!(
+        case.analysis.snapshot.store.type_parameter(parameter).owner,
+        TypeParameterOwner::Callable(callable)
+    );
+    assert!(matches!(
+        case.type_data(pack.fields[0].declared_type.canonical_type().expect("Pack payload")),
+        phalcom_semantic::types::store::TypeData::Parameter(found) if *found == parameter
+    ));
+    assert!(matches!(
+        case.type_data(pack.result_type_template),
+        phalcom_semantic::types::store::TypeData::Applied { arguments, .. }
+            if arguments.iter().any(|argument| matches!(case.type_data(*argument), phalcom_semantic::types::store::TypeData::Parameter(found) if *found == parameter))
+    ));
+}
+
+#[test]
+fn adt_gadt_04_case_instantiation_shares_one_rigid_per_variant_binder() {
+    let case = super::support::analyze_adt("enum Expr<T> { @variant Equal<U>(_ left: U, _ right: U) -> Expr<T> where U <: Object }\n");
+    let variant = case.variant(
+        "Expr",
+        phalcom_common::selector::Selector::method(
+            "Equal",
+            [
+                phalcom_common::selector::SelectorSlot::Positional,
+                phalcom_common::selector::SelectorSlot::Positional,
+            ],
+        )
+        .expect("Equal constructor"),
+    );
+    let mut arena = RigidArena::new();
+    let first = CaseInstantiation::open(case.analysis.snapshot.store.as_ref(), &mut arena, variant, None);
+    let second = CaseInstantiation::open(case.analysis.snapshot.store.as_ref(), &mut arena, variant, None);
+
+    assert_eq!(first.local_rigids.len(), 1);
+    assert_eq!(first.payload_types.len(), 2);
+    assert_eq!(first.payload_types[0], first.payload_types[1], "repeated U occurrences must share one rigid");
+    assert_eq!(first.payload_types[0].free_rigids().len(), 1);
+    assert_eq!(first.constraints.len(), 1, "variant-local where clause must remain branch-local evidence");
+    assert_ne!(first.scope, second.scope, "independent eliminations need fresh scopes");
+    assert_ne!(first.local_rigids.values().next(), second.local_rigids.values().next());
+}
+
+#[test]
 fn adt_gadt_01_case_environment_is_owned_by_specialized_variant() {
     let case = super::support::analyze_adt("enum Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\n");
     let int = case.variant(
@@ -128,4 +191,105 @@ fn adt_gadt_03_contradictory_specialization_is_not_ordinary_subtyping_failure() 
         case.only_match().arm(0).resolution().usefulness,
         phalcom_semantic::match_semantics::PatternUsefulness::Impossible
     );
+}
+
+#[test]
+fn adt_gen_05_constructor_solves_enum_and_variant_domains() {
+    let fixture = Fixture::new(
+        r#"
+enum Expr<T> {
+  @variant Pair<U>(_ first: T, _ second: U) -> Expr<T>
+}
+
+class Probe {
+  @class
+  run() {
+    let first = Expr::Pair(1, "text")
+    let second = Expr::Pair("text", 1)
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", phalcom_semantic::identity::DispatchSide::Class);
+    let first = fixture.expression(run, "Expr::Pair(1, \"text\")");
+    let second = fixture.expression(run, "Expr::Pair(\"text\", 1)");
+
+    let first_type = first.knowledge.ty().expect("first constructor result");
+    let second_type = second.knowledge.ty().expect("second constructor result");
+    let first_enum = match fixture.analysis.snapshot.store.get(first_type) {
+        TypeData::ExactCase { enum_type, .. } => *enum_type,
+        other => panic!("expected exact first case, got {other:?}"),
+    };
+    let second_enum = match fixture.analysis.snapshot.store.get(second_type) {
+        TypeData::ExactCase { enum_type, .. } => *enum_type,
+        other => panic!("expected exact second case, got {other:?}"),
+    };
+    fixture.assert_type(first_enum, applied("Expr", [nominal("Int")]));
+    fixture.assert_type(second_enum, applied("Expr", [nominal("String")]));
+    assert!(matches!(first.status, AnalysisStatus::Ready));
+    assert!(matches!(second.status, AnalysisStatus::Ready));
+
+    let first_resolution = run.associated_resolutions.get(&first.id).expect("first constructor resolution");
+    let second_resolution = run.associated_resolutions.get(&second.id).expect("second constructor resolution");
+    let first_target = match &first_resolution.kind {
+        phalcom_semantic::checker::AssociatedResolutionKind::StaticInvoke { target, .. } => target,
+        other => panic!("expected first static constructor, got {other:?}"),
+    };
+    let second_target = match &second_resolution.kind {
+        phalcom_semantic::checker::AssociatedResolutionKind::StaticInvoke { target, .. } => target,
+        other => panic!("expected second static constructor, got {other:?}"),
+    };
+    assert_eq!(first_target, second_target);
+    assert!(matches!(first_target, InvocationTargetId::VariantConstructor(_)));
+}
+
+#[test]
+fn adt_gen_06_constructor_payload_result_conflict_is_rejected() {
+    let fixture = Fixture::new(
+        r#"
+enum Expr<T> {
+  @variant Pair<U>(_ first: T, _ second: U) -> Expr<T>
+}
+
+class Probe {
+  @class
+  run() {
+    let value: Expr<String> = Expr::Pair(1, "text")
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", phalcom_semantic::identity::DispatchSide::Class);
+    let call = fixture.expression(run, "Expr::Pair(1, \"text\")");
+    assert!(call.knowledge.ty().is_none());
+    assert!(matches!(call.status, AnalysisStatus::Invalid(_)));
+    fixture.assert_diagnostic(DiagnosticCode::GenericInferenceConflict, 1);
+}
+
+#[test]
+fn adt_gen_07_generic_variant_family_instantiates_at_invocation() {
+    let fixture = Fixture::new(
+        r#"
+enum Expr<T> {
+  @variant Pair<U>(_ first: T, _ second: U) -> Expr<T>
+}
+
+class Probe {
+  @class
+  run() {
+    let family = Expr<Int>::Pair::*;
+    let value = family(1, "text");
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", phalcom_semantic::identity::DispatchSide::Class);
+    let call = fixture.expression(run, "family(1, \"text\")");
+    let result = call.knowledge.ty().expect("family constructor result");
+    let enum_type = match fixture.analysis.snapshot.store.get(result) {
+        TypeData::ExactCase { enum_type, .. } => *enum_type,
+        other => panic!("expected exact family case, got {other:?}"),
+    };
+    fixture.assert_type(enum_type, applied("Expr", [nominal("Int")]));
+    assert!(matches!(call.status, AnalysisStatus::Ready));
 }

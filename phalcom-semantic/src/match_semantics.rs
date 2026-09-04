@@ -5,6 +5,7 @@ use crate::types::TypeConstraint;
 use crate::types::evidence::TypeKnowledge;
 use crate::types::id::{TypeId, TypeParameterId};
 use crate::types::outcome::BlockReason;
+use crate::types::rigid::{LocalConstraint, LocalType};
 use phalcom_ast::ast::MapPatternKey;
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorPattern};
@@ -90,6 +91,7 @@ pub struct ResolvedVariantCandidate {
     pub exact_case: TypeId,
     pub fields: Box<[ResolvedFieldPattern]>,
     pub proof: BranchProofEnvironment,
+    pub case_instantiation: Option<crate::types::CaseInstantiation>,
 }
 
 /// Projection of a candidate field to its specialized type and child pattern resolution.
@@ -97,6 +99,7 @@ pub struct ResolvedVariantCandidate {
 pub struct ResolvedFieldPattern {
     pub field: VariantFieldId,
     pub field_type: TypeKnowledge,
+    pub local_type: Option<LocalType>,
     pub child: Box<PatternResolution>,
 }
 
@@ -132,11 +135,13 @@ pub struct ResolvedMapEntryPattern {
 pub struct BranchProofEnvironment {
     pub bindings: BTreeMap<TypeParameterId, TypeId>,
     pub equalities: Box<[TypeConstraint]>,
+    pub local_bindings: BTreeMap<TypeParameterId, LocalType>,
+    pub local_equalities: Box<[LocalConstraint]>,
 }
 
 impl BranchProofEnvironment {
     pub fn is_empty(&self) -> bool {
-        self.bindings.is_empty() && self.equalities.is_empty()
+        self.bindings.is_empty() && self.equalities.is_empty() && self.local_bindings.is_empty() && self.local_equalities.is_empty()
     }
 }
 
@@ -146,6 +151,7 @@ pub struct PatternBindingResolution {
     pub binding: BindingId,
     pub name: Box<str>,
     pub knowledge: TypeKnowledge,
+    pub local_type: Option<LocalType>,
     pub source: SourceRange,
 }
 

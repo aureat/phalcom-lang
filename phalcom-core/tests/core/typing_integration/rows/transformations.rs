@@ -1,6 +1,7 @@
-use super::super::support::{with_rows, Fixture};
+use super::super::support::{Fixture, with_rows};
 use super::correlation::assert_row_rejection;
 use phalcom_semantic::checker::analysis::AnalysisStatus;
+use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::DispatchSide;
 
 #[test]
@@ -29,4 +30,5 @@ fn tagged_collision_is_rejected_without_dynamic_escape() {
     let run = fixture.callable("RowDuplicateExtensionProbe", "collides", DispatchSide::Class);
     let call = fixture.expression_containing(run, "RowCalculus.tagged(");
     assert_row_rejection(&fixture, call);
+    assert_eq!(fixture.diagnostics(DiagnosticCode::RecordRowLacksViolation).len(), 1);
 }

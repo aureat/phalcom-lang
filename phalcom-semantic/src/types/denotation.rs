@@ -40,6 +40,11 @@ pub enum AssociatedValueDenotation {
     /// candidate knowledge only.
     BehavioralFamily {
         receiver_type: TypeId,
+        /// Applied class-side type form, when the family was captured from a
+        /// type-form receiver. `receiver_type` remains the runtime dispatch
+        /// descriptor; this field preserves declaration arguments for the
+        /// later family-member invocation.
+        receiver_application: Option<TypeId>,
         spec: BehavioralFamilySpec,
         members: Arc<[CapturedBehavioralMember]>,
     },

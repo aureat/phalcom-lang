@@ -9,6 +9,7 @@ use crate::type_alias::TypeAliasTable;
 use crate::types::id::{KindId, ScopedTypeId, TypeId, TypeParameterId};
 use crate::types::kind::KindData;
 use crate::types::parameter::{GenericConstraint, GenericSignature, GenericSignaturePublicationError, SelfRole, TypeParameterOwner, TypeTerm};
+use crate::types::rigid::LocalType;
 use crate::types::store::{TypeData, TypeStore};
 use crate::types::type_lambda::ScopedTypeData;
 use crate::types::variance::Variance;
@@ -38,10 +39,14 @@ use phalcom_type_meta::type_node::{
 };
 use std::collections::HashMap;
 
+type GenericSignatureKey = (TypeParameterOwner, Box<[TypeParameterId]>, Box<[GenericConstraint]>);
+
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum MetadataExportError {
     #[error("cannot export inference variable in durable metadata")]
     InferenceVariable,
+    #[error("cannot export scoped local type containing rigid variables")]
+    ScopedLocalType,
     #[error("cannot export invalid generic signature: {0:?}")]
     InvalidGenericSignature(GenericSignaturePublicationError),
     #[error("non-exportable internal form: {0:?}")]
@@ -124,7 +129,7 @@ pub struct MetadataExporter<'a> {
     param_map: HashMap<TypeParameterId, StableTypeParameterRef>,
 
     generic_signatures: Vec<GenericSignatureRecord>,
-    sig_map: HashMap<(TypeParameterOwner, usize), GenericSignatureRecordId>,
+    sig_map: HashMap<GenericSignatureKey, GenericSignatureRecordId>,
 }
 
 impl<'a> MetadataExporter<'a> {
@@ -715,9 +720,19 @@ impl<'a> MetadataExporter<'a> {
         }
     }
 
+    /// Durable metadata accepts canonical forms only. Query-local rigid terms
+    /// stay behind this explicit guard and must be widened before publication.
+    pub fn validate_local_type_export(&self, local_type: &LocalType) -> Result<(), MetadataExportError> {
+        if local_type.free_rigids().is_empty() {
+            Ok(())
+        } else {
+            Err(MetadataExportError::ScopedLocalType)
+        }
+    }
+
     pub fn export_generic_signature(&mut self, sig: &GenericSignature) -> Result<GenericSignatureRecordId, MetadataExportError> {
         sig.validate_publishable(self.store).map_err(MetadataExportError::InvalidGenericSignature)?;
-        let key = (sig.owner.clone(), sig.parameters.len());
+        let key = (sig.owner.clone(), sig.parameters.clone(), sig.constraints.clone());
         if let Some(&id) = self.sig_map.get(&key) {
             return Ok(id);
         }

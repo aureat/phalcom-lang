@@ -39,11 +39,25 @@ pub struct TypeParameter {
     pub name: String,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum GenericConstraintRelation {
+    Subtype,
+    Equivalent,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct GenericConstraint {
+    pub relation: GenericConstraintRelation,
+    pub lower: TypeExpr,
+    pub upper: TypeExpr,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct CallableType {
     pub type_params: Vec<TypeParameter>,
     pub params: ParameterTuple,
     pub return_type: TypeExpr,
+    pub constraints: Vec<GenericConstraint>,
 }
 
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
@@ -61,6 +75,7 @@ pub enum TypeSyntaxError {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Token {
     Ident(String),
+    Where,
     SelfKw,
     Never,
     Unknown,
@@ -70,6 +85,8 @@ enum Token {
     Colon,
     Pipe,
     Arrow,
+    EqEq,
+    Subtype,
     LParen,
     RParen,
     LAngle,
@@ -134,10 +151,25 @@ impl<'a> Lexer<'a> {
             }
             ',' => Ok(Token::Comma),
             ':' => Ok(Token::Colon),
+            '=' => {
+                if self.peek() == Some('=') {
+                    self.next();
+                    Ok(Token::EqEq)
+                } else {
+                    Err(TypeSyntaxError::UnexpectedChar('='))
+                }
+            }
             '|' => Ok(Token::Pipe),
             '(' => Ok(Token::LParen),
             ')' => Ok(Token::RParen),
-            '<' => Ok(Token::LAngle),
+            '<' => {
+                if self.peek() == Some(':') {
+                    self.next();
+                    Ok(Token::Subtype)
+                } else {
+                    Ok(Token::LAngle)
+                }
+            }
             '>' => Ok(Token::RAngle),
             '-' => {
                 if self.next() == Some('>') {
@@ -157,6 +189,7 @@ impl<'a> Lexer<'a> {
                     }
                 }
                 match ident.as_str() {
+                    "where" => Ok(Token::Where),
                     "Self" => Ok(Token::SelfKw),
                     "Never" => Ok(Token::Never),
                     "Unknown" => Ok(Token::Unknown),
@@ -203,6 +236,8 @@ impl<'a> Parser<'a> {
                     Token::Colon => "':'",
                     Token::Pipe => "'|'",
                     Token::Arrow => "'->'",
+                    Token::EqEq => "'=='",
+                    Token::Subtype => "'<:'",
                     Token::LParen => "'('",
                     Token::RParen => "')'",
                     Token::LAngle => "'<'",
@@ -213,6 +248,7 @@ impl<'a> Parser<'a> {
                     Token::Never => "'Never'",
                     Token::Unknown => "'Unknown'",
                     Token::Universe => "'universe'",
+                    Token::Where => "'where'",
                 },
                 found: format!("{:?}", self.current),
             })
@@ -379,6 +415,37 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_generic_constraints(&mut self) -> Result<Vec<GenericConstraint>, TypeSyntaxError> {
+        let mut constraints = Vec::new();
+        loop {
+            let lower = self.parse_type()?;
+            let relation = match self.peek() {
+                Token::Subtype => {
+                    self.advance()?;
+                    GenericConstraintRelation::Subtype
+                }
+                Token::EqEq => {
+                    self.advance()?;
+                    GenericConstraintRelation::Equivalent
+                }
+                other => {
+                    return Err(TypeSyntaxError::Expected {
+                        expected: "'<:' or '==' in generic constraint",
+                        found: format!("{other:?}"),
+                    });
+                }
+            };
+            let upper = self.parse_type()?;
+            constraints.push(GenericConstraint { relation, lower, upper });
+            if self.peek() == &Token::Comma {
+                self.advance()?;
+            } else {
+                break;
+            }
+        }
+        Ok(constraints)
+    }
+
     /// Parses a CallableType, e.g.:
     /// `() -> String`
     /// `(Symbol) -> Option<Method>`
@@ -410,11 +477,18 @@ impl<'a> Parser<'a> {
         self.expect(Token::RParen)?;
         self.expect(Token::Arrow)?;
         let return_type = self.parse_type()?;
+        let constraints = if self.peek() == &Token::Where {
+            self.advance()?;
+            self.parse_generic_constraints()?
+        } else {
+            Vec::new()
+        };
 
         Ok(CallableType {
             type_params,
             params,
             return_type,
+            constraints,
         })
     }
 
@@ -519,7 +593,26 @@ impl fmt::Display for CallableType {
             }
             write!(f, ">")?;
         }
-        write!(f, "{} -> {}", self.params, self.return_type)
+        write!(f, "{} -> {}", self.params, self.return_type)?;
+        if !self.constraints.is_empty() {
+            write!(f, " where ")?;
+            for (index, constraint) in self.constraints.iter().enumerate() {
+                if index > 0 {
+                    write!(f, ", ")?;
+                }
+                write!(
+                    f,
+                    "{} {} {}",
+                    constraint.lower,
+                    match constraint.relation {
+                        GenericConstraintRelation::Subtype => "<:",
+                        GenericConstraintRelation::Equivalent => "==",
+                    },
+                    constraint.upper
+                )?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -587,5 +680,15 @@ mod tests {
         assert_eq!(labeled.params.labeled[0].label, "foo");
         assert_eq!(labeled.params.labeled[0].ty, TypeExpr::Named("String".into()));
         assert_eq!(labeled.return_type, TypeExpr::Named("Bool".into()));
+    }
+
+    #[test]
+    fn test_parse_callable_generic_constraints() {
+        let callable = parse_callable_type("<T>(T) -> T where T <: Object, T == T").unwrap();
+        assert_eq!(callable.constraints.len(), 2);
+        assert_eq!(callable.constraints[0].relation, GenericConstraintRelation::Subtype);
+        assert_eq!(callable.constraints[0].lower, TypeExpr::Named("T".into()));
+        assert_eq!(callable.constraints[0].upper, TypeExpr::Named("Object".into()));
+        assert_eq!(callable.constraints[1].relation, GenericConstraintRelation::Equivalent);
     }
 }

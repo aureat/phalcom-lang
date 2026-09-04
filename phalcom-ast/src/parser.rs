@@ -537,6 +537,17 @@ impl<'source> Parser<'source> {
             lex.token = Token::Greater;
             self.prev_end = mid;
             true
+        } else if matches!(self.peek(), Token::GreaterEqual) {
+            // A generic setter header may close its binders immediately
+            // before `=` (`value<T>=(put next: T)`). Split maximal-munch
+            // `>=` exactly as nested `>>` is split above.
+            let lex = &mut self.tokens[self.pos];
+            let start = lex.start;
+            let mid = start + 1;
+            lex.start = mid;
+            lex.token = Token::Equal;
+            self.prev_end = mid;
+            true
         } else {
             false
         }
@@ -2950,6 +2961,12 @@ impl<'source> Parser<'source> {
         let name = self.expect_identifier(&["variant name"])?;
         let name_range = (name_start..self.prev_end).into();
 
+        let generic_parameters = if matches!(self.peek(), Token::Less) {
+            self.parse_generic_parameters(GenericBinderContext::Callable)?
+        } else {
+            Vec::new()
+        };
+
         let payload = if matches!(self.peek(), Token::LParen) {
             let p_start = self.cur_start();
             self.advance(); // '('
@@ -2978,6 +2995,14 @@ impl<'source> Parser<'source> {
         let result_annotation = if matches!(self.peek(), Token::Arrow) {
             self.advance(); // '->'
             Some(self.parse_type_annotation()?)
+        } else {
+            None
+        };
+
+        self.skip_newlines_if_followed_by(&Token::Where);
+
+        let where_clause = if matches!(self.peek(), Token::Where) {
+            Some(self.parse_where_clause()?)
         } else {
             None
         };
@@ -3017,6 +3042,8 @@ impl<'source> Parser<'source> {
             name,
             name_range,
             variant_marker_range,
+            generic_parameters,
+            where_clause,
             payload,
             result_annotation,
             body,
@@ -3040,6 +3067,11 @@ impl<'source> Parser<'source> {
         let name_start = self.cur_start();
         let name = self.parse_method_name()?;
         let name_range = (name_start..self.prev_end).into();
+        let generic_parameters = if matches!(self.peek(), Token::Less) {
+            self.parse_generic_parameters(GenericBinderContext::Callable)?
+        } else {
+            Vec::new()
+        };
         let has_equal = self.eat(&Token::Equal);
         if has_equal {
             self.expect(&Token::LParen, &["\"(\""])?;
@@ -3066,13 +3098,21 @@ impl<'source> Parser<'source> {
                 range: (start_put..self.prev_end).into(),
             };
             let return_annotation = if self.eat(&Token::Arrow) { Some(self.parse_type_annotation()?) } else { None };
+            self.skip_newlines_if_followed_by(&Token::Where);
+            let where_clause = if matches!(self.peek(), Token::Where) {
+                Some(self.parse_where_clause()?)
+            } else {
+                None
+            };
             self.skip_newlines_if_followed_by(&Token::LBrace);
             let body = self.parse_member_body()?;
             let range = (start..self.prev_end).into();
             return Ok(EnumBehaviorMember::Setter(SetterDef {
                 name,
+                generic_parameters,
                 param,
                 return_annotation,
+                where_clause,
                 body,
                 is_static,
                 attributes: pending_attrs,
@@ -3080,11 +3120,6 @@ impl<'source> Parser<'source> {
                 name_range,
             }));
         }
-        let generic_parameters = if matches!(self.peek(), Token::Less) {
-            self.parse_generic_parameters(GenericBinderContext::Callable)?
-        } else {
-            Vec::new()
-        };
         let params = if self.eat(&Token::LParen) {
             let list = self.parse_selector_params(Token::RParen)?;
             self.expect(&Token::RParen, &["\")\""])?;
@@ -3360,6 +3395,11 @@ impl<'source> Parser<'source> {
         let name_start = self.cur_start();
         let name = self.parse_method_name()?;
         let name_range = (name_start..self.prev_end).into();
+        let generic_parameters = if matches!(self.peek(), Token::Less) {
+            self.parse_generic_parameters(GenericBinderContext::Callable)?
+        } else {
+            Vec::new()
+        };
         let has_equal = self.eat(&Token::Equal);
         if has_equal {
             self.expect(&Token::LParen, &["\"(\""])?;
@@ -3386,13 +3426,21 @@ impl<'source> Parser<'source> {
                 range: (start_put..self.prev_end).into(),
             };
             let return_annotation = if self.eat(&Token::Arrow) { Some(self.parse_type_annotation()?) } else { None };
+            self.skip_newlines_if_followed_by(&Token::Where);
+            let where_clause = if matches!(self.peek(), Token::Where) {
+                Some(self.parse_where_clause()?)
+            } else {
+                None
+            };
             self.skip_newlines_if_followed_by(&Token::LBrace);
             let body = self.parse_member_body()?;
             let range = (start..self.prev_end).into();
             return Ok(ClassMember::Setter(SetterDef {
                 name,
+                generic_parameters,
                 param,
                 return_annotation,
+                where_clause,
                 body,
                 is_static,
                 attributes: Vec::new(),
@@ -3400,11 +3448,6 @@ impl<'source> Parser<'source> {
                 name_range,
             }));
         }
-        let generic_parameters = if matches!(self.peek(), Token::Less) {
-            self.parse_generic_parameters(GenericBinderContext::Callable)?
-        } else {
-            Vec::new()
-        };
         let params = if self.eat(&Token::LParen) {
             let list = self.parse_selector_params(Token::RParen)?;
             self.expect(&Token::RParen, &["\")\""])?;
@@ -3470,6 +3513,11 @@ impl<'source> Parser<'source> {
         }
         self.expect(&Token::RBracket, &["\"]\""])?;
         let name_range = (name_start..self.prev_end).into();
+        let generic_parameters = if matches!(self.peek(), Token::Less) {
+            self.parse_generic_parameters(GenericBinderContext::Callable)?
+        } else {
+            Vec::new()
+        };
         let accessor = if self.eat(&Token::Equal) {
             self.expect(&Token::LParen, &["\"(\""])?;
             let start_put = self.cur_start();
@@ -3498,13 +3546,21 @@ impl<'source> Parser<'source> {
             IndexAccessor::Get
         };
         let return_annotation = if self.eat(&Token::Arrow) { Some(self.parse_type_annotation()?) } else { None };
+        self.skip_newlines_if_followed_by(&Token::Where);
+        let where_clause = if matches!(self.peek(), Token::Where) {
+            Some(self.parse_where_clause()?)
+        } else {
+            None
+        };
         self.skip_newlines_if_followed_by(&Token::LBrace);
         let body = self.parse_method_block()?;
         let range = (start..self.prev_end).into();
         Ok(ClassMember::Index(IndexMethodDef {
             params,
+            generic_parameters,
             accessor,
             return_annotation,
+            where_clause,
             body,
             attributes: Vec::new(),
             range,

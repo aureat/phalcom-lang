@@ -39,6 +39,7 @@ fn record_argument_decomposition_solves_remainder_without_publishing_row_variabl
     let formal = store
         .record_row_type_checked(vec![RecordTypeField { name: "item".into(), ty: int }], RecordRowTail::Parameter(row_parameter))
         .unwrap();
+    session.constrain_signature_type_lacks(formal, &store).unwrap();
     let actual = store
         .record_row_type_checked(
             vec![
@@ -83,4 +84,73 @@ fn record_argument_decomposition_solves_remainder_without_publishing_row_variabl
     assert!(!store.contains_parameter_type(row_parameter));
     assert!(!matches!(store.get(formal), TypeData::Parameter(_)));
     assert!(!matches!(formal_record.tail, InferenceRecordTail::Parameter(_)));
+}
+
+#[test]
+fn return_record_prefix_contributes_signature_lacks_to_row_inference() {
+    let mut store = TypeStore::new();
+    let owner = TypeParameterOwner::Declaration(declaration("Probe"));
+    let row_parameter = store.intern_type_parameter(TypeParameterData::new(owner.clone(), 0, "R", KindId::RECORD_ROW));
+    let signature = GenericSignature::new(owner, Box::new([row_parameter]));
+    let mut session = GenericApplicationSession::new(&signature, &store);
+    let string = store.nominal(declaration("String"));
+    let formal = store
+        .record_row_type_checked(
+            vec![RecordTypeField {
+                name: "name".into(),
+                ty: string,
+            }],
+            RecordRowTail::Parameter(row_parameter),
+        )
+        .unwrap();
+    let returned = store
+        .record_row_type_checked(
+            vec![
+                RecordTypeField {
+                    name: "name".into(),
+                    ty: string,
+                },
+                RecordTypeField {
+                    name: "tag".into(),
+                    ty: string,
+                },
+            ],
+            RecordRowTail::Parameter(row_parameter),
+        )
+        .unwrap();
+    session.constrain_signature_type_lacks(formal, &store).unwrap();
+    session.constrain_signature_type_lacks(returned, &store).unwrap();
+
+    let actual = store
+        .record_row_type_checked(
+            vec![
+                RecordTypeField {
+                    name: "name".into(),
+                    ty: string,
+                },
+                RecordTypeField {
+                    name: "tag".into(),
+                    ty: string,
+                },
+            ],
+            RecordRowTail::Closed,
+        )
+        .unwrap();
+    let InferenceTerm::Record(formal_record) = session.type_term(formal, &store) else {
+        panic!("expected record inference term");
+    };
+    session
+        .constrain_known_record_argument(actual, &formal_record, &store)
+        .unwrap()
+        .expect("record argument");
+
+    let mut budget = QueryBudget::default();
+    let cancellation = CancellationToken::new();
+    let outcome = session.solve_rows(&store, &mut budget, &cancellation);
+    assert!(matches!(
+        outcome,
+        phalcom_semantic::types::row_solver::RecordRowSolveResult::Rejected(
+            phalcom_semantic::types::row_solver::RecordRowFailure::LacksViolation { field, .. }
+        ) if field.as_ref() == "tag"
+    ));
 }

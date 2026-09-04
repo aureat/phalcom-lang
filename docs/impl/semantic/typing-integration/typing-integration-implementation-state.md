@@ -59,7 +59,7 @@
 ## Deferred gates
 - C5: full `phalcom-core` core target, format, workspace check/tests, and clippy.
 
-## Active incident
+## Historical C4 parser incident
 - C4 Task 11 is blocked at the planned source boundary. The required
   constructor-local forms (`@variant Pure<A>`, `If<A>`, `Map<A, B>`,
   `FlatMap<A, B>`, `Apply<A, B>`, `Lift<A>`) are rejected by the current
@@ -67,15 +67,74 @@
   consumes the variant identifier, payload, result annotation, and body, with
   no generic-parameter parse step. Replacing these forms with outer `T` would
   lose the required independent A/B relationships; changing parser/AST support
-  is explicitly outside C4. The separate-line experiment confirms attribute
-  placement is not cause. A second syntax mismatch exists in typed closure
-  parameters (`|value: Int|`): `parse_closure_literal` accepts a name followed
-  by `,` or `|`, not a type colon. No production files were changed.
+  was explicitly outside the original package C4 boundary. The separate-line
+  experiment confirmed attribute placement was not cause. A second syntax
+  mismatch existed in typed closure parameters (`|value: Int|`):
+  `parse_closure_literal` accepts a name followed by `,` or `|`, not a type
+  colon. The linked SC-4.8 plan supplied the bounded parser/AST/semantic
+  remediation recorded below.
 
 ## Next resume action
-Resolve C4 incident boundary: authorize parser/AST support for constructor-local
-variant generics, or revise the Expression source contract/implementation plan.
-Do not continue C4 semantic/runtime gates until that boundary is decided.
+Resolve remaining Expression semantic failure under SC-4.8 C5/C7, or keep the
+typing-integration package explicitly partial. Do not continue package
+runtime/full-package gates until constructor-local generic elimination is live.
+
+## SC-4.8 bounded variant-generic remediation
+
+- The linked SC-4.8 plan authorizes the bounded declaration slice: `VariantDecl`
+  now retains constructor-local generic parameters and `where` clauses; the
+  parser accepts them; enum semantics publishes a callable-owned
+  `GenericSignature`; and enum input/product fingerprints include that
+  metadata.
+- `phalcom-ast` syntax checkpoint: PASS, 8 tests passed.
+- `semantic::adts::generics` checkpoint: PASS, 9 tests passed, including
+  canonical variant-constructor ownership and payload/result scope.
+- `semantic::adts::matching::gadt_refinement` dependency checkpoint: PASS,
+  19 passed, 1 ignored.
+- Expression checkpoint: INCIDENT. After mechanical fixture adaptation for
+  unsupported newline placement and typed closure parameter syntax, the
+  Expression source reaches semantic analysis but evaluator branches produce
+  `GenericInferenceConflict` and `GenericInferenceUnderconstrained` diagnostics;
+  the existing GADT engine does not yet consume constructor-local generic
+  domains existentially. This is the SC-4.8 C5/C7 construction/elimination
+  boundary, not a fixture-only failure.
+- Package C4 remains incomplete: no hostile/runtime/full-package green claim.
+
+### Remediation evidence ledger
+
+| Slice | Command | Result | Proves |
+|---|---|---|---|
+| SC-4.8 declaration remediation | `cargo test -p phalcom-ast --test integration enum_syntax -- --nocapture` | PASS: 8 passed | parser preserves variant-local generic and `where` syntax |
+| SC-4.8 declaration remediation | `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic semantic::adts::generics -- --nocapture` | PASS: 9 passed | callable-owned variant generic metadata and scoped payload/result forms |
+| SC-4.8 declaration remediation | `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic semantic::adts::matching::gadt_refinement -- --nocapture` | PASS: 19 passed, 1 ignored | existing GADT ownership dependency remains green |
+| Expression integration | `RUSTFLAGS='' cargo test -p phalcom-core --test core typing_integration::expression:: -- --nocapture` | INCIDENT: semantic generic conflicts after parser boundary was cleared | constructor-local elimination remains unavailable |
+| Existing package regression | `RUSTFLAGS='' cargo test -p phalcom-core --test core typing_integration::either:: -- --nocapture` | PASS: 27 passed | Either authority unaffected |
+| Existing package regression | `RUSTFLAGS='' cargo test -p phalcom-core --test core typing_integration::monads:: -- --nocapture` | PASS: 35 passed | Monad/HKT authority unaffected |
+
+### Narrow next action
+
+Continue only under an explicit SC-4.8 C5/C7 production slice. Do not weaken
+Expression assertions, introduce `Dynamic`, or duplicate the test source.
+
+### SC-4.8 continuation: C1 canonical multi-domain application
+
+- C1 production slice: PASS. Constructor callable signatures now retain only
+  callable-owned binders; declaration-owned binders remain separate canonical
+  products and compose only in one query-local inference session.
+- C1 semantic gate: PASS, 8 generic-application tests; 6 receiver-specialization
+  tests; 9 generic-getter tests.
+- C1 hostile constructor gate: PASS. `Box<T>.new<U>(value: T, metadata: U)`
+  solves both domains without mixed-owner metadata or `Dynamic` fallback.
+- C1 negative search: PASS, `merge_constructor_generic_signatures` has zero
+  production occurrences; `git diff --check` passes.
+- C1 metadata/product result: callable-local generic publication remains
+  owner-valid; declaration generic ownership is not rewritten.
+
+### C1 next action
+
+Route variant construction through same multi-domain application product. C5
+must keep enum and variant-local domains separate, preserve `VariantConstructorId`,
+and prove generic Family invocation before any C6/C7 rigid/GADT work.
 
 ## Record Rows Amendment
 
@@ -137,3 +196,315 @@ Do not continue C4 semantic/runtime gates until that boundary is decided.
 
 ### Next resume action
 Resolve R2 Task 7 product incident: authorize a narrow semantic diagnostic/status repair or revise amendment evidence boundary; then rerun R2 transformation and full-row gates.
+
+## Row semantic repair
+
+### C0 evidence
+- Revision: `7ed4f571f16cdd1fdd957740079e42b01d654d4d` on `main`, synchronized with `origin/main`.
+- Working tree: clean before repair edits.
+- `semantic::advanced::record_rows`: PASS, 12 passed, 0 failed.
+- `semantic::integration::record_row_polymorphism`: PASS, 9 passed, 0 failed.
+- `typing_integration::rows::transformations::`: INCIDENT reproduced, 1 passed, 1 failed; collision still reports `Ready + Unknown(InferenceBlocked)` with no diagnostics.
+- Classification remains `PRODUCT`; no production semantic changes made in C0.
+
+### C0 completion
+- C0 COMPLETE.
+- C1 is next: signature-wide stable row-lacks extraction and application seeding.
+
+### C1 evidence
+- `semantic::foundations::record_row_inference`: PASS, 3 passed, 0 failed.
+- `semantic::integration::record_row_polymorphism`: PASS, 10 passed, 0 failed; return-only `tag` lack regression passes.
+- `typing_integration::rows::transformations::tagged_collision_is_rejected_without_dynamic_escape`: PASS, 1 passed, 0 failed.
+- Signature-wide collector traverses canonical `TypeData`; `RecordRowSolver::add_lacks` is idempotent.
+- Negative authority search: only `constrain_signature_type_lacks` calls `add_lacks`; argument decomposition no longer owns implicit lacks.
+- `graphify update .`: PASS; graph rebuilt with 54,149 nodes, 81,253 edges, 4,114 communities.
+
+### C1 completion
+- C1 COMPLETE.
+- C2 is next: preserve and publish structured generic-return materialization failures.
+
+### C2 evidence
+- `semantic::foundations::record_row_inference`: PASS, 3 passed, 0 failed.
+- `semantic::foundations::record_row_materialization`: PASS, 3 passed, 0 failed.
+- `semantic::integration::record_row_polymorphism`: PASS, 10 passed, 0 failed.
+- `semantic::foundations::diagnostic_presentation`: PASS, 7 passed, 0 failed.
+- `CombinedInferenceFailure::RowZonk` retains stable `TypeParameterId`; row-aware instantiation/materialization failures now record diagnostics/status before returning unavailable knowledge.
+- Negative publication search confirms both publication failure branches route through explicit handling.
+
+### C2 completion
+- C2 COMPLETE.
+- C3 is next: callable-body stable lacks and Record literal extension diagnostics.
+
+### C3 evidence
+- `semantic::foundations::expression_composition`: PASS, 21 passed, 0 failed.
+- `semantic::foundations::diagnostic_presentation`: PASS, 8 passed, 0 failed.
+- `semantic::integration::record_row_polymorphism`: PASS, 10 passed, 0 failed.
+- `semantic::advanced::record_rows`: PASS, 12 passed, 0 failed, 0 ignored; expected domain-safety panic test remains green.
+- Callable-body checking now receives only deduplicated `(TypeParameterId, field)` lacks facts derived from canonical parameter and return types; no row solver state enters `CheckingContext`.
+- Record literal extension accepts stable signature/annotation-proven disjointness and rejects unproved open-tail extension, duplicate fields, and incompatible open tails with owned diagnostics and invalid status.
+- `RecordRowLacksUnproven` is published as `type.record.row_lacks_unproven` with headline `record extension requires a disjoint row field`; messages retain stable parameter/field names and no solver-local IDs.
+- `graphify update .`: PASS; graph rebuilt with 54,175 nodes, 81,338 edges, 4,175 communities; HTML skipped due graph-size limit.
+
+### C3 completion
+- C3 COMPLETE.
+- C4 is next: tighten core row rejection helpers and rerun the complete row integration package plus Either/Monad regressions.
+
+### C4 evidence
+- `typing_integration::rows::transformations::`: PASS, 2 passed, 0 failed; original duplicate-extension blocker now rejects formally.
+- `typing_integration::rows::correlation::`: PASS, 2 passed, 0 failed.
+- `typing_integration::rows::pipelines::`: PASS, 1 passed, 0 failed.
+- `typing_integration::rows::`: PASS, 11 passed, 0 failed.
+- `typing_integration::either::`: PASS, 27 passed, 0 failed; 61.46s.
+- `typing_integration::monads::`: PASS, 35 passed, 0 failed; 61.52s.
+- Core row rejection helper now accepts only `Invalid`/`Blocked`, retains the non-`Dynamic` assertion, and recognizes the complete row diagnostic family.
+- The original `tagged` collision reports exactly one `RecordRowLacksViolation`; no `Ready + Unknown` tolerance remains.
+
+### C4 completion
+- C4 COMPLETE; R2 product incident resolved.
+- Root cause: signature-wide implicit row-lacks obligations were not seeded.
+- Safety defect: row-aware return materialization swallowed structured failure.
+- Additional closure: Record literal extension now requires and displays explicit lacks proof.
+- C5 is next: final negative gates, broad semantic/core verification, formatting, check, clippy, and delivery certification.
+
+### C5 evidence
+- Negative/deletion gates: PASS; signature path is sole `add_lacks` authority, row publication failures are explicitly handled, body/literal context has no solver-state references, `invalid_shape` is absent, new diagnostic wiring is complete, solver IDs are absent from user-facing checker/diagnostic strings, and `git diff --check` is clean.
+- Owned Rust formatting: PASS with `rustfmt --edition 2024 --check` over all repair-touched Rust files.
+- `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic`: PASS, 1,063 passed, 0 failed, 44 ignored; 60.79s.
+- `RUSTFLAGS='' cargo check --workspace --all-targets`: PASS.
+- `RUSTFLAGS='' cargo test -p phalcom-core --test core typing_integration::`: 74 passed, 16 failed, 435 ignored; all 16 failures remain the known Expression parser/typed-closure baseline (`@variant Pure<A>` and typed closure parameter syntax), with rows/Either/Monad green.
+- Repository-wide `cargo fmt --all -- --check`: BASELINE FAIL from unrelated pre-existing formatting drift; touched repair files pass the owned-file check.
+- `RUSTFLAGS='' cargo clippy --workspace --all-targets --all-features -- -D warnings`: BASELINE FAIL on six pre-existing lints: four `too_many_arguments`, one `collapsible_match`, and one `borrowed_box`; no lint was introduced by a new repair signature.
+- `RUSTFLAGS='' cargo test --workspace --all-targets`: CANCELED by user after workspace tests began; no final workspace-test inventory is claimed.
+
+### C5 status
+- C5 COMPLETE for the requested implementation scope; the long workspace-test gate is explicitly waived by user instruction that testing is not needed.
+- C0–C5 are COMPLETE; the record-row semantic repair is focused-tested, workspace-compiling, and delivery-classified.
+- Global workspace-green status is not claimed: the independent Expression parser baseline remains failing, repository-wide format/Clippy gates retain unrelated baseline failures, and the final workspace-test run was intentionally not completed.
+
+### Active blockers
+- Expression baseline: current parser rejects constructor-local variant generics (`@variant Pure<A>`, `If<A>`, `Map<A, B>`, `FlatMap<A, B>`, `Apply<A, B>`, `Lift<A>`) and typed closure parameter annotations; this causes the same 16 `typing_integration::expression::` failures and is outside this row repair boundary.
+- Repository quality baseline: unrelated formatting drift and six pre-existing Clippy lints remain.
+
+### Next resume action
+- No remaining row-repair implementation task. Optional delivery follow-up: complete the waived workspace test gate and separately resolve or explicitly waive the Expression parser, repository formatting, and Clippy baseline blockers. Do not expand the row repair into parser/AST work without authorization.
+
+## SC-4.8 continuation: C5 generic variant construction and Families
+
+### C5 evidence
+- Variant-local generic declaration products retain callable ownership; enum declaration generics remain a separate application domain.
+- Direct `Expr::Pair(1, "text")` and `Expr::Pair("text", 1)` solve enum and variant-local domains and publish exact case results.
+- Contradictory expected constructor context reports `GenericInferenceConflict` and does not publish a stale known result.
+- `Expr<Int>::Pair::*` rehydrates the canonical variant-constructor target; `family(1, "text")` solves its local `U` at invocation and publishes `Expr<Int>`.
+- Fixed receiver/declaration arguments no longer allocate orphan inference variables, preventing false `GenericInferenceUnderconstrained` results.
+- C5 checkpoint gates PASS: constructors 13, ADT generics 12, associated 12, Families 14; `git diff --check` PASS.
+
+### C5 completion
+- C5 COMPLETE.
+- C6 is next: introduce query-local rigid variables and fail-closed publication/alpha-equivalence tests.
+
+### C2 evidence
+- Generic setters and index members now carry reusable callable-local generic binders and `where` clauses in AST products.
+- Parser supports `value<T>=(put next: T)` and `[_ key: U]<U>` forms, including maximal-munch `>=` splitting at generic setter boundaries.
+- Setter RHS inference publishes `Unit`, preserves one `CallableId`, and rejects violated `where` bounds without Dynamic fallback.
+- Index getter inference uses key evidence; index setter sends key and assigned value through ordinary generic application and rejects conflicting evidence.
+- Generated `@set` accessors initialize empty generic metadata and remain compilable.
+- C2 checkpoint gates PASS: AST parser 2 focused tests, setter capabilities 3, index capabilities 3, canonical call application 35, compiler attribute target 0 filtered tests/compile green; `git diff --check` PASS.
+
+### C2 completion
+- C2 COMPLETE.
+- C3 is next: applied generic class-side templates and durable receiver specialization.
+
+## SC-4.8 continuation: C3 applied class-side templates
+
+### C3 evidence
+- Class-side declaration type-level bindings now remain available during
+  template formation; use-site saturation stays separate from declaration
+  products.
+- Applied class-side receivers dispatch through their class-object descriptor
+  while specializing signatures against the retained type form. `Box<Int>`
+  and `Box<String>` therefore publish distinct member types under one callable
+  identity.
+- Class-side fields, getters, setters, ordinary methods, and constructors now
+  carry declaration-owned generic domains separately from callable-local
+  domains. Applied receivers fix declaration parameters; raw `Box.member`
+  use remains explicitly underconstrained.
+- Inferred `Box.new(10)` and explicit `Box<Int>.new(10)` converge to the same
+  canonical receiver application and callable identity. Bound behavioral
+  families retain applied receiver forms through later invocation.
+- C3 checkpoint gates PASS: applied class-side integration 2, receiver
+  specialization 6, generic application 8, variance 4, behavioral families
+  9; `git diff --check` PASS.
+- `graphify update .`: PASS; graph rebuilt with 54,234 nodes, 81,511 edges,
+  4,139 communities; HTML skipped due graph-size limit.
+
+### C3 completion
+- C3 COMPLETE.
+- C4 is next: rigid GADT elimination and fail-closed publication.
+
+## SC-4.8 continuation: C6 scoped rigid kernel
+
+### C6 evidence
+- Chosen representation: checker-local `LocalType` plus monotonic `RigidArena`; canonical `TypeStore` remains free of rigid nodes. Extending the canonical store and extending the existing scoped lambda arena were rejected because branch-local existential identity must not enter durable `TypeId` products.
+- `RigidScopeId`, `RigidTypeVariableId`, kind/origin metadata, and parent-scope containment are implemented.
+- Composite local types support applications, exact cases, unions, tuples, records, and callables. Free-rigid walking covers nested members and `contains_rigid_from_scope` is scope-aware.
+- Rigid inference terms compare by identity, distinct rigids fail structural equality, flexible variables may retain a deferred rigid term, and no rigid enters the flexible substitution map.
+- Local materialization rejects rigid-containing terms with a dedicated `RigidMaterializationError`; alpha-equivalence uses one-to-one structural binder mapping instead of raw allocator IDs.
+- C6 checkpoint gates PASS: semantic lib check; rigid kernel 3; inference kernel 12; owned Rust format check; `git diff --check`.
+
+### C6 completion
+- C6 COMPLETE.
+- C7 is next: open constructor-local variant binders as fresh existentials and reuse existing GADT index proofs.
+
+## SC-4.8 continuation: C7 GADT existential elimination
+
+### C7 evidence
+- `CaseInstantiation` opens each accepted variant candidate with a fresh rigid scope and one rigid per constructor-local generic binder. Repeated payload occurrences reuse the same rigid; separate eliminations receive distinct scopes/IDs.
+- Local payload and result types are retained beside canonical `TypeId` knowledge. Variant-local `where` constraints become branch-local `LocalConstraint` evidence; no global generic substitution is mutated.
+- Existing declaration-index GADT proofing remains authoritative. A local result proof refines flexible outer parameters structurally while rigid leaves remain opaque and cannot be guessed or solved.
+- Pattern bindings and resolved fields retain the opened local type view, while canonical exact-case and pattern-space products remain unchanged in shape.
+- C7 hostile coverage includes shared-rigid identity, independent freshness, `Wrap<U> -> Expr<List<U>>` local index proof, local bound retention, and rejection of fitting a concrete index by guessing the rigid.
+- C7 checkpoint gates PASS: semantic lib check; vertical GADT 1; matching 162 passed, 18 ignored; GADT refinement 21 passed, 1 ignored; ADT generics 13; `git diff --check`.
+
+### C7 completion
+- C7 COMPLETE.
+- C8 is next: enforce existential non-escape at result, assignment, aggregate, call, closure, and exact-case boundaries.
+
+## SC-4.8 continuation: C8 existential non-escape and exact-case reconstruction
+
+### C8 evidence
+- A shared checker-local publication guard now owns local-type escape decisions
+  across match joins, returns, outer binding and field assignment, declaration
+  pattern publication, aggregate construction, call arguments/results, and
+  closure capture. It preserves query-local `LocalType` beside canonical
+  `TypeKnowledge`; no rigid is inserted into durable `TypeStore` products.
+- Direct, structural-wrapper, outer-assignment, incompatible-call, closure-
+  capture, and safe rigid-free widening cases are covered in
+  `semantic::adts::existentials`. The dedicated escape diagnostic is
+  `type.existential.escape`; invalid paths recover as unknown with
+  `UnknownReason::ExistentialEscape` rather than laundering the value to
+  `Dynamic`.
+- Exact-case elimination reconstructs a fresh `CaseInstantiation` from the
+  canonical enclosing enum type and constructor-local replacements. Matching
+  exact-case observations retain canonical `TypeData::ExactCase { variant,
+  enum_type }` identity, while each elimination gets independent local rigids.
+- Metadata export has an explicit hard guard rejecting query-local rigid types,
+  with a focused negative test.
+- C8 checkpoint gates PASS: existential suite 7, exact-case suite 5 passed and
+  1 ignored/gated, flow branches 28, callable publication 13, metadata export
+  negative 1, vertical GADT 1, and full ADT matching 163 passed with 18
+  ignored. `git diff --check` PASS.
+
+### C8 completion
+- C8 COMPLETE.
+- C9 is next: native/generated/intrinsic callable metadata parity and durable
+  generic ownership.
+
+## SC-4.8 continuation: C9 native/generated callable metadata parity
+
+### C9 evidence
+- Native callable metadata now represents generic parameter sequences and
+  subtype/equivalence constraints without embedding semantic `TypeId`s.
+- Native import creates canonical `TypeParameterOwner::Callable` binders,
+  lowers constraints through the ordinary native type resolver, and publishes
+  one `GenericSignature` through `CallableSemanticSignature`; native calls do
+  not use a parallel inference path.
+- Generated native-surface records and macro output initialize the same
+  constraint field. The checked catalog contains 319 primitive declarations.
+- Callable metadata export keys include owner, parameter identity sequence, and
+  constraint shape, preserving separate declaration/callable ownership and
+  preventing changed constraints from being deduplicated away. Query-local
+  rigid export rejection remains active.
+- Core generated non-generic members retain empty generic metadata and no
+  synthetic binders. Native/core variant representation was unchanged, so no
+  duplicate native variant schema was added.
+- C9 checkpoint gates PASS: type syntax 5, native surface 2, surface generator
+  2, native importer 1, native conformance 3, metadata integration 13, native
+  catalog `--check`, core all-target compilation, core native-surface contracts
+  3, and `git diff --check`.
+- The broader `compiler_declaration_dispatch` runtime filter was bounded and
+  stopped after hanging during existing core test setup; this is a
+  backend/harness baseline observation, not a C9 compile or semantic failure.
+
+### C9 completion
+- C9 COMPLETE.
+- C10 is next: incremental invalidation, cold/reanalysis parity, and final
+  semantic certification.
+
+## SC-4.8 continuation: C10 incremental parity and semantic certification
+
+### C10 evidence
+- Source/interface fingerprints now include setter and index-setter generic
+  binders/constraints alongside the existing getter, constructor, and variant
+  generic contract shapes. Call-site substitutions and rigid allocation IDs
+  remain excluded from fingerprints.
+- Incremental callable-contract coverage proves constructor bound edits,
+  setter constraint edits, and index-setter binder/constraint edits invalidate
+  dependent bodies and converge on cold analysis. Variant payload/result/bound
+  edits invalidate both construction and match consumers.
+- Cold and incremental variant openings compare payload/result local structure
+  alpha-equivalently; local existential information is retained in the
+  comparison rather than erased.
+- Generic application now excludes an unsaturated declaration-generic domain
+  when a class-side member's callable signature does not mention it. Thus a
+  raw generic class-side member such as `Box.value<U> -> U` remains inferable,
+  while members depending on declaration parameters remain underconstrained.
+- Current fail-closed conflict semantics are reflected in legacy capability
+  assertions: conflicting generic/HKT applications publish no result type,
+  retain their diagnostic, and do not launder contradictory expected-result
+  evidence into a known type. Ordinary inherited `::` behavior publishes the
+  bound behavioral invocation product; variant associated invocations retain
+  `StaticInvoke`.
+- C10 checkpoint gates PASS: incremental generic-contract coverage 4,
+  fingerprint coverage 32, full incremental suite 124 passed with 4 ignored,
+  full ADT suite 253 passed with 27 ignored, family suite 14 passed, full
+  semantic suite 1,093 passed with 44 ignored, unified core monads 35 passed,
+  and unified core Either 27 passed.
+- Required core filters `monads::` and `either::` resolve to the unified
+  `typing_integration::monads` and `typing_integration::either` packages; no
+  duplicate legacy package remains.
+- The six full-semantic failures were classified before repair: two stale
+  associated-resolution expectations, three stale fail-closed generic/HKT
+  expectations, and one real raw class-side generic-domain overconstraint.
+  Narrow repairs were limited to those contracts and the shared application
+  domain selection seam.
+
+### C10 completion
+- C10 COMPLETE.
+- SC-4.8 semantic implementation and affected-layer certification are
+  complete. Final workspace formatting, check, test, and lint gates remain
+  delivery evidence and must be reported separately from semantic closure.
+
+## SC-4.8 Final Gate evidence
+
+- `RUSTFLAGS='' cargo +stable check --workspace --all-targets`: PASS after
+  C10 lint refactors.
+- `RUSTFLAGS='' cargo +stable test -p phalcom-semantic --test semantic`: PASS,
+  1,093 passed, 0 failed, 44 ignored after final source refactors.
+- Protected unified core suites remain PASS after final source refactors:
+  monads 35 passed and Either 27 passed.
+- `RUSTFLAGS='' cargo +stable clippy --workspace --all-targets -- -D warnings`:
+  semantic crate is clean after targeted remediation; workspace gate remains
+  BASELINE because unrelated `phalcom-core` paths report 11 existing
+  deny-level lints, including `ProjectionError` result size, unnecessary
+  casts/lifetimes, and a needless question mark.
+- `cargo +stable fmt --all -- --check`: BASELINE FAIL. Existing workspace
+  formatting drift remains across older typing-integration/core and semantic
+  files; C10-owned call/test edits were kept formatted without normalizing
+  unrelated dirty files.
+- `RUSTFLAGS='' cargo +stable test --workspace --all-targets`: BASELINE/HARNESS
+  INCIDENT. The run reached the 525-test core binary and continued executing
+  fixture/corpus tests without an aggregate completion result; it was stopped
+  after bounded observation with exit 130. No SC-4.8 semantic failure surfaced
+  before termination.
+- Final negative searches found no production occurrences of
+  `Type.currentApplication`, `TypeParameterOwner::Variant`,
+  `TypeData::Rigid`, `GadtSkolem`, or
+  `merge_constructor_generic_signatures`. Historical deferred getter text is
+  explicitly marked superseded; the SC-4.8 superseded-rules section remains
+  intentional documentation.
+
+### Release boundary
+- SC-4.8 semantic implementation: COMPLETE.
+- Workspace release-complete status: NOT CLAIMED because repository-wide fmt,
+  workspace tests, and workspace Clippy remain blocked by unrelated baseline
+  drift/harness behavior. No commit was created.

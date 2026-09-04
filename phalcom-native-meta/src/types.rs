@@ -63,8 +63,21 @@ pub struct TypeParameterSpec {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub enum GenericConstraintSpec {
+    Subtype {
+        lower: &'static TypeExprSpec,
+        upper: &'static TypeExprSpec,
+    },
+    Equivalent {
+        left: &'static TypeExprSpec,
+        right: &'static TypeExprSpec,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct CallableTypeSpec {
     pub type_params: &'static [TypeParameterSpec],
     pub params: &'static ParameterTupleSpec,
     pub return_type: &'static TypeExprSpec,
+    pub constraints: &'static [GenericConstraintSpec],
 }

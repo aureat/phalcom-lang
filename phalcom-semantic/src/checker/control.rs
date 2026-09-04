@@ -234,7 +234,7 @@ pub(crate) fn analyze_branch_pair(
     };
     let else_flow = ctx.flow.clone();
 
-    let typed = join_branch_results(ctx, condition_typed.causal_invalidity, &then_result, &else_result, whole_range);
+    let typed = join_branch_results(ctx, condition_typed.causal_invalidity, &then_result, &else_result, expected, whole_range);
 
     BranchPairResult { typed, then_flow, else_flow }
 }
@@ -244,6 +244,7 @@ pub(crate) fn join_branch_results(
     premise_causal: CausalInvalidity,
     then_result: &ExecutableRegionResult,
     else_result: &ExecutableRegionResult,
+    expected: &ExpectedType,
     whole_range: SourceRange,
 ) -> TypedExpression {
     let then_normal = then_result.completes_normally();
@@ -296,6 +297,50 @@ pub(crate) fn join_branch_results(
         typed.status = status;
     }
     typed.causal_invalidity = premise_causal.join(then_result.causal_invalidity).join(else_result.causal_invalidity);
+
+    let local_values = [
+        (then_result.value.as_ref(), then_normal),
+        (else_result.value.as_ref(), else_normal),
+    ];
+    let local_escape = local_values
+        .iter()
+        .filter_map(|(value, reachable)| {
+            if *reachable {
+                Some(value.and_then(|value| value.local_type.as_ref()))
+            } else {
+                None
+            }
+        })
+        .flatten()
+        .find_map(|local| {
+            if ctx.check_local_type_escape(Some(local), expected.ty(), &[], whole_range) {
+                None
+            } else {
+                Some(())
+            }
+        });
+    if local_escape.is_none() {
+        if let Some(local) = local_values
+            .iter()
+            .filter_map(|(value, reachable)| {
+                if *reachable {
+                    Some(value.and_then(|value| value.local_type.clone()))
+                } else {
+                    None
+                }
+            })
+            .flatten()
+            .next()
+        {
+            if let Some(expected_ty) = expected.ty() {
+                typed.knowledge = TypeKnowledge::assumed(expected_ty, EvidenceOrigin::ContextualDerivation);
+            } else {
+                typed.local_type = Some(local);
+            }
+        }
+    } else {
+        typed.knowledge = TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::ExistentialEscape);
+    }
 
     let mut explanation_parents = Vec::new();
     if let Some(val) = &then_result.value {

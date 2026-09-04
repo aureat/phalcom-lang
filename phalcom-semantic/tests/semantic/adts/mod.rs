@@ -1,5 +1,6 @@
 pub(crate) mod declarations;
 pub(crate) mod exact_cases;
+pub(crate) mod existentials;
 pub(crate) mod generics;
 pub(crate) mod requirements;
 pub(crate) mod variants;

@@ -269,6 +269,7 @@ pub(crate) fn join_unknown_reason(left: UnknownReason, right: UnknownReason) -> 
 
 fn unknown_reason_rank(reason: &UnknownReason) -> u8 {
     match reason {
+        UnknownReason::ExistentialEscape => 101,
         UnknownReason::InferenceCancelled => 100,
         UnknownReason::InferenceBudgetExceeded => 99,
         UnknownReason::InferenceConflict => 98,
@@ -406,6 +407,7 @@ pub enum UnknownReason {
     InferenceCancelled,
     InferenceBudgetExceeded,
     SuppressedByInvalidCause,
+    ExistentialEscape,
 }
 
 /// Whether a binding contract may supply usable current knowledge for an

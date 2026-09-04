@@ -93,7 +93,12 @@ class Probe {
     assert!(
         snapshot
             .all_diagnostics()
-            .any(|diagnostic| matches!(diagnostic.code, DiagnosticCode::ArgumentMismatch | DiagnosticCode::BindingInitializerMismatch)),
+            .any(|diagnostic| {
+                matches!(
+                    diagnostic.code,
+                    DiagnosticCode::ArgumentMismatch | DiagnosticCode::BindingInitializerMismatch | DiagnosticCode::GenericInferenceConflict
+                )
+            }),
         "okOr must relate the error argument to E; diagnostics: {:#?}",
         snapshot.diagnostics
     );

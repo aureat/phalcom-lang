@@ -116,14 +116,9 @@ class Probe {
 }
 "#,
     );
-    let string_ty = f.ty("String");
     let run = f.callable("Probe", "run", DispatchSide::Class);
     let call = f.expression(run, "Probe.identity(\"wrong\")");
-    assert_eq!(
-        call.knowledge.ty(),
-        Some(string_ty),
-        "argument-derived generic fact must survive expected-result contradiction"
-    );
+    assert_eq!(call.knowledge.ty(), None, "conflicting constraints must not publish a call result");
     assert!(
         matches!(call.status, AnalysisStatus::Invalid(_)),
         "expected-result contradiction must own call invalidity"
@@ -132,7 +127,7 @@ class Probe {
         !f.diagnostics(DiagnosticCode::BindingInitializerMismatch).is_empty() || !f.diagnostics(DiagnosticCode::GenericInferenceConflict).is_empty(),
         "conflicting constraints should produce an owning diagnostic"
     );
-    f.assert_only_error_codes(&[DiagnosticCode::BindingInitializerMismatch, DiagnosticCode::GenericInferenceConflict]);
+    f.assert_only_error_codes(&[DiagnosticCode::GenericInferenceConflict]);
 }
 
 /// LAW: assumed input evidence yields an assumed generic return.
@@ -325,7 +320,7 @@ class Probe {
     let int_ty = f.ty("Int");
     let run = f.callable("Probe", "run", DispatchSide::Class);
     f.assert_binding_established(run, "good", int_ty);
-    assert!(f.binding(run, "bad").current.ty().is_some());
+    assert!(f.binding(run, "bad").current.ty().is_none(), "conflicting call must not publish a result type");
 }
 
 /// E03: a parameter contract remains assumed when it drives generic inference.

@@ -84,6 +84,18 @@ pub fn specialize_receiver_to_owner<C: SpecializationControl>(
     control: &C,
 ) -> Result<ReceiverSpecialization, ReceiverSpecializationFailure> {
     let (receiver_owner, mut current_args) = receiver_parts(store, receiver).ok_or(ReceiverSpecializationFailure::UnsupportedReceiver)?;
+    // A declaration form used as a class-side receiver is intentionally
+    // unsaturated.  Keep that distinction at use sites, but give the
+    // owner-relative projector symbolic parameter forms so template
+    // signatures can still be specialized and later inference can saturate
+    // them.  Ordinary applied receivers already arrive with concrete args.
+    if current_args.is_empty() && matches!(store.get(receiver), TypeData::Nominal { .. }) {
+        let mut index = 0;
+        while let Some(parameter) = store.find_type_parameter_id(&super::parameter::TypeParameterOwner::Declaration(receiver_owner.clone()), index) {
+            current_args.push(store.parameter_form(parameter));
+            index += 1;
+        }
+    }
     let mut current_owner = receiver_owner.clone();
     let mut current_form = receiver;
     let mut path = Vec::new();

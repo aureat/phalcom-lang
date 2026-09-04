@@ -317,6 +317,7 @@ fn bind_name_pattern(
         binding: binding_id,
         name: name.into(),
         knowledge: knowledge.clone(),
+        local_type: None,
         source: range,
     });
     (
@@ -344,6 +345,12 @@ fn declare_pattern_binding(ctx: &mut CheckingContext<'_>, name: &str, range: Sou
                 | crate::checker::binding::BindingDeclarationResult::Redeclared(binding) => binding,
             }
         }
+    }
+}
+
+fn attach_local_type_to_bindings(bindings: &mut [PatternBindingResolution], start: usize, local_type: Option<crate::types::rigid::LocalType>) {
+    for binding in bindings.iter_mut().skip(start) {
+        binding.local_type = local_type.clone();
     }
 }
 
@@ -401,16 +408,33 @@ fn commit_shared_bindings(
             continue;
         }
 
+        let local_type = joined_local_type(&matching);
         let binding = declare_pattern_binding(ctx, &name, source, &knowledge, mode);
+        if let Some(local_type) = local_type.clone() {
+            ctx.set_local_binding_type(binding, local_type);
+        }
         output.push(PatternBindingResolution {
             binding,
             name: name.clone().into_boxed_str(),
             knowledge: knowledge.clone(),
+            local_type,
             source,
         });
         replacements.insert(name, (binding, knowledge));
     }
     replacements
+}
+
+fn joined_local_type(matching: &[&PatternBindingResolution]) -> Option<crate::types::rigid::LocalType> {
+    let mut joined = None;
+    for binding in matching {
+        match (&joined, &binding.local_type) {
+            (None, candidate) => joined = candidate.clone(),
+            (Some(left), Some(right)) if left.alpha_equivalent(right) => {}
+            (Some(_), _) => return None,
+        }
+    }
+    joined
 }
 
 fn remap_pattern_bindings(resolution: &mut PatternResolution, replacements: &BTreeMap<String, (BindingId, TypeKnowledge)>) {
@@ -490,11 +514,20 @@ fn try_resolve_contextual_singleton(
         }
 
         ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::EnumDeclaration(owner.clone()));
-        let (proof, exact_case) = match crate::checker::gadt_proof::solve_gadt_branch_proof(ctx.store, &ctx.hierarchy, &owner, &variant_info, owner_ty) {
+        let (mut proof, exact_case) = match crate::checker::gadt_proof::solve_gadt_branch_proof(ctx.store, &ctx.hierarchy, &owner, &variant_info, owner_ty) {
             crate::checker::gadt_proof::GadtProofResult::Reachable { proof, exact_case } => (proof, exact_case),
             crate::checker::gadt_proof::GadtProofResult::Refuted => continue,
         };
-        matches.push((owner, variant_id.clone(), variant_info, exact_case, proof));
+        let case_instantiation = crate::types::CaseInstantiation::open(ctx.store, &mut ctx.rigids, &variant_info, None);
+        if let Some((local_proof_bindings, local_proof_equalities)) =
+            crate::checker::gadt_proof::solve_local_case_proof(ctx.store, &proof, owner_ty, &case_instantiation)
+        {
+            proof.local_bindings = local_proof_bindings;
+            proof.local_equalities = local_proof_equalities;
+        } else {
+            continue;
+        }
+        matches.push((owner, variant_id.clone(), variant_info, exact_case, proof, case_instantiation));
     }
 
     if matches.is_empty() {
@@ -505,7 +538,7 @@ fn try_resolve_contextual_singleton(
     let mut owner_candidates = Vec::new();
     let mut candidates = Vec::with_capacity(matches.len());
     let mut spaces = Vec::with_capacity(matches.len());
-    for (owner, variant_id, _variant_info, exact_case, proof) in matches.iter() {
+    for (owner, variant_id, _variant_info, exact_case, proof, case_instantiation) in matches.iter() {
         if !owner_candidates.contains(owner) {
             owner_candidates.push(owner.clone());
         }
@@ -514,6 +547,7 @@ fn try_resolve_contextual_singleton(
             exact_case: *exact_case,
             fields: Box::new([]),
             proof: proof.clone(),
+            case_instantiation: Some(case_instantiation.clone()),
         });
         spaces.push(PatternSpace::Variant(VariantSpace {
             variant: variant_id.clone(),
@@ -536,7 +570,7 @@ fn try_resolve_contextual_singleton(
     let family = if owner_candidates.len() == 1 {
         matches
             .first()
-            .and_then(|(_, _, variant_info, _, _)| variant_info.family.clone())
+            .and_then(|(_, _, variant_info, _, _, _)| variant_info.family.clone())
             .or_else(|| Some(VariantFamilyId::new(owner_candidates[0].clone(), name)))
     } else {
         None
@@ -755,10 +789,19 @@ fn resolve_variant_pattern(
             }
             matched_any_variant = true;
 
-            let (proof, exact_case) = match crate::checker::gadt_proof::solve_gadt_branch_proof(ctx.store, &ctx.hierarchy, &owner_decl, v_info, expected_ty) {
+            let (mut proof, exact_case) = match crate::checker::gadt_proof::solve_gadt_branch_proof(ctx.store, &ctx.hierarchy, &owner_decl, v_info, expected_ty)
+            {
                 crate::checker::gadt_proof::GadtProofResult::Reachable { proof, exact_case } => (proof, exact_case),
                 crate::checker::gadt_proof::GadtProofResult::Refuted => continue,
             };
+            let case_instantiation = crate::types::CaseInstantiation::open(ctx.store, &mut ctx.rigids, v_info, None);
+            let Some((local_proof_bindings, local_proof_equalities)) =
+                crate::checker::gadt_proof::solve_local_case_proof(ctx.store, &proof, expected_ty, &case_instantiation)
+            else {
+                continue;
+            };
+            proof.local_bindings = local_proof_bindings;
+            proof.local_equalities = local_proof_equalities;
 
             let substitution = crate::types::substitution::substitution_for_applied(ctx.declarations, ctx.store, expected_ty);
             let mut resolved_fields = Vec::new();
@@ -795,6 +838,7 @@ fn resolve_variant_pattern(
 
                         let field_expected_ty = field_type.ty().unwrap_or(expected_ty);
                         let field_expected_space = PatternSpace::Opaque(field_expected_ty);
+                        let binding_start = local_bindings.len();
                         let (child, field_space) = resolve_pattern_with_mode(
                             ctx,
                             &argument.pattern,
@@ -803,9 +847,16 @@ fn resolve_variant_pattern(
                             &mut local_bindings,
                             BindingMode::Detached,
                         );
+                        let local_type = v_info
+                            .fields
+                            .iter()
+                            .position(|field| field.id == field_id)
+                            .and_then(|index| case_instantiation.payload_type(index).cloned());
+                        attach_local_type_to_bindings(&mut local_bindings, binding_start, local_type.clone());
                         resolved_fields.push(ResolvedFieldPattern {
                             field: field_id,
                             field_type,
+                            local_type,
                             child: Box::new(child),
                         });
                         field_spaces.push(field_space);
@@ -841,6 +892,7 @@ fn resolve_variant_pattern(
                         };
                         let field_expected_ty = field_type.ty().unwrap_or(expected_ty);
                         let field_expected_space = PatternSpace::Opaque(field_expected_ty);
+                        let binding_start = local_bindings.len();
                         let (child, field_space) = resolve_pattern_with_mode(
                             ctx,
                             &argument.pattern,
@@ -849,9 +901,16 @@ fn resolve_variant_pattern(
                             &mut local_bindings,
                             BindingMode::Detached,
                         );
+                        let local_type = v_info
+                            .fields
+                            .iter()
+                            .position(|field| field.id == field_id)
+                            .and_then(|index| case_instantiation.payload_type(index).cloned());
+                        attach_local_type_to_bindings(&mut local_bindings, binding_start, local_type.clone());
                         resolved_fields.push(ResolvedFieldPattern {
                             field: field_id,
                             field_type,
+                            local_type,
                             child: Box::new(child),
                         });
                         if field_index < field_spaces.len() {
@@ -884,6 +943,7 @@ fn resolve_variant_pattern(
                         };
                         let field_expected_ty = field_type.ty().unwrap_or(expected_ty);
                         let field_expected_space = PatternSpace::Opaque(field_expected_ty);
+                        let binding_start = local_bindings.len();
                         let (child, field_space) = resolve_pattern_with_mode(
                             ctx,
                             &argument.pattern,
@@ -892,9 +952,16 @@ fn resolve_variant_pattern(
                             &mut local_bindings,
                             BindingMode::Detached,
                         );
+                        let local_type = v_info
+                            .fields
+                            .iter()
+                            .position(|field| field.id == field_id)
+                            .and_then(|index| case_instantiation.payload_type(index).cloned());
+                        attach_local_type_to_bindings(&mut local_bindings, binding_start, local_type.clone());
                         resolved_fields.push(ResolvedFieldPattern {
                             field: field_id,
                             field_type,
+                            local_type,
                             child: Box::new(child),
                         });
                         if field_index < field_spaces.len() {
@@ -916,6 +983,7 @@ fn resolve_variant_pattern(
                 exact_case,
                 fields: resolved_fields.into_boxed_slice(),
                 proof: proof.clone(),
+                case_instantiation: Some(case_instantiation),
             });
             candidate_spaces.push(PatternSpace::Variant(VariantSpace {
                 variant: variant_id.clone(),

@@ -20,7 +20,8 @@ use crate::types::evidence::{ContractAssumptionEligibility, EvidenceOrigin, Type
 use crate::types::id::TypeId;
 use crate::types::native::register_native_surfaces;
 use crate::types::outcome::{DynamicBoundaryObligation, RelationOutcome};
-use crate::types::relation::{TypeHierarchy, check_assignability_bounded, check_knowledge_against_type_bounded};
+use crate::types::relation::{TypeHierarchy, check_assignability_bounded, check_knowledge_against_type_bounded, is_subtype};
+use crate::types::rigid::{LocalConstraint, LocalType, RigidArena};
 use crate::types::specialization::SpecializationControl;
 use crate::types::specialization::{ReceiverSpecialization, ReceiverSpecializationFailure, specialize_receiver_to_owner};
 use crate::types::store::{TypeData, TypeStore};
@@ -28,7 +29,7 @@ use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
 use phalcom_native_surface::NATIVE_SURFACES;
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 
 /// Storage abstraction for dispatch resolver avoiding per-callable cloning.
@@ -305,11 +306,19 @@ pub struct LocalBindingInfo {
     pub denotation: Option<SemanticDenotation>,
 }
 
+pub(crate) type CallCapture = (
+    crate::checker::causal::CausalInvalidity,
+    Vec<crate::identity::ExplanationId>,
+    Option<AnalysisStatus>,
+    Vec<(TypeId, LocalType)>,
+);
+
 #[derive(Clone, Default)]
 struct CallDependencyFrame {
     causal_invalidity: crate::checker::causal::CausalInvalidity,
     explanations: Vec<crate::identity::ExplanationId>,
     status: Option<AnalysisStatus>,
+    local_types: Vec<(TypeId, LocalType)>,
 }
 
 /// Declared callable return contract. This is checking context, not value
@@ -350,6 +359,7 @@ pub struct CheckingContext<'a> {
     pub internal_failure_policy: InternalFailurePolicy,
     pub control: CheckerControl,
     pub expected_return: Option<CallableReturnContract>,
+    stable_record_row_lacks: HashSet<(crate::types::id::TypeParameterId, Box<str>)>,
     pub scopes: Vec<HashMap<String, LocalBindingInfo>>,
     pub flow: FlowState,
     pub(crate) normal_return_exits: Vec<crate::checker::analysis::NormalReturnFact>,
@@ -380,6 +390,16 @@ pub struct CheckingContext<'a> {
     pub associated_table: Option<&'a crate::associated::AssociatedFamilyTable>,
     pub dispatch: DispatchAccess<'a>,
     pub core_ids: CoreDeclarationIds,
+    pub(crate) rigids: RigidArena,
+    /// Active branch-local constraints used only while checking one branch.
+    pub(crate) active_local_constraints: Vec<LocalConstraint>,
+    /// Query-local type views for live bindings. Durable flow state remains
+    /// canonical and cannot contain rigid variables.
+    local_binding_types: BTreeMap<BindingId, LocalType>,
+    /// Local types read by the currently analyzed closure from an enclosing
+    /// scope. Closure environments are not existential packages, so these
+    /// values must be rejected before the closure is published.
+    closure_capture_frames: Vec<(usize, Vec<LocalType>)>,
     pub diagnostics: Vec<SemanticDiagnostic>,
     pub analysis_incidents: BTreeMap<AnalysisIncidentId, InternalSemanticIncident>,
     pub terminal_status: Option<AnalysisStatus>,
@@ -436,6 +456,7 @@ impl<'a> CheckingContext<'a> {
             internal_failure_policy: InternalFailurePolicy::Contain,
             control: CheckerControl::default(),
             expected_return: None,
+            stable_record_row_lacks: HashSet::new(),
             scopes: vec![HashMap::new()],
             flow: FlowState::new(),
             normal_return_exits: Vec::new(),
@@ -465,6 +486,10 @@ impl<'a> CheckingContext<'a> {
             associated_table: None,
             dispatch: DispatchAccess::Owned(dispatch),
             core_ids: CoreDeclarationIds::default(),
+            rigids: RigidArena::new(),
+            active_local_constraints: Vec::new(),
+            local_binding_types: BTreeMap::new(),
+            closure_capture_frames: Vec::new(),
 
             diagnostics: Vec::new(),
             analysis_incidents: BTreeMap::new(),
@@ -509,6 +534,7 @@ impl<'a> CheckingContext<'a> {
             internal_failure_policy: InternalFailurePolicy::Contain,
             control,
             expected_return: None,
+            stable_record_row_lacks: HashSet::new(),
             scopes: vec![HashMap::new()],
             flow: FlowState::new(),
             normal_return_exits: Vec::new(),
@@ -538,6 +564,10 @@ impl<'a> CheckingContext<'a> {
             associated_table: None,
             dispatch: DispatchAccess::Borrowed(dispatch),
             core_ids: CoreDeclarationIds::default(),
+            rigids: RigidArena::new(),
+            active_local_constraints: Vec::new(),
+            local_binding_types: BTreeMap::new(),
+            closure_capture_frames: Vec::new(),
             diagnostics: Vec::new(),
             analysis_incidents: BTreeMap::new(),
             terminal_status: None,
@@ -561,6 +591,7 @@ impl<'a> CheckingContext<'a> {
             internal_failure_policy: self.internal_failure_policy,
             control: self.control.clone(),
             expected_return: self.expected_return.clone(),
+            stable_record_row_lacks: self.stable_record_row_lacks.clone(),
             scopes: self.scopes.clone(),
             flow: self.flow.clone(),
             normal_return_exits: self.normal_return_exits.clone(),
@@ -590,6 +621,10 @@ impl<'a> CheckingContext<'a> {
             associated_table: self.associated_table,
             dispatch: DispatchAccess::Borrowed(self.dispatch.get()),
             core_ids: self.core_ids.clone(),
+            rigids: self.rigids.clone(),
+            active_local_constraints: self.active_local_constraints.clone(),
+            local_binding_types: self.local_binding_types.clone(),
+            closure_capture_frames: self.closure_capture_frames.clone(),
 
             diagnostics: Vec::new(),
 
@@ -621,6 +656,7 @@ impl<'a> CheckingContext<'a> {
         probe.current_side = self.current_side;
         probe.current_callable = self.current_callable.clone();
         probe.expected_return = self.expected_return.clone();
+        probe.stable_record_row_lacks = self.stable_record_row_lacks.clone();
         probe.scopes = self.scopes.clone();
         probe.flow = entry;
         probe.body_id = self.body_id;
@@ -637,9 +673,14 @@ impl<'a> CheckingContext<'a> {
         probe.next_inference_context_id = self.next_inference_context_id;
         probe.inference_frames = self.inference_frames.clone();
         probe.symbolic_inference_results = self.symbolic_inference_results.clone();
+        probe.rigids = self.rigids.clone();
+        probe.active_local_constraints = self.active_local_constraints.clone();
+        probe.local_binding_types = self.local_binding_types.clone();
+        probe.closure_capture_frames = self.closure_capture_frames.clone();
 
         let value = run(&mut probe);
         let flow = probe.flow;
+        self.rigids = probe.rigids;
 
         FlowProbeResult { value, flow }
     }
@@ -836,6 +877,18 @@ impl<'a> CheckingContext<'a> {
         self.current_expression_id().and_then(|id| self.resolved_callables.get(&id).cloned())
     }
 
+    pub(crate) fn seed_stable_record_row_lacks(&mut self, facts: impl IntoIterator<Item = crate::checker::row_inference::StableRecordRowLack>) {
+        for fact in facts {
+            self.stable_record_row_lacks.insert((fact.parameter, fact.field));
+        }
+    }
+
+    pub(crate) fn stable_record_row_lacks(&self, parameter: crate::types::id::TypeParameterId, field: &str) -> bool {
+        self.stable_record_row_lacks
+            .iter()
+            .any(|(candidate, name)| *candidate == parameter && name.as_ref() == field)
+    }
+
     pub(crate) fn owning_cause_for_current_expression(&self) -> Option<DiagnosticCauseId> {
         self.current_expression_id().and_then(|id| self.expression_owned_causes.get(&id).copied())
     }
@@ -867,6 +920,14 @@ impl<'a> CheckingContext<'a> {
             frame.status = Some(status);
         } else {
             self.record_terminal_status(status);
+        }
+    }
+
+    pub(crate) fn record_call_local_type(&mut self, ty: TypeId, local_type: LocalType) {
+        if let Some(frame) = self.call_dependency_frames.last_mut() {
+            if !frame.local_types.iter().any(|(existing, local)| *existing == ty && *local == local_type) {
+                frame.local_types.push((ty, local_type));
+            }
         }
     }
 
@@ -969,15 +1030,9 @@ impl<'a> CheckingContext<'a> {
         self.flow = FlowState::poisoned(incident);
     }
 
-    pub(crate) fn end_call_causal_capture(
-        &mut self,
-    ) -> (
-        crate::checker::causal::CausalInvalidity,
-        Vec<crate::identity::ExplanationId>,
-        Option<AnalysisStatus>,
-    ) {
+    pub(crate) fn end_call_causal_capture(&mut self) -> CallCapture {
         let frame = self.call_dependency_frames.pop().unwrap_or_default();
-        (frame.causal_invalidity, frame.explanations, frame.status)
+        (frame.causal_invalidity, frame.explanations, frame.status, frame.local_types)
     }
 
     pub(crate) fn explanation_for_expression(&self, id: ExpressionId) -> Option<crate::identity::ExplanationId> {
@@ -1516,6 +1571,86 @@ impl<'a> CheckingContext<'a> {
         None
     }
 
+    pub(crate) fn binding_is_in_current_scope(&self, binding: BindingId) -> bool {
+        self.scopes
+            .last()
+            .is_some_and(|scope| scope.values().any(|info| info.id == binding))
+    }
+
+    pub(crate) fn local_binding_type(&self, binding: BindingId) -> Option<&LocalType> {
+        self.local_binding_types.get(&binding)
+    }
+
+    pub(crate) fn set_local_binding_type(&mut self, binding: BindingId, local_type: LocalType) {
+        self.local_binding_types.insert(binding, local_type);
+    }
+
+    pub(crate) fn begin_closure_capture(&mut self) {
+        self.closure_capture_frames.push((self.scopes.len(), Vec::new()));
+    }
+
+    pub(crate) fn record_local_capture(&mut self, binding: BindingId, local_type: LocalType) {
+        let Some(boundary) = self.closure_capture_frames.last().map(|(boundary, _)| *boundary) else {
+            return;
+        };
+        let is_outer_binding = self.scopes.iter().take(boundary).any(|scope| scope.values().any(|info| info.id == binding));
+        if is_outer_binding {
+            if let Some((_, captured)) = self.closure_capture_frames.last_mut() {
+                if !captured.contains(&local_type) {
+                    captured.push(local_type);
+                }
+            }
+        }
+    }
+
+    pub(crate) fn end_closure_capture(&mut self) -> Vec<LocalType> {
+        self.closure_capture_frames.pop().map(|(_, captured)| captured).unwrap_or_default()
+    }
+
+    /// Checks whether a query-local type may cross the current scope boundary.
+    /// Canonical flow and metadata products never receive the local type; a
+    /// successful check means the caller may publish its rigid-free contract
+    /// view instead.
+    pub(crate) fn check_local_type_escape(
+        &mut self,
+        local_type: Option<&LocalType>,
+        expected: Option<TypeId>,
+        additional_constraints: &[LocalConstraint],
+        range: SourceRange,
+    ) -> bool {
+        let Some(local_type) = local_type else {
+            return true;
+        };
+        if local_type.free_rigids().is_empty() {
+            return true;
+        }
+
+        let mut constraints = self.active_local_constraints.clone();
+        constraints.extend_from_slice(additional_constraints);
+        if let Some(expected) = expected {
+            if local_type_is_soundly_widenable(self, local_type, expected, &constraints) {
+                return true;
+            }
+        }
+
+        let rigids = local_type
+            .free_rigids()
+            .into_iter()
+            .map(|rigid| format!("κ{}", rigid.0))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let outward = expected
+            .map(|ty| self.store.format_type(ty))
+            .unwrap_or_else(|| "inferred result".to_string());
+        self.emit_diagnostic(SemanticDiagnostic::error_in(
+            self.current_module.clone(),
+            crate::diagnostic::DiagnosticCode::ExistentialEscape,
+            format!("branch-local type {rigids} escapes into {outward}"),
+            range,
+        ));
+        false
+    }
+
     pub fn lookup_local(&self, name: &str) -> Option<ValueSemanticFact> {
         let info = self.lookup_binding_info(name)?;
         let state = self.flow.get_binding(info.id)?;
@@ -1672,6 +1807,13 @@ impl<'a> CheckingContext<'a> {
         crate::types::substitution::specialize_self_type(self.store, self.declarations, receiver, ty)
     }
 
+    /// Materializes one declaration-owned type template under an actual
+    /// receiver, including an applied class-side type form.
+    pub(crate) fn specialize_type_to_receiver(&mut self, receiver: TypeId, owner: &DeclarationId, ty: TypeId) -> Option<TypeId> {
+        let specialization = specialize_receiver_to_owner(self.store, &self.hierarchy, receiver, owner, &self.control).ok()?;
+        Some(crate::types::environment::TypeView::new(ty, specialization.environment).materialize(self.store))
+    }
+
     pub(crate) fn dispatch_owner_for_lookup(&self, receiver: TypeId, lookup: crate::dispatch::DispatchLookup) -> Option<(DeclarationId, DispatchSide)> {
         match lookup {
             crate::dispatch::DispatchLookup::Super { defining_class, side } => {
@@ -1760,11 +1902,32 @@ impl<'a> CheckingContext<'a> {
     }
 
     pub(crate) fn resolve_dispatch_target(&mut self, receiver: TypeId, selector: &Selector, lookup: crate::dispatch::DispatchLookup) -> ResolvedDispatchResult {
-        let Some((decl, side)) = self.dispatch_owner_for_lookup(receiver, lookup) else {
+        self.resolve_dispatch_target_with_specialization(receiver, None, selector, lookup)
+    }
+
+    /// Resolves dispatch against `dispatch_receiver` while optionally
+    /// specializing the selected signature against a distinct proper type
+    /// form.  Class-object values carry dispatch identity, whereas an applied
+    /// class type form carries declaration arguments needed by class-side
+    /// templates.  Keeping those inputs separate preserves both facts.
+    pub(crate) fn resolve_dispatch_target_with_specialization(
+        &mut self,
+        dispatch_receiver: TypeId,
+        specialization_receiver: Option<TypeId>,
+        selector: &Selector,
+        lookup: crate::dispatch::DispatchLookup,
+    ) -> ResolvedDispatchResult {
+        let Some((decl, side)) = self.dispatch_owner_for_lookup(dispatch_receiver, lookup.clone()) else {
             return ResolvedDispatchResult::Missing { visited_owners: Box::new([]) };
         };
 
         let result = self.dispatch.get().resolve_dispatch_with_trace(&self.hierarchy, &decl, side, selector);
+        // A raw class type form carries declaration parameters only as a
+        // template. Keep class-object `Self` formation for that case; applied
+        // forms carry the actual receiver arguments used for specialization.
+        let specialization_receiver = specialization_receiver
+            .filter(|receiver| matches!(self.store.get(*receiver), TypeData::Applied { .. } | TypeData::ExactCase { .. }))
+            .unwrap_or(dispatch_receiver);
         match result {
             ResolvedDispatchResult::Found(mut resolved) => {
                 for owner in resolved.visited_owners.iter() {
@@ -1774,11 +1937,11 @@ impl<'a> CheckingContext<'a> {
                 self.record_consumed_callable_signature(&resolved.callable, &resolved.signature);
                 let unspecialized_return = resolved.signature.return_type.clone();
                 let declaring_owner = resolved.callable.declaration_owner().clone();
-                let Ok((signature, specialization)) = self.specialize_dispatch_signature(receiver, &declaring_owner, resolved.signature) else {
+                let Ok((signature, specialization)) = self.specialize_dispatch_signature(specialization_receiver, &declaring_owner, resolved.signature) else {
                     return ResolvedDispatchResult::Dynamic;
                 };
                 resolved.specialization = Some(crate::dispatch::DispatchSignatureSpecialization {
-                    receiver,
+                    receiver: specialization_receiver,
                     declaring_owner,
                     environment: specialization.environment,
                     path: specialization.path,
@@ -1799,11 +1962,13 @@ impl<'a> CheckingContext<'a> {
                     self.record_consumed_callable_signature(&resolved.callable, &resolved.signature);
                     let unspecialized_return = resolved.signature.return_type.clone();
                     let declaring_owner = resolved.callable.declaration_owner().clone();
-                    let Ok((signature, specialization)) = self.specialize_dispatch_signature(receiver, &declaring_owner, resolved.signature.clone()) else {
+                    let Ok((signature, specialization)) =
+                        self.specialize_dispatch_signature(specialization_receiver, &declaring_owner, resolved.signature.clone())
+                    else {
                         return ResolvedDispatchResult::Dynamic;
                     };
                     resolved.specialization = Some(crate::dispatch::DispatchSignatureSpecialization {
-                        receiver,
+                        receiver: specialization_receiver,
                         declaring_owner,
                         environment: specialization.environment,
                         path: specialization.path,
@@ -2201,6 +2366,47 @@ pub(crate) fn ensure_core_object_type_tests(store: &mut TypeStore, declarations:
             dispatch.register_type(object_form, object.clone());
         }
         dispatch.register_surface(object, surface);
+    }
+}
+
+fn local_type_is_soundly_widenable(
+    ctx: &mut CheckingContext<'_>,
+    local_type: &LocalType,
+    expected: TypeId,
+    constraints: &[LocalConstraint],
+) -> bool {
+    if let Some(upper) = constraints.iter().find_map(|constraint| match constraint {
+        LocalConstraint::Subtype {
+            lower,
+            upper: LocalType::Canonical(upper),
+        } if lower == local_type => Some(*upper),
+        _ => None,
+    }) {
+        return upper == expected || is_subtype(ctx.store, &ctx.hierarchy, upper, expected);
+    }
+
+    match local_type {
+        LocalType::Canonical(ty) => is_subtype(ctx.store, &ctx.hierarchy, *ty, expected),
+        LocalType::Applied { origin, .. } => match origin.as_ref() {
+            LocalType::Canonical(origin) => is_subtype(ctx.store, &ctx.hierarchy, *origin, expected),
+            _ => false,
+        },
+        LocalType::Union(members) => members
+            .iter()
+            .all(|member| local_type_is_soundly_widenable(ctx, member, expected, constraints)),
+        LocalType::Tuple(elements) => {
+            let LocalType::Tuple(expected_elements) = LocalType::from_canonical(ctx.store, expected, &HashMap::new()) else {
+                return false;
+            };
+            elements.len() == expected_elements.len()
+                && elements.iter().zip(expected_elements.iter()).all(|(left, right)| {
+                    let LocalType::Canonical(expected) = &right.ty else {
+                        return false;
+                    };
+                    local_type_is_soundly_widenable(ctx, &left.ty, *expected, constraints)
+                })
+        }
+        _ => false,
     }
 }
 

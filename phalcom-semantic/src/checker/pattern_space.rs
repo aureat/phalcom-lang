@@ -490,8 +490,8 @@ fn canonical_list_element(store: &TypeStore, ty: TypeId) -> Option<TypeId> {
     (declaration == crate::core_surface::universe_declaration(UniverseKey::List) && arguments.len() == 1).then(|| arguments[0])
 }
 
-fn opaque_tail(space: Option<&Box<PatternSpace>>) -> bool {
-    matches!(space, Some(rest) if matches!(rest.as_ref(), PatternSpace::Opaque(_)))
+fn opaque_tail(space: Option<&PatternSpace>) -> bool {
+    matches!(space, Some(PatternSpace::Opaque(_)))
 }
 
 fn intersect_list_spaces(left: &ListSpace, right: &ListSpace, store: &mut TypeStore, hier: &dyn TypeHierarchy) -> PatternSpace {
@@ -530,7 +530,7 @@ fn intersect_list_spaces(left: &ListSpace, right: &ListSpace, store: &mut TypeSt
             }
             prefix.push(field);
         }
-        if exact.prefix.len() == at_least.prefix.len() && opaque_tail(at_least.rest.as_ref()) {
+        if exact.prefix.len() == at_least.prefix.len() && opaque_tail(at_least.rest.as_deref()) {
             prefix.extend(exact.prefix[at_least.prefix.len()..].iter().cloned());
             return PatternSpace::List(ListSpace {
                 prefix: prefix.into_boxed_slice(),
@@ -595,7 +595,7 @@ fn subtract_opaque_list(ty: TypeId, list: &ListSpace, store: &mut TypeStore) -> 
         return PatternSpace::Opaque(ty);
     };
 
-    if list.rest.is_some() && opaque_tail(list.rest.as_ref()) {
+    if list.rest.is_some() && opaque_tail(list.rest.as_deref()) {
         // A wildcard tail pattern `[p1, ..., pn, *rest]` covers every list
         // whose length is at least n. The finite residual consists of shorter
         // exact lists, which is representable for the current partition form.
@@ -629,7 +629,7 @@ fn subtract_list_spaces(left: &ListSpace, right: &ListSpace, store: &mut TypeSto
         if left.prefix.len() < right.prefix.len() {
             return PatternSpace::List(left.clone());
         }
-        if opaque_tail(right.rest.as_ref()) {
+        if opaque_tail(right.rest.as_deref()) {
             let covered = left
                 .prefix
                 .iter()
@@ -660,7 +660,7 @@ fn subtract_list_spaces(left: &ListSpace, right: &ListSpace, store: &mut TypeSto
         return if covered { PatternSpace::Empty } else { PatternSpace::List(left.clone()) };
     }
 
-    if left.prefix.len() == right.prefix.len() && opaque_tail(right.rest.as_ref()) {
+    if left.prefix.len() == right.prefix.len() && opaque_tail(right.rest.as_deref()) {
         let covered = left
             .prefix
             .iter()

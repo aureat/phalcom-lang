@@ -50,7 +50,7 @@ class ExpressionSemanticProbe {
 
     @class
     applyEvaluation(_ monad: StringEitherMonad) {
-        let function: Expression<<X> =>> Either<String, X>, (Int) -> Bool> = Expression::Pure(|value: Int| {
+        let function: Expression<<X> =>> Either<String, X>, (Int) -> Bool> = Expression::Pure(|value| {
             value > 0
         })
         let argument: Expression<<X> =>> Either<String, X>, Int> = Expression::IntLiteral(41)

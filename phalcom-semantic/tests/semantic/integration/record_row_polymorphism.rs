@@ -2,6 +2,7 @@ use crate::semantic::support::Fixture;
 use phalcom_semantic::checker::analysis::AnalysisStatus;
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::DispatchSide;
+use phalcom_semantic::types::evidence::TypeKnowledge;
 use phalcom_semantic::types::row::RecordRowTail;
 use phalcom_semantic::types::store::TypeData;
 
@@ -220,4 +221,45 @@ class Probe {
     assert!(!diagnostic.message.contains("RecordRowVarId"));
     assert!(!diagnostic.message.contains("InferenceVar"));
     assert_eq!(fixture.diagnostics(DiagnosticCode::RecordRowInferenceConflict).len(), 1);
+}
+
+#[test]
+fn return_record_prefix_contributes_lacks_constraint_to_row_inference() {
+    let fixture = Fixture::new(
+        r#"
+class Probe {
+  @class
+  tagged<R: RecordRow>(
+      _ value: #{ name: String, | R }
+  ) -> #{ name: String, tag: String, | R } {
+      #{ **value, tag: "entity" }
+  }
+
+  @class
+  run() {
+      let result = Probe.tagged(#{ name: "Phalcom", tag: "existing" })
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+    let call = fixture.expression(run, "Probe.tagged(#{ name: \"Phalcom\", tag: \"existing\" })");
+
+    assert!(call.knowledge.ty().is_none(), "rejected row call must not publish a type: {call:#?}");
+    assert!(
+        matches!(call.knowledge, TypeKnowledge::Unknown(_)),
+        "rejected row call must not become Dynamic: {call:#?}"
+    );
+    assert!(
+        matches!(call.status, AnalysisStatus::Invalid(_)),
+        "return-only row lack must invalidate call: {call:#?}"
+    );
+    fixture.assert_diagnostic(DiagnosticCode::RecordRowLacksViolation, 1);
+    let diagnostic = fixture
+        .diagnostics(DiagnosticCode::RecordRowLacksViolation)
+        .into_iter()
+        .next()
+        .expect("row lacks diagnostic");
+    assert!(!diagnostic.message.contains("RecordRowVarId"));
+    assert!(!diagnostic.message.contains("InferVarId"));
 }

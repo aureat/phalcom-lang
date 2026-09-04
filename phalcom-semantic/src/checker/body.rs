@@ -146,6 +146,14 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
 
     if let Some((signature_id, signature)) = declared_signature {
         ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::CallableSignature(signature_id.clone()));
+        for parameter in signature.parameters.iter() {
+            if let Some(ty) = parameter.declared_type.canonical_type() {
+                ctx.seed_stable_record_row_lacks(crate::checker::row_inference::collect_stable_record_row_lacks(ctx.store, ty));
+            }
+        }
+        if let Some(ty) = signature.declared_return.canonical_type() {
+            ctx.seed_stable_record_row_lacks(crate::checker::row_inference::collect_stable_record_row_lacks(ctx.store, ty));
+        }
         ctx.push_scope();
         for parameter in &signature.parameters {
             ctx.bind_canonical_callable_parameter(parameter, body_range);

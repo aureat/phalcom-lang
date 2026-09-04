@@ -10,7 +10,7 @@ use syn::{Error, Expr, Ident, ItemFn, LitStr, Result, Token, parse_macro_input};
 use phalcom_common::selector::{Selector, SelectorKind, SelectorSlot};
 use phalcom_native_decl::{docs_from_attributes, parse_primitive_attribute};
 use phalcom_native_meta::UniverseKey;
-use phalcom_type_syntax::{CallableType, ParameterTuple, TypeExpr, parse_callable_type, parse_type_expr};
+use phalcom_type_syntax::{CallableType, GenericConstraintRelation, ParameterTuple, TypeExpr, parse_callable_type, parse_type_expr};
 
 struct PrimitiveAttrArgs {
     _owner: UniverseKey,
@@ -493,6 +493,7 @@ fn expand_primitive(args: PrimitiveAttrArgs, item_fn: &ItemFn) -> Result<TokenSt
             type_params: Vec::new(),
             params: default_params.clone(),
             return_type: default_returns.clone(),
+            constraints: Vec::new(),
         };
         (
             emit_callable_spec(&default_callable)?,
@@ -779,10 +780,27 @@ fn emit_callable_spec(callable: &CallableType) -> Result<TokenStream2> {
 
     let params_spec = emit_params_spec(&callable.params, &binders)?;
     let returns_spec = emit_type_expr_spec(&callable.return_type, &binders)?;
+    let mut constraint_tokens = Vec::new();
+    for constraint in &callable.constraints {
+        let lower = emit_type_expr_spec(&constraint.lower, &binders)?;
+        let upper = emit_type_expr_spec(&constraint.upper, &binders)?;
+        let tokens = match constraint.relation {
+            GenericConstraintRelation::Subtype => quote!(::phalcom_native_meta::GenericConstraintSpec::Subtype {
+                lower: #lower,
+                upper: #upper,
+            }),
+            GenericConstraintRelation::Equivalent => quote!(::phalcom_native_meta::GenericConstraintSpec::Equivalent {
+                left: #lower,
+                right: #upper,
+            }),
+        };
+        constraint_tokens.push(tokens);
+    }
 
     Ok(quote!(&::phalcom_native_meta::CallableTypeSpec {
         type_params: &[#(#type_param_tokens),*],
         params: #params_spec,
         return_type: #returns_spec,
+        constraints: &[#(#constraint_tokens),*],
     }))
 }

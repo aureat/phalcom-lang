@@ -90,7 +90,7 @@ class Probe {
     );
     let run = fixture.callable("Probe", "run", DispatchSide::Class);
     let call = fixture.expression(run, "Probe.keep(value)");
-    fixture.assert_type(call.knowledge.ty().expect("argument-selected result"), applied("List", [nominal("Int")]));
+    assert!(call.knowledge.ty().is_none(), "conflicting HKT evidence must not publish a result");
     assert!(matches!(call.status, AnalysisStatus::Invalid(_)), "{call:#?}");
     fixture.assert_diagnostic(phalcom_semantic::diagnostic::DiagnosticCode::GenericInferenceConflict, 1);
     fixture.assert_trace_has(run, call, |step| {

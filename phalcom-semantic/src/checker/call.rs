@@ -1,6 +1,6 @@
 //! Message send and callable argument verification (Spec 04.5 / E5).
 
-use super::context::CheckingContext;
+use super::context::{CallCapture, CheckingContext};
 use super::expected::{ExpectationOrigin, ExpectedType};
 use super::expression::analyze_expression;
 use super::inference::{ConstraintOrigin, InferenceRelation, InferenceSession, InferenceSupport, InferenceTerm};
@@ -15,7 +15,9 @@ use crate::identity::{CallableId, ExplanationId};
 use crate::types::evidence::DynamicReason;
 use crate::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason, join_type_knowledge};
 use crate::types::id::{TypeId, TypeParameterId};
-use crate::types::parameter::{GenericConstraint, TypeParameterOwner};
+use crate::types::instantiation::TypeMaterializationError;
+use crate::types::parameter::{GenericConstraint, GenericSignature, TypeParameterOwner, TypeTerm};
+use crate::types::row::RecordRowFormationError;
 use crate::types::store::{TypeData, TypeStore};
 use phalcom_ast::ast::{Expr, PackItem, PackLabel, RestMode};
 use phalcom_common::range::SourceRange;
@@ -36,6 +38,10 @@ pub(crate) struct CallableApplicationTarget {
     pub authority: CallTargetAuthority,
     pub specialization: Option<DispatchSignatureSpecialization>,
     pub fixed_generics: Vec<(TypeParameterId, TypeId)>,
+    /// Declaration-owned generic domain needed by constructor/variant
+    /// application. It is intentionally kept separate from the callable's
+    /// canonical local signature.
+    pub declaration_generics: Option<GenericSignature>,
 }
 
 /// Dispatch result for one canonical member of a union receiver.
@@ -67,6 +73,7 @@ impl CallableApplicationTarget {
             authority: CallTargetAuthority::ExactDispatch,
             specialization: None,
             fixed_generics: Vec::new(),
+            declaration_generics: None,
         }
     }
 
@@ -78,11 +85,17 @@ impl CallableApplicationTarget {
             authority: CallTargetAuthority::ExactDispatch,
             specialization: None,
             fixed_generics: Vec::new(),
+            declaration_generics: None,
         }
     }
 
     pub(crate) fn with_fixed_generics(mut self, fixed_generics: Vec<(TypeParameterId, TypeId)>) -> Self {
         self.fixed_generics = fixed_generics;
+        self
+    }
+
+    pub(crate) fn with_declaration_generics(mut self, declaration_generics: GenericSignature) -> Self {
+        self.declaration_generics = Some(declaration_generics);
         self
     }
 
@@ -100,6 +113,7 @@ impl CallableApplicationTarget {
             authority: CallTargetAuthority::CallableValue(status),
             specialization: None,
             fixed_generics: Vec::new(),
+            declaration_generics: None,
         }
     }
 
@@ -111,6 +125,7 @@ impl CallableApplicationTarget {
             authority: CallTargetAuthority::StructuralBuiltin,
             specialization: None,
             fixed_generics: Vec::new(),
+            declaration_generics: None,
         }
     }
 }
@@ -228,13 +243,21 @@ impl<'a> ApplicationArgument<'a> {
 }
 
 fn analyze_application_argument(ctx: &mut CheckingContext<'_>, argument: ApplicationArgument<'_>, expected: &ExpectedType) -> TypedExpression {
-    match argument {
+    let mut typed = match argument {
         ApplicationArgument::PreAnalyzed { typed, .. } => {
             ctx.record_call_dependency(typed.causal_invalidity, typed.expression_id.and_then(|id| ctx.explanation_for_expression(id)));
             (*typed).clone()
         }
         _ => analyze_expression(ctx, argument.expression().expect("ordinary application argument has an expression"), expected),
+    };
+    if let (Some(ty), Some(local_type)) = (typed.knowledge.ty(), typed.local_type.clone()) {
+        ctx.record_call_local_type(ty, local_type);
+        if !ctx.check_local_type_escape(typed.local_type.as_ref(), expected.ty(), &[], argument.range()) {
+            typed.knowledge = TypeKnowledge::Unknown(UnknownReason::ExistentialEscape);
+            typed.local_type = None;
+        }
     }
+    typed
 }
 
 pub(crate) fn application_arguments(args: &[PackItem]) -> Vec<ApplicationArgument<'_>> {
@@ -737,7 +760,18 @@ pub struct CallCheckResult {
     pub causal_invalidity: crate::checker::causal::CausalInvalidity,
     pub explanation_parents: Vec<crate::identity::ExplanationId>,
     pub callable: Option<crate::identity::CallableId>,
+    pub(crate) local_type: Option<crate::types::rigid::LocalType>,
     pub(crate) symbolic_result: Option<crate::checker::typed_expr::SymbolicInferenceResult>,
+}
+
+fn local_type_from_arguments(
+    ctx: &CheckingContext<'_>,
+    result_ty: Option<TypeId>,
+    local_types: &[(TypeId, crate::types::rigid::LocalType)],
+) -> Option<crate::types::rigid::LocalType> {
+    let result_ty = result_ty?;
+    let replacements = local_types.iter().cloned().collect::<std::collections::HashMap<_, _>>();
+    (!replacements.is_empty()).then(|| crate::types::rigid::LocalType::from_canonical_types(ctx.store, result_ty, &replacements))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -775,17 +809,55 @@ fn promote_exact_return(return_type: &TypeKnowledge, origin: ExactReturnOrigin, 
     }
 }
 
+struct GenericApplicationDomains<'a> {
+    declaration: Option<&'a GenericSignature>,
+    callable: Option<&'a GenericSignature>,
+}
+
+impl<'a> GenericApplicationDomains<'a> {
+    fn signatures(&self) -> impl Iterator<Item = &'a GenericSignature> + '_ {
+        self.declaration.into_iter().chain(self.callable)
+    }
+
+    fn has_parameters(&self) -> bool {
+        self.signatures().any(|signature| !signature.parameters.is_empty())
+    }
+
+    fn has_record_row_parameters(&self, ctx: &CheckingContext<'_>) -> bool {
+        self.signatures()
+            .flat_map(|signature| signature.parameters.iter())
+            .any(|parameter| ctx.store.type_parameter(*parameter).kind == crate::types::id::KindId::RECORD_ROW)
+    }
+
+    fn instantiate(
+        &self,
+        session: &mut InferenceSession,
+        store: &TypeStore,
+        frame: crate::checker::inference::InferenceFrameId,
+        fixed_generics: &[(TypeParameterId, TypeId)],
+    ) -> std::collections::HashMap<TypeParameterId, InferenceTerm> {
+        let fixed = fixed_generics.iter().map(|(parameter, _)| *parameter).collect::<std::collections::HashSet<_>>();
+        let mut result = std::collections::HashMap::new();
+        for signature in self.signatures() {
+            let instantiated = session.instantiate_generic_signature_in_frame_excluding(signature, store, frame, &fixed);
+            result.extend(instantiated);
+        }
+        result
+    }
+}
+
 fn apply_generic_callable_inner(
     ctx: &mut CheckingContext<'_>,
     signature: &CallableSignature,
+    domains: GenericApplicationDomains<'_>,
     fixed_generics: &[(TypeParameterId, TypeId)],
     args: &[ApplicationArgument<'_>],
     expected: &ExpectedType,
     call_range: SourceRange,
 ) -> TypeKnowledge {
-    let Some(generic_sig) = signature.generics.as_ref().filter(|generics| !generics.parameters.is_empty()) else {
+    if !domains.has_parameters() {
         return promote_exact_return(&signature.return_type, exact_return_origin(signature.kind), call_range);
-    };
+    }
 
     let (context, root_frame, owns_context) = match expected {
         ExpectedType::Inference { context, .. } => {
@@ -805,7 +877,7 @@ fn apply_generic_callable_inner(
         }
     };
     ctx.push_inference_frame(context, root_frame);
-    let result = apply_generic_callable_in_context(ctx, signature, generic_sig, fixed_generics, args, expected, call_range, context, root_frame);
+    let result = apply_generic_callable_in_context(ctx, signature, domains, fixed_generics, args, expected, call_range, context, root_frame);
     ctx.pop_inference_frame(context, root_frame);
     if let Some(session) = ctx.inference_session(context) {
         session.borrow_mut().close_frame(root_frame);
@@ -816,10 +888,11 @@ fn apply_generic_callable_inner(
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 fn apply_generic_callable_in_context(
     ctx: &mut CheckingContext<'_>,
     signature: &CallableSignature,
-    generic_sig: &crate::types::parameter::GenericSignature,
+    domains: GenericApplicationDomains<'_>,
     fixed_generics: &[(TypeParameterId, TypeId)],
     args: &[ApplicationArgument<'_>],
     expected: &ExpectedType,
@@ -832,14 +905,24 @@ fn apply_generic_callable_in_context(
         return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
     };
 
-    let has_row_generics = generic_sig
-        .parameters
-        .iter()
-        .any(|parameter| ctx.store.type_parameter(*parameter).kind == crate::types::id::KindId::RECORD_ROW);
-    let mut row_session = has_row_generics.then(|| GenericApplicationSession::new(generic_sig, ctx.store));
-    let mut var_map = session_handle
-        .borrow_mut()
-        .instantiate_generic_signature_in_frame(generic_sig, ctx.store, frame);
+    let has_row_generics = domains.has_record_row_parameters(ctx);
+    let domain_signatures = domains.signatures().collect::<Vec<_>>();
+    let mut row_session = has_row_generics.then(|| GenericApplicationSession::new_for_domains(&domain_signatures, ctx.store));
+    if let Some(rows) = row_session.as_mut() {
+        for parameter in signature.parameters.iter() {
+            if let Some(ty) = parameter.ty.ty() {
+                if let Err(failure) = rows.constrain_signature_type_lacks(ty, ctx.store) {
+                    record_row_constraint_failure(ctx, failure, call_range);
+                }
+            }
+        }
+        if let Some(ty) = signature.return_type.ty() {
+            if let Err(failure) = rows.constrain_signature_type_lacks(ty, ctx.store) {
+                record_row_constraint_failure(ctx, failure, call_range);
+            }
+        }
+    }
+    let mut var_map = domains.instantiate(&mut session_handle.borrow_mut(), ctx.store, frame, fixed_generics);
     for &(parameter, ty) in fixed_generics {
         var_map.insert(parameter, InferenceTerm::Canonical(ty));
     }
@@ -874,43 +957,45 @@ fn apply_generic_callable_in_context(
         }
     };
 
-    let generic_callable = match &generic_sig.owner {
-        TypeParameterOwner::Callable(callable) => callable.clone(),
-        TypeParameterOwner::Declaration(declaration) => crate::identity::CallableId::new(declaration.clone(), signature.selector.clone(), ctx.current_side),
-    };
-    for (constraint_index, constraint) in generic_sig.constraints.iter().enumerate() {
-        let relation = match constraint {
-            GenericConstraint::Subtype { lower, upper } => {
-                let lower = session_handle.borrow().type_term_to_inference(lower, &var_map, ctx.store);
-                let upper = session_handle.borrow().type_term_to_inference(upper, &var_map, ctx.store);
-                match (lower, upper) {
-                    (Ok(lower), Ok(upper)) => InferenceRelation::Subtype(lower, upper),
-                    _ => {
-                        ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
-                        return fixed_return.unwrap_or(TypeKnowledge::Unknown(UnknownReason::InferenceBlocked));
-                    }
-                }
-            }
-            GenericConstraint::Equivalent { left, right } => {
-                let left = session_handle.borrow().type_term_to_inference(left, &var_map, ctx.store);
-                let right = session_handle.borrow().type_term_to_inference(right, &var_map, ctx.store);
-                match (left, right) {
-                    (Ok(left), Ok(right)) => InferenceRelation::Equivalent(left, right),
-                    _ => {
-                        ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
-                        return fixed_return.unwrap_or(TypeKnowledge::Unknown(UnknownReason::InferenceBlocked));
-                    }
-                }
-            }
+    for generic_sig in domains.signatures() {
+        let generic_callable = match &generic_sig.owner {
+            TypeParameterOwner::Callable(callable) => callable.clone(),
+            TypeParameterOwner::Declaration(declaration) => crate::identity::CallableId::new(declaration.clone(), signature.selector.clone(), ctx.current_side),
         };
-        session_handle.borrow_mut().add_constraint(
-            relation,
-            ConstraintOrigin::GenericWhere {
-                callable: generic_callable.clone(),
-                constraint_index: constraint_index as u16,
-            },
-            None,
-        );
+        for (constraint_index, constraint) in generic_sig.constraints.iter().enumerate() {
+            let relation = match constraint {
+                GenericConstraint::Subtype { lower, upper } => {
+                    let lower = session_handle.borrow().type_term_to_inference(lower, &var_map, ctx.store);
+                    let upper = session_handle.borrow().type_term_to_inference(upper, &var_map, ctx.store);
+                    match (lower, upper) {
+                        (Ok(lower), Ok(upper)) => InferenceRelation::Subtype(lower, upper),
+                        _ => {
+                            ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
+                            return fixed_return.unwrap_or(TypeKnowledge::Unknown(UnknownReason::InferenceBlocked));
+                        }
+                    }
+                }
+                GenericConstraint::Equivalent { left, right } => {
+                    let left = session_handle.borrow().type_term_to_inference(left, &var_map, ctx.store);
+                    let right = session_handle.borrow().type_term_to_inference(right, &var_map, ctx.store);
+                    match (left, right) {
+                        (Ok(left), Ok(right)) => InferenceRelation::Equivalent(left, right),
+                        _ => {
+                            ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
+                            return fixed_return.unwrap_or(TypeKnowledge::Unknown(UnknownReason::InferenceBlocked));
+                        }
+                    }
+                }
+            };
+            session_handle.borrow_mut().add_constraint(
+                relation,
+                ConstraintOrigin::GenericWhere {
+                    callable: generic_callable.clone(),
+                    constraint_index: constraint_index as u16,
+                },
+                None,
+            );
+        }
     }
 
     for (argument_index, argument) in args.iter().copied().enumerate() {
@@ -1220,7 +1305,7 @@ fn apply_generic_callable_in_context(
     }
 
     if let crate::checker::inference::InferenceOutcome::Solved(_) = &outcome {
-        for parameter in generic_sig.parameters.iter().copied() {
+        for parameter in domains.signatures().flat_map(|signature| signature.parameters.iter()).copied() {
             let projected_solution = {
                 let mut session = session_handle.borrow_mut();
                 session.projected_solution(parameter, &var_map, ctx.store)
@@ -1491,14 +1576,19 @@ fn publish_generic_return_with_rows(
             let Some(type_solution) = type_solution else {
                 return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
             };
-            let Ok(instantiation) = rows.build_instantiation_from_types(session, type_solution, row_solution, ctx.store) else {
-                return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
+            let instantiation = match rows.build_instantiation_from_types(session, type_solution, row_solution, ctx.store) {
+                Ok(instantiation) => instantiation,
+                Err(failure) => {
+                    record_row_constraint_failure(ctx, failure, call_range);
+                    return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
+                }
             };
             let Some(return_type) = signature_return.ty() else {
                 return promote_exact_return(signature_return, ExactReturnOrigin::GenericInference, call_range);
             };
-            let Ok(ty) = crate::types::materialize_type(ctx.store, return_type, &instantiation, crate::types::RowMaterializationMode::RequireSolvedTail) else {
-                return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
+            let ty = match crate::types::materialize_type(ctx.store, return_type, &instantiation, crate::types::RowMaterializationMode::RequireSolvedTail) {
+                Ok(ty) => ty,
+                Err(error) => return record_generic_return_materialization_failure(ctx, error, call_range),
             };
             match proof {
                 crate::checker::inference::InferenceProofState::Established => {
@@ -1512,12 +1602,43 @@ fn publish_generic_return_with_rows(
 }
 
 fn record_row_constraint_failure(ctx: &mut CheckingContext<'_>, failure: CombinedInferenceFailure, range: SourceRange) {
+    if ctx.call_status_is_recorded() {
+        return;
+    }
+    let failure = match failure {
+        CombinedInferenceFailure::RowZonk { parameter, error } => {
+            match error {
+                crate::types::row_solver::RecordRowZonkError::Unsolved(_) => {
+                    record_blocked_row_diagnostic(
+                        ctx,
+                        DiagnosticCode::RecordRowInferenceUnderconstrained,
+                        format!(
+                            "record row parameter `{}` is still unresolved while materializing the generic return",
+                            ctx.store.type_parameter(parameter).name
+                        ),
+                        range,
+                    );
+                }
+                crate::types::row_solver::RecordRowZonkError::Recursive(_) => {
+                    record_invalid_row_diagnostic(
+                        ctx,
+                        DiagnosticCode::RecordRowOccursCheck,
+                        format!(
+                            "record row parameter `{}` would require a recursive row substitution",
+                            ctx.store.type_parameter(parameter).name
+                        ),
+                        range,
+                    );
+                }
+                crate::types::row_solver::RecordRowZonkError::Formation(error) => record_row_formation_failure(ctx, error, range),
+            }
+            return;
+        }
+        failure => failure,
+    };
     let (code, message) = match failure {
+        CombinedInferenceFailure::RowZonk { .. } => unreachable!("row-zonk failures are handled before ordinary row failures"),
         CombinedInferenceFailure::RowRejected(failure) => row_failure_diagnostic(ctx.store, &failure),
-        CombinedInferenceFailure::RowZonk(_) => (
-            DiagnosticCode::RecordRowInferenceConflict,
-            "record row solution could not be materialized".into(),
-        ),
         CombinedInferenceFailure::UnderconstrainedType(_) => (
             DiagnosticCode::GenericInferenceUnderconstrained,
             "generic type inference is underconstrained".into(),
@@ -1545,6 +1666,103 @@ fn record_row_constraint_failure(ctx: &mut CheckingContext<'_>, failure: Combine
     } else {
         ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
     }
+}
+
+fn record_generic_return_materialization_failure(ctx: &mut CheckingContext<'_>, error: TypeMaterializationError, range: SourceRange) -> TypeKnowledge {
+    if ctx.call_status_is_recorded() {
+        return TypeKnowledge::Unknown(UnknownReason::InferenceBlocked);
+    }
+    match error {
+        TypeMaterializationError::UnresolvedRowParameter(parameter) => record_blocked_row_diagnostic(
+            ctx,
+            DiagnosticCode::RecordRowInferenceUnderconstrained,
+            format!(
+                "record row parameter `{}` is still unresolved while materializing the generic return",
+                ctx.store.type_parameter(parameter).name
+            ),
+            range,
+        ),
+        TypeMaterializationError::RecursiveRowSubstitution(parameter) => record_invalid_row_diagnostic(
+            ctx,
+            DiagnosticCode::RecordRowOccursCheck,
+            format!(
+                "record row parameter `{}` would require a recursive row substitution",
+                ctx.store.type_parameter(parameter).name
+            ),
+            range,
+        ),
+        TypeMaterializationError::RecordRow(error) => record_row_formation_failure(ctx, error, range),
+        TypeMaterializationError::TypeApplication => record_internal_row_failure(
+            ctx,
+            "generic return type could not be materialized after inference",
+            "generic return materialization failed with an invalid type application".into(),
+            range,
+        ),
+    }
+    TypeKnowledge::Unknown(UnknownReason::InferenceBlocked)
+}
+
+fn record_row_formation_failure(ctx: &mut CheckingContext<'_>, error: RecordRowFormationError, range: SourceRange) {
+    match error {
+        RecordRowFormationError::DuplicateField(field) => record_invalid_row_diagnostic(
+            ctx,
+            DiagnosticCode::RecordDuplicateField,
+            format!("generic return materialization would contain duplicate record field `{field}`"),
+            range,
+        ),
+        RecordRowFormationError::TailParameterWrongKind { parameter, .. } => record_invalid_row_diagnostic(
+            ctx,
+            DiagnosticCode::RecordRowTailKindMismatch,
+            format!(
+                "record row tail parameter `{}` has the wrong kind during generic return materialization",
+                ctx.store.type_parameter(parameter).name
+            ),
+            range,
+        ),
+        RecordRowFormationError::TailParameterMissing(_) => record_internal_row_failure(
+            ctx,
+            "generic return type could not be materialized because its record row contract is invalid",
+            "generic return materialization referred to a missing record row parameter".into(),
+            range,
+        ),
+        RecordRowFormationError::FieldNotProperType { field, .. } => record_internal_row_failure(
+            ctx,
+            "generic return type contains an invalid record field type after inference",
+            format!("generic return materialization found a non-proper type in record field `{field}`"),
+            range,
+        ),
+    }
+}
+
+fn record_invalid_row_diagnostic(ctx: &mut CheckingContext<'_>, code: DiagnosticCode, message: String, range: SourceRange) {
+    let diagnostic = SemanticDiagnostic::error_in(ctx.current_module.clone(), code, message, range);
+    if let Some(cause) = ctx.emit_diagnostic(diagnostic) {
+        ctx.record_call_status(AnalysisStatus::Invalid(cause));
+    } else {
+        ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
+    }
+}
+
+fn record_blocked_row_diagnostic(ctx: &mut CheckingContext<'_>, code: DiagnosticCode, message: String, range: SourceRange) {
+    ctx.emit_diagnostic(SemanticDiagnostic::error_in(ctx.current_module.clone(), code, message, range));
+    ctx.record_call_status(AnalysisStatus::Blocked(crate::types::outcome::BlockReason::RecursiveFixpoint));
+}
+
+fn record_internal_row_failure(ctx: &mut CheckingContext<'_>, safe_message: &'static str, details: String, range: SourceRange) {
+    let incident = ctx.record_internal_incident(
+        InternalSemanticIncidentKind::InferenceInvariantViolation,
+        InternalSemanticIncidentDetails::Message {
+            message: details.into_boxed_str(),
+        },
+        Some(range),
+    );
+    ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+        ctx.current_module.clone(),
+        DiagnosticCode::AnalysisInternalFailure,
+        safe_message,
+        range,
+    ));
+    ctx.record_call_status(AnalysisStatus::InternalFailure(incident));
 }
 
 fn row_failure_diagnostic(store: &TypeStore, failure: &crate::types::row_solver::RecordRowFailure) -> (DiagnosticCode, String) {
@@ -1650,6 +1868,80 @@ fn generic_conflict_message(conflict: &crate::checker::inference::InferenceConfl
     }
 }
 
+fn type_contains_any_parameter(store: &TypeStore, ty: TypeId, parameters: &[TypeParameterId]) -> bool {
+    match store.get(ty) {
+        TypeData::Parameter(parameter) => parameters.contains(parameter),
+        TypeData::Applied { origin, arguments } => {
+            type_contains_any_parameter(store, *origin, parameters)
+                || arguments.iter().any(|&argument| type_contains_any_parameter(store, argument, parameters))
+        }
+        TypeData::Union(members) => members.iter().any(|&member| type_contains_any_parameter(store, member, parameters)),
+        TypeData::Tuple(elements) => elements.iter().any(|element| type_contains_any_parameter(store, element.ty, parameters)),
+        TypeData::Record(row_id) => store
+            .record_row(*row_id)
+            .fields
+            .iter()
+            .any(|field| type_contains_any_parameter(store, field.ty, parameters)),
+        TypeData::Callable(callable) => {
+            callable
+                .parameters
+                .iter()
+                .any(|parameter| type_contains_any_parameter(store, parameter.ty, parameters))
+                || type_contains_any_parameter(store, callable.return_type, parameters)
+        }
+        TypeData::Family(family_id) => store
+            .get_family(*family_id)
+            .members
+            .iter()
+            .any(|member| type_contains_any_parameter(store, member.ty, parameters)),
+        TypeData::ExactCase { enum_type, .. } => type_contains_any_parameter(store, *enum_type, parameters),
+        _ => false,
+    }
+}
+
+fn type_term_contains_any_parameter(store: &TypeStore, term: &TypeTerm, parameters: &[TypeParameterId]) -> bool {
+    matches!(term, TypeTerm::Canonical(ty) if type_contains_any_parameter(store, *ty, parameters))
+}
+
+fn callable_signature_mentions_parameters(ctx: &CheckingContext<'_>, target: &CallableApplicationTarget, parameters: &[TypeParameterId]) -> bool {
+    target
+        .signature
+        .parameters
+        .iter()
+        .filter_map(|parameter| parameter.ty.ty())
+        .any(|ty| type_contains_any_parameter(ctx.store, ty, parameters))
+        || target
+            .signature
+            .return_type
+            .ty()
+            .is_some_and(|ty| type_contains_any_parameter(ctx.store, ty, parameters))
+        || target.signature.generics.as_ref().is_some_and(|signature| {
+            signature.constraints.iter().any(|constraint| match constraint {
+                GenericConstraint::Subtype { lower, upper } => {
+                    type_term_contains_any_parameter(ctx.store, lower, parameters) || type_term_contains_any_parameter(ctx.store, upper, parameters)
+                }
+                GenericConstraint::Equivalent { left, right } => {
+                    type_term_contains_any_parameter(ctx.store, left, parameters) || type_term_contains_any_parameter(ctx.store, right, parameters)
+                }
+            })
+        })
+}
+
+fn effective_declaration_generics(ctx: &CheckingContext<'_>, target: &CallableApplicationTarget) -> Option<GenericSignature> {
+    let declaration_generics = target.declaration_generics.clone().or_else(|| {
+        (target.signature.kind == CallableSemanticKind::Constructor)
+            .then(|| target.callable.as_ref().map(|callable| callable.declaration_owner().clone()))
+            .flatten()
+            .and_then(|owner| ctx.declaration_generic_signature(&owner))
+    })?;
+    let used_by_signature = callable_signature_mentions_parameters(ctx, target, &declaration_generics.parameters);
+    let fixed_by_receiver = target
+        .fixed_generics
+        .iter()
+        .any(|(parameter, _)| declaration_generics.parameters.contains(parameter));
+    (used_by_signature || fixed_by_receiver).then_some(declaration_generics)
+}
+
 fn apply_generic_callable(
     ctx: &mut CheckingContext<'_>,
     target: &CallableApplicationTarget,
@@ -1658,7 +1950,17 @@ fn apply_generic_callable(
     expected: &ExpectedType,
     call_range: SourceRange,
 ) -> TypeKnowledge {
-    apply_generic_callable_inner(ctx, &target.signature, &target.fixed_generics, arguments, expected, call_range)
+    let declaration_generics = effective_declaration_generics(ctx, target);
+    let domains = GenericApplicationDomains {
+        declaration: declaration_generics.as_ref(),
+        callable: target.signature.generics.as_ref(),
+    };
+    apply_generic_callable_inner(ctx, &target.signature, domains, &target.fixed_generics, arguments, expected, call_range)
+}
+
+fn target_has_generic_domains(ctx: &CheckingContext<'_>, target: &CallableApplicationTarget) -> bool {
+    effective_declaration_generics(ctx, target).is_some_and(|signature| !signature.parameters.is_empty())
+        || target.signature.generics.as_ref().is_some_and(|signature| !signature.parameters.is_empty())
 }
 
 pub(crate) fn apply_resolved_callable(
@@ -1732,7 +2034,7 @@ pub(crate) fn apply_resolved_callable(
         let _ = call_id;
         ctx.record_call_dependency(CausalInvalidity::Clean, Some(root));
     }
-    let (knowledge, symbolic_result) = if target.signature.generics.as_ref().is_some_and(|generics| !generics.parameters.is_empty()) {
+    let (knowledge, symbolic_result) = if target_has_generic_domains(ctx, target) {
         let result = apply_generic_callable(ctx, target, premise, arguments, expected, call_range);
         let symbolic_result = ctx
             .current_expression_id()
@@ -1741,7 +2043,7 @@ pub(crate) fn apply_resolved_callable(
     } else {
         (apply_non_generic_callable(ctx, target, premise, arguments, call_range), None)
     };
-    let (captured_causal_invalidity, mut explanation_parents, captured_status) = ctx.end_call_causal_capture();
+    let (captured_causal_invalidity, mut explanation_parents, captured_status, local_types) = ctx.end_call_causal_capture();
     let owning_cause = ctx.owning_cause_for_current_expression();
     let mut causal_invalidity = premise.causal_invalidity.join(captured_causal_invalidity);
     if let AnalysisStatus::Invalid(cause) = &premise.status {
@@ -1766,12 +2068,14 @@ pub(crate) fn apply_resolved_callable(
             TypeKnowledge::Dynamic(reason) => AnalysisStatus::DynamicBoundary(reason.clone()),
             _ => AnalysisStatus::Ready,
         });
+    let local_type = local_type_from_arguments(ctx, knowledge.ty(), &local_types);
     let result = CallCheckResult {
         knowledge,
         status,
         causal_invalidity,
         explanation_parents,
         callable: target.callable.clone(),
+        local_type,
         symbolic_result,
     };
     ctx.flow.invalidate_opaque_calls();
@@ -1915,6 +2219,7 @@ fn prepare_union_generic_inference(
     prepare_union_generic_inference_in_context(ctx, target, arguments, generic_sig, context, root, owns_context, expected_for_arms)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn prepare_union_generic_inference_in_context(
     ctx: &mut CheckingContext<'_>,
     target: &CallableApplicationTarget,
@@ -2278,7 +2583,7 @@ pub(crate) fn apply_union_resolved_call(
         }
     }
 
-    let (captured_causal, captured_explanations, captured_status) = ctx.end_call_causal_capture();
+    let (captured_causal, captured_explanations, captured_status, local_types) = ctx.end_call_causal_capture();
     causal_invalidity = causal_invalidity.join(captured_causal);
     explanation_parents.extend(captured_explanations);
     if let Some(captured_status) = captured_status {
@@ -2300,12 +2605,14 @@ pub(crate) fn apply_union_resolved_call(
     if let AnalysisStatus::Invalid(cause) = status {
         causal_invalidity = causal_invalidity.join(CausalInvalidity::One(cause));
     }
+    let local_type = local_type_from_arguments(ctx, knowledge.ty(), &local_types);
     let result = CallCheckResult {
         knowledge,
         status,
         causal_invalidity,
         explanation_parents,
         callable: (all_found && callable_consistent).then_some(first_callable).flatten().flatten(),
+        local_type,
         symbolic_result: None,
     };
     ctx.flow.invalidate_opaque_calls();
@@ -2313,10 +2620,7 @@ pub(crate) fn apply_union_resolved_call(
     result
 }
 
-fn analyze_unbound_arguments(
-    ctx: &mut CheckingContext<'_>,
-    arguments: &[ApplicationArgument<'_>],
-) -> (CausalInvalidity, Vec<ExplanationId>, Option<AnalysisStatus>) {
+fn analyze_unbound_arguments(ctx: &mut CheckingContext<'_>, arguments: &[ApplicationArgument<'_>]) -> CallCapture {
     ctx.begin_call_causal_capture();
     for argument in arguments.iter().copied() {
         let typed = analyze_application_argument(ctx, argument, &ExpectedType::None);
@@ -2344,7 +2648,7 @@ pub(crate) fn analyze_unresolved_application(
     arguments: &[ApplicationArgument<'_>],
     reason: UnresolvedApplicationReason,
 ) -> CallCheckResult {
-    let (argument_invalidity, mut explanation_parents, argument_status) = analyze_unbound_arguments(ctx, arguments);
+    let (argument_invalidity, mut explanation_parents, argument_status, local_types) = analyze_unbound_arguments(ctx, arguments);
     if let Some(explanation) = premise.explanation {
         if !explanation_parents.contains(&explanation) {
             explanation_parents.push(explanation);
@@ -2372,12 +2676,14 @@ pub(crate) fn analyze_unresolved_application(
         UnresolvedApplicationReason::IterationArgumentUnavailable => AnalysisStatus::Ready,
         _ => AnalysisStatus::Ready,
     });
+    let local_type = local_type_from_arguments(ctx, knowledge.ty(), &local_types);
     let result = CallCheckResult {
         knowledge,
         status,
         causal_invalidity,
         explanation_parents,
         callable: None,
+        local_type,
         symbolic_result: None,
     };
     ctx.flow.invalidate_opaque_calls();
@@ -2427,6 +2733,9 @@ fn terminal_generic_return_with_fallback(
     complete_pre_context: Option<TypeKnowledge>,
     fixed_return: Option<TypeKnowledge>,
 ) -> TypeKnowledge {
+    if matches!(outcome, crate::checker::inference::InferenceOutcome::Conflicting(_)) {
+        return terminal_generic_return(outcome, fixed_return);
+    }
     complete_pre_context.unwrap_or_else(|| terminal_generic_return(outcome, fixed_return))
 }
 

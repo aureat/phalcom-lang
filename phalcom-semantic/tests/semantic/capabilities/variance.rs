@@ -199,5 +199,8 @@ class Generic<T> {
         .callable_signatures
         .get(&fixture.callable_id("Generic", "class_generic", DispatchSide::Class))
         .expect("class generic signature");
-    assert!(matches!(class_generic.declared_return.state, DeclaredTypeState::Unknown(_)));
+    let DeclaredTypeState::Known(TypeTerm::Canonical(result)) = &class_generic.declared_return.state else {
+        panic!("class-side declaration generic must publish its template");
+    };
+    assert!(matches!(fixture.analysis.snapshot.store.get(*result), TypeData::Parameter(_)));
 }

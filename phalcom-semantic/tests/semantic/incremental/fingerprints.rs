@@ -358,6 +358,44 @@ class Api {
 }
 
 #[test]
+fn declaration_surface_source_input_tracks_accessor_generic_contracts() {
+    let setter_number = source_surface_fingerprint(
+        r#"
+class Api {
+  value<T>=(put next: T) where T <: Number { }
+}
+"#,
+    );
+    let setter_object = source_surface_fingerprint(
+        r#"
+class Api {
+  value<T>=(put next: T) where T <: Object { }
+}
+"#,
+    );
+    let index_number = source_surface_fingerprint(
+        r#"
+class Api {
+  [_ key: T]<T>=(put value: T) where T <: Number { }
+}
+"#,
+    );
+    let index_object = source_surface_fingerprint(
+        r#"
+class Api {
+  [_ key: T]<T>=(put value: T) where T <: Object { }
+}
+"#,
+    );
+
+    assert_ne!(
+        setter_number, setter_object,
+        "setter generic constraints must invalidate its declaration surface"
+    );
+    assert_ne!(index_number, index_object, "index generic constraints must invalidate its declaration surface");
+}
+
+#[test]
 fn declaration_surface_product_ignores_type_evidence_provenance_but_input_tracks_it() {
     let owner = declaration("Surface");
     let mut left = DeclarationSurface::new(Some(owner.clone()));

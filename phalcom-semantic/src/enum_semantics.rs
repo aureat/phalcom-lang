@@ -57,6 +57,9 @@ pub struct VariantConstructorParameter {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VariantConstructorSignature {
     pub constructor: VariantConstructorId,
+    /// Generic parameters declared by this constructor, owned by its
+    /// canonical class-side variant callable identity.
+    pub generic_signature: Option<GenericSignature>,
     pub parameters: Box<[VariantConstructorParameter]>,
     pub result_type_template: TypeId,
     pub exact_case_template: TypeId,

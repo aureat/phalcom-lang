@@ -199,10 +199,12 @@ pub fn declaration_surface_source_input_fingerprint(
                 hash_dispatch_side(side, &mut hasher);
                 setter.name.hash(&mut hasher);
                 hash_parameter_source(&unit.text, &setter.param, &mut hasher);
+                hash_generic_contract_source(&unit.text, &setter.generic_parameters, setter.where_clause.as_ref(), &mut hasher);
             }
             ClassMember::Index(index) => {
                 4u8.hash(&mut hasher);
                 hash_dispatch_side(side, &mut hasher);
+                hash_generic_contract_source(&unit.text, &index.generic_parameters, index.where_clause.as_ref(), &mut hasher);
                 match &index.accessor {
                     IndexAccessor::Get => 0u8.hash(&mut hasher),
                     IndexAccessor::Set { put } => {
@@ -882,9 +884,15 @@ fn hash_denotation(denotation: &Option<SemanticDenotation>, hasher: &mut impl Ha
                         m.hash(hasher);
                     }
                 }
-                crate::types::denotation::AssociatedValueDenotation::BehavioralFamily { receiver_type, spec, members } => {
+                crate::types::denotation::AssociatedValueDenotation::BehavioralFamily {
+                    receiver_type,
+                    receiver_application,
+                    spec,
+                    members,
+                } => {
                     2u8.hash(hasher);
                     receiver_type.hash(hasher);
+                    receiver_application.hash(hasher);
                     spec.hash(hasher);
                     for member in members.iter() {
                         member.hash(hasher);
@@ -1937,6 +1945,18 @@ pub fn enum_declaration_input_fingerprint(product: &crate::db::product::EnumDecl
         v.shape.hash(&mut hasher);
         v.result_type_template.hash(&mut hasher);
         v.exact_case_template.hash(&mut hasher);
+        if let Some(constructor) = &v.constructor {
+            constructor.constructor.hash(&mut hasher);
+            match &constructor.generic_signature {
+                Some(signature) => {
+                    1u8.hash(&mut hasher);
+                    hash_generic_signature(signature, &mut hasher);
+                }
+                None => 0u8.hash(&mut hasher),
+            }
+        } else {
+            0u8.hash(&mut hasher);
+        }
         for f in &v.fields {
             f.id.hash(&mut hasher);
             f.external_label.hash(&mut hasher);
@@ -1957,6 +1977,18 @@ pub fn enum_declaration_product_fingerprint(product: &crate::db::product::EnumDe
         v.shape.hash(&mut hasher);
         v.result_type_template.hash(&mut hasher);
         v.exact_case_template.hash(&mut hasher);
+        if let Some(constructor) = &v.constructor {
+            constructor.constructor.hash(&mut hasher);
+            match &constructor.generic_signature {
+                Some(signature) => {
+                    1u8.hash(&mut hasher);
+                    hash_generic_signature(signature, &mut hasher);
+                }
+                None => 0u8.hash(&mut hasher),
+            }
+        } else {
+            0u8.hash(&mut hasher);
+        }
         for f in &v.fields {
             f.id.hash(&mut hasher);
             f.external_label.hash(&mut hasher);

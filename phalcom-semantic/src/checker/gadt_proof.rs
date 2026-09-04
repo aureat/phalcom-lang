@@ -3,9 +3,11 @@
 use crate::enum_semantics::VariantInfo;
 use crate::identity::DeclarationId;
 use crate::match_semantics::BranchProofEnvironment;
+use crate::types::CaseInstantiation;
 use crate::types::constraint::TypeConstraint;
 use crate::types::id::{TypeId, TypeParameterId};
 use crate::types::relation::TypeHierarchy;
+use crate::types::rigid::{LocalConstraint, LocalType};
 use crate::types::row::RecordRowTail;
 use crate::types::store::{CallableParameterType, CallableType, TupleTypeElement, TypeData, TypeStore};
 use crate::types::substitution::TypeSubstitution;
@@ -30,6 +32,153 @@ pub enum GadtProofResult {
 pub(crate) enum ProofMerge {
     Compatible(BranchProofEnvironment),
     Contradictory,
+}
+
+pub(crate) type LocalCaseProof = Option<(BTreeMap<TypeParameterId, LocalType>, Box<[LocalConstraint]>)>;
+
+/// Refines a canonical scrutinee view against one freshly opened constructor
+/// result. Flexible declaration parameters may be mapped to local terms, but
+/// rigid leaves are opaque and are never rewritten.
+pub(crate) fn solve_local_case_proof(
+    store: &mut TypeStore,
+    proof: &BranchProofEnvironment,
+    expected_ty: TypeId,
+    case: &CaseInstantiation,
+) -> LocalCaseProof {
+    if !case.is_local() {
+        return Some((BTreeMap::new(), Box::new([])));
+    }
+
+    let specialized_expected = apply_branch_proof(store, proof, expected_ty);
+    let expected = match store.get(specialized_expected).clone() {
+        TypeData::ExactCase { variant, enum_type } if store.variant_identity(variant) == &case.variant => {
+            LocalType::from_canonical(store, enum_type, &case.replacements())
+        }
+        _ => LocalType::from_canonical(store, specialized_expected, &case.replacements()),
+    };
+    let mut bindings = BTreeMap::new();
+    let exact_case_observation = matches!(store.get(expected_ty), TypeData::ExactCase { .. });
+    if !unify_local_types(store, &case.result_type, &expected, &mut bindings, exact_case_observation) {
+        return None;
+    }
+
+    let mut equalities = case.constraints.to_vec();
+    equalities.push(LocalConstraint::Equivalent {
+        left: case.result_type.clone(),
+        right: expected,
+    });
+    Some((bindings, equalities.into_boxed_slice()))
+}
+
+fn unify_local_types(
+    store: &TypeStore,
+    left: &LocalType,
+    right: &LocalType,
+    bindings: &mut BTreeMap<TypeParameterId, LocalType>,
+    exact_case_observation: bool,
+) -> bool {
+    if left == right {
+        return true;
+    }
+    match (left, right) {
+        (LocalType::Rigid(_), LocalType::Canonical(ty)) => {
+            if matches!(store.get(*ty), TypeData::Parameter(_)) {
+                bind_local_parameter(store, *ty, left, bindings)
+            } else {
+                exact_case_observation
+            }
+        }
+        (LocalType::Canonical(ty), LocalType::Rigid(_)) => {
+            if matches!(store.get(*ty), TypeData::Parameter(_)) {
+                bind_local_parameter(store, *ty, right, bindings)
+            } else {
+                exact_case_observation
+            }
+        }
+        (LocalType::Canonical(left), _) => bind_local_parameter(store, *left, right, bindings),
+        (_, LocalType::Canonical(right)) => bind_local_parameter(store, *right, left, bindings),
+        (
+            LocalType::Applied {
+                origin: left_origin,
+                arguments: left_arguments,
+            },
+            LocalType::Applied {
+                origin: right_origin,
+                arguments: right_arguments,
+            },
+        ) => {
+            left_arguments.len() == right_arguments.len()
+                && unify_local_types(store, left_origin, right_origin, bindings, exact_case_observation)
+                && left_arguments
+                    .iter()
+                    .zip(right_arguments.iter())
+                    .all(|(left, right)| unify_local_types(store, left, right, bindings, exact_case_observation))
+        }
+        (
+            LocalType::ExactCase {
+                variant: left_variant,
+                enum_type: left_enum,
+            },
+            LocalType::ExactCase {
+                variant: right_variant,
+                enum_type: right_enum,
+            },
+        ) => left_variant == right_variant && unify_local_types(store, left_enum, right_enum, bindings, exact_case_observation),
+        (LocalType::Rigid(left), LocalType::Rigid(right)) => left == right,
+        (LocalType::Union(left), LocalType::Union(right)) => {
+            left.len() == right.len()
+                && left
+                    .iter()
+                    .zip(right.iter())
+                    .all(|(left, right)| unify_local_types(store, left, right, bindings, exact_case_observation))
+        }
+        (LocalType::Tuple(left), LocalType::Tuple(right)) => {
+            left.len() == right.len()
+                && left
+                    .iter()
+                    .zip(right.iter())
+                    .all(|(left, right)| left.label == right.label && unify_local_types(store, &left.ty, &right.ty, bindings, exact_case_observation))
+        }
+        (LocalType::Record(left), LocalType::Record(right)) => {
+            left.len() == right.len()
+                && left
+                    .iter()
+                    .zip(right.iter())
+                    .all(|(left, right)| left.name == right.name && unify_local_types(store, &left.ty, &right.ty, bindings, exact_case_observation))
+        }
+        (
+            LocalType::Callable {
+                parameters: left_parameters,
+                return_type: left_return,
+            },
+            LocalType::Callable {
+                parameters: right_parameters,
+                return_type: right_return,
+            },
+        ) => {
+            left_parameters.len() == right_parameters.len()
+                && left_parameters
+                    .iter()
+                    .zip(right_parameters.iter())
+                    .all(|(left, right)| left.label == right.label && left.rest == right.rest && unify_local_types(store, &left.ty, &right.ty, bindings, exact_case_observation))
+                && unify_local_types(store, left_return, right_return, bindings, exact_case_observation)
+        }
+        _ => false,
+    }
+}
+
+fn bind_local_parameter(store: &TypeStore, ty: TypeId, replacement: &LocalType, bindings: &mut BTreeMap<TypeParameterId, LocalType>) -> bool {
+    let TypeData::Parameter(parameter) = store.get(ty) else {
+        return matches!(replacement, LocalType::Canonical(other) if *other == ty);
+    };
+    if let Some(existing) = bindings.get(parameter) {
+        return existing == replacement;
+    }
+    if matches!(replacement, LocalType::Canonical(other) if *other == ty) {
+        return true;
+    }
+    bindings.insert(*parameter, replacement.clone());
+    true
 }
 
 /// Merges branch equalities without allowing a later constraint to overwrite
@@ -81,9 +230,28 @@ pub(crate) fn merge_branch_proofs(store: &mut TypeStore, left: &BranchProofEnvir
         })
         .collect();
 
+    let mut local_bindings = left.local_bindings.clone();
+    for (&parameter, right_type) in &right.local_bindings {
+        if let Some(left_type) = local_bindings.get(&parameter) {
+            if left_type != right_type {
+                return ProofMerge::Contradictory;
+            }
+        } else {
+            local_bindings.insert(parameter, right_type.clone());
+        }
+    }
+    let mut local_equalities = left.local_equalities.to_vec();
+    for equality in right.local_equalities.iter() {
+        if !local_equalities.contains(equality) {
+            local_equalities.push(equality.clone());
+        }
+    }
+
     ProofMerge::Compatible(BranchProofEnvironment {
         bindings,
         equalities: equalities.into_boxed_slice(),
+        local_bindings,
+        local_equalities: local_equalities.into_boxed_slice(),
     })
 }
 
@@ -174,6 +342,8 @@ pub fn solve_gadt_branch_proof(
     let proof = BranchProofEnvironment {
         bindings,
         equalities: equalities.into_boxed_slice(),
+        local_bindings: BTreeMap::new(),
+        local_equalities: Box::new([]),
     };
     let specialized_scrutinee = apply_branch_proof(store, &proof, scrutinee_ty);
     let exact_case = store

@@ -1,6 +1,6 @@
 use super::super::support::analyze_adt;
 use phalcom_common::selector::{Selector, SelectorSlot};
-use phalcom_semantic::match_semantics::PatternUsefulness;
+use phalcom_semantic::match_semantics::{PatternResolution, PatternUsefulness};
 
 #[test]
 fn gadt_branch_proof_refines_type_parameter_and_omits_refuted_cases() {
@@ -224,4 +224,55 @@ fn match_gadt_11_blocked_is_not_impossible() {
         "enum Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Eval { eval<U>(_ value: Expr<U>) { match value { Expr::Int(x) => x _ => 0 } } }\n",
     );
     assert_ne!(case.only_match().arm(0).resolution().usefulness, PatternUsefulness::Impossible);
+}
+
+#[test]
+fn match_gadt_12_variant_local_generic_opens_shared_rigid_and_keeps_index_proof() {
+    let case = analyze_adt(
+        r#"
+enum Expr<T> {
+    @variant Wrap<U>(_ value: U) -> Expr<List<U>> where U <: Object
+}
+
+class Eval {
+    eval<T>(_ value: Expr<T>) {
+        match value {
+            Expr::Wrap(x) => x
+        }
+    }
+}
+"#,
+    );
+    let arm = case.only_match().arm(0);
+    arm.assert_usefulness(PatternUsefulness::Useful);
+    let PatternResolution::Variant(pattern) = &arm.resolution().pattern else {
+        panic!("expected variant pattern");
+    };
+    let candidate = pattern.candidates.first().expect("Wrap candidate");
+    let instantiation = candidate.case_instantiation.as_ref().expect("constructor-local case instantiation");
+    assert_eq!(instantiation.local_rigids.len(), 1);
+    assert_eq!(instantiation.result_type.free_rigids().len(), 1);
+    assert!(!candidate.proof.local_equalities.is_empty(), "local result/index proof must be retained");
+    let binding = arm.find_binding("x").expect("payload binding");
+    assert_eq!(binding.local_type.as_ref().map(|ty| ty.free_rigids().len()), Some(1));
+}
+
+#[test]
+fn match_gadt_13_variant_local_rigid_is_not_guessed_to_fit_concrete_index() {
+    let case = analyze_adt(
+        r#"
+enum Expr<T> {
+    @variant Wrap<U>(_ value: U) -> Expr<List<U>>
+}
+
+class Eval {
+    eval(_ value: Expr<Int>) {
+        match value {
+            Expr::Wrap(x) => x
+        }
+    }
+}
+"#,
+    );
+    case.only_match().arm(0).assert_usefulness(PatternUsefulness::Impossible);
 }

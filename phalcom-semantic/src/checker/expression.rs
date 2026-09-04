@@ -12,13 +12,13 @@ use crate::associated::AssociatedMemberId;
 use crate::checker::analysis::AnalysisStatus;
 use crate::checker::associated::{
     AssociatedOwnerResolution, AssociatedResolution, AssociatedResolutionKind, BehavioralFamilySpec, FamilyApplicationCandidate, FamilyApplicationResolution,
-    FamilyApplicationSelection, check_reification_underconstrained, contains_any_type_parameter, resolve_associated_owner, resolve_bound_behavioral_family,
-    resolve_effective_associated_family, specialize_associated_member,
+    FamilyApplicationSelection, check_reification_underconstrained, contains_any_type_parameter, contains_only_variant_constructor_parameters,
+    resolve_associated_owner, resolve_bound_behavioral_family, resolve_effective_associated_family, specialize_associated_member,
 };
 use crate::checker::binding::{BindingConsistency, BindingWriteResult, reconcile_binding_relation};
 use crate::checker::causal::CausalInvalidity;
 use crate::checker::flow::FlowState;
-use crate::diagnostic::DiagnosticCode;
+use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::{CallableSignature, ResolvedDispatch, ResolvedDispatchResult};
 use crate::identity::{DeclarationId, InvocationTargetId};
 use crate::types::annotation::TypeResolver;
@@ -26,10 +26,10 @@ use crate::types::denotation::{AssociatedValueDenotation, CapturedBehavioralMemb
 use crate::types::environment::TypeView;
 use crate::types::evidence::{DynamicReason, EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
 use crate::types::family::{FamilyMemberTypeKind, FamilyOperationShape};
-use crate::types::id::{KindId, TypeId};
+use crate::types::id::{KindId, TypeId, TypeParameterId};
 use crate::types::outcome::{BlockReason, DynamicBoundaryObligation, RelationOutcome};
 use crate::types::relation::{TypeHierarchy, is_subtype};
-use crate::types::row::RecordRowTail;
+use crate::types::row::{RecordRowFormationError, RecordRowTail};
 use crate::types::store::{RecordTypeField, TupleTypeElement, TypeData};
 use phalcom_ast::ast::{
     AssociatedInvokeExpr, AssociatedLookupExpr, AssociatedMemberSyntax, AssociatedNamedMode, AssociatedResidualSelectorSyntax, BinaryExpr, BinaryOp,
@@ -39,6 +39,7 @@ use phalcom_ast::ast::{
 };
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorBase, SelectorPattern, SelectorSlot};
+use std::collections::HashMap;
 
 /// Central entry point for bidirectional expression analysis (Spec 04.5 / E4).
 pub fn analyze_expression(ctx: &mut CheckingContext<'_>, expr: &Expr, expected: &ExpectedType) -> TypedExpression {
@@ -234,7 +235,12 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 let mut typed = TypedExpression::new(fact.knowledge.clone().with_range(*range));
                 typed.denotation = fact.denotation;
                 if let Some(info) = ctx.lookup_binding_info(value) {
-                    if let Some(state) = ctx.flow.get_binding(info.id) {
+                    let binding_id = info.id;
+                    typed.local_type = ctx.local_binding_type(binding_id).cloned();
+                    if let Some(local_type) = typed.local_type.clone() {
+                        ctx.record_local_capture(binding_id, local_type);
+                    }
+                    if let Some(state) = ctx.flow.get_binding(binding_id) {
                         typed.causal_invalidity = state.causal_invalidity;
                         if let Some(explanation) = state.explanation {
                             typed.explanation_parents.push(explanation);
@@ -337,7 +343,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 _ => ExpectedType::None,
             };
 
-            let val_typed = analyze_expression(ctx, &assign.value, &target_expected);
+            let mut val_typed = analyze_expression(ctx, &assign.value, &target_expected);
             if let Expr::Var { value: var_name, .. } = &*assign.name {
                 let mut causal_invalidity = val_typed.causal_invalidity;
                 let mut consistency = BindingConsistency::Unconstrained;
@@ -358,6 +364,17 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                                 .expect("error diagnostic has cause");
                             causal_invalidity = causal_invalidity.join(crate::checker::causal::CausalInvalidity::One(cause));
                         } else {
+                            let local_allowed = ctx.binding_is_in_current_scope(info.id)
+                                || ctx.check_local_type_escape(
+                                    val_typed.local_type.as_ref(),
+                                    state.contract.as_ref().map(|contract| contract.ty),
+                                    &[],
+                                    assign.range,
+                                );
+                            if !local_allowed {
+                                val_typed.knowledge = TypeKnowledge::Unknown(UnknownReason::ExistentialEscape);
+                                val_typed.local_type = None;
+                            }
                             let relation = match state.contract.as_ref() {
                                 None => RelationOutcome::proven(()),
                                 Some(contract) => match &val_typed.knowledge {
@@ -397,6 +414,10 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             if let Expr::Field { value: field_name, .. } = &*assign.name {
                 if let Some(class_decl) = ctx.current_class.clone() {
                     if let Some((field_id, field_k)) = ctx.resolve_field_contract(&class_decl, ctx.current_side, field_name) {
+                        if !ctx.check_local_type_escape(val_typed.local_type.as_ref(), field_k.ty(), &[], assign.range) {
+                            val_typed.knowledge = TypeKnowledge::Unknown(UnknownReason::ExistentialEscape);
+                            val_typed.local_type = None;
+                        }
                         let application = ctx.apply_assignability(
                             &val_typed.knowledge,
                             &field_k,
@@ -435,11 +456,13 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             let outer_flow = ctx.flow.clone();
             let outer_normal_returns = ctx.take_normal_return_exits();
             let outer_throw_exits = std::mem::take(&mut ctx.throw_exit_flows);
+            ctx.begin_closure_capture();
             ctx.push_scope();
             let (expected_params, expected_ret) = expected.callable_signature(ctx.store).unwrap_or_default();
 
             let object_decl = ctx.core_ids.object.clone();
             let Some(top) = ctx.core_type(&object_decl) else {
+                ctx.end_closure_capture();
                 ctx.pop_scope();
                 ctx.normal_return_exits = outer_normal_returns;
                 ctx.throw_exit_flows = outer_throw_exits;
@@ -503,6 +526,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                     check_statement(ctx, stmt);
                 }
             }
+            let captured_local_types = ctx.end_closure_capture();
             ctx.pop_scope();
             let block_normal_returns = ctx.take_normal_return_exits();
             let _block_throw_exits = std::mem::take(&mut ctx.throw_exit_flows);
@@ -513,12 +537,16 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             // produced while checking the captured body inside that body.
             ctx.flow = outer_flow;
 
+            let captured_escape = captured_local_types.first().is_some_and(|local_type| {
+                !ctx.check_local_type_escape(Some(local_type), None, &[], block.range)
+            });
+
             let mut block_return_values = block_normal_returns.into_iter().map(|f| f.knowledge).collect::<Vec<_>>();
             if tail_typed.knowledge.ty() != Some(ctx.store.never()) && (block_return_values.is_empty() || tail_typed.knowledge.ty() != Some(ctx.store.unit())) {
                 block_return_values.push(tail_typed.knowledge.clone());
             }
             let closure_return_knowledge = if block_return_values.is_empty() {
-                tail_typed.knowledge
+                tail_typed.knowledge.clone()
             } else if block_return_values.len() == 1 {
                 block_return_values.remove(0)
             } else {
@@ -527,6 +555,9 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
 
             let Some(return_type) = closure_return_knowledge.ty() else {
                 ctx.expected_return = outer_expected_return;
+                if captured_escape {
+                    return TypedExpression::unknown(UnknownReason::ExistentialEscape);
+                }
                 if let Some(symbolic_body) = tail_typed.symbolic_result.as_ref() {
                     let symbolic_context = symbolic_body.context;
                     let symbolic_return = match &expected_ret {
@@ -566,6 +597,9 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             };
             if incomplete_signature {
                 ctx.expected_return = outer_expected_return;
+                if captured_escape {
+                    return TypedExpression::unknown(UnknownReason::ExistentialEscape);
+                }
                 return TypedExpression::unknown(UnknownReason::NoTypeEvidence);
             }
             let callable_ty = ctx.store.callable(crate::types::store::CallableType {
@@ -573,7 +607,13 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 return_type,
             });
             ctx.expected_return = outer_expected_return;
-            TypedExpression::established(callable_ty, EvidenceOrigin::Syntax, block.range)
+            let mut result = TypedExpression::established(callable_ty, EvidenceOrigin::Syntax, block.range);
+            if captured_escape {
+                result.knowledge = TypeKnowledge::Unknown(UnknownReason::ExistentialEscape);
+            } else {
+                result.local_type = localize_composite_result(ctx, &closure_return_knowledge, std::slice::from_ref(&tail_typed));
+            }
+            result
         }
         Expr::IfLet(if_let) => {
             let val_typed = analyze_expression(ctx, &if_let.value, &ExpectedType::None);
@@ -598,7 +638,7 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 }
             };
 
-            super::control::join_branch_results(ctx, val_typed.causal_invalidity, &then_result, &else_result, if_let.range)
+            super::control::join_branch_results(ctx, val_typed.causal_invalidity, &then_result, &else_result, expected, if_let.range)
         }
         Expr::WhileLet(while_let) => {
             let before = ctx.flow.clone();
@@ -1000,8 +1040,13 @@ fn synthesize_associated_lookup(ctx: &mut CheckingContext<'_>, lookup: &Associat
                         return TypedExpression::unknown(UnknownReason::UncheckedExpression);
                     };
 
-                    let Ok(value_type) = check_reification_underconstrained(ctx, family_type, expected, lookup.range) else {
-                        return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+                    let value_type = if contains_only_variant_constructor_parameters(ctx.store, family_type) {
+                        family_type
+                    } else {
+                        let Ok(value_type) = check_reification_underconstrained(ctx, family_type, expected, lookup.range) else {
+                            return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+                        };
+                        value_type
                     };
 
                     if let Some(expression) = ctx.current_expression_id() {
@@ -1061,6 +1106,118 @@ fn behavioral_family_spec(member: &AssociatedMemberSyntax) -> Option<BehavioralF
     }
 }
 
+fn receiver_type_form(receiver: &TypedExpression) -> Option<TypeId> {
+    match receiver.denotation.as_ref() {
+        Some(SemanticDenotation::TypeForm(form)) => Some(*form),
+        _ => None,
+    }
+}
+
+/// Adds declaration-owned class parameters to a dispatch target while keeping
+/// them separate from callable-local binders. Applied type forms fix those
+/// parameters; raw forms leave them inferable and therefore reject
+/// underconstrained use sites through the normal call pipeline.
+fn specialize_class_side_target(
+    ctx: &mut CheckingContext<'_>,
+    mut target: CallableApplicationTarget,
+    receiver_form: Option<TypeId>,
+) -> CallableApplicationTarget {
+    let Some(receiver_form) = receiver_form else {
+        return target;
+    };
+    let Some(callable) = target.callable.as_ref() else {
+        return target;
+    };
+    if callable.side != crate::identity::DispatchSide::Class {
+        return target;
+    }
+    let declaration_generics = ctx.declaration_generic_signature(callable.declaration_owner());
+    if let Some(generics) = declaration_generics {
+        if matches!(ctx.store.get(receiver_form), TypeData::Applied { .. } | TypeData::ExactCase { .. }) {
+            if let Some(specialization) = target.specialization.as_ref() {
+                target.fixed_generics = generics
+                    .parameters
+                    .iter()
+                    .filter_map(|parameter| specialization.environment.get_param(*parameter).map(|ty| (*parameter, ty)))
+                    .collect();
+            }
+        }
+        target.declaration_generics = Some(generics);
+    }
+    target
+}
+
+fn specialize_class_side_member_knowledge(
+    ctx: &mut CheckingContext<'_>,
+    receiver_form: Option<TypeId>,
+    owner: &DeclarationId,
+    knowledge: TypeKnowledge,
+) -> TypeKnowledge {
+    let Some(receiver_form) = receiver_form else {
+        return knowledge;
+    };
+    let specialized = knowledge.map_type(|ty| ctx.specialize_type_to_receiver(receiver_form, owner, ty).unwrap_or(ty));
+    if matches!(ctx.store.get(receiver_form), TypeData::Nominal { .. })
+        && specialized.ty().is_some_and(|ty| contains_any_type_parameter(ctx.store, ty))
+    {
+        TypeKnowledge::Unknown(UnknownReason::UnderconstrainedTypeVariable)
+    } else {
+        specialized
+    }
+}
+
+fn record_class_side_invocation(
+    ctx: &mut CheckingContext<'_>,
+    dispatch_receiver: TypeId,
+    receiver_form: Option<TypeId>,
+    dispatch_lookup: crate::dispatch::DispatchLookup,
+    target: &CallableApplicationTarget,
+    result_type: TypeId,
+) {
+    let Some(receiver_form) = receiver_form else {
+        return;
+    };
+    let Some(callable) = target.callable.clone() else {
+        return;
+    };
+    if callable.side != crate::identity::DispatchSide::Class {
+        return;
+    }
+    let owner_form = if target.signature.kind == crate::dispatch::CallableSemanticKind::Constructor
+        && matches!(ctx.store.get(receiver_form), TypeData::Nominal { .. })
+        && ctx
+            .store
+            .applied_nominal_parts(result_type)
+            .is_some_and(|(owner, arguments)| owner == *callable.declaration_owner() && !arguments.is_empty())
+    {
+        result_type
+    } else {
+        receiver_form
+    };
+    let lookup_owner = ctx
+        .dispatch_owner_for_lookup(dispatch_receiver, dispatch_lookup)
+        .map(|(owner, _)| owner)
+        .unwrap_or_else(|| callable.declaration_owner().clone());
+    let Some(expression) = ctx.current_expression_id() else {
+        return;
+    };
+    let Some(InvocationTargetId::Behavioral(invocation_target)) = target.target.clone() else {
+        return;
+    };
+    ctx.record_associated_resolution(
+        expression,
+        AssociatedResolution {
+            owner_form,
+            lookup_owner,
+            family: None,
+            kind: AssociatedResolutionKind::BoundBehavioralInvoke {
+                target: InvocationTargetId::Behavioral(invocation_target),
+                result_type,
+            },
+        },
+    );
+}
+
 fn synthesize_bound_behavioral_lookup(
     ctx: &mut CheckingContext<'_>,
     receiver: TypedExpression,
@@ -1073,8 +1230,11 @@ fn synthesize_bound_behavioral_lookup(
     let Some(spec) = behavioral_family_spec(&lookup.member) else {
         return TypedExpression::unknown(UnknownReason::UncheckedExpression);
     };
+    let receiver_form = receiver_type_form(&receiver);
     let dispatch_lookup = receiver.dispatch_lookup.clone();
-    let Ok((lookup_owner, family_type, members)) = resolve_bound_behavioral_family(ctx, receiver_type, dispatch_lookup, spec.clone(), lookup.range) else {
+    let Ok((lookup_owner, family_type, members)) =
+        resolve_bound_behavioral_family(ctx, receiver_type, receiver_form, dispatch_lookup, spec.clone(), lookup.range)
+    else {
         return TypedExpression::unknown(UnknownReason::UncheckedExpression);
     };
     // A bound behavioral family retains canonical callable targets. Generic
@@ -1105,6 +1265,7 @@ fn synthesize_bound_behavioral_lookup(
     TypedExpression::established(family_type, EvidenceOrigin::DeclarationSemantics, lookup.range).with_denotation(SemanticDenotation::AssociatedValue(
         Box::new(AssociatedValueDenotation::BehavioralFamily {
             receiver_type,
+            receiver_application: receiver_form,
             spec,
             members: captured.into(),
         }),
@@ -1232,14 +1393,18 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
                 parameters,
                 TypeKnowledge::established(constructor_result_type, EvidenceOrigin::ConstructorSemantics),
             );
+            if let Some(local_signature) = constructor.generic_signature.clone() {
+                signature = signature.with_generics(local_signature);
+            }
+            let mut target = CallableApplicationTarget::variant_constructor(variant.clone(), signature);
             if let Some(enum_signature) = ctx.enum_info(&owner.lookup_owner).and_then(|info| info.generic_signature.clone()) {
                 let mut enum_signature = enum_signature;
                 let mut constraints = enum_signature.constraints.to_vec();
                 constraints.extend(variant_info.case_environment.equalities.iter().cloned());
                 enum_signature.constraints = constraints.into_boxed_slice();
-                signature = signature.with_generics(enum_signature);
+                target = target.with_declaration_generics(enum_signature);
             }
-            CallableApplicationTarget::variant_constructor(variant.clone(), signature).with_fixed_generics(fixed_generics)
+            target.with_fixed_generics(fixed_generics)
         }
     };
 
@@ -1291,14 +1456,15 @@ fn synthesize_bound_behavioral_invoke(
         return analyze_unresolved_application(ctx, &premise, arguments, reason).into();
     };
 
-    match ctx.resolve_dispatch_target(receiver_type, &selector, receiver.dispatch_lookup.clone()) {
+    let receiver_form = receiver_type_form(&receiver);
+    match ctx.resolve_dispatch_target_with_specialization(receiver_type, receiver_form, &selector, receiver.dispatch_lookup.clone()) {
         ResolvedDispatchResult::Found(resolved) => {
             let callable = resolved.callable.clone();
             let lookup_owner = ctx
                 .dispatch_owner_for_lookup(receiver_type, receiver.dispatch_lookup.clone())
                 .map(|(owner, _)| owner)
                 .unwrap_or_else(|| callable.owner.declaration().clone());
-            let target = CallableApplicationTarget::from_dispatch(resolved);
+            let target = specialize_class_side_target(ctx, CallableApplicationTarget::from_dispatch(resolved), receiver_form);
             let result = apply_resolved_callable(ctx, &target, &premise, arguments, expected, invoke.range);
             if let Some(result_type) = result.knowledge.ty() {
                 if let Some(expression) = ctx.current_expression_id() {
@@ -1316,16 +1482,17 @@ fn synthesize_bound_behavioral_invoke(
                             result_type,
                         }
                     };
-                    ctx.record_associated_resolution(
-                        expression,
-                        AssociatedResolution {
-                            owner_form: receiver_type,
-                            lookup_owner,
-                            family: None,
-                            kind,
-                        },
-                    );
+                    let owner_form = receiver_form.unwrap_or(receiver_type);
+                    ctx.record_associated_resolution(expression, AssociatedResolution { owner_form, lookup_owner, family: None, kind });
                 }
+                record_class_side_invocation(
+                    ctx,
+                    receiver_type,
+                    receiver_form,
+                    receiver.dispatch_lookup.clone(),
+                    &target,
+                    result_type,
+                );
             }
             result.into()
         }
@@ -1412,6 +1579,7 @@ fn synthesize_list_literal(ctx: &mut CheckingContext<'_>, list: &phalcom_ast::as
         other => other,
     });
     crate::checker::composition::propagate_required_dependencies(&mut result, &operands);
+    result.local_type = localize_composite_result(ctx, &result.knowledge, &operands);
     result
 }
 
@@ -1469,6 +1637,7 @@ fn synthesize_set_literal(ctx: &mut CheckingContext<'_>, set: &phalcom_ast::ast:
         other => other,
     });
     crate::checker::composition::propagate_required_dependencies(&mut result, &operands);
+    result.local_type = localize_composite_result(ctx, &result.knowledge, &operands);
     result
 }
 
@@ -1555,6 +1724,7 @@ fn synthesize_map_literal(ctx: &mut CheckingContext<'_>, map: &phalcom_ast::ast:
         other => other,
     });
     crate::checker::composition::propagate_required_dependencies(&mut result, &operands);
+    result.local_type = localize_composite_result(ctx, &result.knowledge, &operands);
     result
 }
 
@@ -1563,6 +1733,15 @@ fn is_applied_core_collection(store: &crate::types::store::TypeStore, applied_ty
         return false;
     };
     declaration == *core_decl && matches!(store.get(applied_ty), TypeData::Applied { arguments, .. } if arguments.len() == arity)
+}
+
+fn localize_composite_result(ctx: &CheckingContext<'_>, result: &TypeKnowledge, operands: &[TypedExpression]) -> Option<crate::types::rigid::LocalType> {
+    let result_ty = result.ty()?;
+    let replacements = operands
+        .iter()
+        .filter_map(|operand| Some((operand.knowledge.ty()?, operand.local_type.clone()?)))
+        .collect::<HashMap<_, _>>();
+    (!replacements.is_empty()).then(|| crate::types::rigid::LocalType::from_canonical_types(ctx.store, result_ty, &replacements))
 }
 
 fn synthesize_tuple_literal(ctx: &mut CheckingContext<'_>, tup: &phalcom_ast::ast::TupleLiteralExpr, expected: &ExpectedType) -> TypedExpression {
@@ -1631,15 +1810,17 @@ fn synthesize_tuple_literal(ctx: &mut CheckingContext<'_>, tup: &phalcom_ast::as
         other => other,
     });
     crate::checker::composition::propagate_required_dependencies(&mut result, &operands);
+    result.local_type = localize_composite_result(ctx, &result.knowledge, &operands);
     result
 }
 
 fn product_label_name(label: &ProductLabel) -> Option<Box<str>> {
     match label {
-        ProductLabel::Static { symbol, .. } => match symbol {
-            SymbolLiteralKind::Name(name) | SymbolLiteralKind::Selector { name, .. } => Some(name.clone().into_boxed_str()),
-            _ => None,
-        },
+        ProductLabel::Static {
+            symbol: SymbolLiteralKind::Name(name) | SymbolLiteralKind::Selector { name, .. },
+            ..
+        } => Some(name.clone().into_boxed_str()),
+        ProductLabel::Static { .. } => None,
         _ => None,
     }
 }
@@ -1700,12 +1881,125 @@ fn expected_record_field(ctx: &CheckingContext<'_>, expected: &ExpectedType, nam
     ExpectedType::None
 }
 
+#[derive(Clone, Debug)]
+enum RecordLiteralShapeFailure {
+    DuplicateField {
+        field: Box<str>,
+        range: SourceRange,
+    },
+    OpenTailConflict {
+        range: SourceRange,
+    },
+    TailKindMismatch {
+        parameter: TypeParameterId,
+        range: SourceRange,
+    },
+    LacksUnproven {
+        parameter: TypeParameterId,
+        field: Box<str>,
+        range: SourceRange,
+    },
+}
+
+fn record_extension_lacks_is_proven(ctx: &CheckingContext<'_>, expected: &ExpectedType, parameter: TypeParameterId, field: &str) -> bool {
+    if ctx.stable_record_row_lacks(parameter, field) {
+        return true;
+    }
+    let Some(expected_ty) = expected.ty() else {
+        return false;
+    };
+    let TypeData::Record(row_id) = ctx.store.get(expected_ty) else {
+        return false;
+    };
+    let row = ctx.store.record_row(*row_id);
+    row.tail == RecordRowTail::Parameter(parameter) && row.fields.iter().any(|candidate| candidate.name.as_ref() == field)
+}
+
+fn emit_record_literal_shape_failure(ctx: &mut CheckingContext<'_>, failure: RecordLiteralShapeFailure, result: &mut TypedExpression) {
+    let (code, message, range) = match failure {
+        RecordLiteralShapeFailure::DuplicateField { field, range } => (
+            DiagnosticCode::RecordDuplicateField,
+            format!("duplicate field `{field}` in record literal"),
+            range,
+        ),
+        RecordLiteralShapeFailure::OpenTailConflict { range } => (
+            DiagnosticCode::RecordRowInferenceConflict,
+            "record literal cannot merge different open row tails".into(),
+            range,
+        ),
+        RecordLiteralShapeFailure::TailKindMismatch { parameter, range } => (
+            DiagnosticCode::RecordRowTailKindMismatch,
+            format!("record row tail parameter `{}` has the wrong kind", ctx.store.type_parameter(parameter).name),
+            range,
+        ),
+        RecordLiteralShapeFailure::LacksUnproven { parameter, field, range } => (
+            DiagnosticCode::RecordRowLacksUnproven,
+            format!(
+                "cannot extend this open Record with `{field}` because row `{}` is not known to exclude that field",
+                ctx.store.type_parameter(parameter).name
+            ),
+            range,
+        ),
+    };
+    if let Some(cause) = ctx.emit_diagnostic(SemanticDiagnostic::error_in(ctx.current_module.clone(), code, message, range)) {
+        result.invalidate(cause);
+    }
+}
+
+fn emit_record_literal_formation_failure(ctx: &mut CheckingContext<'_>, error: RecordRowFormationError, range: SourceRange, result: &mut TypedExpression) {
+    match error {
+        RecordRowFormationError::DuplicateField(field) => {
+            emit_record_literal_shape_failure(ctx, RecordLiteralShapeFailure::DuplicateField { field, range }, result)
+        }
+        RecordRowFormationError::TailParameterWrongKind { parameter, .. } => {
+            emit_record_literal_shape_failure(ctx, RecordLiteralShapeFailure::TailKindMismatch { parameter, range }, result)
+        }
+        RecordRowFormationError::TailParameterMissing(_) => record_record_literal_internal_failure(
+            ctx,
+            "record literal could not be materialized because its row contract is invalid",
+            "record literal row tail referred to a missing canonical parameter".into(),
+            range,
+            result,
+        ),
+        RecordRowFormationError::FieldNotProperType { field, .. } => record_record_literal_internal_failure(
+            ctx,
+            "record literal contains an invalid field type after inference",
+            format!("record literal field `{field}` was not a proper type"),
+            range,
+            result,
+        ),
+    }
+}
+
+fn record_record_literal_internal_failure(
+    ctx: &mut CheckingContext<'_>,
+    safe_message: &'static str,
+    details: String,
+    range: SourceRange,
+    result: &mut TypedExpression,
+) {
+    let incident = ctx.record_internal_incident(
+        crate::checker::incident::InternalSemanticIncidentKind::InferenceInvariantViolation,
+        crate::checker::incident::InternalSemanticIncidentDetails::Message {
+            message: details.into_boxed_str(),
+        },
+        Some(range),
+    );
+    ctx.diagnostics.push(SemanticDiagnostic::error_in(
+        ctx.current_module.clone(),
+        DiagnosticCode::AnalysisInternalFailure,
+        safe_message,
+        range,
+    ));
+    result.status = AnalysisStatus::InternalFailure(incident);
+}
+
 fn synthesize_record_literal(ctx: &mut CheckingContext<'_>, rec: &phalcom_ast::ast::RecordLiteralExpr, expected: &ExpectedType) -> TypedExpression {
     let mut names: Vec<Box<str>> = Vec::new();
     let mut knowledge = Vec::new();
     let mut operands = Vec::new();
     let mut open_tail = None;
-    let mut invalid_shape = false;
+    let mut shape_failure = None;
 
     for entry in &rec.entries {
         match entry {
@@ -1721,26 +2015,56 @@ fn synthesize_record_literal(ctx: &mut CheckingContext<'_>, rec: &phalcom_ast::a
                 let field_expected = expected_record_field(ctx, expected, &name);
                 let typed = analyze_expression(ctx, &f.value, &field_expected);
                 if names.iter().any(|existing| existing.as_ref() == name.as_str()) {
-                    invalid_shape = true;
+                    shape_failure.get_or_insert(RecordLiteralShapeFailure::DuplicateField {
+                        field: name.clone().into_boxed_str(),
+                        range: f.range,
+                    });
+                } else if let Some(RecordRowTail::Parameter(parameter)) = open_tail {
+                    if !record_extension_lacks_is_proven(ctx, expected, parameter, &name) {
+                        shape_failure.get_or_insert(RecordLiteralShapeFailure::LacksUnproven {
+                            parameter,
+                            field: name.clone().into_boxed_str(),
+                            range: f.range,
+                        });
+                    }
                 }
                 names.push(name.into_boxed_str());
                 knowledge.push(typed.knowledge.clone());
                 operands.push(typed);
             }
-            RecordLiteralEntry::Expansion { expr, .. } => {
+            RecordLiteralEntry::Expansion { expr, range } => {
                 let typed = analyze_expression(ctx, expr, &ExpectedType::None);
                 match crate::checker::composition::project_record_shape(ctx.store, &typed.knowledge) {
                     Ok(projection) => {
                         if let Some(existing_tail) = open_tail {
-                            if existing_tail != projection.tail {
-                                invalid_shape = true;
+                            if existing_tail != projection.tail && projection.tail != RecordRowTail::Closed {
+                                shape_failure.get_or_insert(RecordLiteralShapeFailure::OpenTailConflict { range: *range });
                             }
                         } else if projection.tail != RecordRowTail::Closed {
                             open_tail = Some(projection.tail);
                         }
+                        if let RecordRowTail::Parameter(parameter) = projection.tail {
+                            for existing in &names {
+                                if projection.fields.iter().any(|(name, _)| name == existing) {
+                                    shape_failure.get_or_insert(RecordLiteralShapeFailure::DuplicateField {
+                                        field: existing.clone(),
+                                        range: *range,
+                                    });
+                                } else if !record_extension_lacks_is_proven(ctx, expected, parameter, existing) {
+                                    shape_failure.get_or_insert(RecordLiteralShapeFailure::LacksUnproven {
+                                        parameter,
+                                        field: existing.clone(),
+                                        range: *range,
+                                    });
+                                }
+                            }
+                        }
                         for (name, field_knowledge) in projection.fields {
                             if names.iter().any(|existing| existing == &name) {
-                                invalid_shape = true;
+                                shape_failure.get_or_insert(RecordLiteralShapeFailure::DuplicateField {
+                                    field: name.clone(),
+                                    range: *range,
+                                });
                             }
                             names.push(name);
                             knowledge.push(field_knowledge);
@@ -1756,25 +2080,40 @@ fn synthesize_record_literal(ctx: &mut CheckingContext<'_>, rec: &phalcom_ast::a
         }
     }
 
-    let knowledge = crate::types::evidence::compose_required_knowledge(knowledge, EvidenceOrigin::Syntax, |types| {
-        if invalid_shape || types.len() != names.len() {
-            return Err(UnknownReason::UncheckedExpression);
-        }
-        let fields = names
-            .iter()
-            .cloned()
-            .zip(types.iter().copied())
-            .map(|(name, ty)| RecordTypeField { name, ty })
-            .collect::<Vec<_>>();
-        ctx.store
-            .record_row_type_checked(fields, open_tail.unwrap_or(RecordRowTail::Closed))
-            .map_err(|_| UnknownReason::UncheckedExpression)
-    });
+    let mut formation_failure = None;
+    let knowledge = if shape_failure.is_some() {
+        TypeKnowledge::Unknown(UnknownReason::UncheckedExpression)
+    } else {
+        crate::types::evidence::compose_required_knowledge(knowledge, EvidenceOrigin::Syntax, |types| {
+            if types.len() != names.len() {
+                return Err(UnknownReason::UncheckedExpression);
+            }
+            let fields = names
+                .iter()
+                .cloned()
+                .zip(types.iter().copied())
+                .map(|(name, ty)| RecordTypeField { name, ty })
+                .collect::<Vec<_>>();
+            match ctx.store.record_row_type_checked(fields, open_tail.unwrap_or(RecordRowTail::Closed)) {
+                Ok(ty) => Ok(ty),
+                Err(error) => {
+                    formation_failure = Some(error);
+                    Err(UnknownReason::UncheckedExpression)
+                }
+            }
+        })
+    };
     let mut result = TypedExpression::new(match knowledge {
         TypeKnowledge::Known(_) => knowledge.with_range(rec.range),
         other => other,
     });
+    if let Some(failure) = shape_failure {
+        emit_record_literal_shape_failure(ctx, failure, &mut result);
+    } else if let Some(error) = formation_failure {
+        emit_record_literal_formation_failure(ctx, error, rec.range, &mut result);
+    }
     crate::checker::composition::propagate_required_dependencies(&mut result, &operands);
+    result.local_type = localize_composite_result(ctx, &result.knowledge, &operands);
     result
 }
 
@@ -1819,20 +2158,33 @@ fn family_callable_application_target(
     let target = captured_family_target(denotation, operation);
     if let Some(SemanticDenotation::AssociatedValue(assoc)) = denotation {
         match &**assoc {
-            AssociatedValueDenotation::BehavioralFamily { receiver_type, members, .. } => {
+            AssociatedValueDenotation::BehavioralFamily {
+                receiver_type,
+                receiver_application,
+                members,
+                ..
+            } => {
                 let Some(InvocationTargetId::Behavioral(callable)) = members.iter().find(|member| &member.operation == operation).map(|member| &member.target)
                 else {
                     return None;
                 };
-                let ResolvedDispatchResult::Found(resolved) =
-                    ctx.resolve_dispatch_target(*receiver_type, &callable.selector, crate::dispatch::DispatchLookup::Normal)
+                let ResolvedDispatchResult::Found(resolved) = ctx.resolve_dispatch_target_with_specialization(
+                    *receiver_type,
+                    *receiver_application,
+                    &callable.selector,
+                    crate::dispatch::DispatchLookup::Normal,
+                )
                 else {
                     return None;
                 };
                 if resolved.callable != *callable {
                     return None;
                 }
-                return Some(CallableApplicationTarget::from_dispatch(resolved));
+                return Some(specialize_class_side_target(
+                    ctx,
+                    CallableApplicationTarget::from_dispatch(resolved),
+                    *receiver_application,
+                ));
             }
             AssociatedValueDenotation::Family {
                 owner_form,
@@ -1926,15 +2278,19 @@ fn associated_variant_constructor_target(
         parameters,
         TypeKnowledge::established(result_type, EvidenceOrigin::ConstructorSemantics),
     );
+    if let Some(local_signature) = constructor.generic_signature.clone() {
+        signature = signature.with_generics(local_signature);
+    }
+    let mut target = CallableApplicationTarget::variant_constructor(variant.clone(), signature);
     if let Some(enum_signature) = ctx.enum_info(&owner.lookup_owner).and_then(|info| info.generic_signature.clone()) {
         let mut enum_signature = enum_signature;
         let mut constraints = enum_signature.constraints.to_vec();
         constraints.extend(variant_info.case_environment.equalities.iter().cloned());
         enum_signature.constraints = constraints.into_boxed_slice();
-        signature = signature.with_generics(enum_signature);
+        target = target.with_declaration_generics(enum_signature);
     }
 
-    Some(CallableApplicationTarget::variant_constructor(variant.clone(), signature).with_fixed_generics(fixed_generics))
+    Some(target.with_fixed_generics(fixed_generics))
 }
 
 fn independent_callable_return_type(ctx: &CheckingContext<'_>, callable_type: TypeId) -> Option<TypeId> {
@@ -2068,6 +2424,7 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, 
         };
         return analyze_unresolved_application(ctx, &premise, &arguments, reason).into();
     };
+    let receiver_form = receiver_type_form(&recv_typed);
 
     let slots = match super::call::static_call_shape(&arguments) {
         StaticCallShape::Exact(slots) => slots,
@@ -2098,10 +2455,21 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, 
             .collect::<Vec<_>>();
         return apply_union_resolved_call(ctx, &premise, &arms, &arguments, expected, call.range, &selector).into();
     }
-    match ctx.resolve_dispatch_target(receiver_ty, &selector, recv_typed.dispatch_lookup.clone()) {
+    match ctx.resolve_dispatch_target_with_specialization(receiver_ty, receiver_form, &selector, recv_typed.dispatch_lookup.clone()) {
         ResolvedDispatchResult::Found(resolved) => {
-            let target = CallableApplicationTarget::from_dispatch(resolved);
-            apply_resolved_callable(ctx, &target, &premise, &arguments, expected, call.range).into()
+            let target = specialize_class_side_target(ctx, CallableApplicationTarget::from_dispatch(resolved), receiver_form);
+            let result = apply_resolved_callable(ctx, &target, &premise, &arguments, expected, call.range);
+            if let Some(result_type) = result.knowledge.ty() {
+                record_class_side_invocation(
+                    ctx,
+                    receiver_ty,
+                    receiver_form,
+                    recv_typed.dispatch_lookup.clone(),
+                    &target,
+                    result_type,
+                );
+            }
+            result.into()
         }
         ResolvedDispatchResult::Missing { .. } => {
             analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchMissing).into()
@@ -2451,6 +2819,7 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
     TypedExpression::unknown(UnknownReason::UnresolvedName(call.name.as_str().into()))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_binary_operation_from_typed(
     ctx: &mut CheckingContext<'_>,
     left_expr: &Expr,
@@ -2873,14 +3242,23 @@ fn synthesize_get_property(ctx: &mut CheckingContext<'_>, get: &GetPropertyExpr,
         };
         return analyze_unresolved_application(ctx, &premise, &[], reason).into();
     };
+    let receiver_form = receiver_type_form(&recv_typed);
 
     // 1. Check Field on class surface
-    let field_read = match ctx.store.get(recv_ty).clone() {
-        TypeData::ClassObject { declaration } => ctx.resolve_field_read(&declaration, crate::identity::DispatchSide::Class, &get.property),
-        TypeData::Nominal { declaration } => ctx.resolve_field_read(&declaration, crate::identity::DispatchSide::Instance, &get.property),
-        _ => None,
+    let field_read = if let Some(form) = receiver_form {
+        ctx.store
+            .nominal_origin_declaration(form)
+            .cloned()
+            .and_then(|declaration| ctx.resolve_field_read(&declaration, crate::identity::DispatchSide::Class, &get.property))
+    } else {
+        match ctx.store.get(recv_ty).clone() {
+            TypeData::ClassObject { declaration } => ctx.resolve_field_read(&declaration, crate::identity::DispatchSide::Class, &get.property),
+            TypeData::Nominal { declaration } => ctx.resolve_field_read(&declaration, crate::identity::DispatchSide::Instance, &get.property),
+            _ => None,
+        }
     };
-    if let Some((_, field_k, field_causal)) = field_read {
+    if let Some((field, field_k, field_causal)) = field_read {
+        let field_k = specialize_class_side_member_knowledge(ctx, receiver_form, &field.owner, field_k);
         let mut typed = TypedExpression::new(field_k.with_range(get.range));
         typed.causal_invalidity = recv_typed.causal_invalidity.join(field_causal);
         return typed;
@@ -2888,10 +3266,21 @@ fn synthesize_get_property(ctx: &mut CheckingContext<'_>, get: &GetPropertyExpr,
 
     // 2. Check Getter selector
     if let Ok(sel) = Selector::getter(&get.property) {
-        match ctx.resolve_dispatch_target(recv_ty, &sel, recv_typed.dispatch_lookup.clone()) {
+        match ctx.resolve_dispatch_target_with_specialization(recv_ty, receiver_form, &sel, recv_typed.dispatch_lookup.clone()) {
             ResolvedDispatchResult::Found(resolved) => {
-                let target = CallableApplicationTarget::from_dispatch(resolved);
-                return apply_resolved_callable(ctx, &target, &premise, &[], expected, get.range).into();
+                let target = specialize_class_side_target(ctx, CallableApplicationTarget::from_dispatch(resolved), receiver_form);
+                let result = apply_resolved_callable(ctx, &target, &premise, &[], expected, get.range);
+                if let Some(result_type) = result.knowledge.ty() {
+                    record_class_side_invocation(
+                        ctx,
+                        recv_ty,
+                        receiver_form,
+                        recv_typed.dispatch_lookup.clone(),
+                        &target,
+                        result_type,
+                    );
+                }
+                return result.into();
             }
             ResolvedDispatchResult::Missing { .. } => {}
             ResolvedDispatchResult::Ambiguous(_) => {
@@ -2936,14 +3325,26 @@ fn synthesize_set_property(ctx: &mut CheckingContext<'_>, set: &SetPropertyExpr)
         );
         return super::call::assignment_result_from_call(ctx, operation, set.range);
     };
+    let receiver_form = receiver_type_form(&recv_typed);
 
     // 1. Check field
-    let field_opt = match ctx.store.get(recv_ty).clone() {
-        TypeData::ClassObject { declaration } => ctx.get_field(&declaration, crate::identity::DispatchSide::Class, &set.property),
-        TypeData::Nominal { declaration } => ctx.get_field(&declaration, crate::identity::DispatchSide::Instance, &set.property),
-        _ => None,
+    let field_opt = if let Some(form) = receiver_form {
+        ctx.store
+            .nominal_origin_declaration(form)
+            .cloned()
+            .and_then(|declaration| ctx.get_field(&declaration, crate::identity::DispatchSide::Class, &set.property))
+    } else {
+        match ctx.store.get(recv_ty).clone() {
+            TypeData::ClassObject { declaration } => ctx.get_field(&declaration, crate::identity::DispatchSide::Class, &set.property),
+            TypeData::Nominal { declaration } => ctx.get_field(&declaration, crate::identity::DispatchSide::Instance, &set.property),
+            _ => None,
+        }
     };
     if let Some(field_k) = field_opt {
+        let field_k = receiver_form
+            .and_then(|form| ctx.store.nominal_origin_declaration(form).cloned().map(|owner| (form, owner)))
+            .map(|(_, owner)| specialize_class_side_member_knowledge(ctx, receiver_form, &owner, field_k.clone()))
+            .unwrap_or(field_k);
         let expected_value = field_k
             .ty()
             .map(|ty| ExpectedType::proper_from(ty, ExpectationOrigin::AssignmentContract))
@@ -2964,14 +3365,24 @@ fn synthesize_set_property(ctx: &mut CheckingContext<'_>, set: &SetPropertyExpr)
 
     // 2. Check setter selector
     if let Ok(sel) = Selector::setter(&set.property) {
-        match ctx.resolve_dispatch_target(recv_ty, &sel, recv_typed.dispatch_lookup.clone()) {
+        match ctx.resolve_dispatch_target_with_specialization(recv_ty, receiver_form, &sel, recv_typed.dispatch_lookup.clone()) {
             ResolvedDispatchResult::Found(resolved) => {
                 let arguments = vec![super::call::ApplicationArgument::Positional {
                     expression: &set.value,
                     range: set.value.range(),
                 }];
-                let target = CallableApplicationTarget::from_dispatch(resolved);
+                let target = specialize_class_side_target(ctx, CallableApplicationTarget::from_dispatch(resolved), receiver_form);
                 let operation = apply_resolved_callable(ctx, &target, &premise, &arguments, &ExpectedType::None, set.range);
+                if let Some(result_type) = operation.knowledge.ty() {
+                    record_class_side_invocation(
+                        ctx,
+                        recv_ty,
+                        receiver_form,
+                        recv_typed.dispatch_lookup.clone(),
+                        &target,
+                        result_type,
+                    );
+                }
                 return super::call::assignment_result_from_call(ctx, operation, set.range);
             }
             ResolvedDispatchResult::Missing { .. } => {}
@@ -3163,6 +3574,7 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
     let mut remaining_space = initial_space.clone().normalize();
     let mut arm_resolutions = Vec::with_capacity(match_expr.arms.len());
     let mut normal_branch_types = Vec::new();
+    let mut normal_branch_local_types = Vec::new();
     let mut normal_branch_flows = Vec::new();
 
     for (arm_index, arm) in match_expr.arms.iter().enumerate() {
@@ -3179,23 +3591,26 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
             if let (Some(binding), Some(exact_case)) = (stable_scrutinee, pattern_exact_case_type(ctx, &pattern_res)) {
                 ctx.apply_flow_predicate(&crate::checker::flow::FlowPredicate::IsInstance { binding, target: exact_case }.authoritative());
             }
+            let prior_local_constraints = std::mem::replace(&mut ctx.active_local_constraints, proof.local_equalities.to_vec());
             let branch_typed = analyze_expression(ctx, &arm.branch, expected);
-            Some((branch_typed.knowledge, ctx.flow.clone()))
+            ctx.active_local_constraints = prior_local_constraints;
+            Some((branch_typed, ctx.flow.clone(), proof.clone()))
         } else {
             None
         };
 
         ctx.pop_scope();
-        let branch_result = if let Some((branch_result, mut branch_flow)) = analyzed_branch {
+        let branch_result = if let Some((branch_typed, mut branch_flow, branch_proof)) = analyzed_branch {
             for pattern_binding in &arm_bindings {
                 branch_flow.bindings.remove(&pattern_binding.binding);
                 branch_flow.facts.invalidate_binding(pattern_binding.binding);
             }
             if branch_flow.is_reachable() {
-                normal_branch_types.push(branch_result.clone());
+                normal_branch_types.push(branch_typed.knowledge.clone());
+                normal_branch_local_types.push((branch_typed.local_type.clone(), branch_proof.local_equalities.clone(), arm.branch.range()));
                 normal_branch_flows.push(branch_flow);
             }
-            branch_result
+            branch_typed.knowledge
         } else {
             TypeKnowledge::Unknown(UnknownReason::UncheckedExpression)
         };
@@ -3232,7 +3647,26 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
         }
     };
 
-    let unified_result = crate::checker::exhaustiveness::join_match_result_knowledge(ctx.store, normal_branch_types);
+    let mut unified_result = crate::checker::exhaustiveness::join_match_result_knowledge(ctx.store, normal_branch_types);
+    let mut local_result = None;
+    let local_escape = normal_branch_local_types.iter().filter_map(|(local, constraints, range)| local.as_ref().map(|local| (local, constraints.as_ref(), *range))).find_map(|(local, constraints, range)| {
+        if ctx.check_local_type_escape(Some(local), expected.ty(), constraints, range) {
+            None
+        } else {
+            Some(())
+        }
+    });
+    if local_escape.is_none() {
+        if normal_branch_local_types.iter().any(|(local, _, _)| local.is_some()) {
+            if let Some(expected_ty) = expected.ty() {
+                unified_result = TypeKnowledge::assumed(expected_ty, EvidenceOrigin::ContextualDerivation);
+            } else if let Some((Some(local), _, _)) = normal_branch_local_types.iter().find(|(local, _, _)| local.is_some()) {
+                local_result = Some(local.clone());
+            }
+        }
+    } else {
+        unified_result = TypeKnowledge::Unknown(UnknownReason::ExistentialEscape);
+    }
 
     let resolution = crate::match_semantics::MatchResolution {
         expression: expr_id,
@@ -3244,7 +3678,9 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
     };
     ctx.record_match_resolution(expr_id, resolution);
 
-    TypedExpression::new(unified_result)
+    let mut result = TypedExpression::new(unified_result);
+    result.local_type = local_result;
+    result
 }
 
 /// Returns the exact-case union established by a successful root pattern.

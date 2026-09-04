@@ -28,7 +28,7 @@ let expressionMapValue = mapResult.fold(
     right: |value| { value }
 )
 
-let applyFunction: Expression<<X> =>> Either<String, X>, (Int) -> Bool> = Expression::Pure(|value: Int| {
+let applyFunction: Expression<<X> =>> Either<String, X>, (Int) -> Bool> = Expression::Pure(|value| {
     value > 0
 })
 let applyArgument: Expression<<X> =>> Either<String, X>, Int> = Expression::IntLiteral(41)

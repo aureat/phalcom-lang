@@ -174,3 +174,40 @@ class Probe {
     assert_eq!(call.knowledge.status(), Some(EvidenceStatus::Assumed));
     assert!(matches!(call.status, AnalysisStatus::Ready), "{call:#?}");
 }
+
+#[test]
+fn generic_constructor_composes_declaration_and_callable_domains() {
+    let fixture = Fixture::new(
+        r#"
+class Box<T> {
+  @constructor new<U>(_ value: T, _ metadata: U) {}
+}
+
+class Probe {
+  @class
+  run() {
+    let result: Box<Int> = Box.new(1, "metadata")
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+    let call = fixture.expression(run, "Box.new(1, \"metadata\")");
+    fixture.assert_type(call.knowledge.ty().expect("generic constructor result"), applied("Box", [nominal("Int")]));
+    assert!(matches!(call.status, AnalysisStatus::Ready), "{call:#?}");
+
+    let constructor = fixture
+        .analysis
+        .snapshot
+        .callable_signatures
+        .iter()
+        .map(|(_, signature)| signature)
+        .find(|signature| signature.owner.name.as_ref() == "Box" && signature.side == DispatchSide::Class)
+        .expect("Box constructor signature");
+    let generic_signature = constructor.generics.as_ref().expect("constructor-local generic signature");
+    assert_eq!(generic_signature.parameter_count(), 1);
+    assert!(matches!(
+        generic_signature.owner,
+        phalcom_semantic::types::parameter::TypeParameterOwner::Callable(_)
+    ));
+}

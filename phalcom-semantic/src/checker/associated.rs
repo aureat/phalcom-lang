@@ -227,6 +227,7 @@ pub fn resolve_effective_associated_family(
 pub fn resolve_bound_behavioral_family(
     ctx: &mut CheckingContext<'_>,
     receiver_type: TypeId,
+    receiver_form: Option<TypeId>,
     lookup: crate::dispatch::DispatchLookup,
     spec: BehavioralFamilySpec,
     range: SourceRange,
@@ -246,7 +247,9 @@ pub fn resolve_bound_behavioral_family(
 
     match &spec {
         BehavioralFamilySpec::Exact(selector) => {
-            if let crate::dispatch::ResolvedDispatchResult::Found(resolved) = ctx.resolve_dispatch_target(receiver_type, selector, lookup) {
+            if let crate::dispatch::ResolvedDispatchResult::Found(resolved) =
+                ctx.resolve_dispatch_target_with_specialization(receiver_type, receiver_form, selector, lookup)
+            {
                 if let Some(callable_type) = callable_type_from_signature(ctx, &resolved.signature) {
                     let member_kind = if selector.kind == SelectorKind::Getter {
                         crate::types::family::FamilyMemberTypeKind::Value
@@ -287,6 +290,15 @@ pub fn resolve_bound_behavioral_family(
                     if !seen.insert(selector.clone()) {
                         continue;
                     }
+                    let signature = match ctx.resolve_dispatch_target_with_specialization(
+                        receiver_type,
+                        receiver_form,
+                        &selector,
+                        lookup.clone(),
+                    ) {
+                        crate::dispatch::ResolvedDispatchResult::Found(resolved) if resolved.callable == callable => resolved.signature,
+                        _ => signature,
+                    };
                     let Some(callable_type) = callable_type_from_signature(ctx, &signature) else {
                         // A family may still be constructed when declaration
                         // type knowledge is incomplete. Omit only the static
@@ -486,6 +498,39 @@ pub fn contains_any_type_parameter(store: &TypeStore, ty: TypeId) -> bool {
         TypeData::ExactCase { enum_type, .. } => contains_any_type_parameter(store, *enum_type),
         _ => false,
     }
+}
+
+/// Returns whether every unspecialized parameter in a reified associated
+/// callable belongs to a variant constructor's universal local domain.
+/// Such binders are intentionally retained for rank-1 Family invocation; an
+/// unresolved declaration-owned parameter still makes the associated value
+/// itself unsaturated and must be rejected.
+pub fn contains_only_variant_constructor_parameters(store: &TypeStore, ty: TypeId) -> bool {
+    fn visit(store: &TypeStore, ty: TypeId, found: &mut bool) -> bool {
+        match store.get(ty) {
+            TypeData::Parameter(parameter) => {
+                *found = true;
+                matches!(
+                    &store.type_parameter(*parameter).owner,
+                    crate::types::parameter::TypeParameterOwner::Callable(callable)
+                        if matches!(callable.owner, crate::identity::CallableOwnerId::Variant(_))
+                )
+            }
+            TypeData::Applied { origin, arguments } => visit(store, *origin, found) && arguments.iter().all(|&argument| visit(store, argument, found)),
+            TypeData::ExactCase { enum_type, .. } => visit(store, *enum_type, found),
+            TypeData::Union(members) => members.iter().all(|&member| visit(store, member, found)),
+            TypeData::Tuple(elements) => elements.iter().all(|element| visit(store, element.ty, found)),
+            TypeData::Record(row_id) => store.record_row(*row_id).fields.iter().all(|field| visit(store, field.ty, found)),
+            TypeData::Callable(callable) => {
+                callable.parameters.iter().all(|parameter| visit(store, parameter.ty, found)) && visit(store, callable.return_type, found)
+            }
+            TypeData::Family(family_id) => store.get_family(*family_id).members.iter().all(|member| visit(store, member.ty, found)),
+            _ => true,
+        }
+    }
+
+    let mut found = false;
+    visit(store, ty, &mut found) && found
 }
 
 /// Enforces Part 3.5 Option A underconstraint checking for reified associated values.

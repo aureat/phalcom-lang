@@ -140,7 +140,8 @@ pub use types::{
     TypeFormResolution, TypeFormationInvalid, TypeFormationMissing, TypeFormationOutcome, TypeFormationUnresolved, TypeHierarchy, TypeId, TypeKnowledge,
     TypeLevelBinding, TypeParameterData, TypeParameterId, TypeParameterOwner, TypeResolver, TypeStore, TypeSubstitution, UnknownReason, ValueSemanticFact,
     VariantTypeId, check_assignability, check_assignability_bounded, check_knowledge_against_type, check_knowledge_against_type_bounded, check_subtype_bounded,
-    is_subtype, normalize_native_type, register_native_surfaces, resolve_native_type_form, resolve_type_annotation, resolve_type_form,
+    is_subtype, normalize_native_type, register_native_surfaces, register_native_surfaces_from_records, resolve_native_type_form, resolve_type_annotation,
+    resolve_type_form,
     substitution_for_applied,
 };
 pub use workspace::{SemanticAnalysis, SemanticWorkspaceInput, analyze_single_module, analyze_workspace};

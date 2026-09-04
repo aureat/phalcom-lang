@@ -8,7 +8,7 @@ use super::row_inference::{InferenceRecord, InferenceRecordField, InferenceRecor
 use crate::identity::{CallableId, ExplanationId, ExpressionId, InferVarId};
 use crate::types::application::TypeApplicationError;
 use crate::types::evidence::{DynamicReason, EvidenceStatus, TypeKnowledge, UnknownReason};
-use crate::types::id::{KindId, TypeId, TypeParameterId, VariantTypeId};
+use crate::types::id::{KindId, RigidTypeVariableId, TypeId, TypeParameterId, VariantTypeId};
 use crate::types::kind::KindData;
 use crate::types::outcome::{BlockReason, BudgetReport};
 use crate::types::relation::{TypeHierarchy, is_subtype};
@@ -23,6 +23,9 @@ use std::collections::{HashMap, HashSet};
 pub enum InferenceTerm {
     Canonical(TypeId),
     Var(InferVarId),
+    /// Opaque branch-local rigid. Flexible variables may be solved to this
+    /// term, but no solver path may assign the rigid itself.
+    Rigid(RigidTypeVariableId),
     Applied {
         origin: Box<InferenceTerm>,
         arguments: Box<[InferenceTerm]>,
@@ -259,6 +262,7 @@ pub struct UnderconstrainedInference {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum InferenceMaterializationFailure {
     Unsolved(UnderconstrainedInference),
+    Rigid(RigidTypeVariableId),
     TypeApplication(TypeApplicationError),
     InvalidExactCase,
     UnsupportedDomain,
@@ -623,9 +627,19 @@ impl InferenceSession {
         store: &TypeStore,
         frame: InferenceFrameId,
     ) -> HashMap<TypeParameterId, InferenceTerm> {
+        self.instantiate_generic_signature_in_frame_excluding(generic_sig, store, frame, &HashSet::new())
+    }
+
+    pub(crate) fn instantiate_generic_signature_in_frame_excluding(
+        &mut self,
+        generic_sig: &GenericSignature,
+        store: &TypeStore,
+        frame: InferenceFrameId,
+        excluded: &HashSet<TypeParameterId>,
+    ) -> HashMap<TypeParameterId, InferenceTerm> {
         let mut map = HashMap::new();
         for &param in &generic_sig.parameters {
-            if store.type_parameter(param).kind != KindId::RECORD_ROW {
+            if !excluded.contains(&param) && store.type_parameter(param).kind != KindId::RECORD_ROW {
                 let var = self.fresh_variable_in_frame(frame, store.type_parameter(param).kind);
                 map.insert(param, InferenceTerm::Var(var));
             }
@@ -828,6 +842,7 @@ impl InferenceSession {
                 }
                 None
             }
+            InferenceTerm::Rigid(_) => None,
             InferenceTerm::Applied { origin, arguments } => {
                 let origin = self.materialize_for_expected(origin, store)?;
                 let arguments = arguments
@@ -1223,6 +1238,7 @@ impl InferenceSession {
     pub fn term_for_expected(&self, term: &InferenceTerm) -> InferenceTerm {
         match term {
             InferenceTerm::Canonical(ty) => InferenceTerm::Canonical(*ty),
+            InferenceTerm::Rigid(rigid) => InferenceTerm::Rigid(*rigid),
             InferenceTerm::Var(variable) => self
                 .substitutions
                 .get(&self.find_var(*variable))
@@ -1786,7 +1802,7 @@ impl InferenceSession {
             }
             InferenceTerm::Record(record) => record.fields.iter().any(|field| self.term_has_unresolved_variables(&field.term)),
             InferenceTerm::Family(family) => family.iter().any(|member| self.term_has_unresolved_variables(&member.term)),
-            InferenceTerm::Canonical(_) => false,
+            InferenceTerm::Canonical(_) | InferenceTerm::Rigid(_) => false,
         }
     }
 
@@ -1855,7 +1871,7 @@ impl InferenceSession {
                     self.collect_term_variables(&member.term, variables);
                 }
             }
-            InferenceTerm::Canonical(_) => {}
+            InferenceTerm::Canonical(_) | InferenceTerm::Rigid(_) => {}
         }
     }
 
@@ -1906,7 +1922,7 @@ impl InferenceSession {
                     self.record_term_proof_state(&member.term, proof.clone());
                 }
             }
-            InferenceTerm::Canonical(_) => {}
+            InferenceTerm::Canonical(_) | InferenceTerm::Rigid(_) => {}
         }
     }
 
@@ -1948,7 +1964,7 @@ impl InferenceSession {
                     self.record_term_support(&member.term, support);
                 }
             }
-            InferenceTerm::Canonical(_) => {}
+            InferenceTerm::Canonical(_) | InferenceTerm::Rigid(_) => {}
         }
     }
 
@@ -2040,6 +2056,7 @@ impl InferenceSession {
         let rep = self.find_var(var);
         match term {
             InferenceTerm::Canonical(_) => false,
+            InferenceTerm::Rigid(_) => false,
             InferenceTerm::Var(v) => self.find_var(*v) == rep,
             InferenceTerm::Applied { origin, arguments } => self.occurs_in_term(rep, origin) || arguments.iter().any(|a| self.occurs_in_term(rep, a)),
             InferenceTerm::ExactCase { enum_type, .. } => self.occurs_in_term(rep, enum_type),
@@ -2059,6 +2076,16 @@ impl InferenceSession {
             return self.unify_terms(left, &reduced, store);
         }
         match (left, right) {
+            (InferenceTerm::Rigid(left), InferenceTerm::Rigid(right)) => {
+                if left == right {
+                    Ok(SolveEffect::Unchanged)
+                } else {
+                    Err(InferenceFailureReason::StructuralMismatch {
+                        left: Box::new(InferenceTerm::Rigid(*left)),
+                        right: Box::new(InferenceTerm::Rigid(*right)),
+                    })
+                }
+            }
             (InferenceTerm::Var(v1), InferenceTerm::Var(v2)) => {
                 let rep1 = self.find_var(*v1);
                 let rep2 = self.find_var(*v2);
@@ -2671,6 +2698,7 @@ impl InferenceSession {
     pub fn materialize(&self, term: &InferenceTerm, store: &mut TypeStore) -> Result<TypeId, InferenceMaterializationFailure> {
         match term {
             InferenceTerm::Canonical(ty) => Ok(*ty),
+            InferenceTerm::Rigid(rigid) => Err(InferenceMaterializationFailure::Rigid(*rigid)),
             InferenceTerm::Var(v) => {
                 let rep = self.find_var(*v);
                 if let Some(&ty) = self.substitutions.get(&rep) {
@@ -2774,7 +2802,7 @@ mod tests {
         InferenceSession, InferenceTerm,
     };
     use crate::identity::{DeclarationId, InferVarId};
-    use crate::types::id::KindId;
+    use crate::types::id::{KindId, RigidTypeVariableId};
     use crate::types::store::TypeStore;
     use phalcom_modules::identity::ModuleId;
 
@@ -3069,6 +3097,41 @@ mod tests {
         let mut session = InferenceSession::new();
         let result = session.unify_terms(&InferenceTerm::Canonical(rigid), &record, &mut store);
         assert!(matches!(result, Err(InferenceFailureReason::StructuralMismatch { .. })));
+    }
+
+    #[test]
+    fn rigid_terms_are_identity_equal_but_never_assignment_targets() {
+        let mut store = TypeStore::new();
+        let int = store.nominal(test_decl("Int"));
+        let same = InferenceTerm::Rigid(RigidTypeVariableId::from_index(0));
+        let other = InferenceTerm::Rigid(RigidTypeVariableId::from_index(1));
+        let mut session = InferenceSession::new();
+
+        assert_eq!(session.unify_terms(&same, &same, &mut store), Ok(super::SolveEffect::Unchanged));
+        assert!(matches!(
+            session.unify_terms(&same, &other, &mut store),
+            Err(InferenceFailureReason::StructuralMismatch { .. })
+        ));
+        assert!(matches!(
+            session.unify_terms(&same, &InferenceTerm::Canonical(int), &mut store),
+            Err(InferenceFailureReason::StructuralMismatch { .. })
+        ));
+        assert!(session.substitutions.is_empty());
+    }
+
+    #[test]
+    fn flexible_terms_can_defer_rigid_equality_without_solving_the_rigid() {
+        let mut store = TypeStore::new();
+        let mut session = InferenceSession::new();
+        let variable = session.fresh_variable(KindId::TYPE);
+        let rigid = InferenceTerm::Rigid(RigidTypeVariableId::from_index(0));
+
+        assert_eq!(
+            session.unify_terms(&InferenceTerm::Var(variable), &rigid, &mut store),
+            Ok(super::SolveEffect::Changed)
+        );
+        assert!(session.substitutions.is_empty());
+        assert_eq!(session.var_terms.get(&variable), Some(&rigid));
     }
 
     #[test]

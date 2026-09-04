@@ -348,6 +348,10 @@ pub struct VariantDecl {
     pub name_range: SourceRange,
     /// Span of the explicit `@variant` marker.
     pub variant_marker_range: SourceRange,
+    /// Generic parameters owned by this variant constructor.
+    pub generic_parameters: Vec<GenericParameterSyntax>,
+    /// Generic `where` constraints attached to this variant constructor.
+    pub where_clause: Option<WhereClauseSyntax>,
     /// `None` means getter-shaped singleton variant `#name`.
     pub payload: Option<VariantPayloadSyntax>,
     /// GADT result specialization, if written.
@@ -829,8 +833,12 @@ pub enum IndexAccessor {
 pub struct IndexMethodDef {
     /// Indexing arguments only. The assignment value is not included here.
     pub params: Vec<ParameterDef>,
+    /// Generic parameter binders for this index member.
+    pub generic_parameters: Vec<GenericParameterSyntax>,
     pub accessor: IndexAccessor,
     pub return_annotation: Option<TypeAnnotation>,
+    /// Generic `where` constraints attached to this index member.
+    pub where_clause: Option<WhereClauseSyntax>,
     /// The method body.
     pub body: Vec<Statement>,
     /// `@name(args…)` attributes attached to this member, in declaration
@@ -1056,8 +1064,12 @@ pub struct GetterDef {
 #[derive(Debug, Clone)]
 pub struct SetterDef {
     pub name: String,
+    /// Generic parameter binders for this setter.
+    pub generic_parameters: Vec<GenericParameterSyntax>,
     pub param: ParameterDef,
     pub return_annotation: Option<TypeAnnotation>,
+    /// Generic `where` constraints attached to this setter.
+    pub where_clause: Option<WhereClauseSyntax>,
     pub body: MemberBody,
     pub is_static: bool,
     /// `@name(args…)` attributes attached to this setter, in declaration

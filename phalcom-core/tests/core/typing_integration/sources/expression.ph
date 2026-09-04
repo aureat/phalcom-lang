@@ -126,11 +126,9 @@ class ExpressionMonad<F: Type -> Type> is Monad<<X> =>> Expression<F, X>> {
     }
 }
 
-class StringEitherExpressionMonad
-    is ExpressionMonad<
+class StringEitherExpressionMonad is ExpressionMonad<
         <X> =>> Expression<
             <Y> =>> Either<String, Y>, X>
-        >
-{
+        > {
 
 }

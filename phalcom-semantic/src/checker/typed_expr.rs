@@ -9,6 +9,7 @@ use crate::types::constraint::TypeConstraint;
 use crate::types::denotation::{SemanticDenotation, ValueSemanticFact};
 use crate::types::evidence::{EvidenceOrigin, EvidenceSet, TypeKnowledge, UnknownReason};
 use crate::types::id::TypeId;
+use crate::types::rigid::LocalType;
 use phalcom_common::range::SourceRange;
 
 /// Solver-local result retained while one expression is checked inside a live
@@ -32,6 +33,8 @@ pub struct TypedExpression {
     pub constraints: Vec<TypeConstraint>,
     pub provenance: EvidenceSet,
     pub causal_invalidity: CausalInvalidity,
+    /// Query-local type view. Never copied into durable expression metadata.
+    pub(crate) local_type: Option<LocalType>,
     pub(crate) symbolic_result: Option<SymbolicInferenceResult>,
 }
 
@@ -78,6 +81,7 @@ impl TypedExpression {
             constraints: Vec::new(),
             provenance,
             causal_invalidity: CausalInvalidity::Clean,
+            local_type: None,
             symbolic_result: None,
         }
     }
@@ -97,6 +101,7 @@ impl TypedExpression {
             constraints: Vec::new(),
             provenance,
             causal_invalidity: CausalInvalidity::Clean,
+            local_type: None,
             symbolic_result: None,
         }
     }
@@ -116,6 +121,7 @@ impl TypedExpression {
             constraints: Vec::new(),
             provenance,
             causal_invalidity: CausalInvalidity::Clean,
+            local_type: None,
             symbolic_result: None,
         }
     }
@@ -132,6 +138,7 @@ impl TypedExpression {
             constraints: Vec::new(),
             provenance: EvidenceSet::default(),
             causal_invalidity: CausalInvalidity::Clean,
+            local_type: None,
             symbolic_result: None,
         }
     }
@@ -148,6 +155,7 @@ impl TypedExpression {
             constraints: Vec::new(),
             provenance: EvidenceSet::default(),
             causal_invalidity: CausalInvalidity::Clean,
+            local_type: None,
             symbolic_result: None,
         }
     }
@@ -207,6 +215,7 @@ impl From<crate::checker::call::CallCheckResult> for TypedExpression {
         typed.causal_invalidity = result.causal_invalidity;
         typed.explanation_parents = result.explanation_parents;
         typed.callable = result.callable;
+        typed.local_type = result.local_type;
         typed.symbolic_result = result.symbolic_result;
         typed.debug_assert_coherent();
         typed

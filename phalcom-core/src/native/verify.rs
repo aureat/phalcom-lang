@@ -210,6 +210,7 @@ mod tests {
         type_params: &[],
         params: &EMPTY_PARAMS,
         return_type: &RETURN_TYPE,
+        constraints: &[],
     };
     static SURFACE: PrimitiveSurfaceSpec = PrimitiveSurfaceSpec {
         key: PrimitiveKey {

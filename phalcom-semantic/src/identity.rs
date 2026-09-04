@@ -276,6 +276,16 @@ impl CallableId {
         }
     }
 
+    /// Returns the canonical class-side callable identity that owns generic
+    /// parameters declared directly on a variant constructor.
+    pub fn variant_constructor(variant: VariantId) -> Self {
+        Self {
+            selector: variant.selector.clone(),
+            owner: CallableOwnerId::Variant(variant),
+            side: DispatchSide::Class,
+        }
+    }
+
     pub fn declaration_owner(&self) -> &DeclarationId {
         self.owner.declaration()
     }

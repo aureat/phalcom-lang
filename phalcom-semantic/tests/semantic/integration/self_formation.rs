@@ -64,7 +64,7 @@ class Derived is Base {}
 }
 
 #[test]
-fn declaration_generics_are_instance_only_for_member_annotations() {
+fn declaration_generics_parameterize_class_side_templates() {
     let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
@@ -82,13 +82,6 @@ class Box<T> {
     let parsed = parse(&source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
     let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
-    assert!(
-        analysis
-            .snapshot
-            .all_diagnostics()
-            .any(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::AnnotationUnresolved)
-    );
-
     let owner = DeclarationId::new(module, "Box".into());
     let instance = analysis
         .snapshot
@@ -109,7 +102,10 @@ class Box<T> {
             DispatchSide::Class,
         ))
         .expect("class-side signature");
-    assert!(matches!(class_side.declared_return.state, DeclaredTypeState::Unknown(_)));
+    let DeclaredTypeState::Known(TypeTerm::Canonical(class_side_ty)) = &class_side.declared_return.state else {
+        panic!("class-side template should retain ambient declaration generic parameter");
+    };
+    assert!(matches!(analysis.snapshot.store.get(*class_side_ty), TypeData::Parameter(_)));
 
     let constructor = analysis
         .snapshot

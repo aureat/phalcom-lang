@@ -14,6 +14,7 @@ use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::types::denotation::ValueSemanticFact;
 use crate::types::evidence::{ContractAssumptionEligibility, DynamicReason, EvidenceOrigin, TypeKnowledge, UnknownReason};
 use crate::types::id::TypeId;
+use crate::types::rigid::LocalType;
 use crate::types::outcome::{DynamicBoundaryObligation, RelationOutcome};
 use phalcom_ast::ast::{BindingKind, Pattern, Statement};
 use phalcom_common::range::SourceRange;
@@ -146,6 +147,7 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
                 binding.kind == BindingKind::Let,
                 binding.range,
                 val_typed.expression_id.and_then(|id| ctx.explanation_for_expression(id)),
+                val_typed.local_type.clone(),
             );
             StatementControl::FallsThrough
         }
@@ -160,6 +162,16 @@ pub fn check_statement(ctx: &mut CheckingContext<'_>, statement: &Statement) -> 
             } else {
                 TypedExpression::established(ctx.store.unit(), EvidenceOrigin::DeclarationSemantics, ret.range)
             };
+
+            if !ctx.check_local_type_escape(
+                val_typed.local_type.as_ref(),
+                ctx.expected_return.as_ref().map(|contract| contract.ty),
+                &[],
+                ret.range,
+            ) {
+                val_typed.knowledge = TypeKnowledge::Unknown(UnknownReason::ExistentialEscape);
+                val_typed.local_type = None;
+            }
 
             let relation = if let Some(expected) = ctx.expected_return.clone() {
                 Some(ctx.apply_knowledge_against_type(
@@ -377,6 +389,7 @@ fn bind_declaration_pattern(
     mutable: bool,
     range: phalcom_common::range::SourceRange,
     explanation: Option<crate::identity::ExplanationId>,
+    local_type: Option<LocalType>,
 ) {
     match pattern {
         Pattern::Name { name, range: name_range } => {
@@ -391,9 +404,16 @@ fn bind_declaration_pattern(
                 causal_invalidity,
                 mutable,
             });
-            if !has_contract {
-                if let (crate::checker::binding::BindingDeclarationResult::Inserted(binding), Some(explanation)) = (result, explanation) {
-                    ctx.flow.set_binding_explanation(binding, explanation);
+            let (binding_id, inserted) = match result {
+                crate::checker::binding::BindingDeclarationResult::Inserted(binding) => (binding, true),
+                crate::checker::binding::BindingDeclarationResult::Redeclared(binding) => (binding, false),
+            };
+            if let Some(local_type) = local_type {
+                ctx.set_local_binding_type(binding_id, local_type);
+            }
+            if !has_contract && inserted {
+                if let Some(explanation) = explanation {
+                    ctx.flow.set_binding_explanation(binding_id, explanation);
                 }
             }
         }
@@ -415,7 +435,20 @@ fn bind_declaration_pattern(
                     )
                 });
                 let component = ValueSemanticFact::new(knowledge);
-                bind_declaration_pattern(ctx, element, component, None, causal_invalidity, mutable, range, component_explanation);
+                bind_declaration_pattern(
+                    ctx,
+                    element,
+                    component,
+                    None,
+                    causal_invalidity,
+                    mutable,
+                    range,
+                    component_explanation,
+                    local_type.as_ref().and_then(|local| match local {
+                        LocalType::Tuple(elements) => elements.get(index).map(|element| element.ty.clone()),
+                        _ => None,
+                    }),
+                );
             }
         }
         Pattern::List { elements, rest, .. } => {
@@ -433,6 +466,7 @@ fn bind_declaration_pattern(
                     mutable,
                     range,
                     explanation,
+                    local_type.as_ref().and_then(local_list_element),
                 );
             }
             if let Some(rest) = rest {
@@ -448,10 +482,18 @@ fn bind_declaration_pattern(
                     mutable,
                     range,
                     explanation,
+                    local_type.clone(),
                 );
             }
         }
         _ => {}
+    }
+}
+
+fn local_list_element(local_type: &LocalType) -> Option<LocalType> {
+    match local_type {
+        LocalType::Applied { arguments, .. } => arguments.first().cloned(),
+        _ => None,
     }
 }
 

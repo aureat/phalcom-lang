@@ -171,14 +171,14 @@ class Probe {
     let animal_decl = DeclarationId::new(module.clone(), "Animal".into());
     assert_eq!(cat_res.lookup_owner, cat_decl);
     match &cat_res.kind {
-        AssociatedResolutionKind::StaticInvoke { target, .. } => {
+        AssociatedResolutionKind::BoundBehavioralInvoke { target, .. } => {
             if let phalcom_semantic::identity::InvocationTargetId::Behavioral(c) = target {
                 assert_eq!(c.declaration_owner(), &animal_decl);
             } else {
                 panic!("Expected behavioral target");
             }
         }
-        _ => panic!("Expected StaticInvoke"),
+        _ => panic!("Expected BoundBehavioralInvoke"),
     }
 }
 

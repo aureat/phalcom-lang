@@ -1,4 +1,4 @@
-use super::super::support::{with_rows, Fixture};
+use super::super::support::{Fixture, with_rows};
 use phalcom_semantic::checker::analysis::{AnalysisStatus, ExpressionAnalysis};
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::DispatchSide;
@@ -28,18 +28,26 @@ fn incompatible_repeated_remainders_fail_closed() {
 
 pub(crate) fn assert_row_rejection(fixture: &Fixture, expression: &ExpressionAnalysis) {
     assert!(
-        matches!(expression.status, AnalysisStatus::Invalid(_) | AnalysisStatus::Blocked(_))
-            || (matches!(expression.status, AnalysisStatus::Ready) && expression.knowledge.is_unknown()),
+        matches!(expression.status, AnalysisStatus::Invalid(_) | AnalysisStatus::Blocked(_)),
         "row rejection must be invalid or formally blocked: {expression:#?}"
     );
-    assert!(!matches!(expression.knowledge, TypeKnowledge::Dynamic(_)), "row rejection must not escape through Dynamic: {expression:#?}");
+    assert!(
+        !matches!(expression.knowledge, TypeKnowledge::Dynamic(_)),
+        "row rejection must not escape through Dynamic: {expression:#?}"
+    );
     let row_diagnostics = [
         DiagnosticCode::RecordRowInferenceConflict,
         DiagnosticCode::RecordRowLacksViolation,
+        DiagnosticCode::RecordRowLacksUnproven,
+        DiagnosticCode::RecordDuplicateField,
         DiagnosticCode::GenericConstraintUnsatisfied,
     ];
     assert!(
-        fixture.analysis.snapshot.all_diagnostics().any(|diagnostic| row_diagnostics.contains(&diagnostic.code)),
+        fixture
+            .analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| row_diagnostics.contains(&diagnostic.code)),
         "missing row rejection diagnostic: {:#?}",
         fixture.analysis.snapshot.all_diagnostics().collect::<Vec<_>>()
     );

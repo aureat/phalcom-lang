@@ -1,3 +1,9 @@
+> Status: historical design note. Generic getters are implemented and current;
+> this document records the former parser/signature gap and is no longer a
+> statement of supported behavior. The authoritative rules and current
+> evidence are in [SC-4.8](../../impl/semantic/semantic-completeness/sc-4.8/phalcom-type-system-completion-technical-spec.md)
+> and the [implementation state](../../impl/semantic/typing-integration/typing-integration-implementation-state.md).
+
 # Parser
 
 There is no deep type-theoretic reason getters must be non-generic. The current prohibition is mainly because Phalcom’s getter model has not defined how getter-local type parameters are instantiated.

@@ -1318,6 +1318,56 @@ fn generic_enum_getter_accepts_callable_local_binder() {
 }
 
 #[test]
+fn generic_setter_accepts_callable_local_binder_and_where_clause() {
+    let source = r#"
+class Box {
+    value<T>=(put newValue: T)
+        where T <: Number
+    {
+    }
+}
+"#;
+    let program = parse_source(source, 0).expect("generic setter should parse");
+    let Statement::Class(class) = &program.statements[0] else {
+        panic!("expected class");
+    };
+    let ClassMember::Setter(setter) = &class.members[0] else {
+        panic!("expected setter");
+    };
+    assert_eq!(setter.generic_parameters.len(), 1);
+    assert_eq!(setter.generic_parameters[0].name, "T");
+    assert!(setter.where_clause.is_some());
+    assert!(setter.param.annotation.is_some());
+}
+
+#[test]
+fn generic_index_getter_and_setter_preserve_index_shape() {
+    let source = r#"
+class Store {
+    [_ key]<U> -> U {}
+    [_ key]<U>=(put value: U) where U <: Object {}
+}
+"#;
+    let program = parse_source(source, 0).expect("generic index members should parse");
+    let Statement::Class(class) = &program.statements[0] else {
+        panic!("expected class");
+    };
+    let ClassMember::Index(getter) = &class.members[0] else {
+        panic!("expected index getter");
+    };
+    assert_eq!(getter.params.len(), 1);
+    assert_eq!(getter.generic_parameters.len(), 1);
+    assert!(matches!(getter.accessor, phalcom_ast::ast::IndexAccessor::Get));
+    let ClassMember::Index(setter) = &class.members[1] else {
+        panic!("expected index setter");
+    };
+    assert_eq!(setter.params.len(), 1);
+    assert_eq!(setter.generic_parameters.len(), 1);
+    assert!(setter.where_clause.is_some());
+    assert!(matches!(setter.accessor, phalcom_ast::ast::IndexAccessor::Set { .. }));
+}
+
+#[test]
 fn generic_getter_rejects_callable_variance_marker() {
     let result = parse_with_recovery("class Box { value<+T> -> T {} }\n", 0);
     assert!(

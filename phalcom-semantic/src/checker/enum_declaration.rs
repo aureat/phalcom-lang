@@ -7,7 +7,7 @@ use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic, SemanticSourceSpan};
 use crate::enum_semantics::{
     EnumInfo, VariantConstructorParameter, VariantConstructorSignature, VariantFieldSemantic, VariantInfo, VariantShape, VariantVisibility,
 };
-use crate::identity::{DeclarationId, DispatchSide, ModuleId, VariantConstructorId, VariantFamilyId, VariantFieldId, VariantId};
+use crate::identity::{CallableId, DeclarationId, DispatchSide, ModuleId, VariantConstructorId, VariantFamilyId, VariantFieldId, VariantId};
 use crate::resolver::LinkedTypeResolver;
 use crate::surface::MemberVisibility;
 use crate::types::annotation::{ScopedTypeResolver, TypeFormationSite, resolve_type_annotation, resolve_type_form, type_level_binding_for_parameter};
@@ -93,10 +93,52 @@ pub fn build_enum_semantics(
             Some(_) => VariantShape::Constructor,
         };
 
+        let constructor_callable = CallableId::variant_constructor(variant_id.clone());
+        let variant_generic_signature = if variant.generic_parameters.is_empty() {
+            None
+        } else {
+            match crate::types::annotation::resolve_generic_signature(
+                store,
+                declarations,
+                &scoped_resolver,
+                &formation_site,
+                crate::types::parameter::TypeParameterOwner::Callable(constructor_callable),
+                crate::types::annotation::GenericBinderSite::Callable,
+                &variant.generic_parameters,
+                variant.where_clause.as_ref(),
+                &mut diagnostics,
+            ) {
+                crate::types::annotation::TypeFormationOutcome::Ready(signature) => Some(signature),
+                crate::types::annotation::TypeFormationOutcome::Dynamic
+                | crate::types::annotation::TypeFormationOutcome::Missing(_)
+                | crate::types::annotation::TypeFormationOutcome::Unresolved(_)
+                | crate::types::annotation::TypeFormationOutcome::Invalid(_)
+                | crate::types::annotation::TypeFormationOutcome::Blocked(_)
+                | crate::types::annotation::TypeFormationOutcome::Cancelled
+                | crate::types::annotation::TypeFormationOutcome::BudgetExceeded(_)
+                | crate::types::annotation::TypeFormationOutcome::InternalFailure(_) => None,
+            }
+        };
+        let variant_type_parameters = variant_generic_signature
+            .as_ref()
+            .map(|signature| signature.parameters.to_vec())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|parameter_id| {
+                let name = store.type_parameter(parameter_id).name.to_string();
+                let binding = type_level_binding_for_parameter(store, parameter_id);
+                (name, binding)
+            })
+            .collect();
+        let variant_resolver = ScopedTypeResolver {
+            parent: &scoped_resolver,
+            type_parameters: variant_type_parameters,
+        };
+
         // Result type and GADT case environment
         let (result_type_template, case_env) = if let Some(ref ret_ann) = variant.result_annotation {
             let mut ann_diags = Vec::new();
-            let form_res = resolve_type_form(store, declarations, &scoped_resolver, &formation_site, ret_ann, &mut ann_diags);
+            let form_res = resolve_type_form(store, declarations, &variant_resolver, &formation_site, ret_ann, &mut ann_diags);
             diagnostics.extend(ann_diags);
 
             match form_res {
@@ -214,7 +256,7 @@ pub fn build_enum_semantics(
 
                 let declared_type = if let Some(ref ann) = param.annotation {
                     let mut ann_diags = Vec::new();
-                    let raw_knowledge = resolve_type_annotation(store, declarations, &scoped_resolver, &formation_site, ann, &mut ann_diags);
+                    let raw_knowledge = resolve_type_annotation(store, declarations, &variant_resolver, &formation_site, ann, &mut ann_diags);
                     diagnostics.extend(ann_diags);
 
                     match raw_knowledge {
@@ -254,6 +296,7 @@ pub fn build_enum_semantics(
             VariantShape::Singleton => None,
             VariantShape::Constructor => Some(VariantConstructorSignature {
                 constructor: VariantConstructorId::new(variant_id.clone()),
+                generic_signature: variant_generic_signature,
                 parameters: constructor_params.into_boxed_slice(),
                 result_type_template,
                 exact_case_template,

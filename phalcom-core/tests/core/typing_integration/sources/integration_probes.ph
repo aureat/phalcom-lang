@@ -4,9 +4,7 @@ class UnifiedTypingProbe {
         _ monad: StringEitherMonad,
         _ source: Either<String, Int>
     ) {
-        let mapped = source.map(|value| {
-            value > 0
-        })
+        let mapped = source.map(|value| value > 0)
 
         let bound = MonadAlgorithms.bind(
             monad,

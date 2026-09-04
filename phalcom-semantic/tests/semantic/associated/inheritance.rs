@@ -35,12 +35,12 @@ class Probe {
     let resolution = callable.associated_resolutions.get(&expression.id).expect("associated resolution");
 
     assert_eq!(resolution.lookup_owner, DeclarationId::new(module.clone(), "Child".into()));
-    let AssociatedResolutionKind::StaticInvoke {
+    let AssociatedResolutionKind::BoundBehavioralInvoke {
         target: InvocationTargetId::Behavioral(target),
         ..
     } = &resolution.kind
     else {
-        panic!("expected inherited behavioral invocation, got {:?}", resolution.kind);
+        panic!("expected bound inherited behavioral invocation, got {:?}", resolution.kind);
     };
     assert_eq!(target.declaration_owner(), &DeclarationId::new(module, "Base".into()));
 }
