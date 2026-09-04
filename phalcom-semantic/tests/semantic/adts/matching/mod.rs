@@ -6,6 +6,7 @@ pub(crate) mod flow;
 pub(crate) mod gadt_refinement;
 pub(crate) mod pattern_space;
 pub(crate) mod patterns;
+pub(crate) mod recursive_coverage;
 pub(crate) mod resolution;
 
 // Flow-specific tests are intentionally kept in their own responsibility

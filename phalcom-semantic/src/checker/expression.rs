@@ -473,7 +473,14 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             let mut params = Vec::new();
             let mut incomplete_signature = false;
             for (i, p) in block.params.fixed.iter().enumerate() {
-                let p_ty = expected_params.get(i).and_then(|e| e.ty());
+                let p_ty = expected_params.get(i).and_then(|e| {
+                    e.ty().or_else(|| match e {
+                        ExpectedType::Inference { context, term, .. } => {
+                            ctx.inference_session(*context).and_then(|s| s.borrow().materialize_for_expected(term, ctx.store))
+                        }
+                        _ => None,
+                    })
+                });
                 if let Some(p_ty) = p_ty {
                     ctx.bind_contextual_block_parameter(p.name.clone(), p_ty, p.range);
                 } else {
@@ -489,7 +496,14 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 });
             }
             if let Some(ref rest_p) = block.params.positional_rest {
-                let rest_ty = expected_params.get(block.params.fixed.len()).and_then(|e| e.ty());
+                let rest_ty = expected_params.get(block.params.fixed.len()).and_then(|e| {
+                    e.ty().or_else(|| match e {
+                        ExpectedType::Inference { context, term, .. } => {
+                            ctx.inference_session(*context).and_then(|s| s.borrow().materialize_for_expected(term, ctx.store))
+                        }
+                        _ => None,
+                    })
+                });
                 if let Some(rest_ty) = rest_ty {
                     ctx.bind_contextual_block_parameter(rest_p.name.clone(), rest_ty, rest_p.range);
                 } else {
@@ -3570,24 +3584,52 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
         _ => None,
     };
 
-    let initial_space = crate::checker::exhaustiveness::build_initial_pattern_space(ctx, scrutinee_ty);
-    let mut remaining_space = initial_space.clone().normalize();
+    let mut engine = crate::checker::coverage::CoverageEngine::new(
+        crate::checker::coverage::CoverageSubject::canonical(scrutinee_ty)
+    );
     let mut arm_resolutions = Vec::with_capacity(match_expr.arms.len());
     let mut normal_branch_types = Vec::new();
     let mut normal_branch_local_types = Vec::new();
     let mut normal_branch_flows = Vec::new();
 
+    let dummy_space = crate::checker::pattern_space::PatternSpace::Opaque(scrutinee_ty);
     for (arm_index, arm) in match_expr.arms.iter().enumerate() {
         ctx.flow = before_flow.clone();
         ctx.push_scope();
         let mut arm_bindings = Vec::new();
-        let (pattern_res, arm_space) = crate::checker::pattern::resolve_pattern(ctx, &arm.pattern, scrutinee_ty, &initial_space, &mut arm_bindings);
-        let (reachable, residual_after, usefulness) =
-            crate::checker::exhaustiveness::evaluate_match_arm_usefulness(ctx, &initial_space, &remaining_space, &arm_space, arm.range);
-        remaining_space = residual_after.clone();
+        let (pattern_res, _) = crate::checker::pattern::resolve_pattern(ctx, &arm.pattern, scrutinee_ty, &dummy_space, &mut arm_bindings);
+        let coverage_pat = crate::checker::pattern::coverage_pattern_for_resolution(engine.arena_mut(), &pattern_res);
+        let usefulness = engine.classify_arm(
+            ctx.declarations,
+            ctx.store,
+            &ctx.hierarchy,
+            &mut ctx.rigids,
+            ctx.enum_table,
+            coverage_pat,
+        );
+        if usefulness == crate::match_semantics::PatternUsefulness::Redundant {
+            ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                crate::diagnostic::DiagnosticCode::MatchArmRedundant,
+                "redundant match arm: earlier patterns already cover every reachable value of this pattern",
+                arm.range,
+            ));
+        }
+
+        let reachable_summary = if usefulness == crate::match_semantics::PatternUsefulness::Useful {
+            crate::checker::coverage::summarize_pattern(engine.arena(), coverage_pat, engine.root())
+        } else {
+            crate::match_semantics::PatternSpaceSummary::Empty
+        };
+
+        if usefulness == crate::match_semantics::PatternUsefulness::Useful {
+            engine.commit_arm(coverage_pat);
+        }
+
+        let residual_summary = crate::checker::coverage::summarize_pattern(engine.arena(), coverage_pat, engine.root());
         let proof = pattern_common_proof(ctx, &pattern_res);
 
-        let analyzed_branch = if usefulness == crate::match_semantics::PatternUsefulness::Useful && !reachable.is_empty() {
+        let analyzed_branch = if usefulness == crate::match_semantics::PatternUsefulness::Useful {
             if let (Some(binding), Some(exact_case)) = (stable_scrutinee, pattern_exact_case_type(ctx, &pattern_res)) {
                 ctx.apply_flow_predicate(&crate::checker::flow::FlowPredicate::IsInstance { binding, target: exact_case }.authoritative());
             }
@@ -3619,8 +3661,8 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
         arm_resolutions.push(crate::match_semantics::MatchArmResolution {
             arm_index: arm_index as u32,
             pattern: pattern_res,
-            reachable_space: reachable.summarize(),
-            residual_after: residual_after.summarize(),
+            reachable_space: reachable_summary,
+            residual_after: residual_summary,
             bindings: arm_bindings.into_boxed_slice(),
             proof,
             usefulness,
@@ -3628,7 +3670,24 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
         });
     }
 
-    let exhaustiveness = crate::checker::exhaustiveness::finalize_match_exhaustiveness(ctx, &remaining_space, match_expr.range);
+    let exhaustiveness = engine.finalize_exhaustiveness(
+        ctx.declarations,
+        ctx.store,
+        &ctx.hierarchy,
+        &mut ctx.rigids,
+        ctx.enum_table,
+    );
+    if let crate::match_semantics::ExhaustivenessResult::Missing(ref witnesses) = exhaustiveness {
+        ctx.emit_diagnostic(
+            crate::diagnostic::SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                crate::diagnostic::DiagnosticCode::MatchNonExhaustive,
+                "non-exhaustive match: reachable values remain uncovered",
+                match_expr.range,
+            )
+            .with_note(format!("{} uncovered value-space witness(es) retained", witnesses.len())),
+        );
+    }
 
     ctx.flow = if normal_branch_flows.is_empty() {
         FlowState::unreachable()
@@ -3671,7 +3730,7 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
     let resolution = crate::match_semantics::MatchResolution {
         expression: expr_id,
         scrutinee: scrutinee_typed.knowledge.clone(),
-        initial_space: initial_space.summarize(),
+        initial_space: crate::match_semantics::PatternSpaceSummary::Opaque(scrutinee_ty),
         arms: arm_resolutions.into_boxed_slice(),
         result: unified_result.clone(),
         exhaustiveness,

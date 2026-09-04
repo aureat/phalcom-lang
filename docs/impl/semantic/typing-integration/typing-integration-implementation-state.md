@@ -508,3 +508,70 @@ Resolve R2 Task 7 product incident: authorize a narrow semantic diagnostic/statu
 - Workspace release-complete status: NOT CLAIMED because repository-wide fmt,
   workspace tests, and workspace Clippy remain blocked by unrelated baseline
   drift/harness behavior. No commit was created.
+
+## Recursive Match Coverage Remediation
+
+### Established invariants
+
+- RC-I01: Baseline execution branch is `main` at `44bb34a7` (child of planning HEAD `e932aac4`); unrelated dirty/untracked changes are preserved.
+- RC-I02: Existing ADT matching baselines verified: `gadt_refinement` (21 passed, 1 ignored), `exhaustiveness` (25 passed, 5 ignored).
+- RC-I03: Ordinary recursive ADT baseline verified in `recursive_coverage::recursive_binary_adt_outer_patterns_terminate_and_are_exhaustive`.
+- RC-I04: Indexed-recursive reproducer `indexed_recursive_apply_outer_match` is locked into `recursive_coverage.rs` and marked ignored (RED) until C2.
+- RC-I05: `open_variant_case` in `checker::coverage::domain` is established as the sole production authority for observing a variant case against an expected subject, combining canonical GADT proofs, fresh local `CaseInstantiation`, local subject proof solving, and canonical + local payload specialization.
+- RC-I06: GADT local proof solving generalized to `LocalType` expected subjects via `solve_local_case_proof_against_local` and `apply_branch_proof_to_local`; parent rigids preserved without materialization.
+- RC-I07: Source pattern resolution in `checker/pattern.rs` routes singleton and general variant patterns exclusively through `open_variant_case`.
+
+- RC-I08: Finite demand-driven coverage engine implemented in `checker/coverage/usefulness.rs`, `checker/coverage/pattern.rs`, `checker/coverage/domain.rs`. Wildcard columns without constructors are dropped without domain decomposition, guaranteeing finite termination on indexed recursive types.
+- RC-I09: `CoverageEngine` is the active production authority in `synthesize_match_expr`, evaluating arm usefulness, or-alternatives, and finalizing exhaustiveness.
+- RC-I10: `finalize_exhaustiveness` directly handles closed domains on empty prior matrices to provide structured missing witnesses without infinite unfolding.
+
+### Decisions
+
+- RC-D01: Execute inline on current checkout; preserve unrelated user edits in `expression.rs` (block param inference) and core row fixtures.
+- RC-D02: Ordinary recursion terminates under existing engine, but nested recursive totality fails due to old `Opaque` payload approximation; nested test gated until C2.
+- RC-D03: Checkpoint C0 is COMPLETE.
+- RC-D04: Payload specialization applies both declaration substitution and canonical branch proof to obtain `canonical_field_ty`, then localizes with constructor-local replacements and local proof bindings to obtain `local_field_ty`.
+- RC-D05: Checkpoint C1 is COMPLETE.
+- RC-D06: Checkpoint C2 is COMPLETE: `indexed_recursive_apply_outer_match` passes cleanly; full ADT matching suite (169 passed, 0 failed) and full `phalcom-semantic` suite (1,099 passed, 0 failed) pass.
+- RC-D07: Checkpoint C3 is COMPLETE: witnesses and public summaries are generated from usefulness search and bounded summary projection without residual space trees. Incremental ADT suite (9 passed, 0 failed) confirms deterministic products and fingerprints.
+
+### Evidence ledger
+
+| Checkpoint | Command | Result | Proves |
+|---|---|---|---|
+| C0 | `git rev-parse --show-toplevel`, branch/HEAD/status/log | PASS; `main` at `44bb34a7`; target semantic checker files untouched | local repository baseline and drift check |
+| C0 | `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic semantic::adts::matching::gadt_refinement -- --nocapture` | PASS: 21 passed, 0 failed, 1 ignored | GADT refinement baseline before refactor |
+| C0 | `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic semantic::adts::matching::exhaustiveness -- --nocapture` | PASS: 25 passed, 0 failed, 5 ignored | exhaustiveness baseline before refactor |
+| C0 | `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic semantic::adts::matching::recursive_coverage::recursive_binary_adt_outer_patterns_terminate_and_are_exhaustive -- --nocapture` | PASS: 1 passed, 0 failed | ordinary recursive ADT terminates and proves exhaustive |
+| C0 | `rg -n 'indexed_recursive_apply_outer_match' phalcom-semantic/tests/semantic/adts/matching/recursive_coverage.rs` | PASS: line 31 | indexed-recursion reproducer locked into suite |
+| C1 | `cargo check -p phalcom-semantic` | PASS: 0 warnings, 0 errors | coverage/domain/subject skeleton and generalized GADT proof compile cleanly |
+| C1 | `rg -n 'CaseInstantiation::open' phalcom-semantic/src/checker` | PASS: line 73 in `coverage/domain.rs` only | single constructor-opening authority in checker production code |
+| C1 | `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic semantic::adts::matching::gadt_refinement -- --nocapture` | PASS: 24 passed, 0 failed, 1 ignored | full GADT suite passes with hostile tests 14, 15, 16 |
+| C1 | `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic semantic::adts::matching::exhaustiveness -- --nocapture` | PASS: 25 passed, 0 failed, 5 ignored | exhaustiveness suite unaffected by constructor centralization |
+| C2 | `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic semantic::adts::matching::recursive_coverage -- --nocapture` | PASS: 3 passed, 0 failed | recursive binary tree, nested recursive patterns, and indexed recursive `Apply` terminate and prove exhaustive |
+| C2 | `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic semantic::adts::matching:: -- --nocapture` | PASS: 169 passed, 0 failed, 18 ignored | entire ADT matching domain (exhaustiveness, gadt_refinement, patterns, pattern_space, flow, resolution) passes |
+| C3 | `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic semantic::incremental::adts -- --nocapture` | PASS: 9 passed, 0 failed, 3 ignored | incremental match products, candidate invalidations, and fingerprints remain deterministic |
+| C3 | `RUSTFLAGS='' cargo test -p phalcom-semantic` | PASS: 1,099 passed, 0 failed, 44 ignored; 0 warnings | full semantic crate regression is clean under new coverage engine |
+
+### Negative/deletion evidence
+
+- Zero production edits made in C0.
+- Target semantic checker files (`exhaustiveness.rs`, `pattern.rs`, `gadt_proof.rs`, `pattern_space.rs`) confirmed untouched by local drift.
+- C1 `rg -n 'CaseInstantiation::open' phalcom-semantic/src/checker` confirms exactly 1 occurrence in `coverage/domain.rs`; zero occurrences remain in `pattern.rs`.
+- `CoverageEngine` in `expression.rs` completely replaces legacy `build_initial_pattern_space` and `evaluate_match_exhaustiveness` on the production match expression path.
+
+### Deferred gates
+
+- Deprecate/retire legacy `build_initial_pattern_space` and residual `PatternSpace` (C4).
+- `phalcom-core` typing integration expression suite deferred to C6.
+- Full workspace test suite deferred to C6.
+
+### Active incident
+
+None.
+
+### Next resume action
+
+Proceed with Checkpoint C4 (retire legacy residual authority and clean up dead code).
+
+

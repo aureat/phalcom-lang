@@ -1466,7 +1466,11 @@ fn apply_generic_callable_in_context(
         | crate::checker::inference::InferenceOutcome::BudgetExceeded(_)
         | crate::checker::inference::InferenceOutcome::InternalFailure(_) => terminal_generic_return_with_fallback(&outcome, pre_context_result, fixed_return),
         crate::checker::inference::InferenceOutcome::Underconstrained(_) => {
-            incomplete_generic_return(&session_handle.borrow(), return_term.as_ref(), &outcome, fixed_return)
+            if let Some(pre_context) = pre_context_result {
+                pre_context
+            } else {
+                incomplete_generic_return(&session_handle.borrow(), return_term.as_ref(), &outcome, fixed_return)
+            }
         }
     }
 }

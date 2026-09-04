@@ -64,15 +64,26 @@ fn resolve_pattern_with_mode(
             let mut resolved_alternatives = Vec::with_capacity(alternatives.len());
             let mut alternative_spaces = Vec::with_capacity(alternatives.len());
             let mut alternative_bindings = Vec::with_capacity(alternatives.len());
-            let mut local_remaining = expected_space.clone().normalize();
+            let mut engine = crate::checker::coverage::CoverageEngine::new(
+                crate::checker::coverage::CoverageSubject::canonical(expected_ty)
+            );
+            let mut prior_coverage_alts = Vec::new();
 
             for alternative in alternatives {
                 let mut local_bindings = Vec::new();
                 let (resolution, space) = resolve_pattern_with_mode(ctx, alternative, expected_ty, expected_space, &mut local_bindings, BindingMode::Detached);
 
-                let in_domain = expected_space.intersect(&space, ctx.store, &ctx.hierarchy).normalize();
-                let reachable = local_remaining.intersect(&space, ctx.store, &ctx.hierarchy).normalize();
-                if !in_domain.is_empty() && reachable.is_empty() {
+                let cov_alt = coverage_pattern_for_resolution(engine.arena_mut(), &resolution);
+                let usefulness = engine.check_or_alternative(
+                    ctx.declarations,
+                    ctx.store,
+                    &ctx.hierarchy,
+                    &mut ctx.rigids,
+                    ctx.enum_table,
+                    &prior_coverage_alts,
+                    cov_alt,
+                );
+                if usefulness == crate::match_semantics::PatternUsefulness::Redundant {
                     ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
                         ctx.current_module.clone(),
                         crate::diagnostic::DiagnosticCode::MatchPatternOrRedundant,
@@ -80,7 +91,7 @@ fn resolve_pattern_with_mode(
                         *range,
                     ));
                 }
-                local_remaining = local_remaining.subtract(&space, ctx.store, &ctx.hierarchy).normalize();
+                prior_coverage_alts.push(cov_alt);
 
                 resolved_alternatives.push(resolution);
                 alternative_spaces.push(space);
@@ -514,20 +525,18 @@ fn try_resolve_contextual_singleton(
         }
 
         ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::EnumDeclaration(owner.clone()));
-        let (mut proof, exact_case) = match crate::checker::gadt_proof::solve_gadt_branch_proof(ctx.store, &ctx.hierarchy, &owner, &variant_info, owner_ty) {
-            crate::checker::gadt_proof::GadtProofResult::Reachable { proof, exact_case } => (proof, exact_case),
-            crate::checker::gadt_proof::GadtProofResult::Refuted => continue,
-        };
-        let case_instantiation = crate::types::CaseInstantiation::open(ctx.store, &mut ctx.rigids, &variant_info, None);
-        if let Some((local_proof_bindings, local_proof_equalities)) =
-            crate::checker::gadt_proof::solve_local_case_proof(ctx.store, &proof, owner_ty, &case_instantiation)
-        {
-            proof.local_bindings = local_proof_bindings;
-            proof.local_equalities = local_proof_equalities;
-        } else {
+        let subject = crate::checker::coverage::CoverageSubject::canonical(owner_ty);
+        let Some(opened) = crate::checker::coverage::open_variant_case(
+            ctx.declarations,
+            ctx.store,
+            &ctx.hierarchy,
+            &mut ctx.rigids,
+            &subject,
+            &variant_info,
+        ) else {
             continue;
-        }
-        matches.push((owner, variant_id.clone(), variant_info, exact_case, proof, case_instantiation));
+        };
+        matches.push((owner, variant_id.clone(), variant_info, opened.exact_case, opened.proof, opened.case_instantiation));
     }
 
     if matches.is_empty() {
@@ -789,29 +798,25 @@ fn resolve_variant_pattern(
             }
             matched_any_variant = true;
 
-            let (mut proof, exact_case) = match crate::checker::gadt_proof::solve_gadt_branch_proof(ctx.store, &ctx.hierarchy, &owner_decl, v_info, expected_ty)
-            {
-                crate::checker::gadt_proof::GadtProofResult::Reachable { proof, exact_case } => (proof, exact_case),
-                crate::checker::gadt_proof::GadtProofResult::Refuted => continue,
-            };
-            let case_instantiation = crate::types::CaseInstantiation::open(ctx.store, &mut ctx.rigids, v_info, None);
-            let Some((local_proof_bindings, local_proof_equalities)) =
-                crate::checker::gadt_proof::solve_local_case_proof(ctx.store, &proof, expected_ty, &case_instantiation)
-            else {
+            let subject = crate::checker::coverage::CoverageSubject::canonical(expected_ty);
+            let Some(opened) = crate::checker::coverage::open_variant_case(
+                ctx.declarations,
+                ctx.store,
+                &ctx.hierarchy,
+                &mut ctx.rigids,
+                &subject,
+                v_info,
+            ) else {
                 continue;
             };
-            proof.local_bindings = local_proof_bindings;
-            proof.local_equalities = local_proof_equalities;
 
-            let substitution = crate::types::substitution::substitution_for_applied(ctx.declarations, ctx.store, expected_ty);
+            let proof = opened.proof;
+            let exact_case = opened.exact_case;
+            let case_instantiation = opened.case_instantiation;
+
             let mut resolved_fields = Vec::new();
             let mut field_spaces = Vec::new();
             let mut local_bindings = Vec::new();
-
-            let specialize_field = |ctx: &mut CheckingContext<'_>, raw: TypeId| {
-                let declaration_specialized = substitution.as_ref().map(|substitution| substitution.apply(ctx.store, raw)).unwrap_or(raw);
-                crate::checker::gadt_proof::apply_branch_proof(ctx.store, &proof, declaration_specialized)
-            };
 
             match &variant_pat.mode {
                 VariantPatternMode::ExactCall { arguments } => {
@@ -820,19 +825,22 @@ fn resolve_variant_pattern(
                             v_info
                                 .fields
                                 .iter()
-                                .find(|field| field.external_label.as_deref() == Some(label) || field.local_name.as_ref() == label.as_str())
+                                .enumerate()
+                                .find(|(_, field)| field.external_label.as_deref() == Some(label) || field.local_name.as_ref() == label.as_str())
                         } else {
-                            v_info.fields.get(i)
+                            v_info.fields.get(i).map(|field| (i, field))
                         };
 
-                        let (field_id, field_type) = if let Some(field) = field_semantic {
-                            let raw = field.declared_type.canonical_type().unwrap_or(expected_ty);
-                            let ty = specialize_field(ctx, raw);
-                            (field.id.clone(), TypeKnowledge::established(ty, EvidenceOrigin::PatternDecomposition))
+                        let (field_id, field_type, local_type) = if let Some((field_index, field)) = field_semantic {
+                            let field_subject = opened.fields.get(field_index);
+                            let ty = field_subject.map(|s| s.canonical).unwrap_or(expected_ty);
+                            let local = field_subject.map(|s| s.local.clone());
+                            (field.id.clone(), TypeKnowledge::established(ty, EvidenceOrigin::PatternDecomposition), local)
                         } else {
                             (
                                 crate::identity::VariantFieldId::new(variant_id.clone(), i as u32),
                                 TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+                                None,
                             )
                         };
 
@@ -847,11 +855,6 @@ fn resolve_variant_pattern(
                             &mut local_bindings,
                             BindingMode::Detached,
                         );
-                        let local_type = v_info
-                            .fields
-                            .iter()
-                            .position(|field| field.id == field_id)
-                            .and_then(|index| case_instantiation.payload_type(index).cloned());
                         attach_local_type_to_bindings(&mut local_bindings, binding_start, local_type.clone());
                         resolved_fields.push(ResolvedFieldPattern {
                             field: field_id,
@@ -863,9 +866,8 @@ fn resolve_variant_pattern(
                     }
                 }
                 VariantPatternMode::CallablePattern { prefix, suffix, .. } => {
-                    for field in v_info.fields.iter() {
-                        let raw = field.declared_type.canonical_type().unwrap_or(expected_ty);
-                        field_spaces.push(PatternSpace::Opaque(specialize_field(ctx, raw)));
+                    for field_subject in opened.fields.iter() {
+                        field_spaces.push(PatternSpace::Opaque(field_subject.canonical));
                     }
 
                     for (i, argument) in prefix.iter().enumerate() {
@@ -880,14 +882,16 @@ fn resolve_variant_pattern(
                         } else {
                             (i, v_info.fields.get(i))
                         };
-                        let (field_id, field_type) = if let Some(field) = field_semantic {
-                            let raw = field.declared_type.canonical_type().unwrap_or(expected_ty);
-                            let ty = specialize_field(ctx, raw);
-                            (field.id.clone(), TypeKnowledge::established(ty, EvidenceOrigin::PatternDecomposition))
+                        let (field_id, field_type, local_type) = if let Some(field) = field_semantic {
+                            let field_subject = opened.fields.get(field_index);
+                            let ty = field_subject.map(|s| s.canonical).unwrap_or(expected_ty);
+                            let local = field_subject.map(|s| s.local.clone());
+                            (field.id.clone(), TypeKnowledge::established(ty, EvidenceOrigin::PatternDecomposition), local)
                         } else {
                             (
                                 crate::identity::VariantFieldId::new(variant_id.clone(), field_index as u32),
                                 TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+                                None,
                             )
                         };
                         let field_expected_ty = field_type.ty().unwrap_or(expected_ty);
@@ -901,11 +905,6 @@ fn resolve_variant_pattern(
                             &mut local_bindings,
                             BindingMode::Detached,
                         );
-                        let local_type = v_info
-                            .fields
-                            .iter()
-                            .position(|field| field.id == field_id)
-                            .and_then(|index| case_instantiation.payload_type(index).cloned());
                         attach_local_type_to_bindings(&mut local_bindings, binding_start, local_type.clone());
                         resolved_fields.push(ResolvedFieldPattern {
                             field: field_id,
@@ -931,14 +930,16 @@ fn resolve_variant_pattern(
                             let index = v_info.fields.len().saturating_sub(suffix.len() - suffix_index);
                             (index, v_info.fields.get(index))
                         };
-                        let (field_id, field_type) = if let Some(field) = field_semantic {
-                            let raw = field.declared_type.canonical_type().unwrap_or(expected_ty);
-                            let ty = specialize_field(ctx, raw);
-                            (field.id.clone(), TypeKnowledge::established(ty, EvidenceOrigin::PatternDecomposition))
+                        let (field_id, field_type, local_type) = if let Some(field) = field_semantic {
+                            let field_subject = opened.fields.get(field_index);
+                            let ty = field_subject.map(|s| s.canonical).unwrap_or(expected_ty);
+                            let local = field_subject.map(|s| s.local.clone());
+                            (field.id.clone(), TypeKnowledge::established(ty, EvidenceOrigin::PatternDecomposition), local)
                         } else {
                             (
                                 crate::identity::VariantFieldId::new(variant_id.clone(), field_index as u32),
                                 TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+                                None,
                             )
                         };
                         let field_expected_ty = field_type.ty().unwrap_or(expected_ty);
@@ -952,11 +953,6 @@ fn resolve_variant_pattern(
                             &mut local_bindings,
                             BindingMode::Detached,
                         );
-                        let local_type = v_info
-                            .fields
-                            .iter()
-                            .position(|field| field.id == field_id)
-                            .and_then(|index| case_instantiation.payload_type(index).cloned());
                         attach_local_type_to_bindings(&mut local_bindings, binding_start, local_type.clone());
                         resolved_fields.push(ResolvedFieldPattern {
                             field: field_id,
@@ -970,9 +966,8 @@ fn resolve_variant_pattern(
                     }
                 }
                 VariantPatternMode::Singleton | VariantPatternMode::WholeFamily { .. } => {
-                    for field in v_info.fields.iter() {
-                        let raw = field.declared_type.canonical_type().unwrap_or(expected_ty);
-                        field_spaces.push(PatternSpace::Opaque(specialize_field(ctx, raw)));
+                    for field_subject in opened.fields.iter() {
+                        field_spaces.push(PatternSpace::Opaque(field_subject.canonical));
                     }
                 }
             }
@@ -1143,5 +1138,67 @@ fn matches_variant_info(
             })
         }
         VariantSelectorConstraint::Pattern(pattern) => pattern.matches(&v_info.id.selector),
+    }
+}
+
+/// Lowers a resolved pattern into query-local coverage arena nodes.
+pub(crate) fn coverage_pattern_for_resolution(
+    arena: &mut crate::checker::coverage::CoveragePatternArena,
+    resolution: &PatternResolution,
+) -> crate::checker::coverage::CoveragePatternId {
+    match resolution {
+        PatternResolution::Wildcard | PatternResolution::Binding { .. } => arena.wildcard(),
+        PatternResolution::Variant(variant) => {
+            if variant.candidates.len() <= 1 {
+                let (candidates, exact_cases, fields) = if let Some(cand) = variant.candidates.first() {
+                    let fields: Box<[crate::checker::coverage::CoveragePatternId]> = cand
+                        .fields
+                        .iter()
+                        .map(|f| coverage_pattern_for_resolution(arena, &f.child))
+                        .collect();
+                    (vec![cand.variant.clone()].into_boxed_slice(), vec![cand.exact_case].into_boxed_slice(), fields)
+                } else {
+                    (Vec::new().into_boxed_slice(), Vec::new().into_boxed_slice(), Vec::new().into_boxed_slice())
+                };
+                arena.alloc(crate::checker::coverage::CoveragePattern::Variant {
+                    candidates,
+                    exact_cases,
+                    fields,
+                })
+            } else {
+                let alts: Box<[crate::checker::coverage::CoveragePatternId]> = variant
+                    .candidates
+                    .iter()
+                    .map(|cand| {
+                        let fields: Box<[crate::checker::coverage::CoveragePatternId]> = cand
+                            .fields
+                            .iter()
+                            .map(|f| coverage_pattern_for_resolution(arena, &f.child))
+                            .collect();
+                        arena.alloc(crate::checker::coverage::CoveragePattern::Variant {
+                            candidates: Box::new([cand.variant.clone()]),
+                            exact_cases: Box::new([cand.exact_case]),
+                            fields,
+                        })
+                    })
+                    .collect();
+                arena.alloc(crate::checker::coverage::CoveragePattern::Or(alts))
+            }
+        }
+        PatternResolution::Tuple(elements) => {
+            let fields = elements.iter().map(|elem| coverage_pattern_for_resolution(arena, elem)).collect();
+            arena.alloc(crate::checker::coverage::CoveragePattern::Tuple(fields))
+        }
+        PatternResolution::List(list) => {
+            let prefix = list.prefix.iter().map(|elem| coverage_pattern_for_resolution(arena, elem)).collect();
+            let rest = list.rest.as_ref().map(|r| coverage_pattern_for_resolution(arena, r));
+            arena.alloc(crate::checker::coverage::CoveragePattern::List { prefix, rest })
+        }
+        PatternResolution::Or(or_pat) => {
+            let alternatives = or_pat.alternatives.iter().map(|alt| coverage_pattern_for_resolution(arena, alt)).collect();
+            arena.alloc(crate::checker::coverage::CoveragePattern::Or(alternatives))
+        }
+        PatternResolution::Record(_) => arena.alloc(crate::checker::coverage::CoveragePattern::RecordPredicate),
+        PatternResolution::Map(_) => arena.alloc(crate::checker::coverage::CoveragePattern::MapPredicate),
     }
 }

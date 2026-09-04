@@ -11,7 +11,7 @@ use crate::types::rigid::{LocalConstraint, LocalType};
 use crate::types::row::RecordRowTail;
 use crate::types::store::{CallableParameterType, CallableType, TupleTypeElement, TypeData, TypeStore};
 use crate::types::substitution::TypeSubstitution;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// Result of evaluating GADT specialization and reachability for a variant case.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -39,35 +39,139 @@ pub(crate) type LocalCaseProof = Option<(BTreeMap<TypeParameterId, LocalType>, B
 /// Refines a canonical scrutinee view against one freshly opened constructor
 /// result. Flexible declaration parameters may be mapped to local terms, but
 /// rigid leaves are opaque and are never rewritten.
+#[allow(dead_code)]
 pub(crate) fn solve_local_case_proof(
     store: &mut TypeStore,
     proof: &BranchProofEnvironment,
     expected_ty: TypeId,
     case: &CaseInstantiation,
 ) -> LocalCaseProof {
+    solve_local_case_proof_against_local(store, proof, &LocalType::Canonical(expected_ty), case)
+}
+
+/// Refines an arbitrary local subject term against one freshly opened constructor
+/// result. Preserves parent rigids while solving constructor-local equalities.
+pub(crate) fn solve_local_case_proof_against_local(
+    store: &mut TypeStore,
+    proof: &BranchProofEnvironment,
+    expected: &LocalType,
+    case: &CaseInstantiation,
+) -> LocalCaseProof {
     if !case.is_local() {
         return Some((BTreeMap::new(), Box::new([])));
     }
 
-    let specialized_expected = apply_branch_proof(store, proof, expected_ty);
-    let expected = match store.get(specialized_expected).clone() {
-        TypeData::ExactCase { variant, enum_type } if store.variant_identity(variant) == &case.variant => {
-            LocalType::from_canonical(store, enum_type, &case.replacements())
-        }
-        _ => LocalType::from_canonical(store, specialized_expected, &case.replacements()),
-    };
+    let specialized_expected = apply_branch_proof_to_local(store, proof, expected);
+    let (expected_term, exact_case_observation) = unpack_expected_local_term(store, specialized_expected, case);
+
     let mut bindings = BTreeMap::new();
-    let exact_case_observation = matches!(store.get(expected_ty), TypeData::ExactCase { .. });
-    if !unify_local_types(store, &case.result_type, &expected, &mut bindings, exact_case_observation) {
+    if !unify_local_types(store, &case.result_type, &expected_term, &mut bindings, exact_case_observation) {
         return None;
     }
 
     let mut equalities = case.constraints.to_vec();
     equalities.push(LocalConstraint::Equivalent {
         left: case.result_type.clone(),
-        right: expected,
+        right: expected_term,
     });
     Some((bindings, equalities.into_boxed_slice()))
+}
+
+fn unpack_expected_local_term(
+    store: &TypeStore,
+    expected: LocalType,
+    case: &CaseInstantiation,
+) -> (LocalType, bool) {
+    match expected {
+        LocalType::Canonical(ty) => {
+            let exact_case_observation = matches!(store.get(ty), TypeData::ExactCase { .. });
+            let unpacked = match store.get(ty).clone() {
+                TypeData::ExactCase { variant, enum_type } if store.variant_identity(variant) == &case.variant => {
+                    LocalType::from_canonical(store, enum_type, &case.replacements())
+                }
+                _ => LocalType::from_canonical(store, ty, &case.replacements()),
+            };
+            (unpacked, exact_case_observation)
+        }
+        LocalType::ExactCase { variant, enum_type } => {
+            if variant == case.variant {
+                (*enum_type, true)
+            } else {
+                (LocalType::ExactCase { variant, enum_type }, true)
+            }
+        }
+        other => (other, false),
+    }
+}
+
+/// Applies branch proof substitutions to a LocalType without materializing rigids.
+pub(crate) fn apply_branch_proof_to_local(
+    store: &mut TypeStore,
+    proof: &BranchProofEnvironment,
+    local: &LocalType,
+) -> LocalType {
+    if proof.bindings.is_empty() && proof.local_bindings.is_empty() {
+        return local.clone();
+    }
+    match local {
+        LocalType::Canonical(ty) => {
+            let specialized = apply_branch_proof(store, proof, *ty);
+            if proof.local_bindings.is_empty() {
+                LocalType::Canonical(specialized)
+            } else {
+                let replacements: HashMap<_, _> =
+                    proof.local_bindings.iter().map(|(k, v)| (*k, v.clone())).collect();
+                LocalType::from_canonical(store, specialized, &replacements)
+            }
+        }
+        LocalType::Rigid(id) => LocalType::Rigid(*id),
+        LocalType::Applied { origin, arguments } => LocalType::Applied {
+            origin: Box::new(apply_branch_proof_to_local(store, proof, origin)),
+            arguments: arguments
+                .iter()
+                .map(|arg| apply_branch_proof_to_local(store, proof, arg))
+                .collect(),
+        },
+        LocalType::ExactCase { variant, enum_type } => LocalType::ExactCase {
+            variant: variant.clone(),
+            enum_type: Box::new(apply_branch_proof_to_local(store, proof, enum_type)),
+        },
+        LocalType::Union(members) => LocalType::Union(
+            members
+                .iter()
+                .map(|m| apply_branch_proof_to_local(store, proof, m))
+                .collect(),
+        ),
+        LocalType::Tuple(elements) => LocalType::Tuple(
+            elements
+                .iter()
+                .map(|el| crate::types::rigid::LocalTupleElement {
+                    label: el.label.clone(),
+                    ty: apply_branch_proof_to_local(store, proof, &el.ty),
+                })
+                .collect(),
+        ),
+        LocalType::Record(fields) => LocalType::Record(
+            fields
+                .iter()
+                .map(|f| crate::types::rigid::LocalRecordField {
+                    name: f.name.clone(),
+                    ty: apply_branch_proof_to_local(store, proof, &f.ty),
+                })
+                .collect(),
+        ),
+        LocalType::Callable { parameters, return_type } => LocalType::Callable {
+            parameters: parameters
+                .iter()
+                .map(|p| crate::types::rigid::LocalCallableParameter {
+                    label: p.label.clone(),
+                    ty: apply_branch_proof_to_local(store, proof, &p.ty),
+                    rest: p.rest,
+                })
+                .collect(),
+            return_type: Box::new(apply_branch_proof_to_local(store, proof, return_type)),
+        },
+    }
 }
 
 fn unify_local_types(

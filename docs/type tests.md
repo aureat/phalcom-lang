@@ -694,3 +694,42 @@ class List<T> is Iterable {
 // `put_`/`add_` enforce this (DEC-CT-C) by rejecting a mutable-collection  
 // key (List/Map/Set) with a raised Error.
 ```
+
+```ph
+class Matcher {
+	parse(_ expr: Expression, _ state: ParserState) {
+		
+	}
+	
+	parse(_ expr: Expression, _ state: ParserState) {
+		
+	}
+	
+	
+	parse(_ expr: Expression, _ state: ParserState) {
+		
+	}
+}
+
+|x, y, z| x + y + z
+
+_ + _
+_ / _
+_ * _
+_ % _
+
+((_: Int) ** (_: Int))
+
+(Int, Int) -> Int
+
+const call = Matcher::parse(Expression::Int, )
+
+match call {
+	parse()
+}
+
+type Parse(_ expr: Expression, _ state: ParserState)
+
+case Parse(...)
+case Parse(expr, ...)
+```

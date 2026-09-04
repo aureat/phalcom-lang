@@ -35,6 +35,9 @@ const EXPRESSION_SEMANTIC_PROBES: &str = include_str!("sources/expression_semant
 const EXPRESSION_RUNTIME_PROBES: &str = include_str!("sources/expression_runtime_probes.ph");
 const ROWS_CORE_SOURCE: &str = include_str!("sources/rows/core.ph");
 const ROWS_CALCULUS_SOURCE: &str = include_str!("sources/rows/calculus.ph");
+const ROWS_STRUCTURAL_SOURCE: &str = include_str!("sources/rows/structural_protocols.ph");
+const ROWS_PATTERNS_SOURCE: &str = include_str!("sources/rows/patterns.ph");
+const ROWS_RUNTIME_SOURCE: &str = include_str!("sources/rows/runtime.ph");
 const ROW_INTEGRATION_PROBES: &str = include_str!("sources/row_integration_probes.ph");
 const ROW_INTEGRATION_INVALID: &str = include_str!("sources/row_integration_invalid.ph");
 const EXPRESSION_ROW_PROBES: &str = include_str!("sources/expression_row_probes.ph");
@@ -97,6 +100,18 @@ pub fn rows_core_source() -> &'static str {
 
 pub fn row_calculus_source() -> String {
     format!("{ROWS_CORE_SOURCE}\n{ROWS_CALCULUS_SOURCE}")
+}
+
+pub fn row_structural_source() -> String {
+    format!("{ROWS_CORE_SOURCE}\n{ROWS_STRUCTURAL_SOURCE}")
+}
+
+pub fn row_patterns_source() -> String {
+    format!("{ROWS_CORE_SOURCE}\n{ROWS_PATTERNS_SOURCE}")
+}
+
+pub fn row_runtime_source() -> String {
+    format!("{ROWS_CORE_SOURCE}\n{ROWS_RUNTIME_SOURCE}")
 }
 
 pub fn with_rows(extra: &str) -> String {
