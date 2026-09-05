@@ -234,6 +234,45 @@ impl ModuleLinker {
         }
     }
 
+    /// Links the exact interfaces stored in this linker in tolerant workspace mode.
+    pub fn link_component_interfaces_tolerant(
+        &self,
+        entry: ModuleId,
+        resolved: &BTreeMap<(ModuleId, String), ModuleId>,
+    ) -> TolerantLinkResult {
+        let mut context = LinkContext::new(self, resolved, true, true);
+        match context.build() {
+            Ok((modules, graphs, initialization_order)) => TolerantLinkResult {
+                program: LinkedProgram {
+                    universe: self.universe.clone(),
+                    modules,
+                    graphs,
+                    entry,
+                    initialization_order,
+                },
+                diagnostics: context.diagnostics,
+                blocked_modules: context.blocked_modules,
+            },
+            Err(err) => {
+                let mut blocked = context.blocked_modules;
+                blocked.insert(entry.clone());
+                let mut diags = context.diagnostics;
+                diags.push(err);
+                TolerantLinkResult {
+                    program: LinkedProgram {
+                        universe: self.universe.clone(),
+                        modules: BTreeMap::new(),
+                        graphs: ModuleGraphs::default(),
+                        entry,
+                        initialization_order: Vec::new(),
+                    },
+                    diagnostics: diags,
+                    blocked_modules: blocked,
+                }
+            }
+        }
+    }
+
     /// Links every interface supplied to this linker, retaining the complete
     /// source universe for workspace-wide semantic analysis.
     pub fn link_all(&self, entry: ModuleId, resolved: &BTreeMap<(ModuleId, String), ModuleId>) -> Result<LinkedProgram, LinkError> {

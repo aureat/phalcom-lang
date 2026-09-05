@@ -100,6 +100,23 @@ impl From<WorkspaceSourceMutation> for WorkspaceSourceBatchMutation {
     }
 }
 
+/// Deterministic identifier for a connected linked component.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ComponentId(pub ModuleId);
+
+/// Retained linking product for one connected component.
+#[derive(Clone, Debug)]
+pub struct ComponentLinkedProduct {
+    pub component_id: ComponentId,
+    pub members: BTreeSet<ModuleId>,
+    pub modules: BTreeMap<ModuleId, crate::linker::LinkedModule>,
+    pub graphs: crate::graph::ModuleGraphs,
+    pub blocked_modules: BTreeSet<ModuleId>,
+    pub diagnostics: Vec<ModuleDiagnostic>,
+    pub public_fingerprints: BTreeMap<ModuleId, crate::fingerprint::LinkedInterfaceFingerprint>,
+    pub private_fingerprints: BTreeMap<ModuleId, crate::fingerprint::LinkedDependencyFingerprint>,
+}
+
 /// Module-owned deterministic work counts for one workspace update.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct WorkspaceModuleStats {
@@ -114,6 +131,8 @@ pub struct WorkspaceModuleStats {
     pub linked_modules_recomputed: usize,
     pub linked_modules_reused: usize,
     pub linked_components: usize,
+    pub linked_components_recomputed: usize,
+    pub linked_components_reused: usize,
     pub ownership_lookups: usize,
     pub ownership_cache_hits: usize,
     pub filesystem_resolution_hits: usize,
@@ -230,6 +249,9 @@ pub struct RebuildOutput {
     pub sites_by_importer: Arc<BTreeMap<ModuleId, BTreeSet<ImportSiteId>>>,
     pub reverse_site_importers: Arc<BTreeMap<ModuleId, BTreeSet<ImportSiteId>>>,
     pub linked_modules: BTreeMap<ModuleId, (crate::linker::LinkedModule, crate::fingerprint::LinkedInterfaceFingerprint)>,
+    pub linked_dependency_fingerprints: BTreeMap<ModuleId, crate::fingerprint::LinkedDependencyFingerprint>,
+    pub retained_components: BTreeMap<ComponentId, Arc<ComponentLinkedProduct>>,
+    pub module_components: BTreeMap<ModuleId, ComponentId>,
     pub diagnostics: BTreeMap<ModuleId, Vec<ModuleDiagnostic>>,
     pub blocked_modules: BTreeSet<ModuleId>,
     pub stats: WorkspaceModuleStats,
@@ -311,6 +333,89 @@ fn validate_cross_index_consistency(
     Ok(())
 }
 
+/// Partitions interfaces and import products into connected components based on import/re-export/package relationships.
+fn compute_connected_components(
+    interfaces: &BTreeMap<ModuleId, (Arc<UnlinkedModuleInterface>, crate::fingerprint::InterfaceFingerprint)>,
+    import_products: &BTreeMap<ImportSiteId, Arc<crate::resolver::ImportResolutionProduct>>,
+) -> (BTreeMap<ComponentId, BTreeSet<ModuleId>>, BTreeMap<ModuleId, ComponentId>) {
+    let mut adjacency: BTreeMap<ModuleId, BTreeSet<ModuleId>> = BTreeMap::new();
+    for module in interfaces.keys() {
+        adjacency.entry(module.clone()).or_default();
+    }
+
+    for (site, product) in import_products {
+        let importer = &site.importer;
+        if !interfaces.contains_key(importer) {
+            continue;
+        }
+        if let Ok(target) = &product.target {
+            if interfaces.contains_key(target) {
+                adjacency.entry(importer.clone()).or_default().insert(target.clone());
+                adjacency.entry(target.clone()).or_default().insert(importer.clone());
+            }
+        }
+    }
+
+    for (module, (iface, _)) in interfaces {
+        if let Some(project_id) = module.project.as_resolved() {
+            let mut curr_path = module.path.parent();
+            while let Some(parent) = curr_path {
+                let pkg_id = ModuleId::resolved(project_id, parent.clone());
+                if interfaces.contains_key(&pkg_id) {
+                    adjacency.entry(module.clone()).or_default().insert(pkg_id.clone());
+                    adjacency.entry(pkg_id.clone()).or_default().insert(module.clone());
+                }
+                curr_path = parent.parent();
+            }
+            let root_id = ModuleId::resolved(project_id, ModulePath::root());
+            if interfaces.contains_key(&root_id) {
+                adjacency.entry(module.clone()).or_default().insert(root_id.clone());
+                adjacency.entry(root_id.clone()).or_default().insert(module.clone());
+            }
+        }
+        for export in iface.exports.values() {
+            if let crate::interface::UnlinkedExportTarget::CanonicalDeclaration { module: target, .. } = &export.target {
+                if interfaces.contains_key(target) {
+                    adjacency.entry(module.clone()).or_default().insert(target.clone());
+                    adjacency.entry(target.clone()).or_default().insert(module.clone());
+                }
+            }
+        }
+    }
+
+    let mut visited = BTreeSet::new();
+    let mut component_members = BTreeMap::new();
+    let mut module_to_component = BTreeMap::new();
+
+    for module in interfaces.keys() {
+        if visited.contains(module) {
+            continue;
+        }
+        let mut members = BTreeSet::new();
+        let mut queue = vec![module.clone()];
+        visited.insert(module.clone());
+
+        while let Some(curr) = queue.pop() {
+            members.insert(curr.clone());
+            if let Some(neighbors) = adjacency.get(&curr) {
+                for neighbor in neighbors {
+                    if visited.insert(neighbor.clone()) {
+                        queue.push(neighbor.clone());
+                    }
+                }
+            }
+        }
+
+        let comp_id = ComponentId(members.first().expect("non-empty component").clone());
+        for member in &members {
+            module_to_component.insert(member.clone(), comp_id.clone());
+        }
+        component_members.insert(comp_id, members);
+    }
+
+    (component_members, module_to_component)
+}
+
 /// Persistent owner of project identity, source overlays, module identity, and linking.
 #[derive(Debug)]
 pub struct WorkspaceModuleSession {
@@ -327,6 +432,9 @@ pub struct WorkspaceModuleSession {
     sites_by_importer: Arc<BTreeMap<ModuleId, BTreeSet<ImportSiteId>>>,
     reverse_site_importers: Arc<BTreeMap<ModuleId, BTreeSet<ImportSiteId>>>,
     linked_modules: BTreeMap<ModuleId, (crate::linker::LinkedModule, crate::fingerprint::LinkedInterfaceFingerprint)>,
+    linked_dependency_fingerprints: BTreeMap<ModuleId, crate::fingerprint::LinkedDependencyFingerprint>,
+    retained_components: BTreeMap<ComponentId, Arc<ComponentLinkedProduct>>,
+    module_components: BTreeMap<ModuleId, ComponentId>,
     linked: Option<Arc<LinkedProgram>>,
     resolved_imports: BTreeMap<(ModuleId, String), ModuleId>,
     diagnostics: BTreeMap<ModuleId, Vec<ModuleDiagnostic>>,
@@ -366,6 +474,9 @@ impl WorkspaceModuleSession {
             sites_by_importer: Arc::new(BTreeMap::new()),
             reverse_site_importers: Arc::new(BTreeMap::new()),
             linked_modules: BTreeMap::new(),
+            linked_dependency_fingerprints: BTreeMap::new(),
+            retained_components: BTreeMap::new(),
+            module_components: BTreeMap::new(),
             linked: None,
             resolved_imports: BTreeMap::new(),
             diagnostics: BTreeMap::new(),
@@ -452,6 +563,18 @@ impl WorkspaceModuleSession {
 
     pub fn linked_modules(&self) -> &BTreeMap<ModuleId, (crate::linker::LinkedModule, crate::fingerprint::LinkedInterfaceFingerprint)> {
         &self.linked_modules
+    }
+
+    pub fn linked_dependency_fingerprints(&self) -> &BTreeMap<ModuleId, crate::fingerprint::LinkedDependencyFingerprint> {
+        &self.linked_dependency_fingerprints
+    }
+
+    pub fn retained_components(&self) -> &BTreeMap<ComponentId, Arc<ComponentLinkedProduct>> {
+        &self.retained_components
+    }
+
+    pub fn module_components(&self) -> &BTreeMap<ModuleId, ComponentId> {
+        &self.module_components
     }
 
     pub fn source(&self, id: &ModuleId) -> Option<&WorkspaceSourceState> {
@@ -568,6 +691,9 @@ impl WorkspaceModuleSession {
         self.reverse_site_importers = rebuild_output.reverse_site_importers.clone();
         self.topology = rebuild_output.topology.clone();
         self.linked_modules = rebuild_output.linked_modules;
+        self.linked_dependency_fingerprints = rebuild_output.linked_dependency_fingerprints;
+        self.retained_components = rebuild_output.retained_components;
+        self.module_components = rebuild_output.module_components;
         self.linked = Some(rebuild_output.linked.clone());
         self.diagnostics = rebuild_output.diagnostics.clone();
         self.blocked_modules = rebuild_output.blocked_modules.clone();
@@ -1015,6 +1141,9 @@ impl WorkspaceModuleSession {
         self.reverse_site_importers = rebuild_output.reverse_site_importers.clone();
         self.topology = rebuild_output.topology.clone();
         self.linked_modules = rebuild_output.linked_modules;
+        self.linked_dependency_fingerprints = rebuild_output.linked_dependency_fingerprints;
+        self.retained_components = rebuild_output.retained_components;
+        self.module_components = rebuild_output.module_components;
         self.linked = Some(rebuild_output.linked.clone());
         self.diagnostics = rebuild_output.diagnostics.clone();
         self.blocked_modules = rebuild_output.blocked_modules.clone();
@@ -1390,7 +1519,7 @@ impl WorkspaceModuleSession {
             }
         }
         let delta = TopologyDelta {
-            added_modules,
+            added_modules: added_modules.clone(),
             removed_modules: removed_modules.clone(),
             changed_interfaces: modules_with_changed_interface.clone(),
             changed_exposures,
@@ -1404,6 +1533,9 @@ impl WorkspaceModuleSession {
             && self.linked.is_some()
         {
             stats.linked_modules_reused = linked_modules.len();
+            stats.linked_components = 0;
+            stats.linked_components_reused = self.retained_components.len();
+            stats.linked_components_recomputed = 0;
             let (resolution_hits_after, resolution_misses_after) = self.provider.base().resolution_metrics();
             stats.filesystem_resolution_hits = resolution_hits_after.saturating_sub(resolution_hits_before) as usize;
             stats.filesystem_resolution_misses = resolution_misses_after.saturating_sub(resolution_misses_before) as usize;
@@ -1432,6 +1564,9 @@ impl WorkspaceModuleSession {
                 sites_by_importer: self.sites_by_importer.clone(),
                 reverse_site_importers: self.reverse_site_importers.clone(),
                 linked_modules,
+                linked_dependency_fingerprints: self.linked_dependency_fingerprints.clone(),
+                retained_components: self.retained_components.clone(),
+                module_components: self.module_components.clone(),
                 diagnostics: self.diagnostics.clone(),
                 blocked_modules: self.blocked_modules.clone(),
                 stats,
@@ -1565,61 +1700,144 @@ impl WorkspaceModuleSession {
 
         let mut affected_modules_set = modules_with_changed_interface.clone();
         affected_modules_set.extend(removed_modules.clone());
-        affected_modules_set.extend(recomputed_importers);
+        affected_modules_set.extend(recomputed_importers.iter().cloned());
         stats.affected_modules = affected_modules_set.len();
 
         // 5. Link affected components in tolerant mode
-        let linked = if parsed_sources.is_empty() {
-            Arc::new(LinkedProgram {
-                universe: Arc::new(universe.clone()),
-                modules: BTreeMap::new(),
-                graphs: crate::graph::ModuleGraphs::default(),
-                entry: ModuleId::universe_root(),
-                initialization_order: Vec::new(),
-            })
+        let (new_components, new_module_components) = compute_connected_components(&interfaces, &import_products);
+
+        let mut affected_components = BTreeSet::new();
+        for m in modules_with_changed_interface
+            .iter()
+            .chain(&added_modules)
+            .chain(&identity_changes)
+            .chain(&recomputed_importers)
+            .chain(&delta.changed_exposures)
+        {
+            if let Some(comp_id) = new_module_components.get(m) {
+                affected_components.insert(comp_id.clone());
+            }
+        }
+
+        for removed in &removed_modules {
+            if let Some(old_comp_id) = self.module_components.get(removed) {
+                affected_components.insert(old_comp_id.clone());
+            }
+        }
+
+        for (comp_id, members) in &new_components {
+            if let Some(retained) = self.retained_components.get(comp_id) {
+                if &retained.members != members {
+                    affected_components.insert(comp_id.clone());
+                }
+            } else {
+                affected_components.insert(comp_id.clone());
+            }
+        }
+
+        let (linked, new_retained_components, linked_dependency_fingerprints) = if parsed_sources.is_empty() {
+            (
+                Arc::new(LinkedProgram {
+                    universe: Arc::new(universe.clone()),
+                    modules: BTreeMap::new(),
+                    graphs: crate::graph::ModuleGraphs::default(),
+                    entry: ModuleId::universe_root(),
+                    initialization_order: Vec::new(),
+                }),
+                BTreeMap::new(),
+                BTreeMap::new(),
+            )
         } else {
-            let entry = parsed_sources.keys().next().cloned().expect("non-empty source map");
-            let interfaces_for_linker: BTreeMap<ModuleId, UnlinkedModuleInterface> = interfaces
-                .iter()
-                .filter(|(id, _)| parsed_sources.contains_key(id))
-                .map(|(id, (iface, _))| (id.clone(), (**iface).clone()))
-                .collect();
-            let linker = ModuleLinker::new(Arc::new(universe.clone()), interfaces_for_linker);
+            let mut new_retained_components = BTreeMap::new();
             let mut modules = BTreeMap::new();
             let mut graphs = crate::graph::ModuleGraphs::default();
-            let mut visited_components = BTreeSet::new();
+            let mut linked_dep_fps = BTreeMap::new();
 
-            for component_entry in parsed_sources.keys() {
-                if visited_components.contains(component_entry) {
-                    continue;
-                }
-                let component = linker.link_component_tolerant(component_entry.clone(), &resolved_imports);
-                stats.linked_components += 1;
-                for err in component.diagnostics {
-                    let err_module = err.module().cloned().unwrap_or_else(|| component_entry.clone());
-                    let target_iface = interfaces.get(&err_module).map(|(iface, _)| &**iface);
-                    let diag = ModuleDiagnostic::from_link_error(err, target_iface);
-                    diagnostics.entry(err_module).or_default().push(diag);
-                }
-                blocked_modules.extend(component.blocked_modules);
+            for (comp_id, members) in &new_components {
+                let comp_product = if affected_components.contains(comp_id) {
+                    stats.linked_components_recomputed += 1;
+                    let entry = comp_id.0.clone();
+                    let comp_interfaces: BTreeMap<ModuleId, UnlinkedModuleInterface> = members
+                        .iter()
+                        .filter_map(|id| interfaces.get(id).map(|(iface, _)| (id.clone(), (**iface).clone())))
+                        .collect();
+                    let comp_linker = ModuleLinker::new(Arc::new(universe.clone()), comp_interfaces);
+                    let component = comp_linker.link_component_interfaces_tolerant(entry.clone(), &resolved_imports);
 
-                for (mod_id, linked_mod) in component.program.modules {
-                    visited_components.insert(mod_id.clone());
-                    let linked_fp = linked_mod.interface.fingerprint();
-                    stats.linked_modules_recomputed += 1;
-                    linked_modules.insert(mod_id.clone(), (linked_mod.clone(), linked_fp));
-                    modules.insert(mod_id, linked_mod);
+                    let mut comp_modules = BTreeMap::new();
+                    let mut comp_public_fps = BTreeMap::new();
+                    let mut comp_private_fps = BTreeMap::new();
+                    let mut comp_diags = Vec::new();
+
+                    for err in component.diagnostics {
+                        let err_module = err.module().cloned().unwrap_or_else(|| entry.clone());
+                        let target_iface = interfaces.get(&err_module).map(|(iface, _)| &**iface);
+                        let diag = ModuleDiagnostic::from_link_error(err, target_iface);
+                        comp_diags.push(diag);
+                    }
+
+                    for (mod_id, linked_mod) in component.program.modules {
+                        stats.linked_modules_recomputed += 1;
+                        let public_fp = linked_mod.interface.fingerprint();
+                        let private_fp = crate::fingerprint::linked_dependency_fingerprint(&linked_mod);
+                        comp_public_fps.insert(mod_id.clone(), public_fp);
+                        comp_private_fps.insert(mod_id.clone(), private_fp);
+                        comp_modules.insert(mod_id, linked_mod);
+                    }
+
+                    Arc::new(ComponentLinkedProduct {
+                        component_id: comp_id.clone(),
+                        members: members.clone(),
+                        modules: comp_modules,
+                        graphs: component.program.graphs,
+                        blocked_modules: component.blocked_modules,
+                        diagnostics: comp_diags,
+                        public_fingerprints: comp_public_fps,
+                        private_fingerprints: comp_private_fps,
+                    })
+                } else {
+                    stats.linked_components_reused += 1;
+                    let retained = self
+                        .retained_components
+                        .get(comp_id)
+                        .expect("unaffected component must be present in retained_components")
+                        .clone();
+                    stats.linked_modules_reused += retained.modules.len();
+                    retained
+                };
+
+                for (mod_id, linked_mod) in &comp_product.modules {
+                    let public_fp = comp_product.public_fingerprints.get(mod_id).copied().unwrap_or_else(|| linked_mod.interface.fingerprint());
+                    let private_fp = comp_product.private_fingerprints.get(mod_id).copied().unwrap_or_else(|| crate::fingerprint::linked_dependency_fingerprint(linked_mod));
+                    linked_modules.insert(mod_id.clone(), (linked_mod.clone(), public_fp));
+                    linked_dep_fps.insert(mod_id.clone(), private_fp);
+                    modules.insert(mod_id.clone(), linked_mod.clone());
                 }
-                graphs.merge_from(&component.program.graphs);
+
+                for diag in &comp_product.diagnostics {
+                    diagnostics.entry(diag.module.clone()).or_default().push(diag.clone());
+                }
+                blocked_modules.extend(comp_product.blocked_modules.clone());
+                graphs.merge_from(&comp_product.graphs);
+
+                new_retained_components.insert(comp_id.clone(), comp_product);
             }
+
+            stats.linked_components = stats.linked_components_recomputed;
+
             let initialization_order = graphs.runtime.initialization_order().unwrap_or_default();
-            Arc::new(LinkedProgram {
-                universe: Arc::new(universe.clone()),
-                modules,
-                graphs,
-                entry,
-                initialization_order,
-            })
+            let entry = parsed_sources.keys().next().cloned().unwrap_or_else(ModuleId::universe_root);
+            (
+                Arc::new(LinkedProgram {
+                    universe: Arc::new(universe.clone()),
+                    modules,
+                    graphs,
+                    entry,
+                    initialization_order,
+                }),
+                new_retained_components,
+                linked_dep_fps,
+            )
         };
 
         let (resolution_hits_after, resolution_misses_after) = self.provider.base().resolution_metrics();
@@ -1656,6 +1874,9 @@ impl WorkspaceModuleSession {
             sites_by_importer: Arc::new(sites_by_importer),
             reverse_site_importers: Arc::new(reverse_site_importers),
             linked_modules,
+            linked_dependency_fingerprints,
+            retained_components: new_retained_components,
+            module_components: new_module_components,
             diagnostics,
             blocked_modules,
             stats,

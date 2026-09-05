@@ -41,6 +41,20 @@ impl LinkedInterfaceFingerprint {
     }
 }
 
+/// Deterministic private linkage dependency fingerprint for a linked module.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct LinkedDependencyFingerprint(pub u64);
+
+impl LinkedDependencyFingerprint {
+    pub const fn new(raw: u64) -> Self {
+        Self(raw)
+    }
+
+    pub const fn raw(self) -> u64 {
+        self.0
+    }
+}
+
 fn hash_range(range: SourceRange, hasher: &mut impl Hasher) {
     range.start.hash(hasher);
     range.end.hash(hasher);
@@ -296,4 +310,44 @@ pub fn linked_interface_input_fingerprint(interface: &LinkedModuleInterface) -> 
     let mut hasher = DefaultHasher::new();
     hash_linked_interface(interface, true, &mut hasher);
     LinkedInterfaceFingerprint::new(hasher.finish())
+}
+
+/// Computes the private linkage dependency fingerprint for a linked module.
+pub fn linked_dependency_fingerprint(module: &crate::linker::LinkedModule) -> LinkedDependencyFingerprint {
+    let mut hasher = DefaultHasher::new();
+    module.interface.module.hash(&mut hasher);
+
+    module.bindings.local_globals.len().hash(&mut hasher);
+    for (name, id) in &module.bindings.local_globals {
+        name.hash(&mut hasher);
+        id.0.hash(&mut hasher);
+    }
+
+    module.bindings.imports.len().hash(&mut hasher);
+    for (name, id) in &module.bindings.imports {
+        name.hash(&mut hasher);
+        id.0.hash(&mut hasher);
+    }
+
+    module.linked_reads.len().hash(&mut hasher);
+    for read in &module.linked_reads {
+        match read {
+            crate::linker::LinkedReadSpec::Module(id) => {
+                0u8.hash(&mut hasher);
+                id.hash(&mut hasher);
+            }
+            crate::linker::LinkedReadSpec::Binding(symbol) => {
+                1u8.hash(&mut hasher);
+                symbol.module.hash(&mut hasher);
+                symbol.name.hash(&mut hasher);
+            }
+        }
+    }
+
+    module.runtime_dependencies.len().hash(&mut hasher);
+    for dep in &module.runtime_dependencies {
+        dep.hash(&mut hasher);
+    }
+
+    LinkedDependencyFingerprint::new(hasher.finish())
 }

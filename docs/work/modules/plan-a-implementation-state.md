@@ -97,3 +97,35 @@ COMPLETED
 8. Downstream checks:
    - `RUST_MIN_STACK=8388608 cargo test -p phalcom-semantic --test semantic module_query_provenance` (1 passed, 0 failed)
    - `cargo check -p phalcom-lsp` (clean compilation, zero errors)
+
+---
+
+## Checkpoint A3 — Affected-Component Incremental Linking
+
+### Status
+COMPLETED
+
+### Baseline Commit
+- `0983cf8794c48974a9eb4fb9534ee9713c7a36cb` (`feat(modules): implement checkpoint A2 import site identity and topology resolution caching`)
+
+### Tasks
+- [x] Task 15 — Define `ComponentId` and `ComponentLinkedProduct` for retained component products.
+- [x] Task 16 — Seed affected connected components from interface changes, module additions/removals/reidentifications, recomputed import sites, and membership deltas.
+- [x] Task 17 — Split public interface fingerprinting (`LinkedInterfaceFingerprint`) from private linkage dependency fingerprinting (`LinkedDependencyFingerprint`).
+- [x] Task 18 — Implement component-scoped incremental linking in `WorkspaceModuleSession` and retain unaffected component products.
+- [x] Task 19 — Implement tolerant component-scoped linking in `ModuleLinker` and compute topological initialization order over surviving runtime graph.
+
+### Checkpoint A3 Verification Evidence
+1. Evidence 1: Body-only edit recomputes 0 components and reuses all 3 retained components (`linked_components_recomputed == 0`, `linked_components_reused == 3`): `tests/checkpoint_a3.rs::checkpoint_a3_evidence_1_body_only_edit_reuses_all_components` passes.
+2. Evidence 2: Public interface edit recomputes only affected component and retains all other components (`linked_components_recomputed == 1`, `linked_components_reused == 2`, `Arc::ptr_eq` structural reuse verified): `tests/checkpoint_a3.rs::checkpoint_a3_evidence_2_public_interface_edit_recomputes_only_affected_component` passes.
+3. Evidence 3: Import target change recomputes affected merged component only while unaffected components are retained (`linked_components_recomputed == 1`, `linked_components_reused >= 1`): `tests/checkpoint_a3.rs::checkpoint_a3_evidence_3_import_target_change_affects_only_target_component` passes.
+4. Evidence 4: Private dependency fingerprint split: changing internal linkage/private local declarations alters `LinkedDependencyFingerprint` while `LinkedInterfaceFingerprint` remains stable: `tests/checkpoint_a3.rs::checkpoint_a3_evidence_4_private_dependency_fingerprint_split` passes.
+5. Evidence 5: Strict vs tolerant linking parity: valid closed components produce identical linked modules and initialization orders under strict and tolerant linking with 0 diagnostics/blocked modules: `tests/checkpoint_a3.rs::checkpoint_a3_evidence_5_strict_and_tolerant_linking_parity` passes.
+6. Evidence 6: Tolerant runtime cycle isolation: cyclic modules are isolated/blocked while surviving unblocked modules retain valid topological initialization order (dependency W initializes before Z): `tests/checkpoint_a3.rs::checkpoint_a3_evidence_6_cycle_survivors_retain_initialization_order` passes.
+7. Module test suites:
+   - `cargo test -p phalcom-modules --test checkpoint_a3` (6 passed, 0 failed)
+   - `cargo test -p phalcom-modules` (102 passed, 0 failed)
+8. Downstream checks:
+   - `cargo test -p phalcom-semantic --test semantic module_query_provenance` (1 passed, 0 failed)
+   - `cargo check -p phalcom-lsp` (clean compilation, zero errors)
+
