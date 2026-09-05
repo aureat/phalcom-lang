@@ -214,9 +214,10 @@ workspace-wide `phalcom-core` baseline.
 
 ### Plan-B handoff
 
-- Final pushed HEAD is `180289d71697810ccf3bc6586be88714600f4828`
-  (`feat(lsp): close Plan A incremental performance evidence`); local `main`
-  matches `origin/main`.
+- Final pushed HEAD is `4817d7d7cabc217c358ef49f156670d25bfdf4b3`
+  (`docs(lsp): record pushed Plan A verification state`); implementation
+  commit is `180289d71697810ccf3bc6586be88714600f4828`; local `main` matches
+  `origin/main`.
 - Retained module products: `ModuleTopology`, `ImportSiteId` keyed resolution
   products with prefix provenance, `ComponentId`/`ComponentLinkedProduct`,
   `WorkspaceModuleStats`, and published reverse import/site indexes.
