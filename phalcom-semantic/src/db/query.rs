@@ -55,6 +55,9 @@ fn semantic_dependency_query_key(dependency: &crate::checker::analysis::Semantic
         crate::checker::analysis::SemanticDependency::LinkedInterface(module) => QueryKey::LinkedInterface(module.clone()),
         crate::checker::analysis::SemanticDependency::EnumDeclaration(declaration) => QueryKey::EnumDeclaration(declaration.clone()),
         crate::checker::analysis::SemanticDependency::AssociatedSurface(declaration) => QueryKey::AssociatedSurface(declaration.clone()),
+        crate::checker::analysis::SemanticDependency::ResolvedImport(site) => QueryKey::ResolvedImport(site.clone()),
+        crate::checker::analysis::SemanticDependency::LinkedName(module, name) => QueryKey::LinkedName(module.clone(), name.clone()),
+        crate::checker::analysis::SemanticDependency::PublicExport(module, name) => QueryKey::PublicExport(module.clone(), name.clone()),
     }
 }
 
@@ -840,6 +843,33 @@ pub struct DeclarationSurfaceQuery<'a> {
     pub hierarchy: &'a dyn TypeHierarchy,
     pub resolver: &'a dyn TypeResolver,
     pub declarations: &'a DeclarationTypeTable,
+    pub linked: Option<&'a LinkedProgram>,
+}
+
+fn ensure_semantic_dependency(
+    db: &mut SemanticDb,
+    dependency: &crate::checker::analysis::SemanticDependency,
+    linked: Option<&LinkedProgram>,
+    declarations: &DeclarationTypeTable,
+) {
+    let Some(linked) = linked else { return };
+    match dependency {
+        crate::checker::analysis::SemanticDependency::LinkedName(mod_id, name) => {
+            let prelude = crate::prelude::PreludeTypeMap::shared_canonical_universe();
+            query_linked_name(
+                db,
+                mod_id.clone(),
+                name.clone(),
+                linked,
+                declarations,
+                &prelude,
+            );
+        }
+        crate::checker::analysis::SemanticDependency::PublicExport(mod_id, name) => {
+            query_public_export(db, mod_id.clone(), name.clone(), linked);
+        }
+        _ => {}
+    }
 }
 
 /// Evaluates or computes the source member surface for one declaration.
@@ -852,6 +882,7 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
         hierarchy,
         resolver,
         declarations,
+        linked,
     } = query;
     let key = QueryKey::DeclarationSurface(decl_id.clone());
     if unit.id != decl_id.module || linked_interface.module != decl_id.module {
@@ -925,6 +956,7 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
     semantic_dependencies.insert(crate::checker::analysis::SemanticDependency::LinkedInterface(decl_id.module.clone()));
     semantic_dependencies.extend(captured_dependencies);
     for dependency in semantic_dependencies {
+        ensure_semantic_dependency(db, &dependency, linked, declarations);
         let dependency_key = semantic_dependency_query_key(&dependency);
         if dependency_key == key {
             return query_failure(db, key, "declaration surface captured a self-surface dependency");
@@ -1445,6 +1477,185 @@ pub fn query_module_diagnostics(db: &mut SemanticDb, module: ModuleId, diagnosti
     QueryOutcome::Ready(diagnostics)
 }
 
+/// Computes the exact `LinkedNameFact` for a module and name.
+pub fn compute_linked_name_fact(
+    module: &ModuleId,
+    name: &str,
+    linked: &LinkedProgram,
+    declarations: &DeclarationTypeTable,
+    prelude_types: &crate::prelude::PreludeTypeMap,
+) -> crate::db::product::LinkedNameFact {
+    let decl_candidate = DeclarationId::new(module.clone(), name.into());
+    if declarations.contains(&decl_candidate) {
+        return crate::db::product::LinkedNameFact::Local(decl_candidate);
+    }
+
+    if let Some(linked_mod) = linked.modules.get(module) {
+        if let Some(&import_id) = linked_mod.bindings.imports.get::<str>(name) {
+            if let Some(spec) = linked_mod.linked_reads.get(import_id.0 as usize) {
+                match spec {
+                    phalcom_modules::linker::LinkedReadSpec::Binding(sym) => {
+                        let decl = DeclarationId::new(sym.module.clone(), sym.name.clone());
+                        return crate::db::product::LinkedNameFact::ImportedBinding(decl);
+                    }
+                    phalcom_modules::linker::LinkedReadSpec::Module(target_mod) => {
+                        return crate::db::product::LinkedNameFact::ImportedModule(target_mod.clone());
+                    }
+                }
+            }
+        }
+
+        if let Some(export) = linked_mod.interface.exports.get::<str>(name) {
+            match &export.target {
+                phalcom_modules::interface::LinkedExportTarget::Binding(sym) => {
+                    let decl = DeclarationId::new(sym.module.clone(), sym.name.clone());
+                    return crate::db::product::LinkedNameFact::ImportedBinding(decl);
+                }
+                phalcom_modules::interface::LinkedExportTarget::Module(target_mod) => {
+                    return crate::db::product::LinkedNameFact::ImportedModule(target_mod.clone());
+                }
+            }
+        }
+    }
+
+    if let Some(decl) = prelude_types.get(name) {
+        if declarations.contains(decl) {
+            return crate::db::product::LinkedNameFact::ImportedBinding(decl.clone());
+        }
+    }
+
+    crate::db::product::LinkedNameFact::Absent
+}
+
+/// Computes the exact `PublicExportFact` for a module and export name.
+pub fn compute_public_export_fact(
+    module: &ModuleId,
+    name: &str,
+    linked: &LinkedProgram,
+) -> crate::db::product::PublicExportFact {
+    if let Some(linked_mod) = linked.modules.get(module) {
+        if let Some(export) = linked_mod.interface.exports.get::<str>(name) {
+            return crate::db::product::PublicExportFact::Present(export.clone());
+        }
+    }
+    crate::db::product::PublicExportFact::Absent
+}
+
+/// Evaluates or retrieves the cached `LinkedNameProduct` for a module name.
+pub fn query_linked_name(
+    db: &mut SemanticDb,
+    module: ModuleId,
+    name: String,
+    linked: &LinkedProgram,
+    declarations: &DeclarationTypeTable,
+    prelude_types: &crate::prelude::PreludeTypeMap,
+) -> QueryOutcome<Arc<crate::db::product::LinkedNameProduct>> {
+    let key = QueryKey::LinkedName(module.clone(), name.clone());
+    let fact = compute_linked_name_fact(&module, &name, linked, declarations, prelude_types);
+    let product = Arc::new(crate::db::product::LinkedNameProduct {
+        module: module.clone(),
+        name,
+        fact,
+    });
+    let input_fingerprint = crate::db::fingerprint::linked_name_input_fingerprint(&product);
+    let product_fingerprint = crate::db::fingerprint::linked_name_product_fingerprint(&product);
+
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(cached) = db.product(&key).and_then(|value| value.as_linked_name()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(cached.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    db.metrics().record_miss();
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::LinkedName(product.clone()),
+        Vec::new(),
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(product)
+}
+
+/// Evaluates or retrieves the cached `PublicExportProduct` for a public export.
+pub fn query_public_export(
+    db: &mut SemanticDb,
+    module: ModuleId,
+    name: String,
+    linked: &LinkedProgram,
+) -> QueryOutcome<Arc<crate::db::product::PublicExportProduct>> {
+    let key = QueryKey::PublicExport(module.clone(), name.clone());
+    let fact = compute_public_export_fact(&module, &name, linked);
+    let product = Arc::new(crate::db::product::PublicExportProduct {
+        module: module.clone(),
+        name,
+        fact,
+    });
+    let input_fingerprint = crate::db::fingerprint::public_export_input_fingerprint(&product);
+    let product_fingerprint = crate::db::fingerprint::public_export_product_fingerprint(&product);
+
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(cached) = db.product(&key).and_then(|value| value.as_public_export()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(cached.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    db.metrics().record_miss();
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::PublicExport(product.clone()),
+        Vec::new(),
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(product)
+}
+
+/// Evaluates or retrieves the cached `ImportResolutionProduct` for an import site.
+pub fn query_resolved_import(
+    db: &mut SemanticDb,
+    site: phalcom_modules::identity::ImportSiteId,
+    product: Arc<phalcom_modules::resolver::ImportResolutionProduct>,
+) -> QueryOutcome<Arc<phalcom_modules::resolver::ImportResolutionProduct>> {
+    let key = QueryKey::ResolvedImport(site);
+    let input_fingerprint = crate::db::fingerprint::resolved_import_input_fingerprint(&product);
+    let product_fingerprint = crate::db::fingerprint::resolved_import_product_fingerprint(&product);
+
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(cached) = db.product(&key).and_then(|value| value.as_resolved_import()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(cached.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    db.metrics().record_miss();
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::ResolvedImport(product.clone()),
+        Vec::new(),
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(product)
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum CallableBodySignatureRequirement {
     Required,
@@ -1653,14 +1864,31 @@ fn query_callable_body_with_requirement(
         CallableAnalysisStatus::Complete | CallableAnalysisStatus::Partial | CallableAnalysisStatus::InternalFailure(_) => {
             let mut recorder = crate::db::DependencyRecorder::new(key.clone());
             for sem_dep in arc_analysis.semantic_dependencies.iter() {
-                if let (crate::checker::analysis::SemanticDependency::FieldSignature(field), Some(inputs)) = (sem_dep, formal_inputs) {
-                    match ensure_field_signature(db, field, inputs, store) {
-                        QueryOutcome::Ready(_) => {}
-                        QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
-                        QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
-                        QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
-                        QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+                match (sem_dep, formal_inputs) {
+                    (crate::checker::analysis::SemanticDependency::FieldSignature(field), Some(inputs)) => {
+                        match ensure_field_signature(db, field, inputs, store) {
+                            QueryOutcome::Ready(_) => {}
+                            QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+                            QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+                            QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+                            QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+                        }
                     }
+                    (crate::checker::analysis::SemanticDependency::LinkedName(mod_id, name), Some(inputs)) => {
+                        let prelude = crate::prelude::PreludeTypeMap::shared_canonical_universe();
+                        query_linked_name(
+                            db,
+                            mod_id.clone(),
+                            name.clone(),
+                            inputs.linked,
+                            inputs.declarations,
+                            &prelude,
+                        );
+                    }
+                    (crate::checker::analysis::SemanticDependency::PublicExport(mod_id, name), Some(inputs)) => {
+                        query_public_export(db, mod_id.clone(), name.clone(), inputs.linked);
+                    }
+                    _ => {}
                 }
                 let dependency = semantic_dependency_query_key(sem_dep);
                 if let Err(error) = db.record_dependency(&mut recorder, dependency) {

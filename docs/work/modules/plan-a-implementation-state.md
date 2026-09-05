@@ -129,3 +129,21 @@ COMPLETED
    - `cargo test -p phalcom-semantic --test semantic module_query_provenance` (1 passed, 0 failed)
    - `cargo check -p phalcom-lsp` (clean compilation, zero errors)
 
+---
+
+## Checkpoint A4 — Exact Module Facts Join the Existing SemanticDb Dependency Graph
+
+### Status
+IN PROGRESS (HANDOFF PREPARED)
+
+### Baseline Commit
+- `fa1f0094b5db875d6c880fed870bd47b87376803` (`feat(modules): implement checkpoint A3 affected-component incremental linking`)
+
+### Tasks
+- [x] Task 20 — Define minimal exact module-semantic query keys/products (`QueryKey`, `SemanticDependency`, `SemanticProduct` variants for `ResolvedImport`, `LinkedName`, `PublicExport`).
+- [x] Task 21 — Define fingerprint functions and query module keys for exact module facts in `db/fingerprint.rs` and `db/mod.rs`.
+- [ ] Task 22 — Update `TrackingTypeResolver` in `checker/context.rs` and query execution in `db/query.rs` to record exact `LinkedName` and `PublicExport` dependencies.
+- [ ] Task 23 — Prove absence and re-export retargeting behavior in `tests/checkpoint_a4.rs`.
+- [ ] Task 24 — Audit aggregate `LinkedInterface` dependencies and verify no parallel dependency engine exists.
+
+

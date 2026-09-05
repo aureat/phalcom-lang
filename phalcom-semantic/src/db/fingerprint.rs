@@ -1824,6 +1824,70 @@ pub fn associated_surface_product_fingerprint(surface: &crate::associated::Assoc
     finish_product(hasher)
 }
 
+pub fn resolved_import_input_fingerprint(product: &phalcom_modules::resolver::ImportResolutionProduct) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    product.site.importer.hash(&mut hasher);
+    product.site.local.0.hash(&mut hasher);
+    finish_input(hasher)
+}
+
+pub fn resolved_import_product_fingerprint(product: &phalcom_modules::resolver::ImportResolutionProduct) -> ProductFingerprint {
+    ProductFingerprint::new(product.fingerprint.raw())
+}
+
+pub fn linked_name_input_fingerprint(product: &crate::db::product::LinkedNameProduct) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    product.module.hash(&mut hasher);
+    product.name.hash(&mut hasher);
+    finish_input(hasher)
+}
+
+pub fn linked_name_product_fingerprint(product: &crate::db::product::LinkedNameProduct) -> ProductFingerprint {
+    let mut hasher = DefaultHasher::new();
+    product.module.hash(&mut hasher);
+    product.name.hash(&mut hasher);
+    match &product.fact {
+        crate::db::product::LinkedNameFact::Absent => 0u8.hash(&mut hasher),
+        crate::db::product::LinkedNameFact::Local(decl) => {
+            1u8.hash(&mut hasher);
+            decl.module.hash(&mut hasher);
+            decl.name.hash(&mut hasher);
+        }
+        crate::db::product::LinkedNameFact::ImportedModule(mod_id) => {
+            2u8.hash(&mut hasher);
+            mod_id.hash(&mut hasher);
+        }
+        crate::db::product::LinkedNameFact::ImportedBinding(decl) => {
+            3u8.hash(&mut hasher);
+            decl.module.hash(&mut hasher);
+            decl.name.hash(&mut hasher);
+        }
+    }
+    finish_product(hasher)
+}
+
+pub fn public_export_input_fingerprint(product: &crate::db::product::PublicExportProduct) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    product.module.hash(&mut hasher);
+    product.name.hash(&mut hasher);
+    finish_input(hasher)
+}
+
+pub fn public_export_product_fingerprint(product: &crate::db::product::PublicExportProduct) -> ProductFingerprint {
+    let mut hasher = DefaultHasher::new();
+    product.module.hash(&mut hasher);
+    product.name.hash(&mut hasher);
+    match &product.fact {
+        crate::db::product::PublicExportFact::Absent => 0u8.hash(&mut hasher),
+        crate::db::product::PublicExportFact::Present(export) => {
+            1u8.hash(&mut hasher);
+            export.public_name.hash(&mut hasher);
+            export.target.hash(&mut hasher);
+        }
+    }
+    finish_product(hasher)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

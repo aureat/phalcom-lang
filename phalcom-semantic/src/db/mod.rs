@@ -375,6 +375,9 @@ fn query_key_module(key: &QueryKey) -> Option<&ModuleId> {
         | QueryKey::EnumDeclaration(declaration)
         | QueryKey::EnumRequirements(declaration)
         | QueryKey::AssociatedSurface(declaration) => Some(&declaration.module),
+        QueryKey::ResolvedImport(site) => Some(&site.importer),
+        QueryKey::LinkedName(module, _)
+        | QueryKey::PublicExport(module, _) => Some(module),
         QueryKey::FieldSignature(field) => Some(&field.owner.module),
         QueryKey::CallableSignature(callable)
         | QueryKey::CallableBody(callable)

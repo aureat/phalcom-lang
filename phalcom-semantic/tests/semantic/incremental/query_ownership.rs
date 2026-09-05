@@ -264,6 +264,7 @@ class Owner {
             hierarchy: &hierarchy,
             resolver: &resolver,
             declarations: &declarations,
+            linked: None,
         },
     ) {
         phalcom_semantic::db::QueryOutcome::Ready(surface) => surface,

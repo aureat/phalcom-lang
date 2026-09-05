@@ -277,6 +277,9 @@ pub enum SemanticDependency {
     LinkedInterface(ModuleId),
     EnumDeclaration(DeclarationId),
     AssociatedSurface(DeclarationId),
+    ResolvedImport(phalcom_modules::identity::ImportSiteId),
+    LinkedName(ModuleId, String),
+    PublicExport(ModuleId, String),
 }
 
 /// Status of callable-body analysis.

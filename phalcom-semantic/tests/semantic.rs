@@ -14,3 +14,6 @@ mod canonical_parameter_advisory;
 
 #[path = "explanation_derivation.rs"]
 mod explanation_derivation;
+
+#[path = "checkpoint_a4.rs"]
+mod checkpoint_a4;

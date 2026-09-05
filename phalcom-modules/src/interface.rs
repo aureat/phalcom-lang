@@ -41,14 +41,14 @@ pub enum UnlinkedExportTarget {
 }
 
 /// Target of a linked export: either a live global declaration or a whole module identity.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum LinkedExportTarget {
     Binding(crate::linker::SymbolId),
     Module(ModuleId),
 }
 
 /// Canonical export after linking.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct LinkedExport {
     /// Public name exposed by the exporting module.
     pub public_name: Box<str>,

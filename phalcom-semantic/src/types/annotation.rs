@@ -81,6 +81,11 @@ pub trait TypeResolver {
             Some(TypeLevelBinding::RecordRow(_)) | None => None,
         }
     }
+
+    /// Resolve an imported module alias in the current module context.
+    fn resolve_module_alias(&self, _current_module: &ModuleId, _alias: &str) -> Option<ModuleId> {
+        None
+    }
 }
 
 /// A scoped type resolver overlaying lexical type parameters on top of a parent resolver.
@@ -104,6 +109,10 @@ impl<'a> TypeResolver for ScopedTypeResolver<'a> {
 
     fn resolve_alias_form(&self, declaration: &DeclarationId) -> Option<TypeId> {
         self.parent.resolve_alias_form(declaration)
+    }
+
+    fn resolve_module_alias(&self, current_module: &ModuleId, alias: &str) -> Option<ModuleId> {
+        self.parent.resolve_module_alias(current_module, alias)
     }
 }
 

@@ -58,4 +58,7 @@ pub enum QueryKey {
     EnumDeclaration(DeclarationId),
     EnumRequirements(DeclarationId),
     AssociatedSurface(DeclarationId),
+    ResolvedImport(phalcom_modules::identity::ImportSiteId),
+    LinkedName(ModuleId, String),
+    PublicExport(ModuleId, String),
 }

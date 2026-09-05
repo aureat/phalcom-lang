@@ -1402,6 +1402,7 @@ impl SemanticWorkspaceSession {
                         hierarchy: &hierarchy,
                         resolver: &resolver,
                         declarations: &declarations,
+                        linked: Some(input.linked.as_ref()),
                     },
                 ) {
                     QueryOutcome::Ready(surface) => surface,
@@ -1503,6 +1504,7 @@ impl SemanticWorkspaceSession {
                         hierarchy: &hierarchy,
                         resolver: &resolver,
                         declarations: &declarations,
+                        linked: Some(input.linked.as_ref()),
                     },
                 ) {
                     QueryOutcome::Ready(_) => {}

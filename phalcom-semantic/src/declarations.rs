@@ -120,6 +120,10 @@ impl DeclarationTypeTable {
         self.entries.get(declaration)
     }
 
+    pub fn contains(&self, declaration: &DeclarationId) -> bool {
+        self.entries.contains_key(declaration)
+    }
+
     pub fn form(&self, declaration: &DeclarationId) -> Option<TypeId> {
         self.entries.get(declaration).map(|info| info.form)
     }

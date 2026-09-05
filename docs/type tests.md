@@ -67,7 +67,12 @@ stack
 	..push(20)
 	..push(30)
 	
-
+enum class Option<T> {
+	Some(
+		_ value: T
+	)
+	None
+}
 ```
 
 ```ph

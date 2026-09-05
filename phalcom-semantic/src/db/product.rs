@@ -55,6 +55,38 @@ pub struct EnumRequirementsProduct {
     pub diagnostics: Arc<[SemanticDiagnostic]>,
 }
 
+/// Fact representing the resolution of a local name within a module.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum LinkedNameFact {
+    Absent,
+    Local(crate::identity::DeclarationId),
+    ImportedModule(phalcom_modules::identity::ModuleId),
+    ImportedBinding(crate::identity::DeclarationId),
+}
+
+/// Query product representing the resolution of a local name in a module.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LinkedNameProduct {
+    pub module: phalcom_modules::identity::ModuleId,
+    pub name: String,
+    pub fact: LinkedNameFact,
+}
+
+/// Fact representing the public export of a name by a module.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PublicExportFact {
+    Absent,
+    Present(phalcom_modules::interface::LinkedExport),
+}
+
+/// Query product representing a public export of a module.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PublicExportProduct {
+    pub module: phalcom_modules::identity::ModuleId,
+    pub name: String,
+    pub fact: PublicExportFact,
+}
+
 /// Strongly-typed wrapper around semantic database product variants.
 #[derive(Clone, Debug)]
 pub enum SemanticProduct {
@@ -77,6 +109,9 @@ pub enum SemanticProduct {
     EnumDeclaration(Arc<EnumDeclarationProduct>),
     EnumRequirements(Arc<EnumRequirementsProduct>),
     AssociatedSurface(Arc<AssociatedSurface>),
+    ResolvedImport(Arc<phalcom_modules::resolver::ImportResolutionProduct>),
+    LinkedName(Arc<LinkedNameProduct>),
+    PublicExport(Arc<PublicExportProduct>),
 }
 
 impl SemanticProduct {
@@ -222,6 +257,27 @@ impl SemanticProduct {
         }
     }
 
+    pub fn as_resolved_import(&self) -> Option<&Arc<phalcom_modules::resolver::ImportResolutionProduct>> {
+        match self {
+            Self::ResolvedImport(product) => Some(product),
+            _ => None,
+        }
+    }
+
+    pub fn as_linked_name(&self) -> Option<&Arc<LinkedNameProduct>> {
+        match self {
+            Self::LinkedName(product) => Some(product),
+            _ => None,
+        }
+    }
+
+    pub fn as_public_export(&self) -> Option<&Arc<PublicExportProduct>> {
+        match self {
+            Self::PublicExport(product) => Some(product),
+            _ => None,
+        }
+    }
+
     /// Converts typed product into type-erased `QueryValue`.
     pub fn to_query_value(&self) -> QueryValue {
         let kind = match self {
@@ -244,6 +300,9 @@ impl SemanticProduct {
             Self::EnumDeclaration(_) => b"enum-declaration".as_slice(),
             Self::EnumRequirements(_) => b"enum-requirements".as_slice(),
             Self::AssociatedSurface(_) => b"associated-surface".as_slice(),
+            Self::ResolvedImport(_) => b"resolved-import".as_slice(),
+            Self::LinkedName(_) => b"linked-name".as_slice(),
+            Self::PublicExport(_) => b"public-export".as_slice(),
         };
         QueryValue::from_bytes(kind)
     }

@@ -50,6 +50,17 @@ impl LinkedTypeResolver {
 }
 
 impl TypeResolver for LinkedTypeResolver {
+    fn resolve_module_alias(&self, current_module: &ModuleId, alias: &str) -> Option<ModuleId> {
+        if let Some(linked_mod) = self.linked.modules.get(current_module) {
+            if let Some(&import_id) = linked_mod.bindings.imports.get::<str>(alias) {
+                if let Some(LinkedReadSpec::Module(target_mod)) = linked_mod.linked_reads.get(import_id.0 as usize) {
+                    return Some(target_mod.clone());
+                }
+            }
+        }
+        None
+    }
+
     fn resolve_alias_form(&self, declaration: &DeclarationId) -> Option<crate::types::id::TypeId> {
         self.alias_forms.borrow().get(declaration).copied()
     }
