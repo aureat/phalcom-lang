@@ -422,6 +422,13 @@ fn analyze_var(name: &str, range: SourceRange, context: &AdvisoryExpressionConte
             if let Some(fact) = context.bindings.get(&site) {
                 return fact.clone().derive(AdvisoryConfidence::Flow, AdvisoryOrigin::Binding(site));
             }
+            if let Some(origin) = context.scope_index.import_origin(&site) {
+                return match &origin.remote_target {
+                    crate::identity::SemanticTargetId::Declaration(declaration) => syntax_fact(context, ValueShape::ClassObject(declaration.clone()), range),
+                    crate::identity::SemanticTargetId::Module(module) => syntax_fact(context, ValueShape::Module(module.clone()), range),
+                    _ => unknown_at(context, range),
+                };
+            }
             match context.scope_index.target_for(&site) {
                 Some(crate::identity::SemanticTargetId::Declaration(declaration)) => syntax_fact(context, ValueShape::ClassObject(declaration.clone()), range),
                 Some(crate::identity::SemanticTargetId::Module(module)) => syntax_fact(context, ValueShape::Module(module.clone()), range),

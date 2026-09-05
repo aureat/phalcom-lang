@@ -3,16 +3,18 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::identity::{
-    CallableId, CallableParameterId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId, SourceSiteLocalId,
+    CallableId, CallableParameterId, CallableOwnerId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId,
+    SourceSiteLocalId, VariantFieldId, VariantId,
 };
 use crate::source_index::scope::{
-    CallableSourceInfo, DeclarationSourceInfo, FieldSourceInfo, SourceBindingInfo, SourceBindingKind, SourceCallableKind, SourceScopeId, SourceScopeIndex,
+    CallableSourceInfo, DeclarationSourceInfo, FieldSourceInfo, ImportBindingOrigin, SourceBindingInfo, SourceBindingKind, SourceCallableKind, SourceScopeId,
+    SourceScopeIndex,
 };
 use crate::source_index::site::{SourceSite, SourceSiteKind};
 use crate::types::annotation::TypeResolver;
 use phalcom_ast::ast::{
-    BindingKind, BlockExpr, ClassDef, ClassMember, Expr, ForStatement, GenericConstraintSyntax, LetBinding, MemberBody, Pattern, Program, Statement,
-    TypeAnnotation, TypeAnnotationExpr, WhereClauseSyntax,
+    BindingKind, BlockExpr, ClassDef, ClassMember, EnumBehaviorMember, EnumDef, EnumMember, Expr, ForStatement, GenericConstraintSyntax, LetBinding,
+    MemberBody, Pattern, Program, Statement, TypeAnnotation, TypeAnnotationExpr, WhereClauseSyntax,
 };
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
@@ -262,6 +264,9 @@ pub fn build_source_scope_index(module: ModuleId, program: &Program, context: &S
         } else if let Statement::TypeAlias(alias) = statement {
             let declaration = DeclarationId::new(module.clone(), alias.name.clone().into());
             builder.index.register_class(alias.name.clone(), declaration);
+        } else if let Statement::Enum(enum_def) = statement {
+            let declaration = DeclarationId::new(module.clone(), enum_def.name.clone().into());
+            builder.index.register_class(enum_def.name.clone(), declaration);
         }
     }
     builder.visit_imports(program);
@@ -370,7 +375,10 @@ impl SourceScopeBuilder<'_> {
                         .or_else(|| self.context.modules.get(&module_import.path.to_string()))
                     {
                         self.index.register_module(name, module.clone());
-                        self.index.register_target(site, SemanticTargetId::Module(module.clone()));
+                        self.index.register_import_origin(ImportBindingOrigin {
+                            local_binding: site,
+                            remote_target: SemanticTargetId::Module(module.clone()),
+                        });
                     }
                 }
                 phalcom_ast::ast::ImportDecl::Selective(selective_import) => {
@@ -386,7 +394,10 @@ impl SourceScopeBuilder<'_> {
                         if let Some(module) = module
                             && let Some(target) = self.context.targets.get(&(module.clone(), item.name.clone()))
                         {
-                            self.index.register_target(site, target.clone());
+                            self.index.register_import_origin(ImportBindingOrigin {
+                                local_binding: site,
+                                remote_target: target.clone(),
+                            });
                         }
                     }
                 }
@@ -398,6 +409,7 @@ impl SourceScopeBuilder<'_> {
         for statement in statements {
             match statement {
                 Statement::Class(class) => self.visit_class(scope, class),
+                Statement::Enum(enum_def) => self.visit_enum(scope, enum_def),
                 Statement::TypeAlias(alias) => self.visit_type_alias(scope, alias),
                 Statement::Let(binding) => self.visit_let(scope, binding, top_level),
                 Statement::Return(return_statement) => {
@@ -408,7 +420,7 @@ impl SourceScopeBuilder<'_> {
                 Statement::Expr { expr, .. } => self.visit_expr(scope, expr),
                 Statement::For(for_statement) => self.visit_for(scope, for_statement),
                 Statement::Throw { expr, .. } => self.visit_expr(scope, expr),
-                Statement::Export(_) | Statement::Break { .. } | Statement::Continue { .. } | Statement::Enum(_) => {}
+                Statement::Export(_) | Statement::Break { .. } | Statement::Continue { .. } => {}
             }
         }
     }
@@ -455,6 +467,154 @@ impl SourceScopeBuilder<'_> {
                 declaration_range: alias.range,
             },
         );
+    }
+
+    fn visit_enum(&mut self, parent: SourceScopeId, enum_def: &EnumDef) {
+        let declaration = DeclarationId::new(self.index.module.clone(), enum_def.name.clone().into());
+        let declaration_site = self.allocate_site(
+            SourceOwner::Module(self.index.module.clone()),
+            enum_def.name_range,
+            SourceSiteKind::Declaration(declaration.clone()),
+        );
+        self.index.register_target(declaration_site.clone(), SemanticTargetId::Declaration(declaration.clone()));
+        self.index.declaration_sources.insert(
+            declaration.clone(),
+            DeclarationSourceInfo {
+                id: declaration.clone(),
+                name: enum_def.name.clone().into(),
+                declaration_site,
+                name_range: enum_def.name_range,
+                declaration_range: enum_def.range,
+            },
+        );
+
+        for member in &enum_def.members {
+            match member {
+                EnumMember::Variant(variant) => {
+                    let variant_id = VariantId::new(declaration.clone(), phalcom_ast::selector::selector_from_variant(variant));
+                    let variant_site = self.allocate_site(
+                        SourceOwner::Module(self.index.module.clone()),
+                        variant.name_range,
+                        SourceSiteKind::Variant(variant_id.clone()),
+                    );
+                    self.index.register_target(variant_site, SemanticTargetId::Variant(variant_id.clone()));
+                    if let Some(family) = variant_id.family() {
+                        let family_site = self.allocate_site(
+                            SourceOwner::Module(self.index.module.clone()),
+                            variant.name_range,
+                            SourceSiteKind::VariantFamily(family.clone()),
+                        );
+                        self.index.register_target(family_site, SemanticTargetId::VariantFamily(family));
+                    }
+                    if let Some(payload) = &variant.payload {
+                        for (index, parameter) in payload.parameters.iter().enumerate() {
+                            let field = VariantFieldId::new(variant_id.clone(), index as u32);
+                            let site = self.allocate_site(
+                                SourceOwner::Module(self.index.module.clone()),
+                                parameter.name_range,
+                                SourceSiteKind::VariantField(field.clone()),
+                            );
+                            self.index.register_target(site, SemanticTargetId::VariantField(field));
+                        }
+                    }
+                    if let Some(body) = &variant.body {
+                        for behavior in &body.members {
+                            self.visit_enum_behavior(parent, CallableOwnerId::Variant(variant_id.clone()), behavior, DispatchSide::Instance);
+                        }
+                    }
+                }
+                EnumMember::Behavior(behavior) => {
+                    let is_class_side = behavior.attributes().iter().any(|attribute| attribute.name == "class")
+                        || match behavior {
+                            EnumBehaviorMember::Method(method) => method.is_static,
+                            EnumBehaviorMember::Getter(getter) => getter.is_static,
+                            EnumBehaviorMember::Setter(setter) => setter.is_static,
+                            EnumBehaviorMember::Index(_) => false,
+                        };
+                    self.visit_enum_behavior(
+                        parent,
+                        CallableOwnerId::Declaration(declaration.clone()),
+                        behavior,
+                        if is_class_side { DispatchSide::Class } else { DispatchSide::Instance },
+                    );
+                }
+            }
+        }
+    }
+
+    fn visit_enum_behavior(&mut self, parent: SourceScopeId, owner: CallableOwnerId, behavior: &EnumBehaviorMember, side: DispatchSide) {
+        let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(behavior);
+        let Some(callable) = crate::checker::declaration_signature::callable_id_for_syntax(&owner, syntax, side) else {
+            return;
+        };
+        let declaration_range = behavior
+            .attributes()
+            .first()
+            .map_or(behavior.range(), |attribute| SourceRange::new(attribute.range.start, behavior.range().end));
+        match behavior {
+            EnumBehaviorMember::Method(method) => self.visit_callable(CallableVisit {
+                parent,
+                callable,
+                name_range: method.name_range,
+                declaration_range,
+                body_range: method.range,
+                parameters: &method.params,
+                body: &method.body,
+                parameter_kind: SourceBindingKind::MethodParameter,
+                kind: if method.is_constructor || method.attributes.iter().any(|attribute| attribute.name == "constructor") {
+                    SourceCallableKind::Constructor
+                } else {
+                    SourceCallableKind::Method
+                },
+                has_explicit_return_annotation: method.return_annotation.is_some(),
+            }),
+            EnumBehaviorMember::Getter(getter) => self.visit_callable(CallableVisit {
+                parent,
+                callable,
+                name_range: getter.name_range,
+                declaration_range,
+                body_range: getter.range,
+                parameters: &[],
+                body: &getter.body,
+                parameter_kind: SourceBindingKind::MethodParameter,
+                kind: SourceCallableKind::Getter,
+                has_explicit_return_annotation: getter.return_annotation.is_some(),
+            }),
+            EnumBehaviorMember::Setter(setter) => self.visit_callable(CallableVisit {
+                parent,
+                callable,
+                name_range: setter.name_range,
+                declaration_range,
+                body_range: setter.range,
+                parameters: std::slice::from_ref(&setter.param),
+                body: &setter.body,
+                parameter_kind: SourceBindingKind::SetterParameter,
+                kind: SourceCallableKind::Setter,
+                has_explicit_return_annotation: setter.return_annotation.is_some(),
+            }),
+            EnumBehaviorMember::Index(index) => {
+                let mut parameters = index.params.clone();
+                if let phalcom_ast::ast::IndexAccessor::Set { put } = &index.accessor {
+                    parameters.push((**put).clone());
+                }
+                let body = MemberBody::Block(index.body.clone());
+                self.visit_callable(CallableVisit {
+                    parent,
+                    callable,
+                    name_range: index.name_range,
+                    declaration_range,
+                    body_range: index.range,
+                    parameters: &parameters,
+                    body: &body,
+                    parameter_kind: SourceBindingKind::IndexParameter,
+                    kind: match &index.accessor {
+                        phalcom_ast::ast::IndexAccessor::Get => SourceCallableKind::IndexGet,
+                        phalcom_ast::ast::IndexAccessor::Set { .. } => SourceCallableKind::IndexSet,
+                    },
+                    has_explicit_return_annotation: index.return_annotation.is_some(),
+                });
+            }
+        }
     }
 
     fn visit_member(&mut self, parent: SourceScopeId, declaration: &DeclarationId, member: &ClassMember) {

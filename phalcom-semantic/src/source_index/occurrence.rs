@@ -8,7 +8,7 @@ use crate::source_index::builder::SourceIndexContext;
 use crate::source_index::interval::{RangeEntry, RangeIndex};
 use crate::source_index::scope::{SourceNameResolution, SourceReceiverKind, SourceScopeIndex};
 use crate::source_index::site::{SourceSite, SourceSiteKind};
-use phalcom_ast::ast::{BlockExpr, Expr, PackItem, Program, Statement};
+use phalcom_ast::ast::{BlockExpr, DependencyDecl, Expr, ImportDecl, ImportPath, PackItem, Program, Statement};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
 
@@ -175,6 +175,7 @@ impl OccurrenceIndex {
             targets,
             context,
         };
+        visitor.dependencies(&program.preamble.dependencies);
         for statement in &program.statements {
             visitor.statement(statement);
         }
@@ -240,6 +241,133 @@ struct OccurrenceBuilder<'a> {
 }
 
 impl OccurrenceBuilder<'_> {
+    fn dependencies(&mut self, dependencies: &[DependencyDecl]) {
+        for dependency in dependencies {
+            match dependency {
+                DependencyDecl::Import(ImportDecl::Module(import)) => {
+                    if let Some(module) = self.resolve_path(&import.path) {
+                        self.path_occurrences(&import.path, SemanticTargetId::Module(module));
+                    }
+                }
+                DependencyDecl::Import(ImportDecl::Selective(import)) => {
+                    if let Some(module) = self.resolve_path(&import.path) {
+                        self.path_occurrences(&import.path, SemanticTargetId::Module(module.clone()));
+                        for item in &import.items {
+                            if let Some(target) = self.context.and_then(|context| context.targets.get(&(module.clone(), item.name.clone()))) {
+                                self.record_targeted(
+                                    item.name_range,
+                                    OccurrenceKind::Declaration,
+                                    OccurrenceRole::Reference,
+                                    Some(OccurrenceHint::Name(item.name.clone().into())),
+                                    Some(target.clone()),
+                                );
+                            }
+                        }
+                    }
+                }
+                DependencyDecl::ReExport(reexport) => {
+                    if let Some(module) = self.resolve_path(&reexport.path) {
+                        self.path_occurrences(&reexport.path, SemanticTargetId::Module(module.clone()));
+                        for item in &reexport.items {
+                            if let Some(target) = self.context.and_then(|context| context.targets.get(&(module.clone(), item.local_or_remote_name.clone()))) {
+                                self.record_targeted(
+                                    item.name_range,
+                                    OccurrenceKind::Declaration,
+                                    OccurrenceRole::Reference,
+                                    Some(OccurrenceHint::Name(item.local_or_remote_name.clone().into())),
+                                    Some(target.clone()),
+                                );
+                                if let Some(alias) = &item.alias {
+                                    self.record_targeted(
+                                        alias.range,
+                                        OccurrenceKind::Declaration,
+                                        OccurrenceRole::Reference,
+                                        Some(OccurrenceHint::Name(alias.name.clone().into())),
+                                        Some(target.clone()),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                DependencyDecl::Expose(expose) => {
+                    if let Some(module) = self.exposed_child(&expose.child.name) {
+                        self.record_targeted(
+                            expose.child.range,
+                            OccurrenceKind::Module,
+                            OccurrenceRole::Reference,
+                            Some(OccurrenceHint::Name(expose.child.name.clone().into())),
+                            Some(SemanticTargetId::Module(module)),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    fn path_occurrences(&mut self, path: &ImportPath, target: SemanticTargetId) {
+        match &path.root {
+            phalcom_ast::ast::ImportRoot::Absolute(segment) => {
+                self.record_targeted(segment.range, OccurrenceKind::Module, OccurrenceRole::Reference, None, Some(target.clone()));
+            }
+            phalcom_ast::ast::ImportRoot::Relative { range, .. } => {
+                self.record_targeted(*range, OccurrenceKind::Module, OccurrenceRole::Reference, None, Some(target.clone()));
+            }
+        }
+        for segment in &path.segments {
+            self.record_targeted(segment.range, OccurrenceKind::Module, OccurrenceRole::Reference, None, Some(target.clone()));
+        }
+    }
+
+    fn resolve_path(&self, path: &ImportPath) -> Option<crate::identity::ModuleId> {
+        let context = self.context?;
+        context
+            .resolved_imports
+            .get(&(self.scopes.module.clone(), path.to_string()))
+            .cloned()
+            .or_else(|| context.modules.get(&path.to_string()).cloned())
+    }
+
+    fn exposed_child(&self, child: &str) -> Option<crate::identity::ModuleId> {
+        let context = self.context?;
+        let component = phalcom_modules::identity::ModuleComponent::from_identifier(child).ok()?;
+        let module = crate::identity::ModuleId {
+            project: self.scopes.module.project,
+            path: self.scopes.module.path.join(component),
+        };
+        context
+            .modules
+            .get(&module.path.to_string())
+            .cloned()
+            .or_else(|| context.modules.get(&module.to_string()).cloned())
+    }
+
+    fn export_items(&mut self, export: &phalcom_ast::ast::ExportDecl) {
+        for item in &export.items {
+            let public_name = item.alias.as_ref().map_or(&item.local_or_remote_name, |alias| &alias.name);
+            let target = self
+                .context
+                .and_then(|context| context.targets.get(&(self.scopes.module.clone(), public_name.clone())))
+                .cloned();
+            self.record_targeted(
+                item.name_range,
+                OccurrenceKind::Declaration,
+                OccurrenceRole::Reference,
+                Some(OccurrenceHint::Name(item.local_or_remote_name.clone().into())),
+                target.clone(),
+            );
+            if let Some(alias) = &item.alias {
+                self.record_targeted(
+                    alias.range,
+                    OccurrenceKind::Declaration,
+                    OccurrenceRole::Reference,
+                    Some(OccurrenceHint::Name(alias.name.clone().into())),
+                    target,
+                );
+            }
+        }
+    }
+
     fn statement(&mut self, statement: &Statement) {
         match statement {
             Statement::Class(class) => {
@@ -287,7 +415,8 @@ impl OccurrenceBuilder<'_> {
                 }
                 self.statements(&for_statement.body);
             }
-            Statement::Export(_) | Statement::Break { .. } | Statement::Continue { .. } | Statement::TypeAlias(_) => {}
+            Statement::Export(export) => self.export_items(export),
+            Statement::Break { .. } | Statement::Continue { .. } | Statement::TypeAlias(_) => {}
             Statement::Enum(enum_def) => {
                 for member in &enum_def.members {
                     match member {
@@ -634,7 +763,12 @@ impl OccurrenceBuilder<'_> {
     fn expression_target(&self, expr: &Expr) -> Option<SemanticTargetId> {
         match expr {
             Expr::Var { value, range } => match self.scopes.resolve_name(self.scopes.scope_at(range.start), value, range.start) {
-                SourceNameResolution::Binding(binding) => self.scopes.target_for(&binding).cloned().or(Some(SemanticTargetId::Binding(binding))),
+            SourceNameResolution::Binding(binding) => self
+                .scopes
+                .import_origin(&binding)
+                .map(|origin| origin.remote_target.clone())
+                .or_else(|| self.scopes.target_for(&binding).cloned())
+                .or(Some(SemanticTargetId::Binding(binding))),
                 SourceNameResolution::Target(target) => Some(target),
                 SourceNameResolution::ImplicitSelf | SourceNameResolution::Unresolved => None,
             },

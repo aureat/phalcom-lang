@@ -127,7 +127,8 @@ pub use source_index::{CallableSourceAttachment, ModuleSourceIndex, SourceAttach
 pub use source_index::{CallableSourceInfo, DeclarationSourceInfo, FieldSourceInfo, SourceCallableKind, SourceReceiverKind};
 pub use source_index::{OccurrenceHint, OccurrenceIndex, OccurrenceKind, OccurrenceRole, OccurrenceView, SemanticOccurrence};
 pub use source_index::{
-    SourceBindingInfo, SourceBindingKind, SourceIndexContext, SourceNameResolution, SourceScope, SourceScopeId, SourceScopeIndex, build_source_scope_index,
+    ImportBindingOrigin, SourceBindingInfo, SourceBindingKind, SourceIndexContext, SourceNameResolution, SourceScope, SourceScopeId, SourceScopeIndex,
+    build_source_scope_index,
 };
 pub use source_index::{SourceSite, SourceSiteKind};
 pub use stable_identity::*;

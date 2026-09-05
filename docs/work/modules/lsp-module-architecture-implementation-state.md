@@ -30,6 +30,10 @@ Prepared plan revision:
 - D-16: C4 centralizes linked-symbol projection in `semantic_target_for_linked_symbol`; public exports, selective imports, and re-exports consume the same nominal-vs-global decision without spelling inference.
 - D-17: Qualified module type lookup follows `LinkedReadSpec::Module` into target public exports and preserves exported symbol origin; private names and unsupported deep qualification fail closed.
 - D-18: Top-level `let`/`const` declaration sites use `ModuleBinding(SymbolId)`; imports, locals, parameters, and destructured bindings retain lexical `Binding(SourceSiteId)` identity. Editor definitions classify only top-level global sites as definitions.
+- D-19: C5 enum declarations, variants, variant families, payload fields, and enum-root/variant-owned behaviors derive existing canonical IDs and callable selectors directly from AST/semantic constructors; no new grammar or spelling identity was introduced.
+- D-20: Imported names remain lexical `Binding(SourceSiteId)` targets for declarations and uses. `ImportBindingOrigin` stores the separate canonical remote `SemanticTargetId`; advisory projection follows origin while formal type resolution remains linked-read owned.
+- D-21: Import/selective/re-export paths and remote items, local exports, and expose children publish exact-range occurrences only when canonical resolved module/export products provide targets. Missing expose resolution remains targetless.
+- D-22: Re-export occurrences preserve upstream canonical declaration/module targets and never create re-export declaration sites; top-level module globals continue using `ModuleBinding(SymbolId)` through local export projection.
 
 ## Evidence ledger
 
@@ -67,6 +71,10 @@ Prepared plan revision:
 | C4 | `cargo test -p phalcom-semantic imported_resolution` | PASS: 8 passed | Qualified public/private/deep lookup, canonical nominal imports, exported global projection, top-level global provenance, and partial snapshots. |
 | C4 | `cargo check -p phalcom-semantic` | PASS | Exhaustive `SemanticTargetId` consumers compile with `ModuleBinding(SymbolId)`. |
 | C4 | `git diff --check` | PASS | C4 changes introduce no whitespace errors. |
+| C5 | `cargo test -p phalcom-semantic source_index` | PASS: 17 passed | Enum declaration/variant/field/behavior provenance, alias origin separation, dependency paths, exports, re-exports, exposes, and lexical occurrence contracts. |
+| C5 | `cargo test -p phalcom-semantic imported_resolution` | PASS: 9 passed | Imported enum/nominal/global inference remains green while alias declarations/uses stay local `Binding` targets and remote origins remain canonical. |
+| C5 | `cargo check -p phalcom-semantic` | PASS | C5 source-index, advisory-origin, enum callable, and target consumers compile. |
+| C5 | `git diff --check` | PASS | C5 changes introduce no whitespace errors. |
 
 ## Negative/deletion gates
 
@@ -90,7 +98,12 @@ Prepared plan revision:
 
 ## Next resume action
 
-C4 focused evidence is green for Tasks 19–22. C3-I3 remains deferred to separate LSP fixture/baseline ownership; supervisor review is next before C5.
+C5 focused evidence is green for Tasks 23–27. C3-I3 remains deferred to separate LSP fixture/baseline ownership; supervisor review is next before C6.
+
+## C5 incidents
+
+- C5-I1 — Initial C5 test fixture placed `expose` after a local export statement, so the parser correctly rejected it as outside the dependency preamble. Moved expose into preamble order; source-index lane passed unchanged semantic assertions.
+- C5-I2 — Fingerprint compilation initially lacked `Hash` on `ImportBindingOrigin`, and one direct test omitted `SourceIndexContext` when asserting remote-token provenance. Added the required derive and context-aware test construction; all permitted C5 evidence passes.
 
 ## Incident C3-I1 — Canonical import publication loses alias and external target
 

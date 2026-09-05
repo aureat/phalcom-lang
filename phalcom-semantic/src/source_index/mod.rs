@@ -23,7 +23,7 @@ pub mod site;
 pub use builder::{SourceIndexContext, build_source_scope_index, resolve_type_reference_targets};
 pub use occurrence::{OccurrenceHint, OccurrenceIndex, OccurrenceKind, OccurrenceRole, OccurrenceView, SemanticOccurrence};
 pub use scope::{
-    CallableSourceInfo, DeclarationSourceInfo, FieldSourceInfo, SourceBindingInfo, SourceBindingKind, SourceCallableKind, SourceNameResolution,
+    CallableSourceInfo, DeclarationSourceInfo, FieldSourceInfo, ImportBindingOrigin, SourceBindingInfo, SourceBindingKind, SourceCallableKind, SourceNameResolution,
     SourceReceiverKind, SourceScope, SourceScopeId, SourceScopeIndex,
 };
 pub use site::{SourceSite, SourceSiteKind};
@@ -285,6 +285,7 @@ impl ModuleSourceIndex {
             binding.redeclaration_of.hash(&mut hasher);
         }
         self.structure.receiver_kinds.hash(&mut hasher);
+        self.structure.import_origins.hash(&mut hasher);
         for occurrence in self.occurrences.all() {
             occurrence.hash(&mut hasher);
         }
@@ -311,6 +312,7 @@ impl ModuleSourceIndex {
             binding.redeclaration_of.is_some().hash(&mut hasher);
         }
         self.structure.receiver_kinds.hash(&mut hasher);
+        self.structure.import_origins.hash(&mut hasher);
         for (index, occurrence) in self.occurrences.all().iter().enumerate() {
             index.hash(&mut hasher);
             occurrence.kind.hash(&mut hasher);

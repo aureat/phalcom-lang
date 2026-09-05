@@ -90,6 +90,13 @@ pub struct SourceBindingInfo {
     pub redeclaration_of: Option<SourceSiteId>,
 }
 
+/// Canonical origin of one imported lexical binding.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct ImportBindingOrigin {
+    pub local_binding: SourceSiteId,
+    pub remote_target: SemanticTargetId,
+}
+
 /// One lexical scope and its first-binding name map.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SourceScope {
@@ -117,6 +124,7 @@ pub struct SourceScopeIndex {
     pub bindings: BTreeMap<SourceSiteId, SourceBindingInfo>,
     pub sites: BTreeMap<SourceSiteId, SourceSite>,
     pub targets: BTreeMap<SourceSiteId, SemanticTargetId>,
+    pub import_origins: BTreeMap<SourceSiteId, ImportBindingOrigin>,
     pub receiver_kinds: BTreeMap<SourceSiteId, SourceReceiverKind>,
     pub declaration_sources: BTreeMap<DeclarationId, DeclarationSourceInfo>,
     pub callable_sources: BTreeMap<CallableId, CallableSourceInfo>,
@@ -153,6 +161,7 @@ impl SourceScopeIndex {
             bindings: BTreeMap::new(),
             sites: BTreeMap::new(),
             targets: BTreeMap::new(),
+            import_origins: BTreeMap::new(),
             receiver_kinds: BTreeMap::new(),
             declaration_sources: BTreeMap::new(),
             callable_sources: BTreeMap::new(),
@@ -216,6 +225,10 @@ impl SourceScopeIndex {
         self.targets.insert(site, target);
     }
 
+    pub(crate) fn register_import_origin(&mut self, origin: ImportBindingOrigin) {
+        self.import_origins.insert(origin.local_binding.clone(), origin);
+    }
+
     pub(crate) fn register_receiver_kind(&mut self, site: SourceSiteId, kind: SourceReceiverKind) {
         self.receiver_kinds.insert(site, kind);
     }
@@ -256,11 +269,6 @@ impl SourceScopeIndex {
                 && let Some(binding) = self.bindings.get(site)
                 && binding.declaration_range.start <= offset
             {
-                if binding.kind == SourceBindingKind::Import
-                    && let Some(target) = self.targets.get(site)
-                {
-                    return SourceNameResolution::Target(target.clone());
-                }
                 return SourceNameResolution::Binding(site.clone());
             }
             current = scope_info.parent;
@@ -313,6 +321,11 @@ impl SourceScopeIndex {
     /// Returns the exact canonical target attached to a source site, if any.
     pub fn target_for(&self, site: &SourceSiteId) -> Option<&SemanticTargetId> {
         self.targets.get(site)
+    }
+
+    /// Returns canonical remote origin for an imported lexical binding.
+    pub fn import_origin(&self, site: &SourceSiteId) -> Option<&ImportBindingOrigin> {
+        self.import_origins.get(site)
     }
 
     /// Returns compiler-recorded receiver syntax for one source site.

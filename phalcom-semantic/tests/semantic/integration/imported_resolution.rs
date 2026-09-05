@@ -40,20 +40,25 @@ fn imported_binding_use_resolves_to_exported_declaration_not_local_import_site()
         .with_resolved_import(importer.clone(), ".shapes", shapes.clone())
         .with_target(shapes, "Circle", SemanticTargetId::Declaration(circle.clone()));
 
-    let mut scopes = build_source_scope_index(importer, &parsed.program, &context);
-    let occurrences = OccurrenceIndex::from_program(&mut scopes, &parsed.program);
+    let mut scopes = build_source_scope_index(importer.clone(), &parsed.program, &context);
+    let occurrences = OccurrenceIndex::from_program_with_context(&mut scopes, &parsed.program, Some(&context));
     let use_offset = source.rfind("Circle").expect("Circle use") + 1;
     let occurrence = occurrences.occurrence_at(use_offset).expect("Circle occurrence");
 
+    let binding = scopes.bindings.values().find(|binding| binding.name.as_ref() == "Circle").expect("import binding");
+    assert_eq!(occurrence.target, Some(&SemanticTargetId::Binding(binding.declaration_site.clone())));
     assert_eq!(
-        occurrence.target,
-        Some(&SemanticTargetId::Declaration(circle)),
-        "a read through an import binding must preserve the imported declaration's canonical identity"
+        scopes.import_origin(&binding.declaration_site).map(|origin| &origin.remote_target),
+        Some(&SemanticTargetId::Declaration(circle.clone()))
     );
+    assert!(occurrences
+        .exact_targets()
+        .iter()
+        .any(|(site, target)| site != &binding.declaration_site && site.owner == phalcom_semantic::SourceOwner::Module(importer.clone()) && target == &SemanticTargetId::Declaration(circle.clone())));
 }
 
 #[test]
-fn imported_alias_keeps_local_declaration_metadata_and_external_read_identity() {
+fn imported_alias_keeps_local_binding_and_separate_external_origin() {
     let source = "from .shapes import Circle as C\nC\n";
     let parsed = phalcom_ast::parse(source, 0);
     assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
@@ -68,12 +73,40 @@ fn imported_alias_keeps_local_declaration_metadata_and_external_read_identity() 
     let alias = scopes.bindings.values().find(|binding| binding.name.as_ref() == "C").expect("alias binding");
     assert_eq!(alias.kind, phalcom_semantic::source_index::SourceBindingKind::Import);
     let alias_site = alias.declaration_site.clone();
-    assert_eq!(scopes.target_for(&alias_site), Some(&SemanticTargetId::Declaration(circle.clone())));
+    assert_eq!(scopes.target_for(&alias_site), Some(&SemanticTargetId::Binding(alias_site.clone())));
+    assert_eq!(
+        scopes.import_origin(&alias_site).map(|origin| &origin.remote_target),
+        Some(&SemanticTargetId::Declaration(circle.clone()))
+    );
     let occurrences = OccurrenceIndex::from_program(&mut scopes, &parsed.program);
     let use_offset = source.rfind('C').expect("alias use");
     assert_eq!(
         occurrences.occurrence_at(use_offset).and_then(|occurrence| occurrence.target),
-        Some(&SemanticTargetId::Declaration(circle))
+        Some(&SemanticTargetId::Binding(alias_site))
+    );
+}
+
+#[test]
+fn imported_enum_remote_item_keeps_declaring_declaration_identity() {
+    let source = "from .options import Option as ImportedOption\nImportedOption\n";
+    let parsed = phalcom_ast::parse(source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let project = ResolvedProjectId::from_raw(1);
+    let importer = module(project, &["consumer"]);
+    let options = module(project, &["options"]);
+    let option = DeclarationId::new(options.clone(), "Option".into());
+    let target = SemanticTargetId::Declaration(option.clone());
+    let context = SourceIndexContext::default()
+        .with_resolved_import(importer.clone(), ".options", options.clone())
+        .with_target(options, "Option", target.clone());
+    let mut scopes = build_source_scope_index(importer.clone(), &parsed.program, &context);
+    let occurrences = OccurrenceIndex::from_program_with_context(&mut scopes, &parsed.program, Some(&context));
+    let remote_offset = source.find("Option").expect("remote enum name") + 1;
+    assert_eq!(occurrences.occurrence_at(remote_offset).and_then(|occurrence| occurrence.target), Some(&target));
+    let alias = scopes.bindings.values().find(|binding| binding.name.as_ref() == "ImportedOption").expect("enum alias binding");
+    assert_eq!(
+        scopes.import_origin(&alias.declaration_site).map(|origin| &origin.remote_target),
+        Some(&target)
     );
 }
 
@@ -89,8 +122,13 @@ fn module_import_read_resolves_to_canonical_module_target() {
     let mut scopes = build_source_scope_index(importer, &parsed.program, &context);
     let occurrences = OccurrenceIndex::from_program(&mut scopes, &parsed.program);
     let use_offset = source.rfind('S').expect("module alias use");
+    let binding = scopes.bindings.values().find(|binding| binding.name.as_ref() == "S").expect("module alias binding");
     assert_eq!(
         occurrences.occurrence_at(use_offset).and_then(|occurrence| occurrence.target),
+        Some(&SemanticTargetId::Binding(binding.declaration_site.clone()))
+    );
+    assert_eq!(
+        scopes.import_origin(&binding.declaration_site).map(|origin| &origin.remote_target),
         Some(&SemanticTargetId::Module(shapes))
     );
 }
@@ -220,7 +258,7 @@ fn editor_definition_sites_exclude_local_import_declaration_for_external_target(
         source_id: phalcom_modules::SourceId(path.to_string_lossy().into()),
         display_path: path.to_path_buf(),
     };
-    let main_text = "from .shapes import Circle\nCircle\n";
+    let main_text = "from .shapes import Circle as C\nC\n";
 
     let mut session = phalcom_semantic::SemanticWorkspaceSession::new();
     let publication = session
@@ -526,7 +564,16 @@ fn exported_global_and_top_level_binding_use_module_binding_target() {
         .values()
         .find(|binding| binding.name.as_ref() == "version")
         .expect("consumer import binding");
-    assert_eq!(snapshot.source_index().target_for(&consumer_binding.declaration_site), Some(&target));
+    let consumer_binding_target = SemanticTargetId::Binding(consumer_binding.declaration_site.clone());
+    assert_eq!(snapshot.source_index().target_for(&consumer_binding.declaration_site), Some(&consumer_binding_target));
+    assert_eq!(
+        snapshot
+            .source_index()
+            .module(&consumer)
+            .and_then(|module| module.structure.import_origin(&consumer_binding.declaration_site))
+            .map(|origin| &origin.remote_target),
+        Some(&target)
+    );
 
     let definitions = snapshot.editor().definition_sites(&target);
     assert_eq!(definitions.len(), 1, "only provider top-level binding is a definition");
