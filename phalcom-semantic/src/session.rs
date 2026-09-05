@@ -564,6 +564,8 @@ impl SemanticWorkspaceSession {
             diagnostics: update.diagnostics,
             blocked_modules: update.blocked_modules,
             generation,
+            topology: Some(update.topology),
+            reverse_imports: Some(update.reverse_importers),
         })
     }
 
@@ -2123,12 +2125,30 @@ impl SemanticWorkspaceSession {
             }
         }
 
+        let topology = input.topology.unwrap_or_else(|| {
+            Arc::new(phalcom_modules::topology::ModuleTopology::from_parts(
+                phalcom_modules::stabilization::ResolverGeneration(input.generation),
+                &input.linked.universe,
+                &unlinked_map,
+                &sources_loc_map,
+            ))
+        });
+        let reverse_imports = input.reverse_imports.unwrap_or_else(|| {
+            let mut rev: BTreeMap<ModuleId, BTreeSet<ModuleId>> = BTreeMap::new();
+            for ((importer, _), target) in &resolved_imports_map {
+                rev.entry(target.clone()).or_default().insert(importer.clone());
+            }
+            Arc::new(rev)
+        });
+
         let module_products = Arc::new(crate::snapshot::ModuleQueryProducts::new(
             input.linked.universe.clone(),
             Arc::new(unlinked_map),
             Arc::new(linked_map),
             Arc::new(resolved_imports_map.clone()),
             Arc::new(sources_loc_map),
+            topology,
+            reverse_imports,
         ));
 
         let (mut source_index, presentation_sources) = build_source_semantic_index(

@@ -20,6 +20,8 @@ pub struct SemanticWorkspaceInput {
     pub diagnostics: BTreeMap<ModuleId, Vec<ModuleDiagnostic>>,
     pub blocked_modules: BTreeSet<ModuleId>,
     pub generation: u64,
+    pub topology: Option<Arc<phalcom_modules::topology::ModuleTopology>>,
+    pub reverse_imports: Option<Arc<BTreeMap<ModuleId, BTreeSet<ModuleId>>>>,
 }
 
 impl SemanticWorkspaceInput {
@@ -35,7 +37,19 @@ impl SemanticWorkspaceInput {
             diagnostics: BTreeMap::new(),
             blocked_modules: BTreeSet::new(),
             generation,
+            topology: None,
+            reverse_imports: None,
         }
+    }
+
+    pub fn with_topology(mut self, topology: Arc<phalcom_modules::topology::ModuleTopology>) -> Self {
+        self.topology = Some(topology);
+        self
+    }
+
+    pub fn with_reverse_imports(mut self, reverse_imports: Arc<BTreeMap<ModuleId, BTreeSet<ModuleId>>>) -> Self {
+        self.reverse_imports = Some(reverse_imports);
+        self
     }
 
     pub fn with_interfaces(
@@ -135,5 +149,7 @@ pub fn analyze_single_module(module: ModuleId, source: Arc<str>, program: Arc<Pr
         diagnostics: BTreeMap::new(),
         blocked_modules: BTreeSet::new(),
         generation: 0,
+        topology: None,
+        reverse_imports: None,
     })
 }

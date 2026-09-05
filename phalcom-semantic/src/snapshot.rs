@@ -17,7 +17,9 @@ use phalcom_modules::identity::{SourceId, SourceLocation};
 use phalcom_modules::interface::{LinkedModuleInterface, UnlinkedModuleInterface};
 use phalcom_modules::project::ProjectUniverse;
 use phalcom_modules::query::ModuleQueryFacade;
-use std::collections::{BTreeMap, HashMap};
+use phalcom_modules::stabilization::ResolverGeneration;
+use phalcom_modules::topology::ModuleTopology;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -42,6 +44,8 @@ pub struct ModuleQueryProducts {
     pub sources: Arc<BTreeMap<ModuleId, SourceLocation>>,
     pub source_modules: Arc<BTreeMap<SourceId, ModuleId>>,
     pub display_path_modules: Arc<BTreeMap<PathBuf, ModuleId>>,
+    pub topology: Arc<ModuleTopology>,
+    pub reverse_imports: Arc<BTreeMap<ModuleId, BTreeSet<ModuleId>>>,
 }
 
 impl ModuleQueryProducts {
@@ -51,6 +55,8 @@ impl ModuleQueryProducts {
         linked: Arc<BTreeMap<ModuleId, LinkedModuleInterface>>,
         resolved_imports: Arc<BTreeMap<(ModuleId, String), ModuleId>>,
         sources: Arc<BTreeMap<ModuleId, SourceLocation>>,
+        topology: Arc<ModuleTopology>,
+        reverse_imports: Arc<BTreeMap<ModuleId, BTreeSet<ModuleId>>>,
     ) -> Self {
         let source_modules = Arc::new(sources.iter().map(|(module, location)| (location.source_id.clone(), module.clone())).collect());
         let display_path_modules = Arc::new(
@@ -67,18 +73,29 @@ impl ModuleQueryProducts {
             sources,
             source_modules,
             display_path_modules,
+            topology,
+            reverse_imports,
         }
     }
 
     pub fn empty() -> Self {
+        let universe = Arc::new(ProjectUniverse::new());
+        let topology = Arc::new(ModuleTopology::from_parts(
+            ResolverGeneration(0),
+            &universe,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+        ));
         Self {
-            universe: Arc::new(ProjectUniverse::new()),
+            universe,
             unlinked: Arc::new(BTreeMap::new()),
             linked: Arc::new(BTreeMap::new()),
             resolved_imports: Arc::new(BTreeMap::new()),
             sources: Arc::new(BTreeMap::new()),
             source_modules: Arc::new(BTreeMap::new()),
             display_path_modules: Arc::new(BTreeMap::new()),
+            topology,
+            reverse_imports: Arc::new(BTreeMap::new()),
         }
     }
 }
@@ -320,6 +337,13 @@ impl SemanticSnapshot {
             &self.module_products.source_modules,
             &self.module_products.display_path_modules,
         )
+        .with_topology(&self.module_products.topology)
+        .with_reverse_imports(&self.module_products.reverse_imports)
+    }
+
+    /// Returns true if this snapshot's module query facade is backed by precomputed indexed products.
+    pub fn is_module_queries_indexed(&self) -> bool {
+        self.module_queries().is_fully_indexed()
     }
 
     /// Returns the protocol-neutral editor query facade for this snapshot.
@@ -329,7 +353,7 @@ impl SemanticSnapshot {
 
     /// Returns the canonical module associated with a source-provider identity.
     pub fn module_for_source(&self, source: &SourceId) -> Option<&ModuleId> {
-        self.module_products.source_modules.get(source)
+        self.module_products.topology.module_for_source(source)
     }
 
     /// Returns the canonical module associated with an already-produced display path.

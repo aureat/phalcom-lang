@@ -39,6 +39,15 @@ fn semantic_snapshot_publishes_relative_import_alias_path_and_provenance() {
         .expect("workspace publication should succeed");
 
     let queries = publication.snapshot.module_queries();
+    assert!(queries.is_fully_indexed(), "queries facade must be fully indexed by topology & reverse imports");
+    assert_eq!(
+        publication.snapshot.module_products.topology.generation,
+        phalcom_modules::ResolverGeneration(publication.snapshot.generation),
+        "topology generation must match snapshot generation"
+    );
+
+    phalcom_modules::reset_query_fallback_scan_count();
+
     let main_module = queries
         .module_for_display_path(&main_path)
         .cloned()
@@ -62,5 +71,17 @@ fn semantic_snapshot_publishes_relative_import_alias_path_and_provenance() {
         queries.definition_source(&shapes_module).map(|source| source.display_path.as_path()),
         Some(shapes_path.as_path()),
         "resolved module target must retain source provenance"
+    );
+
+    let reverse_of_shapes = queries.reverse_importers(&shapes_module);
+    assert!(
+        reverse_of_shapes.contains(&main_module),
+        "main must be reverse importer of shapes"
+    );
+
+    assert_eq!(
+        phalcom_modules::query_fallback_scan_count(),
+        0,
+        "indexed snapshot queries must never hit fallback scan"
     );
 }

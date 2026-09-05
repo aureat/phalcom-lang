@@ -675,3 +675,69 @@ fn exact_reverse_edge_replacement_leaves_no_stale_dependency() {
     assert!(session.reverse_importers().get(&c_mod).map_or(false, |s| s.contains(&a_mod)));
 }
 
+#[test]
+fn topology_is_retained_in_session_aligned_with_generation_and_published_in_update() {
+    use phalcom_modules::stabilization::ResolverGeneration;
+
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().join("pkg");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("package.ph"), "export Main\n").unwrap();
+    let file_main = root.join("main.ph");
+    fs::write(&file_main, "class Main { run() -> Int { 1 } }\nexport Main\n").unwrap();
+
+    let mut session = WorkspaceModuleSession::new();
+    assert_eq!(session.generation(), 0);
+    assert_eq!(session.topology().generation, ResolverGeneration(0));
+
+    let pkg_loc = location(&root.join("package.ph"));
+    let main_loc = location(&file_main);
+
+    session.set_overlay(pkg_loc, Arc::from("export Main\n"), SourceRevision(1)).unwrap();
+    assert_eq!(session.generation(), 1);
+    assert_eq!(session.topology().generation, ResolverGeneration(1));
+
+    let up = session.set_overlay(
+        main_loc.clone(),
+        Arc::from("class Main { run() -> Int { 1 } }\nexport Main\n"),
+        SourceRevision(1),
+    ).unwrap();
+
+    assert_eq!(session.generation(), 2);
+    assert_eq!(session.topology().generation, ResolverGeneration(2));
+    assert_eq!(up.topology.generation, ResolverGeneration(2));
+    assert_eq!(up.topology, *session.topology());
+    assert_eq!(*up.reverse_importers, *session.reverse_importers());
+
+    let main_mod = session.module_for_source(&main_loc.source_id).unwrap().clone();
+    assert!(session.topology().contains_module(&main_mod));
+    assert_eq!(session.topology().module_for_source(&main_loc.source_id), Some(&main_mod));
+
+    let initial_topo_fp = session.topology().fingerprint;
+
+    // Body-only edit: function body changes from 1 to 42, declarations/interface stable
+    let up_body = session.set_overlay(
+        main_loc.clone(),
+        Arc::from("class Main { run() -> Int { 42 } }\nexport Main\n"),
+        SourceRevision(2),
+    ).unwrap();
+
+    // Generation increments, topology generation aligns, fingerprint structurally identical
+    assert_eq!(session.generation(), 3);
+    assert_eq!(session.topology().generation, ResolverGeneration(3));
+    assert_eq!(up_body.topology.generation, ResolverGeneration(3));
+    assert_eq!(session.topology().fingerprint, initial_topo_fp);
+
+    // Hostile failure seam: late rebuild failure preserves committed generation & topology
+    session.inject_late_rebuild_failure(true);
+    let fail_result = session.set_overlay(
+        main_loc,
+        Arc::from("class Main { run() -> Int { 99 } }\nexport Main\n"),
+        SourceRevision(3),
+    );
+    assert!(fail_result.is_err());
+    assert_eq!(session.generation(), 3);
+    assert_eq!(session.topology().generation, ResolverGeneration(3));
+    assert_eq!(session.topology().fingerprint, initial_topo_fp);
+}
+

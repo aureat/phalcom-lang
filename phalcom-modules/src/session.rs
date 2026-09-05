@@ -13,6 +13,8 @@ use crate::resolver::ModuleResolver;
 use crate::source::{
     classify_entry_ownership, EntryOwnership, FilesystemSourceProvider, ModuleKind, OverlaySourceProvider, ParsedModuleUnit, SourceOverlay, SourceProvider,
 };
+use crate::stabilization::ResolverGeneration;
+use crate::topology::ModuleTopology;
 use phalcom_ast::ast::Program;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::PathBuf;
@@ -131,6 +133,8 @@ pub struct WorkspaceModuleUpdate {
     pub removed_modules: BTreeSet<ModuleId>,
     pub identity_changes: BTreeSet<ModuleId>,
     pub stats: WorkspaceModuleStats,
+    pub topology: Arc<ModuleTopology>,
+    pub reverse_importers: Arc<BTreeMap<ModuleId, BTreeSet<ModuleId>>>,
 }
 
 #[derive(Debug, Error)]
@@ -216,11 +220,12 @@ pub struct RebuildOutput {
     pub interfaces: BTreeMap<ModuleId, (Arc<UnlinkedModuleInterface>, crate::fingerprint::InterfaceFingerprint)>,
     pub import_products: BTreeMap<(ModuleId, String), Arc<crate::resolver::ImportResolutionProduct>>,
     pub resolved_imports: BTreeMap<(ModuleId, String), ModuleId>,
-    pub reverse_importers: BTreeMap<ModuleId, BTreeSet<ModuleId>>,
+    pub reverse_importers: Arc<BTreeMap<ModuleId, BTreeSet<ModuleId>>>,
     pub linked_modules: BTreeMap<ModuleId, (crate::linker::LinkedModule, crate::fingerprint::LinkedInterfaceFingerprint)>,
     pub diagnostics: BTreeMap<ModuleId, Vec<ModuleDiagnostic>>,
     pub blocked_modules: BTreeSet<ModuleId>,
     pub stats: WorkspaceModuleStats,
+    pub topology: Arc<ModuleTopology>,
 }
 
 /// Helper function to atomically reconcile forward and reverse dependencies for a module.
@@ -293,13 +298,14 @@ pub struct WorkspaceModuleSession {
     synthetic_ids: SyntheticProjectIdAllocator,
     interfaces: BTreeMap<ModuleId, (Arc<UnlinkedModuleInterface>, crate::fingerprint::InterfaceFingerprint)>,
     import_products: BTreeMap<(ModuleId, String), Arc<crate::resolver::ImportResolutionProduct>>,
-    reverse_importers: BTreeMap<ModuleId, BTreeSet<ModuleId>>,
+    reverse_importers: Arc<BTreeMap<ModuleId, BTreeSet<ModuleId>>>,
     linked_modules: BTreeMap<ModuleId, (crate::linker::LinkedModule, crate::fingerprint::LinkedInterfaceFingerprint)>,
     linked: Option<Arc<LinkedProgram>>,
     resolved_imports: BTreeMap<(ModuleId, String), ModuleId>,
     diagnostics: BTreeMap<ModuleId, Vec<ModuleDiagnostic>>,
     blocked_modules: BTreeSet<ModuleId>,
     generation: u64,
+    topology: Arc<ModuleTopology>,
     #[doc(hidden)]
     pub late_failure_injected: bool,
 }
@@ -312,8 +318,15 @@ impl Default for WorkspaceModuleSession {
 
 impl WorkspaceModuleSession {
     pub fn new() -> Self {
+        let universe = ProjectUniverse::new();
+        let topology = Arc::new(ModuleTopology::from_parts(
+            ResolverGeneration(0),
+            &universe,
+            &BTreeMap::new(),
+            &BTreeMap::new(),
+        ));
         Self {
-            universe: ProjectUniverse::new(),
+            universe,
             provider: OverlaySourceProvider::new(FilesystemSourceProvider::new()),
             project_roots: BTreeMap::new(),
             modules_by_source: BTreeMap::new(),
@@ -322,13 +335,14 @@ impl WorkspaceModuleSession {
             synthetic_ids: SyntheticProjectIdAllocator,
             interfaces: BTreeMap::new(),
             import_products: BTreeMap::new(),
-            reverse_importers: BTreeMap::new(),
+            reverse_importers: Arc::new(BTreeMap::new()),
             linked_modules: BTreeMap::new(),
             linked: None,
             resolved_imports: BTreeMap::new(),
             diagnostics: BTreeMap::new(),
             blocked_modules: BTreeSet::new(),
             generation: 0,
+            topology,
             late_failure_injected: false,
         }
     }
@@ -354,6 +368,10 @@ impl WorkspaceModuleSession {
         self.generation
     }
 
+    pub fn topology(&self) -> &Arc<ModuleTopology> {
+        &self.topology
+    }
+
     pub fn linked(&self) -> Option<&Arc<LinkedProgram>> {
         self.linked.as_ref()
     }
@@ -376,6 +394,10 @@ impl WorkspaceModuleSession {
     }
 
     pub fn reverse_importers(&self) -> &BTreeMap<ModuleId, BTreeSet<ModuleId>> {
+        &self.reverse_importers
+    }
+
+    pub fn reverse_importers_arc(&self) -> &Arc<BTreeMap<ModuleId, BTreeSet<ModuleId>>> {
         &self.reverse_importers
     }
 
@@ -471,6 +493,7 @@ impl WorkspaceModuleSession {
             ..WorkspaceModuleStats::default()
         };
 
+        let target_generation = ResolverGeneration(self.generation.saturating_add(1));
         let rebuild_output = self.derive_rebuild(
             &target_universe,
             &self.provider,
@@ -479,6 +502,7 @@ impl WorkspaceModuleSession {
             removed_modules.clone(),
             removed_modules.clone(),
             stats,
+            target_generation,
         )?;
 
         // --- COMMIT BARRIER ---
@@ -490,7 +514,8 @@ impl WorkspaceModuleSession {
         self.interfaces = rebuild_output.interfaces;
         self.import_products = rebuild_output.import_products;
         self.resolved_imports = rebuild_output.resolved_imports;
-        self.reverse_importers = rebuild_output.reverse_importers;
+        self.reverse_importers = rebuild_output.reverse_importers.clone();
+        self.topology = rebuild_output.topology.clone();
         self.linked_modules = rebuild_output.linked_modules;
         self.linked = Some(rebuild_output.linked.clone());
         self.diagnostics = rebuild_output.diagnostics.clone();
@@ -513,6 +538,8 @@ impl WorkspaceModuleSession {
             removed_modules,
             identity_changes: BTreeSet::new(),
             stats: rebuild_output.stats,
+            topology: rebuild_output.topology,
+            reverse_importers: rebuild_output.reverse_importers,
         })
     }
 
@@ -881,6 +908,7 @@ impl WorkspaceModuleSession {
 
         let effective_universe = universe_override.as_ref().unwrap_or(&self.universe);
 
+        let target_generation = ResolverGeneration(self.generation.saturating_add(1));
         // Derive new state privately without mutating committed state
         let rebuild_output = self.derive_rebuild(
             effective_universe,
@@ -890,6 +918,7 @@ impl WorkspaceModuleSession {
             removed_modules.clone(),
             identity_changes.clone(),
             stats.clone(),
+            target_generation,
         )?;
 
         // Test-only late failure injection seam
@@ -928,7 +957,8 @@ impl WorkspaceModuleSession {
         self.interfaces = rebuild_output.interfaces;
         self.import_products = rebuild_output.import_products;
         self.resolved_imports = rebuild_output.resolved_imports;
-        self.reverse_importers = rebuild_output.reverse_importers;
+        self.reverse_importers = rebuild_output.reverse_importers.clone();
+        self.topology = rebuild_output.topology.clone();
         self.linked_modules = rebuild_output.linked_modules;
         self.linked = Some(rebuild_output.linked.clone());
         self.diagnostics = rebuild_output.diagnostics.clone();
@@ -953,6 +983,8 @@ impl WorkspaceModuleSession {
             removed_modules,
             identity_changes,
             stats: rebuild_output.stats,
+            topology: rebuild_output.topology,
+            reverse_importers: rebuild_output.reverse_importers,
         })
     }
 
@@ -1204,6 +1236,7 @@ impl WorkspaceModuleSession {
         removed_modules: BTreeSet<ModuleId>,
         identity_changes: BTreeSet<ModuleId>,
         mut stats: WorkspaceModuleStats,
+        target_generation: ResolverGeneration,
     ) -> Result<RebuildOutput, WorkspaceModuleSessionError> {
         stats.changed_sources = changed_modules.len();
         stats.identity_changes = identity_changes.len();
@@ -1214,7 +1247,7 @@ impl WorkspaceModuleSession {
         let mut linked_modules = self.linked_modules.clone();
         let mut import_products = self.import_products.clone();
         let mut resolved_imports = self.resolved_imports.clone();
-        let mut reverse_importers = self.reverse_importers.clone();
+        let mut reverse_importers = (*self.reverse_importers).clone();
         let mut diagnostics: BTreeMap<ModuleId, Vec<ModuleDiagnostic>> = BTreeMap::new();
         let mut blocked_modules: BTreeSet<ModuleId> = BTreeSet::new();
 
@@ -1291,6 +1324,9 @@ impl WorkspaceModuleSession {
                 .iter()
                 .map(|(id, state)| (id.clone(), state.parsed.clone()))
                 .collect();
+            let mut topology = (*self.topology).clone();
+            topology.generation = target_generation;
+            let topology = Arc::new(topology);
             return Ok(RebuildOutput {
                 linked: self.linked.clone().unwrap(),
                 parsed_sources,
@@ -1298,11 +1334,12 @@ impl WorkspaceModuleSession {
                 interfaces,
                 import_products,
                 resolved_imports,
-                reverse_importers,
+                reverse_importers: Arc::new(reverse_importers),
                 linked_modules,
                 diagnostics: self.diagnostics.clone(),
                 blocked_modules: self.blocked_modules.clone(),
                 stats,
+                topology,
             });
         }
 
@@ -1481,6 +1518,25 @@ impl WorkspaceModuleSession {
         stats.filesystem_resolution_hits = resolution_hits_after.saturating_sub(resolution_hits_before) as usize;
         stats.filesystem_resolution_misses = resolution_misses_after.saturating_sub(resolution_misses_before) as usize;
 
+        let mut source_locations: BTreeMap<ModuleId, SourceLocation> = sources_by_module
+            .iter()
+            .map(|(id, state)| (id.clone(), state.location.clone()))
+            .collect();
+        for discovered in &new_discovered_sources {
+            source_locations.insert(discovered.module.clone(), discovered.location.clone());
+        }
+        let unlinked: BTreeMap<ModuleId, UnlinkedModuleInterface> = interfaces
+            .iter()
+            .map(|(id, (iface, _))| (id.clone(), (**iface).clone()))
+            .collect();
+
+        let topology = Arc::new(ModuleTopology::from_parts(
+            target_generation,
+            universe,
+            &unlinked,
+            &source_locations,
+        ));
+
         Ok(RebuildOutput {
             linked,
             parsed_sources,
@@ -1488,11 +1544,12 @@ impl WorkspaceModuleSession {
             interfaces,
             import_products,
             resolved_imports,
-            reverse_importers,
+            reverse_importers: Arc::new(reverse_importers),
             linked_modules,
             diagnostics,
             blocked_modules,
             stats,
+            topology,
         })
     }
 }

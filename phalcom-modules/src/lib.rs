@@ -57,7 +57,7 @@ pub use package_info::{
     PackageArtifactIdentity, PackageAuthorDescriptor, PackageInfoDescriptor, PackageOrigin, PackageRequirementDescriptor, ResolvedProjectDependencyDescriptor,
 };
 pub use project::{ProjectUniverse, ResolvedProject, discover_owning_project, discover_standalone_package_root};
-pub use query::ModuleQueryFacade;
+pub use query::{ModuleQueryFacade, query_fallback_scan_count, reset_query_fallback_scan_count};
 pub use resolver::{
     ImportPathIdentity, ImportResolutionProduct, ImportResolutionTrace, ModuleResolver, ResolutionFingerprint,
     ResolutionTopologyDependencies,

@@ -37,3 +37,31 @@ COMPLETED
 5. Tolerant runtime survivor order: `tests/linker.rs::tolerant_runtime_cycle_preserves_independent_survivor_order` passes.
 6. Module test suite: `cargo test -p phalcom-modules` passes 89 passed (0 failed).
 7. Downstream checks: `cargo test -p phalcom-semantic --test semantic module_query_provenance` passes; `cargo check -p phalcom-lsp` passes with zero errors.
+
+---
+
+## Checkpoint A1 — Indexed Topology Is a Production Product
+
+### Status
+COMPLETED
+
+### Baseline Commit
+- `2365d39d0c86ec9d75a1cd7ccdf4361c54fa1dae` (`feat(modules): implement checkpoint A0 transactional module session`)
+
+### Tasks
+- [x] Task 6 — Retain current `ModuleTopology` in `WorkspaceModuleSession`, aligned with session generation and published in `WorkspaceModuleUpdate`.
+- [x] Task 7 — Publish topology and direct reverse-import index into `SemanticSnapshot::ModuleQueryProducts` and configure `ModuleQueryFacade`.
+- [x] Task 8 — Remove normal scan fallbacks, instrument query fallback work count, and verify zero fallback scans on indexed facades.
+
+### Checkpoint A1 Verification Evidence
+1. Topology lifecycle in session: `tests/workspace_session.rs::topology_is_retained_in_session_aligned_with_generation_and_published_in_update` passes.
+2. Fallback scan instrumentation & zero-scan indexed queries: `tests/query.rs::unindexed_facade_records_fallback_scans_while_indexed_records_zero` passes.
+3. Large-scale synthetic topology scaling test: `tests/query.rs::synthetic_large_scale_topology_query_work_count` passes (1,111 nodes, 1,110 edges, 0 fallback scans, immediate indexed response).
+4. Semantic snapshot integration & generation alignment: `tests/module_query_provenance.rs::semantic_snapshot_publishes_relative_import_alias_path_and_provenance` passes (`queries.is_fully_indexed()`, generation match, 0 fallback scans).
+5. Module test suites:
+   - `RUSTFLAGS='' cargo test -p phalcom-modules --test query` (5 passed, 0 failed)
+   - `RUSTFLAGS='' cargo test -p phalcom-modules --test topology` (6 passed, 0 failed)
+   - `cargo test -p phalcom-modules` (91 passed, 0 failed)
+6. Downstream checks:
+   - `RUST_MIN_STACK=8388608 cargo test -p phalcom-semantic --test semantic module_query_provenance` (1 passed, 0 failed)
+   - `cargo check -p phalcom-lsp` (clean compilation, zero errors)

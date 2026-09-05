@@ -11,6 +11,19 @@ use crate::interface::{LinkedExport, LinkedModuleInterface, UnlinkedModuleInterf
 use crate::project::ProjectUniverse;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static QUERY_FALLBACK_SCAN_COUNT: AtomicU64 = AtomicU64::new(0);
+
+/// Returns the global count of fallback scans performed by un-indexed `ModuleQueryFacade` instances.
+pub fn query_fallback_scan_count() -> u64 {
+    QUERY_FALLBACK_SCAN_COUNT.load(Ordering::Relaxed)
+}
+
+/// Resets the global fallback scan counter to zero.
+pub fn reset_query_fallback_scan_count() {
+    QUERY_FALLBACK_SCAN_COUNT.store(0, Ordering::Relaxed);
+}
 
 /// Query target for an import root with self-package distinction.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -38,6 +51,7 @@ pub struct ModuleQueryFacade<'a> {
     display_path_modules: &'a BTreeMap<std::path::PathBuf, ModuleId>,
     topology: Option<&'a crate::topology::ModuleTopology>,
     reverse_imports: Option<&'a BTreeMap<ModuleId, BTreeSet<ModuleId>>>,
+    fallback_scans: Option<&'a AtomicU64>,
 }
 
 impl<'a> ModuleQueryFacade<'a> {
@@ -61,6 +75,7 @@ impl<'a> ModuleQueryFacade<'a> {
             display_path_modules,
             topology: None,
             reverse_imports: None,
+            fallback_scans: None,
         }
     }
 
@@ -74,6 +89,34 @@ impl<'a> ModuleQueryFacade<'a> {
     pub fn with_reverse_imports(mut self, reverse_imports: &'a BTreeMap<ModuleId, BTreeSet<ModuleId>>) -> Self {
         self.reverse_imports = Some(reverse_imports);
         self
+    }
+
+    /// Attaches an optional local fallback scan counter for isolated test inspection.
+    pub fn with_fallback_counter(mut self, counter: &'a AtomicU64) -> Self {
+        self.fallback_scans = Some(counter);
+        self
+    }
+
+    /// Returns true if this facade is backed by precomputed topology.
+    pub fn has_topology(&self) -> bool {
+        self.topology.is_some()
+    }
+
+    /// Returns true if this facade is backed by precomputed reverse imports.
+    pub fn has_reverse_imports(&self) -> bool {
+        self.reverse_imports.is_some()
+    }
+
+    /// Returns true if this facade has all required production indexes attached.
+    pub fn is_fully_indexed(&self) -> bool {
+        self.topology.is_some() && self.reverse_imports.is_some()
+    }
+
+    fn record_fallback_scan(&self) {
+        QUERY_FALLBACK_SCAN_COUNT.fetch_add(1, Ordering::Relaxed);
+        if let Some(counter) = self.fallback_scans {
+            counter.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     /// Returns canonical import root entries including `is_self` indicators.
@@ -120,6 +163,7 @@ impl<'a> ModuleQueryFacade<'a> {
             return Vec::new();
         }
 
+        self.record_fallback_scan();
         let mut children = BTreeSet::new();
         for candidate in self.linked.keys().chain(self.unlinked.keys()) {
             if candidate.project == project {
@@ -171,6 +215,7 @@ impl<'a> ModuleQueryFacade<'a> {
             return result;
         }
 
+        self.record_fallback_scan();
         for comp in components {
             let parent_id = ModuleId {
                 project: target_project,
@@ -265,10 +310,9 @@ impl<'a> ModuleQueryFacade<'a> {
     /// Returns the canonical module for an exact source-provider identity.
     pub fn module_for_source(&self, source: &SourceId) -> Option<&ModuleId> {
         if let Some(topology) = self.topology {
-            if let Some(m) = topology.source_modules.get(source) {
-                return Some(m);
-            }
+            return topology.module_for_source(source);
         }
+        self.record_fallback_scan();
         self.source_modules.get(source)
     }
 
@@ -288,6 +332,7 @@ impl<'a> ModuleQueryFacade<'a> {
             }
             return Vec::new();
         }
+        self.record_fallback_scan();
         let mut importers = BTreeSet::new();
         for ((importer, _), target) in self.resolved_imports {
             if target == module {
