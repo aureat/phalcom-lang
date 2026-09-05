@@ -187,6 +187,8 @@
   },
   "active": "46e666892420d783",
   "lastOpenFiles": [
+    "work/modules/lsp-module-architecture-handoff-c2-to-c3.md",
+    "work/modules/lsp-module-architecture-handoff-c1-to-c2.md",
     "work/modules/lsp-module-architecture-implementation-state.md",
     "work/modules",
     "impl/gadt/testing/phalcom-adt-comprehensive-testing-implementation-plan.md",
@@ -212,8 +214,6 @@
     "impl/gadt/part-3/03-associated-resolution-family-values-generic-specialization-invocation-typing-implementation-plan.md",
     "impl/gadt/part-2/02-declaration-model-family-reservation-variant-identity-exact-case-types-contracts-technical-spec.md",
     "impl/gadt/part-1/01-surface-syntax-parser-ast-selector-family-grammar-technical-spec.md",
-    "impl/gadt/part-2/02-declaration-model-family-reservation-variant-identity-exact-case-types-contracts-implementation-plan.md",
-    "impl/gadt/part-1/01-surface-syntax-parser-ast-selector-family-grammar-implementation-plan.md",
     "impl/gadt/testing",
     "impl/gadt/part-6",
     "impl/gadt/part-5",

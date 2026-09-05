@@ -678,7 +678,7 @@ class List<T> is Iterable {
   // `self.==` — without this override `list != other` would stay  
   // identity-based and contradict the structural `==` above (the `==`⊗`!=`  
   // decoupling hazard).  
-  !=(_ other) {  
+  !=(_ other) {
     return not (self == other)  
   }  
 }  
@@ -732,4 +732,9 @@ type Parse(_ expr: Expression, _ state: ParserState)
 
 case Parse(...)
 case Parse(expr, ...)
+
+obj class methodView selectors at: 0
+
+
+
 ```
