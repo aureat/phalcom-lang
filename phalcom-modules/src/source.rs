@@ -217,11 +217,80 @@ pub trait SourceProvider {
     fn read(&self, source: &SourceId) -> Result<Arc<str>, SourceError>;
 }
 
+/// Kind of filesystem entry discovered in a directory.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DirEntryKind {
+    File,
+    Directory,
+}
+
+/// Cached snapshot of directory contents and marker files for fast candidate probes.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DirectorySnapshot {
+    pub dir_path: PathBuf,
+    pub entries: HashMap<String, DirEntryKind>,
+    pub package_marker_present: bool,
+    pub project_marker_present: bool,
+}
+
+impl DirectorySnapshot {
+    pub fn read_from_disk(dir: &Path) -> Result<Self, SourceError> {
+        let mut entries = HashMap::new();
+        let read_dir = match std::fs::read_dir(dir) {
+            Ok(rd) => rd,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Self {
+                    dir_path: dir.to_path_buf(),
+                    entries,
+                    package_marker_present: false,
+                    project_marker_present: false,
+                });
+            }
+            Err(err) => return Err(SourceError::Io(err.to_string())),
+        };
+
+        for entry in read_dir {
+            let entry = entry.map_err(|e| SourceError::Io(e.to_string()))?;
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            let file_type = entry.file_type().map_err(|e| SourceError::Io(e.to_string()))?;
+            let kind = if file_type.is_dir() {
+                DirEntryKind::Directory
+            } else if file_type.is_file() {
+                DirEntryKind::File
+            } else if file_type.is_symlink() {
+                if let Ok(meta) = std::fs::metadata(entry.path()) {
+                    if meta.is_dir() {
+                        DirEntryKind::Directory
+                    } else {
+                        DirEntryKind::File
+                    }
+                } else {
+                    continue;
+                }
+            } else {
+                continue;
+            };
+            entries.insert(file_name, kind);
+        }
+
+        let package_marker_present = entries.get("package.ph") == Some(&DirEntryKind::File);
+        let project_marker_present = entries.get("project.toml") == Some(&DirEntryKind::File);
+
+        Ok(Self {
+            dir_path: dir.to_path_buf(),
+            entries,
+            package_marker_present,
+            project_marker_present,
+        })
+    }
+}
+
 #[derive(Debug, Default)]
 struct FilesystemCacheState {
     resolution: Mutex<HashMap<(u64, ResolvedProjectId, ModulePath), Result<SourceUnit, ModuleResolutionError>>>,
     source_cache: Mutex<HashMap<(u64, SourceId), Arc<str>>>,
     source_id_to_module: Mutex<HashMap<(u64, SourceId), ModuleId>>,
+    directory_cache: Mutex<HashMap<(u64, PathBuf), Arc<DirectorySnapshot>>>,
     resolution_hits: AtomicU64,
     resolution_misses: AtomicU64,
 }
@@ -253,6 +322,7 @@ impl FilesystemSourceProvider {
         self.cache.resolution.lock().unwrap().clear();
         self.cache.source_cache.lock().unwrap().clear();
         self.cache.source_id_to_module.lock().unwrap().clear();
+        self.cache.directory_cache.lock().unwrap().clear();
     }
 
     /// Granularly invalidates cached source content for a single source.
@@ -265,6 +335,29 @@ impl FilesystemSourceProvider {
     pub fn invalidate_topology(&self) {
         self.generation.fetch_add(1, Ordering::AcqRel);
         self.cache.resolution.lock().unwrap().clear();
+        self.cache.directory_cache.lock().unwrap().clear();
+    }
+
+    /// Granularly invalidates a directory snapshot.
+    pub fn invalidate_directory(&self, dir: &Path) {
+        let generation = self.generation();
+        self.cache.directory_cache.lock().unwrap().remove(&(generation, dir.to_path_buf()));
+    }
+
+    /// Obtains a cached directory snapshot, reading the directory from disk if unpopulated.
+    pub fn get_directory_snapshot(&self, dir: &Path) -> Result<Arc<DirectorySnapshot>, SourceError> {
+        let generation = self.generation();
+        let key = (generation, dir.to_path_buf());
+        {
+            let cache = self.cache.directory_cache.lock().unwrap();
+            if let Some(snap) = cache.get(&key) {
+                return Ok(snap.clone());
+            }
+        }
+        let snapshot = Arc::new(DirectorySnapshot::read_from_disk(dir)?);
+        let mut cache = self.cache.directory_cache.lock().unwrap();
+        cache.insert(key, snapshot.clone());
+        Ok(snapshot)
     }
 
     /// Purges a source identity mapping.
@@ -292,8 +385,9 @@ impl FilesystemSourceProvider {
 
         // 1. Root package case: `[]` -> `<source-root>/package.ph`
         if components.is_empty() {
-            let pkg_file = current_dir.join("package.ph");
-            if pkg_file.is_file() {
+            let root_snapshot = self.get_directory_snapshot(&current_dir).map_err(ModuleResolutionError::Source)?;
+            if root_snapshot.package_marker_present {
+                let pkg_file = current_dir.join("package.ph");
                 let canonical = pkg_file.canonicalize().map_err(|e| SourceError::Io(e.to_string()))?;
 
                 // Confinement check: canonical path must start with project source root
@@ -340,14 +434,14 @@ impl FilesystemSourceProvider {
         // 2. Intermediate components: all must be package directories containing `package.ph`
         for comp in &components[..components.len() - 1] {
             let (dir_path, _is_kebab) = self.find_directory(&current_dir, comp)?;
+            let snapshot = self.get_directory_snapshot(&dir_path).map_err(ModuleResolutionError::Source)?;
 
             // Check for nested project boundary: if `project.toml` exists in this subdir and is not project root
-            if dir_path != project.root_dir && dir_path.join("project.toml").is_file() {
+            if dir_path != project.root_dir && snapshot.project_marker_present {
                 return Err(ModuleResolutionError::NestedProjectBoundary(dir_path));
             }
 
-            let pkg_file = dir_path.join("package.ph");
-            if !pkg_file.is_file() {
+            if !snapshot.package_marker_present {
                 return Err(ModuleResolutionError::PackageNotFoundError(format!(
                     "Directory '{}' is missing package.ph",
                     dir_path.display()
@@ -360,8 +454,14 @@ impl FilesystemSourceProvider {
         let last_comp = components.last().unwrap();
         let (file_candidate, dir_candidate) = self.find_final_candidates(&current_dir, last_comp)?;
 
-        let has_file = file_candidate.as_ref().map(|p| p.is_file()).unwrap_or(false);
-        let has_dir_pkg = dir_candidate.as_ref().map(|d| d.join("package.ph").is_file()).unwrap_or(false);
+        let has_file = file_candidate.is_some();
+        let has_dir_pkg = if let Some(dir_path) = &dir_candidate {
+            self.get_directory_snapshot(dir_path)
+                .map(|s| s.package_marker_present)
+                .unwrap_or(false)
+        } else {
+            false
+        };
 
         if has_file && has_dir_pkg {
             return Err(ModuleResolutionError::AmbiguousModule {
@@ -415,7 +515,8 @@ impl FilesystemSourceProvider {
 
         if has_dir_pkg {
             let dir_path = dir_candidate.unwrap();
-            if dir_path != project.root_dir && dir_path.join("project.toml").is_file() {
+            let dir_snapshot = self.get_directory_snapshot(&dir_path).map_err(ModuleResolutionError::Source)?;
+            if dir_path != project.root_dir && dir_snapshot.project_marker_present {
                 return Err(ModuleResolutionError::NestedProjectBoundary(dir_path));
             }
 
@@ -462,22 +563,21 @@ impl FilesystemSourceProvider {
         Err(ModuleResolutionError::ModuleNotFound(format!("{}.{}", project.namespace, path)))
     }
 
-    /// Looks up the one canonical physical spelling for a logical component.
+    /// Looks up the one canonical physical spelling for a logical component using directory snapshots.
     fn find_directory(&self, parent: &Path, comp: &ModuleComponent) -> Result<(PathBuf, bool), ModuleResolutionError> {
         let logical = comp.as_str();
         let physical = comp.to_kebab();
+        let snapshot = self.get_directory_snapshot(parent).map_err(ModuleResolutionError::Source)?;
         if logical != physical {
-            let noncanonical = parent.join(logical);
-            if noncanonical.is_dir() {
+            if snapshot.entries.get(logical) == Some(&DirEntryKind::Directory) {
                 return Err(ModuleResolutionError::NonCanonicalPhysicalName {
-                    path: noncanonical,
+                    path: parent.join(logical),
                     expected: physical,
                 });
             }
         }
-        let canonical = parent.join(&physical);
-        if canonical.is_dir() {
-            Ok((canonical, true))
+        if snapshot.entries.get(&physical) == Some(&DirEntryKind::Directory) {
+            Ok((parent.join(&physical), true))
         } else {
             Err(ModuleResolutionError::PackageNotFoundError(format!(
                 "Component '{}' directory not found in {}",
@@ -487,29 +587,39 @@ impl FilesystemSourceProvider {
         }
     }
 
-    /// Finds the canonical physical module and package candidates.
+    /// Finds the canonical physical module and package candidates using directory snapshots.
     fn find_final_candidates(&self, parent: &Path, comp: &ModuleComponent) -> Result<(Option<PathBuf>, Option<PathBuf>), ModuleResolutionError> {
         let logical = comp.as_str();
         let physical = comp.to_kebab();
+        let snapshot = self.get_directory_snapshot(parent).map_err(ModuleResolutionError::Source)?;
         if logical != physical {
-            let noncanonical_file = parent.join(format!("{logical}.ph"));
-            if noncanonical_file.is_file() {
+            let noncanonical_file = format!("{logical}.ph");
+            if snapshot.entries.get(&noncanonical_file) == Some(&DirEntryKind::File) {
                 return Err(ModuleResolutionError::NonCanonicalPhysicalName {
-                    path: noncanonical_file,
+                    path: parent.join(noncanonical_file),
                     expected: format!("{physical}.ph"),
                 });
             }
-            let noncanonical_dir = parent.join(logical);
-            if noncanonical_dir.is_dir() {
+            let noncanonical_dir = logical;
+            if snapshot.entries.get(noncanonical_dir) == Some(&DirEntryKind::Directory) {
                 return Err(ModuleResolutionError::NonCanonicalPhysicalName {
-                    path: noncanonical_dir,
+                    path: parent.join(noncanonical_dir),
                     expected: physical,
                 });
             }
         }
-        let file = parent.join(format!("{physical}.ph"));
-        let dir = parent.join(&physical);
-        Ok((file.is_file().then_some(file), dir.is_dir().then_some(dir)))
+        let file_name = format!("{physical}.ph");
+        let file = if snapshot.entries.get(&file_name) == Some(&DirEntryKind::File) {
+            Some(parent.join(file_name))
+        } else {
+            None
+        };
+        let dir = if snapshot.entries.get(&physical) == Some(&DirEntryKind::Directory) {
+            Some(parent.join(&physical))
+        } else {
+            None
+        };
+        Ok((file, dir))
     }
 }
 

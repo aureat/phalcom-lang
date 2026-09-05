@@ -40,7 +40,7 @@ pub use graph::{
     SemanticEdge, SemanticEdgeKind, SemanticGraph, SemanticNodeId, strongly_connected_components,
 };
 pub use identity::{
-    ImportRootTarget, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, ProjectRevisionFingerprint, ProjectSourceIdentity, ResolvedProjectId, SourceId,
+    ImportRootTarget, ImportSiteId, ImportSiteLocalId, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, ProjectRevisionFingerprint, ProjectSourceIdentity, ResolvedProjectId, SourceId,
     SourceLocation, StableModuleKey, StableProjectKey, SyntheticProjectId, SyntheticProjectIdAllocator, universe_module_from_uri, universe_module_uri,
 };
 pub use interface::{
@@ -59,14 +59,17 @@ pub use package_info::{
 pub use project::{ProjectUniverse, ResolvedProject, discover_owning_project, discover_standalone_package_root};
 pub use query::{ModuleQueryFacade, query_fallback_scan_count, reset_query_fallback_scan_count};
 pub use resolver::{
-    ImportPathIdentity, ImportResolutionProduct, ImportResolutionTrace, ModuleResolver, ResolutionFingerprint,
-    ResolutionTopologyDependencies,
+    AbsentCandidateFact, ImportPathIdentity, ImportResolutionProduct, ImportResolutionTrace, ModuleResolver, ResolutionFingerprint,
+    ResolutionTopologyDependencies, ResolvedImportPrefix,
 };
 pub use session::{
     SourceRevision, WorkspaceModuleSession, WorkspaceModuleSessionError, WorkspaceModuleStats, WorkspaceModuleUpdate, WorkspaceSourceBatchMutation,
     WorkspaceSourceMutation,
     WorkspaceSourceState,
 };
-pub use source::{EntryOwnership, FilesystemSourceProvider, ModuleKind, ParsedModuleUnit, SourceProvider, SourceUnit, classify_entry_ownership};
+pub use source::{
+    DirEntryKind, DirectorySnapshot, EntryOwnership, FilesystemSourceProvider, ModuleKind, ParsedModuleUnit, SourceProvider, SourceUnit,
+    classify_entry_ownership,
+};
 pub use stabilization::{ResolvedDocumentIdentity, ResolverGeneration};
-pub use topology::{ModuleTopology, TopologyFingerprint, TopologyNode};
+pub use topology::{ModuleTopology, TopologyDelta, TopologyFingerprint, TopologyNode};

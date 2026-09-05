@@ -96,6 +96,26 @@ pub enum ImportSurface {
     ReExport(ReExportDecl),
 }
 
+impl ImportSurface {
+    /// Logical import path authored at this import site.
+    pub fn path(&self) -> &ImportPath {
+        match self {
+            Self::Module(decl) => &decl.path,
+            Self::Selective(decl) => &decl.path,
+            Self::ReExport(decl) => &decl.path,
+        }
+    }
+
+    /// Source span of this import declaration.
+    pub fn range(&self) -> SourceRange {
+        match self {
+            Self::Module(decl) => decl.range,
+            Self::Selective(decl) => decl.range,
+            Self::ReExport(decl) => decl.range,
+        }
+    }
+}
+
 /// An unlinked module interface extracted from AST local declarations before path resolution.
 #[derive(Clone, Debug, PartialEq)]
 pub struct UnlinkedModuleInterface {
@@ -112,6 +132,16 @@ impl UnlinkedModuleInterface {
     /// Computes the semantic product fingerprint for this unlinked module interface.
     pub fn fingerprint(&self) -> crate::fingerprint::InterfaceFingerprint {
         crate::fingerprint::interface_fingerprint(self)
+    }
+
+    /// Yields each import surface paired with its deterministic authored import site identity.
+    pub fn import_sites(&self) -> impl Iterator<Item = (crate::identity::ImportSiteId, &ImportSurface)> {
+        self.imports.iter().enumerate().map(|(idx, import)| {
+            (
+                crate::identity::ImportSiteId::new(self.id.clone(), crate::identity::ImportSiteLocalId::new(idx as u32)),
+                import,
+            )
+        })
     }
 }
 

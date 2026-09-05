@@ -288,3 +288,59 @@ fn compute_topology_fingerprint(
 
     TopologyFingerprint::new(hasher.finish())
 }
+
+/// Summary of topology and interface changes between committed session and current transaction.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct TopologyDelta {
+    pub added_modules: BTreeSet<ModuleId>,
+    pub removed_modules: BTreeSet<ModuleId>,
+    pub changed_interfaces: BTreeSet<ModuleId>,
+    pub changed_exposures: BTreeSet<ModuleId>,
+    pub project_roots_changed: bool,
+}
+
+impl TopologyDelta {
+    /// Determines whether a retained import resolution product could be invalidated by this delta.
+    pub fn resolution_product_may_have_changed(&self, product: &crate::resolver::ImportResolutionProduct) -> bool {
+        if self.project_roots_changed {
+            return true;
+        }
+
+        match &product.target {
+            Ok(target) => {
+                if self.removed_modules.contains(target) {
+                    return true;
+                }
+                for prefix in product.prefixes.iter() {
+                    if self.removed_modules.contains(&prefix.module) {
+                        return true;
+                    }
+                }
+                for pkg in &product.dependencies.consulted_packages {
+                    if self.changed_exposures.contains(pkg) || self.removed_modules.contains(pkg) {
+                        return true;
+                    }
+                }
+                false
+            }
+            Err(_) => {
+                for absent in &product.dependencies.absent_candidates {
+                    let candidate_mod = ModuleId {
+                        project: absent.project,
+                        path: absent.parent_path.join(absent.candidate_name.clone()),
+                    };
+                    if self.added_modules.contains(&candidate_mod) {
+                        return true;
+                    }
+                }
+                for pkg in &product.dependencies.consulted_packages {
+                    if self.changed_exposures.contains(pkg) {
+                        return true;
+                    }
+                }
+                false
+            }
+        }
+    }
+}
+

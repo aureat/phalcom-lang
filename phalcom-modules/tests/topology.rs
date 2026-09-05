@@ -311,7 +311,11 @@ fn topology_detect_cycle_and_descendants() {
 
 #[test]
 fn import_resolution_product_deterministic_fingerprint() {
+    use phalcom_modules::identity::{ImportSiteId, ImportSiteLocalId};
+    use std::sync::Arc;
+
     let importer = ModuleId::universe(path("client"));
+    let site = ImportSiteId::new(importer.clone(), ImportSiteLocalId::new(0));
     let target = ModuleId::universe(path("server"));
     let written = ImportPathIdentity {
         written: "universe.server".to_string(),
@@ -320,12 +324,14 @@ fn import_resolution_product_deterministic_fingerprint() {
     let consulted = BTreeSet::from([ModuleId::universe(ModulePath::root())]);
     let deps = ResolutionTopologyDependencies {
         consulted_packages: consulted,
+        absent_candidates: BTreeSet::new(),
         target_project: Some(target.project),
         target_module: Some(target.clone()),
     };
 
-    let prod1 = ImportResolutionProduct::new(importer.clone(), written.clone(), Ok(target.clone()), deps.clone());
-    let prod2 = ImportResolutionProduct::new(importer.clone(), written.clone(), Ok(target.clone()), deps.clone());
+    let prefixes: Arc<[phalcom_modules::resolver::ResolvedImportPrefix]> = Arc::from([]);
+    let prod1 = ImportResolutionProduct::new(site.clone(), written.clone(), prefixes.clone(), Ok(target.clone()), deps.clone());
+    let prod2 = ImportResolutionProduct::new(site.clone(), written.clone(), prefixes.clone(), Ok(target.clone()), deps.clone());
 
     assert_eq!(prod1.fingerprint, prod2.fingerprint);
 
@@ -333,9 +339,10 @@ fn import_resolution_product_deterministic_fingerprint() {
     let other_target = ModuleId::universe(path("other"));
     let other_deps = ResolutionTopologyDependencies {
         consulted_packages: deps.consulted_packages.clone(),
+        absent_candidates: BTreeSet::new(),
         target_project: Some(other_target.project),
         target_module: Some(other_target.clone()),
     };
-    let prod3 = ImportResolutionProduct::new(importer, written, Ok(other_target), other_deps);
+    let prod3 = ImportResolutionProduct::new(site, written, prefixes, Ok(other_target), other_deps);
     assert_ne!(prod1.fingerprint, prod3.fingerprint);
 }

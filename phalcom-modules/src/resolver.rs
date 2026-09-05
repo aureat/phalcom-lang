@@ -1,6 +1,8 @@
 use crate::builtin::UniverseSourceProvider;
 use crate::error::{ModuleLoadError, ModuleResolutionError};
-use crate::identity::{ImportRootTarget, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, ResolvedProjectId, SourceLocation};
+use crate::identity::{
+    ImportRootTarget, ImportSiteId, ImportSiteLocalId, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, ResolvedProjectId, SourceLocation,
+};
 use crate::interface::{InterfaceBuilder, PackagePathSurface, UnlinkedModuleInterface};
 use crate::project::ProjectUniverse;
 use crate::source::{ModuleKind, ParsedModuleUnit, SourceProvider, SourceUnit};
@@ -18,6 +20,21 @@ pub struct ImportPathIdentity {
     pub is_relative: bool,
 }
 
+/// Canonical prefix target resolved during compound path resolution.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct ResolvedImportPrefix {
+    pub prefix: String,
+    pub module: ModuleId,
+}
+
+/// A candidate child name checked under a parent path during resolution whose absence contributed to the result.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct AbsentCandidateFact {
+    pub project: ProjectIdentity,
+    pub parent_path: ModulePath,
+    pub candidate_name: ModuleComponent,
+}
+
 /// Deterministic fingerprint representing the result and topology justifications of an import resolution.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ResolutionFingerprint(pub u64);
@@ -33,18 +50,20 @@ impl ResolutionFingerprint {
 }
 
 /// Structural topology facts consulted during import resolution.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ResolutionTopologyDependencies {
     pub consulted_packages: BTreeSet<ModuleId>,
     pub target_project: Option<ProjectIdentity>,
     pub target_module: Option<ModuleId>,
+    pub absent_candidates: BTreeSet<AbsentCandidateFact>,
 }
 
 /// Retained product of an import resolution suitable for incremental reuse.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ImportResolutionProduct {
-    pub importer: ModuleId,
+    pub site: ImportSiteId,
     pub written_path: ImportPathIdentity,
+    pub prefixes: Arc<[ResolvedImportPrefix]>,
     pub target: Result<ModuleId, ModuleResolutionError>,
     pub dependencies: ResolutionTopologyDependencies,
     pub fingerprint: ResolutionFingerprint,
@@ -52,15 +71,22 @@ pub struct ImportResolutionProduct {
 
 impl ImportResolutionProduct {
     pub fn new(
-        importer: ModuleId,
+        site: ImportSiteId,
         written_path: ImportPathIdentity,
+        prefixes: Arc<[ResolvedImportPrefix]>,
         target: Result<ModuleId, ModuleResolutionError>,
         dependencies: ResolutionTopologyDependencies,
     ) -> Self {
         let mut hasher = DefaultHasher::new();
-        importer.hash(&mut hasher);
+        site.importer.hash(&mut hasher);
+        site.local.0.hash(&mut hasher);
         written_path.written.hash(&mut hasher);
         written_path.is_relative.hash(&mut hasher);
+        prefixes.len().hash(&mut hasher);
+        for p in prefixes.iter() {
+            p.prefix.hash(&mut hasher);
+            p.module.hash(&mut hasher);
+        }
         match &target {
             Ok(target_id) => {
                 0u8.hash(&mut hasher);
@@ -77,15 +103,24 @@ impl ImportResolutionProduct {
         }
         dependencies.target_project.hash(&mut hasher);
         dependencies.target_module.hash(&mut hasher);
+        dependencies.absent_candidates.len().hash(&mut hasher);
+        for absent in &dependencies.absent_candidates {
+            absent.hash(&mut hasher);
+        }
         let fingerprint = ResolutionFingerprint::new(hasher.finish());
 
         Self {
-            importer,
+            site,
             written_path,
+            prefixes,
             target,
             dependencies,
             fingerprint,
         }
+    }
+
+    pub fn importer(&self) -> &ModuleId {
+        &self.site.importer
     }
 }
 
@@ -94,6 +129,7 @@ impl ImportResolutionProduct {
 pub struct ImportResolutionTrace {
     pub target: SourceUnit,
     pub package_interfaces: BTreeSet<ModuleId>,
+    pub prefixes: Vec<ResolvedImportPrefix>,
 }
 
 /// Module resolver coordinating `ProjectUniverse` and `SourceProvider`.
@@ -121,27 +157,150 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
 
     /// Resolves an AST `ImportPath` and produces an incrementally retainable `ImportResolutionProduct`.
     pub fn resolve_import_product(&mut self, importer: &ModuleId, syntax: &ImportPath) -> ImportResolutionProduct {
+        let site = ImportSiteId::new(importer.clone(), ImportSiteLocalId::new(0));
+        self.resolve_import_product_for_site(site, syntax)
+    }
+
+    /// Resolves an AST `ImportPath` for a specific `ImportSiteId` and produces an incrementally retainable `ImportResolutionProduct`.
+    pub fn resolve_import_product_for_site(&mut self, site: ImportSiteId, syntax: &ImportPath) -> ImportResolutionProduct {
         let written = syntax.to_string();
         let is_relative = matches!(syntax.root, ImportRoot::Relative { .. });
         let written_path = ImportPathIdentity { written, is_relative };
 
-        match self.resolve_import_with_trace(importer, syntax) {
+        match self.resolve_import_with_trace(&site.importer, syntax) {
             Ok(trace) => {
                 let target_id = trace.target.id.clone();
                 let dependencies = ResolutionTopologyDependencies {
                     consulted_packages: trace.package_interfaces,
                     target_project: Some(target_id.project),
                     target_module: Some(target_id.clone()),
+                    absent_candidates: BTreeSet::new(),
                 };
-                ImportResolutionProduct::new(importer.clone(), written_path, Ok(target_id), dependencies)
+                ImportResolutionProduct::new(site, written_path, Arc::from(trace.prefixes), Ok(target_id), dependencies)
             }
             Err(err) => {
+                let mut absent_candidates = BTreeSet::new();
+                let mut target_project = None;
+                self.extract_negative_dependencies(&site.importer, syntax, &err, &mut absent_candidates, &mut target_project);
                 let dependencies = ResolutionTopologyDependencies {
                     consulted_packages: BTreeSet::new(),
-                    target_project: None,
+                    target_project,
                     target_module: None,
+                    absent_candidates,
                 };
-                ImportResolutionProduct::new(importer.clone(), written_path, Err(err), dependencies)
+                ImportResolutionProduct::new(site, written_path, Arc::from([]), Err(err), dependencies)
+            }
+        }
+    }
+
+    fn extract_negative_dependencies(
+        &mut self,
+        importer: &ModuleId,
+        syntax: &ImportPath,
+        _err: &ModuleResolutionError,
+        absent_candidates: &mut BTreeSet<AbsentCandidateFact>,
+        target_project: &mut Option<ProjectIdentity>,
+    ) {
+        match &syntax.root {
+            ImportRoot::Absolute(root_seg) => {
+                let Ok(root_comp) = ModuleComponent::from_identifier(&root_seg.name) else { return };
+                if root_seg.name == "universe" {
+                    *target_project = Some(ProjectIdentity::Universe);
+                    let mut components = Vec::new();
+                    for seg in &syntax.segments {
+                        let Ok(comp) = ModuleComponent::from_identifier(&seg.name) else { return };
+                        components.push(comp);
+                    }
+                    if let Some(last) = components.pop() {
+                        let parent_path = ModulePath::from_components(components);
+                        absent_candidates.insert(AbsentCandidateFact {
+                            project: ProjectIdentity::Universe,
+                            parent_path,
+                            candidate_name: last,
+                        });
+                    }
+                } else if let Some(proj_id) = importer.project.as_resolved() {
+                    if let Some(proj) = self.universe.get_project(proj_id) {
+                        let roots = proj.import_roots();
+                        if let Some((target_root, _)) = roots.get(&root_comp) {
+                            match target_root {
+                                ImportRootTarget::Universe => {
+                                    *target_project = Some(ProjectIdentity::Universe);
+                                    let mut components = Vec::new();
+                                    for seg in &syntax.segments {
+                                        let Ok(comp) = ModuleComponent::from_identifier(&seg.name) else { return };
+                                        components.push(comp);
+                                    }
+                                    if let Some(last) = components.pop() {
+                                        let parent_path = ModulePath::from_components(components);
+                                        absent_candidates.insert(AbsentCandidateFact {
+                                            project: ProjectIdentity::Universe,
+                                            parent_path,
+                                            candidate_name: last,
+                                        });
+                                    }
+                                }
+                                ImportRootTarget::Resolved(resolved_id) => {
+                                    let proj_ident = ProjectIdentity::Resolved(*resolved_id);
+                                    *target_project = Some(proj_ident);
+                                    let mut components = Vec::new();
+                                    for seg in &syntax.segments {
+                                        let Ok(comp) = ModuleComponent::from_identifier(&seg.name) else { return };
+                                        components.push(comp);
+                                    }
+                                    if let Some(last) = components.pop() {
+                                        let parent_path = ModulePath::from_components(components);
+                                        absent_candidates.insert(AbsentCandidateFact {
+                                            project: proj_ident,
+                                            parent_path,
+                                            candidate_name: last,
+                                        });
+                                    } else {
+                                        absent_candidates.insert(AbsentCandidateFact {
+                                            project: proj_ident,
+                                            parent_path: ModulePath::root(),
+                                            candidate_name: root_comp,
+                                        });
+                                    }
+                                }
+                            }
+                        } else {
+                            *target_project = Some(importer.project);
+                            absent_candidates.insert(AbsentCandidateFact {
+                                project: importer.project,
+                                parent_path: ModulePath::root(),
+                                candidate_name: root_comp,
+                            });
+                        }
+                    }
+                }
+            }
+            ImportRoot::Relative { dots, .. } => {
+                let dots = *dots as usize;
+                if dots == 0 { return; }
+                let Ok(parsed) = self.load_parsed(importer) else { return };
+                let package_path = match parsed.kind {
+                    ModuleKind::Package => importer.path.clone(),
+                    ModuleKind::Module => importer.path.parent().unwrap_or_else(ModulePath::root),
+                };
+                let pkg_components = package_path.components();
+                let ascend_count = dots - 1;
+                if ascend_count > pkg_components.len() { return; }
+                let base_len = pkg_components.len() - ascend_count;
+                let mut resolved_components = pkg_components[..base_len].to_vec();
+                for seg in &syntax.segments {
+                    let Ok(comp) = ModuleComponent::from_identifier(&seg.name) else { return };
+                    resolved_components.push(comp);
+                }
+                *target_project = Some(importer.project);
+                if let Some(last) = resolved_components.pop() {
+                    let parent_path = ModulePath::from_components(resolved_components);
+                    absent_candidates.insert(AbsentCandidateFact {
+                        project: importer.project,
+                        parent_path,
+                        candidate_name: last,
+                    });
+                }
             }
         }
     }
@@ -205,6 +364,24 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                         } else {
                             target_path.components().iter().map(|c| c.as_str()).collect::<Vec<_>>().join("/")
                         };
+                        let mut prefixes = Vec::new();
+                        prefixes.push(ResolvedImportPrefix {
+                            prefix: "universe".to_string(),
+                            module: ModuleId::universe_root(),
+                        });
+                        let mut cur_path = ModulePath::root();
+                        let mut cur_prefix_str = "universe".to_string();
+                        for seg in &syntax.segments {
+                            let comp = ModuleComponent::from_identifier(&seg.name).map_err(|e| ModuleResolutionError::InvalidModuleName(seg.name.clone(), e))?;
+                            cur_path = cur_path.join(comp);
+                            cur_prefix_str.push('.');
+                            cur_prefix_str.push_str(&seg.name);
+                            prefixes.push(ResolvedImportPrefix {
+                                prefix: cur_prefix_str.clone(),
+                                module: ModuleId::universe(cur_path.clone()),
+                            });
+                        }
+
                         return Ok(ImportResolutionTrace {
                             target: SourceUnit {
                                 id,
@@ -215,6 +392,7 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                                 },
                             },
                             package_interfaces,
+                            prefixes,
                         });
                     }
                     ImportRootTarget::Resolved(id) => id,
@@ -231,7 +409,26 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                 }
 
                 let target = self.source.locate(target_project, &target_path)?;
-                Ok(ImportResolutionTrace { target, package_interfaces })
+
+                let mut prefixes = Vec::new();
+                prefixes.push(ResolvedImportPrefix {
+                    prefix: root_seg.name.clone(),
+                    module: ModuleId::resolved(target_project_id, ModulePath::root()),
+                });
+                let mut cur_path = ModulePath::root();
+                let mut cur_prefix_str = root_seg.name.clone();
+                for seg in &syntax.segments {
+                    let comp = ModuleComponent::from_identifier(&seg.name).map_err(|e| ModuleResolutionError::InvalidModuleName(seg.name.clone(), e))?;
+                    cur_path = cur_path.join(comp);
+                    cur_prefix_str.push('.');
+                    cur_prefix_str.push_str(&seg.name);
+                    prefixes.push(ResolvedImportPrefix {
+                        prefix: cur_prefix_str.clone(),
+                        module: ModuleId::resolved(target_project_id, cur_path.clone()),
+                    });
+                }
+
+                Ok(ImportResolutionTrace { target, package_interfaces, prefixes })
             }
             ImportRoot::Relative { dots, range: _ } => {
                 let dots = *dots as usize;
@@ -278,7 +475,38 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                     )));
                 }
                 let target = self.locate_project_module(target_project, &target_path)?;
-                Ok(ImportResolutionTrace { target, package_interfaces })
+
+                let mut prefixes = Vec::new();
+                let dots_str = ".".repeat(dots);
+                let base_path = ModulePath::from_components(pkg_components[..base_len].to_vec());
+                prefixes.push(ResolvedImportPrefix {
+                    prefix: dots_str.clone(),
+                    module: ModuleId {
+                        project: target_project,
+                        path: base_path.clone(),
+                    },
+                });
+                let mut cur_path = base_path;
+                let mut cur_prefix_str = dots_str;
+                for seg in &syntax.segments {
+                    let comp = ModuleComponent::from_identifier(&seg.name).map_err(|e| ModuleResolutionError::InvalidModuleName(seg.name.clone(), e))?;
+                    cur_path = cur_path.join(comp);
+                    if cur_prefix_str == "." {
+                        cur_prefix_str.push_str(&seg.name);
+                    } else {
+                        cur_prefix_str.push('.');
+                        cur_prefix_str.push_str(&seg.name);
+                    }
+                    prefixes.push(ResolvedImportPrefix {
+                        prefix: cur_prefix_str.clone(),
+                        module: ModuleId {
+                            project: target_project,
+                            path: cur_path.clone(),
+                        },
+                    });
+                }
+
+                Ok(ImportResolutionTrace { target, package_interfaces, prefixes })
             }
         }
     }

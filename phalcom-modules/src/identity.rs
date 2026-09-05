@@ -311,6 +311,46 @@ impl fmt::Display for ModuleId {
     }
 }
 
+/// Local index or ordinal of an authored import statement within a module's preamble.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+pub struct ImportSiteLocalId(pub u32);
+
+impl ImportSiteLocalId {
+    pub const fn new(raw: u32) -> Self {
+        Self(raw)
+    }
+
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
+}
+
+impl fmt::Display for ImportSiteLocalId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "#{}", self.0)
+    }
+}
+
+/// Globally stable identity of an authored import site in a module.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ImportSiteId {
+    pub importer: ModuleId,
+    pub local: ImportSiteLocalId,
+}
+
+impl ImportSiteId {
+    pub const fn new(importer: ModuleId, local: ImportSiteLocalId) -> Self {
+        Self { importer, local }
+    }
+}
+
+impl fmt::Display for ImportSiteId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:site#{}", self.importer, self.local.0)
+    }
+}
+
+
 /// Source-provider identity, distinct from semantic `ModuleId`.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct SourceId(pub Box<str>);

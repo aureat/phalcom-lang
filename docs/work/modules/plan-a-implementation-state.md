@@ -65,3 +65,35 @@ COMPLETED
 6. Downstream checks:
    - `RUST_MIN_STACK=8388608 cargo test -p phalcom-semantic --test semantic module_query_provenance` (1 passed, 0 failed)
    - `cargo check -p phalcom-lsp` (clean compilation, zero errors)
+
+---
+
+## Checkpoint A2 — Import Resolution is Bound to Identity and Validated Before Re-Resolution
+
+### Status
+COMPLETED
+
+### Baseline Commit
+- `39b410415ad9b5cfe3e4a1f41ad19a8fb50fb33c` (`feat(modules): implement checkpoint A1 indexed topology product`)
+
+### Tasks
+- [x] Task 9 — Define stable `ImportSiteId` (`ImportSiteLocalId` + `ModuleId`), assign during interface extraction.
+- [x] Task 10 — Migrate retained resolution products to site identity, retain prefix targets (`ResolvedImportPrefix`).
+- [x] Task 11 — Record positive and negative topology dependencies (`AbsentCandidateFact`, `ResolutionTopologyDependencies`).
+- [x] Task 12 — Introduce `TopologyDelta` and validate-before-resolve algorithm with deterministic work statistics.
+- [x] Task 13 — Maintain exact forward/reverse import-site indexes (`sites_by_importer`, `reverse_site_importers`).
+- [x] Task 14 — Add `DirectorySnapshot` cache in `FilesystemSourceProvider`.
+
+### Checkpoint A2 Verification Evidence
+1. Evidence 1: Module with 20 imports, editing 1 import path resolves exactly 1 import and reuses 19 (`imports_resolved == 1`, `import_resolutions_reused == 19`): `tests/checkpoint_a2.rs::checkpoint_a2_evidence_1_twenty_imports_edit_one_resolves_one_reuses_nineteen` passes.
+2. Evidence 2: Body-only edit across multi-module session produces `imports_resolved == 0` (zero import re-resolutions): `tests/checkpoint_a2.rs::checkpoint_a2_evidence_2_body_only_edit_zero_import_resolutions` passes.
+3. Evidence 3: Export-only edit across multi-module session produces `imports_resolved == 0` for all dependent modules: `tests/checkpoint_a2.rs::checkpoint_a2_evidence_3_export_only_edit_zero_import_resolutions` passes.
+4. Evidence 4: Negative resolution survives unrelated source addition: adding `b.ph` when import was for missing `c.ph` produces `imports_resolved == 0`, negative resolution reused (`negative_resolutions_reused == 1`): `tests/checkpoint_a2.rs::checkpoint_a2_evidence_4_and_5_negative_resolution_survives_unrelated_and_invalidates_on_candidate` passes.
+5. Evidence 5: Negative resolution correctly invalidates when candidate appears: adding `c.ph` re-resolves only the site that was waiting for `c` (`imports_resolved == 1`), diagnostic clears: `tests/checkpoint_a2.rs::checkpoint_a2_evidence_4_and_5_negative_resolution_survives_unrelated_and_invalidates_on_candidate` passes.
+6. Evidence 6: Prefix provenance: compound import retains canonical `ModuleId`s for prefixes and invalidates when an intermediate prefix module is removed: `tests/checkpoint_a2.rs::checkpoint_a2_evidence_6_prefix_provenance_compound_imports` passes.
+7. Module test suites:
+   - `RUSTFLAGS='' cargo test -p phalcom-modules --test checkpoint_a2` (5 passed, 0 failed)
+   - `RUSTFLAGS='' cargo test -p phalcom-modules` (96 passed, 0 failed)
+8. Downstream checks:
+   - `RUST_MIN_STACK=8388608 cargo test -p phalcom-semantic --test semantic module_query_provenance` (1 passed, 0 failed)
+   - `cargo check -p phalcom-lsp` (clean compilation, zero errors)
