@@ -2009,7 +2009,6 @@ fn query_callable_body_with_requirement(
             body_range,
             store,
             inputs.sources,
-            inputs.linked,
             inputs.field_lifecycle,
         ),
         None => crate::db::fingerprint::callable_body_input_fingerprint(&callable, body, body_range, store),

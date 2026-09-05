@@ -1,7 +1,7 @@
 use phalcom_common::selector::Selector;
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
-use phalcom_modules::interface::LinkedModuleInterface;
-use phalcom_modules::linker::{LinkedModule, LinkedProgram, ModuleBindingLayout};
+use phalcom_modules::interface::{InterfaceBuilder, LinkedModuleInterface};
+use phalcom_modules::linker::{GlobalBindingId, LinkedModule, LinkedProgram, ModuleBindingLayout};
 use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::source::ModuleKind;
 use phalcom_semantic::db::QueryKey;
@@ -15,6 +15,16 @@ use std::sync::Arc;
 fn input(module: ModuleId, source: &str, generation: u64) -> SemanticWorkspaceInput {
     let parsed = phalcom_ast::parse(source, 0);
     let program = Arc::new(parsed.program);
+    let local_globals = InterfaceBuilder::build(module.clone(), ModuleKind::Module, &program)
+        .map(|interface| {
+            interface
+                .declarations
+                .keys()
+                .enumerate()
+                .map(|(index, name)| (name.clone().into_boxed_str(), GlobalBindingId(index as u32)))
+                .collect()
+        })
+        .unwrap_or_default();
     let linked_module = LinkedModule {
         interface: LinkedModuleInterface {
             module: module.clone(),
@@ -22,7 +32,10 @@ fn input(module: ModuleId, source: &str, generation: u64) -> SemanticWorkspaceIn
             exports: BTreeMap::new(),
             metadata: ModuleMetadata::default(),
         },
-        bindings: ModuleBindingLayout::default(),
+        bindings: ModuleBindingLayout {
+            local_globals,
+            ..ModuleBindingLayout::default()
+        },
         linked_reads: Vec::new(),
         runtime_dependencies: Vec::new(),
     };
@@ -184,6 +197,109 @@ class Consumer {
             .any(|site| source2.get(site.range.start..site.range.end) == Some("Api.value()")),
         "reused semantic product must project current expression ranges"
     );
+}
+
+#[test]
+fn unused_export_edit_reuses_consumer_body() {
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(7),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("unused_export").unwrap()]),
+    );
+    let mut session = SemanticWorkspaceSession::new();
+    let source_v1 = r#"
+class Provider {
+  @class foo() -> Int { 1 }
+}
+
+class Bar {
+  @class value() -> Int { 2 }
+}
+
+class Consumer {
+  @class read() -> Int { Provider.foo() }
+}
+"#;
+    let update1 = session.update(input(module.clone(), source_v1, 1));
+    assert!(!update1.snapshot.has_errors());
+
+    let consumer = DeclarationId::new(module.clone(), "Consumer".into());
+    let bar = DeclarationId::new(module.clone(), "Bar".into());
+    let bar_value = CallableId::new(bar, Selector::method("value", []).unwrap(), DispatchSide::Class);
+    let consumer_read = CallableId::new(consumer, Selector::method("read", []).unwrap(), DispatchSide::Class);
+    let consumer_v1 = update1.snapshot.callable_analyses.get(&consumer_read).unwrap().clone();
+    let rev1 = update1.snapshot.id.revision();
+
+    let source_v2 = r#"
+class Provider {
+  @class foo() -> Int { 1 }
+}
+
+class Bar {
+  @class value() -> String { "changed" }
+}
+
+class Consumer {
+  @class read() -> Int { Provider.foo() }
+}
+"#;
+    let update2 = session.update(input(module, source_v2, 2));
+    assert!(!update2.snapshot.has_errors());
+    let rev2 = update2.snapshot.id.revision();
+
+    assert_eq!(session.db().query_state(&QueryKey::CallableBody(bar_value)).unwrap().revision(), Some(rev2));
+    let consumer_state = session.db().query_state(&QueryKey::CallableBody(consumer_read.clone())).unwrap();
+    assert_eq!(consumer_state.revision(), Some(rev1));
+    assert_eq!(consumer_state.validated_revision(), Some(rev2));
+    assert_eq!(update2.stats.callables_recomputed, 1);
+    assert!(Arc::ptr_eq(&consumer_v1, update2.snapshot.callable_analyses.get(&consumer_read).unwrap()));
+}
+
+#[test]
+fn previously_absent_name_addition_recomputes_exact_consumer() {
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(8),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("absent_name").unwrap()]),
+    );
+    let mut session = SemanticWorkspaceSession::new();
+    let source_v1 = r#"
+class Consumer {
+  @class read() { Missing.value() }
+}
+"#;
+    let update1 = session.update(input(module.clone(), source_v1, 1));
+    let consumer = DeclarationId::new(module.clone(), "Consumer".into());
+    let consumer_read = CallableId::new(consumer, Selector::method("read", []).unwrap(), DispatchSide::Class);
+    let body_key = QueryKey::CallableBody(consumer_read.clone());
+    let consumer_v1 = update1.snapshot.callable_analyses.get(&consumer_read).unwrap().clone();
+    let rev1 = update1.snapshot.id.revision();
+    assert!(session.db().index().dependencies_of(&body_key).is_some_and(|edges| {
+        edges
+            .iter()
+            .any(|edge| edge.dependency == QueryKey::LinkedName(module.clone(), "Missing".into()))
+    }));
+    assert!(session.db().index().dependencies_of(&body_key).is_some_and(|edges| {
+        edges
+            .iter()
+            .all(|edge| edge.dependency != QueryKey::LinkedInterface(module.clone()))
+    }));
+
+    let source_v2 = r#"
+class Missing {
+  @class value() -> Int { 1 }
+}
+
+class Consumer {
+  @class read() { Missing.value() }
+}
+"#;
+    let update2 = session.update(input(module.clone(), source_v2, 2));
+    assert!(!update2.snapshot.has_errors());
+    let rev2 = update2.snapshot.id.revision();
+    let consumer_state = session.db().query_state(&body_key).unwrap();
+    assert_eq!(consumer_state.revision(), Some(rev2));
+    assert_ne!(consumer_state.revision(), Some(rev1));
+    assert!(update2.recomputed.contains(&body_key));
+    assert!(!Arc::ptr_eq(&consumer_v1, update2.snapshot.callable_analyses.get(&consumer_read).unwrap()));
 }
 
 #[test]

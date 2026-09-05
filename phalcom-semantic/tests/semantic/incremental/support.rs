@@ -2,7 +2,7 @@
 
 use phalcom_modules::identity::ModuleId;
 use phalcom_modules::interface::{InterfaceBuilder, LinkedModuleInterface};
-use phalcom_modules::linker::{LinkedModule, LinkedProgram, ModuleBindingLayout};
+use phalcom_modules::linker::{GlobalBindingId, LinkedModule, LinkedProgram, ModuleBindingLayout};
 use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::source::ModuleKind;
 use phalcom_semantic::source::ParsedModuleUnit;
@@ -15,7 +15,16 @@ use std::sync::Arc;
 pub(crate) fn single_module_input(module: ModuleId, source: &str, generation: u64) -> SemanticWorkspaceInput {
     let parsed = phalcom_ast::parse(source, 0);
     let program = Arc::new(parsed.program);
-    let _ = InterfaceBuilder::build(module.clone(), ModuleKind::Module, &program);
+    let local_globals = InterfaceBuilder::build(module.clone(), ModuleKind::Module, &program)
+        .map(|interface| {
+            interface
+                .declarations
+                .keys()
+                .enumerate()
+                .map(|(index, name)| (name.clone().into_boxed_str(), GlobalBindingId(index as u32)))
+                .collect()
+        })
+        .unwrap_or_default();
 
     let linked_module = LinkedModule {
         interface: LinkedModuleInterface {
@@ -24,7 +33,10 @@ pub(crate) fn single_module_input(module: ModuleId, source: &str, generation: u6
             exports: BTreeMap::new(),
             metadata: ModuleMetadata::default(),
         },
-        bindings: ModuleBindingLayout::default(),
+        bindings: ModuleBindingLayout {
+            local_globals,
+            ..ModuleBindingLayout::default()
+        },
         linked_reads: Vec::new(),
         runtime_dependencies: Vec::new(),
     };

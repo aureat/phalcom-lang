@@ -26,7 +26,7 @@ use crate::types::store::TypeStore;
 use phalcom_ast::ast::{ClassMember, IndexAccessor, ParameterDef, RestMode, Statement};
 use phalcom_common::range::SourceRange;
 use phalcom_modules::graph::{ReferenceKind, RuntimeDependencyReason, SemanticEdgeKind};
-use phalcom_modules::interface::{InterfaceBuilder, LinkedModuleInterface, UnlinkedModuleInterface};
+use phalcom_modules::interface::{LinkedModuleInterface, UnlinkedModuleInterface};
 use phalcom_modules::linker::{LinkedProgram, LinkedReadSpec};
 use phalcom_modules::manifest::{DependencySpec, ValidatedProjectManifest};
 use phalcom_modules::project::ProjectUniverse;
@@ -1287,19 +1287,17 @@ pub fn callable_body_input_fingerprint_with_fields(
     finish_input(hasher)
 }
 
-/// Computes callable-body input identity from the formal workspace inputs.
+/// Computes callable-body input identity from the callable's direct inputs.
 ///
-/// Linked semantic availability is a direct input even when the callable body
-/// did not record a dependency on a declaration that was absent in an earlier
-/// link. The linked-program product is semantic and therefore does not make
-/// source-position movement invalidate the body query.
+/// Cross-module and source-resolution meaning is represented by recorded
+/// semantic query dependencies. It must not be smuggled into this identity as
+/// a workspace or linked-program safety hash.
 pub fn callable_body_input_fingerprint_with_formal_inputs(
     callable: &CallableId,
     body: &[Statement],
     body_range: SourceRange,
     store: &TypeStore,
     sources: &BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
-    _linked: &LinkedProgram,
     lifecycle: Option<&crate::checker::field_lifecycle::FieldLifecycleTable>,
 ) -> InputFingerprint {
     let mut hasher = DefaultHasher::new();
@@ -1307,7 +1305,6 @@ pub fn callable_body_input_fingerprint_with_formal_inputs(
     if let Some(unit) = sources.get(callable.module()) {
         unit.text.get(body_range.start..body_range.end).map(str::as_bytes).hash(&mut hasher);
     }
-    source_module_resolution_input_fingerprint(sources, callable.module()).raw().hash(&mut hasher);
     if let Some(lifecycle) = lifecycle {
         for (field, fact) in lifecycle.fields.iter().filter(|(field, _)| &field.owner == callable.declaration_owner()) {
             field.hash(&mut hasher);
@@ -1315,50 +1312,6 @@ pub fn callable_body_input_fingerprint_with_formal_inputs(
             hash_type_knowledge(&fact.read_knowledge, true, &mut hasher);
             fact.initialization.hash(&mut hasher);
         }
-    }
-    finish_input(hasher)
-}
-
-/// Computes the source-local declaration namespace identity consumed by body
-/// resolution. Declaration bodies are intentionally absent; adding/removing a
-/// declaration still changes this identity so a previously unresolved caller
-/// cannot survive a later re-addition without recomputation.
-pub fn source_resolution_input_fingerprint(sources: &BTreeMap<ModuleId, Arc<ParsedModuleUnit>>) -> InputFingerprint {
-    let mut hasher = DefaultHasher::new();
-    sources.len().hash(&mut hasher);
-    for (module, unit) in sources {
-        module.hash(&mut hasher);
-        match InterfaceBuilder::build(module.clone(), unit.kind, &unit.program) {
-            Ok(interface) => unlinked_interface_product_fingerprint(&interface).raw().hash(&mut hasher),
-            Err(_) => {
-                // Invalid interfaces must not reuse a product across a
-                // namespace change. Keep this fallback location agnostic.
-                1u8.hash(&mut hasher);
-                hash_debug_without_source_ranges(&unit.program.statements, &mut hasher);
-            }
-        }
-    }
-    finish_input(hasher)
-}
-
-/// Computes source namespace identity for one callable owner module. Body
-/// queries must not take every workspace module as a direct input: imported
-/// type facts are represented by their exact query dependencies instead.
-fn source_module_resolution_input_fingerprint(
-    sources: &BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
-    module: &ModuleId,
-) -> InputFingerprint {
-    let mut hasher = DefaultHasher::new();
-    module.hash(&mut hasher);
-    match sources.get(module) {
-        Some(unit) => match InterfaceBuilder::build(module.clone(), unit.kind, &unit.program) {
-            Ok(interface) => unlinked_interface_product_fingerprint(&interface).raw().hash(&mut hasher),
-            Err(_) => {
-                1u8.hash(&mut hasher);
-                hash_debug_without_source_ranges(&unit.program.statements, &mut hasher);
-            }
-        },
-        None => 0u8.hash(&mut hasher),
     }
     finish_input(hasher)
 }
