@@ -171,11 +171,11 @@ fn build_canonical_universe_program() -> Result<CanonicalUniverseProgram, Canoni
     #[cfg(test)]
     CANONICAL_SEMANTIC_ANALYSES.fetch_add(1, Ordering::Relaxed);
     let semantic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput {
-            linked: linked.clone(),
-            sources: sources.clone(),
-            generation: 0,
-        })
+        phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(
+            linked.clone(),
+            sources.clone(),
+            0,
+        ))
     }))
     .map_err(|_| CanonicalUniverseBuildError::SemanticAnalysisPanicked)?;
 

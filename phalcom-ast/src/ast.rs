@@ -2052,15 +2052,17 @@ pub enum UnaryOp {
     BitNot,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ClosureParameter {
     /// The parameter's local binding name.
     pub name: String,
     /// The source span of the parameter name, excluding `*`/`_` markers.
     pub range: SourceRange,
+    /// Explicit parameter type annotation, when written in a closure literal.
+    pub annotation: Option<TypeAnnotation>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ClosureParameters {
     /// Fixed positional parameters, in source order.
     pub fixed: Vec<ClosureParameter>,
@@ -2076,6 +2078,7 @@ impl ClosureParameters {
                 .map(|name| ClosureParameter {
                     name,
                     range: SourceRange::default(),
+                    annotation: None,
                 })
                 .collect(),
             positional_rest: None,

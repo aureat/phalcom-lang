@@ -1,10 +1,31 @@
-use super::super::support::{expression_semantic_source as semantic_source, Fixture};
+use super::super::support::{Fixture, expression_semantic_source as semantic_source};
 use phalcom_semantic::identity::DispatchSide;
 use phalcom_semantic::types::evidence::EvidenceStatus;
 use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::parameter::TypeParameterOwner;
-use phalcom_semantic::types::store::TypeData;
+use phalcom_semantic::types::store::{TypeData, TypeStore};
 use phalcom_semantic::types::type_lambda::ScopedTypeData;
+
+fn collect_transitive_free_types(store: &TypeStore, body: phalcom_semantic::types::id::ScopedTypeId) -> Vec<phalcom_semantic::types::id::TypeId> {
+    let mut free = Vec::new();
+    store.arena().collect_free_types(body, &mut free);
+    let mut index = 0;
+    while index < free.len() {
+        let ty = free[index];
+        if let TypeData::Lambda(lambda_id) = store.get(ty) {
+            let nested_body = store.arena().get_lambda(*lambda_id).body;
+            let mut nested = Vec::new();
+            store.arena().collect_free_types(nested_body, &mut nested);
+            for nested_ty in nested {
+                if !free.contains(&nested_ty) {
+                    free.push(nested_ty);
+                }
+            }
+        }
+        index += 1;
+    }
+    free
+}
 
 /// GEX-06/GEX-07: ExpressionMonad exposes a canonical unary constructor,
 /// captures its outer F, and projects through the existing Monad hierarchy.
@@ -42,17 +63,16 @@ fn expression_monad_captures_effect_constructor_and_projects_hierarchy() {
     let lambda = f.analysis.snapshot.store.arena().get_lambda(*lambda_id);
     assert_eq!(lambda.parameter_kinds.as_ref(), [KindId::TYPE]);
     assert_eq!(lambda.result_kind, KindId::TYPE);
-    let mut free = Vec::new();
-    f.analysis.snapshot.store.arena().collect_free_types(lambda.body, &mut free);
+    let free = collect_transitive_free_types(&f.analysis.snapshot.store, lambda.body);
     assert!(free.contains(&f.ty("Expression")), "constructor must capture Expression: {free:#?}");
     assert!(free.contains(&f.ty("Either")), "nested constructor must retain Either: {free:#?}");
     assert!(f.analysis.snapshot.store.arena().has_free_bound(lambda.body, 0));
     f.assert_generic_solution_exact(run, bind_call, constructor_parameter, constructor, EvidenceStatus::Assumed);
 
-    let (mut store, specialization) = f.specialize_receiver("StringEitherExpressionMonad", &[], "Monad");
-    let owners = specialization.path.iter().map(|step| step.owner.clone()).collect::<Vec<_>>();
+    let (_full_store, full_specialization) = f.specialize_receiver("StringEitherExpressionMonad", &[], "Functor");
+    let full_owners = full_specialization.path.iter().map(|step| step.owner.clone()).collect::<Vec<_>>();
     assert_eq!(
-        owners,
+        full_owners,
         [
             f.decl("StringEitherExpressionMonad"),
             f.decl("ExpressionMonad"),
@@ -61,6 +81,10 @@ fn expression_monad_captures_effect_constructor_and_projects_hierarchy() {
             f.decl("Functor")
         ]
     );
+
+    let (mut store, specialization) = f.specialize_receiver("StringEitherExpressionMonad", &[], "Monad");
+    let owners = specialization.path.iter().map(|step| step.owner.clone()).collect::<Vec<_>>();
+    assert_eq!(owners, [f.decl("StringEitherExpressionMonad"), f.decl("ExpressionMonad"), f.decl("Monad")]);
     let monad_f = store
         .find_type_parameter_id(&TypeParameterOwner::Declaration(f.decl("Monad")), 0)
         .expect("Monad.F parameter");
@@ -79,6 +103,7 @@ fn expression_monad_captures_effect_constructor_and_projects_hierarchy() {
     let applied = store
         .apply_type_form(expression_constructor, &[f.ty("Int")])
         .expect("Expression constructor must beta-reduce");
+    assert_eq!(applied, pure, "Monad F must be nested Expression over supplied Either family");
     let TypeData::Applied { origin, arguments } = store.get(applied) else {
         panic!("expected Expression<..., Int>, got {}", store.format_type(applied));
     };

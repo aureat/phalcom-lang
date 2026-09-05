@@ -106,7 +106,12 @@ class WrongApplyProbe {
 "#,
         "WrongApplyProbe",
         "Expression::Apply(",
-        &[DiagnosticCode::TypeMismatch, DiagnosticCode::GenericInferenceConflict, DiagnosticCode::BindingInitializerMismatch],
+        &[
+            DiagnosticCode::TypeMismatch,
+            DiagnosticCode::GenericInferenceConflict,
+            DiagnosticCode::GenericConstraintUnsatisfied,
+            DiagnosticCode::BindingInitializerMismatch,
+        ],
     );
 }
 
@@ -127,7 +132,12 @@ class WrongFlatMapProbe {
 "#,
         "WrongFlatMapProbe",
         "Expression::FlatMap(",
-        &[DiagnosticCode::TypeMismatch, DiagnosticCode::GenericInferenceConflict, DiagnosticCode::BindingInitializerMismatch],
+        &[
+            DiagnosticCode::TypeMismatch,
+            DiagnosticCode::GenericInferenceConflict,
+            DiagnosticCode::GenericConstraintUnsatisfied,
+            DiagnosticCode::BindingInitializerMismatch,
+        ],
     );
 }
 

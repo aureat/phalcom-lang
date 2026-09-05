@@ -1682,9 +1682,10 @@ impl<'source> Parser<'source> {
     pub fn parse_union_type(&mut self) -> ParserResult<TypeAnnotation> {
         let start = self.cur_start();
         let first = self.parse_callable_type()?;
-        if matches!(self.peek(), Token::Pipe) {
+        if matches!(self.peek(), Token::Pipe) && !self.pipe_closes_closure_parameter() {
             let mut members = vec![first];
-            while self.eat(&Token::Pipe) {
+            while matches!(self.peek(), Token::Pipe) && !self.pipe_closes_closure_parameter() {
+                self.advance();
                 members.push(self.parse_callable_type()?);
             }
             let range = (start..self.prev_end).into();
@@ -1695,6 +1696,14 @@ impl<'source> Parser<'source> {
         } else {
             Ok(first)
         }
+    }
+
+    fn pipe_closes_closure_parameter(&self) -> bool {
+        if !matches!(self.peek(), Token::Pipe) {
+            return false;
+        }
+        let next = self.skip_newlines_at(self.pos + 1);
+        matches!(self.tokens.get(next).map(|token| &token.token), Some(Token::LBrace))
     }
 
     /// Parses a callable type or postfix type (Spec 04 §5.6).
@@ -3838,9 +3847,11 @@ impl<'source> Parser<'source> {
                     } else {
                         self.expect_identifier(&["positional rest parameter name after `*`"])?
                     };
+                    let annotation = if self.eat(&Token::Colon) { Some(self.parse_type_annotation()?) } else { None };
                     positional_rest = Some(ClosureParameter {
                         name: rest,
                         range: (rest_start..self.prev_end).into(),
+                        annotation,
                     });
                     self.skip_newlines();
                     if !self.eat(&Token::Pipe) {
@@ -3857,9 +3868,11 @@ impl<'source> Parser<'source> {
                 } else {
                     self.expect_identifier(&["closure positional parameter name"])?
                 };
+                let annotation = if self.eat(&Token::Colon) { Some(self.parse_type_annotation()?) } else { None };
                 fixed.push(ClosureParameter {
                     name: param,
                     range: (param_start..self.prev_end).into(),
+                    annotation,
                 });
                 self.skip_newlines();
                 if self.eat(&Token::Pipe) {

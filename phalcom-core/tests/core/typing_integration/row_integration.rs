@@ -121,6 +121,7 @@ fn int_row_03_monad_bind_solves_hkt_and_records() {
     let expected_either = either(nominal("String"), expected_record);
     f.assert_known_generic_binding(run, "result", &expected_either);
     let result_ty = f.binding(run, "result").current.ty().unwrap();
+    let bind_call = f.expression_containing(run, "MonadAlgorithms.bind");
     let bind_target = f.callable_id("MonadAlgorithms", "bind", DispatchSide::Class);
     f.assert_expression_call(bind_call, &bind_target, result_ty);
 
