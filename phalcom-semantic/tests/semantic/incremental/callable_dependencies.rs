@@ -449,7 +449,7 @@ class Client {
             initialization_order: vec![api_mod.clone(), client_mod.clone()],
         });
 
-        SemanticWorkspaceInput { linked, sources, generation }
+        SemanticWorkspaceInput::new(linked, sources, generation)
     };
 
     let input1 = build_multi_input(api_src1, 1);

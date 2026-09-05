@@ -19,6 +19,7 @@ impl ScratchWorkspace {
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
         std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("package.ph"), "").unwrap();
         Self {
             root: root.canonicalize().unwrap(),
         }
@@ -111,6 +112,37 @@ async fn wait_for_definition(client: &mut tokio::io::DuplexStream, id: &mut u64,
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     panic!("definition did not become available: {last:#?}");
+}
+
+async fn wait_for_references(client: &mut tokio::io::DuplexStream, id: &mut u64, uri: &str, line: usize, character: usize) -> Value {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let mut last = Value::Null;
+    while std::time::Instant::now() < deadline {
+        *id += 1;
+        let request_id = *id;
+        write_message(
+            client,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "method": "textDocument/references",
+                "params": {
+                    "textDocument": { "uri": uri },
+                    "position": { "line": line, "character": character },
+                    "context": { "includeDeclaration": true }
+                }
+            }),
+        )
+        .await;
+        let response = read_response(client, request_id).await;
+        last = response.clone();
+        if response["result"].as_array().is_some_and(|locations| !locations.is_empty()) {
+            return response;
+        }
+        tokio::task::yield_now().await;
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("references did not become available: {last:#?}");
 }
 
 #[tokio::test]
@@ -230,23 +262,8 @@ async fn unresolved_selective_import_uses_compiler_owned_local_binding_identity(
     )
     .await;
 
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    write_message(
-        &mut client_end,
-        &json!({
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "textDocument/references",
-            "params": {
-                "textDocument": { "uri": main_uri },
-                "position": { "line": 0, "character": 22 },
-                "context": { "includeDeclaration": true }
-            }
-        }),
-    )
-    .await;
-
-    let response = read_response(&mut client_end, 2).await;
+    let mut request_id = 1;
+    let response = wait_for_references(&mut client_end, &mut request_id, &main_uri, 0, 22).await;
     assert!(response["error"].is_null(), "unresolved import references must not produce a protocol error");
     let locations = response["result"].as_array().expect("compiler-owned unresolved binding references");
     assert_eq!(

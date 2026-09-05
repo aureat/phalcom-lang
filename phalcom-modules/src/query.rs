@@ -36,6 +36,8 @@ pub struct ModuleQueryFacade<'a> {
     sources: &'a BTreeMap<ModuleId, SourceLocation>,
     source_modules: &'a BTreeMap<SourceId, ModuleId>,
     display_path_modules: &'a BTreeMap<std::path::PathBuf, ModuleId>,
+    topology: Option<&'a crate::topology::ModuleTopology>,
+    reverse_imports: Option<&'a BTreeMap<ModuleId, BTreeSet<ModuleId>>>,
 }
 
 impl<'a> ModuleQueryFacade<'a> {
@@ -57,7 +59,21 @@ impl<'a> ModuleQueryFacade<'a> {
             sources,
             source_modules,
             display_path_modules,
+            topology: None,
+            reverse_imports: None,
         }
+    }
+
+    /// Attaches an indexed module topology to accelerate child, exposure, and source queries.
+    pub fn with_topology(mut self, topology: &'a crate::topology::ModuleTopology) -> Self {
+        self.topology = Some(topology);
+        self
+    }
+
+    /// Attaches a precomputed reverse import map to accelerate reverse importer queries.
+    pub fn with_reverse_imports(mut self, reverse_imports: &'a BTreeMap<ModuleId, BTreeSet<ModuleId>>) -> Self {
+        self.reverse_imports = Some(reverse_imports);
+        self
     }
 
     /// Returns canonical import root entries including `is_self` indicators.
@@ -93,6 +109,17 @@ impl<'a> ModuleQueryFacade<'a> {
 
     /// Returns direct module children of a canonical project-relative prefix with no exposure filtering.
     pub fn module_children(&self, project: ProjectIdentity, prefix: &ModulePath) -> Vec<ModuleId> {
+        if let Some(topology) = self.topology {
+            let parent_id = ModuleId {
+                project,
+                path: prefix.clone(),
+            };
+            if let Some(children) = topology.children.get(&parent_id) {
+                return children.iter().cloned().collect();
+            }
+            return Vec::new();
+        }
+
         let mut children = BTreeSet::new();
         for candidate in self.linked.keys().chain(self.unlinked.keys()) {
             if candidate.project == project {
@@ -109,6 +136,40 @@ impl<'a> ModuleQueryFacade<'a> {
     pub fn external_import_children(&self, target_project: ProjectIdentity, prefix: &ModulePath) -> Vec<ModuleId> {
         let components = prefix.components();
         let mut current_pkg_path = ModulePath::root();
+
+        if let Some(topology) = self.topology {
+            for comp in components {
+                let parent_id = ModuleId {
+                    project: target_project,
+                    path: current_pkg_path.clone(),
+                };
+                let Some(exposed) = topology.exposed_children.get(&parent_id) else {
+                    return Vec::new();
+                };
+                if !exposed.contains(comp) {
+                    return Vec::new();
+                }
+                current_pkg_path = current_pkg_path.join(comp.clone());
+            }
+
+            let current_parent_id = ModuleId {
+                project: target_project,
+                path: prefix.clone(),
+            };
+            let Some(current_exposed) = topology.exposed_children.get(&current_parent_id) else {
+                return Vec::new();
+            };
+
+            let mut result = Vec::new();
+            for child in self.module_children(target_project, prefix) {
+                if let Some(last_comp) = child.path.components().last() {
+                    if current_exposed.contains(last_comp) {
+                        result.push(child);
+                    }
+                }
+            }
+            return result;
+        }
 
         for comp in components {
             let parent_id = ModuleId {
@@ -203,6 +264,11 @@ impl<'a> ModuleQueryFacade<'a> {
 
     /// Returns the canonical module for an exact source-provider identity.
     pub fn module_for_source(&self, source: &SourceId) -> Option<&ModuleId> {
+        if let Some(topology) = self.topology {
+            if let Some(m) = topology.source_modules.get(source) {
+                return Some(m);
+            }
+        }
         self.source_modules.get(source)
     }
 
@@ -216,6 +282,12 @@ impl<'a> ModuleQueryFacade<'a> {
 
     /// Returns importers that consumed a resolved module target.
     pub fn reverse_importers(&self, module: &ModuleId) -> Vec<ModuleId> {
+        if let Some(reverse) = self.reverse_imports {
+            if let Some(importers) = reverse.get(module) {
+                return importers.iter().cloned().collect();
+            }
+            return Vec::new();
+        }
         let mut importers = BTreeSet::new();
         for ((importer, _), target) in self.resolved_imports {
             if target == module {

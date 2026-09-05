@@ -238,6 +238,11 @@ impl SemanticSnapshot {
         }
     }
 
+    pub fn with_status(mut self, status: SnapshotStatus) -> Self {
+        self.status = status;
+        self
+    }
+
     pub fn with_enum_semantics(mut self, enum_semantics: Arc<EnumSemanticTable>) -> Self {
         self.enum_semantics = enum_semantics;
         self

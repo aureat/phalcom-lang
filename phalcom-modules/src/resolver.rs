@@ -5,9 +5,89 @@ use crate::interface::{InterfaceBuilder, PackagePathSurface, UnlinkedModuleInter
 use crate::project::ProjectUniverse;
 use crate::source::{ModuleKind, ParsedModuleUnit, SourceProvider, SourceUnit};
 use phalcom_ast::ast::{ImportPath, ImportRoot};
+use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeSet, HashMap};
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::Arc;
+
+/// Canonical written import path identity.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ImportPathIdentity {
+    pub written: String,
+    pub is_relative: bool,
+}
+
+/// Deterministic fingerprint representing the result and topology justifications of an import resolution.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ResolutionFingerprint(pub u64);
+
+impl ResolutionFingerprint {
+    pub const fn new(raw: u64) -> Self {
+        Self(raw)
+    }
+
+    pub const fn raw(self) -> u64 {
+        self.0
+    }
+}
+
+/// Structural topology facts consulted during import resolution.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResolutionTopologyDependencies {
+    pub consulted_packages: BTreeSet<ModuleId>,
+    pub target_project: Option<ProjectIdentity>,
+    pub target_module: Option<ModuleId>,
+}
+
+/// Retained product of an import resolution suitable for incremental reuse.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ImportResolutionProduct {
+    pub importer: ModuleId,
+    pub written_path: ImportPathIdentity,
+    pub target: Result<ModuleId, ModuleResolutionError>,
+    pub dependencies: ResolutionTopologyDependencies,
+    pub fingerprint: ResolutionFingerprint,
+}
+
+impl ImportResolutionProduct {
+    pub fn new(
+        importer: ModuleId,
+        written_path: ImportPathIdentity,
+        target: Result<ModuleId, ModuleResolutionError>,
+        dependencies: ResolutionTopologyDependencies,
+    ) -> Self {
+        let mut hasher = DefaultHasher::new();
+        importer.hash(&mut hasher);
+        written_path.written.hash(&mut hasher);
+        written_path.is_relative.hash(&mut hasher);
+        match &target {
+            Ok(target_id) => {
+                0u8.hash(&mut hasher);
+                target_id.hash(&mut hasher);
+            }
+            Err(err) => {
+                1u8.hash(&mut hasher);
+                err.to_string().hash(&mut hasher);
+            }
+        }
+        dependencies.consulted_packages.len().hash(&mut hasher);
+        for pkg in &dependencies.consulted_packages {
+            pkg.hash(&mut hasher);
+        }
+        dependencies.target_project.hash(&mut hasher);
+        dependencies.target_module.hash(&mut hasher);
+        let fingerprint = ResolutionFingerprint::new(hasher.finish());
+
+        Self {
+            importer,
+            written_path,
+            target,
+            dependencies,
+            fingerprint,
+        }
+    }
+}
 
 /// Traced import resolution record containing the target source unit and all package interfaces consulted.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -37,6 +117,33 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
     /// Resolves an AST `ImportPath` written inside the context of `importer`.
     pub fn resolve_import(&mut self, importer: &ModuleId, syntax: &ImportPath) -> Result<SourceUnit, ModuleResolutionError> {
         self.resolve_import_with_trace(importer, syntax).map(|trace| trace.target)
+    }
+
+    /// Resolves an AST `ImportPath` and produces an incrementally retainable `ImportResolutionProduct`.
+    pub fn resolve_import_product(&mut self, importer: &ModuleId, syntax: &ImportPath) -> ImportResolutionProduct {
+        let written = syntax.to_string();
+        let is_relative = matches!(syntax.root, ImportRoot::Relative { .. });
+        let written_path = ImportPathIdentity { written, is_relative };
+
+        match self.resolve_import_with_trace(importer, syntax) {
+            Ok(trace) => {
+                let target_id = trace.target.id.clone();
+                let dependencies = ResolutionTopologyDependencies {
+                    consulted_packages: trace.package_interfaces,
+                    target_project: Some(target_id.project),
+                    target_module: Some(target_id.clone()),
+                };
+                ImportResolutionProduct::new(importer.clone(), written_path, Ok(target_id), dependencies)
+            }
+            Err(err) => {
+                let dependencies = ResolutionTopologyDependencies {
+                    consulted_packages: BTreeSet::new(),
+                    target_project: None,
+                    target_module: None,
+                };
+                ImportResolutionProduct::new(importer.clone(), written_path, Err(err), dependencies)
+            }
+        }
     }
 
     /// Resolves an AST `ImportPath` tracking all package exposure interfaces consulted during hierarchical validation.

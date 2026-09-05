@@ -230,3 +230,31 @@ fn unreachable_interface_is_not_in_linked_program() {
     let linked = linker.link(entry.clone(), &BTreeMap::new()).unwrap();
     assert_eq!(linked.modules.keys().cloned().collect::<BTreeSet<_>>(), BTreeSet::from([entry]));
 }
+
+#[test]
+fn tolerant_linker_accumulates_diagnostics_and_preserves_valid_modules() {
+    let mod_good = module("good");
+    let mod_broken = module("broken");
+    let mod_dep = module("dep_on_broken");
+    let iface_map = interfaces(&[
+        (mod_good.clone(), "class Good {}\nexport Good\n"),
+        (mod_broken.clone(), "from .nonexistent import Missing\n"),
+        (mod_dep.clone(), "from .broken import Missing\n"),
+    ]);
+    let resolved = BTreeMap::from([
+        ((mod_broken.clone(), ".nonexistent".to_string()), module("nonexistent")),
+        ((mod_dep.clone(), ".broken".to_string()), mod_broken.clone()),
+    ]);
+    let linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), iface_map);
+
+    // Linking mod_good: standalone component, succeeds completely
+    let res_good = linker.link_component_tolerant(mod_good.clone(), &resolved);
+    assert!(res_good.program.modules.contains_key(&mod_good));
+    assert!(res_good.diagnostics.is_empty());
+    assert!(res_good.blocked_modules.is_empty());
+
+    // Linking mod_dep: imports broken module which has unresolvable import
+    let res_broken = linker.link_component_tolerant(mod_dep.clone(), &resolved);
+    assert!(res_broken.blocked_modules.contains(&mod_dep) || res_broken.blocked_modules.contains(&mod_broken));
+    assert!(!res_broken.diagnostics.is_empty());
+}

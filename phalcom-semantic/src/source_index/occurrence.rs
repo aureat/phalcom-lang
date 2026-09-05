@@ -220,6 +220,11 @@ impl OccurrenceIndex {
         self.exact_targets.get(site)
     }
 
+    /// Returns exact targets map.
+    pub fn exact_targets(&self) -> &BTreeMap<SourceSiteId, SemanticTargetId> {
+        &self.exact_targets
+    }
+
     /// Returns exact occurrence metadata for one indexed source site.
     pub fn occurrence_for_site(&self, site: &SourceSiteId) -> Option<&SemanticOccurrence> {
         self.occurrences.iter().find(|occurrence| &occurrence.site == site)

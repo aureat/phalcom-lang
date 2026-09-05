@@ -337,3 +337,170 @@ fn mixed_overlay_and_disk_batch_rebuilds_once() {
     assert!(session.sources().values().any(|state| state.open_overlay));
     assert!(session.sources().values().any(|state| !state.open_overlay));
 }
+
+#[test]
+fn body_only_edit_preserves_interface_fingerprint_and_stops_propagation() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().join("demo");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("project.toml"),
+        "[project]\nname = \"demo\"\nnamespace = \"demo\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    fs::write(root.join("src/package.ph"), "expose a, b\n").unwrap();
+    let file_a = root.join("src/a.ph");
+    let file_b = root.join("src/b.ph");
+    fs::write(&file_a, "class A { compute() -> Int { 1 } }\nexport A\n").unwrap();
+    fs::write(&file_b, "from demo.a import A\nclass B { getA() -> A { A() } }\nexport B\n").unwrap();
+
+    let mut session = WorkspaceModuleSession::new();
+    let src_a = location(&file_a);
+    let src_b = location(&file_b);
+
+    let _up1 = session
+        .apply_batch([
+            WorkspaceSourceBatchMutation::SetOverlay {
+                source: src_a.clone(),
+                text: Arc::from("class A { compute() -> Int { 1 } }\nexport A\n"),
+                revision: SourceRevision(1),
+                recovered_program: None,
+            },
+            WorkspaceSourceBatchMutation::SetOverlay {
+                source: src_b.clone(),
+                text: Arc::from("from demo.a import A\nclass B { getA() -> A { A() } }\nexport B\n"),
+                revision: SourceRevision(1),
+                recovered_program: None,
+            },
+        ])
+        .unwrap();
+
+    let mod_a = session.module_for_source(&src_a.source_id).cloned().unwrap();
+    let _mod_b = session.module_for_source(&src_b.source_id).cloned().unwrap();
+
+    let (_iface_a_v1, fp_a_v1) = session.interfaces().get(&mod_a).cloned().unwrap();
+    let linked_v1 = session.linked().cloned().unwrap();
+    let import_prods_v1 = session.import_products().clone();
+
+    // Body-only edit in A: change method body `1` -> `42`
+    let up2 = session
+        .apply_batch([WorkspaceSourceBatchMutation::SetOverlay {
+            source: src_a.clone(),
+            text: Arc::from("class A { compute() -> Int { 42 } }\nexport A\n"),
+            revision: SourceRevision(2),
+            recovered_program: None,
+        }])
+        .unwrap();
+
+    let (_iface_a_v2, fp_a_v2) = session.interfaces().get(&mod_a).cloned().unwrap();
+    assert_eq!(fp_a_v1, fp_a_v2, "interface fingerprint must be stable across body edit");
+
+    // Propagation stopped: linked program was reused directly without relinking
+    let linked_v2 = session.linked().cloned().unwrap();
+    assert!(Arc::ptr_eq(&linked_v1, &linked_v2), "body-only edit must reuse linked program directly");
+    assert_eq!(session.import_products().len(), import_prods_v1.len());
+    assert!(up2.changed_modules.contains(&mod_a));
+}
+
+#[test]
+fn failed_transaction_does_not_mutate_committed_state() {
+    let temp = TempDir::new().unwrap();
+    let file = temp.path().join("demo.ph");
+    fs::write(&file, "class Initial {}\n").unwrap();
+    let source = location(&file);
+    let mut session = WorkspaceModuleSession::new();
+
+    let _up1 = session
+        .set_overlay(source.clone(), Arc::from("class Initial {}\n"), SourceRevision(1))
+        .unwrap();
+    let mod_id = session.module_for_source(&source.source_id).cloned().unwrap();
+    let initial_gen = session.generation();
+    let initial_text = session.source(&mod_id).unwrap().text.clone();
+
+    // Attempt mutation with syntax error
+    let err = session.set_overlay(
+        source.clone(),
+        Arc::from("class Broken { !@#$ }\n"),
+        SourceRevision(2),
+    );
+    assert!(err.is_err(), "parse failure must return Err");
+
+    // Committed state must be 100% untouched
+    assert_eq!(session.generation(), initial_gen);
+    assert_eq!(session.source(&mod_id).unwrap().text, initial_text);
+    assert_eq!(session.source(&mod_id).unwrap().revision, SourceRevision(1));
+}
+
+#[test]
+fn cache_negative_result_resolves_when_source_is_added() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().join("demo");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("project.toml"),
+        "[project]\nname = \"demo\"\nnamespace = \"demo\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    fs::write(root.join("src/package.ph"), "expose a, b\n").unwrap();
+    let file_b = root.join("src/b.ph");
+    fs::write(&file_b, "from demo.a import A\nclass B {}\nexport B\n").unwrap();
+
+    let mut session = WorkspaceModuleSession::new();
+    let src_b = location(&file_b);
+
+    // Initial update: a.ph does not exist yet; import resolution produces negative result
+    let _up1 = session
+        .set_overlay(
+            src_b.clone(),
+            Arc::from("from demo.a import A\nclass B {}\nexport B\n"),
+            SourceRevision(1),
+        )
+        .unwrap();
+
+    let mod_b = session.module_for_source(&src_b.source_id).cloned().unwrap();
+    assert!(session.resolved_imports().get(&(mod_b.clone(), "demo.a".into())).is_none());
+
+    // Now add a.ph to the workspace
+    let file_a = root.join("src/a.ph");
+    fs::write(&file_a, "class A {}\nexport A\n").unwrap();
+    let src_a = location(&file_a);
+
+    let _up2 = session
+        .set_overlay(
+            src_a.clone(),
+            Arc::from("class A {}\nexport A\n"),
+            SourceRevision(1),
+        )
+        .unwrap();
+
+    let mod_a = session.module_for_source(&src_a.source_id).cloned().unwrap();
+    // Negative resolution was invalidated and successfully resolved on the next update
+    assert_eq!(
+        session.resolved_imports().get(&(mod_b, "demo.a".into())),
+        Some(&mod_a),
+        "previously missing import must resolve after source addition"
+    );
+}
+
+#[test]
+fn remove_source_hard_purges_module_products() {
+    let temp = TempDir::new().unwrap();
+    let file = temp.path().join("demo.ph");
+    fs::write(&file, "class Demo {}\nexport Demo\n").unwrap();
+    let source = location(&file);
+    let mut session = WorkspaceModuleSession::new();
+
+    let up = session
+        .set_overlay(source.clone(), Arc::from("class Demo {}\nexport Demo\n"), SourceRevision(1))
+        .unwrap();
+    let mod_id = up.sources.keys().next().cloned().unwrap();
+
+    assert!(session.interfaces().contains_key(&mod_id));
+    assert!(session.linked_modules().contains_key(&mod_id));
+
+    session.remove_source(source.source_id).unwrap();
+
+    assert!(!session.interfaces().contains_key(&mod_id));
+    assert!(!session.linked_modules().contains_key(&mod_id));
+    assert!(session.source(&mod_id).is_none());
+}

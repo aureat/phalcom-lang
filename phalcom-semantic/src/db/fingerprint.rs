@@ -23,13 +23,12 @@ use crate::types::evidence::TypeKnowledge;
 use crate::types::outcome::{BlockReason, BudgetReport};
 use crate::types::parameter::GenericSignature;
 use crate::types::store::TypeStore;
-use phalcom_ast::ast::{ClassMember, ImportPath, ImportRoot, IndexAccessor, MetadataLiteral, ParameterDef, RestMode, Statement};
+use phalcom_ast::ast::{ClassMember, IndexAccessor, ParameterDef, RestMode, Statement};
 use phalcom_common::range::SourceRange;
 use phalcom_modules::graph::{ReferenceKind, RuntimeDependencyReason, SemanticEdgeKind};
-use phalcom_modules::interface::{ImportSurface, InterfaceBuilder, LinkedExportTarget, LinkedModuleInterface, UnlinkedExportTarget, UnlinkedModuleInterface};
+use phalcom_modules::interface::{InterfaceBuilder, LinkedModuleInterface, UnlinkedModuleInterface};
 use phalcom_modules::linker::{LinkedProgram, LinkedReadSpec};
 use phalcom_modules::manifest::{DependencySpec, ValidatedProjectManifest};
-use phalcom_modules::metadata::{MetadataTarget, ModuleMetadata};
 use phalcom_modules::project::ProjectUniverse;
 use phalcom_modules::source::ModuleKind;
 use std::collections::{BTreeMap, hash_map::DefaultHasher};
@@ -240,220 +239,14 @@ pub fn declaration_surface_enum_input_fingerprint(
     InputFingerprint::new(hasher.finish())
 }
 
-fn hash_import_path(path: &ImportPath, include_ranges: bool, hasher: &mut impl Hasher) {
-    match &path.root {
-        ImportRoot::Absolute(segment) => {
-            0u8.hash(hasher);
-            segment.name.hash(hasher);
-            if include_ranges {
-                hash_range(segment.range, hasher);
-            }
-        }
-        ImportRoot::Relative { dots, range } => {
-            1u8.hash(hasher);
-            dots.hash(hasher);
-            if include_ranges {
-                hash_range(*range, hasher);
-            }
-        }
-    }
-    path.segments.len().hash(hasher);
-    for segment in &path.segments {
-        segment.name.hash(hasher);
-        if include_ranges {
-            hash_range(segment.range, hasher);
-        }
-    }
-    if include_ranges {
-        hash_range(path.range, hasher);
-    }
-}
-
-fn hash_metadata_literal(literal: &MetadataLiteral, hasher: &mut impl Hasher) {
-    match literal {
-        MetadataLiteral::Unit => 0u8.hash(hasher),
-        MetadataLiteral::Bool(value) => {
-            1u8.hash(hasher);
-            value.hash(hasher);
-        }
-        MetadataLiteral::Int(value) => {
-            2u8.hash(hasher);
-            value.hash(hasher);
-        }
-        MetadataLiteral::Float(value) => {
-            3u8.hash(hasher);
-            value.to_bits().hash(hasher);
-        }
-        MetadataLiteral::String(value) => {
-            4u8.hash(hasher);
-            value.hash(hasher);
-        }
-        MetadataLiteral::Symbol(value) => {
-            5u8.hash(hasher);
-            value.hash(hasher);
-        }
-        MetadataLiteral::Tuple(values) => {
-            6u8.hash(hasher);
-            values.len().hash(hasher);
-            for value in values {
-                hash_metadata_literal(value, hasher);
-            }
-        }
-        MetadataLiteral::Record(fields) => {
-            7u8.hash(hasher);
-            fields.len().hash(hasher);
-            for (name, value) in fields {
-                name.hash(hasher);
-                hash_metadata_literal(value, hasher);
-            }
-        }
-    }
-}
-
-fn hash_metadata(metadata: &ModuleMetadata, include_ranges: bool, hasher: &mut impl Hasher) {
-    metadata.attributes.len().hash(hasher);
-    for attribute in &metadata.attributes {
-        match attribute.target {
-            MetadataTarget::Module => 0u8.hash(hasher),
-            MetadataTarget::Package => 1u8.hash(hasher),
-            MetadataTarget::Project => 2u8.hash(hasher),
-        }
-        attribute.name.hash(hasher);
-        attribute.arguments.len().hash(hasher);
-        for argument in &attribute.arguments {
-            hash_metadata_literal(argument, hasher);
-        }
-        if include_ranges {
-            hash_range(attribute.range, hasher);
-        }
-    }
-}
-
 fn hash_unlinked_interface(interface: &UnlinkedModuleInterface, include_ranges: bool, hasher: &mut impl Hasher) {
-    interface.id.hash(hasher);
-    hash_module_kind(interface.kind, hasher);
-
-    interface.declarations.len().hash(hasher);
-    for (name, declaration) in &interface.declarations {
-        name.hash(hasher);
-        declaration.name.hash(hasher);
-        declaration.is_const.hash(hasher);
-        if include_ranges {
-            hash_range(declaration.range, hasher);
-        }
-    }
-
-    interface.imports.len().hash(hasher);
-    for import in &interface.imports {
-        match import {
-            ImportSurface::Module(module) => {
-                0u8.hash(hasher);
-                hash_import_path(&module.path, include_ranges, hasher);
-                module.alias.as_ref().map(|alias| alias.name.as_str()).hash(hasher);
-                if include_ranges {
-                    if let Some(alias) = &module.alias {
-                        hash_range(alias.range, hasher);
-                    }
-                    hash_range(module.range, hasher);
-                }
-            }
-            ImportSurface::Selective(selective) => {
-                1u8.hash(hasher);
-                hash_import_path(&selective.path, include_ranges, hasher);
-                selective.items.len().hash(hasher);
-                for item in &selective.items {
-                    item.name.hash(hasher);
-                    item.alias.as_ref().map(|alias| alias.name.as_str()).hash(hasher);
-                    if include_ranges {
-                        hash_range(item.name_range, hasher);
-                        if let Some(alias) = &item.alias {
-                            hash_range(alias.range, hasher);
-                        }
-                        hash_range(item.range, hasher);
-                    }
-                }
-                if include_ranges {
-                    hash_range(selective.range, hasher);
-                }
-            }
-            ImportSurface::ReExport(reexport) => {
-                2u8.hash(hasher);
-                hash_import_path(&reexport.path, include_ranges, hasher);
-                reexport.items.len().hash(hasher);
-                for item in &reexport.items {
-                    item.local_or_remote_name.hash(hasher);
-                    item.alias.as_ref().map(|alias| alias.name.as_str()).hash(hasher);
-                    if include_ranges {
-                        hash_range(item.name_range, hasher);
-                        if let Some(alias) = &item.alias {
-                            hash_range(alias.range, hasher);
-                        }
-                        hash_range(item.range, hasher);
-                    }
-                }
-                if include_ranges {
-                    hash_range(reexport.range, hasher);
-                }
-            }
-        }
-    }
-
-    interface.exports.len().hash(hasher);
-    for (name, export) in &interface.exports {
-        name.hash(hasher);
-        export.exported_name.hash(hasher);
-        export.internal_name.hash(hasher);
-        match &export.target {
-            UnlinkedExportTarget::Local(local) => {
-                0u8.hash(hasher);
-                local.hash(hasher);
-            }
-            UnlinkedExportTarget::ReExport { path, remote } => {
-                1u8.hash(hasher);
-                hash_import_path(path, include_ranges, hasher);
-                remote.hash(hasher);
-            }
-            UnlinkedExportTarget::CanonicalDeclaration { module, name } => {
-                2u8.hash(hasher);
-                module.hash(hasher);
-                name.hash(hasher);
-            }
-        }
-        if include_ranges {
-            hash_range(export.range, hasher);
-        }
-    }
-
-    interface.exposed_children.len().hash(hasher);
-    for child in &interface.exposed_children {
-        child.hash(hasher);
-    }
-    hash_metadata(&interface.metadata, include_ranges, hasher);
+    phalcom_modules::fingerprint::hash_unlinked_interface(interface, include_ranges, hasher);
 }
 
 fn hash_linked_interface(interface: &LinkedModuleInterface, include_ranges: bool, hasher: &mut impl Hasher) {
-    interface.module.hash(hasher);
-    hash_module_kind(interface.kind, hasher);
-    interface.exports.len().hash(hasher);
-    for (name, export) in &interface.exports {
-        name.hash(hasher);
-        export.public_name.hash(hasher);
-        match &export.target {
-            LinkedExportTarget::Binding(symbol) => {
-                0u8.hash(hasher);
-                symbol.hash(hasher);
-            }
-            LinkedExportTarget::Module(module) => {
-                1u8.hash(hasher);
-                module.hash(hasher);
-            }
-        }
-        if include_ranges {
-            hash_range(export.range, hasher);
-        }
-    }
-    hash_metadata(&interface.metadata, include_ranges, hasher);
+    phalcom_modules::fingerprint::hash_linked_interface(interface, include_ranges, hasher);
 }
+
 
 fn hash_type_knowledge(knowledge: &TypeKnowledge, include_provenance: bool, hasher: &mut impl Hasher) {
     match knowledge {
@@ -1330,30 +1123,22 @@ pub fn parsed_module_input_fingerprint(module: &ModuleId, kind: ModuleKind, sour
 
 /// Computes the source/provenance-sensitive input identity of an unlinked module interface.
 pub fn unlinked_interface_input_fingerprint(interface: &UnlinkedModuleInterface) -> InputFingerprint {
-    let mut hasher = DefaultHasher::new();
-    hash_unlinked_interface(interface, true, &mut hasher);
-    finish_input(hasher)
+    InputFingerprint::new(phalcom_modules::fingerprint::unlinked_interface_input_fingerprint(interface).raw())
 }
 
 /// Computes semantic product fingerprint for an unlinked module interface.
 pub fn unlinked_interface_product_fingerprint(interface: &UnlinkedModuleInterface) -> ProductFingerprint {
-    let mut hasher = DefaultHasher::new();
-    hash_unlinked_interface(interface, false, &mut hasher);
-    finish_product(hasher)
+    ProductFingerprint::new(phalcom_modules::fingerprint::interface_fingerprint(interface).raw())
 }
 
 /// Computes the source/provenance-sensitive input identity of a linked module interface.
 pub fn linked_interface_input_fingerprint(interface: &LinkedModuleInterface) -> InputFingerprint {
-    let mut hasher = DefaultHasher::new();
-    hash_linked_interface(interface, true, &mut hasher);
-    finish_input(hasher)
+    InputFingerprint::new(phalcom_modules::fingerprint::linked_interface_input_fingerprint(interface).raw())
 }
 
 /// Computes semantic product fingerprint for a linked module interface.
 pub fn linked_interface_product_fingerprint(interface: &LinkedModuleInterface) -> ProductFingerprint {
-    let mut hasher = DefaultHasher::new();
-    hash_linked_interface(interface, false, &mut hasher);
-    finish_product(hasher)
+    ProductFingerprint::new(phalcom_modules::fingerprint::linked_interface_fingerprint(interface).raw())
 }
 
 /// Computes the direct semantic input identity of declaration type metadata.

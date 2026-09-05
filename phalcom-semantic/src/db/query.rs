@@ -330,7 +330,12 @@ pub fn query_parsed_module(db: &mut SemanticDb, module: ModuleId, unit: Arc<Pars
 }
 
 /// Evaluates or retrieves the cached `UnlinkedModuleInterface` for a given module.
-pub fn query_unlinked_interface(db: &mut SemanticDb, module: ModuleId, unit: Arc<ParsedModuleUnit>) -> QueryOutcome<Arc<UnlinkedModuleInterface>> {
+pub fn query_unlinked_interface(
+    db: &mut SemanticDb,
+    module: ModuleId,
+    unit: Arc<ParsedModuleUnit>,
+    precomputed: Option<Arc<UnlinkedModuleInterface>>,
+) -> QueryOutcome<Arc<UnlinkedModuleInterface>> {
     let key = QueryKey::UnlinkedInterface(module.clone());
     let input_fingerprint = crate::db::fingerprint::parsed_module_input_fingerprint(&unit.id, unit.kind, &unit.text);
 
@@ -360,35 +365,37 @@ pub fn query_unlinked_interface(db: &mut SemanticDb, module: ModuleId, unit: Arc
         return query_failure(db, key, error);
     }
 
-    match InterfaceBuilder::build(module.clone(), unit.kind, &unit.program) {
-        Ok(unlinked) => {
-            let unlinked_arc = Arc::new(unlinked);
-            let product_fingerprint = crate::db::fingerprint::unlinked_interface_product_fingerprint(&unlinked_arc);
-            let deps = recorder.finish();
-            if let Err(error) = publish_current_product(
-                db,
-                key.clone(),
-                input_fingerprint,
-                product_fingerprint,
-                SemanticProduct::UnlinkedInterface(unlinked_arc.clone()),
-                deps,
-            ) {
-                return query_failure(db, key, error);
+    let unlinked_arc = match precomputed {
+        Some(iface) => iface,
+        None => match InterfaceBuilder::build(module.clone(), unit.kind, &unit.program) {
+            Ok(unlinked) => Arc::new(unlinked),
+            Err(err) => {
+                let query_err = format!("failed to build unlinked interface: {err:?}");
+                db.set_state(
+                    key,
+                    QueryState::Failed {
+                        revision: db.revision(),
+                        failure: query_err.clone(),
+                    },
+                );
+                return QueryOutcome::Failed(query_err);
             }
-            QueryOutcome::Ready(unlinked_arc)
-        }
-        Err(err) => {
-            let query_err = format!("failed to build unlinked interface: {err:?}");
-            db.set_state(
-                key,
-                QueryState::Failed {
-                    revision: db.revision(),
-                    failure: query_err.clone(),
-                },
-            );
-            QueryOutcome::Failed(query_err)
-        }
+        },
+    };
+
+    let product_fingerprint = crate::db::fingerprint::unlinked_interface_product_fingerprint(&unlinked_arc);
+    let deps = recorder.finish();
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::UnlinkedInterface(unlinked_arc.clone()),
+        deps,
+    ) {
+        return query_failure(db, key, error);
     }
+    QueryOutcome::Ready(unlinked_arc)
 }
 
 /// Evaluates or retrieves the cached `ResolvedImportsProduct` for a given module.

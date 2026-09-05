@@ -4,8 +4,10 @@ pub mod artifact;
 pub mod builtin;
 pub mod builtin_interface;
 pub mod declaration;
+pub mod diagnostic;
 pub mod dunder;
 pub mod error;
+pub mod fingerprint;
 pub mod graph;
 pub mod identity;
 pub mod interface;
@@ -19,13 +21,20 @@ pub mod resolver;
 pub mod session;
 pub mod source;
 pub mod stabilization;
+pub mod topology;
 
 // Re-export common types
 pub use artifact::{PackageArtifactProvider, ResolvedPackageArtifact, ResolvedPackageId as PublishedPackageId};
 pub use builtin::{UNIVERSE_NODES, UniverseNodeSpec, UniverseSourceProvider};
 pub use declaration::{DeclarationBlueprint, DeclarationId, DeclarationKind, DeclarationRealizationError, DeclarationShell, DeclarationShellTable, ShellState};
+pub use diagnostic::{ModuleDiagnostic, ModuleDiagnosticKind};
 pub use dunder::{DunderCategory, DunderPolicy, DunderPolicyError, DunderRole};
 pub use error::{InterfaceError, ModuleGraphError, ModuleLoadError, ModuleResolutionError, ProjectError, SourceError};
+pub use fingerprint::{
+    InterfaceFingerprint, LinkedInterfaceFingerprint, hash_linked_interface, hash_unlinked_interface,
+    interface_fingerprint, linked_interface_fingerprint, linked_interface_input_fingerprint,
+    unlinked_interface_input_fingerprint,
+};
 pub use graph::{
     DependencyPhase, ModuleGraphs, ReferenceEdge, ReferenceGraph, ReferenceKind, RuntimeDependencyEdge, RuntimeDependencyGraph, RuntimeDependencyReason,
     SemanticEdge, SemanticEdgeKind, SemanticGraph, SemanticNodeId, strongly_connected_components,
@@ -49,10 +58,14 @@ pub use package_info::{
 };
 pub use project::{ProjectUniverse, ResolvedProject, discover_owning_project, discover_standalone_package_root};
 pub use query::ModuleQueryFacade;
-pub use resolver::ModuleResolver;
+pub use resolver::{
+    ImportPathIdentity, ImportResolutionProduct, ImportResolutionTrace, ModuleResolver, ResolutionFingerprint,
+    ResolutionTopologyDependencies,
+};
 pub use session::{
     SourceRevision, WorkspaceModuleSession, WorkspaceModuleSessionError, WorkspaceModuleUpdate, WorkspaceSourceBatchMutation, WorkspaceSourceMutation,
     WorkspaceSourceState,
 };
 pub use source::{EntryOwnership, FilesystemSourceProvider, ModuleKind, ParsedModuleUnit, SourceProvider, SourceUnit, classify_entry_ownership};
 pub use stabilization::{ResolvedDocumentIdentity, ResolverGeneration};
+pub use topology::{ModuleTopology, TopologyFingerprint, TopologyNode};

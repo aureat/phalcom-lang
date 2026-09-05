@@ -217,15 +217,18 @@ pub trait SourceProvider {
     fn read(&self, source: &SourceId) -> Result<Arc<str>, SourceError>;
 }
 
-type ResolutionCache = HashMap<(u64, ResolvedProjectId, ModulePath), Result<SourceUnit, ModuleResolutionError>>;
-
-/// Filesystem source provider with resolution caching and kebab/snake convention handling.
-#[derive(Debug)]
-pub struct FilesystemSourceProvider {
-    generation: AtomicU64,
-    cache: Mutex<ResolutionCache>,
+#[derive(Debug, Default)]
+struct FilesystemCacheState {
+    resolution: Mutex<HashMap<(u64, ResolvedProjectId, ModulePath), Result<SourceUnit, ModuleResolutionError>>>,
     source_cache: Mutex<HashMap<(u64, SourceId), Arc<str>>>,
     source_id_to_module: Mutex<HashMap<(u64, SourceId), ModuleId>>,
+}
+
+/// Filesystem source provider with resolution caching and kebab/snake convention handling.
+#[derive(Clone, Debug)]
+pub struct FilesystemSourceProvider {
+    generation: Arc<AtomicU64>,
+    cache: Arc<FilesystemCacheState>,
 }
 
 impl Default for FilesystemSourceProvider {
@@ -237,19 +240,36 @@ impl Default for FilesystemSourceProvider {
 impl FilesystemSourceProvider {
     pub fn new() -> Self {
         Self {
-            generation: AtomicU64::new(0),
-            cache: Mutex::new(HashMap::new()),
-            source_cache: Mutex::new(HashMap::new()),
-            source_id_to_module: Mutex::new(HashMap::new()),
+            generation: Arc::new(AtomicU64::new(0)),
+            cache: Arc::new(FilesystemCacheState::default()),
         }
     }
 
     /// Starts a new resolver generation and clears every generation-scoped cache.
     pub fn clear_cache(&self) {
         self.generation.fetch_add(1, Ordering::AcqRel);
-        self.cache.lock().unwrap().clear();
-        self.source_cache.lock().unwrap().clear();
-        self.source_id_to_module.lock().unwrap().clear();
+        self.cache.resolution.lock().unwrap().clear();
+        self.cache.source_cache.lock().unwrap().clear();
+        self.cache.source_id_to_module.lock().unwrap().clear();
+    }
+
+    /// Granularly invalidates cached source content for a single source.
+    pub fn invalidate_source_content(&self, source: &SourceId) {
+        let generation = self.generation();
+        self.cache.source_cache.lock().unwrap().remove(&(generation, source.clone()));
+    }
+
+    /// Invalidates topology resolution caches when directory structure or file presence changes.
+    pub fn invalidate_topology(&self) {
+        self.generation.fetch_add(1, Ordering::AcqRel);
+        self.cache.resolution.lock().unwrap().clear();
+    }
+
+    /// Purges a source identity mapping.
+    pub fn purge_source_identity(&self, source: &SourceId) {
+        let generation = self.generation();
+        self.cache.source_id_to_module.lock().unwrap().remove(&(generation, source.clone()));
+        self.cache.source_cache.lock().unwrap().remove(&(generation, source.clone()));
     }
 
     pub fn generation(&self) -> u64 {
@@ -278,7 +298,7 @@ impl FilesystemSourceProvider {
                 let source_id = SourceId(canonical.to_string_lossy().into());
 
                 {
-                    let mut rev_map = self.source_id_to_module.lock().unwrap();
+                    let mut rev_map = self.cache.source_id_to_module.lock().unwrap();
                     let key = (self.generation(), source_id.clone());
                     if let Some(existing_mod) = rev_map.get(&key) {
                         if existing_mod != &module_id {
@@ -358,7 +378,7 @@ impl FilesystemSourceProvider {
 
             {
                 let generation = self.generation.load(Ordering::Relaxed);
-                let mut rev_map = self.source_id_to_module.lock().unwrap();
+                let mut rev_map = self.cache.source_id_to_module.lock().unwrap();
                 if let Some(existing_mod) = rev_map.get(&(generation, source_id.clone())) {
                     if existing_mod != &module_id {
                         return Err(ModuleResolutionError::DuplicateSourceIdentity(format!(
@@ -404,7 +424,7 @@ impl FilesystemSourceProvider {
 
             {
                 let generation = self.generation.load(Ordering::Relaxed);
-                let mut rev_map = self.source_id_to_module.lock().unwrap();
+                let mut rev_map = self.cache.source_id_to_module.lock().unwrap();
                 if let Some(existing_mod) = rev_map.get(&(generation, source_id.clone())) {
                     if existing_mod != &module_id {
                         return Err(ModuleResolutionError::DuplicateSourceIdentity(format!(
@@ -487,21 +507,21 @@ impl SourceProvider for FilesystemSourceProvider {
     fn locate(&self, project: &ResolvedProject, path: &ModulePath) -> Result<SourceUnit, ModuleResolutionError> {
         let key = (self.generation(), project.id, path.clone());
         {
-            let cache = self.cache.lock().unwrap();
+            let cache = self.cache.resolution.lock().unwrap();
             if let Some(res) = cache.get(&key) {
                 return res.clone();
             }
         }
 
         let result = self.locate_internal(project, path);
-        let mut cache = self.cache.lock().unwrap();
+        let mut cache = self.cache.resolution.lock().unwrap();
         cache.insert(key, result.clone());
         result
     }
 
     fn read(&self, source: &SourceId) -> Result<Arc<str>, SourceError> {
         {
-            let cache = self.source_cache.lock().unwrap();
+            let cache = self.cache.source_cache.lock().unwrap();
             if let Some(content) = cache.get(&(self.generation(), source.clone())) {
                 return Ok(content.clone());
             }
@@ -511,7 +531,7 @@ impl SourceProvider for FilesystemSourceProvider {
         let content = std::fs::read_to_string(path).map_err(|e| SourceError::Io(format!("Failed to read {}: {}", path.display(), e)))?;
 
         let arc: Arc<str> = Arc::from(content);
-        let mut cache = self.source_cache.lock().unwrap();
+        let mut cache = self.cache.source_cache.lock().unwrap();
         cache.insert((self.generation(), source.clone()), arc.clone());
         Ok(arc)
     }

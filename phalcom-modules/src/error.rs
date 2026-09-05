@@ -45,7 +45,7 @@ pub enum ProjectError {
 
 // ── Source / Resolution Errors ─────────────────────────────────────────────
 
-#[derive(Debug, Error, Clone, PartialEq)]
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ModuleResolutionError {
     #[error("Module not found: '{0}'")]
     ModuleNotFound(String),
@@ -102,7 +102,7 @@ pub enum ModuleResolutionError {
     Source(#[from] SourceError),
 }
 
-#[derive(Debug, Error, Clone, PartialEq)]
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum SourceError {
     #[error("Source reading IO error: {0}")]
     Io(String),
@@ -113,7 +113,7 @@ pub enum SourceError {
 
 // ── Module Loading Errors ──────────────────────────────────────────────────
 
-#[derive(Debug, Error, Clone, PartialEq)]
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ModuleLoadError {
     #[error(transparent)]
     Resolution(#[from] ModuleResolutionError),
@@ -132,7 +132,7 @@ pub enum ModuleLoadError {
 
 // ── Visibility / Binding / Interface Errors ────────────────────────────────
 
-#[derive(Debug, Error, Clone, PartialEq)]
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum InterfaceError {
     #[error("Unknown import name: module '{module}' does not export '{name}'")]
     UnknownImportName { module: String, name: String, range: SourceRange },

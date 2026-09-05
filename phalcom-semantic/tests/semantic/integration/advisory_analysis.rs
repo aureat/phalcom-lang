@@ -51,11 +51,11 @@ fn input(module: ModuleId, source: &str, generation: u64) -> SemanticWorkspaceIn
         Arc::from(source),
         Arc::new(parsed.program),
     ));
-    SemanticWorkspaceInput {
+    SemanticWorkspaceInput::new(
         linked,
-        sources: BTreeMap::from([(module, unit)]),
+        BTreeMap::from([(module, unit)]),
         generation,
-    }
+    )
 }
 
 #[test]

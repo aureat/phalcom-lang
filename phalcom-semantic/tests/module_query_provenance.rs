@@ -14,6 +14,7 @@ fn location(path: &std::path::Path) -> SourceLocation {
 #[test]
 fn semantic_snapshot_publishes_relative_import_alias_path_and_provenance() {
     let root = tempdir().unwrap();
+    std::fs::write(root.path().join("package.ph"), "").unwrap();
     let main_path = root.path().join("main.ph");
     let shapes_path = root.path().join("shapes.ph");
     let main = location(&main_path);

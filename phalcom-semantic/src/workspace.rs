@@ -6,15 +6,61 @@ use phalcom_modules::interface::InterfaceBuilder;
 use phalcom_modules::linker::{LinkedModule, LinkedProgram};
 use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::source::ModuleKind;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+
+use phalcom_modules::diagnostic::ModuleDiagnostic;
 
 /// Input to whole-workspace semantic analysis.
 #[derive(Clone, Debug)]
 pub struct SemanticWorkspaceInput {
     pub linked: Arc<LinkedProgram>,
     pub sources: BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
+    pub interfaces: BTreeMap<ModuleId, Arc<phalcom_modules::interface::UnlinkedModuleInterface>>,
+    pub diagnostics: BTreeMap<ModuleId, Vec<ModuleDiagnostic>>,
+    pub blocked_modules: BTreeSet<ModuleId>,
     pub generation: u64,
+}
+
+impl SemanticWorkspaceInput {
+    pub fn new(
+        linked: Arc<LinkedProgram>,
+        sources: BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
+        generation: u64,
+    ) -> Self {
+        Self {
+            linked,
+            sources,
+            interfaces: BTreeMap::new(),
+            diagnostics: BTreeMap::new(),
+            blocked_modules: BTreeSet::new(),
+            generation,
+        }
+    }
+
+    pub fn with_interfaces(
+        mut self,
+        interfaces: BTreeMap<ModuleId, Arc<phalcom_modules::interface::UnlinkedModuleInterface>>,
+    ) -> Self {
+        self.interfaces = interfaces;
+        self
+    }
+
+    pub fn with_diagnostics(
+        mut self,
+        diagnostics: BTreeMap<ModuleId, Vec<ModuleDiagnostic>>,
+    ) -> Self {
+        self.diagnostics = diagnostics;
+        self
+    }
+
+    pub fn with_blocked_modules(
+        mut self,
+        blocked_modules: BTreeSet<ModuleId>,
+    ) -> Self {
+        self.blocked_modules = blocked_modules;
+        self
+    }
 }
 
 /// The result of whole-workspace semantic analysis.
@@ -45,7 +91,7 @@ pub fn analyze_single_module(module: ModuleId, source: Arc<str>, program: Arc<Pr
 
     let universe = Arc::new(phalcom_modules::project::ProjectUniverse::new());
     let mut interfaces = BTreeMap::new();
-    interfaces.insert(module.clone(), unlinked);
+    interfaces.insert(module.clone(), unlinked.clone());
     let linker = phalcom_modules::linker::ModuleLinker::new(universe.clone(), interfaces);
     let linked = linker
         .link_with_unresolved_imports(module.clone(), &BTreeMap::new())
@@ -76,12 +122,18 @@ pub fn analyze_single_module(module: ModuleId, source: Arc<str>, program: Arc<Pr
     let mut sources = BTreeMap::new();
     sources.insert(
         module.clone(),
-        Arc::new(ParsedModuleUnit::new(module, ModuleKind::Module, None, source, program)),
+        Arc::new(ParsedModuleUnit::new(module.clone(), ModuleKind::Module, None, source, program)),
     );
+
+    let mut input_interfaces = BTreeMap::new();
+    input_interfaces.insert(module, Arc::new(unlinked));
 
     analyze_workspace(SemanticWorkspaceInput {
         linked,
         sources,
+        interfaces: input_interfaces,
+        diagnostics: BTreeMap::new(),
+        blocked_modules: BTreeSet::new(),
         generation: 0,
     })
 }

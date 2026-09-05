@@ -81,6 +81,13 @@ pub struct LinkedModuleInterface {
     pub metadata: ModuleMetadata,
 }
 
+impl LinkedModuleInterface {
+    /// Computes the semantic product fingerprint for this linked module interface.
+    pub fn fingerprint(&self) -> crate::fingerprint::LinkedInterfaceFingerprint {
+        crate::fingerprint::linked_interface_fingerprint(self)
+    }
+}
+
 /// Surface representation of an imported binding.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ImportSurface {
@@ -99,6 +106,13 @@ pub struct UnlinkedModuleInterface {
     pub imports: Vec<ImportSurface>,
     pub exposed_children: BTreeSet<ModuleComponent>,
     pub metadata: ModuleMetadata,
+}
+
+impl UnlinkedModuleInterface {
+    /// Computes the semantic product fingerprint for this unlinked module interface.
+    pub fn fingerprint(&self) -> crate::fingerprint::InterfaceFingerprint {
+        crate::fingerprint::interface_fingerprint(self)
+    }
 }
 
 /// Path exposure surface of a package.

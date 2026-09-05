@@ -332,11 +332,11 @@ fn imported_alias_resolves_transparently_and_indexes_source_targets() {
             vec![("UserId", alias_module.clone(), "UserId")],
         ),
     ]);
-    let analysis = analyze_workspace(SemanticWorkspaceInput {
+    let analysis = analyze_workspace(SemanticWorkspaceInput::new(
         linked,
         sources,
-        generation: 1,
-    });
+        1,
+    ));
     assert!(!analysis.snapshot.has_errors(), "diagnostics: {:?}", analysis.snapshot.diagnostics);
     let alias_declaration = DeclarationId::new(alias_module.clone(), "UserId".into());
     assert!(analysis.snapshot.type_aliases.contains_key(&alias_declaration));
@@ -371,11 +371,11 @@ fn imported_alias_cycle_is_rejected_before_publication() {
             vec![("A", module_a.clone(), "A")],
         ),
     ]);
-    let analysis = analyze_workspace(SemanticWorkspaceInput {
+    let analysis = analyze_workspace(SemanticWorkspaceInput::new(
         linked,
         sources,
-        generation: 1,
-    });
+        1,
+    ));
     assert!(
         analysis
             .snapshot
@@ -495,11 +495,11 @@ export Client
         entry: client_module.clone(),
         initialization_order: vec![api_module.clone(), client_module.clone()],
     });
-    let analysis = analyze_workspace(SemanticWorkspaceInput {
+    let analysis = analyze_workspace(SemanticWorkspaceInput::new(
         linked,
         sources,
-        generation: 1,
-    });
+        1,
+    ));
 
     assert!(!analysis.snapshot.has_errors(), "diagnostics: {:#?}", analysis.snapshot.diagnostics);
     let client_decl = DeclarationId::new(client_module.clone(), "Client".into());
@@ -669,11 +669,11 @@ fn workspace_multi_module_linking_resolution_and_cycles() {
         initialization_order: vec![point_mod.clone(), circle_mod.clone()],
     });
 
-    let analysis = analyze_workspace(SemanticWorkspaceInput {
+    let analysis = analyze_workspace(SemanticWorkspaceInput::new(
         linked,
         sources,
-        generation: 1,
-    });
+        1,
+    ));
 
     assert!(!analysis.snapshot.has_errors());
 
@@ -786,11 +786,11 @@ fn inheritance_cycle_is_rejected_in_workspace() {
         initialization_order: vec![mod_a.clone(), mod_b.clone()],
     });
 
-    let analysis = analyze_workspace(SemanticWorkspaceInput {
+    let analysis = analyze_workspace(SemanticWorkspaceInput::new(
         linked,
         sources,
-        generation: 1,
-    });
+        1,
+    ));
 
     assert!(analysis.snapshot.has_errors(), "inheritance cycle must be detected and rejected");
 }
@@ -860,11 +860,11 @@ fn same_leaf_name_in_two_modules_stays_distinct() {
         initialization_order: vec![mod_x.clone(), mod_y.clone()],
     });
 
-    let analysis = analyze_workspace(SemanticWorkspaceInput {
+    let analysis = analyze_workspace(SemanticWorkspaceInput::new(
         linked,
         sources,
-        generation: 1,
-    });
+        1,
+    ));
 
     let decl_x = DeclarationId::new(mod_x, "Item".into());
     let decl_y = DeclarationId::new(mod_y, "Item".into());
@@ -1013,7 +1013,7 @@ fn deterministic_fresh_store_analysis_matches_structurally() {
             initialization_order: vec![mod_a.clone(), mod_b.clone()],
         });
 
-        SemanticWorkspaceInput { linked, sources, generation }
+        SemanticWorkspaceInput::new(linked, sources, generation)
     };
 
     let run1 = analyze_workspace(make_input(1));
@@ -1211,11 +1211,11 @@ fn workspace_constructor_and_cross_module_dispatch_inference() {
     let linker = phalcom_modules::ModuleLinker::new(Arc::new(universe), interfaces);
     let linked = Arc::new(linker.link(main_mod.clone(), &resolved).unwrap());
 
-    let analysis = analyze_workspace(SemanticWorkspaceInput {
+    let analysis = analyze_workspace(SemanticWorkspaceInput::new(
         linked,
         sources,
-        generation: 1,
-    });
+        1,
+    ));
 
     assert!(!analysis.snapshot.has_errors(), "diagnostics: {:?}", analysis.snapshot.diagnostics);
 

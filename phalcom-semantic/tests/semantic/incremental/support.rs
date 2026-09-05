@@ -44,5 +44,5 @@ pub(crate) fn single_module_input(module: ModuleId, source: &str, generation: u6
         Arc::new(ParsedModuleUnit::new(module, ModuleKind::Module, None, Arc::from(source), program)),
     );
 
-    SemanticWorkspaceInput { linked, sources, generation }
+    SemanticWorkspaceInput::new(linked, sources, generation)
 }

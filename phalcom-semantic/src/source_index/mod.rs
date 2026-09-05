@@ -202,6 +202,7 @@ pub struct SourceSemanticIndex {
 pub struct ModuleSourceIndex {
     pub structure: Arc<SourceScopeIndex>,
     pub occurrences: Arc<OccurrenceIndex>,
+    baseline_occurrences: Arc<OccurrenceIndex>,
     /// AST expression sites owned by this source shard. These are separate
     /// from token occurrences so chained top-level expressions remain
     /// queryable without redispatch or request-time AST analysis.
@@ -213,9 +214,11 @@ pub struct ModuleSourceIndex {
 impl ModuleSourceIndex {
     fn new(structure: SourceScopeIndex, occurrences: OccurrenceIndex, attachments: BTreeMap<CallableId, Arc<CallableSourceAttachment>>) -> Self {
         let (expression_sites, expression_intervals) = expression_products(&structure, &attachments);
+        let occurrences = Arc::new(occurrences);
         Self {
             structure: Arc::new(structure),
-            occurrences: Arc::new(occurrences),
+            baseline_occurrences: occurrences.clone(),
+            occurrences,
             expression_sites,
             expression_intervals,
             attachments,
@@ -422,10 +425,10 @@ impl SourceSemanticIndex {
         let (attachment, incidents) = CallableSourceAttachment::from_analysis_with_incidents(analysis.callable.clone(), &module_index.structure, analysis);
         let module_index = Arc::make_mut(module_index);
         module_index.attachments.insert(analysis.callable.clone(), Arc::new(attachment));
-        let mut all = module_index.occurrences.all().to_vec();
+        let mut all = module_index.baseline_occurrences.all().to_vec();
         let mut exact_targets = module_index.structure.targets.clone();
         for occurrence in &all {
-            if let Some(target) = module_index.occurrences.target_for(&occurrence.site) {
+            if let Some(target) = module_index.baseline_occurrences.target_for(&occurrence.site) {
                 exact_targets.insert(occurrence.site.clone(), target.clone());
             }
         }
@@ -472,7 +475,17 @@ impl SourceSemanticIndex {
         let occurrences = OccurrenceIndex::new(all, exact_targets);
         module_index.occurrences = Arc::new(occurrences);
         module_index.rebuild_expression_products();
-        self.rebuild_target_occurrences();
+        // Update reverse target occurrences incrementally for this module's target additions
+        for (site, target) in module_index.occurrences.exact_targets() {
+            let entry = self.target_occurrences.entry(target.clone()).or_insert_with(|| Arc::from([]));
+            if !entry.contains(site) {
+                let mut updated = entry.to_vec();
+                updated.push(site.clone());
+                updated.sort();
+                updated.dedup();
+                *entry = Arc::from(updated);
+            }
+        }
         if !incidents.is_empty() {
             let mut retained = self.incidents.to_vec();
             retained.extend(incidents.iter().cloned());

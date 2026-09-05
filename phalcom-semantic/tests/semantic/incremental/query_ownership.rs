@@ -63,7 +63,7 @@ fn single_module_input(module: ModuleId, source_code: &str, generation: u64) -> 
         Arc::new(ParsedModuleUnit::new(module, ModuleKind::Module, None, Arc::from(source_code), program)),
     );
 
-    SemanticWorkspaceInput { linked, sources, generation }
+    SemanticWorkspaceInput::new(linked, sources, generation)
 }
 
 fn dependency_keys(session: &SemanticWorkspaceSession, key: &QueryKey) -> Vec<QueryKey> {

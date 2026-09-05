@@ -112,3 +112,58 @@ fn facade_rejects_unexposed_package_children() {
     let facade = ModuleQueryFacade::new(&universe, &unlinked, &linked, &resolved, &sources, &source_modules, &display_path_modules);
     assert!(facade.import_children(&root, &ModulePath::root()).is_empty());
 }
+
+#[test]
+fn facade_with_topology_and_reverse_imports_accelerates_lookups() {
+    use phalcom_modules::stabilization::ResolverGeneration;
+    use phalcom_modules::topology::ModuleTopology;
+
+    let universe = ProjectUniverse::new();
+    let root = ModuleId::universe(ModulePath::root());
+    let child = ModuleId::universe(path("math"));
+
+    let unlinked = BTreeMap::from([(
+        root.clone(),
+        UnlinkedModuleInterface {
+            id: root.clone(),
+            kind: ModuleKind::Package,
+            declarations: BTreeMap::new(),
+            exports: BTreeMap::new(),
+            imports: Vec::new(),
+            exposed_children: BTreeSet::from([component("math")]),
+            metadata: ModuleMetadata::default(),
+        },
+    )]);
+    let linked = BTreeMap::from([(
+        child.clone(),
+        LinkedModuleInterface {
+            module: child.clone(),
+            kind: ModuleKind::Module,
+            exports: BTreeMap::new(),
+            metadata: ModuleMetadata::default(),
+        },
+    )]);
+    let resolved = BTreeMap::from([((root.clone(), "universe.math".to_string()), child.clone())]);
+    let sources = BTreeMap::from([(
+        child.clone(),
+        SourceLocation {
+            source_id: SourceId("/workspace/src/math.ph".into()),
+            display_path: "/workspace/src/math.ph".into(),
+        },
+    )]);
+    let source_modules = BTreeMap::new();
+    let display_path_modules = BTreeMap::new();
+
+    let topology = ModuleTopology::from_parts(ResolverGeneration(1), &universe, &unlinked, &sources);
+    let reverse_imports = BTreeMap::from([(child.clone(), BTreeSet::from([root.clone()]))]);
+
+    let facade = ModuleQueryFacade::new(&universe, &unlinked, &linked, &resolved, &sources, &source_modules, &display_path_modules)
+        .with_topology(&topology)
+        .with_reverse_imports(&reverse_imports);
+
+    // Verified queries route through topology and precomputed reverse index
+    assert_eq!(facade.module_children(root.project, &ModulePath::root()), vec![child.clone()]);
+    assert_eq!(facade.import_children(&root, &ModulePath::root()), vec![child.clone()]);
+    assert_eq!(facade.module_for_source(&SourceId("/workspace/src/math.ph".into())), Some(&child));
+    assert_eq!(facade.reverse_importers(&child), vec![root.clone()]);
+}

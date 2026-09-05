@@ -303,11 +303,11 @@ impl ProgramAnalyzer {
                 let mut sources = BTreeMap::new();
                 sources.insert(entry_id.clone(), parsed_unit);
 
-                let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput {
-                    linked: linked.clone(),
-                    sources: sources.clone(),
-                    generation: 0,
-                });
+                let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(
+                    linked.clone(),
+                    sources.clone(),
+                    0,
+                ));
 
                 Ok(AnalyzedProgram {
                     project_universe: universe,
@@ -391,11 +391,11 @@ impl ProgramAnalyzer {
 
         let linked = Arc::new(ModuleLinker::new(universe.clone(), interfaces).link(entry_id.clone(), &resolved)?);
 
-        let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput {
-            linked: linked.clone(),
-            sources: sources.clone(),
-            generation: 0,
-        });
+        let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(
+            linked.clone(),
+            sources.clone(),
+            0,
+        ));
 
         Ok(AnalyzedProgram {
             project_universe: universe,
@@ -463,11 +463,11 @@ impl ProgramAnalyzer {
         let linker = ModuleLinker::new(universe.clone(), interfaces);
         let linked = Arc::new(linker.link(entry.clone(), &resolved)?);
 
-        let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput {
-            linked: linked.clone(),
-            sources: sources.clone(),
-            generation: 0,
-        });
+        let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(
+            linked.clone(),
+            sources.clone(),
+            0,
+        ));
 
         Ok(AnalyzedProgram {
             project_universe: universe,

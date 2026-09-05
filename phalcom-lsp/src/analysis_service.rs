@@ -716,22 +716,45 @@ fn worker_loop(
                 });
             }
             let publication_result = compiler_workspace_state.session.apply_module_mutations(mutations);
-            let solve_cancelled = publication_result.is_err();
             let mut effects = PublicationEffects::default();
-            if let Ok(publication_result) = publication_result {
-                latest_generation = publication_result.snapshot.generation;
-                if !cancelled() {
-                    effects = publication_effects_from_compiler(&publication_result.effects);
-                    publication.publish(publication_result.snapshot);
-                    status_tracker.set_generation(latest_generation);
-                    let status = status_tracker.transition(AnalysisPhase::Publishing, None);
-                    let _ = event_tx.send(AnalysisEvent::Status(status));
+            let mut publication_failed = false;
+            match publication_result {
+                Ok(publication_result) => {
+                    latest_generation = publication_result.snapshot.generation;
+                    if !cancelled() {
+                        effects = publication_effects_from_compiler(&publication_result.effects);
+                        publication.publish(publication_result.snapshot);
+                        status_tracker.set_generation(latest_generation);
+                        let status = status_tracker.transition(AnalysisPhase::Publishing, None);
+                        let _ = event_tx.send(AnalysisEvent::Status(status));
+                    }
+                }
+                Err(err) => {
+                    publication_failed = true;
+                    let _ = event_tx.send(AnalysisEvent::Error {
+                        message: format!("module mutation application failed: {err:?}"),
+                    });
+                    let _ = event_tx.send(AnalysisEvent::Log(Box::new(AnalysisLogEvent {
+                        session: status_tracker.snapshot().session,
+                        sequence: status_tracker.snapshot().sequence,
+                        level: AnalysisLogLevel::Error,
+                        phase: AnalysisPhase::Analyzing,
+                        event: "semantic.batch.error".to_string(),
+                        epoch: Some(batch_epoch),
+                        generation: None,
+                        uri: None,
+                        revision: None,
+                        batch_size: None,
+                        duration_ms: None,
+                        message: Some(format!("batch for epoch {batch_epoch} encountered infrastructure error: {err:?}")),
+                        counters: Some(shared.counters.snapshot()),
+                    })));
                 }
             }
 
             // Epoch staleness check: if newer edits were enqueued during execution, discard intermediate result as stale
             let current_epoch = shared.epoch.load(Ordering::SeqCst);
-            if solve_cancelled || current_epoch > batch_epoch {
+            if publication_failed || cancelled() || current_epoch > batch_epoch {
                 shared.counters.stale_batches_discarded.fetch_add(1, Ordering::Relaxed);
                 let _ = event_tx.send(AnalysisEvent::StaleBatchDiscarded { epoch: batch_epoch });
                 let _ = event_tx.send(AnalysisEvent::Log(Box::new(AnalysisLogEvent {

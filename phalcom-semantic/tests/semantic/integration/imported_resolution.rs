@@ -1,4 +1,6 @@
 use phalcom_common::selector::Selector;
+use phalcom_common::range::SourceRange;
+use phalcom_modules::diagnostic::{ModuleDiagnostic, ModuleDiagnosticKind};
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_modules::interface::{LinkedExport, LinkedExportTarget, LinkedModuleInterface};
 use phalcom_modules::linker::{GlobalBindingId, ImportBindingId, LinkedModule, LinkedProgram, LinkedReadSpec, ModuleBindingLayout, SymbolId};
@@ -6,8 +8,9 @@ use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::project::ProjectUniverse;
 use phalcom_modules::source::{ModuleKind, ParsedModuleUnit};
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide, SemanticTargetId};
+use phalcom_semantic::snapshot::SnapshotStatus;
 use phalcom_semantic::{OccurrenceIndex, SemanticWorkspaceInput, SourceIndexContext, analyze_workspace, build_source_scope_index};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 fn module(project: ResolvedProjectId, path: &[&str]) -> ModuleId {
@@ -171,11 +174,11 @@ fn imported_class_participates_in_expression_type_inference_with_declaring_modul
         initialization_order: vec![point_module.clone(), consumer_module.clone()],
     });
 
-    let analysis = analyze_workspace(SemanticWorkspaceInput {
+    let analysis = analyze_workspace(SemanticWorkspaceInput::new(
         linked,
         sources,
-        generation: 1,
-    });
+        1,
+    ));
     assert!(!analysis.snapshot.has_errors(), "diagnostics: {:#?}", analysis.snapshot.diagnostics);
 
     let point_decl = DeclarationId::new(point_module, "Point".into());
@@ -208,6 +211,7 @@ fn imported_class_participates_in_expression_type_inference_with_declaring_modul
 #[test]
 fn editor_definition_sites_exclude_local_import_declaration_for_external_target() {
     let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join("package.ph"), "").unwrap();
     let main_path = root.path().join("main.ph");
     let shapes_path = root.path().join("shapes.ph");
     let location = |path: &std::path::Path| phalcom_modules::SourceLocation {
@@ -263,4 +267,87 @@ fn editor_definition_sites_exclude_local_import_declaration_for_external_target(
             .any(|site| matches!(&site.owner, phalcom_semantic::SourceOwner::Module(module) if module == &main_module)),
         "the import declaration/use must remain references to the external target"
     );
+}
+
+#[test]
+fn workspace_partial_snapshot_publishes_module_diagnostic_and_valid_product() {
+    let project = ResolvedProjectId::from_raw(1);
+    let valid_module = module(project, &["valid"]);
+    let blocked_module = module(project, &["blocked"]);
+    let valid_source: Arc<str> = Arc::from("class Product {}\n");
+    let blocked_source: Arc<str> = Arc::from("let blocked = 1\n");
+
+    let valid_program = Arc::new(phalcom_ast::parse(&valid_source, 0).program);
+    let blocked_program = Arc::new(phalcom_ast::parse(&blocked_source, 0).program);
+    let sources = BTreeMap::from([
+        (
+            valid_module.clone(),
+            Arc::new(ParsedModuleUnit::new(
+                valid_module.clone(),
+                ModuleKind::Module,
+                None,
+                valid_source,
+                valid_program,
+            )),
+        ),
+        (
+            blocked_module.clone(),
+            Arc::new(ParsedModuleUnit::new(
+                blocked_module.clone(),
+                ModuleKind::Module,
+                None,
+                blocked_source,
+                blocked_program,
+            )),
+        ),
+    ]);
+    let linked_module = |module: ModuleId| LinkedModule {
+        interface: LinkedModuleInterface {
+            module,
+            kind: ModuleKind::Module,
+            exports: BTreeMap::new(),
+            metadata: ModuleMetadata::default(),
+        },
+        bindings: ModuleBindingLayout::default(),
+        linked_reads: Vec::new(),
+        runtime_dependencies: Vec::new(),
+    };
+    let linked = Arc::new(LinkedProgram {
+        universe: Arc::new(ProjectUniverse::new()),
+        modules: BTreeMap::from([
+            (valid_module.clone(), linked_module(valid_module.clone())),
+            (blocked_module.clone(), linked_module(blocked_module.clone())),
+        ]),
+        graphs: Default::default(),
+        entry: valid_module.clone(),
+        initialization_order: vec![valid_module.clone(), blocked_module.clone()],
+    });
+    let diagnostic = ModuleDiagnostic::new(
+        blocked_module.clone(),
+        ModuleDiagnosticKind::ModuleNotFound("missing".into()),
+        SourceRange::new(4, 11),
+        "blocked module import is unavailable",
+    );
+
+    let mut session = phalcom_semantic::SemanticWorkspaceSession::new();
+    let update = session.update(
+        SemanticWorkspaceInput::new(linked, sources, 7)
+            .with_diagnostics(BTreeMap::from([(blocked_module.clone(), vec![diagnostic.clone()])]))
+            .with_blocked_modules(BTreeSet::from([blocked_module.clone()])),
+    );
+    let snapshot = update.snapshot;
+
+    assert_eq!(snapshot.generation, 7);
+    assert_eq!(snapshot.status(), &SnapshotStatus::Partial { blocked_modules: 1 });
+    let diagnostics = snapshot.diagnostics_for(&blocked_module).expect("blocked module diagnostics");
+    assert_eq!(diagnostics.len(), 1);
+    assert_eq!(diagnostics[0].code, phalcom_semantic::diagnostic::DiagnosticCode::ModuleImportUnresolved);
+    assert_eq!(diagnostics[0].message, diagnostic.message);
+    assert_eq!(diagnostics[0].primary.module, blocked_module);
+    assert_eq!(diagnostics[0].primary_range, diagnostic.range);
+
+    assert!(snapshot.sources.contains_key(&valid_module));
+    assert!(snapshot.source_index().module(&valid_module).is_some());
+    assert!(snapshot.module_products.linked.contains_key(&valid_module));
+    assert_eq!(snapshot.module_products.linked[&valid_module].module, valid_module);
 }

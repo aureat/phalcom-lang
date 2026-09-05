@@ -560,6 +560,9 @@ impl SemanticWorkspaceSession {
         self.update(SemanticWorkspaceInput {
             linked: update.linked,
             sources: update.sources,
+            interfaces: update.interfaces,
+            diagnostics: update.diagnostics,
+            blocked_modules: update.blocked_modules,
             generation,
         })
     }
@@ -664,7 +667,8 @@ impl SemanticWorkspaceSession {
                 }
             }
 
-            match query_unlinked_interface(&mut self.db, module_id.clone(), unit.clone()) {
+            let precomputed = input.interfaces.get(module_id).cloned();
+            match query_unlinked_interface(&mut self.db, module_id.clone(), unit.clone(), precomputed) {
                 QueryOutcome::Ready(_) => {}
                 QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
                 QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
@@ -841,6 +845,39 @@ impl SemanticWorkspaceSession {
 
         // 5. Realize Declaration Shells
         let mut diags_by_module: BTreeMap<ModuleId, Vec<SemanticDiagnostic>> = BTreeMap::new();
+        for (module_id, mod_diags) in &input.diagnostics {
+            for diag in mod_diags {
+                let code = match diag.kind {
+                    phalcom_modules::diagnostic::ModuleDiagnosticKind::RuntimeCycle { .. } => DiagnosticCode::ModuleRuntimeCycle,
+                    phalcom_modules::diagnostic::ModuleDiagnosticKind::UnresolvedImport { .. }
+                    | phalcom_modules::diagnostic::ModuleDiagnosticKind::RelativeImportBeyondRoot { .. }
+                    | phalcom_modules::diagnostic::ModuleDiagnosticKind::RelativeImportWithoutPackage
+                    | phalcom_modules::diagnostic::ModuleDiagnosticKind::ModuleNotFound(_)
+                    | phalcom_modules::diagnostic::ModuleDiagnosticKind::PackageNotFound(_)
+                    | phalcom_modules::diagnostic::ModuleDiagnosticKind::ModulePathNotExposed { .. }
+                    | phalcom_modules::diagnostic::ModuleDiagnosticKind::ImportOutsideSourceRoot(_)
+                    | phalcom_modules::diagnostic::ModuleDiagnosticKind::UnknownImportRoot(_) => DiagnosticCode::ModuleImportUnresolved,
+                    phalcom_modules::diagnostic::ModuleDiagnosticKind::UnknownImportName { .. }
+                    | phalcom_modules::diagnostic::ModuleDiagnosticKind::NonExportedImport { .. }
+                    | phalcom_modules::diagnostic::ModuleDiagnosticKind::UnknownExport { .. }
+                    | phalcom_modules::diagnostic::ModuleDiagnosticKind::DuplicateExport { .. }
+                    | phalcom_modules::diagnostic::ModuleDiagnosticKind::DuplicateDeclaration { .. }
+                    | phalcom_modules::diagnostic::ModuleDiagnosticKind::ExposeOutsidePackage
+                    | phalcom_modules::diagnostic::ModuleDiagnosticKind::InvalidExposeTarget(_)
+                    | phalcom_modules::diagnostic::ModuleDiagnosticKind::ImportOutsidePreamble
+                    | phalcom_modules::diagnostic::ModuleDiagnosticKind::InvalidModuleMetadata { .. }
+                    | phalcom_modules::diagnostic::ModuleDiagnosticKind::ModuleAttributeOutsideHeader
+                    | phalcom_modules::diagnostic::ModuleDiagnosticKind::InvalidModuleName(_)
+                    | phalcom_modules::diagnostic::ModuleDiagnosticKind::ParseError(_)
+                    | phalcom_modules::diagnostic::ModuleDiagnosticKind::InterfaceError(_) => DiagnosticCode::ModuleInterfaceFailed,
+                    _ => DiagnosticCode::ModuleLinkFailed,
+                };
+                diags_by_module
+                    .entry(module_id.clone())
+                    .or_default()
+                    .push(SemanticDiagnostic::error_in(diag.module.clone(), code, diag.message.clone(), diag.range));
+            }
+        }
         let mut blocked_declarations = BTreeSet::new();
         let mut type_aliases = TypeAliasTable::new();
         if let Err(err) = shell_table.realize_semantic_graph(&semantic_graph) {
@@ -2058,7 +2095,9 @@ impl SemanticWorkspaceSession {
         let mut sources_loc_map = BTreeMap::new();
 
         for (mod_id, unit) in &input.sources {
-            if let Ok(unlinked) = InterfaceBuilder::build(mod_id.clone(), unit.kind, &unit.program) {
+            if let Some(unlinked) = input.interfaces.get(mod_id) {
+                unlinked_map.insert(mod_id.clone(), (**unlinked).clone());
+            } else if let Ok(unlinked) = InterfaceBuilder::build(mod_id.clone(), unit.kind, &unit.program) {
                 unlinked_map.insert(mod_id.clone(), unlinked);
             }
             if let Some(ref loc) = unit.source {
@@ -2201,6 +2240,11 @@ impl SemanticWorkspaceSession {
         snapshot_obj = snapshot_obj.with_type_aliases(Arc::new(type_aliases));
         snapshot_obj.advisory = Arc::new(advisory);
         snapshot_obj.module_products = module_products;
+        if !input.blocked_modules.is_empty() {
+            snapshot_obj.status = crate::snapshot::SnapshotStatus::Partial {
+                blocked_modules: input.blocked_modules.len() as u32,
+            };
+        }
         let snapshot = Arc::new(snapshot_obj);
 
         let mut diagnostics_changed = BTreeSet::new();
@@ -2500,6 +2544,7 @@ fn build_source_semantic_index(
             let _ = index.attach_formal_analysis(module, analysis);
         }
     }
+    index.rebuild_target_occurrences();
 
     (index, presentation_sources)
 }

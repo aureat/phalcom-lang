@@ -35,11 +35,11 @@ fn input(module: ModuleId, source: &str, generation: u64) -> SemanticWorkspaceIn
     });
     let unit = Arc::new(ParsedModuleUnit::new(module.clone(), ModuleKind::Module, None, Arc::from(source), program));
 
-    SemanticWorkspaceInput {
+    SemanticWorkspaceInput::new(
         linked,
-        sources: BTreeMap::from([(module, unit)]),
+        BTreeMap::from([(module, unit)]),
         generation,
-    }
+    )
 }
 
 #[test]

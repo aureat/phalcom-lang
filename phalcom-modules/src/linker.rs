@@ -103,6 +103,41 @@ pub enum LinkError {
     RuntimeCycle(#[from] ModuleGraphError),
 }
 
+impl LinkError {
+    pub fn module(&self) -> Option<&ModuleId> {
+        match self {
+            Self::UnresolvedImport { module, .. }
+            | Self::MissingExport { module, .. }
+            | Self::MissingBinding { module, .. }
+            | Self::BindingCollision { module, .. }
+            | Self::MissingModule { module }
+            | Self::CyclicReExport { module, .. } => Some(module),
+            Self::RuntimeCycle(ModuleGraphError::RuntimeCycle { cycle }) => cycle.first(),
+        }
+    }
+
+    pub fn range(&self) -> SourceRange {
+        match self {
+            Self::UnresolvedImport { range, .. }
+            | Self::MissingExport { range, .. }
+            | Self::MissingBinding { range, .. }
+            | Self::BindingCollision { range, .. } => *range,
+            _ => SourceRange::default(),
+        }
+    }
+}
+
+/// Result of linking reachable components in workspace/tolerant mode.
+#[derive(Clone, Debug)]
+pub struct TolerantLinkResult {
+    /// Linked program containing all successfully linked modules.
+    pub program: LinkedProgram,
+    /// Diagnostics accumulated during linking.
+    pub diagnostics: Vec<LinkError>,
+    /// Modules whose interfaces or bindings failed to link and could not produce valid products.
+    pub blocked_modules: BTreeSet<ModuleId>,
+}
+
 /// Static linker over source-local interfaces and pre-resolved import targets.
 pub struct ModuleLinker {
     universe: Arc<ProjectUniverse>,
@@ -133,10 +168,76 @@ impl ModuleLinker {
         self.link_inner(entry, resolved, true)
     }
 
+    /// Links the reachable component starting at `entry` in tolerant workspace mode,
+    /// accumulating diagnostics and marking affected modules as blocked without
+    /// failing unaffected canonical module products.
+    pub fn link_component_tolerant(
+        &self,
+        entry: ModuleId,
+        resolved: &BTreeMap<(ModuleId, String), ModuleId>,
+    ) -> TolerantLinkResult {
+        let reachable = match self.reachable_interfaces(&entry, resolved, true) {
+            Ok(reachable) => reachable,
+            Err(err) => {
+                let mut blocked = BTreeSet::new();
+                blocked.insert(entry.clone());
+                return TolerantLinkResult {
+                    program: LinkedProgram {
+                        universe: self.universe.clone(),
+                        modules: BTreeMap::new(),
+                        graphs: ModuleGraphs::default(),
+                        entry,
+                        initialization_order: Vec::new(),
+                    },
+                    diagnostics: vec![err],
+                    blocked_modules: blocked,
+                };
+            }
+        };
+        let reachable_interfaces = self
+            .interfaces
+            .iter()
+            .filter(|(module, _)| reachable.contains(*module))
+            .map(|(module, interface)| (module.clone(), interface.clone()))
+            .collect();
+        let reachable_linker = ModuleLinker::new(self.universe.clone(), reachable_interfaces);
+        let mut context = LinkContext::new(&reachable_linker, resolved, true, true);
+        match context.build() {
+            Ok((modules, graphs, initialization_order)) => TolerantLinkResult {
+                program: LinkedProgram {
+                    universe: self.universe.clone(),
+                    modules,
+                    graphs,
+                    entry,
+                    initialization_order,
+                },
+                diagnostics: context.diagnostics,
+                blocked_modules: context.blocked_modules,
+            },
+            Err(err) => {
+                let mut blocked = context.blocked_modules;
+                blocked.insert(entry.clone());
+                let mut diags = context.diagnostics;
+                diags.push(err);
+                TolerantLinkResult {
+                    program: LinkedProgram {
+                        universe: self.universe.clone(),
+                        modules: BTreeMap::new(),
+                        graphs: ModuleGraphs::default(),
+                        entry,
+                        initialization_order: Vec::new(),
+                    },
+                    diagnostics: diags,
+                    blocked_modules: blocked,
+                }
+            }
+        }
+    }
+
     /// Links every interface supplied to this linker, retaining the complete
     /// source universe for workspace-wide semantic analysis.
     pub fn link_all(&self, entry: ModuleId, resolved: &BTreeMap<(ModuleId, String), ModuleId>) -> Result<LinkedProgram, LinkError> {
-        let mut context = LinkContext::new(self, resolved, false);
+        let mut context = LinkContext::new(self, resolved, false, false);
         context.build().map(|(modules, graphs, initialization_order)| LinkedProgram {
             universe: self.universe.clone(),
             modules,
@@ -160,7 +261,7 @@ impl ModuleLinker {
             .map(|(module, interface)| (module.clone(), interface.clone()))
             .collect();
         let reachable_linker = ModuleLinker::new(self.universe.clone(), reachable_interfaces);
-        let mut context = LinkContext::new(&reachable_linker, resolved, allow_unresolved_imports);
+        let mut context = LinkContext::new(&reachable_linker, resolved, allow_unresolved_imports, false);
         context.build().map(|(modules, graphs, initialization_order)| LinkedProgram {
             universe: self.universe.clone(),
             modules,
@@ -170,7 +271,7 @@ impl ModuleLinker {
         })
     }
 
-    fn reachable_interfaces(
+    pub(crate) fn reachable_interfaces(
         &self,
         entry: &ModuleId,
         resolved: &BTreeMap<(ModuleId, String), ModuleId>,
@@ -269,7 +370,7 @@ impl ModuleLinker {
                     name: reference.root.clone().into_boxed_str(),
                 });
             }
-            let mut context = LinkContext::new(self, resolved, false);
+            let mut context = LinkContext::new(self, resolved, false, false);
             context.collect_imports_and_graphs()?;
             for import in &interface.imports {
                 let Some((path, remote, range)) = (match import {
@@ -286,7 +387,7 @@ impl ModuleLinker {
                     continue;
                 };
                 let target = context.target(module, path, range)?;
-                let export = context.resolve_export(&target, remote)?;
+                let export = context.resolve_export(&target, remote, range)?;
                 let symbol = export.symbol().cloned().ok_or_else(|| LinkError::MissingBinding {
                     module: target.clone(),
                     name: remote.to_string(),
@@ -334,9 +435,9 @@ impl ModuleLinker {
             });
         }
         let name = reference.leaf_name();
-        let mut context = LinkContext::new(self, resolved, false);
+        let mut context = LinkContext::new(self, resolved, false, false);
         context.collect_imports_and_graphs()?;
-        let export = context.resolve_export(&target, name)?;
+        let export = context.resolve_export(&target, name, reference.range)?;
         let symbol = export.symbol().cloned().ok_or_else(|| LinkError::MissingBinding {
             module: target,
             name: name.to_string(),
@@ -350,26 +451,37 @@ struct LinkContext<'a> {
     linker: &'a ModuleLinker,
     resolved: &'a BTreeMap<(ModuleId, String), ModuleId>,
     allow_unresolved_imports: bool,
+    tolerant: bool,
     import_targets: BTreeMap<(ModuleId, String), LinkedReadSpec>,
     import_symbols: BTreeMap<(ModuleId, String), Option<SymbolId>>,
     linked_exports: BTreeMap<(ModuleId, String), LinkedExport>,
     resolving_exports: BTreeSet<(ModuleId, String)>,
     graphs: ModuleGraphs,
+    pub diagnostics: Vec<LinkError>,
+    pub blocked_modules: BTreeSet<ModuleId>,
 }
 
 type LinkBuild = (BTreeMap<ModuleId, LinkedModule>, ModuleGraphs, Vec<ModuleId>);
 
 impl<'a> LinkContext<'a> {
-    fn new(linker: &'a ModuleLinker, resolved: &'a BTreeMap<(ModuleId, String), ModuleId>, allow_unresolved_imports: bool) -> Self {
+    fn new(
+        linker: &'a ModuleLinker,
+        resolved: &'a BTreeMap<(ModuleId, String), ModuleId>,
+        allow_unresolved_imports: bool,
+        tolerant: bool,
+    ) -> Self {
         Self {
             linker,
             resolved,
             allow_unresolved_imports,
+            tolerant,
             import_targets: BTreeMap::new(),
             import_symbols: BTreeMap::new(),
             linked_exports: BTreeMap::new(),
             resolving_exports: BTreeSet::new(),
             graphs: ModuleGraphs::default(),
+            diagnostics: Vec::new(),
+            blocked_modules: BTreeSet::new(),
         }
     }
 
@@ -381,17 +493,98 @@ impl<'a> LinkContext<'a> {
                 .linker
                 .interfaces
                 .get(module)
-                .map(|interface| interface.exports.keys().cloned().collect::<Vec<_>>())
+                .map(|interface| {
+                    interface
+                        .exports
+                        .iter()
+                        .map(|(name, surface)| (name.clone(), surface.range))
+                        .collect::<Vec<_>>()
+                })
                 .unwrap_or_default();
-            for name in names {
-                self.resolve_export(module, &name)?;
+            for (name, range) in names {
+                match self.resolve_export(module, &name, range) {
+                    Ok(_) => {}
+                    Err(err) => {
+                        if self.tolerant {
+                            self.diagnostics.push(err);
+                            self.blocked_modules.insert(module.clone());
+                        } else {
+                            return Err(err);
+                        }
+                    }
+                }
             }
         }
 
-        let initialization_order = self.graphs.runtime.initialization_order()?;
+        // Transitive blocked cascade: if any dependency of `module` is blocked,
+        // `module` is also blocked.
+        if self.tolerant && !self.blocked_modules.is_empty() {
+            let mut changed = true;
+            while changed {
+                changed = false;
+                for module in &module_ids {
+                    if self.blocked_modules.contains(module) {
+                        continue;
+                    }
+                    let has_blocked_dep = self
+                        .graphs
+                        .references
+                        .edges_from(module)
+                        .iter()
+                        .any(|edge| self.blocked_modules.contains(&edge.to));
+                    if has_blocked_dep {
+                        self.blocked_modules.insert(module.clone());
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        // Runtime cycle detection: in tolerant mode, if a cycle occurs among valid modules,
+        // capture diagnostic and omit cycling modules from unblocked set.
+        let initialization_order = match self.graphs.runtime.initialization_order() {
+            Ok(order) => order,
+            Err(err) => {
+                if self.tolerant {
+                    let link_err = LinkError::RuntimeCycle(err);
+                    if let LinkError::RuntimeCycle(crate::error::ModuleGraphError::RuntimeCycle { ref cycle }) = link_err {
+                        for m in cycle {
+                            self.blocked_modules.insert(m.clone());
+                        }
+                    }
+                    self.diagnostics.push(link_err);
+                    // Filter unblocked modules for partial topological order
+                    let unblocked_nodes = self
+                        .graphs
+                        .runtime
+                        .nodes()
+                        .into_iter()
+                        .filter(|m| !self.blocked_modules.contains(m))
+                        .collect::<Vec<_>>();
+                    unblocked_nodes
+                } else {
+                    return Err(LinkError::RuntimeCycle(err));
+                }
+            }
+        };
+
         let mut modules = BTreeMap::new();
         for module in module_ids {
-            let interface = self.linked_interface(&module)?;
+            if self.tolerant && self.blocked_modules.contains(&module) {
+                continue;
+            }
+            let interface = match self.linked_interface(&module) {
+                Ok(iface) => iface,
+                Err(err) => {
+                    if self.tolerant {
+                        self.diagnostics.push(err);
+                        self.blocked_modules.insert(module);
+                        continue;
+                    } else {
+                        return Err(err);
+                    }
+                }
+            };
             let mut bindings = ModuleBindingLayout::default();
             let mut linked_reads = Vec::new();
             if let Some(unlinked) = self.linker.interfaces.get(&module) {
@@ -546,7 +739,18 @@ impl<'a> LinkContext<'a> {
                         };
                         for item in &decl.items {
                             let local = item.alias.as_ref().map(|alias| alias.name.clone()).unwrap_or_else(|| item.name.clone());
-                            let linked_exp = self.resolve_export(&target, &item.name)?;
+                            let linked_exp = match self.resolve_export(&target, &item.name, item.range) {
+                                Ok(exp) => exp,
+                                Err(err) => {
+                                    if self.tolerant {
+                                        self.diagnostics.push(err);
+                                        self.blocked_modules.insert(module.clone());
+                                        continue;
+                                    } else {
+                                        return Err(err);
+                                    }
+                                }
+                            };
                             match &linked_exp.target {
                                 crate::interface::LinkedExportTarget::Binding(symbol) => {
                                     self.import_targets
@@ -567,7 +771,18 @@ impl<'a> LinkContext<'a> {
                         };
                         for item in &decl.items {
                             let local = item.local_or_remote_name.clone();
-                            let linked_exp = self.resolve_export(&target, &item.local_or_remote_name)?;
+                            let linked_exp = match self.resolve_export(&target, &item.local_or_remote_name, item.range) {
+                                Ok(exp) => exp,
+                                Err(err) => {
+                                    if self.tolerant {
+                                        self.diagnostics.push(err);
+                                        self.blocked_modules.insert(module.clone());
+                                        continue;
+                                    } else {
+                                        return Err(err);
+                                    }
+                                }
+                            };
                             match &linked_exp.target {
                                 crate::interface::LinkedExportTarget::Binding(symbol) => {
                                     self.import_targets
@@ -623,7 +838,7 @@ impl<'a> LinkContext<'a> {
         }
     }
 
-    fn resolve_export(&mut self, module: &ModuleId, name: &str) -> Result<LinkedExport, LinkError> {
+    fn resolve_export(&mut self, module: &ModuleId, name: &str, range: SourceRange) -> Result<LinkedExport, LinkError> {
         let key = (module.clone(), name.to_string());
         if let Some(export) = self.linked_exports.get(&key) {
             return Ok(export.clone());
@@ -637,14 +852,14 @@ impl<'a> LinkContext<'a> {
         let interface = self.linker.interfaces.get(module).ok_or_else(|| LinkError::MissingExport {
             module: module.clone(),
             name: name.to_string(),
-            range: SourceRange::default(),
+            range,
         })?;
         let surface = interface.exports.get(name).ok_or_else(|| LinkError::MissingExport {
             module: module.clone(),
             name: name.to_string(),
-            range: SourceRange::default(),
+            range,
         })?;
-        let (target, range) = match &surface.target {
+        let (target, export_range) = match &surface.target {
             UnlinkedExportTarget::Local(local) => {
                 if let Some(declaration) = interface.declarations.get(local) {
                     (
@@ -668,7 +883,7 @@ impl<'a> LinkContext<'a> {
             }
             UnlinkedExportTarget::ReExport { path, remote } => {
                 let target_mod = self.target(module, path, surface.range)?;
-                let linked = self.resolve_export(&target_mod, remote)?;
+                let linked = self.resolve_export(&target_mod, remote, surface.range)?;
                 (linked.target, surface.range)
             }
             UnlinkedExportTarget::CanonicalDeclaration { module: target_module, name } => {
@@ -697,7 +912,7 @@ impl<'a> LinkContext<'a> {
         let linked = LinkedExport {
             public_name: name.to_owned().into_boxed_str(),
             target,
-            range,
+            range: export_range,
         };
         self.linked_exports.insert(key, linked.clone());
         Ok(linked)
@@ -710,8 +925,8 @@ impl<'a> LinkContext<'a> {
             range: SourceRange::default(),
         })?;
         let mut exports = BTreeMap::new();
-        for name in unlinked.exports.keys() {
-            let linked = self.resolve_export(module, name)?;
+        for (name, surface) in &unlinked.exports {
+            let linked = self.resolve_export(module, name, surface.range)?;
             exports.insert(name.clone().into_boxed_str(), linked);
         }
         Ok(LinkedModuleInterface {
