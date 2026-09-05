@@ -358,6 +358,7 @@ async fn selector_keying_gives_each_arity_its_own_doc() {
 #[tokio::test]
 async fn cross_file_hover_resolves_the_doc_from_the_declaring_file() {
     let workspace = ScratchWorkspace::new("cross-file");
+    workspace.write("package.ph", "");
     workspace.write("mover.ph", "class Mover {\n  /// Moves the mover by `x`.\n  move(_ x) { }\n}\n");
     let main_text = "import .mover as MoverModule\nlet m = MoverModule.Mover.new();\nm.move(1);\n";
     workspace.write("main.ph", main_text);

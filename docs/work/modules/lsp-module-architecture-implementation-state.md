@@ -108,13 +108,23 @@ Prepared plan revision:
 
 ## Next resume action
 
-C6 focused evidence is green for Tasks 28–31. C3-I3 remains deferred to separate LSP fixture/baseline ownership; C6-I1 is also deferred as pre-C6 local-binding baseline evidence. Supervisor review is next before C7/closure decision.
+C6 focused evidence is green for Tasks 28–31. C6 closure audit repaired only module-navigation/package fixtures; C3-I3 workspace-semantic baselines and C6-I1 local-binding baselines remain open. C7 entry stays closed pending supervisor disposition or separate ownership for the six remaining full-gate failures.
 
 ## Incident C6-I1 — Full LSP gate exposes two pre-C6 local-binding definition failures
 
 Observed: `composition1::constructor_factory_inference_is_authoritative_across_lsp_features` and `semantic_consistency::local_binding_definition_and_references_are_precise` return null/non-array definition results. Both failures concern ordinary local/top-level binding targets, not imported-origin or module-path targets.
 
 Classification: pre-C6 baseline exposed by the full gate. C6 `definition_locations` delegates ordinary targets to existing `definition_sites`; current C6 diff changes only location projection and cannot explain source-index target loss. Keep outside C6 scope unless supervisor assigns the binding/ModuleBinding producer seam.
+
+## Incident C6-I2 — Focused closure audit and package-fixture boundary
+
+Observed full-gate evidence after the audit: `cargo test -p phalcom-lsp` → `52 passed, 6 failed, 2 ignored`. Four C3-I3 workspace-semantic failures remain: `workspace_semantics::editing_an_imported_provider_invalidates_consumer_completion`, `workspace_semantics::inferred_parameter_facts_propagate_through_forwarding_calls`, `workspace_semantics::parameter_facts_from_multiple_consumer_modules_join_instead_of_overwriting`, and `workspace_semantics::watched_file_rename_and_delete_follow_compiler_module_identity`. Two local-binding failures remain: `composition1::constructor_factory_inference_is_authoritative_across_lsp_features` and `semantic_consistency::local_binding_definition_and_references_are_precise`.
+
+Migration boundary: added package identity only to module-navigation/package fixtures: stage2 scratch goto-definition, `import_completion`, and stage4 scratch cross-file hover. `workspace_semantics::same_named_classes_in_different_modules_keep_distinct_identity` also writes a package marker in its isolated fixture because it directly asserts cross-module identity. Unchanged assertions pass in all four migrated tests. Package markers experimentally added to interprocedural/workspace-propagation fixtures caused publication timeouts or were outside C3-I3 ownership; those changes were reverted.
+
+Comparator: both local-binding failures reproduce with identical failure locations and null/non-array results on clean parent `5efa9db6^` (`1e95f590`). C6 `definition_locations` still delegates ordinary targets to unchanged `definition_sites`; no C6 regression found. Classification: PREEXISTING/BASELINE.
+
+Evidence: exact migrated tests pass; `cargo check -p phalcom-lsp` passes; scoped C6 `git diff --check` passes. Full `git diff --check` remains blocked by unrelated dirty `docs/type tests.md:736` trailing whitespace. C7 entry remains closed until all six remaining failures are separately repaired, reclassified, or explicitly accepted.
 
 ## C5 incidents
 

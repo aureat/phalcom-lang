@@ -6,6 +6,7 @@ use tower_lsp::lsp_types::Url;
 #[tokio::test]
 async fn same_named_classes_in_different_modules_keep_distinct_identity() {
     let workspace = TestWorkspace::from_fixture_dir("workspace");
+    workspace.write("package.ph", "expose .a\nexpose .b\n");
     let main_uri = workspace.file_uri("main.ph");
     let main = MarkedSource::parse(&workspace.read("main.ph"));
 

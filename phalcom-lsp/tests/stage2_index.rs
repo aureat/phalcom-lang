@@ -170,6 +170,7 @@ mod url {
 #[tokio::test]
 async fn goto_definition_and_workspace_symbol_resolve_across_files() {
     let workspace = ScratchWorkspace::new("defs");
+    workspace.write("package.ph", "");
     // `Mover` defines `move(_,to,duration)`; `main.ph` calls it. Both are
     // on disk before `initialize` runs, so the startup scan indexes both.
     let def_path = workspace.write("mover.ph", "class Mover {\n  move(_ x, to, duration) { }\n}\n");
