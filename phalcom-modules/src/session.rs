@@ -130,6 +130,7 @@ pub struct WorkspaceModuleStats {
     pub negative_resolutions_reused: usize,
     pub linked_modules_recomputed: usize,
     pub linked_modules_reused: usize,
+    pub linked_components_considered: usize,
     pub linked_components: usize,
     pub linked_components_recomputed: usize,
     pub linked_components_reused: usize,
@@ -1536,6 +1537,7 @@ impl WorkspaceModuleSession {
             && self.linked.is_some()
         {
             stats.linked_modules_reused = linked_modules.len();
+            stats.linked_components_considered = self.retained_components.len();
             stats.linked_components = 0;
             stats.linked_components_reused = self.retained_components.len();
             stats.linked_components_recomputed = 0;
@@ -1708,6 +1710,7 @@ impl WorkspaceModuleSession {
 
         // 5. Link affected components in tolerant mode
         let (new_components, new_module_components) = compute_connected_components(&interfaces, &import_products);
+        stats.linked_components_considered = new_components.len();
 
         let mut affected_components = BTreeSet::new();
         for m in modules_with_changed_interface

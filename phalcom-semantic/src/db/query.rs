@@ -35,6 +35,8 @@ use std::sync::Arc;
 /// helpers.
 pub struct FormalQueryInputs<'a> {
     pub sources: &'a BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
+    pub source_resolution_input: InputFingerprint,
+    pub linked_component_product: ProductFingerprint,
     pub linked: &'a LinkedProgram,
     pub import_products: &'a BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>,
     pub hierarchy: &'a dyn TypeHierarchy,
@@ -1074,7 +1076,6 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
     let mut recorder = crate::db::DependencyRecorder::new(key.clone());
     let mut semantic_dependencies = std::collections::BTreeSet::new();
     semantic_dependencies.insert(crate::checker::analysis::SemanticDependency::DeclarationShell(decl_id.clone()));
-    semantic_dependencies.insert(crate::checker::analysis::SemanticDependency::LinkedInterface(decl_id.module.clone()));
     semantic_dependencies.extend(captured_dependencies);
     for dependency in semantic_dependencies {
         match ensure_semantic_dependency_current(db, &dependency, linked, declarations, import_products) {
@@ -1313,7 +1314,7 @@ pub fn query_callable_signature_with_inputs(
         }
     }
 
-    let mut dependency_keys = BTreeSet::from([QueryKey::DeclarationShell(callable.declaration_owner().clone()), linked_key]);
+    let mut dependency_keys = BTreeSet::from([QueryKey::DeclarationShell(callable.declaration_owner().clone())]);
     dependency_keys.extend(captured_dependencies.iter().map(semantic_dependency_query_key));
     dependency_keys.remove(&key);
 
@@ -1445,7 +1446,7 @@ pub fn query_field_signature_with_inputs(
         }
     }
 
-    let mut dependency_keys = BTreeSet::from([QueryKey::DeclarationShell(field.owner.clone()), linked_key]);
+    let mut dependency_keys = BTreeSet::from([QueryKey::DeclarationShell(field.owner.clone())]);
     dependency_keys.extend(captured_dependencies.iter().map(semantic_dependency_query_key));
     dependency_keys.remove(&key);
 
@@ -2009,6 +2010,8 @@ fn query_callable_body_with_requirement(
             body_range,
             store,
             inputs.sources,
+            inputs.source_resolution_input,
+            inputs.linked_component_product,
             inputs.field_lifecycle,
         ),
         None => crate::db::fingerprint::callable_body_input_fingerprint(&callable, body, body_range, store),
@@ -2196,6 +2199,7 @@ mod exact_module_fact_tests {
     use phalcom_modules::linker::{LinkedModule, LinkedProgram, ModuleBindingLayout, SymbolId};
     use phalcom_modules::metadata::ModuleMetadata;
     use phalcom_modules::project::ProjectUniverse;
+    use phalcom_modules::error::ModuleResolutionError;
     use phalcom_modules::resolver::{ImportPathIdentity, ImportResolutionProduct, ResolutionTopologyDependencies};
     use phalcom_modules::{ModuleComponent, ModuleId, ModuleKind, ModulePath, ResolvedProjectId};
 
@@ -2349,5 +2353,78 @@ mod exact_module_fact_tests {
         let second_fingerprint = db.ready_product_fingerprint(&key).expect("second fingerprint");
 
         assert_ne!(first_fingerprint, second_fingerprint);
+    }
+
+    #[test]
+    fn resolved_import_product_ignores_topology_evidence_when_result_is_unchanged() {
+        let importer = module("consumer");
+        let site = phalcom_modules::identity::ImportSiteId::new(importer, phalcom_modules::identity::ImportSiteLocalId::new(0));
+        let target = module("target");
+        let first = ImportResolutionProduct::new(
+            site.clone(),
+            ImportPathIdentity {
+                written: "dep".into(),
+                is_relative: true,
+            },
+            Arc::from(Vec::new()),
+            Ok(target.clone()),
+            ResolutionTopologyDependencies::default(),
+        );
+        let mut changed_dependencies = ResolutionTopologyDependencies::default();
+        changed_dependencies.consulted_packages.insert(module("evidence"));
+        let second = ImportResolutionProduct::new(
+            site,
+            ImportPathIdentity {
+                written: "dep".into(),
+                is_relative: true,
+            },
+            Arc::from(Vec::new()),
+            Ok(target),
+            changed_dependencies,
+        );
+
+        assert_ne!(
+            crate::db::fingerprint::resolved_import_input_fingerprint(&first),
+            crate::db::fingerprint::resolved_import_input_fingerprint(&second)
+        );
+        assert_eq!(
+            crate::db::fingerprint::resolved_import_product_fingerprint(&first),
+            crate::db::fingerprint::resolved_import_product_fingerprint(&second)
+        );
+    }
+
+    #[test]
+    fn resolved_import_failure_product_ignores_diagnostic_text() {
+        let importer = module("consumer");
+        let site = phalcom_modules::identity::ImportSiteId::new(importer, phalcom_modules::identity::ImportSiteLocalId::new(0));
+        let first = ImportResolutionProduct::new(
+            site.clone(),
+            ImportPathIdentity {
+                written: "dep".into(),
+                is_relative: true,
+            },
+            Arc::from(Vec::new()),
+            Err(ModuleResolutionError::ModuleNotFound("first spelling".into())),
+            ResolutionTopologyDependencies::default(),
+        );
+        let second = ImportResolutionProduct::new(
+            site,
+            ImportPathIdentity {
+                written: "dep".into(),
+                is_relative: true,
+            },
+            Arc::from(Vec::new()),
+            Err(ModuleResolutionError::ModuleNotFound("second spelling".into())),
+            ResolutionTopologyDependencies::default(),
+        );
+
+        assert_ne!(
+            crate::db::fingerprint::resolved_import_input_fingerprint(&first),
+            crate::db::fingerprint::resolved_import_input_fingerprint(&second)
+        );
+        assert_eq!(
+            crate::db::fingerprint::resolved_import_product_fingerprint(&first),
+            crate::db::fingerprint::resolved_import_product_fingerprint(&second)
+        );
     }
 }

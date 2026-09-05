@@ -128,8 +128,11 @@ class Child is Base {
         !surface_dependencies.contains(&QueryKey::ParsedModule(module.clone())),
         "declaration syntax is a direct query input so body-only parse changes do not invalidate the surface"
     );
-    assert!(surface_dependencies.contains(&QueryKey::LinkedInterface(module)));
-    assert!(surface_dependencies.contains(&QueryKey::DeclarationShell(child)));
+    assert!(
+        !surface_dependencies.contains(&QueryKey::LinkedInterface(module)),
+        "declaration surface may require current linker state but must not retain it as a coarse consumer edge"
+    );
+    assert!(surface_dependencies.contains(&QueryKey::DeclarationShell(child.clone())));
     assert!(
         !surface_dependencies.contains(&surface_key),
         "declaration surface must never record itself as a dependency"
@@ -148,6 +151,10 @@ class Child is Base {
     assert!(
         !signature_dependencies.contains(&surface_key),
         "callable signature is declaration-owned and must not depend on its dispatch projection"
+    );
+    assert!(
+        !signature_dependencies.contains(&QueryKey::LinkedInterface(child.module.clone())),
+        "callable signature must not retain its linked interface precondition as a coarse dependency"
     );
 }
 
@@ -278,6 +285,8 @@ class Owner {
 
     let formal_inputs = FormalQueryInputs {
         sources: &input.sources,
+        source_resolution_input: phalcom_semantic::db::fingerprint::source_resolution_input_fingerprint(&input.interfaces),
+        linked_component_product: phalcom_semantic::db::fingerprint::semantic_component_product_fingerprint(&input.linked),
         linked: &input.linked,
         import_products: &input.import_products,
         hierarchy: &hierarchy,

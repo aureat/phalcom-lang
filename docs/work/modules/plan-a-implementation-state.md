@@ -134,7 +134,7 @@ COMPLETED
 ## Checkpoint A4 — Exact Module Facts Join the Existing SemanticDb Dependency Graph
 
 ### Status
-IN PROGRESS (HANDOFF PREPARED)
+COMPLETED (corrective amendment verified; pre-existing LSP timeout remains separately classified)
 
 ### Baseline Commit
 - `fa1f0094b5db875d6c880fed870bd47b87376803` (`feat(modules): implement checkpoint A3 affected-component incremental linking`)
@@ -142,8 +142,91 @@ IN PROGRESS (HANDOFF PREPARED)
 ### Tasks
 - [x] Task 20 — Define minimal exact module-semantic query keys/products (`QueryKey`, `SemanticDependency`, `SemanticProduct` variants for `ResolvedImport`, `LinkedName`, `PublicExport`).
 - [x] Task 21 — Define fingerprint functions and query module keys for exact module facts in `db/fingerprint.rs` and `db/mod.rs`.
-- [ ] Task 22 — Update `TrackingTypeResolver` in `checker/context.rs` and query execution in `db/query.rs` to record exact `LinkedName` and `PublicExport` dependencies.
-- [ ] Task 23 — Prove absence and re-export retargeting behavior in `tests/checkpoint_a4.rs`.
-- [ ] Task 24 — Audit aggregate `LinkedInterface` dependencies and verify no parallel dependency engine exists.
+- [x] Task 22 — Update `TrackingTypeResolver` in `checker/context.rs` and query execution in `db/query.rs` to record exact `LinkedName` and `PublicExport` dependencies.
+- [x] Task 23 — Prove absence and re-export retargeting behavior in `tests/checkpoint_a4.rs`.
+- [x] Task 24 — Audit aggregate `LinkedInterface` dependencies and verify no parallel dependency engine exists.
 
+### Corrective Completion Evidence
+1. Declaration surfaces, callable signatures, and field signatures no longer retain coarse consumer edges to their owner `LinkedInterface`; exact `LinkedName`/`PublicExport` edges remain query-owned, while aggregate edges remain only for canonical projections or genuine aggregate prerequisites.
+2. Callable-body A4 inputs use retained canonical unlinked interfaces plus the broad linked semantic product. Workspace-level fingerprints are computed once per update; A5 precision narrowing remains deferred.
+3. `ResolvedImport` input identity retains canonical resolution/topology evidence, while its product identity contains only observable target/prefix mapping or stable failure category.
+4. Callable-signature source-span input hashing includes both range endpoints; product hashing remains source-movement stable.
+5. Focused evidence: incremental (131 passed, 4 ignored), imported-resolution (9 passed), checkpoint A4 (2 passed), and semantic crate (1,095 passed, 42 ignored).
+6. `cargo check -p phalcom-lsp` passes. The full LSP suite is otherwise green (56 passed, 2 ignored); the two provider-lifecycle publication timeouts reproduce on clean `9f7ded35` and remain baseline blockers, not defects attributed to this correction.
+7. Nightly workspace format and strict clippy gates remain blocked by pre-existing unrelated workspace drift/warnings; no unrelated formatting or lint cleanup was applied.
 
+---
+
+## Checkpoint A7 — Performance and Release Closure
+
+### Status
+
+IMPLEMENTED: focused performance evidence is green. Release closure remains
+blocked by inherited full-LSP publication timeouts and the recorded
+workspace-wide `phalcom-core` baseline.
+
+### Task 34 — Deterministic work metrics
+
+- [x] `WorkspaceModuleStats::linked_components_considered` now distinguishes
+  component scan work from recomputed and retained component products.
+- [x] `SemanticUpdateStats` now publishes query products recomputed,
+  revalidated, exact-name products recomputed/reused, reverse candidates
+  considered, and dependency-bearing semantic products recomputed/reused.
+- [x] Query metric accounting uses computation revision separately from current
+  validation revision.
+
+### Task 35 — Synthetic fixtures
+
+- [x] `phalcom-modules/tests/checkpoint_a7.rs` provides deterministic builders
+  for linear, star, disconnected, import-heavy, negative-import, re-export,
+  hierarchy-fanout, and alias-SCC graphs.
+- [x] The 1,000-module linear fixture is exercised in the ordinary module test
+  lane and proves a leaf body edit performs zero import resolution and zero
+  component recomputation.
+
+### Task 36 — Acceptance matrix evidence
+
+- [x] Body-only edit, negative-resolution reuse, missing-target recovery,
+  disconnected retention, and component-bounded work counts pass in the A7
+  module fixture.
+- [x] Semantic metric separation passes in
+  `incremental::a7_performance`.
+- [x] Existing A2/A3 exact import and component acceptance fixtures remain
+  green.
+
+### Task 37 — Compiler/LSP parity and regression gate
+
+- [x] `RUSTFLAGS='' cargo test -p phalcom-modules` passes.
+- [x] `RUST_MIN_STACK=8388608 RUSTFLAGS='' cargo test -p phalcom-semantic`
+  passes: 1,096 passed, 42 ignored.
+- [x] `RUSTFLAGS='' cargo check -p phalcom-lsp` passes.
+- [ ] Full LSP release gate: 56 passed, 2 failed, 2 ignored. The same two
+  provider-lifecycle exact-source publication timeouts reproduce on clean
+  predecessor `9f7ded35`; they remain inherited baseline failures.
+
+### Task 38 — Workspace comparison and Plan-B handoff
+
+- [x] `RUSTFLAGS='' cargo test --workspace --all-targets` was run. The command
+  stops in the existing `phalcom-core` baseline with 21 named failures in the
+  current invocation; A7 changes do not touch `phalcom-core`.
+- [x] Plan-B handoff surface is recorded below. Plan A is not release-complete
+  until the inherited LSP/core gates are separately closed or reclassified.
+
+### Plan-B handoff
+
+- Final working tree includes A4 corrective changes plus A7 metrics and
+  deterministic fixtures; no commit or push was performed in this slice.
+- Retained module products: `ModuleTopology`, `ImportSiteId` keyed resolution
+  products with prefix provenance, `ComponentId`/`ComponentLinkedProduct`,
+  `WorkspaceModuleStats`, and published reverse import/site indexes.
+- Exact semantic products: `ResolvedImport`, `LinkedName`, `PublicExport`,
+  `LinkedInterface`, declaration/surface/signature/field/body query products,
+  and explicit `SemanticDb::purge_module` lifecycle.
+- Snapshot topology/reverse-index APIs remain published through
+  `SemanticWorkspaceInput` and semantic module query products.
+- Remaining limitations: source/reference index performance and editor
+  overlay transaction work remain Plan B scope; the inherited LSP publication
+  timeout and broad core bootstrap/VM/object-model failures remain open.
+- A7 focused results: modules green; semantic green; LSP compiles; module and
+  semantic metrics/fixture acceptance green; full-LSP and workspace-wide
+  release gates baseline-blocked.

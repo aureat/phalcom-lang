@@ -516,6 +516,16 @@ fn callable_signature_product_ignores_source_movement_but_input_tracks_it() {
 }
 
 #[test]
+fn callable_signature_input_tracks_source_end_when_start_is_unchanged() {
+    let left = semantic_signature();
+    let mut right = left.clone();
+    right.source = Some(SemanticSourceSpan::new(ModuleId::universe_root(), SourceRange { start: 10, end: 21 }));
+
+    assert_eq!(callable_signature_product_fingerprint(&left), callable_signature_product_fingerprint(&right));
+    assert_ne!(callable_signature_input_fingerprint(&left), callable_signature_input_fingerprint(&right));
+}
+
+#[test]
 fn callable_body_product_includes_binding_state() {
     let mut left = callable_analysis();
     let binding = phalcom_semantic::BindingId(1);

@@ -103,6 +103,11 @@ impl SemanticDb {
         self.query_states.get(key)
     }
 
+    /// Returns all cached query identities in deterministic order.
+    pub fn query_keys(&self) -> impl Iterator<Item = &QueryKey> {
+        self.query_states.keys()
+    }
+
     /// Returns the typed product published for a ready query.
     pub fn product(&self, key: &QueryKey) -> Option<&Arc<SemanticProduct>> {
         let state = self.query_states.get(key)?;

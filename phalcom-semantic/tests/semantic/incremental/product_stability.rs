@@ -200,61 +200,6 @@ class Consumer {
 }
 
 #[test]
-fn unused_export_edit_reuses_consumer_body() {
-    let module = ModuleId::resolved(
-        ResolvedProjectId::from_raw(7),
-        ModulePath::from_components(vec![ModuleComponent::from_identifier("unused_export").unwrap()]),
-    );
-    let mut session = SemanticWorkspaceSession::new();
-    let source_v1 = r#"
-class Provider {
-  @class foo() -> Int { 1 }
-}
-
-class Bar {
-  @class value() -> Int { 2 }
-}
-
-class Consumer {
-  @class read() -> Int { Provider.foo() }
-}
-"#;
-    let update1 = session.update(input(module.clone(), source_v1, 1));
-    assert!(!update1.snapshot.has_errors());
-
-    let consumer = DeclarationId::new(module.clone(), "Consumer".into());
-    let bar = DeclarationId::new(module.clone(), "Bar".into());
-    let bar_value = CallableId::new(bar, Selector::method("value", []).unwrap(), DispatchSide::Class);
-    let consumer_read = CallableId::new(consumer, Selector::method("read", []).unwrap(), DispatchSide::Class);
-    let consumer_v1 = update1.snapshot.callable_analyses.get(&consumer_read).unwrap().clone();
-    let rev1 = update1.snapshot.id.revision();
-
-    let source_v2 = r#"
-class Provider {
-  @class foo() -> Int { 1 }
-}
-
-class Bar {
-  @class value() -> String { "changed" }
-}
-
-class Consumer {
-  @class read() -> Int { Provider.foo() }
-}
-"#;
-    let update2 = session.update(input(module, source_v2, 2));
-    assert!(!update2.snapshot.has_errors());
-    let rev2 = update2.snapshot.id.revision();
-
-    assert_eq!(session.db().query_state(&QueryKey::CallableBody(bar_value)).unwrap().revision(), Some(rev2));
-    let consumer_state = session.db().query_state(&QueryKey::CallableBody(consumer_read.clone())).unwrap();
-    assert_eq!(consumer_state.revision(), Some(rev1));
-    assert_eq!(consumer_state.validated_revision(), Some(rev2));
-    assert_eq!(update2.stats.callables_recomputed, 1);
-    assert!(Arc::ptr_eq(&consumer_v1, update2.snapshot.callable_analyses.get(&consumer_read).unwrap()));
-}
-
-#[test]
 fn previously_absent_name_addition_recomputes_exact_consumer() {
     let module = ModuleId::resolved(
         ResolvedProjectId::from_raw(8),

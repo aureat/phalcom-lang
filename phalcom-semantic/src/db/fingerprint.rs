@@ -430,7 +430,7 @@ fn hash_source_span(span: &SemanticSourceSpan, hasher: &mut impl Hasher) {
 
 fn hash_callable_source_span(span: &SemanticSourceSpan, hasher: &mut impl Hasher) {
     span.module.hash(hasher);
-    span.range.start.hash(hasher);
+    hash_range(span.range, hasher);
 }
 
 fn hash_return_contract_validation(validation: ReturnContractValidation, hasher: &mut impl Hasher) {
@@ -1287,17 +1287,19 @@ pub fn callable_body_input_fingerprint_with_fields(
     finish_input(hasher)
 }
 
-/// Computes callable-body input identity from the callable's direct inputs.
+/// Computes callable-body input identity from the conservative A4 workspace inputs.
 ///
-/// Cross-module and source-resolution meaning is represented by recorded
-/// semantic query dependencies. It must not be smuggled into this identity as
-/// a workspace or linked-program safety hash.
+/// Exact semantic dependencies are recorded separately, but broad source and
+/// linked-program barriers remain until the next checkpoint proves they can be
+/// removed safely.
 pub fn callable_body_input_fingerprint_with_formal_inputs(
     callable: &CallableId,
     body: &[Statement],
     body_range: SourceRange,
     store: &TypeStore,
     sources: &BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
+    source_resolution_input: InputFingerprint,
+    linked_component_product: ProductFingerprint,
     lifecycle: Option<&crate::checker::field_lifecycle::FieldLifecycleTable>,
 ) -> InputFingerprint {
     let mut hasher = DefaultHasher::new();
@@ -1305,6 +1307,8 @@ pub fn callable_body_input_fingerprint_with_formal_inputs(
     if let Some(unit) = sources.get(callable.module()) {
         unit.text.get(body_range.start..body_range.end).map(str::as_bytes).hash(&mut hasher);
     }
+    source_resolution_input.raw().hash(&mut hasher);
+    linked_component_product.raw().hash(&mut hasher);
     if let Some(lifecycle) = lifecycle {
         for (field, fact) in lifecycle.fields.iter().filter(|(field, _)| &field.owner == callable.declaration_owner()) {
             field.hash(&mut hasher);
@@ -1312,6 +1316,19 @@ pub fn callable_body_input_fingerprint_with_formal_inputs(
             hash_type_knowledge(&fact.read_knowledge, true, &mut hasher);
             fact.initialization.hash(&mut hasher);
         }
+    }
+    finish_input(hasher)
+}
+
+/// Computes canonical declaration namespace identity consumed by body
+/// resolution. Callable bodies are intentionally excluded so body-only edits
+/// can still reuse callers when their semantic products remain unchanged.
+pub fn source_resolution_input_fingerprint(interfaces: &BTreeMap<ModuleId, Arc<UnlinkedModuleInterface>>) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    interfaces.len().hash(&mut hasher);
+    for (module, interface) in interfaces {
+        module.hash(&mut hasher);
+        unlinked_interface_product_fingerprint(interface).raw().hash(&mut hasher);
     }
     finish_input(hasher)
 }
@@ -1812,7 +1829,49 @@ pub fn resolved_import_input_fingerprint(product: &phalcom_modules::resolver::Im
 }
 
 pub fn resolved_import_product_fingerprint(product: &phalcom_modules::resolver::ImportResolutionProduct) -> ProductFingerprint {
-    ProductFingerprint::new(product.fingerprint.raw())
+    let mut hasher = DefaultHasher::new();
+    match &product.target {
+        Ok(target) => {
+            0u8.hash(&mut hasher);
+            target.hash(&mut hasher);
+            product.prefixes.len().hash(&mut hasher);
+            for prefix in product.prefixes.iter() {
+                prefix.prefix.hash(&mut hasher);
+                prefix.module.hash(&mut hasher);
+            }
+        }
+        Err(error) => {
+            1u8.hash(&mut hasher);
+            hash_resolution_failure_category(error, &mut hasher);
+        }
+    }
+    finish_product(hasher)
+}
+
+fn hash_resolution_failure_category(error: &phalcom_modules::error::ModuleResolutionError, hasher: &mut impl Hasher) {
+    use phalcom_modules::error::ModuleResolutionError;
+
+    let category = match error {
+        ModuleResolutionError::ModuleNotFound(_) => 0u8,
+        ModuleResolutionError::PackageNotFoundError(_) => 1,
+        ModuleResolutionError::InvalidModuleLayout(_) => 2,
+        ModuleResolutionError::AmbiguousModule { .. } => 3,
+        ModuleResolutionError::InvalidModuleName(_, _) => 4,
+        ModuleResolutionError::NonCanonicalPhysicalName { .. } => 5,
+        ModuleResolutionError::Parse { .. } => 6,
+        ModuleResolutionError::Interface { .. } => 7,
+        ModuleResolutionError::UnknownImportRoot(_) => 8,
+        ModuleResolutionError::LegacyCoreImportRemoved => 9,
+        ModuleResolutionError::LegacyStdImportRemoved => 10,
+        ModuleResolutionError::RelativeImportBeyondRoot { .. } => 11,
+        ModuleResolutionError::ImportOutsideSourceRoot(_, _) => 12,
+        ModuleResolutionError::NestedProjectBoundary(_) => 13,
+        ModuleResolutionError::DuplicateSourceIdentity(_) => 14,
+        ModuleResolutionError::ModulePathNotExposed { .. } => 15,
+        ModuleResolutionError::PackageSurface(_) => 16,
+        ModuleResolutionError::Source(_) => 17,
+    };
+    category.hash(hasher);
 }
 
 pub fn linked_name_input_fingerprint(product: &crate::db::product::LinkedNameProduct) -> InputFingerprint {

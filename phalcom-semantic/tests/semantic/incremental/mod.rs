@@ -1,4 +1,5 @@
 mod adts;
+mod a7_performance;
 mod advisory;
 mod callable_dependencies;
 mod checker_dependencies;

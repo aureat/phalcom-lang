@@ -86,6 +86,13 @@ pub struct SemanticUpdateStats {
     pub field_signatures_reused: usize,
     pub callable_bodies_recomputed: usize,
     pub callable_bodies_reused: usize,
+    pub query_products_recomputed: usize,
+    pub query_products_revalidated: usize,
+    pub exact_name_products_recomputed: usize,
+    pub exact_name_products_reused: usize,
+    pub reverse_candidates_considered: usize,
+    pub semantic_dependents_recomputed: usize,
+    pub semantic_dependents_reused: usize,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -662,7 +669,14 @@ impl SemanticWorkspaceSession {
         }
 
         self.db.begin_revision();
+        let source_resolution_input = crate::db::fingerprint::source_resolution_input_fingerprint(&input.interfaces);
+        let linked_component_product = crate::db::fingerprint::semantic_component_product_fingerprint(&input.linked);
         let mut stats = SemanticUpdateStats::default();
+        let previous_query_revisions = self
+            .db
+            .query_keys()
+            .map(|key| (key.clone(), self.db.query_state(key).and_then(|state| state.revision())))
+            .collect::<BTreeMap<_, _>>();
         let mut invalidated_keys = BTreeSet::new();
         let mut callable_dispositions = BTreeMap::new();
         let previous_sources = self.sources.clone();
@@ -784,6 +798,7 @@ impl SemanticWorkspaceSession {
                 }
             }
             let closure = self.db.index().reverse_closure(roots);
+            stats.reverse_candidates_considered = closure.len();
             let mut work = closure
                 .iter()
                 .filter_map(query_key_module_for_worklist)
@@ -1878,6 +1893,8 @@ impl SemanticWorkspaceSession {
 
                                 let formal_inputs = FormalQueryInputs {
                                     sources: &retained_sources,
+                                    source_resolution_input,
+                                    linked_component_product,
                                     linked: &input.linked,
                                     import_products: &input.import_products,
                                     hierarchy: &hierarchy,
@@ -2043,6 +2060,8 @@ impl SemanticWorkspaceSession {
 
                                     let formal_inputs = FormalQueryInputs {
                                         sources: &retained_sources,
+                                        source_resolution_input,
+                                        linked_component_product,
                                         linked: &input.linked,
                                         import_products: &input.import_products,
                                         hierarchy: &hierarchy,
@@ -2164,6 +2183,8 @@ impl SemanticWorkspaceSession {
 
                                             let formal_inputs = FormalQueryInputs {
                                                 sources: &retained_sources,
+                                                source_resolution_input,
+                                                linked_component_product,
                                                 linked: &input.linked,
                                                 import_products: &input.import_products,
                                                 hierarchy: &hierarchy,
@@ -2540,6 +2561,44 @@ impl SemanticWorkspaceSession {
                     &mut stats.callable_bodies_recomputed,
                     &mut stats.callable_bodies_reused,
                 );
+            }
+        }
+
+        // Count database work from computation/validation revisions, not from
+        // changed source modules. A cached product may be validated in this
+        // revision without being recomputed; preserving that distinction is
+        // required for deterministic incremental acceptance metrics.
+        let current_revision = self.db.revision();
+        for key in self.db.query_keys() {
+            let Some(state) = self.db.query_state(key) else {
+                continue;
+            };
+            let previous_computation_revision = previous_query_revisions.get(key).copied().flatten();
+            let recomputed = state.revision() == Some(current_revision) && previous_computation_revision != Some(current_revision);
+            let revalidated = !recomputed
+                && state.validated_revision() == Some(current_revision)
+                && state.revision() != Some(current_revision);
+            if recomputed {
+                stats.query_products_recomputed += 1;
+            } else if revalidated {
+                stats.query_products_revalidated += 1;
+            }
+
+            let exact_name = matches!(key, QueryKey::LinkedName(_, _) | QueryKey::PublicExport(_, _));
+            if exact_name {
+                if recomputed {
+                    stats.exact_name_products_recomputed += 1;
+                } else if revalidated {
+                    stats.exact_name_products_reused += 1;
+                }
+            }
+
+            if self.db.index().dependencies_of(key).is_some_and(|edges| !edges.is_empty()) {
+                if recomputed {
+                    stats.semantic_dependents_recomputed += 1;
+                } else if revalidated {
+                    stats.semantic_dependents_reused += 1;
+                }
             }
         }
 

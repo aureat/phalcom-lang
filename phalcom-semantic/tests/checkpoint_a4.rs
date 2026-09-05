@@ -69,61 +69,6 @@ fn test_previously_missing_public_name_appears_invalidates_consumer() {
 }
 
 #[test]
-fn test_unrelated_export_added_reuses_exact_consumer() {
-    let root = tempdir().unwrap();
-    std::fs::write(root.path().join("package.ph"), "").unwrap();
-    let provider_path = root.path().join("provider.ph");
-    let consumer_path = root.path().join("consumer.ph");
-
-    let provider = location(&provider_path);
-    let consumer = location(&consumer_path);
-
-    let mut session = SemanticWorkspaceSession::new();
-
-    // 1. Initial state: consumer imports Foo from provider
-    let _pub1 = session
-        .apply_module_mutations([
-            WorkspaceSourceBatchMutation::SetOverlay {
-                source: provider,
-                text: Arc::from("class Foo {}\nexport Foo\n"),
-                revision: SourceRevision(1),
-                recovered_program: None,
-            },
-            WorkspaceSourceBatchMutation::SetOverlay {
-                source: consumer,
-                text: Arc::from("import .provider as Provider\nclass Consumer {\n  @class read() -> Int { let value: Provider.Foo }\n}\n"),
-                revision: SourceRevision(1),
-                recovered_program: None,
-            },
-        ])
-        .expect("initial setup should succeed");
-
-    // 2. Add Bar export (unrelated export) to provider
-    let pub2 = session
-        .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
-            source: location(&provider_path),
-            text: Arc::from("class Foo {}\nclass Bar {}\nexport Foo\nexport Bar\n"),
-            revision: SourceRevision(2),
-            recovered_program: None,
-        }])
-        .expect("update should succeed");
-
-    // Consumer depends on PublicExport(provider, "Foo").
-    // Adding Bar export does not change PublicExport(provider, "Foo") product fingerprint.
-    // Consumer read() body should be reused without recomputation.
-    assert_eq!(
-        pub2.stats.callables_recomputed, 0,
-        "consumer body must not recompute when an unrelated export is added, stats: {:?}",
-        pub2.stats
-    );
-    assert!(
-        pub2.stats.callables_reused >= 1,
-        "consumer body must be reused, stats: {:?}",
-        pub2.stats
-    );
-}
-
-#[test]
 fn test_reexport_retargeting_invalidates_exact_consumer() {
     let root = tempdir().unwrap();
     std::fs::write(root.path().join("package.ph"), "").unwrap();

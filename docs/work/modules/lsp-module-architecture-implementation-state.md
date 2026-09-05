@@ -169,6 +169,37 @@ including `cargo test --workspace --all-targets`, remain a separate final gate.
 
 C7 focused evidence is green for Tasks 32–35. Final workspace-wide validation remains the next gate.
 
+## A7 performance and release closure update
+
+A7 instrumentation and deterministic acceptance fixtures are now implemented.
+`WorkspaceModuleStats` distinguishes linked components considered from
+recomputed/reused products. `SemanticUpdateStats` distinguishes query-product
+computation from current-revision validation and publishes exact-name,
+reverse-candidate, and dependency-bearing semantic work counts. Accounting is
+based on query computation revision, not source-change count or validation
+revision.
+
+`phalcom-modules/tests/checkpoint_a7.rs` adds deterministic builders for linear,
+star, disconnected, import-heavy, negative-import, re-export,
+hierarchy-fanout, and alias-SCC graphs. Its 1,000-module linear test proves a
+leaf body edit performs zero import resolution and zero component recomputation.
+`phalcom-semantic/tests/semantic/incremental/a7_performance.rs` proves
+recomputed and revalidated semantic products are reported separately.
+
+Evidence:
+
+| Command | Result |
+|---|---|
+| `RUSTFLAGS='' cargo test -p phalcom-modules` | PASS |
+| `RUST_MIN_STACK=8388608 RUSTFLAGS='' cargo test -p phalcom-semantic` | PASS: 1,096 passed, 42 ignored |
+| `RUSTFLAGS='' cargo check -p phalcom-lsp` | PASS |
+| `RUSTFLAGS='' cargo test -p phalcom-lsp` | BASELINE: 56 passed, 2 failed, 2 ignored; same two exact-source publication timeouts as clean `9f7ded35` |
+| `RUSTFLAGS='' cargo test --workspace --all-targets` | BASELINE: current invocation stops in `phalcom-core` with 21 named failures; no A7 core files changed |
+
+Plan-A release closure remains open until the inherited LSP and workspace-core
+baseline gates are separately repaired or formally reclassified. A Plan-B
+handoff is recorded in `docs/work/modules/plan-a-implementation-state.md`.
+
 ## Incident C6-I1 — Local-binding definition targets
 
 Observed: `composition1::constructor_factory_inference_is_authoritative_across_lsp_features` and `semantic_consistency::local_binding_definition_and_references_are_precise` initially returned null/non-array definition results for top-level binding targets.
