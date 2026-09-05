@@ -23,6 +23,8 @@ mod modules_compile;
 mod modules_linking;
 #[path = "modules/package_info.rs"]
 mod modules_package_info;
+#[path = "modules/parity.rs"]
+mod modules_parity;
 #[path = "modules/project_reflection.rs"]
 mod modules_project_reflection;
 #[path = "modules/reflection.rs"]

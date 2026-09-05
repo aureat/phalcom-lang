@@ -74,6 +74,20 @@ impl DependencyIndex {
         }
     }
 
+    /// Removes obsolete query identities from both dependency directions.
+    pub fn purge_keys(&mut self, keys: &BTreeSet<QueryKey>) {
+        for key in keys {
+            self.remove_dependencies(key);
+        }
+        self.reverse.retain(|dependency, dependents| {
+            if keys.contains(dependency) {
+                return false;
+            }
+            dependents.retain(|dependent| !keys.contains(dependent));
+            !dependents.is_empty()
+        });
+    }
+
     pub fn dependencies_of(&self, key: &QueryKey) -> Option<&[DependencyEdge]> {
         self.forward.get(key).map(|v| v.as_slice())
     }

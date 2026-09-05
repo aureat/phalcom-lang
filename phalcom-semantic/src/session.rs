@@ -699,6 +699,7 @@ impl SemanticWorkspaceSession {
                 }
                 let closure = self.db.invalidate(seeds);
                 invalidated_keys.extend(closure);
+                self.db.purge_module(old_module_id);
             }
         }
 

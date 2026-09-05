@@ -24,7 +24,7 @@ pub use query::{
 pub use scheduler::QueryScheduler;
 pub use state::{PublishError, QueryOutcome, QueryState, QueryValue};
 
-use crate::identity::{SemanticRevision, WorkspaceId};
+use crate::identity::{ModuleId, SemanticRevision, WorkspaceId};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -330,5 +330,60 @@ impl SemanticDb {
             self.metrics.record_invalidation();
         }
         roots
+    }
+
+    /// Permanently removes every cached query product owned by one obsolete module.
+    ///
+    /// This is intentionally separate from invalidation: cancellation and ordinary
+    /// recomputation retain last-known-good products, while deleted/reidentified
+    /// module identities must not survive in a long-lived workspace session.
+    pub fn purge_module(&mut self, module: &ModuleId) -> usize {
+        let keys: BTreeSet<QueryKey> = self
+            .query_states
+            .keys()
+            .chain(self.products.keys())
+            .chain(self.last_known_good.keys())
+            .filter(|key| query_key_module(key) == Some(module))
+            .cloned()
+            .collect();
+
+        let mut purged = 0;
+        for key in &keys {
+            purged += usize::from(self.query_states.remove(key).is_some());
+            purged += usize::from(self.products.remove(key).is_some());
+            purged += usize::from(self.last_known_good.remove(key).is_some());
+        }
+        self.index.purge_keys(&keys);
+        purged
+    }
+}
+
+fn query_key_module(key: &QueryKey) -> Option<&ModuleId> {
+    match key {
+        QueryKey::ParsedModule(module)
+        | QueryKey::UnlinkedInterface(module)
+        | QueryKey::ResolvedImports(module)
+        | QueryKey::LinkedInterface(module)
+        | QueryKey::SemanticComponent(module)
+        | QueryKey::SourceStructure(module)
+        | QueryKey::AdvisoryModule(module)
+        | QueryKey::ModuleDiagnostics(module)
+        | QueryKey::ModuleMetadata(module) => Some(module),
+        QueryKey::DeclarationShell(declaration)
+        | QueryKey::HierarchyEdge(declaration)
+        | QueryKey::DeclarationSurface(declaration)
+        | QueryKey::EnumDeclaration(declaration)
+        | QueryKey::EnumRequirements(declaration)
+        | QueryKey::AssociatedSurface(declaration) => Some(&declaration.module),
+        QueryKey::FieldSignature(field) => Some(&field.owner.module),
+        QueryKey::CallableSignature(callable)
+        | QueryKey::CallableBody(callable)
+        | QueryKey::CallableEffects(callable)
+        | QueryKey::CallableControl(callable)
+        | QueryKey::CallableTermination(callable)
+        | QueryKey::CallableContracts(callable)
+        | QueryKey::VerificationConditions(callable)
+        | QueryKey::SourceFormalAttachment(callable)
+        | QueryKey::AdvisoryCallable(callable) => Some(callable.module()),
     }
 }

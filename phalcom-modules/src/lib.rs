@@ -63,7 +63,8 @@ pub use resolver::{
     ResolutionTopologyDependencies,
 };
 pub use session::{
-    SourceRevision, WorkspaceModuleSession, WorkspaceModuleSessionError, WorkspaceModuleUpdate, WorkspaceSourceBatchMutation, WorkspaceSourceMutation,
+    SourceRevision, WorkspaceModuleSession, WorkspaceModuleSessionError, WorkspaceModuleStats, WorkspaceModuleUpdate, WorkspaceSourceBatchMutation,
+    WorkspaceSourceMutation,
     WorkspaceSourceState,
 };
 pub use source::{EntryOwnership, FilesystemSourceProvider, ModuleKind, ParsedModuleUnit, SourceProvider, SourceUnit, classify_entry_ownership};

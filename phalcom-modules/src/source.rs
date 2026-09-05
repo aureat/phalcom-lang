@@ -222,6 +222,8 @@ struct FilesystemCacheState {
     resolution: Mutex<HashMap<(u64, ResolvedProjectId, ModulePath), Result<SourceUnit, ModuleResolutionError>>>,
     source_cache: Mutex<HashMap<(u64, SourceId), Arc<str>>>,
     source_id_to_module: Mutex<HashMap<(u64, SourceId), ModuleId>>,
+    resolution_hits: AtomicU64,
+    resolution_misses: AtomicU64,
 }
 
 /// Filesystem source provider with resolution caching and kebab/snake convention handling.
@@ -274,6 +276,14 @@ impl FilesystemSourceProvider {
 
     pub fn generation(&self) -> u64 {
         self.generation.load(Ordering::Acquire)
+    }
+
+    /// Returns cumulative resolution-cache hit/miss counters.
+    pub fn resolution_metrics(&self) -> (u64, u64) {
+        (
+            self.cache.resolution_hits.load(Ordering::Relaxed),
+            self.cache.resolution_misses.load(Ordering::Relaxed),
+        )
     }
 
     fn locate_internal(&self, project: &ResolvedProject, path: &ModulePath) -> Result<SourceUnit, ModuleResolutionError> {
@@ -509,10 +519,12 @@ impl SourceProvider for FilesystemSourceProvider {
         {
             let cache = self.cache.resolution.lock().unwrap();
             if let Some(res) = cache.get(&key) {
+                self.cache.resolution_hits.fetch_add(1, Ordering::Relaxed);
                 return res.clone();
             }
         }
 
+        self.cache.resolution_misses.fetch_add(1, Ordering::Relaxed);
         let result = self.locate_internal(project, path);
         let mut cache = self.cache.resolution.lock().unwrap();
         cache.insert(key, result.clone());

@@ -161,6 +161,55 @@ fn standalone_sibling_files_do_not_form_package() {
 }
 
 #[test]
+fn package_marker_addition_and_removal_reclassifies_open_sources() {
+    let temp = TempDir::new().unwrap();
+    let main = temp.path().join("main.ph");
+    let helper = temp.path().join("helper.ph");
+    fs::write(&main, "import .helper as Helper\n").unwrap();
+    fs::write(&helper, "class Helper {}\nexport Helper\n").unwrap();
+    let main_source = location(&main);
+    let helper_source = location(&helper);
+    let mut session = WorkspaceModuleSession::new();
+
+    session
+        .set_overlays([
+            (main_source.clone(), Arc::from("import .helper as Helper\n"), SourceRevision(1)),
+            (helper_source.clone(), Arc::from("class Helper {}\nexport Helper\n"), SourceRevision(1)),
+        ])
+        .unwrap();
+    let old_main = session.module_for_source(&main_source.source_id).unwrap().clone();
+    let old_helper = session.module_for_source(&helper_source.source_id).unwrap().clone();
+    assert!(old_main.project.as_synthetic().is_some());
+    assert!(old_helper.project.as_synthetic().is_some());
+
+    let package = temp.path().join("package.ph");
+    fs::write(&package, "").unwrap();
+    let added = session
+        .apply_batch([WorkspaceSourceBatchMutation::SetDiskSnapshot {
+            source: location(&package),
+            text: Arc::from(""),
+            revision: SourceRevision(1),
+            recovered_program: None,
+        }])
+        .unwrap();
+    let new_main = session.module_for_source(&main_source.source_id).unwrap().clone();
+    let new_helper = session.module_for_source(&helper_source.source_id).unwrap().clone();
+    assert!(new_main.project.as_resolved().is_some());
+    assert_eq!(new_main.project, new_helper.project);
+    assert_ne!(new_main, old_main);
+    assert_ne!(new_helper, old_helper);
+    assert!(added.removed_modules.contains(&old_main));
+    assert!(added.removed_modules.contains(&old_helper));
+    assert!(added.stats.topology_invalidations > 0);
+
+    fs::remove_file(&package).unwrap();
+    let removed = session.remove_source(SourceId(package.to_string_lossy().into())).unwrap();
+    let final_main = session.module_for_source(&main_source.source_id).unwrap();
+    assert!(final_main.project.as_synthetic().is_some());
+    assert!(removed.identity_changes.iter().any(|module| module == &new_main));
+}
+
+#[test]
 fn direct_file_inside_standalone_package_uses_package_identity() {
     let temp = TempDir::new().unwrap();
     fs::write(temp.path().join("package.ph"), "").unwrap();
@@ -358,7 +407,7 @@ fn body_only_edit_preserves_interface_fingerprint_and_stops_propagation() {
     let src_a = location(&file_a);
     let src_b = location(&file_b);
 
-    let _up1 = session
+    let up1 = session
         .apply_batch([
             WorkspaceSourceBatchMutation::SetOverlay {
                 source: src_a.clone(),
@@ -374,6 +423,8 @@ fn body_only_edit_preserves_interface_fingerprint_and_stops_propagation() {
             },
         ])
         .unwrap();
+    assert!(up1.stats.interfaces_built >= 2);
+    assert!(up1.stats.imports_resolved >= 1);
 
     let mod_a = session.module_for_source(&src_a.source_id).cloned().unwrap();
     let _mod_b = session.module_for_source(&src_b.source_id).cloned().unwrap();
@@ -400,6 +451,11 @@ fn body_only_edit_preserves_interface_fingerprint_and_stops_propagation() {
     assert!(Arc::ptr_eq(&linked_v1, &linked_v2), "body-only edit must reuse linked program directly");
     assert_eq!(session.import_products().len(), import_prods_v1.len());
     assert!(up2.changed_modules.contains(&mod_a));
+    assert_eq!(up2.stats.interfaces_built, 1);
+    assert!(up2.stats.interfaces_reused >= 1);
+    assert_eq!(up2.stats.imports_resolved, 0);
+    assert!(up2.stats.linked_modules_reused >= 2);
+    assert_eq!(up2.stats.linked_components, 0);
 }
 
 #[test]
@@ -498,9 +554,10 @@ fn remove_source_hard_purges_module_products() {
     assert!(session.interfaces().contains_key(&mod_id));
     assert!(session.linked_modules().contains_key(&mod_id));
 
-    session.remove_source(source.source_id).unwrap();
+    let removed = session.remove_source(source.source_id).unwrap();
 
     assert!(!session.interfaces().contains_key(&mod_id));
     assert!(!session.linked_modules().contains_key(&mod_id));
     assert!(session.source(&mod_id).is_none());
+    assert!(removed.stats.purged_products >= 2);
 }

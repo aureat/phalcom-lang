@@ -37,6 +37,9 @@ Prepared plan revision:
 - D-23: C6 introduces `SemanticDefinitionLocation`; imported lexical bindings follow `ImportBindingOrigin` to upstream definitions, while ordinary ranged targets continue using existing source sites and module targets use canonical module provenance.
 - D-24: LSP definition conversion is centralized in backend compiler-location projection. Removed request-time import-path reconstruction and legacy compiler import-definition helpers; module hover consumes published `Module` occurrences.
 - D-25: Positive module navigation now requires `package.ph`; package-less sibling imports and private exports fail closed without fabricated definition locations.
+- D-26: `WorkspaceModuleStats` is a module-owned per-update work ledger. It measures interface reuse/builds, import reuse/resolution, component linking, ownership/cache activity, topology invalidation, affected identities, and product purge without moving semantic authority into LSP.
+- D-27: Package-marker topology events force tracked source reclassification through `classify_entry_ownership`; ordinary source edits retain stable identities. Removed semantic query identities use explicit `SemanticDb::purge_module`, separate from last-known-good invalidation.
+- D-28: Compiler/workspace parity uses one temporary standalone-package fixture and compares source-backed `ModuleId`, resolved import target, linked export target, declaration identity, and module-global binding identity. Package-less relative imports remain a negative comparator.
 
 ## Evidence ledger
 
@@ -86,6 +89,56 @@ Prepared plan revision:
 | C6 | `rg 'resolved_import_target' phalcom-lsp/src/backend.rs` | PASS: zero matches | Backend no longer reconstructs import targets through module query spelling. |
 | C6 | `git diff --check` | PASS | C6 changes introduce no whitespace errors. |
 
+## C7 closure update — topology lifecycle, work metrics, purge, and parity
+
+Task 32 now reclassifies all tracked source identities when a `package.ph` or
+project ownership marker is added, removed, or refreshed. Existing standalone
+identities remain stable for ordinary source additions and edits. Reclassified
+old identities are included in the removal set, so module products and affected
+importers are rebuilt from current ownership.
+
+Task 33 now publishes `WorkspaceModuleStats` with each `WorkspaceModuleUpdate`.
+Filesystem resolution cache hit/miss counters are owned by
+`FilesystemSourceProvider`; module updates expose their per-update delta. The
+semantic DB has an explicit `purge_module` path that removes query state,
+products, last-known-good products, and dependency edges for obsolete module
+identities.
+
+Task 34 adds a cross-crate `phalcom-core` parity fixture. Strict
+`ProgramAnalyzer` and `SemanticWorkspaceSession` now prove equal package
+module IDs, import targets, linked exports, declaration IDs, and module-global
+binding targets. A package-less comparator proves relative imports remain
+rejected without `package.ph`.
+
+Checkpoint evidence:
+
+| Command | Result |
+|---|---|
+| `cargo fmt --all -- --check` | PASS |
+| `RUSTFLAGS='' cargo check -p phalcom-modules -p phalcom-semantic -p phalcom-core` | PASS |
+| `RUSTFLAGS='' cargo test -p phalcom-modules --test workspace_session` | PASS: 19 passed |
+| `RUSTFLAGS='' cargo test -p phalcom-modules --test standalone_incremental_imports` | PASS: 2 passed |
+| `RUSTFLAGS='' cargo test -p phalcom-modules topology` | PASS: 5 passed; existing unused-import warnings only |
+| `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic module_query_provenance` | PASS: 1 passed |
+| `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic incremental` | PASS: 127 passed, 4 ignored |
+| `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic purge_module_removes_last_known_good_products_and_edges` | PASS: 1 passed |
+| `RUSTFLAGS='' cargo test -p phalcom-lsp --test module_navigation` | PASS: 4 passed |
+| `RUSTFLAGS='' cargo test -p phalcom-core --test core modules_parity` | PASS: 2 passed |
+| `RUSTFLAGS='' cargo test -p phalcom-core --test core modules_universe` | PASS: 16 passed |
+
+Negative/deletion gates:
+
+| Search | Result |
+|---|---|
+| `resolve_standalone_import` in production | PASS: zero; remaining matches are plan/state documentation |
+| legacy LSP import helpers | PASS: zero in `phalcom-lsp/src` |
+| qualified declaration fallback patterns | PASS: zero in `phalcom-semantic/src` |
+| generic publication-error cancellation assignment | PASS: zero in `phalcom-lsp/src/analysis_service.rs` |
+| `load_synthetic_root` production consumer | PASS: no session/core consumer; declaration remains documented compatibility API in `project.rs` |
+
+C7 implementation evidence is green. Final workspace-wide delivery commands,
+including `cargo test --workspace --all-targets`, remain a separate final gate.
+
 ## Negative/deletion gates
 
 | Checkpoint | Search | Expected | Observed |
@@ -98,7 +151,7 @@ Prepared plan revision:
 
 ## Deferred gates
 
-- `cargo test -p phalcom-lsp` → C6
+- `cargo test -p phalcom-lsp` → Final Gate (C6 focused gate already closed)
 - `cargo test --workspace --all-targets` → Final Gate
 
 ## Resolved incident (Pre-C0 inherited hang)
@@ -108,7 +161,7 @@ Prepared plan revision:
 
 ## Next resume action
 
-C6 focused evidence is green for Tasks 28–31. Closure audit repaired C3-I3 workspace semantics and C6-I1 local-binding navigation. Full `phalcom-lsp` is green; C7 remains pending final workspace-wide validation.
+C7 focused evidence is green for Tasks 32–35. Final workspace-wide validation remains the next gate.
 
 ## Incident C6-I1 — Local-binding definition targets
 

@@ -94,6 +94,35 @@ fn declaration_shell_query_publishes_typed_product_and_reuses_it() {
 }
 
 #[test]
+fn purge_module_removes_last_known_good_products_and_edges() {
+    use phalcom_semantic::declarations::DeclarationTypeInfo;
+    use phalcom_semantic::types::id::{KindId, TypeId};
+
+    let module = module();
+    let declaration = phalcom_semantic::DeclarationId::new(module.clone(), "Obsolete".into());
+    let info = Arc::new(DeclarationTypeInfo {
+        declaration: declaration.clone(),
+        form: TypeId(1),
+        class_object_type: TypeId(2),
+        kind: KindId::TYPE,
+        generic_signature: None,
+        supertype_template: None,
+    });
+    let mut db = SemanticDb::new();
+    let _ = phalcom_semantic::db::query_declaration_shell(
+        &mut db,
+        Arc::new(phalcom_semantic::TypeDeclarationShell::Nominal((*info).clone())),
+    );
+    let key = QueryKey::DeclarationShell(declaration);
+    assert!(db.last_known_good_product(&key).is_some());
+
+    assert!(db.purge_module(&module) > 0);
+    assert!(db.product(&key).is_none());
+    assert!(db.last_known_good_product(&key).is_none());
+    assert!(db.query_state(&key).is_none());
+}
+
+#[test]
 fn stale_revision_cannot_publish_a_ready_product() {
     let mut db = SemanticDb::new();
     let key = QueryKey::ParsedModule(module());
