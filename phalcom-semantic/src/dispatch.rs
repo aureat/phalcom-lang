@@ -186,6 +186,19 @@ impl SurfaceDispatchResolver {
         self.type_declarations.insert(ty, decl);
     }
 
+    /// Removes declaration-owned dispatch surfaces and type registrations.
+    pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
+        let removed = self
+            .surfaces
+            .keys()
+            .filter(|declaration| &declaration.module == module)
+            .cloned()
+            .collect::<HashSet<_>>();
+        self.surfaces.retain(|declaration, _| &declaration.module != module);
+        self.type_declarations
+            .retain(|_, declaration| !removed.contains(declaration));
+    }
+
     pub fn get_surface(&self, decl: &DeclarationId) -> Option<&DeclarationSurface> {
         self.surfaces.get(decl)
     }

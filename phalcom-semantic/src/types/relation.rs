@@ -47,6 +47,12 @@ impl MapTypeHierarchy {
         );
         self.templates.insert(template.declaration.clone(), template);
     }
+
+    /// Removes direct hierarchy contributions owned by one source module.
+    pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
+        self.superclasses.retain(|declaration, _| &declaration.module != module);
+        self.templates.retain(|declaration, _| &declaration.module != module);
+    }
 }
 
 impl TypeHierarchy for MapTypeHierarchy {

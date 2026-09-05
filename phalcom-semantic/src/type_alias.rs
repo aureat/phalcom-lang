@@ -32,6 +32,11 @@ impl TypeAliasTable {
         self.aliases.insert(info.declaration.clone(), info);
     }
 
+    /// Removes aliases contributed by one source module.
+    pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
+        self.aliases.retain(|declaration, _| &declaration.module != module);
+    }
+
     pub fn get(&self, declaration: &DeclarationId) -> Option<&TypeAliasInfo> {
         self.aliases.get(declaration)
     }

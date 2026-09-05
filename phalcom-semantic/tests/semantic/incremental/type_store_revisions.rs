@@ -1,9 +1,50 @@
-use super::support::single_module_input;
+use super::support::{multi_module_input, single_module_input};
 use phalcom_common::selector::Selector;
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_semantic::db::QueryKey;
 use phalcom_semantic::identity::DeclarationId;
 use phalcom_semantic::session::SemanticWorkspaceSession;
+use std::sync::Arc;
+
+#[test]
+fn unchanged_module_semantic_structure_shard_is_retained() {
+    let first = ModuleId::resolved(
+        ResolvedProjectId::from_raw(103),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("first").unwrap()]),
+    );
+    let second = ModuleId::resolved(
+        ResolvedProjectId::from_raw(103),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("second").unwrap()]),
+    );
+    let mut session = SemanticWorkspaceSession::new();
+    let update1 = session.update(multi_module_input(
+        vec![
+            (first.clone(), "class First { value() -> Int { 1 } }".into()),
+            (second.clone(), "class Second { value() -> Int { 2 } }".into()),
+        ],
+        1,
+    ));
+    assert!(!update1.snapshot.has_errors());
+
+    let update2 = session.update(multi_module_input(
+        vec![
+            (first.clone(), "class First { value() -> Int { 3 } }".into()),
+            (second.clone(), "class Second { value() -> Int { 2 } }".into()),
+        ],
+        2,
+    ));
+    assert!(!update2.snapshot.has_errors());
+    assert_eq!(update2.stats.semantic_structure_shards_recomputed, 1);
+    assert_eq!(update2.stats.semantic_structure_shards_reused, 1);
+    assert!(Arc::ptr_eq(
+        update1.snapshot.semantic_structure_shards.get(&second).unwrap(),
+        update2.snapshot.semantic_structure_shards.get(&second).unwrap(),
+    ));
+    assert!(!Arc::ptr_eq(
+        update1.snapshot.semantic_structure_shards.get(&first).unwrap(),
+        update2.snapshot.semantic_structure_shards.get(&first).unwrap(),
+    ));
+}
 
 #[test]
 fn stable_type_store_id_and_snapshots_across_revisions() {

@@ -5,6 +5,7 @@ use crate::diagnostic::{DiagnosticSeverity, SemanticDiagnostic};
 use crate::dispatch::SurfaceDispatchResolver;
 use crate::identity::{DeclarationId, ModuleId, SemanticRevision, SnapshotId, SourceSiteId, SourceSiteRef, WorkspaceId};
 use crate::presentation::{FormalFactRef, FormalFactSite, FormalSemanticProjection, SemanticSiteView};
+use crate::semantic_shard::ModuleSemanticStructureShard;
 use crate::signature::{CallableSignatureTable, FieldSignatureTable};
 use crate::source::ParsedModuleUnit;
 use crate::source_index::{OccurrenceView, SourceSemanticIndex, SourceSite};
@@ -157,6 +158,8 @@ pub struct SemanticSnapshot {
     pub enum_semantics: Arc<EnumSemanticTable>,
     pub enum_requirements: Arc<EnumRequirementTable>,
     pub associated_surfaces: Arc<AssociatedFamilyTable>,
+    /// Retained source-local semantic structure shards for incremental reuse.
+    pub semantic_structure_shards: Arc<BTreeMap<ModuleId, Arc<ModuleSemanticStructureShard>>>,
     pub status: SnapshotStatus,
 }
 
@@ -203,6 +206,7 @@ impl SemanticSnapshot {
             enum_semantics: Arc::new(EnumSemanticTable::new()),
             enum_requirements: Arc::new(EnumRequirementTable::new()),
             associated_surfaces: Arc::new(AssociatedFamilyTable::new()),
+            semantic_structure_shards: Arc::new(BTreeMap::new()),
             status: SnapshotStatus::Complete,
         }
     }
@@ -251,6 +255,7 @@ impl SemanticSnapshot {
             enum_semantics: Arc::new(EnumSemanticTable::new()),
             enum_requirements: Arc::new(EnumRequirementTable::new()),
             associated_surfaces: Arc::new(AssociatedFamilyTable::new()),
+            semantic_structure_shards: Arc::new(BTreeMap::new()),
             status: SnapshotStatus::Complete,
         }
     }
@@ -272,6 +277,15 @@ impl SemanticSnapshot {
 
     pub fn with_associated_surfaces(mut self, associated_surfaces: Arc<AssociatedFamilyTable>) -> Self {
         self.associated_surfaces = associated_surfaces;
+        self
+    }
+
+    /// Attaches retained source-local semantic structure shards.
+    pub fn with_semantic_structure_shards(
+        mut self,
+        shards: Arc<BTreeMap<ModuleId, Arc<ModuleSemanticStructureShard>>>,
+    ) -> Self {
+        self.semantic_structure_shards = shards;
         self
     }
 

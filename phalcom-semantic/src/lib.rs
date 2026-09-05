@@ -33,6 +33,7 @@ pub mod resolver;
 pub mod scope;
 pub mod session;
 pub mod signature;
+pub mod semantic_shard;
 pub mod snapshot;
 pub mod source;
 pub mod source_index;
@@ -111,6 +112,7 @@ pub use prover::{
 pub use resolver::LinkedTypeResolver;
 pub use scope::ScopeTable;
 pub use session::{SemanticPublicationEffects, SemanticUpdateStats, SemanticWorkspacePublication, SemanticWorkspaceSession, SemanticWorkspaceUpdate};
+pub use semantic_shard::ModuleSemanticStructureShard;
 pub use signature::{
     CallableParameterSemantic, CallableSemanticSignature, CallableSignatureTable, FieldSemanticSignature, FieldSignatureTable, ReturnContractValidation,
 };

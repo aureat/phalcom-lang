@@ -61,6 +61,11 @@ impl EnumRequirementTable {
         self.requirements.insert(owner.clone(), requirements);
         self.case_statuses.insert(owner, statuses);
     }
+
+    pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
+        self.requirements.retain(|owner, _| &owner.module != module);
+        self.case_statuses.retain(|owner, _| &owner.module != module);
+    }
 }
 
 /// Checks all concrete variants of an enum against its closed-enum requirements.

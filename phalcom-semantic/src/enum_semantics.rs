@@ -114,6 +114,11 @@ impl EnumSemanticTable {
         self.variants.insert(info.id.clone(), info);
     }
 
+    pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
+        self.enums.retain(|owner, _| &owner.module != module);
+        self.variants.retain(|variant, _| &variant.owner.module != module);
+    }
+
     pub fn enum_info(&self, owner: &DeclarationId) -> Option<&EnumInfo> {
         self.enums.get(owner).map(|a| a.as_ref())
     }

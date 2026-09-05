@@ -181,6 +181,10 @@ impl CallableSignatureTable {
         self.by_id.insert(sig.callable.clone(), sig);
     }
 
+    pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
+        self.by_id.retain(|callable, _| callable.module() != module);
+    }
+
     pub fn get(&self, callable: &CallableId) -> Option<&CallableSemanticSignature> {
         self.by_id.get(callable)
     }
@@ -235,6 +239,10 @@ impl FieldSignatureTable {
 
     pub fn insert(&mut self, sig: FieldSemanticSignature) {
         self.by_id.insert(sig.field.clone(), sig);
+    }
+
+    pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
+        self.by_id.retain(|field, _| &field.owner.module != module);
     }
 
     pub fn get(&self, field: &FieldId) -> Option<&FieldSemanticSignature> {

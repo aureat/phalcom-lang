@@ -13,48 +13,54 @@ use std::sync::Arc;
 /// Build minimal linked input while keeping source parsing identical across
 /// every incremental scenario.
 pub(crate) fn single_module_input(module: ModuleId, source: &str, generation: u64) -> SemanticWorkspaceInput {
-    let parsed = phalcom_ast::parse(source, 0);
-    let program = Arc::new(parsed.program);
-    let local_globals = InterfaceBuilder::build(module.clone(), ModuleKind::Module, &program)
-        .map(|interface| {
-            interface
-                .declarations
-                .keys()
-                .enumerate()
-                .map(|(index, name)| (name.clone().into_boxed_str(), GlobalBindingId(index as u32)))
-                .collect()
-        })
-        .unwrap_or_default();
+    multi_module_input(vec![(module, source.to_owned())], generation)
+}
 
-    let linked_module = LinkedModule {
-        interface: LinkedModuleInterface {
-            module: module.clone(),
-            kind: ModuleKind::Module,
-            exports: BTreeMap::new(),
-            metadata: ModuleMetadata::default(),
-        },
-        bindings: ModuleBindingLayout {
-            local_globals,
-            ..ModuleBindingLayout::default()
-        },
-        linked_reads: Vec::new(),
-        runtime_dependencies: Vec::new(),
-    };
-    let mut modules = BTreeMap::new();
-    modules.insert(module.clone(), linked_module);
+/// Build minimal linked input for several source modules.
+pub(crate) fn multi_module_input(modules: Vec<(ModuleId, String)>, generation: u64) -> SemanticWorkspaceInput {
+    let mut linked_modules = BTreeMap::new();
+    let mut sources = BTreeMap::new();
+    for (module, source) in modules {
+        let parsed = phalcom_ast::parse(&source, 0);
+        let program = Arc::new(parsed.program);
+        let local_globals = InterfaceBuilder::build(module.clone(), ModuleKind::Module, &program)
+            .map(|interface| {
+                interface
+                    .declarations
+                    .keys()
+                    .enumerate()
+                    .map(|(index, name)| (name.clone().into_boxed_str(), GlobalBindingId(index as u32)))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        linked_modules.insert(
+            module.clone(),
+            LinkedModule {
+                interface: LinkedModuleInterface {
+                    module: module.clone(),
+                    kind: ModuleKind::Module,
+                    exports: BTreeMap::new(),
+                    metadata: ModuleMetadata::default(),
+                },
+                bindings: ModuleBindingLayout {
+                    local_globals,
+                    ..ModuleBindingLayout::default()
+                },
+                linked_reads: Vec::new(),
+                runtime_dependencies: Vec::new(),
+            },
+        );
+        sources.insert(module.clone(), Arc::new(ParsedModuleUnit::new(module, ModuleKind::Module, None, Arc::from(source), program)));
+    }
 
     let linked = Arc::new(LinkedProgram {
         universe: Arc::new(phalcom_modules::project::ProjectUniverse::new()),
-        modules,
+        modules: linked_modules,
         graphs: phalcom_modules::graph::ModuleGraphs::default(),
-        entry: module.clone(),
-        initialization_order: vec![module.clone()],
+        entry: sources.keys().next().cloned().expect("multi-module fixture requires one module"),
+        initialization_order: sources.keys().cloned().collect(),
     });
-    let mut sources = BTreeMap::new();
-    sources.insert(
-        module.clone(),
-        Arc::new(ParsedModuleUnit::new(module, ModuleKind::Module, None, Arc::from(source), program)),
-    );
 
     SemanticWorkspaceInput::new(linked, sources, generation)
 }

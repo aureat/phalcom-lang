@@ -54,6 +54,10 @@ impl AssociatedFamilyTable {
     pub fn insert(&mut self, owner: DeclarationId, surface: Arc<AssociatedSurface>) {
         self.surfaces.insert(owner, surface);
     }
+
+    pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
+        self.surfaces.retain(|owner, _| &owner.module != module);
+    }
 }
 
 fn format_selector_base(base: &SelectorBase) -> &str {
