@@ -214,8 +214,9 @@ workspace-wide `phalcom-core` baseline.
 
 ### Plan-B handoff
 
-- Final working tree includes A4 corrective changes plus A7 metrics and
-  deterministic fixtures; no commit or push was performed in this slice.
+- Final pushed HEAD is `180289d71697810ccf3bc6586be88714600f4828`
+  (`feat(lsp): close Plan A incremental performance evidence`); local `main`
+  matches `origin/main`.
 - Retained module products: `ModuleTopology`, `ImportSiteId` keyed resolution
   products with prefix provenance, `ComponentId`/`ComponentLinkedProduct`,
   `WorkspaceModuleStats`, and published reverse import/site indexes.
