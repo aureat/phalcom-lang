@@ -76,7 +76,7 @@ pub use dispatch::{
 };
 pub use editor::{
     AccessContext, EditorMember, EditorMemberTarget, EditorSemanticQuery, EditorTypeHint, EditorTypeHintKind, NativeCallablePresentation, PartialCallPattern,
-    ReceiverAlternative, ReceiverMode, ResolvedReceiver, VisibleSymbol,
+    ReceiverAlternative, ReceiverMode, ResolvedReceiver, SemanticDefinitionLocation, VisibleSymbol,
 };
 pub use effects::{
     EffectAtom, EffectKnowledge, EffectOpaqueReason, EffectSet, adapt_effect_atom, adapt_effect_spec, infer_interprocedural_effects_scc,

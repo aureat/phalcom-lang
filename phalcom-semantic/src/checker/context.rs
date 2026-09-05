@@ -2393,6 +2393,22 @@ fn local_type_is_soundly_widenable(
     expected: TypeId,
     constraints: &[LocalConstraint],
 ) -> bool {
+    let expected_local = LocalType::from_canonical(ctx.store, expected, &HashMap::new());
+    for constraint in constraints {
+        let LocalConstraint::Equivalent { left, right } = constraint else {
+            continue;
+        };
+        let mut rigid_bindings = BTreeMap::new();
+        collect_equivalent_rigid_bindings(left, right, &mut rigid_bindings);
+        if rigid_bindings.is_empty() {
+            continue;
+        }
+        let rewritten = rewrite_local_rigids(local_type, &rigid_bindings);
+        if rewritten.alpha_equivalent(&expected_local) {
+            return true;
+        }
+    }
+
     if let Some(upper) = constraints.iter().find_map(|constraint| match constraint {
         LocalConstraint::Subtype {
             lower,
@@ -2425,6 +2441,104 @@ fn local_type_is_soundly_widenable(
                 })
         }
         _ => false,
+    }
+}
+
+fn collect_equivalent_rigid_bindings(left: &LocalType, right: &LocalType, bindings: &mut BTreeMap<crate::types::id::RigidTypeVariableId, LocalType>) {
+    match (left, right) {
+        (LocalType::Rigid(rigid), other) if other.free_rigids().is_empty() => {
+            if bindings.get(rigid).is_none_or(|existing| existing == other) {
+                bindings.insert(*rigid, other.clone());
+            }
+        }
+        (other, LocalType::Rigid(rigid)) if other.free_rigids().is_empty() => {
+            if bindings.get(rigid).is_none_or(|existing| existing == other) {
+                bindings.insert(*rigid, other.clone());
+            }
+        }
+        (
+            LocalType::Applied { origin: left_origin, arguments: left_arguments },
+            LocalType::Applied { origin: right_origin, arguments: right_arguments },
+        ) if left_arguments.len() == right_arguments.len() => {
+            collect_equivalent_rigid_bindings(left_origin, right_origin, bindings);
+            for (left, right) in left_arguments.iter().zip(right_arguments.iter()) {
+                collect_equivalent_rigid_bindings(left, right, bindings);
+            }
+        }
+        (
+            LocalType::ExactCase { variant: left_variant, enum_type: left_enum },
+            LocalType::ExactCase { variant: right_variant, enum_type: right_enum },
+        ) if left_variant == right_variant => collect_equivalent_rigid_bindings(left_enum, right_enum, bindings),
+        (LocalType::Union(left), LocalType::Union(right)) if left.len() == right.len() => {
+            for (left, right) in left.iter().zip(right.iter()) {
+                collect_equivalent_rigid_bindings(left, right, bindings);
+            }
+        }
+        (LocalType::Tuple(left), LocalType::Tuple(right)) if left.len() == right.len() => {
+            for (left, right) in left.iter().zip(right.iter()).filter(|(left, right)| left.label == right.label) {
+                collect_equivalent_rigid_bindings(&left.ty, &right.ty, bindings);
+            }
+        }
+        (LocalType::Record(left), LocalType::Record(right)) if left.len() == right.len() => {
+            for (left, right) in left.iter().zip(right.iter()).filter(|(left, right)| left.name == right.name) {
+                collect_equivalent_rigid_bindings(&left.ty, &right.ty, bindings);
+            }
+        }
+        (
+            LocalType::Callable { parameters: left_parameters, return_type: left_return },
+            LocalType::Callable { parameters: right_parameters, return_type: right_return },
+        ) if left_parameters.len() == right_parameters.len() => {
+            for (left, right) in left_parameters.iter().zip(right_parameters.iter()).filter(|(left, right)| left.label == right.label && left.rest == right.rest) {
+                collect_equivalent_rigid_bindings(&left.ty, &right.ty, bindings);
+            }
+            collect_equivalent_rigid_bindings(left_return, right_return, bindings);
+        }
+        _ => {}
+    }
+}
+
+fn rewrite_local_rigids(local: &LocalType, bindings: &BTreeMap<crate::types::id::RigidTypeVariableId, LocalType>) -> LocalType {
+    match local {
+        LocalType::Rigid(rigid) => bindings.get(rigid).cloned().unwrap_or_else(|| local.clone()),
+        LocalType::Canonical(_) => local.clone(),
+        LocalType::Applied { origin, arguments } => LocalType::Applied {
+            origin: Box::new(rewrite_local_rigids(origin, bindings)),
+            arguments: arguments.iter().map(|argument| rewrite_local_rigids(argument, bindings)).collect(),
+        },
+        LocalType::ExactCase { variant, enum_type } => LocalType::ExactCase {
+            variant: variant.clone(),
+            enum_type: Box::new(rewrite_local_rigids(enum_type, bindings)),
+        },
+        LocalType::Union(members) => LocalType::Union(members.iter().map(|member| rewrite_local_rigids(member, bindings)).collect()),
+        LocalType::Tuple(elements) => LocalType::Tuple(
+            elements
+                .iter()
+                .map(|element| crate::types::rigid::LocalTupleElement {
+                    label: element.label.clone(),
+                    ty: rewrite_local_rigids(&element.ty, bindings),
+                })
+                .collect(),
+        ),
+        LocalType::Record(fields) => LocalType::Record(
+            fields
+                .iter()
+                .map(|field| crate::types::rigid::LocalRecordField {
+                    name: field.name.clone(),
+                    ty: rewrite_local_rigids(&field.ty, bindings),
+                })
+                .collect(),
+        ),
+        LocalType::Callable { parameters, return_type } => LocalType::Callable {
+            parameters: parameters
+                .iter()
+                .map(|parameter| crate::types::rigid::LocalCallableParameter {
+                    label: parameter.label.clone(),
+                    ty: rewrite_local_rigids(&parameter.ty, bindings),
+                    rest: parameter.rest,
+                })
+                .collect(),
+            return_type: Box::new(rewrite_local_rigids(return_type, bindings)),
+        },
     }
 }
 

@@ -41,6 +41,7 @@ pub(crate) struct CoverageEngine {
     arena: CoveragePatternArena,
     prior_matrix: Vec<Vec<CoveragePatternId>>,
     blocked: Option<BlockReason>,
+    inhabitation_cache: Option<Inhabitation>,
     control: CheckerControl,
     metrics: CoverageMetrics,
 }
@@ -52,6 +53,7 @@ impl CoverageEngine {
             arena: CoveragePatternArena::new(),
             prior_matrix: Vec::new(),
             blocked: None,
+            inhabitation_cache: None,
             control,
             metrics: CoverageMetrics::default(),
         }
@@ -92,7 +94,10 @@ impl CoverageEngine {
         rigids: &mut RigidArena,
         enum_table: Option<&EnumSemanticTable>,
     ) -> Inhabitation {
-        check_inhabitation(
+        if let Some(result) = &self.inhabitation_cache {
+            return result.clone();
+        }
+        let result = check_inhabitation(
             declarations,
             store,
             hierarchy,
@@ -101,7 +106,9 @@ impl CoverageEngine {
             &self.root,
             &self.control,
             &mut self.metrics,
-        )
+        );
+        self.inhabitation_cache = Some(result.clone());
+        result
     }
 
     fn classify_in_domain(&mut self, result: UsefulnessSearch) -> Option<PatternUsefulness> {

@@ -473,14 +473,19 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             let mut params = Vec::new();
             let mut incomplete_signature = false;
             for (i, p) in block.params.fixed.iter().enumerate() {
-                let p_ty = expected_params.get(i).and_then(|e| {
+                let annotated_ty = p.annotation.as_ref().and_then(|annotation| {
+                    let resolver = ctx.resolver.clone();
+                    let (knowledge, _) = ctx.resolve_type_annotation(&resolver, annotation);
+                    knowledge.ty()
+                });
+                let p_ty = annotated_ty.or_else(|| expected_params.get(i).and_then(|e| {
                     e.ty().or_else(|| match e {
                         ExpectedType::Inference { context, term, .. } => {
                             ctx.inference_session(*context).and_then(|s| s.borrow().materialize_for_expected(term, ctx.store))
                         }
                         _ => None,
                     })
-                });
+                }));
                 if let Some(p_ty) = p_ty {
                     ctx.bind_contextual_block_parameter(p.name.clone(), p_ty, p.range);
                 } else {
@@ -496,14 +501,19 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 });
             }
             if let Some(ref rest_p) = block.params.positional_rest {
-                let rest_ty = expected_params.get(block.params.fixed.len()).and_then(|e| {
+                let annotated_ty = rest_p.annotation.as_ref().and_then(|annotation| {
+                    let resolver = ctx.resolver.clone();
+                    let (knowledge, _) = ctx.resolve_type_annotation(&resolver, annotation);
+                    knowledge.ty()
+                });
+                let rest_ty = annotated_ty.or_else(|| expected_params.get(block.params.fixed.len()).and_then(|e| {
                     e.ty().or_else(|| match e {
                         ExpectedType::Inference { context, term, .. } => {
                             ctx.inference_session(*context).and_then(|s| s.borrow().materialize_for_expected(term, ctx.store))
                         }
                         _ => None,
                     })
-                });
+                }));
                 if let Some(rest_ty) = rest_ty {
                     ctx.bind_contextual_block_parameter(rest_p.name.clone(), rest_ty, rest_p.range);
                 } else {
@@ -551,9 +561,14 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             // produced while checking the captured body inside that body.
             ctx.flow = outer_flow;
 
-            let captured_escape = captured_local_types.first().is_some_and(|local_type| {
-                !ctx.check_local_type_escape(Some(local_type), None, &[], block.range)
-            });
+            // An inference-local callable is still inside its consuming
+            // generic application. Preserve captured branch rigids until a
+            // concrete callable boundary; concrete closure products remain
+            // fail-closed through the existing escape check.
+            let captured_escape = !matches!(expected, ExpectedType::Inference { .. })
+                && captured_local_types.first().is_some_and(|local_type| {
+                    !ctx.check_local_type_escape(Some(local_type), None, &[], block.range)
+                });
 
             let mut block_return_values = block_normal_returns.into_iter().map(|f| f.knowledge).collect::<Vec<_>>();
             if tail_typed.knowledge.ty() != Some(ctx.store.never()) && (block_return_values.is_empty() || tail_typed.knowledge.ty() != Some(ctx.store.unit())) {
@@ -572,24 +587,56 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
                 if captured_escape {
                     return TypedExpression::unknown(UnknownReason::ExistentialEscape);
                 }
+                if let ExpectedType::Inference { context, .. } = expected
+                    && block.params.fixed.iter().any(|parameter| parameter.annotation.is_some())
+                {
+                    if let Some(return_variable) = ctx
+                        .inference_session(*context)
+                        .map(|session| session.borrow_mut().fresh_variable(KindId::TYPE))
+                    {
+                        let symbolic_parameters = params
+                            .iter()
+                            .map(|parameter| crate::checker::inference::InferenceCallableParameter {
+                                label: parameter.label.clone(),
+                                term: crate::checker::inference::InferenceTerm::Canonical(parameter.ty),
+                                rest: parameter.rest,
+                            })
+                            .collect();
+                        return TypedExpression::unknown(UnknownReason::UncheckedExpression).with_symbolic_result(
+                            crate::checker::typed_expr::SymbolicInferenceResult {
+                                context: *context,
+                                term: crate::checker::inference::InferenceTerm::Callable(crate::checker::inference::InferenceCallable {
+                                    parameters: symbolic_parameters,
+                                    return_type: Box::new(crate::checker::inference::InferenceTerm::Var(return_variable)),
+                                }),
+                            },
+                        );
+                    }
+                }
                 if let Some(symbolic_body) = tail_typed.symbolic_result.as_ref() {
                     let symbolic_context = symbolic_body.context;
-                    let symbolic_return = match &expected_ret {
-                        ExpectedType::Inference { context, term, .. } if *context == symbolic_context => term.clone(),
-                        _ => symbolic_body.term.clone(),
-                    };
+                    // Preserve value-producing evidence from the body. The
+                    // consuming generic application relates this callable
+                    // product to its contextual return term; replacing the
+                    // body term here would erase constructor evidence such as
+                    // `Expression<F, B>` before that relation is solved.
+                    let symbolic_return = symbolic_body.term.clone();
                     let symbolic_parameters = params
                         .iter()
                         .enumerate()
                         .map(|(index, parameter)| {
-                            let term = expected_params
-                                .get(index)
-                                .and_then(|expected| match expected {
-                                    ExpectedType::Inference { context, term, .. } if *context == symbolic_context => Some(term.clone()),
-                                    ExpectedType::Proper { ty, .. } => Some(crate::checker::inference::InferenceTerm::Canonical(*ty)),
-                                    _ => None,
-                                })
-                                .unwrap_or(crate::checker::inference::InferenceTerm::Canonical(parameter.ty));
+                            let term = if block.params.fixed.get(index).and_then(|parameter| parameter.annotation.as_ref()).is_some() {
+                                crate::checker::inference::InferenceTerm::Canonical(parameter.ty)
+                            } else {
+                                expected_params
+                                    .get(index)
+                                    .and_then(|expected| match expected {
+                                        ExpectedType::Inference { context, term, .. } if *context == symbolic_context => Some(term.clone()),
+                                        ExpectedType::Proper { ty, .. } => Some(crate::checker::inference::InferenceTerm::Canonical(*ty)),
+                                        _ => None,
+                                    })
+                                    .unwrap_or(crate::checker::inference::InferenceTerm::Canonical(parameter.ty))
+                            };
                             crate::checker::inference::InferenceCallableParameter {
                                 label: parameter.label.clone(),
                                 term,
@@ -3649,7 +3696,19 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
                 ctx.apply_flow_predicate(&crate::checker::flow::FlowPredicate::IsInstance { binding, target: exact_case }.authoritative());
             }
             let prior_local_constraints = std::mem::replace(&mut ctx.active_local_constraints, proof.local_equalities.to_vec());
-            let branch_typed = analyze_expression(ctx, &arm.branch, expected);
+            // GADT branch bindings refine canonical callable-generic result
+            // terms for inference inside this branch. Keep local equalities
+            // query-local, but expose their canonical projection as the
+            // branch expectation so nested generic calls see `F<Int>` rather
+            // than the unreduced declaration term `F<T>`.
+            let branch_expected = expected.ty().map(|expected_ty| {
+                let specialized = crate::checker::gadt_proof::apply_branch_proof(ctx.store, &proof, expected_ty);
+                crate::checker::expected::ExpectedType::proper_from(
+                    specialized,
+                    expected.origin().unwrap_or(crate::checker::expected::ExpectationOrigin::ExplicitCheck),
+                )
+            });
+            let branch_typed = analyze_expression(ctx, &arm.branch, branch_expected.as_ref().unwrap_or(expected));
             ctx.active_local_constraints = prior_local_constraints;
             Some((branch_typed, ctx.flow.clone(), proof.clone()))
         } else {

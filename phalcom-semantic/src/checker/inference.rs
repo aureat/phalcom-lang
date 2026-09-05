@@ -1074,12 +1074,13 @@ impl InferenceSession {
             return Ok(None);
         }
 
+        // Concrete constructor arguments may themselves be applied types
+        // (for example `List<Int>`). Materialize only when fully resolved;
+        // unresolved arguments still defer this candidate without inventing
+        // a constructor shape.
         let canonical_arguments = concrete_arguments
             .iter()
-            .map(|argument| match argument {
-                InferenceTerm::Canonical(ty) => Some(*ty),
-                _ => None,
-            })
+            .map(|argument| self.materialize(argument, store).ok())
             .collect::<Option<Vec<_>>>();
         let Some(canonical_arguments) = canonical_arguments else {
             return Ok(None);
@@ -1212,14 +1213,14 @@ impl InferenceSession {
         let arena = store.arena_mut();
         let scoped_origin = arena.intern_scoped(ScopedTypeData::Free(view.origin));
         let mut scoped_arguments = Vec::with_capacity(view.arguments.len());
-        for (actual_index, &argument) in view.arguments.iter().enumerate() {
+        for (actual_index, _argument) in view.arguments.iter().enumerate() {
             if let Some(formal_index) = positions.iter().position(|position| *position == actual_index) {
                 scoped_arguments.push(arena.intern_scoped(ScopedTypeData::Bound {
                     depth: 0,
                     index: formal_index as u32,
                 }));
             } else {
-                scoped_arguments.push(arena.intern_scoped(ScopedTypeData::Free(argument)));
+                scoped_arguments.push(arena.intern_scoped(ScopedTypeData::Free(view.arguments[actual_index])));
             }
         }
         let scoped_body = arena.intern_scoped(ScopedTypeData::Applied {

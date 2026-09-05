@@ -9,7 +9,7 @@ use crate::types::outcome::BlockReason;
 use crate::types::relation::TypeHierarchy;
 use crate::types::rigid::RigidArena;
 use crate::types::store::{TypeData, TypeStore};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use super::domain::{decompose_domain, DomainDecomposition};
 use super::subject::CoverageSubject;
@@ -54,11 +54,11 @@ pub(crate) fn check_inhabitation(
         if control.is_cancelled() {
             return Inhabitation::Blocked(BlockReason::UnknownType(UnknownReason::InferenceCancelled));
         }
-        if let Err(report) = control.charge_step() {
-            return Inhabitation::Blocked(BlockReason::BudgetExceeded(report));
-        }
         if !nodes.insert(ty) {
             continue;
+        }
+        if let Err(report) = control.charge_step() {
+            return Inhabitation::Blocked(BlockReason::BudgetExceeded(report));
         }
         let current = CoverageSubject::canonical(ty);
         metrics.constructor_decompositions += 1;
@@ -83,61 +83,86 @@ pub(crate) fn check_inhabitation(
     }
 
     let mut states = nodes.iter().map(|ty| (*ty, Inhabitation::Uninhabited)).collect::<BTreeMap<_, _>>();
-    loop {
+    let mut dependents = BTreeMap::<TypeId, Vec<TypeId>>::new();
+    for (owner, domain) in &domains {
+        for constructor in &domain.constructors {
+            for field in constructor {
+                let owners = dependents.entry(*field).or_default();
+                if !owners.contains(owner) {
+                    owners.push(*owner);
+                }
+            }
+        }
+    }
+
+    // One worklist run is one fixed-point round. The old synchronous scan
+    // spent one SCC charge per graph depth, so a finite recursive payload
+    // chain could exhaust the round budget before reaching its base case.
+    // State updates remain monotone (Uninhabited -> Unknown -> Inhabited), and
+    // only affected constructors are revisited, preserving the least
+    // productive fixed point while charging each unique domain decomposition
+    // as one normal checker step.
+    if control.is_cancelled() {
+        return Inhabitation::Blocked(BlockReason::UnknownType(UnknownReason::InferenceCancelled));
+    }
+    if let Err(report) = control.charge_scc_iteration() {
+        return Inhabitation::Blocked(BlockReason::BudgetExceeded(report));
+    }
+    metrics.inhabitation_iterations += 1;
+
+    let mut queue = nodes.iter().copied().collect::<VecDeque<_>>();
+    let mut queued = nodes.clone();
+    while let Some(ty) = queue.pop_front() {
+        queued.remove(&ty);
         if control.is_cancelled() {
             return Inhabitation::Blocked(BlockReason::UnknownType(UnknownReason::InferenceCancelled));
         }
-        if let Err(report) = control.charge_scc_iteration() {
-            return Inhabitation::Blocked(BlockReason::BudgetExceeded(report));
-        }
-        metrics.inhabitation_iterations += 1;
-
-        let mut changed = false;
-        let mut next = states.clone();
-        for ty in &nodes {
-            let Some(domain) = domains.get(ty) else {
-                continue;
-            };
-            let state = if domain.open {
-                terminal_inhabitation(store, *ty)
+        let Some(domain) = domains.get(&ty) else {
+            continue;
+        };
+        let state = if domain.open {
+            terminal_inhabitation(store, ty)
+        } else {
+            let mut saw_unknown = false;
+            let mut productive = false;
+            for constructor in &domain.constructors {
+                let mut constructor_unknown = false;
+                let mut constructor_productive = true;
+                for field in constructor {
+                    match states.get(field).unwrap_or(&Inhabitation::Unknown) {
+                        Inhabitation::Inhabited => {}
+                        Inhabitation::Unknown => constructor_unknown = true,
+                        Inhabitation::Uninhabited => constructor_productive = false,
+                        Inhabitation::Blocked(reason) => return Inhabitation::Blocked(reason.clone()),
+                    }
+                }
+                if constructor_productive && !constructor_unknown {
+                    productive = true;
+                    break;
+                }
+                saw_unknown |= constructor_unknown;
+            }
+            if productive {
+                Inhabitation::Inhabited
+            } else if saw_unknown {
+                Inhabitation::Unknown
             } else {
-                let mut saw_unknown = false;
-                let mut productive = false;
-                for constructor in &domain.constructors {
-                    let mut constructor_unknown = false;
-                    let mut constructor_productive = true;
-                    for field in constructor {
-                        match states.get(field).unwrap_or(&Inhabitation::Unknown) {
-                            Inhabitation::Inhabited => {}
-                            Inhabitation::Unknown => constructor_unknown = true,
-                            Inhabitation::Uninhabited => constructor_productive = false,
-                            Inhabitation::Blocked(reason) => return Inhabitation::Blocked(reason.clone()),
-                        }
+                Inhabitation::Uninhabited
+            }
+        };
+        if states.get(&ty) != Some(&state) {
+            states.insert(ty, state);
+            if let Some(parents) = dependents.get(&ty) {
+                for parent in parents {
+                    if queued.insert(*parent) {
+                        queue.push_back(*parent);
                     }
-                    if constructor_productive && !constructor_unknown {
-                        productive = true;
-                        break;
-                    }
-                    saw_unknown |= constructor_unknown;
                 }
-                if productive {
-                    Inhabitation::Inhabited
-                } else if saw_unknown {
-                    Inhabitation::Unknown
-                } else {
-                    Inhabitation::Uninhabited
-                }
-            };
-            if next.get(ty) != Some(&state) {
-                next.insert(*ty, state);
-                changed = true;
             }
         }
-        states = next;
-        if !changed {
-            return states.get(&subject.canonical).cloned().unwrap_or(Inhabitation::Unknown);
-        }
     }
+
+    states.get(&subject.canonical).cloned().unwrap_or(Inhabitation::Unknown)
 }
 
 fn terminal_inhabitation(store: &TypeStore, ty: TypeId) -> Inhabitation {

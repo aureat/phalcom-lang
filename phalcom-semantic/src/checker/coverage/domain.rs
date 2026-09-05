@@ -92,7 +92,17 @@ pub(crate) fn open_variant_case(
     for field in &variant_info.fields {
         let raw = field.declared_type.canonical_type().unwrap_or(subject.canonical);
         let declaration_specialized = substitution.as_ref().map(|sub| sub.apply(store, raw)).unwrap_or(raw);
-        let canonical_field_ty = crate::checker::gadt_proof::apply_branch_proof(store, &proof, declaration_specialized);
+        let mut canonical_field_ty = crate::checker::gadt_proof::apply_branch_proof(store, &proof, declaration_specialized);
+        // Local constructor equalities may solve a constructor parameter to a
+        // canonical enclosing term. Apply only those canonical bindings to the
+        // canonical view; local rigid payload identity remains in `local_field_ty`.
+        let mut local_canonical_substitution = crate::types::substitution::TypeSubstitution::new();
+        for (&parameter, replacement) in &proof.local_bindings {
+            if let LocalType::Canonical(ty) = replacement {
+                local_canonical_substitution.bind(parameter, *ty);
+            }
+        }
+        canonical_field_ty = local_canonical_substitution.apply(store, canonical_field_ty);
         // Canonical declaration terms retain proof IDs when no local rigid is
         // present. Once a constructor/local rigid is in scope, localize raw
         // field terms before canonical substitution so nested recursion keeps it.

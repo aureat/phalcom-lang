@@ -250,12 +250,20 @@ fn analyze_application_argument(ctx: &mut CheckingContext<'_>, argument: Applica
         }
         _ => analyze_expression(ctx, argument.expression().expect("ordinary application argument has an expression"), expected),
     };
-    if let (Some(ty), Some(local_type)) = (typed.knowledge.ty(), typed.local_type.clone()) {
-        ctx.record_call_local_type(ty, local_type);
-        if !ctx.check_local_type_escape(typed.local_type.as_ref(), expected.ty(), &[], argument.range()) {
-            typed.knowledge = TypeKnowledge::Unknown(UnknownReason::ExistentialEscape);
-            typed.local_type = None;
+    // Solver-local expectations are still inside the generic application
+    // boundary. Preserve their local rigid evidence for inference and defer
+    // escape checking until the resulting call crosses a concrete boundary.
+    let concrete_expectation = !matches!(expected, ExpectedType::Inference { .. });
+    if concrete_expectation {
+        if let (Some(ty), Some(local_type)) = (typed.knowledge.ty(), typed.local_type.clone()) {
+            ctx.record_call_local_type(ty, local_type);
+            if !ctx.check_local_type_escape(typed.local_type.as_ref(), expected.ty(), &[], argument.range()) {
+                typed.knowledge = TypeKnowledge::Unknown(UnknownReason::ExistentialEscape);
+                typed.local_type = None;
+            }
         }
+    } else if let (Some(ty), Some(local_type)) = (typed.knowledge.ty(), typed.local_type.clone()) {
+        ctx.record_call_local_type(ty, local_type);
     }
     typed
 }
@@ -945,6 +953,33 @@ fn apply_generic_callable_in_context(
             .then(|| promote_exact_return(&signature.return_type, ExactReturnOrigin::GenericInference, call_range))
     });
 
+    // Seed concrete expected-result evidence before checking arguments. This
+    // matters for constructors whose argument is a callable generic (for
+    // example `Pure<A>`): the result annotation fixes `A` to its callable
+    // shape, which gives an unannotated closure its parameter and return
+    // expectations. Without this first relation, closure analysis sees only
+    // an unresolved `A` and loses payload evidence before the later result
+    // relation is replayed.
+    let expected_result_seeded = if row_session.is_none() {
+        if let (Some(return_term), Some(expected_ty)) = (return_term.as_ref(), expected.ty())
+            && expected_type_contains_callable_payload(ctx.store, expected_ty)
+        {
+            let expected_term = InferenceTerm::Canonical(expected_ty);
+            let term_to_constrain = session_handle.borrow().term_for_expected(return_term);
+            session_handle.borrow_mut().add_constraint(
+                InferenceRelation::Subtype(term_to_constrain, expected_term),
+                ConstraintOrigin::ExpectedResult { expression: call_id },
+                None,
+            );
+            let _ = ctx.inference_session(context).map(|session| ctx.solve_inference_in_frame(&mut session.borrow_mut(), frame));
+            true
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
     let binding_plan = match bind_static_arguments(args, &signature.parameters) {
         Ok(plan) => plan,
         Err(failures) => {
@@ -1065,8 +1100,9 @@ fn apply_generic_callable_in_context(
             }
         }
         if let Some(symbolic_argument) = symbolic_argument {
+            let symbolic_argument = session_handle.borrow().term_for_expected(&symbolic_argument);
             session_handle.borrow_mut().add_constraint_with_support(
-                InferenceRelation::Equivalent(symbolic_argument, parameter_term.clone()),
+                InferenceRelation::Subtype(symbolic_argument, parameter_term.clone()),
                 origin.clone(),
                 stable_constraint_explanation,
                 InferenceSupport::Assumed,
@@ -1210,7 +1246,7 @@ fn apply_generic_callable_in_context(
                         }
                     }
                 }
-                if !row_expected_constrained {
+                if !row_expected_constrained && !expected_result_seeded {
                     let canonicalized_return_term = if let (Some(rows), Some(crate::types::row_solver::RecordRowSolveResult::Solved(row_solution))) = (row_session.as_ref(), row_outcome.as_ref()) {
                         if term_has_row_variables(return_term) {
                             if let Ok(instantiation) = rows.build_instantiation_from_active_terms(&session_handle.borrow(), &var_map, row_solution, ctx.store) {
@@ -1232,8 +1268,9 @@ fn apply_generic_callable_in_context(
                     };
 
                     let term_to_constrain = canonicalized_return_term.as_ref().unwrap_or(return_term);
+                    let term_to_constrain = session_handle.borrow().term_for_expected(term_to_constrain);
                     session_handle.borrow_mut().add_constraint(
-                        InferenceRelation::Subtype(term_to_constrain.clone(), expected_term),
+                        InferenceRelation::Subtype(term_to_constrain, expected_term),
                         ConstraintOrigin::ExpectedResult { expression: call_id },
                         None,
                     );
@@ -1497,6 +1534,15 @@ fn apply_generic_callable_in_context(
                 incomplete_generic_return(&session_handle.borrow(), return_term.as_ref(), &outcome, fixed_return)
             }
         }
+    }
+}
+
+fn expected_type_contains_callable_payload(store: &TypeStore, ty: TypeId) -> bool {
+    match store.get(ty) {
+        TypeData::Callable(_) => true,
+        TypeData::Applied { arguments, .. } => arguments.iter().any(|argument| expected_type_contains_callable_payload(store, *argument)),
+        TypeData::ExactCase { enum_type, .. } => expected_type_contains_callable_payload(store, *enum_type),
+        _ => false,
     }
 }
 
@@ -2326,6 +2372,7 @@ fn prepare_union_generic_inference_in_context(
             .filter(|result| result.context == context)
             .map(|result| result.term.clone());
         if let Some(symbolic_argument) = symbolic_argument {
+            let symbolic_argument = session_handle.borrow().term_for_expected(&symbolic_argument);
             session_handle.borrow_mut().add_constraint_with_support(
                 InferenceRelation::Subtype(symbolic_argument, parameter_term.clone()),
                 origin.clone(),
