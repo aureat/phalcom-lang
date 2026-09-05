@@ -15,6 +15,35 @@ fn module() -> ModuleId {
     ModuleId::resolved(ResolvedProjectId::from_raw(505), ModulePath::root())
 }
 
+#[test]
+fn adt_incr_00_indexed_outer_apply_match_has_bounded_type_store_growth() {
+    let module = module();
+    let mut session = SemanticWorkspaceSession::new();
+    let source = r#"
+enum Expr<T> {
+    @variant IntLit(_ value: Int) -> Expr<Int>
+    @variant Apply<A, B>(
+        _ function: Expr<(A) -> B>,
+        _ argument: Expr<A>
+    ) -> Expr<B>
+}
+
+class Eval {
+    eval<T>(_ expr: Expr<T>) {
+        match expr {
+            Expr::IntLit(x) => 0
+            Expr::Apply(f, a) => 1
+        }
+    }
+}
+"#;
+    let before = session.store().len();
+    let update = session.update(single_module_input(module, source, 1));
+    let delta = update.snapshot.store.len() - before;
+
+    assert!(delta <= 128, "indexed outer-only Apply match must not intern an unbounded recursive chain; delta={delta}");
+}
+
 fn first_match(snapshot: &SemanticSnapshot) -> &MatchResolution {
     snapshot
         .callable_analyses

@@ -669,3 +669,43 @@ diff gates are green.
 
 Supervisor review. After authorization, commit R2 only; defer C4 deletion and
 C5 controls.
+
+## Recursive Match Coverage Corrective C4 Amendment (2026-09-05)
+
+C4 retires legacy `PatternSpace` residual algebra after R2 replacement
+correctness. The earlier C2/C3 rows that reported direct `pattern_space` tests
+and legacy authority as complete are historical and superseded here. R1 and
+R2 remain focused-tested; C5/C6 remain deferred.
+
+- Removed `checker/pattern_space.rs` and its direct algebra test module.
+- `resolve_pattern` and all recursive pattern helpers now return only
+  `PatternResolution`; `CoverageEngine` owns usefulness, residual, witness,
+  and public summary decisions.
+- Removed obsolete checker exports and residual-algebra helpers, including
+  exact-case compatibility used only by the deleted algebra.
+- Added an indexed outer-only `Apply` match regression asserting bounded
+  `TypeStore` growth (`delta <= 128`).
+- Kept record/map resolution refutable and retained bounded
+  `PatternSpaceSummary` as the public product; no C5 controls added.
+
+### Evidence ledger
+
+| Checkpoint | Command | Result | Proves |
+|---|---|---|---|
+| C4 | `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic semantic::adts::matching:: -- --nocapture --test-threads=1` | PASS: 147 passed, 0 failed, 16 ignored | full ADT matching behavior after PatternSpace deletion |
+| C4 | `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic semantic::incremental::adts:: -- --nocapture --test-threads=1` | PASS: 10 passed, 0 failed, 3 ignored | incremental ADT products and bounded indexed Apply TypeStore growth |
+| C4 | `RUSTFLAGS='' cargo check -p phalcom-semantic` | PASS; no warnings | production checker compiles without legacy PatternSpace authority |
+| C4 | negative `rg` searches for legacy builders/residual APIs/Cartesian paths | PASS; zero production hits; remaining `PatternSpace` names are public summaries only | deletion gate: old authority cannot silently re-enter |
+| C4 | `git diff --check` scoped to C4-owned paths | PASS | no whitespace defects in corrective slice |
+| C4 | `rustfmt --edition 2024 --check` on C4-owned Rust files | BLOCKED by inherited baseline formatting drift; no formatting applied | formatting baseline classified; no unrelated files changed |
+| C4 | `graphify update .` | PASS; 56,242 nodes, 83,784 edges, 4,310 communities; HTML skipped due graph-size limit | graph reflects final C4 source/docs changes |
+
+### Active incident
+
+None. Rustfmt check remains blocked by inherited baseline drift; behavioral,
+compile, negative-search, and scoped-diff gates are green.
+
+### Next resume action
+
+Supervisor review. After authorization, commit C4 only; defer C5 resource
+hardening and C6 release/workspace gates.

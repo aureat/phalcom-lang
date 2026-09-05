@@ -132,22 +132,6 @@ fn match_pat_06_family_pattern_joins_candidate_specific_field_projections() {
 }
 
 #[test]
-fn match_pat_07_list_space_distinguishes_empty_and_non_empty_prefixes() {
-    use phalcom_semantic::checker::{ListSpace, PatternSpace};
-    let empty = PatternSpace::List(ListSpace {
-        prefix: Box::new([]),
-        rest: None,
-    });
-    let non_empty = PatternSpace::List(ListSpace {
-        prefix: Box::new([PatternSpace::Opaque(phalcom_semantic::TypeId(1))]),
-        rest: None,
-    });
-    assert_ne!(empty, non_empty);
-    assert!(!empty.is_empty());
-    assert!(!non_empty.is_empty());
-}
-
-#[test]
 fn match_pat_08_r1_t03_selector_gap_suffix_position() {
     use phalcom_semantic::match_semantics::PatternResolution;
     let case = analyze_adt(

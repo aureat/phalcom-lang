@@ -22,7 +22,6 @@ pub mod incident;
 pub mod inference;
 pub(crate) mod loop_analysis;
 pub mod pattern;
-pub mod pattern_space;
 pub mod result;
 pub mod row_inference;
 pub mod statement;
@@ -46,7 +45,6 @@ pub use causal::{CausalInvalidity, SuppressionCause};
 pub use context::CheckingContext;
 pub use declaration::{check_class, check_class_bodies, register_class_surface};
 pub use enum_behavior::{EnumBehaviorProduct, build_enum_behavior};
-pub use exhaustiveness::{build_initial_pattern_space, evaluate_match_exhaustiveness};
 pub use expected::{ExpectationOrigin, ExpectedType};
 pub use expression::{analyze_expression, check_expr, check_typed_expr, synthesize_expr, synthesize_typed_expr};
 pub use incident::{BindingContractSummary, InternalFailurePolicy, InternalSemanticIncident, InternalSemanticIncidentDetails, InternalSemanticIncidentKind};
@@ -57,8 +55,6 @@ pub use inference::{
     AmbiguousInference, InferenceCandidate, InferenceConstraintRole, InferenceMaterializationFailure, InferenceOutcome, InferenceSession, InferenceSupport,
     InferenceTerm,
 };
-pub use pattern::resolve_pattern;
-pub use pattern_space::{ListSpace, PatternSpace, VariantSpace};
 pub use result::TypeCheckReport;
 pub use row_inference::{
     CombinedInferenceFailure, GenericApplicationSession, GenericInferenceBinding, InferenceRecord, InferenceRecordField, InferenceRecordTail,

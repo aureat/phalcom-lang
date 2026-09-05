@@ -354,19 +354,6 @@ pub(crate) fn merge_branch_proofs(store: &mut TypeStore, left: &BranchProofEnvir
     })
 }
 
-/// Checks exact-case compatibility using the same equality relation as GADT
-/// branch reachability. Invalid recovery IDs are only compatible by identity.
-pub(crate) fn exact_cases_compatible(store: &mut TypeStore, left: TypeId, right: TypeId) -> bool {
-    if left == right {
-        return true;
-    }
-    if left.index() >= store.len() || right.index() >= store.len() {
-        return false;
-    }
-    let mut substitution = TypeSubstitution::new();
-    unify_equality(store, &mut substitution, left, right)
-}
-
 /// Solves GADT equality constraints between a variant's case environment and the scrutinee type.
 ///
 /// GADT elimination is equality-producing, not subtype filtering. In particular, a

@@ -3599,7 +3599,7 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
         ctx.flow = before_flow.clone();
         ctx.push_scope();
         let mut arm_bindings = Vec::new();
-        let (pattern_res, _) = crate::checker::pattern::resolve_pattern(ctx, &arm.pattern, &scrutinee_subject, &mut arm_bindings);
+        let pattern_res = crate::checker::pattern::resolve_pattern(ctx, &arm.pattern, &scrutinee_subject, &mut arm_bindings);
         let coverage_pat = crate::checker::pattern::coverage_pattern_for_resolution(engine.arena_mut(), &pattern_res);
         let usefulness = engine.classify_arm(ctx.declarations, ctx.store, &ctx.hierarchy, &mut ctx.rigids, ctx.enum_table, coverage_pat);
         if usefulness == crate::match_semantics::PatternUsefulness::Redundant {

@@ -5,7 +5,6 @@ use phalcom_common::selector::{Selector, SelectorBase, SelectorKind};
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::checker::context::CheckingContext;
-use crate::checker::pattern_space::{PatternSpace, VariantSpace};
 use crate::enum_semantics::VariantShape;
 use crate::identity::{BindingId, DeclarationId, VariantFamilyId};
 use crate::match_semantics::{
@@ -37,7 +36,7 @@ pub(crate) fn resolve_pattern(
     pattern: &Pattern,
     subject: &CoverageSubject,
     bindings: &mut Vec<PatternBindingResolution>,
-) -> (PatternResolution, PatternSpace) {
+) -> PatternResolution {
     resolve_pattern_with_mode(ctx, pattern, subject, bindings, BindingMode::Live)
 }
 
@@ -47,30 +46,28 @@ fn resolve_pattern_with_mode(
     subject: &CoverageSubject,
     bindings: &mut Vec<PatternBindingResolution>,
     binding_mode: BindingMode,
-) -> (PatternResolution, PatternSpace) {
+) -> PatternResolution {
     match pattern {
-        Pattern::Wildcard { .. } => (PatternResolution::Wildcard, PatternSpace::Opaque(subject.canonical)),
+        Pattern::Wildcard { .. } => PatternResolution::Wildcard,
         Pattern::Name { name, range } => {
-            if let Some((var_res, var_space)) = try_resolve_contextual_singleton(ctx, name, *range, subject) {
-                (PatternResolution::Variant(var_res), var_space)
+            if let Some(var_res) = try_resolve_contextual_singleton(ctx, name, *range, subject) {
+                PatternResolution::Variant(var_res)
             } else {
                 bind_name_pattern(ctx, name, *range, subject, bindings, binding_mode)
             }
         }
         Pattern::Variant(variant_pat) => {
-            let (res, space) = resolve_variant_pattern(ctx, variant_pat, subject, bindings, binding_mode);
-            (PatternResolution::Variant(res), space)
+            PatternResolution::Variant(resolve_variant_pattern(ctx, variant_pat, subject, bindings, binding_mode))
         }
         Pattern::Or { alternatives, range } => {
             let mut resolved_alternatives = Vec::with_capacity(alternatives.len());
-            let mut alternative_spaces = Vec::with_capacity(alternatives.len());
             let mut alternative_bindings = Vec::with_capacity(alternatives.len());
             let mut engine = crate::checker::coverage::CoverageEngine::new(subject.clone());
             let mut prior_coverage_alts = Vec::new();
 
             for alternative in alternatives {
                 let mut local_bindings = Vec::new();
-                let (resolution, space) = resolve_pattern_with_mode(ctx, alternative, subject, &mut local_bindings, BindingMode::Detached);
+                let resolution = resolve_pattern_with_mode(ctx, alternative, subject, &mut local_bindings, BindingMode::Detached);
 
                 let cov_alt = coverage_pattern_for_resolution(engine.arena_mut(), &resolution);
                 let usefulness = engine.check_or_alternative(
@@ -93,7 +90,6 @@ fn resolve_pattern_with_mode(
                 prior_coverage_alts.push(cov_alt);
 
                 resolved_alternatives.push(resolution);
-                alternative_spaces.push(space);
                 alternative_bindings.push(local_bindings);
             }
 
@@ -117,20 +113,12 @@ fn resolve_pattern_with_mode(
                 remap_pattern_bindings(resolution, &replacements);
             }
 
-            let mut covered = PatternSpace::Empty;
-            for space in alternative_spaces {
-                covered = covered.union(&space);
-            }
-            (
-                PatternResolution::Or(ResolvedOrPattern {
-                    alternatives: resolved_alternatives.into_boxed_slice(),
-                }),
-                covered.normalize(),
-            )
+            PatternResolution::Or(ResolvedOrPattern {
+                alternatives: resolved_alternatives.into_boxed_slice(),
+            })
         }
         Pattern::Tuple { elements, .. } => {
             let mut tuple_res = Vec::with_capacity(elements.len());
-            let mut element_spaces = Vec::with_capacity(elements.len());
 
             for (i, elem) in elements.iter().enumerate() {
                 let elem_ty = match ctx.store.get(subject.canonical) {
@@ -142,15 +130,11 @@ fn resolve_pattern_with_mode(
                     _ => None,
                 };
                 let elem_subject = CoverageSubject::from_parts(elem_ty, elem_local_ty.unwrap_or(LocalType::Canonical(elem_ty)));
-                let (elem_res, elem_space) = resolve_pattern_with_mode(ctx, elem, &elem_subject, bindings, binding_mode);
+                let elem_res = resolve_pattern_with_mode(ctx, elem, &elem_subject, bindings, binding_mode);
                 tuple_res.push(elem_res);
-                element_spaces.push(elem_space);
             }
 
-            (
-                PatternResolution::Tuple(tuple_res.into_boxed_slice()),
-                PatternSpace::Tuple(element_spaces.into_boxed_slice()).normalize(),
-            )
+            PatternResolution::Tuple(tuple_res.into_boxed_slice())
         }
         Pattern::List { elements, rest, .. } => {
             let elem_ty = ctx
@@ -164,31 +148,22 @@ fn resolve_pattern_with_mode(
                 _ => None,
             };
             let mut prefix_res = Vec::with_capacity(elements.len());
-            let mut prefix_spaces = Vec::with_capacity(elements.len());
             for elem in elements {
                 let elem_subject = CoverageSubject::from_parts(elem_ty, elem_local_ty.clone().unwrap_or(LocalType::Canonical(elem_ty)));
-                let (elem_res, elem_space) = resolve_pattern_with_mode(ctx, elem, &elem_subject, bindings, binding_mode);
+                let elem_res = resolve_pattern_with_mode(ctx, elem, &elem_subject, bindings, binding_mode);
                 prefix_res.push(elem_res);
-                prefix_spaces.push(elem_space);
             }
-            let (rest_res, rest_space) = rest.as_ref().map_or((None, None), |rest_pattern| {
+            let rest_res = rest.as_ref().map(|rest_pattern| {
                 // `*rest` binds the remaining sequence, not one element. Keep
                 // its expected type at the canonical list root so binding
                 // knowledge and residual-space elimination agree.
-                let (rest_resolution, rest_space) = resolve_pattern_with_mode(ctx, rest_pattern, subject, bindings, binding_mode);
-                (Some(Box::new(rest_resolution)), Some(rest_space))
+                Box::new(resolve_pattern_with_mode(ctx, rest_pattern, subject, bindings, binding_mode))
             });
 
-            (
-                PatternResolution::List(ResolvedListPattern {
-                    prefix: prefix_res.into_boxed_slice(),
-                    rest: rest_res,
-                }),
-                PatternSpace::List(crate::checker::pattern_space::ListSpace {
-                    prefix: prefix_spaces.into_boxed_slice(),
-                    rest: rest_space.map(Box::new),
-                }),
-            )
+            PatternResolution::List(ResolvedListPattern {
+                prefix: prefix_res.into_boxed_slice(),
+                rest: rest_res,
+            })
         }
         Pattern::Record { entries, range } => resolve_record_pattern(ctx, entries, *range, subject, bindings, binding_mode),
         Pattern::Map { entries, range } => resolve_map_pattern(ctx, entries, *range, subject, bindings, binding_mode),
@@ -202,21 +177,18 @@ fn resolve_record_pattern(
     subject: &CoverageSubject,
     bindings: &mut Vec<PatternBindingResolution>,
     binding_mode: BindingMode,
-) -> (PatternResolution, PatternSpace) {
+) -> PatternResolution {
     let known_row = match ctx.store.get(subject.canonical).clone() {
         TypeData::Record(row_id) => Some(ctx.store.record_row(row_id).clone()),
         _ => None,
     };
     let mut resolved = Vec::with_capacity(entries.len());
-    let mut fields = Vec::with_capacity(entries.len());
-    let mut impossible = false;
 
     for entry in entries {
         let field_ty = match &known_row {
             Some(row) => match row.find_field(&entry.label) {
                 Some(ty) => Some(ty),
                 None if matches!(row.tail, crate::types::row::RecordRowTail::Closed) => {
-                    impossible = true;
                     ctx.emit_diagnostic(crate::diagnostic::SemanticDiagnostic::error_in(
                         ctx.current_module.clone(),
                         crate::diagnostic::DiagnosticCode::MatchPatternFieldMismatch,
@@ -231,26 +203,15 @@ fn resolve_record_pattern(
         };
         let child_ty = field_ty.unwrap_or_else(|| conservative_pattern_type(ctx, subject.canonical));
         let child_subject = record_field_subject(subject, &entry.label, child_ty);
-        let (child, child_space) = resolve_pattern_with_mode(ctx, &entry.pattern, &child_subject, bindings, binding_mode);
+        let child = resolve_pattern_with_mode(ctx, &entry.pattern, &child_subject, bindings, binding_mode);
         resolved.push(crate::match_semantics::ResolvedRecordFieldPattern {
             label: entry.label.clone().into_boxed_str(),
             child: Box::new(child),
         });
-        fields.push((entry.label.clone().into_boxed_str(), child_space));
     }
 
     let resolution = PatternResolution::Record(resolved.into_boxed_slice());
-    if impossible {
-        (resolution, PatternSpace::Empty)
-    } else {
-        (
-            resolution,
-            PatternSpace::Record(crate::checker::pattern_space::RecordSpace {
-                ty: subject.canonical,
-                fields: fields.into_boxed_slice(),
-            }),
-        )
-    }
+    resolution
 }
 
 fn resolve_map_pattern(
@@ -260,7 +221,7 @@ fn resolve_map_pattern(
     subject: &CoverageSubject,
     bindings: &mut Vec<PatternBindingResolution>,
     binding_mode: BindingMode,
-) -> (PatternResolution, PatternSpace) {
+) -> PatternResolution {
     let map_value_ty = ctx.store.applied_nominal_parts(subject.canonical).and_then(|(declaration, arguments)| {
         if declaration == ctx.core_ids.map && arguments.len() == 2 {
             arguments.get(1).copied()
@@ -269,26 +230,18 @@ fn resolve_map_pattern(
         }
     });
     let mut resolved = Vec::with_capacity(entries.len());
-    let mut spaces = Vec::with_capacity(entries.len());
 
     for entry in entries {
         let child_ty = map_value_ty.unwrap_or_else(|| conservative_pattern_type(ctx, subject.canonical));
         let child_subject = CoverageSubject::canonical(child_ty);
-        let (child, child_space) = resolve_pattern_with_mode(ctx, &entry.pattern, &child_subject, bindings, binding_mode);
+        let child = resolve_pattern_with_mode(ctx, &entry.pattern, &child_subject, bindings, binding_mode);
         resolved.push(crate::match_semantics::ResolvedMapEntryPattern {
             key: entry.key.clone(),
             child: Box::new(child),
         });
-        spaces.push((entry.key.clone(), child_space));
     }
 
-    (
-        PatternResolution::Map(resolved.into_boxed_slice()),
-        PatternSpace::Map(crate::checker::pattern_space::MapSpace {
-            ty: subject.canonical,
-            entries: spaces.into_boxed_slice(),
-        }),
-    )
+    PatternResolution::Map(resolved.into_boxed_slice())
 }
 
 fn conservative_pattern_type(ctx: &mut CheckingContext<'_>, fallback: TypeId) -> TypeId {
@@ -314,7 +267,7 @@ fn bind_name_pattern(
     subject: &CoverageSubject,
     bindings: &mut Vec<PatternBindingResolution>,
     binding_mode: BindingMode,
-) -> (PatternResolution, PatternSpace) {
+) -> PatternResolution {
     if let Some(existing) = bindings.iter().find(|binding| binding.name.as_ref() == name).cloned() {
         ctx.emit_diagnostic(
             crate::diagnostic::SemanticDiagnostic::error_in(
@@ -325,14 +278,11 @@ fn bind_name_pattern(
             )
             .with_label(existing.source, "first binding in this pattern alternative"),
         );
-        return (
-            PatternResolution::Binding {
-                binding: existing.binding,
-                name: name.into(),
-                knowledge: existing.knowledge,
-            },
-            PatternSpace::Opaque(subject.canonical),
-        );
+        return PatternResolution::Binding {
+            binding: existing.binding,
+            name: name.into(),
+            knowledge: existing.knowledge,
+        };
     }
 
     let knowledge = TypeKnowledge::established(subject.canonical, EvidenceOrigin::PatternDecomposition);
@@ -348,14 +298,11 @@ fn bind_name_pattern(
         local_type,
         source: range,
     });
-    (
-        PatternResolution::Binding {
-            binding: binding_id,
-            name: name.into(),
-            knowledge,
-        },
-        PatternSpace::Opaque(subject.canonical),
-    )
+    PatternResolution::Binding {
+        binding: binding_id,
+        name: name.into(),
+        knowledge,
+    }
 }
 
 fn declare_pattern_binding(ctx: &mut CheckingContext<'_>, name: &str, range: SourceRange, knowledge: &TypeKnowledge, mode: BindingMode) -> BindingId {
@@ -511,7 +458,7 @@ fn try_resolve_contextual_singleton(
     name: &str,
     range: SourceRange,
     subject: &CoverageSubject,
-) -> Option<(ResolvedVariantPattern, PatternSpace)> {
+) -> Option<ResolvedVariantPattern> {
     let enum_table = ctx.enum_table.cloned()?;
     let target_selector = Selector::getter(name).ok()?;
 
@@ -558,7 +505,6 @@ fn try_resolve_contextual_singleton(
 
     let mut owner_candidates = Vec::new();
     let mut candidates = Vec::with_capacity(matches.len());
-    let mut spaces = Vec::with_capacity(matches.len());
     for (owner, variant_id, _variant_info, exact_case, proof, case_instantiation) in matches.iter() {
         if !owner_candidates.contains(owner) {
             owner_candidates.push(owner.clone());
@@ -570,12 +516,6 @@ fn try_resolve_contextual_singleton(
             proof: proof.clone(),
             case_instantiation: Some(case_instantiation.clone()),
         });
-        spaces.push(PatternSpace::Variant(VariantSpace {
-            variant: variant_id.clone(),
-            exact_case: *exact_case,
-            fields: Box::new([]),
-            proof: proof.clone(),
-        }));
     }
 
     if owner_candidates.len() > 1 {
@@ -596,10 +536,6 @@ fn try_resolve_contextual_singleton(
     } else {
         None
     };
-    let space = match spaces.len() {
-        1 => spaces.pop().expect("single contextual variant space exists"),
-        _ => PatternSpace::Union(spaces.into_boxed_slice()).normalize(),
-    };
     let resolution = ResolvedVariantPattern {
         owner: (owner_candidates.len() == 1).then(|| owner_candidates[0].clone()),
         family,
@@ -608,7 +544,7 @@ fn try_resolve_contextual_singleton(
         candidates: candidates.into_boxed_slice(),
     };
 
-    Some((resolution, space))
+    Some(resolution)
 }
 
 /// Preserve query-local terms when a contextual singleton belongs to that
@@ -716,7 +652,7 @@ fn resolve_variant_pattern(
     subject: &CoverageSubject,
     bindings: &mut Vec<PatternBindingResolution>,
     binding_mode: BindingMode,
-) -> (ResolvedVariantPattern, PatternSpace) {
+) -> ResolvedVariantPattern {
     let expected_nominal_decl = ctx.store.nominal_origin_declaration(subject.canonical).cloned();
     let expected_owners = nominal_owner_types(ctx.store, subject.canonical);
     let constraint = variant_selector_constraint(variant_pat);
@@ -730,16 +666,13 @@ fn resolve_variant_pattern(
                 format!("cannot resolve explicit variant owner `{}`", format_variant_reference(variant_pat)),
                 variant_pat.range,
             ));
-            return (
-                ResolvedVariantPattern {
-                    owner: None,
-                    family: None,
-                    owner_candidates: Box::new([]),
-                    selector: constraint,
-                    candidates: Box::new([]),
-                },
-                PatternSpace::Empty,
-            );
+            return ResolvedVariantPattern {
+                owner: None,
+                family: None,
+                owner_candidates: Box::new([]),
+                selector: constraint,
+                candidates: Box::new([]),
+            };
         };
         if !expected_owners.is_empty() && !expected_owners.iter().any(|(expected, _)| expected == &decl) {
             let expected_names = expected_owners.iter().map(|(owner, _)| owner.name.to_string()).collect::<Vec<_>>().join(", ");
@@ -763,16 +696,13 @@ fn resolve_variant_pattern(
             ),
             variant_pat.range,
         ));
-        return (
-            ResolvedVariantPattern {
-                owner: None,
-                family: None,
-                owner_candidates: Box::new([]),
-                selector: constraint,
-                candidates: Box::new([]),
-            },
-            PatternSpace::Empty,
-        );
+        return ResolvedVariantPattern {
+            owner: None,
+            family: None,
+            owner_candidates: Box::new([]),
+            selector: constraint,
+            candidates: Box::new([]),
+        };
     };
 
     ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::EnumDeclaration(owner_decl.clone()));
@@ -787,20 +717,16 @@ fn resolve_variant_pattern(
             format!("type `{}` is not an enum or cannot be resolved", owner_decl.name),
             variant_pat.range,
         ));
-        return (
-            ResolvedVariantPattern {
-                owner: Some(owner_decl.clone()),
-                family: None,
-                owner_candidates: Box::new([owner_decl]),
-                selector: constraint,
-                candidates: Box::new([]),
-            },
-            PatternSpace::Empty,
-        );
+        return ResolvedVariantPattern {
+            owner: Some(owner_decl.clone()),
+            family: None,
+            owner_candidates: Box::new([owner_decl]),
+            selector: constraint,
+            candidates: Box::new([]),
+        };
     }
 
     let mut candidate_resolutions = Vec::new();
-    let mut candidate_spaces = Vec::new();
     let mut candidate_bindings = Vec::new();
 
     if let (Some(table), Some(info)) = (&enum_table, &enum_info) {
@@ -850,7 +776,6 @@ fn resolve_variant_pattern(
             let case_instantiation = opened.case_instantiation;
 
             let mut resolved_fields = Vec::new();
-            let mut field_spaces = Vec::new();
             let mut local_bindings = Vec::new();
 
             match &variant_pat.mode {
@@ -883,13 +808,13 @@ fn resolve_variant_pattern(
                         };
 
                         let field_subject = field_semantic.and_then(|(field_index, _)| opened.fields.get(field_index).cloned());
-                        let (child, field_space) = if let Some(field_subject) = field_subject.as_ref() {
+                        let child = if let Some(field_subject) = field_subject.as_ref() {
                             resolve_pattern_with_mode(ctx, &argument.pattern, field_subject, &mut local_bindings, BindingMode::Detached)
                         } else {
                             // Invalid opened-field metadata must not invent a canonical
                             // child subject. Retain unknown field evidence and leave child
                             // resolution opaque until the opening invariant is repaired.
-                            (PatternResolution::Wildcard, PatternSpace::Opaque(subject.canonical))
+                            PatternResolution::Wildcard
                         };
                         resolved_fields.push(ResolvedFieldPattern {
                             field: field_id,
@@ -897,14 +822,9 @@ fn resolve_variant_pattern(
                             local_type,
                             child: Box::new(child),
                         });
-                        field_spaces.push(field_space);
                     }
                 }
                 VariantPatternMode::CallablePattern { prefix, suffix, .. } => {
-                    for field_subject in opened.fields.iter() {
-                        field_spaces.push(PatternSpace::Opaque(field_subject.canonical));
-                    }
-
                     for (i, argument) in prefix.iter().enumerate() {
                         let (field_index, field_semantic) = if let Some(ref label) = argument.label {
                             v_info
@@ -933,13 +853,13 @@ fn resolve_variant_pattern(
                             ),
                         };
                         let field_subject = opened.fields.get(field_index).cloned();
-                        let (child, field_space) = if let Some(field_subject) = field_subject.as_ref() {
+                        let child = if let Some(field_subject) = field_subject.as_ref() {
                             resolve_pattern_with_mode(ctx, &argument.pattern, field_subject, &mut local_bindings, BindingMode::Detached)
                         } else {
                             // Invalid opened-field metadata must not invent a canonical
                             // child subject. Retain unknown field evidence and leave child
                             // resolution opaque until the opening invariant is repaired.
-                            (PatternResolution::Wildcard, PatternSpace::Opaque(subject.canonical))
+                            PatternResolution::Wildcard
                         };
                         resolved_fields.push(ResolvedFieldPattern {
                             field: field_id,
@@ -947,9 +867,6 @@ fn resolve_variant_pattern(
                             local_type,
                             child: Box::new(child),
                         });
-                        if field_index < field_spaces.len() {
-                            field_spaces[field_index] = field_space;
-                        }
                     }
 
                     for (suffix_index, argument) in suffix.iter().enumerate() {
@@ -981,13 +898,13 @@ fn resolve_variant_pattern(
                             ),
                         };
                         let field_subject = opened.fields.get(field_index).cloned();
-                        let (child, field_space) = if let Some(field_subject) = field_subject.as_ref() {
+                        let child = if let Some(field_subject) = field_subject.as_ref() {
                             resolve_pattern_with_mode(ctx, &argument.pattern, field_subject, &mut local_bindings, BindingMode::Detached)
                         } else {
                             // Invalid opened-field metadata must not invent a canonical
                             // child subject. Retain unknown field evidence and leave child
                             // resolution opaque until the opening invariant is repaired.
-                            (PatternResolution::Wildcard, PatternSpace::Opaque(subject.canonical))
+                            PatternResolution::Wildcard
                         };
                         resolved_fields.push(ResolvedFieldPattern {
                             field: field_id,
@@ -995,24 +912,10 @@ fn resolve_variant_pattern(
                             local_type,
                             child: Box::new(child),
                         });
-                        if field_index < field_spaces.len() {
-                            field_spaces[field_index] = field_space;
-                        }
                     }
                 }
-                VariantPatternMode::Singleton | VariantPatternMode::WholeFamily { .. } => {
-                    for field_subject in opened.fields.iter() {
-                        field_spaces.push(PatternSpace::Opaque(field_subject.canonical));
-                    }
-                }
+                VariantPatternMode::Singleton | VariantPatternMode::WholeFamily { .. } => {}
             }
-
-            let candidate_space = PatternSpace::Variant(VariantSpace {
-                variant: variant_id.clone(),
-                exact_case,
-                fields: field_spaces.into_boxed_slice(),
-                proof: proof.clone(),
-            });
 
             candidate_resolutions.push(ResolvedVariantCandidate {
                 variant: variant_id.clone(),
@@ -1021,7 +924,6 @@ fn resolve_variant_pattern(
                 proof,
                 case_instantiation: Some(case_instantiation),
             });
-            candidate_spaces.push(candidate_space);
             candidate_bindings.push(local_bindings);
         }
 
@@ -1088,12 +990,6 @@ fn resolve_variant_pattern(
         }
     }
 
-    let space = match candidate_spaces.len() {
-        0 => PatternSpace::Empty,
-        1 => candidate_spaces.pop().expect("single candidate space exists").normalize(),
-        _ => PatternSpace::Union(candidate_spaces.into_boxed_slice()).normalize(),
-    };
-
     let family = if candidate_resolutions.len() == 1 {
         candidate_resolutions
             .first()
@@ -1104,16 +1000,13 @@ fn resolve_variant_pattern(
         None
     };
 
-    (
-        ResolvedVariantPattern {
-            owner: Some(owner_decl.clone()),
-            family,
-            owner_candidates: Box::new([owner_decl]),
-            selector: constraint,
-            candidates: candidate_resolutions.into_boxed_slice(),
-        },
-        space,
-    )
+    ResolvedVariantPattern {
+        owner: Some(owner_decl.clone()),
+        family,
+        owner_candidates: Box::new([owner_decl]),
+        selector: constraint,
+        candidates: candidate_resolutions.into_boxed_slice(),
+    }
 }
 
 fn matches_variant_info(
