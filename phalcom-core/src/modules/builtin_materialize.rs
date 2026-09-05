@@ -12,6 +12,17 @@ use phalcom_modules::source::ModuleKind;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+fn canonical_universe_path(components: &[&str]) -> Result<ModulePath, RuntimeError> {
+    components
+        .iter()
+        .map(|component| {
+            phalcom_modules::ModuleComponent::from_identifier(component)
+                .map_err(|error| RuntimeError::Internal(format!("invalid canonical Universe component `{component}`: {error}")))
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(ModulePath::from_components)
+}
+
 /// Initializes the canonical builtin `universe` package in the module registry
 /// and populates its native bindings and export table.
 pub fn initialize_canonical_universe(vm: &mut VM) -> PhResult<ObjRef> {
@@ -23,12 +34,7 @@ pub fn initialize_canonical_universe(vm: &mut VM) -> PhResult<ObjRef> {
     // execution stable identities and prevents package imports from depending
     // on provider enumeration order.
     for node in provider.nodes() {
-        let path = ModulePath::from_components(
-            node.path
-                .iter()
-                .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).expect("canonical Universe component"))
-                .collect::<Vec<_>>(),
-        );
+        let path = canonical_universe_path(node.path)?;
         let id = ModuleId::universe(path);
         let iface = provider
             .load_interface(&id)
@@ -48,23 +54,28 @@ pub fn initialize_canonical_universe(vm: &mut VM) -> PhResult<ObjRef> {
         modules.insert(id, object);
     }
 
-    let root = *modules.get(&root_id).expect("Universe root must be materialized");
+    let root = *modules
+        .get(&root_id)
+        .ok_or_else(|| RuntimeError::Internal("Universe root must be materialized".into()))?;
     for node in provider.nodes() {
-        let path = ModulePath::from_components(
-            node.path
-                .iter()
-                .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).expect("canonical Universe component"))
-                .collect::<Vec<_>>(),
-        );
+        let path = canonical_universe_path(node.path)?;
         let id = ModuleId::universe(path);
-        let object = modules[&id];
+        let object = *modules
+            .get(&id)
+            .ok_or_else(|| RuntimeError::Internal(format!("Universe module {id} was not allocated")))?;
         if id.path.is_root() {
             vm.heap.module_mut(object).package = Some(object);
             vm.heap.module_mut(object).root_package = Some(object);
             continue;
         }
-        let parent_id = ModuleId::universe(id.path.parent().expect("non-root Universe module has parent"));
-        let parent = modules[&parent_id];
+        let parent_path = id
+            .path
+            .parent()
+            .ok_or_else(|| RuntimeError::Internal(format!("non-root Universe module {id} has no parent")))?;
+        let parent_id = ModuleId::universe(parent_path);
+        let parent = *modules
+            .get(&parent_id)
+            .ok_or_else(|| RuntimeError::Internal(format!("Universe parent module {parent_id} was not allocated")))?;
         vm.heap.module_mut(object).package = Some(if node.kind == ModuleKind::Package { object } else { parent });
         vm.heap.module_mut(object).root_package = Some(root);
     }
@@ -87,7 +98,7 @@ pub fn install_universe_native_bindings(
     for binding in phalcom_native_meta::UNIVERSE_BINDINGS {
         let class_id = vm.universe.classes.resolve(binding.key);
         let name_sym = vm.interner.intern(binding.name);
-        let owner_id = VM::canonical_universe_module_id(binding.key);
+        let owner_id = VM::canonical_universe_module_id(binding.key).map_err(|error| RuntimeError::Internal(error.to_string()))?;
         let owner = *modules
             .get(&owner_id)
             .ok_or_else(|| RuntimeError::Internal(format!("Universe owner module {owner_id} is not materialized")))?;
@@ -103,7 +114,7 @@ pub fn install_universe_native_bindings(
                 name_sym,
                 RuntimeExportRef::Binding(BindingRef {
                     module: owner,
-                    slot: slot as u16,
+                    slot: u16::try_from(slot).map_err(|_| RuntimeError::Internal(format!("Universe binding slot for `{}` does not fit u16", binding.name)))?,
                 }),
             );
         }
@@ -111,9 +122,16 @@ pub fn install_universe_native_bindings(
 
     let provider = UniverseSourceProvider::new();
     for node in provider.nodes().iter().filter(|node| node.path.len() == 1) {
-        let component = phalcom_modules::ModuleComponent::from_identifier(node.path[0]).expect("canonical Universe component");
+        let component_name = node
+            .path
+            .first()
+            .ok_or_else(|| RuntimeError::Internal("canonical Universe child has no path component".into()))?;
+        let component = phalcom_modules::ModuleComponent::from_identifier(component_name)
+            .map_err(|error| RuntimeError::Internal(format!("invalid canonical Universe component `{component_name}`: {error}")))?;
         let child_id = ModuleId::universe(ModulePath::from_components(vec![component.clone()]));
-        let child = modules[&child_id];
+        let child = *modules
+            .get(&child_id)
+            .ok_or_else(|| RuntimeError::Internal(format!("Universe child module {child_id} was not allocated")))?;
         let name_sym = vm.interner.intern(component.as_str());
         let slot = vm.heap.module_mut(universe_root).declare(name_sym)?;
         vm.heap.module_mut(universe_root).set_global(slot, Value::obj(child))?;
@@ -123,7 +141,9 @@ pub fn install_universe_native_bindings(
     // Context intrinsics
     let module_ids = modules.keys().cloned().collect::<Vec<_>>();
     for id in module_ids {
-        let module = modules[&id];
+        let module = *modules
+            .get(&id)
+            .ok_or_else(|| RuntimeError::Internal(format!("Universe module {id} was not allocated")))?;
         let mod_sym = vm.interner.intern("__module__");
         let slot = vm.heap.module_mut(module).declare(mod_sym)?;
         vm.heap.module_mut(module).set_global(slot, Value::obj(module))?;

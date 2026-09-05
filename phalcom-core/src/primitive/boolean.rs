@@ -19,7 +19,9 @@ use crate::vm::VM;
 )]
 pub fn bool_class_new(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     expect_class(vm, receiver)?;
-    let arg = &args[0];
+    let Some(arg) = args.first() else {
+        return Err(RuntimeError::AbstractClass { class: "Bool" }.into());
+    };
     if let Some(b) = arg.as_bool() {
         Ok(if b { TRUE } else { FALSE })
     } else if arg.is_nil() {
@@ -175,5 +177,17 @@ mod tests {
 
         assert_eq!(bool_class_new(&mut vm, &receiver, &[Value::int(1)]).expect("bool coercion succeeds"), TRUE);
         assert!(handle.bytes().is_empty());
+    }
+
+    #[test]
+    fn bool_zero_argument_constructor_returns_catchable_error() {
+        let mut vm = VM::new_native();
+        let receiver = Value::obj(vm.universe.classes.bool_class);
+
+        let error = bool_class_new(&mut vm, &receiver, &[]).expect_err("Bool.new() primitive must fail cleanly");
+        assert!(matches!(error, crate::error::PhError::Runtime(RuntimeError::AbstractClass { class: "Bool" })));
+
+        let error = bool_class_new_default(&mut vm, &receiver, &[]).expect_err("Bool.new() must fail cleanly");
+        assert!(matches!(error, crate::error::PhError::Runtime(RuntimeError::AbstractClass { class: "Bool" })));
     }
 }

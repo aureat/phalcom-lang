@@ -198,10 +198,9 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
   are literals only). `system/print_all*`/`write_all*`/`*_bad_to_string.wren`
   skipped (no `System.printAll`/`writeAll`/`write`, and `print` does not
   validate a `toString` override's return type). `bool/no_constructor.wren`
-  skipped — `Bool.new()` (zero-arg) **panics** (`args[0]` index-out-of-bounds,
-  `primitive/boolean.rs:34`) rather than raising a catchable error, so it
-  cannot satisfy the harness's `assert_no_panic` NEGATIVE contract; filed as a
-  correctness bug in `docs/forge/DEFERRED.md` instead of ported.
+  is now covered by `runtime-errors/bool_no_constructor` — zero-arg `Bool.new()`
+  returns a catchable abstract-class error rather than indexing an empty
+  argument list.
 - **U-FIBER-REFLECT delta (this unit):** `Fiber#isDone`/`Fiber#error` land as
   pure reads over `FiberObject::status`/`result` (no scheduler dependency,
   `primitive/fiber.rs` + `universe/primitives.rs`) — +3 new PASS goldens

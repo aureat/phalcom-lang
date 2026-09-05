@@ -409,19 +409,26 @@ pub struct VM {
 }
 
 impl VM {
-    /// Returns canonical Universe root package. Bootstrap creates it before
-    /// any source unit executes, so absence indicates an internal violation.
-    pub fn universe_root_module(&self) -> ObjRef {
+    /// Returns canonical Universe root package.
+    ///
+    /// # Errors
+    ///
+    /// Returns a bootstrap invariant failure when called before the canonical
+    /// Universe package has been materialized.
+    pub fn universe_root_module(&self) -> Result<ObjRef, crate::error::VmBootstrapError> {
         let id = phalcom_modules::ModuleId::universe_root();
-        self.module_registry.get(&id).expect("canonical Universe root is materialized").object
+        self.module_registry
+            .get(&id)
+            .map(|record| record.object)
+            .ok_or_else(|| crate::error::VmBootstrapError::Invariant("canonical Universe root is not materialized".into()))
     }
 
     /// Reads a binding from an exact canonical Universe module path.
     pub fn universe_global(&self, path: &[&str], name: &str) -> Option<Value> {
         let components = path
             .iter()
-            .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).expect("canonical Universe component"))
-            .collect::<Vec<_>>();
+            .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).ok())
+            .collect::<Option<Vec<_>>>()?;
         let id = phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(components));
         let module = self.module_registry.get(&id)?.object;
         self.heap.module(module).get(self.interner.find(name)?)
@@ -430,7 +437,8 @@ impl VM {
     /// Resolves a canonical Universe declaration name to its live module slot.
     pub fn canonical_universe_binding(&self, name: Symbol) -> Option<crate::modules::BindingRef> {
         let key = phalcom_native_meta::UniverseKey::from_name(self.resolve_symbol(name))?;
-        let module = self.module_registry.get(&Self::canonical_universe_module_id(key))?.object;
+        let module_id = Self::canonical_universe_module_id(key).ok()?;
+        let module = self.module_registry.get(&module_id)?.object;
         let slot = self.heap.module(module).slot_of(name)?;
         Some(crate::modules::BindingRef {
             module,
@@ -439,14 +447,17 @@ impl VM {
     }
 
     /// Returns the exact runtime module identity that owns a Universe key.
-    pub(crate) fn canonical_universe_module_id(key: phalcom_native_meta::UniverseKey) -> phalcom_modules::ModuleId {
+    pub(crate) fn canonical_universe_module_id(key: phalcom_native_meta::UniverseKey) -> Result<phalcom_modules::ModuleId, crate::error::VmBootstrapError> {
         let path = phalcom_modules::ModulePath::from_components(
             key.source_path()
                 .iter()
-                .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).expect("canonical Universe component"))
-                .collect::<Vec<_>>(),
+                .map(|component| {
+                    phalcom_modules::ModuleComponent::from_identifier(component)
+                        .map_err(|error| crate::error::VmBootstrapError::Invariant(format!("invalid canonical Universe component `{component}`: {error}")))
+                })
+                .collect::<Result<Vec<_>, _>>()?,
         );
-        phalcom_modules::ModuleId::universe(path)
+        Ok(phalcom_modules::ModuleId::universe(path))
     }
 
     /// Returns the Universe root module handle if initialized.

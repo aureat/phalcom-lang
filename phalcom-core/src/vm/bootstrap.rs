@@ -221,7 +221,7 @@ impl VM {
             .map_err(crate::error::VmBootstrapError::Runtime)?;
         // Bind primordial classes into their canonical modules and retain root
         // aliases for source prelude compatibility.
-        vm.bind_primordial_universe();
+        vm.bind_primordial_universe()?;
         vm.sync_universe_class_aliases()?;
 
         // Stamp the kernel `Message` class's fixed-slot count (U8,
@@ -392,8 +392,8 @@ impl VM {
 
     /// Binds primordial runtime classes to canonical Universe modules and
     /// exposes root package aliases for compatibility.
-    pub fn bind_primordial_universe(&mut self) {
-        let m = self.universe_root_module();
+    pub fn bind_primordial_universe(&mut self) -> Result<(), crate::error::VmBootstrapError> {
+        let m = self.universe_root_module()?;
         self.runtime_roots = Some(crate::vm::RuntimeRoots { universe: m, entry: None });
         self.privileged_modules.extend(self.module_registry.iter().map(|(_, record)| record.object));
 
@@ -402,7 +402,8 @@ impl VM {
                 let class_id = self.universe.classes.$field;
                 let name = self.heap.class(class_id).name.clone();
                 let name_sym = self.interner.intern(&name);
-                self.define_global(m, name_sym, Value::obj(class_id)).ok();
+                self.define_global(m, name_sym, Value::obj(class_id))
+                    .map_err(crate::error::VmBootstrapError::Runtime)?;
                 let key = crate::vm::ClassKey { module: m, name: name_sym };
                 self.classes.insert(key, class_id);
                 self.kernel_class_names.insert(name_sym);
@@ -559,13 +560,18 @@ impl VM {
 
         // Bind the `None` global to immediate absence.
         let none_global_sym = self.interner.intern("None");
-        self.define_global(m, none_global_sym, Value::none()).ok();
+        self.define_global(m, none_global_sym, Value::none())
+            .map_err(crate::error::VmBootstrapError::Runtime)?;
 
         // The root aliases above preserve bare prelude reads. The authoritative
         // ClassKey for every primordial declaration belongs to its source module.
         for binding in phalcom_native_meta::UNIVERSE_BINDINGS {
-            let owner_id = Self::canonical_universe_module_id(binding.key);
-            let owner = self.module_registry.get(&owner_id).expect("canonical Universe owner module").object;
+            let owner_id = Self::canonical_universe_module_id(binding.key)?;
+            let owner = self
+                .module_registry
+                .get(&owner_id)
+                .ok_or_else(|| crate::error::VmBootstrapError::Invariant(format!("canonical Universe owner module {owner_id} is not registered")))?
+                .object;
             let name_sym = self.interner.intern(binding.name);
             let class_id = self.universe.classes.resolve(binding.key);
             self.classes.insert(crate::vm::ClassKey { module: owner, name: name_sym }, class_id);
@@ -577,13 +583,12 @@ impl VM {
             phalcom_native_meta::UniverseKey::Some,
             phalcom_native_meta::UniverseKey::None,
         ] {
-            let owner_id = phalcom_modules::ModuleId::universe(phalcom_modules::ModulePath::from_components(
-                key.source_path()
-                    .iter()
-                    .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).expect("canonical Universe component"))
-                    .collect::<Vec<_>>(),
-            ));
-            let owner = self.module_registry.get(&owner_id).expect("canonical Option owner module").object;
+            let owner_id = Self::canonical_universe_module_id(key)?;
+            let owner = self
+                .module_registry
+                .get(&owner_id)
+                .ok_or_else(|| crate::error::VmBootstrapError::Invariant(format!("canonical Option owner module {owner_id} is not registered")))?
+                .object;
             let name = self.interner.intern(key.name());
             self.sealed_classes.insert(crate::vm::ClassKey { module: owner, name }, m);
         }
@@ -592,13 +597,14 @@ impl VM {
         // `Nil` name reachable from user code (Invariant 4). The `Nil` class row
         // still exists in the tower to back `Value::Nil::class`, but it is
         // internal only.
+        Ok(())
     }
 
     fn sync_universe_class_aliases(&mut self) -> Result<(), crate::error::VmBootstrapError> {
-        let root = self.universe_root_module();
+        let root = self.universe_root_module()?;
         self.prelude_bindings.clear();
         for binding in phalcom_native_meta::UNIVERSE_BINDINGS {
-            let owner_id = Self::canonical_universe_module_id(binding.key);
+            let owner_id = Self::canonical_universe_module_id(binding.key)?;
             let owner = self
                 .module_registry
                 .get(&owner_id)
@@ -647,28 +653,24 @@ impl VM {
             .iter()
             .map(|binding| (binding.name, binding.prelude))
             .collect::<HashMap<_, _>>();
-        let source_bindings = self
-            .classes
-            .keys()
-            .filter(|key| key.module != root)
-            .filter(|key| universe_modules.contains(&key.module))
-            .filter_map(|key| {
-                let name_text = self.resolve_symbol(key.name);
-                if let Some(&is_prelude) = native_names.get(name_text) {
-                    if !is_prelude && !matches!(name_text, "Some" | "None") {
-                        return None;
-                    }
+        let mut source_bindings = Vec::new();
+        for key in self.classes.keys().copied() {
+            if key.module == root || !universe_modules.contains(&key.module) {
+                continue;
+            }
+            let name_text = self.resolve_symbol(key.name);
+            if let Some(&is_prelude) = native_names.get(name_text) {
+                if !is_prelude && !matches!(name_text, "Some" | "None") {
+                    continue;
                 }
-                let slot = self.heap.module(key.module).slot_of(key.name)?;
-                Some((
-                    key.name,
-                    crate::modules::BindingRef {
-                        module: key.module,
-                        slot: u16::try_from(slot).ok()?,
-                    },
-                ))
-            })
-            .collect::<Vec<_>>();
+            }
+            let slot = self.heap.module(key.module).slot_of(key.name).ok_or_else(|| {
+                crate::error::VmBootstrapError::Invariant(format!("canonical Universe binding `{name_text}` is not registered in module {:?}", key.module))
+            })?;
+            let slot = u16::try_from(slot)
+                .map_err(|_| crate::error::VmBootstrapError::Invariant(format!("canonical Universe binding `{name_text}` slot does not fit u16")))?;
+            source_bindings.push((key.name, crate::modules::BindingRef { module: key.module, slot }));
+        }
         for (name, binding) in source_bindings {
             self.prelude_bindings.insert(name, binding);
         }
@@ -796,6 +798,20 @@ mod tests {
         assert!(vm.classes.is_empty());
         assert!(vm.module_registry.iter().next().is_none());
         assert_eq!(vm.universe_bootstrap_measurement(), super::super::UniverseBootstrapMeasurement::default());
+    }
+
+    #[test]
+    fn kernel_bootstrap_missing_universe_root_is_structured() {
+        let mut vm = VM::new_kernel();
+
+        assert!(matches!(
+            vm.universe_root_module(),
+            Err(crate::error::VmBootstrapError::Invariant(message)) if message.contains("Universe root")
+        ));
+        assert!(matches!(
+            vm.bind_primordial_universe(),
+            Err(crate::error::VmBootstrapError::Invariant(message)) if message.contains("Universe root")
+        ));
     }
 
     #[test]

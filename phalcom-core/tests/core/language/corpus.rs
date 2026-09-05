@@ -64,12 +64,15 @@ fn membership() {
 
 #[test]
 fn syntax_errors() {
-    support::check_negative("syntax-errors");
+    support::check_negative_at_phase("syntax-errors", support::ExpectedFailurePhase::Parse);
 }
 
 #[test]
 fn runtime_errors() {
-    support::check_negative("runtime-errors");
+    // This legacy lane intentionally remains mixed: several Wren ports use
+    // static argument-mismatch diagnostics while the rest assert runtime
+    // errors. Split it into phase-pure lanes as those ports are migrated.
+    support::check_negative_at_phase("runtime-errors", support::ExpectedFailurePhase::Any);
 }
 
 #[test]
@@ -85,7 +88,7 @@ fn absence_negative() {
     // has no `new()` (it is an immediate variant, ADR-0007/PDR-0033) and no
     // `not` (Phalcom's `!` is `Bool`-only, ADR-0021 — no truthiness
     // coercion makes `None` an exception) — both plain does-not-understand.
-    support::check_negative("absence/negative");
+    support::check_negative_at_phase("absence/negative", support::ExpectedFailurePhase::Runtime);
 }
 
 #[test]
@@ -93,7 +96,9 @@ fn compile_errors() {
     // U6: compile-time diagnostics — surface `nil` is undefined, `let` requires
     // an initializer and rejects reassignment (ADR-0014), and a literal
     // `Option` condition has no truth value (BD-U6-1 Option A).
-    support::check_negative("compile-errors");
+    // The directory also retains parse and runtime contract cases, so it stays
+    // on the explicit mixed-lane oracle until those cases are split out.
+    support::check_negative_at_phase("compile-errors", support::ExpectedFailurePhase::Any);
 }
 
 #[test]
@@ -174,7 +179,7 @@ fn concurrency_negative() {
     // and C-FIB-5 — a block escaping to a *different* fiber's stack still
     // raises `DeadFrameError` once its home activation is dead (ADR-0013
     // fencing is fiber-agnostic).
-    support::check_negative("concurrency/negative");
+    support::check_negative_at_phase("concurrency/negative", support::ExpectedFailurePhase::Runtime);
 }
 
 #[test]
@@ -205,7 +210,7 @@ fn bytes() {
 fn bytes_negative() {
     // bytes.md law 1's raise half: every precondition violation raises with
     // the named diagnostic — never `None`, never a silent clamp.
-    support::check_negative("bytes/negative");
+    support::check_negative_at_phase("bytes/negative", support::ExpectedFailurePhase::Runtime);
 }
 
 #[test]
@@ -300,7 +305,7 @@ fn iteration_negative() {
     // unaffected (inliner fast path never takes this deopt twin for a real
     // Bool). See `docs/forge/DEFERRED.md` for the full non-local-break
     // follow-on this does not attempt.
-    support::check_negative("iteration/negative");
+    support::check_negative_at_phase("iteration/negative", support::ExpectedFailurePhase::Runtime);
 }
 
 #[test]
@@ -317,14 +322,14 @@ fn iterator() {
 
 #[test]
 fn iterator_negative() {
-    support::check_negative("iterator/negative");
+    support::check_negative_at_phase("iterator/negative", support::ExpectedFailurePhase::Runtime);
 }
 
 #[test]
 fn sequence_negative() {
     // U-SEQ: guard clauses raise `Error` for negative/non-number counts in
     // `SkipView`/`TakeView` construction.
-    support::check_negative("sequence/negative");
+    support::check_negative_at_phase("sequence/negative", support::ExpectedFailurePhase::Runtime);
 }
 
 #[test]
@@ -389,7 +394,7 @@ fn strings_negative() {
     // non-String charset/delimiter, indexOf empty needle, and *(count)
     // range/type guards — the corpus gap the U-STRING review flagged as
     // unreachable by the gate.
-    support::check_negative("strings/negative");
+    support::check_negative_at_phase("strings/negative", support::ExpectedFailurePhase::Runtime);
 }
 
 // NB: no `string_negative` test — the two Wren-suite NEGATIVE ports
@@ -456,7 +461,7 @@ fn streams() {
 
 #[test]
 fn streams_negative() {
-    support::check_negative("streams/negative");
+    support::check_negative_at_phase("streams/negative", support::ExpectedFailurePhase::Runtime);
 }
 
 #[test]
@@ -466,5 +471,5 @@ fn path() {
 
 #[test]
 fn path_negative() {
-    support::check_negative("path/negative");
+    support::check_negative_at_phase("path/negative", support::ExpectedFailurePhase::Runtime);
 }

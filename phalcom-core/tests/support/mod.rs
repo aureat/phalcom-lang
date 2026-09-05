@@ -8,7 +8,7 @@ use std::process::{Command, Output};
 use phalcom_ast::error::SyntaxError;
 use phalcom_core::compiler::attributes::CompileMode;
 use phalcom_core::compiler::lib::CompilerError;
-use phalcom_core::error::{IoError, PhError, VmBootstrapError};
+use phalcom_core::error::{IoError, PhError, RuntimeError, VmBootstrapError};
 use phalcom_core::modules::compile::{EntrySelection, ProgramCompileError, ProgramCompiler, ProgramSemanticDiagnostics};
 use phalcom_core::vm::{BufferedOutput, VM};
 
@@ -109,6 +109,55 @@ enum CorpusOutcome {
     BootstrapFailure(VmBootstrapError),
     IoFailure(IoError),
     RuntimeFailure(PhError),
+}
+
+/// Failure phase expected by a negative corpus lane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExpectedFailurePhase {
+    /// Accept any structured failure. Use while a legacy lane is still mixed.
+    Any,
+    /// Front-end parser failure.
+    Parse,
+    /// Formal semantic-analysis failure.
+    Semantic,
+    /// Program or VM bytecode compilation failure.
+    Compile,
+    /// Runtime-language failure after compilation.
+    Runtime,
+}
+
+impl ExpectedFailurePhase {
+    fn matches(self, outcome: &CorpusOutcome) -> bool {
+        match self {
+            Self::Any => !matches!(outcome, CorpusOutcome::Success),
+            Self::Parse => matches!(
+                outcome,
+                CorpusOutcome::ProgramCompileFailure(ProgramCompileError::Parse(_)) | CorpusOutcome::BytecodeParseFailure(_)
+            ),
+            Self::Semantic => matches!(outcome, CorpusOutcome::ProgramCompileFailure(ProgramCompileError::Semantic(_))),
+            Self::Compile => {
+                matches!(
+                    outcome,
+                    CorpusOutcome::ProgramCompileFailure(error)
+                        if !matches!(error, ProgramCompileError::Parse(_) | ProgramCompileError::Semantic(_))
+                ) || matches!(outcome, CorpusOutcome::BytecodeCompileFailure(_))
+            }
+            Self::Runtime => matches!(outcome, CorpusOutcome::RuntimeFailure(_)),
+        }
+    }
+}
+
+impl fmt::Display for ExpectedFailurePhase {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = match self {
+            Self::Any => "any failure",
+            Self::Parse => "parse",
+            Self::Semantic => "semantic",
+            Self::Compile => "compile",
+            Self::Runtime => "runtime",
+        };
+        f.write_str(name)
+    }
 }
 
 #[derive(Debug)]
@@ -324,18 +373,25 @@ fn assert_stdout_exact(label: &str, output: &[u8], expected: &[u8]) {
     );
 }
 
-fn assert_negative_output(label: &str, run: &CorpusRun, expected_note: &str) {
+fn assert_negative_output(label: &str, run: &CorpusRun, expected_phase: ExpectedFailurePhase, expected_note: &str) {
     if matches!(&run.outcome, CorpusOutcome::Success) {
         panic!("{label} unexpectedly succeeded. stdout:\n{}", String::from_utf8_lossy(&run.stdout));
     }
     assert!(
-        outcome_contains(&run.outcome, expected_note),
-        "{label} did not mention the expected diagnostic substring `{expected_note}`.\nphase failure:\n{}",
+        expected_phase.matches(&run.outcome),
+        "{label} failed in unexpected phase: expected {expected_phase}, got {}",
         outcome_summary(&run.outcome)
+    );
+    let note_matches_output = String::from_utf8_lossy(&run.stdout).contains(expected_note);
+    assert!(
+        outcome_contains(&run.outcome, expected_note) || note_matches_output,
+        "{label} did not mention the expected diagnostic or stdout substring `{expected_note}`.\nphase failure:\n{}\nstdout:\n{}",
+        outcome_summary(&run.outcome),
+        String::from_utf8_lossy(&run.stdout)
     );
 }
 
-fn check_cases(label: &str, pending: bool, negative: bool) {
+fn check_cases(label: &str, pending: bool, negative: bool, expected_phase: ExpectedFailurePhase) {
     let root = corpus_root().join(label);
     let dir = if negative {
         root.clone()
@@ -359,7 +415,7 @@ fn check_cases(label: &str, pending: bool, negative: bool) {
 
         if negative {
             let note = fs::read_to_string(&expected).unwrap_or_else(|err| panic!("failed to read {}: {err}", expected.display()));
-            assert_negative_output(&case_label, &output, note.trim());
+            assert_negative_output(&case_label, &output, expected_phase, note.trim());
         } else {
             assert_success(&case_label, &output);
             let expected_bytes = fs::read(&expected).unwrap_or_else(|err| panic!("failed to read {}: {err}", expected.display()));
@@ -370,17 +426,23 @@ fn check_cases(label: &str, pending: bool, negative: bool) {
 
 /// Runs all active PASS cases in `tests/fixtures/language/<label>/`.
 pub fn check_pass(label: &str) {
-    check_cases(label, false, false);
+    check_cases(label, false, false, ExpectedFailurePhase::Any);
 }
 
 /// Runs all NEGATIVE cases in `tests/fixtures/language/<label>/`.
 pub fn check_negative(label: &str) {
-    check_cases(label, false, true);
+    check_negative_at_phase(label, ExpectedFailurePhase::Any);
+}
+
+/// Runs NEGATIVE cases and requires each case to fail in `expected_phase`.
+/// Mixed legacy lanes should use [`check_negative`] until migrated.
+pub fn check_negative_at_phase(label: &str, expected_phase: ExpectedFailurePhase) {
+    check_cases(label, false, true, expected_phase);
 }
 
 /// Runs all PENDING cases in `tests/fixtures/language/<label>/pending/`.
 pub fn check_pending(label: &str) {
-    check_cases(label, true, false);
+    check_cases(label, true, false, ExpectedFailurePhase::Any);
 }
 
 /// Runs one named PENDING case without opening the rest of a deferred lane.
@@ -513,5 +575,25 @@ mod tests {
     fn fixture_flags_reject_duplicate_options() {
         let error = parse_case_options(&flags(&["--release", "--release"])).expect_err("duplicate flags must fail");
         assert!(matches!(error, CorpusConfigError::DuplicateFlag(flag) if flag == "--release"));
+    }
+
+    #[test]
+    fn expected_failure_phase_matches_structured_outcomes() {
+        let runtime = CorpusOutcome::RuntimeFailure(PhError::Runtime(RuntimeError::AbstractClass { class: "Bool" }));
+        let semantic = CorpusOutcome::ProgramCompileFailure(ProgramCompileError::Semantic(ProgramSemanticDiagnostics::default()));
+        let parse = CorpusOutcome::ProgramCompileFailure(ProgramCompileError::Parse(SyntaxError {
+            kind: phalcom_ast::error::SyntaxErrorKind::InvalidToken,
+            range: 0..0,
+        }));
+        let compile = CorpusOutcome::ProgramCompileFailure(ProgramCompileError::Io("compiler failure".into()));
+
+        assert!(ExpectedFailurePhase::Any.matches(&runtime));
+        assert!(ExpectedFailurePhase::Runtime.matches(&runtime));
+        assert!(!ExpectedFailurePhase::Semantic.matches(&runtime));
+        assert!(ExpectedFailurePhase::Semantic.matches(&semantic));
+        assert!(!ExpectedFailurePhase::Compile.matches(&semantic));
+        assert!(ExpectedFailurePhase::Parse.matches(&parse));
+        assert!(!ExpectedFailurePhase::Compile.matches(&parse));
+        assert!(ExpectedFailurePhase::Compile.matches(&compile));
     }
 }
