@@ -34,6 +34,9 @@ Prepared plan revision:
 - D-20: Imported names remain lexical `Binding(SourceSiteId)` targets for declarations and uses. `ImportBindingOrigin` stores the separate canonical remote `SemanticTargetId`; advisory projection follows origin while formal type resolution remains linked-read owned.
 - D-21: Import/selective/re-export paths and remote items, local exports, and expose children publish exact-range occurrences only when canonical resolved module/export products provide targets. Missing expose resolution remains targetless.
 - D-22: Re-export occurrences preserve upstream canonical declaration/module targets and never create re-export declaration sites; top-level module globals continue using `ModuleBinding(SymbolId)` through local export projection.
+- D-23: C6 introduces `SemanticDefinitionLocation`; imported lexical bindings follow `ImportBindingOrigin` to upstream definitions, while ordinary ranged targets continue using existing source sites and module targets use canonical module provenance.
+- D-24: LSP definition conversion is centralized in backend compiler-location projection. Removed request-time import-path reconstruction and legacy compiler import-definition helpers; module hover consumes published `Module` occurrences.
+- D-25: Positive module navigation now requires `package.ph`; package-less sibling imports and private exports fail closed without fabricated definition locations.
 
 ## Evidence ledger
 
@@ -75,6 +78,13 @@ Prepared plan revision:
 | C5 | `cargo test -p phalcom-semantic imported_resolution` | PASS: 9 passed | Imported enum/nominal/global inference remains green while alias declarations/uses stay local `Binding` targets and remote origins remain canonical. |
 | C5 | `cargo check -p phalcom-semantic` | PASS | C5 source-index, advisory-origin, enum callable, and target consumers compile. |
 | C5 | `git diff --check` | PASS | C5 changes introduce no whitespace errors. |
+| C6 | `cargo test -p phalcom-lsp --test module_navigation` | PASS: 4 passed | Canonical relative path, imported declaration, module alias, package-less sibling rejection, and private-export rejection navigation. |
+| C6 | `cargo test -p phalcom-lsp --test semantic_boundary` | PASS: 7 passed | LSP boundary remains free of semantic reimplementation and legacy bridges. |
+| C6 | `cargo test -p phalcom-lsp` | BLOCKED: 48 passed, 10 failed, 2 ignored | C6 navigation lanes pass; 8 known cross-file/package-less fixture failures plus 2 pre-C6 local-binding definition failures remain. |
+| C6 | `cargo check -p phalcom-lsp` | PASS | Semantic definition-location API and LSP adapter compile. |
+| C6 | `rg 'compiler_import_definition_location|import_path_range_at_offset' phalcom-lsp/src` | PASS: zero matches | Legacy import definition/path helpers removed. |
+| C6 | `rg 'resolved_import_target' phalcom-lsp/src/backend.rs` | PASS: zero matches | Backend no longer reconstructs import targets through module query spelling. |
+| C6 | `git diff --check` | PASS | C6 changes introduce no whitespace errors. |
 
 ## Negative/deletion gates
 
@@ -98,7 +108,13 @@ Prepared plan revision:
 
 ## Next resume action
 
-C5 focused evidence is green for Tasks 23–27. C3-I3 remains deferred to separate LSP fixture/baseline ownership; supervisor review is next before C6.
+C6 focused evidence is green for Tasks 28–31. C3-I3 remains deferred to separate LSP fixture/baseline ownership; C6-I1 is also deferred as pre-C6 local-binding baseline evidence. Supervisor review is next before C7/closure decision.
+
+## Incident C6-I1 — Full LSP gate exposes two pre-C6 local-binding definition failures
+
+Observed: `composition1::constructor_factory_inference_is_authoritative_across_lsp_features` and `semantic_consistency::local_binding_definition_and_references_are_precise` return null/non-array definition results. Both failures concern ordinary local/top-level binding targets, not imported-origin or module-path targets.
+
+Classification: pre-C6 baseline exposed by the full gate. C6 `definition_locations` delegates ordinary targets to existing `definition_sites`; current C6 diff changes only location projection and cannot explain source-index target loss. Keep outside C6 scope unless supervisor assigns the binding/ModuleBinding producer seam.
 
 ## C5 incidents
 

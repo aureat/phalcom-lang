@@ -117,6 +117,7 @@ async fn wait_for_definition(client: &mut tokio::io::DuplexStream, id: &mut u64,
 #[tokio::test]
 async fn goto_definition_on_relative_import_path_and_selective_export() {
     let workspace = ScratchWorkspace::new("rel_import");
+    workspace.write("package.ph", "");
     let shapes_path = workspace.write("shapes.ph", "class Circle {\n  area() { 3.14 }\n}\nexport Circle\n");
     let main_path = workspace.write("main.ph", "import .shapes as shapes\nfrom .shapes import Circle\n\nlet c = Circle.new();\n");
 
@@ -229,9 +230,10 @@ async fn goto_definition_on_relative_import_path_and_selective_export() {
 }
 
 #[tokio::test]
-async fn unresolved_import_does_not_crash_definition_or_hover() {
-    let workspace = ScratchWorkspace::new("unresolved");
-    let main_path = workspace.write("main.ph", "import .nonexistent as Missing\n\nlet x = 1;\n");
+async fn package_less_sibling_import_does_not_produce_definition() {
+    let workspace = ScratchWorkspace::new("package_less");
+    let _shapes_path = workspace.write("shapes.ph", "class Circle {}\nexport Circle\n");
+    let main_path = workspace.write("main.ph", "import .shapes as Missing\n\nlet x = 1;\n");
 
     let (server_end, mut client_end) = tokio::io::duplex(1 << 16);
     let (server_read, server_write) = tokio::io::split(server_end);
@@ -280,7 +282,7 @@ async fn unresolved_import_does_not_crash_definition_or_hover() {
 
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    // Go to definition on nonexistent module
+    // Relative sibling import has no package owner and must fail closed.
     write_message(
         &mut client_end,
         &json!({
@@ -296,8 +298,64 @@ async fn unresolved_import_does_not_crash_definition_or_hover() {
     .await;
 
     let def_resp = read_response(&mut client_end, 2).await;
-    // Should gracefully return null / empty without error
     assert!(def_resp["error"].is_null());
+    assert!(def_resp["result"].is_null() || def_resp["result"].as_array().is_some_and(Vec::is_empty));
+}
+
+#[tokio::test]
+async fn private_export_does_not_produce_definition() {
+    let workspace = ScratchWorkspace::new("private_export");
+    let shapes_path = workspace.write("shapes.ph", "class Hidden {}\n");
+    let main_path = workspace.write("main.ph", "from .shapes import Hidden\nHidden\n");
+    workspace.write("package.ph", "");
+
+    let (server_end, mut client_end) = tokio::io::duplex(1 << 16);
+    let (server_read, server_write) = tokio::io::split(server_end);
+    let (service, socket) = LspService::new(Backend::new);
+    tokio::spawn(async move {
+        Server::new(server_read, server_write, socket).serve(service).await;
+    });
+
+    write_message(
+        &mut client_end,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": { "processId": null, "rootUri": workspace.uri(), "capabilities": {} }
+        }),
+    )
+    .await;
+    let _ = read_response(&mut client_end, 1).await;
+    write_message(&mut client_end, &json!({ "jsonrpc": "2.0", "method": "initialized", "params": {} })).await;
+
+    let main_uri = Url::from_file_path(&main_path).unwrap().to_string();
+    let shapes_uri = Url::from_file_path(&shapes_path).unwrap().to_string();
+    write_message(
+        &mut client_end,
+        &json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": { "textDocument": { "uri": main_uri, "languageId": "phalcom", "version": 1, "text": std::fs::read_to_string(&main_path).unwrap() } }
+        }),
+    )
+    .await;
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    write_message(
+        &mut client_end,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "textDocument/definition",
+            "params": { "textDocument": { "uri": main_uri }, "position": { "line": 0, "character": 21 } }
+        }),
+    )
+    .await;
+    let response = read_response(&mut client_end, 2).await;
+    assert!(response["error"].is_null());
+    assert!(response["result"].is_null() || response["result"].as_array().is_some_and(Vec::is_empty));
+    assert_ne!(response["result"].as_array().and_then(|locations| locations.first()).and_then(|location| location["uri"].as_str()), Some(shapes_uri.as_str()));
 }
 
 #[tokio::test]

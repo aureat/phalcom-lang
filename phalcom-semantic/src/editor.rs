@@ -121,6 +121,14 @@ pub struct EditorTypeHint {
     pub advisory: Option<AdvisoryFact>,
 }
 
+/// Protocol-neutral definition location. Module locations carry canonical
+/// identity only; URI and range presentation belongs to protocol adapters.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SemanticDefinitionLocation {
+    SourceSite(SourceSiteId),
+    Module(ModuleId),
+}
+
 /// Read-only editor query facade over one immutable semantic snapshot.
 #[derive(Clone, Copy, Debug)]
 pub struct EditorSemanticQuery<'a> {
@@ -313,6 +321,35 @@ impl<'a> EditorSemanticQuery<'a> {
     /// Returns declaration sites for one canonical target.
     pub fn definition_sites(&self, target: &SemanticTargetId) -> Vec<SourceSiteId> {
         self.sites_for_target(target, true)
+    }
+
+    /// Returns canonical definition locations, following imported binding
+    /// provenance to the upstream declaration or module when available.
+    pub fn definition_locations(&self, target: &SemanticTargetId) -> Vec<SemanticDefinitionLocation> {
+        if let SemanticTargetId::Binding(site) = target
+            && let Some(origin) = self
+                .snapshot
+                .source_index
+                .module_for_site(site)
+                .and_then(|module| module.structure.import_origin(site))
+        {
+            return self.definition_locations(&origin.remote_target);
+        }
+        match target {
+            SemanticTargetId::Module(module) => self
+                .snapshot
+                .module_queries()
+                .definition_source(module)
+                .is_some()
+                .then(|| SemanticDefinitionLocation::Module(module.clone()))
+                .into_iter()
+                .collect(),
+            _ => self
+                .definition_sites(target)
+                .into_iter()
+                .map(SemanticDefinitionLocation::SourceSite)
+                .collect(),
+        }
     }
 
     /// Returns non-declaration reference sites for one canonical target.

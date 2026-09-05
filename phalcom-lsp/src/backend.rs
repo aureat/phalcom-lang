@@ -66,70 +66,6 @@ type CompilerCallableHover = (
     Option<phalcom_semantic::NativeCallablePresentation>,
 );
 
-fn import_path_range_at_offset(program: &phalcom_ast::ast::Program, offset: usize) -> Option<phalcom_common::range::SourceRange> {
-    program.preamble.dependencies.iter().find_map(|dependency| {
-        let path = match dependency {
-            phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Module(import)) => &import.path,
-            phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Selective(import)) => &import.path,
-            _ => return None,
-        };
-        path.range.contains(offset).then_some(path.range)
-    })
-}
-
-fn compiler_import_definition_location(request: &RequestContext, position: Position) -> Option<Location> {
-    let compiler = request.compiler.as_deref()?;
-    let importer = request.compiler_module()?;
-    let offset = request.document.line_index.offset(position);
-
-    for dependency in &request.document.parse.program.preamble.dependencies {
-        let (path, range, binding_names) = match dependency {
-            phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Module(import)) => {
-                let mut names = Vec::new();
-                if let Some(alias) = &import.alias {
-                    names.push(alias.name.clone());
-                }
-                if let Some(segment) = import.path.segments.last() {
-                    names.push(segment.name.clone());
-                }
-                if let phalcom_ast::ast::ImportRoot::Absolute(segment) = &import.path.root {
-                    names.push(segment.name.clone());
-                }
-                (&import.path, import.path.range, names)
-            }
-            phalcom_ast::ast::DependencyDecl::Import(phalcom_ast::ast::ImportDecl::Selective(import)) => {
-                let names = import
-                    .items
-                    .iter()
-                    .flat_map(|item| [Some(item.name.clone()), item.alias.as_ref().map(|alias| alias.name.clone())])
-                    .flatten()
-                    .collect();
-                (&import.path, import.path.range, names)
-            }
-            _ => continue,
-        };
-        if !range.contains(offset) {
-            continue;
-        }
-
-        let queries = compiler.module_queries();
-        let target = binding_names
-            .iter()
-            .find_map(|name| queries.resolved_import_target(importer, name))
-            .or_else(|| queries.resolved_import_target(importer, &path.to_string()))?;
-        let source = queries.definition_source(target)?;
-        let uri = Url::from_file_path(&source.display_path)
-            .ok()
-            .or_else(|| Url::parse(source.source_id.0.as_ref()).ok())?;
-        return Some(Location {
-            uri,
-            range: tower_lsp::lsp_types::Range::default(),
-        });
-    }
-
-    None
-}
-
 struct DiagnosticPublication {
     diagnostics: Vec<tower_lsp::lsp_types::Diagnostic>,
     version: Option<i32>,
@@ -728,7 +664,29 @@ impl Backend {
     }
 
     fn compiler_target_locations(&self, compiler: &phalcom_semantic::SemanticSnapshot, target: &phalcom_semantic::SemanticTargetId) -> Vec<Location> {
-        self.compiler_sites_locations(compiler, compiler.editor().definition_sites(target))
+        let mut locations = Vec::new();
+        for definition in compiler.editor().definition_locations(target) {
+            let location = match definition {
+                phalcom_semantic::SemanticDefinitionLocation::SourceSite(site) => self.compiler_site_location(compiler, &site),
+                phalcom_semantic::SemanticDefinitionLocation::Module(module) => self.compiler_module_definition_location(compiler, &module),
+            };
+            if let Some(location) = location
+                && !locations
+                    .iter()
+                    .any(|existing: &Location| existing.uri == location.uri && existing.range == location.range)
+            {
+                locations.push(location);
+            }
+        }
+        locations
+    }
+
+    fn compiler_module_definition_location(&self, compiler: &phalcom_semantic::SemanticSnapshot, module: &phalcom_modules::ModuleId) -> Option<Location> {
+        compiler.module_queries().definition_source(module)?;
+        Some(Location {
+            uri: self.compiler_uri_for_module(compiler, module)?,
+            range: tower_lsp::lsp_types::Range::default(),
+        })
     }
 
     fn compiler_reference_locations(
@@ -738,12 +696,25 @@ impl Backend {
         include_declaration: bool,
     ) -> Vec<Location> {
         let mut sites = compiler.editor().reference_sites(target);
-        if include_declaration {
-            sites.extend(compiler.editor().definition_sites(target));
-        }
         sites.sort();
         sites.dedup();
-        self.compiler_sites_locations(compiler, sites)
+        let mut locations = self.compiler_sites_locations(compiler, sites);
+        if include_declaration {
+            for definition in compiler.editor().definition_locations(target) {
+                let location = match definition {
+                    phalcom_semantic::SemanticDefinitionLocation::SourceSite(site) => self.compiler_site_location(compiler, &site),
+                    phalcom_semantic::SemanticDefinitionLocation::Module(module) => self.compiler_module_definition_location(compiler, &module),
+                };
+                if let Some(location) = location
+                    && !locations
+                        .iter()
+                        .any(|existing: &Location| existing.uri == location.uri && existing.range == location.range)
+                {
+                    locations.push(location);
+                }
+            }
+        }
+        locations
     }
 
     fn compiler_sites_locations(&self, compiler: &phalcom_semantic::SemanticSnapshot, sites: Vec<phalcom_semantic::SourceSiteId>) -> Vec<Location> {
@@ -892,14 +863,6 @@ impl Backend {
 
     fn hover_at_request(&self, request: &RequestContext, _uri: &Url, position: Position) -> Option<Hover> {
         let offset = request.document.line_index.offset(position);
-        if let Some(import_range) = import_path_range_at_offset(&request.document.parse.program, offset)
-            && let Some(location) = compiler_import_definition_location(request, position)
-        {
-            return Some(Hover {
-                contents: markdown_contents(format!("module: `{}`", location.uri)),
-                range: Some(request.document.line_index.range(import_range.start..import_range.end)),
-            });
-        }
         let compiler = request.compiler.as_deref()?;
         let module = request.compiler_module()?;
         if !matches!(request.source_match, SourceMatch::Exact) {
@@ -957,6 +920,14 @@ impl Backend {
                     if let Some(contents) = self.compiler_binding_hover(request, &binding) {
                         return Some(Hover {
                             contents: markdown_contents(contents),
+                            range: Some(span),
+                        });
+                    }
+                }
+                phalcom_semantic::SemanticTargetId::Module(module) => {
+                    if let Some(uri) = self.compiler_uri_for_module(compiler, &module) {
+                        return Some(Hover {
+                            contents: markdown_contents(format!("module: `{uri}`")),
                             range: Some(span),
                         });
                     }
@@ -1385,10 +1356,6 @@ impl LanguageServer for Backend {
             if !locations.is_empty() {
                 return Ok(Some(GotoDefinitionResponse::Array(locations)));
             }
-        }
-
-        if let Some(location) = compiler_import_definition_location(&request, position) {
-            return Ok(Some(GotoDefinitionResponse::Array(vec![location])));
         }
 
         Ok(None)
