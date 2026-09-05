@@ -80,3 +80,40 @@ class Eval {
     handle.arm(1).assert_usefulness(PatternUsefulness::Useful);
     handle.arm(2).assert_usefulness(PatternUsefulness::Useful);
 }
+
+#[test]
+fn recursive_uninhabited_family_is_vacuously_exhaustive() {
+    let case = analyze_adt(
+        r#"
+enum Loop {
+    @variant Next(_ next: Loop) -> Loop
+}
+
+class Check {
+    run(_ value: Loop) {
+        match value { }
+    }
+}
+"#,
+    );
+    case.only_match().assert_exhaustive();
+}
+
+#[test]
+fn recursive_family_with_base_constructor_is_inhabited() {
+    let case = analyze_adt(
+        r#"
+enum Tree {
+    @variant Leaf -> Tree
+    @variant Next(_ next: Tree) -> Tree
+}
+
+class Check {
+    run(_ value: Tree) {
+        match value { }
+    }
+}
+"#,
+    );
+    case.only_match().assert_not_exhaustive();
+}

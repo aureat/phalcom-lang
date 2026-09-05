@@ -709,3 +709,53 @@ compile, negative-search, and scoped-diff gates are green.
 
 Supervisor review. After authorization, commit C4 only; defer C5 resource
 hardening and C6 release/workspace gates.
+
+## Recursive Match Coverage Corrective C5 Amendment (2026-09-05)
+
+C5 adds bounded recursive inhabitation and shared query-control charging on top
+of the C4 demand-driven usefulness engine. Earlier C2/C3/C4 rows remain
+historical; their next-action wording is superseded by this amendment. C5 does
+not add persistent coverage caches, reuse constructor-local rigid observations,
+or enter C6 integration/workspace closure.
+
+- Added query-local tri-state productive inhabitation (`Inhabited`,
+  `Uninhabited`, `Unknown`) with explicit `Blocked` propagation and least
+  productive fixed-point initialization for recursive closed families.
+- `CoverageEngine` now carries the caller's `CheckerControl`; matrix states,
+  constructor specialization, witness construction, cancellation, and SCC
+  iterations charge/check that shared authority. Cancellation follows existing
+  semantic convention through `UnknownReason::InferenceCancelled` inside a
+  blocked coverage product; no new public cancellation reason was introduced.
+- Added crate-private `CoverageMetrics` and tests asserting bounded witness
+  work; the existing indexed outer-only `Apply` TypeStore-growth regression
+  remains green (`delta <= 128`). No proof-bearing cache was added because no
+  durable proof key exists that preserves fresh existential observations.
+- Added hostile recursive-family fixtures for an uninhabited cycle and a
+  productive base constructor. Existing wide-witness, nested-source-depth,
+  indexed-recursion, deterministic fingerprint, and incremental regressions
+  remain enabled.
+
+### Evidence ledger
+
+| Checkpoint | Command | Result | Proves |
+|---|---|---|---|
+| C5 | `RUSTFLAGS='' cargo test -p phalcom-semantic shared_control_budget_and_cancellation_fail_closed -- --nocapture --test-threads=1` | PASS: 1 passed, 0 failed | shared budget/cancellation fail closed as conservative coverage products; metrics are exercised |
+| C5 | `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic semantic::adts::matching::gadt_refinement -- --nocapture --test-threads=1` | PASS: 27 passed, 0 failed, 1 ignored | GADT refinement, local rigid freshness, and blocked-arm conservatism remain green |
+| C5 | `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic semantic::adts::matching::patterns -- --nocapture --test-threads=1` | PASS: 10 passed, 0 failed, 5 ignored | source-driven nested/selector/candidate-specific pattern resolution remains green |
+| C5 | `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic semantic::adts::matching::recursive_coverage -- --nocapture --test-threads=1` | PASS: 5 passed, 0 failed | productive/unproductive recursive families, indexed recursion, and finite source-depth bounds |
+| C5 | `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic semantic::adts::matching:: -- --nocapture --test-threads=1` | PASS: 149 passed, 0 failed, 16 ignored | full focused ADT matching suite remains green after resource hardening |
+| C5 | `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic semantic::incremental::adts -- --nocapture --test-threads=1` | PASS: 10 passed, 0 failed, 3 ignored | bounded TypeStore growth and cold/incremental match-product fingerprints remain consistent |
+| C5 | `RUSTFLAGS='' cargo check -p phalcom-semantic` | PASS | semantic crate compiles with shared coverage control and fixed-point module |
+| C5 | `rustfmt --edition 2021 --check` on C5-owned Rust files | BLOCKED by inherited baseline formatting drift in context/usefulness/fingerprint; no formatting applied | formatting incident classified without touching unrelated/inherited formatting |
+| C5 | `git diff --check` scoped to C5-owned paths | PASS | no whitespace defects in C5 corrective slice |
+| C5 | `graphify update .` | PASS: 56,248 nodes, 83,792 edges, 4,281 communities; HTML skipped due graph-size limit | graph reflects final C5 source/docs changes |
+
+### Active incident
+
+None. Rustfmt remains blocked by inherited baseline drift; behavioral, compile,
+incremental, and scoped-diff gates are green.
+
+### Next resume action
+
+Supervisor review. After authorization, commit C5 only; defer C6 integration,
+specification migration, and broad workspace gates.

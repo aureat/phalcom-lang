@@ -62,7 +62,7 @@ fn resolve_pattern_with_mode(
         Pattern::Or { alternatives, range } => {
             let mut resolved_alternatives = Vec::with_capacity(alternatives.len());
             let mut alternative_bindings = Vec::with_capacity(alternatives.len());
-            let mut engine = crate::checker::coverage::CoverageEngine::new(subject.clone());
+            let mut engine = crate::checker::coverage::CoverageEngine::new(subject.clone(), ctx.control.clone());
             let mut prior_coverage_alts = Vec::new();
 
             for alternative in alternatives {

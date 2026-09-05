@@ -1,4 +1,5 @@
 pub(crate) mod domain;
+pub(crate) mod inhabitation;
 pub(crate) mod pattern;
 pub(crate) mod subject;
 pub(crate) mod usefulness;
