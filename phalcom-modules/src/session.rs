@@ -792,8 +792,12 @@ impl WorkspaceModuleSession {
         removed_modules: BTreeSet<ModuleId>,
         identity_changes: BTreeSet<ModuleId>,
     ) -> Result<WorkspaceModuleUpdate, WorkspaceModuleSessionError> {
+        let mut removed_module_importers = BTreeSet::new();
         // 1. Invalidate removed modules from products
         for removed in &removed_modules {
+            if let Some(importers) = self.reverse_importers.get(removed) {
+                removed_module_importers.extend(importers.iter().cloned());
+            }
             self.interfaces.remove(removed);
             self.linked_modules.remove(removed);
             self.import_products.retain(|(importer, _), _| importer != removed);
@@ -865,11 +869,7 @@ impl WorkspaceModuleSession {
 
         // 4. Determine which modules require import resolution re-evaluation
         let mut modules_to_resolve = modules_with_changed_interface.clone();
-        for removed in &removed_modules {
-            if let Some(importers) = self.reverse_importers.get(removed) {
-                modules_to_resolve.extend(importers.iter().cloned());
-            }
-        }
+        modules_to_resolve.extend(removed_module_importers);
         for changed in &modules_with_changed_interface {
             if let Some(importers) = self.reverse_importers.get(changed) {
                 modules_to_resolve.extend(importers.iter().cloned());

@@ -2,7 +2,7 @@
 
 Prepared plan revision:
 - remote baseline: e932aac4e21a5b346e719ede5a24f94e7b924ab3
-- local implementation HEAD: d77960c15c9cf3090152f53c0f348c69fa588573
+- last pushed implementation HEAD: 1b1ed62b5e35cf5de8d1eba13d0a80d679c33595
 
 ## Established invariants
 
@@ -108,23 +108,60 @@ Prepared plan revision:
 
 ## Next resume action
 
-C6 focused evidence is green for Tasks 28–31. C6 closure audit repaired only module-navigation/package fixtures; C3-I3 workspace-semantic baselines and C6-I1 local-binding baselines remain open. C7 entry stays closed pending supervisor disposition or separate ownership for the six remaining full-gate failures.
+C6 focused evidence is green for Tasks 28–31. Closure audit repaired C3-I3 workspace semantics and C6-I1 local-binding navigation. Full `phalcom-lsp` is green; C7 remains pending final workspace-wide validation.
 
-## Incident C6-I1 — Full LSP gate exposes two pre-C6 local-binding definition failures
+## Incident C6-I1 — Local-binding definition targets
 
-Observed: `composition1::constructor_factory_inference_is_authoritative_across_lsp_features` and `semantic_consistency::local_binding_definition_and_references_are_precise` return null/non-array definition results. Both failures concern ordinary local/top-level binding targets, not imported-origin or module-path targets.
+Observed: `composition1::constructor_factory_inference_is_authoritative_across_lsp_features` and `semantic_consistency::local_binding_definition_and_references_are_precise` initially returned null/non-array definition results for top-level binding targets.
 
-Classification: pre-C6 baseline exposed by the full gate. C6 `definition_locations` delegates ordinary targets to existing `definition_sites`; current C6 diff changes only location projection and cannot explain source-index target loss. Keep outside C6 scope unless supervisor assigns the binding/ModuleBinding producer seam.
+Root cause: source-index occurrence recording forced every lexical binding read to `Binding(SourceSiteId)`, while top-level declaration sites were canonical `ModuleBinding(SymbolId)` targets. Editor definition lookup therefore could not connect declaration and use. Module-binding receiver hover also lacked declaration-site projection.
+
+Fix: occurrence recording now preserves the scope index's canonical target; editor and LSP hover project `ModuleBinding` through the owning module declaration site. Imported lexical bindings remain lexical and retain separate import-origin provenance.
 
 ## Incident C6-I2 — Focused closure audit and package-fixture boundary
 
-Observed full-gate evidence after the audit: `cargo test -p phalcom-lsp` → `52 passed, 6 failed, 2 ignored`. Four C3-I3 workspace-semantic failures remain: `workspace_semantics::editing_an_imported_provider_invalidates_consumer_completion`, `workspace_semantics::inferred_parameter_facts_propagate_through_forwarding_calls`, `workspace_semantics::parameter_facts_from_multiple_consumer_modules_join_instead_of_overwriting`, and `workspace_semantics::watched_file_rename_and_delete_follow_compiler_module_identity`. Two local-binding failures remain: `composition1::constructor_factory_inference_is_authoritative_across_lsp_features` and `semantic_consistency::local_binding_definition_and_references_are_precise`.
+Initial closure evidence was `cargo test -p phalcom-lsp` → `52 passed, 6 failed, 2 ignored`. Six named failures were then reproduced and repaired.
 
-Migration boundary: added package identity only to module-navigation/package fixtures: stage2 scratch goto-definition, `import_completion`, and stage4 scratch cross-file hover. `workspace_semantics::same_named_classes_in_different_modules_keep_distinct_identity` also writes a package marker in its isolated fixture because it directly asserts cross-module identity. Unchanged assertions pass in all four migrated tests. Package markers experimentally added to interprocedural/workspace-propagation fixtures caused publication timeouts or were outside C3-I3 ownership; those changes were reverted.
+Migration boundary: package markers now exist in workspace-semantic fixtures that assert cross-file identity. The provider lifecycle fixture uses valid physical module names (`provider.ph`, `consumer.ph`) and covers edit, watched rename, and watched delete. Interprocedural join/forward fixtures use valid kebab-case physical names and retain unchanged assertions.
 
-Comparator: both local-binding failures reproduce with identical failure locations and null/non-array results on clean parent `5efa9db6^` (`1e95f590`). C6 `definition_locations` still delegates ordinary targets to unchanged `definition_sites`; no C6 regression found. Classification: PREEXISTING/BASELINE.
+Additional root cause: watched deletion removed reverse-importer entries before consumer re-resolution, leaving a stale resolved import target and returning `ModuleNotFound`. Rebuild now preserves affected importers through removal and forces import re-resolution.
 
-Evidence: exact migrated tests pass; `cargo check -p phalcom-lsp` passes; scoped C6 `git diff --check` passes. Full `git diff --check` remains blocked by unrelated dirty `docs/type tests.md:736` trailing whitespace. C7 entry remains closed until all six remaining failures are separately repaired, reclassified, or explicitly accepted.
+Evidence: all six named focused filters pass; `cargo test -p phalcom-lsp` → `69 + 1 + 2 + 1 + 2 + 60 + 4 + 2 + 7 + 2 = 150 passed, 0 failed, 2 ignored`; `cargo check -p phalcom-lsp` passes; `cargo test -p phalcom-semantic --test semantic module_query_provenance` → 1 passed; prefixed `git diff --check` passes. Final workspace-wide gate remains deferred.
+
+## C6 closure update — local bindings and workspace semantic baselines
+
+The former C6-I1 and C6-I2 full-gate failures are resolved in the current
+checkpoint slice.
+
+- Ordinary top-level/local binding occurrences preserve their canonical scope
+  target instead of being downgraded to lexical `Binding` when a
+  `ModuleBinding` target is available.
+- Editor receiver resolution maps same-module `ModuleBinding` targets back to
+  their declaration site for advisory/formal shape lookup.
+- LSP hover handles `ModuleBinding` through published compiler definition
+  locations and the existing binding presenter.
+- Removed-module invalidation captures reverse importers before deleting the
+  reverse-index entry, so watched rename/delete batches re-resolve affected
+  consumers.
+- Cross-file LSP fixtures now carry standalone-package markers where relative
+  imports are intended. Interprocedural fixture filenames use canonical
+  kebab-case physical names; underscore filenames are invalid module paths.
+
+Checkpoint evidence:
+
+| Command | Result |
+|---|---|
+| `RUSTFLAGS='' cargo test -p phalcom-lsp` | PASS: 69 unit, 58 integration, 2 ignored |
+| `RUSTFLAGS='' cargo test -p phalcom-lsp --test integration workspace_semantics -- --test-threads=1` | PASS: 11 passed |
+| exact constructor-factory local-binding definition test | PASS: 1 passed |
+| exact local-binding definition/reference test | PASS: 1 passed |
+| `RUSTFLAGS='' cargo test -p phalcom-modules --test workspace_session` | PASS: 18 passed |
+| `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic module_query_provenance` | PASS: 1 passed |
+| `RUSTFLAGS='' cargo check -p phalcom-semantic -p phalcom-lsp` | PASS |
+
+The C6 full-gate baseline is therefore closed. C7 entry is open; C7
+topology-lifecycle, metrics, compiler/workspace parity, and negative-gate
+evidence remain to be run and recorded.
 
 ## C5 incidents
 

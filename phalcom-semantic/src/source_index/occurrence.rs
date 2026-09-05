@@ -697,7 +697,11 @@ impl OccurrenceBuilder<'_> {
     ) -> SourceSiteId {
         let scope = self.scopes.scope_at(range.start);
         let target = name.and_then(|name| match self.scopes.resolve_name(scope, name, range.start) {
-            SourceNameResolution::Binding(binding) => Some(SemanticTargetId::Binding(binding)),
+            SourceNameResolution::Binding(binding) => self
+                .scopes
+                .target_for(&binding)
+                .cloned()
+                .or(Some(SemanticTargetId::Binding(binding))),
             SourceNameResolution::Target(target) => Some(target),
             SourceNameResolution::ImplicitSelf | SourceNameResolution::Unresolved => None,
         });

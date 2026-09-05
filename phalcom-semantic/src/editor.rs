@@ -419,6 +419,7 @@ impl<'a> EditorSemanticQuery<'a> {
     /// Resolves a receiver from exact formal/advisory products at a source
     /// range. No request-time AST inference or name guessing is performed.
     pub fn resolve_receiver_at(&self, module: &ModuleId, range: SourceRange) -> Option<ResolvedReceiver> {
+        let source = self.snapshot.source_index.module(module)?;
         let occurrence_site = self.snapshot.occurrence_at(module, range.start).map(|view| view.occurrence.site.clone());
         let expression_site = self
             .snapshot
@@ -454,7 +455,6 @@ impl<'a> EditorSemanticQuery<'a> {
         });
         let constructor_receiver = target.as_ref().and_then(|target| {
             let SemanticTargetId::Declaration(declaration) = target else { return None };
-            let source = self.snapshot.source_index.module(module)?;
             let has_constructor_call = source.occurrences.all().iter().any(|occurrence| {
                 range.start <= occurrence.range.start
                     && occurrence.range.end <= range.end
@@ -465,6 +465,12 @@ impl<'a> EditorSemanticQuery<'a> {
         });
         let target_site = target.as_ref().and_then(|target| match target {
             SemanticTargetId::Binding(binding) => Some(binding),
+            SemanticTargetId::ModuleBinding(symbol) if &symbol.module == module => source
+                .structure
+                .bindings
+                .values()
+                .find(|binding| binding.name.as_ref() == symbol.name.as_ref())
+                .map(|binding| &binding.declaration_site),
             _ => None,
         });
         let advisory_shape_for_site = |site: &SourceSiteId| {

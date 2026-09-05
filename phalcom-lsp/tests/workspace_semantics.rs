@@ -28,15 +28,15 @@ async fn same_named_classes_in_different_modules_keep_distinct_identity() {
 
 #[tokio::test]
 async fn editing_an_imported_provider_invalidates_consumer_completion() {
-    let workspace = TestWorkspace::from_fixture_dir("workspace");
+    let workspace = TestWorkspace::from_fixture_dir("provider_lifecycle");
 
-    let before = workspace.read("provider_before.ph");
-    let after = workspace.read("provider_after.ph");
+    let before = workspace.read("provider_before.txt");
+    let after = workspace.read("provider_after.txt");
     workspace.write("provider.ph", &before);
 
     let provider_uri = workspace.file_uri("provider.ph");
-    let consumer_uri = workspace.file_uri("provider_consumer.ph");
-    let consumer = MarkedSource::parse(&workspace.read("provider_consumer.ph"));
+    let consumer_uri = workspace.file_uri("consumer.ph");
+    let consumer = MarkedSource::parse(&workspace.read("consumer.ph"));
 
     let mut lsp = TestLsp::start().await;
     lsp.initialize(Some(&workspace.uri())).await;
@@ -105,10 +105,10 @@ async fn open_change_close_reopen_preserves_latest_compiler_world() {
 
 #[tokio::test]
 async fn watched_file_rename_and_delete_follow_compiler_module_identity() {
-    let workspace = TestWorkspace::from_fixture_dir("workspace");
+    let workspace = TestWorkspace::from_fixture_dir("provider_lifecycle");
     let provider_uri = workspace.file_uri("provider.ph");
     let renamed_uri = workspace.file_uri("renamed-provider.ph");
-    let consumer_uri = workspace.file_uri("provider_consumer.ph");
+    let consumer_uri = workspace.file_uri("consumer.ph");
     let provider = "class Product { oldMethod() {} }\n";
     let consumer_before = MarkedSource::parse("import .provider as Provider\n\nProvider.Product.new()./*@product*/oldMethod()\n");
     workspace.write("provider.ph", provider);
@@ -166,10 +166,10 @@ async fn watched_file_rename_and_delete_follow_compiler_module_identity() {
 #[tokio::test]
 async fn parameter_facts_from_multiple_consumer_modules_join_instead_of_overwriting() {
     let workspace = TestWorkspace::from_fixture_dir("interprocedural_join");
-    let a_uri = workspace.file_uri("consumer_a.ph");
-    let b_uri = workspace.file_uri("consumer_b.ph");
-    let a = MarkedSource::parse(&workspace.read("consumer_a.ph"));
-    let b = MarkedSource::parse(&workspace.read("consumer_b.ph"));
+    let a_uri = workspace.file_uri("consumer-a.ph");
+    let b_uri = workspace.file_uri("consumer-b.ph");
+    let a = MarkedSource::parse(&workspace.read("consumer-a.ph"));
+    let b = MarkedSource::parse(&workspace.read("consumer-b.ph"));
 
     let mut lsp = TestLsp::start().await;
     lsp.initialize(Some(&workspace.uri())).await;
