@@ -8,9 +8,11 @@ use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::project::ProjectUniverse;
 use phalcom_modules::source::{ModuleKind, ParsedModuleUnit};
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide, SemanticTargetId};
+use phalcom_semantic::resolver::LinkedTypeResolver;
 use phalcom_semantic::snapshot::SnapshotStatus;
 use phalcom_semantic::{OccurrenceIndex, SemanticWorkspaceInput, SourceIndexContext, analyze_workspace, build_source_scope_index};
-use std::collections::{BTreeMap, BTreeSet};
+use phalcom_semantic::types::annotation::TypeResolver;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Arc;
 
 fn module(project: ResolvedProjectId, path: &[&str]) -> ModuleId {
@@ -350,4 +352,186 @@ fn workspace_partial_snapshot_publishes_module_diagnostic_and_valid_product() {
     assert!(snapshot.source_index().module(&valid_module).is_some());
     assert!(snapshot.module_products.linked.contains_key(&valid_module));
     assert_eq!(snapshot.module_products.linked[&valid_module].module, valid_module);
+}
+
+#[test]
+fn qualified_module_type_lookup_uses_public_linked_exports_and_fails_closed() {
+    let project = ResolvedProjectId::from_raw(1);
+    let models = module(project, &["models"]);
+    let consumer = module(project, &["consumer"]);
+    let public = DeclarationId::new(models.clone(), "Public".into());
+    let hidden = DeclarationId::new(models.clone(), "Hidden".into());
+    let public_export = LinkedExport {
+        public_name: "Public".into(),
+        target: LinkedExportTarget::Binding(SymbolId {
+            module: models.clone(),
+            name: "Public".into(),
+        }),
+        range: Default::default(),
+    };
+    let linked = Arc::new(LinkedProgram {
+        universe: Arc::new(ProjectUniverse::new()),
+        modules: BTreeMap::from([
+            (
+                models.clone(),
+                LinkedModule {
+                    interface: LinkedModuleInterface {
+                        module: models.clone(),
+                        kind: ModuleKind::Module,
+                        exports: BTreeMap::from([("Public".into(), public_export)]),
+                        metadata: ModuleMetadata::default(),
+                    },
+                    bindings: ModuleBindingLayout::default(),
+                    linked_reads: Vec::new(),
+                    runtime_dependencies: Vec::new(),
+                },
+            ),
+            (
+                consumer.clone(),
+                LinkedModule {
+                    interface: LinkedModuleInterface {
+                        module: consumer.clone(),
+                        kind: ModuleKind::Module,
+                        exports: BTreeMap::new(),
+                        metadata: ModuleMetadata::default(),
+                    },
+                    bindings: ModuleBindingLayout {
+                        local_globals: BTreeMap::new(),
+                        imports: BTreeMap::from([("models".into(), ImportBindingId(0))]),
+                    },
+                    linked_reads: vec![LinkedReadSpec::Module(models.clone())],
+                    runtime_dependencies: vec![models.clone()],
+                },
+            ),
+        ]),
+        graphs: Default::default(),
+        entry: consumer.clone(),
+        initialization_order: vec![models.clone(), consumer.clone()],
+    });
+    let resolver = LinkedTypeResolver::new(linked, HashSet::from([public.clone(), hidden]), ModuleId::universe_root());
+
+    assert_eq!(
+        resolver.resolve_type_name(&consumer, "models", &["Public".into()]),
+        Some(public)
+    );
+    assert_eq!(
+        resolver.resolve_type_name(&consumer, "models", &["Hidden".into()]),
+        None,
+        "private declarations must not become visible through a module alias"
+    );
+    assert_eq!(
+        resolver.resolve_type_name(&consumer, "models", &["nested".into(), "Public".into()]),
+        None,
+        "unsupported deep qualification must fail closed"
+    );
+}
+
+#[test]
+fn exported_global_and_top_level_binding_use_module_binding_target() {
+    let project = ResolvedProjectId::from_raw(1);
+    let provider = module(project, &["provider"]);
+    let consumer = module(project, &["consumer"]);
+    let symbol = SymbolId {
+        module: provider.clone(),
+        name: "version".into(),
+    };
+    let provider_source: Arc<str> = Arc::from("const version = 1\nexport version\n");
+    let consumer_source: Arc<str> = Arc::from("from provider import version\nversion\n");
+    let provider_program = Arc::new(phalcom_ast::parse(&provider_source, 0).program);
+    let consumer_program = Arc::new(phalcom_ast::parse(&consumer_source, 0).program);
+    let sources = BTreeMap::from([
+        (
+            provider.clone(),
+            Arc::new(ParsedModuleUnit::new(provider.clone(), ModuleKind::Module, None, provider_source, provider_program)),
+        ),
+        (
+            consumer.clone(),
+            Arc::new(ParsedModuleUnit::new(consumer.clone(), ModuleKind::Module, None, consumer_source, consumer_program)),
+        ),
+    ]);
+    let linked = Arc::new(LinkedProgram {
+        universe: Arc::new(ProjectUniverse::new()),
+        modules: BTreeMap::from([
+            (
+                provider.clone(),
+                LinkedModule {
+                    interface: LinkedModuleInterface {
+                        module: provider.clone(),
+                        kind: ModuleKind::Module,
+                        exports: BTreeMap::from([(
+                            "version".into(),
+                            LinkedExport {
+                                public_name: "version".into(),
+                                target: LinkedExportTarget::Binding(symbol.clone()),
+                                range: Default::default(),
+                            },
+                        )]),
+                        metadata: ModuleMetadata::default(),
+                    },
+                    bindings: ModuleBindingLayout {
+                        local_globals: BTreeMap::from([("version".into(), GlobalBindingId(0))]),
+                        imports: BTreeMap::new(),
+                    },
+                    linked_reads: Vec::new(),
+                    runtime_dependencies: Vec::new(),
+                },
+            ),
+            (
+                consumer.clone(),
+                LinkedModule {
+                    interface: LinkedModuleInterface {
+                        module: consumer.clone(),
+                        kind: ModuleKind::Module,
+                        exports: BTreeMap::new(),
+                        metadata: ModuleMetadata::default(),
+                    },
+                    bindings: ModuleBindingLayout {
+                        local_globals: BTreeMap::new(),
+                        imports: BTreeMap::from([("version".into(), ImportBindingId(0))]),
+                    },
+                    linked_reads: vec![LinkedReadSpec::Binding(symbol.clone())],
+                    runtime_dependencies: vec![provider.clone()],
+                },
+            ),
+        ]),
+        graphs: Default::default(),
+        entry: consumer.clone(),
+        initialization_order: vec![provider.clone(), consumer.clone()],
+    });
+    let mut session = phalcom_semantic::SemanticWorkspaceSession::new();
+    let snapshot = session
+        .update(SemanticWorkspaceInput::new(linked, sources, 1))
+        .snapshot;
+    let target = SemanticTargetId::ModuleBinding(symbol.clone());
+
+    let provider_binding = snapshot
+        .source_index()
+        .module(&provider)
+        .expect("provider source index")
+        .structure
+        .bindings
+        .values()
+        .find(|binding| binding.name.as_ref() == "version")
+        .expect("provider top-level binding");
+    assert_eq!(
+        snapshot.source_index().target_for(&provider_binding.declaration_site),
+        Some(&target)
+    );
+    let consumer_binding = snapshot
+        .source_index()
+        .module(&consumer)
+        .expect("consumer source index")
+        .structure
+        .bindings
+        .values()
+        .find(|binding| binding.name.as_ref() == "version")
+        .expect("consumer import binding");
+    assert_eq!(snapshot.source_index().target_for(&consumer_binding.declaration_site), Some(&target));
+
+    let definitions = snapshot.editor().definition_sites(&target);
+    assert_eq!(definitions.len(), 1, "only provider top-level binding is a definition");
+    assert!(matches!(
+        &definitions[0].owner,
+        phalcom_semantic::SourceOwner::Module(module) if module == &provider
+    ));
 }

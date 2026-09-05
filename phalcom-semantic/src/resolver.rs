@@ -111,10 +111,14 @@ impl TypeResolver for LinkedTypeResolver {
             if let Some(linked_mod) = self.linked.modules.get(current_module) {
                 if let Some(&import_id) = linked_mod.bindings.imports.get::<str>(root) {
                     if let Some(LinkedReadSpec::Module(target_mod)) = linked_mod.linked_reads.get(import_id.0 as usize) {
-                        let leaf_name = &members[0];
-                        let decl = DeclarationId::new(target_mod.clone(), leaf_name.clone().into());
-                        if self.known_declarations.contains(&decl) {
-                            return Some(decl);
+                        let target = self.linked.modules.get(target_mod)?;
+                        let export = target.interface.exports.get::<str>(&members[0])?;
+                        let phalcom_modules::interface::LinkedExportTarget::Binding(symbol) = &export.target else {
+                            return None;
+                        };
+                        let declaration = DeclarationId::new(symbol.module.clone(), symbol.name.clone());
+                        if self.known_declarations.contains(&declaration) {
+                            return Some(declaration);
                         }
                     }
                 }

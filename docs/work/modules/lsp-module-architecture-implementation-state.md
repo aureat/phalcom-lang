@@ -26,6 +26,10 @@ Prepared plan revision:
 - D-12: Task 11 canonical interface sharing: `WorkspaceModuleSession` retains `UnlinkedModuleInterface` and `InterfaceFingerprint`. `WorkspaceModuleUpdate` and `SemanticWorkspaceInput` pass precomputed interfaces to `SemanticWorkspaceSession` and `query_unlinked_interface`, eliminating duplicate `InterfaceBuilder::build` passes.
 - D-13: Task 12 import resolution reuse: `WorkspaceModuleSession` retains `ImportResolutionProduct` and reverse dependency index. Stable interfaces reuse resolved targets directly without re-resolving paths.
 - D-14: Task 13 component-bounded linking: linking groups reachable interfaces by connected component and links each component once instead of once per source; body-only edits observe unchanged interface fingerprints and stop linking propagation entirely.
+- D-15: C4 adds `SemanticTargetId::ModuleBinding(SymbolId)` for canonical exported module globals; nominal `DeclarationId` remains limited to known class, enum, and type-alias declarations.
+- D-16: C4 centralizes linked-symbol projection in `semantic_target_for_linked_symbol`; public exports, selective imports, and re-exports consume the same nominal-vs-global decision without spelling inference.
+- D-17: Qualified module type lookup follows `LinkedReadSpec::Module` into target public exports and preserves exported symbol origin; private names and unsupported deep qualification fail closed.
+- D-18: Top-level `let`/`const` declaration sites use `ModuleBinding(SymbolId)`; imports, locals, parameters, and destructured bindings retain lexical `Binding(SourceSiteId)` identity. Editor definitions classify only top-level global sites as definitions.
 
 ## Evidence ledger
 
@@ -60,6 +64,9 @@ Prepared plan revision:
 | C3 | `cargo test -p phalcom-lsp analysis_service` | PASS: 0 tests matched | Plan filter executes successfully but is vacuous: no `analysis_service`-named test exists in registered LSP targets. |
 | C3 | `cargo test -p phalcom-lsp` | BLOCKED: 50 passed, 8 failed, 2 ignored | Unit/imported-binding lanes green; remaining failures are older cross-file workspace fixture/baseline lanes outside C3. |
 | C3 | `if rg 'solve_cancelled\\s*=\\s*publication_result\\.is_err' phalcom-lsp/src/analysis_service.rs; then unexpected hit; else zero matches; fi` | PASS: zero matches | Source-authored publication errors are not classified by generic `Result::Err` cancellation assignment. |
+| C4 | `cargo test -p phalcom-semantic imported_resolution` | PASS: 8 passed | Qualified public/private/deep lookup, canonical nominal imports, exported global projection, top-level global provenance, and partial snapshots. |
+| C4 | `cargo check -p phalcom-semantic` | PASS | Exhaustive `SemanticTargetId` consumers compile with `ModuleBinding(SymbolId)`. |
+| C4 | `git diff --check` | PASS | C4 changes introduce no whitespace errors. |
 
 ## Negative/deletion gates
 
@@ -83,7 +90,7 @@ Prepared plan revision:
 
 ## Next resume action
 
-C3 focused evidence is green for Tasks 14–18. Full `phalcom-lsp` package gate remains blocked by Incident C3-I3; supervisor authorization is required before separate cross-file fixture migration or baseline investigation.
+C4 focused evidence is green for Tasks 19–22. C3-I3 remains deferred to separate LSP fixture/baseline ownership; supervisor review is next before C5.
 
 ## Incident C3-I1 — Canonical import publication loses alias and external target
 

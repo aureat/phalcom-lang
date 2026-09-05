@@ -16,6 +16,7 @@ use phalcom_ast::ast::{
 };
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
+use phalcom_modules::linker::SymbolId;
 
 /// Canonical linked targets available while building source identity.
 #[derive(Clone, Debug, Default)]
@@ -315,7 +316,16 @@ impl SourceScopeBuilder<'_> {
         let first = self.index.scopes.get(&scope).and_then(|scope| scope.bindings.get(&name)).cloned();
         let site = self.allocate_site(self.current_owner.clone(), range, SourceSiteKind::BindingDeclaration);
         let primary = first.clone().unwrap_or_else(|| site.clone());
-        self.index.register_target(site.clone(), SemanticTargetId::Binding(primary.clone()));
+        let target = match kind {
+            SourceBindingKind::TopLevelLet | SourceBindingKind::TopLevelConst => {
+                SemanticTargetId::ModuleBinding(SymbolId {
+                    module: self.index.module.clone(),
+                    name: name.clone(),
+                })
+            }
+            _ => SemanticTargetId::Binding(primary.clone()),
+        };
+        self.index.register_target(site.clone(), target);
         self.index.register_binding(SourceBindingInfo {
             declaration_site: site.clone(),
             scope,

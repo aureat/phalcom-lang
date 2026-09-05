@@ -53,7 +53,7 @@ use phalcom_common::selector::Selector;
 use phalcom_modules::declaration::{DeclarationBlueprint, DeclarationKind, DeclarationRealizationError, DeclarationShellTable};
 use phalcom_modules::graph::{SemanticEdge, SemanticEdgeKind, SemanticNodeId};
 use phalcom_modules::interface::{InterfaceBuilder, LinkedExportTarget};
-use phalcom_modules::linker::LinkedProgram;
+use phalcom_modules::linker::{LinkedProgram, SymbolId};
 use phalcom_modules::{WorkspaceModuleSession, WorkspaceModuleSessionError, WorkspaceModuleUpdate, WorkspaceSourceBatchMutation, WorkspaceSourceMutation};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -809,7 +809,7 @@ impl SemanticWorkspaceSession {
         // 3. Construct LinkedTypeResolver
         let mut known_declarations: HashSet<DeclarationId> = declarations.iter().map(|(decl_id, _)| decl_id.clone()).collect();
         known_declarations.extend(alias_declarations.iter().cloned());
-        let resolver = LinkedTypeResolver::new(input.linked.clone(), known_declarations, ModuleId::universe_root());
+        let resolver = LinkedTypeResolver::new(input.linked.clone(), known_declarations.clone(), ModuleId::universe_root());
 
         // 4. Enrich Semantic Graph
         let mut semantic_graph = input.linked.graphs.semantics.clone();
@@ -2130,8 +2130,14 @@ impl SemanticWorkspaceSession {
             Arc::new(sources_loc_map),
         ));
 
-        let (mut source_index, presentation_sources) =
-            build_source_semantic_index(&input.sources, &callable_analyses, &resolved_imports_map, input.linked.as_ref(), &resolver);
+        let (mut source_index, presentation_sources) = build_source_semantic_index(
+            &input.sources,
+            &callable_analyses,
+            &resolved_imports_map,
+            input.linked.as_ref(),
+            &resolver,
+            &known_declarations,
+        );
         if let Some(previous) = self.last_snapshot.as_deref() {
             for (module, current) in source_index.modules.clone() {
                 let Some(previous_module) = previous.source_index.module_arc(&module) else {
@@ -2426,12 +2432,22 @@ fn compute_module_fingerprint(unit: &ParsedModuleUnit) -> u64 {
     hasher.finish()
 }
 
+fn semantic_target_for_linked_symbol(symbol: &SymbolId, nominal_declarations: &HashSet<DeclarationId>) -> SemanticTargetId {
+    let declaration = DeclarationId::new(symbol.module.clone(), symbol.name.clone());
+    if nominal_declarations.contains(&declaration) {
+        SemanticTargetId::Declaration(declaration)
+    } else {
+        SemanticTargetId::ModuleBinding(symbol.clone())
+    }
+}
+
 fn build_source_semantic_index(
     sources: &BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
     callable_analyses: &HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>,
     resolved_imports: &BTreeMap<(ModuleId, String), ModuleId>,
     linked: &LinkedProgram,
     type_resolver: &dyn TypeResolver,
+    nominal_declarations: &HashSet<DeclarationId>,
 ) -> (SourceSemanticIndex, BTreeMap<ModuleId, Arc<str>>) {
     // Canonical Universe modules are source-owned presentation inputs: index
     // their declarations for navigation without linking or deeply analyzing
@@ -2503,7 +2519,7 @@ fn build_source_semantic_index(
                 LinkedExportTarget::Binding(symbol) => {
                     context.targets.insert(
                         (module.clone(), export.public_name.to_string()),
-                        SemanticTargetId::Declaration(DeclarationId::new(symbol.module.clone(), symbol.name.clone())),
+                        semantic_target_for_linked_symbol(symbol, nominal_declarations),
                     );
                 }
                 LinkedExportTarget::Module(target) => {
@@ -3185,6 +3201,7 @@ fn advisory_target_resolution(site: &SourceSiteId, target: &SemanticTargetId) ->
         SemanticTargetId::Callable(_) => AdvisoryOrigin::CallSite(site.clone()),
         SemanticTargetId::Field(field) => AdvisoryOrigin::Field(field.clone()),
         SemanticTargetId::Declaration(_)
+        | SemanticTargetId::ModuleBinding(_)
         | SemanticTargetId::Module(_)
         | SemanticTargetId::Variant(_)
         | SemanticTargetId::VariantFamily(_)

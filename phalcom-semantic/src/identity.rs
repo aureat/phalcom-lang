@@ -434,6 +434,7 @@ pub use crate::diagnostic::SemanticSourceSpan;
 pub enum SemanticTargetId {
     Binding(SourceSiteId),
     Declaration(DeclarationId),
+    ModuleBinding(phalcom_modules::linker::SymbolId),
     Callable(CallableId),
     Field(FieldId),
     Module(ModuleId),

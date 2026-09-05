@@ -352,6 +352,14 @@ impl<'a> EditorSemanticQuery<'a> {
             (SemanticTargetId::Module(expected), crate::source_index::SourceSiteKind::Module) => {
                 matches!(&site.owner, SourceOwner::Module(actual) if actual == expected)
             }
+            (SemanticTargetId::ModuleBinding(expected), crate::source_index::SourceSiteKind::BindingDeclaration) => {
+                module.structure.bindings.get(site).is_some_and(|binding| {
+                    matches!(binding.kind, SourceBindingKind::TopLevelLet | SourceBindingKind::TopLevelConst)
+                        && module.structure.target_for(site) == Some(target)
+                        && expected.module == module.structure.module
+                        && expected.name.as_ref() == binding.name.as_ref()
+                })
+            }
             _ => false,
         }
     }
