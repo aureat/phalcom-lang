@@ -4,6 +4,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use phalcom_core::compiler::attributes::CompileMode;
+use phalcom_core::error::PhError;
+use phalcom_core::modules::compile::{EntrySelection, ProgramCompileError, ProgramCompiler};
+use phalcom_core::vm::{BufferedOutput, VM};
+
 fn phalcom_bin() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_phalcom"))
 }
@@ -25,12 +30,67 @@ fn extra_flags(path: &Path) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn run(path: &Path) -> Output {
-    Command::new(phalcom_bin())
-        .args(extra_flags(path))
-        .arg(path)
-        .output()
-        .expect("failed to spawn the `phalcom` binary")
+#[derive(Debug, Clone, Copy)]
+struct CorpusCaseOptions {
+    compile_mode: CompileMode,
+    strip_contract_metadata: bool,
+}
+
+fn case_options(path: &Path) -> CorpusCaseOptions {
+    let mut options = CorpusCaseOptions {
+        compile_mode: CompileMode::Debug,
+        strip_contract_metadata: false,
+    };
+    for flag in extra_flags(path) {
+        match flag.as_str() {
+            "--release" => options.compile_mode = CompileMode::Release,
+            "--unchecked" => options.compile_mode = CompileMode::Unchecked,
+            "--strip-contract-metadata" => options.strip_contract_metadata = true,
+            _ => {}
+        }
+    }
+    options
+}
+
+#[derive(Debug)]
+enum CorpusOutcome {
+    Success,
+    CompileFailure(ProgramCompileError),
+    RuntimeFailure(PhError),
+}
+
+#[derive(Debug)]
+struct CorpusRun {
+    stdout: Vec<u8>,
+    outcome: CorpusOutcome,
+}
+
+fn run_corpus_case(path: &Path) -> CorpusRun {
+    let options = case_options(path);
+    let program = match ProgramCompiler::compile_entry_selection(EntrySelection::Module(path.to_path_buf())) {
+        Ok(program) => program,
+        Err(error) => {
+            return CorpusRun {
+                stdout: Vec::new(),
+                outcome: CorpusOutcome::CompileFailure(error),
+            };
+        }
+    };
+
+    let sink = BufferedOutput::new();
+    let handle = sink.handle();
+    let mut vm = VM::new_with_output(Box::new(sink));
+    vm.compile_mode = options.compile_mode;
+    vm.strip_contract_metadata = options.strip_contract_metadata;
+    let outcome = match vm.run_compiled(&program) {
+        Ok(()) => CorpusOutcome::Success,
+        Err(error) => CorpusOutcome::RuntimeFailure(error),
+    };
+
+    CorpusRun {
+        stdout: handle.bytes(),
+        outcome,
+    }
 }
 
 fn corpus_root() -> PathBuf {
@@ -110,18 +170,36 @@ fn assert_no_panic(label: &str, output: &Output) {
     assert!(!stderr.contains("panicked at"), "{label} panicked. stderr:\n{stderr}");
 }
 
-fn assert_success(label: &str, output: &Output) {
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        output.status.success(),
-        "{label} failed with {}. stdout:\n{stdout}\nstderr:\n{stderr}",
-        output.status
-    );
+fn assert_success(label: &str, run: &CorpusRun) {
+    if matches!(&run.outcome, CorpusOutcome::Success) {
+        return;
+    }
+    panic!("{label} failed: {}", outcome_summary(&run.outcome));
 }
 
-fn assert_stdout_exact(label: &str, output: &Output, expected: &[u8]) {
-    let mut actual = output.stdout.clone();
+fn outcome_summary(outcome: &CorpusOutcome) -> String {
+    match outcome {
+        CorpusOutcome::Success => "success".to_string(),
+        CorpusOutcome::CompileFailure(ProgramCompileError::Semantic(diagnostics)) => {
+            let details = diagnostics
+                .iter()
+                .flat_map(|(_, diagnostics)| diagnostics.iter())
+                .take(8)
+                .map(|diagnostic| format!("[{:?}] {}", diagnostic.code, diagnostic.message))
+                .collect::<Vec<_>>();
+            if details.is_empty() {
+                "semantic compile failure without diagnostics".to_string()
+            } else {
+                format!("semantic compile failure: {}", details.join("; "))
+            }
+        }
+        CorpusOutcome::CompileFailure(error) => format!("compile failure: {error}"),
+        CorpusOutcome::RuntimeFailure(error) => format!("runtime failure: {error}"),
+    }
+}
+
+fn assert_stdout_exact(label: &str, output: &[u8], expected: &[u8]) {
+    let mut actual = output.to_vec();
     let mut expected = expected.to_vec();
 
     if actual.ends_with(b"\n") {
@@ -149,19 +227,14 @@ fn assert_stdout_exact(label: &str, output: &Output, expected: &[u8]) {
     );
 }
 
-fn assert_negative_output(label: &str, output: &Output, expected_note: &str) {
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let combined = format!("{stdout}\n{stderr}");
-
+fn assert_negative_output(label: &str, run: &CorpusRun, expected_note: &str) {
+    let diagnostic = match &run.outcome {
+        CorpusOutcome::Success => panic!("{label} unexpectedly succeeded. stdout:\n{}", String::from_utf8_lossy(&run.stdout)),
+        outcome => outcome_summary(outcome),
+    };
     assert!(
-        output.status.code() != Some(0),
-        "{label} unexpectedly succeeded. stdout:\n{stdout}\nstderr:\n{stderr}"
-    );
-    assert_no_panic(label, output);
-    assert!(
-        combined.contains(expected_note),
-        "{label} did not mention the expected diagnostic substring `{expected_note}`.\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        diagnostic.contains(expected_note),
+        "{label} did not mention the expected diagnostic substring `{expected_note}`.\nphase failure:\n{diagnostic}"
     );
 }
 
@@ -185,8 +258,7 @@ fn check_cases(label: &str, pending: bool, negative: bool) {
         let expected = expected_path(&case_path);
         assert!(expected.exists(), "missing expected sidecar for {}", case_label);
 
-        let output = run(&case_path);
-        assert_no_panic(&case_label, &output);
+        let output = run_corpus_case(&case_path);
 
         if negative {
             let note = fs::read_to_string(&expected).unwrap_or_else(|err| panic!("failed to read {}: {err}", expected.display()));
@@ -194,7 +266,7 @@ fn check_cases(label: &str, pending: bool, negative: bool) {
         } else {
             assert_success(&case_label, &output);
             let expected_bytes = fs::read(&expected).unwrap_or_else(|err| panic!("failed to read {}: {err}", expected.display()));
-            assert_stdout_exact(&case_label, &output, &expected_bytes);
+            assert_stdout_exact(&case_label, &output.stdout, &expected_bytes);
         }
     }
 }
@@ -223,12 +295,11 @@ pub fn check_pending_case(label: &str, case: &str) {
     let expected = expected_path(&path);
     assert!(expected.exists(), "missing expected sidecar for {}", path.display());
 
-    let output = run(&path);
+    let output = run_corpus_case(&path);
     let case_label = case_name(&path);
-    assert_no_panic(&case_label, &output);
     assert_success(&case_label, &output);
     let expected_bytes = fs::read(&expected).unwrap_or_else(|err| panic!("failed to read {}: {err}", expected.display()));
-    assert_stdout_exact(&case_label, &output, &expected_bytes);
+    assert_stdout_exact(&case_label, &output.stdout, &expected_bytes);
 }
 
 /// Disassembles the `for`-loop fixture at `rel_path` (relative to the corpus

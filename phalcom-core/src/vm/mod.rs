@@ -16,9 +16,12 @@ mod dispatch;
 #[cfg(test)]
 mod f2_pack_authority_tests;
 mod gc;
+mod output;
 mod send;
 pub(crate) use send::FamilyInvocationKind;
 pub mod walk;
+
+pub use output::{BufferedOutput, OutputHandle, RuntimeOutput, StdoutOutput};
 
 use crate::frame::CallFrame;
 use crate::heap::{ClassId, Heap, ObjRef};
@@ -267,6 +270,8 @@ pub struct VM {
     pub reflection_cache: crate::modules::ReflectionCache,
     /// VM start time, used for `System` timing primitives.
     pub start_time: Instant,
+    /// Fixture/embedding-local destination for Phalcom-visible output.
+    pub(crate) output: Box<dyn RuntimeOutput>,
     /// The kernel: handles to the bootstrapped core classes.
     pub universe: Universe,
     /// Monotonically-assigned generation counter for frame tokens.
@@ -483,6 +488,16 @@ impl VM {
             }
         }
         None
+    }
+
+    /// Writes Phalcom-visible output through this VM's sink.
+    pub(crate) fn write_output(&mut self, bytes: &[u8]) -> crate::error::PhResult<()> {
+        self.output.write(bytes).map_err(crate::error::PhError::from)
+    }
+
+    /// Flushes this VM's output sink.
+    pub(crate) fn flush_output(&mut self) -> crate::error::PhResult<()> {
+        self.output.flush().map_err(crate::error::PhError::from)
     }
 }
 

@@ -6,10 +6,10 @@ This directory contains all Phalcom test fixtures.
 - `golden/`, `modules_linker/`, `modules_v1/`, and `universe_v1/` contain
   focused compiler, module, and runtime fixtures.
 
-The Rust tests live under the unified `tests/core/` integration target. Fixture
-layout is independent from Rust module layout: source corpus cases are loaded
-through `tests/support/mod.rs`, while focused fixtures are addressed explicitly
-by their semantic test modules.
+The Rust tests use dedicated targets. Source corpus cases are loaded through
+`tests/support/mod.rs` by `language-corpus`; focused compiler/runtime fixtures
+remain addressed explicitly by their semantic test modules; `cli-smoke` covers
+the small set of contracts that require a real process.
 
 ## Diagnostic Field-Assert Contract
 

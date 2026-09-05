@@ -4,13 +4,7 @@
 //! Files are grouped by language responsibility while retaining focused test
 //! filtering through their module paths.
 
-#[path = "../../support/mod.rs"]
-mod support;
-
 use super::vm_support;
-
-#[path = "corpus.rs"]
-mod corpus;
 
 #[path = "algebraic_data/associated_gc.rs"]
 mod algebraic_data_associated_gc;

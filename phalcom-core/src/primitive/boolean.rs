@@ -19,9 +19,13 @@ use crate::vm::VM;
 )]
 pub fn bool_class_new(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let receiver_id = expect_class(vm, receiver)?;
-    println!("{}", Value::obj(receiver_id).to_string(vm));
+    let receiver_text = Value::obj(receiver_id).to_string(vm);
+    vm.write_output(receiver_text.as_bytes())?;
+    vm.write_output(b"\n")?;
     let arg = &args[0];
-    println!("{}", arg.to_string(vm));
+    let arg_text = arg.to_string(vm);
+    vm.write_output(arg_text.as_bytes())?;
+    vm.write_output(b"\n")?;
     if let Some(b) = arg.as_bool() {
         Ok(if b { TRUE } else { FALSE })
     } else if arg.is_nil() {

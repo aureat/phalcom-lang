@@ -92,6 +92,7 @@ impl VM {
             next_fiber_seq: _,
             world_version: _,
             start_time: _,
+            output: _,
             compile_mode: _,
             strip_contract_metadata: _,
             unit_kind: _,

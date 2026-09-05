@@ -1,7 +1,7 @@
 //! Language acceptance corpus.
 //!
 //! One `#[test]` per feature label so the suite can be filtered by label with
-//! `cargo test -p phalcom-core --test core language::corpus::<label>`.
+//! `cargo test -p phalcom-core --test language-corpus <label>`.
 
 use super::support;
 

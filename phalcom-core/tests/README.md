@@ -1,11 +1,13 @@
 # Core test architecture
 
-The core crate exposes one integration binary: `core`.
+The core crate exposes focused integration targets: `core`, `language-corpus`,
+and `cli-smoke`.
 
-`tests/core/` is the single package boundary. Its folders group tests by
-semantic responsibility: source-language behavior and ADT execution live under
-`language/`; compiler projection, collections, execution, memory, modules,
-reflection, observability, REPL, and object-model contracts live beside it.
+`tests/core/` groups compiler, runtime, and semantic-responsibility tests.
+The broad source-language golden corpus lives in `tests/language_corpus/` and
+runs through the production compiler API with one fresh VM and output sink per
+fixture. `cli-smoke` keeps process-boundary behavior—status codes, path errors,
+and diagnostic rendering—small and explicit.
 
 The path boundary is architectural, not a Cargo-package boundary:
 `phalcom-semantic` asserts formal identities and match proofs; compiler tests
@@ -16,6 +18,8 @@ Use focused commands during migration:
 ```text
 cargo test -p phalcom-core --test core language::algebraic_data
 cargo test -p phalcom-core --test core memory
+cargo test -p phalcom-core --test language-corpus booleans
+cargo test -p phalcom-core --test cli-smoke
 ```
 
 Shared helpers should stay small and domain-neutral. ADT-specific helpers belong
@@ -34,3 +38,8 @@ Choose lowest tier whose runtime contract contains behavior under test:
 Source-language helpers such as `run_inline` and `compile_inline` remain full
 Universe helpers by default. Do not lower a test whose assertion depends on
 source-installed methods or semantic roots.
+
+`language-corpus` compiles fixtures before creating their VM. Successful cases
+capture `System.print` and raw system writes in a VM-owned sink; negative cases
+retain structured compile/runtime errors and assert their diagnostic text
+without emulating CLI exit codes.

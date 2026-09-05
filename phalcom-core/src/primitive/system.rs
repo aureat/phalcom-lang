@@ -18,9 +18,10 @@ use crate::vm::VM;
 pub fn system_class_print(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     for arg in args {
         let text = arg.to_display_string(vm)?;
-        print!("{text}");
+        vm.write_output(text.as_bytes())?;
     }
-    println!();
+    vm.write_output(b"\n")?;
+    vm.flush_output()?;
     Ok(vm.unit_value())
 }
 
@@ -119,6 +120,26 @@ pub fn system_raw_write(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhRes
         }
         .into());
     };
-    print!("{s}");
+    vm.write_output(s.as_bytes())?;
     Ok(vm.unit_value())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vm::{BufferedOutput, VM};
+
+    #[test]
+    fn raw_write_and_print_share_vm_output_sink() {
+        let sink = BufferedOutput::new();
+        let handle = sink.handle();
+        let mut vm = VM::new_native_with_output(Box::new(sink));
+        let receiver = Value::obj(vm.universe.classes.system_class);
+        let raw = vm.alloc_string_value("raw".to_owned());
+
+        system_raw_write(&mut vm, &receiver, &[raw]).expect("raw write succeeds");
+        system_class_print(&mut vm, &receiver, &[Value::int(1)]).expect("print succeeds");
+
+        assert_eq!(handle.bytes(), b"raw1\n");
+    }
 }

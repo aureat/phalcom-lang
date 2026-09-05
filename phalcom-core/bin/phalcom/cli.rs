@@ -225,19 +225,12 @@ pub fn cmd_run(cli: Cli) -> Result<()> {
         phalcom_core::modules::compile::EntrySelection::Inline(source.as_str().into())
     };
 
-    let mut vm = VM::new();
-    vm.compile_mode = compile_mode;
-    vm.strip_contract_metadata = strip_contract_metadata;
-    vm.trace_core = cli.trace_core;
-    vm.trace_format_json = cli.trace_format == "json";
-    vm.trace_fibers = cli.trace.iter().any(|t| t == "fibers");
     if cli.trace.iter().any(|t| t == "dispatch") && !cfg!(feature = "vm-trace") {
         eprintln!("warning: --trace=dispatch requested but the 'vm-trace' cargo feature is not enabled");
     }
 
-    let program_res = phalcom_core::modules::compile::ProgramCompiler::compile_entry_selection(selection);
-    let run_res = match program_res {
-        Ok(program) => vm.run_compiled(&program),
+    let program = match phalcom_core::modules::compile::ProgramCompiler::compile_entry_selection(selection) {
+        Ok(program) => program,
         Err(err) => {
             // Structured diagnostics are formatted here, at the user-facing boundary; never reparse formatted errors.
             if let phalcom_core::modules::compile::ProgramCompileError::ModuleLoad(phalcom_modules::ModuleLoadError::Parse { source, error, .. }) = &err {
@@ -287,6 +280,14 @@ pub fn cmd_run(cli: Cli) -> Result<()> {
             std::process::exit(65);
         }
     };
+
+    let mut vm = VM::new();
+    vm.compile_mode = compile_mode;
+    vm.strip_contract_metadata = strip_contract_metadata;
+    vm.trace_core = cli.trace_core;
+    vm.trace_format_json = cli.trace_format == "json";
+    vm.trace_fibers = cli.trace.iter().any(|t| t == "fibers");
+    let run_res = vm.run_compiled(&program);
 
     let leaks = vm.resources.leaks();
     if !leaks.is_empty() {

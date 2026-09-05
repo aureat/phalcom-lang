@@ -24,6 +24,14 @@ test = false
 name = "core"
 path = "tests/core/mod.rs"
 
+[[test]]
+name = "language-corpus"
+path = "tests/language_corpus/mod.rs"
+
+[[test]]
+name = "cli-smoke"
+path = "tests/cli_smoke/mod.rs"
+
 
 
 

@@ -10,7 +10,7 @@ use std::cell::Cell;
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use super::{NativeInstallMode, VM};
+use super::{NativeInstallMode, RuntimeOutput, StdoutOutput, VM};
 
 #[cfg(test)]
 pub(crate) static UNIVERSE_AST_COMPILATIONS: AtomicUsize = AtomicUsize::new(0);
@@ -28,9 +28,18 @@ impl VM {
         Self::new_with_native_install_mode(NativeInstallMode::DescriptorOnly)
     }
 
+    /// Creates a fully bootstrapped VM whose runtime output is sent to `output`.
+    pub fn new_with_output(output: Box<dyn RuntimeOutput>) -> Self {
+        Self::new_with_native_install_mode_and_output(NativeInstallMode::DescriptorOnly, output)
+    }
+
     /// Creates a fresh VM execution kernel without native or source Universe
     /// bootstrap.
     pub fn new_kernel() -> Self {
+        Self::new_kernel_with_output(Box::new(StdoutOutput))
+    }
+
+    fn new_kernel_with_output(output: Box<dyn RuntimeOutput>) -> Self {
         let interner = crate::interner::Interner::with_capacity(100);
         let mut heap = crate::heap::Heap::new();
         let universe = Universe::new(&mut heap);
@@ -52,6 +61,7 @@ impl VM {
             interner,
             reflection_cache: crate::modules::ReflectionCache::new(),
             start_time: Instant::now(),
+            output,
             module_registry: crate::modules::ModuleRegistry::new(),
             typing_registry: crate::typing::RuntimeTypingRegistry::new(),
             runtime_roots: None,
@@ -98,18 +108,31 @@ impl VM {
         Self::new_native_with_native_install_mode(NativeInstallMode::DescriptorOnly)
     }
 
+    /// Creates a native-floor VM whose runtime output is sent to `output`.
+    pub fn new_native_with_output(output: Box<dyn RuntimeOutput>) -> Self {
+        Self::new_native_with_native_install_mode_and_output(NativeInstallMode::DescriptorOnly, output)
+    }
+
     fn new_native_with_native_install_mode(native_install_mode: NativeInstallMode) -> Self {
-        let mut vm = Self::new_kernel();
+        Self::new_native_with_native_install_mode_and_output(native_install_mode, Box::new(StdoutOutput))
+    }
+
+    fn new_native_with_native_install_mode_and_output(native_install_mode: NativeInstallMode, output: Box<dyn RuntimeOutput>) -> Self {
+        let mut vm = Self::new_kernel_with_output(output);
         Self::install_native_runtime(&mut vm, native_install_mode);
         vm
     }
 
     /// Creates a VM with an explicit native installation path.
     pub fn new_with_native_install_mode(native_install_mode: NativeInstallMode) -> Self {
+        Self::new_with_native_install_mode_and_output(native_install_mode, Box::new(StdoutOutput))
+    }
+
+    fn new_with_native_install_mode_and_output(native_install_mode: NativeInstallMode, output: Box<dyn RuntimeOutput>) -> Self {
         // Canonical source/native verification, linking, semantic analysis, and
         // lowering are process-shared. Runtime installation remains fresh.
         let canonical = crate::modules::canonical_universe_program().expect("canonical Universe compiler product must build");
-        let mut vm = Self::new_native_with_native_install_mode(native_install_mode);
+        let mut vm = Self::new_native_with_native_install_mode_and_output(native_install_mode, output);
 
         // Compile and run the registered universe modules now that every native
         // primitive is installed: this is what actually attaches each
