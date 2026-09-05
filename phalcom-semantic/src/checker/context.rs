@@ -219,39 +219,32 @@ impl<'a> TrackingTypeResolver<'a> {
 
 impl TypeResolver for TrackingTypeResolver<'_> {
     fn resolve_type_name(&self, current_module: &ModuleId, root: &str, members: &[String]) -> Option<DeclarationId> {
-        let declaration = self.inner.resolve_type_name(current_module, root, members);
-
         if is_query_owned_module(current_module) {
             record_query_dependency(&self.dependencies, SemanticDependency::LinkedName(current_module.clone(), root.to_string()));
         }
 
-        let Some(declaration) = declaration else {
-            if members.len() == 1 && is_query_owned_module(current_module) {
-                if let Some(target_module) = self.inner.resolve_module_alias(current_module, root) {
-                    if is_query_owned_module(&target_module) {
-                        record_query_dependency(
-                            &self.dependencies,
-                            SemanticDependency::PublicExport(target_module, members[0].clone()),
-                        );
-                    }
-                }
-            }
-            return None;
+        let qualified_target = if members.len() == 1 {
+            self.inner.resolve_module_alias(current_module, root)
+        } else {
+            None
         };
 
-        record_declaration_shell_dependency(&self.dependencies, &declaration);
-        if &declaration.module != current_module && is_query_owned_module(current_module) && is_query_owned_module(&declaration.module) {
-            let public_name = if members.is_empty() {
-                root
-            } else {
-                members.last().unwrap().as_str()
-            };
-            record_query_dependency(
-                &self.dependencies,
-                SemanticDependency::PublicExport(declaration.module.clone(), public_name.to_string()),
-            );
+        if let Some(target) = &qualified_target {
+            if is_query_owned_module(target) {
+                record_query_dependency(
+                    &self.dependencies,
+                    SemanticDependency::PublicExport(target.clone(), members[0].clone()),
+                );
+            }
         }
-        Some(declaration)
+
+        let declaration = self.inner.resolve_type_name(current_module, root, members);
+
+        if let Some(declaration) = &declaration {
+            record_declaration_shell_dependency(&self.dependencies, declaration);
+        }
+
+        declaration
     }
 
     fn resolve_type_level_binding(&self, name: &str) -> Option<TypeLevelBinding> {

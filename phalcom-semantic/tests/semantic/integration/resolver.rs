@@ -1,6 +1,6 @@
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
-use phalcom_modules::interface::LinkedModuleInterface;
-use phalcom_modules::linker::{ImportBindingId, LinkedModule, LinkedProgram, LinkedReadSpec, ModuleBindingLayout};
+use phalcom_modules::interface::{LinkedExport, LinkedExportTarget, LinkedModuleInterface};
+use phalcom_modules::linker::{ImportBindingId, LinkedModule, LinkedProgram, LinkedReadSpec, ModuleBindingLayout, SymbolId};
 use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::project::ProjectUniverse;
 use phalcom_modules::source::ModuleKind;
@@ -38,12 +38,33 @@ fn resolver_fixture() -> (LinkedTypeResolver, ModuleId, DeclarationId) {
             imports: BTreeMap::from([("pkg".into(), ImportBindingId(0))]),
         },
         linked_reads: vec![LinkedReadSpec::Module(imported.clone())],
-        runtime_dependencies: vec![imported],
+        runtime_dependencies: vec![imported.clone()],
+    };
+    let linked_imported = LinkedModule {
+        interface: LinkedModuleInterface {
+            module: imported.clone(),
+            kind: ModuleKind::Module,
+            exports: BTreeMap::from([(
+                "Leaf".into(),
+                LinkedExport {
+                    public_name: "Leaf".into(),
+                    target: LinkedExportTarget::Binding(SymbolId {
+                        module: imported.clone(),
+                        name: "Leaf".into(),
+                    }),
+                    range: Default::default(),
+                },
+            )]),
+            metadata: ModuleMetadata::default(),
+        },
+        bindings: ModuleBindingLayout::default(),
+        linked_reads: Vec::new(),
+        runtime_dependencies: Vec::new(),
     };
 
     let linked = Arc::new(LinkedProgram {
         universe: Arc::new(ProjectUniverse::new()),
-        modules: BTreeMap::from([(current.clone(), linked_current)]),
+        modules: BTreeMap::from([(current.clone(), linked_current), (imported.clone(), linked_imported)]),
         graphs: Default::default(),
         entry: current.clone(),
         initialization_order: vec![current.clone()],

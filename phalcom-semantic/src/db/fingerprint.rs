@@ -428,6 +428,11 @@ fn hash_source_span(span: &SemanticSourceSpan, hasher: &mut impl Hasher) {
     hash_range(span.range, hasher);
 }
 
+fn hash_callable_source_span(span: &SemanticSourceSpan, hasher: &mut impl Hasher) {
+    span.module.hash(hasher);
+    span.range.start.hash(hasher);
+}
+
 fn hash_return_contract_validation(validation: ReturnContractValidation, hasher: &mut impl Hasher) {
     match validation {
         ReturnContractValidation::NotApplicable => 0u8.hash(hasher),
@@ -478,7 +483,7 @@ fn hash_callable_semantic_signature(signature: &CallableSemanticSignature, inclu
         match &signature.source {
             Some(source) => {
                 1u8.hash(hasher);
-                hash_source_span(source, hasher);
+                hash_callable_source_span(source, hasher);
             }
             None => 0u8.hash(hasher),
         }
@@ -1294,7 +1299,7 @@ pub fn callable_body_input_fingerprint_with_formal_inputs(
     body_range: SourceRange,
     store: &TypeStore,
     sources: &BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
-    linked: &LinkedProgram,
+    _linked: &LinkedProgram,
     lifecycle: Option<&crate::checker::field_lifecycle::FieldLifecycleTable>,
 ) -> InputFingerprint {
     let mut hasher = DefaultHasher::new();
@@ -1302,8 +1307,7 @@ pub fn callable_body_input_fingerprint_with_formal_inputs(
     if let Some(unit) = sources.get(callable.module()) {
         unit.text.get(body_range.start..body_range.end).map(str::as_bytes).hash(&mut hasher);
     }
-    source_resolution_input_fingerprint(sources).raw().hash(&mut hasher);
-    semantic_component_product_fingerprint(linked).raw().hash(&mut hasher);
+    source_module_resolution_input_fingerprint(sources, callable.module()).raw().hash(&mut hasher);
     if let Some(lifecycle) = lifecycle {
         for (field, fact) in lifecycle.fields.iter().filter(|(field, _)| &field.owner == callable.declaration_owner()) {
             field.hash(&mut hasher);
@@ -1333,6 +1337,28 @@ pub fn source_resolution_input_fingerprint(sources: &BTreeMap<ModuleId, Arc<Pars
                 hash_debug_without_source_ranges(&unit.program.statements, &mut hasher);
             }
         }
+    }
+    finish_input(hasher)
+}
+
+/// Computes source namespace identity for one callable owner module. Body
+/// queries must not take every workspace module as a direct input: imported
+/// type facts are represented by their exact query dependencies instead.
+fn source_module_resolution_input_fingerprint(
+    sources: &BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
+    module: &ModuleId,
+) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    module.hash(&mut hasher);
+    match sources.get(module) {
+        Some(unit) => match InterfaceBuilder::build(module.clone(), unit.kind, &unit.program) {
+            Ok(interface) => unlinked_interface_product_fingerprint(&interface).raw().hash(&mut hasher),
+            Err(_) => {
+                1u8.hash(&mut hasher);
+                hash_debug_without_source_ranges(&unit.program.statements, &mut hasher);
+            }
+        },
+        None => 0u8.hash(&mut hasher),
     }
     finish_input(hasher)
 }
@@ -1828,6 +1854,7 @@ pub fn resolved_import_input_fingerprint(product: &phalcom_modules::resolver::Im
     let mut hasher = DefaultHasher::new();
     product.site.importer.hash(&mut hasher);
     product.site.local.0.hash(&mut hasher);
+    product.fingerprint.raw().hash(&mut hasher);
     finish_input(hasher)
 }
 
@@ -1839,6 +1866,24 @@ pub fn linked_name_input_fingerprint(product: &crate::db::product::LinkedNamePro
     let mut hasher = DefaultHasher::new();
     product.module.hash(&mut hasher);
     product.name.hash(&mut hasher);
+    finish_input(hasher)
+}
+
+/// Computes linked-name query input including current public and private
+/// linkage inputs. The stable query identity remains in `product`; these
+/// canonical fingerprints make refresh sensitive to the namespace and local
+/// import layout that produced the fact.
+pub(crate) fn linked_name_input_fingerprint_with_module(
+    product: &crate::db::product::LinkedNameProduct,
+    linked_module: Option<&phalcom_modules::linker::LinkedModule>,
+) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    product.module.hash(&mut hasher);
+    product.name.hash(&mut hasher);
+    if let Some(linked_module) = linked_module {
+        linked_interface_input_fingerprint(&linked_module.interface).raw().hash(&mut hasher);
+        phalcom_modules::fingerprint::linked_dependency_fingerprint(linked_module).raw().hash(&mut hasher);
+    }
     finish_input(hasher)
 }
 
@@ -1870,6 +1915,21 @@ pub fn public_export_input_fingerprint(product: &crate::db::product::PublicExpor
     let mut hasher = DefaultHasher::new();
     product.module.hash(&mut hasher);
     product.name.hash(&mut hasher);
+    finish_input(hasher)
+}
+
+/// Computes public-export query input including the current linked interface
+/// that owns the export namespace.
+pub(crate) fn public_export_input_fingerprint_with_interface(
+    product: &crate::db::product::PublicExportProduct,
+    linked_interface: Option<&LinkedModuleInterface>,
+) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    product.module.hash(&mut hasher);
+    product.name.hash(&mut hasher);
+    if let Some(linked_interface) = linked_interface {
+        linked_interface_input_fingerprint(linked_interface).raw().hash(&mut hasher);
+    }
     finish_input(hasher)
 }
 

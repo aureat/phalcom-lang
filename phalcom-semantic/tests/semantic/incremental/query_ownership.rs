@@ -264,7 +264,8 @@ class Owner {
             hierarchy: &hierarchy,
             resolver: &resolver,
             declarations: &declarations,
-            linked: None,
+            linked: Some(&input.linked),
+            import_products: Some(&input.import_products),
         },
     ) {
         phalcom_semantic::db::QueryOutcome::Ready(surface) => surface,
@@ -278,6 +279,7 @@ class Owner {
     let formal_inputs = FormalQueryInputs {
         sources: &input.sources,
         linked: &input.linked,
+        import_products: &input.import_products,
         hierarchy: &hierarchy,
         base_resolver: &resolver,
         declarations: &declarations,

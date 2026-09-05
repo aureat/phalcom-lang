@@ -36,7 +36,7 @@ fn test_previously_missing_public_name_appears_invalidates_consumer() {
             },
             WorkspaceSourceBatchMutation::SetOverlay {
                 source: consumer,
-                text: Arc::from("from .provider import Missing\nclass Consumer {\n  @class read() -> Int { Missing }\n}\n"),
+                text: Arc::from("import .provider as Provider\nclass Consumer {\n  @class read() -> Int { let value: Provider.Missing }\n}\n"),
                 revision: SourceRevision(1),
                 recovered_program: None,
             },
@@ -59,7 +59,7 @@ fn test_previously_missing_public_name_appears_invalidates_consumer() {
         }])
         .expect("update should succeed");
 
-    // Consumer body used PublicExport(provider, "Missing") which was Absent. Now Missing appears.
+    // Consumer type-level read used PublicExport(provider, "Missing") which was Absent. Now Missing appears.
     // Consumer must recompute to pick up Missing.
     assert!(
         pub2.stats.callables_recomputed >= 1,
@@ -91,7 +91,7 @@ fn test_unrelated_export_added_reuses_exact_consumer() {
             },
             WorkspaceSourceBatchMutation::SetOverlay {
                 source: consumer,
-                text: Arc::from("from .provider import Foo\nclass Consumer {\n  @class read() -> Int { Foo }\n}\n"),
+                text: Arc::from("import .provider as Provider\nclass Consumer {\n  @class read() -> Int { let value: Provider.Foo }\n}\n"),
                 revision: SourceRevision(1),
                 recovered_program: None,
             },
@@ -162,7 +162,7 @@ fn test_reexport_retargeting_invalidates_exact_consumer() {
             },
             WorkspaceSourceBatchMutation::SetOverlay {
                 source: c,
-                text: Arc::from("from .b import TargetFoo\nclass Consumer {\n  @class read() -> Int { TargetFoo }\n}\n"),
+                text: Arc::from("import .b as B\nclass Consumer {\n  @class read() -> Int { let value: B.TargetFoo }\n}\n"),
                 revision: SourceRevision(1),
                 recovered_program: None,
             },

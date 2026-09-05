@@ -36,6 +36,7 @@ use std::sync::Arc;
 pub struct FormalQueryInputs<'a> {
     pub sources: &'a BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
     pub linked: &'a LinkedProgram,
+    pub import_products: &'a BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>,
     pub hierarchy: &'a dyn TypeHierarchy,
     pub base_resolver: &'a dyn TypeResolver,
     pub declarations: &'a DeclarationTypeTable,
@@ -58,6 +59,16 @@ fn semantic_dependency_query_key(dependency: &crate::checker::analysis::Semantic
         crate::checker::analysis::SemanticDependency::ResolvedImport(site) => QueryKey::ResolvedImport(site.clone()),
         crate::checker::analysis::SemanticDependency::LinkedName(module, name) => QueryKey::LinkedName(module.clone(), name.clone()),
         crate::checker::analysis::SemanticDependency::PublicExport(module, name) => QueryKey::PublicExport(module.clone(), name.clone()),
+    }
+}
+
+fn semantic_dependency_from_query_key(key: &QueryKey) -> Option<crate::checker::analysis::SemanticDependency> {
+    match key {
+        QueryKey::LinkedInterface(module) => Some(crate::checker::analysis::SemanticDependency::LinkedInterface(module.clone())),
+        QueryKey::ResolvedImport(site) => Some(crate::checker::analysis::SemanticDependency::ResolvedImport(site.clone())),
+        QueryKey::LinkedName(module, name) => Some(crate::checker::analysis::SemanticDependency::LinkedName(module.clone(), name.clone())),
+        QueryKey::PublicExport(module, name) => Some(crate::checker::analysis::SemanticDependency::PublicExport(module.clone(), name.clone())),
+        _ => None,
     }
 }
 
@@ -844,32 +855,133 @@ pub struct DeclarationSurfaceQuery<'a> {
     pub resolver: &'a dyn TypeResolver,
     pub declarations: &'a DeclarationTypeTable,
     pub linked: Option<&'a LinkedProgram>,
+    pub import_products: Option<&'a BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>>,
 }
 
-fn ensure_semantic_dependency(
+fn ensure_semantic_dependency_current(
     db: &mut SemanticDb,
     dependency: &crate::checker::analysis::SemanticDependency,
     linked: Option<&LinkedProgram>,
     declarations: &DeclarationTypeTable,
-) {
-    let Some(linked) = linked else { return };
+    import_products: Option<&BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>>,
+) -> QueryOutcome<()> {
     match dependency {
+        crate::checker::analysis::SemanticDependency::DeclarationShell(declaration) => {
+            let key = QueryKey::DeclarationShell(declaration.clone());
+            if db.query_state(&key).and_then(QueryState::validated_revision) == Some(db.revision()) {
+                return QueryOutcome::Ready(());
+            }
+            let Some(info) = declarations.get(declaration).cloned() else {
+                return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+            };
+            match query_declaration_shell(db, Arc::new(TypeDeclarationShell::Nominal(info))) {
+                QueryOutcome::Ready(_) => QueryOutcome::Ready(()),
+                QueryOutcome::Cancelled => QueryOutcome::Cancelled,
+                QueryOutcome::BudgetExceeded(report) => QueryOutcome::BudgetExceeded(report),
+                QueryOutcome::Blocked(reason) => QueryOutcome::Blocked(reason),
+                QueryOutcome::Failed(failure) => QueryOutcome::Failed(failure),
+            }
+        }
+        crate::checker::analysis::SemanticDependency::LinkedInterface(module) => {
+            let key = QueryKey::LinkedInterface(module.clone());
+            if db.query_state(&key).and_then(QueryState::validated_revision) == Some(db.revision()) {
+                return QueryOutcome::Ready(());
+            }
+            let Some(linked) = linked else {
+                return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+            };
+            match ensure_linked_interface(db, module, linked) {
+                QueryOutcome::Ready(_) => QueryOutcome::Ready(()),
+                QueryOutcome::Cancelled => QueryOutcome::Cancelled,
+                QueryOutcome::BudgetExceeded(report) => QueryOutcome::BudgetExceeded(report),
+                QueryOutcome::Blocked(reason) => QueryOutcome::Blocked(reason),
+                QueryOutcome::Failed(failure) => QueryOutcome::Failed(failure),
+            }
+        }
         crate::checker::analysis::SemanticDependency::LinkedName(mod_id, name) => {
+            let key = QueryKey::LinkedName(mod_id.clone(), name.clone());
+            if db.query_state(&key).and_then(QueryState::validated_revision) == Some(db.revision()) {
+                return QueryOutcome::Ready(());
+            }
+            let Some(linked) = linked else {
+                return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+            };
             let prelude = crate::prelude::PreludeTypeMap::shared_canonical_universe();
-            query_linked_name(
+            match query_linked_name(
                 db,
                 mod_id.clone(),
                 name.clone(),
                 linked,
                 declarations,
                 &prelude,
-            );
+            ) {
+                QueryOutcome::Ready(_) => QueryOutcome::Ready(()),
+                QueryOutcome::Cancelled => QueryOutcome::Cancelled,
+                QueryOutcome::BudgetExceeded(report) => QueryOutcome::BudgetExceeded(report),
+                QueryOutcome::Blocked(reason) => QueryOutcome::Blocked(reason),
+                QueryOutcome::Failed(failure) => QueryOutcome::Failed(failure),
+            }
         }
         crate::checker::analysis::SemanticDependency::PublicExport(mod_id, name) => {
-            query_public_export(db, mod_id.clone(), name.clone(), linked);
+            let key = QueryKey::PublicExport(mod_id.clone(), name.clone());
+            if db.query_state(&key).and_then(QueryState::validated_revision) == Some(db.revision()) {
+                return QueryOutcome::Ready(());
+            }
+            let Some(linked) = linked else {
+                return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+            };
+            match query_public_export(db, mod_id.clone(), name.clone(), linked) {
+                QueryOutcome::Ready(_) => QueryOutcome::Ready(()),
+                QueryOutcome::Cancelled => QueryOutcome::Cancelled,
+                QueryOutcome::BudgetExceeded(report) => QueryOutcome::BudgetExceeded(report),
+                QueryOutcome::Blocked(reason) => QueryOutcome::Blocked(reason),
+                QueryOutcome::Failed(failure) => QueryOutcome::Failed(failure),
+            }
         }
-        _ => {}
+        crate::checker::analysis::SemanticDependency::ResolvedImport(site) => {
+            let key = QueryKey::ResolvedImport(site.clone());
+            if db.query_state(&key).and_then(QueryState::validated_revision) == Some(db.revision()) {
+                return QueryOutcome::Ready(());
+            }
+            let Some(import_products) = import_products else {
+                return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+            };
+            let Some(product) = import_products.get(site).cloned() else {
+                return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+            };
+            match query_resolved_import(db, site.clone(), product) {
+                QueryOutcome::Ready(_) => QueryOutcome::Ready(()),
+                QueryOutcome::Cancelled => QueryOutcome::Cancelled,
+                QueryOutcome::BudgetExceeded(report) => QueryOutcome::BudgetExceeded(report),
+                QueryOutcome::Blocked(reason) => QueryOutcome::Blocked(reason),
+                QueryOutcome::Failed(failure) => QueryOutcome::Failed(failure),
+            }
+        }
+        _ => QueryOutcome::Ready(()),
     }
+}
+
+fn ensure_cached_semantic_dependencies_current(
+    db: &mut SemanticDb,
+    key: &QueryKey,
+    linked: Option<&LinkedProgram>,
+    declarations: &DeclarationTypeTable,
+    import_products: Option<&BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>>,
+) -> QueryOutcome<()> {
+    let dependencies = db.index().dependencies_of(key).map(|edges| edges.to_vec()).unwrap_or_default();
+    for edge in dependencies {
+        let Some(dependency) = semantic_dependency_from_query_key(&edge.dependency) else {
+            continue;
+        };
+        match ensure_semantic_dependency_current(db, &dependency, linked, declarations, import_products) {
+            QueryOutcome::Ready(()) => {}
+            QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+            QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+            QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+            QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+        }
+    }
+    QueryOutcome::Ready(())
 }
 
 /// Evaluates or computes the source member surface for one declaration.
@@ -883,6 +995,7 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
         resolver,
         declarations,
         linked,
+        import_products,
     } = query;
     let key = QueryKey::DeclarationSurface(decl_id.clone());
     if unit.id != decl_id.module || linked_interface.module != decl_id.module {
@@ -913,6 +1026,14 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
 
     match query_linked_interface(db, linked_interface.module.clone(), linked_interface) {
         QueryOutcome::Ready(_) => {}
+        QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+        QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+        QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+        QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+    }
+
+    match ensure_cached_semantic_dependencies_current(db, &key, linked, declarations, import_products) {
+        QueryOutcome::Ready(()) => {}
         QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
         QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
         QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
@@ -956,7 +1077,13 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
     semantic_dependencies.insert(crate::checker::analysis::SemanticDependency::LinkedInterface(decl_id.module.clone()));
     semantic_dependencies.extend(captured_dependencies);
     for dependency in semantic_dependencies {
-        ensure_semantic_dependency(db, &dependency, linked, declarations);
+        match ensure_semantic_dependency_current(db, &dependency, linked, declarations, import_products) {
+            QueryOutcome::Ready(()) => {}
+            QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+            QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+            QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+            QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+        }
         let dependency_key = semantic_dependency_query_key(&dependency);
         if dependency_key == key {
             return query_failure(db, key, "declaration surface captured a self-surface dependency");
@@ -1026,6 +1153,20 @@ pub fn query_callable_signature(
     resolver: &dyn TypeResolver,
     declarations: &DeclarationTypeTable,
 ) -> QueryOutcome<Arc<CallableSemanticSignature>> {
+    query_callable_signature_with_inputs(db, callable, unit, store, hierarchy, resolver, declarations, None, None)
+}
+
+pub fn query_callable_signature_with_inputs(
+    db: &mut SemanticDb,
+    callable: CallableId,
+    unit: Arc<ParsedModuleUnit>,
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    resolver: &dyn TypeResolver,
+    declarations: &DeclarationTypeTable,
+    linked: Option<&LinkedProgram>,
+    import_products: Option<&BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>>,
+) -> QueryOutcome<Arc<CallableSemanticSignature>> {
     let key = QueryKey::CallableSignature(callable.clone());
     if unit.id != *callable.module() {
         return query_failure(db, key, format!("source unit does not own callable {callable:?}"));
@@ -1043,8 +1184,25 @@ pub fn query_callable_signature(
     }
 
     let linked_key = QueryKey::LinkedInterface(callable.module().clone());
+    if let Some(linked) = linked {
+        match ensure_linked_interface(db, callable.module(), linked) {
+            QueryOutcome::Ready(_) => {}
+            QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+            QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+            QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+            QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+        }
+    }
     if db.query_state(&linked_key).and_then(QueryState::validated_revision) != Some(db.revision()) {
         return query_failure(db, key, format!("CallableSignature prerequisite {linked_key:?} is not current"));
+    }
+
+    match ensure_cached_semantic_dependencies_current(db, &key, linked, declarations, import_products) {
+        QueryOutcome::Ready(()) => {}
+        QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+        QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+        QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+        QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
     }
 
     let (signature, captured_dependencies) = if let Some(class_def) = class_definition_for(&unit, callable.declaration_owner()) {
@@ -1145,6 +1303,16 @@ pub fn query_callable_signature(
     }
     db.metrics().record_miss();
 
+    for dependency in &captured_dependencies {
+        match ensure_semantic_dependency_current(db, dependency, linked, declarations, import_products) {
+            QueryOutcome::Ready(()) => {}
+            QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+            QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+            QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+            QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+        }
+    }
+
     let mut dependency_keys = BTreeSet::from([QueryKey::DeclarationShell(callable.declaration_owner().clone()), linked_key]);
     dependency_keys.extend(captured_dependencies.iter().map(semantic_dependency_query_key));
     dependency_keys.remove(&key);
@@ -1184,6 +1352,20 @@ pub fn query_field_signature(
     resolver: &dyn TypeResolver,
     declarations: &DeclarationTypeTable,
 ) -> QueryOutcome<Arc<FieldSemanticSignature>> {
+    query_field_signature_with_inputs(db, field, unit, store, hierarchy, resolver, declarations, None, None)
+}
+
+pub fn query_field_signature_with_inputs(
+    db: &mut SemanticDb,
+    field: FieldId,
+    unit: Arc<ParsedModuleUnit>,
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    resolver: &dyn TypeResolver,
+    declarations: &DeclarationTypeTable,
+    linked: Option<&LinkedProgram>,
+    import_products: Option<&BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>>,
+) -> QueryOutcome<Arc<FieldSemanticSignature>> {
     let key = QueryKey::FieldSignature(field.clone());
     if unit.id != field.owner.module {
         return query_failure(db, key, format!("source unit does not own field {field:?}"));
@@ -1201,8 +1383,25 @@ pub fn query_field_signature(
     }
 
     let linked_key = QueryKey::LinkedInterface(field.owner.module.clone());
+    if let Some(linked) = linked {
+        match ensure_linked_interface(db, &field.owner.module, linked) {
+            QueryOutcome::Ready(_) => {}
+            QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+            QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+            QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+            QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+        }
+    }
     if db.query_state(&linked_key).and_then(QueryState::validated_revision) != Some(db.revision()) {
         return query_failure(db, key, format!("FieldSignature prerequisite {linked_key:?} is not current"));
+    }
+
+    match ensure_cached_semantic_dependencies_current(db, &key, linked, declarations, import_products) {
+        QueryOutcome::Ready(()) => {}
+        QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+        QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+        QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+        QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
     }
 
     let Some(class_def) = class_definition_for(&unit, &field.owner) else {
@@ -1235,6 +1434,16 @@ pub fn query_field_signature(
         db.discard_for_recompute(&key);
     }
     db.metrics().record_miss();
+
+    for dependency in &captured_dependencies {
+        match ensure_semantic_dependency_current(db, dependency, linked, declarations, import_products) {
+            QueryOutcome::Ready(()) => {}
+            QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+            QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+            QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+            QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+        }
+    }
 
     let mut dependency_keys = BTreeSet::from([QueryKey::DeclarationShell(field.owner.clone()), linked_key]);
     dependency_keys.extend(captured_dependencies.iter().map(semantic_dependency_query_key));
@@ -1351,7 +1560,7 @@ fn ensure_linked_interface(db: &mut SemanticDb, module: &ModuleId, linked: &Link
     query_linked_interface(db, module.clone(), Arc::new(linked_module.interface.clone()))
 }
 
-fn ensure_callable_signature(
+fn ensure_callable_signature_with_inputs(
     db: &mut SemanticDb,
     callable: &CallableId,
     formal_inputs: &FormalQueryInputs<'_>,
@@ -1374,7 +1583,7 @@ fn ensure_callable_signature(
     let Some(unit) = formal_inputs.sources.get(callable.module()).cloned() else {
         return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
     };
-    query_callable_signature(
+    query_callable_signature_with_inputs(
         db,
         callable.clone(),
         unit,
@@ -1382,10 +1591,12 @@ fn ensure_callable_signature(
         formal_inputs.hierarchy,
         formal_inputs.base_resolver,
         formal_inputs.declarations,
+        Some(formal_inputs.linked),
+        Some(formal_inputs.import_products),
     )
 }
 
-fn ensure_field_signature(
+fn ensure_field_signature_with_inputs(
     db: &mut SemanticDb,
     field: &FieldId,
     formal_inputs: &FormalQueryInputs<'_>,
@@ -1408,7 +1619,7 @@ fn ensure_field_signature(
     let Some(unit) = formal_inputs.sources.get(&field.owner.module).cloned() else {
         return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
     };
-    query_field_signature(
+    query_field_signature_with_inputs(
         db,
         field.clone(),
         unit,
@@ -1416,6 +1627,8 @@ fn ensure_field_signature(
         formal_inputs.hierarchy,
         formal_inputs.base_resolver,
         formal_inputs.declarations,
+        Some(formal_inputs.linked),
+        Some(formal_inputs.import_products),
     )
 }
 
@@ -1551,13 +1764,28 @@ pub fn query_linked_name(
     prelude_types: &crate::prelude::PreludeTypeMap,
 ) -> QueryOutcome<Arc<crate::db::product::LinkedNameProduct>> {
     let key = QueryKey::LinkedName(module.clone(), name.clone());
+
+    // Exact name facts are invalidated through the current linked interface.
+    // Materialize that prerequisite before attempting reuse; otherwise a
+    // cached name fact could validate against an older interface revision.
+    let has_linked_interface = match linked.modules.get(&module) {
+        Some(linked_mod) => match query_linked_interface(db, module.clone(), Arc::new(linked_mod.interface.clone())) {
+            QueryOutcome::Ready(_) => true,
+            QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+            QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+            QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+            QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+        },
+        None => false,
+    };
+
     let fact = compute_linked_name_fact(&module, &name, linked, declarations, prelude_types);
     let product = Arc::new(crate::db::product::LinkedNameProduct {
         module: module.clone(),
         name,
         fact,
     });
-    let input_fingerprint = crate::db::fingerprint::linked_name_input_fingerprint(&product);
+    let input_fingerprint = crate::db::fingerprint::linked_name_input_fingerprint_with_module(&product, linked.modules.get(&module));
     let product_fingerprint = crate::db::fingerprint::linked_name_product_fingerprint(&product);
 
     if db.validate_reuse(&key, input_fingerprint) {
@@ -1570,13 +1798,20 @@ pub fn query_linked_name(
         db.discard_for_recompute(&key);
     }
     db.metrics().record_miss();
+    let mut recorder = crate::db::DependencyRecorder::new(key.clone());
+    if has_linked_interface {
+        if let Err(error) = db.record_dependency(&mut recorder, QueryKey::LinkedInterface(module.clone())) {
+            return query_failure(db, key, error);
+        }
+    }
+
     if let Err(error) = publish_current_product(
         db,
         key.clone(),
         input_fingerprint,
         product_fingerprint,
         SemanticProduct::LinkedName(product.clone()),
-        Vec::new(),
+        recorder.finish(),
     ) {
         return query_failure(db, key, error);
     }
@@ -1591,13 +1826,31 @@ pub fn query_public_export(
     linked: &LinkedProgram,
 ) -> QueryOutcome<Arc<crate::db::product::PublicExportProduct>> {
     let key = QueryKey::PublicExport(module.clone(), name.clone());
+
+    // Public export facts are exact projections of one module's linked
+    // interface. Ensure that canonical input is current before validating the
+    // cached projection.
+    let has_linked_interface = match linked.modules.get(&module) {
+        Some(linked_mod) => match query_linked_interface(db, module.clone(), Arc::new(linked_mod.interface.clone())) {
+            QueryOutcome::Ready(_) => true,
+            QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+            QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+            QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+            QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+        },
+        None => false,
+    };
+
     let fact = compute_public_export_fact(&module, &name, linked);
     let product = Arc::new(crate::db::product::PublicExportProduct {
         module: module.clone(),
         name,
         fact,
     });
-    let input_fingerprint = crate::db::fingerprint::public_export_input_fingerprint(&product);
+    let input_fingerprint = crate::db::fingerprint::public_export_input_fingerprint_with_interface(
+        &product,
+        linked.modules.get(&module).map(|linked_module| &linked_module.interface),
+    );
     let product_fingerprint = crate::db::fingerprint::public_export_product_fingerprint(&product);
 
     if db.validate_reuse(&key, input_fingerprint) {
@@ -1610,13 +1863,20 @@ pub fn query_public_export(
         db.discard_for_recompute(&key);
     }
     db.metrics().record_miss();
+    let mut recorder = crate::db::DependencyRecorder::new(key.clone());
+    if has_linked_interface {
+        if let Err(error) = db.record_dependency(&mut recorder, QueryKey::LinkedInterface(module.clone())) {
+            return query_failure(db, key, error);
+        }
+    }
+
     if let Err(error) = publish_current_product(
         db,
         key.clone(),
         input_fingerprint,
         product_fingerprint,
         SemanticProduct::PublicExport(product.clone()),
-        Vec::new(),
+        recorder.finish(),
     ) {
         return query_failure(db, key, error);
     }
@@ -1720,6 +1980,28 @@ fn query_callable_body_with_requirement(
     } = query;
     let key = QueryKey::CallableBody(callable.clone());
 
+    if let Some(inputs) = formal_inputs {
+        let cached_dependencies = db.index().dependencies_of(&key).map(|edges| edges.to_vec()).unwrap_or_default();
+        for edge in cached_dependencies {
+            let Some(dependency) = semantic_dependency_from_query_key(&edge.dependency) else {
+                continue;
+            };
+            match ensure_semantic_dependency_current(
+                db,
+                &dependency,
+                Some(inputs.linked),
+                inputs.declarations,
+                Some(inputs.import_products),
+            ) {
+                QueryOutcome::Ready(()) => {}
+                QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+                QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+                QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+                QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+            }
+        }
+    }
+
     let input_fingerprint = match formal_inputs {
         Some(inputs) => crate::db::fingerprint::callable_body_input_fingerprint_with_formal_inputs(
             &callable,
@@ -1744,7 +2026,7 @@ fn query_callable_body_with_requirement(
             let Some(signature_id) = declaration_signature_id_for_body(&callable, &unit) else {
                 return query_failure(db, key.clone(), format!("missing declaration signature identity for body {callable:?}"));
             };
-            match ensure_callable_signature(db, &signature_id, inputs, store) {
+            match ensure_callable_signature_with_inputs(db, &signature_id, inputs, store) {
                 QueryOutcome::Ready(signature) => Some((signature_id, signature)),
                 QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
                 QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
@@ -1866,7 +2148,7 @@ fn query_callable_body_with_requirement(
             for sem_dep in arc_analysis.semantic_dependencies.iter() {
                 match (sem_dep, formal_inputs) {
                     (crate::checker::analysis::SemanticDependency::FieldSignature(field), Some(inputs)) => {
-                        match ensure_field_signature(db, field, inputs, store) {
+                        match ensure_field_signature_with_inputs(db, field, inputs, store) {
                             QueryOutcome::Ready(_) => {}
                             QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
                             QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
@@ -1874,21 +2156,16 @@ fn query_callable_body_with_requirement(
                             QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
                         }
                     }
-                    (crate::checker::analysis::SemanticDependency::LinkedName(mod_id, name), Some(inputs)) => {
-                        let prelude = crate::prelude::PreludeTypeMap::shared_canonical_universe();
-                        query_linked_name(
-                            db,
-                            mod_id.clone(),
-                            name.clone(),
-                            inputs.linked,
-                            inputs.declarations,
-                            &prelude,
-                        );
-                    }
-                    (crate::checker::analysis::SemanticDependency::PublicExport(mod_id, name), Some(inputs)) => {
-                        query_public_export(db, mod_id.clone(), name.clone(), inputs.linked);
-                    }
                     _ => {}
+                }
+                let dependency_inputs = formal_inputs.map(|inputs| (Some(inputs.linked), Some(inputs.import_products)));
+                let (linked, import_products) = dependency_inputs.unwrap_or((None, None));
+                match ensure_semantic_dependency_current(db, sem_dep, linked, declarations, import_products) {
+                    QueryOutcome::Ready(()) => {}
+                    QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+                    QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+                    QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+                    QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
                 }
                 let dependency = semantic_dependency_query_key(sem_dep);
                 if let Err(error) = db.record_dependency(&mut recorder, dependency) {
@@ -1908,5 +2185,170 @@ fn query_callable_body_with_requirement(
             }
             QueryOutcome::Ready(arc_analysis)
         }
+    }
+}
+
+#[cfg(test)]
+mod exact_module_fact_tests {
+    use super::*;
+    use crate::db::key::QueryKey;
+    use crate::db::product::{LinkedNameFact, PublicExportFact};
+    use phalcom_modules::interface::{LinkedExport, LinkedExportTarget, LinkedModuleInterface};
+    use phalcom_modules::linker::{LinkedModule, LinkedProgram, ModuleBindingLayout, SymbolId};
+    use phalcom_modules::metadata::ModuleMetadata;
+    use phalcom_modules::project::ProjectUniverse;
+    use phalcom_modules::resolver::{ImportPathIdentity, ImportResolutionProduct, ResolutionTopologyDependencies};
+    use phalcom_modules::{ModuleComponent, ModuleId, ModuleKind, ModulePath, ResolvedProjectId};
+
+    fn module(name: &str) -> ModuleId {
+        ModuleId::resolved(
+            ResolvedProjectId::from_raw(1),
+            ModulePath::from_components(vec![ModuleComponent::from_identifier(name).expect("test module name")]),
+        )
+    }
+
+    fn linked_program(module_id: ModuleId, exports: impl IntoIterator<Item = LinkedExport>) -> LinkedProgram {
+        let exports = exports.into_iter().map(|export| (export.public_name.clone(), export)).collect();
+        let interface = LinkedModuleInterface {
+            module: module_id.clone(),
+            kind: ModuleKind::Module,
+            exports,
+            metadata: ModuleMetadata::default(),
+        };
+        let linked_module = LinkedModule {
+            interface,
+            bindings: ModuleBindingLayout::default(),
+            linked_reads: Vec::new(),
+            runtime_dependencies: Vec::new(),
+        };
+        LinkedProgram {
+            universe: Arc::new(ProjectUniverse::new()),
+            modules: BTreeMap::from([(module_id.clone(), linked_module)]),
+            graphs: Default::default(),
+            entry: module_id.clone(),
+            initialization_order: vec![module_id],
+        }
+    }
+
+    fn binding_export(public_name: &str, target_module: ModuleId, target_name: &str) -> LinkedExport {
+        LinkedExport {
+            public_name: public_name.into(),
+            target: LinkedExportTarget::Binding(SymbolId {
+                module: target_module,
+                name: target_name.into(),
+            }),
+            range: SourceRange::default(),
+        }
+    }
+
+    fn resolved_import(site: phalcom_modules::identity::ImportSiteId, target: ModuleId) -> Arc<phalcom_modules::resolver::ImportResolutionProduct> {
+        Arc::new(ImportResolutionProduct::new(
+            site,
+            ImportPathIdentity {
+                written: "dep".into(),
+                is_relative: true,
+            },
+            Arc::from(Vec::new()),
+            Ok(target),
+            ResolutionTopologyDependencies::default(),
+        ))
+    }
+
+    #[test]
+    fn public_export_refreshes_when_current_linked_interface_changes() {
+        let provider = module("provider");
+        let first = linked_program(provider.clone(), [binding_export("Foo", module("a1"), "Foo")]);
+        let second = linked_program(provider.clone(), [binding_export("Foo", module("a2"), "Foo")]);
+        let mut db = SemanticDb::new();
+
+        let first_product = match query_public_export(&mut db, provider.clone(), "Foo".into(), &first) {
+            QueryOutcome::Ready(product) => product,
+            outcome => panic!("first export query was not ready: {outcome:?}"),
+        };
+        let key = QueryKey::PublicExport(provider.clone(), "Foo".into());
+        let first_fingerprint = db.ready_product_fingerprint(&key).expect("first fingerprint");
+        assert!(matches!(first_product.fact, PublicExportFact::Present(_)));
+        assert!(db.index().dependencies_of(&key).is_some_and(|edges| {
+            edges.iter().any(|edge| edge.dependency == QueryKey::LinkedInterface(provider.clone()))
+        }));
+
+        db.begin_revision();
+        let second_product = match query_public_export(&mut db, provider, "Foo".into(), &second) {
+            QueryOutcome::Ready(product) => product,
+            outcome => panic!("second export query was not ready: {outcome:?}"),
+        };
+        let second_fingerprint = db.ready_product_fingerprint(&key).expect("second fingerprint");
+
+        assert_ne!(first_fingerprint, second_fingerprint);
+        assert!(matches!(second_product.fact, PublicExportFact::Present(ref export) if export.symbol().is_some_and(|symbol| symbol.module == module("a2"))));
+    }
+
+    #[test]
+    fn public_export_product_stays_stable_for_unrelated_export() {
+        let provider = module("provider");
+        let first = linked_program(provider.clone(), [binding_export("Foo", module("a1"), "Foo")]);
+        let second = linked_program(
+            provider.clone(),
+            [binding_export("Foo", module("a1"), "Foo"), binding_export("Bar", module("a1"), "Bar")],
+        );
+        let mut db = SemanticDb::new();
+
+        assert!(matches!(query_public_export(&mut db, provider.clone(), "Foo".into(), &first), QueryOutcome::Ready(_)));
+        let key = QueryKey::PublicExport(provider.clone(), "Foo".into());
+        let first_fingerprint = db.ready_product_fingerprint(&key).expect("first fingerprint");
+        db.begin_revision();
+        assert!(matches!(query_public_export(&mut db, provider, "Foo".into(), &second), QueryOutcome::Ready(_)));
+        let second_fingerprint = db.ready_product_fingerprint(&key).expect("second fingerprint");
+
+        assert_eq!(first_fingerprint, second_fingerprint);
+    }
+
+    #[test]
+    fn linked_name_refreshes_absent_fact_when_interface_adds_name() {
+        let provider = module("provider");
+        let first = linked_program(provider.clone(), []);
+        let second = linked_program(provider.clone(), [binding_export("Missing", provider.clone(), "Missing")]);
+        let declarations = DeclarationTypeTable::new();
+        let prelude = crate::prelude::PreludeTypeMap::shared_canonical_universe();
+        let mut db = SemanticDb::new();
+
+        let first_product = match query_linked_name(&mut db, provider.clone(), "Missing".into(), &first, &declarations, &prelude) {
+            QueryOutcome::Ready(product) => product,
+            outcome => panic!("first name query was not ready: {outcome:?}"),
+        };
+        let key = QueryKey::LinkedName(provider.clone(), "Missing".into());
+        let first_fingerprint = db.ready_product_fingerprint(&key).expect("first fingerprint");
+        assert_eq!(first_product.fact, LinkedNameFact::Absent);
+        assert!(db.index().dependencies_of(&key).is_some_and(|edges| {
+            edges.iter().any(|edge| edge.dependency == QueryKey::LinkedInterface(provider.clone()))
+        }));
+
+        db.begin_revision();
+        let second_product = match query_linked_name(&mut db, provider, "Missing".into(), &second, &declarations, &prelude) {
+            QueryOutcome::Ready(product) => product,
+            outcome => panic!("second name query was not ready: {outcome:?}"),
+        };
+        let second_fingerprint = db.ready_product_fingerprint(&key).expect("second fingerprint");
+
+        assert_ne!(first_fingerprint, second_fingerprint);
+        assert!(matches!(second_product.fact, LinkedNameFact::ImportedBinding(_)));
+    }
+
+    #[test]
+    fn resolved_import_input_tracks_canonical_resolution_product() {
+        let importer = module("consumer");
+        let site = phalcom_modules::identity::ImportSiteId::new(importer, phalcom_modules::identity::ImportSiteLocalId::new(0));
+        let first = resolved_import(site.clone(), module("a1"));
+        let second = resolved_import(site.clone(), module("a2"));
+        let mut db = SemanticDb::new();
+
+        assert!(matches!(query_resolved_import(&mut db, site.clone(), first), QueryOutcome::Ready(_)));
+        let key = QueryKey::ResolvedImport(site.clone());
+        let first_fingerprint = db.ready_product_fingerprint(&key).expect("first fingerprint");
+        db.begin_revision();
+        assert!(matches!(query_resolved_import(&mut db, site, second), QueryOutcome::Ready(_)));
+        let second_fingerprint = db.ready_product_fingerprint(&key).expect("second fingerprint");
+
+        assert_ne!(first_fingerprint, second_fingerprint);
     }
 }

@@ -18,9 +18,9 @@ use crate::db::product::EnumRequirementsProduct;
 use crate::db::query::{
     CallableBodyQuery, DeclarationSurfaceQuery, FormalQueryInputs, bootstrap_advisory_callable, query_advisory_callable, query_advisory_module,
     query_associated_surface, query_bootstrap_callable_signature, query_bootstrap_declaration_surface, query_bootstrap_hierarchy_edge,
-    query_callable_body_with_formal_inputs, query_callable_signature, query_declaration_shell, query_declaration_surface, query_enum_declaration,
-    query_enum_requirements, query_field_signature, query_hierarchy_edge, query_linked_interface, query_source_formal_attachment, query_source_structure,
-    query_unlinked_interface,
+    query_callable_body_with_formal_inputs, query_callable_signature_with_inputs, query_declaration_shell, query_declaration_surface, query_enum_declaration,
+    query_enum_requirements, query_hierarchy_edge, query_linked_interface, query_source_formal_attachment, query_source_structure,
+    query_unlinked_interface, query_field_signature_with_inputs,
 };
 use crate::db::state::QueryOutcome;
 use crate::declarations::{
@@ -561,6 +561,7 @@ impl SemanticWorkspaceSession {
             linked: update.linked,
             sources: update.sources,
             interfaces: update.interfaces,
+            import_products: update.import_products,
             diagnostics: update.diagnostics,
             blocked_modules: update.blocked_modules,
             generation,
@@ -1353,7 +1354,7 @@ impl SemanticWorkspaceSession {
                     let Some(field_id) = crate::checker::declaration_signature::field_id_for_member(&decl_id, member) else {
                         continue;
                     };
-                    match query_field_signature(
+                    match query_field_signature_with_inputs(
                         &mut self.db,
                         field_id,
                         parsed_unit.clone(),
@@ -1361,6 +1362,8 @@ impl SemanticWorkspaceSession {
                         &hierarchy,
                         &resolver,
                         &declarations,
+                        Some(input.linked.as_ref()),
+                        Some(&input.import_products),
                     ) {
                         QueryOutcome::Ready(signature) => field_signatures.insert((*signature).clone()),
                         QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
@@ -1375,7 +1378,7 @@ impl SemanticWorkspaceSession {
                     let Some(callable_id) = crate::checker::declaration_signature::callable_id_for_member(&decl_id, member) else {
                         continue;
                     };
-                    match query_callable_signature(
+                    match query_callable_signature_with_inputs(
                         &mut self.db,
                         callable_id,
                         parsed_unit.clone(),
@@ -1383,6 +1386,8 @@ impl SemanticWorkspaceSession {
                         &hierarchy,
                         &resolver,
                         &declarations,
+                        Some(input.linked.as_ref()),
+                        Some(&input.import_products),
                     ) {
                         QueryOutcome::Ready(signature) => callable_signatures.insert((*signature).clone()),
                         QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
@@ -1403,6 +1408,7 @@ impl SemanticWorkspaceSession {
                         resolver: &resolver,
                         declarations: &declarations,
                         linked: Some(input.linked.as_ref()),
+                        import_products: Some(&input.import_products),
                     },
                 ) {
                     QueryOutcome::Ready(surface) => surface,
@@ -1505,6 +1511,7 @@ impl SemanticWorkspaceSession {
                         resolver: &resolver,
                         declarations: &declarations,
                         linked: Some(input.linked.as_ref()),
+                        import_products: Some(&input.import_products),
                     },
                 ) {
                     QueryOutcome::Ready(_) => {}
@@ -1693,6 +1700,7 @@ impl SemanticWorkspaceSession {
                                 let formal_inputs = FormalQueryInputs {
                                     sources: &input.sources,
                                     linked: &input.linked,
+                                    import_products: &input.import_products,
                                     hierarchy: &hierarchy,
                                     base_resolver: &resolver,
                                     declarations: &declarations,
@@ -1702,6 +1710,7 @@ impl SemanticWorkspaceSession {
                                     associated_families: Some(&associated_surfaces_table),
                                 };
 
+                                let previous_computation_revision = self.db.query_state(&query_key).and_then(|state| state.revision());
                                 let outcome = query_callable_body_with_formal_inputs(
                                     &mut self.db,
                                     CallableBodyQuery {
@@ -1722,7 +1731,9 @@ impl SemanticWorkspaceSession {
 
                                 match outcome {
                                     QueryOutcome::Ready(analysis) => {
-                                        if self.db.query_state(&query_key).is_some_and(|s| s.revision() == Some(self.db.revision())) {
+                                        if self.db.query_state(&query_key).is_some_and(|state| {
+                                            state.revision() == Some(self.db.revision()) && previous_computation_revision != Some(self.db.revision())
+                                        }) {
                                             callable_dispositions.insert(callable_id.clone(), CallableRevisionDisposition::Recomputed);
                                         } else {
                                             callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
@@ -1854,6 +1865,7 @@ impl SemanticWorkspaceSession {
                                     let formal_inputs = FormalQueryInputs {
                                         sources: &input.sources,
                                         linked: &input.linked,
+                                        import_products: &input.import_products,
                                         hierarchy: &hierarchy,
                                         base_resolver: &resolver,
                                         declarations: &declarations,
@@ -1863,6 +1875,7 @@ impl SemanticWorkspaceSession {
                                         associated_families: Some(&associated_surfaces_table),
                                     };
 
+                                    let previous_computation_revision = self.db.query_state(&query_key).and_then(|state| state.revision());
                                     let outcome = query_callable_body_with_formal_inputs(
                                         &mut self.db,
                                         CallableBodyQuery {
@@ -1883,7 +1896,9 @@ impl SemanticWorkspaceSession {
 
                                     match outcome {
                                         QueryOutcome::Ready(analysis) => {
-                                            if self.db.query_state(&query_key).is_some_and(|s| s.revision() == Some(self.db.revision())) {
+                                            if self.db.query_state(&query_key).is_some_and(|state| {
+                                                state.revision() == Some(self.db.revision()) && previous_computation_revision != Some(self.db.revision())
+                                            }) {
                                                 callable_dispositions.insert(callable_id.clone(), CallableRevisionDisposition::Recomputed);
                                             } else {
                                                 callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
@@ -1971,6 +1986,7 @@ impl SemanticWorkspaceSession {
                                             let formal_inputs = FormalQueryInputs {
                                                 sources: &input.sources,
                                                 linked: &input.linked,
+                                                import_products: &input.import_products,
                                                 hierarchy: &hierarchy,
                                                 base_resolver: &resolver,
                                                 declarations: &declarations,
@@ -1980,6 +1996,7 @@ impl SemanticWorkspaceSession {
                                                 associated_families: Some(&associated_surfaces_table),
                                             };
 
+                                            let previous_computation_revision = self.db.query_state(&query_key).and_then(|state| state.revision());
                                             let outcome = query_callable_body_with_formal_inputs(
                                                 &mut self.db,
                                                 CallableBodyQuery {
@@ -2000,7 +2017,9 @@ impl SemanticWorkspaceSession {
 
                                             match outcome {
                                                 QueryOutcome::Ready(analysis) => {
-                                                    if self.db.query_state(&query_key).is_some_and(|s| s.revision() == Some(self.db.revision())) {
+                                                    if self.db.query_state(&query_key).is_some_and(|state| {
+                                                        state.revision() == Some(self.db.revision()) && previous_computation_revision != Some(self.db.revision())
+                                                    }) {
                                                         callable_dispositions.insert(callable_id.clone(), CallableRevisionDisposition::Recomputed);
                                                     } else {
                                                         callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);

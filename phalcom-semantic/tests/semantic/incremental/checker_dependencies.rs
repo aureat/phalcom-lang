@@ -43,7 +43,10 @@ fn tracked_resolver_records_current_linked_interface_for_non_local_type() {
     assert_eq!(ctx.resolver.resolve_type_name(&current, "External", &[]), Some(external.clone()));
 
     let analysis = ctx.finalize(callable(owner), SourceRange::default(), CallableAnalysisStatus::Complete);
-    assert!(analysis.semantic_dependencies.contains(&SemanticDependency::LinkedInterface(current)));
+    assert!(analysis
+        .semantic_dependencies
+        .contains(&SemanticDependency::LinkedName(current.clone(), "External".into())));
+    assert!(!analysis.semantic_dependencies.contains(&SemanticDependency::LinkedInterface(current)));
     assert!(analysis.semantic_dependencies.contains(&SemanticDependency::DeclarationShell(external)));
 }
 
@@ -61,7 +64,10 @@ fn unresolved_type_lookup_records_negative_linked_interface_dependency() {
 
     assert_eq!(ctx.resolver.resolve_type_name(&current, "Missing", &[]), None);
     let analysis = ctx.finalize(callable(owner), SourceRange::default(), CallableAnalysisStatus::Complete);
-    assert!(analysis.semantic_dependencies.contains(&SemanticDependency::LinkedInterface(current)));
+    assert!(analysis
+        .semantic_dependencies
+        .contains(&SemanticDependency::LinkedName(current.clone(), "Missing".into())));
+    assert!(!analysis.semantic_dependencies.contains(&SemanticDependency::LinkedInterface(current)));
 }
 
 #[test]

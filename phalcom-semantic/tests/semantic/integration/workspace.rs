@@ -539,11 +539,11 @@ export Client
         run.semantic_dependencies.iter().any(|dependency| {
             matches!(
                 dependency,
-                phalcom_semantic::checker::analysis::SemanticDependency::LinkedInterface(module)
-                    if module == &client_module
+                phalcom_semantic::checker::analysis::SemanticDependency::LinkedName(module, name)
+                    if module == &client_module && name == "Service"
             )
         }),
-        "client must record its linked interface dependency: {run:#?}"
+        "client must record its exact linked-name dependency: {run:#?}"
     );
 }
 
