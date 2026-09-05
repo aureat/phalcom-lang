@@ -154,6 +154,12 @@ including `cargo test --workspace --all-targets`, remain a separate final gate.
 - `cargo test -p phalcom-lsp` → Final Gate (C6 focused gate already closed)
 - `cargo test --workspace --all-targets` → Final Gate
 
+## Final Gate result
+
+- `RUSTFLAGS='' cargo test -p phalcom-lsp` → PASS: 150 passed, 0 failed, 2 ignored across unit, integration, navigation, boundary, presentation, and cutover targets.
+- `RUSTFLAGS='' cargo test --workspace --all-targets` → NOT GREEN: `phalcom-core` reported 483 passed, 24 failed, 33 ignored. Failures are concentrated in broad language-corpus, option bootstrap, module-linking, and object-model lanes outside the C7 module lifecycle/parity changes. No C7 implementation was weakened or changed to mask these unrelated failures.
+- Final classification: C7 focused implementation evidence is green; workspace-wide release gate remains open pending the independent core baseline failures.
+
 ## Resolved incident (Pre-C0 inherited hang)
 
 - Fix: eliminated duplicate cumulative occurrences in `attach_formal_analysis` via `baseline_occurrences` and deferred `rebuild_target_occurrences` to single batch call after callable analysis.
