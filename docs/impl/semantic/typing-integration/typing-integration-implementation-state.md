@@ -621,3 +621,51 @@ None.
 ### Next resume action
 
 Begin R2 after supervisor review and checkpoint commit authorization.
+
+## Recursive Match Coverage Corrective R2 Amendment (2026-09-05)
+
+R2 repairs the truthful public coverage projections while retaining the R1/C1
+usefulness engine as semantic authority. R1 remains focused-tested and
+complete; this amendment supersedes the earlier C4 resume action until R2 is
+reviewed. R2 does not delete legacy `PatternSpace` code or introduce C5
+resource controls.
+
+- R2.1/R2.2: `residual_after` now derives from the prior coverage matrix after
+  each committed useful arm. It never summarizes current-arm syntax.
+- R2.3: reachable summaries recurse through exact `CoverageSubject` child
+  subjects returned by domain decomposition, so nested payload summaries do
+  not reuse root type IDs.
+- R2.4: `initial_space` remains the documented minimal opaque root summary,
+  except blocked analysis publishes explicit `PatternSpaceSummary::Blocked`.
+- R2.5: blocked feasibility/search is sticky, conservative for arm usefulness,
+  and propagated to reachable/residual/initial summaries and final
+  `ExhaustivenessResult::Blocked`; it cannot become `Impossible`, `Redundant`,
+  `Proven`, `Empty`, or known `Opaque`.
+- R2.6: empty-match closed-domain witnesses are capped at
+  `MAX_COVERAGE_WITNESSES = 8`; ordinary search returns at most one
+  representative witness.
+- R2 regressions cover residual-after, empty final residual, nested child
+  subject, bounded wide-domain witnesses, sticky first-blocked classification,
+  and incremental residual/fingerprint change when enum case `C` is added.
+
+### Evidence ledger
+
+| Checkpoint | Command | Result | Proves |
+|---|---|---|---|
+| R2 | `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic r2_t -- --nocapture --test-threads=1` | PASS: 4 passed, 0 failed | R2 residual, final-empty, nested-summary, and witness-bound regressions |
+| R2 | `RUSTFLAGS='' cargo test -p phalcom-semantic first_blocked_state_is_sticky -- --nocapture --test-threads=1` | PASS: 1 passed, 0 failed | first blocked feasibility classification remains conservative and sticky |
+| R2 | `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic semantic::adts::matching -- --nocapture --test-threads=1` | PASS: 178 passed, 0 failed, 18 ignored | full ADT matching behavior remains green, including R1/GADT/recursive coverage |
+| R2 | `RUSTFLAGS='' cargo test -p phalcom-semantic --test semantic semantic::incremental::adts -- --nocapture --test-threads=1` | PASS: 9 passed, 0 failed, 3 ignored | incremental ADT/match products and updated callable-body fingerprint reflect residual change |
+| R2 | `rustfmt --edition 2024 --check` on R2-owned Rust files | BLOCKED by pre-existing formatting drift in inherited `expression.rs`, coverage, fingerprint, and test code; no formatting applied | formatting baseline classified; no unrelated files changed |
+| R2 | `git diff --check` scoped to R2-owned paths | PASS | no whitespace defects in corrective slice |
+| R2 | `graphify update .` | PASS; 56,295 nodes, 83,962 edges, 4,324 communities; HTML skipped due graph-size limit | graph reflects final R2 source/docs changes |
+
+### Active incident
+
+None. Rustfmt check has known inherited baseline drift; behavioral and scoped
+diff gates are green.
+
+### Next resume action
+
+Supervisor review. After authorization, commit R2 only; defer C4 deletion and
+C5 controls.

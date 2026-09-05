@@ -12,6 +12,8 @@ use super::domain::{ConstructorCase, ConstructorHead, DomainDecomposition, decom
 use super::pattern::{CoveragePattern, CoveragePatternArena, CoveragePatternId};
 use super::subject::CoverageSubject;
 
+pub(crate) const MAX_COVERAGE_WITNESSES: usize = 8;
+
 #[derive(Clone, Debug)]
 pub(crate) enum UsefulnessSearch {
     Useful(Option<CoverageWitness>),
@@ -50,6 +52,32 @@ impl CoverageEngine {
         &self.root
     }
 
+    pub(crate) fn blocked_reason(&self) -> Option<&BlockReason> {
+        self.blocked.as_ref()
+    }
+
+    pub(crate) fn retain_blocked(&mut self, reason: BlockReason) {
+        if self.blocked.is_none() {
+            self.blocked = Some(reason);
+        }
+    }
+
+    fn classify_in_domain(&mut self, result: UsefulnessSearch) -> Option<PatternUsefulness> {
+        match result {
+            UsefulnessSearch::NotUseful => Some(PatternUsefulness::Impossible),
+            UsefulnessSearch::Blocked(reason) => {
+                self.retain_blocked(reason);
+                Some(PatternUsefulness::Useful)
+            }
+            UsefulnessSearch::Useful(_) => None,
+        }
+    }
+
+    #[cfg(test)]
+    fn mark_blocked_for_test(&mut self, reason: BlockReason) {
+        self.retain_blocked(reason);
+    }
+
     pub(crate) fn classify_arm(
         &mut self,
         declarations: &DeclarationTypeTable,
@@ -59,6 +87,10 @@ impl CoverageEngine {
         enum_table: Option<&EnumSemanticTable>,
         pattern: CoveragePatternId,
     ) -> PatternUsefulness {
+        if self.blocked.is_some() {
+            return PatternUsefulness::Useful;
+        }
+
         // 1. Check if pattern has values in the domain (useful against empty matrix):
         let in_domain = useful_internal(
             declarations,
@@ -72,8 +104,8 @@ impl CoverageEngine {
             std::slice::from_ref(&self.root),
             &BranchProofEnvironment::default(),
         );
-        if matches!(in_domain, UsefulnessSearch::NotUseful) {
-            return PatternUsefulness::Impossible;
+        if let Some(classification) = self.classify_in_domain(in_domain) {
+            return classification;
         }
 
         // 2. Check if useful against prior matrix:
@@ -93,7 +125,7 @@ impl CoverageEngine {
             UsefulnessSearch::Useful(_) => PatternUsefulness::Useful,
             UsefulnessSearch::NotUseful => PatternUsefulness::Redundant,
             UsefulnessSearch::Blocked(b) => {
-                self.blocked = Some(b);
+                self.retain_blocked(b);
                 PatternUsefulness::Useful
             }
         }
@@ -114,6 +146,10 @@ impl CoverageEngine {
         prior_alternatives: &[CoveragePatternId],
         candidate: CoveragePatternId,
     ) -> PatternUsefulness {
+        if self.blocked.is_some() {
+            return PatternUsefulness::Useful;
+        }
+
         // Check in domain:
         let in_domain = useful_internal(
             declarations,
@@ -127,8 +163,8 @@ impl CoverageEngine {
             std::slice::from_ref(&self.root),
             &BranchProofEnvironment::default(),
         );
-        if matches!(in_domain, UsefulnessSearch::NotUseful) {
-            return PatternUsefulness::Impossible;
+        if let Some(classification) = self.classify_in_domain(in_domain) {
+            return classification;
         }
 
         // Check against prior alternatives:
@@ -149,7 +185,7 @@ impl CoverageEngine {
             UsefulnessSearch::Useful(_) => PatternUsefulness::Useful,
             UsefulnessSearch::NotUseful => PatternUsefulness::Redundant,
             UsefulnessSearch::Blocked(b) => {
-                self.blocked = Some(b);
+                self.retain_blocked(b);
                 PatternUsefulness::Useful
             }
         }
@@ -174,6 +210,7 @@ impl CoverageEngine {
                 DomainDecomposition::Closed(cases) => {
                     let witnesses: Vec<CoverageWitness> = cases
                         .iter()
+                        .take(MAX_COVERAGE_WITNESSES)
                         .map(|case| construct_case_witness(case, &self.root, None))
                         .collect();
                     return ExhaustivenessResult::Missing(witnesses.into_boxed_slice());
@@ -206,52 +243,184 @@ impl CoverageEngine {
             UsefulnessSearch::Blocked(b) => ExhaustivenessResult::Blocked(b),
         }
     }
+
+    pub(crate) fn summarize_residual(
+        &mut self,
+        declarations: &DeclarationTypeTable,
+        store: &mut TypeStore,
+        hierarchy: &dyn TypeHierarchy,
+        rigids: &mut RigidArena,
+        enum_table: Option<&EnumSemanticTable>,
+    ) -> PatternSpaceSummary {
+        if let Some(reason) = self.blocked.clone() {
+            return PatternSpaceSummary::Blocked(reason);
+        }
+        let wildcard = self.arena.wildcard();
+        let search = useful_internal(
+            declarations,
+            store,
+            hierarchy,
+            rigids,
+            enum_table,
+            &mut self.arena,
+            &self.prior_matrix,
+            &[wildcard],
+            std::slice::from_ref(&self.root),
+            &BranchProofEnvironment::default(),
+        );
+        match search {
+            UsefulnessSearch::NotUseful => PatternSpaceSummary::Empty,
+            UsefulnessSearch::Useful(wit) => {
+                let witness = wit.unwrap_or(CoverageWitness::Opaque(self.root.canonical));
+                witness_to_summary(&witness)
+            }
+            UsefulnessSearch::Blocked(reason) => {
+                self.retain_blocked(reason.clone());
+                PatternSpaceSummary::Blocked(reason)
+            }
+        }
+    }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::declarations::bootstrap_universe_declarations;
+    use crate::identity::{DeclarationId, ModuleId};
+    use crate::types::id::TypeId;
+    use crate::types::relation::MapTypeHierarchy;
+    use crate::types::rigid::RigidArena;
+    use crate::types::store::TypeStore;
+
+    #[test]
+    fn first_blocked_state_is_sticky_and_distinct_from_known_opaque() {
+        let reason = BlockReason::RecursiveFixpoint;
+        let mut engine = CoverageEngine::new(CoverageSubject::canonical(TypeId(0)));
+        assert_eq!(engine.classify_in_domain(UsefulnessSearch::Blocked(reason.clone())), Some(PatternUsefulness::Useful));
+        engine.mark_blocked_for_test(BlockReason::ReflectionBoundary);
+
+        assert_eq!(engine.blocked_reason(), Some(&reason));
+
+        let module = ModuleId::universe_root();
+        let mut store = TypeStore::new();
+        let declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(module.clone(), key.name().into()));
+        let hierarchy = MapTypeHierarchy::new();
+        let mut rigids = RigidArena::new();
+        assert_eq!(
+            engine.summarize_residual(&declarations, &mut store, &hierarchy, &mut rigids, None),
+            PatternSpaceSummary::Blocked(reason.clone())
+        );
+        assert_eq!(
+            engine.finalize_exhaustiveness(&declarations, &mut store, &hierarchy, &mut rigids, None),
+            ExhaustivenessResult::Blocked(reason)
+        );
+    }
+}
+
+pub(crate) fn witness_to_summary(witness: &CoverageWitness) -> PatternSpaceSummary {
+    match witness {
+        CoverageWitness::Wildcard => PatternSpaceSummary::Empty,
+        CoverageWitness::Opaque(ty) => PatternSpaceSummary::Opaque(*ty),
+        CoverageWitness::Variant { variant, exact_case, fields } => {
+            let field_summaries: Box<[PatternSpaceSummary]> = fields.iter().map(witness_to_summary).collect();
+            PatternSpaceSummary::Variant {
+                variant: variant.clone(),
+                exact_case: *exact_case,
+                fields: field_summaries,
+            }
+        }
+        CoverageWitness::Tuple(fields) => {
+            let field_summaries: Box<[PatternSpaceSummary]> = fields.iter().map(witness_to_summary).collect();
+            PatternSpaceSummary::Tuple(field_summaries)
+        }
+        CoverageWitness::List(_) => PatternSpaceSummary::List,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn summarize_pattern(
+    declarations: &DeclarationTypeTable,
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    rigids: &mut RigidArena,
+    enum_table: Option<&EnumSemanticTable>,
     arena: &CoveragePatternArena,
     pattern: CoveragePatternId,
     subject: &CoverageSubject,
 ) -> PatternSpaceSummary {
     match arena.get(pattern) {
         CoveragePattern::Wildcard => PatternSpaceSummary::Opaque(subject.canonical),
-        CoveragePattern::Variant { candidates, exact_cases, fields } => {
-            let field_summaries: Box<[PatternSpaceSummary]> = fields
-                .iter()
-                .map(|&f| summarize_pattern(arena, f, subject))
-                .collect::<Vec<_>>()
-                .into_boxed_slice();
-            if candidates.len() == 1 {
-                PatternSpaceSummary::Variant {
-                    variant: candidates[0].clone(),
-                    exact_case: exact_cases.first().copied().unwrap_or(subject.canonical),
-                    fields: field_summaries,
+        CoveragePattern::Variant { candidates, fields, .. } => {
+            let cases = match decompose_domain(declarations, store, hierarchy, rigids, enum_table, subject) {
+                DomainDecomposition::Closed(cases) => cases,
+                DomainDecomposition::Empty => return PatternSpaceSummary::Empty,
+                DomainDecomposition::Blocked(reason) => return PatternSpaceSummary::Blocked(reason),
+                DomainDecomposition::Open => return PatternSpaceSummary::Opaque(subject.canonical),
+            };
+            let mut summaries = Vec::new();
+            for case in cases.iter() {
+                let ConstructorHead::Variant(variant) = &case.head else {
+                    continue;
+                };
+                if !candidates.contains(variant) {
+                    continue;
                 }
-            } else {
-                let summaries = candidates
+                let field_summaries = case
+                    .fields
                     .iter()
-                    .zip(exact_cases.iter())
-                    .map(|(v, e)| PatternSpaceSummary::Variant {
-                        variant: v.clone(),
-                        exact_case: *e,
-                        fields: field_summaries.clone(),
+                    .enumerate()
+                    .map(|(index, child_subject)| {
+                        fields
+                            .get(index)
+                            .map(|child| summarize_pattern(declarations, store, hierarchy, rigids, enum_table, arena, *child, child_subject))
+                            .unwrap_or(PatternSpaceSummary::Opaque(child_subject.canonical))
                     })
-                    .collect::<Vec<_>>();
-                PatternSpaceSummary::Union(summaries.into_boxed_slice())
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                summaries.push(PatternSpaceSummary::Variant {
+                    variant: variant.clone(),
+                    exact_case: case.exact_case.unwrap_or(subject.canonical),
+                    fields: field_summaries,
+                });
+            }
+            match summaries.len() {
+                0 => PatternSpaceSummary::Opaque(subject.canonical),
+                1 => summaries.into_iter().next().unwrap_or(PatternSpaceSummary::Opaque(subject.canonical)),
+                _ => PatternSpaceSummary::Union(summaries.into_boxed_slice()),
             }
         }
         CoveragePattern::Tuple(fields) => {
-            let summaries = fields.iter().map(|&f| summarize_pattern(arena, f, subject)).collect();
+            let cases = match decompose_domain(declarations, store, hierarchy, rigids, enum_table, subject) {
+                DomainDecomposition::Closed(cases) => cases,
+                DomainDecomposition::Empty => return PatternSpaceSummary::Empty,
+                DomainDecomposition::Blocked(reason) => return PatternSpaceSummary::Blocked(reason),
+                DomainDecomposition::Open => return PatternSpaceSummary::Opaque(subject.canonical),
+            };
+            let Some(case) = cases.first() else {
+                return PatternSpaceSummary::Empty;
+            };
+            let summaries = case
+                .fields
+                .iter()
+                .enumerate()
+                .map(|(index, child_subject)| {
+                    fields
+                        .get(index)
+                        .map(|child| summarize_pattern(declarations, store, hierarchy, rigids, enum_table, arena, *child, child_subject))
+                        .unwrap_or(PatternSpaceSummary::Opaque(child_subject.canonical))
+                })
+                .collect();
             PatternSpaceSummary::Tuple(summaries)
         }
         CoveragePattern::List { .. } => PatternSpaceSummary::List,
         CoveragePattern::Or(alts) => {
-            let summaries = alts.iter().map(|&alt| summarize_pattern(arena, alt, subject)).collect();
+            let summaries = alts
+                .iter()
+                .map(|&alt| summarize_pattern(declarations, store, hierarchy, rigids, enum_table, arena, alt, subject))
+                .collect();
             PatternSpaceSummary::Union(summaries)
         }
-        CoveragePattern::RecordPredicate | CoveragePattern::MapPredicate => {
-            PatternSpaceSummary::Opaque(subject.canonical)
-        }
+        CoveragePattern::RecordPredicate | CoveragePattern::MapPredicate => PatternSpaceSummary::Opaque(subject.canonical),
     }
 }
 

@@ -2,6 +2,7 @@
 
 use super::super::support::analyze_adt;
 use phalcom_common::selector::Selector;
+use phalcom_semantic::match_semantics::PatternSpaceSummary;
 
 #[test]
 fn match_product_exposes_result_knowledge_separately_from_arm_products() {
@@ -104,6 +105,19 @@ fn match_flow_12_nested_residual_is_not_forced_to_root_type() {
         case.only_match().resolution().exhaustiveness,
         phalcom_semantic::match_semantics::ExhaustivenessResult::Missing(_)
     ));
+}
+
+#[test]
+fn r2_t03_nested_reachable_summary_uses_payload_subject() {
+    let case = analyze_adt(
+        "enum Option<T> { @variant Some(_ value: T) -> Option<T> @variant None -> Option<T> }\nclass Test { run(_ value: Option<Int>) { match value { Some(_) => 1 None => 0 } } }\n",
+    );
+    let handle = case.only_match();
+    let reachable = &handle.resolution().arms[0].reachable_space;
+    let PatternSpaceSummary::Variant { fields, .. } = reachable else {
+        panic!("expected variant reachable summary, got {reachable:?}")
+    };
+    assert_eq!(fields.as_ref(), &[PatternSpaceSummary::Opaque(case.declaration("Int").form)]);
 }
 
 #[test]

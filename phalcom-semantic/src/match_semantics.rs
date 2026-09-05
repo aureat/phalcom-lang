@@ -189,6 +189,9 @@ pub enum CoverageWitness {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PatternSpaceSummary {
     Empty,
+    /// Coverage could not safely determine this summary. This is distinct
+    /// from `Opaque`, which is a known conservative value-space summary.
+    Blocked(BlockReason),
     Opaque(TypeId),
     Union(Box<[PatternSpaceSummary]>),
     Variant {

@@ -6,7 +6,7 @@ use phalcom_modules::identity::{ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_semantic::db::QueryKey;
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
-use phalcom_semantic::match_semantics::{MatchResolution, PatternResolution};
+use phalcom_semantic::match_semantics::{MatchResolution, PatternResolution, PatternSpaceSummary};
 use phalcom_semantic::session::SemanticWorkspaceSession;
 use phalcom_semantic::snapshot::SemanticSnapshot;
 use std::sync::Arc;
@@ -31,6 +31,13 @@ fn adt_incr_01_adding_enum_case_invalidates_match_and_reports_new_residual() {
     let source_a = "enum Choice { @variant A @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 Choice::B => 2 } } }\n";
     let source_b = "enum Choice { @variant A @variant B @variant C }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 Choice::B => 2 } } }\n";
     let _ = session.update(single_module_input(module.clone(), source_a, 1));
+    let callable = CallableId::new(
+        DeclarationId::new(module.clone(), "Test".into()),
+        Selector::method("run", [phalcom_common::selector::SelectorSlot::Positional]).expect("run"),
+        DispatchSide::Instance,
+    );
+    let body_key = QueryKey::CallableBody(callable);
+    let first_fp = session.db().ready_product_fingerprint(&body_key).expect("initial match product fingerprint");
     let update = session.update(single_module_input(module.clone(), source_b, 2));
     assert!(
         update
@@ -38,10 +45,18 @@ fn adt_incr_01_adding_enum_case_invalidates_match_and_reports_new_residual() {
             .all_diagnostics()
             .any(|diagnostic| diagnostic.code == DiagnosticCode::MatchNonExhaustive)
     );
+    let second_fp = session.db().ready_product_fingerprint(&body_key).expect("updated match product fingerprint");
+    assert_ne!(first_fp, second_fp, "adding C must change match product fingerprint");
     assert!(!matches!(
         first_match(&update.snapshot).exhaustiveness,
         phalcom_semantic::match_semantics::ExhaustivenessResult::Proven
     ));
+    let residual = &first_match(&update.snapshot).arms[1].residual_after;
+    let case_c = phalcom_semantic::identity::VariantId::new(
+        DeclarationId::new(module, "Choice".into()),
+        Selector::getter("C").expect("C selector"),
+    );
+    assert!(matches!(residual, PatternSpaceSummary::Variant { variant, .. } if *variant == case_c));
 }
 
 #[test]

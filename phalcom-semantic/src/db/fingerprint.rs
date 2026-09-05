@@ -1726,6 +1726,10 @@ fn hash_pattern_resolution(pat: &crate::match_semantics::PatternResolution, hash
 fn hash_pattern_space_summary(space: &crate::match_semantics::PatternSpaceSummary, hasher: &mut impl Hasher) {
     match space {
         crate::match_semantics::PatternSpaceSummary::Empty => 0u8.hash(hasher),
+        crate::match_semantics::PatternSpaceSummary::Blocked(reason) => {
+            6u8.hash(hasher);
+            hash_block_reason(reason, hasher);
+        }
         crate::match_semantics::PatternSpaceSummary::Opaque(ty) => {
             1u8.hash(hasher);
             ty.hash(hasher);

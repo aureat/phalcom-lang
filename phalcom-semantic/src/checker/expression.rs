@@ -3611,17 +3611,37 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
             ));
         }
 
-        let reachable_summary = if usefulness == crate::match_semantics::PatternUsefulness::Useful {
-            crate::checker::coverage::summarize_pattern(engine.arena(), coverage_pat, engine.root())
+        let mut reachable_summary = if usefulness == crate::match_semantics::PatternUsefulness::Useful {
+            if let Some(reason) = engine.blocked_reason() {
+                crate::match_semantics::PatternSpaceSummary::Blocked(reason.clone())
+            } else {
+                let summary = crate::checker::coverage::summarize_pattern(
+                    ctx.declarations,
+                    ctx.store,
+                    &ctx.hierarchy,
+                    &mut ctx.rigids,
+                    ctx.enum_table,
+                    engine.arena(),
+                    coverage_pat,
+                    engine.root(),
+                );
+                if let crate::match_semantics::PatternSpaceSummary::Blocked(reason) = &summary {
+                    engine.retain_blocked(reason.clone());
+                }
+                summary
+            }
         } else {
             crate::match_semantics::PatternSpaceSummary::Empty
         };
 
-        if usefulness == crate::match_semantics::PatternUsefulness::Useful {
+        if usefulness == crate::match_semantics::PatternUsefulness::Useful && engine.blocked_reason().is_none() {
             engine.commit_arm(coverage_pat);
         }
 
-        let residual_summary = crate::checker::coverage::summarize_pattern(engine.arena(), coverage_pat, engine.root());
+        let residual_summary = engine.summarize_residual(ctx.declarations, ctx.store, &ctx.hierarchy, &mut ctx.rigids, ctx.enum_table);
+        if let Some(reason) = engine.blocked_reason() {
+            reachable_summary = crate::match_semantics::PatternSpaceSummary::Blocked(reason.clone());
+        }
         let proof = pattern_common_proof(ctx, &pattern_res);
 
         let analyzed_branch = if usefulness == crate::match_semantics::PatternUsefulness::Useful {
@@ -3722,10 +3742,14 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
         unified_result = TypeKnowledge::Unknown(UnknownReason::ExistentialEscape);
     }
 
+    let initial_space = match &exhaustiveness {
+        crate::match_semantics::ExhaustivenessResult::Blocked(reason) => crate::match_semantics::PatternSpaceSummary::Blocked(reason.clone()),
+        _ => crate::match_semantics::PatternSpaceSummary::Opaque(scrutinee_ty),
+    };
     let resolution = crate::match_semantics::MatchResolution {
         expression: expr_id,
         scrutinee: scrutinee_typed.knowledge.clone(),
-        initial_space: crate::match_semantics::PatternSpaceSummary::Opaque(scrutinee_ty),
+        initial_space,
         arms: arm_resolutions.into_boxed_slice(),
         result: unified_result.clone(),
         exhaustiveness,

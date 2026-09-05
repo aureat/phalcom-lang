@@ -1,6 +1,7 @@
 use super::super::support::analyze_adt;
+use phalcom_common::selector::Selector;
 use phalcom_semantic::diagnostic::DiagnosticCode;
-use phalcom_semantic::match_semantics::{ExhaustivenessResult, PatternUsefulness};
+use phalcom_semantic::match_semantics::{ExhaustivenessResult, PatternSpaceSummary, PatternUsefulness};
 
 #[test]
 fn exhaustive_match_proves_full_coverage() {
@@ -364,4 +365,39 @@ fn review_m5_06_witness_is_representative_while_residual_product_stays_structure
         handle.resolution().arms[0].residual_after,
         phalcom_semantic::match_semantics::PatternSpaceSummary::Empty
     ));
+}
+
+#[test]
+fn r2_t01_residual_after_first_arm_is_prior_matrix_residual() {
+    let case = analyze_adt(
+        "enum Choice { @variant A @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 Choice::B => 2 } } }\n",
+    );
+    let handle = case.only_match();
+    let residual = &handle.resolution().arms[0].residual_after;
+    let expected_b = case.variant_id("Choice", Selector::getter("B").expect("selector"));
+    assert!(matches!(residual, PatternSpaceSummary::Variant { variant, .. } if *variant == expected_b));
+    assert!(!matches!(residual, PatternSpaceSummary::Variant { variant, .. } if variant.selector == Selector::getter("A").expect("selector")));
+}
+
+#[test]
+fn r2_t02_exhaustive_match_has_empty_final_residual() {
+    let case = analyze_adt(
+        "enum Choice { @variant A @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 Choice::B => 2 } } }\n",
+    );
+    let handle = case.only_match();
+    assert_eq!(handle.resolution().arms.last().unwrap().residual_after, PatternSpaceSummary::Empty);
+}
+
+#[test]
+fn r2_t06_empty_match_witnesses_are_bounded() {
+    let variants = (0..12).map(|index| format!("@variant C{index}")).collect::<Vec<_>>().join(" ");
+    let source = format!(
+        "enum Wide {{ {variants} }}\nclass Test {{ run(_ value: Wide) {{ match value {{ }} }} }}\n"
+    );
+    let case = analyze_adt(&source);
+    let handle = case.only_match();
+    let ExhaustivenessResult::Missing(witnesses) = &handle.resolution().exhaustiveness else {
+        panic!("expected missing witnesses")
+    };
+    assert!(witnesses.len() <= 8, "witness bound exceeded: {}", witnesses.len());
 }
