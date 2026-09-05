@@ -1,12 +1,15 @@
 //! Shared helpers for the language acceptance corpus.
 
+use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use phalcom_ast::error::SyntaxError;
 use phalcom_core::compiler::attributes::CompileMode;
-use phalcom_core::error::PhError;
-use phalcom_core::modules::compile::{EntrySelection, ProgramCompileError, ProgramCompiler};
+use phalcom_core::compiler::lib::CompilerError;
+use phalcom_core::error::{IoError, PhError, VmBootstrapError};
+use phalcom_core::modules::compile::{EntrySelection, ProgramCompileError, ProgramCompiler, ProgramSemanticDiagnostics};
 use phalcom_core::vm::{BufferedOutput, VM};
 
 fn phalcom_bin() -> PathBuf {
@@ -36,26 +39,75 @@ struct CorpusCaseOptions {
     strip_contract_metadata: bool,
 }
 
-fn case_options(path: &Path) -> CorpusCaseOptions {
+#[derive(Debug)]
+enum CorpusConfigError {
+    UnsupportedFlag(String),
+    DuplicateFlag(String),
+    ConflictingCompileModes { first: String, second: String },
+}
+
+impl fmt::Display for CorpusConfigError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnsupportedFlag(flag) => write!(f, "unsupported fixture flag `{flag}`"),
+            Self::DuplicateFlag(flag) => write!(f, "duplicate fixture flag `{flag}`"),
+            Self::ConflictingCompileModes { first, second } => {
+                write!(f, "fixture flags `{first}` and `{second}` are mutually exclusive")
+            }
+        }
+    }
+}
+
+impl std::error::Error for CorpusConfigError {}
+
+fn parse_case_options(flags: &[String]) -> Result<CorpusCaseOptions, CorpusConfigError> {
     let mut options = CorpusCaseOptions {
         compile_mode: CompileMode::Debug,
         strip_contract_metadata: false,
     };
-    for flag in extra_flags(path) {
+    let mut compile_mode_flag: Option<&str> = None;
+    let mut strip_contract_metadata_flag = false;
+    for flag in flags {
         match flag.as_str() {
-            "--release" => options.compile_mode = CompileMode::Release,
-            "--unchecked" => options.compile_mode = CompileMode::Unchecked,
-            "--strip-contract-metadata" => options.strip_contract_metadata = true,
-            _ => {}
+            "--release" | "--unchecked" => {
+                if let Some(previous) = compile_mode_flag {
+                    if previous == flag {
+                        return Err(CorpusConfigError::DuplicateFlag(flag.clone()));
+                    }
+                    return Err(CorpusConfigError::ConflictingCompileModes {
+                        first: previous.to_string(),
+                        second: flag.clone(),
+                    });
+                }
+                compile_mode_flag = Some(flag.as_str());
+                options.compile_mode = if flag == "--release" { CompileMode::Release } else { CompileMode::Unchecked };
+            }
+            "--strip-contract-metadata" => {
+                if strip_contract_metadata_flag {
+                    return Err(CorpusConfigError::DuplicateFlag(flag.clone()));
+                }
+                strip_contract_metadata_flag = true;
+                options.strip_contract_metadata = true;
+            }
+            _ => return Err(CorpusConfigError::UnsupportedFlag(flag.clone())),
         }
     }
-    options
+    Ok(options)
+}
+
+fn case_options(path: &Path) -> Result<CorpusCaseOptions, CorpusConfigError> {
+    parse_case_options(&extra_flags(path))
 }
 
 #[derive(Debug)]
 enum CorpusOutcome {
     Success,
-    CompileFailure(ProgramCompileError),
+    ConfigurationFailure(CorpusConfigError),
+    ProgramCompileFailure(ProgramCompileError),
+    BytecodeParseFailure(SyntaxError),
+    BytecodeCompileFailure(CompilerError),
+    BootstrapFailure(VmBootstrapError),
+    IoFailure(IoError),
     RuntimeFailure(PhError),
 }
 
@@ -66,24 +118,44 @@ struct CorpusRun {
 }
 
 fn run_corpus_case(path: &Path) -> CorpusRun {
-    let options = case_options(path);
+    let options = match case_options(path) {
+        Ok(options) => options,
+        Err(error) => {
+            return CorpusRun {
+                stdout: Vec::new(),
+                outcome: CorpusOutcome::ConfigurationFailure(error),
+            };
+        }
+    };
     let program = match ProgramCompiler::compile_entry_selection(EntrySelection::Module(path.to_path_buf())) {
         Ok(program) => program,
         Err(error) => {
             return CorpusRun {
                 stdout: Vec::new(),
-                outcome: CorpusOutcome::CompileFailure(error),
+                outcome: CorpusOutcome::ProgramCompileFailure(error),
             };
         }
     };
 
     let sink = BufferedOutput::new();
     let handle = sink.handle();
-    let mut vm = VM::new_with_output(Box::new(sink));
+    let mut vm = match VM::try_new_with_output(Box::new(sink)) {
+        Ok(vm) => vm,
+        Err(error) => {
+            return CorpusRun {
+                stdout: handle.bytes(),
+                outcome: CorpusOutcome::BootstrapFailure(error),
+            };
+        }
+    };
     vm.compile_mode = options.compile_mode;
     vm.strip_contract_metadata = options.strip_contract_metadata;
     let outcome = match vm.run_compiled(&program) {
         Ok(()) => CorpusOutcome::Success,
+        Err(PhError::Compile(error)) => CorpusOutcome::BytecodeCompileFailure(error),
+        Err(PhError::Parse(error)) => CorpusOutcome::BytecodeParseFailure(error),
+        Err(PhError::ProgramCompile(error)) => CorpusOutcome::ProgramCompileFailure(error),
+        Err(PhError::Io(error)) => CorpusOutcome::IoFailure(error),
         Err(error) => CorpusOutcome::RuntimeFailure(error),
     };
 
@@ -180,21 +252,46 @@ fn assert_success(label: &str, run: &CorpusRun) {
 fn outcome_summary(outcome: &CorpusOutcome) -> String {
     match outcome {
         CorpusOutcome::Success => "success".to_string(),
-        CorpusOutcome::CompileFailure(ProgramCompileError::Semantic(diagnostics)) => {
-            let details = diagnostics
-                .iter()
-                .flat_map(|(_, diagnostics)| diagnostics.iter())
-                .take(8)
-                .map(|diagnostic| format!("[{:?}] {}", diagnostic.code, diagnostic.message))
-                .collect::<Vec<_>>();
+        CorpusOutcome::ConfigurationFailure(error) => format!("fixture configuration failure: {error}"),
+        CorpusOutcome::ProgramCompileFailure(ProgramCompileError::Semantic(diagnostics)) => {
+            let all = semantic_diagnostic_lines(diagnostics);
+            let details = all.iter().take(MAX_DIAGNOSTICS_IN_FAILURE_REPORT).cloned().collect::<Vec<_>>();
             if details.is_empty() {
                 "semantic compile failure without diagnostics".to_string()
             } else {
-                format!("semantic compile failure: {}", details.join("; "))
+                let suffix = if all.len() > details.len() {
+                    format!("; ... {} more diagnostics", all.len() - details.len())
+                } else {
+                    String::new()
+                };
+                format!("semantic compile failure: {}{}", details.join("; "), suffix)
             }
         }
-        CorpusOutcome::CompileFailure(error) => format!("compile failure: {error}"),
+        CorpusOutcome::ProgramCompileFailure(error) => format!("program compile failure: {error}"),
+        CorpusOutcome::BytecodeParseFailure(error) => format!("bytecode parse failure: {error}"),
+        CorpusOutcome::BytecodeCompileFailure(error) => format!("bytecode compile failure: {error}"),
+        CorpusOutcome::BootstrapFailure(error) => format!("VM bootstrap failure: {error}"),
+        CorpusOutcome::IoFailure(error) => format!("I/O failure: {error}"),
         CorpusOutcome::RuntimeFailure(error) => format!("runtime failure: {error}"),
+    }
+}
+
+const MAX_DIAGNOSTICS_IN_FAILURE_REPORT: usize = 8;
+
+fn semantic_diagnostic_lines(diagnostics: &ProgramSemanticDiagnostics) -> Vec<String> {
+    diagnostics
+        .iter()
+        .flat_map(|(_, diagnostics)| diagnostics.iter())
+        .map(|diagnostic| format!("[{}] {}", diagnostic.code, diagnostic.message))
+        .collect()
+}
+
+fn outcome_contains(outcome: &CorpusOutcome, expected_note: &str) -> bool {
+    match outcome {
+        CorpusOutcome::ProgramCompileFailure(ProgramCompileError::Semantic(diagnostics)) => semantic_diagnostic_lines(diagnostics)
+            .iter()
+            .any(|diagnostic| diagnostic.contains(expected_note)),
+        _ => outcome_summary(outcome).contains(expected_note),
     }
 }
 
@@ -228,13 +325,13 @@ fn assert_stdout_exact(label: &str, output: &[u8], expected: &[u8]) {
 }
 
 fn assert_negative_output(label: &str, run: &CorpusRun, expected_note: &str) {
-    let diagnostic = match &run.outcome {
-        CorpusOutcome::Success => panic!("{label} unexpectedly succeeded. stdout:\n{}", String::from_utf8_lossy(&run.stdout)),
-        outcome => outcome_summary(outcome),
-    };
+    if matches!(&run.outcome, CorpusOutcome::Success) {
+        panic!("{label} unexpectedly succeeded. stdout:\n{}", String::from_utf8_lossy(&run.stdout));
+    }
     assert!(
-        diagnostic.contains(expected_note),
-        "{label} did not mention the expected diagnostic substring `{expected_note}`.\nphase failure:\n{diagnostic}"
+        outcome_contains(&run.outcome, expected_note),
+        "{label} did not mention the expected diagnostic substring `{expected_note}`.\nphase failure:\n{}",
+        outcome_summary(&run.outcome)
     );
 }
 
@@ -390,4 +487,31 @@ pub fn check_for_no_wrapsome(rel_path: &str) {
         !text.contains("WrapSome"),
         "{rel_path}: expected NO `WrapSome` in the disassembly, got:\n{text}"
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn flags(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_string()).collect()
+    }
+
+    #[test]
+    fn fixture_flags_reject_unknown_options() {
+        let error = parse_case_options(&flags(&["--bogus"])).expect_err("unknown flags must fail");
+        assert!(matches!(error, CorpusConfigError::UnsupportedFlag(flag) if flag == "--bogus"));
+    }
+
+    #[test]
+    fn fixture_flags_reject_conflicting_compile_modes() {
+        let error = parse_case_options(&flags(&["--release", "--unchecked"])).expect_err("compile modes must be exclusive");
+        assert!(matches!(error, CorpusConfigError::ConflictingCompileModes { .. }));
+    }
+
+    #[test]
+    fn fixture_flags_reject_duplicate_options() {
+        let error = parse_case_options(&flags(&["--release", "--release"])).expect_err("duplicate flags must fail");
+        assert!(matches!(error, CorpusConfigError::DuplicateFlag(flag) if flag == "--release"));
+    }
 }

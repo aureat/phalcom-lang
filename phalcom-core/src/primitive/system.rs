@@ -127,7 +127,17 @@ pub fn system_raw_write(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhRes
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vm::{BufferedOutput, VM};
+    use crate::error::PhError;
+    use crate::vm::{BufferedOutput, RuntimeOutput, VM};
+    use std::io;
+
+    struct FailingOutput;
+
+    impl RuntimeOutput for FailingOutput {
+        fn write(&mut self, _bytes: &[u8]) -> io::Result<()> {
+            Err(io::Error::other("synthetic output failure"))
+        }
+    }
 
     #[test]
     fn raw_write_and_print_share_vm_output_sink() {
@@ -141,5 +151,14 @@ mod tests {
         system_class_print(&mut vm, &receiver, &[Value::int(1)]).expect("print succeeds");
 
         assert_eq!(handle.bytes(), b"raw1\n");
+    }
+
+    #[test]
+    fn output_sink_failure_returns_io_error() {
+        let mut vm = VM::new_native_with_output(Box::new(FailingOutput));
+        let receiver = Value::obj(vm.universe.classes.system_class);
+
+        let error = system_class_print(&mut vm, &receiver, &[Value::int(1)]).expect_err("output failure must be returned");
+        assert!(matches!(error, PhError::Io(_)));
     }
 }

@@ -18,14 +18,8 @@ use crate::vm::VM;
     side = class
 )]
 pub fn bool_class_new(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let receiver_id = expect_class(vm, receiver)?;
-    let receiver_text = Value::obj(receiver_id).to_string(vm);
-    vm.write_output(receiver_text.as_bytes())?;
-    vm.write_output(b"\n")?;
+    expect_class(vm, receiver)?;
     let arg = &args[0];
-    let arg_text = arg.to_string(vm);
-    vm.write_output(arg_text.as_bytes())?;
-    vm.write_output(b"\n")?;
     if let Some(b) = arg.as_bool() {
         Ok(if b { TRUE } else { FALSE })
     } else if arg.is_nil() {
@@ -165,4 +159,21 @@ pub fn bool_if_false(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<
 pub fn bool_if_true_if_false(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let branch = if expect_bool(receiver)? { &args[0] } else { &args[1] };
     block_call(vm, branch, &[])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vm::{BufferedOutput, VM};
+
+    #[test]
+    fn bool_constructor_does_not_write_debug_output() {
+        let sink = BufferedOutput::new();
+        let handle = sink.handle();
+        let mut vm = VM::new_native_with_output(Box::new(sink));
+        let receiver = Value::obj(vm.universe.classes.bool_class);
+
+        assert_eq!(bool_class_new(&mut vm, &receiver, &[Value::int(1)]).expect("bool coercion succeeds"), TRUE);
+        assert!(handle.bytes().is_empty());
+    }
 }

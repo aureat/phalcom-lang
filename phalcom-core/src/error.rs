@@ -8,6 +8,23 @@ use thiserror::Error;
 
 pub type PhResult<T> = Result<T, PhError>;
 
+/// Failure while constructing a fully bootstrapped VM.
+///
+/// The infallible constructors retain their historical panic-on-invalid-core
+/// behavior, while embedding and test callers can preserve bootstrap failures
+/// as structured results.
+#[derive(Error, Debug, Clone)]
+pub enum VmBootstrapError {
+    #[error("canonical Universe compiler product failed: {0}")]
+    CanonicalUniverse(String),
+
+    #[error("canonical Universe runtime bootstrap failed: {0}")]
+    Runtime(PhError),
+
+    #[error("canonical Universe invariant failed: {0}")]
+    Invariant(String),
+}
+
 #[derive(Error, Debug, Clone)]
 pub enum PhError {
     #[error(transparent)]

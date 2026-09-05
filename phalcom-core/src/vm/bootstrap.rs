@@ -30,7 +30,12 @@ impl VM {
 
     /// Creates a fully bootstrapped VM whose runtime output is sent to `output`.
     pub fn new_with_output(output: Box<dyn RuntimeOutput>) -> Self {
-        Self::new_with_native_install_mode_and_output(NativeInstallMode::DescriptorOnly, output)
+        Self::try_new_with_output(output).unwrap_or_else(|error| panic!("{error}"))
+    }
+
+    /// Creates a fully bootstrapped VM without panicking on bootstrap failure.
+    pub fn try_new_with_output(output: Box<dyn RuntimeOutput>) -> Result<Self, crate::error::VmBootstrapError> {
+        Self::try_new_with_native_install_mode_and_output(NativeInstallMode::DescriptorOnly, output)
     }
 
     /// Creates a fresh VM execution kernel without native or source Universe
@@ -118,21 +123,31 @@ impl VM {
     }
 
     fn new_native_with_native_install_mode_and_output(native_install_mode: NativeInstallMode, output: Box<dyn RuntimeOutput>) -> Self {
+        Self::try_new_native_with_native_install_mode_and_output(native_install_mode, output).unwrap_or_else(|error| panic!("{error}"))
+    }
+
+    fn try_new_native_with_native_install_mode_and_output(
+        native_install_mode: NativeInstallMode,
+        output: Box<dyn RuntimeOutput>,
+    ) -> Result<Self, crate::error::VmBootstrapError> {
         let mut vm = Self::new_kernel_with_output(output);
-        Self::install_native_runtime(&mut vm, native_install_mode);
-        vm
+        Self::install_native_runtime(&mut vm, native_install_mode)?;
+        Ok(vm)
     }
 
     /// Creates a VM with an explicit native installation path.
     pub fn new_with_native_install_mode(native_install_mode: NativeInstallMode) -> Self {
-        Self::new_with_native_install_mode_and_output(native_install_mode, Box::new(StdoutOutput))
+        Self::try_new_with_native_install_mode_and_output(native_install_mode, Box::new(StdoutOutput)).unwrap_or_else(|error| panic!("{error}"))
     }
 
-    fn new_with_native_install_mode_and_output(native_install_mode: NativeInstallMode, output: Box<dyn RuntimeOutput>) -> Self {
+    fn try_new_with_native_install_mode_and_output(
+        native_install_mode: NativeInstallMode,
+        output: Box<dyn RuntimeOutput>,
+    ) -> Result<Self, crate::error::VmBootstrapError> {
         // Canonical source/native verification, linking, semantic analysis, and
         // lowering are process-shared. Runtime installation remains fresh.
-        let canonical = crate::modules::canonical_universe_program().expect("canonical Universe compiler product must build");
-        let mut vm = Self::new_native_with_native_install_mode_and_output(native_install_mode, output);
+        let canonical = crate::modules::canonical_universe_program().map_err(|error| crate::error::VmBootstrapError::CanonicalUniverse(error.to_string()))?;
+        let mut vm = Self::try_new_native_with_native_install_mode_and_output(native_install_mode, output)?;
 
         // Compile and run the registered universe modules now that every native
         // primitive is installed: this is what actually attaches each
@@ -140,22 +155,22 @@ impl VM {
         // …) to its bootstrapped kernel row. Must run after
         // `install_primitives` so a reopen can call the primitives it wraps
         // (e.g. `List.at(_:)` calling `at_(_:)`).
-        vm.run_universe_modules(canonical).expect("universe modules must compile and run cleanly");
-        vm.sync_universe_class_aliases();
+        vm.run_universe_modules(canonical).map_err(crate::error::VmBootstrapError::Runtime)?;
+        vm.sync_universe_class_aliases()?;
 
         // Semantic roots are late-bound to the exact values exported by the
         // universe sources. No Rust replacement is valid for these identities.
         {
             let unsupported = vm
                 .universe_global(&["errors", "unsupported"], "unsupported")
-                .expect("universe must export canonical unsupported");
+                .ok_or_else(|| crate::error::VmBootstrapError::Invariant("universe must export canonical unsupported".into()))?;
             let ellipsis = vm
                 .universe_global(&["object", "ellipsis"], "ellipsis")
-                .expect("universe must export canonical ellipsis");
+                .ok_or_else(|| crate::error::VmBootstrapError::Invariant("universe must export canonical ellipsis".into()))?;
             let ordering = vm
                 .universe_global(&["object", "ordering"], "Ordering")
                 .and_then(|value| value.as_obj())
-                .expect("universe must export Ordering class");
+                .ok_or_else(|| crate::error::VmBootstrapError::Invariant("universe must export Ordering class".into()))?;
             vm.semantic_roots = Some(crate::vm::SemanticRoots {
                 unsupported,
                 ellipsis,
@@ -179,30 +194,35 @@ impl VM {
         {
             let none_value = vm
                 .universe_global(&["option", "option"], "None")
-                .expect("None global must be bound by canonical Option module");
-            assert_eq!(none_value, Value::none(), "None global must resolve to immediate absence");
-            assert_ne!(
-                none_value,
-                Value::obj(vm.universe.classes.none_class),
-                "None global must not resolve to the None class object"
-            );
+                .ok_or_else(|| crate::error::VmBootstrapError::Invariant("None global must be bound by canonical Option module".into()))?;
+            if none_value != Value::none() {
+                return Err(crate::error::VmBootstrapError::Invariant(
+                    "None global must resolve to immediate absence".into(),
+                ));
+            }
+            if none_value == Value::obj(vm.universe.classes.none_class) {
+                return Err(crate::error::VmBootstrapError::Invariant(
+                    "None global must not resolve to the None class object".into(),
+                ));
+            }
         }
 
-        vm.universe.verify_invariants(&vm.heap).expect("kernel invariants (object-model.md §5-6)");
+        vm.universe.verify_invariants(&vm.heap).map_err(crate::error::VmBootstrapError::Invariant)?;
 
-        vm
+        Ok(vm)
     }
 
-    fn install_native_runtime(vm: &mut Self, native_install_mode: NativeInstallMode) {
+    fn install_native_runtime(vm: &mut Self, native_install_mode: NativeInstallMode) -> Result<(), crate::error::VmBootstrapError> {
         let universe_sym = vm.interner.intern("universe");
 
         // Initialize canonical builtin 'universe' package with native bindings & exports.
-        let universe_pkg = crate::modules::builtin_materialize::initialize_canonical_universe(vm).expect("canonical universe package initializes");
-        vm.define_global(universe_pkg, universe_sym, Value::obj(universe_pkg)).unwrap();
+        let universe_pkg = crate::modules::builtin_materialize::initialize_canonical_universe(vm).map_err(crate::error::VmBootstrapError::Runtime)?;
+        vm.define_global(universe_pkg, universe_sym, Value::obj(universe_pkg))
+            .map_err(crate::error::VmBootstrapError::Runtime)?;
         // Bind primordial classes into their canonical modules and retain root
         // aliases for source prelude compatibility.
         vm.bind_primordial_universe();
-        vm.sync_universe_class_aliases();
+        vm.sync_universe_class_aliases()?;
 
         // Stamp the kernel `Message` class's fixed-slot count (U8,
         // method-lookup.md §2). `Message` instances are built directly in Rust
@@ -281,13 +301,14 @@ impl VM {
         // mode parameter for callers during the migration, but never reinstall
         // the retired hand-written primitive table.
         let _ = native_install_mode;
-        crate::native::install::install_registered_primitives(vm).expect("registered primitives must install cleanly");
+        crate::native::install::install_registered_primitives(vm).map_err(crate::error::VmBootstrapError::Runtime)?;
         // Typing reflection is separate from the primordial native-surface catalog.
         crate::primitive::typing::install(vm);
 
         // Establish the native floor for base-name dispatch. Source reopens
         // below may finalize their own rows again.
         vm.finalize_all_primordial_base_names();
+        Ok(())
     }
 
     fn compile_universe_module(
@@ -361,7 +382,10 @@ impl VM {
                 UNIVERSE_INITIALIZER_EXECUTIONS.fetch_add(1, Ordering::Relaxed);
             }
             self.run_in_module(module, closure)?;
-            self.module_registry.get_mut(id).expect("bootstrapped Universe module is registered").state = crate::modules::registry::ModuleState::Initialized;
+            self.module_registry
+                .get_mut(id)
+                .ok_or_else(|| crate::error::RuntimeError::Internal(format!("bootstrapped Universe module {id} is not registered")))?
+                .state = crate::modules::registry::ModuleState::Initialized;
         }
         Ok(())
     }
@@ -570,12 +594,16 @@ impl VM {
         // internal only.
     }
 
-    fn sync_universe_class_aliases(&mut self) {
+    fn sync_universe_class_aliases(&mut self) -> Result<(), crate::error::VmBootstrapError> {
         let root = self.universe_root_module();
         self.prelude_bindings.clear();
         for binding in phalcom_native_meta::UNIVERSE_BINDINGS {
             let owner_id = Self::canonical_universe_module_id(binding.key);
-            let owner = self.module_registry.get(&owner_id).expect("canonical Universe owner module").object;
+            let owner = self
+                .module_registry
+                .get(&owner_id)
+                .ok_or_else(|| crate::error::VmBootstrapError::Invariant(format!("canonical Universe owner module {owner_id} is not registered")))?
+                .object;
             let name = self.interner.intern(binding.name);
             let value = if binding.key == phalcom_native_meta::UniverseKey::None {
                 Value::obj(self.universe.classes.none_class)
@@ -585,14 +613,22 @@ impl VM {
                     .get(name)
                     .unwrap_or_else(|| Value::obj(self.universe.classes.resolve(binding.key)))
             };
-            let slot = self.heap.module_mut(root).declare(name).expect("Universe root alias slot");
-            self.heap.module_mut(root).set_global(slot, value).expect("Universe root alias value");
+            let slot = self.heap.module_mut(root).declare(name).map_err(crate::error::VmBootstrapError::Runtime)?;
+            self.heap
+                .module_mut(root)
+                .set_global(slot, value)
+                .map_err(crate::error::VmBootstrapError::Runtime)?;
             if binding.prelude || matches!(binding.key, phalcom_native_meta::UniverseKey::Some | phalcom_native_meta::UniverseKey::None) {
+                let owner_slot = self.heap.module(owner).slot_of(name).ok_or_else(|| {
+                    crate::error::VmBootstrapError::Invariant(format!("canonical Universe binding `{}` is not registered in module {owner_id}", binding.name))
+                })?;
+                let owner_slot = u16::try_from(owner_slot)
+                    .map_err(|_| crate::error::VmBootstrapError::Invariant(format!("canonical Universe binding `{}` slot does not fit u16", binding.name)))?;
                 self.prelude_bindings.insert(
                     name,
                     crate::modules::BindingRef {
                         module: owner,
-                        slot: u16::try_from(self.heap.module(owner).slot_of(name).expect("canonical Universe binding slot")).expect("Universe slot fits u16"),
+                        slot: owner_slot,
                     },
                 );
             }
@@ -647,10 +683,11 @@ impl VM {
                 universe_name,
                 crate::modules::BindingRef {
                     module: root,
-                    slot: u16::try_from(slot).expect("Universe root slot fits u16"),
+                    slot: u16::try_from(slot).map_err(|_| crate::error::VmBootstrapError::Invariant("Universe root slot does not fit u16".into()))?,
                 },
             );
         }
+        Ok(())
     }
 
     /// Finalizes every primordial class row's (and its metaclass's) base-name
