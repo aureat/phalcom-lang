@@ -258,3 +258,44 @@ fn tolerant_linker_accumulates_diagnostics_and_preserves_valid_modules() {
     assert!(res_broken.blocked_modules.contains(&mod_dep) || res_broken.blocked_modules.contains(&mod_broken));
     assert!(!res_broken.diagnostics.is_empty());
 }
+
+#[test]
+fn tolerant_runtime_cycle_preserves_independent_survivor_order() {
+    let mod_x = module("x");
+    let mod_y = module("y");
+    let mod_z = module("z");
+    let mod_w = module("w");
+
+    // Cycle between X and Y: X imports Y, Y imports X
+    // Independent pair Z -> W: Z imports W
+    let iface_map = interfaces(&[
+        (mod_x.clone(), "import .y as Y\n"),
+        (mod_y.clone(), "import .x as X\n"),
+        (mod_w.clone(), "class W {}\nexport W\n"),
+        (mod_z.clone(), "import .w as W\n"),
+    ]);
+
+    let resolved = BTreeMap::from([
+        ((mod_x.clone(), ".y".to_string()), mod_y.clone()),
+        ((mod_y.clone(), ".x".to_string()), mod_x.clone()),
+        ((mod_z.clone(), ".w".to_string()), mod_w.clone()),
+    ]);
+
+    let linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), iface_map);
+
+    // Link cyclic component X
+    let res_x = linker.link_component_tolerant(mod_x.clone(), &resolved);
+    // Link independent component Z
+    let res_z = linker.link_component_tolerant(mod_z.clone(), &resolved);
+
+    // Z -> W produces valid topological order [W, Z]
+    let order_z = res_z.program.graphs.runtime.initialization_order().expect("valid topological order for Z-W");
+    let pos_w = order_z.iter().position(|m| m == &mod_w);
+    let pos_z = order_z.iter().position(|m| m == &mod_z);
+    assert!(pos_w.is_some() && pos_z.is_some());
+    assert!(pos_w.unwrap() < pos_z.unwrap(), "W must precede Z in topological order");
+
+    // X/Y cycle is blocked in res_x, diagnostic reported
+    assert!(!res_x.diagnostics.is_empty() || !res_x.blocked_modules.is_empty());
+}
+

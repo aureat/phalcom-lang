@@ -541,27 +541,63 @@ impl<'a> LinkContext<'a> {
         }
 
         // Runtime cycle detection: in tolerant mode, if a cycle occurs among valid modules,
-        // capture diagnostic and omit cycling modules from unblocked set.
+        // capture diagnostic, block cycling modules, and compute a real topological order
+        // for surviving unblocked modules.
         let initialization_order = match self.graphs.runtime.initialization_order() {
             Ok(order) => order,
             Err(err) => {
                 if self.tolerant {
-                    let link_err = LinkError::RuntimeCycle(err);
-                    if let LinkError::RuntimeCycle(crate::error::ModuleGraphError::RuntimeCycle { ref cycle }) = link_err {
+                    let mut found_any_cycle = false;
+                    for component in self.graphs.runtime.components() {
+                        if component.len() > 1 || self.graphs.runtime.has_self_edge(&component[0]) {
+                            found_any_cycle = true;
+                            for m in &component {
+                                self.blocked_modules.insert(m.clone());
+                            }
+                            self.diagnostics.push(LinkError::RuntimeCycle(crate::error::ModuleGraphError::RuntimeCycle { cycle: component }));
+                        }
+                    }
+                    if !found_any_cycle {
+                        let crate::error::ModuleGraphError::RuntimeCycle { ref cycle } = err;
                         for m in cycle {
                             self.blocked_modules.insert(m.clone());
                         }
+                        self.diagnostics.push(LinkError::RuntimeCycle(err));
                     }
-                    self.diagnostics.push(link_err);
-                    // Filter unblocked modules for partial topological order
-                    let unblocked_nodes = self
+
+                    // Cascade blocked: if module depends on a blocked module at runtime
+                    let mut changed = true;
+                    while changed {
+                        changed = false;
+                        for module in &module_ids {
+                            if self.blocked_modules.contains(module) {
+                                continue;
+                            }
+                            let has_blocked_dep = self
+                                .graphs
+                                .runtime
+                                .edges_from(module)
+                                .iter()
+                                .any(|edge| self.blocked_modules.contains(&edge.dependency));
+                            if has_blocked_dep {
+                                self.blocked_modules.insert(module.clone());
+                                changed = true;
+                            }
+                        }
+                    }
+
+                    // Filter unblocked modules for real topological order on surviving subgraph
+                    let unblocked_nodes: BTreeSet<ModuleId> = self
                         .graphs
                         .runtime
                         .nodes()
                         .into_iter()
                         .filter(|m| !self.blocked_modules.contains(m))
-                        .collect::<Vec<_>>();
-                    unblocked_nodes
+                        .collect();
+                    let surviving_runtime = self.graphs.runtime.filtered_subgraph(&unblocked_nodes);
+                    let order = surviving_runtime.initialization_order().unwrap_or_else(|_| unblocked_nodes.into_iter().collect());
+                    self.graphs.runtime = surviving_runtime;
+                    order
                 } else {
                     return Err(LinkError::RuntimeCycle(err));
                 }

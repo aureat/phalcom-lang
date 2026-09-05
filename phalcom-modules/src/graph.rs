@@ -293,14 +293,34 @@ impl RuntimeDependencyGraph {
         Ok(order)
     }
 
-    fn has_self_edge(&self, node: &ModuleId) -> bool {
+    pub fn has_self_edge(&self, node: &ModuleId) -> bool {
         self.edges_from(node).iter().any(|edge| edge.dependency == *node)
     }
 
-    fn components(&self) -> Vec<Vec<ModuleId>> {
+    pub fn components(&self) -> Vec<Vec<ModuleId>> {
         let nodes = self.nodes();
         let adjacency = nodes.iter().map(|node| (node.clone(), self.dependencies(node))).collect::<BTreeMap<_, _>>();
         strongly_connected_components(nodes, |node| adjacency.get(node).cloned().unwrap_or_default())
+    }
+
+    /// Returns a filtered subgraph containing only the specified nodes and edges between them.
+    pub fn filtered_subgraph(&self, allowed: &BTreeSet<ModuleId>) -> Self {
+        let mut forward = BTreeMap::new();
+        for (importer, edges) in &self.forward {
+            if !allowed.contains(importer) {
+                continue;
+            }
+            let filtered_edges: Vec<_> = edges
+                .iter()
+                .filter(|edge| allowed.contains(&edge.dependency))
+                .cloned()
+                .collect();
+            forward.insert(importer.clone(), filtered_edges);
+        }
+        for node in allowed {
+            forward.entry(node.clone()).or_default();
+        }
+        Self { forward }
     }
 }
 

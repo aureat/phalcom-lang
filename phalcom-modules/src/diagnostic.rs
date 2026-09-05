@@ -83,6 +83,17 @@ impl ModuleDiagnostic {
         }
     }
 
+    /// Converts a syntax error into a `ModuleDiagnostic`.
+    pub fn from_syntax_error(module: ModuleId, error: phalcom_ast::error::SyntaxError) -> Self {
+        let range = SourceRange::new(error.range.start, error.range.end);
+        Self {
+            module,
+            kind: ModuleDiagnosticKind::ParseError(error.to_string()),
+            range,
+            message: error.to_string(),
+        }
+    }
+
     /// Converts an `InterfaceError` into a `ModuleDiagnostic`.
     pub fn from_interface_error(module: ModuleId, error: InterfaceError) -> Self {
         match error {

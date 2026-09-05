@@ -485,6 +485,24 @@ fn failed_transaction_does_not_mutate_committed_state() {
     assert_eq!(session.generation(), initial_gen);
     assert_eq!(session.source(&mod_id).unwrap().text, initial_text);
     assert_eq!(session.source(&mod_id).unwrap().revision, SourceRevision(1));
+
+    // Attempt mutation that succeeds through parse/ownership but fails at late rebuild stage
+    session.inject_late_rebuild_failure(true);
+    let late_err = session.set_overlay(
+        source.clone(),
+        Arc::from("class MutatedLater {}\n"),
+        SourceRevision(3),
+    );
+    assert!(late_err.is_err(), "late rebuild failure must return Err");
+
+    // Committed state must be 100% untouched after late failure
+    assert_eq!(session.generation(), initial_gen, "generation must not advance on late failure");
+    assert_eq!(
+        session.source(&mod_id).unwrap().text,
+        initial_text,
+        "source text must remain initial on late failure"
+    );
+    assert_eq!(session.source(&mod_id).unwrap().revision, SourceRevision(1));
 }
 
 #[test]
@@ -561,3 +579,99 @@ fn remove_source_hard_purges_module_products() {
     assert!(session.source(&mod_id).is_none());
     assert!(removed.stats.purged_products >= 2);
 }
+
+#[test]
+fn interface_invalid_current_edit_publishes_partial_state_without_stale_interface() {
+    let temp = TempDir::new().unwrap();
+    let file = temp.path().join("syntax_err.ph");
+    fs::write(&file, "class Valid {}\nexport Valid\n").unwrap();
+    let source = location(&file);
+    let mut session = WorkspaceModuleSession::new();
+
+    // 1. Initially valid - interface built
+    let initial = session
+        .set_overlay(source.clone(), Arc::from("class Valid {}\nexport Valid\n"), SourceRevision(1))
+        .unwrap();
+    let mod_id = initial.sources.keys().next().cloned().unwrap();
+    assert!(session.interfaces().contains_key(&mod_id));
+
+    // 2. Edit introducing interface error (duplicate export) that breaks interface building
+    let broken = session
+        .set_overlay(source.clone(), Arc::from("class Valid {}\nexport Valid\nexport Valid\n"), SourceRevision(2))
+        .unwrap();
+
+    // Stale interface purged from published state
+    assert!(!session.interfaces().contains_key(&mod_id));
+    assert!(!broken.interfaces.contains_key(&mod_id));
+    // Parsed source retains current text and revision
+    let src_state = session.source(&mod_id).expect("source state exists");
+    assert_eq!(src_state.revision, SourceRevision(2));
+    // Diagnostic reported
+    assert!(!session.diagnostics().get(&mod_id).unwrap_or(&vec![]).is_empty());
+}
+
+#[test]
+fn invalid_transitive_dependency_publishes_partial_state() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().join("pkg");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("package.ph"), "export A\n").unwrap();
+    let file_a = root.join("a.ph");
+    let file_b = root.join("b.ph");
+    fs::write(&file_a, "import .b as B\nclass A {}\nexport A\n").unwrap();
+    fs::write(&file_b, "broken unparseable syntax ???\n").unwrap();
+
+    let mut session = WorkspaceModuleSession::new();
+    let pkg_loc = location(&root.join("package.ph"));
+    let a_loc = location(&file_a);
+
+    session.set_overlay(pkg_loc, Arc::from("export A\n"), SourceRevision(1)).unwrap();
+    // Only add a.ph; b.ph will be transitively discovered but fails parsing
+    let _up = session.set_overlay(a_loc.clone(), Arc::from("import .b as B\nclass A {}\nexport A\n"), SourceRevision(1)).unwrap();
+
+    let a_mod = session.module_for_source(&a_loc.source_id).unwrap().clone();
+    // a.ph has source retained
+    assert!(session.source(&a_mod).is_some());
+    // Diagnostics contain error for failed dependency b
+    let all_diags: Vec<_> = session.diagnostics().values().flatten().collect();
+    assert!(!all_diags.is_empty(), "expected diagnostics from invalid transitive dependency");
+}
+
+#[test]
+fn exact_reverse_edge_replacement_leaves_no_stale_dependency() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().join("pkg");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("package.ph"), "export A\nexport B\nexport C\n").unwrap();
+    let file_a = root.join("a.ph");
+    let file_b = root.join("b.ph");
+    let file_c = root.join("c.ph");
+    fs::write(&file_b, "class B {}\nexport B\n").unwrap();
+    fs::write(&file_c, "class C {}\nexport C\n").unwrap();
+
+    let mut session = WorkspaceModuleSession::new();
+    session.set_overlay(location(&root.join("package.ph")), Arc::from("export A\nexport B\nexport C\n"), SourceRevision(1)).unwrap();
+    let b_loc = location(&file_b);
+    let c_loc = location(&file_c);
+    let a_loc = location(&file_a);
+
+    session.set_overlay(b_loc.clone(), Arc::from("class B {}\nexport B\n"), SourceRevision(1)).unwrap();
+    session.set_overlay(c_loc.clone(), Arc::from("class C {}\nexport C\n"), SourceRevision(1)).unwrap();
+    
+    // A imports B
+    session.set_overlay(a_loc.clone(), Arc::from("import .b as B\nclass A {}\nexport A\n"), SourceRevision(1)).unwrap();
+    let a_mod = session.module_for_source(&a_loc.source_id).unwrap().clone();
+    let b_mod = session.module_for_source(&b_loc.source_id).unwrap().clone();
+    let c_mod = session.module_for_source(&c_loc.source_id).unwrap().clone();
+
+    assert!(session.reverse_importers().get(&b_mod).map_or(false, |s| s.contains(&a_mod)));
+    assert!(!session.reverse_importers().get(&c_mod).map_or(false, |s| s.contains(&a_mod)));
+
+    // A changed to import C
+    session.set_overlay(a_loc.clone(), Arc::from("import .c as C\nclass A {}\nexport A\n"), SourceRevision(2)).unwrap();
+
+    // B must no longer have A as reverse importer; C must have A
+    assert!(!session.reverse_importers().get(&b_mod).map_or(false, |s| s.contains(&a_mod)));
+    assert!(session.reverse_importers().get(&c_mod).map_or(false, |s| s.contains(&a_mod)));
+}
+
