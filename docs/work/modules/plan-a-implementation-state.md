@@ -328,8 +328,9 @@ comparison remain open.
 
 ### Plan-B handoff
 
-- Final pushed implementation commit: `93ded260feb13fc58e028db3e76983845e60ad73`
-  (`fix(lsp): preserve module identity across protocol aliases`).
+- Final pushed implementation commit: `1aca740e` (`perf(semantic): narrow
+  aggregate rebuild worklists`). Earlier lifecycle and PA-1 corrective work
+  remains in `b21d4271` and its predecessors.
   The unrelated `docs/.obsidian/workspace.json` edit remains unstaged.
 - Retained module products: `ModuleTopology`, `ImportSiteId` keyed resolution
   products with prefix provenance, `ComponentId`/`ComponentLinkedProduct`,
