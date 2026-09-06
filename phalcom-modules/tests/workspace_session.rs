@@ -89,6 +89,40 @@ fn removed_source_reports_identity_change() {
     assert!(removed.identity_changes.contains(&module));
 }
 
+#[cfg(unix)]
+#[test]
+fn removed_symlink_alias_does_not_capture_unsaved_recreation() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TempDir::new().unwrap();
+    let real_file = temp.path().join("real.ph");
+    let link_file = temp.path().join("link.ph");
+    fs::write(&real_file, "class Old {}\n").unwrap();
+    symlink(&real_file, &link_file).unwrap();
+
+    let link = location(&link_file);
+    let mut session = WorkspaceModuleSession::new();
+    let initial = session.set_overlay(link.clone(), Arc::from("class Old {}\n"), SourceRevision(1)).unwrap();
+    let old_module = initial.sources.keys().next().cloned().unwrap();
+    let old_source_id = initial.sources[&old_module].source.as_ref().unwrap().source_id.clone();
+
+    fs::remove_file(&link_file).unwrap();
+    let removed = session
+        .apply_batch([WorkspaceSourceBatchMutation::RemoveSourceAt { source: link.clone() }])
+        .unwrap();
+    assert!(removed.removed_modules.contains(&old_module));
+    assert!(session.module_for_source(&link.source_id).is_none());
+
+    let recreated = session.set_overlay(link.clone(), Arc::from("class New {}\n"), SourceRevision(2)).unwrap();
+    let new_module = recreated.sources.keys().next().cloned().unwrap();
+    let new_source_id = recreated.sources[&new_module].source.as_ref().unwrap().source_id.clone();
+    let natural_source_id = SourceId(phalcom_modules::source::canonicalize_path(&link_file).to_string_lossy().into());
+
+    assert_ne!(new_source_id, old_source_id, "recreated unsaved source must not inherit deleted symlink identity");
+    assert_eq!(new_source_id, natural_source_id);
+    assert_eq!(session.module_for_source(&link.source_id), Some(&new_module));
+}
+
 #[test]
 fn standalone_move_is_remove_then_add_identity_transition() {
     let temp = TempDir::new().unwrap();
@@ -740,4 +774,3 @@ fn topology_is_retained_in_session_aligned_with_generation_and_published_in_upda
     assert_eq!(session.topology().generation, ResolverGeneration(3));
     assert_eq!(session.topology().fingerprint, initial_topo_fp);
 }
-

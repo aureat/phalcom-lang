@@ -52,8 +52,9 @@ delta/COW cost model.
    suite is now green. The first bad Plan-A checkpoint was A0 (`2365d39`), so
    the earlier `9f7ded35` reproduction was not a valid inherited-baseline
    classification.
-4. Ordinary `apply_batch` still clones the two committed source/module maps.
-   Atomicity is complete; true O(delta) staging remains open.
+4. Ordinary `apply_batch` still clones committed workspace lookup/index maps,
+   including source/module and source-alias state. Atomicity is complete; true
+   O(delta)/COW staging remains open.
 
 ---
 
@@ -254,8 +255,8 @@ not yet the plan's strict “no ordinary-edit total semantic traversal” gate.
 
 PARTIAL: instrumentation and focused evidence are green. Plan A is not
 release-complete because A0 COW staging, A6 aggregate delta maintenance, the
-full PA-1..PA-10 evidence matrix, and exact core baseline comparison remain
-open.
+remaining PA-5/PA-6/PA-8/PA-9/PA-10 evidence, and exact core baseline
+comparison remain open.
 
 ### Task 34 — Deterministic work metrics
 
@@ -278,9 +279,9 @@ open.
 
 ### Task 36 — Acceptance matrix evidence
 
-- [~] PA-1 body-only edit: production module-delta evidence now proves zero
-  import resolution, zero component recomputation, and structural-shard reuse;
-  required cross-module semantic-consumer work assertion remains open.
+- [x] PA-1 body-only edit: production module-delta evidence proves zero import
+  resolution, zero component recomputation, structural-shard reuse, and stable
+  computation revisions for untouched cross-module callable bodies.
 - [x] PA-2 one-of-20 import path, PA-3 unrelated negative import, PA-4
   missing-target recovery, and PA-7 disconnected retention pass in existing
   A2/A3/A7 fixtures.

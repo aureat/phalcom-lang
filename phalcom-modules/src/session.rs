@@ -1137,6 +1137,7 @@ impl WorkspaceModuleSession {
         // 2. Commit tracking maps
         self.modules_by_source = target_modules_by_source;
         self.sources_by_module = target_sources_by_module;
+        source_identity_aliases.retain(|_, canonical| self.modules_by_source.contains_key(canonical));
         self.source_identity_aliases = source_identity_aliases;
         self.project_roots.extend(mutated_project_roots);
         self.standalone_projects.extend(mutated_standalone_projects);

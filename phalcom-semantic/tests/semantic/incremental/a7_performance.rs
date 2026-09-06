@@ -3,6 +3,7 @@
 use super::support::multi_module_input;
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_modules::{SourceId, SourceLocation, SourceRevision, WorkspaceSourceBatchMutation};
+use phalcom_semantic::db::QueryKey;
 use phalcom_semantic::session::SemanticWorkspaceSession;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -96,6 +97,22 @@ fn a7_production_module_delta_body_edit_reuses_structural_world() {
         .find(|(_, source)| source.source.as_ref().is_some_and(|location| location.display_path == b.display_path))
         .map(|(module, _)| module.clone())
         .expect("unrelated module is published");
+    let untouched_body_revisions = initial
+        .snapshot
+        .callable_analyses
+        .keys()
+        .filter(|callable| callable.module() != &changed_module)
+        .filter(|callable| callable.declaration_owner().name.as_ref() != "<main>")
+        .map(|callable| {
+            let revision = session
+                .db()
+                .query_state(&QueryKey::CallableBody(callable.clone()))
+                .and_then(|state| state.revision())
+                .unwrap_or_else(|| panic!("untouched callable body product missing for {callable:?}"));
+            (callable.clone(), revision)
+        })
+        .collect::<Vec<_>>();
+    assert!(!untouched_body_revisions.is_empty(), "fixture must publish cross-module callable bodies");
 
     let updated = session
         .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
@@ -125,4 +142,11 @@ fn a7_production_module_delta_body_edit_reuses_structural_world() {
             .expect("updated retained shard"),
     ));
     assert!(updated.snapshot.semantic_structure_shards.contains_key(&changed_module));
+    for (callable, revision) in untouched_body_revisions {
+        assert_eq!(
+            session.db().query_state(&QueryKey::CallableBody(callable)).and_then(|state| state.revision()),
+            Some(revision),
+            "unrelated cross-module callable body must retain computation revision",
+        );
+    }
 }
