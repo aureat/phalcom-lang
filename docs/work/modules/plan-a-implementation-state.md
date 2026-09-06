@@ -315,8 +315,8 @@ open.
 
 ### Plan-B handoff
 
-- Final pushed HEAD: update after this corrective patch; the prior corrective
-  implementation commit is `9b4834a5`.
+- Final pushed HEAD: `93ded260feb13fc58e028db3e76983845e60ad73`
+  (`fix(lsp): preserve module identity across protocol aliases`).
   The unrelated `docs/.obsidian/workspace.json` edit remains unstaged.
 - Retained module products: `ModuleTopology`, `ImportSiteId` keyed resolution
   products with prefix provenance, `ComponentId`/`ComponentLinkedProduct`,
