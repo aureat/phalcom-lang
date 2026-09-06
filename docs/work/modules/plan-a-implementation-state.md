@@ -354,9 +354,10 @@ open.
 
 ### Plan-B handoff
 
-- Final pushed implementation commit: `c8a3fc5f` (`fix(semantic): retain
-  hierarchy products across incremental edits`). Earlier aggregate, lifecycle,
-  and PA-1 corrective work remains in `1aca740e`, `b21d4271`, and predecessors.
+- Latest pushed Plan-A semantic implementation commit: `5c5a9f82` (`perf(semantic):
+  retain aggregate contributions and query work metrics`). Earlier aggregate,
+  lifecycle, and PA-1 corrective work remains in `1aca740e`, `b21d4271`, and
+  predecessors.
   The unrelated `docs/.obsidian/workspace.json` edit remains unstaged.
 - Retained module products: `ModuleTopology`, `ImportSiteId` keyed resolution
   products with prefix provenance, `ComponentId`/`ComponentLinkedProduct`,
