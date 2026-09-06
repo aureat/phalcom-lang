@@ -166,6 +166,22 @@ impl ModuleTopology {
         self
     }
 
+    /// Adds source aliases from a read-through transaction view.
+    ///
+    /// This variant accepts an iterator so callers can publish aliases from a
+    /// copy-on-write transaction without first materializing a full alias map.
+    pub fn with_source_alias_entries<'a, I>(mut self, aliases: I) -> Self
+    where
+        I: IntoIterator<Item = (&'a SourceId, &'a SourceId)>,
+    {
+        for (alias, canonical) in aliases {
+            if let Some(module) = self.source_modules.get(canonical).cloned() {
+                self.source_modules.insert(alias.clone(), module);
+            }
+        }
+        self
+    }
+
     /// Collects all transitive descendant module identities of a root module.
     pub fn descendants(&self, root: &ModuleId) -> BTreeSet<ModuleId> {
         let mut result = BTreeSet::new();

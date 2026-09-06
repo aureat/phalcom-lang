@@ -194,6 +194,20 @@ impl CallableSignatureTable {
         }
     }
 
+    /// Removes one declaration-owned signature while retaining other module
+    /// contributions.
+    pub fn remove(&mut self, callable: &CallableId) {
+        let Some(signature) = self.by_id.remove(callable) else {
+            return;
+        };
+        if let Some(callables) = self.module_callables.get_mut(signature.callable.module()) {
+            callables.remove(callable);
+            if callables.is_empty() {
+                self.module_callables.remove(signature.callable.module());
+            }
+        }
+    }
+
     pub fn get(&self, callable: &CallableId) -> Option<&CallableSemanticSignature> {
         self.by_id.get(callable)
     }
@@ -256,6 +270,20 @@ impl FieldSignatureTable {
         if let Some(fields) = self.module_fields.remove(module) {
             for field in fields {
                 self.by_id.remove(&field);
+            }
+        }
+    }
+
+    /// Removes one declaration-owned field signature while retaining other
+    /// module contributions.
+    pub fn remove(&mut self, field: &FieldId) {
+        let Some(signature) = self.by_id.remove(field) else {
+            return;
+        };
+        if let Some(fields) = self.module_fields.get_mut(&signature.owner.module) {
+            fields.remove(field);
+            if fields.is_empty() {
+                self.module_fields.remove(&signature.owner.module);
             }
         }
     }

@@ -150,6 +150,12 @@ pub struct WorkspaceModuleStats {
     pub affected_modules: usize,
     pub identity_changes: usize,
     pub purged_products: usize,
+    /// Number of source-to-module index keys changed by the transaction.
+    pub source_entries_staged: usize,
+    /// Number of module-to-source state keys changed by the transaction.
+    pub module_entries_staged: usize,
+    /// Number of source identity alias keys changed by the transaction.
+    pub source_alias_entries_staged: usize,
 }
 
 /// Products published after one source mutation.
@@ -205,6 +211,171 @@ pub struct StagedOverlayProvider<'a, P: SourceProvider> {
     pub removed_overlays: &'a BTreeSet<ModuleId>,
     pub staged_by_source: &'a BTreeMap<SourceId, ModuleId>,
     pub removed_by_source: &'a BTreeSet<SourceId>,
+}
+
+#[derive(Debug)]
+enum EntryDelta<V> {
+    Set(V),
+    Remove,
+}
+
+/// Read-through copy-on-write view of a committed ordered map.
+///
+/// A module transaction uses this view while deriving its next state. Reads
+/// fall through to the committed map, while only touched keys are retained in
+/// `changes`. This keeps ordinary edits from cloning the workspace-wide source
+/// indexes before the commit barrier.
+#[derive(Debug)]
+struct StagedMap<'a, K, V>
+where
+    K: Ord,
+{
+    base: &'a BTreeMap<K, V>,
+    changes: BTreeMap<K, EntryDelta<V>>,
+}
+
+impl<'a, K, V> StagedMap<'a, K, V>
+where
+    K: Clone + Ord,
+{
+    fn new(base: &'a BTreeMap<K, V>) -> Self {
+        Self {
+            base,
+            changes: BTreeMap::new(),
+        }
+    }
+
+    fn set(&mut self, key: K, value: V) {
+        self.changes.insert(key, EntryDelta::Set(value));
+    }
+
+    fn remove(&mut self, key: &K) {
+        self.changes.insert(key.clone(), EntryDelta::Remove);
+    }
+
+    fn get(&self, key: &K) -> Option<&V> {
+        match self.changes.get(key) {
+            Some(EntryDelta::Set(value)) => Some(value),
+            Some(EntryDelta::Remove) => None,
+            None => self.base.get(key),
+        }
+    }
+
+    fn iter(&self) -> StagedMapIter<'_, K, V> {
+        StagedMapIter {
+            base: self.base.iter().peekable(),
+            changes: self.changes.iter().peekable(),
+        }
+    }
+
+    fn staged_len(&self) -> usize {
+        self.changes.len()
+    }
+
+    fn into_changes(self) -> BTreeMap<K, EntryDelta<V>> {
+        self.changes
+    }
+
+    fn apply_changes(changes: BTreeMap<K, EntryDelta<V>>, target: &mut BTreeMap<K, V>) {
+        for (key, change) in changes {
+            match change {
+                EntryDelta::Set(value) => {
+                    target.insert(key, value);
+                }
+                EntryDelta::Remove => {
+                    target.remove(&key);
+                }
+            }
+        }
+    }
+}
+
+struct StagedMapIter<'a, K, V> {
+    base: std::iter::Peekable<std::collections::btree_map::Iter<'a, K, V>>,
+    changes: std::iter::Peekable<std::collections::btree_map::Iter<'a, K, EntryDelta<V>>>,
+}
+
+impl<'a, K, V> Iterator for StagedMapIter<'a, K, V>
+where
+    K: Ord,
+{
+    type Item = (&'a K, &'a V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match (self.base.peek(), self.changes.peek()) {
+                (None, None) => return None,
+                (Some(_), None) => return self.base.next(),
+                (None, Some(_)) => {
+                    let (key, change) = self.changes.next()?;
+                    if let EntryDelta::Set(value) = change {
+                        return Some((key, value));
+                    }
+                }
+                (Some((base_key, _)), Some((changed_key, _))) => match base_key.cmp(changed_key) {
+                    std::cmp::Ordering::Less => return self.base.next(),
+                    std::cmp::Ordering::Equal => {
+                        let _ = self.base.next();
+                        let (key, change) = self.changes.next()?;
+                        if let EntryDelta::Set(value) = change {
+                            return Some((key, value));
+                        }
+                    }
+                    std::cmp::Ordering::Greater => {
+                        let (key, change) = self.changes.next()?;
+                        if let EntryDelta::Set(value) = change {
+                            return Some((key, value));
+                        }
+                    }
+                },
+            }
+        }
+    }
+}
+
+trait SourceAliasView {
+    fn iter_aliases(&self) -> Box<dyn Iterator<Item = (&SourceId, &SourceId)> + '_>;
+}
+
+trait SourceAliasLookup {
+    fn get_alias(&self, source: &SourceId) -> Option<&SourceId>;
+    fn set_alias(&mut self, source: SourceId, canonical: SourceId);
+}
+
+impl SourceAliasLookup for BTreeMap<SourceId, SourceId> {
+    fn get_alias(&self, source: &SourceId) -> Option<&SourceId> {
+        self.get(source)
+    }
+
+    fn set_alias(&mut self, source: SourceId, canonical: SourceId) {
+        if self.get(&source) != Some(&canonical) {
+            self.insert(source, canonical);
+        }
+    }
+}
+
+impl<'a> SourceAliasLookup for StagedMap<'a, SourceId, SourceId> {
+    fn get_alias(&self, source: &SourceId) -> Option<&SourceId> {
+        self.get(source)
+    }
+
+    fn set_alias(&mut self, source: SourceId, canonical: SourceId) {
+        if self.get(&source) != Some(&canonical) {
+            self.set(source, canonical);
+        }
+    }
+}
+
+impl SourceAliasView for BTreeMap<SourceId, SourceId> {
+    fn iter_aliases(&self) -> Box<dyn Iterator<Item = (&SourceId, &SourceId)> + '_> {
+        Box::new(self.iter())
+    }
+}
+
+impl<'a> SourceAliasView for StagedMap<'a, SourceId, SourceId> {
+    fn iter_aliases(&self) -> Box<dyn Iterator<Item = (&SourceId, &SourceId)> + '_> {
+        Box::new(self.iter())
+    }
 }
 
 impl<'a, P: SourceProvider> SourceProvider for StagedOverlayProvider<'a, P> {
@@ -335,16 +506,76 @@ fn validate_cross_index_consistency(
     modules_by_source: &BTreeMap<SourceId, ModuleId>,
     sources_by_module: &BTreeMap<ModuleId, WorkspaceSourceState>,
 ) -> Result<(), WorkspaceModuleSessionError> {
-    for (source_id, module_id) in modules_by_source {
-        let Some(source_state) = sources_by_module.get(module_id) else {
+    validate_cross_index_entries(modules_by_source.iter(), sources_by_module, modules_by_source)
+}
+
+fn validate_staged_cross_index_consistency(
+    modules_by_source: &StagedMap<'_, SourceId, ModuleId>,
+    sources_by_module: &StagedMap<'_, ModuleId, WorkspaceSourceState>,
+) -> Result<(), WorkspaceModuleSessionError> {
+    for (source_id, change) in &modules_by_source.changes {
+        match change {
+            EntryDelta::Set(module_id) => {
+                let Some(source_state) = sources_by_module.get(module_id) else {
+                    return Err(WorkspaceModuleSessionError::UnknownSource(source_id.clone()));
+                };
+                if &source_state.location.source_id != source_id {
+                    return Err(WorkspaceModuleSessionError::UnknownSource(source_id.clone()));
+                }
+            }
+            EntryDelta::Remove => {
+                if let Some(old_module) = modules_by_source.base.get(source_id)
+                    && sources_by_module.get(old_module).is_some()
+                {
+                    return Err(WorkspaceModuleSessionError::UnknownSource(source_id.clone()));
+                }
+            }
+        }
+    }
+
+    for (module_id, change) in &sources_by_module.changes {
+        match change {
+            EntryDelta::Set(source_state) => {
+                let Some(mapped_module) = modules_by_source.get(&source_state.location.source_id) else {
+                    return Err(WorkspaceModuleSessionError::UnknownSource(source_state.location.source_id.clone()));
+                };
+                if mapped_module != module_id {
+                    return Err(WorkspaceModuleSessionError::UnknownSource(source_state.location.source_id.clone()));
+                }
+            }
+            EntryDelta::Remove => {
+                if let Some(old_state) = sources_by_module.base.get(module_id)
+                    && modules_by_source.get(&old_state.location.source_id).is_some_and(|mapped| mapped == module_id)
+                {
+                    return Err(WorkspaceModuleSessionError::UnknownSource(old_state.location.source_id.clone()));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_cross_index_entries<'a, I, M, S>(
+    entries: I,
+    sources_by_module: &M,
+    modules_by_source: &S,
+) -> Result<(), WorkspaceModuleSessionError>
+where
+    I: IntoIterator<Item = (&'a SourceId, &'a ModuleId)>,
+    M: SourceStateLookup,
+    S: ModuleLookup,
+{
+    for (source_id, module_id) in entries {
+        let Some(source_state) = sources_by_module.get_state(module_id) else {
             return Err(WorkspaceModuleSessionError::UnknownSource(source_id.clone()));
         };
         if &source_state.location.source_id != source_id {
             return Err(WorkspaceModuleSessionError::UnknownSource(source_id.clone()));
         }
     }
-    for (module_id, source_state) in sources_by_module {
-        let Some(mapped_mod) = modules_by_source.get(&source_state.location.source_id) else {
+
+    for (module_id, source_state) in sources_by_module.iter_states() {
+        let Some(mapped_mod) = modules_by_source.get_module(&source_state.location.source_id) else {
             return Err(WorkspaceModuleSessionError::UnknownSource(source_state.location.source_id.clone()));
         };
         if mapped_mod != module_id {
@@ -352,6 +583,51 @@ fn validate_cross_index_consistency(
         }
     }
     Ok(())
+}
+
+trait SourceStateLookup {
+    fn get_state(&self, module: &ModuleId) -> Option<&WorkspaceSourceState>;
+    fn iter_states(&self) -> Box<dyn Iterator<Item = (&ModuleId, &WorkspaceSourceState)> + '_>;
+
+    fn contains_state(&self, module: &ModuleId) -> bool {
+        self.get_state(module).is_some()
+    }
+}
+
+impl SourceStateLookup for BTreeMap<ModuleId, WorkspaceSourceState> {
+    fn get_state(&self, module: &ModuleId) -> Option<&WorkspaceSourceState> {
+        self.get(module)
+    }
+
+    fn iter_states(&self) -> Box<dyn Iterator<Item = (&ModuleId, &WorkspaceSourceState)> + '_> {
+        Box::new(self.iter())
+    }
+}
+
+impl<'a> SourceStateLookup for StagedMap<'a, ModuleId, WorkspaceSourceState> {
+    fn get_state(&self, module: &ModuleId) -> Option<&WorkspaceSourceState> {
+        self.get(module)
+    }
+
+    fn iter_states(&self) -> Box<dyn Iterator<Item = (&ModuleId, &WorkspaceSourceState)> + '_> {
+        Box::new(self.iter())
+    }
+}
+
+trait ModuleLookup {
+    fn get_module(&self, source: &SourceId) -> Option<&ModuleId>;
+}
+
+impl ModuleLookup for BTreeMap<SourceId, ModuleId> {
+    fn get_module(&self, source: &SourceId) -> Option<&ModuleId> {
+        self.get(source)
+    }
+}
+
+impl<'a> ModuleLookup for StagedMap<'a, SourceId, ModuleId> {
+    fn get_module(&self, source: &SourceId) -> Option<&ModuleId> {
+        self.get(source)
+    }
 }
 
 /// Partitions interfaces and import products into connected components based on import/re-export/package relationships.
@@ -772,7 +1048,7 @@ impl WorkspaceModuleSession {
         let mut ownership_reclassifications = false;
         let mut purged_identities = BTreeSet::new();
         let mut stats = WorkspaceModuleStats::default();
-        let mut source_identity_aliases = self.source_identity_aliases.clone();
+        let mut source_identity_aliases = StagedMap::new(&self.source_identity_aliases);
 
         let get_module_for_source = |source_id: &SourceId,
                                      mutated_modules: &BTreeMap<SourceId, ModuleId>,
@@ -1044,6 +1320,10 @@ impl WorkspaceModuleSession {
         }
 
         // Reclassification if project structure markers changed
+        // Reclassification owns the committed source maps temporarily. End the
+        // alias overlay borrow before entering it, then replay only its staged
+        // keys on top of the reclassified committed alias map.
+        let source_alias_changes = source_identity_aliases.into_changes();
         if ownership_reclassifications {
             let (reclassified, reclassified_removed, reclassified_identities) = self.reclassify_tracked_sources(&removed_modules_by_source)?;
             changed_modules.extend(reclassified);
@@ -1051,23 +1331,41 @@ impl WorkspaceModuleSession {
             identity_changes.extend(reclassified_identities);
         }
 
+        let mut source_identity_aliases = StagedMap::new(&self.source_identity_aliases);
+        for (source, change) in source_alias_changes {
+            match change {
+                EntryDelta::Set(canonical) => source_identity_aliases.set(source, canonical),
+                EntryDelta::Remove => source_identity_aliases.remove(&source),
+            }
+        }
+
         let removed_modules = removed_sources;
 
-        // Build target effective views for validation and derive_rebuild
-        let mut target_modules_by_source = self.modules_by_source.clone();
+        // Build read-through target views for validation and derive_rebuild.
+        // These overlays retain only transaction-touched entries; the committed
+        // maps remain untouched until the commit barrier below.
+        let mut target_modules_by_source = StagedMap::new(&self.modules_by_source);
         for id in &removed_modules_by_source {
             target_modules_by_source.remove(id);
         }
-        target_modules_by_source.extend(mutated_modules_by_source.clone());
+        for (source, module) in &mutated_modules_by_source {
+            target_modules_by_source.set(source.clone(), module.clone());
+        }
 
-        let mut target_sources_by_module = self.sources_by_module.clone();
+        let mut target_sources_by_module = StagedMap::new(&self.sources_by_module);
         for id in &removed_modules {
             target_sources_by_module.remove(id);
         }
-        target_sources_by_module.extend(mutated_sources.clone());
+        for (module, state) in &mutated_sources {
+            target_sources_by_module.set(module.clone(), state.clone());
+        }
 
         // Cross-index consistency validation before derivation
-        validate_cross_index_consistency(&target_modules_by_source, &target_sources_by_module)?;
+        validate_staged_cross_index_consistency(&target_modules_by_source, &target_sources_by_module)?;
+
+        stats.source_entries_staged = target_modules_by_source.staged_len();
+        stats.module_entries_staged = target_sources_by_module.staged_len();
+        stats.source_alias_entries_staged = source_identity_aliases.staged_len();
 
         // Prepare staged overlays for derivation
         let mut staged_overlays = BTreeMap::new();
@@ -1135,10 +1433,16 @@ impl WorkspaceModuleSession {
         }
 
         // 2. Commit tracking maps
-        self.modules_by_source = target_modules_by_source;
-        self.sources_by_module = target_sources_by_module;
-        source_identity_aliases.retain(|_, canonical| self.modules_by_source.contains_key(canonical));
-        self.source_identity_aliases = source_identity_aliases;
+        let source_index_changes = target_modules_by_source.into_changes();
+        let module_state_changes = target_sources_by_module.into_changes();
+        StagedMap::apply_changes(source_index_changes, &mut self.modules_by_source);
+        StagedMap::apply_changes(module_state_changes, &mut self.sources_by_module);
+        let source_alias_changes = source_identity_aliases.into_changes();
+        StagedMap::apply_changes(source_alias_changes, &mut self.source_identity_aliases);
+        if !removed_modules_by_source.is_empty() || !removed_modules.is_empty() {
+            self.source_identity_aliases
+                .retain(|_, canonical| self.modules_by_source.contains_key(canonical));
+        }
         self.project_roots.extend(mutated_project_roots);
         self.standalone_projects.extend(mutated_standalone_projects);
         self.synthetic_ids = synthetic_ids;
@@ -1246,28 +1550,30 @@ impl WorkspaceModuleSession {
         self.apply(WorkspaceSourceMutation::RemoveSource { source })
     }
 
-    fn canonicalize_source_location(location: SourceLocation, aliases: &mut BTreeMap<SourceId, SourceId>) -> SourceLocation {
+    fn canonicalize_source_location<A: SourceAliasLookup>(location: SourceLocation, aliases: &mut A) -> SourceLocation {
         let protocol_id = location.source_id.clone();
         let canonical_id = location
             .display_path
             .canonicalize()
             .ok()
             .map(|path| SourceId(path.to_string_lossy().into()))
-            .or_else(|| aliases.get(&protocol_id).cloned())
+            .or_else(|| aliases.get_alias(&protocol_id).cloned())
             .unwrap_or_else(|| SourceId(crate::source::canonicalize_path(&location.display_path).to_string_lossy().into()));
-        aliases.insert(protocol_id, canonical_id.clone());
-        aliases.entry(canonical_id.clone()).or_insert(canonical_id.clone());
+        aliases.set_alias(protocol_id, canonical_id.clone());
+        if aliases.get_alias(&canonical_id).is_none() {
+            aliases.set_alias(canonical_id.clone(), canonical_id.clone());
+        }
         SourceLocation {
             source_id: canonical_id,
             display_path: location.display_path,
         }
     }
 
-    fn canonicalize_source_id(source: SourceId, aliases: &BTreeMap<SourceId, SourceId>) -> SourceId {
-        aliases.get(&source).cloned().unwrap_or(source)
+    fn canonicalize_source_id<A: SourceAliasLookup>(source: SourceId, aliases: &A) -> SourceId {
+        aliases.get_alias(&source).cloned().unwrap_or(source)
     }
 
-    fn canonicalize_batch_mutation(mutation: WorkspaceSourceBatchMutation, aliases: &mut BTreeMap<SourceId, SourceId>) -> WorkspaceSourceBatchMutation {
+    fn canonicalize_batch_mutation<A: SourceAliasLookup>(mutation: WorkspaceSourceBatchMutation, aliases: &mut A) -> WorkspaceSourceBatchMutation {
         match mutation {
             WorkspaceSourceBatchMutation::SetOverlay {
                 source,
@@ -1485,15 +1791,15 @@ impl WorkspaceModuleSession {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn derive_rebuild<P: SourceProvider>(
+    fn derive_rebuild<P: SourceProvider, S: SourceStateLookup, A: SourceAliasView>(
         &self,
         universe: &ProjectUniverse,
         provider: &P,
-        sources_by_module: &BTreeMap<ModuleId, WorkspaceSourceState>,
+        sources_by_module: &S,
         changed_modules: BTreeSet<ModuleId>,
         removed_modules: BTreeSet<ModuleId>,
         identity_changes: BTreeSet<ModuleId>,
-        source_identity_aliases: &BTreeMap<SourceId, SourceId>,
+        source_identity_aliases: &A,
         mut stats: WorkspaceModuleStats,
         target_generation: ResolverGeneration,
     ) -> Result<RebuildOutput, WorkspaceModuleSessionError> {
@@ -1550,7 +1856,7 @@ impl WorkspaceModuleSession {
         // 2. Build or check unlinked interfaces for changed/new modules
         let mut modules_with_changed_interface = BTreeSet::new();
         let mut changed_exposures = BTreeSet::new();
-        for (module, state) in sources_by_module {
+        for (module, state) in sources_by_module.iter_states() {
             if !changed_modules.contains(module) && interfaces.contains_key(module) {
                 stats.interfaces_reused += 1;
                 continue;
@@ -1586,7 +1892,7 @@ impl WorkspaceModuleSession {
         }
 
         let mut added_modules = BTreeSet::new();
-        for id in sources_by_module.keys() {
+        for (id, _) in sources_by_module.iter_states() {
             if !self.sources_by_module.contains_key(id) {
                 added_modules.insert(id.clone());
             }
@@ -1616,7 +1922,10 @@ impl WorkspaceModuleSession {
             stats.import_sites_reused = total_sites;
             stats.import_resolutions_reused = total_sites;
             stats.negative_resolutions_reused = import_products.values().filter(|p| p.target.is_err()).count();
-            let parsed_sources = sources_by_module.iter().map(|(id, state)| (id.clone(), state.parsed.clone())).collect();
+            let parsed_sources = sources_by_module
+                .iter_states()
+                .map(|(id, state)| (id.clone(), state.parsed.clone()))
+                .collect();
             let mut topology = (*self.topology).clone();
             topology.generation = target_generation;
             let topology = Arc::new(topology);
@@ -1643,12 +1952,12 @@ impl WorkspaceModuleSession {
 
         // 4. Validate-before-resolve import loop
         let mut parsed_sources = sources_by_module
-            .iter()
+            .iter_states()
             .map(|(id, state)| (id.clone(), state.parsed.clone()))
             .collect::<BTreeMap<_, _>>();
 
         let mut resolver = ModuleResolver::new(universe, provider);
-        let mut queue = VecDeque::from_iter(sources_by_module.keys().cloned());
+        let mut queue = VecDeque::from_iter(sources_by_module.iter_states().map(|(id, _)| id.clone()));
         let mut new_discovered_sources = Vec::new();
         let mut visited_modules = BTreeSet::new();
         let mut recomputed_importers = BTreeSet::new();
@@ -1710,7 +2019,7 @@ impl WorkspaceModuleSession {
                                 let fp = loaded_iface.fingerprint();
                                 interfaces.insert(target_id.clone(), (Arc::new(loaded_iface), fp));
                                 parsed_sources.insert(target_id.clone(), loaded.clone());
-                                if !sources_by_module.contains_key(&target_id) {
+                                if !sources_by_module.contains_state(&target_id) {
                                     if let Some(loc) = loaded.source.clone() {
                                         new_discovered_sources.push(WorkspaceSourceState {
                                             module: target_id.clone(),
@@ -1921,7 +2230,10 @@ impl WorkspaceModuleSession {
         stats.filesystem_resolution_misses = resolution_misses_after.saturating_sub(resolution_misses_before) as usize;
 
         let mut source_locations: BTreeMap<ModuleId, SourceLocation> =
-            sources_by_module.iter().map(|(id, state)| (id.clone(), state.location.clone())).collect();
+            sources_by_module
+                .iter_states()
+                .map(|(id, state)| (id.clone(), state.location.clone()))
+                .collect();
         for discovered in &new_discovered_sources {
             source_locations.insert(discovered.module.clone(), discovered.location.clone());
         }
@@ -1929,7 +2241,7 @@ impl WorkspaceModuleSession {
 
         let topology = Arc::new(
             ModuleTopology::from_parts(target_generation, universe, &unlinked, &source_locations)
-                .with_source_aliases(source_identity_aliases),
+                .with_source_alias_entries(source_identity_aliases.iter_aliases()),
         );
 
         Ok(RebuildOutput {

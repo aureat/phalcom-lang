@@ -212,6 +212,15 @@ pub struct ModuleSourceIndex {
 }
 
 impl ModuleSourceIndex {
+    pub(crate) fn from_scope_index(
+        mut structure: SourceScopeIndex,
+        program: &crate::source::ParsedModuleUnit,
+        context: Option<&crate::source_index::builder::SourceIndexContext>,
+    ) -> Self {
+        let occurrences = OccurrenceIndex::from_program_with_context(&mut structure, &program.program, context);
+        Self::new(structure, occurrences, BTreeMap::new())
+    }
+
     fn new(structure: SourceScopeIndex, occurrences: OccurrenceIndex, attachments: BTreeMap<CallableId, Arc<CallableSourceAttachment>>) -> Self {
         let (expression_sites, expression_intervals) = expression_products(&structure, &attachments);
         let occurrences = Arc::new(occurrences);

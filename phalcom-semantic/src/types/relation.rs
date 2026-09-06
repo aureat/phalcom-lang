@@ -54,8 +54,20 @@ impl MapTypeHierarchy {
     pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
         let declarations = self.module_declarations.remove(module).unwrap_or_default();
         for declaration in declarations {
-            self.superclasses.remove(&declaration);
-            self.templates.remove(&declaration);
+            self.remove(&declaration);
+        }
+    }
+
+    /// Removes one direct hierarchy contribution while retaining other
+    /// declarations from the same module.
+    pub fn remove(&mut self, declaration: &DeclarationId) {
+        self.superclasses.remove(declaration);
+        self.templates.remove(declaration);
+        if let Some(declarations) = self.module_declarations.get_mut(&declaration.module) {
+            declarations.remove(declaration);
+            if declarations.is_empty() {
+                self.module_declarations.remove(&declaration.module);
+            }
         }
     }
 }

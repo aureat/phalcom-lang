@@ -263,3 +263,29 @@ fn checkpoint_a7_thousand_module_linear_fixture_has_bounded_body_edit_work() {
     assert_eq!(update.stats.linked_components_considered, 1);
     assert_eq!(update.stats.linked_modules_reused, count + 1);
 }
+
+#[test]
+fn checkpoint_a0_ten_thousand_source_edit_stages_only_touched_indexes() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path();
+    fs::write(root.join("package.ph"), "").unwrap();
+    let count = 10_000;
+    let mut sources = disconnected_components(count);
+    sources[5_001].text = "class Isolated5000 { value() -> Int { 1 } }\nexport Isolated5000\n".into();
+
+    let mut session = WorkspaceModuleSession::new();
+    let initial = session.apply_batch(fixture_batch(root, &sources, 1)).unwrap();
+    assert_eq!(initial.stats.source_entries_staged, count + 1);
+    assert_eq!(initial.stats.module_entries_staged, count + 1);
+
+    let update = session
+        .set_overlay(
+            location(root, "isolated5000.ph"),
+            Arc::from("class Isolated5000 { value() -> Int { 2 } }\nexport Isolated5000\n"),
+            SourceRevision(2),
+        )
+        .unwrap();
+    assert_eq!(update.stats.source_entries_staged, 1);
+    assert_eq!(update.stats.module_entries_staged, 1);
+    assert_eq!(update.stats.source_alias_entries_staged, 0);
+}

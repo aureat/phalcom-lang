@@ -1,3 +1,4 @@
+use super::support::multi_module_input;
 use phalcom_common::selector::Selector;
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_modules::interface::{InterfaceBuilder, LinkedModuleInterface};
@@ -245,6 +246,219 @@ class Consumer {
     assert_ne!(consumer_state.revision(), Some(rev1));
     assert!(update2.recomputed.contains(&body_key));
     assert!(!Arc::ptr_eq(&consumer_v1, update2.snapshot.callable_analyses.get(&consumer_read).unwrap()));
+}
+
+#[test]
+fn unrelated_edit_retains_unaffected_module_diagnostics() {
+    use phalcom_semantic::diagnostic::DiagnosticCode;
+
+    let module_a = ModuleId::resolved(
+        ResolvedProjectId::from_raw(201),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("diagnostic_a").unwrap()]),
+    );
+    let module_b = ModuleId::resolved(
+        ResolvedProjectId::from_raw(201),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("diagnostic_b").unwrap()]),
+    );
+    let source_a = r#"
+class Broken {
+  @class number() -> Int { "not an integer" }
+}
+"#;
+    let source_b_v1 = "class Stable { @class value() -> Int { 1 } }";
+    let source_b_v2 = "class Stable { @class value() -> Int { 2 } }";
+
+    let mut session = SemanticWorkspaceSession::new();
+    let initial = session.update(multi_module_input(
+        vec![(module_a.clone(), source_a.into()), (module_b.clone(), source_b_v1.into())],
+        1,
+    ));
+    let initial_a_diagnostics = initial
+        .snapshot
+        .diagnostics
+        .get(&module_a)
+        .cloned()
+        .expect("module A must publish its semantic diagnostic");
+    assert!(initial_a_diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::ReturnMismatch));
+
+    let updated = session.update(multi_module_input(
+        vec![(module_a.clone(), source_a.into()), (module_b.clone(), source_b_v2.into())],
+        2,
+    ));
+
+    assert_eq!(updated.snapshot.diagnostics.get(&module_a), Some(&initial_a_diagnostics));
+    assert!(!updated.effects.diagnostics_changed.contains(&module_a));
+
+    let mut cold_session = SemanticWorkspaceSession::new();
+    let cold = cold_session.update(multi_module_input(
+        vec![(module_a.clone(), source_a.into()), (module_b, source_b_v2.into())],
+        2,
+    ));
+    assert_eq!(updated.snapshot.diagnostics, cold.snapshot.diagnostics);
+}
+
+#[test]
+fn edited_module_repair_removes_its_diagnostic() {
+    use phalcom_semantic::diagnostic::DiagnosticCode;
+
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(202),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("diagnostic_repair").unwrap()]),
+    );
+    let mut session = SemanticWorkspaceSession::new();
+    let broken = "class Broken { @class number() -> Int { \"not an integer\" } }";
+    let fixed = "class Broken { @class number() -> Int { 1 } }";
+
+    let initial = session.update(input(module.clone(), broken, 1));
+    assert!(initial.snapshot.diagnostics_for(&module).is_some_and(|diagnostics| {
+        diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::ReturnMismatch)
+    }));
+
+    let repaired = session.update(input(module.clone(), fixed, 2));
+    assert!(repaired.snapshot.diagnostics_for(&module).is_none_or(|diagnostics| {
+        diagnostics.iter().all(|diagnostic| diagnostic.code != DiagnosticCode::ReturnMismatch)
+    }));
+    assert!(repaired.effects.diagnostics_changed.contains(&module));
+    assert!(!repaired.snapshot.has_errors());
+}
+
+#[test]
+fn provider_semantic_change_makes_consumer_diagnostic_appear() {
+    use phalcom_semantic::diagnostic::DiagnosticCode;
+
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(203),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("provider_change").unwrap()]),
+    );
+    let mut session = SemanticWorkspaceSession::new();
+    let source_v1 = r#"
+class Provider {
+  @class value() -> Int { 1 }
+}
+
+class Consumer {
+  @class read() -> Int { Provider.value() }
+}
+"#;
+    let source_v2 = r#"
+class Provider {
+  @class value() -> String { "one" }
+}
+
+class Consumer {
+  @class read() -> Int { Provider.value() }
+}
+"#;
+
+    let initial = session.update(input(module.clone(), source_v1, 1));
+    assert!(!initial.snapshot.has_errors());
+    let updated = session.update(input(module.clone(), source_v2, 2));
+    assert!(updated.snapshot.diagnostics_for(&module).is_some_and(|diagnostics| {
+        diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::ReturnMismatch)
+    }));
+}
+
+#[test]
+fn provider_repair_removes_consumer_diagnostic() {
+    use phalcom_semantic::diagnostic::DiagnosticCode;
+
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(204),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("provider_repair").unwrap()]),
+    );
+    let mut session = SemanticWorkspaceSession::new();
+    let broken = r#"
+class Provider {
+  @class value() -> String { "one" }
+}
+
+class Consumer {
+  @class read() -> Int { Provider.value() }
+}
+"#;
+    let fixed = r#"
+class Provider {
+  @class value() -> Int { 1 }
+}
+
+class Consumer {
+  @class read() -> Int { Provider.value() }
+}
+"#;
+
+    let initial = session.update(input(module.clone(), broken, 1));
+    assert!(initial.snapshot.diagnostics_for(&module).is_some_and(|diagnostics| {
+        diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::ReturnMismatch)
+    }));
+    let repaired = session.update(input(module.clone(), fixed, 2));
+    assert!(repaired.snapshot.diagnostics_for(&module).is_none_or(|diagnostics| {
+        diagnostics.iter().all(|diagnostic| diagnostic.code != DiagnosticCode::ReturnMismatch)
+    }));
+    assert!(!repaired.snapshot.has_errors());
+}
+
+#[test]
+fn removed_module_removes_all_diagnostics() {
+    use phalcom_semantic::diagnostic::DiagnosticCode;
+
+    let module_a = ModuleId::resolved(
+        ResolvedProjectId::from_raw(205),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("removed_diagnostics").unwrap()]),
+    );
+    let module_b = ModuleId::resolved(
+        ResolvedProjectId::from_raw(205),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("survivor").unwrap()]),
+    );
+    let mut session = SemanticWorkspaceSession::new();
+    let initial = session.update(multi_module_input(
+        vec![
+            (module_a.clone(), "class Broken { @class number() -> Int { \"bad\" } }".into()),
+            (module_b.clone(), "class Stable { @class value() -> Int { 1 } }".into()),
+        ],
+        1,
+    ));
+    assert!(initial.snapshot.diagnostics_for(&module_a).is_some_and(|diagnostics| {
+        diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::ReturnMismatch)
+    }));
+
+    let updated = session.update(multi_module_input(
+        vec![(module_b.clone(), "class Stable { @class value() -> Int { 2 } }".into())],
+        2,
+    ));
+    assert!(updated.snapshot.diagnostics_for(&module_a).is_none());
+    assert!(!updated.snapshot.has_errors());
+}
+
+#[test]
+fn diagnostic_aggregate_matches_cold_after_repair_and_unrelated_edit() {
+    let module_a = ModuleId::resolved(
+        ResolvedProjectId::from_raw(206),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("cold_diagnostics_a").unwrap()]),
+    );
+    let module_b = ModuleId::resolved(
+        ResolvedProjectId::from_raw(206),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("cold_diagnostics_b").unwrap()]),
+    );
+    let source_a = "class Broken { @class number() -> Int { \"bad\" } }";
+    let source_b_v1 = "class Stable { @class value() -> Int { 1 } }";
+    let source_b_v2 = "class Stable { @class value() -> Int { 2 } }";
+
+    let mut session = SemanticWorkspaceSession::new();
+    let _ = session.update(multi_module_input(
+        vec![(module_a.clone(), source_a.into()), (module_b.clone(), source_b_v1.into())],
+        1,
+    ));
+    let incremental = session.update(multi_module_input(
+        vec![(module_a.clone(), source_a.into()), (module_b.clone(), source_b_v2.into())],
+        2,
+    ));
+
+    let mut cold_session = SemanticWorkspaceSession::new();
+    let cold = cold_session.update(multi_module_input(
+        vec![(module_a, source_a.into()), (module_b, source_b_v2.into())],
+        2,
+    ));
+    assert_eq!(incremental.snapshot.diagnostics, cold.snapshot.diagnostics);
 }
 
 #[test]

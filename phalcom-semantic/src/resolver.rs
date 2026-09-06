@@ -15,7 +15,8 @@ pub struct LinkedTypeResolver {
     linked: Arc<LinkedProgram>,
     known_declarations: HashSet<DeclarationId>,
     prelude_types: Arc<PreludeTypeMap>,
-    alias_forms: RefCell<BTreeMap<DeclarationId, crate::types::id::TypeId>>,
+    retained_alias_forms: Arc<BTreeMap<DeclarationId, crate::types::id::TypeId>>,
+    alias_form_overrides: RefCell<BTreeMap<DeclarationId, Option<crate::types::id::TypeId>>>,
 }
 
 impl LinkedTypeResolver {
@@ -36,7 +37,27 @@ impl LinkedTypeResolver {
             linked,
             known_declarations,
             prelude_types,
-            alias_forms: RefCell::new(BTreeMap::new()),
+            retained_alias_forms: Arc::new(BTreeMap::new()),
+            alias_form_overrides: RefCell::new(BTreeMap::new()),
+        }
+    }
+
+    /// Constructs a resolver with alias forms retained from the previous
+    /// semantic revision. Changed aliases are applied through the small
+    /// override map, so an ordinary non-alias edit does not rebuild the full
+    /// alias table just to make the resolver usable.
+    pub fn with_retained_alias_forms(
+        linked: Arc<LinkedProgram>,
+        known_declarations: HashSet<DeclarationId>,
+        _legacy_prelude_module: ModuleId,
+        retained_alias_forms: Arc<BTreeMap<DeclarationId, crate::types::id::TypeId>>,
+    ) -> Self {
+        Self {
+            linked,
+            known_declarations,
+            prelude_types: PreludeTypeMap::shared_canonical_universe(),
+            retained_alias_forms,
+            alias_form_overrides: RefCell::new(BTreeMap::new()),
         }
     }
 
@@ -45,7 +66,11 @@ impl LinkedTypeResolver {
     }
 
     pub fn insert_alias_form(&self, declaration: DeclarationId, form: crate::types::id::TypeId) {
-        self.alias_forms.borrow_mut().insert(declaration, form);
+        self.alias_form_overrides.borrow_mut().insert(declaration, Some(form));
+    }
+
+    pub fn remove_alias_form(&self, declaration: DeclarationId) {
+        self.alias_form_overrides.borrow_mut().insert(declaration, None);
     }
 }
 
@@ -62,7 +87,10 @@ impl TypeResolver for LinkedTypeResolver {
     }
 
     fn resolve_alias_form(&self, declaration: &DeclarationId) -> Option<crate::types::id::TypeId> {
-        self.alias_forms.borrow().get(declaration).copied()
+        if let Some(form) = self.alias_form_overrides.borrow().get(declaration) {
+            return *form;
+        }
+        self.retained_alias_forms.get(declaration).copied()
     }
 
     fn resolve_type_name(&self, current_module: &ModuleId, root: &str, members: &[String]) -> Option<DeclarationId> {

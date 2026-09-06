@@ -194,11 +194,25 @@ impl SurfaceDispatchResolver {
     pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
         let removed = self.module_surfaces.remove(module).unwrap_or_default();
         for declaration in removed {
-            self.surfaces.remove(&declaration);
-            if let Some(types) = self.declaration_types.remove(&declaration) {
-                for ty in types {
-                    self.type_declarations.remove(&ty);
-                }
+            self.remove_surface(&declaration);
+        }
+    }
+
+    /// Removes one declaration surface and only the type registrations owned
+    /// by that declaration.
+    pub fn remove_surface(&mut self, declaration: &DeclarationId) {
+        let Some(_) = self.surfaces.remove(declaration) else {
+            return;
+        };
+        if let Some(declarations) = self.module_surfaces.get_mut(&declaration.module) {
+            declarations.remove(declaration);
+            if declarations.is_empty() {
+                self.module_surfaces.remove(&declaration.module);
+            }
+        }
+        if let Some(types) = self.declaration_types.remove(declaration) {
+            for ty in types {
+                self.type_declarations.remove(&ty);
             }
         }
     }

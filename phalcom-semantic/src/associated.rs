@@ -58,6 +58,10 @@ impl AssociatedFamilyTable {
     pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
         self.surfaces.retain(|owner, _| &owner.module != module);
     }
+
+    pub fn remove(&mut self, owner: &DeclarationId) {
+        self.surfaces.remove(owner);
+    }
 }
 
 fn format_selector_base(base: &SelectorBase) -> &str {

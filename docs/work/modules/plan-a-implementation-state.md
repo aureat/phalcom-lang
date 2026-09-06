@@ -52,9 +52,10 @@ delta/COW cost model.
    suite is now green. The first bad Plan-A checkpoint was A0 (`2365d39`), so
    the earlier `9f7ded35` reproduction was not a valid inherited-baseline
    classification.
-4. Ordinary `apply_batch` still clones committed workspace lookup/index maps,
-   including source/module and source-alias state. Atomicity is complete; true
-   O(delta)/COW staging remains open.
+4. Ordinary `apply_batch` now stages source/module and source-alias lookup
+   changes through copy-on-write overlays and applies only touched deltas.
+   `set_workspace_roots` remains an explicit cold/reclassification path and
+   is not counted as an ordinary edit.
 
 ---
 
@@ -208,15 +209,17 @@ high-fanout and cold/parity proofs.
 ## Checkpoint A6 — Incremental Semantic Workspace Aggregation
 
 ### Status
-PARTIAL. Explicit module deltas and retained shards are implemented; global
-aggregate/worklist closure is not yet proven.
+PARTIAL. Explicit module deltas, retained shards, and the tested typed
+worklists are implemented; the strict no-broad-semantic-orchestration audit
+is not yet closed.
 
 ### Tasks
 - [x] Task 28 — Retain per-module structural semantic shards and reuse
   unchanged shards across explicit module deltas.
 - [~] Task 29 — Delta-maintain declaration namespace/table composition; retained
-  declaration contributions now compose with changed structural shards, but
-  generic-header/predeclaration work still has a broad remainder.
+  declaration contributions compose with changed structural shards, and
+  unchanged generic headers now retain their canonical signatures/templates
+  while exact changed/dependent headers are rebuilt.
 - [~] Task 30 — Delta-maintain hierarchy/supertype direct-edge products;
   retained source-owned superclass edges now survive unrelated edits, exact
   resolver dependencies are query-owned, and direct-edge worklists are
@@ -224,8 +227,8 @@ aggregate/worklist closure is not yet proven.
 - [~] Task 31 — Module-shard type aliases and generic headers; retained alias
   contributions now compose by retained-vs-recomputed module, and the compact
   alias dependency graph/source map is retained between revisions. Cross-module
-  alias-shell invalidation now enters the exact reverse worklist; generic
-  header invalidation and full alias-SCC lowering remain open.
+  alias-shell invalidation and generic-header invalidation now enter exact
+  reverse worklists; full alias-SCC orchestration remains open.
 - [~] Task 32 — Publish declaration surfaces/callable/field signatures through
   exact worklists; field-default contributions and compatibility aggregate
   removals now use module-owned indexes, and cached source-owned query products
@@ -270,17 +273,23 @@ aggregate/worklist closure is not yet proven.
 - `apply_module_mutations` now exposes module-layer work counts through the
   semantic publication and has a production-path body-edit test in
   `incremental::a7_performance`.
-- Full semantic suite: 1,103 passed, 0 failed, 42 ignored. Module suite and
-  provider lifecycle LSP tests are green.
+- Unchanged generic declaration headers retain their previous canonical
+  signature and supertype template across a different structural edit in the
+  same module; the exact generic-supertype invalidation regression now passes.
+- Initial empty diagnostic publication is reported as a changed published
+  product without fabricating a diagnostic; the publication-effects regression
+  now passes.
+- Full semantic suite: 1,114 passed, 0 failed, 42 ignored. Full incremental
+  suite: 150 passed, 0 failed, 4 ignored. Full module suite passes.
 
 ### Remaining A6 gap
-The semantic session still reconstructs generic headers, alias lowering/SCC
-state, and some signature aggregates through broad retained-workspace passes.
-Compatibility removal remains module-scoped. The delta is no longer discarded
-at the module boundary, query metrics no longer scan all cached products, and
-field/default, superclass, alias, and formal-product worklists are narrowed,
-but this is not yet the plan's strict “no ordinary-edit total semantic
-traversal” gate.
+The semantic session still has broad orchestration around cold/bootstrap
+publication, alias/SCC lowering, and presentation/advisory composition that
+requires the strict ordinary-edit traversal audit. Compatibility removal remains
+module-scoped. The delta is no longer discarded at the module boundary, query
+metrics no longer scan all cached products, and field/default, superclass,
+alias, generic-header, and formal-product worklists are narrowed, but this is
+not yet the plan's strict “no ordinary-edit total semantic traversal” gate.
 
 ---
 
@@ -288,9 +297,9 @@ traversal” gate.
 
 ### Status
 
-PARTIAL: instrumentation and focused evidence are green. Plan A is not
-release-complete because A0 COW staging, A6 aggregate delta maintenance, the
-remaining PA-6/PA-9/PA-10 evidence, and exact core baseline comparison remain
+PARTIAL: A0 ordinary-edit COW and PA-6/PA-9/PA-10 evidence are green. Plan A
+is not release-complete because the strict A6 architecture audit, the exact
+core baseline comparison, and the current LSP provenance regression remain
 open.
 
 ### Task 34 — Deterministic work metrics
@@ -323,22 +332,30 @@ open.
 - [x] PA-5 unused public export: cross-module semantic fixture proves the
   consumer body computation revision and analysis remain unchanged when an
   unused provider export is added, and rejects a spurious exact export edge.
-- [ ] PA-6 high fanout: no 5,000 reverse-connected/~100 exact-consumer test
-  asserting expensive recomputation or `reverse_candidates_considered` bounds.
+- [x] PA-6 high fanout: `a6_performance::a6_high_fanout_recomputes_exact_consumers_not_reverse_importers`
+  exercises 5,000 reverse-connected modules with approximately 100 exact
+  consumers and asserts bounded `reverse_candidates_considered` plus exact
+  callable recomputation.
 - [x] PA-8 stable intermediate product: A→B recomputes the exact consumer,
   then a body-only C edit with a stable provider signature reuses that consumer.
-- [ ] PA-9 declaration/hierarchy isolation at required scale.
-- [ ] PA-10 cold/incremental parity over the complete presentation set.
+- [x] PA-9 declaration/hierarchy isolation at required scale:
+  `a6_performance::pa9_large_hierarchy_edit_isolates_unrelated_formal_products`
+  passes with the 5,000-module fixture and cold/incremental hierarchy parity.
+- [x] PA-10 cold/incremental parity over the complete presentation set:
+  `a6_performance::pa10_cold_and_incremental_snapshots_have_presentation_parity_across_mutations`
+  passes across the 15-mutation sequence.
 
 ### Task 37 — Compiler/LSP parity and regression gate
 
 - [x] `RUSTFLAGS='' cargo test -p phalcom-modules` passes.
 - [x] `RUST_MIN_STACK=8388608 RUSTFLAGS='' cargo test -p phalcom-semantic`
-  passes: 1,103 passed, 42 ignored.
+  passes: 1,114 passed, 42 ignored.
 - [x] `RUSTFLAGS='' cargo check -p phalcom-lsp` passes.
-- [x] Full LSP release gate: provider lifecycle, semantic boundary, navigation,
-  integration, unit, and doc-test lanes pass; aggregate integration lane is
-  58 passed, 0 failed, 2 ignored.
+- [~] Full LSP release gate: the current run repeats
+  `imported_binding_resolution::imported_binding_definition_crosses_module_boundary_at_declaration_and_use`,
+  where the selective import declaration resolves to `main.ph` instead of
+  `shapes.ph`; this is outside the two semantic fixes and is not being repaired
+  as part of this slice.
 
 ### Task 38 — Workspace comparison and Plan-B handoff
 
@@ -348,9 +365,8 @@ open.
   integration lane did not finish within the verification window, so no exact
   workspace comparison is claimed.
 - [ ] Plan-B handoff surface is recorded below, but Plan A remains blocked by
-  the open A0/A6/matrix gates above. The current semantic implementation also
-  retains the A0 map-copy and A6 broad declaration/header publication gaps;
-  these are not masked by the improved metrics.
+  the open A6/core/LSP gates above. The remaining A6 broad orchestration gaps
+  are not masked by the improved metrics.
 
 ### Plan-B handoff
 
