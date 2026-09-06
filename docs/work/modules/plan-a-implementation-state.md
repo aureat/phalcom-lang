@@ -310,9 +310,10 @@ open.
 
 ### Plan-B handoff
 
-- Final pushed HEAD is stale in this historical record. Corrective source and
-  state-ledger changes are pending publication; update this field after the
-  corrective commit and push.
+- Final pushed HEAD: `35788901d4a12b0c5c3b9b09e49e4cb3a89f47b6`
+  (`fix(lsp): close Plan A publication regressions`); local `main` matches
+  `origin/main`. The unrelated `docs/.obsidian/workspace.json` edit remains
+  unstaged.
 - Retained module products: `ModuleTopology`, `ImportSiteId` keyed resolution
   products with prefix provenance, `ComponentId`/`ComponentLinkedProduct`,
   `WorkspaceModuleStats`, and published reverse import/site indexes.
