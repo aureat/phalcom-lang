@@ -216,14 +216,18 @@ aggregate/worklist closure is not yet proven.
 ### Tasks
 - [x] Task 28 — Retain per-module structural semantic shards and reuse
   unchanged shards across explicit module deltas.
-- [~] Task 29 — Delta-maintain declaration namespace/table composition; module
-  delta plumbing is present, but global declaration composition remains.
+- [~] Task 29 — Delta-maintain declaration namespace/table composition; retained
+  declaration contributions now compose with changed structural shards, but
+  generic-header/predeclaration work still has a broad remainder.
 - [~] Task 30 — Delta-maintain hierarchy/supertype direct-edge products;
-  structural worklists are narrowed, but aggregate closure remains open.
+  hierarchy updates and superclass enrichment use structural/semantic
+  worklists, but aggregate closure remains open.
 - [~] Task 31 — Module-shard type aliases and generic headers; retained alias
-  contributions exist, but aggregate composition still has broad passes.
+  contributions now compose by retained-vs-recomputed module, but alias
+  lowering/SCC composition still has broad passes.
 - [~] Task 32 — Publish declaration surfaces/callable/field signatures through
-  exact worklists; ordinary edits still rebuild some aggregate state.
+  exact worklists; field-default contributions now replace only affected
+  modules, while signature aggregate rebuilding remains open.
 - [~] Task 33 — Compose immutable snapshots from retained shards with cold/
   incremental parity; required parity and work-count proof remains open.
 
@@ -233,6 +237,13 @@ aggregate/worklist closure is not yet proven.
   hashing every source.
 - `ModuleSemanticStructureShard::with_source` retains declaration/alias
   contributions when source text changes without an interface change.
+- Retained snapshots now supply declaration and alias contributions for reused
+  modules; changed structural shards supply replacements without rescanning all
+  retained shards.
+- Default field-lifecycle contributions are removed and reseeded per affected
+  or removed module; initial analysis keeps the full cold-build path.
+- Semantic-graph superclass enrichment is scoped to the semantic worklist
+  instead of traversing every retained shard on ordinary edits.
 - Changed/removed modules seed semantic and structural worklists; unchanged
   shards and linked dependency fingerprints are retained.
 - `apply_module_mutations` now exposes module-layer work counts through the
@@ -242,10 +253,11 @@ aggregate/worklist closure is not yet proven.
   provider lifecycle LSP tests are green.
 
 ### Remaining A6 gap
-The semantic session still reconstructs some declaration, alias, hierarchy,
-signature, and field-lifecycle aggregates by traversing retained workspace
-state. The delta is no longer discarded at the module boundary, but this is
-not yet the plan's strict “no ordinary-edit total semantic traversal” gate.
+The semantic session still reconstructs generic headers, alias lowering/SCC
+state, and some signature aggregates through broad retained-workspace passes.
+The delta is no longer discarded at the module boundary, and field/default
+and superclass enrichment worklists are narrowed, but this is not yet the
+plan's strict “no ordinary-edit total semantic traversal” gate.
 
 ---
 

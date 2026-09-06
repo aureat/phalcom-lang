@@ -50,6 +50,11 @@ pub struct FieldLifecycleTable {
 }
 
 impl FieldLifecycleTable {
+    /// Removes field-default contributions owned by one source module.
+    pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
+        self.fields.retain(|field, _| &field.owner.module != module);
+    }
+
     pub fn seed_flow_for_owner(&self, flow: &mut FlowState, owner: &DeclarationId, constructor: bool) {
         for fact in self
             .fields

@@ -960,20 +960,21 @@ impl SemanticWorkspaceSession {
             })
             .collect();
 
-        if structural_aggregates_reusable {
+        if let Some(previous) = previous_snapshot.as_ref() {
             alias_declarations.extend(
-                previous_snapshot
-                    .as_ref()
-                    .expect("reusable structural aggregates have a previous snapshot")
+                previous
                     .type_aliases
                     .iter()
+                    .filter(|(declaration, _)| structural_reused_modules.contains(&declaration.module))
                     .map(|(declaration, _)| declaration.clone()),
             );
-        } else {
-            for shard in self.semantic_structure_shards.values() {
-                initial_blueprints.extend(shard.declarations.iter().cloned());
-                alias_declarations.extend(shard.aliases.iter().cloned());
-            }
+        }
+        for module in &structural_recomputed_modules {
+            let Some(shard) = self.semantic_structure_shards.get(module) else {
+                continue;
+            };
+            initial_blueprints.extend(shard.declarations.iter().cloned());
+            alias_declarations.extend(shard.aliases.iter().cloned());
         }
 
         for (module_id, shard) in &self.semantic_structure_shards {
@@ -1070,7 +1071,10 @@ impl SemanticWorkspaceSession {
             input.linked.graphs.semantics.clone()
         };
         if !structural_aggregates_reusable {
-            for (module_id, shard) in &self.semantic_structure_shards {
+            for module_id in &semantic_work_modules {
+                let Some(shard) = self.semantic_structure_shards.get(module_id) else {
+                    continue;
+                };
                 let parsed_unit = &shard.source;
                 for stmt in &parsed_unit.program.statements {
                     if let Statement::Class(class_def) = stmt {
@@ -1949,8 +1953,25 @@ impl SemanticWorkspaceSession {
         let default_field_lifecycle = if structural_aggregates_reusable {
             self.default_field_lifecycle.clone()
         } else {
-            let mut table = crate::checker::field_lifecycle::FieldLifecycleTable::default();
-            for (module_id, shard) in &self.semantic_structure_shards {
+            let mut table = if previous_snapshot.is_some() {
+                self.default_field_lifecycle.clone()
+            } else {
+                crate::checker::field_lifecycle::FieldLifecycleTable::default()
+            };
+            if previous_snapshot.is_some() {
+                for module in structural_work_modules.iter().chain(removed_modules.iter()) {
+                    table.remove_module(module);
+                }
+            }
+            let modules = if previous_snapshot.is_some() {
+                structural_work_modules.iter().cloned().collect::<Vec<_>>()
+            } else {
+                self.semantic_structure_shards.keys().cloned().collect::<Vec<_>>()
+            };
+            for module_id in modules {
+                let Some(shard) = self.semantic_structure_shards.get(&module_id) else {
+                    continue;
+                };
                 let parsed_unit = &shard.source;
                 let mut ctx = CheckingContext::new_with_dispatch_ref(&mut self.store, &hierarchy, &resolver, &declarations, &dispatch, module_id.clone());
                 ctx.attach_field_signatures(&field_signatures);
