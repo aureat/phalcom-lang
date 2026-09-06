@@ -114,7 +114,18 @@ class Child is Base {
         !hierarchy_dependencies.contains(&QueryKey::ParsedModule(module.clone())),
         "hierarchy source syntax is a direct query input, not a whole-module product dependency"
     );
-    assert!(hierarchy_dependencies.contains(&QueryKey::LinkedInterface(module.clone())));
+    assert!(
+        !hierarchy_dependencies.contains(&QueryKey::LinkedInterface(module.clone())),
+        "hierarchy edge must not use owner linked interface as its only semantic dependency: {hierarchy_dependencies:?}"
+    );
+    assert!(
+        hierarchy_dependencies.contains(&QueryKey::LinkedName(module.clone(), "Base".into())),
+        "hierarchy edge must retain exact superclass-name dependency: {hierarchy_dependencies:?}"
+    );
+    assert!(
+        hierarchy_dependencies.contains(&QueryKey::DeclarationShell(DeclarationId::new(module.clone(), "Base".into()))),
+        "hierarchy edge must retain resolved superclass shell dependency: {hierarchy_dependencies:?}"
+    );
 
     let surface = session
         .db()

@@ -564,6 +564,9 @@ pub fn query_hierarchy_edge(
     unit: Arc<ParsedModuleUnit>,
     linked_interface: Arc<LinkedModuleInterface>,
     resolver: &dyn TypeResolver,
+    linked: &LinkedProgram,
+    declarations: &DeclarationTypeTable,
+    import_products: &BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>,
 ) -> QueryOutcome<Arc<HierarchyEdgeProduct>> {
     let key = QueryKey::HierarchyEdge(class_decl.clone());
     if unit.id != class_decl.module || linked_interface.module != class_decl.module {
@@ -583,11 +586,18 @@ pub fn query_hierarchy_edge(
         return query_failure(db, key, format!("source declaration {class_decl:?} was not found in its parsed module"));
     }
     let superclass_syntax = class_def.and_then(|class_def| superclass_source(&unit, class_def));
+    let mut captured_dependencies = BTreeSet::new();
     let super_decl = if let Some(class_def) = class_def {
         if let Some(super_ref) = class_def.superclass_ref() {
             let members = super_ref.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
-            resolver
-                .resolve_type_name(&class_decl.module, &super_ref.root, &members)
+            let (resolved, dependencies) = crate::checker::context::resolve_type_name_with_dependencies(
+                resolver,
+                &class_decl.module,
+                &super_ref.root,
+                &members,
+            );
+            captured_dependencies.extend(dependencies);
+            resolved
                 .or_else(|| match (super_ref.root.as_str(), members.is_empty()) {
                     ("Some", true) => Some(crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Some)),
                     ("None", true) => Some(crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::None)),
@@ -618,8 +628,17 @@ pub fn query_hierarchy_edge(
     db.metrics().record_miss();
 
     let mut recorder = crate::db::DependencyRecorder::new(key.clone());
-    if let Err(error) = db.record_dependency(&mut recorder, QueryKey::LinkedInterface(class_decl.module.clone())) {
-        return query_failure(db, key, error);
+    for dependency in captured_dependencies {
+        match ensure_semantic_dependency_current(db, &dependency, Some(linked), declarations, Some(import_products)) {
+            QueryOutcome::Ready(()) => {}
+            QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+            QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+            QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+            QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+        }
+        if let Err(error) = db.record_dependency(&mut recorder, semantic_dependency_query_key(&dependency)) {
+            return query_failure(db, key, error);
+        }
     }
 
     let product = Arc::new(HierarchyEdgeProduct::new(class_decl.clone(), super_decl));

@@ -889,6 +889,10 @@ impl SemanticWorkspaceSession {
         // index already contains exact reverse edges for declaration surfaces,
         // signatures, and bodies, so ordinary edits only revisit affected
         // modules and semantic consumers.
+        let mut hierarchy_edge_work = BTreeSet::new();
+        let mut declaration_surface_work = BTreeSet::new();
+        let mut callable_signature_work = BTreeSet::new();
+        let mut field_signature_work = BTreeSet::new();
         let semantic_work_modules = if previous_snapshot.is_none() {
             current_modules.clone()
         } else {
@@ -908,6 +912,24 @@ impl SemanticWorkspaceSession {
             }
             let closure = self.db.index().reverse_closure(roots);
             stats.reverse_candidates_considered = closure.len();
+            for key in &closure {
+                match key {
+                    QueryKey::DeclarationSurface(declaration) => {
+                        declaration_surface_work.insert(declaration.clone());
+                    }
+                    QueryKey::CallableSignature(callable) => {
+                        callable_signature_work.insert(callable.clone());
+                    }
+                    QueryKey::FieldSignature(field) => {
+                        field_signature_work.insert(field.clone());
+                    }
+                    _ => {}
+                }
+            }
+            hierarchy_edge_work.extend(closure.iter().filter_map(|key| match key {
+                QueryKey::HierarchyEdge(declaration) => Some(declaration.clone()),
+                _ => None,
+            }));
             let mut work = closure
                 .iter()
                 .filter_map(query_key_module_for_worklist)
@@ -925,11 +947,29 @@ impl SemanticWorkspaceSession {
             })
             .cloned()
             .collect::<BTreeSet<_>>();
+        let hierarchy_work_modules = structural_work_modules
+            .iter()
+            .cloned()
+            .chain(
+                hierarchy_edge_work
+                    .iter()
+                    .map(|declaration| declaration.module.clone())
+                    .filter(|module| current_modules.contains(module)),
+            )
+            .collect::<BTreeSet<_>>();
+        let formal_work_modules = structural_work_modules
+            .iter()
+            .cloned()
+            .chain(declaration_surface_work.iter().map(|declaration| declaration.module.clone()))
+            .chain(callable_signature_work.iter().map(|callable| callable.module().clone()))
+            .chain(field_signature_work.iter().map(|field| field.owner.module.clone()))
+            .filter(|module| current_modules.contains(module))
+            .collect::<BTreeSet<_>>();
         let structural_aggregates_reusable = previous_snapshot.as_ref().is_some_and(|previous| {
-            structural_work_modules.is_empty()
+            hierarchy_work_modules.is_empty()
                 && removed_modules.is_empty()
                 && field_lifecycle_changed_modules.is_empty()
-                && previous.semantic_graph.as_ref() == &input.linked.graphs.semantics
+                && previous.semantic_graph.module_projection() == input.linked.graphs.semantics
         });
 
         // 2. Predeclare Every Source Declaration
@@ -944,7 +984,7 @@ impl SemanticWorkspaceSession {
         let mut hierarchy = previous_snapshot
             .as_ref()
             .map_or_else(|| self.base_hierarchy.clone(), |snapshot| (*snapshot.hierarchy).clone());
-        for module in &semantic_work_modules {
+        for module in &hierarchy_work_modules {
             hierarchy.remove_module(module);
         }
         for module in &removed_modules {
@@ -1060,24 +1100,26 @@ impl SemanticWorkspaceSession {
         let resolver = LinkedTypeResolver::new(input.linked.clone(), known_declarations.clone(), ModuleId::universe_root());
 
         // 4. Enrich Semantic Graph
-        let mut semantic_graph = if structural_aggregates_reusable {
-            previous_snapshot
-                .as_ref()
-                .expect("reusable structural aggregates have a previous snapshot")
-                .semantic_graph
-                .as_ref()
-                .clone()
-        } else {
-            input.linked.graphs.semantics.clone()
-        };
+        let mut semantic_graph = input.linked.graphs.semantics.clone();
+        if let Some(previous) = previous_snapshot.as_ref() {
+            for module_id in current_modules.iter().filter(|module| !hierarchy_work_modules.contains(*module)) {
+                for edge in previous.semantic_graph.declaration_edges_from_module(module_id) {
+                    semantic_graph.add(edge);
+                }
+            }
+        }
         if !structural_aggregates_reusable {
-            for module_id in &semantic_work_modules {
+            for module_id in &hierarchy_work_modules {
                 let Some(shard) = self.semantic_structure_shards.get(module_id) else {
                     continue;
                 };
                 let parsed_unit = &shard.source;
                 for stmt in &parsed_unit.program.statements {
                     if let Statement::Class(class_def) = stmt {
+                        let declaration = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                        if !structural_work_modules.contains(module_id) && !hierarchy_edge_work.contains(&declaration) {
+                            continue;
+                        }
                         let from_node = SemanticNodeId::Declaration {
                             module: module_id.clone(),
                             name: class_def.name.clone().into(),
@@ -1584,7 +1626,7 @@ impl SemanticWorkspaceSession {
 
         // Build the compatibility hierarchy exclusively from DB-owned hierarchy-edge queries.
         for (module_id, shard) in &self.semantic_structure_shards {
-            if !structural_work_modules.contains(module_id) {
+            if !hierarchy_work_modules.contains(module_id) {
                 continue;
             }
             let parsed_unit = &shard.source;
@@ -1598,10 +1640,21 @@ impl SemanticWorkspaceSession {
             for stmt in &parsed_unit.program.statements {
                 if let Statement::Class(class_def) = stmt {
                     let class_decl = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
-                    if blocked_declarations.contains(&class_decl) {
+                    if blocked_declarations.contains(&class_decl)
+                        || (!structural_work_modules.contains(module_id) && !hierarchy_edge_work.contains(&class_decl))
+                    {
                         continue;
                     }
-                    let edge = match query_hierarchy_edge(&mut self.db, class_decl.clone(), parsed_unit.clone(), linked_interface.clone(), &resolver) {
+                    let edge = match query_hierarchy_edge(
+                        &mut self.db,
+                        class_decl.clone(),
+                        parsed_unit.clone(),
+                        linked_interface.clone(),
+                        &resolver,
+                        input.linked.as_ref(),
+                        &declarations,
+                        &input.import_products,
+                    ) {
                         QueryOutcome::Ready(edge) => edge,
                         QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
                         QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
@@ -1621,7 +1674,21 @@ impl SemanticWorkspaceSession {
                     }
                 } else if let Statement::Enum(enum_def) = stmt {
                     let enum_decl = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
-                    let edge = match query_hierarchy_edge(&mut self.db, enum_decl.clone(), parsed_unit.clone(), linked_interface.clone(), &resolver) {
+                    if blocked_declarations.contains(&enum_decl)
+                        || (!structural_work_modules.contains(module_id) && !hierarchy_edge_work.contains(&enum_decl))
+                    {
+                        continue;
+                    }
+                    let edge = match query_hierarchy_edge(
+                        &mut self.db,
+                        enum_decl.clone(),
+                        parsed_unit.clone(),
+                        linked_interface.clone(),
+                        &resolver,
+                        input.linked.as_ref(),
+                        &declarations,
+                        &input.import_products,
+                    ) {
                         QueryOutcome::Ready(edge) => edge,
                         QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
                         QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
@@ -1645,14 +1712,14 @@ impl SemanticWorkspaceSession {
         let mut field_signatures = previous_snapshot
             .as_ref()
             .map_or_else(FieldSignatureTable::new, |snapshot| (*snapshot.field_signatures).clone());
-        for module in structural_work_modules.iter().chain(removed_modules.iter()) {
+        for module in formal_work_modules.iter().chain(removed_modules.iter()) {
             dispatch.remove_module(module);
             callable_signatures.remove_module(module);
             field_signatures.remove_module(module);
         }
 
         for (module_id, shard) in &self.semantic_structure_shards {
-            if !structural_work_modules.contains(module_id) {
+            if !formal_work_modules.contains(module_id) {
                 continue;
             }
             let parsed_unit = &shard.source;

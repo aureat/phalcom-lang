@@ -217,6 +217,21 @@ impl<'a> TrackingTypeResolver<'a> {
     }
 }
 
+/// Resolves one type name while exposing the exact semantic facts consumed by
+/// the resolver. Formal query products use this boundary to own their reverse
+/// invalidation edges instead of falling back to an aggregate interface edge.
+pub(crate) fn resolve_type_name_with_dependencies(
+    resolver: &dyn TypeResolver,
+    current_module: &ModuleId,
+    root: &str,
+    members: &[String],
+) -> (Option<DeclarationId>, BTreeSet<SemanticDependency>) {
+    let dependencies = Rc::new(RefCell::new(BTreeSet::new()));
+    let tracking = TrackingTypeResolver::new(resolver, dependencies.clone());
+    let resolved = tracking.resolve_type_name(current_module, root, members);
+    (resolved, dependencies.borrow().clone())
+}
+
 impl TypeResolver for TrackingTypeResolver<'_> {
     fn resolve_type_name(&self, current_module: &ModuleId, root: &str, members: &[String]) -> Option<DeclarationId> {
         if is_query_owned_module(current_module) {

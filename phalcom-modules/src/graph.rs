@@ -181,6 +181,33 @@ impl SemanticGraph {
         self.forward.get(node).map(Vec::as_slice).unwrap_or(&[])
     }
 
+    /// Returns a graph containing only module-level semantic edges.
+    ///
+    /// Semantic analysis adds declaration-level edges after module linking;
+    /// callers can use this projection to compare the linker-owned graph
+    /// without confusing it with retained compiler-enrichment edges.
+    pub fn module_projection(&self) -> Self {
+        let mut projection = Self::default();
+        for (node, edges) in &self.forward {
+            if matches!(node, SemanticNodeId::Module(_)) {
+                projection.forward.insert(node.clone(), edges.clone());
+            }
+        }
+        projection
+    }
+
+    /// Returns source-declaration edges owned by one module.
+    ///
+    /// The linker does not produce these edges; semantic analysis retains and
+    /// replaces them per source module across incremental revisions.
+    pub fn declaration_edges_from_module(&self, module: &ModuleId) -> Vec<SemanticEdge> {
+        self.forward
+            .iter()
+            .filter(|(node, _)| matches!(node, SemanticNodeId::Declaration { module: owner, .. } if owner == module))
+            .flat_map(|(_, edges)| edges.iter().cloned())
+            .collect()
+    }
+
     /// Returns all nodes in this graph.
     pub fn nodes(&self) -> Vec<SemanticNodeId> {
         let mut nodes = BTreeSet::new();

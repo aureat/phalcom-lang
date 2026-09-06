@@ -220,8 +220,9 @@ aggregate/worklist closure is not yet proven.
   declaration contributions now compose with changed structural shards, but
   generic-header/predeclaration work still has a broad remainder.
 - [~] Task 30 — Delta-maintain hierarchy/supertype direct-edge products;
-  hierarchy updates and superclass enrichment use structural/semantic
-  worklists, but aggregate closure remains open.
+  retained source-owned superclass edges now survive unrelated edits, exact
+  resolver dependencies are query-owned, and direct-edge worklists are
+  narrowed; cross-module cycle/retarget parity and aggregate closure remain.
 - [~] Task 31 — Module-shard type aliases and generic headers; retained alias
   contributions now compose by retained-vs-recomputed module, but alias
   lowering/SCC composition still has broad passes.
@@ -243,7 +244,16 @@ aggregate/worklist closure is not yet proven.
 - Default field-lifecycle contributions are removed and reseeded per affected
   or removed module; initial analysis keeps the full cold-build path.
 - Semantic-graph superclass enrichment is scoped to the semantic worklist
-  instead of traversing every retained shard on ordinary edits.
+  instead of traversing every retained shard on ordinary edits; linker-owned
+  module edges are composed with retained/replaced source-declaration edges.
+- A6 correctness incident from `1aca740e` is repaired: an unrelated edit no
+  longer drops retained superclass edges or falsely changes the module graph.
+  Hierarchy queries now record exact linked-name and declaration-shell
+  prerequisites rather than only the owner linked-interface product.
+- Formal compatibility projections now consume typed reverse worklists for
+  declaration surfaces, callable signatures, and field signatures, so a
+  semantically affected retained source module is refreshed instead of
+  exposing stale snapshot tables.
 - Changed/removed modules seed semantic and structural worklists; unchanged
   shards and linked dependency fingerprints are retained.
 - `apply_module_mutations` now exposes module-layer work counts through the
@@ -255,9 +265,10 @@ aggregate/worklist closure is not yet proven.
 ### Remaining A6 gap
 The semantic session still reconstructs generic headers, alias lowering/SCC
 state, and some signature aggregates through broad retained-workspace passes.
-The delta is no longer discarded at the module boundary, and field/default
-and superclass enrichment worklists are narrowed, but this is not yet the
-plan's strict “no ordinary-edit total semantic traversal” gate.
+Compatibility removal remains module-scoped, and instrumentation still scans
+cached products. The delta is no longer discarded at the module boundary, and
+field/default, superclass, and formal-product worklists are narrowed, but this
+is not yet the plan's strict “no ordinary-edit total semantic traversal” gate.
 
 ---
 
