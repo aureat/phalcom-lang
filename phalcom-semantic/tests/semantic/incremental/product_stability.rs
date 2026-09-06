@@ -424,6 +424,68 @@ class Unrelated {
 }
 
 #[test]
+fn stable_intermediate_callable_product_stops_later_propagation() {
+    let module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(55),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("stable_intermediate").unwrap()]),
+    );
+    let mut session = SemanticWorkspaceSession::new();
+    let source_a = r#"
+class Api {
+  @class value() -> Int { 1 }
+}
+class Consumer {
+  @class read() { Api.value() }
+}
+"#;
+    let source_b = r#"
+class Api {
+  @class value() -> String { "changed" }
+}
+class Consumer {
+  @class read() { Api.value() }
+}
+"#;
+    let source_c = r#"
+class Api {
+  @class value() -> String { "changed again" }
+}
+class Consumer {
+  @class read() { Api.value() }
+}
+"#;
+
+    let update_a = session.update(input(module.clone(), source_a, 1));
+    let consumer = DeclarationId::new(module.clone(), "Consumer".into());
+    let consumer_read = CallableId::new(consumer, Selector::method("read", []).unwrap(), DispatchSide::Class);
+    let body_key = QueryKey::CallableBody(consumer_read.clone());
+    let api = DeclarationId::new(module.clone(), "Api".into());
+    let api_value = CallableId::new(api, Selector::method("value", []).unwrap(), DispatchSide::Class);
+
+    let update_b = session.update(input(module.clone(), source_b, 2));
+    assert!(update_b.recomputed.contains(&body_key), "the changed callable contract must recompute its exact consumer");
+    let consumer_revision_b = session.db().query_state(&body_key).and_then(|state| state.revision()).expect("consumer revision after B");
+    let api_body_revision_b = session
+        .db()
+        .query_state(&QueryKey::CallableBody(api_value.clone()))
+        .and_then(|state| state.revision())
+        .expect("API body revision after B");
+
+    let update_c = session.update(input(module, source_c, 3));
+    assert!(!update_c.recomputed.contains(&body_key), "a body-only edit with a stable signature must stop at the provider");
+    assert_eq!(session.db().query_state(&body_key).and_then(|state| state.revision()), Some(consumer_revision_b));
+    assert!(session.db().query_state(&body_key).is_some_and(|state| state.validated_revision().is_some()));
+    assert_ne!(
+        session.db().query_state(&QueryKey::CallableBody(api_value)).and_then(|state| state.revision()),
+        Some(api_body_revision_b),
+        "the provider body itself still recomputes"
+    );
+    assert!(!update_a.snapshot.has_errors());
+    assert!(!update_b.snapshot.has_errors());
+    assert!(!update_c.snapshot.has_errors());
+}
+
+#[test]
 fn superclass_edit_recomputes_hierarchy_consumers_without_touching_unrelated_bodies() {
     let module = ModuleId::resolved(
         ResolvedProjectId::from_raw(6),

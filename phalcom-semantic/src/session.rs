@@ -80,6 +80,7 @@ pub struct SemanticUpdateStats {
     pub hierarchy_edges_reused: usize,
     pub alias_regions_recomputed: usize,
     pub alias_regions_reused: usize,
+    pub alias_dependency_nodes_considered: usize,
     pub callable_signatures_recomputed: usize,
     pub callable_signatures_reused: usize,
     pub field_signatures_recomputed: usize,
@@ -259,6 +260,7 @@ pub struct SemanticWorkspaceSession {
     field_lifecycle_fingerprints: BTreeMap<ModuleId, u64>,
     default_field_lifecycle: crate::checker::field_lifecycle::FieldLifecycleTable,
     semantic_structure_shards: BTreeMap<ModuleId, Arc<ModuleSemanticStructureShard>>,
+    alias_dependencies: BTreeMap<DeclarationId, BTreeSet<DeclarationId>>,
     last_snapshot: Option<Arc<SemanticSnapshot>>,
     last_known_good: Option<Arc<SemanticSnapshot>>,
 }
@@ -557,6 +559,7 @@ impl SemanticWorkspaceSession {
             field_lifecycle_fingerprints: BTreeMap::new(),
             default_field_lifecycle: crate::checker::field_lifecycle::FieldLifecycleTable::default(),
             semantic_structure_shards: BTreeMap::new(),
+            alias_dependencies: BTreeMap::new(),
             last_snapshot: None,
             last_known_good: None,
         }
@@ -711,11 +714,6 @@ impl SemanticWorkspaceSession {
         let source_resolution_input = crate::db::fingerprint::source_resolution_input_fingerprint(&input.interfaces);
         let linked_component_product = crate::db::fingerprint::semantic_component_product_fingerprint(&input.linked);
         let mut stats = SemanticUpdateStats::default();
-        let previous_query_revisions = self
-            .db
-            .query_keys()
-            .map(|key| (key.clone(), self.db.query_state(key).and_then(|state| state.revision())))
-            .collect::<BTreeMap<_, _>>();
         let mut invalidated_keys = BTreeSet::new();
         let mut callable_dispositions = BTreeMap::new();
         let previous_sources = self.sources.clone();
@@ -893,6 +891,7 @@ impl SemanticWorkspaceSession {
         let mut declaration_surface_work = BTreeSet::new();
         let mut callable_signature_work = BTreeSet::new();
         let mut field_signature_work = BTreeSet::new();
+        let mut declaration_shell_work = BTreeSet::new();
         let semantic_work_modules = if previous_snapshot.is_none() {
             current_modules.clone()
         } else {
@@ -902,6 +901,7 @@ impl SemanticWorkspaceSession {
                 roots.insert(QueryKey::UnlinkedInterface(module.clone()));
                 roots.insert(QueryKey::LinkedInterface(module.clone()));
                 roots.insert(QueryKey::ModuleDiagnostics(module.clone()));
+                roots.extend(self.db.query_keys_for_module(module).cloned());
             }
             if let Some(previous) = previous_snapshot.as_ref() {
                 for (module, linked) in &input.linked.modules {
@@ -914,6 +914,9 @@ impl SemanticWorkspaceSession {
             stats.reverse_candidates_considered = closure.len();
             for key in &closure {
                 match key {
+                    QueryKey::DeclarationShell(declaration) => {
+                        declaration_shell_work.insert(declaration.clone());
+                    }
                     QueryKey::DeclarationSurface(declaration) => {
                         declaration_surface_work.insert(declaration.clone());
                     }
@@ -1186,25 +1189,30 @@ impl SemanticWorkspaceSession {
             }
         }
         let mut blocked_declarations = BTreeSet::new();
-        let aliases_changed = structural_recomputed_modules.iter().any(|module| {
-            self.semantic_structure_shards.get(module).is_some_and(|shard| !shard.aliases.is_empty())
-                || previous_snapshot
-                    .as_ref()
-                    .is_some_and(|snapshot| snapshot.type_aliases.iter().any(|(declaration, _)| &declaration.module == module))
-        });
-        let alias_reused_modules = if aliases_changed {
-            BTreeSet::new()
-        } else {
-            structural_reused_modules.clone()
-        };
         let mut type_aliases = previous_snapshot
             .as_ref()
             .map_or_else(TypeAliasTable::new, |snapshot| (*snapshot.type_aliases).clone());
+        let mut alias_dependencies = self.alias_dependencies.clone();
+        let mut alias_recomputed_declarations = declaration_shell_work
+            .iter()
+            .filter(|declaration| type_aliases.contains_key(declaration))
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        for module in &structural_recomputed_modules {
+            alias_recomputed_declarations.extend(type_aliases.declarations_for_module(module).cloned());
+            if let Some(shard) = self.semantic_structure_shards.get(module) {
+                alias_recomputed_declarations.extend(shard.aliases.iter().cloned());
+            }
+        }
         for module in &structural_recomputed_modules {
             type_aliases.remove_module(module);
         }
+        for declaration in &alias_recomputed_declarations {
+            type_aliases.remove(declaration);
+            alias_dependencies.remove(declaration);
+        }
         for (declaration, info) in type_aliases.iter() {
-            if alias_reused_modules.contains(&declaration.module) {
+            if !alias_recomputed_declarations.contains(declaration) {
                 resolver.insert_alias_form(declaration.clone(), info.form);
             }
         }
@@ -1241,37 +1249,37 @@ impl SemanticWorkspaceSession {
 
         // Lower transparent aliases before class signatures so alias references
         // resolve through the same linked declaration resolver.
-        let mut alias_dependencies = type_aliases
-            .iter()
-            .filter(|(declaration, _)| alias_reused_modules.contains(&declaration.module))
-            .map(|(declaration, info)| (declaration.clone(), info.dependencies.iter().cloned().collect::<BTreeSet<_>>()))
-            .collect::<BTreeMap<_, _>>();
         for (module_id, shard) in &self.semantic_structure_shards {
-            if alias_reused_modules.contains(module_id) {
-                continue;
-            }
             let parsed_unit = &shard.source;
             for stmt in &parsed_unit.program.statements {
                 let Statement::TypeAlias(alias) = stmt else {
                     continue;
                 };
                 let declaration = DeclarationId::new(module_id.clone(), alias.name.clone().into());
+                if !alias_recomputed_declarations.contains(&declaration) {
+                    continue;
+                }
                 let mut dependencies = BTreeSet::new();
                 collect_alias_dependencies(&alias.body, module_id, &resolver, &alias_declarations, &mut dependencies);
                 alias_dependencies.insert(declaration, dependencies);
             }
         }
-        let alias_cycles = find_alias_cycles(&alias_dependencies);
-        for declaration in &alias_cycles {
-            let Some((module_id, alias)) = self.semantic_structure_shards.iter().find_map(|(module_id, shard)| {
-                let parsed_unit = &shard.source;
-                parsed_unit.program.statements.iter().find_map(|statement| {
+        stats.alias_dependency_nodes_considered = alias_dependencies.len();
+        let alias_sources = self
+            .semantic_structure_shards
+            .iter()
+            .flat_map(|(module_id, shard)| {
+                shard.source.program.statements.iter().filter_map(move |statement| {
                     let Statement::TypeAlias(alias) = statement else {
                         return None;
                     };
-                    (DeclarationId::new(module_id.clone(), alias.name.clone().into()) == *declaration).then_some((module_id, alias))
+                    Some((DeclarationId::new(module_id.clone(), alias.name.clone().into()), (module_id.clone(), alias.clone())))
                 })
-            }) else {
+            })
+            .collect::<BTreeMap<_, _>>();
+        let alias_cycles = find_alias_cycles(&alias_dependencies);
+        for declaration in &alias_cycles {
+            let Some((module_id, alias)) = alias_sources.get(declaration) else {
                 continue;
             };
             diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
@@ -1301,15 +1309,7 @@ impl SemanticWorkspaceSession {
             })
             .cloned()
         {
-            let Some((module_id, alias)) = self.semantic_structure_shards.iter().find_map(|(module_id, shard)| {
-                let parsed_unit = &shard.source;
-                parsed_unit.program.statements.iter().find_map(|statement| {
-                    let Statement::TypeAlias(alias) = statement else {
-                        return None;
-                    };
-                    (DeclarationId::new(module_id.clone(), alias.name.clone().into()) == declaration).then_some((module_id, alias))
-                })
-            }) else {
+            let Some((module_id, alias)) = alias_sources.get(&declaration) else {
                 pending_aliases.remove(&declaration);
                 continue;
             };
@@ -2201,7 +2201,7 @@ impl SemanticWorkspaceSession {
                                             );
                                             for (field, fact) in finalized.fields {
                                                 if field.owner == decl_id {
-                                                    field_lifecycle.fields.insert(field, fact);
+                                                    field_lifecycle.insert(field, fact);
                                                 }
                                             }
                                         }
@@ -2745,84 +2745,20 @@ impl SemanticWorkspaceSession {
         }
         let snapshot = Arc::new(snapshot_obj);
 
-        let count_work = |key: QueryKey, recomputed: &mut usize, reused: &mut usize| {
-            let Some(state) = self.db.query_state(&key) else {
-                return;
-            };
-            if state.revision() == Some(self.db.revision()) {
-                *recomputed += 1;
-            } else if state.validated_revision() == Some(self.db.revision()) {
-                *reused += 1;
-            }
-        };
-        for (declaration, _) in snapshot.declarations.iter() {
-            if snapshot.sources.contains_key(&declaration.module) {
-                count_work(
-                    QueryKey::DeclarationShell(declaration.clone()),
-                    &mut stats.declaration_products_recomputed,
-                    &mut stats.declaration_products_reused,
-                );
-            }
+        // Query evaluation records computation and validation events directly.
+        // Consume only this revision's event set instead of walking every cached
+        // product and every dependency edge after each update.
+        let mut query_work = BTreeMap::new();
+        for key in self.db.revision_revalidated_keys() {
+            query_work.entry(key.clone()).or_insert(false);
         }
-        for declaration in snapshot.hierarchy.superclasses.keys() {
-            if snapshot.sources.contains_key(&declaration.module) {
-                count_work(
-                    QueryKey::HierarchyEdge(declaration.clone()),
-                    &mut stats.hierarchy_edges_recomputed,
-                    &mut stats.hierarchy_edges_reused,
-                );
-            }
+        for key in self.db.revision_recomputed_keys() {
+            query_work.insert(key.clone(), true);
         }
-        for (declaration, _) in snapshot.type_aliases.iter() {
-            count_work(
-                QueryKey::DeclarationShell(declaration.clone()),
-                &mut stats.alias_regions_recomputed,
-                &mut stats.alias_regions_reused,
-            );
-        }
-        for (callable, _) in snapshot.callable_signatures.iter() {
-            if snapshot.sources.contains_key(&callable.module()) {
-                count_work(
-                    QueryKey::CallableSignature(callable.clone()),
-                    &mut stats.callable_signatures_recomputed,
-                    &mut stats.callable_signatures_reused,
-                );
-            }
-        }
-        for (field, _) in snapshot.field_signatures.iter() {
-            if snapshot.sources.contains_key(&field.owner.module) {
-                count_work(
-                    QueryKey::FieldSignature(field.clone()),
-                    &mut stats.field_signatures_recomputed,
-                    &mut stats.field_signatures_reused,
-                );
-            }
-        }
-        for callable in snapshot.callable_analyses.keys() {
-            if snapshot.sources.contains_key(&callable.module()) {
-                count_work(
-                    QueryKey::CallableBody(callable.clone()),
-                    &mut stats.callable_bodies_recomputed,
-                    &mut stats.callable_bodies_reused,
-                );
-            }
-        }
-
-        // Count database work from computation/validation revisions, not from
-        // changed source modules. A cached product may be validated in this
-        // revision without being recomputed; preserving that distinction is
-        // required for deterministic incremental acceptance metrics.
-        let current_revision = self.db.revision();
-        for key in self.db.query_keys() {
-            let Some(state) = self.db.query_state(key) else {
-                continue;
-            };
-            let previous_computation_revision = previous_query_revisions.get(key).copied().flatten();
-            let recomputed = state.revision() == Some(current_revision) && previous_computation_revision != Some(current_revision);
-            let revalidated = !recomputed && state.validated_revision() == Some(current_revision) && state.revision() != Some(current_revision);
+        for (key, recomputed) in query_work {
             if recomputed {
                 stats.query_products_recomputed += 1;
-            } else if revalidated {
+            } else {
                 stats.query_products_revalidated += 1;
             }
 
@@ -2830,17 +2766,64 @@ impl SemanticWorkspaceSession {
             if exact_name {
                 if recomputed {
                     stats.exact_name_products_recomputed += 1;
-                } else if revalidated {
+                } else {
                     stats.exact_name_products_reused += 1;
                 }
             }
 
-            if self.db.index().dependencies_of(key).is_some_and(|edges| !edges.is_empty()) {
+            if self.db.index().dependencies_of(&key).is_some_and(|edges| !edges.is_empty()) {
                 if recomputed {
                     stats.semantic_dependents_recomputed += 1;
-                } else if revalidated {
+                } else {
                     stats.semantic_dependents_reused += 1;
                 }
+            }
+
+            match &key {
+                QueryKey::DeclarationShell(declaration) => {
+                    if snapshot.type_aliases.contains_key(declaration) {
+                        if recomputed {
+                            stats.alias_regions_recomputed += 1;
+                        } else {
+                            stats.alias_regions_reused += 1;
+                        }
+                    } else if snapshot.sources.contains_key(&declaration.module) {
+                        if recomputed {
+                            stats.declaration_products_recomputed += 1;
+                        } else {
+                            stats.declaration_products_reused += 1;
+                        }
+                    }
+                }
+                QueryKey::HierarchyEdge(declaration) if snapshot.sources.contains_key(&declaration.module) => {
+                    if recomputed {
+                        stats.hierarchy_edges_recomputed += 1;
+                    } else {
+                        stats.hierarchy_edges_reused += 1;
+                    }
+                }
+                QueryKey::CallableSignature(callable) if snapshot.sources.contains_key(&callable.module()) => {
+                    if recomputed {
+                        stats.callable_signatures_recomputed += 1;
+                    } else {
+                        stats.callable_signatures_reused += 1;
+                    }
+                }
+                QueryKey::FieldSignature(field) if snapshot.sources.contains_key(&field.owner.module) => {
+                    if recomputed {
+                        stats.field_signatures_recomputed += 1;
+                    } else {
+                        stats.field_signatures_reused += 1;
+                    }
+                }
+                QueryKey::CallableBody(callable) if snapshot.sources.contains_key(&callable.module()) => {
+                    if recomputed {
+                        stats.callable_bodies_recomputed += 1;
+                    } else {
+                        stats.callable_bodies_reused += 1;
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -2903,6 +2886,7 @@ impl SemanticWorkspaceSession {
         self.last_snapshot = Some(snapshot.clone());
         self.last_known_good = Some(snapshot.clone());
         self.field_lifecycle_fingerprints = next_field_lifecycle_fingerprints;
+        self.alias_dependencies = alias_dependencies;
         self.default_field_lifecycle = default_field_lifecycle;
 
         Ok(SemanticWorkspaceUpdate {

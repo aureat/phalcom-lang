@@ -2,14 +2,14 @@
 
 use super::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact};
 use super::diagnostic::SemanticSourceSpan;
-use super::identity::{CallableId, CallableParameterId, DeclarationId, DispatchSide, FieldId};
+use super::identity::{CallableId, CallableParameterId, DeclarationId, DispatchSide, FieldId, ModuleId};
 use super::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge};
 use super::types::parameter::{GenericSignature, TypeTerm};
 use phalcom_ast::ast::RestMode;
 use phalcom_common::selector::Selector;
 use phalcom_native_meta::{EffectSpec, ImplementationKind, NativeLifecycleSpec, RaisesSpec, ReturnFlowSpec};
 use phalcom_native_surface::NativeSurfaceId;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 /// Epistemic certification state for a source return contract.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -170,6 +170,7 @@ pub struct FieldSemanticSignature {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct CallableSignatureTable {
     by_id: HashMap<CallableId, CallableSemanticSignature>,
+    module_callables: HashMap<ModuleId, BTreeSet<CallableId>>,
 }
 
 impl CallableSignatureTable {
@@ -178,11 +179,19 @@ impl CallableSignatureTable {
     }
 
     pub fn insert(&mut self, sig: CallableSemanticSignature) {
+        self.module_callables
+            .entry(sig.callable.module().clone())
+            .or_default()
+            .insert(sig.callable.clone());
         self.by_id.insert(sig.callable.clone(), sig);
     }
 
     pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
-        self.by_id.retain(|callable, _| callable.module() != module);
+        if let Some(callables) = self.module_callables.remove(module) {
+            for callable in callables {
+                self.by_id.remove(&callable);
+            }
+        }
     }
 
     pub fn get(&self, callable: &CallableId) -> Option<&CallableSemanticSignature> {
@@ -230,6 +239,7 @@ impl CallableSignatureTable {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct FieldSignatureTable {
     by_id: HashMap<FieldId, FieldSemanticSignature>,
+    module_fields: HashMap<ModuleId, BTreeSet<FieldId>>,
 }
 
 impl FieldSignatureTable {
@@ -238,11 +248,16 @@ impl FieldSignatureTable {
     }
 
     pub fn insert(&mut self, sig: FieldSemanticSignature) {
+        self.module_fields.entry(sig.field.owner.module.clone()).or_default().insert(sig.field.clone());
         self.by_id.insert(sig.field.clone(), sig);
     }
 
     pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
-        self.by_id.retain(|field, _| &field.owner.module != module);
+        if let Some(fields) = self.module_fields.remove(module) {
+            for field in fields {
+                self.by_id.remove(&field);
+            }
+        }
     }
 
     pub fn get(&self, field: &FieldId) -> Option<&FieldSemanticSignature> {

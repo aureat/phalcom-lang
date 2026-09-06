@@ -34,11 +34,14 @@ pub struct SemanticDb {
     workspace: WorkspaceId,
     revision: SemanticRevision,
     query_states: BTreeMap<QueryKey, QueryState>,
+    query_keys_by_module: BTreeMap<ModuleId, BTreeSet<QueryKey>>,
     products: BTreeMap<QueryKey, Arc<SemanticProduct>>,
     last_known_good: BTreeMap<QueryKey, Arc<SemanticProduct>>,
     index: DependencyIndex,
     scheduler: QueryScheduler,
     metrics: Arc<QueryMetrics>,
+    revision_recomputed: BTreeSet<QueryKey>,
+    revision_revalidated: BTreeSet<QueryKey>,
 }
 
 impl Default for SemanticDb {
@@ -53,11 +56,14 @@ impl SemanticDb {
             workspace: WorkspaceId::from_raw(1),
             revision: SemanticRevision::from_raw(1),
             query_states: BTreeMap::new(),
+            query_keys_by_module: BTreeMap::new(),
             products: BTreeMap::new(),
             last_known_good: BTreeMap::new(),
             index: DependencyIndex::new(),
             scheduler: QueryScheduler::new(),
             metrics: Arc::new(QueryMetrics::new()),
+            revision_recomputed: BTreeSet::new(),
+            revision_revalidated: BTreeSet::new(),
         }
     }
 
@@ -66,11 +72,14 @@ impl SemanticDb {
             workspace,
             revision: SemanticRevision::from_raw(1),
             query_states: BTreeMap::new(),
+            query_keys_by_module: BTreeMap::new(),
             products: BTreeMap::new(),
             last_known_good: BTreeMap::new(),
             index: DependencyIndex::new(),
             scheduler: QueryScheduler::new(),
             metrics: Arc::new(QueryMetrics::new()),
+            revision_recomputed: BTreeSet::new(),
+            revision_revalidated: BTreeSet::new(),
         }
     }
 
@@ -84,7 +93,22 @@ impl SemanticDb {
 
     pub fn begin_revision(&mut self) -> SemanticRevision {
         self.revision = self.revision.next();
+        self.revision_recomputed.clear();
+        self.revision_revalidated.clear();
         self.revision
+    }
+
+    /// Query products computed or validated during the current revision.
+    ///
+    /// These event-local sets let publication metrics describe actual query
+    /// work without rescanning every cached product at the end of an update.
+    pub fn revision_recomputed_keys(&self) -> impl Iterator<Item = &QueryKey> {
+        self.revision_recomputed.iter()
+    }
+
+    /// Query products reused after dependency validation during the current revision.
+    pub fn revision_revalidated_keys(&self) -> impl Iterator<Item = &QueryKey> {
+        self.revision_revalidated.iter()
     }
 
     pub fn index(&self) -> &DependencyIndex {
@@ -108,6 +132,15 @@ impl SemanticDb {
         self.query_states.keys()
     }
 
+    /// Returns cached query identities owned by one module.
+    ///
+    /// The index is maintained at query publication/state creation time so an
+    /// incremental update can seed exact product worklists from changed module
+    /// owners without scanning the entire database.
+    pub fn query_keys_for_module(&self, module: &ModuleId) -> impl Iterator<Item = &QueryKey> {
+        self.query_keys_by_module.get(module).into_iter().flat_map(|keys| keys.iter())
+    }
+
     /// Returns the typed product published for a ready query.
     pub fn product(&self, key: &QueryKey) -> Option<&Arc<SemanticProduct>> {
         let state = self.query_states.get(key)?;
@@ -125,6 +158,7 @@ impl SemanticDb {
     }
 
     pub fn set_state(&mut self, key: QueryKey, state: QueryState) {
+        self.index_query_key(&key);
         if !state.is_ready() {
             self.products.remove(&key);
         }
@@ -194,6 +228,7 @@ impl SemanticDb {
             return false;
         };
         *validated_revision = current_revision;
+        self.revision_revalidated.insert(key.clone());
         true
     }
 
@@ -239,6 +274,7 @@ impl SemanticDb {
             return Err(PublishError::stale(self.revision, revision));
         }
 
+        self.index_query_key(&key);
         self.index.replace_dependencies(key.clone(), dependencies);
         self.query_states.insert(
             key.clone(),
@@ -252,6 +288,7 @@ impl SemanticDb {
         );
         self.products.remove(&key);
         self.metrics.record_hit();
+        self.revision_recomputed.insert(key);
         Ok(())
     }
 
@@ -358,8 +395,15 @@ impl SemanticDb {
             purged += usize::from(self.products.remove(key).is_some());
             purged += usize::from(self.last_known_good.remove(key).is_some());
         }
+        self.query_keys_by_module.remove(module);
         self.index.purge_keys(&keys);
         purged
+    }
+
+    fn index_query_key(&mut self, key: &QueryKey) {
+        if let Some(module) = query_key_module(key) {
+            self.query_keys_by_module.entry(module.clone()).or_default().insert(key.clone());
+        }
     }
 }
 
@@ -381,8 +425,7 @@ fn query_key_module(key: &QueryKey) -> Option<&ModuleId> {
         | QueryKey::EnumRequirements(declaration)
         | QueryKey::AssociatedSurface(declaration) => Some(&declaration.module),
         QueryKey::ResolvedImport(site) => Some(&site.importer),
-        QueryKey::LinkedName(module, _)
-        | QueryKey::PublicExport(module, _) => Some(module),
+        QueryKey::LinkedName(module, _) | QueryKey::PublicExport(module, _) => Some(module),
         QueryKey::FieldSignature(field) => Some(&field.owner.module),
         QueryKey::CallableSignature(callable)
         | QueryKey::CallableBody(callable)

@@ -1,6 +1,7 @@
 //! A7 semantic work-count publication and cold/incremental metric evidence.
 
 use super::support::multi_module_input;
+use phalcom_common::selector::Selector;
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_modules::interface::{LinkedExport, LinkedExportTarget, LinkedModuleInterface};
 use phalcom_modules::linker::{ImportBindingId, LinkedModule, LinkedProgram, LinkedReadSpec, ModuleBindingLayout, SymbolId};
@@ -8,6 +9,7 @@ use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::source::ModuleKind;
 use phalcom_modules::{SourceId, SourceLocation, SourceRevision, WorkspaceSourceBatchMutation};
 use phalcom_semantic::db::QueryKey;
+use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 use phalcom_semantic::session::SemanticWorkspaceSession;
 use phalcom_semantic::source::ParsedModuleUnit;
 use phalcom_semantic::workspace::SemanticWorkspaceInput;
@@ -253,6 +255,208 @@ fn cross_module_inheritance_input(b_cycle: bool, generation: u64) -> SemanticWor
         graphs: phalcom_modules::graph::ModuleGraphs::default(),
         entry: a.clone(),
         initialization_order: vec![a, b],
+    });
+    SemanticWorkspaceInput::new(linked, sources, generation)
+}
+
+#[test]
+fn a7_unused_public_export_does_not_recompute_unrelated_consumer_body() {
+    let mut session = SemanticWorkspaceSession::new();
+    let initial = session.update(unused_public_export_input(false, 1));
+    assert!(!initial.snapshot.has_errors(), "initial diagnostics: {:?}", initial.snapshot.diagnostics);
+
+    let consumer = module("unused_consumer");
+    let callable = CallableId::new(
+        DeclarationId::new(consumer, "Consumer".into()),
+        Selector::method("read", []).unwrap(),
+        DispatchSide::Class,
+    );
+    let body_key = QueryKey::CallableBody(callable.clone());
+    let initial_revision = session.db().query_state(&body_key).and_then(|state| state.revision()).expect("consumer body product");
+    let initial_analysis = initial.snapshot.callable_analyses.get(&callable).expect("consumer body analysis").clone();
+
+    let updated = session.update(unused_public_export_input(true, 2));
+    assert!(!updated.snapshot.has_errors(), "updated diagnostics: {:?}", updated.snapshot.diagnostics);
+    let state = session.db().query_state(&body_key).expect("consumer body state");
+    assert_eq!(state.revision(), Some(initial_revision), "unused provider export must not recompute consumer body");
+    assert!(!updated.recomputed.contains(&body_key));
+    assert!(Arc::ptr_eq(&initial_analysis, updated.snapshot.callable_analyses.get(&callable).expect("retained consumer analysis")));
+    assert!(session.db().index().dependencies_of(&body_key).is_some_and(|edges| {
+        edges.iter().all(|edge| edge.dependency != QueryKey::PublicExport(module("unused_provider"), "Unused".into()))
+    }));
+}
+
+#[test]
+fn a6_cross_module_alias_relowers_when_provider_shell_changes() {
+    let mut session = SemanticWorkspaceSession::new();
+    let initial = session.update(cross_module_alias_input("type Number = Int\n", 1));
+    assert!(!initial.snapshot.has_errors(), "initial diagnostics: {:?}", initial.snapshot.diagnostics);
+
+    let consumer = module("alias_consumer");
+    let alias = DeclarationId::new(consumer.clone(), "Local".into());
+    let alias_key = QueryKey::DeclarationShell(alias.clone());
+    let initial_form = initial.snapshot.type_aliases.form(&alias).expect("initial consumer alias");
+    let initial_shape = initial.snapshot.store.format_type(initial_form);
+    let initial_revision = session.db().query_state(&alias_key).and_then(|state| state.revision()).expect("initial alias shell");
+
+    let updated = session.update(cross_module_alias_input("type Number = String\n", 2));
+    assert!(!updated.snapshot.has_errors(), "updated diagnostics: {:?}", updated.snapshot.diagnostics);
+    let provider_alias = DeclarationId::new(module("alias_provider"), "Number".into());
+    let provider_form = updated.snapshot.type_aliases.form(&provider_alias).expect("updated provider alias");
+    assert_eq!(updated.snapshot.store.format_type(provider_form), "String");
+    let updated_form = updated.snapshot.type_aliases.form(&alias).expect("updated consumer alias");
+    assert_ne!(initial_shape, updated.snapshot.store.format_type(updated_form));
+    assert_eq!(updated.snapshot.store.format_type(updated_form), "String");
+    assert_ne!(
+        session.db().query_state(&alias_key).and_then(|state| state.revision()),
+        Some(initial_revision),
+        "a retained consumer alias must be lowered again when its provider alias shell changes"
+    );
+}
+
+fn cross_module_alias_input(provider_source: &str, generation: u64) -> SemanticWorkspaceInput {
+    let provider = module("alias_provider");
+    let consumer = module("alias_consumer");
+    let consumer_source: Arc<str> = Arc::from(
+        "import alias_provider.Number\ntype Local = Number\nclass Consumer { @class use(_ value: Local) -> Int { 1 } }\n",
+    );
+    let provider_source: Arc<str> = Arc::from(provider_source.to_owned());
+    let mut sources = BTreeMap::new();
+    for (module_id, source) in [(provider.clone(), provider_source), (consumer.clone(), consumer_source)] {
+        let program = Arc::new(phalcom_ast::parse(&source, 0).program);
+        sources.insert(
+            module_id.clone(),
+            Arc::new(ParsedModuleUnit::new(module_id, ModuleKind::Module, None, source, program)),
+        );
+    }
+    let provider_export = LinkedExport {
+        public_name: "Number".into(),
+        target: LinkedExportTarget::Binding(SymbolId {
+            module: provider.clone(),
+            name: "Number".into(),
+        }),
+        range: phalcom_common::range::SourceRange::default(),
+    };
+    let linked = Arc::new(LinkedProgram {
+        universe: Arc::new(phalcom_modules::project::ProjectUniverse::new()),
+        modules: BTreeMap::from([
+            (
+                provider.clone(),
+                LinkedModule {
+                    interface: LinkedModuleInterface {
+                        module: provider.clone(),
+                        kind: ModuleKind::Module,
+                        exports: BTreeMap::from([("Number".into(), provider_export)]),
+                        metadata: ModuleMetadata::default(),
+                    },
+                    bindings: ModuleBindingLayout {
+                        local_globals: BTreeMap::from([("Number".into(), phalcom_modules::linker::GlobalBindingId(0))]),
+                        imports: BTreeMap::new(),
+                    },
+                    linked_reads: Vec::new(),
+                    runtime_dependencies: Vec::new(),
+                },
+            ),
+            (
+                consumer.clone(),
+                LinkedModule {
+                    interface: LinkedModuleInterface {
+                        module: consumer.clone(),
+                        kind: ModuleKind::Module,
+                        exports: BTreeMap::new(),
+                        metadata: ModuleMetadata::default(),
+                    },
+                    bindings: ModuleBindingLayout {
+                        local_globals: BTreeMap::from([("Consumer".into(), phalcom_modules::linker::GlobalBindingId(0))]),
+                        imports: BTreeMap::from([("Number".into(), ImportBindingId(0))]),
+                    },
+                    linked_reads: vec![LinkedReadSpec::Binding(SymbolId {
+                        module: provider.clone(),
+                        name: "Number".into(),
+                    })],
+                    runtime_dependencies: vec![provider.clone()],
+                },
+            ),
+        ]),
+        graphs: phalcom_modules::graph::ModuleGraphs::default(),
+        entry: consumer,
+        initialization_order: vec![provider, module("alias_consumer")],
+    });
+    SemanticWorkspaceInput::new(linked, sources, generation)
+}
+
+fn unused_public_export_input(extra_export: bool, generation: u64) -> SemanticWorkspaceInput {
+    let provider = module("unused_provider");
+    let consumer = module("unused_consumer");
+    let provider_source: Arc<str> = if extra_export {
+        Arc::from("class Used {}\nclass Unused {}\nexport Used\nexport Unused\n")
+    } else {
+        Arc::from("class Used {}\nclass Unused {}\nexport Used\n")
+    };
+    let consumer_source: Arc<str> = Arc::from("import unused_provider.Used\nclass Consumer { @class read() -> Int { 1 } }\n");
+    let mut sources = BTreeMap::new();
+    for (module_id, source) in [(provider.clone(), provider_source), (consumer.clone(), consumer_source)] {
+        let program = Arc::new(phalcom_ast::parse(&source, 0).program);
+        sources.insert(
+            module_id.clone(),
+            Arc::new(ParsedModuleUnit::new(module_id, ModuleKind::Module, None, source, program)),
+        );
+    }
+    let export = |module: &ModuleId, name: &str| {
+        (
+            name.into(),
+            LinkedExport {
+                public_name: name.into(),
+                target: LinkedExportTarget::Binding(SymbolId {
+                    module: module.clone(),
+                    name: name.into(),
+                }),
+                range: phalcom_common::range::SourceRange::default(),
+            },
+        )
+    };
+    let provider_exports = if extra_export {
+        BTreeMap::from([export(&provider, "Used"), export(&provider, "Unused")])
+    } else {
+        BTreeMap::from([export(&provider, "Used")])
+    };
+    let provider_module = LinkedModule {
+        interface: LinkedModuleInterface {
+            module: provider.clone(),
+            kind: ModuleKind::Module,
+            exports: provider_exports,
+            metadata: ModuleMetadata::default(),
+        },
+        bindings: ModuleBindingLayout {
+            local_globals: BTreeMap::from([("Used".into(), phalcom_modules::linker::GlobalBindingId(0)), ("Unused".into(), phalcom_modules::linker::GlobalBindingId(1))]),
+            imports: BTreeMap::new(),
+        },
+        linked_reads: Vec::new(),
+        runtime_dependencies: Vec::new(),
+    };
+    let consumer_module = LinkedModule {
+        interface: LinkedModuleInterface {
+            module: consumer.clone(),
+            kind: ModuleKind::Module,
+            exports: BTreeMap::new(),
+            metadata: ModuleMetadata::default(),
+        },
+        bindings: ModuleBindingLayout {
+            local_globals: BTreeMap::from([("Consumer".into(), phalcom_modules::linker::GlobalBindingId(0))]),
+            imports: BTreeMap::from([("Used".into(), ImportBindingId(0))]),
+        },
+        linked_reads: vec![LinkedReadSpec::Binding(SymbolId {
+            module: provider.clone(),
+            name: "Used".into(),
+        })],
+        runtime_dependencies: vec![provider.clone()],
+    };
+    let linked = Arc::new(LinkedProgram {
+        universe: Arc::new(phalcom_modules::project::ProjectUniverse::new()),
+        modules: BTreeMap::from([(provider.clone(), provider_module), (consumer.clone(), consumer_module)]),
+        graphs: phalcom_modules::graph::ModuleGraphs::default(),
+        entry: consumer.clone(),
+        initialization_order: vec![provider, consumer],
     });
     SemanticWorkspaceInput::new(linked, sources, generation)
 }

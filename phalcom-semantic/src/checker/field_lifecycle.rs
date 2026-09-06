@@ -4,11 +4,11 @@ use crate::checker::analysis::CallableAnalysis;
 use crate::checker::causal::CausalInvalidity;
 use crate::checker::context::CheckingContext;
 use crate::checker::flow::{FieldContractValidity, FieldInitialization, FieldState, FlowState};
-use crate::identity::{DeclarationId, DispatchSide, FieldId};
+use crate::identity::{DeclarationId, DispatchSide, FieldId, ModuleId};
 use crate::types::evidence::{EvidenceOrigin, EvidenceStatus, TypeKnowledge, UnknownReason};
 use crate::types::outcome::RelationOutcome;
 use phalcom_ast::ast::{ClassDef, ClassMember};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct FieldWriteReconciliation {
@@ -47,12 +47,22 @@ pub struct FieldLifecycleFact {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct FieldLifecycleTable {
     pub fields: BTreeMap<FieldId, FieldLifecycleFact>,
+    module_fields: BTreeMap<ModuleId, BTreeSet<FieldId>>,
 }
 
 impl FieldLifecycleTable {
+    pub(crate) fn insert(&mut self, field: FieldId, fact: FieldLifecycleFact) {
+        self.module_fields.entry(field.owner.module.clone()).or_default().insert(field.clone());
+        self.fields.insert(field, fact);
+    }
+
     /// Removes field-default contributions owned by one source module.
     pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
-        self.fields.retain(|field, _| &field.owner.module != module);
+        if let Some(fields) = self.module_fields.remove(module) {
+            for field in fields {
+                self.fields.remove(&field);
+            }
+        }
     }
 
     pub fn seed_flow_for_owner(&self, flow: &mut FlowState, owner: &DeclarationId, constructor: bool) {
@@ -78,7 +88,9 @@ impl FieldLifecycleTable {
     }
 
     pub fn extend(&mut self, other: Self) {
-        self.fields.extend(other.fields);
+        for (field, fact) in other.fields {
+            self.insert(field, fact);
+        }
     }
 }
 
@@ -119,7 +131,7 @@ pub(crate) fn default_field_seeds(ctx: &mut CheckingContext<'_>, class_def: &Cla
                 CausalInvalidity::Clean,
             )
         };
-        table.fields.insert(
+        table.insert(
             field_id.clone(),
             FieldLifecycleFact {
                 field: field_id,

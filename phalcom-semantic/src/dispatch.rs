@@ -1,6 +1,6 @@
 //! Dispatch models, callable signatures, and selector resolution.
 
-use crate::identity::{CallableId, DeclarationId};
+use crate::identity::{CallableId, DeclarationId, ModuleId};
 
 pub use crate::identity::DispatchSide;
 use crate::surface::DeclarationSurface;
@@ -10,7 +10,7 @@ use crate::types::id::TypeId;
 use crate::types::relation::TypeHierarchy;
 use crate::types::specialization::ReceiverSpecializationStep;
 use phalcom_common::selector::Selector;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DispatchTarget {
@@ -171,6 +171,8 @@ pub trait DispatchResolver {
 pub struct SurfaceDispatchResolver {
     surfaces: HashMap<DeclarationId, DeclarationSurface>,
     type_declarations: HashMap<TypeId, DeclarationId>,
+    module_surfaces: HashMap<ModuleId, BTreeSet<DeclarationId>>,
+    declaration_types: HashMap<DeclarationId, BTreeSet<TypeId>>,
 }
 
 impl SurfaceDispatchResolver {
@@ -179,24 +181,26 @@ impl SurfaceDispatchResolver {
     }
 
     pub fn register_surface(&mut self, decl: DeclarationId, surface: DeclarationSurface) {
+        self.module_surfaces.entry(decl.module.clone()).or_default().insert(decl.clone());
         self.surfaces.insert(decl, surface);
     }
 
     pub fn register_type(&mut self, ty: TypeId, decl: DeclarationId) {
+        self.declaration_types.entry(decl.clone()).or_default().insert(ty);
         self.type_declarations.insert(ty, decl);
     }
 
     /// Removes declaration-owned dispatch surfaces and type registrations.
     pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
-        let removed = self
-            .surfaces
-            .keys()
-            .filter(|declaration| &declaration.module == module)
-            .cloned()
-            .collect::<HashSet<_>>();
-        self.surfaces.retain(|declaration, _| &declaration.module != module);
-        self.type_declarations
-            .retain(|_, declaration| !removed.contains(declaration));
+        let removed = self.module_surfaces.remove(module).unwrap_or_default();
+        for declaration in removed {
+            self.surfaces.remove(&declaration);
+            if let Some(types) = self.declaration_types.remove(&declaration) {
+                for ty in types {
+                    self.type_declarations.remove(&ty);
+                }
+            }
+        }
     }
 
     pub fn get_surface(&self, decl: &DeclarationId) -> Option<&DeclarationSurface> {

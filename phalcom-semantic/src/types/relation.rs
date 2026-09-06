@@ -7,8 +7,8 @@ use super::store::{TypeData, TypeStore};
 use super::variance::Variance;
 use crate::core_surface::CoreDeclarationIds;
 use crate::declarations::GenericSupertypeTemplate;
-use crate::identity::DeclarationId;
-use std::collections::HashSet;
+use crate::identity::{DeclarationId, ModuleId};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 /// Environment for querying class hierarchies and module declaration relations.
 pub trait TypeHierarchy {
@@ -29,6 +29,7 @@ pub trait TypeHierarchy {
 pub struct MapTypeHierarchy {
     pub superclasses: std::collections::HashMap<DeclarationId, DeclarationId>,
     pub templates: std::collections::HashMap<DeclarationId, GenericSupertypeTemplate>,
+    module_declarations: HashMap<ModuleId, BTreeSet<DeclarationId>>,
 }
 
 impl MapTypeHierarchy {
@@ -37,11 +38,12 @@ impl MapTypeHierarchy {
     }
 
     pub fn insert(&mut self, class: DeclarationId, superclass: DeclarationId) {
+        self.module_declarations.entry(class.module.clone()).or_default().insert(class.clone());
         self.superclasses.insert(class, superclass);
     }
 
     pub fn insert_template(&mut self, template: GenericSupertypeTemplate) {
-        self.superclasses.insert(
+        self.insert(
             template.declaration.clone(),
             DeclarationId::new(phalcom_modules::identity::ModuleId::universe_root(), "generic_super".into()),
         );
@@ -50,8 +52,11 @@ impl MapTypeHierarchy {
 
     /// Removes direct hierarchy contributions owned by one source module.
     pub fn remove_module(&mut self, module: &phalcom_modules::identity::ModuleId) {
-        self.superclasses.retain(|declaration, _| &declaration.module != module);
-        self.templates.retain(|declaration, _| &declaration.module != module);
+        let declarations = self.module_declarations.remove(module).unwrap_or_default();
+        for declaration in declarations {
+            self.superclasses.remove(&declaration);
+            self.templates.remove(&declaration);
+        }
     }
 }
 

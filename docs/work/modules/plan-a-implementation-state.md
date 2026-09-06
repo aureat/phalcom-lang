@@ -182,17 +182,16 @@ COMPLETED
 
 ### Status
 PARTIAL — Tasks 25/26 are implemented; Task 27 remains incomplete pending its
-cross-module unused-export, high-fanout, stable-intermediate, and cold/parity
-proofs.
+high-fanout and cold/parity proofs.
 
 ### Tasks
 - [x] Task 25 — Remove all-source resolution hashing from callable-body direct
   input.
 - [x] Task 26 — Remove whole-`LinkedProgram` hashing from callable-body direct
   input.
-- [~] Task 27 — Absent-name recovery, exact dependency recording, and
-  product-stability barriers are proven; required cross-module unused-export
-  and high-fanout evidence remains open.
+- [~] Task 27 — Absent-name recovery, exact dependency recording,
+  cross-module unused-export, and product-stability barriers are proven;
+  required high-fanout and cold/parity evidence remains open.
 
 ### Verification evidence
 - `phalcom-semantic/tests/checkpoint_a4.rs::test_previously_missing_public_name_appears_invalidates_consumer`
@@ -201,9 +200,8 @@ proofs.
   without changing computation revisions for reused products.
 - `phalcom-semantic/src/db/fingerprint.rs` and `db/query.rs` no longer use
   whole-workspace source/link products as ordinary callable-body direct input.
-- A true cross-module unused-export/high-fanout proof at the PA-5/PA-6 target
-  scale is not yet present; do not mark A5 release evidence complete from the
-  focused tests alone.
+- A true high-fanout proof at the PA-6 target scale is not yet present; do not
+  mark A5 release evidence complete from the focused tests alone.
 
 ---
 
@@ -224,11 +222,15 @@ aggregate/worklist closure is not yet proven.
   resolver dependencies are query-owned, and direct-edge worklists are
   narrowed; cross-module cycle/retarget parity and aggregate closure remain.
 - [~] Task 31 — Module-shard type aliases and generic headers; retained alias
-  contributions now compose by retained-vs-recomputed module, but alias
-  lowering/SCC composition still has broad passes.
+  contributions now compose by retained-vs-recomputed module, and the compact
+  alias dependency graph/source map is retained between revisions. Cross-module
+  alias-shell invalidation now enters the exact reverse worklist; generic
+  header invalidation and full alias-SCC lowering remain open.
 - [~] Task 32 — Publish declaration surfaces/callable/field signatures through
-  exact worklists; field-default contributions now replace only affected
-  modules, while signature aggregate rebuilding remains open.
+  exact worklists; field-default contributions and compatibility aggregate
+  removals now use module-owned indexes, and cached source-owned query products
+  are indexed by module to seed typed reverse worklists. Declaration/header and
+  signature publication still has broad orchestration passes.
 - [~] Task 33 — Compose immutable snapshots from retained shards with cold/
   incremental parity; required parity and work-count proof remains open.
 
@@ -254,21 +256,31 @@ aggregate/worklist closure is not yet proven.
   declaration surfaces, callable signatures, and field signatures, so a
   semantically affected retained source module is refreshed instead of
   exposing stale snapshot tables.
+- Hierarchy, callable-signature, field-signature, dispatch, field-lifecycle,
+  and alias aggregates now retain module-owned contribution indexes; replacing
+  one module no longer requires a full-table `retain` scan.
+- `SemanticDb` now indexes cached query identities by owning module, allowing
+  changed-module updates to seed exact declaration/alias/hierarchy/signature
+  and body reverse closures without scanning all cached queries.
+- Semantic query metrics now use revision-local recomputation/revalidation
+  event sets instead of scanning every cached query product and dependency edge
+  at publication time. Alias dependency-node work is explicitly counted.
 - Changed/removed modules seed semantic and structural worklists; unchanged
   shards and linked dependency fingerprints are retained.
 - `apply_module_mutations` now exposes module-layer work counts through the
   semantic publication and has a production-path body-edit test in
   `incremental::a7_performance`.
-- Full semantic suite: 1,097 passed, 0 failed, 42 ignored. Module suite and
+- Full semantic suite: 1,103 passed, 0 failed, 42 ignored. Module suite and
   provider lifecycle LSP tests are green.
 
 ### Remaining A6 gap
 The semantic session still reconstructs generic headers, alias lowering/SCC
 state, and some signature aggregates through broad retained-workspace passes.
-Compatibility removal remains module-scoped, and instrumentation still scans
-cached products. The delta is no longer discarded at the module boundary, and
-field/default, superclass, and formal-product worklists are narrowed, but this
-is not yet the plan's strict “no ordinary-edit total semantic traversal” gate.
+Compatibility removal remains module-scoped. The delta is no longer discarded
+at the module boundary, query metrics no longer scan all cached products, and
+field/default, superclass, alias, and formal-product worklists are narrowed,
+but this is not yet the plan's strict “no ordinary-edit total semantic
+traversal” gate.
 
 ---
 
@@ -278,8 +290,8 @@ is not yet the plan's strict “no ordinary-edit total semantic traversal” gat
 
 PARTIAL: instrumentation and focused evidence are green. Plan A is not
 release-complete because A0 COW staging, A6 aggregate delta maintenance, the
-remaining PA-5/PA-6/PA-8/PA-9/PA-10 evidence, and exact core baseline
-comparison remain open.
+remaining PA-6/PA-9/PA-10 evidence, and exact core baseline comparison remain
+open.
 
 ### Task 34 — Deterministic work metrics
 
@@ -308,12 +320,13 @@ comparison remain open.
 - [x] PA-2 one-of-20 import path, PA-3 unrelated negative import, PA-4
   missing-target recovery, and PA-7 disconnected retention pass in existing
   A2/A3/A7 fixtures.
-- [ ] PA-5 unused public export: no load-bearing cross-module assertion that
-  the consumer body computation revision remains unchanged.
+- [x] PA-5 unused public export: cross-module semantic fixture proves the
+  consumer body computation revision and analysis remain unchanged when an
+  unused provider export is added, and rejects a spurious exact export edge.
 - [ ] PA-6 high fanout: no 5,000 reverse-connected/~100 exact-consumer test
   asserting expensive recomputation or `reverse_candidates_considered` bounds.
-- [~] PA-8 stable intermediate product: metric instrumentation exists, but no
-  explicit A→B recompute/B-stable→C-reuse assertion is recorded here.
+- [x] PA-8 stable intermediate product: A→B recomputes the exact consumer,
+  then a body-only C edit with a stable provider signature reuses that consumer.
 - [ ] PA-9 declaration/hierarchy isolation at required scale.
 - [ ] PA-10 cold/incremental parity over the complete presentation set.
 
@@ -321,7 +334,7 @@ comparison remain open.
 
 - [x] `RUSTFLAGS='' cargo test -p phalcom-modules` passes.
 - [x] `RUST_MIN_STACK=8388608 RUSTFLAGS='' cargo test -p phalcom-semantic`
-  passes: 1,097 passed, 42 ignored.
+  passes: 1,103 passed, 42 ignored.
 - [x] `RUSTFLAGS='' cargo check -p phalcom-lsp` passes.
 - [x] Full LSP release gate: provider lifecycle, semantic boundary, navigation,
   integration, unit, and doc-test lanes pass; aggregate integration lane is
@@ -335,7 +348,9 @@ comparison remain open.
   integration lane did not finish within the verification window, so no exact
   workspace comparison is claimed.
 - [ ] Plan-B handoff surface is recorded below, but Plan A remains blocked by
-  the open A0/A6/matrix gates above.
+  the open A0/A6/matrix gates above. The current semantic implementation also
+  retains the A0 map-copy and A6 broad declaration/header publication gaps;
+  these are not masked by the improved metrics.
 
 ### Plan-B handoff
 
@@ -352,7 +367,7 @@ comparison remain open.
 - Snapshot topology/reverse-index APIs remain published through
   `SemanticWorkspaceInput` and semantic module query products.
 - Remaining limitations: A0 map-copy staging, A6 aggregate traversal, missing
-  PA-5/PA-6/PA-8/PA-9/PA-10 evidence, and exact core failure-set comparison.
+  PA-6/PA-9/PA-10 evidence, and exact core failure-set comparison.
   Source/reference index performance and editor overlay transaction work stay
   Plan B scope.
 - Current corrective results: modules green; semantic green; full LSP green;
