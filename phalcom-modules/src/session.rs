@@ -50,6 +50,10 @@ pub enum WorkspaceSourceMutation {
         source: SourceLocation,
         revision: SourceRevision,
     },
+    /// Removes a source while preserving its display path for identity lookup.
+    RemoveSourceAt {
+        source: SourceLocation,
+    },
     RemoveSource {
         source: SourceId,
     },
@@ -77,6 +81,10 @@ pub enum WorkspaceSourceBatchMutation {
         source: SourceLocation,
         revision: SourceRevision,
     },
+    /// Removes a source while preserving its display path for identity lookup.
+    RemoveSourceAt {
+        source: SourceLocation,
+    },
     RemoveSource {
         source: SourceId,
     },
@@ -93,6 +101,7 @@ impl From<WorkspaceSourceMutation> for WorkspaceSourceBatchMutation {
             },
             WorkspaceSourceMutation::RemoveOverlay { source } => Self::RemoveOverlay { source },
             WorkspaceSourceMutation::RefreshDisk { source, revision } => Self::RefreshDisk { source, revision },
+            WorkspaceSourceMutation::RemoveSourceAt { source } => Self::RemoveSourceAt { source },
             WorkspaceSourceMutation::RemoveSource { source } => Self::RemoveSource { source },
         }
     }
@@ -434,6 +443,9 @@ pub struct WorkspaceModuleSession {
     universe: ProjectUniverse,
     provider: OverlaySourceProvider<FilesystemSourceProvider>,
     project_roots: BTreeMap<ProjectSourceIdentity, crate::identity::ResolvedProjectId>,
+    /// Maps protocol/display source tokens to compiler-owned canonical IDs.
+    /// Retained aliases keep removal stable after a file or symlink disappears.
+    source_identity_aliases: BTreeMap<SourceId, SourceId>,
     modules_by_source: BTreeMap<SourceId, ModuleId>,
     sources_by_module: BTreeMap<ModuleId, WorkspaceSourceState>,
     standalone_projects: BTreeMap<SourceId, SyntheticProjectId>,
@@ -471,6 +483,7 @@ impl WorkspaceModuleSession {
             universe,
             provider: OverlaySourceProvider::new(FilesystemSourceProvider::new()),
             project_roots: BTreeMap::new(),
+            source_identity_aliases: BTreeMap::new(),
             modules_by_source: BTreeMap::new(),
             sources_by_module: BTreeMap::new(),
             standalone_projects: BTreeMap::new(),
@@ -589,7 +602,9 @@ impl WorkspaceModuleSession {
     }
 
     pub fn module_for_source(&self, source: &SourceId) -> Option<&ModuleId> {
-        self.modules_by_source.get(source)
+        self.modules_by_source
+            .get(source)
+            .or_else(|| self.source_identity_aliases.get(source).and_then(|canonical| self.modules_by_source.get(canonical)))
     }
 
     pub fn sources(&self) -> &BTreeMap<ModuleId, WorkspaceSourceState> {
@@ -681,6 +696,7 @@ impl WorkspaceModuleSession {
             changed.clone(),
             removed_modules.clone(),
             removed_modules.clone(),
+            &self.source_identity_aliases,
             stats,
             target_generation,
         )?;
@@ -756,6 +772,7 @@ impl WorkspaceModuleSession {
         let mut ownership_reclassifications = false;
         let mut purged_identities = BTreeSet::new();
         let mut stats = WorkspaceModuleStats::default();
+        let mut source_identity_aliases = self.source_identity_aliases.clone();
 
         let get_module_for_source = |source_id: &SourceId,
                                      mutated_modules: &BTreeMap<SourceId, ModuleId>,
@@ -772,6 +789,7 @@ impl WorkspaceModuleSession {
         };
 
         for mutation in mutations {
+            let mutation = Self::canonicalize_batch_mutation(mutation, &mut source_identity_aliases);
             match mutation {
                 WorkspaceSourceBatchMutation::SetOverlay {
                     source,
@@ -992,6 +1010,24 @@ impl WorkspaceModuleSession {
                     topology_invalidations = true;
                     identity_changes.insert(module);
                 }
+                WorkspaceSourceBatchMutation::RemoveSourceAt { source } => {
+                    let source = Self::canonicalize_source_location(source, &mut source_identity_aliases).source_id;
+                    let module = get_module_for_source(&source, &mutated_modules_by_source, &removed_modules_by_source, &self.modules_by_source)
+                        .ok_or_else(|| WorkspaceModuleSessionError::UnknownSource(source.clone()))?;
+                    ownership_reclassifications |= self
+                        .sources_by_module
+                        .get(&module)
+                        .and_then(|state| state.location.display_path.file_name())
+                        .is_some_and(|name| name == "package.ph" || name == "project.toml");
+                    removed_modules_by_source.insert(source.clone());
+                    mutated_modules_by_source.remove(&source);
+                    removed_sources.insert(module.clone());
+                    mutated_sources.remove(&module);
+                    overlay_ops.push(OverlayOp::Remove(module.clone()));
+                    purged_identities.insert(source);
+                    topology_invalidations = true;
+                    identity_changes.insert(module);
+                }
             }
         }
 
@@ -1077,6 +1113,7 @@ impl WorkspaceModuleSession {
             changed_modules.clone(),
             removed_modules.clone(),
             identity_changes.clone(),
+            &source_identity_aliases,
             stats.clone(),
             target_generation,
         )?;
@@ -1100,6 +1137,7 @@ impl WorkspaceModuleSession {
         // 2. Commit tracking maps
         self.modules_by_source = target_modules_by_source;
         self.sources_by_module = target_sources_by_module;
+        self.source_identity_aliases = source_identity_aliases;
         self.project_roots.extend(mutated_project_roots);
         self.standalone_projects.extend(mutated_standalone_projects);
         self.synthetic_ids = synthetic_ids;
@@ -1205,6 +1243,67 @@ impl WorkspaceModuleSession {
 
     pub fn remove_source(&mut self, source: SourceId) -> Result<WorkspaceModuleUpdate, WorkspaceModuleSessionError> {
         self.apply(WorkspaceSourceMutation::RemoveSource { source })
+    }
+
+    fn canonicalize_source_location(location: SourceLocation, aliases: &mut BTreeMap<SourceId, SourceId>) -> SourceLocation {
+        let protocol_id = location.source_id.clone();
+        let canonical_id = location
+            .display_path
+            .canonicalize()
+            .ok()
+            .map(|path| SourceId(path.to_string_lossy().into()))
+            .or_else(|| aliases.get(&protocol_id).cloned())
+            .unwrap_or_else(|| SourceId(crate::source::canonicalize_path(&location.display_path).to_string_lossy().into()));
+        aliases.insert(protocol_id, canonical_id.clone());
+        aliases.entry(canonical_id.clone()).or_insert(canonical_id.clone());
+        SourceLocation {
+            source_id: canonical_id,
+            display_path: location.display_path,
+        }
+    }
+
+    fn canonicalize_source_id(source: SourceId, aliases: &BTreeMap<SourceId, SourceId>) -> SourceId {
+        aliases.get(&source).cloned().unwrap_or(source)
+    }
+
+    fn canonicalize_batch_mutation(mutation: WorkspaceSourceBatchMutation, aliases: &mut BTreeMap<SourceId, SourceId>) -> WorkspaceSourceBatchMutation {
+        match mutation {
+            WorkspaceSourceBatchMutation::SetOverlay {
+                source,
+                text,
+                revision,
+                recovered_program,
+            } => WorkspaceSourceBatchMutation::SetOverlay {
+                source: Self::canonicalize_source_location(source, aliases),
+                text,
+                revision,
+                recovered_program,
+            },
+            WorkspaceSourceBatchMutation::SetDiskSnapshot {
+                source,
+                text,
+                revision,
+                recovered_program,
+            } => WorkspaceSourceBatchMutation::SetDiskSnapshot {
+                source: Self::canonicalize_source_location(source, aliases),
+                text,
+                revision,
+                recovered_program,
+            },
+            WorkspaceSourceBatchMutation::RefreshDisk { source, revision } => WorkspaceSourceBatchMutation::RefreshDisk {
+                source: Self::canonicalize_source_location(source, aliases),
+                revision,
+            },
+            WorkspaceSourceBatchMutation::RemoveSourceAt { source } => WorkspaceSourceBatchMutation::RemoveSource {
+                source: Self::canonicalize_source_location(source, aliases).source_id,
+            },
+            WorkspaceSourceBatchMutation::RemoveOverlay { source } => WorkspaceSourceBatchMutation::RemoveOverlay {
+                source: Self::canonicalize_source_id(source, aliases),
+            },
+            WorkspaceSourceBatchMutation::RemoveSource { source } => WorkspaceSourceBatchMutation::RemoveSource {
+                source: Self::canonicalize_source_id(source, aliases),
+            },
+        }
     }
 
     fn resolve_module_for_location_delta(
@@ -1393,6 +1492,7 @@ impl WorkspaceModuleSession {
         changed_modules: BTreeSet<ModuleId>,
         removed_modules: BTreeSet<ModuleId>,
         identity_changes: BTreeSet<ModuleId>,
+        source_identity_aliases: &BTreeMap<SourceId, SourceId>,
         mut stats: WorkspaceModuleStats,
         target_generation: ResolverGeneration,
     ) -> Result<RebuildOutput, WorkspaceModuleSessionError> {
@@ -1826,7 +1926,10 @@ impl WorkspaceModuleSession {
         }
         let unlinked: BTreeMap<ModuleId, UnlinkedModuleInterface> = interfaces.iter().map(|(id, (iface, _))| (id.clone(), (**iface).clone())).collect();
 
-        let topology = Arc::new(ModuleTopology::from_parts(target_generation, universe, &unlinked, &source_locations));
+        let topology = Arc::new(
+            ModuleTopology::from_parts(target_generation, universe, &unlinked, &source_locations)
+                .with_source_aliases(source_identity_aliases),
+        );
 
         Ok(RebuildOutput {
             linked,

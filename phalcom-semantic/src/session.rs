@@ -218,6 +218,8 @@ pub struct SemanticWorkspacePublication {
     pub invalidated: Arc<[QueryKey]>,
     pub recomputed: Arc<[QueryKey]>,
     pub stats: SemanticUpdateStats,
+    /// Module-layer work counts when publication came from module mutations.
+    pub module_stats: Option<phalcom_modules::session::WorkspaceModuleStats>,
     pub effects: SemanticPublicationEffects,
 }
 
@@ -229,6 +231,7 @@ struct SemanticModuleDelta {
     changed_modules: BTreeSet<ModuleId>,
     removed_modules: BTreeSet<ModuleId>,
     identity_changes: BTreeSet<ModuleId>,
+    module_stats: phalcom_modules::session::WorkspaceModuleStats,
 }
 
 /// Compiler-owned stateful semantic workspace session.
@@ -253,7 +256,6 @@ pub struct SemanticWorkspaceSession {
     base_enum_requirement_products: Vec<(DeclarationId, Arc<crate::db::product::EnumRequirementsProduct>)>,
     sources: BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
     source_fingerprints: BTreeMap<ModuleId, u64>,
-    linked_dependency_fingerprints: BTreeMap<ModuleId, phalcom_modules::fingerprint::LinkedDependencyFingerprint>,
     field_lifecycle_fingerprints: BTreeMap<ModuleId, u64>,
     default_field_lifecycle: crate::checker::field_lifecycle::FieldLifecycleTable,
     semantic_structure_shards: BTreeMap<ModuleId, Arc<ModuleSemanticStructureShard>>,
@@ -552,7 +554,6 @@ impl SemanticWorkspaceSession {
             base_enum_requirement_products,
             sources: BTreeMap::new(),
             source_fingerprints: BTreeMap::new(),
-            linked_dependency_fingerprints: BTreeMap::new(),
             field_lifecycle_fingerprints: BTreeMap::new(),
             default_field_lifecycle: crate::checker::field_lifecycle::FieldLifecycleTable::default(),
             semantic_structure_shards: BTreeMap::new(),
@@ -598,6 +599,7 @@ impl SemanticWorkspaceSession {
             changed_modules: update.changed_modules.clone(),
             removed_modules: update.removed_modules.clone(),
             identity_changes: update.identity_changes.clone(),
+            module_stats: update.stats.clone(),
         };
         self.update_with_delta(
             SemanticWorkspaceInput {
@@ -653,6 +655,7 @@ impl SemanticWorkspaceSession {
         let generation = input.generation;
         let sources = input.sources.clone();
         let linked = input.linked.clone();
+        let module_stats = module_delta.as_ref().map(|delta| delta.module_stats.clone());
         self.update_with_budget_and_cancel_and_delta(input, QueryBudget::default(), &CancellationToken::new(), module_delta)
             .unwrap_or_else(|_error| {
                 let snapshot = self.last_known_good.clone().unwrap_or_else(|| {
@@ -677,6 +680,7 @@ impl SemanticWorkspaceSession {
                     invalidated: Arc::from(Vec::new()),
                     recomputed: Arc::from(Vec::new()),
                     stats: SemanticUpdateStats::default(),
+                    module_stats,
                     effects: SemanticPublicationEffects::default(),
                 }
             })
@@ -716,25 +720,24 @@ impl SemanticWorkspaceSession {
         let mut callable_dispositions = BTreeMap::new();
         let previous_sources = self.sources.clone();
         let previous_snapshot = self.last_snapshot.clone();
-        let previous_linked_dependency_fingerprints = self.linked_dependency_fingerprints.clone();
         let previous_field_lifecycle_fingerprints = self.field_lifecycle_fingerprints.clone();
-        let current_linked_dependency_fingerprints = input
-            .linked
-            .modules
-            .iter()
-            .map(|(module, linked)| (module.clone(), phalcom_modules::fingerprint::linked_dependency_fingerprint(linked)))
-            .collect::<BTreeMap<_, _>>();
-        let linked_layout_changed = current_linked_dependency_fingerprints
-            .iter()
-            .filter(|(module, fingerprint)| previous_linked_dependency_fingerprints.get(*module) != Some(fingerprint))
-            .map(|(module, _)| module.clone())
-            .chain(
-                previous_linked_dependency_fingerprints
-                    .keys()
-                    .filter(|module| !current_linked_dependency_fingerprints.contains_key(*module))
-                    .cloned(),
-            )
-            .collect::<BTreeSet<_>>();
+        let linked_interface_changed = previous_snapshot.as_ref().map_or_else(BTreeSet::new, |previous| {
+            input
+                .linked
+                .modules
+                .iter()
+                .filter(|(module, linked)| previous.module_products.linked.get(*module) != Some(&linked.interface))
+                .map(|(module, _)| module.clone())
+                .chain(
+                    previous
+                        .module_products
+                        .linked
+                        .keys()
+                        .filter(|module| !input.linked.modules.contains_key(*module))
+                        .cloned(),
+                )
+                .collect()
+        });
         let delta_driven = module_delta.is_some();
         let delta_changed_modules = module_delta.as_ref().map_or_else(BTreeSet::new, |delta| delta.changed_modules.clone());
         let delta_identity_changes = module_delta.as_ref().map_or_else(BTreeSet::new, |delta| delta.identity_changes.clone());
@@ -746,16 +749,8 @@ impl SemanticWorkspaceSession {
         for (module, source) in &input.sources {
             let explicitly_changed = delta_changed_modules.contains(module) || delta_identity_changes.contains(module);
             if let Some(previous) = self.semantic_structure_shards.get(module) {
-                let interface_unchanged = previous_snapshot.as_ref().is_some_and(|snapshot| {
-                    input.interfaces.get(module).is_some_and(|current| {
-                        snapshot
-                            .module_products
-                            .unlinked
-                            .get(module)
-                            .is_some_and(|previous| previous.fingerprint() == current.fingerprint())
-                    })
-                });
-                let unchanged = if delta_driven && explicitly_changed && interface_unchanged {
+                let structural_unchanged = ModuleSemanticStructureShard::structural_fingerprint(source) == previous.source_fingerprint;
+                let unchanged = if delta_driven && explicitly_changed && structural_unchanged {
                     semantic_structure_shards.insert(module.clone(), ModuleSemanticStructureShard::with_source(previous, source.clone()));
                     structural_reused_modules.insert(module.clone());
                     stats.semantic_structure_shards_reused += 1;
@@ -763,7 +758,9 @@ impl SemanticWorkspaceSession {
                 } else if delta_driven && !explicitly_changed {
                     true
                 } else {
-                    compute_module_fingerprint(source) == previous.source_fingerprint
+                    self.source_fingerprints
+                        .get(module)
+                        .is_some_and(|fingerprint| *fingerprint == compute_module_fingerprint(source))
                 };
                 if unchanged {
                     semantic_structure_shards.insert(module.clone(), previous.clone());
@@ -918,15 +915,13 @@ impl SemanticWorkspaceSession {
                 .cloned()
                 .collect::<BTreeSet<_>>();
             work.extend(changed_modules.iter().filter(|module| current_modules.contains(*module)).cloned());
-            work.extend(linked_layout_changed.iter().filter(|module| current_modules.contains(*module)).cloned());
+            work.extend(linked_interface_changed.iter().filter(|module| current_modules.contains(*module)).cloned());
             work
         };
         let structural_work_modules = semantic_work_modules
             .iter()
             .filter(|module| {
-                !structural_reused_modules.contains(*module)
-                    || delta_changed_modules.contains(*module)
-                    || linked_layout_changed.contains(*module)
+                !structural_reused_modules.contains(*module) || linked_interface_changed.contains(*module) || field_lifecycle_changed_modules.contains(*module)
             })
             .cloned()
             .collect::<BTreeSet<_>>();
@@ -2819,7 +2814,6 @@ impl SemanticWorkspaceSession {
 
         self.last_snapshot = Some(snapshot.clone());
         self.last_known_good = Some(snapshot.clone());
-        self.linked_dependency_fingerprints = current_linked_dependency_fingerprints;
         self.field_lifecycle_fingerprints = next_field_lifecycle_fingerprints;
         self.default_field_lifecycle = default_field_lifecycle;
 
@@ -2828,6 +2822,7 @@ impl SemanticWorkspaceSession {
             invalidated: Arc::from(invalidated_keys.into_iter().collect::<Vec<_>>()),
             recomputed: Arc::from(recomputed_keys),
             stats,
+            module_stats: module_delta.as_ref().map(|delta| delta.module_stats.clone()),
             effects,
         })
     }

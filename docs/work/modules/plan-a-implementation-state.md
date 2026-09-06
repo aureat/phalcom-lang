@@ -36,14 +36,14 @@ delta/COW cost model.
 3. Invalid transitive dependency publishes partial state: `tests/workspace_session.rs::invalid_transitive_dependency_publishes_partial_state` passes.
 4. Exact reverse edge replacement leaves no stale dependency: `tests/workspace_session.rs::exact_reverse_edge_replacement_leaves_no_stale_dependency` passes.
 5. Tolerant runtime survivor order: `tests/linker.rs::tolerant_runtime_cycle_preserves_independent_survivor_order` passes.
-6. Module test suite: `cargo test -p phalcom-modules` passes 89 passed (0 failed).
+6. Full module test suite: `RUSTFLAGS='' cargo test -p phalcom-modules` passes with zero failures.
 7. Downstream checks: `cargo test -p phalcom-semantic --test semantic module_query_provenance` passes; `cargo check -p phalcom-lsp` passes with zero errors.
 
 ### Corrective amendment after audit
-1. `phalcom-lsp/src/source_transport.rs` now canonicalizes URI source
-   identities while preserving display paths. This repairs the A0 regression
-   where `/var/...` editor URIs did not match `/private/var/...` discovered
-   module identities.
+1. `phalcom-lsp/src/source_transport.rs` remains a pure URI-to-protocol-source
+   conversion. Canonical source identity is established by the module
+   workspace, which retains protocol/display-to-canonical aliases for later
+   updates and deletion events.
 2. Staged overlay derivation no longer rediscovers a removed overlay through
    the base provider, and removed source identities are recorded before the
    private rebuild. Deleted provider facts therefore cannot survive the commit
@@ -180,7 +180,9 @@ COMPLETED
 ## Checkpoint A5 — Coarse Semantic Safety Fingerprints
 
 ### Status
-IMPLEMENTED; focused proof is green. Final Plan-A matrix proof remains open.
+PARTIAL — Tasks 25/26 are implemented; Task 27 remains incomplete pending its
+cross-module unused-export, high-fanout, stable-intermediate, and cold/parity
+proofs.
 
 ### Tasks
 - [x] Task 25 — Remove all-source resolution hashing from callable-body direct
@@ -213,17 +215,16 @@ aggregate/worklist closure is not yet proven.
 ### Tasks
 - [x] Task 28 — Retain per-module structural semantic shards and reuse
   unchanged shards across explicit module deltas.
-- [~] Task 29 — Feed `changed_modules`, `removed_modules`, and identity changes
-  from `WorkspaceModuleUpdate` into semantic updates.
-- [~] Task 30 — Restrict hierarchy/supertype work to changed structural
-  modules; full delta-maintained aggregate closure remains open.
-- [~] Task 31 — Retain module-local alias/generic-header contributions; full
-  aggregate composition still has broad passes.
-- [~] Task 32 — Use structural/semantic worklists for declaration surfaces,
-  callable signatures, and field signatures; ordinary edits still rebuild
-  some aggregate state.
-- [~] Task 33 — Preserve cold/incremental behavior and snapshot products;
-  required full parity and work-count proof remains open.
+- [~] Task 29 — Delta-maintain declaration namespace/table composition; module
+  delta plumbing is present, but global declaration composition remains.
+- [~] Task 30 — Delta-maintain hierarchy/supertype direct-edge products;
+  structural worklists are narrowed, but aggregate closure remains open.
+- [~] Task 31 — Module-shard type aliases and generic headers; retained alias
+  contributions exist, but aggregate composition still has broad passes.
+- [~] Task 32 — Publish declaration surfaces/callable/field signatures through
+  exact worklists; ordinary edits still rebuild some aggregate state.
+- [~] Task 33 — Compose immutable snapshots from retained shards with cold/
+  incremental parity; required parity and work-count proof remains open.
 
 ### Verification evidence
 - `SemanticModuleDelta` now crosses `WorkspaceModuleSession` into the semantic
@@ -233,7 +234,10 @@ aggregate/worklist closure is not yet proven.
   contributions when source text changes without an interface change.
 - Changed/removed modules seed semantic and structural worklists; unchanged
   shards and linked dependency fingerprints are retained.
-- Full semantic suite: 1,096 passed, 0 failed, 42 ignored. Module suite and
+- `apply_module_mutations` now exposes module-layer work counts through the
+  semantic publication and has a production-path body-edit test in
+  `incremental::a7_performance`.
+- Full semantic suite: 1,097 passed, 0 failed, 42 ignored. Module suite and
   provider lifecycle LSP tests are green.
 
 ### Remaining A6 gap
@@ -274,8 +278,9 @@ open.
 
 ### Task 36 — Acceptance matrix evidence
 
-- [~] PA-1 body-only edit: module-layer evidence passes; semantic/LSP
-  cross-module closure at required scale is not separately asserted.
+- [~] PA-1 body-only edit: production module-delta evidence now proves zero
+  import resolution, zero component recomputation, and structural-shard reuse;
+  required cross-module semantic-consumer work assertion remains open.
 - [x] PA-2 one-of-20 import path, PA-3 unrelated negative import, PA-4
   missing-target recovery, and PA-7 disconnected retention pass in existing
   A2/A3/A7 fixtures.
@@ -292,7 +297,7 @@ open.
 
 - [x] `RUSTFLAGS='' cargo test -p phalcom-modules` passes.
 - [x] `RUST_MIN_STACK=8388608 RUSTFLAGS='' cargo test -p phalcom-semantic`
-  passes: 1,096 passed, 42 ignored.
+  passes: 1,097 passed, 42 ignored.
 - [x] `RUSTFLAGS='' cargo check -p phalcom-lsp` passes.
 - [x] Full LSP release gate: provider lifecycle, semantic boundary, navigation,
   integration, unit, and doc-test lanes pass; aggregate integration lane is
@@ -310,10 +315,9 @@ open.
 
 ### Plan-B handoff
 
-- Final pushed HEAD: `35788901d4a12b0c5c3b9b09e49e4cb3a89f47b6`
-  (`fix(lsp): close Plan A publication regressions`); local `main` matches
-  `origin/main`. The unrelated `docs/.obsidian/workspace.json` edit remains
-  unstaged.
+- Final pushed HEAD: update after this corrective patch; the prior corrective
+  implementation commit is `9b4834a5`.
+  The unrelated `docs/.obsidian/workspace.json` edit remains unstaged.
 - Retained module products: `ModuleTopology`, `ImportSiteId` keyed resolution
   products with prefix provenance, `ComponentId`/`ComponentLinkedProduct`,
   `WorkspaceModuleStats`, and published reverse import/site indexes.

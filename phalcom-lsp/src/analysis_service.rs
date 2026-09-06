@@ -703,7 +703,7 @@ fn worker_loop(
             let mut mutations = Vec::new();
             for uri in removals {
                 if let Some(source) = source_location_for_uri(&uri) {
-                    mutations.push(phalcom_modules::WorkspaceSourceBatchMutation::RemoveSource { source: source.source_id });
+                    mutations.push(phalcom_modules::WorkspaceSourceBatchMutation::RemoveSourceAt { source });
                 }
             }
             for (uri, update) in batch {

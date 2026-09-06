@@ -152,6 +152,20 @@ impl ModuleTopology {
         self.source_modules.get(source)
     }
 
+    /// Adds retained protocol/source aliases to the immutable source index.
+    ///
+    /// Source identity is owned by the workspace module session. The topology
+    /// publishes those aliases so downstream semantic snapshots can resolve
+    /// the same source token even after filesystem spelling is normalized.
+    pub fn with_source_aliases(mut self, aliases: &BTreeMap<SourceId, SourceId>) -> Self {
+        for (alias, canonical) in aliases {
+            if let Some(module) = self.source_modules.get(canonical).cloned() {
+                self.source_modules.insert(alias.clone(), module);
+            }
+        }
+        self
+    }
+
     /// Collects all transitive descendant module identities of a root module.
     pub fn descendants(&self, root: &ModuleId) -> BTreeSet<ModuleId> {
         let mut result = BTreeSet::new();
@@ -343,4 +357,3 @@ impl TopologyDelta {
         }
     }
 }
-
