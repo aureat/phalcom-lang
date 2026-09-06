@@ -18,7 +18,15 @@ fn location(path: &PathBuf) -> SourceLocation {
 /// Component 1 (package ab): ab/package.ph, ab/a.ph <-> ab/b.ph (mutual imports / cycle)
 /// Component 2 (package cd): cd/package.ph, cd/c.ph -> cd/d.ph
 /// Component 3 (package e):  e/package.ph, e/e.ph
-fn setup_three_component_fixture() -> (TempDir, WorkspaceModuleSession, SourceLocation, SourceLocation, SourceLocation, SourceLocation, SourceLocation) {
+fn setup_three_component_fixture() -> (
+    TempDir,
+    WorkspaceModuleSession,
+    SourceLocation,
+    SourceLocation,
+    SourceLocation,
+    SourceLocation,
+    SourceLocation,
+) {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
@@ -161,14 +169,23 @@ fn checkpoint_a3_evidence_2_public_interface_edit_recomputes_only_affected_compo
         )
         .unwrap();
 
-    assert_eq!(up.stats.linked_components_recomputed, 1, "editing B interface should recompute exactly 1 component");
+    assert_eq!(
+        up.stats.linked_components_recomputed, 1,
+        "editing B interface should recompute exactly 1 component"
+    );
     assert_eq!(up.stats.linked_components_reused, 2, "C/D and E components must be retained");
 
     let retained_c_after = session.retained_components().get(&comp_c_before).cloned().unwrap();
     let retained_e_after = session.retained_components().get(&comp_e_before).cloned().unwrap();
 
-    assert!(Arc::ptr_eq(&retained_c_before, &retained_c_after), "Component C product must be structurally reused");
-    assert!(Arc::ptr_eq(&retained_e_before, &retained_e_after), "Component E product must be structurally reused");
+    assert!(
+        Arc::ptr_eq(&retained_c_before, &retained_c_after),
+        "Component C product must be structurally reused"
+    );
+    assert!(
+        Arc::ptr_eq(&retained_e_before, &retained_e_after),
+        "Component E product must be structurally reused"
+    );
 }
 
 #[test]
@@ -211,7 +228,10 @@ fn checkpoint_a3_evidence_4_private_dependency_fingerprint_split() {
     let private_fp_v2 = *session.linked_dependency_fingerprints().get(&mod_b).unwrap();
 
     assert_eq!(public_fp_v1, public_fp_v2, "public linked interface fingerprint must remain stable");
-    assert_ne!(private_fp_v1, private_fp_v2, "private dependency fingerprint must change when internal linkage reads change");
+    assert_ne!(
+        private_fp_v1, private_fp_v2,
+        "private dependency fingerprint must change when internal linkage reads change"
+    );
 }
 
 #[test]
@@ -255,11 +275,8 @@ fn checkpoint_a3_evidence_5_strict_and_tolerant_linking_parity() {
         ])
         .unwrap();
 
-    let unlinked: std::collections::BTreeMap<ModuleId, UnlinkedModuleInterface> = session
-        .interfaces()
-        .iter()
-        .map(|(id, (iface, _))| (id.clone(), (**iface).clone()))
-        .collect();
+    let unlinked: std::collections::BTreeMap<ModuleId, UnlinkedModuleInterface> =
+        session.interfaces().iter().map(|(id, (iface, _))| (id.clone(), (**iface).clone())).collect();
 
     let linker = ModuleLinker::new(session.universe().clone().into(), unlinked);
     let entry = session.module_for_source(&loc_a.source_id).cloned().unwrap();
@@ -267,10 +284,19 @@ fn checkpoint_a3_evidence_5_strict_and_tolerant_linking_parity() {
     let strict_program = linker.link(entry.clone(), session.resolved_imports()).unwrap();
     let tolerant_res = linker.link_component_tolerant(entry.clone(), session.resolved_imports());
 
-    assert_eq!(strict_program.modules, tolerant_res.program.modules, "strict and tolerant linking must produce identical modules");
-    assert_eq!(strict_program.initialization_order, tolerant_res.program.initialization_order, "strict and tolerant linking must produce identical initialization order");
+    assert_eq!(
+        strict_program.modules, tolerant_res.program.modules,
+        "strict and tolerant linking must produce identical modules"
+    );
+    assert_eq!(
+        strict_program.initialization_order, tolerant_res.program.initialization_order,
+        "strict and tolerant linking must produce identical initialization order"
+    );
     assert!(tolerant_res.diagnostics.is_empty(), "valid program tolerant linking has zero diagnostics");
-    assert!(tolerant_res.blocked_modules.is_empty(), "valid program tolerant linking has zero blocked modules");
+    assert!(
+        tolerant_res.blocked_modules.is_empty(),
+        "valid program tolerant linking has zero blocked modules"
+    );
 }
 
 #[test]
@@ -364,4 +390,3 @@ fn checkpoint_a3_evidence_6_cycle_survivors_retain_initialization_order() {
     let pos_w = init_order.iter().position(|m| m == &mod_w).unwrap();
     assert!(pos_w < pos_z, "dependency W must initialize before Z");
 }
-

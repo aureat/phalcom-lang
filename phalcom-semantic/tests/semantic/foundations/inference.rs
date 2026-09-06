@@ -889,9 +889,7 @@ fn test_frame_completion_does_not_fail_on_ancestor_underconstraint() {
     );
 
     let control = CheckerControl::default();
-    session
-        .propagate_with_control(&mut store, &hier, &control)
-        .expect("propagation succeeds");
+    session.propagate_with_control(&mut store, &hier, &control).expect("propagation succeeds");
 
     let child_outcome = session.finish_frame(child);
     assert!(
@@ -912,9 +910,7 @@ fn test_frame_completion_does_not_fail_on_ancestor_underconstraint() {
         ConstraintOrigin::Explicit,
         None,
     );
-    session
-        .propagate_with_control(&mut store, &hier, &control)
-        .expect("propagation succeeds");
+    session.propagate_with_control(&mut store, &hier, &control).expect("propagation succeeds");
     let root_solved = session.finish_root();
     assert!(
         root_solved.is_solved(),
@@ -943,9 +939,7 @@ fn test_frame_completion_with_ancestor_allocated_first() {
     );
 
     let control = CheckerControl::default();
-    session
-        .propagate_with_control(&mut store, &hier, &control)
-        .expect("propagation succeeds");
+    session.propagate_with_control(&mut store, &hier, &control).expect("propagation succeeds");
 
     let child_outcome = session.finish_frame(child);
     assert!(child_outcome.is_solved());

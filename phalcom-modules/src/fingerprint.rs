@@ -3,9 +3,7 @@
 //! Provides deterministic input and product fingerprint hashing for unlinked and
 //! linked module interfaces.
 
-use crate::interface::{
-    ImportSurface, LinkedExportTarget, LinkedModuleInterface, UnlinkedExportTarget, UnlinkedModuleInterface,
-};
+use crate::interface::{ImportSurface, LinkedExportTarget, LinkedModuleInterface, UnlinkedExportTarget, UnlinkedModuleInterface};
 use crate::metadata::{MetadataTarget, ModuleMetadata};
 use crate::source::ModuleKind;
 use phalcom_ast::ast::{ImportPath, ImportRoot, MetadataLiteral};

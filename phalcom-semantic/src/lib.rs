@@ -31,9 +31,9 @@ pub mod prover;
 pub mod reflection;
 pub mod resolver;
 pub mod scope;
+pub mod semantic_shard;
 pub mod session;
 pub mod signature;
-pub mod semantic_shard;
 pub mod snapshot;
 pub mod source;
 pub mod source_index;
@@ -111,8 +111,8 @@ pub use prover::{
 };
 pub use resolver::LinkedTypeResolver;
 pub use scope::ScopeTable;
-pub use session::{SemanticPublicationEffects, SemanticUpdateStats, SemanticWorkspacePublication, SemanticWorkspaceSession, SemanticWorkspaceUpdate};
 pub use semantic_shard::ModuleSemanticStructureShard;
+pub use session::{SemanticPublicationEffects, SemanticUpdateStats, SemanticWorkspacePublication, SemanticWorkspaceSession, SemanticWorkspaceUpdate};
 pub use signature::{
     CallableParameterSemantic, CallableSemanticSignature, CallableSignatureTable, FieldSemanticSignature, FieldSignatureTable, ReturnContractValidation,
 };
@@ -127,11 +127,11 @@ pub use workspace_inputs::*;
 pub use source::ParsedSourceUnit;
 pub use source_index::{CallableSourceAttachment, ModuleSourceIndex, SourceAttachmentError, SourceIndexFingerprints, SourceSemanticIndex};
 pub use source_index::{CallableSourceInfo, DeclarationSourceInfo, FieldSourceInfo, SourceCallableKind, SourceReceiverKind};
-pub use source_index::{OccurrenceHint, OccurrenceIndex, OccurrenceKind, OccurrenceRole, OccurrenceView, SemanticOccurrence};
 pub use source_index::{
     ImportBindingOrigin, SourceBindingInfo, SourceBindingKind, SourceIndexContext, SourceNameResolution, SourceScope, SourceScopeId, SourceScopeIndex,
     build_source_scope_index,
 };
+pub use source_index::{OccurrenceHint, OccurrenceIndex, OccurrenceKind, OccurrenceRole, OccurrenceView, SemanticOccurrence};
 pub use source_index::{SourceSite, SourceSiteKind};
 pub use stable_identity::*;
 pub use surface::{DeclarationSurface, MemberVisibility};
@@ -144,7 +144,6 @@ pub use types::{
     TypeLevelBinding, TypeParameterData, TypeParameterId, TypeParameterOwner, TypeResolver, TypeStore, TypeSubstitution, UnknownReason, ValueSemanticFact,
     VariantTypeId, check_assignability, check_assignability_bounded, check_knowledge_against_type, check_knowledge_against_type_bounded, check_subtype_bounded,
     is_subtype, normalize_native_type, register_native_surfaces, register_native_surfaces_from_records, resolve_native_type_form, resolve_type_annotation,
-    resolve_type_form,
-    substitution_for_applied,
+    resolve_type_form, substitution_for_applied,
 };
 pub use workspace::{SemanticAnalysis, SemanticWorkspaceInput, analyze_single_module, analyze_workspace};

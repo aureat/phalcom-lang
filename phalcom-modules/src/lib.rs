@@ -31,17 +31,17 @@ pub use diagnostic::{ModuleDiagnostic, ModuleDiagnosticKind};
 pub use dunder::{DunderCategory, DunderPolicy, DunderPolicyError, DunderRole};
 pub use error::{InterfaceError, ModuleGraphError, ModuleLoadError, ModuleResolutionError, ProjectError, SourceError};
 pub use fingerprint::{
-    InterfaceFingerprint, LinkedInterfaceFingerprint, hash_linked_interface, hash_unlinked_interface,
-    interface_fingerprint, linked_interface_fingerprint, linked_interface_input_fingerprint,
-    unlinked_interface_input_fingerprint,
+    InterfaceFingerprint, LinkedInterfaceFingerprint, hash_linked_interface, hash_unlinked_interface, interface_fingerprint, linked_interface_fingerprint,
+    linked_interface_input_fingerprint, unlinked_interface_input_fingerprint,
 };
 pub use graph::{
     DependencyPhase, ModuleGraphs, ReferenceEdge, ReferenceGraph, ReferenceKind, RuntimeDependencyEdge, RuntimeDependencyGraph, RuntimeDependencyReason,
     SemanticEdge, SemanticEdgeKind, SemanticGraph, SemanticNodeId, strongly_connected_components,
 };
 pub use identity::{
-    ImportRootTarget, ImportSiteId, ImportSiteLocalId, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, ProjectRevisionFingerprint, ProjectSourceIdentity, ResolvedProjectId, SourceId,
-    SourceLocation, StableModuleKey, StableProjectKey, SyntheticProjectId, SyntheticProjectIdAllocator, universe_module_from_uri, universe_module_uri,
+    ImportRootTarget, ImportSiteId, ImportSiteLocalId, ModuleComponent, ModuleId, ModulePath, ProjectIdentity, ProjectRevisionFingerprint,
+    ProjectSourceIdentity, ResolvedProjectId, SourceId, SourceLocation, StableModuleKey, StableProjectKey, SyntheticProjectId, SyntheticProjectIdAllocator,
+    universe_module_from_uri, universe_module_uri,
 };
 pub use interface::{
     DeclarationSurface, ExportSurface, ImportSurface, InterfaceBuilder, LinkedExport, LinkedExportTarget, LinkedModuleInterface, PackagePathSurface,
@@ -64,8 +64,7 @@ pub use resolver::{
 };
 pub use session::{
     SourceRevision, WorkspaceModuleSession, WorkspaceModuleSessionError, WorkspaceModuleStats, WorkspaceModuleUpdate, WorkspaceSourceBatchMutation,
-    WorkspaceSourceMutation,
-    WorkspaceSourceState,
+    WorkspaceSourceMutation, WorkspaceSourceState,
 };
 pub use source::{
     DirEntryKind, DirectorySnapshot, EntryOwnership, FilesystemSourceProvider, ModuleKind, ParsedModuleUnit, SourceProvider, SourceUnit,

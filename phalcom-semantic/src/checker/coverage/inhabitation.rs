@@ -11,7 +11,7 @@ use crate::types::rigid::RigidArena;
 use crate::types::store::{TypeData, TypeStore};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use super::domain::{decompose_domain, DomainDecomposition};
+use super::domain::{DomainDecomposition, decompose_domain};
 use super::subject::CoverageSubject;
 use super::usefulness::CoverageMetrics;
 

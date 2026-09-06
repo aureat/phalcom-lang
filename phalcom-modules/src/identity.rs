@@ -350,7 +350,6 @@ impl fmt::Display for ImportSiteId {
     }
 }
 
-
 /// Source-provider identity, distinct from semantic `ModuleId`.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct SourceId(pub Box<str>);

@@ -411,5 +411,9 @@ fn synthetic_large_scale_topology_query_work_count() {
     assert_eq!(found_module.unwrap().path.to_string(), "pkg_3.sub_7.mod_2");
 
     // Zero fallback scans across thousands of node operations on 1k+ graph
-    assert_eq!(counter.load(Ordering::Relaxed), 0, "large synthetic topology queries must perform exactly zero fallback scans");
+    assert_eq!(
+        counter.load(Ordering::Relaxed),
+        0,
+        "large synthetic topology queries must perform exactly zero fallback scans"
+    );
 }

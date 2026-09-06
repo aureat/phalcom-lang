@@ -63,7 +63,11 @@ class Probe {
     let int_get = fixture.expression(run, "Box<Int>.instances");
     let string_get = fixture.expression(run, "Box<String>.instances");
     let invocation = |resolution: &phalcom_semantic::checker::associated::AssociatedResolution| {
-        let AssociatedResolutionKind::BoundBehavioralInvoke { target: InvocationTargetId::Behavioral(callable), .. } = &resolution.kind else {
+        let AssociatedResolutionKind::BoundBehavioralInvoke {
+            target: InvocationTargetId::Behavioral(callable),
+            ..
+        } = &resolution.kind
+        else {
             panic!("expected bound behavioral invocation, got {:?}", resolution.kind);
         };
         (callable.clone(), resolution.owner_form)

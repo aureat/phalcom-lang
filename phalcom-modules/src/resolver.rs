@@ -203,7 +203,9 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
     ) {
         match &syntax.root {
             ImportRoot::Absolute(root_seg) => {
-                let Ok(root_comp) = ModuleComponent::from_identifier(&root_seg.name) else { return };
+                let Ok(root_comp) = ModuleComponent::from_identifier(&root_seg.name) else {
+                    return;
+                };
                 if root_seg.name == "universe" {
                     *target_project = Some(ProjectIdentity::Universe);
                     let mut components = Vec::new();
@@ -277,7 +279,9 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
             }
             ImportRoot::Relative { dots, .. } => {
                 let dots = *dots as usize;
-                if dots == 0 { return; }
+                if dots == 0 {
+                    return;
+                }
                 let Ok(parsed) = self.load_parsed(importer) else { return };
                 let package_path = match parsed.kind {
                     ModuleKind::Package => importer.path.clone(),
@@ -285,7 +289,9 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                 };
                 let pkg_components = package_path.components();
                 let ascend_count = dots - 1;
-                if ascend_count > pkg_components.len() { return; }
+                if ascend_count > pkg_components.len() {
+                    return;
+                }
                 let base_len = pkg_components.len() - ascend_count;
                 let mut resolved_components = pkg_components[..base_len].to_vec();
                 for seg in &syntax.segments {
@@ -372,7 +378,8 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                         let mut cur_path = ModulePath::root();
                         let mut cur_prefix_str = "universe".to_string();
                         for seg in &syntax.segments {
-                            let comp = ModuleComponent::from_identifier(&seg.name).map_err(|e| ModuleResolutionError::InvalidModuleName(seg.name.clone(), e))?;
+                            let comp =
+                                ModuleComponent::from_identifier(&seg.name).map_err(|e| ModuleResolutionError::InvalidModuleName(seg.name.clone(), e))?;
                             cur_path = cur_path.join(comp);
                             cur_prefix_str.push('.');
                             cur_prefix_str.push_str(&seg.name);
@@ -428,7 +435,11 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                     });
                 }
 
-                Ok(ImportResolutionTrace { target, package_interfaces, prefixes })
+                Ok(ImportResolutionTrace {
+                    target,
+                    package_interfaces,
+                    prefixes,
+                })
             }
             ImportRoot::Relative { dots, range: _ } => {
                 let dots = *dots as usize;
@@ -506,7 +517,11 @@ impl<'u, P: SourceProvider> ModuleResolver<'u, P> {
                     });
                 }
 
-                Ok(ImportResolutionTrace { target, package_interfaces, prefixes })
+                Ok(ImportResolutionTrace {
+                    target,
+                    package_interfaces,
+                    prefixes,
+                })
             }
         }
     }

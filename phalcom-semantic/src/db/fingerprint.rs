@@ -247,7 +247,6 @@ fn hash_linked_interface(interface: &LinkedModuleInterface, include_ranges: bool
     phalcom_modules::fingerprint::hash_linked_interface(interface, include_ranges, hasher);
 }
 
-
 fn hash_type_knowledge(knowledge: &TypeKnowledge, include_provenance: bool, hasher: &mut impl Hasher) {
     match knowledge {
         TypeKnowledge::Known(evidence) => {
@@ -1299,7 +1298,7 @@ pub fn callable_body_input_fingerprint_with_formal_inputs(
     store: &TypeStore,
     sources: &BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
     source_resolution_input: InputFingerprint,
-    linked_component_product: ProductFingerprint,
+    _linked_component_product: ProductFingerprint,
     lifecycle: Option<&crate::checker::field_lifecycle::FieldLifecycleTable>,
 ) -> InputFingerprint {
     let mut hasher = DefaultHasher::new();
@@ -1308,7 +1307,6 @@ pub fn callable_body_input_fingerprint_with_formal_inputs(
         unit.text.get(body_range.start..body_range.end).map(str::as_bytes).hash(&mut hasher);
     }
     source_resolution_input.raw().hash(&mut hasher);
-    linked_component_product.raw().hash(&mut hasher);
     if let Some(lifecycle) = lifecycle {
         for (field, fact) in lifecycle.fields.iter().filter(|(field, _)| &field.owner == callable.declaration_owner()) {
             field.hash(&mut hasher);
@@ -1894,7 +1892,9 @@ pub(crate) fn linked_name_input_fingerprint_with_module(
     product.name.hash(&mut hasher);
     if let Some(linked_module) = linked_module {
         linked_interface_input_fingerprint(&linked_module.interface).raw().hash(&mut hasher);
-        phalcom_modules::fingerprint::linked_dependency_fingerprint(linked_module).raw().hash(&mut hasher);
+        phalcom_modules::fingerprint::linked_dependency_fingerprint(linked_module)
+            .raw()
+            .hash(&mut hasher);
     }
     finish_input(hasher)
 }

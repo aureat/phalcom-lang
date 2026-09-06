@@ -41,7 +41,10 @@ class Eval {
     let update = session.update(single_module_input(module, source, 1));
     let delta = update.snapshot.store.len() - before;
 
-    assert!(delta <= 128, "indexed outer-only Apply match must not intern an unbounded recursive chain; delta={delta}");
+    assert!(
+        delta <= 128,
+        "indexed outer-only Apply match must not intern an unbounded recursive chain; delta={delta}"
+    );
 }
 
 fn first_match(snapshot: &SemanticSnapshot) -> &MatchResolution {
@@ -81,10 +84,7 @@ fn adt_incr_01_adding_enum_case_invalidates_match_and_reports_new_residual() {
         phalcom_semantic::match_semantics::ExhaustivenessResult::Proven
     ));
     let residual = &first_match(&update.snapshot).arms[1].residual_after;
-    let case_c = phalcom_semantic::identity::VariantId::new(
-        DeclarationId::new(module, "Choice".into()),
-        Selector::getter("C").expect("C selector"),
-    );
+    let case_c = phalcom_semantic::identity::VariantId::new(DeclarationId::new(module, "Choice".into()), Selector::getter("C").expect("C selector"));
     assert!(matches!(residual, PatternSpaceSummary::Variant { variant, .. } if *variant == case_c));
 }
 

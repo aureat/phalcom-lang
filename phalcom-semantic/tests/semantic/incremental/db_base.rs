@@ -109,10 +109,7 @@ fn purge_module_removes_last_known_good_products_and_edges() {
         supertype_template: None,
     });
     let mut db = SemanticDb::new();
-    let _ = phalcom_semantic::db::query_declaration_shell(
-        &mut db,
-        Arc::new(phalcom_semantic::TypeDeclarationShell::Nominal((*info).clone())),
-    );
+    let _ = phalcom_semantic::db::query_declaration_shell(&mut db, Arc::new(phalcom_semantic::TypeDeclarationShell::Nominal((*info).clone())));
     let key = QueryKey::DeclarationShell(declaration);
     assert!(db.last_known_good_product(&key).is_some());
 

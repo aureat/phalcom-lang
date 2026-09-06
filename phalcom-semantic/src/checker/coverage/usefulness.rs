@@ -1,14 +1,14 @@
 //! Finite demand-driven pattern-matrix usefulness and exhaustiveness engine.
 
+use crate::checker::context::CheckerControl;
 use crate::declarations::DeclarationTypeTable;
 use crate::enum_semantics::EnumSemanticTable;
 use crate::match_semantics::{BranchProofEnvironment, CoverageWitness, ExhaustivenessResult, PatternSpaceSummary, PatternUsefulness};
-use crate::types::outcome::BlockReason;
 use crate::types::evidence::UnknownReason;
+use crate::types::outcome::BlockReason;
 use crate::types::relation::TypeHierarchy;
 use crate::types::rigid::RigidArena;
 use crate::types::store::TypeStore;
-use crate::checker::context::CheckerControl;
 
 use super::domain::{ConstructorCase, ConstructorHead, DomainDecomposition, decompose_domain};
 use super::inhabitation::{Inhabitation, check_inhabitation};
@@ -97,16 +97,7 @@ impl CoverageEngine {
         if let Some(result) = &self.inhabitation_cache {
             return result.clone();
         }
-        let result = check_inhabitation(
-            declarations,
-            store,
-            hierarchy,
-            rigids,
-            enum_table,
-            &self.root,
-            &self.control,
-            &mut self.metrics,
-        );
+        let result = check_inhabitation(declarations, store, hierarchy, rigids, enum_table, &self.root, &self.control, &mut self.metrics);
         self.inhabitation_cache = Some(result.clone());
         result
     }
@@ -372,19 +363,22 @@ impl CoverageEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::budget::{CancellationToken, QueryBudget};
     use crate::declarations::bootstrap_universe_declarations;
     use crate::identity::{DeclarationId, ModuleId};
     use crate::types::id::TypeId;
     use crate::types::relation::MapTypeHierarchy;
     use crate::types::rigid::RigidArena;
     use crate::types::store::TypeStore;
-    use crate::db::budget::{CancellationToken, QueryBudget};
 
     #[test]
     fn first_blocked_state_is_sticky_and_distinct_from_known_opaque() {
         let reason = BlockReason::RecursiveFixpoint;
         let mut engine = CoverageEngine::new(CoverageSubject::canonical(TypeId(0)), CheckerControl::default());
-        assert_eq!(engine.classify_in_domain(UsefulnessSearch::Blocked(reason.clone())), Some(PatternUsefulness::Useful));
+        assert_eq!(
+            engine.classify_in_domain(UsefulnessSearch::Blocked(reason.clone())),
+            Some(PatternUsefulness::Useful)
+        );
         engine.mark_blocked_for_test(BlockReason::ReflectionBoundary);
 
         assert_eq!(engine.blocked_reason(), Some(&reason));
@@ -422,7 +416,10 @@ mod tests {
         );
         assert!(engine.metrics().witness_states > 0);
         assert!(engine.metrics().inhabitation_iterations > 0);
-        assert!(matches!(engine.finalize_exhaustiveness(&declarations, &mut store, &hierarchy, &mut rigids, None), ExhaustivenessResult::Blocked(BlockReason::BudgetExceeded(_))));
+        assert!(matches!(
+            engine.finalize_exhaustiveness(&declarations, &mut store, &hierarchy, &mut rigids, None),
+            ExhaustivenessResult::Blocked(BlockReason::BudgetExceeded(_))
+        ));
 
         let cancel = CancellationToken::new();
         cancel.cancel();
@@ -587,7 +584,20 @@ fn useful_internal(
         for alt in alts.iter() {
             let mut new_cand = candidate.to_vec();
             new_cand[0] = *alt;
-            match useful_internal(declarations, store, hierarchy, rigids, enum_table, arena, control, metrics, matrix, &new_cand, subjects, proof) {
+            match useful_internal(
+                declarations,
+                store,
+                hierarchy,
+                rigids,
+                enum_table,
+                arena,
+                control,
+                metrics,
+                matrix,
+                &new_cand,
+                subjects,
+                proof,
+            ) {
                 UsefulnessSearch::Useful(wit) => return UsefulnessSearch::Useful(wit),
                 UsefulnessSearch::Blocked(b) => return UsefulnessSearch::Blocked(b),
                 UsefulnessSearch::NotUseful => continue,
@@ -657,11 +667,11 @@ fn useful_internal(
                     store,
                     hierarchy,
                     rigids,
-                enum_table,
-                arena,
-                control,
-                metrics,
-                &wildcard_matrix,
+                    enum_table,
+                    arena,
+                    control,
+                    metrics,
+                    &wildcard_matrix,
                     &candidate[1..],
                     &subjects[1..],
                     proof,
@@ -846,11 +856,7 @@ fn extract_constructor_fields(arena: &mut CoveragePatternArena, pat: &CoveragePa
     }
 }
 
-fn specialize_matrix_for_case(
-    arena: &mut CoveragePatternArena,
-    matrix: &[Vec<CoveragePatternId>],
-    case: &ConstructorCase,
-) -> Vec<Vec<CoveragePatternId>> {
+fn specialize_matrix_for_case(arena: &mut CoveragePatternArena, matrix: &[Vec<CoveragePatternId>], case: &ConstructorCase) -> Vec<Vec<CoveragePatternId>> {
     let mut specialized = Vec::with_capacity(matrix.len());
     for row in matrix {
         if row.is_empty() {

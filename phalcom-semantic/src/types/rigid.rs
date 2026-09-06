@@ -379,12 +379,7 @@ impl LocalType {
                 variant: store.variant_identity(variant).clone(),
                 enum_type: Box::new(Self::from_canonical_types(store, enum_type, replacements)),
             },
-            TypeData::Union(members) => Self::Union(
-                members
-                    .iter()
-                    .map(|member| Self::from_canonical_types(store, *member, replacements))
-                    .collect(),
-            ),
+            TypeData::Union(members) => Self::Union(members.iter().map(|member| Self::from_canonical_types(store, *member, replacements)).collect()),
             TypeData::Tuple(elements) => Self::Tuple(
                 elements
                     .iter()

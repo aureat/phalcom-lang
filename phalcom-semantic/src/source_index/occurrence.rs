@@ -269,7 +269,10 @@ impl OccurrenceBuilder<'_> {
                     if let Some(module) = self.resolve_path(&reexport.path) {
                         self.path_occurrences(&reexport.path, SemanticTargetId::Module(module.clone()));
                         for item in &reexport.items {
-                            if let Some(target) = self.context.and_then(|context| context.targets.get(&(module.clone(), item.local_or_remote_name.clone()))) {
+                            if let Some(target) = self
+                                .context
+                                .and_then(|context| context.targets.get(&(module.clone(), item.local_or_remote_name.clone())))
+                            {
                                 self.record_targeted(
                                     item.name_range,
                                     OccurrenceKind::Declaration,
@@ -697,11 +700,7 @@ impl OccurrenceBuilder<'_> {
     ) -> SourceSiteId {
         let scope = self.scopes.scope_at(range.start);
         let target = name.and_then(|name| match self.scopes.resolve_name(scope, name, range.start) {
-            SourceNameResolution::Binding(binding) => self
-                .scopes
-                .target_for(&binding)
-                .cloned()
-                .or(Some(SemanticTargetId::Binding(binding))),
+            SourceNameResolution::Binding(binding) => self.scopes.target_for(&binding).cloned().or(Some(SemanticTargetId::Binding(binding))),
             SourceNameResolution::Target(target) => Some(target),
             SourceNameResolution::ImplicitSelf | SourceNameResolution::Unresolved => None,
         });
@@ -767,12 +766,12 @@ impl OccurrenceBuilder<'_> {
     fn expression_target(&self, expr: &Expr) -> Option<SemanticTargetId> {
         match expr {
             Expr::Var { value, range } => match self.scopes.resolve_name(self.scopes.scope_at(range.start), value, range.start) {
-            SourceNameResolution::Binding(binding) => self
-                .scopes
-                .import_origin(&binding)
-                .map(|origin| origin.remote_target.clone())
-                .or_else(|| self.scopes.target_for(&binding).cloned())
-                .or(Some(SemanticTargetId::Binding(binding))),
+                SourceNameResolution::Binding(binding) => self
+                    .scopes
+                    .import_origin(&binding)
+                    .map(|origin| origin.remote_target.clone())
+                    .or_else(|| self.scopes.target_for(&binding).cloned())
+                    .or(Some(SemanticTargetId::Binding(binding))),
                 SourceNameResolution::Target(target) => Some(target),
                 SourceNameResolution::ImplicitSelf | SourceNameResolution::Unresolved => None,
             },

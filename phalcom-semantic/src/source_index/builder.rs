@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::identity::{
-    CallableId, CallableParameterId, CallableOwnerId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId,
+    CallableId, CallableOwnerId, CallableParameterId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId,
     SourceSiteLocalId, VariantFieldId, VariantId,
 };
 use crate::source_index::scope::{
@@ -322,12 +322,10 @@ impl SourceScopeBuilder<'_> {
         let site = self.allocate_site(self.current_owner.clone(), range, SourceSiteKind::BindingDeclaration);
         let primary = first.clone().unwrap_or_else(|| site.clone());
         let target = match kind {
-            SourceBindingKind::TopLevelLet | SourceBindingKind::TopLevelConst => {
-                SemanticTargetId::ModuleBinding(SymbolId {
-                    module: self.index.module.clone(),
-                    name: name.clone(),
-                })
-            }
+            SourceBindingKind::TopLevelLet | SourceBindingKind::TopLevelConst => SemanticTargetId::ModuleBinding(SymbolId {
+                module: self.index.module.clone(),
+                name: name.clone(),
+            }),
             _ => SemanticTargetId::Binding(primary.clone()),
         };
         self.index.register_target(site.clone(), target);
@@ -476,7 +474,8 @@ impl SourceScopeBuilder<'_> {
             enum_def.name_range,
             SourceSiteKind::Declaration(declaration.clone()),
         );
-        self.index.register_target(declaration_site.clone(), SemanticTargetId::Declaration(declaration.clone()));
+        self.index
+            .register_target(declaration_site.clone(), SemanticTargetId::Declaration(declaration.clone()));
         self.index.declaration_sources.insert(
             declaration.clone(),
             DeclarationSourceInfo {

@@ -246,10 +246,7 @@ impl TypeResolver for TrackingTypeResolver<'_> {
 
         if let Some(target) = &qualified_target {
             if is_query_owned_module(target) {
-                record_query_dependency(
-                    &self.dependencies,
-                    SemanticDependency::PublicExport(target.clone(), members[0].clone()),
-                );
+                record_query_dependency(&self.dependencies, SemanticDependency::PublicExport(target.clone(), members[0].clone()));
             }
         }
 
@@ -1622,9 +1619,7 @@ impl<'a> CheckingContext<'a> {
     }
 
     pub(crate) fn binding_is_in_current_scope(&self, binding: BindingId) -> bool {
-        self.scopes
-            .last()
-            .is_some_and(|scope| scope.values().any(|info| info.id == binding))
+        self.scopes.last().is_some_and(|scope| scope.values().any(|info| info.id == binding))
     }
 
     pub(crate) fn local_binding_type(&self, binding: BindingId) -> Option<&LocalType> {
@@ -1689,9 +1684,7 @@ impl<'a> CheckingContext<'a> {
             .map(|rigid| format!("κ{}", rigid.0))
             .collect::<Vec<_>>()
             .join(", ");
-        let outward = expected
-            .map(|ty| self.store.format_type(ty))
-            .unwrap_or_else(|| "inferred result".to_string());
+        let outward = expected.map(|ty| self.store.format_type(ty)).unwrap_or_else(|| "inferred result".to_string());
         self.emit_diagnostic(SemanticDiagnostic::error_in(
             self.current_module.clone(),
             crate::diagnostic::DiagnosticCode::ExistentialEscape,
@@ -2419,12 +2412,7 @@ pub(crate) fn ensure_core_object_type_tests(store: &mut TypeStore, declarations:
     }
 }
 
-fn local_type_is_soundly_widenable(
-    ctx: &mut CheckingContext<'_>,
-    local_type: &LocalType,
-    expected: TypeId,
-    constraints: &[LocalConstraint],
-) -> bool {
+fn local_type_is_soundly_widenable(ctx: &mut CheckingContext<'_>, local_type: &LocalType, expected: TypeId, constraints: &[LocalConstraint]) -> bool {
     let expected_local = LocalType::from_canonical(ctx.store, expected, &HashMap::new());
     for constraint in constraints {
         let LocalConstraint::Equivalent { left, right } = constraint else {
@@ -2457,9 +2445,7 @@ fn local_type_is_soundly_widenable(
             LocalType::Canonical(origin) => is_subtype(ctx.store, &ctx.hierarchy, *origin, expected),
             _ => false,
         },
-        LocalType::Union(members) => members
-            .iter()
-            .all(|member| local_type_is_soundly_widenable(ctx, member, expected, constraints)),
+        LocalType::Union(members) => members.iter().all(|member| local_type_is_soundly_widenable(ctx, member, expected, constraints)),
         LocalType::Tuple(elements) => {
             let LocalType::Tuple(expected_elements) = LocalType::from_canonical(ctx.store, expected, &HashMap::new()) else {
                 return false;
@@ -2489,8 +2475,14 @@ fn collect_equivalent_rigid_bindings(left: &LocalType, right: &LocalType, bindin
             }
         }
         (
-            LocalType::Applied { origin: left_origin, arguments: left_arguments },
-            LocalType::Applied { origin: right_origin, arguments: right_arguments },
+            LocalType::Applied {
+                origin: left_origin,
+                arguments: left_arguments,
+            },
+            LocalType::Applied {
+                origin: right_origin,
+                arguments: right_arguments,
+            },
         ) if left_arguments.len() == right_arguments.len() => {
             collect_equivalent_rigid_bindings(left_origin, right_origin, bindings);
             for (left, right) in left_arguments.iter().zip(right_arguments.iter()) {
@@ -2498,8 +2490,14 @@ fn collect_equivalent_rigid_bindings(left: &LocalType, right: &LocalType, bindin
             }
         }
         (
-            LocalType::ExactCase { variant: left_variant, enum_type: left_enum },
-            LocalType::ExactCase { variant: right_variant, enum_type: right_enum },
+            LocalType::ExactCase {
+                variant: left_variant,
+                enum_type: left_enum,
+            },
+            LocalType::ExactCase {
+                variant: right_variant,
+                enum_type: right_enum,
+            },
         ) if left_variant == right_variant => collect_equivalent_rigid_bindings(left_enum, right_enum, bindings),
         (LocalType::Union(left), LocalType::Union(right)) if left.len() == right.len() => {
             for (left, right) in left.iter().zip(right.iter()) {
@@ -2517,10 +2515,20 @@ fn collect_equivalent_rigid_bindings(left: &LocalType, right: &LocalType, bindin
             }
         }
         (
-            LocalType::Callable { parameters: left_parameters, return_type: left_return },
-            LocalType::Callable { parameters: right_parameters, return_type: right_return },
+            LocalType::Callable {
+                parameters: left_parameters,
+                return_type: left_return,
+            },
+            LocalType::Callable {
+                parameters: right_parameters,
+                return_type: right_return,
+            },
         ) if left_parameters.len() == right_parameters.len() => {
-            for (left, right) in left_parameters.iter().zip(right_parameters.iter()).filter(|(left, right)| left.label == right.label && left.rest == right.rest) {
+            for (left, right) in left_parameters
+                .iter()
+                .zip(right_parameters.iter())
+                .filter(|(left, right)| left.label == right.label && left.rest == right.rest)
+            {
                 collect_equivalent_rigid_bindings(&left.ty, &right.ty, bindings);
             }
             collect_equivalent_rigid_bindings(left_return, right_return, bindings);

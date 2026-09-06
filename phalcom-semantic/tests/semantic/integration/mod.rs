@@ -1,6 +1,6 @@
 mod adt_associated;
-mod applied_class_side;
 mod advisory;
+mod applied_class_side;
 mod compiler_capabilities;
 mod declaration_knowledge;
 mod denotation;

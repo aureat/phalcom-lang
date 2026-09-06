@@ -15,6 +15,7 @@ use phalcom_semantic::declarations::{DeclarationTypeInfo, bootstrap_universe_dec
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 use phalcom_semantic::session::SemanticWorkspaceSession;
 use phalcom_semantic::source::ParsedModuleUnit;
+use phalcom_semantic::type_alias::TypeAliasTable;
 use phalcom_semantic::types::annotation::SimpleTypeResolver;
 use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::relation::MapTypeHierarchy;
@@ -294,6 +295,7 @@ class Owner {
     let mut dispatch = phalcom_semantic::dispatch::SurfaceDispatchResolver::new();
     dispatch.register_surface(owner.clone(), (*surface).clone());
 
+    let type_aliases = TypeAliasTable::new();
     let formal_inputs = FormalQueryInputs {
         sources: &input.sources,
         source_resolution_input: phalcom_semantic::db::fingerprint::source_resolution_input_fingerprint(&input.interfaces),
@@ -303,6 +305,7 @@ class Owner {
         hierarchy: &hierarchy,
         base_resolver: &resolver,
         declarations: &declarations,
+        type_aliases: &type_aliases,
         field_signatures: None,
         field_lifecycle: None,
         enum_semantics: None,

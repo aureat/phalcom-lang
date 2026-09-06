@@ -1,5 +1,5 @@
-use phalcom_common::selector::Selector;
 use phalcom_common::range::SourceRange;
+use phalcom_common::selector::Selector;
 use phalcom_modules::diagnostic::{ModuleDiagnostic, ModuleDiagnosticKind};
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_modules::interface::{LinkedExport, LinkedExportTarget, LinkedModuleInterface};
@@ -10,8 +10,8 @@ use phalcom_modules::source::{ModuleKind, ParsedModuleUnit};
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide, SemanticTargetId};
 use phalcom_semantic::resolver::LinkedTypeResolver;
 use phalcom_semantic::snapshot::SnapshotStatus;
-use phalcom_semantic::{OccurrenceIndex, SemanticWorkspaceInput, SourceIndexContext, analyze_workspace, build_source_scope_index};
 use phalcom_semantic::types::annotation::TypeResolver;
+use phalcom_semantic::{OccurrenceIndex, SemanticWorkspaceInput, SourceIndexContext, analyze_workspace, build_source_scope_index};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::sync::Arc;
 
@@ -45,16 +45,19 @@ fn imported_binding_use_resolves_to_exported_declaration_not_local_import_site()
     let use_offset = source.rfind("Circle").expect("Circle use") + 1;
     let occurrence = occurrences.occurrence_at(use_offset).expect("Circle occurrence");
 
-    let binding = scopes.bindings.values().find(|binding| binding.name.as_ref() == "Circle").expect("import binding");
+    let binding = scopes
+        .bindings
+        .values()
+        .find(|binding| binding.name.as_ref() == "Circle")
+        .expect("import binding");
     assert_eq!(occurrence.target, Some(&SemanticTargetId::Binding(binding.declaration_site.clone())));
     assert_eq!(
         scopes.import_origin(&binding.declaration_site).map(|origin| &origin.remote_target),
         Some(&SemanticTargetId::Declaration(circle.clone()))
     );
-    assert!(occurrences
-        .exact_targets()
-        .iter()
-        .any(|(site, target)| site != &binding.declaration_site && site.owner == phalcom_semantic::SourceOwner::Module(importer.clone()) && target == &SemanticTargetId::Declaration(circle.clone())));
+    assert!(occurrences.exact_targets().iter().any(|(site, target)| site != &binding.declaration_site
+        && site.owner == phalcom_semantic::SourceOwner::Module(importer.clone())
+        && target == &SemanticTargetId::Declaration(circle.clone())));
 }
 
 #[test]
@@ -103,11 +106,12 @@ fn imported_enum_remote_item_keeps_declaring_declaration_identity() {
     let occurrences = OccurrenceIndex::from_program_with_context(&mut scopes, &parsed.program, Some(&context));
     let remote_offset = source.find("Option").expect("remote enum name") + 1;
     assert_eq!(occurrences.occurrence_at(remote_offset).and_then(|occurrence| occurrence.target), Some(&target));
-    let alias = scopes.bindings.values().find(|binding| binding.name.as_ref() == "ImportedOption").expect("enum alias binding");
-    assert_eq!(
-        scopes.import_origin(&alias.declaration_site).map(|origin| &origin.remote_target),
-        Some(&target)
-    );
+    let alias = scopes
+        .bindings
+        .values()
+        .find(|binding| binding.name.as_ref() == "ImportedOption")
+        .expect("enum alias binding");
+    assert_eq!(scopes.import_origin(&alias.declaration_site).map(|origin| &origin.remote_target), Some(&target));
 }
 
 #[test]
@@ -122,7 +126,11 @@ fn module_import_read_resolves_to_canonical_module_target() {
     let mut scopes = build_source_scope_index(importer, &parsed.program, &context);
     let occurrences = OccurrenceIndex::from_program(&mut scopes, &parsed.program);
     let use_offset = source.rfind('S').expect("module alias use");
-    let binding = scopes.bindings.values().find(|binding| binding.name.as_ref() == "S").expect("module alias binding");
+    let binding = scopes
+        .bindings
+        .values()
+        .find(|binding| binding.name.as_ref() == "S")
+        .expect("module alias binding");
     assert_eq!(
         occurrences.occurrence_at(use_offset).and_then(|occurrence| occurrence.target),
         Some(&SemanticTargetId::Binding(binding.declaration_site.clone()))
@@ -214,11 +222,7 @@ fn imported_class_participates_in_expression_type_inference_with_declaring_modul
         initialization_order: vec![point_module.clone(), consumer_module.clone()],
     });
 
-    let analysis = analyze_workspace(SemanticWorkspaceInput::new(
-        linked,
-        sources,
-        1,
-    ));
+    let analysis = analyze_workspace(SemanticWorkspaceInput::new(linked, sources, 1));
     assert!(!analysis.snapshot.has_errors(), "diagnostics: {:#?}", analysis.snapshot.diagnostics);
 
     let point_decl = DeclarationId::new(point_module, "Point".into());
@@ -448,10 +452,7 @@ fn qualified_module_type_lookup_uses_public_linked_exports_and_fails_closed() {
     });
     let resolver = LinkedTypeResolver::new(linked, HashSet::from([public.clone(), hidden]), ModuleId::universe_root());
 
-    assert_eq!(
-        resolver.resolve_type_name(&consumer, "models", &["Public".into()]),
-        Some(public)
-    );
+    assert_eq!(resolver.resolve_type_name(&consumer, "models", &["Public".into()]), Some(public));
     assert_eq!(
         resolver.resolve_type_name(&consumer, "models", &["Hidden".into()]),
         None,
@@ -480,11 +481,23 @@ fn exported_global_and_top_level_binding_use_module_binding_target() {
     let sources = BTreeMap::from([
         (
             provider.clone(),
-            Arc::new(ParsedModuleUnit::new(provider.clone(), ModuleKind::Module, None, provider_source, provider_program)),
+            Arc::new(ParsedModuleUnit::new(
+                provider.clone(),
+                ModuleKind::Module,
+                None,
+                provider_source,
+                provider_program,
+            )),
         ),
         (
             consumer.clone(),
-            Arc::new(ParsedModuleUnit::new(consumer.clone(), ModuleKind::Module, None, consumer_source, consumer_program)),
+            Arc::new(ParsedModuleUnit::new(
+                consumer.clone(),
+                ModuleKind::Module,
+                None,
+                consumer_source,
+                consumer_program,
+            )),
         ),
     ]);
     let linked = Arc::new(LinkedProgram {
@@ -537,9 +550,7 @@ fn exported_global_and_top_level_binding_use_module_binding_target() {
         initialization_order: vec![provider.clone(), consumer.clone()],
     });
     let mut session = phalcom_semantic::SemanticWorkspaceSession::new();
-    let snapshot = session
-        .update(SemanticWorkspaceInput::new(linked, sources, 1))
-        .snapshot;
+    let snapshot = session.update(SemanticWorkspaceInput::new(linked, sources, 1)).snapshot;
     let target = SemanticTargetId::ModuleBinding(symbol.clone());
 
     let provider_binding = snapshot
@@ -551,10 +562,7 @@ fn exported_global_and_top_level_binding_use_module_binding_target() {
         .values()
         .find(|binding| binding.name.as_ref() == "version")
         .expect("provider top-level binding");
-    assert_eq!(
-        snapshot.source_index().target_for(&provider_binding.declaration_site),
-        Some(&target)
-    );
+    assert_eq!(snapshot.source_index().target_for(&provider_binding.declaration_site), Some(&target));
     let consumer_binding = snapshot
         .source_index()
         .module(&consumer)
@@ -565,7 +573,10 @@ fn exported_global_and_top_level_binding_use_module_binding_target() {
         .find(|binding| binding.name.as_ref() == "version")
         .expect("consumer import binding");
     let consumer_binding_target = SemanticTargetId::Binding(consumer_binding.declaration_site.clone());
-    assert_eq!(snapshot.source_index().target_for(&consumer_binding.declaration_site), Some(&consumer_binding_target));
+    assert_eq!(
+        snapshot.source_index().target_for(&consumer_binding.declaration_site),
+        Some(&consumer_binding_target)
+    );
     assert_eq!(
         snapshot
             .source_index()

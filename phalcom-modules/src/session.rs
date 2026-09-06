@@ -9,7 +9,7 @@ use crate::manifest::DependencyProvider;
 use crate::project::ProjectUniverse;
 use crate::resolver::ModuleResolver;
 use crate::source::{
-    classify_entry_ownership, EntryOwnership, FilesystemSourceProvider, ModuleKind, OverlaySourceProvider, ParsedModuleUnit, SourceOverlay, SourceProvider,
+    EntryOwnership, FilesystemSourceProvider, ModuleKind, OverlaySourceProvider, ParsedModuleUnit, SourceOverlay, SourceProvider, classify_entry_ownership,
 };
 use crate::stabilization::ResolverGeneration;
 use crate::topology::{ModuleTopology, TopologyDelta};
@@ -555,11 +555,7 @@ fn validate_staged_cross_index_consistency(
     Ok(())
 }
 
-fn validate_cross_index_entries<'a, I, M, S>(
-    entries: I,
-    sources_by_module: &M,
-    modules_by_source: &S,
-) -> Result<(), WorkspaceModuleSessionError>
+fn validate_cross_index_entries<'a, I, M, S>(entries: I, sources_by_module: &M, modules_by_source: &S) -> Result<(), WorkspaceModuleSessionError>
 where
     I: IntoIterator<Item = (&'a SourceId, &'a ModuleId)>,
     M: SourceStateLookup,
@@ -878,9 +874,11 @@ impl WorkspaceModuleSession {
     }
 
     pub fn module_for_source(&self, source: &SourceId) -> Option<&ModuleId> {
-        self.modules_by_source
-            .get(source)
-            .or_else(|| self.source_identity_aliases.get(source).and_then(|canonical| self.modules_by_source.get(canonical)))
+        self.modules_by_source.get(source).or_else(|| {
+            self.source_identity_aliases
+                .get(source)
+                .and_then(|canonical| self.modules_by_source.get(canonical))
+        })
     }
 
     pub fn sources(&self) -> &BTreeMap<ModuleId, WorkspaceSourceState> {
@@ -1922,10 +1920,7 @@ impl WorkspaceModuleSession {
             stats.import_sites_reused = total_sites;
             stats.import_resolutions_reused = total_sites;
             stats.negative_resolutions_reused = import_products.values().filter(|p| p.target.is_err()).count();
-            let parsed_sources = sources_by_module
-                .iter_states()
-                .map(|(id, state)| (id.clone(), state.parsed.clone()))
-                .collect();
+            let parsed_sources = sources_by_module.iter_states().map(|(id, state)| (id.clone(), state.parsed.clone())).collect();
             let mut topology = (*self.topology).clone();
             topology.generation = target_generation;
             let topology = Arc::new(topology);
@@ -2229,11 +2224,10 @@ impl WorkspaceModuleSession {
         stats.filesystem_resolution_hits = resolution_hits_after.saturating_sub(resolution_hits_before) as usize;
         stats.filesystem_resolution_misses = resolution_misses_after.saturating_sub(resolution_misses_before) as usize;
 
-        let mut source_locations: BTreeMap<ModuleId, SourceLocation> =
-            sources_by_module
-                .iter_states()
-                .map(|(id, state)| (id.clone(), state.location.clone()))
-                .collect();
+        let mut source_locations: BTreeMap<ModuleId, SourceLocation> = sources_by_module
+            .iter_states()
+            .map(|(id, state)| (id.clone(), state.location.clone()))
+            .collect();
         for discovered in &new_discovered_sources {
             source_locations.insert(discovered.module.clone(), discovered.location.clone());
         }

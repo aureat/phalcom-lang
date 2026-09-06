@@ -290,12 +290,7 @@ pub fn resolve_bound_behavioral_family(
                     if !seen.insert(selector.clone()) {
                         continue;
                     }
-                    let signature = match ctx.resolve_dispatch_target_with_specialization(
-                        receiver_type,
-                        receiver_form,
-                        &selector,
-                        lookup.clone(),
-                    ) {
+                    let signature = match ctx.resolve_dispatch_target_with_specialization(receiver_type, receiver_form, &selector, lookup.clone()) {
                         crate::dispatch::ResolvedDispatchResult::Found(resolved) if resolved.callable == callable => resolved.signature,
                         _ => signature,
                     };

@@ -230,7 +230,10 @@ fn imports_attach_only_to_canonical_linked_targets() {
         .expect("selective import binding");
 
     assert_eq!(binding.kind, SourceBindingKind::Import);
-    assert_eq!(index.target_for(&binding.declaration_site), Some(&SemanticTargetId::Binding(binding.declaration_site.clone())));
+    assert_eq!(
+        index.target_for(&binding.declaration_site),
+        Some(&SemanticTargetId::Binding(binding.declaration_site.clone()))
+    );
     assert!(matches!(
         index.import_origin(&binding.declaration_site).map(|origin| &origin.remote_target),
         Some(SemanticTargetId::Declaration(_))
@@ -257,9 +260,19 @@ fn source_index_covers_enum_variants_fields_and_behaviors() {
         Some(phalcom_semantic::SourceSiteKind::Declaration(declaration)) if declaration == &owner
     ));
     let variant_id = phalcom_semantic::VariantId::new(owner.clone(), phalcom_ast::selector::selector_from_variant(&variant));
-    assert!(index.sites.values().any(|site| matches!(&site.kind, phalcom_semantic::SourceSiteKind::Variant(id) if id == &variant_id)));
+    assert!(
+        index
+            .sites
+            .values()
+            .any(|site| matches!(&site.kind, phalcom_semantic::SourceSiteKind::Variant(id) if id == &variant_id))
+    );
     let field = phalcom_semantic::VariantFieldId::new(variant_id, 0);
-    assert!(index.sites.values().any(|site| matches!(&site.kind, phalcom_semantic::SourceSiteKind::VariantField(id) if id == &field)));
+    assert!(
+        index
+            .sites
+            .values()
+            .any(|site| matches!(&site.kind, phalcom_semantic::SourceSiteKind::VariantField(id) if id == &field))
+    );
     assert!(index.callable_sources.keys().any(|callable| callable.declaration_owner() == &owner));
 }
 
@@ -270,8 +283,14 @@ fn dependency_paths_exports_and_exposed_children_use_canonical_targets() {
     assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
     let project = phalcom_modules::identity::ResolvedProjectId::from_raw(1);
     let module = phalcom_modules::identity::ModuleId::resolved(project, phalcom_modules::identity::ModulePath::from_components(Vec::new()));
-    let shapes = phalcom_modules::identity::ModuleId::resolved(project, phalcom_modules::identity::ModulePath::from_components(vec![phalcom_modules::identity::ModuleComponent::from_identifier("shapes").unwrap()]));
-    let child = phalcom_modules::identity::ModuleId::resolved(project, phalcom_modules::identity::ModulePath::from_components(vec![phalcom_modules::identity::ModuleComponent::from_identifier("child").unwrap()]));
+    let shapes = phalcom_modules::identity::ModuleId::resolved(
+        project,
+        phalcom_modules::identity::ModulePath::from_components(vec![phalcom_modules::identity::ModuleComponent::from_identifier("shapes").unwrap()]),
+    );
+    let child = phalcom_modules::identity::ModuleId::resolved(
+        project,
+        phalcom_modules::identity::ModulePath::from_components(vec![phalcom_modules::identity::ModuleComponent::from_identifier("child").unwrap()]),
+    );
     let circle = DeclarationId::new(shapes.clone(), "Circle".into());
     let context = SourceIndexContext::default()
         .with_resolved_import(module.clone(), ".shapes", shapes.clone())
@@ -280,9 +299,24 @@ fn dependency_paths_exports_and_exposed_children_use_canonical_targets() {
         .with_target(module.clone(), "Local", SemanticTargetId::Declaration(circle.clone()));
     let mut scopes = build_source_scope_index(module.clone(), &parsed.program, &context);
     let occurrences = OccurrenceIndex::from_program_with_context(&mut scopes, &parsed.program, Some(&context));
-    assert!(occurrences.exact_targets().values().any(|target| target == &SemanticTargetId::Module(shapes.clone())));
-    assert!(occurrences.exact_targets().values().any(|target| target == &SemanticTargetId::Declaration(circle.clone())));
-    assert!(occurrences.exact_targets().values().any(|target| target == &SemanticTargetId::Module(child.clone())));
+    assert!(
+        occurrences
+            .exact_targets()
+            .values()
+            .any(|target| target == &SemanticTargetId::Module(shapes.clone()))
+    );
+    assert!(
+        occurrences
+            .exact_targets()
+            .values()
+            .any(|target| target == &SemanticTargetId::Declaration(circle.clone()))
+    );
+    assert!(
+        occurrences
+            .exact_targets()
+            .values()
+            .any(|target| target == &SemanticTargetId::Module(child.clone()))
+    );
 }
 
 #[test]

@@ -23,8 +23,8 @@ pub mod site;
 pub use builder::{SourceIndexContext, build_source_scope_index, resolve_type_reference_targets};
 pub use occurrence::{OccurrenceHint, OccurrenceIndex, OccurrenceKind, OccurrenceRole, OccurrenceView, SemanticOccurrence};
 pub use scope::{
-    CallableSourceInfo, DeclarationSourceInfo, FieldSourceInfo, ImportBindingOrigin, SourceBindingInfo, SourceBindingKind, SourceCallableKind, SourceNameResolution,
-    SourceReceiverKind, SourceScope, SourceScopeId, SourceScopeIndex,
+    CallableSourceInfo, DeclarationSourceInfo, FieldSourceInfo, ImportBindingOrigin, SourceBindingInfo, SourceBindingKind, SourceCallableKind,
+    SourceNameResolution, SourceReceiverKind, SourceScope, SourceScopeId, SourceScopeIndex,
 };
 pub use site::{SourceSite, SourceSiteKind};
 

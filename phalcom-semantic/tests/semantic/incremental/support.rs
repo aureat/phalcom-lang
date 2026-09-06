@@ -51,7 +51,10 @@ pub(crate) fn multi_module_input(modules: Vec<(ModuleId, String)>, generation: u
                 runtime_dependencies: Vec::new(),
             },
         );
-        sources.insert(module.clone(), Arc::new(ParsedModuleUnit::new(module, ModuleKind::Module, None, Arc::from(source), program)));
+        sources.insert(
+            module.clone(),
+            Arc::new(ParsedModuleUnit::new(module, ModuleKind::Module, None, Arc::from(source), program)),
+        );
     }
 
     let linked = Arc::new(LinkedProgram {

@@ -298,10 +298,7 @@ pub(crate) fn join_branch_results(
     }
     typed.causal_invalidity = premise_causal.join(then_result.causal_invalidity).join(else_result.causal_invalidity);
 
-    let local_values = [
-        (then_result.value.as_ref(), then_normal),
-        (else_result.value.as_ref(), else_normal),
-    ];
+    let local_values = [(then_result.value.as_ref(), then_normal), (else_result.value.as_ref(), else_normal)];
     let local_escape = local_values
         .iter()
         .filter_map(|(value, reachable)| {

@@ -99,13 +99,19 @@ impl ModuleDiagnostic {
         match error {
             InterfaceError::UnknownImportName { module: target, name, range } => Self {
                 module,
-                kind: ModuleDiagnosticKind::UnknownImportName { module: target.clone(), name: name.clone() },
+                kind: ModuleDiagnosticKind::UnknownImportName {
+                    module: target.clone(),
+                    name: name.clone(),
+                },
                 range,
                 message: format!("Unknown import name: module '{}' does not export '{}'", target, name),
             },
             InterfaceError::NonExportedImport { module: target, name, range } => Self {
                 module,
-                kind: ModuleDiagnosticKind::NonExportedImport { module: target.clone(), name: name.clone() },
+                kind: ModuleDiagnosticKind::NonExportedImport {
+                    module: target.clone(),
+                    name: name.clone(),
+                },
                 range,
                 message: format!("Non-exported import: '{}' is declared in '{}' but not exported", name, target),
             },
@@ -159,7 +165,10 @@ impl ModuleDiagnostic {
             },
             InterfaceError::InvalidModuleMetadata { name, reason, range } => Self {
                 module,
-                kind: ModuleDiagnosticKind::InvalidModuleMetadata { name: name.clone(), reason: reason.clone() },
+                kind: ModuleDiagnosticKind::InvalidModuleMetadata {
+                    name: name.clone(),
+                    reason: reason.clone(),
+                },
                 range,
                 message: format!("Invalid module metadata: attribute '{}' is invalid ({})", name, reason),
             },
@@ -213,7 +222,10 @@ impl ModuleDiagnostic {
             },
             ModuleResolutionError::ModulePathNotExposed { path, project, .. } => Self {
                 module,
-                kind: ModuleDiagnosticKind::ModulePathNotExposed { path: path.clone(), project: project.clone() },
+                kind: ModuleDiagnosticKind::ModulePathNotExposed {
+                    path: path.clone(),
+                    project: project.clone(),
+                },
                 range,
                 message: format!("Module path not exposed: '{}' in project '{}' is private", path, project),
             },
@@ -252,14 +264,20 @@ impl ModuleDiagnostic {
                 if is_private {
                     Self {
                         module: module.clone(),
-                        kind: ModuleDiagnosticKind::NonExportedImport { module: module.to_string(), name: name.clone() },
+                        kind: ModuleDiagnosticKind::NonExportedImport {
+                            module: module.to_string(),
+                            name: name.clone(),
+                        },
                         range,
                         message: format!("module {} declares '{}' but does not export it", module, name),
                     }
                 } else {
                     Self {
                         module: module.clone(),
-                        kind: ModuleDiagnosticKind::UnknownImportName { module: module.to_string(), name: name.clone() },
+                        kind: ModuleDiagnosticKind::UnknownImportName {
+                            module: module.to_string(),
+                            name: name.clone(),
+                        },
                         range,
                         message: format!("module {} does not export '{}'", module, name),
                     }
@@ -267,7 +285,10 @@ impl ModuleDiagnostic {
             }
             LinkError::MissingBinding { module, name, range } => Self {
                 module: module.clone(),
-                kind: ModuleDiagnosticKind::UnknownImportName { module: module.to_string(), name: name.clone() },
+                kind: ModuleDiagnosticKind::UnknownImportName {
+                    module: module.to_string(),
+                    name: name.clone(),
+                },
                 range,
                 message: format!("module {} has no binding '{}'", module, name),
             },

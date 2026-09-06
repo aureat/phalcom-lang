@@ -71,5 +71,8 @@ class Box {
     let first = fixture.expression(run, "self.value = 1");
     let second = fixture.expression(run, "self.value = \"text\"");
     assert_eq!(first.callable, second.callable);
-    assert_eq!(first.callable.as_ref().map(|callable| callable.selector.clone()), Some(Selector::setter("value").unwrap()));
+    assert_eq!(
+        first.callable.as_ref().map(|callable| callable.selector.clone()),
+        Some(Selector::setter("value").unwrap())
+    );
 }

@@ -118,7 +118,10 @@ fn removed_symlink_alias_does_not_capture_unsaved_recreation() {
     let new_source_id = recreated.sources[&new_module].source.as_ref().unwrap().source_id.clone();
     let natural_source_id = SourceId(phalcom_modules::source::canonicalize_path(&link_file).to_string_lossy().into());
 
-    assert_ne!(new_source_id, old_source_id, "recreated unsaved source must not inherit deleted symlink identity");
+    assert_ne!(
+        new_source_id, old_source_id,
+        "recreated unsaved source must not inherit deleted symlink identity"
+    );
     assert_eq!(new_source_id, natural_source_id);
     assert_eq!(session.module_for_source(&link.source_id), Some(&new_module));
 }
@@ -191,7 +194,10 @@ fn standalone_sibling_files_do_not_form_package() {
     let main_mod = session.module_for_source(&SourceId(main.to_string_lossy().into())).unwrap();
     assert!(mover_mod.project.as_synthetic().is_some());
     assert!(main_mod.project.as_synthetic().is_some());
-    assert!(session.resolved_imports().is_empty(), "standalone modules without package.ph must not resolve sibling imports");
+    assert!(
+        session.resolved_imports().is_empty(),
+        "standalone modules without package.ph must not resolve sibling imports"
+    );
 }
 
 #[test]
@@ -500,19 +506,13 @@ fn failed_transaction_does_not_mutate_committed_state() {
     let source = location(&file);
     let mut session = WorkspaceModuleSession::new();
 
-    let _up1 = session
-        .set_overlay(source.clone(), Arc::from("class Initial {}\n"), SourceRevision(1))
-        .unwrap();
+    let _up1 = session.set_overlay(source.clone(), Arc::from("class Initial {}\n"), SourceRevision(1)).unwrap();
     let mod_id = session.module_for_source(&source.source_id).cloned().unwrap();
     let initial_gen = session.generation();
     let initial_text = session.source(&mod_id).unwrap().text.clone();
 
     // Attempt mutation with syntax error
-    let err = session.set_overlay(
-        source.clone(),
-        Arc::from("class Broken { !@#$ }\n"),
-        SourceRevision(2),
-    );
+    let err = session.set_overlay(source.clone(), Arc::from("class Broken { !@#$ }\n"), SourceRevision(2));
     assert!(err.is_err(), "parse failure must return Err");
 
     // Committed state must be 100% untouched
@@ -522,11 +522,7 @@ fn failed_transaction_does_not_mutate_committed_state() {
 
     // Attempt mutation that succeeds through parse/ownership but fails at late rebuild stage
     session.inject_late_rebuild_failure(true);
-    let late_err = session.set_overlay(
-        source.clone(),
-        Arc::from("class MutatedLater {}\n"),
-        SourceRevision(3),
-    );
+    let late_err = session.set_overlay(source.clone(), Arc::from("class MutatedLater {}\n"), SourceRevision(3));
     assert!(late_err.is_err(), "late rebuild failure must return Err");
 
     // Committed state must be 100% untouched after late failure
@@ -558,11 +554,7 @@ fn cache_negative_result_resolves_when_source_is_added() {
 
     // Initial update: a.ph does not exist yet; import resolution produces negative result
     let _up1 = session
-        .set_overlay(
-            src_b.clone(),
-            Arc::from("from demo.a import A\nclass B {}\nexport B\n"),
-            SourceRevision(1),
-        )
+        .set_overlay(src_b.clone(), Arc::from("from demo.a import A\nclass B {}\nexport B\n"), SourceRevision(1))
         .unwrap();
 
     let mod_b = session.module_for_source(&src_b.source_id).cloned().unwrap();
@@ -574,11 +566,7 @@ fn cache_negative_result_resolves_when_source_is_added() {
     let src_a = location(&file_a);
 
     let _up2 = session
-        .set_overlay(
-            src_a.clone(),
-            Arc::from("class A {}\nexport A\n"),
-            SourceRevision(1),
-        )
+        .set_overlay(src_a.clone(), Arc::from("class A {}\nexport A\n"), SourceRevision(1))
         .unwrap();
 
     let mod_a = session.module_for_source(&src_a.source_id).cloned().unwrap();
@@ -661,7 +649,9 @@ fn invalid_transitive_dependency_publishes_partial_state() {
 
     session.set_overlay(pkg_loc, Arc::from("export A\n"), SourceRevision(1)).unwrap();
     // Only add a.ph; b.ph will be transitively discovered but fails parsing
-    let _up = session.set_overlay(a_loc.clone(), Arc::from("import .b as B\nclass A {}\nexport A\n"), SourceRevision(1)).unwrap();
+    let _up = session
+        .set_overlay(a_loc.clone(), Arc::from("import .b as B\nclass A {}\nexport A\n"), SourceRevision(1))
+        .unwrap();
 
     let a_mod = session.module_for_source(&a_loc.source_id).unwrap().clone();
     // a.ph has source retained
@@ -684,16 +674,28 @@ fn exact_reverse_edge_replacement_leaves_no_stale_dependency() {
     fs::write(&file_c, "class C {}\nexport C\n").unwrap();
 
     let mut session = WorkspaceModuleSession::new();
-    session.set_overlay(location(&root.join("package.ph")), Arc::from("export A\nexport B\nexport C\n"), SourceRevision(1)).unwrap();
+    session
+        .set_overlay(
+            location(&root.join("package.ph")),
+            Arc::from("export A\nexport B\nexport C\n"),
+            SourceRevision(1),
+        )
+        .unwrap();
     let b_loc = location(&file_b);
     let c_loc = location(&file_c);
     let a_loc = location(&file_a);
 
-    session.set_overlay(b_loc.clone(), Arc::from("class B {}\nexport B\n"), SourceRevision(1)).unwrap();
-    session.set_overlay(c_loc.clone(), Arc::from("class C {}\nexport C\n"), SourceRevision(1)).unwrap();
-    
+    session
+        .set_overlay(b_loc.clone(), Arc::from("class B {}\nexport B\n"), SourceRevision(1))
+        .unwrap();
+    session
+        .set_overlay(c_loc.clone(), Arc::from("class C {}\nexport C\n"), SourceRevision(1))
+        .unwrap();
+
     // A imports B
-    session.set_overlay(a_loc.clone(), Arc::from("import .b as B\nclass A {}\nexport A\n"), SourceRevision(1)).unwrap();
+    session
+        .set_overlay(a_loc.clone(), Arc::from("import .b as B\nclass A {}\nexport A\n"), SourceRevision(1))
+        .unwrap();
     let a_mod = session.module_for_source(&a_loc.source_id).unwrap().clone();
     let b_mod = session.module_for_source(&b_loc.source_id).unwrap().clone();
     let c_mod = session.module_for_source(&c_loc.source_id).unwrap().clone();
@@ -702,7 +704,9 @@ fn exact_reverse_edge_replacement_leaves_no_stale_dependency() {
     assert!(!session.reverse_importers().get(&c_mod).map_or(false, |s| s.contains(&a_mod)));
 
     // A changed to import C
-    session.set_overlay(a_loc.clone(), Arc::from("import .c as C\nclass A {}\nexport A\n"), SourceRevision(2)).unwrap();
+    session
+        .set_overlay(a_loc.clone(), Arc::from("import .c as C\nclass A {}\nexport A\n"), SourceRevision(2))
+        .unwrap();
 
     // B must no longer have A as reverse importer; C must have A
     assert!(!session.reverse_importers().get(&b_mod).map_or(false, |s| s.contains(&a_mod)));
@@ -731,11 +735,13 @@ fn topology_is_retained_in_session_aligned_with_generation_and_published_in_upda
     assert_eq!(session.generation(), 1);
     assert_eq!(session.topology().generation, ResolverGeneration(1));
 
-    let up = session.set_overlay(
-        main_loc.clone(),
-        Arc::from("class Main { run() -> Int { 1 } }\nexport Main\n"),
-        SourceRevision(1),
-    ).unwrap();
+    let up = session
+        .set_overlay(
+            main_loc.clone(),
+            Arc::from("class Main { run() -> Int { 1 } }\nexport Main\n"),
+            SourceRevision(1),
+        )
+        .unwrap();
 
     assert_eq!(session.generation(), 2);
     assert_eq!(session.topology().generation, ResolverGeneration(2));
@@ -750,11 +756,13 @@ fn topology_is_retained_in_session_aligned_with_generation_and_published_in_upda
     let initial_topo_fp = session.topology().fingerprint;
 
     // Body-only edit: function body changes from 1 to 42, declarations/interface stable
-    let up_body = session.set_overlay(
-        main_loc.clone(),
-        Arc::from("class Main { run() -> Int { 42 } }\nexport Main\n"),
-        SourceRevision(2),
-    ).unwrap();
+    let up_body = session
+        .set_overlay(
+            main_loc.clone(),
+            Arc::from("class Main { run() -> Int { 42 } }\nexport Main\n"),
+            SourceRevision(2),
+        )
+        .unwrap();
 
     // Generation increments, topology generation aligns, fingerprint structurally identical
     assert_eq!(session.generation(), 3);
@@ -764,11 +772,7 @@ fn topology_is_retained_in_session_aligned_with_generation_and_published_in_upda
 
     // Hostile failure seam: late rebuild failure preserves committed generation & topology
     session.inject_late_rebuild_failure(true);
-    let fail_result = session.set_overlay(
-        main_loc,
-        Arc::from("class Main { run() -> Int { 99 } }\nexport Main\n"),
-        SourceRevision(3),
-    );
+    let fail_result = session.set_overlay(main_loc, Arc::from("class Main { run() -> Int { 99 } }\nexport Main\n"), SourceRevision(3));
     assert!(fail_result.is_err());
     assert_eq!(session.generation(), 3);
     assert_eq!(session.topology().generation, ResolverGeneration(3));

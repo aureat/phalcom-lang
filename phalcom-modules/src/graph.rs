@@ -337,11 +337,7 @@ impl RuntimeDependencyGraph {
             if !allowed.contains(importer) {
                 continue;
             }
-            let filtered_edges: Vec<_> = edges
-                .iter()
-                .filter(|edge| allowed.contains(&edge.dependency))
-                .cloned()
-                .collect();
+            let filtered_edges: Vec<_> = edges.iter().filter(|edge| allowed.contains(&edge.dependency)).cloned().collect();
             forward.insert(importer.clone(), filtered_edges);
         }
         for node in allowed {

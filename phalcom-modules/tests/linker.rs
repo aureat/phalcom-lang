@@ -298,4 +298,3 @@ fn tolerant_runtime_cycle_preserves_independent_survivor_order() {
     // X/Y cycle is blocked in res_x, diagnostic reported
     assert!(!res_x.diagnostics.is_empty() || !res_x.blocked_modules.is_empty());
 }
-

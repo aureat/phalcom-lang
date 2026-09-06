@@ -171,11 +171,7 @@ impl ModuleLinker {
     /// Links the reachable component starting at `entry` in tolerant workspace mode,
     /// accumulating diagnostics and marking affected modules as blocked without
     /// failing unaffected canonical module products.
-    pub fn link_component_tolerant(
-        &self,
-        entry: ModuleId,
-        resolved: &BTreeMap<(ModuleId, String), ModuleId>,
-    ) -> TolerantLinkResult {
+    pub fn link_component_tolerant(&self, entry: ModuleId, resolved: &BTreeMap<(ModuleId, String), ModuleId>) -> TolerantLinkResult {
         let reachable = match self.reachable_interfaces(&entry, resolved, true) {
             Ok(reachable) => reachable,
             Err(err) => {
@@ -235,11 +231,7 @@ impl ModuleLinker {
     }
 
     /// Links the exact interfaces stored in this linker in tolerant workspace mode.
-    pub fn link_component_interfaces_tolerant(
-        &self,
-        entry: ModuleId,
-        resolved: &BTreeMap<(ModuleId, String), ModuleId>,
-    ) -> TolerantLinkResult {
+    pub fn link_component_interfaces_tolerant(&self, entry: ModuleId, resolved: &BTreeMap<(ModuleId, String), ModuleId>) -> TolerantLinkResult {
         let mut context = LinkContext::new(self, resolved, true, true);
         match context.build() {
             Ok((modules, graphs, initialization_order)) => TolerantLinkResult {
@@ -503,12 +495,7 @@ struct LinkContext<'a> {
 type LinkBuild = (BTreeMap<ModuleId, LinkedModule>, ModuleGraphs, Vec<ModuleId>);
 
 impl<'a> LinkContext<'a> {
-    fn new(
-        linker: &'a ModuleLinker,
-        resolved: &'a BTreeMap<(ModuleId, String), ModuleId>,
-        allow_unresolved_imports: bool,
-        tolerant: bool,
-    ) -> Self {
+    fn new(linker: &'a ModuleLinker, resolved: &'a BTreeMap<(ModuleId, String), ModuleId>, allow_unresolved_imports: bool, tolerant: bool) -> Self {
         Self {
             linker,
             resolved,
@@ -593,7 +580,8 @@ impl<'a> LinkContext<'a> {
                             for m in &component {
                                 self.blocked_modules.insert(m.clone());
                             }
-                            self.diagnostics.push(LinkError::RuntimeCycle(crate::error::ModuleGraphError::RuntimeCycle { cycle: component }));
+                            self.diagnostics
+                                .push(LinkError::RuntimeCycle(crate::error::ModuleGraphError::RuntimeCycle { cycle: component }));
                         }
                     }
                     if !found_any_cycle {
@@ -626,15 +614,11 @@ impl<'a> LinkContext<'a> {
                     }
 
                     // Filter unblocked modules for real topological order on surviving subgraph
-                    let unblocked_nodes: BTreeSet<ModuleId> = self
-                        .graphs
-                        .runtime
-                        .nodes()
-                        .into_iter()
-                        .filter(|m| !self.blocked_modules.contains(m))
-                        .collect();
+                    let unblocked_nodes: BTreeSet<ModuleId> = self.graphs.runtime.nodes().into_iter().filter(|m| !self.blocked_modules.contains(m)).collect();
                     let surviving_runtime = self.graphs.runtime.filtered_subgraph(&unblocked_nodes);
-                    let order = surviving_runtime.initialization_order().unwrap_or_else(|_| unblocked_nodes.into_iter().collect());
+                    let order = surviving_runtime
+                        .initialization_order()
+                        .unwrap_or_else(|_| unblocked_nodes.into_iter().collect());
                     self.graphs.runtime = surviving_runtime;
                     order
                 } else {

@@ -355,7 +355,13 @@ async fn private_export_does_not_produce_definition() {
     let response = read_response(&mut client_end, 2).await;
     assert!(response["error"].is_null());
     assert!(response["result"].is_null() || response["result"].as_array().is_some_and(Vec::is_empty));
-    assert_ne!(response["result"].as_array().and_then(|locations| locations.first()).and_then(|location| location["uri"].as_str()), Some(shapes_uri.as_str()));
+    assert_ne!(
+        response["result"]
+            .as_array()
+            .and_then(|locations| locations.first())
+            .and_then(|location| location["uri"].as_str()),
+        Some(shapes_uri.as_str())
+    );
 }
 
 #[tokio::test]

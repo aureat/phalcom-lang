@@ -71,9 +71,7 @@ fn checkpoint_a2_evidence_1_twenty_imports_edit_one_resolves_one_reuses_nineteen
         .unwrap();
 
     // Now edit main.ph
-    let edit_up = session
-        .set_overlay(location(&main_file), Arc::from(edited_main), SourceRevision(2))
-        .unwrap();
+    let edit_up = session.set_overlay(location(&main_file), Arc::from(edited_main), SourceRevision(2)).unwrap();
 
     // EXACT ACCEPTANCE CRITERIA:
     // "A module with 20 imports, editing 1 import path resolves exactly 1 import and reuses 19"
@@ -105,7 +103,11 @@ fn checkpoint_a2_evidence_2_body_only_edit_zero_import_resolutions() {
         .set_overlay(location(&file_b), Arc::from("class B { foo() -> Int { 1 } }\nexport B\n"), SourceRevision(1))
         .unwrap();
     session
-        .set_overlay(location(&file_a), Arc::from("import .b as B\nclass A { bar() -> Int { 2 } }\nexport A\n"), SourceRevision(1))
+        .set_overlay(
+            location(&file_a),
+            Arc::from("import .b as B\nclass A { bar() -> Int { 2 } }\nexport A\n"),
+            SourceRevision(1),
+        )
         .unwrap();
 
     // Body-only edit in b.ph
@@ -120,7 +122,11 @@ fn checkpoint_a2_evidence_2_body_only_edit_zero_import_resolutions() {
 
     // Body-only edit in a.ph
     let up_a = session
-        .set_overlay(location(&file_a), Arc::from("import .b as B\nclass A { bar() -> Int { 777 } }\nexport A\n"), SourceRevision(2))
+        .set_overlay(
+            location(&file_a),
+            Arc::from("import .b as B\nclass A { bar() -> Int { 777 } }\nexport A\n"),
+            SourceRevision(2),
+        )
         .unwrap();
 
     assert_eq!(up_a.stats.imports_resolved, 0, "body-only edit must resolve 0 imports");
@@ -162,7 +168,10 @@ fn checkpoint_a2_evidence_3_export_only_edit_zero_import_resolutions() {
 
     // EXACT ACCEPTANCE CRITERIA:
     // "Export-only edit across multi-module session produces imports_resolved == 0 for all dependent modules"
-    assert_eq!(up.stats.imports_resolved, 0, "export-only edit must not re-resolve unchanged imports in dependents");
+    assert_eq!(
+        up.stats.imports_resolved, 0,
+        "export-only edit must not re-resolve unchanged imports in dependents"
+    );
     assert!(up.stats.import_sites_reused >= 1, "import sites must be reused");
 }
 
@@ -182,7 +191,11 @@ fn checkpoint_a2_evidence_4_and_5_negative_resolution_survives_unrelated_and_inv
 
     let mut session = WorkspaceModuleSession::new();
     session
-        .set_overlay(location(&root.join("package.ph")), Arc::from("export A\nexport B\nexport C\n"), SourceRevision(1))
+        .set_overlay(
+            location(&root.join("package.ph")),
+            Arc::from("export A\nexport B\nexport C\n"),
+            SourceRevision(1),
+        )
         .unwrap();
 
     let init_up = session
@@ -200,7 +213,10 @@ fn checkpoint_a2_evidence_4_and_5_negative_resolution_survives_unrelated_and_inv
         .set_overlay(location(&file_b), Arc::from("class B {}\nexport B\n"), SourceRevision(1))
         .unwrap();
 
-    assert_eq!(unrelated_up.stats.imports_resolved, 0, "unrelated module addition must not re-resolve absent import");
+    assert_eq!(
+        unrelated_up.stats.imports_resolved, 0,
+        "unrelated module addition must not re-resolve absent import"
+    );
     assert_eq!(unrelated_up.stats.negative_resolutions_reused, 1, "negative resolution must be reused");
     assert!(session.diagnostics().contains_key(&a_mod));
 
@@ -210,7 +226,10 @@ fn checkpoint_a2_evidence_4_and_5_negative_resolution_survives_unrelated_and_inv
         .set_overlay(location(&file_c), Arc::from("class C {}\nexport C\n"), SourceRevision(1))
         .unwrap();
 
-    assert_eq!(relevant_up.stats.imports_resolved, 1, "adding candidate module must re-resolve the waiting site");
+    assert_eq!(
+        relevant_up.stats.imports_resolved, 1,
+        "adding candidate module must re-resolve the waiting site"
+    );
     let a_diags = session.diagnostics().get(&a_mod).cloned().unwrap_or_default();
     assert!(a_diags.is_empty(), "a.ph must now resolve without error: {:?}", a_diags);
 }
@@ -240,7 +259,11 @@ fn checkpoint_a2_evidence_6_prefix_provenance_compound_imports() {
         .set_overlay(location(&sub.join("leaf.ph")), Arc::from("class Leaf {}\nexport Leaf\n"), SourceRevision(1))
         .unwrap();
     let main_up = session
-        .set_overlay(location(&main_file), Arc::from("import .sub.leaf as Leaf\nclass Main {}\nexport Main\n"), SourceRevision(1))
+        .set_overlay(
+            location(&main_file),
+            Arc::from("import .sub.leaf as Leaf\nclass Main {}\nexport Main\n"),
+            SourceRevision(1),
+        )
         .unwrap();
 
     assert_eq!(main_up.stats.imports_resolved, 1);
@@ -259,5 +282,8 @@ fn checkpoint_a2_evidence_6_prefix_provenance_compound_imports() {
 
     let sub_pkg_mod = product.prefixes.iter().find(|p| p.prefix == ".sub").unwrap().module.clone();
     delta.removed_modules.insert(sub_pkg_mod);
-    assert!(delta.resolution_product_may_have_changed(product), "removal of intermediate prefix module must invalidate product");
+    assert!(
+        delta.resolution_product_may_have_changed(product),
+        "removal of intermediate prefix module must invalidate product"
+    );
 }

@@ -971,7 +971,9 @@ fn apply_generic_callable_in_context(
                 ConstraintOrigin::ExpectedResult { expression: call_id },
                 None,
             );
-            let _ = ctx.inference_session(context).map(|session| ctx.solve_inference_in_frame(&mut session.borrow_mut(), frame));
+            let _ = ctx
+                .inference_session(context)
+                .map(|session| ctx.solve_inference_in_frame(&mut session.borrow_mut(), frame));
             true
         } else {
             false
@@ -1247,7 +1249,9 @@ fn apply_generic_callable_in_context(
                     }
                 }
                 if !row_expected_constrained && !expected_result_seeded {
-                    let canonicalized_return_term = if let (Some(rows), Some(crate::types::row_solver::RecordRowSolveResult::Solved(row_solution))) = (row_session.as_ref(), row_outcome.as_ref()) {
+                    let canonicalized_return_term = if let (Some(rows), Some(crate::types::row_solver::RecordRowSolveResult::Solved(row_solution))) =
+                        (row_session.as_ref(), row_outcome.as_ref())
+                    {
                         if term_has_row_variables(return_term) {
                             if let Ok(instantiation) = rows.build_instantiation_from_active_terms(&session_handle.borrow(), &var_map, row_solution, ctx.store) {
                                 if let Some(ret_ty) = signature.return_type.ty() {

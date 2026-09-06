@@ -1335,12 +1335,7 @@ impl InferenceSession {
     }
 
     /// Propagates constraints until a fixed point is reached without terminalizing frame/root underconstraint.
-    pub fn propagate_with_control(
-        &mut self,
-        store: &mut TypeStore,
-        hierarchy: &dyn TypeHierarchy,
-        control: &CheckerControl,
-    ) -> Result<bool, InferenceOutcome> {
+    pub fn propagate_with_control(&mut self, store: &mut TypeStore, hierarchy: &dyn TypeHierarchy, control: &CheckerControl) -> Result<bool, InferenceOutcome> {
         let mut any_changed = false;
         loop {
             if control.is_cancelled() {

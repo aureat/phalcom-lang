@@ -153,10 +153,7 @@ impl<'a> ModuleQueryFacade<'a> {
     /// Returns direct module children of a canonical project-relative prefix with no exposure filtering.
     pub fn module_children(&self, project: ProjectIdentity, prefix: &ModulePath) -> Vec<ModuleId> {
         if let Some(topology) = self.topology {
-            let parent_id = ModuleId {
-                project,
-                path: prefix.clone(),
-            };
+            let parent_id = ModuleId { project, path: prefix.clone() };
             if let Some(children) = topology.children.get(&parent_id) {
                 return children.iter().cloned().collect();
             }

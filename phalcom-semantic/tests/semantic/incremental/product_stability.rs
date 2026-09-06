@@ -1,8 +1,8 @@
 use super::support::multi_module_input;
 use phalcom_common::selector::Selector;
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
-use phalcom_modules::interface::{InterfaceBuilder, LinkedModuleInterface};
-use phalcom_modules::linker::{GlobalBindingId, LinkedModule, LinkedProgram, ModuleBindingLayout};
+use phalcom_modules::interface::{InterfaceBuilder, LinkedExport, LinkedExportTarget, LinkedModuleInterface};
+use phalcom_modules::linker::{GlobalBindingId, ImportBindingId, LinkedModule, LinkedProgram, LinkedReadSpec, ModuleBindingLayout, SymbolId};
 use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::source::ModuleKind;
 use phalcom_semantic::db::QueryKey;
@@ -49,9 +49,120 @@ fn input(module: ModuleId, source: &str, generation: u64) -> SemanticWorkspaceIn
     });
     let unit = Arc::new(ParsedModuleUnit::new(module.clone(), ModuleKind::Module, None, Arc::from(source), program));
 
+    SemanticWorkspaceInput::new(linked, BTreeMap::from([(module, unit)]), generation)
+}
+
+fn layered_modules() -> (ModuleId, ModuleId, ModuleId) {
+    let project = ResolvedProjectId::from_raw(56);
+    (
+        ModuleId::resolved(
+            project,
+            ModulePath::from_components(vec![ModuleComponent::from_identifier("stable_a").unwrap()]),
+        ),
+        ModuleId::resolved(
+            project,
+            ModulePath::from_components(vec![ModuleComponent::from_identifier("stable_b").unwrap()]),
+        ),
+        ModuleId::resolved(
+            project,
+            ModulePath::from_components(vec![ModuleComponent::from_identifier("stable_c").unwrap()]),
+        ),
+    )
+}
+
+fn layered_input(a_source: &str, b_source: &str, c_source: &str, generation: u64) -> SemanticWorkspaceInput {
+    let (a, b, c) = layered_modules();
+    let sources = [(a.clone(), a_source), (b.clone(), b_source), (c.clone(), c_source)]
+        .into_iter()
+        .map(|(module, source)| {
+            let program = Arc::new(phalcom_ast::parse(source, 0).program);
+            (
+                module.clone(),
+                Arc::new(ParsedModuleUnit::new(module, ModuleKind::Module, None, Arc::from(source), program)),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let export = |module: &ModuleId, name: &str| {
+        (
+            name.into(),
+            LinkedExport {
+                public_name: name.into(),
+                target: LinkedExportTarget::Binding(SymbolId {
+                    module: module.clone(),
+                    name: name.into(),
+                }),
+                range: phalcom_common::range::SourceRange::default(),
+            },
+        )
+    };
+    let linked_modules = BTreeMap::from([
+        (
+            a.clone(),
+            LinkedModule {
+                interface: LinkedModuleInterface {
+                    module: a.clone(),
+                    kind: ModuleKind::Module,
+                    exports: BTreeMap::from([export(&a, "Api")]),
+                    metadata: ModuleMetadata::default(),
+                },
+                bindings: ModuleBindingLayout {
+                    local_globals: BTreeMap::from([("Api".into(), GlobalBindingId(0))]),
+                    ..ModuleBindingLayout::default()
+                },
+                linked_reads: Vec::new(),
+                runtime_dependencies: Vec::new(),
+            },
+        ),
+        (
+            b.clone(),
+            LinkedModule {
+                interface: LinkedModuleInterface {
+                    module: b.clone(),
+                    kind: ModuleKind::Module,
+                    exports: BTreeMap::from([export(&b, "Middle")]),
+                    metadata: ModuleMetadata::default(),
+                },
+                bindings: ModuleBindingLayout {
+                    local_globals: BTreeMap::from([("Middle".into(), GlobalBindingId(0))]),
+                    imports: BTreeMap::from([("Api".into(), ImportBindingId(0))]),
+                },
+                linked_reads: vec![LinkedReadSpec::Binding(SymbolId {
+                    module: a.clone(),
+                    name: "Api".into(),
+                })],
+                runtime_dependencies: vec![a.clone()],
+            },
+        ),
+        (
+            c.clone(),
+            LinkedModule {
+                interface: LinkedModuleInterface {
+                    module: c.clone(),
+                    kind: ModuleKind::Module,
+                    exports: BTreeMap::new(),
+                    metadata: ModuleMetadata::default(),
+                },
+                bindings: ModuleBindingLayout {
+                    local_globals: BTreeMap::from([("Top".into(), GlobalBindingId(0))]),
+                    imports: BTreeMap::from([("Middle".into(), ImportBindingId(0))]),
+                },
+                linked_reads: vec![LinkedReadSpec::Binding(SymbolId {
+                    module: b.clone(),
+                    name: "Middle".into(),
+                })],
+                runtime_dependencies: vec![b.clone()],
+            },
+        ),
+    ]);
     SemanticWorkspaceInput::new(
-        linked,
-        BTreeMap::from([(module, unit)]),
+        Arc::new(LinkedProgram {
+            universe: Arc::new(phalcom_modules::project::ProjectUniverse::new()),
+            modules: linked_modules,
+            graphs: phalcom_modules::graph::ModuleGraphs::default(),
+            entry: c.clone(),
+            initialization_order: vec![a, b, c],
+        }),
+        sources,
         generation,
     )
 }
@@ -223,11 +334,13 @@ class Consumer {
             .iter()
             .any(|edge| edge.dependency == QueryKey::LinkedName(module.clone(), "Missing".into()))
     }));
-    assert!(session.db().index().dependencies_of(&body_key).is_some_and(|edges| {
-        edges
-            .iter()
-            .all(|edge| edge.dependency != QueryKey::LinkedInterface(module.clone()))
-    }));
+    assert!(
+        session
+            .db()
+            .index()
+            .dependencies_of(&body_key)
+            .is_some_and(|edges| { edges.iter().all(|edge| edge.dependency != QueryKey::LinkedInterface(module.clone())) })
+    );
 
     let source_v2 = r#"
 class Missing {
@@ -290,10 +403,7 @@ class Broken {
     assert!(!updated.effects.diagnostics_changed.contains(&module_a));
 
     let mut cold_session = SemanticWorkspaceSession::new();
-    let cold = cold_session.update(multi_module_input(
-        vec![(module_a.clone(), source_a.into()), (module_b, source_b_v2.into())],
-        2,
-    ));
+    let cold = cold_session.update(multi_module_input(vec![(module_a.clone(), source_a.into()), (module_b, source_b_v2.into())], 2));
     assert_eq!(updated.snapshot.diagnostics, cold.snapshot.diagnostics);
 }
 
@@ -310,14 +420,20 @@ fn edited_module_repair_removes_its_diagnostic() {
     let fixed = "class Broken { @class number() -> Int { 1 } }";
 
     let initial = session.update(input(module.clone(), broken, 1));
-    assert!(initial.snapshot.diagnostics_for(&module).is_some_and(|diagnostics| {
-        diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::ReturnMismatch)
-    }));
+    assert!(
+        initial
+            .snapshot
+            .diagnostics_for(&module)
+            .is_some_and(|diagnostics| { diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::ReturnMismatch) })
+    );
 
     let repaired = session.update(input(module.clone(), fixed, 2));
-    assert!(repaired.snapshot.diagnostics_for(&module).is_none_or(|diagnostics| {
-        diagnostics.iter().all(|diagnostic| diagnostic.code != DiagnosticCode::ReturnMismatch)
-    }));
+    assert!(
+        repaired
+            .snapshot
+            .diagnostics_for(&module)
+            .is_none_or(|diagnostics| { diagnostics.iter().all(|diagnostic| diagnostic.code != DiagnosticCode::ReturnMismatch) })
+    );
     assert!(repaired.effects.diagnostics_changed.contains(&module));
     assert!(!repaired.snapshot.has_errors());
 }
@@ -353,9 +469,12 @@ class Consumer {
     let initial = session.update(input(module.clone(), source_v1, 1));
     assert!(!initial.snapshot.has_errors());
     let updated = session.update(input(module.clone(), source_v2, 2));
-    assert!(updated.snapshot.diagnostics_for(&module).is_some_and(|diagnostics| {
-        diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::ReturnMismatch)
-    }));
+    assert!(
+        updated
+            .snapshot
+            .diagnostics_for(&module)
+            .is_some_and(|diagnostics| { diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::ReturnMismatch) })
+    );
 }
 
 #[test]
@@ -387,13 +506,19 @@ class Consumer {
 "#;
 
     let initial = session.update(input(module.clone(), broken, 1));
-    assert!(initial.snapshot.diagnostics_for(&module).is_some_and(|diagnostics| {
-        diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::ReturnMismatch)
-    }));
+    assert!(
+        initial
+            .snapshot
+            .diagnostics_for(&module)
+            .is_some_and(|diagnostics| { diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::ReturnMismatch) })
+    );
     let repaired = session.update(input(module.clone(), fixed, 2));
-    assert!(repaired.snapshot.diagnostics_for(&module).is_none_or(|diagnostics| {
-        diagnostics.iter().all(|diagnostic| diagnostic.code != DiagnosticCode::ReturnMismatch)
-    }));
+    assert!(
+        repaired
+            .snapshot
+            .diagnostics_for(&module)
+            .is_none_or(|diagnostics| { diagnostics.iter().all(|diagnostic| diagnostic.code != DiagnosticCode::ReturnMismatch) })
+    );
     assert!(!repaired.snapshot.has_errors());
 }
 
@@ -417,9 +542,12 @@ fn removed_module_removes_all_diagnostics() {
         ],
         1,
     ));
-    assert!(initial.snapshot.diagnostics_for(&module_a).is_some_and(|diagnostics| {
-        diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::ReturnMismatch)
-    }));
+    assert!(
+        initial
+            .snapshot
+            .diagnostics_for(&module_a)
+            .is_some_and(|diagnostics| { diagnostics.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::ReturnMismatch) })
+    );
 
     let updated = session.update(multi_module_input(
         vec![(module_b.clone(), "class Stable { @class value() -> Int { 2 } }".into())],
@@ -454,10 +582,7 @@ fn diagnostic_aggregate_matches_cold_after_repair_and_unrelated_edit() {
     ));
 
     let mut cold_session = SemanticWorkspaceSession::new();
-    let cold = cold_session.update(multi_module_input(
-        vec![(module_a, source_a.into()), (module_b, source_b_v2.into())],
-        2,
-    ));
+    let cold = cold_session.update(multi_module_input(vec![(module_a, source_a.into()), (module_b, source_b_v2.into())], 2));
     assert_eq!(incremental.snapshot.diagnostics, cold.snapshot.diagnostics);
 }
 
@@ -677,8 +802,15 @@ class Consumer {
     let api_value = CallableId::new(api, Selector::method("value", []).unwrap(), DispatchSide::Class);
 
     let update_b = session.update(input(module.clone(), source_b, 2));
-    assert!(update_b.recomputed.contains(&body_key), "the changed callable contract must recompute its exact consumer");
-    let consumer_revision_b = session.db().query_state(&body_key).and_then(|state| state.revision()).expect("consumer revision after B");
+    assert!(
+        update_b.recomputed.contains(&body_key),
+        "the changed callable contract must recompute its exact consumer"
+    );
+    let consumer_revision_b = session
+        .db()
+        .query_state(&body_key)
+        .and_then(|state| state.revision())
+        .expect("consumer revision after B");
     let api_body_revision_b = session
         .db()
         .query_state(&QueryKey::CallableBody(api_value.clone()))
@@ -686,8 +818,14 @@ class Consumer {
         .expect("API body revision after B");
 
     let update_c = session.update(input(module, source_c, 3));
-    assert!(!update_c.recomputed.contains(&body_key), "a body-only edit with a stable signature must stop at the provider");
-    assert_eq!(session.db().query_state(&body_key).and_then(|state| state.revision()), Some(consumer_revision_b));
+    assert!(
+        !update_c.recomputed.contains(&body_key),
+        "a body-only edit with a stable signature must stop at the provider"
+    );
+    assert_eq!(
+        session.db().query_state(&body_key).and_then(|state| state.revision()),
+        Some(consumer_revision_b)
+    );
     assert!(session.db().query_state(&body_key).is_some_and(|state| state.validated_revision().is_some()));
     assert_ne!(
         session.db().query_state(&QueryKey::CallableBody(api_value)).and_then(|state| state.revision()),
@@ -697,6 +835,61 @@ class Consumer {
     assert!(!update_a.snapshot.has_errors());
     assert!(!update_b.snapshot.has_errors());
     assert!(!update_c.snapshot.has_errors());
+}
+
+#[test]
+fn pa8_recomputed_stable_intermediate_allows_downstream_reuse() {
+    let (_a, b, c) = layered_modules();
+    let source_a_v1 = "class Api { @class value(_ first: Int) -> Int { 1 } }\nexport Api\n";
+    let source_a_v2 = "class Api { @class value(_ second: Object) -> Int { 2 } }\nexport Api\n";
+    let source_b = "import stable_a.Api\nclass Middle { @class value() -> Int { Api.value(0) } }\nexport Middle\n";
+    let source_c = "import stable_b.Middle\nclass Top { @class value() -> Int { Middle.value() } }\n";
+    let mut session = SemanticWorkspaceSession::new();
+
+    let first = session.update(layered_input(source_a_v1, source_b, source_c, 1));
+    assert!(!first.snapshot.has_errors(), "initial diagnostics: {:?}", first.snapshot.diagnostics);
+    let middle = CallableId::new(
+        DeclarationId::new(b.clone(), "Middle".into()),
+        Selector::method("value", []).unwrap(),
+        DispatchSide::Class,
+    );
+    let top = CallableId::new(
+        DeclarationId::new(c.clone(), "Top".into()),
+        Selector::method("value", []).unwrap(),
+        DispatchSide::Class,
+    );
+    let middle_key = QueryKey::CallableBody(middle.clone());
+    let top_key = QueryKey::CallableBody(top.clone());
+    let top_v1 = first.snapshot.callable_analyses.get(&top).cloned().expect("Top v1");
+    let middle_product_v1 = session.db().ready_product_fingerprint(&middle_key).expect("Middle product v1");
+    let top_revision_v1 = session.db().query_state(&top_key).and_then(|state| state.revision()).expect("Top revision v1");
+
+    let second = session.update(layered_input(source_a_v2, source_b, source_c, 2));
+    assert!(!second.snapshot.has_errors(), "updated diagnostics: {:?}", second.snapshot.diagnostics);
+    assert!(second.recomputed.contains(&middle_key), "A's contract refresh must recompute B");
+    assert!(!second.recomputed.contains(&top_key), "C must stop at B's stable product");
+    let middle_state = session.db().query_state(&middle_key).expect("Middle state v2");
+    assert_eq!(
+        middle_state.revision(),
+        Some(second.snapshot.id.revision()),
+        "B must actually recompute in the new revision"
+    );
+    assert_eq!(middle_state.validated_revision(), Some(second.snapshot.id.revision()));
+    assert_eq!(
+        session.db().ready_product_fingerprint(&middle_key),
+        Some(middle_product_v1),
+        "B must republish the same product fingerprint"
+    );
+
+    let top_state = session.db().query_state(&top_key).expect("Top state v2");
+    assert_eq!(top_state.revision(), Some(top_revision_v1), "C computation must remain at v1");
+    assert_eq!(
+        top_state.validated_revision(),
+        Some(second.snapshot.id.revision()),
+        "C must validate against B's republished product"
+    );
+    assert!(Arc::ptr_eq(&top_v1, second.snapshot.callable_analyses.get(&top).expect("Top v2")));
+    assert!(second.stats.callables_recomputed >= 1);
 }
 
 #[test]

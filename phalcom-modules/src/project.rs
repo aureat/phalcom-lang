@@ -331,11 +331,7 @@ impl ProjectUniverse {
     /// Loads a standalone package rooted at `package_root`.
     ///
     /// Requires `package.ph` to exist in `package_root`.
-    pub fn load_standalone_package(
-        &mut self,
-        package_root: impl AsRef<Path>,
-        entry: Option<&str>,
-    ) -> Result<ResolvedProjectId, ProjectError> {
+    pub fn load_standalone_package(&mut self, package_root: impl AsRef<Path>, entry: Option<&str>) -> Result<ResolvedProjectId, ProjectError> {
         let package_root = package_root.as_ref();
         let canonical_root = package_root
             .canonicalize()
@@ -351,13 +347,9 @@ impl ProjectUniverse {
             return Ok(id);
         }
 
-        let raw_name = canonical_root
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("package");
+        let raw_name = canonical_root.file_name().and_then(|n| n.to_str()).unwrap_or("package");
         let safe_name = raw_name.replace('-', "_");
-        let namespace = ModuleComponent::from_identifier(&safe_name)
-            .unwrap_or_else(|_| ModuleComponent::from_identifier("package").expect("valid identifier"));
+        let namespace = ModuleComponent::from_identifier(&safe_name).unwrap_or_else(|_| ModuleComponent::from_identifier("package").expect("valid identifier"));
 
         let entry_path = if let Some(entry_name) = entry {
             let entry_comp = ModuleComponent::from_identifier(&entry_name.replace('-', "_"))

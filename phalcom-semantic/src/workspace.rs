@@ -26,11 +26,7 @@ pub struct SemanticWorkspaceInput {
 }
 
 impl SemanticWorkspaceInput {
-    pub fn new(
-        linked: Arc<LinkedProgram>,
-        sources: BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
-        generation: u64,
-    ) -> Self {
+    pub fn new(linked: Arc<LinkedProgram>, sources: BTreeMap<ModuleId, Arc<ParsedModuleUnit>>, generation: u64) -> Self {
         Self {
             linked,
             sources,
@@ -54,26 +50,17 @@ impl SemanticWorkspaceInput {
         self
     }
 
-    pub fn with_interfaces(
-        mut self,
-        interfaces: BTreeMap<ModuleId, Arc<phalcom_modules::interface::UnlinkedModuleInterface>>,
-    ) -> Self {
+    pub fn with_interfaces(mut self, interfaces: BTreeMap<ModuleId, Arc<phalcom_modules::interface::UnlinkedModuleInterface>>) -> Self {
         self.interfaces = interfaces;
         self
     }
 
-    pub fn with_diagnostics(
-        mut self,
-        diagnostics: BTreeMap<ModuleId, Vec<ModuleDiagnostic>>,
-    ) -> Self {
+    pub fn with_diagnostics(mut self, diagnostics: BTreeMap<ModuleId, Vec<ModuleDiagnostic>>) -> Self {
         self.diagnostics = diagnostics;
         self
     }
 
-    pub fn with_blocked_modules(
-        mut self,
-        blocked_modules: BTreeSet<ModuleId>,
-    ) -> Self {
+    pub fn with_blocked_modules(mut self, blocked_modules: BTreeSet<ModuleId>) -> Self {
         self.blocked_modules = blocked_modules;
         self
     }

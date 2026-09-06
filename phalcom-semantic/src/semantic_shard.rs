@@ -66,7 +66,10 @@ impl ModuleSemanticStructureShard {
             match statement {
                 Statement::Class(class_def) => {
                     declaration_header_fingerprints.insert(declaration.clone(), declaration_header_fingerprint(&source, class_def.range));
-                    hierarchy_edge_fingerprints.insert(declaration.clone(), hierarchy_fingerprint(&source, class_def.superclass.as_ref().map(|superclass| superclass.range)));
+                    hierarchy_edge_fingerprints.insert(
+                        declaration.clone(),
+                        hierarchy_fingerprint(&source, class_def.superclass.as_ref().map(|superclass| superclass.range)),
+                    );
                     collect_class_member_fingerprints(
                         &source,
                         &declaration,

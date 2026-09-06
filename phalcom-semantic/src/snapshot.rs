@@ -81,12 +81,7 @@ impl ModuleQueryProducts {
 
     pub fn empty() -> Self {
         let universe = Arc::new(ProjectUniverse::new());
-        let topology = Arc::new(ModuleTopology::from_parts(
-            ResolverGeneration(0),
-            &universe,
-            &BTreeMap::new(),
-            &BTreeMap::new(),
-        ));
+        let topology = Arc::new(ModuleTopology::from_parts(ResolverGeneration(0), &universe, &BTreeMap::new(), &BTreeMap::new()));
         Self {
             universe,
             unlinked: Arc::new(BTreeMap::new()),
@@ -281,10 +276,7 @@ impl SemanticSnapshot {
     }
 
     /// Attaches retained source-local semantic structure shards.
-    pub fn with_semantic_structure_shards(
-        mut self,
-        shards: Arc<BTreeMap<ModuleId, Arc<ModuleSemanticStructureShard>>>,
-    ) -> Self {
+    pub fn with_semantic_structure_shards(mut self, shards: Arc<BTreeMap<ModuleId, Arc<ModuleSemanticStructureShard>>>) -> Self {
         self.semantic_structure_shards = shards;
         self
     }

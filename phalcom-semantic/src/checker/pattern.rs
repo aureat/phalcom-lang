@@ -56,9 +56,7 @@ fn resolve_pattern_with_mode(
                 bind_name_pattern(ctx, name, *range, subject, bindings, binding_mode)
             }
         }
-        Pattern::Variant(variant_pat) => {
-            PatternResolution::Variant(resolve_variant_pattern(ctx, variant_pat, subject, bindings, binding_mode))
-        }
+        Pattern::Variant(variant_pat) => PatternResolution::Variant(resolve_variant_pattern(ctx, variant_pat, subject, bindings, binding_mode)),
         Pattern::Or { alternatives, range } => {
             let mut resolved_alternatives = Vec::with_capacity(alternatives.len());
             let mut alternative_bindings = Vec::with_capacity(alternatives.len());

@@ -927,9 +927,7 @@ impl Backend {
                 phalcom_semantic::SemanticTargetId::ModuleBinding(symbol) => {
                     let target = phalcom_semantic::SemanticTargetId::ModuleBinding(symbol);
                     let definitions = compiler.editor().definition_locations(&target);
-                    let [phalcom_semantic::SemanticDefinitionLocation::SourceSite(binding)] =
-                        definitions.as_slice()
-                    else {
+                    let [phalcom_semantic::SemanticDefinitionLocation::SourceSite(binding)] = definitions.as_slice() else {
                         return None;
                     };
                     if let Some(contents) = self.compiler_binding_hover(request, binding) {

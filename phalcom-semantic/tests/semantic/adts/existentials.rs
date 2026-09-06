@@ -1,12 +1,12 @@
 //! C8 branch-local existential escape and exact-case reconstruction laws.
 
 use crate::semantic::support::Fixture;
+use phalcom_common::selector::{Selector, SelectorSlot};
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::DispatchSide;
 use phalcom_semantic::types::case_instantiation::CaseInstantiation;
 use phalcom_semantic::types::rigid::RigidArena;
 use phalcom_semantic::types::store::TypeData;
-use phalcom_common::selector::{Selector, SelectorSlot};
 
 fn direct_escape_source(branch: &str, return_type: &str) -> String {
     format!(
@@ -139,20 +139,26 @@ class Eval {
     let exact_case = value.knowledge.ty().expect("constructor exact case");
     assert!(matches!(fixture.analysis.snapshot.store.get(exact_case), TypeData::ExactCase { .. }));
     let value_binding = fixture.binding(eval, "value");
-    assert!(matches!(value_binding.current.ty().map(|ty| fixture.analysis.snapshot.store.get(ty)), Some(TypeData::ExactCase { .. })), "value binding: {value_binding:#?}");
+    assert!(
+        matches!(
+            value_binding.current.ty().map(|ty| fixture.analysis.snapshot.store.get(ty)),
+            Some(TypeData::ExactCase { .. })
+        ),
+        "value binding: {value_binding:#?}"
+    );
 
     let resolution = eval.match_resolutions.values().next().expect("exact-case match resolution");
     let candidate = match &resolution.arms[0].pattern {
-        phalcom_semantic::match_semantics::PatternResolution::Variant(pattern) => pattern
-            .candidates
-            .first()
-            .unwrap_or_else(|| {
-                let info = fixture.analysis.snapshot.enum_semantics.enum_info(&fixture.decl("Expr")).expect("Expr enum");
-                panic!("Pack candidate missing: {pattern:#?}; variants: {:#?}", info.variants)
-            }),
+        phalcom_semantic::match_semantics::PatternResolution::Variant(pattern) => pattern.candidates.first().unwrap_or_else(|| {
+            let info = fixture.analysis.snapshot.enum_semantics.enum_info(&fixture.decl("Expr")).expect("Expr enum");
+            panic!("Pack candidate missing: {pattern:#?}; variants: {:#?}", info.variants)
+        }),
         other => panic!("expected exact-case variant pattern, got {other:?}"),
     };
-    let opened = candidate.case_instantiation.as_ref().expect("exact-case elimination must open constructor locals");
+    let opened = candidate
+        .case_instantiation
+        .as_ref()
+        .expect("exact-case elimination must open constructor locals");
     assert_eq!(opened.local_rigids.len(), 1);
 
     let variant_id = phalcom_semantic::identity::VariantId::new(

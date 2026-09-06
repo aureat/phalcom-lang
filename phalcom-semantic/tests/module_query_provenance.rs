@@ -74,10 +74,7 @@ fn semantic_snapshot_publishes_relative_import_alias_path_and_provenance() {
     );
 
     let reverse_of_shapes = queries.reverse_importers(&shapes_module);
-    assert!(
-        reverse_of_shapes.contains(&main_module),
-        "main must be reverse importer of shapes"
-    );
+    assert!(reverse_of_shapes.contains(&main_module), "main must be reverse importer of shapes");
 
     assert_eq!(
         phalcom_modules::query_fallback_scan_count(),

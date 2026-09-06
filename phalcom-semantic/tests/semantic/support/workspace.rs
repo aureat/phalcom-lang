@@ -91,11 +91,7 @@ impl WorkspaceFixture {
             initialization_order,
         });
 
-        let analysis = analyze_workspace(SemanticWorkspaceInput::new(
-            linked,
-            sources,
-            1,
-        ));
+        let analysis = analyze_workspace(SemanticWorkspaceInput::new(linked, sources, 1));
         assert!(
             analysis.snapshot.internal_incidents.is_empty(),
             "semantic analyzer produced internal incidents: {:#?}",

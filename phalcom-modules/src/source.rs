@@ -51,10 +51,7 @@ pub fn canonicalize_path(path: &Path) -> PathBuf {
 /// 1. Enclosing persistent Project (with `project.toml`) -> `ProjectOwned`
 /// 2. Enclosing standalone Package hierarchy (with `package.ph`) -> `StandalonePackageOwned`
 /// 3. Otherwise -> `StandaloneModule`
-pub fn classify_entry_ownership(
-    source_path: &Path,
-    universe: &mut crate::project::ProjectUniverse,
-) -> Result<EntryOwnership, crate::error::ProjectError> {
+pub fn classify_entry_ownership(source_path: &Path, universe: &mut crate::project::ProjectUniverse) -> Result<EntryOwnership, crate::error::ProjectError> {
     let canonical = canonicalize_path(source_path);
 
     if let Some(project_root) = crate::project::discover_owning_project(&canonical)? {
@@ -259,11 +256,7 @@ impl DirectorySnapshot {
                 DirEntryKind::File
             } else if file_type.is_symlink() {
                 if let Ok(meta) = std::fs::metadata(entry.path()) {
-                    if meta.is_dir() {
-                        DirEntryKind::Directory
-                    } else {
-                        DirEntryKind::File
-                    }
+                    if meta.is_dir() { DirEntryKind::Directory } else { DirEntryKind::File }
                 } else {
                     continue;
                 }
@@ -456,9 +449,7 @@ impl FilesystemSourceProvider {
 
         let has_file = file_candidate.is_some();
         let has_dir_pkg = if let Some(dir_path) = &dir_candidate {
-            self.get_directory_snapshot(dir_path)
-                .map(|s| s.package_marker_present)
-                .unwrap_or(false)
+            self.get_directory_snapshot(dir_path).map(|s| s.package_marker_present).unwrap_or(false)
         } else {
             false
         };

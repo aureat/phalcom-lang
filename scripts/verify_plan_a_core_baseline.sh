@@ -35,7 +35,7 @@ git -C "$REPO_ROOT" worktree add --detach "$BASELINE_ROOT" "$BASELINE_COMMIT" >/
 TARGETS="$(
     cd "$REPO_ROOT" || exit 1
     cargo metadata --no-deps --format-version 1 |
-        python3 -c 'import json, sys; data=json.load(sys.stdin); package=next(p for p in data["packages"] if p["name"] == "phalcom-core"); print("\n".join(target["name"] for target in package["targets"] if "test" in target["kind"]))'
+        python3 -c 'import json, sys; data=json.load(sys.stdin); package=next(p for p in data["packages"] if p["name"] == "phalcom-core"); print("lib"); print("\n".join(target["name"] for target in package["targets"] if "test" in target["kind"]))'
 )"
 
 run_with_timeout() {
@@ -72,18 +72,18 @@ run_target() {
     local rc
 
     mkdir -p "$cargo_target"
+    local -a cargo_args=( -p phalcom-core )
+    if [[ "$target" == "lib" ]]; then
+        cargo_args+=( --lib -- )
+    else
+        cargo_args+=( --test "$target" -- )
+    fi
     if [[ -n "$TEST_THREADS_ARG" ]]; then
-        if (
-            cd "$root" || exit 1
-            RUSTFLAGS='' CARGO_TARGET_DIR="$cargo_target" run_with_timeout cargo test -p phalcom-core --test "$target" -- "--test-threads=$TEST_THREADS_ARG"
-        ) >"$output" 2>&1; then
-            rc=0
-        else
-            rc=$?
-        fi
-    elif (
+        cargo_args+=( "--test-threads=$TEST_THREADS_ARG" )
+    fi
+    if (
         cd "$root" || exit 1
-        RUSTFLAGS='' CARGO_TARGET_DIR="$cargo_target" run_with_timeout cargo test -p phalcom-core --test "$target" --
+        RUSTFLAGS='' CARGO_TARGET_DIR="$cargo_target" run_with_timeout cargo test "${cargo_args[@]}"
     ) >"$output" 2>&1; then
         rc=0
     else
@@ -109,13 +109,25 @@ enumerate_target_tests() {
     local names
     local binary
 
-    binary="$(find "$cargo_target/debug" -type f -perm -111 -name "$target-*" -print -quit 2>/dev/null)"
+    if [[ "$target" == "lib" ]]; then
+        binary="$(find "$cargo_target/debug/deps" -type f -perm -111 -name 'phalcom_core-*' -print -quit 2>/dev/null)"
+    else
+        binary="$(find "$cargo_target/debug" -type f -perm -111 -name "$target-*" -print -quit 2>/dev/null)"
+    fi
     if [[ -z "$binary" ]]; then
         (
             cd "$root" || exit 1
-            RUSTFLAGS='' CARGO_TARGET_DIR="$cargo_target" cargo test -p phalcom-core --test "$target" --no-run
+            if [[ "$target" == "lib" ]]; then
+                RUSTFLAGS='' CARGO_TARGET_DIR="$cargo_target" cargo test -p phalcom-core --lib --no-run
+            else
+                RUSTFLAGS='' CARGO_TARGET_DIR="$cargo_target" cargo test -p phalcom-core --test "$target" --no-run
+            fi
         ) >/dev/null 2>&1
-        binary="$(find "$cargo_target/debug" -type f -perm -111 -name "$target-*" -print -quit 2>/dev/null)"
+        if [[ "$target" == "lib" ]]; then
+            binary="$(find "$cargo_target/debug/deps" -type f -perm -111 -name 'phalcom_core-*' -print -quit 2>/dev/null)"
+        else
+            binary="$(find "$cargo_target/debug" -type f -perm -111 -name "$target-*" -print -quit 2>/dev/null)"
+        fi
     fi
     if [[ -z "$binary" ]]; then
         echo "could not locate test executable for target $target" >&2
@@ -171,6 +183,10 @@ PY
 
 declare -a BASELINE_FAILURE_FILES=()
 declare -a CURRENT_FAILURE_FILES=()
+declare -a BASELINE_TIMEOUT_FILES=()
+declare -a CURRENT_TIMEOUT_FILES=()
+declare -a BASELINE_INCIDENT_FILES=()
+declare -a CURRENT_INCIDENT_FILES=()
 declare -a TARGET_NAMES=()
 
 echo "Plan-A phalcom-core baseline comparison"
@@ -188,6 +204,8 @@ for target in $TARGETS; do
     current_timeouts="$TEMP_ROOT/current-$target.timeouts"
     BASELINE_FAILURE_FILES+=("$baseline_failures")
     CURRENT_FAILURE_FILES+=("$current_failures")
+    BASELINE_TIMEOUT_FILES+=("$baseline_timeouts")
+    CURRENT_TIMEOUT_FILES+=("$current_timeouts")
 
     run_target "$BASELINE_ROOT" "$target" "$BASELINE_TARGET" "$baseline_output" "$baseline_status" "$baseline_failures"
     run_target "$REPO_ROOT" "$target" "$CURRENT_TARGET" "$current_output" "$current_status" "$current_failures"
@@ -208,13 +226,44 @@ for target in $TARGETS; do
     echo "    current failing names: $(paste -sd, "$current_failures" | sed 's/^$/<none>/')"
     echo "    baseline timeout/hang names: $(paste -sd, "$baseline_timeouts" | sed 's/^$/<none>/')"
     echo "    current timeout/hang names: $(paste -sd, "$current_timeouts" | sed 's/^$/<none>/')"
+
+    {
+        sed "s#^#$target|FAIL|#" "$baseline_failures"
+        sed "s#^#$target|TIMEOUT|#" "$baseline_timeouts"
+    } >"$TEMP_ROOT/baseline-$target.incidents"
+    {
+        sed "s#^#$target|FAIL|#" "$current_failures"
+        sed "s#^#$target|TIMEOUT|#" "$current_timeouts"
+    } >"$TEMP_ROOT/current-$target.incidents"
+    BASELINE_INCIDENT_FILES+=("$TEMP_ROOT/baseline-$target.incidents")
+    CURRENT_INCIDENT_FILES+=("$TEMP_ROOT/current-$target.incidents")
 done
 
 cat "${BASELINE_FAILURE_FILES[@]}" 2>/dev/null | LC_ALL=C sort -u >"$TEMP_ROOT/baseline.failures" || :
 cat "${CURRENT_FAILURE_FILES[@]}" 2>/dev/null | LC_ALL=C sort -u >"$TEMP_ROOT/current.failures" || :
+cat "${BASELINE_TIMEOUT_FILES[@]}" 2>/dev/null | LC_ALL=C sort -u >"$TEMP_ROOT/baseline.timeouts" || :
+cat "${CURRENT_TIMEOUT_FILES[@]}" 2>/dev/null | LC_ALL=C sort -u >"$TEMP_ROOT/current.timeouts" || :
+cat "${BASELINE_INCIDENT_FILES[@]}" 2>/dev/null | LC_ALL=C sort -u >"$TEMP_ROOT/baseline.incidents" || :
+cat "${CURRENT_INCIDENT_FILES[@]}" 2>/dev/null | LC_ALL=C sort -u >"$TEMP_ROOT/current.incidents" || :
 
-echo "current failures minus baseline failures:"
-CURRENT_ONLY="$(comm -23 "$TEMP_ROOT/current.failures" "$TEMP_ROOT/baseline.failures")"
+echo "current failure identities minus baseline failure identities:"
+CURRENT_FAILURES_ONLY="$(comm -23 "$TEMP_ROOT/current.failures" "$TEMP_ROOT/baseline.failures")"
+if [[ -n "$CURRENT_FAILURES_ONLY" ]]; then
+    echo "$CURRENT_FAILURES_ONLY"
+else
+    echo "<none>"
+fi
+
+echo "current timeout identities minus baseline timeout identities:"
+CURRENT_TIMEOUTS_ONLY="$(comm -23 "$TEMP_ROOT/current.timeouts" "$TEMP_ROOT/baseline.timeouts")"
+if [[ -n "$CURRENT_TIMEOUTS_ONLY" ]]; then
+    echo "$CURRENT_TIMEOUTS_ONLY"
+else
+    echo "<none>"
+fi
+
+echo "current target/test incidents minus baseline target/test incidents:"
+CURRENT_ONLY="$(comm -23 "$TEMP_ROOT/current.incidents" "$TEMP_ROOT/baseline.incidents")"
 if [[ -n "$CURRENT_ONLY" ]]; then
     echo "$CURRENT_ONLY"
 else

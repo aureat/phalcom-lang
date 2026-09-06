@@ -1,14 +1,9 @@
-use phalcom_modules::fingerprint::{
-    interface_fingerprint, linked_interface_fingerprint, unlinked_interface_input_fingerprint,
-};
+use phalcom_modules::fingerprint::{interface_fingerprint, linked_interface_fingerprint, unlinked_interface_input_fingerprint};
 use phalcom_modules::interface::{
-    DeclarationSurface, ExportSurface, LinkedExport, LinkedExportTarget, LinkedModuleInterface,
-    UnlinkedExportTarget, UnlinkedModuleInterface,
+    DeclarationSurface, ExportSurface, LinkedExport, LinkedExportTarget, LinkedModuleInterface, UnlinkedExportTarget, UnlinkedModuleInterface,
 };
 use phalcom_modules::metadata::ModuleMetadata;
-use phalcom_modules::resolver::{
-    ImportPathIdentity, ImportResolutionProduct, ResolutionFingerprint, ResolutionTopologyDependencies,
-};
+use phalcom_modules::resolver::{ImportPathIdentity, ImportResolutionProduct, ResolutionFingerprint, ResolutionTopologyDependencies};
 use phalcom_modules::source::ModuleKind;
 use phalcom_modules::stabilization::ResolverGeneration;
 use phalcom_modules::topology::{ModuleTopology, TopologyFingerprint, TopologyNode};
@@ -99,8 +94,7 @@ fn topology_fingerprint_ignores_symbol_only_export_and_declaration_changes() {
     );
 
     // Topology fingerprint MUST remain unchanged
-    let topo_symbol_change =
-        ModuleTopology::from_parts(ResolverGeneration(1), &universe, &unlinked_symbol_change, &sources);
+    let topo_symbol_change = ModuleTopology::from_parts(ResolverGeneration(1), &universe, &unlinked_symbol_change, &sources);
     assert_eq!(topo_base.fingerprint, topo_symbol_change.fingerprint);
 }
 
@@ -134,14 +128,9 @@ fn topology_fingerprint_changes_on_package_exposure_change() {
 
     // Modify exposure: expose "math" as well
     let mut unlinked_exposed_change = unlinked_base.clone();
-    unlinked_exposed_change
-        .get_mut(&root)
-        .unwrap()
-        .exposed_children
-        .insert(component("math"));
+    unlinked_exposed_change.get_mut(&root).unwrap().exposed_children.insert(component("math"));
 
-    let topo_exposed =
-        ModuleTopology::from_parts(ResolverGeneration(1), &universe, &unlinked_exposed_change, &sources);
+    let topo_exposed = ModuleTopology::from_parts(ResolverGeneration(1), &universe, &unlinked_exposed_change, &sources);
 
     assert_ne!(topo_base.fingerprint, topo_exposed.fingerprint);
 }
@@ -291,10 +280,7 @@ fn topology_detect_cycle_and_descendants() {
 
     // Test cycle detection
     // Case 1: DAG (no cycle)
-    let dag_edges = BTreeMap::from([
-        (a.clone(), BTreeSet::from([b.clone()])),
-        (b.clone(), BTreeSet::from([c.clone()])),
-    ]);
+    let dag_edges = BTreeMap::from([(a.clone(), BTreeSet::from([b.clone()])), (b.clone(), BTreeSet::from([c.clone()]))]);
     assert_eq!(topo.detect_cycle(&dag_edges), None);
 
     // Case 2: Cycle (a -> b -> c -> a)
