@@ -1,4 +1,4 @@
-use super::super::support::{expression_semantic_source as semantic_source, Fixture};
+use super::super::support::{Fixture, expression_semantic_source as semantic_source};
 use phalcom_semantic::identity::DispatchSide;
 use phalcom_semantic::types::evidence::EvidenceStatus;
 use phalcom_semantic::types::store::TypeData;

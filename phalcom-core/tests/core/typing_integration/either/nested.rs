@@ -1,4 +1,4 @@
-use super::super::support::{Fixture, either, nominal, either_semantic_source as semantic_source};
+use super::super::support::{Fixture, either, either_semantic_source as semantic_source, nominal};
 use phalcom_semantic::identity::DispatchSide;
 
 /// GEN-12/13/14/33/34: nested applied types recursively solve and reuse the same `L` parameter.

@@ -1016,8 +1016,8 @@ impl SemanticWorkspaceSession {
         // without changing the template text itself.  Rebuild the exact
         // declaration headers owned by those changed shards so retained
         // nominal metadata cannot preserve the previous resolved target.
-        for module in &structural_recomputed_modules {
-            if let Some(shard) = self.semantic_structure_shards.get(module) {
+        for module in contribution_delta.structural_modules.clone() {
+            if let Some(shard) = self.semantic_structure_shards.get(&module) {
                 generic_header_work.extend(shard.declaration_header_fingerprints.keys().cloned());
             }
         }
@@ -1061,7 +1061,14 @@ impl SemanticWorkspaceSession {
                 roots.insert(QueryKey::HierarchyEdge(declaration.clone()));
             }
             for callable in &contribution_delta.callable_signatures {
-                roots.insert(QueryKey::CallableSignature(callable.clone()));
+                // A callable whose body also changed is already a body root.
+                // Let its canonical signature query publish first, then seed
+                // exact signature consumers from the actual recomputation
+                // event; seeding here would traverse every consumer even when
+                // the signature contract is unchanged.
+                if !contribution_delta.callable_bodies.contains(callable) {
+                    roots.insert(QueryKey::CallableSignature(callable.clone()));
+                }
             }
             for field in &contribution_delta.field_signatures {
                 roots.insert(QueryKey::FieldSignature(field.clone()));
@@ -1073,9 +1080,17 @@ impl SemanticWorkspaceSession {
                 roots.insert(QueryKey::SourceStructure(module.clone()));
             }
             for module in &changed_modules {
-                roots.insert(QueryKey::ParsedModule(module.clone()));
-                roots.insert(QueryKey::UnlinkedInterface(module.clone()));
-                roots.insert(QueryKey::ModuleDiagnostics(module.clone()));
+                // Source-only body edits already have a typed CallableBody
+                // root. Their parsed/interface products may be refreshed for
+                // publication, but must not seed the reverse importer graph.
+                // Structural edits still seed those module-layer products.
+                if contribution_delta.structural_modules.contains(module) {
+                    roots.insert(QueryKey::ParsedModule(module.clone()));
+                    roots.insert(QueryKey::UnlinkedInterface(module.clone()));
+                }
+                if modules_with_changed_module_diagnostics.contains(module) {
+                    roots.insert(QueryKey::ModuleDiagnostics(module.clone()));
+                }
             }
             if let Some(previous) = previous_snapshot.as_ref() {
                 for (module, linked) in &input.linked.modules {
@@ -1463,6 +1478,17 @@ impl SemanticWorkspaceSession {
                                     range: super_ref.range,
                                 });
                             }
+                        } else if declaration != crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Object) {
+                            let object = crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Object);
+                            semantic_graph.add(SemanticEdge {
+                                from: from_node,
+                                to: SemanticNodeId::Declaration {
+                                    module: object.module,
+                                    name: object.name,
+                                },
+                                kind: SemanticEdgeKind::Superclass,
+                                range: class_def.range,
+                            });
                         }
                     }
                 }
@@ -2159,6 +2185,7 @@ impl SemanticWorkspaceSession {
                         &resolver,
                         &declarations,
                         Some(input.linked.as_ref()),
+                        Some(&type_aliases),
                         Some(&input.import_products),
                     ) {
                         QueryOutcome::Ready(signature) => field_signatures.insert((*signature).clone()),
@@ -2179,7 +2206,7 @@ impl SemanticWorkspaceSession {
                     }
                     match query_callable_signature_with_inputs(
                         &mut self.db,
-                        callable_id,
+                        callable_id.clone(),
                         parsed_unit.clone(),
                         &mut self.store,
                         &hierarchy,
@@ -2216,6 +2243,7 @@ impl SemanticWorkspaceSession {
                         hierarchy: &hierarchy,
                         resolver: &resolver,
                         declarations: &declarations,
+                        type_aliases: Some(&type_aliases),
                         linked: Some(input.linked.as_ref()),
                         import_products: Some(&input.import_products),
                     },
@@ -2350,6 +2378,7 @@ impl SemanticWorkspaceSession {
                         hierarchy: &hierarchy,
                         resolver: &resolver,
                         declarations: &declarations,
+                        type_aliases: Some(&type_aliases),
                         linked: Some(input.linked.as_ref()),
                         import_products: Some(&input.import_products),
                     },
@@ -2508,7 +2537,7 @@ impl SemanticWorkspaceSession {
             snapshot
                 .callable_analyses
                 .iter()
-                .filter(|(callable, _)| !semantic_work_modules.contains(callable.module()))
+                .filter(|(callable, _)| current_modules.contains(callable.module()) && !semantic_work_modules.contains(callable.module()))
                 .map(|(callable, analysis)| (callable.clone(), analysis.clone()))
                 .collect()
         });
@@ -2613,7 +2642,7 @@ impl SemanticWorkspaceSession {
                                     associated_families: Some(&associated_surfaces_table),
                                 };
 
-                                if let Err(outcome) = refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, &mut self.store, &hierarchy) {
+                                if let Err(outcome) = refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, &mut self.store) {
                                     return Err(outcome);
                                 }
                                 let previous_computation_revision = self.db.query_state(&query_key).and_then(|state| state.revision());
@@ -2784,7 +2813,7 @@ impl SemanticWorkspaceSession {
                                         associated_families: Some(&associated_surfaces_table),
                                     };
 
-                                    if let Err(outcome) = refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, &mut self.store, &hierarchy) {
+                                    if let Err(outcome) = refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, &mut self.store) {
                                         return Err(outcome);
                                     }
                                     let previous_computation_revision = self.db.query_state(&query_key).and_then(|state| state.revision());
@@ -2911,7 +2940,7 @@ impl SemanticWorkspaceSession {
                                                 associated_families: Some(&associated_surfaces_table),
                                             };
 
-                                            if let Err(outcome) = refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, &mut self.store, &hierarchy) {
+                                            if let Err(outcome) = refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, &mut self.store) {
                                                 return Err(outcome);
                                             }
                                             let previous_computation_revision = self.db.query_state(&query_key).and_then(|state| state.revision());
@@ -2978,10 +3007,13 @@ impl SemanticWorkspaceSession {
                 _ => None,
             })
             .collect::<Vec<_>>();
+        let recomputed_query_keys = self.db.revision_recomputed_keys().cloned().collect::<BTreeSet<_>>();
         let mut downstream_body_roots = BTreeSet::new();
         for callable in recomputed_body_roots {
             downstream_body_roots.insert(QueryKey::CallableBody(callable.clone()));
-            downstream_body_roots.insert(QueryKey::CallableSignature(callable));
+            if recomputed_query_keys.contains(&QueryKey::CallableSignature(callable.clone())) {
+                downstream_body_roots.insert(QueryKey::CallableSignature(callable));
+            }
         }
         let downstream_body_work = self
             .db
@@ -3236,15 +3268,27 @@ impl SemanticWorkspaceSession {
             budget,
             cancel,
         });
+        // Revalidate retained advisory summaries as well as summaries rebuilt
+        // from the current formal analyses. Reused module shards still expose
+        // their prior callable evidence, so their exact advisory dependencies
+        // must be current before the shard can publish again.
+        let mut advisory_query_callables = advisory.callables.as_ref().clone();
+        if let Some(previous) = previous_snapshot.as_ref() {
+            for (callable, summary) in previous.advisory.callables.iter() {
+                if current_modules.contains(callable.module()) {
+                    advisory_query_callables.entry(callable.clone()).or_insert_with(|| summary.clone());
+                }
+            }
+        }
         let mut advisory_query_failed = None;
-        for summary in advisory.callables.values() {
+        for summary in advisory_query_callables.values() {
             if let QueryOutcome::Failed(error) = bootstrap_advisory_callable(&mut self.db, summary.clone()) {
                 advisory_query_failed = Some(error);
                 break;
             }
         }
         if advisory_query_failed.is_none() {
-            for summary in advisory.callables.values() {
+            for summary in advisory_query_callables.values() {
                 self.db.discard_for_recompute(&QueryKey::AdvisoryCallable(summary.callable.clone()));
                 if let QueryOutcome::Failed(error) = query_advisory_callable(&mut self.db, summary.clone()) {
                     advisory_query_failed = Some(error);
@@ -3259,8 +3303,17 @@ impl SemanticWorkspaceSession {
                     .keys()
                     .filter(|callable| callable.module() == module)
                     .cloned()
-                    .collect::<Vec<_>>();
-                if let QueryOutcome::Failed(error) = query_advisory_module(&mut self.db, module_product.clone(), callables) {
+                    .chain(
+                        advisory_query_callables
+                            .keys()
+                            .filter(|callable| callable.module() == module)
+                            .cloned(),
+                    )
+                    .collect::<BTreeSet<_>>();
+                let Some(source_structure) = source_index.module(module).cloned() else {
+                    continue;
+                };
+                if let QueryOutcome::Failed(error) = query_advisory_module(&mut self.db, module_product.clone(), Arc::new(source_structure), callables) {
                     advisory_query_failed = Some(error);
                     break;
                 }
@@ -4741,7 +4794,7 @@ fn revalidate_downstream_callable_body(
         type_parameters,
     };
     let key = QueryKey::CallableBody(callable.clone());
-    refresh_cached_body_dependencies(db, &key, formal_inputs, store, hierarchy)?;
+    refresh_cached_body_dependencies(db, &key, formal_inputs, store)?;
     let previous_computation_revision = db.query_state(&key).and_then(|state| state.revision());
     let outcome = query_callable_body_with_formal_inputs(
         db,
@@ -4804,99 +4857,8 @@ fn refresh_cached_body_dependencies(
     body_key: &QueryKey,
     formal_inputs: &FormalQueryInputs<'_>,
     store: &mut TypeStore,
-    hierarchy: &MapTypeHierarchy,
 ) -> Result<(), QueryOutcome<()>> {
-    let dependencies = db.index().dependencies_of(body_key).map(|edges| edges.to_vec()).unwrap_or_default();
-    for edge in dependencies {
-        match &edge.dependency {
-            QueryKey::DeclarationShell(declaration) => {
-                if let Some(info) = formal_inputs.declarations.get(declaration).cloned() {
-                    ready_or_error(query_declaration_shell(db, Arc::new(TypeDeclarationShell::Nominal(info))))?;
-                }
-            }
-            QueryKey::DeclarationSurface(declaration) => {
-                let Some(unit) = formal_inputs.sources.get(&declaration.module).cloned() else {
-                    continue;
-                };
-                let Some(linked_module) = formal_inputs.linked.modules.get(&declaration.module) else {
-                    continue;
-                };
-                ready_or_error(query_declaration_surface(
-                    db,
-                    DeclarationSurfaceQuery {
-                        decl_id: declaration.clone(),
-                        unit,
-                        linked_interface: Arc::new(linked_module.interface.clone()),
-                        store,
-                        hierarchy,
-                        resolver: formal_inputs.base_resolver,
-                        declarations: formal_inputs.declarations,
-                        linked: Some(formal_inputs.linked),
-                        import_products: Some(formal_inputs.import_products),
-                    },
-                ))?;
-            }
-            QueryKey::CallableSignature(callable) => {
-                let Some(unit) = formal_inputs.sources.get(&callable.module()).cloned() else {
-                    continue;
-                };
-                ready_or_error(query_callable_signature_with_inputs(
-                    db,
-                    callable.clone(),
-                    unit,
-                    store,
-                    hierarchy,
-                    formal_inputs.base_resolver,
-                    formal_inputs.declarations,
-                    Some(formal_inputs.linked),
-                    Some(formal_inputs.type_aliases),
-                    Some(formal_inputs.import_products),
-                ))?;
-            }
-            QueryKey::FieldSignature(field) => {
-                let Some(unit) = formal_inputs.sources.get(&field.owner.module).cloned() else {
-                    continue;
-                };
-                ready_or_error(query_field_signature_with_inputs(
-                    db,
-                    field.clone(),
-                    unit,
-                    store,
-                    hierarchy,
-                    formal_inputs.base_resolver,
-                    formal_inputs.declarations,
-                    Some(formal_inputs.linked),
-                    Some(formal_inputs.import_products),
-                ))?;
-            }
-            QueryKey::HierarchyEdge(declaration) => {
-                let Some(unit) = formal_inputs.sources.get(&declaration.module).cloned() else {
-                    continue;
-                };
-                let Some(linked_module) = formal_inputs.linked.modules.get(&declaration.module) else {
-                    continue;
-                };
-                ready_or_error(query_hierarchy_edge(
-                    db,
-                    declaration.clone(),
-                    unit,
-                    Arc::new(linked_module.interface.clone()),
-                    formal_inputs.base_resolver,
-                    formal_inputs.linked,
-                    formal_inputs.declarations,
-                    formal_inputs.import_products,
-                ))?;
-            }
-            QueryKey::LinkedInterface(module) => {
-                let Some(linked_module) = formal_inputs.linked.modules.get(module) else {
-                    continue;
-                };
-                ready_or_error(query_linked_interface(db, module.clone(), Arc::new(linked_module.interface.clone())))?;
-            }
-            _ => {}
-        }
-    }
-    Ok(())
+    ready_or_error(crate::db::query::ensure_cached_formal_semantic_dependencies_current(db, body_key, formal_inputs, store))
 }
 
 struct InferredCallableRefreshInputs<'a> {

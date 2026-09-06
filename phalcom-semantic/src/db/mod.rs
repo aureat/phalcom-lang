@@ -250,6 +250,11 @@ impl SemanticDb {
         else {
             return Err(format!("query dependency {:?} is not Ready", dependency));
         };
+        debug_assert_eq!(
+            *validated_revision,
+            self.revision,
+            "dependency must be validated in the current revision before recording"
+        );
         if *validated_revision != self.revision {
             return Err(format!(
                 "query dependency {:?} is Ready but not validated for current revision {:?}",

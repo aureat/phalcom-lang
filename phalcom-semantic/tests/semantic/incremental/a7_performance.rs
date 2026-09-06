@@ -113,6 +113,51 @@ fn a6_retained_superclass_edge_survives_unrelated_structural_edit() {
 }
 
 #[test]
+fn a6_implicit_object_hierarchy_edge_is_published_for_new_declarations() {
+    let owner = module("implicit_hierarchy");
+    let mut session = SemanticWorkspaceSession::new();
+    let initial = session.update(multi_module_input(vec![(owner.clone(), "class A {}".into())], 1));
+    let a = DeclarationId::new(owner.clone(), "A".into());
+    let extra = DeclarationId::new(owner.clone(), "Extra".into());
+    let object = phalcom_semantic::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Object);
+
+    assert_eq!(initial.snapshot.hierarchy.superclasses.get(&a), Some(&object));
+    assert!(initial.snapshot.surfaces().contains_key(&a));
+
+    let updated = session.update(multi_module_input(vec![(owner.clone(), "class A {}\nclass Extra {}".into())], 2));
+    assert_eq!(updated.snapshot.hierarchy.superclasses.get(&extra), Some(&object));
+    assert!(updated.snapshot.surfaces().contains_key(&extra));
+    let extra_edges = updated
+        .snapshot
+        .semantic_graph
+        .edges_from(&SemanticNodeId::Declaration {
+            module: owner.clone(),
+            name: "Extra".into(),
+        });
+    assert!(extra_edges
+        .iter()
+        .any(|edge| edge.kind == SemanticEdgeKind::Superclass
+            && edge.to == SemanticNodeId::Declaration {
+                module: object.module.clone(),
+                name: object.name.clone(),
+            }), "Extra hierarchy edges: {extra_edges:?}");
+    assert_eq!(
+        session
+            .db()
+            .query_state(&QueryKey::HierarchyEdge(extra.clone()))
+            .and_then(|state| state.validated_revision()),
+        Some(session.db().revision())
+    );
+
+    let mut cold = SemanticWorkspaceSession::new();
+    let cold_update = cold.update(multi_module_input(vec![(owner, "class A {}\nclass Extra {}".into())], 2));
+    assert_eq!(updated.snapshot.hierarchy.superclasses, cold_update.snapshot.hierarchy.superclasses);
+    assert_eq!(updated.snapshot.surfaces().len(), cold_update.snapshot.surfaces().len());
+    assert!(cold_update.snapshot.surfaces().keys().all(|declaration| updated.snapshot.surfaces().contains_key(declaration)));
+    assert_eq!(updated.snapshot.semantic_graph, cold_update.snapshot.semantic_graph);
+}
+
+#[test]
 fn a6_body_edit_in_hierarchy_workspace_retains_graph_and_edge_product() {
     let owner = module("hierarchy_body_owner");
     let unrelated = module("hierarchy_body_unrelated");

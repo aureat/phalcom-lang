@@ -1,4 +1,4 @@
-use super::super::support::{Fixture, either, nominal, either_semantic_source as semantic_source, with_either};
+use super::super::support::{Fixture, either, either_semantic_source as semantic_source, nominal, with_either};
 use phalcom_semantic::identity::DispatchSide;
 
 fn isolated_fixture() -> Fixture {

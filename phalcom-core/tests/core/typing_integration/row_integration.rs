@@ -1,6 +1,4 @@
-use super::support::{
-    either, nominal, record, row_integration_invalid_source, row_integration_source, Fixture,
-};
+use super::support::{Fixture, either, nominal, record, row_integration_invalid_source, row_integration_source};
 use phalcom_semantic::checker::analysis::AnalysisStatus;
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::DispatchSide;
@@ -24,7 +22,11 @@ fn direct_either_preserves_row_specialized_output() {
     f.assert_known_generic_binding(run, "mapped", &expected_either);
 
     let map_call = f.expression_containing(run, "source.map");
-    f.assert_expression_call(map_call, &f.callable_id("Either", "map", DispatchSide::Instance), f.binding(run, "mapped").current.ty().unwrap());
+    f.assert_expression_call(
+        map_call,
+        &f.callable_id("Either", "map", DispatchSide::Instance),
+        f.binding(run, "mapped").current.ty().unwrap(),
+    );
 
     let annotate_call = f.expression_containing(run, "RowCalculus.annotate");
     let inner_record_ty = annotate_call.knowledge.ty().expect("inner result Record type");
@@ -47,7 +49,10 @@ fn direct_either_preserves_row_specialized_output() {
 
     let mapped_ty = f.binding(run, "mapped").current.ty().unwrap();
     let applied_args = f.assert_applied(mapped_ty, "Either", 2);
-    assert_eq!(applied_args[1], inner_record_ty, "outer Either right argument TypeId must match inner result Record TypeId");
+    assert_eq!(
+        applied_args[1], inner_record_ty,
+        "outer Either right argument TypeId must match inner result Record TypeId"
+    );
 }
 
 /// INT-ROW-02: nested ADT can be an ordinary Record field generic.
@@ -138,19 +143,15 @@ fn int_row_03_monad_bind_solves_hkt_and_records() {
     let mut free = Vec::new();
     f.analysis.snapshot.store.arena().collect_free_types(lambda.body, &mut free);
     assert!(free.contains(&f.ty("String")), "F must capture String: {free:#?}");
-    assert!(f.analysis.snapshot.store.arena().has_free_bound(lambda.body, 0), "F must retain its bound argument");
+    assert!(
+        f.analysis.snapshot.store.arena().has_free_bound(lambda.body, 0),
+        "F must retain its bound argument"
+    );
 
     let source_param = f.binding(run, "source").current.ty().unwrap();
     let source_applied = f.assert_applied(source_param, "Either", 2);
     let input_record = source_applied[1];
-    f.assert_closed_record(
-        input_record,
-        &[
-            ("cached", f.ty("Bool")),
-            ("name", f.ty("String")),
-            ("value", f.ty("Int")),
-        ],
-    );
+    f.assert_closed_record(input_record, &[("cached", f.ty("Bool")), ("name", f.ty("String")), ("value", f.ty("Int"))]);
 
     let result_applied = f.assert_applied(result_ty, "Either", 2);
     let output_record = result_applied[1];
@@ -164,7 +165,25 @@ fn int_row_03_monad_bind_solves_hkt_and_records() {
         ],
     );
 
-    f.assert_generic_solution_exact(run, bind_call, constructor_param, constructor, phalcom_semantic::types::evidence::EvidenceStatus::Assumed);
-    f.assert_generic_solution_exact(run, bind_call, a_param, input_record, phalcom_semantic::types::evidence::EvidenceStatus::Assumed);
-    f.assert_generic_solution_exact(run, bind_call, b_param, output_record, phalcom_semantic::types::evidence::EvidenceStatus::Established);
+    f.assert_generic_solution_exact(
+        run,
+        bind_call,
+        constructor_param,
+        constructor,
+        phalcom_semantic::types::evidence::EvidenceStatus::Assumed,
+    );
+    f.assert_generic_solution_exact(
+        run,
+        bind_call,
+        a_param,
+        input_record,
+        phalcom_semantic::types::evidence::EvidenceStatus::Assumed,
+    );
+    f.assert_generic_solution_exact(
+        run,
+        bind_call,
+        b_param,
+        output_record,
+        phalcom_semantic::types::evidence::EvidenceStatus::Established,
+    );
 }

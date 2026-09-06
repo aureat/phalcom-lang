@@ -1,7 +1,9 @@
 use crate::compiler::lib::CompilerError;
+use crate::modules::ProgramCompileError;
 use crate::value::Value;
 use phalcom_ast::error::SyntaxError;
 use phalcom_common::selector::{Selector, SelectorPattern};
+use std::fmt::Display;
 use std::io;
 // use std::io::Error as IoError;
 use thiserror::Error;
@@ -43,7 +45,7 @@ pub enum PhError {
     ModuleInitialization(#[from] Box<ModuleInitializationError>),
 
     #[error(transparent)]
-    ProgramCompile(#[from] crate::modules::compile::ProgramCompileError),
+    ProgramCompile(#[from] ProgramCompileError),
 
     #[error("{0}")]
     StringError(String),
@@ -70,7 +72,7 @@ pub struct ModuleInitializationError {
 
 impl std::error::Error for ModuleInitializationError {}
 
-impl std::fmt::Display for ModuleInitializationError {
+impl Display for ModuleInitializationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "ModuleInitializationError:")?;
         writeln!(f, "  failed to initialize `{}`", self.display_name)?;
@@ -146,7 +148,7 @@ pub struct UnsupportedOperationContext {
     pub reflected: String,
 }
 
-impl std::fmt::Display for UnsupportedOperationContext {
+impl Display for UnsupportedOperationContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -156,7 +158,7 @@ impl std::fmt::Display for UnsupportedOperationContext {
     }
 }
 
-impl std::fmt::Display for SelectorPatternMismatchContext {
+impl Display for SelectorPatternMismatchContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -593,8 +595,8 @@ mod tests {
     #[test]
     #[cfg(target_pointer_width = "64")]
     fn runtime_error_transport_stays_below_large_result_threshold() {
-        let runtime = std::mem::size_of::<RuntimeError>();
-        let ph = std::mem::size_of::<PhError>();
+        let runtime = size_of::<RuntimeError>();
+        let ph = size_of::<PhError>();
 
         assert!(runtime <= 120, "RuntimeError grew to {runtime} bytes; rich cold variants must be boxed");
         assert!(ph <= 120, "PhError grew to {ph} bytes; inspect the largest inline variant");

@@ -1,4 +1,4 @@
-use super::super::support::{row_runtime_source, run_inline, slot, Fixture};
+use super::super::support::{Fixture, row_runtime_source, run_inline, slot};
 use phalcom_core::value::Value;
 
 /// ROW-RUNTIME-01 & ROW-RUNTIME-02: semantic preflight and runtime observation of row-polymorphic pipelines.

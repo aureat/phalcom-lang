@@ -1,4 +1,4 @@
-use super::super::support::{row_patterns_source, Fixture};
+use super::super::support::{Fixture, row_patterns_source};
 use phalcom_semantic::checker::analysis::CallableAnalysisStatus;
 use phalcom_semantic::identity::DispatchSide;
 

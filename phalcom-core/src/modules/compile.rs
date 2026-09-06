@@ -259,12 +259,8 @@ impl ProgramAnalyzer {
                         let provider = FilesystemSourceProvider::new();
                         Self::discover_and_analyze(Arc::new(universe), provider, entry_id)
                     }
-                    EntryOwnership::StandaloneModule { file } => {
-                        Self::analyze_standalone_module(file)
-                    }
-                    EntryOwnership::Inline { .. } => {
-                        Self::analyze_standalone_module(file_path)
-                    }
+                    EntryOwnership::StandaloneModule { file } => Self::analyze_standalone_module(file),
+                    EntryOwnership::Inline { .. } => Self::analyze_standalone_module(file_path),
                 }
             }
             EntrySelection::Inline(source_text) => {
@@ -303,11 +299,7 @@ impl ProgramAnalyzer {
                 let mut sources = BTreeMap::new();
                 sources.insert(entry_id.clone(), parsed_unit);
 
-                let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(
-                    linked.clone(),
-                    sources.clone(),
-                    0,
-                ));
+                let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), sources.clone(), 0));
 
                 Ok(AnalyzedProgram {
                     project_universe: universe,
@@ -391,11 +383,7 @@ impl ProgramAnalyzer {
 
         let linked = Arc::new(ModuleLinker::new(universe.clone(), interfaces).link(entry_id.clone(), &resolved)?);
 
-        let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(
-            linked.clone(),
-            sources.clone(),
-            0,
-        ));
+        let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), sources.clone(), 0));
 
         Ok(AnalyzedProgram {
             project_universe: universe,
@@ -463,11 +451,7 @@ impl ProgramAnalyzer {
         let linker = ModuleLinker::new(universe.clone(), interfaces);
         let linked = Arc::new(linker.link(entry.clone(), &resolved)?);
 
-        let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(
-            linked.clone(),
-            sources.clone(),
-            0,
-        ));
+        let analysis = phalcom_semantic::analyze_workspace(phalcom_semantic::SemanticWorkspaceInput::new(linked.clone(), sources.clone(), 0));
 
         Ok(AnalyzedProgram {
             project_universe: universe,

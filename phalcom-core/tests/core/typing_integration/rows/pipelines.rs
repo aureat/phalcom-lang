@@ -1,4 +1,4 @@
-use super::super::support::{with_rows, Fixture};
+use super::super::support::{Fixture, with_rows};
 use phalcom_semantic::checker::analysis::AnalysisStatus;
 use phalcom_semantic::identity::DispatchSide;
 

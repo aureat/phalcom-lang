@@ -1,4 +1,4 @@
-use super::super::support::{row_calculus_source, with_rows, Fixture};
+use super::super::support::{Fixture, row_calculus_source, with_rows};
 use phalcom_semantic::checker::analysis::{AnalysisStatus, BindingState};
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::DispatchSide;
@@ -8,7 +8,14 @@ fn probe_fixture() -> Fixture {
     Fixture::new(&row_calculus_source())
 }
 
-fn result<'a>(fixture: &'a Fixture, method: &str) -> (&'a phalcom_semantic::checker::analysis::CallableAnalysis, &'a BindingState, &'a phalcom_semantic::checker::analysis::ExpressionAnalysis) {
+fn result<'a>(
+    fixture: &'a Fixture,
+    method: &str,
+) -> (
+    &'a phalcom_semantic::checker::analysis::CallableAnalysis,
+    &'a BindingState,
+    &'a phalcom_semantic::checker::analysis::ExpressionAnalysis,
+) {
     let callable = fixture.callable("RowCalculusProbe", method, DispatchSide::Class);
     let binding = fixture.binding(callable, "result");
     let expression = fixture.expression_containing(callable, "RowCalculus.");
@@ -55,7 +62,12 @@ fn annotate_solves_higher_order_a_b_and_row_together() {
     let ty = binding.current.ty().expect("annotated Record type");
     fixture.assert_closed_record(
         ty,
-        &[("cached", fixture.ty("Bool")), ("mapped", fixture.ty("Bool")), ("name", fixture.ty("String")), ("value", fixture.ty("Int"))],
+        &[
+            ("cached", fixture.ty("Bool")),
+            ("mapped", fixture.ty("Bool")),
+            ("name", fixture.ty("String")),
+            ("value", fixture.ty("Int")),
+        ],
     );
     fixture.assert_expression_call(call, &fixture.callable_id("RowCalculus", "annotate", DispatchSide::Class), ty);
     fixture.assert_generic_solution(probe, call, "A", fixture.ty("Int"));
@@ -82,11 +94,17 @@ fn result_only_row_remains_underconstrained_without_context() {
     let fixture = Fixture::new(&with_rows(include_str!("../sources/rows/invalid/underconstrained.ph")));
     let callable = fixture.callable("RowCalculusUnderconstrainedProbe", "resultOnlyUnderconstrained", DispatchSide::Class);
     let binding = fixture.binding(callable, "result");
-    assert!(matches!(binding.current, TypeKnowledge::Unknown(UnknownReason::InferenceBlocked)), "{binding:#?}");
+    assert!(
+        matches!(binding.current, TypeKnowledge::Unknown(UnknownReason::InferenceBlocked)),
+        "{binding:#?}"
+    );
     let call = fixture.expression_containing(callable, "RowCalculus.make()");
     assert!(matches!(call.status, AnalysisStatus::Blocked(_)), "{call:#?}");
     assert!(call.knowledge.ty().is_none(), "underconstrained row must not publish a type: {call:#?}");
-    assert!(!matches!(call.knowledge, TypeKnowledge::Dynamic(_)), "underconstrained row must not become Dynamic: {call:#?}");
+    assert!(
+        !matches!(call.knowledge, TypeKnowledge::Dynamic(_)),
+        "underconstrained row must not become Dynamic: {call:#?}"
+    );
     assert_eq!(fixture.diagnostics(DiagnosticCode::RecordRowInferenceUnderconstrained).len(), 1);
 }
 
@@ -95,10 +113,7 @@ fn expected_result_selects_underconstrained_row() {
     let fixture = probe_fixture();
     let (probe, binding, call) = result(&fixture, "expectedResultSelectsRow");
     let ty = binding.current.ty().expect("contextual Record type");
-    fixture.assert_closed_record(
-        ty,
-        &[("label", fixture.ty("String")), ("value", fixture.ty("Int"))],
-    );
+    fixture.assert_closed_record(ty, &[("label", fixture.ty("String")), ("value", fixture.ty("Int"))]);
     fixture.assert_expression_call(call, &fixture.callable_id("RowCalculus", "make", DispatchSide::Class), ty);
     assert!(matches!(call.status, AnalysisStatus::Ready));
     assert_eq!(call.knowledge.status(), Some(EvidenceStatus::Established));

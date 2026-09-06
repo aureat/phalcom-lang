@@ -1,4 +1,4 @@
-use super::super::support::{Fixture, either, nominal, either_semantic_source as semantic_source};
+use super::super::support::{Fixture, either, either_semantic_source as semantic_source, nominal};
 use phalcom_semantic::identity::DispatchSide;
 
 /// GEN-16/17/18/23/24: receiver specialization fixes `L`/`R`; closure result solves fresh `R2`.

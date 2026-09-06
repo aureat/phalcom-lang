@@ -1,8 +1,8 @@
 //! Effectful typed-expression GADT integration suite.
 
-mod refinement;
 mod higher_order;
+mod integration;
 mod monad;
+mod refinement;
 mod rejection;
 mod runtime;
-mod integration;

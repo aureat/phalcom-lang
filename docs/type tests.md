@@ -743,3 +743,26 @@ obj class methodView selectors at: 0
 
 
 ```
+
+```ph
+if Given is not in method.attributes {
+	continue
+}
+```
+
+```ph
+let current = Some(IntegerProperties)
+
+while let Some(cls) = current {
+
+    for method in cls.ownMethods.methods {
+        ...
+    }
+
+    current = cls.superclass
+}
+```
+
+```ph
+
+```

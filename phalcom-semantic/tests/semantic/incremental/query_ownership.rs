@@ -283,6 +283,7 @@ class Owner {
             hierarchy: &hierarchy,
             resolver: &resolver,
             declarations: &declarations,
+            type_aliases: None,
             linked: Some(&input.linked),
             import_products: Some(&input.import_products),
         },

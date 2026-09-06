@@ -374,5 +374,8 @@ fn main_ph_does_not_create_package_identity() {
     fs::write(temp.path().join("package.ph"), "").unwrap();
     let selection = EntrySelection::Module(main_file);
     let program = ProgramCompiler::compile_entry_selection(selection);
-    assert!(program.is_ok(), "with package.ph, relative import in standalone package must succeed: {program:?}");
+    assert!(
+        program.is_ok(),
+        "with package.ph, relative import in standalone package must succeed: {program:?}"
+    );
 }

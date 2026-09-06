@@ -37,7 +37,10 @@ fn direct_either_and_monad_paths_share_one_canonical_source() {
     let mut free = Vec::new();
     f.analysis.snapshot.store.arena().collect_free_types(lambda.body, &mut free);
     assert!(free.contains(&f.ty("String")), "F must capture String: {free:#?}");
-    assert!(f.analysis.snapshot.store.arena().has_free_bound(lambda.body, 0), "F must retain its bound argument");
+    assert!(
+        f.analysis.snapshot.store.arena().has_free_bound(lambda.body, 0),
+        "F must retain its bound argument"
+    );
     f.assert_generic_solution_exact(run, bind_call, constructor_parameter, constructor, EvidenceStatus::Assumed);
     f.assert_generic_solution_exact(run, bind_call, a, f.ty("Int"), EvidenceStatus::Assumed);
     f.assert_generic_solution_exact(run, bind_call, b, f.ty("Bool"), EvidenceStatus::Established);
@@ -50,6 +53,10 @@ fn direct_either_and_monad_paths_share_one_canonical_source() {
         TypeParameterOwner::Callable(ref owner) if owner == &bind_target
     ));
 
-    assert_eq!(f.family_type(bound), f.family_type(mapped), "direct and Monad results must share canonical Either family");
+    assert_eq!(
+        f.family_type(bound),
+        f.family_type(mapped),
+        "direct and Monad results must share canonical Either family"
+    );
     assert_eq!(f.decl("Either"), direct_target.owner, "direct call must target canonical Either declaration");
 }

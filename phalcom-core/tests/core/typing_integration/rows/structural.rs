@@ -1,4 +1,4 @@
-use super::super::support::{row_structural_source, Fixture};
+use super::super::support::{Fixture, row_structural_source};
 use phalcom_semantic::checker::analysis::AnalysisStatus;
 use phalcom_semantic::identity::DispatchSide;
 use phalcom_semantic::types::evidence::TypeKnowledge;

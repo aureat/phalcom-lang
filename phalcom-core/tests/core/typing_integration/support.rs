@@ -358,7 +358,10 @@ impl Fixture {
             .ty()
             .unwrap_or_else(|| panic!("binding `{name}` has no known type: {binding:#?}"));
         self.assert_type(ty, expected);
-        assert!(matches!(binding.current, TypeKnowledge::Known(_)), "binding `{name}` must be statically known: {binding:#?}");
+        assert!(
+            matches!(binding.current, TypeKnowledge::Known(_)),
+            "binding `{name}` must be statically known: {binding:#?}"
+        );
     }
 
     pub fn assert_ready(&self, expression: &ExpressionAnalysis) {

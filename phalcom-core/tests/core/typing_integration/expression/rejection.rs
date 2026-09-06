@@ -1,4 +1,4 @@
-use super::super::support::{with_expression, Fixture};
+use super::super::support::{Fixture, with_expression};
 use phalcom_semantic::checker::analysis::AnalysisStatus;
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::DispatchSide;
@@ -14,11 +14,15 @@ fn assert_rejected(extra: &str, owner: &str, needle: &str, accepted: &[Diagnosti
         matches!(expression.status, AnalysisStatus::Invalid(_) | AnalysisStatus::Blocked(_)),
         "hostile Expression path must be formally rejected: {expression:#?}"
     );
-    assert!(!matches!(expression.knowledge, TypeKnowledge::Dynamic(_)), "hostile path escaped through Dynamic: {expression:#?}");
     assert!(
-        f.analysis.snapshot.all_diagnostics().any(|diagnostic| {
-            accepted.contains(&diagnostic.code) && diagnostic.primary_range.start >= probe_start
-        }),
+        !matches!(expression.knowledge, TypeKnowledge::Dynamic(_)),
+        "hostile path escaped through Dynamic: {expression:#?}"
+    );
+    assert!(
+        f.analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| { accepted.contains(&diagnostic.code) && diagnostic.primary_range.start >= probe_start }),
         "missing probe-local conflict/mismatch diagnostic; accepted={accepted:?}, all={:#?}",
         f.analysis.snapshot.all_diagnostics().collect::<Vec<_>>()
     );
@@ -41,7 +45,11 @@ class WrongAddProbe {
 "#,
         "WrongAddProbe",
         "Expression::Add(",
-        &[DiagnosticCode::TypeMismatch, DiagnosticCode::GenericInferenceConflict, DiagnosticCode::BindingInitializerMismatch],
+        &[
+            DiagnosticCode::TypeMismatch,
+            DiagnosticCode::GenericInferenceConflict,
+            DiagnosticCode::BindingInitializerMismatch,
+        ],
     );
 }
 
@@ -63,7 +71,11 @@ class WrongIfConditionProbe {
 "#,
         "WrongIfConditionProbe",
         "Expression::If(",
-        &[DiagnosticCode::TypeMismatch, DiagnosticCode::GenericInferenceConflict, DiagnosticCode::BindingInitializerMismatch],
+        &[
+            DiagnosticCode::TypeMismatch,
+            DiagnosticCode::GenericInferenceConflict,
+            DiagnosticCode::BindingInitializerMismatch,
+        ],
     );
 }
 
@@ -85,7 +97,11 @@ class WrongIfBranchProbe {
 "#,
         "WrongIfBranchProbe",
         "Expression::If(",
-        &[DiagnosticCode::TypeMismatch, DiagnosticCode::GenericInferenceConflict, DiagnosticCode::BindingInitializerMismatch],
+        &[
+            DiagnosticCode::TypeMismatch,
+            DiagnosticCode::GenericInferenceConflict,
+            DiagnosticCode::BindingInitializerMismatch,
+        ],
     );
 }
 
@@ -156,6 +172,10 @@ class WrongEffectProbe {
 "#,
         "WrongEffectProbe",
         "ExpressionEvaluation.eval(box, expression)",
-        &[DiagnosticCode::TypeMismatch, DiagnosticCode::GenericInferenceConflict, DiagnosticCode::GenericConstraintUnsatisfied],
+        &[
+            DiagnosticCode::TypeMismatch,
+            DiagnosticCode::GenericInferenceConflict,
+            DiagnosticCode::GenericConstraintUnsatisfied,
+        ],
     );
 }

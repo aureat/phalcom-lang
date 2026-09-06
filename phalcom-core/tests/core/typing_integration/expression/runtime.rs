@@ -1,4 +1,4 @@
-use super::super::support::{expression_runtime_source as runtime_source, run_inline, slot, Fixture};
+use super::super::support::{Fixture, expression_runtime_source as runtime_source, run_inline, slot};
 use phalcom_core::value::Value;
 
 /// INT-RUNTIME-00: runtime source must pass semantic preflight before VM
