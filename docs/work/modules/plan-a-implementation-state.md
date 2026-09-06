@@ -1,7 +1,7 @@
 # Phalcom LSP Module Architecture — Plan A Implementation State
 
 ## Checkpoint Baseline
-- Remote baseline / Local HEAD: `d60e4589352ac5f4167ba295e7e2a5f6c870ef4b`
+- Plan-A entry baseline: `d60e4589352ac5f4167ba295e7e2a5f6c870ef4b`
 - Commit message: `docs: record final module architecture gate`
 - Start date: 2026-09-05
 - Local dirty state at entry:
@@ -20,7 +20,8 @@
 ## Checkpoint A0 — Transactional Current-State Correctness
 
 ### Status
-COMPLETED
+COMPLETED for atomic/current-state correctness; PARTIAL for the requested
+delta/COW cost model.
 
 ### Tasks
 - [x] Task 1 — Re-ground the current failure and test baseline, add late-failure test seams.
@@ -37,6 +38,22 @@ COMPLETED
 5. Tolerant runtime survivor order: `tests/linker.rs::tolerant_runtime_cycle_preserves_independent_survivor_order` passes.
 6. Module test suite: `cargo test -p phalcom-modules` passes 89 passed (0 failed).
 7. Downstream checks: `cargo test -p phalcom-semantic --test semantic module_query_provenance` passes; `cargo check -p phalcom-lsp` passes with zero errors.
+
+### Corrective amendment after audit
+1. `phalcom-lsp/src/source_transport.rs` now canonicalizes URI source
+   identities while preserving display paths. This repairs the A0 regression
+   where `/var/...` editor URIs did not match `/private/var/...` discovered
+   module identities.
+2. Staged overlay derivation no longer rediscovers a removed overlay through
+   the base provider, and removed source identities are recorded before the
+   private rebuild. Deleted provider facts therefore cannot survive the commit
+   barrier.
+3. The provider edit and rename/delete lifecycle tests pass, and the full LSP
+   suite is now green. The first bad Plan-A checkpoint was A0 (`2365d39`), so
+   the earlier `9f7ded35` reproduction was not a valid inherited-baseline
+   classification.
+4. Ordinary `apply_batch` still clones the two committed source/module maps.
+   Atomicity is complete; true O(delta) staging remains open.
 
 ---
 
@@ -134,7 +151,7 @@ COMPLETED
 ## Checkpoint A4 — Exact Module Facts Join the Existing SemanticDb Dependency Graph
 
 ### Status
-COMPLETED (corrective amendment verified; pre-existing LSP timeout remains separately classified)
+COMPLETED
 
 ### Baseline Commit
 - `fa1f0094b5db875d6c880fed870bd47b87376803` (`feat(modules): implement checkpoint A3 affected-component incremental linking`)
@@ -152,8 +169,78 @@ COMPLETED (corrective amendment verified; pre-existing LSP timeout remains separ
 3. `ResolvedImport` input identity retains canonical resolution/topology evidence, while its product identity contains only observable target/prefix mapping or stable failure category.
 4. Callable-signature source-span input hashing includes both range endpoints; product hashing remains source-movement stable.
 5. Focused evidence: incremental (131 passed, 4 ignored), imported-resolution (9 passed), checkpoint A4 (2 passed), and semantic crate (1,095 passed, 42 ignored).
-6. `cargo check -p phalcom-lsp` passes. The full LSP suite is otherwise green (56 passed, 2 ignored); the two provider-lifecycle publication timeouts reproduce on clean `9f7ded35` and remain baseline blockers, not defects attributed to this correction.
+6. `cargo check -p phalcom-lsp` passes. The historical A4 run had two
+   provider-lifecycle publication timeouts; later bisection showed the first
+   bad checkpoint was A0, not an inherited baseline. Both are covered by the
+   corrective A0 evidence above.
 7. Nightly workspace format and strict clippy gates remain blocked by pre-existing unrelated workspace drift/warnings; no unrelated formatting or lint cleanup was applied.
+
+---
+
+## Checkpoint A5 — Coarse Semantic Safety Fingerprints
+
+### Status
+IMPLEMENTED; focused proof is green. Final Plan-A matrix proof remains open.
+
+### Tasks
+- [x] Task 25 — Remove all-source resolution hashing from callable-body direct
+  input.
+- [x] Task 26 — Remove whole-`LinkedProgram` hashing from callable-body direct
+  input.
+- [~] Task 27 — Absent-name recovery, exact dependency recording, and
+  product-stability barriers are proven; required cross-module unused-export
+  and high-fanout evidence remains open.
+
+### Verification evidence
+- `phalcom-semantic/tests/checkpoint_a4.rs::test_previously_missing_public_name_appears_invalidates_consumer`
+  proves absent-to-present invalidation.
+- Incremental product-stability tests prove validated revisions can advance
+  without changing computation revisions for reused products.
+- `phalcom-semantic/src/db/fingerprint.rs` and `db/query.rs` no longer use
+  whole-workspace source/link products as ordinary callable-body direct input.
+- A true cross-module unused-export/high-fanout proof at the PA-5/PA-6 target
+  scale is not yet present; do not mark A5 release evidence complete from the
+  focused tests alone.
+
+---
+
+## Checkpoint A6 — Incremental Semantic Workspace Aggregation
+
+### Status
+PARTIAL. Explicit module deltas and retained shards are implemented; global
+aggregate/worklist closure is not yet proven.
+
+### Tasks
+- [x] Task 28 — Retain per-module structural semantic shards and reuse
+  unchanged shards across explicit module deltas.
+- [~] Task 29 — Feed `changed_modules`, `removed_modules`, and identity changes
+  from `WorkspaceModuleUpdate` into semantic updates.
+- [~] Task 30 — Restrict hierarchy/supertype work to changed structural
+  modules; full delta-maintained aggregate closure remains open.
+- [~] Task 31 — Retain module-local alias/generic-header contributions; full
+  aggregate composition still has broad passes.
+- [~] Task 32 — Use structural/semantic worklists for declaration surfaces,
+  callable signatures, and field signatures; ordinary edits still rebuild
+  some aggregate state.
+- [~] Task 33 — Preserve cold/incremental behavior and snapshot products;
+  required full parity and work-count proof remains open.
+
+### Verification evidence
+- `SemanticModuleDelta` now crosses `WorkspaceModuleSession` into the semantic
+  update path instead of forcing semantic to rediscover unchanged modules by
+  hashing every source.
+- `ModuleSemanticStructureShard::with_source` retains declaration/alias
+  contributions when source text changes without an interface change.
+- Changed/removed modules seed semantic and structural worklists; unchanged
+  shards and linked dependency fingerprints are retained.
+- Full semantic suite: 1,096 passed, 0 failed, 42 ignored. Module suite and
+  provider lifecycle LSP tests are green.
+
+### Remaining A6 gap
+The semantic session still reconstructs some declaration, alias, hierarchy,
+signature, and field-lifecycle aggregates by traversing retained workspace
+state. The delta is no longer discarded at the module boundary, but this is
+not yet the plan's strict “no ordinary-edit total semantic traversal” gate.
 
 ---
 
@@ -161,9 +248,10 @@ COMPLETED (corrective amendment verified; pre-existing LSP timeout remains separ
 
 ### Status
 
-IMPLEMENTED: focused performance evidence is green. Release closure remains
-blocked by inherited full-LSP publication timeouts and the recorded
-workspace-wide `phalcom-core` baseline.
+PARTIAL: instrumentation and focused evidence are green. Plan A is not
+release-complete because A0 COW staging, A6 aggregate delta maintenance, the
+full PA-1..PA-10 evidence matrix, and exact core baseline comparison remain
+open.
 
 ### Task 34 — Deterministic work metrics
 
@@ -186,13 +274,19 @@ workspace-wide `phalcom-core` baseline.
 
 ### Task 36 — Acceptance matrix evidence
 
-- [x] Body-only edit, negative-resolution reuse, missing-target recovery,
-  disconnected retention, and component-bounded work counts pass in the A7
-  module fixture.
-- [x] Semantic metric separation passes in
-  `incremental::a7_performance`.
-- [x] Existing A2/A3 exact import and component acceptance fixtures remain
-  green.
+- [~] PA-1 body-only edit: module-layer evidence passes; semantic/LSP
+  cross-module closure at required scale is not separately asserted.
+- [x] PA-2 one-of-20 import path, PA-3 unrelated negative import, PA-4
+  missing-target recovery, and PA-7 disconnected retention pass in existing
+  A2/A3/A7 fixtures.
+- [ ] PA-5 unused public export: no load-bearing cross-module assertion that
+  the consumer body computation revision remains unchanged.
+- [ ] PA-6 high fanout: no 5,000 reverse-connected/~100 exact-consumer test
+  asserting expensive recomputation or `reverse_candidates_considered` bounds.
+- [~] PA-8 stable intermediate product: metric instrumentation exists, but no
+  explicit A→B recompute/B-stable→C-reuse assertion is recorded here.
+- [ ] PA-9 declaration/hierarchy isolation at required scale.
+- [ ] PA-10 cold/incremental parity over the complete presentation set.
 
 ### Task 37 — Compiler/LSP parity and regression gate
 
@@ -200,24 +294,25 @@ workspace-wide `phalcom-core` baseline.
 - [x] `RUST_MIN_STACK=8388608 RUSTFLAGS='' cargo test -p phalcom-semantic`
   passes: 1,096 passed, 42 ignored.
 - [x] `RUSTFLAGS='' cargo check -p phalcom-lsp` passes.
-- [ ] Full LSP release gate: 56 passed, 2 failed, 2 ignored. The same two
-  provider-lifecycle exact-source publication timeouts reproduce on clean
-  predecessor `9f7ded35`; they remain inherited baseline failures.
+- [x] Full LSP release gate: provider lifecycle, semantic boundary, navigation,
+  integration, unit, and doc-test lanes pass; aggregate integration lane is
+  58 passed, 0 failed, 2 ignored.
 
 ### Task 38 — Workspace comparison and Plan-B handoff
 
-- [x] `RUSTFLAGS='' cargo test --workspace --all-targets` was run. The command
-  stops in the existing `phalcom-core` baseline with 21 named failures in the
-  current invocation; A7 changes do not touch `phalcom-core`.
-- [x] Plan-B handoff surface is recorded below. Plan A is not release-complete
-  until the inherited LSP/core gates are separately closed or reclassified.
+- [ ] Compare exact current `phalcom-core` failure names with the A0 baseline
+  set before classifying the workspace comparison. Counts alone do not prove
+  “no new failures.” A clean `d60e458` library run passed; its 540-test
+  integration lane did not finish within the verification window, so no exact
+  workspace comparison is claimed.
+- [ ] Plan-B handoff surface is recorded below, but Plan A remains blocked by
+  the open A0/A6/matrix gates above.
 
 ### Plan-B handoff
 
-- Final pushed HEAD is `4817d7d7cabc217c358ef49f156670d25bfdf4b3`
-  (`docs(lsp): record pushed Plan A verification state`); implementation
-  commit is `180289d71697810ccf3bc6586be88714600f4828`; local `main` matches
-  `origin/main`.
+- Final pushed HEAD is stale in this historical record. Corrective source and
+  state-ledger changes are pending publication; update this field after the
+  corrective commit and push.
 - Retained module products: `ModuleTopology`, `ImportSiteId` keyed resolution
   products with prefix provenance, `ComponentId`/`ComponentLinkedProduct`,
   `WorkspaceModuleStats`, and published reverse import/site indexes.
@@ -226,9 +321,9 @@ workspace-wide `phalcom-core` baseline.
   and explicit `SemanticDb::purge_module` lifecycle.
 - Snapshot topology/reverse-index APIs remain published through
   `SemanticWorkspaceInput` and semantic module query products.
-- Remaining limitations: source/reference index performance and editor
-  overlay transaction work remain Plan B scope; the inherited LSP publication
-  timeout and broad core bootstrap/VM/object-model failures remain open.
-- A7 focused results: modules green; semantic green; LSP compiles; module and
-  semantic metrics/fixture acceptance green; full-LSP and workspace-wide
-  release gates baseline-blocked.
+- Remaining limitations: A0 map-copy staging, A6 aggregate traversal, missing
+  PA-5/PA-6/PA-8/PA-9/PA-10 evidence, and exact core failure-set comparison.
+  Source/reference index performance and editor overlay transaction work stay
+  Plan B scope.
+- Current corrective results: modules green; semantic green; full LSP green;
+  the release verdict remains PARTIAL, not COMPLETE.

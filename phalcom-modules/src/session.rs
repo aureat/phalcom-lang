@@ -2,9 +2,7 @@
 
 use crate::diagnostic::ModuleDiagnostic;
 use crate::error::{InterfaceError, ModuleLoadError, ModuleResolutionError, ProjectError, SourceError};
-use crate::identity::{
-    ImportSiteId, ModuleId, ModulePath, ProjectSourceIdentity, SourceId, SourceLocation, SyntheticProjectId, SyntheticProjectIdAllocator,
-};
+use crate::identity::{ImportSiteId, ModuleId, ModulePath, ProjectSourceIdentity, SourceId, SourceLocation, SyntheticProjectId, SyntheticProjectIdAllocator};
 use crate::interface::{InterfaceBuilder, UnlinkedModuleInterface};
 use crate::linker::{LinkError, LinkedProgram, ModuleLinker};
 use crate::manifest::DependencyProvider;
@@ -201,7 +199,11 @@ pub struct StagedOverlayProvider<'a, P: SourceProvider> {
 }
 
 impl<'a, P: SourceProvider> SourceProvider for StagedOverlayProvider<'a, P> {
-    fn locate(&self, project: &crate::project::ResolvedProject, path: &crate::identity::ModulePath) -> Result<crate::source::SourceUnit, ModuleResolutionError> {
+    fn locate(
+        &self,
+        project: &crate::project::ResolvedProject,
+        path: &crate::identity::ModulePath,
+    ) -> Result<crate::source::SourceUnit, ModuleResolutionError> {
         let candidate_id = ModuleId::resolved(project.id, path.clone());
         if !self.removed_overlays.contains(&candidate_id) {
             if let Some(staged) = self.staged_overlays.get(&candidate_id) {
@@ -212,7 +214,15 @@ impl<'a, P: SourceProvider> SourceProvider for StagedOverlayProvider<'a, P> {
                 });
             }
         }
-        let default_unit = self.base.locate(project, path)?;
+        // A removed overlay must not be rediscovered through the base overlay
+        // provider while deriving the private transaction view. Fall through
+        // to its filesystem provider so a deleted source becomes unresolved
+        // before the commit barrier publishes the removal.
+        let default_unit = if self.removed_overlays.contains(&candidate_id) {
+            self.base.base().locate(project, path)?
+        } else {
+            self.base.locate(project, path)?
+        };
         if !self.removed_overlays.contains(&default_unit.id) {
             if let Some(staged) = self.staged_overlays.get(&default_unit.id) {
                 return Ok(crate::source::SourceUnit {
@@ -456,12 +466,7 @@ impl Default for WorkspaceModuleSession {
 impl WorkspaceModuleSession {
     pub fn new() -> Self {
         let universe = ProjectUniverse::new();
-        let topology = Arc::new(ModuleTopology::from_parts(
-            ResolverGeneration(0),
-            &universe,
-            &BTreeMap::new(),
-            &BTreeMap::new(),
-        ));
+        let topology = Arc::new(ModuleTopology::from_parts(ResolverGeneration(0), &universe, &BTreeMap::new(), &BTreeMap::new()));
         Self {
             universe,
             provider: OverlaySourceProvider::new(FilesystemSourceProvider::new()),
@@ -637,12 +642,13 @@ impl WorkspaceModuleSession {
                     unit.id
                 }
                 EntryOwnership::StandaloneModule { file: _ } => {
-                    let synthetic = *self.standalone_projects.entry(state.location.source_id.clone()).or_insert_with(|| self.synthetic_ids.allocate());
+                    let synthetic = *self
+                        .standalone_projects
+                        .entry(state.location.source_id.clone())
+                        .or_insert_with(|| self.synthetic_ids.allocate());
                     ModuleId::synthetic(synthetic, ModulePath::root())
                 }
-                EntryOwnership::Inline { synthetic } => {
-                    ModuleId::synthetic(synthetic, ModulePath::root())
-                }
+                EntryOwnership::Inline { synthetic } => ModuleId::synthetic(synthetic, ModulePath::root()),
             };
 
             let parsed = parse_source(module.clone(), state.kind, state.location.clone(), state.text.clone())?;
@@ -701,11 +707,7 @@ impl WorkspaceModuleSession {
         self.blocked_modules = rebuild_output.blocked_modules.clone();
         self.generation = self.generation.saturating_add(1);
 
-        let interfaces = self
-            .interfaces
-            .iter()
-            .map(|(id, (iface, _))| (id.clone(), iface.clone()))
-            .collect();
+        let interfaces = self.interfaces.iter().map(|(id, (iface, _))| (id.clone(), iface.clone())).collect();
 
         Ok(WorkspaceModuleUpdate {
             linked: rebuild_output.linked,
@@ -778,7 +780,10 @@ impl WorkspaceModuleSession {
                     recovered_program,
                 } => {
                     content_invalidations.insert(source.source_id.clone());
-                    ownership_reclassifications |= source.display_path.file_name().is_some_and(|name| name == "package.ph" || name == "project.toml");
+                    ownership_reclassifications |= source
+                        .display_path
+                        .file_name()
+                        .is_some_and(|name| name == "package.ph" || name == "project.toml");
                     stats.ownership_lookups += 1;
                     if self.modules_by_source.contains_key(&source.source_id) || mutated_modules_by_source.contains_key(&source.source_id) {
                         stats.ownership_cache_hits += 1;
@@ -795,13 +800,7 @@ impl WorkspaceModuleSession {
                         &mut synthetic_ids,
                         &mut universe_override,
                     )?;
-                    let kind = Self::kind_for_source_delta(
-                        &module,
-                        &source,
-                        &mutated_sources,
-                        &removed_sources,
-                        &self.sources_by_module,
-                    );
+                    let kind = Self::kind_for_source_delta(&module, &source, &mutated_sources, &removed_sources, &self.sources_by_module);
                     let text_for_parse = text.clone();
                     let parsed = recovered_program.map_or_else(
                         || parse_source(module.clone(), kind, source.clone(), text_for_parse),
@@ -815,12 +814,7 @@ impl WorkspaceModuleSession {
                             )))
                         },
                     )?;
-                    overlay_ops.push(OverlayOp::Set(SourceOverlay::new(
-                        module.clone(),
-                        kind,
-                        source.clone(),
-                        parsed.text.clone(),
-                    )));
+                    overlay_ops.push(OverlayOp::Set(SourceOverlay::new(module.clone(), kind, source.clone(), parsed.text.clone())));
                     let state = WorkspaceSourceState {
                         module: module.clone(),
                         kind,
@@ -846,7 +840,10 @@ impl WorkspaceModuleSession {
                     recovered_program,
                 } => {
                     content_invalidations.insert(source.source_id.clone());
-                    ownership_reclassifications |= source.display_path.file_name().is_some_and(|name| name == "package.ph" || name == "project.toml");
+                    ownership_reclassifications |= source
+                        .display_path
+                        .file_name()
+                        .is_some_and(|name| name == "package.ph" || name == "project.toml");
                     stats.ownership_lookups += 1;
                     if self.modules_by_source.contains_key(&source.source_id) || mutated_modules_by_source.contains_key(&source.source_id) {
                         stats.ownership_cache_hits += 1;
@@ -863,13 +860,7 @@ impl WorkspaceModuleSession {
                         &mut synthetic_ids,
                         &mut universe_override,
                     )?;
-                    let kind = Self::kind_for_source_delta(
-                        &module,
-                        &source,
-                        &mutated_sources,
-                        &removed_sources,
-                        &self.sources_by_module,
-                    );
+                    let kind = Self::kind_for_source_delta(&module, &source, &mutated_sources, &removed_sources, &self.sources_by_module);
                     let text_for_parse = text.clone();
                     let parsed = recovered_program.map_or_else(
                         || parse_source(module.clone(), kind, source.clone(), text_for_parse),
@@ -903,13 +894,8 @@ impl WorkspaceModuleSession {
                     changed_modules.insert(module);
                 }
                 WorkspaceSourceBatchMutation::RemoveOverlay { source } => {
-                    let module = get_module_for_source(
-                        &source,
-                        &mutated_modules_by_source,
-                        &removed_modules_by_source,
-                        &self.modules_by_source,
-                    )
-                    .ok_or_else(|| WorkspaceModuleSessionError::UnknownSource(source.clone()))?;
+                    let module = get_module_for_source(&source, &mutated_modules_by_source, &removed_modules_by_source, &self.modules_by_source)
+                        .ok_or_else(|| WorkspaceModuleSessionError::UnknownSource(source.clone()))?;
                     let state = if let Some(s) = mutated_sources.get(&module) {
                         s.clone()
                     } else if !removed_sources.contains(&module) {
@@ -942,7 +928,10 @@ impl WorkspaceModuleSession {
                 }
                 WorkspaceSourceBatchMutation::RefreshDisk { source, revision } => {
                     content_invalidations.insert(source.source_id.clone());
-                    ownership_reclassifications |= source.display_path.file_name().is_some_and(|name| name == "package.ph" || name == "project.toml");
+                    ownership_reclassifications |= source
+                        .display_path
+                        .file_name()
+                        .is_some_and(|name| name == "package.ph" || name == "project.toml");
                     stats.ownership_lookups += 1;
                     if self.modules_by_source.contains_key(&source.source_id) || mutated_modules_by_source.contains_key(&source.source_id) {
                         stats.ownership_cache_hits += 1;
@@ -969,13 +958,7 @@ impl WorkspaceModuleSession {
                         overlay_ops.push(OverlayOp::Remove(module.clone()));
                     }
                     let text = self.provider.base().read(&source.source_id)?;
-                    let kind = Self::kind_for_source_delta(
-                        &module,
-                        &source,
-                        &mutated_sources,
-                        &removed_sources,
-                        &self.sources_by_module,
-                    );
+                    let kind = Self::kind_for_source_delta(&module, &source, &mutated_sources, &removed_sources, &self.sources_by_module);
                     let parsed = parse_source(module.clone(), kind, source.clone(), text)?;
                     let state = WorkspaceSourceState {
                         module: module.clone(),
@@ -993,13 +976,8 @@ impl WorkspaceModuleSession {
                     changed_modules.insert(module);
                 }
                 WorkspaceSourceBatchMutation::RemoveSource { source } => {
-                    let module = get_module_for_source(
-                        &source,
-                        &mutated_modules_by_source,
-                        &removed_modules_by_source,
-                        &self.modules_by_source,
-                    )
-                    .ok_or_else(|| WorkspaceModuleSessionError::UnknownSource(source.clone()))?;
+                    let module = get_module_for_source(&source, &mutated_modules_by_source, &removed_modules_by_source, &self.modules_by_source)
+                        .ok_or_else(|| WorkspaceModuleSessionError::UnknownSource(source.clone()))?;
                     ownership_reclassifications |= self
                         .sources_by_module
                         .get(&module)
@@ -1072,7 +1050,7 @@ impl WorkspaceModuleSession {
                 OverlayOp::Remove(module) => {
                     removed_overlays.insert(module.clone());
                     staged_overlays.remove(module);
-                    if let Some(src_state) = target_sources_by_module.get(module) {
+                    if let Some(src_state) = self.sources_by_module.get(module) {
                         removed_by_source.insert(src_state.location.source_id.clone());
                         staged_by_source.remove(&src_state.location.source_id);
                     }
@@ -1154,11 +1132,7 @@ impl WorkspaceModuleSession {
         // 5. Advance generation once at successful commit
         self.generation = self.generation.saturating_add(1);
 
-        let interfaces = self
-            .interfaces
-            .iter()
-            .map(|(id, (iface, _))| (id.clone(), iface.clone()))
-            .collect();
+        let interfaces = self.interfaces.iter().map(|(id, (iface, _))| (id.clone(), iface.clone())).collect();
 
         Ok(WorkspaceModuleUpdate {
             linked: rebuild_output.linked,
@@ -1287,9 +1261,7 @@ impl WorkspaceModuleSession {
                 mutated_modules.insert(location.source_id.clone(), mid.clone());
                 Ok(mid)
             }
-            EntryOwnership::Inline { synthetic } => {
-                Ok(ModuleId::synthetic(synthetic, ModulePath::root()))
-            }
+            EntryOwnership::Inline { synthetic } => Ok(ModuleId::synthetic(synthetic, ModulePath::root())),
         }
     }
 
@@ -1343,7 +1315,9 @@ impl WorkspaceModuleSession {
                 EntryOwnership::ProjectOwned { project } => {
                     let project_ref = effective_universe.get_project(project).expect("loaded project is present");
                     (
-                        crate::source::resolve_source_path(project_ref, &path).map_err(WorkspaceModuleSessionError::from)?.id,
+                        crate::source::resolve_source_path(project_ref, &path)
+                            .map_err(WorkspaceModuleSessionError::from)?
+                            .id,
                         Some(project),
                     )
                 }
@@ -1352,7 +1326,9 @@ impl WorkspaceModuleSession {
                     project_roots.insert(ProjectSourceIdentity::from_path(&package_root), project_id);
                     let project_ref = effective_universe.get_project(project_id).expect("loaded package is present");
                     (
-                        crate::source::resolve_source_path(project_ref, &path).map_err(WorkspaceModuleSessionError::from)?.id,
+                        crate::source::resolve_source_path(project_ref, &path)
+                            .map_err(WorkspaceModuleSessionError::from)?
+                            .id,
                         Some(project_id),
                     )
                 }
@@ -1362,9 +1338,7 @@ impl WorkspaceModuleSession {
                         .or_insert_with(|| synthetic_ids.allocate());
                     (ModuleId::synthetic(synthetic, ModulePath::root()), None)
                 }
-                EntryOwnership::Inline { synthetic } => {
-                    (ModuleId::synthetic(synthetic, ModulePath::root()), None)
-                }
+                EntryOwnership::Inline { synthetic } => (ModuleId::synthetic(synthetic, ModulePath::root()), None),
             };
 
             if let Some(project_id) = project_id {
@@ -1378,13 +1352,7 @@ impl WorkspaceModuleSession {
                 changed.insert(module.clone());
             }
 
-            let kind = Self::kind_for_source_delta(
-                &module,
-                &state.location,
-                &sources_by_module,
-                &removed_modules,
-                &self.sources_by_module,
-            );
+            let kind = Self::kind_for_source_delta(&module, &state.location, &sources_by_module, &removed_modules, &self.sources_by_module);
             let updated = WorkspaceSourceState {
                 module: module.clone(),
                 kind,
@@ -1531,11 +1499,7 @@ impl WorkspaceModuleSession {
         };
 
         // 3. Body-only edit short-circuit:
-        if modules_with_changed_interface.is_empty()
-            && removed_modules.is_empty()
-            && identity_changes.is_empty()
-            && self.linked.is_some()
-        {
+        if modules_with_changed_interface.is_empty() && removed_modules.is_empty() && identity_changes.is_empty() && self.linked.is_some() {
             stats.linked_modules_reused = linked_modules.len();
             stats.linked_components_considered = self.retained_components.len();
             stats.linked_components = 0;
@@ -1551,10 +1515,7 @@ impl WorkspaceModuleSession {
             stats.import_sites_reused = total_sites;
             stats.import_resolutions_reused = total_sites;
             stats.negative_resolutions_reused = import_products.values().filter(|p| p.target.is_err()).count();
-            let parsed_sources = sources_by_module
-                .iter()
-                .map(|(id, state)| (id.clone(), state.parsed.clone()))
-                .collect();
+            let parsed_sources = sources_by_module.iter().map(|(id, state)| (id.clone(), state.parsed.clone())).collect();
             let mut topology = (*self.topology).clone();
             topology.generation = target_generation;
             let topology = Arc::new(topology);
@@ -1643,36 +1604,36 @@ impl WorkspaceModuleSession {
                 // Transitive discovery
                 if !parsed_sources.contains_key(&target_id) {
                     match resolver.load_parsed(&target_id) {
-                        Ok(loaded) => {
-                            match InterfaceBuilder::build(target_id.clone(), loaded.kind, &loaded.program) {
-                                Ok(loaded_iface) => {
-                                    let fp = loaded_iface.fingerprint();
-                                    interfaces.insert(target_id.clone(), (Arc::new(loaded_iface), fp));
-                                    parsed_sources.insert(target_id.clone(), loaded.clone());
-                                    if !sources_by_module.contains_key(&target_id) {
-                                        if let Some(loc) = loaded.source.clone() {
-                                            new_discovered_sources.push(WorkspaceSourceState {
-                                                module: target_id.clone(),
-                                                kind: loaded.kind,
-                                                location: loc,
-                                                revision: SourceRevision::default(),
-                                                text: loaded.text.clone(),
-                                                parsed: loaded.clone(),
-                                                open_overlay: false,
-                                            });
-                                        }
+                        Ok(loaded) => match InterfaceBuilder::build(target_id.clone(), loaded.kind, &loaded.program) {
+                            Ok(loaded_iface) => {
+                                let fp = loaded_iface.fingerprint();
+                                interfaces.insert(target_id.clone(), (Arc::new(loaded_iface), fp));
+                                parsed_sources.insert(target_id.clone(), loaded.clone());
+                                if !sources_by_module.contains_key(&target_id) {
+                                    if let Some(loc) = loaded.source.clone() {
+                                        new_discovered_sources.push(WorkspaceSourceState {
+                                            module: target_id.clone(),
+                                            kind: loaded.kind,
+                                            location: loc,
+                                            revision: SourceRevision::default(),
+                                            text: loaded.text.clone(),
+                                            parsed: loaded.clone(),
+                                            open_overlay: false,
+                                        });
                                     }
-                                    queue.push_back(target_id);
                                 }
-                                Err(iface_err) => {
-                                    let diag = ModuleDiagnostic::from_interface_error(target_id.clone(), iface_err);
-                                    diagnostics.entry(target_id.clone()).or_default().push(diag);
-                                    blocked_modules.insert(target_id);
-                                }
+                                queue.push_back(target_id);
                             }
-                        }
+                            Err(iface_err) => {
+                                let diag = ModuleDiagnostic::from_interface_error(target_id.clone(), iface_err);
+                                diagnostics.entry(target_id.clone()).or_default().push(diag);
+                                blocked_modules.insert(target_id);
+                            }
+                        },
                         Err(err) => match err {
-                            ModuleLoadError::Parse { module: m, error: parse_err, .. } => {
+                            ModuleLoadError::Parse {
+                                module: m, error: parse_err, ..
+                            } => {
                                 let diag = ModuleDiagnostic::from_syntax_error(m.clone(), parse_err);
                                 diagnostics.entry(m.clone()).or_default().push(diag);
                                 blocked_modules.insert(m);
@@ -1813,8 +1774,16 @@ impl WorkspaceModuleSession {
                 };
 
                 for (mod_id, linked_mod) in &comp_product.modules {
-                    let public_fp = comp_product.public_fingerprints.get(mod_id).copied().unwrap_or_else(|| linked_mod.interface.fingerprint());
-                    let private_fp = comp_product.private_fingerprints.get(mod_id).copied().unwrap_or_else(|| crate::fingerprint::linked_dependency_fingerprint(linked_mod));
+                    let public_fp = comp_product
+                        .public_fingerprints
+                        .get(mod_id)
+                        .copied()
+                        .unwrap_or_else(|| linked_mod.interface.fingerprint());
+                    let private_fp = comp_product
+                        .private_fingerprints
+                        .get(mod_id)
+                        .copied()
+                        .unwrap_or_else(|| crate::fingerprint::linked_dependency_fingerprint(linked_mod));
                     linked_modules.insert(mod_id.clone(), (linked_mod.clone(), public_fp));
                     linked_dep_fps.insert(mod_id.clone(), private_fp);
                     modules.insert(mod_id.clone(), linked_mod.clone());
@@ -1850,24 +1819,14 @@ impl WorkspaceModuleSession {
         stats.filesystem_resolution_hits = resolution_hits_after.saturating_sub(resolution_hits_before) as usize;
         stats.filesystem_resolution_misses = resolution_misses_after.saturating_sub(resolution_misses_before) as usize;
 
-        let mut source_locations: BTreeMap<ModuleId, SourceLocation> = sources_by_module
-            .iter()
-            .map(|(id, state)| (id.clone(), state.location.clone()))
-            .collect();
+        let mut source_locations: BTreeMap<ModuleId, SourceLocation> =
+            sources_by_module.iter().map(|(id, state)| (id.clone(), state.location.clone())).collect();
         for discovered in &new_discovered_sources {
             source_locations.insert(discovered.module.clone(), discovered.location.clone());
         }
-        let unlinked: BTreeMap<ModuleId, UnlinkedModuleInterface> = interfaces
-            .iter()
-            .map(|(id, (iface, _))| (id.clone(), (**iface).clone()))
-            .collect();
+        let unlinked: BTreeMap<ModuleId, UnlinkedModuleInterface> = interfaces.iter().map(|(id, (iface, _))| (id.clone(), (**iface).clone())).collect();
 
-        let topology = Arc::new(ModuleTopology::from_parts(
-            target_generation,
-            universe,
-            &unlinked,
-            &source_locations,
-        ));
+        let topology = Arc::new(ModuleTopology::from_parts(target_generation, universe, &unlinked, &source_locations));
 
         Ok(RebuildOutput {
             linked,

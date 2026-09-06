@@ -58,4 +58,18 @@ impl ModuleSemanticStructureShard {
             source_fingerprint: hasher.finish(),
         })
     }
+
+    /// Retains source-local declaration structure while replacing the parsed
+    /// source used by body and provenance queries. Module interfaces decide
+    /// whether this contribution is structurally unchanged; body-only edits
+    /// must not force declaration-shard reconstruction.
+    pub fn with_source(previous: &Arc<Self>, source: Arc<ParsedModuleUnit>) -> Arc<Self> {
+        Arc::new(Self {
+            module: previous.module.clone(),
+            source,
+            declarations: previous.declarations.clone(),
+            aliases: previous.aliases.clone(),
+            source_fingerprint: previous.source_fingerprint,
+        })
+    }
 }

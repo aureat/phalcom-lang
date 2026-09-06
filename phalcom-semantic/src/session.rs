@@ -1,34 +1,34 @@
 //! Compiler-owned incremental workspace session (Spec 04.5 / Wave 5 / Tasks 16-18).
 
 use crate::advisory::{
-    AdvisoryBuiltins, AdvisoryCallableSummary, AdvisoryConfidence, AdvisoryFact, AdvisoryFlowContext, AdvisoryModuleProduct, AdvisoryOrigin,
-    AdvisoryProductStatus, AdvisorySolver, AdvisorySolverBudget, AdvisorySolverNode, AdvisoryTargetResolution, AdvisoryWorkspace, CallableForShapeResolver,
-    FormalCallResultResolver, MethodFamilyResolver, ModuleMemberResolver, advisory_shape_from_formal, advisory_shape_from_formal_for_receiver, analyze_expr,
-    analyze_statements,
+    advisory_shape_from_formal, advisory_shape_from_formal_for_receiver, analyze_expr, analyze_statements, AdvisoryBuiltins, AdvisoryCallableSummary,
+    AdvisoryConfidence, AdvisoryFact, AdvisoryFlowContext, AdvisoryModuleProduct, AdvisoryOrigin, AdvisoryProductStatus, AdvisorySolver, AdvisorySolverBudget,
+    AdvisorySolverNode, AdvisoryTargetResolution, AdvisoryWorkspace, CallableForShapeResolver, FormalCallResultResolver, MethodFamilyResolver,
+    ModuleMemberResolver,
 };
-use crate::associated::{AssociatedFamilyTable, build_associated_surface};
+use crate::associated::{build_associated_surface, AssociatedFamilyTable};
 use crate::checker::analysis::normal_return_summary;
 use crate::checker::context::CheckingContext;
 use crate::checker::declaration::check_class_field_initializers;
 use crate::checker::statement::check_statement;
-use crate::db::SemanticDb;
 use crate::db::budget::{CancellationToken, QueryBudget};
 use crate::db::key::QueryKey;
 use crate::db::product::EnumRequirementsProduct;
 use crate::db::query::{
-    CallableBodyQuery, DeclarationSurfaceQuery, FormalQueryInputs, bootstrap_advisory_callable, query_advisory_callable, query_advisory_module,
-    query_associated_surface, query_bootstrap_callable_signature, query_bootstrap_declaration_surface, query_bootstrap_hierarchy_edge,
-    query_callable_body_with_formal_inputs, query_callable_signature_with_inputs, query_declaration_shell, query_declaration_surface, query_enum_declaration,
-    query_enum_requirements, query_hierarchy_edge, query_linked_interface, query_source_formal_attachment, query_source_structure,
-    query_unlinked_interface, query_field_signature_with_inputs,
+    bootstrap_advisory_callable, query_advisory_callable, query_advisory_module, query_associated_surface, query_bootstrap_callable_signature,
+    query_bootstrap_declaration_surface, query_bootstrap_hierarchy_edge, query_callable_body_with_formal_inputs, query_callable_signature_with_inputs,
+    query_declaration_shell, query_declaration_surface, query_enum_declaration, query_enum_requirements, query_field_signature_with_inputs,
+    query_hierarchy_edge, query_linked_interface, query_source_formal_attachment, query_source_structure, query_unlinked_interface, CallableBodyQuery,
+    DeclarationSurfaceQuery, FormalQueryInputs,
 };
 use crate::db::state::QueryOutcome;
+use crate::db::SemanticDb;
 use crate::declarations::{
-    DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, NominalDeclarationHeader, TypeDeclarationShell, bootstrap_universe_declarations,
+    bootstrap_universe_declarations, DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, NominalDeclarationHeader, TypeDeclarationShell,
 };
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::dispatch::SurfaceDispatchResolver;
-use crate::enum_requirements::{EnumRequirementTable, check_enum_requirements};
+use crate::enum_requirements::{check_enum_requirements, EnumRequirementTable};
 use crate::enum_semantics::{EnumSemanticTable, VariantInfo};
 use crate::identity::{CallableId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId, WorkspaceId};
 use crate::resolver::LinkedTypeResolver;
@@ -36,11 +36,11 @@ use crate::semantic_shard::ModuleSemanticStructureShard;
 use crate::signature::{CallableSignatureTable, FieldSignatureTable};
 use crate::snapshot::SemanticSnapshot;
 use crate::source::ParsedModuleUnit;
-use crate::source_index::{SourceIndexContext, SourceSemanticIndex, build_source_scope_index, resolve_type_reference_targets};
+use crate::source_index::{build_source_scope_index, resolve_type_reference_targets, SourceIndexContext, SourceSemanticIndex};
 use crate::type_alias::{TypeAliasInfo, TypeAliasTable};
 use crate::types::annotation::{
-    GenericBinderSite, TypeFormationOutcome, TypeFormationSite, TypeResolver, lower_scoped_type_alias_form, resolve_generic_signature, resolve_kind_syntax,
-    type_level_binding_for_parameter,
+    lower_scoped_type_alias_form, resolve_generic_signature, resolve_kind_syntax, type_level_binding_for_parameter, GenericBinderSite, TypeFormationOutcome,
+    TypeFormationSite, TypeResolver,
 };
 use crate::types::id::{KindId, TypeId};
 use crate::types::native::register_native_surfaces;
@@ -224,6 +224,13 @@ pub struct SemanticWorkspacePublication {
 /// Compatibility name for existing compiler tests and lower-level callers.
 pub type SemanticWorkspaceUpdate = SemanticWorkspacePublication;
 
+#[derive(Clone, Debug, Default)]
+struct SemanticModuleDelta {
+    changed_modules: BTreeSet<ModuleId>,
+    removed_modules: BTreeSet<ModuleId>,
+    identity_changes: BTreeSet<ModuleId>,
+}
+
 /// Compiler-owned stateful semantic workspace session.
 ///
 /// Owns the canonical `SemanticDb`, interner `TypeStore`, dependency index,
@@ -246,6 +253,9 @@ pub struct SemanticWorkspaceSession {
     base_enum_requirement_products: Vec<(DeclarationId, Arc<crate::db::product::EnumRequirementsProduct>)>,
     sources: BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
     source_fingerprints: BTreeMap<ModuleId, u64>,
+    linked_dependency_fingerprints: BTreeMap<ModuleId, phalcom_modules::fingerprint::LinkedDependencyFingerprint>,
+    field_lifecycle_fingerprints: BTreeMap<ModuleId, u64>,
+    default_field_lifecycle: crate::checker::field_lifecycle::FieldLifecycleTable,
     semantic_structure_shards: BTreeMap<ModuleId, Arc<ModuleSemanticStructureShard>>,
     last_snapshot: Option<Arc<SemanticSnapshot>>,
     last_known_good: Option<Arc<SemanticSnapshot>>,
@@ -542,6 +552,9 @@ impl SemanticWorkspaceSession {
             base_enum_requirement_products,
             sources: BTreeMap::new(),
             source_fingerprints: BTreeMap::new(),
+            linked_dependency_fingerprints: BTreeMap::new(),
+            field_lifecycle_fingerprints: BTreeMap::new(),
+            default_field_lifecycle: crate::checker::field_lifecycle::FieldLifecycleTable::default(),
             semantic_structure_shards: BTreeMap::new(),
             last_snapshot: None,
             last_known_good: None,
@@ -581,17 +594,25 @@ impl SemanticWorkspaceSession {
     /// Publishes semantic products for an already-linked module workspace update.
     pub fn update_module_workspace(&mut self, update: WorkspaceModuleUpdate) -> SemanticWorkspaceUpdate {
         let generation = self.module_session.generation();
-        self.update(SemanticWorkspaceInput {
-            linked: update.linked,
-            sources: update.sources,
-            interfaces: update.interfaces,
-            import_products: update.import_products,
-            diagnostics: update.diagnostics,
-            blocked_modules: update.blocked_modules,
-            generation,
-            topology: Some(update.topology),
-            reverse_imports: Some(update.reverse_importers),
-        })
+        let delta = SemanticModuleDelta {
+            changed_modules: update.changed_modules.clone(),
+            removed_modules: update.removed_modules.clone(),
+            identity_changes: update.identity_changes.clone(),
+        };
+        self.update_with_delta(
+            SemanticWorkspaceInput {
+                linked: update.linked,
+                sources: update.sources,
+                interfaces: update.interfaces,
+                import_products: update.import_products,
+                diagnostics: update.diagnostics,
+                blocked_modules: update.blocked_modules,
+                generation,
+                topology: Some(update.topology),
+                reverse_imports: Some(update.reverse_importers),
+            },
+            Some(delta),
+        )
     }
 
     pub fn db(&self) -> &SemanticDb {
@@ -625,10 +646,14 @@ impl SemanticWorkspaceSession {
 
     /// Performs an incremental semantic analysis update on this session.
     pub fn update(&mut self, input: SemanticWorkspaceInput) -> SemanticWorkspaceUpdate {
+        self.update_with_delta(input, None)
+    }
+
+    fn update_with_delta(&mut self, input: SemanticWorkspaceInput, module_delta: Option<SemanticModuleDelta>) -> SemanticWorkspaceUpdate {
         let generation = input.generation;
         let sources = input.sources.clone();
         let linked = input.linked.clone();
-        self.update_with_budget_and_cancel(input, QueryBudget::default(), &CancellationToken::new())
+        self.update_with_budget_and_cancel_and_delta(input, QueryBudget::default(), &CancellationToken::new(), module_delta)
             .unwrap_or_else(|_error| {
                 let snapshot = self.last_known_good.clone().unwrap_or_else(|| {
                     Arc::new(SemanticSnapshot::new_with_callable_analyses(
@@ -664,6 +689,16 @@ impl SemanticWorkspaceSession {
         budget: QueryBudget,
         cancel: &CancellationToken,
     ) -> Result<SemanticWorkspaceUpdate, QueryOutcome<()>> {
+        self.update_with_budget_and_cancel_and_delta(input, budget, cancel, None)
+    }
+
+    fn update_with_budget_and_cancel_and_delta(
+        &mut self,
+        input: SemanticWorkspaceInput,
+        budget: QueryBudget,
+        cancel: &CancellationToken,
+        module_delta: Option<SemanticModuleDelta>,
+    ) -> Result<SemanticWorkspaceUpdate, QueryOutcome<()>> {
         if cancel.is_cancelled() {
             return Err(QueryOutcome::Cancelled);
         }
@@ -681,14 +716,56 @@ impl SemanticWorkspaceSession {
         let mut callable_dispositions = BTreeMap::new();
         let previous_sources = self.sources.clone();
         let previous_snapshot = self.last_snapshot.clone();
+        let previous_linked_dependency_fingerprints = self.linked_dependency_fingerprints.clone();
+        let previous_field_lifecycle_fingerprints = self.field_lifecycle_fingerprints.clone();
+        let current_linked_dependency_fingerprints = input
+            .linked
+            .modules
+            .iter()
+            .map(|(module, linked)| (module.clone(), phalcom_modules::fingerprint::linked_dependency_fingerprint(linked)))
+            .collect::<BTreeMap<_, _>>();
+        let linked_layout_changed = current_linked_dependency_fingerprints
+            .iter()
+            .filter(|(module, fingerprint)| previous_linked_dependency_fingerprints.get(*module) != Some(fingerprint))
+            .map(|(module, _)| module.clone())
+            .chain(
+                previous_linked_dependency_fingerprints
+                    .keys()
+                    .filter(|module| !current_linked_dependency_fingerprints.contains_key(*module))
+                    .cloned(),
+            )
+            .collect::<BTreeSet<_>>();
+        let delta_driven = module_delta.is_some();
+        let delta_changed_modules = module_delta.as_ref().map_or_else(BTreeSet::new, |delta| delta.changed_modules.clone());
+        let delta_identity_changes = module_delta.as_ref().map_or_else(BTreeSet::new, |delta| delta.identity_changes.clone());
+        let delta_removed_modules = module_delta.as_ref().map_or_else(BTreeSet::new, |delta| delta.removed_modules.clone());
 
         let mut semantic_structure_shards = BTreeMap::new();
         let mut structural_recomputed_modules = BTreeSet::new();
         let mut structural_reused_modules = BTreeSet::new();
         for (module, source) in &input.sources {
-            let fingerprint = compute_module_fingerprint(source);
+            let explicitly_changed = delta_changed_modules.contains(module) || delta_identity_changes.contains(module);
             if let Some(previous) = self.semantic_structure_shards.get(module) {
-                if previous.source_fingerprint == fingerprint {
+                let interface_unchanged = previous_snapshot.as_ref().is_some_and(|snapshot| {
+                    input.interfaces.get(module).is_some_and(|current| {
+                        snapshot
+                            .module_products
+                            .unlinked
+                            .get(module)
+                            .is_some_and(|previous| previous.fingerprint() == current.fingerprint())
+                    })
+                });
+                let unchanged = if delta_driven && explicitly_changed && interface_unchanged {
+                    semantic_structure_shards.insert(module.clone(), ModuleSemanticStructureShard::with_source(previous, source.clone()));
+                    structural_reused_modules.insert(module.clone());
+                    stats.semantic_structure_shards_reused += 1;
+                    continue;
+                } else if delta_driven && !explicitly_changed {
+                    true
+                } else {
+                    compute_module_fingerprint(source) == previous.source_fingerprint
+                };
+                if unchanged {
                     semantic_structure_shards.insert(module.clone(), previous.clone());
                     structural_reused_modules.insert(module.clone());
                     stats.semantic_structure_shards_reused += 1;
@@ -701,11 +778,14 @@ impl SemanticWorkspaceSession {
         }
         self.semantic_structure_shards = semantic_structure_shards;
         let current_modules = self.semantic_structure_shards.keys().cloned().collect::<BTreeSet<_>>();
-        let removed_modules = previous_sources
-            .keys()
-            .filter(|module| !current_modules.contains(module))
-            .cloned()
-            .collect::<BTreeSet<_>>();
+        let mut removed_modules = delta_removed_modules;
+        removed_modules.extend(
+            previous_sources
+                .keys()
+                .filter(|module| !current_modules.contains(module))
+                .cloned()
+                .collect::<BTreeSet<_>>(),
+        );
         structural_recomputed_modules.extend(removed_modules.iter().cloned());
         let retained_sources = self
             .semantic_structure_shards
@@ -721,13 +801,20 @@ impl SemanticWorkspaceSession {
         // evaluated for every source so an unchanged unlinked semantic product can become
         // current and allow linked/formal/body products to remain reusable.
         let mut new_fingerprints = BTreeMap::new();
-        let mut changed_modules = BTreeSet::new();
+        let mut changed_modules = if delta_driven { delta_changed_modules.clone() } else { BTreeSet::new() };
         for (module_id, unit) in &input.sources {
-            let fp = compute_module_fingerprint(unit);
+            let fp = if delta_driven && !changed_modules.contains(module_id) {
+                self.source_fingerprints
+                    .get(module_id)
+                    .copied()
+                    .unwrap_or_else(|| compute_module_fingerprint(unit))
+            } else {
+                compute_module_fingerprint(unit)
+            };
             new_fingerprints.insert(module_id.clone(), fp);
 
             let existed = self.source_fingerprints.contains_key(module_id);
-            let changed = self.source_fingerprints.get(module_id).copied() != Some(fp);
+            let changed = changed_modules.contains(module_id) || self.source_fingerprints.get(module_id).copied() != Some(fp);
 
             if changed {
                 changed_modules.insert(module_id.clone());
@@ -737,6 +824,10 @@ impl SemanticWorkspaceSession {
                 }
             }
 
+            let needs_unlinked_refresh = !delta_driven || changed || !existed;
+            if !needs_unlinked_refresh {
+                continue;
+            }
             let precomputed = input.interfaces.get(module_id).cloned();
             match query_unlinked_interface(&mut self.db, module_id.clone(), unit.clone(), precomputed) {
                 QueryOutcome::Ready(_) => {}
@@ -773,6 +864,27 @@ impl SemanticWorkspaceSession {
             }
         }
 
+        let mut next_field_lifecycle_fingerprints = BTreeMap::new();
+        let mut field_lifecycle_changed_modules = BTreeSet::new();
+        for (module, source) in &input.sources {
+            let refresh = !delta_driven || delta_changed_modules.contains(module) || !previous_field_lifecycle_fingerprints.contains_key(module);
+            let fingerprint = if refresh {
+                field_lifecycle_source_fingerprint(source)
+            } else {
+                previous_field_lifecycle_fingerprints[module]
+            };
+            if previous_field_lifecycle_fingerprints.get(module).copied() != Some(fingerprint) {
+                field_lifecycle_changed_modules.insert(module.clone());
+            }
+            next_field_lifecycle_fingerprints.insert(module.clone(), fingerprint);
+        }
+        field_lifecycle_changed_modules.extend(
+            previous_field_lifecycle_fingerprints
+                .keys()
+                .filter(|module| !next_field_lifecycle_fingerprints.contains_key(*module))
+                .cloned(),
+        );
+
         self.sources = input.sources.clone();
         self.source_fingerprints = new_fingerprints;
 
@@ -806,8 +918,24 @@ impl SemanticWorkspaceSession {
                 .cloned()
                 .collect::<BTreeSet<_>>();
             work.extend(changed_modules.iter().filter(|module| current_modules.contains(*module)).cloned());
+            work.extend(linked_layout_changed.iter().filter(|module| current_modules.contains(*module)).cloned());
             work
         };
+        let structural_work_modules = semantic_work_modules
+            .iter()
+            .filter(|module| {
+                !structural_reused_modules.contains(*module)
+                    || delta_changed_modules.contains(*module)
+                    || linked_layout_changed.contains(*module)
+            })
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        let structural_aggregates_reusable = previous_snapshot.as_ref().is_some_and(|previous| {
+            structural_work_modules.is_empty()
+                && removed_modules.is_empty()
+                && field_lifecycle_changed_modules.is_empty()
+                && previous.semantic_graph.as_ref() == &input.linked.graphs.semantics
+        });
 
         // 2. Predeclare Every Source Declaration
         let mut declarations = self.base_declarations.clone();
@@ -837,9 +965,20 @@ impl SemanticWorkspaceSession {
             })
             .collect();
 
-        for shard in self.semantic_structure_shards.values() {
-            initial_blueprints.extend(shard.declarations.iter().cloned());
-            alias_declarations.extend(shard.aliases.iter().cloned());
+        if structural_aggregates_reusable {
+            alias_declarations.extend(
+                previous_snapshot
+                    .as_ref()
+                    .expect("reusable structural aggregates have a previous snapshot")
+                    .type_aliases
+                    .iter()
+                    .map(|(declaration, _)| declaration.clone()),
+            );
+        } else {
+            for shard in self.semantic_structure_shards.values() {
+                initial_blueprints.extend(shard.declarations.iter().cloned());
+                alias_declarations.extend(shard.aliases.iter().cloned());
+            }
         }
 
         for (module_id, shard) in &self.semantic_structure_shards {
@@ -925,32 +1064,43 @@ impl SemanticWorkspaceSession {
         let resolver = LinkedTypeResolver::new(input.linked.clone(), known_declarations.clone(), ModuleId::universe_root());
 
         // 4. Enrich Semantic Graph
-        let mut semantic_graph = input.linked.graphs.semantics.clone();
-        for (module_id, shard) in &self.semantic_structure_shards {
-            let parsed_unit = &shard.source;
-            for stmt in &parsed_unit.program.statements {
-                if let Statement::Class(class_def) = stmt {
-                    let from_node = SemanticNodeId::Declaration {
-                        module: module_id.clone(),
-                        name: class_def.name.clone().into(),
-                    };
+        let mut semantic_graph = if structural_aggregates_reusable {
+            previous_snapshot
+                .as_ref()
+                .expect("reusable structural aggregates have a previous snapshot")
+                .semantic_graph
+                .as_ref()
+                .clone()
+        } else {
+            input.linked.graphs.semantics.clone()
+        };
+        if !structural_aggregates_reusable {
+            for (module_id, shard) in &self.semantic_structure_shards {
+                let parsed_unit = &shard.source;
+                for stmt in &parsed_unit.program.statements {
+                    if let Statement::Class(class_def) = stmt {
+                        let from_node = SemanticNodeId::Declaration {
+                            module: module_id.clone(),
+                            name: class_def.name.clone().into(),
+                        };
 
-                    if let Some(super_ref) = class_def.superclass_ref() {
-                        let members: Vec<String> = super_ref.members.iter().map(|m| m.name.clone()).collect();
-                        if let Some(target_decl) = resolver
-                            .resolve_type_name(module_id, &super_ref.root, &members)
-                            .or_else(|| canonical_runtime_support_superclass(&super_ref.root, &members))
-                        {
-                            let to_node = SemanticNodeId::Declaration {
-                                module: target_decl.module,
-                                name: target_decl.name,
-                            };
-                            semantic_graph.add(SemanticEdge {
-                                from: from_node.clone(),
-                                to: to_node,
-                                kind: SemanticEdgeKind::Superclass,
-                                range: super_ref.range,
-                            });
+                        if let Some(super_ref) = class_def.superclass_ref() {
+                            let members: Vec<String> = super_ref.members.iter().map(|m| m.name.clone()).collect();
+                            if let Some(target_decl) = resolver
+                                .resolve_type_name(module_id, &super_ref.root, &members)
+                                .or_else(|| canonical_runtime_support_superclass(&super_ref.root, &members))
+                            {
+                                let to_node = SemanticNodeId::Declaration {
+                                    module: target_decl.module,
+                                    name: target_decl.name,
+                                };
+                                semantic_graph.add(SemanticEdge {
+                                    from: from_node.clone(),
+                                    to: to_node,
+                                    kind: SemanticEdgeKind::Superclass,
+                                    range: super_ref.range,
+                                });
+                            }
                         }
                     }
                 }
@@ -986,18 +1136,26 @@ impl SemanticWorkspaceSession {
                     | phalcom_modules::diagnostic::ModuleDiagnosticKind::InterfaceError(_) => DiagnosticCode::ModuleInterfaceFailed,
                     _ => DiagnosticCode::ModuleLinkFailed,
                 };
-                diags_by_module
-                    .entry(module_id.clone())
-                    .or_default()
-                    .push(SemanticDiagnostic::error_in(diag.module.clone(), code, diag.message.clone(), diag.range));
+                diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
+                    diag.module.clone(),
+                    code,
+                    diag.message.clone(),
+                    diag.range,
+                ));
             }
         }
         let mut blocked_declarations = BTreeSet::new();
         let aliases_changed = structural_recomputed_modules.iter().any(|module| {
             self.semantic_structure_shards.get(module).is_some_and(|shard| !shard.aliases.is_empty())
-                || previous_snapshot.as_ref().is_some_and(|snapshot| snapshot.type_aliases.iter().any(|(declaration, _)| &declaration.module == module))
+                || previous_snapshot
+                    .as_ref()
+                    .is_some_and(|snapshot| snapshot.type_aliases.iter().any(|(declaration, _)| &declaration.module == module))
         });
-        let alias_reused_modules = if aliases_changed { BTreeSet::new() } else { structural_reused_modules.clone() };
+        let alias_reused_modules = if aliases_changed {
+            BTreeSet::new()
+        } else {
+            structural_reused_modules.clone()
+        };
         let mut type_aliases = previous_snapshot
             .as_ref()
             .map_or_else(TypeAliasTable::new, |snapshot| (*snapshot.type_aliases).clone());
@@ -1045,12 +1203,7 @@ impl SemanticWorkspaceSession {
         let mut alias_dependencies = type_aliases
             .iter()
             .filter(|(declaration, _)| alias_reused_modules.contains(&declaration.module))
-            .map(|(declaration, info)| {
-                (
-                    declaration.clone(),
-                    info.dependencies.iter().cloned().collect::<BTreeSet<_>>(),
-                )
-            })
+            .map(|(declaration, info)| (declaration.clone(), info.dependencies.iter().cloned().collect::<BTreeSet<_>>()))
             .collect::<BTreeMap<_, _>>();
         for (module_id, shard) in &self.semantic_structure_shards {
             if alias_reused_modules.contains(module_id) {
@@ -1381,36 +1534,38 @@ impl SemanticWorkspaceSession {
             }
             pending_alias_shells.remove(&declaration);
         }
-        for (module_id, shard) in &self.semantic_structure_shards {
-            let parsed_unit = &shard.source;
-            for statement in &parsed_unit.program.statements {
-                let decl_name = match statement {
-                    Statement::Class(class_def) => Some(class_def.name.as_str()),
-                    Statement::Enum(enum_def) => Some(enum_def.name.as_str()),
-                    Statement::TypeAlias(alias) => Some(alias.name.as_str()),
-                    _ => None,
-                };
-                if let Some(name) = decl_name {
-                    let declaration = DeclarationId::new(module_id.clone(), name.into());
-                    if blocked_declarations.contains(&declaration) {
-                        continue;
-                    }
-                    if published_shells.insert(declaration.clone()) {
-                        let shell = if let Some(info) = declarations.get(&declaration).cloned() {
-                            TypeDeclarationShell::Nominal(info)
-                        } else if let Some(info) = type_aliases.get(&declaration).cloned() {
-                            TypeDeclarationShell::Alias(info)
-                        } else if alias_declarations.contains(&declaration) {
+        if !structural_aggregates_reusable {
+            for (module_id, shard) in &self.semantic_structure_shards {
+                let parsed_unit = &shard.source;
+                for statement in &parsed_unit.program.statements {
+                    let decl_name = match statement {
+                        Statement::Class(class_def) => Some(class_def.name.as_str()),
+                        Statement::Enum(enum_def) => Some(enum_def.name.as_str()),
+                        Statement::TypeAlias(alias) => Some(alias.name.as_str()),
+                        _ => None,
+                    };
+                    if let Some(name) = decl_name {
+                        let declaration = DeclarationId::new(module_id.clone(), name.into());
+                        if blocked_declarations.contains(&declaration) {
                             continue;
-                        } else {
-                            return Err(QueryOutcome::Failed(format!("missing declaration metadata for {declaration:?}")));
-                        };
-                        match query_declaration_shell(&mut self.db, Arc::new(shell)) {
-                            QueryOutcome::Ready(_) => {}
-                            QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
-                            QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
-                            QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
-                            QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                        }
+                        if published_shells.insert(declaration.clone()) {
+                            let shell = if let Some(info) = declarations.get(&declaration).cloned() {
+                                TypeDeclarationShell::Nominal(info)
+                            } else if let Some(info) = type_aliases.get(&declaration).cloned() {
+                                TypeDeclarationShell::Alias(info)
+                            } else if alias_declarations.contains(&declaration) {
+                                continue;
+                            } else {
+                                return Err(QueryOutcome::Failed(format!("missing declaration metadata for {declaration:?}")));
+                            };
+                            match query_declaration_shell(&mut self.db, Arc::new(shell)) {
+                                QueryOutcome::Ready(_) => {}
+                                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                                QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                                QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                            }
                         }
                     }
                 }
@@ -1430,7 +1585,7 @@ impl SemanticWorkspaceSession {
 
         // Build the compatibility hierarchy exclusively from DB-owned hierarchy-edge queries.
         for (module_id, shard) in &self.semantic_structure_shards {
-            if !semantic_work_modules.contains(module_id) {
+            if !structural_work_modules.contains(module_id) {
                 continue;
             }
             let parsed_unit = &shard.source;
@@ -1491,14 +1646,14 @@ impl SemanticWorkspaceSession {
         let mut field_signatures = previous_snapshot
             .as_ref()
             .map_or_else(FieldSignatureTable::new, |snapshot| (*snapshot.field_signatures).clone());
-        for module in semantic_work_modules.iter().chain(removed_modules.iter()) {
+        for module in structural_work_modules.iter().chain(removed_modules.iter()) {
             dispatch.remove_module(module);
             callable_signatures.remove_module(module);
             field_signatures.remove_module(module);
         }
 
         for (module_id, shard) in &self.semantic_structure_shards {
-            if !semantic_work_modules.contains(module_id) {
+            if !structural_work_modules.contains(module_id) {
                 continue;
             }
             let parsed_unit = &shard.source;
@@ -1608,7 +1763,7 @@ impl SemanticWorkspaceSession {
         let mut associated_surfaces_table = previous_snapshot
             .as_ref()
             .map_or_else(|| self.base_associated_surfaces.clone(), |snapshot| (*snapshot.associated_surfaces).clone());
-        for module in semantic_work_modules.iter().chain(removed_modules.iter()) {
+        for module in structural_work_modules.iter().chain(removed_modules.iter()) {
             enum_semantics.remove_module(module);
             enum_requirements_table.remove_module(module);
             associated_surfaces_table.remove_module(module);
@@ -1625,7 +1780,7 @@ impl SemanticWorkspaceSession {
         }
 
         for (module_id, shard) in &self.semantic_structure_shards {
-            if !semantic_work_modules.contains(module_id) {
+            if !structural_work_modules.contains(module_id) {
                 continue;
             }
             let parsed_unit = &shard.source;
@@ -1796,23 +1951,28 @@ impl SemanticWorkspaceSession {
         // 7. Check field defaults, constructors, then ordinary callable bodies.
         // Constructor-first ordering makes lifecycle publication independent of
         // source member order.
-        let mut default_field_lifecycle = crate::checker::field_lifecycle::FieldLifecycleTable::default();
-        for (module_id, shard) in &self.semantic_structure_shards {
-            let parsed_unit = &shard.source;
-            let mut ctx = CheckingContext::new_with_dispatch_ref(&mut self.store, &hierarchy, &resolver, &declarations, &dispatch, module_id.clone());
-            ctx.attach_field_signatures(&field_signatures);
-            ctx.attach_enum_semantics(&enum_semantics);
-            ctx.attach_associated_families(&associated_surfaces_table);
-            for stmt in &parsed_unit.program.statements {
-                if let Statement::Class(class_def) = stmt {
-                    let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
-                    if blocked_declarations.contains(&decl_id) {
-                        continue;
+        let default_field_lifecycle = if structural_aggregates_reusable {
+            self.default_field_lifecycle.clone()
+        } else {
+            let mut table = crate::checker::field_lifecycle::FieldLifecycleTable::default();
+            for (module_id, shard) in &self.semantic_structure_shards {
+                let parsed_unit = &shard.source;
+                let mut ctx = CheckingContext::new_with_dispatch_ref(&mut self.store, &hierarchy, &resolver, &declarations, &dispatch, module_id.clone());
+                ctx.attach_field_signatures(&field_signatures);
+                ctx.attach_enum_semantics(&enum_semantics);
+                ctx.attach_associated_families(&associated_surfaces_table);
+                for stmt in &parsed_unit.program.statements {
+                    if let Statement::Class(class_def) = stmt {
+                        let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                        if blocked_declarations.contains(&decl_id) {
+                            continue;
+                        }
+                        table.extend(crate::checker::field_lifecycle::default_field_seeds(&mut ctx, class_def));
                     }
-                    default_field_lifecycle.extend(crate::checker::field_lifecycle::default_field_seeds(&mut ctx, class_def));
                 }
             }
-        }
+            table
+        };
         let mut field_lifecycle = default_field_lifecycle.clone();
         let mut callable_analyses = previous_snapshot.as_ref().map_or_else(HashMap::new, |snapshot| {
             snapshot
@@ -2218,7 +2378,8 @@ impl SemanticWorkspaceSession {
                                             match outcome {
                                                 QueryOutcome::Ready(analysis) => {
                                                     if self.db.query_state(&query_key).is_some_and(|state| {
-                                                        state.revision() == Some(self.db.revision()) && previous_computation_revision != Some(self.db.revision())
+                                                        state.revision() == Some(self.db.revision())
+                                                            && previous_computation_revision != Some(self.db.revision())
                                                     }) {
                                                         callable_dispositions.insert(callable_id.clone(), CallableRevisionDisposition::Recomputed);
                                                     } else {
@@ -2575,9 +2736,7 @@ impl SemanticWorkspaceSession {
             };
             let previous_computation_revision = previous_query_revisions.get(key).copied().flatten();
             let recomputed = state.revision() == Some(current_revision) && previous_computation_revision != Some(current_revision);
-            let revalidated = !recomputed
-                && state.validated_revision() == Some(current_revision)
-                && state.revision() != Some(current_revision);
+            let revalidated = !recomputed && state.validated_revision() == Some(current_revision) && state.revision() != Some(current_revision);
             if recomputed {
                 stats.query_products_recomputed += 1;
             } else if revalidated {
@@ -2660,6 +2819,9 @@ impl SemanticWorkspaceSession {
 
         self.last_snapshot = Some(snapshot.clone());
         self.last_known_good = Some(snapshot.clone());
+        self.linked_dependency_fingerprints = current_linked_dependency_fingerprints;
+        self.field_lifecycle_fingerprints = next_field_lifecycle_fingerprints;
+        self.default_field_lifecycle = default_field_lifecycle;
 
         Ok(SemanticWorkspaceUpdate {
             snapshot,
@@ -2778,6 +2940,21 @@ fn compute_module_fingerprint(unit: &ParsedModuleUnit) -> u64 {
     let mut hasher = DefaultHasher::new();
     unit.id.hash(&mut hasher);
     unit.text.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn field_lifecycle_source_fingerprint(unit: &ParsedModuleUnit) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    unit.id.hash(&mut hasher);
+    for statement in &unit.program.statements {
+        let Statement::Class(class_def) = statement else { continue };
+        class_def.name.hash(&mut hasher);
+        for member in &class_def.members {
+            if let ClassMember::Field(field) = member {
+                format!("{field:?}").hash(&mut hasher);
+            }
+        }
+    }
     hasher.finish()
 }
 
