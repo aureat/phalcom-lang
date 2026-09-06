@@ -37,16 +37,35 @@ impl MapTypeHierarchy {
         Self::default()
     }
 
+    fn track_declaration(&mut self, declaration: &DeclarationId) {
+        self.module_declarations
+            .entry(declaration.module.clone())
+            .or_default()
+            .insert(declaration.clone());
+    }
+
+    fn maybe_untrack_declaration(&mut self, declaration: &DeclarationId) {
+        if self.superclasses.contains_key(declaration) || self.templates.contains_key(declaration) {
+            return;
+        }
+
+        if let Some(declarations) = self.module_declarations.get_mut(&declaration.module) {
+            declarations.remove(declaration);
+            if declarations.is_empty() {
+                self.module_declarations.remove(&declaration.module);
+            }
+        }
+    }
+
+    /// Registers the direct superclass contribution for a declaration.
     pub fn insert(&mut self, class: DeclarationId, superclass: DeclarationId) {
-        self.module_declarations.entry(class.module.clone()).or_default().insert(class.clone());
+        self.track_declaration(&class);
         self.superclasses.insert(class, superclass);
     }
 
+    /// Registers the declaration-shell-owned generic supertype template.
     pub fn insert_template(&mut self, template: GenericSupertypeTemplate) {
-        self.insert(
-            template.declaration.clone(),
-            DeclarationId::new(phalcom_modules::identity::ModuleId::universe_root(), "generic_super".into()),
-        );
+        self.track_declaration(&template.declaration);
         self.templates.insert(template.declaration.clone(), template);
     }
 
@@ -58,8 +77,19 @@ impl MapTypeHierarchy {
         }
     }
 
-    /// Removes one direct hierarchy contribution while retaining other
-    /// declarations from the same module.
+    /// Retracts only the direct-superclass contribution for a declaration.
+    pub fn remove_superclass(&mut self, declaration: &DeclarationId) {
+        self.superclasses.remove(declaration);
+        self.maybe_untrack_declaration(declaration);
+    }
+
+    /// Retracts only the generic-supertype-template contribution for a declaration.
+    pub fn remove_template(&mut self, declaration: &DeclarationId) {
+        self.templates.remove(declaration);
+        self.maybe_untrack_declaration(declaration);
+    }
+
+    /// Fully retires all hierarchy contributions for a declaration.
     pub fn remove(&mut self, declaration: &DeclarationId) {
         self.superclasses.remove(declaration);
         self.templates.remove(declaration);
@@ -765,5 +795,59 @@ mod tests {
         let projected = check_assignability(&mut store, &hier, &actual, &expected);
         assert!(matches!(projected, Assignability::DynamicBoundary(ref obligation) if obligation.reason == "dynamic boundary"));
         assert!(!projected.is_assignable(), "dynamic boundary is not static proof");
+    }
+
+    fn template(declaration: DeclarationId, supertype: TypeId) -> GenericSupertypeTemplate {
+        GenericSupertypeTemplate {
+            declaration,
+            supertype,
+            structural_form: Some("Base".into()),
+        }
+    }
+
+    #[test]
+    fn direct_superclass_retraction_preserves_generic_template() {
+        let mut store = TypeStore::new();
+        let child = test_decl("Child");
+        let base = test_decl("Base");
+        let template = template(child.clone(), store.nominal(base.clone()));
+        let mut hierarchy = MapTypeHierarchy::new();
+
+        hierarchy.insert(child.clone(), base.clone());
+        hierarchy.insert_template(template.clone());
+        hierarchy.remove_superclass(&child);
+
+        assert_eq!(hierarchy.superclass(&child), None);
+        assert_eq!(hierarchy.supertype_template(&child), Some(&template));
+    }
+
+    #[test]
+    fn template_retraction_preserves_direct_superclass() {
+        let mut store = TypeStore::new();
+        let child = test_decl("Child");
+        let base = test_decl("Base");
+        let template = template(child.clone(), store.nominal(base.clone()));
+        let mut hierarchy = MapTypeHierarchy::new();
+
+        hierarchy.insert(child.clone(), base.clone());
+        hierarchy.insert_template(template);
+        hierarchy.remove_template(&child);
+
+        assert_eq!(hierarchy.superclass(&child), Some(&base));
+        assert_eq!(hierarchy.supertype_template(&child), None);
+    }
+
+    #[test]
+    fn template_insertion_does_not_manufacture_direct_superclass() {
+        let mut store = TypeStore::new();
+        let child = test_decl("Child");
+        let base = test_decl("Base");
+        let template = template(child.clone(), store.nominal(base));
+        let mut hierarchy = MapTypeHierarchy::new();
+
+        hierarchy.insert_template(template.clone());
+
+        assert_eq!(hierarchy.superclass(&child), None);
+        assert_eq!(hierarchy.supertype_template(&child), Some(&template));
     }
 }

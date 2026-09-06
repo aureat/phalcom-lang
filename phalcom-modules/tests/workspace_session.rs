@@ -778,3 +778,62 @@ fn topology_is_retained_in_session_aligned_with_generation_and_published_in_upda
     assert_eq!(session.topology().generation, ResolverGeneration(3));
     assert_eq!(session.topology().fingerprint, initial_topo_fp);
 }
+
+#[test]
+fn failed_reclassification_transaction_does_not_mutate_committed_identity_state() {
+    let temp = TempDir::new().unwrap();
+    let root = temp.path().join("proj");
+    fs::create_dir_all(root.join("src")).unwrap();
+    let pkg_file = root.join("src/package.ph");
+    let file_a = root.join("src/a.ph");
+    fs::write(&pkg_file, "expose .a\n").unwrap();
+    fs::write(&file_a, "class A {}\nexport A\n").unwrap();
+
+    let mut session = WorkspaceModuleSession::new();
+    let pkg_loc = location(&pkg_file);
+    let a_loc = location(&file_a);
+
+    session
+        .set_overlay(pkg_loc.clone(), Arc::from("expose .a\n"), SourceRevision(1))
+        .unwrap();
+    session
+        .set_overlay(a_loc.clone(), Arc::from("class A {}\nexport A\n"), SourceRevision(1))
+        .unwrap();
+
+    let initial_gen = session.generation();
+    let initial_mod_a = session.module_for_source(&a_loc.source_id).cloned().unwrap();
+    let initial_source_a = session.source(&initial_mod_a).cloned().unwrap();
+    let initial_topology = session.topology().clone();
+    let initial_interfaces = session.interfaces().clone();
+    let initial_diagnostics = session.diagnostics().clone();
+
+    // Now attempt a mutation on package.ph that triggers ownership reclassification,
+    // but inject a late failure before commit.
+    session.inject_late_rebuild_failure(true);
+    let fail_res = session.set_overlay(
+        pkg_loc.clone(),
+        Arc::from("expose .a\n"),
+        SourceRevision(2),
+    );
+    assert!(fail_res.is_err(), "late failure must return Err");
+
+    // Assert committed state is 100% untouched
+    assert_eq!(session.generation(), initial_gen);
+    assert_eq!(session.module_for_source(&a_loc.source_id), Some(&initial_mod_a));
+    let current_source = session.source(&initial_mod_a).unwrap();
+    assert_eq!(current_source.text, initial_source_a.text);
+    assert_eq!(current_source.revision, initial_source_a.revision);
+    assert_eq!(current_source.location, initial_source_a.location);
+    assert_eq!(current_source.open_overlay, initial_source_a.open_overlay);
+    assert_eq!(session.topology(), &initial_topology);
+    assert_eq!(session.interfaces(), &initial_interfaces);
+    assert_eq!(session.diagnostics(), &initial_diagnostics);
+
+    // Disable failure and apply same mutation successfully
+    session.inject_late_rebuild_failure(false);
+    let success = session
+        .set_overlay(pkg_loc, Arc::from("expose .a\nexpose .b\n"), SourceRevision(2))
+        .unwrap();
+    assert_eq!(session.generation(), initial_gen + 1);
+    assert_eq!(success.stats.identity_changes, 0);
+}

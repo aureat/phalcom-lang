@@ -214,6 +214,21 @@ pub struct StagedOverlayProvider<'a, P: SourceProvider> {
 }
 
 #[derive(Debug)]
+struct ReclassificationDelta {
+    mutated_modules_by_source: BTreeMap<SourceId, ModuleId>,
+    removed_modules_by_source: BTreeSet<SourceId>,
+    mutated_sources_by_module: BTreeMap<ModuleId, WorkspaceSourceState>,
+    removed_sources_by_module: BTreeSet<ModuleId>,
+    mutated_project_roots: BTreeMap<ProjectSourceIdentity, crate::identity::ResolvedProjectId>,
+    mutated_standalone_projects: BTreeMap<SourceId, SyntheticProjectId>,
+    universe_override: Option<ProjectUniverse>,
+    synthetic_ids: SyntheticProjectIdAllocator,
+    changed_modules: BTreeSet<ModuleId>,
+    removed_modules: BTreeSet<ModuleId>,
+    identity_changes: BTreeSet<ModuleId>,
+}
+
+#[derive(Debug)]
 enum EntryDelta<V> {
     Set(V),
     Remove,
@@ -912,8 +927,10 @@ impl WorkspaceModuleSession {
         let mut target_sources_by_module = BTreeMap::new();
         let mut target_modules_by_source = BTreeMap::new();
         let mut changed = BTreeSet::new();
+        let mut target_standalone_projects = self.standalone_projects.clone();
+        let mut target_synthetic_ids = self.synthetic_ids.clone();
 
-        for state in previous_states.values() {
+        for state in self.sources_by_module.values() {
             let path = crate::source::canonicalize_path(&state.location.display_path);
             let ownership = classify_entry_ownership(&path, &mut target_universe)?;
             let module = match ownership {
@@ -931,10 +948,9 @@ impl WorkspaceModuleSession {
                     unit.id
                 }
                 EntryOwnership::StandaloneModule { file: _ } => {
-                    let synthetic = *self
-                        .standalone_projects
+                    let synthetic = *target_standalone_projects
                         .entry(state.location.source_id.clone())
-                        .or_insert_with(|| self.synthetic_ids.allocate());
+                        .or_insert_with(|| target_synthetic_ids.allocate());
                     ModuleId::synthetic(synthetic, ModulePath::root())
                 }
                 EntryOwnership::Inline { synthetic } => ModuleId::synthetic(synthetic, ModulePath::root()),
@@ -978,6 +994,8 @@ impl WorkspaceModuleSession {
         // --- COMMIT BARRIER ---
         self.universe = target_universe;
         self.project_roots = target_project_roots;
+        self.standalone_projects = target_standalone_projects;
+        self.synthetic_ids = target_synthetic_ids;
         self.modules_by_source = target_modules_by_source;
         self.sources_by_module = target_sources_by_module;
         self.provider.base().clear_cache();
@@ -1305,35 +1323,40 @@ impl WorkspaceModuleSession {
             }
         }
 
-        // Apply invalidations to provider base cache
-        for id in content_invalidations {
-            self.provider.base().invalidate_source_content(&id);
-        }
-        for id in purged_identities {
-            self.provider.base().purge_source_identity(&id);
-        }
+        // Invalidation descriptors staged for atomic commit barrier
+        let pending_content_invalidations = content_invalidations;
+        let pending_purged_identities = purged_identities;
+        let pending_topology_invalidations = topology_invalidations;
         if topology_invalidations {
-            self.provider.base().invalidate_topology();
             stats.topology_invalidations += 1;
         }
 
-        // Reclassification if project structure markers changed
-        // Reclassification owns the committed source maps temporarily. End the
-        // alias overlay borrow before entering it, then replay only its staged
-        // keys on top of the reclassified committed alias map.
-        let source_alias_changes = source_identity_aliases.into_changes();
+        // Reclassification if project structure markers changed.
+        // Purely derived over &self and transaction state without mutating self.
         if ownership_reclassifications {
-            let (reclassified, reclassified_removed, reclassified_identities) = self.reclassify_tracked_sources(&removed_modules_by_source)?;
-            changed_modules.extend(reclassified);
-            removed_sources.extend(reclassified_removed);
-            identity_changes.extend(reclassified_identities);
-        }
+            let reclass = self.derive_reclassification(
+                &mutated_sources,
+                &removed_modules_by_source,
+                &mutated_project_roots,
+                &mutated_standalone_projects,
+                &synthetic_ids,
+                universe_override.as_ref(),
+            )?;
+            changed_modules.extend(reclass.changed_modules);
+            removed_sources.extend(reclass.removed_modules);
+            identity_changes.extend(reclass.identity_changes);
 
-        let mut source_identity_aliases = StagedMap::new(&self.source_identity_aliases);
-        for (source, change) in source_alias_changes {
-            match change {
-                EntryDelta::Set(canonical) => source_identity_aliases.set(source, canonical),
-                EntryDelta::Remove => source_identity_aliases.remove(&source),
+            mutated_modules_by_source.extend(reclass.mutated_modules_by_source);
+            removed_modules_by_source.extend(reclass.removed_modules_by_source);
+
+            mutated_sources.extend(reclass.mutated_sources_by_module);
+            removed_sources.extend(reclass.removed_sources_by_module);
+
+            mutated_project_roots.extend(reclass.mutated_project_roots);
+            mutated_standalone_projects = reclass.mutated_standalone_projects;
+            synthetic_ids = reclass.synthetic_ids;
+            if let Some(u) = reclass.universe_override {
+                universe_override = Some(u);
             }
         }
 
@@ -1422,6 +1445,17 @@ impl WorkspaceModuleSession {
         }
 
         // --- COMMIT BARRIER ---
+        // 0. Apply provider cache invalidations (PLAN-A-FINAL-1)
+        for id in pending_content_invalidations {
+            self.provider.base().invalidate_source_content(&id);
+        }
+        for id in pending_purged_identities {
+            self.provider.base().purge_source_identity(&id);
+        }
+        if pending_topology_invalidations {
+            self.provider.base().invalidate_topology();
+        }
+
         // 1. Commit overlays to shared provider
         for op in overlay_ops {
             match op {
@@ -1691,30 +1725,43 @@ impl WorkspaceModuleSession {
         }
     }
 
-    fn reclassify_tracked_sources(
-        &mut self,
+    fn derive_reclassification(
+        &self,
+        mutated_sources: &BTreeMap<ModuleId, WorkspaceSourceState>,
         removed_sources_by_id: &BTreeSet<SourceId>,
-    ) -> Result<(BTreeSet<ModuleId>, BTreeSet<ModuleId>, BTreeSet<ModuleId>), WorkspaceModuleSessionError> {
-        let previous_sources = std::mem::take(&mut self.sources_by_module);
-        let previous_modules: BTreeSet<ModuleId> = previous_sources.keys().cloned().collect();
-        let mut mutated_modules = BTreeMap::new();
-        let removed_modules = BTreeSet::new();
-        let mut project_roots = BTreeMap::new();
-        let mut standalone_projects = self.standalone_projects.clone();
-        let mut synthetic_ids = self.synthetic_ids.clone();
-        let mut universe_override = Some(self.universe.clone());
-        let mut sources_by_module = BTreeMap::new();
-        let mut modules_by_source = BTreeMap::new();
+        mutated_project_roots: &BTreeMap<ProjectSourceIdentity, crate::identity::ResolvedProjectId>,
+        mutated_standalone_projects: &BTreeMap<SourceId, SyntheticProjectId>,
+        synthetic_ids: &SyntheticProjectIdAllocator,
+        universe_override: Option<&ProjectUniverse>,
+    ) -> Result<ReclassificationDelta, WorkspaceModuleSessionError> {
+        let mut all_sources = BTreeMap::<SourceId, (ModuleId, WorkspaceSourceState)>::new();
+        for (mod_id, state) in &self.sources_by_module {
+            all_sources.insert(state.location.source_id.clone(), (mod_id.clone(), state.clone()));
+        }
+        for (mod_id, state) in mutated_sources {
+            all_sources.insert(state.location.source_id.clone(), (mod_id.clone(), state.clone()));
+        }
+
+        let previous_modules: BTreeSet<ModuleId> = all_sources.values().map(|(m, _)| m.clone()).collect();
+        let mut mutated_modules_by_source = BTreeMap::new();
+        let mut removed_modules_by_source = BTreeSet::new();
+        let mut mutated_sources_by_module = BTreeMap::new();
+        let mut removed_sources_by_module = BTreeSet::new();
+        let mut mutated_project_roots = mutated_project_roots.clone();
+        let mut mutated_standalone_projects = mutated_standalone_projects.clone();
+        let mut synthetic_ids = synthetic_ids.clone();
+        let mut effective_universe = universe_override.cloned().unwrap_or_else(|| self.universe.clone());
         let mut changed = BTreeSet::new();
         let mut identities = BTreeSet::new();
 
-        for state in previous_sources.into_values() {
-            if removed_sources_by_id.contains(&state.location.source_id) {
+        for (source_id, (old_module, state)) in all_sources {
+            if removed_sources_by_id.contains(&source_id) {
+                removed_modules_by_source.insert(source_id);
+                removed_sources_by_module.insert(old_module);
                 continue;
             }
             let path = crate::source::canonicalize_path(&state.location.display_path);
-            let effective_universe = universe_override.as_mut().unwrap();
-            let ownership = classify_entry_ownership(&path, effective_universe)?;
+            let ownership = classify_entry_ownership(&path, &mut effective_universe)?;
             let (module, project_id) = match ownership {
                 EntryOwnership::ProjectOwned { project } => {
                     let project_ref = effective_universe.get_project(project).expect("loaded project is present");
@@ -1727,7 +1774,7 @@ impl WorkspaceModuleSession {
                 }
                 EntryOwnership::StandalonePackageOwned { package_root } => {
                     let project_id = effective_universe.load_standalone_package(&package_root, None)?;
-                    project_roots.insert(ProjectSourceIdentity::from_path(&package_root), project_id);
+                    mutated_project_roots.insert(ProjectSourceIdentity::from_path(&package_root), project_id);
                     let project_ref = effective_universe.get_project(project_id).expect("loaded package is present");
                     (
                         crate::source::resolve_source_path(project_ref, &path)
@@ -1737,7 +1784,7 @@ impl WorkspaceModuleSession {
                     )
                 }
                 EntryOwnership::StandaloneModule { file: _ } => {
-                    let synthetic = *standalone_projects
+                    let synthetic = *mutated_standalone_projects
                         .entry(state.location.source_id.clone())
                         .or_insert_with(|| synthetic_ids.allocate());
                     (ModuleId::synthetic(synthetic, ModulePath::root()), None)
@@ -1747,45 +1794,51 @@ impl WorkspaceModuleSession {
 
             if let Some(project_id) = project_id {
                 let project_ref = effective_universe.get_project(project_id).expect("loaded project is present");
-                project_roots.insert(ProjectSourceIdentity::from_path(&project_ref.root_dir), project_id);
+                mutated_project_roots.insert(ProjectSourceIdentity::from_path(&project_ref.root_dir), project_id);
             }
 
-            mutated_modules.insert(state.location.source_id.clone(), module.clone());
-            if module != state.module {
-                identities.insert(state.module.clone());
+            mutated_modules_by_source.insert(state.location.source_id.clone(), module.clone());
+            if module != old_module {
+                identities.insert(old_module.clone());
+                identities.insert(module.clone());
                 changed.insert(module.clone());
+                removed_sources_by_module.insert(old_module.clone());
             }
 
-            let kind = Self::kind_for_source_delta(&module, &state.location, &sources_by_module, &removed_modules, &self.sources_by_module);
-            let updated = WorkspaceSourceState {
-                module: module.clone(),
-                kind,
-                location: state.location.clone(),
-                revision: state.revision,
-                text: state.text.clone(),
-                parsed: state.parsed.clone(),
-                open_overlay: state.open_overlay,
+            let kind = Self::kind_for_source_delta(&module, &state.location, &mutated_sources_by_module, &removed_sources_by_module, &self.sources_by_module);
+            let updated = if module == old_module && kind == state.kind {
+                state.clone()
+            } else {
+                let parsed = parse_source(module.clone(), kind, state.location.clone(), state.text.clone())?;
+                WorkspaceSourceState {
+                    module: module.clone(),
+                    kind,
+                    location: state.location.clone(),
+                    revision: state.revision,
+                    text: state.text.clone(),
+                    parsed,
+                    open_overlay: state.open_overlay,
+                }
             };
-            modules_by_source.insert(state.location.source_id.clone(), module.clone());
-            sources_by_module.insert(module, updated);
+            mutated_sources_by_module.insert(module, updated);
         }
 
-        self.modules_by_source = modules_by_source;
-        self.sources_by_module = sources_by_module;
-        self.project_roots = project_roots;
-        self.standalone_projects = standalone_projects;
-        self.synthetic_ids = synthetic_ids;
-        if let Some(universe) = universe_override {
-            self.universe = universe;
-        }
+        let new_modules: BTreeSet<ModuleId> = mutated_sources_by_module.keys().cloned().collect();
+        let removed: BTreeSet<ModuleId> = previous_modules.difference(&new_modules).cloned().collect();
 
-        let mut removed = BTreeSet::new();
-        for old_module in previous_modules {
-            if !self.sources_by_module.contains_key(&old_module) {
-                removed.insert(old_module);
-            }
-        }
-        Ok((changed, removed, identities))
+        Ok(ReclassificationDelta {
+            mutated_modules_by_source,
+            removed_modules_by_source,
+            mutated_sources_by_module,
+            removed_sources_by_module,
+            mutated_project_roots,
+            mutated_standalone_projects,
+            universe_override: Some(effective_universe),
+            synthetic_ids,
+            changed_modules: changed,
+            removed_modules: removed,
+            identity_changes: identities,
+        })
     }
 
     #[allow(clippy::too_many_arguments)]

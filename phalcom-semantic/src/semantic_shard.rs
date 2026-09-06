@@ -152,7 +152,9 @@ impl ModuleSemanticStructureShard {
 
         let mut hasher = DefaultHasher::new();
         source.id.hash(&mut hasher);
-        text.hash(&mut hasher);
+        for word in text.split_whitespace() {
+            word.hash(&mut hasher);
+        }
         hasher.finish()
     }
 
@@ -294,17 +296,29 @@ fn hash_range_without_bodies(
     range: phalcom_common::range::SourceRange,
     mut body_ranges: Vec<phalcom_common::range::SourceRange>,
 ) -> u64 {
-    let mut text = source.text.to_string();
+    let Some(raw_slice) = source.text.get(range.start..range.end) else {
+        let mut hasher = DefaultHasher::new();
+        source.id.hash(&mut hasher);
+        return hasher.finish();
+    };
+    let mut text = raw_slice.to_string();
     body_ranges.sort_by_key(|body| std::cmp::Reverse(body.start));
     for body in body_ranges {
-        let Some((open, close)) = body_braces(&text, body.start, body.end) else {
+        if body.start < range.start || body.end > range.end {
+            continue;
+        }
+        let rel_start = body.start - range.start;
+        let rel_end = body.end - range.start;
+        let Some((open, close)) = body_braces(&text, rel_start, rel_end) else {
             continue;
         };
         text.replace_range(open + 1..close, "");
     }
     let mut hasher = DefaultHasher::new();
     source.id.hash(&mut hasher);
-    text.get(range.start..range.end).hash(&mut hasher);
+    for word in text.split_whitespace() {
+        word.hash(&mut hasher);
+    }
     hasher.finish()
 }
 

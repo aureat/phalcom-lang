@@ -127,20 +127,19 @@ fn a6_implicit_object_hierarchy_edge_is_published_for_new_declarations() {
     let updated = session.update(multi_module_input(vec![(owner.clone(), "class A {}\nclass Extra {}".into())], 2));
     assert_eq!(updated.snapshot.hierarchy.superclasses.get(&extra), Some(&object));
     assert!(updated.snapshot.surfaces().contains_key(&extra));
-    let extra_edges = updated
-        .snapshot
-        .semantic_graph
-        .edges_from(&SemanticNodeId::Declaration {
-            module: owner.clone(),
-            name: "Extra".into(),
-        });
-    assert!(extra_edges
-        .iter()
-        .any(|edge| edge.kind == SemanticEdgeKind::Superclass
-            && edge.to == SemanticNodeId::Declaration {
-                module: object.module.clone(),
-                name: object.name.clone(),
-            }), "Extra hierarchy edges: {extra_edges:?}");
+    let extra_edges = updated.snapshot.semantic_graph.edges_from(&SemanticNodeId::Declaration {
+        module: owner.clone(),
+        name: "Extra".into(),
+    });
+    assert!(
+        extra_edges.iter().any(|edge| edge.kind == SemanticEdgeKind::Superclass
+            && edge.to
+                == SemanticNodeId::Declaration {
+                    module: object.module.clone(),
+                    name: object.name.clone(),
+                }),
+        "Extra hierarchy edges: {extra_edges:?}"
+    );
     assert_eq!(
         session
             .db()
@@ -153,7 +152,13 @@ fn a6_implicit_object_hierarchy_edge_is_published_for_new_declarations() {
     let cold_update = cold.update(multi_module_input(vec![(owner, "class A {}\nclass Extra {}".into())], 2));
     assert_eq!(updated.snapshot.hierarchy.superclasses, cold_update.snapshot.hierarchy.superclasses);
     assert_eq!(updated.snapshot.surfaces().len(), cold_update.snapshot.surfaces().len());
-    assert!(cold_update.snapshot.surfaces().keys().all(|declaration| updated.snapshot.surfaces().contains_key(declaration)));
+    assert!(
+        cold_update
+            .snapshot
+            .surfaces()
+            .keys()
+            .all(|declaration| updated.snapshot.surfaces().contains_key(declaration))
+    );
     assert_eq!(updated.snapshot.semantic_graph, cold_update.snapshot.semantic_graph);
 }
 
@@ -921,11 +926,16 @@ fn pa10_cold_and_incremental_snapshots_have_presentation_parity_across_mutations
         let cold_result = cold
             .update_with_budget_and_cancel(input, QueryBudget::default(), &CancellationToken::new())
             .expect("cold parity update");
+
         let incremental_projection = semantic_parity_projection(&incremental_result.snapshot);
         let cold_projection = semantic_parity_projection(&cold_result.snapshot);
+
+        if incremental_projection != cold_projection {
+            report_semantic_parity_diff(step, &incremental_projection, &cold_projection);
+        }
+
         assert_eq!(
-            incremental_projection,
-            cold_projection,
+            incremental_projection, cold_projection,
             "cold/incremental semantic presentation diverged after mutation step {step}",
         );
     }
@@ -945,6 +955,61 @@ struct SemanticParityProjection {
     semantic_graph: Vec<String>,
     callable_analyses: Vec<String>,
     source_index: Vec<String>,
+}
+
+#[track_caller]
+fn report_parity_vec_diff(step: usize, field: &str, incremental: &[String], cold: &[String]) {
+    if incremental == cold {
+        return;
+    }
+
+    eprintln!(
+        "\nPA-10 step {step}: field `{field}` diverged \
+         (incremental_len={}, cold_len={})",
+        incremental.len(),
+        cold.len(),
+    );
+
+    let common_len = incremental.len().min(cold.len());
+
+    if let Some(index) = (0..common_len).find(|&index| incremental[index] != cold[index]) {
+        eprintln!("first differing index: {index}");
+        eprintln!("  incremental: {:?}", incremental[index]);
+        eprintln!("  cold:        {:?}", cold[index]);
+        return;
+    }
+
+    // If all shared positions agree, the difference is an extra/missing entry.
+    if incremental.len() > common_len {
+        eprintln!("first incremental-only trailing entry at {common_len}: {:?}", incremental[common_len]);
+    }
+
+    if cold.len() > common_len {
+        eprintln!("first cold-only trailing entry at {common_len}: {:?}", cold[common_len]);
+    }
+}
+
+fn report_semantic_parity_diff(step: usize, incremental: &SemanticParityProjection, cold: &SemanticParityProjection) {
+    if incremental.status != cold.status {
+        eprintln!(
+            "\nPA-10 step {step}: field `status` diverged\n\
+             incremental: {:?}\n\
+             cold:        {:?}",
+            incremental.status, cold.status,
+        );
+    }
+
+    report_parity_vec_diff(step, "module_products", &incremental.module_products, &cold.module_products);
+    report_parity_vec_diff(step, "declarations", &incremental.declarations, &cold.declarations);
+    report_parity_vec_diff(step, "surfaces", &incremental.surfaces, &cold.surfaces);
+    report_parity_vec_diff(step, "hierarchy", &incremental.hierarchy, &cold.hierarchy);
+    report_parity_vec_diff(step, "callable_signatures", &incremental.callable_signatures, &cold.callable_signatures);
+    report_parity_vec_diff(step, "field_signatures", &incremental.field_signatures, &cold.field_signatures);
+    report_parity_vec_diff(step, "aliases", &incremental.aliases, &cold.aliases);
+    report_parity_vec_diff(step, "diagnostics", &incremental.diagnostics, &cold.diagnostics);
+    report_parity_vec_diff(step, "semantic_graph", &incremental.semantic_graph, &cold.semantic_graph);
+    report_parity_vec_diff(step, "callable_analyses", &incremental.callable_analyses, &cold.callable_analyses);
+    report_parity_vec_diff(step, "source_index", &incremental.source_index, &cold.source_index);
 }
 
 fn semantic_parity_projection(snapshot: &SemanticSnapshot) -> SemanticParityProjection {

@@ -232,6 +232,37 @@ impl SemanticDb {
         true
     }
 
+    /// Marks a ready product current after its exact dependencies have already
+    /// been revalidated by the caller and confirmed matching observed fingerprints.
+    pub fn validate_ready(&mut self, key: &QueryKey) -> bool {
+        if let Some(deps) = self.index.dependencies_of(key) {
+            for edge in deps {
+                let Some(dep_state) = self.query_states.get(&edge.dependency) else {
+                    return false;
+                };
+                let QueryState::Ready {
+                    validated_revision,
+                    product_fingerprint: dep_prod_fp,
+                    ..
+                } = dep_state
+                else {
+                    return false;
+                };
+                if *validated_revision != self.revision || *dep_prod_fp != edge.observed_fingerprint {
+                    return false;
+                }
+            }
+        }
+
+        let current_revision = self.revision;
+        let Some(QueryState::Ready { validated_revision, .. }) = self.query_states.get_mut(key) else {
+            return false;
+        };
+        *validated_revision = current_revision;
+        self.revision_revalidated.insert(key.clone());
+        true
+    }
+
     /// Records an edge to a dependency validated for the current revision.
     ///
     /// A stored `Ready` product from an older revision is insufficient until its
@@ -250,11 +281,7 @@ impl SemanticDb {
         else {
             return Err(format!("query dependency {:?} is not Ready", dependency));
         };
-        debug_assert_eq!(
-            *validated_revision,
-            self.revision,
-            "dependency must be validated in the current revision before recording"
-        );
+
         if *validated_revision != self.revision {
             return Err(format!(
                 "query dependency {:?} is Ready but not validated for current revision {:?}",
@@ -377,6 +404,35 @@ impl SemanticDb {
             self.metrics.record_invalidation();
         }
         roots
+    }
+
+    /// Permanently removes one obsolete query identity and all of its cached state.
+    ///
+    /// Unlike ordinary invalidation, retirement also drops the last-known-good
+    /// product so a later re-addition cannot reuse a prior incarnation.
+    pub fn retire_query(&mut self, key: &QueryKey) -> usize {
+        let dependents = self.index.reverse_closure([key.clone()]);
+        let mut retired = 0;
+        for dependent in dependents.iter().filter(|dependent| *dependent != key) {
+            retired += usize::from(self.query_states.remove(dependent).is_some());
+            retired += usize::from(self.products.remove(dependent).is_some());
+            self.index.remove_dependencies(dependent);
+            self.metrics.record_invalidation();
+        }
+        retired += usize::from(self.query_states.remove(key).is_some());
+        retired += usize::from(self.products.remove(key).is_some());
+        retired += usize::from(self.last_known_good.remove(key).is_some());
+        if let Some(module) = query_key_module(key) {
+            if let Some(module_keys) = self.query_keys_by_module.get_mut(module) {
+                module_keys.remove(key);
+                if module_keys.is_empty() {
+                    self.query_keys_by_module.remove(module);
+                }
+            }
+        }
+        self.index.remove_dependencies(key);
+        self.index.purge_keys(&BTreeSet::from([key.clone()]));
+        retired
     }
 
     /// Permanently removes every cached query product owned by one obsolete module.

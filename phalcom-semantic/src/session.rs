@@ -272,10 +272,14 @@ struct SemanticModuleDelta {
 #[derive(Clone, Debug, Default)]
 struct SemanticContributionDelta {
     declarations: BTreeSet<DeclarationId>,
+    declarations_removed: BTreeSet<DeclarationId>,
     hierarchy_edges: BTreeSet<DeclarationId>,
     callable_signatures: BTreeSet<CallableId>,
+    callable_signatures_removed: BTreeSet<CallableId>,
     field_signatures: BTreeSet<FieldId>,
+    field_signatures_removed: BTreeSet<FieldId>,
     callable_bodies: BTreeSet<CallableId>,
+    callable_bodies_removed: BTreeSet<CallableId>,
     aliases: BTreeSet<DeclarationId>,
     structural_modules: BTreeSet<ModuleId>,
 }
@@ -295,6 +299,15 @@ fn changed_fingerprinted_keys<K: Clone + Ord>(current: Option<&BTreeMap<K, u64>>
     changed
 }
 
+fn removed_fingerprinted_keys<K: Clone + Ord>(current: Option<&BTreeMap<K, u64>>, previous: Option<&BTreeMap<K, u64>>) -> BTreeSet<K> {
+    previous
+        .into_iter()
+        .flat_map(|old| old.keys())
+        .filter(|key| current.is_none_or(|now| !now.contains_key(*key)))
+        .cloned()
+        .collect()
+}
+
 fn contribution_delta(
     current: &BTreeMap<ModuleId, Arc<ModuleSemanticStructureShard>>,
     previous: &BTreeMap<ModuleId, Arc<ModuleSemanticStructureShard>>,
@@ -311,6 +324,10 @@ fn contribution_delta(
             now.map(|shard| shard.declaration_header_fingerprints.as_ref()),
             old.map(|shard| shard.declaration_header_fingerprints.as_ref()),
         ));
+        delta.declarations_removed.extend(removed_fingerprinted_keys(
+            now.map(|shard| shard.declaration_header_fingerprints.as_ref()),
+            old.map(|shard| shard.declaration_header_fingerprints.as_ref()),
+        ));
         delta.hierarchy_edges.extend(changed_fingerprinted_keys(
             now.map(|shard| shard.hierarchy_edge_fingerprints.as_ref()),
             old.map(|shard| shard.hierarchy_edge_fingerprints.as_ref()),
@@ -319,11 +336,23 @@ fn contribution_delta(
             now.map(|shard| shard.callable_signature_fingerprints.as_ref()),
             old.map(|shard| shard.callable_signature_fingerprints.as_ref()),
         ));
+        delta.callable_signatures_removed.extend(removed_fingerprinted_keys(
+            now.map(|shard| shard.callable_signature_fingerprints.as_ref()),
+            old.map(|shard| shard.callable_signature_fingerprints.as_ref()),
+        ));
         delta.field_signatures.extend(changed_fingerprinted_keys(
             now.map(|shard| shard.field_signature_fingerprints.as_ref()),
             old.map(|shard| shard.field_signature_fingerprints.as_ref()),
         ));
+        delta.field_signatures_removed.extend(removed_fingerprinted_keys(
+            now.map(|shard| shard.field_signature_fingerprints.as_ref()),
+            old.map(|shard| shard.field_signature_fingerprints.as_ref()),
+        ));
         delta.callable_bodies.extend(changed_fingerprinted_keys(
+            now.map(|shard| shard.callable_body_fingerprints.as_ref()),
+            old.map(|shard| shard.callable_body_fingerprints.as_ref()),
+        ));
+        delta.callable_bodies_removed.extend(removed_fingerprinted_keys(
             now.map(|shard| shard.callable_body_fingerprints.as_ref()),
             old.map(|shard| shard.callable_body_fingerprints.as_ref()),
         ));
@@ -896,6 +925,76 @@ impl SemanticWorkspaceSession {
         }
         let contribution_delta = contribution_delta(&semantic_structure_shards, &previous_structure_shards);
         self.semantic_structure_shards = semantic_structure_shards;
+        let current_declarations = self
+            .semantic_structure_shards
+            .values()
+            .flat_map(|shard| shard.declaration_header_fingerprints.keys().cloned())
+            .collect::<BTreeSet<_>>();
+        let removed_callable_bodies = previous_snapshot
+            .as_ref()
+            .into_iter()
+            .flat_map(|snapshot| snapshot.callable_analyses.keys())
+            .filter(|callable| {
+                callable.declaration_owner().name.as_ref() != "<main>"
+                    && !current_declarations.contains(callable.declaration_owner())
+            })
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        let mut removed_query_roots = BTreeSet::new();
+        for declaration in &contribution_delta.declarations_removed {
+            removed_query_roots.insert(QueryKey::DeclarationShell(declaration.clone()));
+            removed_query_roots.insert(QueryKey::DeclarationSurface(declaration.clone()));
+            removed_query_roots.insert(QueryKey::HierarchyEdge(declaration.clone()));
+            removed_query_roots.insert(QueryKey::LinkedName(declaration.module.clone(), declaration.name.to_string()));
+            removed_query_roots.insert(QueryKey::PublicExport(declaration.module.clone(), declaration.name.to_string()));
+        }
+        for callable in &contribution_delta.callable_signatures_removed {
+            removed_query_roots.insert(QueryKey::CallableSignature(callable.clone()));
+            removed_query_roots.insert(QueryKey::AdvisoryCallable(callable.clone()));
+        }
+        for field in &contribution_delta.field_signatures_removed {
+            removed_query_roots.insert(QueryKey::FieldSignature(field.clone()));
+        }
+        for callable in &contribution_delta.callable_bodies_removed {
+            removed_query_roots.insert(QueryKey::CallableBody(callable.clone()));
+            removed_query_roots.insert(QueryKey::AdvisoryCallable(callable.clone()));
+        }
+        for callable in &removed_callable_bodies {
+            removed_query_roots.insert(QueryKey::CallableBody(callable.clone()));
+            removed_query_roots.insert(QueryKey::AdvisoryCallable(callable.clone()));
+        }
+        let removed_closure = self.db.index().reverse_closure(removed_query_roots);
+        invalidated_keys.extend(removed_closure.iter().cloned());
+        let mut retired_body_dependents = BTreeSet::new();
+        for key in &removed_closure {
+            if let QueryKey::CallableBody(callable) = key {
+                if !contribution_delta.callable_bodies_removed.contains(callable)
+                    && !removed_callable_bodies.contains(callable)
+                {
+                    retired_body_dependents.insert(callable.clone());
+                }
+            }
+        }
+        for declaration in &contribution_delta.declarations_removed {
+            self.db.retire_query(&QueryKey::DeclarationShell(declaration.clone()));
+            self.db.retire_query(&QueryKey::DeclarationSurface(declaration.clone()));
+            self.db.retire_query(&QueryKey::HierarchyEdge(declaration.clone()));
+        }
+        for callable in &contribution_delta.callable_signatures_removed {
+            self.db.retire_query(&QueryKey::CallableSignature(callable.clone()));
+            self.db.retire_query(&QueryKey::AdvisoryCallable(callable.clone()));
+        }
+        for field in &contribution_delta.field_signatures_removed {
+            self.db.retire_query(&QueryKey::FieldSignature(field.clone()));
+        }
+        for callable in &contribution_delta.callable_bodies_removed {
+            self.db.retire_query(&QueryKey::CallableBody(callable.clone()));
+            self.db.retire_query(&QueryKey::AdvisoryCallable(callable.clone()));
+        }
+        for callable in &removed_callable_bodies {
+            self.db.retire_query(&QueryKey::CallableBody(callable.clone()));
+            self.db.retire_query(&QueryKey::AdvisoryCallable(callable.clone()));
+        }
         let current_modules = self.semantic_structure_shards.keys().cloned().collect::<BTreeSet<_>>();
         let mut removed_modules = delta_removed_modules;
         removed_modules.extend(
@@ -967,6 +1066,7 @@ impl SemanticWorkspaceSession {
                 let linked_key = QueryKey::LinkedInterface(old_module_id.clone());
                 let diags_key = QueryKey::ModuleDiagnostics(old_module_id.clone());
                 let mut seeds = vec![parsed_key, unlinked_key, linked_key, diags_key, QueryKey::AdvisoryModule(old_module_id.clone())];
+                seeds.extend(self.db.query_keys_for_module(old_module_id).cloned());
                 if let Some(snapshot) = previous_snapshot.as_ref() {
                     seeds.extend(
                         snapshot
@@ -1045,6 +1145,8 @@ impl SemanticWorkspaceSession {
         let mut hierarchy_edge_work = BTreeSet::new();
         let mut declaration_surface_work = BTreeSet::new();
         let mut callable_signature_work = BTreeSet::new();
+        let mut callable_body_work = contribution_delta.callable_bodies.clone();
+        callable_body_work.extend(retired_body_dependents);
         let mut field_signature_work = BTreeSet::new();
         let mut declaration_shell_work = BTreeSet::new();
         let mut semantic_work_modules = if previous_snapshot.is_none() {
@@ -1053,6 +1155,14 @@ impl SemanticWorkspaceSession {
             let mut roots = BTreeSet::new();
             for declaration in &generic_header_work {
                 roots.insert(QueryKey::DeclarationShell(declaration.clone()));
+            }
+            for declaration in &contribution_delta.declarations {
+                roots.insert(QueryKey::LinkedName(declaration.module.clone(), declaration.name.to_string()));
+                roots.insert(QueryKey::PublicExport(declaration.module.clone(), declaration.name.to_string()));
+            }
+            for declaration in &contribution_delta.declarations_removed {
+                roots.insert(QueryKey::LinkedName(declaration.module.clone(), declaration.name.to_string()));
+                roots.insert(QueryKey::PublicExport(declaration.module.clone(), declaration.name.to_string()));
             }
             for declaration in &contribution_delta.aliases {
                 roots.insert(QueryKey::DeclarationShell(declaration.clone()));
@@ -1099,6 +1209,17 @@ impl SemanticWorkspaceSession {
                     }
                 }
             }
+            callable_body_work.extend(roots.iter().filter(|root| !matches!(root, QueryKey::CallableBody(_))).flat_map(|root| {
+                self.db
+                    .index()
+                    .dependents_of(root)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|dependent| match dependent {
+                        QueryKey::CallableBody(callable) => Some(callable.clone()),
+                        _ => None,
+                    })
+            }));
             let closure = self.db.index().reverse_closure(roots);
             stats.reverse_candidates_considered = closure.len();
             for key in &closure {
@@ -1165,7 +1286,6 @@ impl SemanticWorkspaceSession {
                 }
             }
         }
-
         declaration_shell_work.extend(contribution_delta.declarations.iter().cloned());
         declaration_shell_work.extend(generic_header_work.iter().cloned());
         declaration_surface_work.extend(contribution_delta.declarations.iter().cloned());
@@ -1197,6 +1317,27 @@ impl SemanticWorkspaceSession {
                 .map(|callable| callable.declaration_owner().clone()),
         );
         declaration_surface_work.extend(contribution_delta.field_signatures.iter().map(|field| field.owner.clone()));
+        let changed_declarations = hierarchy_edge_work
+            .iter()
+            .chain(declaration_shell_work.iter())
+            .chain(declaration_surface_work.iter())
+            .collect::<BTreeSet<_>>();
+        for (importer_id, linked_mod) in &input.linked.modules {
+            if !current_modules.contains(importer_id) || semantic_work_modules.contains(importer_id) {
+                continue;
+            }
+            let imports_changed_decl = linked_mod.linked_reads.iter().any(|read| match read {
+                phalcom_modules::linker::LinkedReadSpec::Binding(sym) => {
+                    changed_declarations.iter().any(|decl| sym.module == decl.module && sym.name.as_ref() == decl.name.as_ref())
+                }
+                phalcom_modules::linker::LinkedReadSpec::Module(target_mod) => {
+                    changed_declarations.iter().any(|decl| &decl.module == target_mod)
+                }
+            });
+            if imports_changed_decl {
+                semantic_work_modules.insert(importer_id.clone());
+            }
+        }
         let structural_work_modules = semantic_work_modules
             .iter()
             .filter(|module| {
@@ -1290,10 +1431,18 @@ impl SemanticWorkspaceSession {
             .as_ref()
             .map_or_else(|| self.base_hierarchy.clone(), |snapshot| (*snapshot.hierarchy).clone());
         for declaration in &hierarchy_edge_work {
-            hierarchy.remove(declaration);
+            hierarchy.remove_superclass(declaration);
         }
         for declaration in &contribution_delta.declarations {
-            hierarchy.remove(declaration);
+            let declaration_still_exists = self
+                .semantic_structure_shards
+                .get(&declaration.module)
+                .is_some_and(|shard| shard.declaration_header_fingerprints.contains_key(declaration));
+            if declaration_still_exists {
+                hierarchy.remove_template(declaration);
+            } else {
+                hierarchy.remove(declaration);
+            }
         }
         for module in &removed_modules {
             hierarchy.remove_module(module);
@@ -2137,10 +2286,19 @@ impl SemanticWorkspaceSession {
         for declaration in &declaration_surface_work {
             dispatch.remove_surface(declaration);
         }
+        for declaration in &contribution_delta.declarations_removed {
+            dispatch.remove_surface(declaration);
+        }
         for callable in &callable_signature_work {
             callable_signatures.remove(callable);
         }
+        for callable in &contribution_delta.callable_signatures_removed {
+            callable_signatures.remove(callable);
+        }
         for field in &field_signature_work {
+            field_signatures.remove(field);
+        }
+        for field in &contribution_delta.field_signatures_removed {
             field_signatures.remove(field);
         }
         for module in &removed_modules {
@@ -2537,7 +2695,11 @@ impl SemanticWorkspaceSession {
             snapshot
                 .callable_analyses
                 .iter()
-                .filter(|(callable, _)| current_modules.contains(callable.module()) && !semantic_work_modules.contains(callable.module()))
+                .filter(|(callable, _)| {
+                    current_modules.contains(callable.module())
+                        && !contribution_delta.callable_bodies_removed.contains(*callable)
+                        && !removed_callable_bodies.contains(*callable)
+                })
                 .map(|(callable, analysis)| (callable.clone(), analysis.clone()))
                 .collect()
         });
@@ -2642,6 +2804,17 @@ impl SemanticWorkspaceSession {
                                     associated_families: Some(&associated_surfaces_table),
                                 };
 
+                                if previous_snapshot.is_some() && !callable_body_work.contains(&callable_id) {
+                                    if callable_analyses.contains_key(&callable_id) {
+                                        if refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, &mut self.store).is_ok() {
+                                            if self.db.validate_ready(&query_key) {
+                                                callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                }
+
                                 if let Err(outcome) = refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, &mut self.store) {
                                     return Err(outcome);
                                 }
@@ -2678,6 +2851,12 @@ impl SemanticWorkspaceSession {
                                                 .entry(module_id.clone())
                                                 .or_default()
                                                 .extend(analysis.diagnostics.iter().cloned());
+                                        }
+                                        if let Some(sig) = callable_signatures.get_mut(&callable_id) {
+                                            if sig.return_validation != analysis.return_validation {
+                                                sig.return_validation = analysis.return_validation;
+                                                dispatch.update_callable_return_type(&callable_id, sig.published_return_knowledge());
+                                            }
                                         }
                                         callable_analyses.insert(callable_id.clone(), analysis);
                                         if is_constructor {
@@ -2813,6 +2992,17 @@ impl SemanticWorkspaceSession {
                                         associated_families: Some(&associated_surfaces_table),
                                     };
 
+                                    if previous_snapshot.is_some() && !callable_body_work.contains(&callable_id) {
+                                        if callable_analyses.contains_key(&callable_id) {
+                                            if refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, &mut self.store).is_ok() {
+                                                if self.db.validate_ready(&query_key) {
+                                                    callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
+                                                    continue;
+                                                }
+                                            }
+                                        }
+                                    }
+
                                     if let Err(outcome) = refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, &mut self.store) {
                                         return Err(outcome);
                                     }
@@ -2849,6 +3039,12 @@ impl SemanticWorkspaceSession {
                                                     .entry(module_id.clone())
                                                     .or_default()
                                                     .extend(analysis.diagnostics.iter().cloned());
+                                            }
+                                            if let Some(sig) = callable_signatures.get_mut(&callable_id) {
+                                                if sig.return_validation != analysis.return_validation {
+                                                    sig.return_validation = analysis.return_validation;
+                                                    dispatch.update_callable_return_type(&callable_id, sig.published_return_knowledge());
+                                                }
                                             }
                                             callable_analyses.insert(callable_id.clone(), analysis);
                                         }
@@ -2940,6 +3136,17 @@ impl SemanticWorkspaceSession {
                                                 associated_families: Some(&associated_surfaces_table),
                                             };
 
+                                            if previous_snapshot.is_some() && !callable_body_work.contains(&callable_id) {
+                                                if callable_analyses.contains_key(&callable_id) {
+                                                    if refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, &mut self.store).is_ok() {
+                                                        if self.db.validate_ready(&query_key) {
+                                                            callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
+                                                            continue;
+                                                        }
+                                                    }
+                                                }
+                                            }
+
                                             if let Err(outcome) = refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, &mut self.store) {
                                                 return Err(outcome);
                                             }
@@ -2978,6 +3185,12 @@ impl SemanticWorkspaceSession {
                                                             .or_default()
                                                             .extend(analysis.diagnostics.iter().cloned());
                                                     }
+                                                    if let Some(sig) = callable_signatures.get_mut(&callable_id) {
+                                                        if sig.return_validation != analysis.return_validation {
+                                                            sig.return_validation = analysis.return_validation;
+                                                            dispatch.update_callable_return_type(&callable_id, sig.published_return_knowledge());
+                                                        }
+                                                    }
                                                     callable_analyses.insert(callable_id.clone(), analysis);
                                                 }
                                                 QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
@@ -2995,33 +3208,28 @@ impl SemanticWorkspaceSession {
             }
         }
 
-        // A recomputed callable republishes a stable or changed contract to its
-        // callers. Seed the next typed body worklist from those exact signature
-        // dependents so downstream products can validate without reopening all
-        // callable bodies in their owning modules.
-        let recomputed_body_roots = self
+        // Only a recomputed callable signature can publish a changed contract
+        // to callers. A body-only recomputation with an unchanged declared
+        // signature must stop at the provider.
+        let downstream_body_roots = self
             .db
             .revision_recomputed_keys()
             .filter_map(|key| match key {
-                QueryKey::CallableBody(callable) => Some(callable.clone()),
+                QueryKey::CallableSignature(callable) => Some(QueryKey::CallableSignature(callable.clone())),
+                QueryKey::CallableBody(callable) => Some(QueryKey::CallableSignature(callable.clone())),
                 _ => None,
             })
-            .collect::<Vec<_>>();
-        let recomputed_query_keys = self.db.revision_recomputed_keys().cloned().collect::<BTreeSet<_>>();
-        let mut downstream_body_roots = BTreeSet::new();
-        for callable in recomputed_body_roots {
-            downstream_body_roots.insert(QueryKey::CallableBody(callable.clone()));
-            if recomputed_query_keys.contains(&QueryKey::CallableSignature(callable.clone())) {
-                downstream_body_roots.insert(QueryKey::CallableSignature(callable));
-            }
-        }
+            .collect::<BTreeSet<_>>();
         let downstream_body_work = self
             .db
             .index()
             .reverse_closure(downstream_body_roots)
             .into_iter()
             .filter_map(|key| match key {
-                QueryKey::CallableBody(callable) if current_modules.contains(&callable.module()) && !callable_dispositions.contains_key(&callable) => {
+                QueryKey::CallableBody(callable)
+                    if current_modules.contains(&callable.module())
+                        && callable_dispositions.get(&callable) != Some(&CallableRevisionDisposition::Recomputed) =>
+                {
                     Some(callable)
                 }
                 _ => None,
@@ -3048,6 +3256,26 @@ impl SemanticWorkspaceSession {
                 enum_semantics: Some(&enum_semantics),
                 associated_families: Some(&associated_surfaces_table),
             };
+            let has_declared_return = callable_signatures
+                .get_for_body(&callable)
+                .is_some_and(|signature| !signature.declared_return.is_unknown())
+                || callable_analyses.get(&callable).is_some_and(|analysis| {
+                    matches!(
+                        analysis.return_validation,
+                        crate::signature::ReturnContractValidation::Satisfied(_)
+                    )
+                });
+            if has_declared_return
+                && callable_dispositions.get(&callable) != Some(&CallableRevisionDisposition::Recomputed)
+                && callable_analyses.contains_key(&callable)
+            {
+                if let Err(outcome) = refresh_cached_body_dependencies(&mut self.db, &QueryKey::CallableBody(callable.clone()), &formal_inputs, &mut self.store) {
+                    return Err(outcome);
+                }
+                if self.db.validate_ready(&QueryKey::CallableBody(callable.clone())) {
+                    continue;
+                }
+            }
             if let Err(outcome) = revalidate_downstream_callable_body(
                 &mut self.db,
                 &callable,
@@ -3055,7 +3283,8 @@ impl SemanticWorkspaceSession {
                 &formal_inputs,
                 &mut self.store,
                 &hierarchy,
-                &dispatch,
+                &mut dispatch,
+                &mut callable_signatures,
                 &mut callable_analyses,
                 &mut callable_dispositions,
                 &mut diags_by_module,
@@ -3325,6 +3554,10 @@ impl SemanticWorkspaceSession {
         for declaration in &blocked_declarations {
             declarations.remove(declaration);
         }
+        callable_analyses.retain(|callable, _| {
+            callable.declaration_owner().name.as_ref() == "<main>"
+                || current_declarations.contains(callable.declaration_owner())
+        });
         let mut snapshot_obj = SemanticSnapshot::new_with_callable_analyses(
             self.workspace,
             self.db.revision(),
@@ -3483,6 +3716,13 @@ impl SemanticWorkspaceSession {
         stats.advisory_sources_recomputed = changed_modules.len();
         stats.modules_relinked = if module_graph_changed { changed_modules.len() } else { 0 };
         stats.project_graph_rebuilt = effects.module_graph_changed;
+        if previous_snapshot.is_some() {
+            for callable in snapshot.callable_analyses.keys() {
+                if callable.declaration_owner().name.as_ref() != "<main>" {
+                    callable_dispositions.entry(callable.clone()).or_insert(CallableRevisionDisposition::Reused);
+                }
+            }
+        }
         stats.callables_recomputed = callable_dispositions
             .values()
             .filter(|disposition| **disposition == CallableRevisionDisposition::Recomputed)
@@ -4772,7 +5012,8 @@ fn revalidate_downstream_callable_body(
     formal_inputs: &FormalQueryInputs<'_>,
     store: &mut TypeStore,
     hierarchy: &MapTypeHierarchy,
-    dispatch: &SurfaceDispatchResolver,
+    dispatch: &mut SurfaceDispatchResolver,
+    callable_signatures: &mut CallableSignatureTable,
     callable_analyses: &mut HashMap<CallableId, Arc<crate::checker::CallableAnalysis>>,
     callable_dispositions: &mut BTreeMap<CallableId, CallableRevisionDisposition>,
     diagnostics: &mut BTreeMap<ModuleId, Vec<SemanticDiagnostic>>,
@@ -4831,6 +5072,12 @@ fn revalidate_downstream_callable_body(
                     .entry(callable.module().clone())
                     .or_default()
                     .extend(analysis.diagnostics.iter().cloned());
+            }
+            if let Some(sig) = callable_signatures.get_mut(callable) {
+                if sig.return_validation != analysis.return_validation {
+                    sig.return_validation = analysis.return_validation;
+                    dispatch.update_callable_return_type(callable, sig.published_return_knowledge());
+                }
             }
             callable_analyses.insert(callable.clone(), analysis);
             Ok(())
@@ -4936,7 +5183,20 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
             return Err(QueryOutcome::Cancelled);
         }
 
-        let mut changed_callables = HashSet::new();
+        let mut changed_callables = if iteration == 0 {
+            callable_dispositions
+                .iter()
+                .filter_map(|(callable, disposition)| {
+                    (*disposition == CallableRevisionDisposition::Recomputed
+                        && callable_signatures
+                            .get_for_body(callable)
+                            .is_some_and(|signature| signature.declared_return.is_unknown()))
+                    .then_some(callable.clone())
+                })
+                .collect()
+        } else {
+            HashSet::new()
+        };
 
         for (callable, analysis) in callable_analyses.iter() {
             let Some(signature) = callable_signatures.get_for_body(callable) else {
@@ -5051,7 +5311,10 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
                     let affected = callable_analyses
                         .get(&callable)
                         .is_some_and(|analysis| analysis.dependencies.iter().any(|dependency| changed_callables.contains(dependency)));
-                    if !affected {
+                    let inferred_return = callable_signatures
+                        .get_for_body(&callable)
+                        .is_some_and(|signature| signature.declared_return.is_unknown());
+                    if !affected || !inferred_return {
                         continue;
                     }
                     let declared_signature = callable_signatures.get_for_body(&callable).map(|signature| (&signature.callable, signature));
