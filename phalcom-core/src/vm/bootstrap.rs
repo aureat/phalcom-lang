@@ -612,7 +612,7 @@ impl VM {
                 .object;
             let name = self.interner.intern(binding.name);
             let value = if binding.key == phalcom_native_meta::UniverseKey::None {
-                Value::obj(self.universe.classes.none_class)
+                Value::none()
             } else {
                 self.heap
                     .module(owner)
@@ -659,6 +659,9 @@ impl VM {
                 continue;
             }
             let name_text = self.resolve_symbol(key.name);
+            if name_text.ends_with(".class") {
+                continue;
+            }
             if let Some(&is_prelude) = native_names.get(name_text) {
                 if !is_prelude && !matches!(name_text, "Some" | "None") {
                     continue;

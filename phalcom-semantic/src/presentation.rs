@@ -13,7 +13,7 @@ use crate::types::evidence::TypeKnowledge;
 use crate::types::id::TypeId;
 use crate::types::store::TypeStore;
 use phalcom_common::range::SourceRange;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
 /// Canonical formal presentation state for one semantic site.
@@ -277,7 +277,6 @@ pub struct SemanticPresentationIndex {
     expression_sites: BTreeMap<ModuleId, Vec<FormalTypeSite>>,
 }
 
-/// Machine-readable identity of one formal source fact.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum FormalFactRef {
     Callable(CallableId),
@@ -290,6 +289,18 @@ pub enum FormalFactRef {
         binding: crate::identity::BindingId,
     },
 }
+
+impl FormalFactRef {
+    /// Returns the canonical module owning this formal fact.
+    pub fn module(&self) -> &ModuleId {
+        match self {
+            FormalFactRef::Callable(c) => c.module(),
+            FormalFactRef::Expression { callable, .. } => callable.module(),
+            FormalFactRef::Binding { callable, .. } => callable.module(),
+        }
+    }
+}
+
 
 /// Machine-readable formal readiness/validity state attached to a projected
 /// source fact. This is separate from rendered type text and preserves causal
@@ -350,12 +361,56 @@ pub struct SemanticSiteView<'a> {
     pub target: Option<&'a AdvisoryTargetResolution>,
 }
 
-/// Indexed machine-readable formal source projection.
+/// Formal presentation facts and interval index for one source module.
+#[derive(Clone, Debug, Default)]
+pub struct ModuleFormalProjection {
+    by_fact: BTreeMap<FormalFactRef, FormalFactSite>,
+    sites: Arc<[FormalFactSite]>,
+    intervals: RangeIndex<usize>,
+}
+
+impl ModuleFormalProjection {
+    /// Creates a module formal projection from already-built formal fact sites.
+    pub fn new(sites: Vec<FormalFactSite>) -> Self {
+        let mut by_fact = BTreeMap::new();
+        for site in &sites {
+            by_fact.insert(site.fact.clone(), site.clone());
+        }
+        let sites_arc: Arc<[FormalFactSite]> = Arc::from(sites.into_boxed_slice());
+        let intervals = RangeIndex::new(
+            sites_arc
+                .iter()
+                .enumerate()
+                .map(|(index, site)| RangeEntry::new(site.range, index, formal_fact_priority(&site.fact))),
+        );
+        Self {
+            by_fact,
+            sites: sites_arc,
+            intervals,
+        }
+    }
+
+    /// Returns one formal site by canonical fact identity.
+    pub fn get(&self, fact: &FormalFactRef) -> Option<&FormalFactSite> {
+        self.by_fact.get(fact)
+    }
+
+    /// Returns most-specific formal site at a source position.
+    pub fn fact_at(&self, offset: usize) -> Option<&FormalFactSite> {
+        let index = self.intervals.index_at(offset)?;
+        self.sites.get(index)
+    }
+
+    /// Returns all formal sites in this module shard.
+    pub fn sites(&self) -> &[FormalFactSite] {
+        &self.sites
+    }
+}
+
+/// Indexed machine-readable formal source projection with persistent module roots.
 #[derive(Clone, Debug, Default)]
 pub struct FormalSemanticProjection {
-    by_fact: BTreeMap<FormalFactRef, FormalFactSite>,
-    by_module: BTreeMap<ModuleId, Arc<[FormalFactSite]>>,
-    intervals: BTreeMap<ModuleId, RangeIndex<usize>>,
+    modules: im::OrdMap<ModuleId, Arc<ModuleFormalProjection>>,
 }
 
 impl FormalSemanticProjection {
@@ -364,17 +419,18 @@ impl FormalSemanticProjection {
         Self::from_callable_analyses_with_source_index(analyses, None)
     }
 
-    /// Builds projection from immutable callable products while taking source
-    /// ranges from the current source index. Reused semantic products may
-    /// retain historical ranges; presentation must not publish those stale
-    /// positions.
-    pub fn from_callable_analyses_with_source_index(analyses: &HashMap<CallableId, Arc<CallableAnalysis>>, source_index: Option<&SourceSemanticIndex>) -> Self {
+    /// Builds module-specific formal projection from callable products and current source index.
+    pub fn build_module_projection(
+        module: &ModuleId,
+        analyses: &HashMap<CallableId, Arc<CallableAnalysis>>,
+        source_index: Option<&SourceSemanticIndex>,
+    ) -> ModuleFormalProjection {
         let mut sites = Vec::new();
-        let mut ordered = analyses.values().cloned().collect::<Vec<_>>();
-        ordered.sort_by(|left, right| left.callable.cmp(&right.callable));
-        for analysis in ordered {
-            let module = analysis.callable.module().clone();
-            let module_index = source_index.and_then(|index| index.module(&module));
+        let module_index = source_index.and_then(|index| index.module(module));
+        for analysis in analyses.values() {
+            if analysis.callable.module() != module {
+                continue;
+            }
             let callable_fact = FormalFactRef::Callable(analysis.callable.clone());
             sites.push(FormalFactSite {
                 module: module.clone(),
@@ -383,7 +439,7 @@ impl FormalSemanticProjection {
                     .unwrap_or(analysis.body_range),
                 fact: callable_fact,
                 status: callable_status(analysis.status),
-                causal_invalidity: callable_causal_invalidity(&analysis),
+                causal_invalidity: callable_causal_invalidity(analysis),
                 contract: None,
             });
             for expression in analysis.expressions.values() {
@@ -422,47 +478,75 @@ impl FormalSemanticProjection {
             }
         }
         sites.sort_by_key(|site| (site.module.clone(), site.range.start, site.range.len(), site.fact.clone()));
-        let mut by_fact = BTreeMap::new();
-        let mut grouped = BTreeMap::<ModuleId, Vec<FormalFactSite>>::new();
-        for site in sites {
-            by_fact.insert(site.fact.clone(), site.clone());
-            grouped.entry(site.module.clone()).or_default().push(site);
+        ModuleFormalProjection::new(sites)
+    }
+
+    /// Builds projection from immutable callable products while taking source
+    /// ranges from the current source index. Reused semantic products may
+    /// retain historical ranges; presentation must not publish those stale
+    /// positions.
+    pub fn from_callable_analyses_with_source_index(analyses: &HashMap<CallableId, Arc<CallableAnalysis>>, source_index: Option<&SourceSemanticIndex>) -> Self {
+        let mut modules_set = BTreeSet::new();
+        for callable in analyses.keys() {
+            modules_set.insert(callable.module().clone());
         }
-        let mut by_module = BTreeMap::new();
-        let mut intervals = BTreeMap::new();
-        for (module, module_sites) in grouped {
-            let module_sites: Arc<[FormalFactSite]> = Arc::from(module_sites);
-            let ranges = RangeIndex::new(
-                module_sites
-                    .iter()
-                    .enumerate()
-                    .map(|(index, site)| RangeEntry::new(site.range, index, formal_fact_priority(&site.fact))),
-            );
-            by_module.insert(module.clone(), module_sites);
-            intervals.insert(module, ranges);
+        if let Some(source_index) = source_index {
+            for (mod_id, _) in source_index.modules() {
+                modules_set.insert(mod_id.clone());
+            }
         }
-        Self { by_fact, by_module, intervals }
+        let mut modules = im::OrdMap::new();
+        for module in modules_set {
+            let projection = Self::build_module_projection(&module, analyses, source_index);
+            modules.insert(module, Arc::new(projection));
+        }
+        Self { modules }
+    }
+
+    /// Replaces or adds one module's formal projection shard.
+    pub fn replace_module(&mut self, module: ModuleId, projection: Arc<ModuleFormalProjection>) {
+        self.modules.insert(module, projection);
+    }
+
+    /// Retires one module's formal projection shard.
+    pub fn retire_module(&mut self, module: &ModuleId) {
+        self.modules.remove(module);
+    }
+
+    /// Returns one module's formal projection shard.
+    pub fn module(&self, module: &ModuleId) -> Option<&ModuleFormalProjection> {
+        self.modules.get(module).map(AsRef::as_ref)
+    }
+
+    /// Returns one module's formal projection shard Arc.
+    pub fn module_arc(&self, module: &ModuleId) -> Option<Arc<ModuleFormalProjection>> {
+        self.modules.get(module).cloned()
+    }
+
+    /// Returns iterator over module formal projections.
+    pub fn modules(&self) -> impl Iterator<Item = (&ModuleId, &Arc<ModuleFormalProjection>)> {
+        self.modules.iter()
     }
 
     /// Returns one formal site by canonical fact identity.
     pub fn get(&self, fact: &FormalFactRef) -> Option<&FormalFactSite> {
-        self.by_fact.get(fact)
+        let module = fact.module();
+        self.modules.get(module)?.get(fact)
     }
 
     /// Returns most-specific formal site at a source position.
     pub fn fact_at(&self, module: &ModuleId, offset: usize) -> Option<&FormalFactSite> {
-        let index = self.intervals.get(module)?.index_at(offset)?;
-        self.by_module.get(module)?.get(index)
+        self.modules.get(module)?.fact_at(offset)
     }
 
-    /// Number of machine-readable formal site records.
+    /// Number of machine-readable formal site records across all modules.
     pub fn len(&self) -> usize {
-        self.by_fact.len()
+        self.modules.values().map(|m| m.sites.len()).sum()
     }
 
     /// Whether no formal source facts are published.
     pub fn is_empty(&self) -> bool {
-        self.by_fact.is_empty()
+        self.modules.is_empty()
     }
 }
 

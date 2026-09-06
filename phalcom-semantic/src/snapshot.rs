@@ -292,9 +292,13 @@ impl SemanticSnapshot {
     }
 
     pub fn with_callable_analyses(mut self, callable_analyses: Arc<HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>) -> Self {
-        self.formal_projection = Arc::new(FormalSemanticProjection::from_callable_analyses(&callable_analyses));
         self.internal_incidents = collect_internal_incidents(&callable_analyses);
         self.callable_analyses = callable_analyses;
+        self
+    }
+
+    pub fn with_formal_projection(mut self, formal_projection: Arc<FormalSemanticProjection>) -> Self {
+        self.formal_projection = formal_projection;
         self
     }
 
@@ -313,10 +317,6 @@ impl SemanticSnapshot {
 
     /// Attaches one immutable compiler-owned source semantic index.
     pub fn with_source_index(mut self, source_index: Arc<SourceSemanticIndex>) -> Self {
-        self.formal_projection = Arc::new(FormalSemanticProjection::from_callable_analyses_with_source_index(
-            &self.callable_analyses,
-            Some(&source_index),
-        ));
         self.source_index = source_index;
         self
     }
@@ -534,7 +534,8 @@ impl SemanticSnapshot {
     }
 
     pub(crate) fn formal_fact_for_site(&self, site: &SourceSiteId) -> Option<FormalFactRef> {
-        for attachment in self.source_index.modules.values().flat_map(|module| module.attachments.values()) {
+        let module = self.source_index.module_for_site(site)?;
+        for attachment in module.attachments.values() {
             if attachment.formal_expressions.values().any(|candidate| candidate == site) {
                 let expression = attachment
                     .formal_expressions

@@ -31,6 +31,7 @@ use crate::dispatch::SurfaceDispatchResolver;
 use crate::enum_requirements::{EnumRequirementTable, check_enum_requirements};
 use crate::enum_semantics::{EnumSemanticTable, VariantInfo};
 use crate::identity::{CallableId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId, WorkspaceId};
+use crate::presentation::FormalSemanticProjection;
 use crate::resolver::LinkedTypeResolver;
 use crate::semantic_shard::ModuleSemanticStructureShard;
 use crate::signature::{CallableSemanticSignature, CallableSignatureTable, FieldSignatureTable};
@@ -3463,7 +3464,7 @@ impl SemanticWorkspaceSession {
         // Presentation-only Universe source shards provide provenance and
         // navigation. They are deliberately not workspace query inputs.
         for module in &source_index_rebuild_modules {
-            let Some(module_index) = source_index.modules.get(module) else {
+            let Some(module_index) = source_index.module_arc(module) else {
                 continue;
             };
             match query_source_structure(&mut self.db, module.clone(), module_index.clone()) {
@@ -3558,6 +3559,27 @@ impl SemanticWorkspaceSession {
             callable.declaration_owner().name.as_ref() == "<main>"
                 || current_declarations.contains(callable.declaration_owner())
         });
+        let previous_formal = self.last_snapshot.as_ref().map(|s| s.formal_projection.as_ref());
+        let mut formal_projection = previous_formal.cloned().unwrap_or_default();
+        if previous_formal.is_none() {
+            for (mod_id, _) in source_index.modules() {
+                let mod_proj = FormalSemanticProjection::build_module_projection(mod_id, &callable_analyses, Some(&source_index));
+                formal_projection.replace_module(mod_id.clone(), Arc::new(mod_proj));
+            }
+        } else {
+            for mod_id in &source_index_rebuild_modules {
+                let mod_proj = FormalSemanticProjection::build_module_projection(mod_id, &callable_analyses, Some(&source_index));
+                formal_projection.replace_module(mod_id.clone(), Arc::new(mod_proj));
+            }
+            let current_module_ids: BTreeSet<_> = source_index.module_ids().cloned().collect();
+            let old_modules: Vec<_> = formal_projection.modules().map(|(m, _)| m.clone()).collect();
+            for m in old_modules {
+                if !current_module_ids.contains(&m) {
+                    formal_projection.retire_module(&m);
+                }
+            }
+        }
+
         let mut snapshot_obj = SemanticSnapshot::new_with_callable_analyses(
             self.workspace,
             self.db.revision(),
@@ -3573,9 +3595,11 @@ impl SemanticWorkspaceSession {
             Arc::new(semantic_graph),
             Arc::new(callable_analyses),
         );
+
         snapshot_obj = snapshot_obj.with_field_signatures(Arc::new(field_signatures));
         snapshot_obj = snapshot_obj.with_presentation_sources(Arc::new(presentation_sources));
         snapshot_obj = snapshot_obj.with_source_index(Arc::new(source_index));
+        snapshot_obj = snapshot_obj.with_formal_projection(Arc::new(formal_projection));
         snapshot_obj = snapshot_obj.with_enum_semantics(Arc::new(enum_semantics));
         snapshot_obj = snapshot_obj.with_enum_requirements(Arc::new(enum_requirements_table));
         snapshot_obj = snapshot_obj.with_associated_surfaces(Arc::new(associated_surfaces_table));
@@ -4133,7 +4157,7 @@ fn build_source_semantic_index(
         .map(|(module, source)| (module.clone(), build_source_scope_index(module.clone(), &source.program, &context)))
         .collect();
     if let Some(previous) = previous {
-        for (module, previous_index) in &previous.modules {
+        for (module, previous_index) in previous.modules() {
             if !rebuild_modules.contains(module) && index_sources.contains_key(module) {
                 for callable in previous_index.structure.callable_sources.values() {
                     context
@@ -4162,22 +4186,22 @@ fn build_source_semantic_index(
                 .or_insert_with(|| SemanticTargetId::Declaration(DeclarationId::new(module.clone(), class.name.clone().into())));
         }
     }
-    let mut modules = previous.map_or_else(BTreeMap::new, |previous| previous.modules.clone());
+    let mut index = previous.cloned().unwrap_or_else(SourceSemanticIndex::empty);
+    if let Some(previous) = previous {
+        index.set_stats(crate::source_index::SourceIndexUpdateStats::default());
+        for old_module in previous.module_ids() {
+            if !index_sources.contains_key(old_module) {
+                index.retire_module_shard(old_module);
+            }
+        }
+    }
     for (module, scope) in scopes {
         let Some(source) = index_sources.get(&module) else {
             continue;
         };
-        modules.insert(
-            module,
-            Arc::new(crate::source_index::ModuleSourceIndex::from_scope_index(scope, source, Some(&context))),
-        );
+        let shard = Arc::new(crate::source_index::ModuleSourceIndex::from_scope_index(scope, source, Some(&context)));
+        index.replace_module_shard(module, shard);
     }
-    modules.retain(|module, _| index_sources.contains_key(module));
-    let mut index = SourceSemanticIndex {
-        modules,
-        target_occurrences: BTreeMap::new(),
-        incidents: Arc::from([]),
-    };
     for analysis in callable_analyses.values() {
         let module = analysis.callable.module();
         if rebuild_modules.contains(module) && index.module(module).is_some() {
@@ -4187,7 +4211,6 @@ fn build_source_semantic_index(
             let _ = index.attach_formal_analysis(module, analysis);
         }
     }
-    index.rebuild_target_occurrences();
 
     (index, presentation_sources)
 }

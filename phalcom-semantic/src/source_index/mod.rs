@@ -17,16 +17,20 @@ use crate::source_index::interval::{RangeEntry, RangeIndex};
 pub mod builder;
 pub mod interval;
 pub mod occurrence;
+pub mod reference;
 pub mod scope;
 pub mod site;
+pub mod symbol;
 
 pub use builder::{SourceIndexContext, build_source_scope_index, resolve_type_reference_targets};
 pub use occurrence::{OccurrenceHint, OccurrenceIndex, OccurrenceKind, OccurrenceRole, OccurrenceView, SemanticOccurrence};
+pub use reference::{ModuleReferenceContribution, ReferenceIndex, TargetReferenceSet};
 pub use scope::{
     CallableSourceInfo, DeclarationSourceInfo, FieldSourceInfo, ImportBindingOrigin, SourceBindingInfo, SourceBindingKind, SourceCallableKind,
     SourceNameResolution, SourceReceiverKind, SourceScope, SourceScopeId, SourceScopeIndex,
 };
 pub use site::{SourceSite, SourceSiteKind};
+pub use symbol::{EditorSymbolKind, WorkspaceSymbolEntry, WorkspaceSymbolId, WorkspaceSymbolIndex};
 
 /// Formal source-site attachment failure. Construction fails closed instead of
 /// selecting an arbitrary same-name or same-range candidate.
@@ -35,6 +39,32 @@ pub enum SourceAttachmentError {
     MissingModule(ModuleId),
     AmbiguousBinding { callable: CallableId, binding: BindingId },
     MissingBinding { callable: CallableId, binding: BindingId },
+}
+
+/// Deterministic performance and change statistics published by the source index.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SourceIndexUpdateStats {
+    pub source_modules_rebuilt: usize,
+    pub source_modules_reused: usize,
+    pub source_modules_retired: usize,
+    pub presentation_only_modules: usize,
+
+    pub reference_contributions_replaced: usize,
+    pub reference_targets_touched: usize,
+    pub reference_sites_added: usize,
+    pub reference_sites_removed: usize,
+
+    pub formal_modules_rebuilt: usize,
+    pub formal_modules_reused: usize,
+    pub formal_modules_retired: usize,
+
+    pub workspace_symbol_contributions_replaced: usize,
+    pub workspace_symbol_entries_added: usize,
+    pub workspace_symbol_entries_removed: usize,
+
+    pub source_workspace_scan_units: usize,
+    pub reference_workspace_scan_units: usize,
+    pub formal_workspace_scan_units: usize,
 }
 
 /// Formal products attached to one canonical callable identity.
@@ -191,10 +221,12 @@ impl CallableSourceAttachment {
 /// All source-owned semantic products for one immutable compiler snapshot.
 #[derive(Clone, Debug, Default)]
 pub struct SourceSemanticIndex {
-    pub modules: BTreeMap<ModuleId, Arc<ModuleSourceIndex>>,
-    pub target_occurrences: BTreeMap<SemanticTargetId, Arc<[SourceSiteId]>>,
+    modules: im::OrdMap<ModuleId, Arc<ModuleSourceIndex>>,
+    references: Arc<ReferenceIndex>,
+    workspace_symbols: Arc<WorkspaceSymbolIndex>,
     /// Non-fatal attachment incidents retained with this source product.
     pub incidents: Arc<[SourceAttachmentError]>,
+    stats: SourceIndexUpdateStats,
 }
 
 /// Source structure, exact occurrences, and formal attachments for one module.
@@ -209,6 +241,8 @@ pub struct ModuleSourceIndex {
     pub expression_sites: Arc<[SourceSite]>,
     expression_intervals: RangeIndex<usize>,
     pub attachments: BTreeMap<CallableId, Arc<CallableSourceAttachment>>,
+    reference_contribution: Arc<ModuleReferenceContribution>,
+    workspace_symbols: Arc<[WorkspaceSymbolEntry]>,
 }
 
 impl ModuleSourceIndex {
@@ -221,8 +255,15 @@ impl ModuleSourceIndex {
         Self::new(structure, occurrences, BTreeMap::new())
     }
 
-    fn new(structure: SourceScopeIndex, occurrences: OccurrenceIndex, attachments: BTreeMap<CallableId, Arc<CallableSourceAttachment>>) -> Self {
+    pub fn new(structure: SourceScopeIndex, occurrences: OccurrenceIndex, attachments: BTreeMap<CallableId, Arc<CallableSourceAttachment>>) -> Self {
         let (expression_sites, expression_intervals) = expression_products(&structure, &attachments);
+        let reference_contribution = Arc::new(ModuleReferenceContribution::from_module_index(
+            &structure,
+            occurrences.all(),
+            &|site| occurrences.target_for(site).cloned(),
+            &attachments,
+        ));
+        let workspace_symbols = build_module_workspace_symbols(&structure);
         let occurrences = Arc::new(occurrences);
         Self {
             structure: Arc::new(structure),
@@ -231,6 +272,8 @@ impl ModuleSourceIndex {
             expression_sites,
             expression_intervals,
             attachments,
+            reference_contribution,
+            workspace_symbols,
         }
     }
 
@@ -240,10 +283,115 @@ impl ModuleSourceIndex {
         self.expression_intervals = expression_intervals;
     }
 
+    fn refresh_contributions(&mut self) {
+        self.reference_contribution = Arc::new(ModuleReferenceContribution::from_module_index(
+            &self.structure,
+            self.occurrences.all(),
+            &|site| self.occurrences.target_for(site).cloned(),
+            &self.attachments,
+        ));
+        self.workspace_symbols = build_module_workspace_symbols(&self.structure);
+    }
+
     /// Returns the innermost compiler-owned AST expression site at `offset`.
     pub fn expression_site_at(&self, offset: usize) -> Option<&SourceSite> {
         self.expression_intervals.value_at(offset).and_then(|index| self.expression_sites.get(index))
     }
+
+    /// Returns this module's reference contribution.
+    pub fn reference_contribution(&self) -> &Arc<ModuleReferenceContribution> {
+        &self.reference_contribution
+    }
+
+    /// Returns this module's workspace symbol entries.
+    pub fn workspace_symbols(&self) -> &[WorkspaceSymbolEntry] {
+        &self.workspace_symbols
+    }
+}
+
+fn build_module_workspace_symbols(structure: &SourceScopeIndex) -> Arc<[WorkspaceSymbolEntry]> {
+    let mut symbols = Vec::new();
+    for decl in structure.declaration_sources.values() {
+        symbols.push(WorkspaceSymbolEntry {
+            id: WorkspaceSymbolId {
+                target: SemanticTargetId::Declaration(decl.id.clone()),
+                site: decl.declaration_site.clone(),
+            },
+            name: decl.name.clone(),
+            normalized_name: decl.name.to_lowercase().into_boxed_str(),
+            target: SemanticTargetId::Declaration(decl.id.clone()),
+            declaration_site: decl.declaration_site.clone(),
+            kind: EditorSymbolKind::Class,
+            container_name: None,
+        });
+    }
+    for callable in structure.callable_sources.values() {
+        let name = callable.id.selector.encode().into_boxed_str();
+        symbols.push(WorkspaceSymbolEntry {
+            id: WorkspaceSymbolId {
+                target: SemanticTargetId::Callable(callable.id.clone()),
+                site: callable.declaration_site.clone(),
+            },
+            name: name.clone(),
+            normalized_name: name.to_lowercase().into_boxed_str(),
+            target: SemanticTargetId::Callable(callable.id.clone()),
+            declaration_site: callable.declaration_site.clone(),
+            kind: EditorSymbolKind::Callable,
+            container_name: Some(callable.id.owner.name.clone()),
+        });
+    }
+    for field in structure.field_sources.values() {
+        let name = field.id.name.clone();
+        symbols.push(WorkspaceSymbolEntry {
+            id: WorkspaceSymbolId {
+                target: SemanticTargetId::Field(field.id.clone()),
+                site: field.declaration_site.clone(),
+            },
+            name: name.clone(),
+            normalized_name: name.to_lowercase().into_boxed_str(),
+            target: SemanticTargetId::Field(field.id.clone()),
+            declaration_site: field.declaration_site.clone(),
+            kind: EditorSymbolKind::Field,
+            container_name: Some(field.id.owner.name.clone()),
+        });
+    }
+    for site in structure.sites.values() {
+        match &site.kind {
+            SourceSiteKind::Variant(id) => {
+                let name = id.selector.encode().into_boxed_str();
+                symbols.push(WorkspaceSymbolEntry {
+                    id: WorkspaceSymbolId {
+                        target: SemanticTargetId::Variant(id.clone()),
+                        site: site.id.clone(),
+                    },
+                    name: name.clone(),
+                    normalized_name: name.to_lowercase().into_boxed_str(),
+                    target: SemanticTargetId::Variant(id.clone()),
+                    declaration_site: site.id.clone(),
+                    kind: EditorSymbolKind::Variant,
+                    container_name: Some(id.owner.name.clone()),
+                });
+            }
+            SourceSiteKind::VariantField(id) => {
+                let name = format!("{}:{}", id.variant.selector.encode(), id.index).into_boxed_str();
+                symbols.push(WorkspaceSymbolEntry {
+                    id: WorkspaceSymbolId {
+                        target: SemanticTargetId::VariantField(id.clone()),
+                        site: site.id.clone(),
+                    },
+                    name: name.clone(),
+                    normalized_name: name.to_lowercase().into_boxed_str(),
+                    target: SemanticTargetId::VariantField(id.clone()),
+                    declaration_site: site.id.clone(),
+                    kind: EditorSymbolKind::VariantField,
+                    container_name: Some(id.variant.owner.name.clone()),
+                });
+            }
+            _ => {}
+        }
+    }
+    symbols.sort_by(|a, b| a.id.cmp(&b.id));
+    Arc::from(symbols.into_boxed_slice())
 }
 
 fn expression_products(
@@ -349,21 +497,25 @@ impl ModuleSourceIndex {
 }
 
 impl SourceSemanticIndex {
+    /// Creates an empty source index.
+    pub fn empty() -> Self {
+        Self {
+            modules: im::OrdMap::new(),
+            references: Arc::new(ReferenceIndex::new()),
+            workspace_symbols: Arc::new(WorkspaceSymbolIndex::new()),
+            incidents: Arc::from([]),
+            stats: SourceIndexUpdateStats::default(),
+        }
+    }
+
     /// Creates a source index from compiler-owned lexical source structures.
     pub fn from_scope_indices(scopes: BTreeMap<ModuleId, SourceScopeIndex>) -> Self {
-        let modules = scopes
-            .into_iter()
-            .map(|(module, structure)| {
-                let occurrences = OccurrenceIndex::from_scope_index(&structure);
-                (module, Arc::new(ModuleSourceIndex::new(structure, occurrences, BTreeMap::new())))
-            })
-            .collect();
-        let mut index = Self {
-            modules,
-            target_occurrences: BTreeMap::new(),
-            incidents: Arc::from([]),
-        };
-        index.rebuild_target_occurrences();
+        let mut index = Self::empty();
+        for (module, structure) in scopes {
+            let occurrences = OccurrenceIndex::from_scope_index(&structure);
+            let shard = Arc::new(ModuleSourceIndex::new(structure, occurrences, BTreeMap::new()));
+            index.replace_module_shard(module, shard);
+        }
         index
     }
 
@@ -382,24 +534,80 @@ impl SourceSemanticIndex {
         programs: &BTreeMap<ModuleId, Arc<crate::source::ParsedModuleUnit>>,
         context: Option<&crate::source_index::builder::SourceIndexContext>,
     ) -> Self {
-        let modules = scopes
-            .into_iter()
-            .map(|(module, mut structure)| {
-                let occurrences = if let Some(source) = programs.get(&module) {
-                    OccurrenceIndex::from_program_with_context(&mut structure, &source.program, context)
-                } else {
-                    OccurrenceIndex::from_scope_index(&structure)
-                };
-                (module, Arc::new(ModuleSourceIndex::new(structure, occurrences, BTreeMap::new())))
-            })
-            .collect();
-        let mut index = Self {
-            modules,
-            target_occurrences: BTreeMap::new(),
-            incidents: Arc::from([]),
-        };
-        index.rebuild_target_occurrences();
+        let mut index = Self::empty();
+        for (module, mut structure) in scopes {
+            let occurrences = if let Some(source) = programs.get(&module) {
+                OccurrenceIndex::from_program_with_context(&mut structure, &source.program, context)
+            } else {
+                OccurrenceIndex::from_scope_index(&structure)
+            };
+            let shard = Arc::new(ModuleSourceIndex::new(structure, occurrences, BTreeMap::new()));
+            index.replace_module_shard(module, shard);
+        }
         index
+    }
+
+    /// Replaces one module source shard and incrementally delta-maintains references and workspace symbols.
+    pub fn replace_module_shard(&mut self, module: ModuleId, new_shard: Arc<ModuleSourceIndex>) {
+        let old_shard = self.modules.get(&module).cloned();
+        let old_contrib = old_shard.as_ref().map(|s| s.reference_contribution.as_ref());
+        let new_contrib = Some(new_shard.reference_contribution.as_ref());
+        let new_references = self.references.replace_module_contribution(&module, old_contrib, new_contrib, &mut self.stats);
+        self.references = Arc::new(new_references);
+
+        let old_symbols = old_shard.as_ref().map_or(&[][..], |s| &s.workspace_symbols);
+        let new_symbols = &new_shard.workspace_symbols;
+        let new_sym_index = self.workspace_symbols.replace_module(&module, old_symbols, new_symbols, &mut self.stats);
+        self.workspace_symbols = Arc::new(new_sym_index);
+
+        self.modules.insert(module, new_shard);
+        self.stats.source_modules_rebuilt += 1;
+    }
+
+    /// Retires one module source shard and removes its contributions from references and workspace symbols.
+    pub fn retire_module_shard(&mut self, module: &ModuleId) {
+        if let Some(old_shard) = self.modules.get(module).cloned() {
+            let old_contrib = Some(old_shard.reference_contribution.as_ref());
+            let new_references = self.references.replace_module_contribution(module, old_contrib, None, &mut self.stats);
+            self.references = Arc::new(new_references);
+
+            let old_symbols = &old_shard.workspace_symbols;
+            let new_sym_index = self.workspace_symbols.replace_module(module, old_symbols, &[], &mut self.stats);
+            self.workspace_symbols = Arc::new(new_sym_index);
+
+            self.modules.remove(module);
+            self.stats.source_modules_retired += 1;
+        }
+    }
+
+    /// Returns persistent reference index.
+    pub fn references(&self) -> &ReferenceIndex {
+        &self.references
+    }
+
+    /// Returns persistent reference index Arc.
+    pub fn references_arc(&self) -> &Arc<ReferenceIndex> {
+        &self.references
+    }
+
+    /// Returns persistent workspace symbol index.
+    pub fn workspace_symbols(&self) -> &WorkspaceSymbolIndex {
+        &self.workspace_symbols
+    }
+
+    /// Returns persistent workspace symbol index Arc.
+    pub fn workspace_symbols_arc(&self) -> &Arc<WorkspaceSymbolIndex> {
+        &self.workspace_symbols
+    }
+
+    /// Returns publication update stats.
+    pub fn stats(&self) -> SourceIndexUpdateStats {
+        self.stats
+    }
+
+    /// Sets publication update stats.
+    pub fn set_stats(&mut self, stats: SourceIndexUpdateStats) {
+        self.stats = stats;
     }
 
     /// Returns source attachment incidents without turning them into formal
@@ -426,7 +634,7 @@ impl SourceSemanticIndex {
 
     /// Attaches one formal callable product to its exact source sites.
     pub fn attach_formal_analysis(&mut self, module: &ModuleId, analysis: &CallableAnalysis) -> Result<(), Box<SourceAttachmentError>> {
-        let Some(module_index) = self.modules.get_mut(module) else {
+        let Some(module_index) = self.modules.get(module).cloned() else {
             let error = SourceAttachmentError::MissingModule(module.clone());
             let mut incidents = self.incidents.to_vec();
             incidents.push(error.clone());
@@ -434,16 +642,16 @@ impl SourceSemanticIndex {
             return Err(Box::new(error));
         };
         let (attachment, incidents) = CallableSourceAttachment::from_analysis_with_incidents(analysis.callable.clone(), &module_index.structure, analysis);
-        let module_index = Arc::make_mut(module_index);
-        module_index.attachments.insert(analysis.callable.clone(), Arc::new(attachment));
-        let mut all = module_index.baseline_occurrences.all().to_vec();
-        let mut exact_targets = module_index.structure.targets.clone();
+        let mut updated_module_index = (*module_index).clone();
+        updated_module_index.attachments.insert(analysis.callable.clone(), Arc::new(attachment));
+        let mut all = updated_module_index.baseline_occurrences.all().to_vec();
+        let mut exact_targets = updated_module_index.structure.targets.clone();
         for occurrence in &all {
-            if let Some(target) = module_index.baseline_occurrences.target_for(&occurrence.site) {
+            if let Some(target) = updated_module_index.baseline_occurrences.target_for(&occurrence.site) {
                 exact_targets.insert(occurrence.site.clone(), target.clone());
             }
         }
-        for attachment in module_index.attachments.values() {
+        for attachment in updated_module_index.attachments.values() {
             for site in attachment.expression_sites.iter() {
                 let (kind, role) = if attachment.exact_targets.contains_key(&site.id) {
                     (OccurrenceKind::Member, OccurrenceRole::Call)
@@ -461,12 +669,8 @@ impl SourceSemanticIndex {
             }
             exact_targets.extend(attachment.exact_targets.clone());
         }
-        // Formal call resolution covers the full expression range while the
-        // editor cursor normally lands on its selector token. Project exact
-        // callable targets onto contained call occurrences without rerunning
-        // dispatch at presentation time.
-        for (formal_site, target) in module_index.attachments.values().flat_map(|attachment| attachment.exact_targets.iter()) {
-            let Some(formal_source) = module_index
+        for (formal_site, target) in updated_module_index.attachments.values().flat_map(|attachment| attachment.exact_targets.iter()) {
+            let Some(formal_source) = updated_module_index
                 .attachments
                 .values()
                 .flat_map(|attachment| attachment.expression_sites.iter())
@@ -484,19 +688,13 @@ impl SourceSemanticIndex {
             }
         }
         let occurrences = OccurrenceIndex::new(all, exact_targets);
-        module_index.occurrences = Arc::new(occurrences);
-        module_index.rebuild_expression_products();
-        // Update reverse target occurrences incrementally for this module's target additions
-        for (site, target) in module_index.occurrences.exact_targets() {
-            let entry = self.target_occurrences.entry(target.clone()).or_insert_with(|| Arc::from([]));
-            if !entry.contains(site) {
-                let mut updated = entry.to_vec();
-                updated.push(site.clone());
-                updated.sort();
-                updated.dedup();
-                *entry = Arc::from(updated);
-            }
-        }
+        updated_module_index.occurrences = Arc::new(occurrences);
+        updated_module_index.rebuild_expression_products();
+        updated_module_index.refresh_contributions();
+
+        let updated_shard = Arc::new(updated_module_index);
+        self.replace_module_shard(module.clone(), updated_shard);
+
         if !incidents.is_empty() {
             let mut retained = self.incidents.to_vec();
             retained.extend(incidents.iter().cloned());
@@ -513,6 +711,26 @@ impl SourceSemanticIndex {
     /// Returns the immutable module shard for typed DB publication.
     pub fn module_arc(&self, module: &ModuleId) -> Option<Arc<ModuleSourceIndex>> {
         self.modules.get(module).cloned()
+    }
+
+    /// Returns iterator over module shards.
+    pub fn modules(&self) -> impl Iterator<Item = (&ModuleId, &Arc<ModuleSourceIndex>)> {
+        self.modules.iter()
+    }
+
+    /// Returns iterator over module identities.
+    pub fn module_ids(&self) -> impl Iterator<Item = &ModuleId> {
+        self.modules.keys()
+    }
+
+    /// Number of indexed module shards.
+    pub fn len(&self) -> usize {
+        self.modules.len()
+    }
+
+    /// Whether the index has no modules.
+    pub fn is_empty(&self) -> bool {
+        self.modules.is_empty()
     }
 
     /// Returns module shard owning one snapshot-local source site.
@@ -602,30 +820,15 @@ impl SourceSemanticIndex {
 
     /// Returns exact source sites attached to one canonical semantic target.
     pub fn occurrences_for_target(&self, target: &SemanticTargetId) -> Option<&[SourceSiteId]> {
-        self.target_occurrences.get(target).map(AsRef::as_ref)
-    }
-
-    pub(crate) fn rebuild_target_occurrences(&mut self) {
-        let mut reverse = BTreeMap::<SemanticTargetId, Vec<SourceSiteId>>::new();
-        for module in self.modules.values() {
-            for occurrence in module.occurrences.all() {
-                if let Some(target) = module.occurrences.target_for(&occurrence.site) {
-                    reverse.entry(target.clone()).or_default().push(occurrence.site.clone());
-                }
-            }
-            for attachment in module.attachments.values() {
-                for (site, target) in &attachment.exact_targets {
-                    reverse.entry(target.clone()).or_default().push(site.clone());
-                }
-            }
+        let set = self.references.target_set(target)?;
+        if !set.semantic_references.is_empty() {
+            Some(&set.semantic_references)
+        } else if !set.lexical_references.is_empty() {
+            Some(&set.lexical_references)
+        } else if !set.definitions.is_empty() {
+            Some(&set.definitions)
+        } else {
+            None
         }
-        self.target_occurrences = reverse
-            .into_iter()
-            .map(|(target, mut sites)| {
-                sites.sort();
-                sites.dedup();
-                (target, Arc::from(sites))
-            })
-            .collect();
     }
 }

@@ -8,8 +8,10 @@ mod declaration_authority;
 mod fingerprints;
 mod generic_contracts;
 mod match_analysis;
+mod plan_b_indexing;
 mod product_stability;
 mod query_ownership;
 mod record_rows;
 mod support;
 mod type_store_revisions;
+

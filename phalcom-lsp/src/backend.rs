@@ -22,7 +22,7 @@
 //! `textDocument/semanticTokens/full`, a flat lexer-driven token-coloring
 //! pass ([`crate::semantic_tokens`]).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, RwLock};
 
 use crate::analysis_service::{AnalysisEvent, AnalysisService, CachedSource, DiskRefresh, SourceCache, WorkspaceScanRequest, builtin_module_from_uri};
@@ -645,29 +645,69 @@ impl Backend {
     fn compiler_uri_for_module(&self, compiler: &phalcom_semantic::SemanticSnapshot, module: &phalcom_modules::ModuleId) -> Option<Url> {
         compiler_uri_for_module(compiler, module)
     }
+}
 
-    fn compiler_site_location(&self, compiler: &phalcom_semantic::SemanticSnapshot, site: &phalcom_semantic::SourceSiteId) -> Option<Location> {
-        let source = compiler.source_site(site)?;
+/// Cached location mapper translating compiler source sites to LSP Locations.
+pub struct SnapshotLocationMapper<'a> {
+    compiler: &'a phalcom_semantic::SemanticSnapshot,
+    line_indices: HashMap<phalcom_modules::ModuleId, LineIndex>,
+    uris: HashMap<phalcom_modules::ModuleId, Option<Url>>,
+}
+
+impl<'a> SnapshotLocationMapper<'a> {
+    /// Creates a new location mapper over the given semantic snapshot.
+    pub fn new(compiler: &'a phalcom_semantic::SemanticSnapshot) -> Self {
+        Self {
+            compiler,
+            line_indices: HashMap::new(),
+            uris: HashMap::new(),
+        }
+    }
+
+    /// Resolves and caches the LSP URI for a module identity.
+    pub fn uri_for_module(&mut self, module: &phalcom_modules::ModuleId) -> Option<&Url> {
+        self.uris
+            .entry(module.clone())
+            .or_insert_with(|| compiler_uri_for_module(self.compiler, module))
+            .as_ref()
+    }
+
+    /// Resolves and caches the LSP Location for a compiler source site identity.
+    pub fn site_location(&mut self, site: &phalcom_semantic::SourceSiteId) -> Option<Location> {
+        let source = self.compiler.source_site(site)?;
         let module = match &site.owner {
             phalcom_semantic::SourceOwner::Module(module) => module,
             phalcom_semantic::SourceOwner::Callable(callable) => &callable.owner.module,
         };
-        let uri = self.compiler_uri_for_module(compiler, module)?;
-        let text = compiler
-            .sources
-            .get(module)
-            .map(|published| published.text.as_ref())
-            .or_else(|| compiler.presentation_source(module))?;
-        let line_index = LineIndex::new(text);
+        let uri = self.uri_for_module(module)?.clone();
+        if !self.line_indices.contains_key(module) {
+            let text = self
+                .compiler
+                .sources
+                .get(module)
+                .map(|published| published.text.as_ref())
+                .or_else(|| self.compiler.presentation_source(module))?;
+            self.line_indices.insert(module.clone(), LineIndex::new(text));
+        }
+        let line_index = self.line_indices.get(module)?;
         let range = line_index.range(source.range.start..source.range.end);
         Some(Location { uri, range })
     }
+}
+
+impl Backend {
+
+    fn compiler_site_location(&self, compiler: &phalcom_semantic::SemanticSnapshot, site: &phalcom_semantic::SourceSiteId) -> Option<Location> {
+        let mut mapper = SnapshotLocationMapper::new(compiler);
+        mapper.site_location(site)
+    }
 
     fn compiler_target_locations(&self, compiler: &phalcom_semantic::SemanticSnapshot, target: &phalcom_semantic::SemanticTargetId) -> Vec<Location> {
+        let mut mapper = SnapshotLocationMapper::new(compiler);
         let mut locations = Vec::new();
         for definition in compiler.editor().definition_locations(target) {
             let location = match definition {
-                phalcom_semantic::SemanticDefinitionLocation::SourceSite(site) => self.compiler_site_location(compiler, &site),
+                phalcom_semantic::SemanticDefinitionLocation::SourceSite(site) => mapper.site_location(&site),
                 phalcom_semantic::SemanticDefinitionLocation::Module(module) => self.compiler_module_definition_location(compiler, &module),
             };
             if let Some(location) = location
@@ -698,11 +738,21 @@ impl Backend {
         let mut sites = compiler.editor().reference_sites(target);
         sites.sort();
         sites.dedup();
-        let mut locations = self.compiler_sites_locations(compiler, sites);
+        let mut mapper = SnapshotLocationMapper::new(compiler);
+        let mut locations = Vec::with_capacity(sites.len());
+        for site in sites {
+            if let Some(location) = mapper.site_location(&site)
+                && !locations
+                    .iter()
+                    .any(|existing: &Location| existing.uri == location.uri && existing.range == location.range)
+            {
+                locations.push(location);
+            }
+        }
         if include_declaration {
             for definition in compiler.editor().definition_locations(target) {
                 let location = match definition {
-                    phalcom_semantic::SemanticDefinitionLocation::SourceSite(site) => self.compiler_site_location(compiler, &site),
+                    phalcom_semantic::SemanticDefinitionLocation::SourceSite(site) => mapper.site_location(&site),
                     phalcom_semantic::SemanticDefinitionLocation::Module(module) => self.compiler_module_definition_location(compiler, &module),
                 };
                 if let Some(location) = location
@@ -718,9 +768,10 @@ impl Backend {
     }
 
     fn compiler_sites_locations(&self, compiler: &phalcom_semantic::SemanticSnapshot, sites: Vec<phalcom_semantic::SourceSiteId>) -> Vec<Location> {
-        let mut locations = Vec::new();
+        let mut mapper = SnapshotLocationMapper::new(compiler);
+        let mut locations = Vec::with_capacity(sites.len());
         for site in sites {
-            if let Some(location) = self.compiler_site_location(compiler, &site)
+            if let Some(location) = mapper.site_location(&site)
                 && !locations
                     .iter()
                     .any(|existing: &Location| existing.uri == location.uri && existing.range == location.range)
@@ -732,37 +783,34 @@ impl Backend {
     }
 
     fn compiler_workspace_symbols(&self, compiler: &phalcom_semantic::SemanticSnapshot, query: &str) -> Vec<SymbolInformation> {
-        let query = query.to_lowercase();
-        let mut symbols = Vec::new();
-        for module in compiler.source_index().modules.values() {
-            for site in module.structure.sites.values() {
-                let (name, kind, container_name) = match &site.kind {
-                    phalcom_semantic::SourceSiteKind::Declaration(declaration) => (declaration.name.to_string(), SymbolKind::CLASS, None),
-                    phalcom_semantic::SourceSiteKind::Callable(callable) => {
-                        (callable.selector.encode(), SymbolKind::METHOD, Some(callable.owner.name.to_string()))
-                    }
-                    phalcom_semantic::SourceSiteKind::Field(field) => (field.name.to_string(), SymbolKind::FIELD, Some(field.owner.name.to_string())),
-                    _ => continue,
-                };
-                if !name.to_lowercase().contains(&query) {
-                    continue;
-                }
-                let Some(location) = self.compiler_site_location(compiler, &site.id) else {
-                    continue;
-                };
-                #[allow(deprecated)]
-                symbols.push(SymbolInformation {
-                    name,
-                    kind,
-                    tags: None,
-                    deprecated: None,
-                    location,
-                    container_name,
-                });
-            }
+        let entries = compiler.editor().workspace_symbols(query, usize::MAX);
+        let mut mapper = SnapshotLocationMapper::new(compiler);
+        let mut symbols = Vec::with_capacity(entries.len());
+        for entry in entries {
+            let kind = match entry.kind {
+                phalcom_semantic::EditorSymbolKind::Class => SymbolKind::CLASS,
+                phalcom_semantic::EditorSymbolKind::Enum => SymbolKind::ENUM,
+                phalcom_semantic::EditorSymbolKind::TypeAlias => SymbolKind::TYPE_PARAMETER,
+                phalcom_semantic::EditorSymbolKind::Callable => SymbolKind::METHOD,
+                phalcom_semantic::EditorSymbolKind::Field => SymbolKind::FIELD,
+                phalcom_semantic::EditorSymbolKind::Variant => SymbolKind::ENUM_MEMBER,
+                phalcom_semantic::EditorSymbolKind::VariantField => SymbolKind::FIELD,
+                phalcom_semantic::EditorSymbolKind::Module => SymbolKind::MODULE,
+                phalcom_semantic::EditorSymbolKind::Binding => SymbolKind::VARIABLE,
+            };
+            let Some(location) = mapper.site_location(&entry.declaration_site) else {
+                continue;
+            };
+            #[allow(deprecated)]
+            symbols.push(SymbolInformation {
+                name: entry.name.to_string(),
+                kind,
+                tags: None,
+                deprecated: None,
+                location,
+                container_name: entry.container_name.as_ref().map(|c| c.to_string()),
+            });
         }
-        symbols.sort_by(|left, right| left.name.cmp(&right.name).then_with(|| left.location.uri.cmp(&right.location.uri)));
-        symbols.dedup_by(|left, right| left.name == right.name && left.location == right.location);
         symbols
     }
 

@@ -34,7 +34,7 @@ class ParameterProbe {
         .values()
         .find(|binding| binding.parameter.as_ref() == Some(&parameter.id))
         .expect("checker binding keeps canonical parameter identity");
-    let module_index = result.snapshot.source_index.modules.get(&module).expect("module source index");
+    let module_index = result.snapshot.source_index.module(&module).expect("module source index");
     let source_info = module_index.structure.callable_sources.get(&callable).expect("callable source info");
     let parameter_site = source_info.parameter_sites.get(&parameter.id).expect("canonical parameter source site");
     assert_eq!(binding.range, module_index.structure.site(parameter_site).expect("parameter site").range);

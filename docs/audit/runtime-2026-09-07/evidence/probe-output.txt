@@ -1,0 +1,28 @@
+   Compiling phalcom-core v0.1.0 (/Users/altunhasanli/dev/phalcom/phalcom/phalcom-core)
+    Finished `dev` profile [unoptimized] target(s) in 1.65s
+     Running `target/debug/examples/runtime_audit_probe`
+LAYOUT value=16 align=8 opcode=8 frame=120 ic=24 gc=24
+CONSTANT input=0 index=0 selected=Some(0)
+CONSTANT input=1 index=1 selected=Some(1)
+CONSTANT input=65534 index=65534 selected=Some(65534)
+CONSTANT input=65535 index=65535 selected=Some(65535)
+CONSTANT input=65536 index=0 selected=Some(0)
+GC lexical_owner_survives=false
+NATIVE recursion_40=Ok(40)
+
+thread 'main' (4726479) panicked at phalcom-core/examples/runtime_audit_probe.rs:5:13:
+index out of bounds: the len is 0 but the index is 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+NATIVE wrong_arity_panics=true
+
+thread 'main' (4726479) panicked at phalcom-core/src/vm/dispatch.rs:1155:45:
+index out of bounds: the len is 0 but the index is 0
+BYTECODE empty_chunk_panics=true
+SOURCE constants=65537 last_index=0 last_value=Some(0)
+SOURCE execution=Ok(0)
+
+thread 'main' (4726479) panicked at phalcom-core/src/primitive/number.rs:269:50:
+index out of bounds: the len is 0 but the index is 0
+SHIPPING_NATIVE wrong_arity_panics=true
+SUPER before=Ok(1)
+SUPER old_receiver_after_rebind=Ok(2)

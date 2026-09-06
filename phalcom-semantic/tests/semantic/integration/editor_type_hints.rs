@@ -33,7 +33,7 @@ fn inferred_local_formal_binding_attaches_to_exact_name_site() {
     assert!(parsed.errors.is_empty(), "parser errors: {:?}", parsed.errors);
     let module = ModuleId::universe_root();
     let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program));
-    let module_index = analysis.snapshot.source_index.modules.get(&module).expect("module source index");
+    let module_index = analysis.snapshot.source_index.module(&module).expect("module source index");
     let source_binding = module_index
         .structure
         .bindings

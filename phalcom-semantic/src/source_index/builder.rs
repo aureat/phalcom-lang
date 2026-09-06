@@ -155,6 +155,7 @@ impl TypeReferenceTargetCollector<'_> {
                     }
                 }
             }
+            Statement::Enum(_) => {}
             Statement::TypeAlias(alias) => {
                 let mut alias_bound = bound.clone();
                 alias_bound.extend(alias.generic_parameters.iter().map(|parameter| parameter.name.clone()));
@@ -172,8 +173,7 @@ impl TypeReferenceTargetCollector<'_> {
             | Statement::Break { .. }
             | Statement::Continue { .. }
             | Statement::Throw { .. }
-            | Statement::Export(_)
-            | Statement::Enum(_) => {}
+            | Statement::Export(_) => {}
         }
     }
 

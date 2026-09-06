@@ -1226,8 +1226,7 @@ fn semantic_parity_projection(snapshot: &SemanticSnapshot) -> SemanticParityProj
 
     let mut source_index = snapshot
         .source_index
-        .modules
-        .iter()
+        .modules()
         .map(|(module, index)| {
             let fingerprints = index.fingerprints();
             format!(

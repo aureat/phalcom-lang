@@ -129,6 +129,23 @@ pub enum SemanticDefinitionLocation {
     Module(ModuleId),
 }
 
+/// Reference search domain distinguishing lexical occurrences from remote definitions.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReferenceDomain {
+    Lexical,
+    Semantic,
+}
+
+/// Unified view of rename targets and references.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RenameTargetView<'a> {
+    pub lexical_target: &'a SemanticTargetId,
+    pub semantic_target: Option<&'a SemanticTargetId>,
+    pub definitions: &'a [SourceSiteId],
+    pub lexical_references: &'a [SourceSiteId],
+    pub semantic_references: &'a [SourceSiteId],
+}
+
 /// Read-only editor query facade over one immutable semantic snapshot.
 #[derive(Clone, Copy, Debug)]
 pub struct EditorSemanticQuery<'a> {
@@ -319,8 +336,8 @@ impl<'a> EditorSemanticQuery<'a> {
     }
 
     /// Returns declaration sites for one canonical target.
-    pub fn definition_sites(&self, target: &SemanticTargetId) -> Vec<SourceSiteId> {
-        self.sites_for_target(target, true)
+    pub fn definition_sites(&self, target: &SemanticTargetId) -> &'a [SourceSiteId] {
+        self.snapshot.source_index.references().definitions(target)
     }
 
     /// Returns canonical definition locations, following imported binding
@@ -344,57 +361,56 @@ impl<'a> EditorSemanticQuery<'a> {
                 .then(|| SemanticDefinitionLocation::Module(module.clone()))
                 .into_iter()
                 .collect(),
-            _ => self.definition_sites(target).into_iter().map(SemanticDefinitionLocation::SourceSite).collect(),
+            _ => self.definition_sites(target).iter().cloned().map(SemanticDefinitionLocation::SourceSite).collect(),
+        }
+    }
+
+    /// Returns reference sites for one canonical target in the given domain.
+    pub fn reference_sites_in_domain(&self, target: &SemanticTargetId, domain: ReferenceDomain) -> &'a [SourceSiteId] {
+        match domain {
+            ReferenceDomain::Lexical => self.snapshot.source_index.references().lexical_references(target),
+            ReferenceDomain::Semantic => self.snapshot.source_index.references().semantic_references(target),
         }
     }
 
     /// Returns non-declaration reference sites for one canonical target.
     pub fn reference_sites(&self, target: &SemanticTargetId) -> Vec<SourceSiteId> {
-        self.sites_for_target(target, false)
+        self.default_reference_sites(target).to_vec()
     }
 
-    fn sites_for_target(&self, target: &SemanticTargetId, definitions: bool) -> Vec<SourceSiteId> {
-        let mut sites = self
-            .snapshot
-            .occurrences_for_target(target)
-            .into_iter()
-            .flatten()
-            .filter(|site| self.is_definition_site(target, site) == definitions)
-            .cloned()
-            .collect::<Vec<_>>();
-        sites.sort();
-        sites.dedup();
-        sites
-    }
-
-    fn is_definition_site(&self, target: &SemanticTargetId, site: &SourceSiteId) -> bool {
-        let Some(module) = self.snapshot.source_index.module_for_site(site) else {
-            return false;
-        };
-        let Some(source_site) = module.structure.sites.get(site) else {
-            return false;
-        };
-        match (target, &source_site.kind) {
-            (SemanticTargetId::Binding(expected), crate::source_index::SourceSiteKind::BindingDeclaration) => expected == site,
-            (SemanticTargetId::Declaration(expected), crate::source_index::SourceSiteKind::Declaration(actual)) => expected == actual,
-            (SemanticTargetId::Callable(expected), crate::source_index::SourceSiteKind::Callable(actual)) => expected == actual,
-            (SemanticTargetId::Field(expected), crate::source_index::SourceSiteKind::Field(actual)) => expected == actual,
-            (SemanticTargetId::Variant(expected), crate::source_index::SourceSiteKind::Variant(actual)) => expected == actual,
-            (SemanticTargetId::VariantFamily(expected), crate::source_index::SourceSiteKind::VariantFamily(actual)) => expected == actual,
-            (SemanticTargetId::VariantField(expected), crate::source_index::SourceSiteKind::VariantField(actual)) => expected == actual,
-            (SemanticTargetId::Module(expected), crate::source_index::SourceSiteKind::Module) => {
-                matches!(&site.owner, SourceOwner::Module(actual) if actual == expected)
-            }
-            (SemanticTargetId::ModuleBinding(expected), crate::source_index::SourceSiteKind::BindingDeclaration) => {
-                module.structure.bindings.get(site).is_some_and(|binding| {
-                    matches!(binding.kind, SourceBindingKind::TopLevelLet | SourceBindingKind::TopLevelConst)
-                        && module.structure.target_for(site) == Some(target)
-                        && expected.module == module.structure.module
-                        && expected.name.as_ref() == binding.name.as_ref()
-                })
-            }
-            _ => false,
+    /// Returns slice of default reference sites for one canonical target.
+    pub fn default_reference_sites(&self, target: &SemanticTargetId) -> &'a [SourceSiteId] {
+        match target {
+            SemanticTargetId::Binding(_) => self.reference_sites_in_domain(target, ReferenceDomain::Lexical),
+            _ => self.reference_sites_in_domain(target, ReferenceDomain::Semantic),
         }
+    }
+
+    /// Returns rename target view containing lexical and semantic target identities and reference sets.
+    pub fn rename_target_view(&self, site: &SourceSiteId) -> Option<RenameTargetView<'a>> {
+        let lexical_target = self.snapshot.source_index.target_for(site)?;
+        let semantic_target = match lexical_target {
+            SemanticTargetId::Binding(binding_site) => self
+                .snapshot
+                .source_index
+                .module_for_site(binding_site)
+                .and_then(|module| module.structure.import_origin(binding_site))
+                .map(|origin| &origin.remote_target),
+            _ => None,
+        };
+        let refs = self.snapshot.source_index.references();
+        Some(RenameTargetView {
+            lexical_target,
+            semantic_target,
+            definitions: refs.definitions(lexical_target),
+            lexical_references: refs.lexical_references(lexical_target),
+            semantic_references: semantic_target.map_or(&[][..], |t| refs.semantic_references(t)),
+        })
+    }
+
+    /// Searches workspace symbols using the incrementally maintained index.
+    pub fn workspace_symbols(&self, query: &str, limit: usize) -> Vec<&'a crate::source_index::symbol::WorkspaceSymbolEntry> {
+        self.snapshot.source_index.workspace_symbols().search(query, limit)
     }
 
     /// Returns lexical access context from the canonical source owner.

@@ -1,0 +1,18 @@
+   Compiling phalcom-core v0.1.0 (/Users/altunhasanli/dev/phalcom/phalcom/phalcom-core)
+    Finished `test` profile [unoptimized] target(s) in 7.66s
+     Running unittests src/lib.rs (target/debug/build/phalcom-core/770f89e2f34195f1/out/phalcom_core-770f89e2f34195f1)
+
+running 10 tests
+test chunk::tests::span_at_clamps_past_end_to_last_span ... ok
+test chunk::tests::span_at_clamps_ip_zero_to_first_span ... ok
+test chunk::tests::line_at_resolves_against_the_supplied_source ... ok
+test chunk::tests::fuses_both_pair_shapes_in_place ... ok
+test chunk::tests::span_at_on_an_empty_chunk_never_panics ... ok
+test chunk::tests::refuses_to_fuse_a_pair_whose_invoke_is_a_jump_target ... ok
+test chunk::tests::a_backward_loop_edge_also_pins_its_target ... ok
+test chunk::tests::span_at_resolves_a_mid_chunk_ip_exactly ... ok
+test chunk::tests::ic_add_method_invalidates ... ok
+test chunk::tests::ic_override_after_caching ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 93 filtered out; finished in 0.03s
+
