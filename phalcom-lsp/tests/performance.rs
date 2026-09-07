@@ -6,6 +6,9 @@ use std::time::Instant;
 use serde_json::json;
 use tower_lsp::lsp_types::{Position, Url};
 
+#[path = "support/mod.rs"]
+mod support;
+
 use crate::support::TestLsp;
 
 static NEXT_PERF_ROOT: AtomicU64 = AtomicU64::new(1);

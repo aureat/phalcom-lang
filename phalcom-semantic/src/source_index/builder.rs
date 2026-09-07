@@ -7,8 +7,8 @@ use crate::identity::{
     SourceSiteLocalId, VariantFieldId, VariantId,
 };
 use crate::source_index::scope::{
-    CallableSourceInfo, DeclarationSourceInfo, FieldSourceInfo, ImportBindingOrigin, SourceBindingInfo, SourceBindingKind, SourceCallableKind, SourceScopeId,
-    SourceScopeIndex,
+    CallableSourceInfo, DeclarationSourceInfo, FieldSourceInfo, ImportBindingOrigin, SourceBindingInfo, SourceBindingKind, SourceCallableKind,
+    SourceDeclarationKind, SourceScopeId, SourceScopeIndex,
 };
 use crate::source_index::site::{SourceSite, SourceSiteKind};
 use crate::types::annotation::TypeResolver;
@@ -142,19 +142,22 @@ impl TypeReferenceTargetCollector<'_> {
                             }
                         }
                         ClassMember::Index(index) => {
+                            let mut index_bound = class_bound.clone();
+                            index_bound.extend(index.generic_parameters.iter().map(|parameter| parameter.name.clone()));
                             for parameter in &index.params {
                                 if let Some(annotation) = &parameter.annotation {
-                                    self.annotation(annotation, &class_bound);
+                                    self.annotation(annotation, &index_bound);
                                 }
                             }
                             if let phalcom_ast::ast::IndexAccessor::Set { put } = &index.accessor
                                 && let Some(annotation) = &put.annotation
                             {
-                                self.annotation(annotation, &class_bound);
+                                self.annotation(annotation, &index_bound);
                             }
                             if let Some(annotation) = &index.return_annotation {
-                                self.annotation(annotation, &class_bound);
+                                self.annotation(annotation, &index_bound);
                             }
+                            self.where_clause(index.where_clause.as_ref(), &index_bound);
                         }
                         ClassMember::Variant(_) => {}
                     }
@@ -539,6 +542,7 @@ impl SourceScopeBuilder<'_> {
             DeclarationSourceInfo {
                 id: declaration.clone(),
                 name: class.name.clone().into(),
+                kind: SourceDeclarationKind::Class,
                 declaration_site: site,
                 name_range: class.name_range,
                 declaration_range: class.range,
@@ -562,6 +566,7 @@ impl SourceScopeBuilder<'_> {
             DeclarationSourceInfo {
                 id: declaration,
                 name: alias.name.clone().into(),
+                kind: SourceDeclarationKind::TypeAlias,
                 declaration_site: site,
                 name_range: alias.name_range,
                 declaration_range: alias.range,
@@ -583,6 +588,7 @@ impl SourceScopeBuilder<'_> {
             DeclarationSourceInfo {
                 id: declaration.clone(),
                 name: enum_def.name.clone().into(),
+                kind: SourceDeclarationKind::Enum,
                 declaration_site,
                 name_range: enum_def.name_range,
                 declaration_range: enum_def.range,

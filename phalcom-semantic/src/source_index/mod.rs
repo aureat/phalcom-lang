@@ -27,7 +27,7 @@ pub use occurrence::{OccurrenceHint, OccurrenceIndex, OccurrenceKind, Occurrence
 pub use reference::{ModuleReferenceContribution, ReferenceIndex, TargetReferenceSet};
 pub use scope::{
     CallableSourceInfo, DeclarationSourceInfo, FieldSourceInfo, ImportBindingOrigin, SourceBindingInfo, SourceBindingKind, SourceCallableKind,
-    SourceNameResolution, SourceReceiverKind, SourceScope, SourceScopeId, SourceScopeIndex,
+    SourceDeclarationKind, SourceNameResolution, SourceReceiverKind, SourceScope, SourceScopeId, SourceScopeIndex,
 };
 pub use site::{SourceSite, SourceSiteKind};
 pub use symbol::{EditorSymbolKind, WorkspaceSymbolEntry, WorkspaceSymbolId, WorkspaceSymbolIndex};
@@ -62,9 +62,32 @@ pub struct SourceIndexUpdateStats {
     pub workspace_symbol_entries_added: usize,
     pub workspace_symbol_entries_removed: usize,
 
+    /// Retained source/import units inspected by broad delta discovery.
     pub source_workspace_scan_units: usize,
+    /// Reverse-reference units inspected by a broad traversal instead of exact targets.
     pub reference_workspace_scan_units: usize,
+    /// Callable/formal products inspected to discover one module's projection.
     pub formal_workspace_scan_units: usize,
+}
+
+impl SourceIndexUpdateStats {
+    /// Records broad source discovery work without performing any discovery.
+    #[doc(hidden)]
+    pub fn record_source_workspace_scan(&mut self, units: usize) {
+        self.source_workspace_scan_units = self.source_workspace_scan_units.saturating_add(units);
+    }
+
+    /// Records broad reference discovery work without performing any discovery.
+    #[doc(hidden)]
+    pub fn record_reference_workspace_scan(&mut self, units: usize) {
+        self.reference_workspace_scan_units = self.reference_workspace_scan_units.saturating_add(units);
+    }
+
+    /// Records broad formal discovery work without performing any discovery.
+    #[doc(hidden)]
+    pub fn record_formal_workspace_scan(&mut self, units: usize) {
+        self.formal_workspace_scan_units = self.formal_workspace_scan_units.saturating_add(units);
+    }
 }
 
 /// Formal products attached to one canonical callable identity.
@@ -224,8 +247,8 @@ pub struct SourceSemanticIndex {
     modules: im::OrdMap<ModuleId, Arc<ModuleSourceIndex>>,
     references: Arc<ReferenceIndex>,
     workspace_symbols: Arc<WorkspaceSymbolIndex>,
-    /// Non-fatal attachment incidents retained with this source product.
-    pub incidents: Arc<[SourceAttachmentError]>,
+    /// Non-fatal attachment incidents grouped by their owning module.
+    incidents_by_module: im::OrdMap<ModuleId, Arc<[SourceAttachmentError]>>,
     stats: SourceIndexUpdateStats,
 }
 
@@ -387,7 +410,11 @@ fn build_module_workspace_symbols(structure: &SourceScopeIndex) -> Arc<[Workspac
             normalized_name: decl.name.to_lowercase().into_boxed_str(),
             target: SemanticTargetId::Declaration(decl.id.clone()),
             declaration_site: decl.declaration_site.clone(),
-            kind: EditorSymbolKind::Class,
+            kind: match decl.kind {
+                SourceDeclarationKind::Class => EditorSymbolKind::Class,
+                SourceDeclarationKind::Enum => EditorSymbolKind::Enum,
+                SourceDeclarationKind::TypeAlias => EditorSymbolKind::TypeAlias,
+            },
             container_name: None,
         });
     }
@@ -569,7 +596,7 @@ impl SourceSemanticIndex {
             modules: im::OrdMap::new(),
             references: Arc::new(ReferenceIndex::new()),
             workspace_symbols: Arc::new(WorkspaceSymbolIndex::new()),
-            incidents: Arc::from([]),
+            incidents_by_module: im::OrdMap::new(),
             stats: SourceIndexUpdateStats::default(),
         }
     }
@@ -665,6 +692,8 @@ impl SourceSemanticIndex {
             let new_sym_index = self.workspace_symbols.replace_module(module, old_symbols, &[], &mut self.stats);
             self.workspace_symbols = Arc::new(new_sym_index);
 
+            self.incidents_by_module.remove(module);
+
             self.modules.remove(module);
             self.stats.source_modules_retired += 1;
         }
@@ -700,16 +729,19 @@ impl SourceSemanticIndex {
         self.stats = stats;
     }
 
-    pub(crate) fn record_incidents(&mut self, incidents: impl IntoIterator<Item = SourceAttachmentError>) {
-        let mut retained = self.incidents.to_vec();
-        retained.extend(incidents);
-        self.incidents = Arc::from(retained.into_boxed_slice());
+    pub(crate) fn replace_module_incidents(&mut self, module: ModuleId, incidents: impl IntoIterator<Item = SourceAttachmentError>) {
+        let incidents = incidents.into_iter().collect::<Vec<_>>();
+        if incidents.is_empty() {
+            self.incidents_by_module.remove(&module);
+        } else {
+            self.incidents_by_module.insert(module, Arc::from(incidents.into_boxed_slice()));
+        }
     }
 
     /// Returns source attachment incidents without turning them into formal
     /// diagnostics or discarding valid source/formal products.
-    pub fn incidents(&self) -> &[SourceAttachmentError] {
-        &self.incidents
+    pub fn incidents(&self) -> Vec<SourceAttachmentError> {
+        self.incidents_by_module.values().flat_map(|incidents| incidents.iter().cloned()).collect()
     }
 
     pub fn fingerprints(&self) -> SourceIndexFingerprints {
@@ -732,9 +764,7 @@ impl SourceSemanticIndex {
     pub fn attach_formal_analysis(&mut self, module: &ModuleId, analysis: &CallableAnalysis) -> Result<(), Box<SourceAttachmentError>> {
         let Some(module_index) = self.modules.get(module).cloned() else {
             let error = SourceAttachmentError::MissingModule(module.clone());
-            let mut incidents = self.incidents.to_vec();
-            incidents.push(error.clone());
-            self.incidents = Arc::from(incidents.into_boxed_slice());
+            self.replace_module_incidents(module.clone(), [error.clone()]);
             return Err(Box::new(error));
         };
         let (attachment, incidents) = CallableSourceAttachment::from_analysis_with_incidents(analysis.callable.clone(), &module_index.structure, analysis);
@@ -747,11 +777,9 @@ impl SourceSemanticIndex {
         ));
         self.replace_module_shard(module.clone(), updated_shard);
 
-        if !incidents.is_empty() {
-            let mut retained = self.incidents.to_vec();
-            retained.extend(incidents.iter().cloned());
-            self.incidents = Arc::from(retained.into_boxed_slice());
-        }
+        let mut module_incidents = self.incidents_by_module.get(module).map_or_else(Vec::new, |retained| retained.to_vec());
+        module_incidents.extend(incidents.iter().cloned());
+        self.replace_module_incidents(module.clone(), module_incidents);
         incidents.into_iter().next().map_or(Ok(()), |error| Err(Box::new(error)))
     }
 
@@ -882,5 +910,21 @@ impl SourceSemanticIndex {
         } else {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SourceIndexUpdateStats;
+
+    #[test]
+    fn scan_counter_recorders_are_observable_without_scanning() {
+        let mut stats = SourceIndexUpdateStats::default();
+        stats.record_source_workspace_scan(3);
+        stats.record_reference_workspace_scan(5);
+        stats.record_formal_workspace_scan(7);
+        assert_eq!(stats.source_workspace_scan_units, 3);
+        assert_eq!(stats.reference_workspace_scan_units, 5);
+        assert_eq!(stats.formal_workspace_scan_units, 7);
     }
 }

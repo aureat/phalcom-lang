@@ -333,6 +333,10 @@ fn source_index_covers_enum_variants_fields_and_behaviors() {
     let index = build_source_scope_index(module.clone(), &parsed.program, &SourceIndexContext::default());
     let owner = DeclarationId::new(module.clone(), "Option".into());
     assert!(matches!(
+        index.declaration_sources.get(&owner).map(|source| source.kind),
+        Some(phalcom_semantic::source_index::SourceDeclarationKind::Enum)
+    ));
+    assert!(matches!(
         index.site(&index.declaration_sources[&owner].declaration_site).map(|site| &site.kind),
         Some(phalcom_semantic::SourceSiteKind::Declaration(declaration)) if declaration == &owner
     ));
@@ -469,7 +473,7 @@ fn occurrence_index_selects_nested_site_and_keeps_unresolved_hint_advisory() {
             hint: Some(phalcom_semantic::OccurrenceHint::Name("missing".into())),
         },
     ];
-    let index = OccurrenceIndex::new(occurrences, BTreeMap::from([(outer, target.clone())]));
+    let index = OccurrenceIndex::new(occurrences, BTreeMap::from([(outer.clone(), target.clone())]));
 
     let selected = index.occurrence_at(5).expect("nested occurrence");
     assert_eq!(selected.occurrence.site, inner);
@@ -477,16 +481,7 @@ fn occurrence_index_selects_nested_site_and_keeps_unresolved_hint_advisory() {
         selected.target.is_none(),
         "unresolved occurrence must not inherit advisory hint as exact target"
     );
-    assert_eq!(
-        index.occurrences_for_target(&target),
-        Some(
-            [SourceSiteId {
-                owner: SourceOwner::Module(ModuleId::universe_root()),
-                local: SourceSiteLocalId(10)
-            }]
-            .as_slice()
-        )
-    );
+    assert_eq!(index.target_for(&outer), Some(&target));
 }
 
 #[test]

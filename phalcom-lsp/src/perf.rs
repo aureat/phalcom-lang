@@ -71,6 +71,16 @@ pub struct PerfCounters {
     pub scan_results_discarded_as_stale: AtomicU64,
     /// Count of scan results rejected because a live document won the race.
     pub scan_results_discarded_for_open_document: AtomicU64,
+    /// Distinct source modules converted for compiler-owned reference requests.
+    pub reference_source_modules_converted: AtomicU64,
+    /// Line indexes built by snapshot location mappers.
+    pub reference_line_indexes_built: AtomicU64,
+    /// LSP-side duplicate-filter operations for compiler-owned references.
+    pub reference_duplicate_filter_steps: AtomicU64,
+    /// Forbidden source-shard discovery performed by workspace-symbol requests.
+    pub workspace_symbol_source_shard_scans: AtomicU64,
+    /// Forbidden full-source discovery performed during diagnostic adaptation.
+    pub diagnostic_workspace_source_scans: AtomicU64,
 }
 
 impl PerfCounters {
@@ -112,6 +122,11 @@ impl PerfCounters {
         self.scan_directory_entries_consumed.store(0, Ordering::Relaxed);
         self.scan_results_discarded_as_stale.store(0, Ordering::Relaxed);
         self.scan_results_discarded_for_open_document.store(0, Ordering::Relaxed);
+        self.reference_source_modules_converted.store(0, Ordering::Relaxed);
+        self.reference_line_indexes_built.store(0, Ordering::Relaxed);
+        self.reference_duplicate_filter_steps.store(0, Ordering::Relaxed);
+        self.workspace_symbol_source_shard_scans.store(0, Ordering::Relaxed);
+        self.diagnostic_workspace_source_scans.store(0, Ordering::Relaxed);
     }
 
     /// Captures a snapshot of current counter values.
@@ -148,6 +163,11 @@ impl PerfCounters {
             scan_directory_entries_consumed: self.scan_directory_entries_consumed.load(Ordering::Relaxed),
             scan_results_discarded_as_stale: self.scan_results_discarded_as_stale.load(Ordering::Relaxed),
             scan_results_discarded_for_open_document: self.scan_results_discarded_for_open_document.load(Ordering::Relaxed),
+            reference_source_modules_converted: self.reference_source_modules_converted.load(Ordering::Relaxed),
+            reference_line_indexes_built: self.reference_line_indexes_built.load(Ordering::Relaxed),
+            reference_duplicate_filter_steps: self.reference_duplicate_filter_steps.load(Ordering::Relaxed),
+            workspace_symbol_source_shard_scans: self.workspace_symbol_source_shard_scans.load(Ordering::Relaxed),
+            diagnostic_workspace_source_scans: self.diagnostic_workspace_source_scans.load(Ordering::Relaxed),
         }
     }
 }
@@ -218,6 +238,16 @@ pub struct CounterSnapshot {
     pub scan_results_discarded_as_stale: u64,
     /// Count of scan results rejected because a live document won the race.
     pub scan_results_discarded_for_open_document: u64,
+    /// Distinct source modules converted for compiler-owned reference requests.
+    pub reference_source_modules_converted: u64,
+    /// Line indexes built by snapshot location mappers.
+    pub reference_line_indexes_built: u64,
+    /// LSP-side duplicate-filter operations for compiler-owned references.
+    pub reference_duplicate_filter_steps: u64,
+    /// Forbidden source-shard discovery performed by workspace-symbol requests.
+    pub workspace_symbol_source_shard_scans: u64,
+    /// Forbidden full-source discovery performed during diagnostic adaptation.
+    pub diagnostic_workspace_source_scans: u64,
 }
 
 /// Shared counter handle passed between the service, worker, and semantic passes.
@@ -378,6 +408,11 @@ mod tests {
                 scan_directory_entries_consumed: 0,
                 scan_results_discarded_as_stale: 0,
                 scan_results_discarded_for_open_document: 0,
+                reference_source_modules_converted: 0,
+                reference_line_indexes_built: 0,
+                reference_duplicate_filter_steps: 0,
+                workspace_symbol_source_shard_scans: 0,
+                diagnostic_workspace_source_scans: 0,
             }
         );
 

@@ -466,7 +466,7 @@ fn pb_8_structural_sharing() {
 // PB-9a / PB-9b / PB-9c — High Fanout
 // -----------------------------------------------------------------------------
 fn make_fanout_input(provider_source: &str, consumer_sources: Vec<(usize, String)>, generation: u64) -> SemanticWorkspaceInput {
-    const CONSUMER_COUNT: usize = 50;
+    const CONSUMER_COUNT: usize = 500;
     let provider = module("provider");
     let mut sources = BTreeMap::new();
     let p_src: Arc<str> = Arc::from(provider_source.to_owned());
@@ -561,7 +561,7 @@ fn pb_9a_high_fanout_provider_body_only_edit() {
         .expect("provider reference contribution");
 
     // Capture consumer shards from initial snapshot
-    let initial_consumers = (0..50)
+    let initial_consumers = (0..500)
         .map(|i| {
             let m = module(&format!("c{:02}", i));
             (m.clone(), initial.snapshot.source_index().module_arc(&m).unwrap())

@@ -18,6 +18,8 @@ pub struct SemanticWorkspaceInput {
     pub sources: BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
     pub interfaces: BTreeMap<ModuleId, Arc<phalcom_modules::interface::UnlinkedModuleInterface>>,
     pub import_products: BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>,
+    /// Exact importer-owned import-site worklists retained by Plan A.
+    pub import_sites_by_module: Arc<BTreeMap<ModuleId, BTreeSet<phalcom_modules::identity::ImportSiteId>>>,
     pub diagnostics: BTreeMap<ModuleId, Vec<ModuleDiagnostic>>,
     pub blocked_modules: BTreeSet<ModuleId>,
     pub generation: u64,
@@ -32,6 +34,7 @@ impl SemanticWorkspaceInput {
             sources,
             interfaces: BTreeMap::new(),
             import_products: BTreeMap::new(),
+            import_sites_by_module: Arc::new(BTreeMap::new()),
             diagnostics: BTreeMap::new(),
             blocked_modules: BTreeSet::new(),
             generation,
@@ -52,6 +55,11 @@ impl SemanticWorkspaceInput {
 
     pub fn with_interfaces(mut self, interfaces: BTreeMap<ModuleId, Arc<phalcom_modules::interface::UnlinkedModuleInterface>>) -> Self {
         self.interfaces = interfaces;
+        self
+    }
+
+    pub fn with_import_sites_by_module(mut self, import_sites_by_module: Arc<BTreeMap<ModuleId, BTreeSet<phalcom_modules::identity::ImportSiteId>>>) -> Self {
+        self.import_sites_by_module = import_sites_by_module;
         self
     }
 
@@ -136,6 +144,7 @@ pub fn analyze_single_module(module: ModuleId, source: Arc<str>, program: Arc<Pr
         sources,
         interfaces: input_interfaces,
         import_products: BTreeMap::new(),
+        import_sites_by_module: Arc::new(BTreeMap::new()),
         diagnostics: BTreeMap::new(),
         blocked_modules: BTreeSet::new(),
         generation: 0,

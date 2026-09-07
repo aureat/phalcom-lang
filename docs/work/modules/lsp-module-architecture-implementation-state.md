@@ -317,3 +317,48 @@ Classification: fixture/baseline outside C3. These tests use package-less relati
 Do not change: C3 production code, package ownership semantics, unrelated C4–C6 tests, or parallel dirty files. C3 checkpoint remains focused-green but package-gate blocked until supervisor authorizes separate fixture migration/baseline investigation.
 
 Resume pointer: run targeted C3 evidence from this ledger. Do not rerun full `cargo test -p phalcom-lsp` unless cross-file fixture ownership is explicitly repaired or reclassified.
+
+## Plan B completion patch — exact indexing, contribution lifetime, and LSP work evidence
+
+The Plan B completion patch is implemented on the `codex/plan-b-completion`
+branch. The patch closes the remaining source-index and LSP-adapter gaps without
+redesigning the landed architecture.
+
+Implemented boundaries:
+
+- source-index reuse and retirement accounting now use exact rebuilt/retired
+  module worklists rather than retained workspace-map discovery scans;
+- Plan A's importer-to-`ImportSiteId` index is carried into source publication,
+  so changed-module import work is restricted to the owning import sites;
+- formal source projection looks up the exact callable IDs owned by each module;
+- occurrence reverse lookup is owned by the persistent `ReferenceIndex`, module
+  source incidents are replaceable contributions, and reference statistics count
+  actual sorted set differences;
+- source declarations publish class/enum/type-alias kind, including class index
+  accessor generic and `where` type references;
+- LSP reference location conversion records source-module and line-index work,
+  while duplicate filtering and workspace source-shard/diagnostic scans remain
+  zero because the adapter consumes compiler-owned indexed products;
+- the dedicated Plan B LSP acceptance target and the semantic fan-out fixture
+  exercise the real production path, with 500 consumers in the high-fan-out case.
+
+Checkpoint evidence:
+
+| Command | Result |
+|---|---|
+| `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-semantic` | PASS |
+| `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-lsp` | PASS |
+| `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic plan_b_indexing -- --nocapture` | PASS: 13 passed with 500-consumer fan-out |
+| `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic` | PASS: 1,131 passed, 42 ignored |
+| `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test --workspace --all-targets` | BASELINE-BLOCKED: `phalcom-core` core lane 455 passed, 29 ignored; language corpus 37 passed, 24 failed, 4 ignored |
+| `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-lsp` | PASS: all package targets; only performance harness tests ignored |
+| `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-lsp --test plan_b_indexing -- --nocapture` | PASS: 2 passed |
+| `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-lsp --test performance -- --nocapture` | PASS: 1 passed, 2 ignored |
+
+The package-level semantic and LSP gates are green. Workspace-wide release
+certification remains separate: the known core/workspace baseline must still be
+run or independently reclassified before this ledger can claim release-complete
+status. Residual
+ordinary loops that construct or retain persistent products are not delta
+discovery scans; broad loops outside the Plan B ownership boundary remain
+classified rather than opportunistically rewritten.

@@ -17,11 +17,20 @@ pub enum SourceCallableKind {
     Constructor,
 }
 
+/// Canonical source declaration category used by editor projections.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum SourceDeclarationKind {
+    Class,
+    Enum,
+    TypeAlias,
+}
+
 /// Canonical source metadata for one declaration identity.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DeclarationSourceInfo {
     pub id: DeclarationId,
     pub name: Box<str>,
+    pub kind: SourceDeclarationKind,
     pub declaration_site: SourceSiteId,
     pub name_range: SourceRange,
     pub declaration_range: SourceRange,

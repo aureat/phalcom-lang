@@ -754,6 +754,7 @@ impl SemanticWorkspaceSession {
                 sources: update.sources,
                 interfaces: update.interfaces,
                 import_products: update.import_products,
+                import_sites_by_module: update.sites_by_importer,
                 diagnostics: update.diagnostics,
                 blocked_modules: update.blocked_modules,
                 generation,
@@ -3462,8 +3463,10 @@ impl SemanticWorkspaceSession {
             &known_declarations,
             previous_snapshot.as_deref().map(|snapshot| snapshot.source_index.as_ref()),
             &source_index_rebuild_modules,
+            &removed_modules,
             &current_modules,
             &source_index_analysis_callables,
+            &input.import_sites_by_module,
         );
         // Presentation-only Universe source shards provide provenance and
         // navigation. They are deliberately not workspace query inputs.
@@ -3560,7 +3563,11 @@ impl SemanticWorkspaceSession {
         let mut formal_projection = previous_formal.cloned().unwrap_or_default();
         if previous_formal.is_none() {
             for (mod_id, _) in source_index.modules() {
-                let mod_proj = FormalSemanticProjection::build_module_projection(mod_id, &callable_analyses, Some(&source_index));
+                let callable_ids = source_index
+                    .module(mod_id)
+                    .map(|module| module.attachments.keys().cloned().collect::<Vec<_>>())
+                    .unwrap_or_default();
+                let mod_proj = FormalSemanticProjection::build_module_projection(mod_id, callable_ids, &callable_analyses, Some(&source_index));
                 formal_projection.replace_module(mod_id.clone(), Arc::new(mod_proj));
             }
         } else {
@@ -3568,7 +3575,11 @@ impl SemanticWorkspaceSession {
                 if !current_modules.contains(mod_id) {
                     continue;
                 }
-                let mod_proj = FormalSemanticProjection::build_module_projection(mod_id, &callable_analyses, Some(&source_index));
+                let callable_ids = source_index
+                    .module(mod_id)
+                    .map(|module| module.attachments.keys().cloned().collect::<Vec<_>>())
+                    .unwrap_or_default();
+                let mod_proj = FormalSemanticProjection::build_module_projection(mod_id, callable_ids, &callable_analyses, Some(&source_index));
                 formal_projection.replace_module(mod_id.clone(), Arc::new(mod_proj));
             }
             // Plan A already computed the exact retirement set. Reusing it
@@ -4065,8 +4076,10 @@ fn build_source_semantic_index(
     nominal_declarations: &HashSet<DeclarationId>,
     previous: Option<&SourceSemanticIndex>,
     rebuild_modules: &BTreeSet<ModuleId>,
+    retired_modules: &BTreeSet<ModuleId>,
     current_modules: &BTreeSet<ModuleId>,
     analysis_callables: &BTreeMap<ModuleId, BTreeSet<crate::identity::CallableId>>,
+    import_sites_by_module: &BTreeMap<ModuleId, BTreeSet<phalcom_modules::identity::ImportSiteId>>,
 ) -> (SourceSemanticIndex, BTreeMap<ModuleId, Arc<str>>) {
     // Canonical Universe modules are source-owned presentation inputs: index
     // their declarations for navigation without linking or deeply analyzing
@@ -4088,11 +4101,6 @@ fn build_source_semantic_index(
             );
             ModuleId::universe(path)
         })
-        .collect::<BTreeSet<_>>();
-    let current_index_modules = current_modules
-        .iter()
-        .cloned()
-        .chain(presentation_modules.iter().cloned())
         .collect::<BTreeSet<_>>();
     let mut index_sources = BTreeMap::new();
     if previous.is_none() {
@@ -4122,10 +4130,10 @@ fn build_source_semantic_index(
             .filter(|((module, _), _)| rebuild_modules.contains(module))
             .map(|(key, target)| (key.clone(), target.clone()))
             .collect(),
-        import_products: import_products
+        import_products: rebuild_modules
             .iter()
-            .filter(|(site, _)| rebuild_modules.contains(&site.importer))
-            .map(|(site, product)| (site.clone(), product.clone()))
+            .flat_map(|module| import_sites_by_module.get(module).into_iter().flatten())
+            .filter_map(|site| import_products.get(site).map(|product| (site.clone(), product.clone())))
             .collect(),
         ..SourceIndexContext::default()
     };
@@ -4212,17 +4220,17 @@ fn build_source_semantic_index(
     let mut index = previous.cloned().unwrap_or_else(SourceSemanticIndex::empty);
     if let Some(previous) = previous {
         index.set_stats(crate::source_index::SourceIndexUpdateStats::default());
-        let reused = index
-            .module_ids()
-            .filter(|module| !rebuild_modules.contains(*module) && current_index_modules.contains(*module))
+        let rebuilt_retained = rebuild_modules
+            .iter()
+            .filter(|module| current_modules.contains(*module) && previous.module(module).is_some())
             .count();
+        let retired_count = retired_modules.iter().filter(|module| previous.module(module).is_some()).count();
+        let reused = previous.len().saturating_sub(rebuilt_retained).saturating_sub(retired_count);
         let mut stats = index.stats();
         stats.source_modules_reused = reused;
         index.set_stats(stats);
-        for old_module in previous.module_ids() {
-            if !current_index_modules.contains(old_module) {
-                index.retire_module_shard(old_module);
-            }
+        for module in retired_modules {
+            index.retire_module_shard(module);
         }
     }
 
@@ -4249,7 +4257,7 @@ fn build_source_semantic_index(
             .collect::<Vec<_>>();
         module_analyses.sort_by_key(|analysis| analysis.callable.clone());
         let (shard, incidents) = crate::source_index::ModuleSourceIndex::from_scope_index_with_formal(scope, source, Some(&context), &module_analyses);
-        index.record_incidents(incidents);
+        index.replace_module_incidents(module.clone(), incidents);
         index.replace_module_shard(module, Arc::new(shard));
     }
 

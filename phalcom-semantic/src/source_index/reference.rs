@@ -248,20 +248,18 @@ impl ReferenceIndex {
             let new_lexical = update_slice(&current_set.lexical_references, new.and_then(|n| n.lexical_references.get(&target)));
             let new_semantic = update_slice(&current_set.semantic_references, new.and_then(|n| n.semantic_references.get(&target)));
 
-            if new_defs.len() > current_set.definitions.len() {
-                stats.reference_sites_added += new_defs.len() - current_set.definitions.len();
-            } else {
-                stats.reference_sites_removed += current_set.definitions.len() - new_defs.len();
-            }
-            if new_lexical.len() > current_set.lexical_references.len() {
-                stats.reference_sites_added += new_lexical.len() - current_set.lexical_references.len();
-            } else {
-                stats.reference_sites_removed += current_set.lexical_references.len() - new_lexical.len();
-            }
-            if new_semantic.len() > current_set.semantic_references.len() {
-                stats.reference_sites_added += new_semantic.len() - current_set.semantic_references.len();
-            } else {
-                stats.reference_sites_removed += current_set.semantic_references.len() - new_semantic.len();
+            let (added, removed) = slice_delta(&current_set.definitions, &new_defs);
+            stats.reference_sites_added += added;
+            stats.reference_sites_removed += removed;
+            let (added, removed) = slice_delta(&current_set.lexical_references, &new_lexical);
+            stats.reference_sites_added += added;
+            stats.reference_sites_removed += removed;
+            let (added, removed) = slice_delta(&current_set.semantic_references, &new_semantic);
+            stats.reference_sites_added += added;
+            stats.reference_sites_removed += removed;
+
+            if new_defs == current_set.definitions && new_lexical == current_set.lexical_references && new_semantic == current_set.semantic_references {
+                continue;
             }
 
             if new_defs.is_empty() && new_lexical.is_empty() && new_semantic.is_empty() {
@@ -280,4 +278,37 @@ impl ReferenceIndex {
 
         Self { by_target }
     }
+}
+
+fn slice_delta(old: &[SourceSiteId], new: &[SourceSiteId]) -> (usize, usize) {
+    let mut added = 0;
+    let mut removed = 0;
+    let mut old_index = 0;
+    let mut new_index = 0;
+    while old_index < old.len() || new_index < new.len() {
+        match (old.get(old_index), new.get(new_index)) {
+            (Some(old_site), Some(new_site)) if old_site == new_site => {
+                old_index += 1;
+                new_index += 1;
+            }
+            (Some(old_site), Some(new_site)) if old_site < new_site => {
+                removed += 1;
+                old_index += 1;
+            }
+            (Some(_), Some(_)) => {
+                added += 1;
+                new_index += 1;
+            }
+            (Some(_), None) => {
+                removed += 1;
+                old_index += 1;
+            }
+            (None, Some(_)) => {
+                added += 1;
+                new_index += 1;
+            }
+            (None, None) => break,
+        }
+    }
+    (added, removed)
 }

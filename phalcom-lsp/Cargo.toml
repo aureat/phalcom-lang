@@ -70,3 +70,11 @@ path = "tests/single_world_cutover.rs"
 [[test]]
 name = "semantic_boundary"
 path = "tests/semantic_boundary.rs"
+
+[[test]]
+name = "plan_b_indexing"
+path = "tests/plan_b_indexing.rs"
+
+[[test]]
+name = "performance"
+path = "tests/performance.rs"

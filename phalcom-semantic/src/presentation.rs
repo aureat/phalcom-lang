@@ -13,7 +13,7 @@ use crate::types::evidence::TypeKnowledge;
 use crate::types::id::TypeId;
 use crate::types::store::TypeStore;
 use phalcom_common::range::SourceRange;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 /// Canonical formal presentation state for one semantic site.
@@ -301,7 +301,6 @@ impl FormalFactRef {
     }
 }
 
-
 /// Machine-readable formal readiness/validity state attached to a projected
 /// source fact. This is separate from rendered type text and preserves causal
 /// invalidity without making advisory observations formal evidence.
@@ -422,15 +421,17 @@ impl FormalSemanticProjection {
     /// Builds module-specific formal projection from callable products and current source index.
     pub fn build_module_projection(
         module: &ModuleId,
+        callable_ids: impl IntoIterator<Item = CallableId>,
         analyses: &HashMap<CallableId, Arc<CallableAnalysis>>,
         source_index: Option<&SourceSemanticIndex>,
     ) -> ModuleFormalProjection {
         let mut sites = Vec::new();
         let module_index = source_index.and_then(|index| index.module(module));
-        for analysis in analyses.values() {
-            if analysis.callable.module() != module {
+        for callable in callable_ids {
+            let Some(analysis) = analyses.get(&callable) else {
                 continue;
-            }
+            };
+            debug_assert_eq!(analysis.callable.module(), module);
             let callable_fact = FormalFactRef::Callable(analysis.callable.clone());
             sites.push(FormalFactSite {
                 module: module.clone(),
@@ -486,18 +487,19 @@ impl FormalSemanticProjection {
     /// retain historical ranges; presentation must not publish those stale
     /// positions.
     pub fn from_callable_analyses_with_source_index(analyses: &HashMap<CallableId, Arc<CallableAnalysis>>, source_index: Option<&SourceSemanticIndex>) -> Self {
-        let mut modules_set = BTreeSet::new();
+        let mut callables_by_module: BTreeMap<ModuleId, Vec<CallableId>> = BTreeMap::new();
         for callable in analyses.keys() {
-            modules_set.insert(callable.module().clone());
+            callables_by_module.entry(callable.module().clone()).or_default().push(callable.clone());
         }
         if let Some(source_index) = source_index {
             for (mod_id, _) in source_index.modules() {
-                modules_set.insert(mod_id.clone());
+                callables_by_module.entry(mod_id.clone()).or_default();
             }
         }
         let mut modules = im::OrdMap::new();
-        for module in modules_set {
-            let projection = Self::build_module_projection(&module, analyses, source_index);
+        for (module, mut callable_ids) in callables_by_module {
+            callable_ids.sort();
+            let projection = Self::build_module_projection(&module, callable_ids, analyses, source_index);
             modules.insert(module, Arc::new(projection));
         }
         Self { modules }

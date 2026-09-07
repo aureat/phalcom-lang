@@ -68,7 +68,6 @@ pub struct OccurrenceIndex {
     occurrences: Arc<[SemanticOccurrence]>,
     intervals: RangeIndex<usize>,
     exact_targets: BTreeMap<SourceSiteId, SemanticTargetId>,
-    target_occurrences: BTreeMap<SemanticTargetId, Arc<[SourceSiteId]>>,
 }
 
 impl OccurrenceIndex {
@@ -89,18 +88,10 @@ impl OccurrenceIndex {
                 .enumerate()
                 .map(|(index, occurrence)| RangeEntry::new(occurrence.range, index, occurrence_kind_priority(occurrence.kind))),
         );
-        let mut reverse = BTreeMap::<SemanticTargetId, Vec<SourceSiteId>>::new();
-        for occurrence in &occurrences {
-            if let Some(target) = exact_targets.get(&occurrence.site) {
-                reverse.entry(target.clone()).or_default().push(occurrence.site.clone());
-            }
-        }
-        let target_occurrences = reverse.into_iter().map(|(target, sites)| (target, Arc::from(sites))).collect();
         Self {
             occurrences: Arc::from(occurrences),
             intervals,
             exact_targets,
-            target_occurrences,
         }
     }
 
@@ -211,11 +202,6 @@ impl OccurrenceIndex {
             occurrence,
             target: self.exact_targets.get(&occurrence.site),
         })
-    }
-
-    /// Returns all exact occurrence sites for one canonical target.
-    pub fn occurrences_for_target(&self, target: &SemanticTargetId) -> Option<&[SourceSiteId]> {
-        self.target_occurrences.get(target).map(AsRef::as_ref)
     }
 
     /// Returns canonical target attached to one occurrence site.
