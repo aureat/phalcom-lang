@@ -20,6 +20,9 @@ pub struct SemanticWorkspaceInput {
     pub import_products: BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>,
     /// Exact importer-owned import-site worklists retained by Plan A.
     pub import_sites_by_module: Arc<BTreeMap<ModuleId, BTreeSet<phalcom_modules::identity::ImportSiteId>>>,
+    /// Production module updates require canonical import products; direct
+    /// source-index compatibility callers may retain path-map fallback.
+    pub require_canonical_import_products: bool,
     pub diagnostics: BTreeMap<ModuleId, Vec<ModuleDiagnostic>>,
     pub blocked_modules: BTreeSet<ModuleId>,
     pub generation: u64,
@@ -35,6 +38,7 @@ impl SemanticWorkspaceInput {
             interfaces: BTreeMap::new(),
             import_products: BTreeMap::new(),
             import_sites_by_module: Arc::new(BTreeMap::new()),
+            require_canonical_import_products: false,
             diagnostics: BTreeMap::new(),
             blocked_modules: BTreeSet::new(),
             generation,
@@ -60,6 +64,11 @@ impl SemanticWorkspaceInput {
 
     pub fn with_import_sites_by_module(mut self, import_sites_by_module: Arc<BTreeMap<ModuleId, BTreeSet<phalcom_modules::identity::ImportSiteId>>>) -> Self {
         self.import_sites_by_module = import_sites_by_module;
+        self
+    }
+
+    pub fn with_canonical_import_products(mut self) -> Self {
+        self.require_canonical_import_products = true;
         self
     }
 
@@ -145,6 +154,7 @@ pub fn analyze_single_module(module: ModuleId, source: Arc<str>, program: Arc<Pr
         interfaces: input_interfaces,
         import_products: BTreeMap::new(),
         import_sites_by_module: Arc::new(BTreeMap::new()),
+        require_canonical_import_products: false,
         diagnostics: BTreeMap::new(),
         blocked_modules: BTreeSet::new(),
         generation: 0,

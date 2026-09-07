@@ -318,6 +318,40 @@ fn exact_import_site_product_controls_compound_path_occurrences() {
 }
 
 #[test]
+fn production_import_indexing_fails_closed_without_canonical_product() {
+    let source = "import a.b.c\n";
+    let parsed = parse(source, 0);
+    assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
+
+    let project = ResolvedProjectId::from_raw(78);
+    let importer = ModuleId::resolved(project, ModulePath::from_components(Vec::new()));
+    let target = ModuleId::resolved(
+        project,
+        ModulePath::from_components(
+            ["a", "b", "c"]
+                .into_iter()
+                .map(|component| ModuleComponent::from_identifier(component).unwrap())
+                .collect::<Vec<_>>(),
+        ),
+    );
+    let mut context = SourceIndexContext::default()
+        .with_resolved_import(importer.clone(), "a.b.c", target.clone())
+        .with_module("a.b.c", target.clone());
+    context.require_canonical_import_products = true;
+
+    let mut scopes = build_source_scope_index(importer.clone(), &parsed.program, &context);
+    let occurrences = OccurrenceIndex::from_program_with_context(&mut scopes, &parsed.program, Some(&context));
+
+    assert!(
+        occurrences
+            .exact_targets()
+            .values()
+            .all(|resolved| resolved != &SemanticTargetId::Module(target.clone())),
+        "production source indexing must not recover import identity from path spelling"
+    );
+}
+
+#[test]
 fn source_index_covers_enum_variants_fields_and_behaviors() {
     let source = "enum Option { @variant Some(_ value: Int) run() { value } }\n";
     let parsed = parse(source, 0);

@@ -36,6 +36,10 @@ pub struct SourceIndexContext {
     /// Production source indexing prefers this identity-keyed projection over
     /// reconstructing meaning from a written path string.
     pub import_products: BTreeMap<ImportSiteId, std::sync::Arc<phalcom_modules::resolver::ImportResolutionProduct>>,
+    /// Requires production source indexing to fail closed when an authored
+    /// import has no canonical compiler product. Low-level source-index tests
+    /// leave this disabled to exercise compatibility-only path maps.
+    pub require_canonical_import_products: bool,
     /// Canonical callable targets keyed by declaration and exact selector.
     pub callable_targets: BTreeMap<(DeclarationId, Selector), CallableId>,
     /// Canonical nominal type references keyed by source module and exact token range.
@@ -458,6 +462,7 @@ impl SourceScopeBuilder<'_> {
                         let site = self.declare(self.index.root, name.clone(), SourceBindingKind::Import, range, false);
                         let module = match self.context.import_products.get(&import_site) {
                             Some(product) => product.target.as_ref().ok().cloned(),
+                            None if self.context.require_canonical_import_products => None,
                             None => self
                                 .context
                                 .resolved_imports
@@ -478,6 +483,7 @@ impl SourceScopeBuilder<'_> {
                         import_site_local = import_site_local.saturating_add(1);
                         let module = match self.context.import_products.get(&import_site) {
                             Some(product) => product.target.as_ref().ok().cloned(),
+                            None if self.context.require_canonical_import_products => None,
                             None => self
                                 .context
                                 .resolved_imports

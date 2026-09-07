@@ -755,6 +755,7 @@ impl SemanticWorkspaceSession {
                 interfaces: update.interfaces,
                 import_products: update.import_products,
                 import_sites_by_module: update.sites_by_importer,
+                require_canonical_import_products: true,
                 diagnostics: update.diagnostics,
                 blocked_modules: update.blocked_modules,
                 generation,
@@ -861,7 +862,6 @@ impl SemanticWorkspaceSession {
         let mut stats = SemanticUpdateStats::default();
         let mut invalidated_keys = BTreeSet::new();
         let mut callable_dispositions = BTreeMap::new();
-        let previous_sources = self.sources.clone();
         let previous_snapshot = self.last_snapshot.clone();
         let previous_field_lifecycle_fingerprints = self.field_lifecycle_fingerprints.clone();
         let previous_module_diagnostics = self.module_diagnostics.clone();
@@ -994,13 +994,13 @@ impl SemanticWorkspaceSession {
         }
         let current_modules = self.semantic_structure_shards.keys().cloned().collect::<BTreeSet<_>>();
         let mut removed_modules = delta_removed_modules;
-        removed_modules.extend(
-            previous_sources
-                .keys()
-                .filter(|module| !current_modules.contains(module))
-                .cloned()
-                .collect::<BTreeSet<_>>(),
-        );
+        if !delta_driven {
+            // Direct SemanticWorkspaceInput publication is a full-workspace
+            // compatibility path. Production module updates carry the exact
+            // Plan-A removal worklist above and never rediscover retirement
+            // from retained source maps.
+            removed_modules.extend(self.sources.keys().filter(|module| !current_modules.contains(module)).cloned());
+        }
         structural_recomputed_modules.extend(removed_modules.iter().cloned());
         let retained_sources = self
             .semantic_structure_shards
@@ -3456,8 +3456,8 @@ impl SemanticWorkspaceSession {
         let (mut source_index, presentation_sources) = build_source_semantic_index(
             &input.sources,
             &callable_analyses,
-            &resolved_imports_map,
             &input.import_products,
+            input.require_canonical_import_products,
             input.linked.as_ref(),
             &resolver,
             &known_declarations,
@@ -3597,14 +3597,19 @@ impl SemanticWorkspaceSession {
             source_index_stats.formal_modules_rebuilt = source_index.len();
         } else {
             source_index_stats.formal_modules_rebuilt = source_index_rebuild_modules.iter().filter(|module| current_modules.contains(*module)).count();
-            source_index_stats.formal_modules_reused = source_index
-                .module_ids()
-                .filter(|module| !source_index_rebuild_modules.contains(*module))
-                .count();
-            source_index_stats.formal_modules_retired = removed_modules
+            let formal_modules_retired = removed_modules
                 .iter()
                 .filter(|module| previous_formal.is_some_and(|projection| projection.module(module).is_some()))
                 .count();
+            source_index_stats.formal_modules_retired = formal_modules_retired;
+            source_index_stats.formal_modules_reused = previous_formal
+                .map(|projection| {
+                    projection
+                        .module_count()
+                        .saturating_sub(source_index_stats.formal_modules_rebuilt)
+                        .saturating_sub(formal_modules_retired)
+                })
+                .unwrap_or_default();
         }
         source_index.set_stats(source_index_stats);
 
@@ -4069,8 +4074,8 @@ fn semantic_target_for_linked_symbol(symbol: &SymbolId, nominal_declarations: &H
 fn build_source_semantic_index(
     sources: &BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
     callable_analyses: &HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>,
-    resolved_imports: &BTreeMap<(ModuleId, String), ModuleId>,
     import_products: &BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>,
+    require_canonical_import_products: bool,
     linked: &LinkedProgram,
     type_resolver: &dyn TypeResolver,
     nominal_declarations: &HashSet<DeclarationId>,
@@ -4125,11 +4130,7 @@ fn build_source_semantic_index(
     // belonging to rebuilt modules in this publication context; unchanged
     // shards already carry their resolved source identities.
     let mut context = SourceIndexContext {
-        resolved_imports: resolved_imports
-            .iter()
-            .filter(|((module, _), _)| rebuild_modules.contains(module))
-            .map(|(key, target)| (key.clone(), target.clone()))
-            .collect(),
+        require_canonical_import_products,
         import_products: rebuild_modules
             .iter()
             .flat_map(|module| import_sites_by_module.get(module).into_iter().flatten())

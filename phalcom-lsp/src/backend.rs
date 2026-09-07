@@ -776,7 +776,10 @@ impl Backend {
 
     fn compiler_workspace_symbols(&self, compiler: &phalcom_semantic::SemanticSnapshot, query: &str) -> Vec<SymbolInformation> {
         let entries = compiler.editor().workspace_symbols(query, usize::MAX);
-        let mut mapper = SnapshotLocationMapper::new_with_counters(compiler, self.perf_counters());
+        // Workspace-symbol conversion is a separate request domain. The
+        // reference/definition counters must not depend on which symbols were
+        // mapped since their last reset.
+        let mut mapper = SnapshotLocationMapper::new(compiler);
         let mut symbols = Vec::with_capacity(entries.len());
         for entry in entries {
             let kind = match entry.kind {

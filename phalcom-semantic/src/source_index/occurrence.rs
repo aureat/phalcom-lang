@@ -341,6 +341,9 @@ impl OccurrenceBuilder<'_> {
         if let Some(product) = context.import_products.get(&site) {
             return (product.target.clone().ok(), Some(product.prefixes.to_vec()));
         }
+        if context.require_canonical_import_products {
+            return (None, None);
+        }
         // Standalone source-index tests may provide only the legacy context;
         // production workspace publication always supplies identity-keyed
         // import products above.

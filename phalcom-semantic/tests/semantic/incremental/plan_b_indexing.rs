@@ -7,13 +7,91 @@ use phalcom_modules::interface::{LinkedExport, LinkedExportTarget, LinkedModuleI
 use phalcom_modules::linker::{GlobalBindingId, ImportBindingId, LinkedModule, LinkedProgram, LinkedReadSpec, ModuleBindingLayout, SymbolId};
 use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::source::ModuleKind;
+use phalcom_modules::{SourceId, SourceLocation, SourceRevision, WorkspaceSourceBatchMutation};
 use phalcom_semantic::editor::ReferenceDomain;
 use phalcom_semantic::identity::{DeclarationId, SemanticTargetId};
+use phalcom_semantic::presentation::FormalFactSite;
 use phalcom_semantic::session::SemanticWorkspaceSession;
 use phalcom_semantic::source::ParsedModuleUnit;
+use phalcom_semantic::source_index::{ImportBindingOrigin, SemanticOccurrence, SourceSiteKind, WorkspaceSymbolEntry};
 use phalcom_semantic::workspace::SemanticWorkspaceInput;
 use std::collections::BTreeMap;
 use std::sync::Arc;
+
+#[derive(Debug, Eq, PartialEq)]
+struct EditorSnapshotProjection {
+    source_sites: Vec<(phalcom_semantic::SourceSiteId, phalcom_common::range::SourceRange, SourceSiteKind)>,
+    occurrences: Vec<SemanticOccurrence>,
+    targets: Vec<(phalcom_semantic::SourceSiteId, SemanticTargetId)>,
+    import_origins: Vec<(phalcom_semantic::SourceSiteId, ImportBindingOrigin)>,
+    definitions: Vec<(SemanticTargetId, Vec<phalcom_semantic::SourceSiteId>)>,
+    lexical_references: Vec<(SemanticTargetId, Vec<phalcom_semantic::SourceSiteId>)>,
+    semantic_references: Vec<(SemanticTargetId, Vec<phalcom_semantic::SourceSiteId>)>,
+    formal_facts: Vec<FormalFactSite>,
+    workspace_symbols: Vec<WorkspaceSymbolEntry>,
+}
+
+fn editor_snapshot_projection(snapshot: &phalcom_semantic::SemanticSnapshot) -> EditorSnapshotProjection {
+    let source_index = snapshot.source_index();
+    let mut source_sites = Vec::new();
+    let mut occurrences = Vec::new();
+    let mut targets = Vec::new();
+    let mut import_origins = Vec::new();
+    let mut workspace_symbols = Vec::new();
+
+    for (_, module) in source_index.modules() {
+        source_sites.extend(module.structure.sites.values().map(|site| (site.id.clone(), site.range, site.kind.clone())));
+        occurrences.extend(module.occurrences.all().iter().cloned());
+        targets.extend(
+            module
+                .structure
+                .sites
+                .keys()
+                .chain(module.occurrences.all().iter().map(|occurrence| &occurrence.site))
+                .filter_map(|site| source_index.target_for(site).cloned().map(|target| (site.clone(), target))),
+        );
+        import_origins.extend(module.structure.import_origins.iter().map(|(site, origin)| (site.clone(), origin.clone())));
+        workspace_symbols.extend(module.workspace_symbols().iter().cloned());
+    }
+
+    source_sites.sort();
+    occurrences.sort();
+    targets.sort();
+    import_origins.sort_by_key(|(site, _)| site.clone());
+    workspace_symbols.sort_by_key(|symbol| symbol.id.clone());
+
+    let references = source_index.references();
+    let mut definitions = Vec::new();
+    let mut lexical_references = Vec::new();
+    let mut semantic_references = Vec::new();
+    for target in references.targets() {
+        definitions.push((target.clone(), references.definitions(target).to_vec()));
+        lexical_references.push((target.clone(), references.lexical_references(target).to_vec()));
+        semantic_references.push((target.clone(), references.semantic_references(target).to_vec()));
+    }
+
+    let mut formal_facts = snapshot
+        .formal_projection()
+        .modules()
+        .flat_map(|(_, module)| module.sites().iter().cloned())
+        .collect::<Vec<_>>();
+    definitions.sort_by_key(|(target, _)| target.clone());
+    lexical_references.sort_by_key(|(target, _)| target.clone());
+    semantic_references.sort_by_key(|(target, _)| target.clone());
+    formal_facts.sort_by_key(|fact| (fact.module.clone(), fact.range.start, fact.range.len(), fact.fact.clone()));
+
+    EditorSnapshotProjection {
+        source_sites,
+        occurrences,
+        targets,
+        import_origins,
+        definitions,
+        lexical_references,
+        semantic_references,
+        formal_facts,
+        workspace_symbols,
+    }
+}
 
 fn module(name: &str) -> ModuleId {
     ModuleId::resolved(
@@ -23,7 +101,17 @@ fn module(name: &str) -> ModuleId {
 }
 
 fn two_module_input(provider_source: &str, consumer_source: &str, has_alias: bool, generation: u64) -> SemanticWorkspaceInput {
-    let provider = module("provider");
+    two_module_input_with_provider("provider", provider_source, consumer_source, has_alias, generation)
+}
+
+fn two_module_input_with_provider(
+    provider_name: &str,
+    provider_source: &str,
+    consumer_source: &str,
+    has_alias: bool,
+    generation: u64,
+) -> SemanticWorkspaceInput {
+    let provider = module(provider_name);
     let consumer = module("consumer");
     let mut sources = BTreeMap::new();
     let p_src: Arc<str> = Arc::from(provider_source.to_owned());
@@ -654,12 +742,30 @@ fn pb_10_cold_incremental_parity() {
     let cold_query = cold_v2.snapshot.editor();
 
     let foo_target = SemanticTargetId::Declaration(DeclarationId::new(provider.clone(), "Foo".into()));
-    assert_eq!(inc_query.definition_sites(&foo_target).len(), cold_query.definition_sites(&foo_target).len());
+    assert_eq!(editor_snapshot_projection(&inc_v2.snapshot), editor_snapshot_projection(&cold_v2.snapshot));
+    assert_eq!(inc_query.definition_locations(&foo_target), cold_query.definition_locations(&foo_target));
     assert_eq!(
-        inc_query.reference_sites_in_domain(&foo_target, ReferenceDomain::Semantic).len(),
-        cold_query.reference_sites_in_domain(&foo_target, ReferenceDomain::Semantic).len()
+        inc_query.reference_sites_in_domain(&foo_target, ReferenceDomain::Lexical),
+        cold_query.reference_sites_in_domain(&foo_target, ReferenceDomain::Lexical)
     );
-    assert_eq!(inc_query.workspace_symbols("Foo", 10).len(), cold_query.workspace_symbols("Foo", 10).len());
+    assert_eq!(
+        inc_query.reference_sites_in_domain(&foo_target, ReferenceDomain::Semantic),
+        cold_query.reference_sites_in_domain(&foo_target, ReferenceDomain::Semantic)
+    );
+    assert_eq!(
+        inc_query.workspace_symbols("Foo", 10).into_iter().cloned().collect::<Vec<_>>(),
+        cold_query.workspace_symbols("Foo", 10).into_iter().cloned().collect::<Vec<_>>()
+    );
+    for module in [provider.clone(), module("consumer")] {
+        for occurrence in inc_v2.snapshot.source_index().module(&module).unwrap().occurrences.all() {
+            assert_eq!(
+                inc_query.target_at(&module, occurrence.range.start),
+                cold_query.target_at(&module, occurrence.range.start),
+                "target_at parity for {module:?} at {}",
+                occurrence.range.start
+            );
+        }
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -702,6 +808,35 @@ fn pb_11_old_snapshot_immutability() {
     assert_eq!(q3.workspace_symbols("Bar", 10).len(), 0);
 }
 
+#[test]
+fn pb_11_old_snapshot_survives_import_retarget() {
+    let mut session = SemanticWorkspaceSession::new();
+    let first = session.update(two_module_input_with_provider(
+        "provider",
+        "class Foo {}\nexport Foo\n",
+        "import provider.Foo\nclass Consumer { run() { Foo } }\n",
+        false,
+        1,
+    ));
+    let first_snapshot = first.snapshot.clone();
+
+    let second = session.update(two_module_input_with_provider(
+        "replacement",
+        "class Foo {}\nexport Foo\n",
+        "import replacement.Foo\nclass Consumer { run() { Foo } }\n",
+        false,
+        2,
+    ));
+
+    let old_target = SemanticTargetId::Declaration(DeclarationId::new(module("provider"), "Foo".into()));
+    let new_target = SemanticTargetId::Declaration(DeclarationId::new(module("replacement"), "Foo".into()));
+    assert_eq!(first_snapshot.editor().definition_sites(&old_target).len(), 1);
+    assert_eq!(first_snapshot.editor().reference_sites(&old_target).len(), 1);
+    assert_eq!(second.snapshot.editor().definition_sites(&old_target).len(), 0);
+    assert_eq!(second.snapshot.editor().definition_sites(&new_target).len(), 1);
+    assert_eq!(second.snapshot.editor().reference_sites(&new_target).len(), 1);
+}
+
 // -----------------------------------------------------------------------------
 // PB-12 — Zero prohibited workspace scans
 // -----------------------------------------------------------------------------
@@ -721,4 +856,84 @@ fn pb_12_zero_prohibited_workspace_scans() {
     assert_eq!(src_stats.source_workspace_scan_units, 0);
     assert_eq!(src_stats.reference_workspace_scan_units, 0);
     assert_eq!(src_stats.formal_workspace_scan_units, 0);
+}
+
+#[test]
+fn pb_12_delta_publication_covers_body_reference_presentation_and_removal() {
+    let root = tempfile::tempdir().expect("temporary workspace");
+    let provider_path = root.path().join("provider.ph");
+    let consumer_path = root.path().join("consumer.ph");
+    let provider = SourceLocation {
+        source_id: SourceId(provider_path.to_string_lossy().into()),
+        display_path: provider_path.clone(),
+    };
+    let consumer = SourceLocation {
+        source_id: SourceId(consumer_path.to_string_lossy().into()),
+        display_path: consumer_path.clone(),
+    };
+    std::fs::write(root.path().join("package.ph"), "").expect("package marker");
+
+    let mut session = SemanticWorkspaceSession::new();
+    session
+        .apply_module_mutations([
+            WorkspaceSourceBatchMutation::SetOverlay {
+                source: provider.clone(),
+                text: Arc::from("class Foo { value() -> Int { 1 } }\nexport Foo\n"),
+                revision: SourceRevision(1),
+                recovered_program: None,
+            },
+            WorkspaceSourceBatchMutation::SetOverlay {
+                source: consumer.clone(),
+                text: Arc::from("import .provider.Foo\nlet value = Foo\n"),
+                revision: SourceRevision(1),
+                recovered_program: None,
+            },
+        ])
+        .expect("initial indexed publication");
+
+    let body_only = session
+        .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
+            source: provider.clone(),
+            text: Arc::from("class Foo { value() -> Int { 2 } }\nexport Foo\n"),
+            revision: SourceRevision(2),
+            recovered_program: None,
+        }])
+        .expect("body-only publication");
+    assert_eq!(body_only.snapshot.source_index().stats().source_workspace_scan_units, 0);
+    assert_eq!(body_only.snapshot.source_index().stats().reference_workspace_scan_units, 0);
+    assert_eq!(body_only.snapshot.source_index().stats().formal_workspace_scan_units, 0);
+
+    let reference_edit = session
+        .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
+            source: consumer.clone(),
+            text: Arc::from("import .provider.Foo\nlet first = Foo\nlet second = Foo\n"),
+            revision: SourceRevision(2),
+            recovered_program: None,
+        }])
+        .expect("reference publication");
+    assert_eq!(reference_edit.snapshot.source_index().stats().source_workspace_scan_units, 0);
+    assert_eq!(reference_edit.snapshot.source_index().stats().reference_workspace_scan_units, 0);
+    assert_eq!(reference_edit.snapshot.source_index().stats().formal_workspace_scan_units, 0);
+
+    let presentation_only = session
+        .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
+            source: provider.clone(),
+            text: Arc::from("// moved presentation\n\nclass Foo { value() -> Int { 2 } }\nexport Foo\n"),
+            revision: SourceRevision(3),
+            recovered_program: None,
+        }])
+        .expect("presentation publication");
+    assert_eq!(presentation_only.snapshot.source_index().stats().source_workspace_scan_units, 0);
+    assert_eq!(presentation_only.snapshot.source_index().stats().reference_workspace_scan_units, 0);
+    assert_eq!(presentation_only.snapshot.source_index().stats().formal_workspace_scan_units, 0);
+
+    let removal = session
+        .apply_module_mutations([WorkspaceSourceBatchMutation::RemoveSource {
+            source: consumer.source_id.clone(),
+        }])
+        .expect("removal publication");
+    assert_eq!(removal.snapshot.source_index().stats().source_workspace_scan_units, 0);
+    assert_eq!(removal.snapshot.source_index().stats().reference_workspace_scan_units, 0);
+    assert_eq!(removal.snapshot.source_index().stats().formal_workspace_scan_units, 0);
+    assert!(removal.snapshot.source_index().module(&module("consumer")).is_none());
 }

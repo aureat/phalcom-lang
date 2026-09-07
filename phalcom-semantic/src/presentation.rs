@@ -530,6 +530,11 @@ impl FormalSemanticProjection {
         self.modules.iter()
     }
 
+    /// Returns the number of module projection shards without traversing them.
+    pub fn module_count(&self) -> usize {
+        self.modules.len()
+    }
+
     /// Returns one formal site by canonical fact identity.
     pub fn get(&self, fact: &FormalFactRef) -> Option<&FormalFactSite> {
         let module = fact.module();
