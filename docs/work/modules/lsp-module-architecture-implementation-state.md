@@ -326,8 +326,10 @@ redesigning the landed architecture.
 
 Implemented boundaries:
 
-- source-index reuse and retirement accounting now use exact rebuilt/retired
-  module worklists rather than retained workspace-map discovery scans;
+- delta-driven production source-index reuse and retirement accounting now use
+  exact rebuilt/retired module worklists rather than retained workspace-map
+  discovery scans; the direct full-workspace `SemanticWorkspaceInput` compatibility
+  path still performs its documented fallback retirement check;
 - Plan A's importer-to-`ImportSiteId` index is carried into source publication,
   so changed-module import work is restricted to the owning import sites;
 - formal source projection looks up the exact callable IDs owned by each module;
@@ -336,9 +338,10 @@ Implemented boundaries:
   actual sorted set differences;
 - source declarations publish class/enum/type-alias kind, including class index
   accessor generic and `where` type references;
-- LSP reference location conversion records source-module and line-index work,
-  while duplicate filtering and workspace source-shard/diagnostic scans remain
-  zero because the adapter consumes compiler-owned indexed products;
+- LSP reference location conversion records bounded source-module and line-index
+  work, while workspace-symbol conversion is isolated from those counters and
+  duplicate filtering plus workspace source-shard/diagnostic scans remain zero
+  because the adapter consumes compiler-owned indexed products;
 - the dedicated Plan B LSP acceptance target and the semantic fan-out fixture
   exercise the real production path, with 500 consumers in the high-fan-out case.
 
@@ -348,11 +351,12 @@ Checkpoint evidence:
 |---|---|
 | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-semantic` | PASS |
 | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-lsp` | PASS |
-| `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic plan_b_indexing -- --nocapture` | PASS: 13 passed with 500-consumer fan-out |
-| `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic` | PASS: 1,131 passed, 42 ignored |
+| `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic plan_b_indexing -- --nocapture` | PASS: 15 passed with 500-consumer fan-out and real module-delta coverage |
+| `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic source_index -- --nocapture` | PASS: 20 passed, including production fail-closed import indexing |
+| `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic` | PASS: 1,134 passed, 42 ignored |
 | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test --workspace --all-targets` | BASELINE-BLOCKED: `phalcom-core` core lane 455 passed, 29 ignored; language corpus 37 passed, 24 failed, 4 ignored |
 | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-lsp` | PASS: all package targets; only performance harness tests ignored |
-| `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-lsp --test plan_b_indexing -- --nocapture` | PASS: 2 passed |
+| `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-lsp --test plan_b_indexing -- --nocapture` | PASS: 2 passed with alias, prefix, local/upstream reference, and counter-isolation assertions |
 | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-lsp --test performance -- --nocapture` | PASS: 1 passed, 2 ignored |
 
 The package-level semantic and LSP gates are green. Workspace-wide release
@@ -361,4 +365,6 @@ run or independently reclassified before this ledger can claim release-complete
 status. Residual
 ordinary loops that construct or retain persistent products are not delta
 discovery scans; broad loops outside the Plan B ownership boundary remain
-classified rather than opportunistically rewritten.
+classified rather than opportunistically rewritten. This checkpoint is
+focused-green and audit-remediated, not release-complete: the existing
+workspace-wide core/language-corpus baseline remains independently blocked.
