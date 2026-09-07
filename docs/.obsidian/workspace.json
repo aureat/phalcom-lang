@@ -187,16 +187,18 @@
   },
   "active": "46e666892420d783",
   "lastOpenFiles": [
-    "audit/runtime-2026-09-07/AUDIT-L20-L21-ordering-and-string-contract-investigation.md",
-    "audit/runtime-2026-09-07/AUD-RUNTIME-S3-new-numeric-and-string-leads.md",
-    "audit/runtime-2026-09-07/AUD-RUNTIME-006-numeric-domain-contracts.md",
-    "audit/runtime-2026-09-07/evidence/numeric-contract-output.txt",
-    "audit/runtime-2026-09-07/evidence/numeric_contract_probe.rs",
-    "audit/runtime-2026-09-07/AUDIT-L05-raw-run-reuse-and-capture-lifetime.md",
-    "audit/runtime-2026-09-07/evidence/native-lifecycle-output.txt",
-    "audit/runtime-2026-09-07/evidence/native_lifecycle_probe.rs",
+    "work/logs/2026-09-07-plan-b-completion-audit-remediation.md",
+    "work/logs/2026-09-07-plan-b-adt-semantic-index-repair.md",
     "impl/lsp/architecture/phalcom-plan-b-completion-patch-grade-implementation-plan.md",
+    "audit/runtime-2026-09-07/evidence/numeric_contract_probe.rs",
+    "audit/runtime-2026-09-07/evidence/numeric-contract-output.txt",
+    "audit/runtime-2026-09-07/evidence/native_lifecycle_probe.rs",
+    "audit/runtime-2026-09-07/evidence/native-lifecycle-output.txt",
+    "audit/runtime-2026-09-07/AUDIT-L20-L21-ordering-and-string-contract-investigation.md",
+    "audit/runtime-2026-09-07/AUDIT-L05-raw-run-reuse-and-capture-lifetime.md",
+    "audit/runtime-2026-09-07/AUD-RUNTIME-S3-new-numeric-and-string-leads.md",
     "audit/runtime-2026-09-07/AUD-RUNTIME-S2-uninvestigated-leads-and-insights.md",
+    "audit/runtime-2026-09-07/AUD-RUNTIME-006-numeric-domain-contracts.md",
     "audit/runtime-2026-09-07/AUD-RUNTIME-S1-cybersecurity-warning-explanation.md",
     "audit/runtime-2026-09-07/evidence/README.md",
     "audit/runtime-2026-09-07/runtime-audit-executive-report.md",
@@ -219,9 +221,6 @@
     "type tests.md",
     "impl/lsp/architecture/phalcom-lsp-module-architecture-plan-a-incrementality-dependency-precision-semantic-propagation.md",
     "work/modules/plan-a-implementation-state.md",
-    "spec/symbols.md",
-    "spec/selectors.md",
-    "spec/README.md",
-    "spec/adts.md"
+    "spec/symbols.md"
   ]
 }
