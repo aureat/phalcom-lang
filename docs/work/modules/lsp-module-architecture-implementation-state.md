@@ -368,3 +368,94 @@ discovery scans; broad loops outside the Plan B ownership boundary remain
 classified rather than opportunistically rewritten. This checkpoint is
 focused-green and audit-remediated, not release-complete: the existing
 workspace-wide core/language-corpus baseline remains independently blocked.
+
+## Plan B final certification and consolidation closure
+
+### Durable implementation identity
+
+Final consolidated Plan B implementation commit on `main`:
+
+```text
+cf109473c6a0c67bdd58e0652d61a2dbebbf7f95
+```
+
+The consolidated `main` commit is authoritative for the implementation and
+certification tree. Development provenance remains:
+
+```text
+Certification branch implementation anchor: 8c4f955d72cf5fcb37ab7ba4a15bf42a0aa2139a
+Certification branch final verified tip before consolidation: f2682115863153ffdfc6d4c5b221afeee45c82eb
+Final candidate verification tip including fixture isolation repair: 03e7f4b2ebeec89600ddacfb935e4a99c11f9236
+```
+
+### Production closure
+
+The final Plan B implementation closes the remaining production boundaries:
+
+- source publication uses exact rebuilt and retired module deltas, including
+  retained-module formal reuse when a new module is added;
+- import products are canonical and fail closed, with no broad production
+  fallback through `resolved_imports`;
+- importer-to-`ImportSiteId` products preserve canonical lexical and semantic
+  dual identity for imported aliases;
+- formal projection is owned by module-local callable worklists;
+- source attachments, reverse references, workspace symbols, and related
+  products follow replaceable module contribution lifetime;
+- reference added/removed accounting uses actual set differences;
+- body-only provider edits, one-consumer reference edits, presentation-only
+  movement, module removal, and delete/re-add follow bounded delta paths;
+- LSP reference, definition, workspace-symbol, and diagnostic adapters consume
+  compiler-owned indexed products with isolated request work counters;
+- the imported-binding acceptance fixture now allocates an atomic per-process
+  workspace identity, so parallel certification cannot cross-contaminate
+  temporary source trees.
+
+### Fresh certification evidence
+
+All fresh Plan-B-owned acceptance gates passed:
+
+| Gate | Result |
+|---|---|
+| `RUSTFLAGS='' cargo check -p phalcom-semantic` | PASS |
+| `RUSTFLAGS='' cargo check -p phalcom-lsp` | PASS |
+| `RUSTFLAGS='' cargo test -p phalcom-semantic` | PASS: 1,137 passed, 42 ignored |
+| `RUSTFLAGS='' cargo test -p phalcom-lsp` | PASS: 69 + 1 + 2 + 1 + 2 + 59 + 4 + 1 + 5 + 2 + 7 + 2 + 0 passed; 4 ignored |
+| semantic `incremental::plan_b_indexing` | PASS: 18 passed, 0 failed; PB-10, PB-11, PB-12 and formal-reuse coverage included |
+| LSP `--test plan_b_indexing` | PASS: 5 passed; bounded indexed navigation, many-references/few-modules locality, diagnostic locality, related-diagnostic mapping, and zero adapter scan counters |
+| LSP `--test imported_binding_resolution` | PASS: 2 passed under parallel test execution |
+| LSP `--test module_navigation` | PASS: 4 passed |
+| LSP `--test performance` | PASS: 1 passed, 2 ignored performance harnesses |
+| `git diff --check` | PASS |
+
+The semantic PB-12 tests explicitly covered body-only edit, one-consumer
+reference edit, presentation-only movement, removal, 500+ source/module
+scenarios, and zero prohibited source/reference/formal workspace scans. The
+LSP Plan-B target proved bounded line-index construction, diagnostic locality,
+cross-module related diagnostic mapping, and zero forbidden workspace-symbol
+and diagnostic source scans.
+
+### Release-wide classification
+
+The clean `origin/main` baseline and the candidate received the same release
+results. The core release gate is independently baseline-blocked:
+
+```text
+Core baseline: 37 passed, 24 failed, 4 ignored
+Core candidate: 37 passed, 24 failed, 4 ignored
+First meaningful shared failure: ModuleInitializationError in the language
+corpus caused by undefined variable 'Error'
+```
+
+The workspace/all-targets command is likewise baseline-blocked. Both baseline
+and candidate completed the preceding core target with `455 passed, 0 failed,
+29 ignored`, then stopped in the language-corpus target at `37 passed, 24
+failed, 4 ignored` with the same failure family. No additional candidate
+failure or changed failure signature was observed. `cargo fmt --all -- --check`
+also reports the same pre-existing formatting drift on baseline and candidate;
+the candidate `git diff --check` is clean.
+
+Therefore:
+
+> Plan B is implementation-complete and certification-complete. All Plan-B-owned acceptance gates pass. Repository-wide release certification remains independently baseline-blocked by the listed pre-existing failures; the Plan B candidate introduces no additional failures.
+
+Plan B is not labeled repository-wide release-complete.
