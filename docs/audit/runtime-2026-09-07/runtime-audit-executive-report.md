@@ -126,3 +126,11 @@ Provisional B and incomplete coverage remain unchanged. No implementation fixes,
 ## New slice — numeric and string contracts
 
 [006](AUD-RUNTIME-006-numeric-domain-contracts.md) confirms incorrect float remainder signs and lost precision in mixed exact floor division through shipping native dispatch. Four valid arithmetic cases completed, including an integer-only control. [S3](AUD-RUNTIME-S3-new-numeric-and-string-leads.md) records new leads L19–L22 and the guarded UTF-8 slicing counterexample. Source compilation, boundary-panic execution and performance measurements were not performed. Provisional B and incomplete audit status remain unchanged.
+
+## Read-only continuation — sequence views and byte contracts
+
+At HEAD `1e22b57ff8cd0c61b12aeca4128671c9fabdef6e`, [S4](AUD-RUNTIME-S4-sequence-views-and-byte-contracts.md) records two new source findings: String sequence definitions omit the compiler's iteration selectors, and Bytes' strict UTF-8 declaration says Bytes while the native body returns String or None. Loader/publication and executed user-visible outcomes remain unverified. Instance-slot tracing retains the views' backing strings; checked byte-copy and UTF-8 validation paths were also inspected. No probes, Cargo checks, fixes or commits ran in this slice.
+
+## Read-only continuation — stream state and resource identity
+
+At HEAD `1e22b57ff8cd0c61b12aeca4128671c9fabdef6e`, [007](AUD-RUNTIME-007-buffered-writer-flush-contract.md) records ignored short-write counts and missing inner flush propagation; [008](AUD-RUNTIME-008-resource-handle-lossy-transport.md) records lossy Float transport of resource identities. Both are established by source/contract analysis, not execution. [S5](AUD-RUNTIME-S5-stream-lifecycle-leads.md) retains reader-close, close-after-reuse, zero-size read and overlapping-operation findings/leads with separate confidence labels. No probes, Cargo checks, fixes or commits ran. Provisional B remains an incomplete assessment.
