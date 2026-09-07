@@ -2,5 +2,5 @@
 nope
 Some(9)
 None
-Ok(9)
-Err(missing)
+Result::Ok(9)
+Result::Error(missing)

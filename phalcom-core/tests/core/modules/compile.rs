@@ -61,3 +61,13 @@ fn linked_imports_are_immutable() {
         .unwrap_err();
     assert!(error.to_string().contains("immutable"));
 }
+
+#[test]
+fn canonical_universe_names_lower_to_linked_reads() {
+    let mut vm = VM::new();
+    let module = vm.create_module("main", "<canonical-prelude>");
+    let closure = vm.compile_closure_as(module, "True\n", UnitKind::File).unwrap();
+    let code = &vm.heap.closure(closure).callable.chunk.code;
+    assert!(code.iter().any(|opcode| matches!(opcode, Bytecode::GetLinked(_))));
+    assert!(!code.iter().any(|opcode| matches!(opcode, Bytecode::GetGlobal(_))));
+}

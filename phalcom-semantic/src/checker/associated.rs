@@ -97,7 +97,15 @@ pub struct BoundBehavioralMember {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FamilyApplicationResolution {
     pub family_type: TypeId,
+    pub kind: FamilyApplicationKind,
     pub selection: FamilyApplicationSelection,
+}
+
+/// Identifies the runtime representation expected by a family application.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FamilyApplicationKind {
+    Associated,
+    Behavioral,
 }
 
 /// Specific member selection for an ordinary family-value invocation.

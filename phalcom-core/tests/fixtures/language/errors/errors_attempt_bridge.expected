@@ -1,4 +1,4 @@
-Ok(42)
-Err(<AttErr>)
+Result::Ok(42)
+Result::Error(<AttErr>)
 43
 0

@@ -549,8 +549,7 @@ impl<'vm> Compiler<'vm> {
         // Reuse existing list-rest construction, but keep the result as a
         // compiler temporary for the refutable matcher.
         let list_sym = self.vm.interner.intern("List");
-        let list_idx = self.add_constant(Value::symbol(list_sym));
-        self.emit(Bytecode::GetGlobal(list_idx), range);
+        self.emit_global_reference(list_sym, range);
         self.emit_operator_send("new", 0, range);
         let rest_slot = self.claim_pattern_temp("$pattern_rest", range)?;
         self.begin_scope();
@@ -822,8 +821,7 @@ impl<'vm> Compiler<'vm> {
     /// [`super::loops`]'s deopt-block-control-trap raise-and-balance idiom.
     pub(super) fn emit_pattern_mismatch_raise(&mut self, message: String, range: SourceRange) {
         let error_sym = self.vm.interner.intern("Error");
-        let error_idx = self.add_constant(Value::symbol(error_sym));
-        self.emit(Bytecode::GetGlobal(error_idx), range);
+        self.emit_global_reference(error_sym, range);
         let message_obj = self.vm.alloc_string_value(message);
         let message_idx = self.add_constant(message_obj);
         self.emit(Bytecode::Constant(message_idx), range);
@@ -860,8 +858,7 @@ impl<'vm> Compiler<'vm> {
     ) -> Result<(), CompilerError> {
         // `$rest = List.new()`
         let list_sym = self.vm.interner.intern("List");
-        let list_idx = self.add_constant(Value::symbol(list_sym));
-        self.emit(Bytecode::GetGlobal(list_idx), range);
+        self.emit_global_reference(list_sym, range);
         self.emit_operator_send("new", 0, range);
         let rest_sym = self.fresh_scratch_symbol("$destructure_rest");
         self.add_local(rest_sym, true)?;

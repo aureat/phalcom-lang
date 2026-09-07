@@ -14,6 +14,8 @@
 //! [`VM::new`]: crate::vm::VM::new
 
 use crate::error::{PhResult, RuntimeError};
+use crate::heap::{InstanceObject, Object};
+use crate::primitive::expect_class;
 use crate::value::Value;
 use crate::vm::VM;
 
@@ -38,6 +40,17 @@ pub fn error_message(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
             found: receiver.type_name(),
         })?;
     Ok(vm.surface_absence(slot0))
+}
+
+/// Constructs a native error subclass while preserving the concrete receiver
+/// class. Native error presentations are empty `@native` reopens, so they do
+/// not acquire the source `Error.new(_)` factory through class-body lowering.
+pub(crate) fn native_error_new(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let class = expect_class(vm, receiver)?;
+    let field_count = vm.heap.class(class).field_count;
+    let mut instance = InstanceObject::new(class, field_count);
+    instance.slots[0] = args[0];
+    Ok(Value::obj(vm.heap.alloc(Object::Instance(instance))))
 }
 
 /// Signature: `Error::raise()` — unwinds the stack with `self` as a surface

@@ -234,7 +234,10 @@ impl<'vm> Compiler<'vm> {
     /// Emits a read for a bare class/global name using its canonical linked
     /// prelude slot when one was materialized for this compilation unit.
     pub(crate) fn emit_global_reference(&mut self, name: Symbol, range: SourceRange) {
-        if let Some(binding) = self.linked_binding(name) {
+        if self.resolves_local_global(name) {
+            let name_idx = self.add_constant(crate::value::Value::symbol(name));
+            self.emit(Bytecode::GetGlobal(name_idx), range);
+        } else if let Some(binding) = self.linked_binding(name) {
             self.emit(Bytecode::GetLinked(binding.0 as u16), range);
         } else if let Some(binding) = self.vm.canonical_universe_binding(name) {
             let index = self.vm.heap.module(self.module).linked_reads.len();

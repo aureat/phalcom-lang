@@ -32,7 +32,7 @@ pub use analysis::{
     FlowStateSummary,
 };
 pub use associated::{
-    AssociatedResolution, AssociatedResolutionIndex, AssociatedResolutionKind, FamilyApplicationCandidate, FamilyApplicationResolution,
+    AssociatedResolution, AssociatedResolutionIndex, AssociatedResolutionKind, FamilyApplicationCandidate, FamilyApplicationKind, FamilyApplicationResolution,
     FamilyApplicationResolutionIndex, FamilyApplicationSelection, SpecializedAssociatedMember,
 };
 pub use binding::{

@@ -1,5 +1,5 @@
-Ok(None)
-Ok(None)
+Result::Ok(None)
+Result::Ok(None)
 UseAfterCloseError
-Ok(None)
+Result::Ok(None)
 UseAfterCloseError

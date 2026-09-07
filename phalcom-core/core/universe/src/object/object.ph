@@ -96,19 +96,19 @@ class Object {
   // Default ordering relations are derived from the bilateral compare
   // protocol. Numeric classes retain their specialized primitive methods;
   // other classes can implement only compare(_) and inherit this surface.
-  <(_ other) { (self <=> other).kind === #less }
+  <(_ other) { (self <=> other) === Ordering::Less }
 
   <=(_ other) {
     let order = (self <=> other)
 
-    (order.kind === #less) or (order.kind === #equal)
+    (order === Ordering::Less) or (order === Ordering::Equal)
   }
 
-  >(_ other) { (self <=> other).kind === #greater }
+  >(_ other) { (self <=> other) === Ordering::Greater }
 
   >=(_ other) {
     let order = (self <=> other)
     
-    (order.kind === #greater) or (order.kind === #equal)
+    (order === Ordering::Greater) or (order === Ordering::Equal)
   }
 }

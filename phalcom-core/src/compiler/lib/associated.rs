@@ -9,7 +9,7 @@ use phalcom_ast::ast::{AssociatedInvokeExpr, AssociatedLookupExpr, AssociatedMem
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
 use phalcom_modules::DeclarationId;
-use phalcom_semantic::checker::associated::BehavioralFamilySpec;
+use phalcom_semantic::checker::associated::{BehavioralFamilySpec, FamilyApplicationKind};
 use phalcom_semantic::identity::VariantId;
 
 impl<'vm> Compiler<'vm> {
@@ -48,6 +48,23 @@ impl<'vm> Compiler<'vm> {
             return Ok(false);
         };
 
+        // Ordinary receiver-bound families are represented by the general
+        // Family object. Let the normal `Function.call` send reach its live
+        // runtime router; the associated opcodes below are only for the
+        // declaration-owned associated-family representation.
+        if matches!(
+            spec,
+            FamilyApplicationLoweringSpec::Static {
+                kind: FamilyApplicationKind::Behavioral,
+                ..
+            } | FamilyApplicationLoweringSpec::DynamicPack {
+                kind: FamilyApplicationKind::Behavioral,
+                ..
+            }
+        ) {
+            return Ok(false);
+        }
+
         self.compile_expr(callee)?;
         match spec {
             FamilyApplicationLoweringSpec::Static { operation, arity, .. } => {
@@ -69,7 +86,7 @@ impl<'vm> Compiler<'vm> {
                     range,
                 );
             }
-            FamilyApplicationLoweringSpec::DynamicPack { candidates } => {
+            FamilyApplicationLoweringSpec::DynamicPack { candidates, .. } => {
                 let builder_slot = self.reserve_pack_scratch("$family_pack_builder", range)?;
                 self.emit(Bytecode::NewArgumentPack, range);
                 self.emit(Bytecode::SetLocal(builder_slot), range);
@@ -151,7 +168,9 @@ impl<'vm> Compiler<'vm> {
         // Fallback for standalone/unlinked compilation
         if let Expr::Var { value: name, .. } = &expr.receiver {
             let module_id = self.vm.heap.module(self.module).id.clone();
-            let owner = DeclarationId::new(module_id, name.clone().into_boxed_str());
+            let owner = phalcom_native_meta::UniverseKey::from_name(name)
+                .map(phalcom_semantic::core_surface::universe_declaration)
+                .unwrap_or_else(|| DeclarationId::new(module_id, name.clone().into_boxed_str()));
             if let AssociatedMemberSyntax::Named(named) = &expr.member {
                 let selector = match Selector::getter(named.base.clone()) {
                     Ok(sel) => sel,
@@ -254,7 +273,9 @@ impl<'vm> Compiler<'vm> {
         // Fallback for standalone/unlinked compilation
         if let Expr::Var { value: name, .. } = &expr.receiver {
             let module_id = self.vm.heap.module(self.module).id.clone();
-            let owner = DeclarationId::new(module_id, name.clone().into_boxed_str());
+            let owner = phalcom_native_meta::UniverseKey::from_name(name)
+                .map(phalcom_semantic::core_surface::universe_declaration)
+                .unwrap_or_else(|| DeclarationId::new(module_id, name.clone().into_boxed_str()));
             let mut slots = Vec::new();
             for item in &expr.args {
                 match item {

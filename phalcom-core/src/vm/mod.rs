@@ -264,6 +264,8 @@ pub struct VM {
     pub kernel_class_names: std::collections::HashSet<Symbol>,
     /// Canonical slots backing prelude names in their owning Universe modules.
     pub prelude_bindings: HashMap<Symbol, crate::modules::BindingRef>,
+    /// Canonical source-visible variant aliases retained as semantic targets.
+    pub prelude_variant_bindings: HashMap<Symbol, phalcom_semantic::identity::VariantId>,
     /// The symbol interner backing selectors, names and string identity.
     pub interner: Interner,
     /// Canonical reflection object cache.
@@ -444,6 +446,11 @@ impl VM {
             module,
             slot: u16::try_from(slot).ok()?,
         })
+    }
+
+    /// Returns the exact semantic variant target for a canonical alias.
+    pub(crate) fn canonical_variant_alias(&self, name: Symbol) -> Option<&phalcom_semantic::identity::VariantId> {
+        self.prelude_variant_bindings.get(&name)
     }
 
     /// Returns the exact runtime module identity that owns a Universe key.

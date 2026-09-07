@@ -255,8 +255,17 @@ impl<'vm> Compiler<'vm> {
             BareNameResolution::Local(slot)
         } else if let Some(upvalue) = self.resolve_upvalue(name) {
             BareNameResolution::Upvalue(upvalue)
+        } else if self.resolves_local_global(name) {
+            BareNameResolution::Global
         } else if let Some(binding) = self.linked_binding(name) {
             BareNameResolution::Linked(binding)
+        } else if self.compiling_privileged_universe() && self.vm.canonical_universe_binding(name).is_some() {
+            // Canonical Universe sources may use non-prelude native classes
+            // (for example `UseAfterCloseError`) without importing their
+            // presentation module. Keep that read linked and scoped to the
+            // privileged bootstrap; ordinary user modules must not gain those
+            // names implicitly.
+            BareNameResolution::Unresolved
         } else if self.resolves_known_global(name) {
             BareNameResolution::Global
         } else if self.functions.last().is_some_and(|function| function.has_self) {
@@ -264,6 +273,17 @@ impl<'vm> Compiler<'vm> {
         } else {
             BareNameResolution::Unresolved
         }
+    }
+
+    /// Returns whether the current compilation unit declares `name` itself.
+    ///
+    /// A source declaration must shadow a same-spelled canonical prelude
+    /// binding. Imports are tracked in `import_bindings` and therefore remain
+    /// linked; all other known globals here originate in this unit's source.
+    pub(super) fn resolves_local_global(&self, name: Symbol) -> bool {
+        (self.known_globals.contains(&name) && !self.import_bindings.contains_key(&name))
+            || self.global_bindings.contains_key(&name)
+            || self.vm.heap.module(self.module).slot_of(name).is_some()
     }
 
     /// Recognizes only bindings already known during compilation.

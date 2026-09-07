@@ -107,6 +107,7 @@ impl VM {
             adt_registry,
             typing_registry: _,
             prelude_bindings: _,
+            prelude_variant_bindings: _,
             #[cfg(feature = "fiber-pool")]
                 fiber_pool: _,
         } = self;

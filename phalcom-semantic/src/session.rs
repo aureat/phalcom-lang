@@ -1948,7 +1948,17 @@ impl SemanticWorkspaceSession {
                                 // source-backed form available for formal body
                                 // queries; user modules retain strict
                                 // proper-type validation below.
-                                if self.store.kind_of(ty) != KindId::TYPE && !is_canonical_erased_iterable_supertype(parsed_unit, &self.store, ty) {
+                                if self.store.kind_of(ty) == KindId::TYPE {
+                                    Some(ty)
+                                } else if let Some(declaration) = canonical_erased_superclass_declaration(&resolver, &module_id, super_ann) {
+                                    // Canonical collection classes expose an
+                                    // erased superclass spelling in ordinary
+                                    // source (`class X is Iterable`). Form
+                                    // that spelling as the canonical nominal
+                                    // instance type; arbitrary generic
+                                    // constructors remain rejected below.
+                                    Some(self.store.nominal_type(declaration))
+                                } else {
                                     diags.push(SemanticDiagnostic::error_in(
                                         module_id.clone(),
                                         DiagnosticCode::KindExpectedType,
@@ -1959,7 +1969,6 @@ impl SemanticWorkspaceSession {
                                     blocked_declarations.insert(decl_id.clone());
                                     continue 'source_declaration;
                                 }
-                                Some(ty)
                             }
                             crate::types::annotation::TypeFormResolution::Dynamic
                             | crate::types::annotation::TypeFormResolution::Missing(_)
@@ -3834,19 +3843,26 @@ impl SemanticWorkspaceSession {
     }
 }
 
-fn is_canonical_erased_iterable_supertype(unit: &ParsedModuleUnit, store: &TypeStore, ty: TypeId) -> bool {
-    if unit.id.project != phalcom_modules::ProjectIdentity::Universe {
-        return false;
-    }
-    let crate::types::store::TypeData::Nominal { declaration } = store.get(ty) else {
-        return false;
+fn canonical_erased_superclass_declaration(resolver: &dyn TypeResolver, module: &ModuleId, annotation: &TypeAnnotation) -> Option<DeclarationId> {
+    let TypeAnnotationExpr::Reference(reference) = &annotation.expr else {
+        return None;
     };
-    if declaration != &crate::core_surface::universe_declaration(phalcom_native_meta::UniverseKey::Iterable) {
-        return false;
+    if !reference.members.is_empty() {
+        return None;
     }
-    phalcom_modules::UniverseSourceProvider::new()
-        .load_parsed(&unit.id)
-        .is_ok_and(|canonical| canonical.text == unit.text)
+    let key = phalcom_native_meta::UniverseKey::from_name(&reference.root)?;
+    if !matches!(
+        key,
+        phalcom_native_meta::UniverseKey::Iterable
+            | phalcom_native_meta::UniverseKey::List
+            | phalcom_native_meta::UniverseKey::Map
+            | phalcom_native_meta::UniverseKey::Set
+            | phalcom_native_meta::UniverseKey::Tuple
+    ) {
+        return None;
+    }
+    let declaration = resolver.resolve_type_name(module, &reference.root, &[])?;
+    (declaration == crate::core_surface::universe_declaration(key)).then_some(declaration)
 }
 
 fn collect_alias_dependencies(

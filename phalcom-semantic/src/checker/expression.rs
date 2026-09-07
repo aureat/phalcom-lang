@@ -913,8 +913,16 @@ fn synthesize_associated_lookup(ctx: &mut CheckingContext<'_>, lookup: &Associat
         },
         _ => {
             if is_getter_only {
-                let _ = resolve_associated_owner(ctx, &receiver, lookup.range);
-                return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+                // A getter-only `::` send on a runtime value is still an
+                // ordinary behavioral lookup at runtime. Keep the useful
+                // owner diagnostic for tooling, but do not turn that dynamic
+                // send into a compile-blocking error.
+                ctx.emit_diagnostic(SemanticDiagnostic::warning_in(
+                    ctx.current_module.clone(),
+                    DiagnosticCode::AssociatedOwnerNotTypeForm,
+                    "associated lookup receiver is not a type form",
+                    lookup.range,
+                ));
             }
             None
         }
@@ -2068,40 +2076,40 @@ fn synthesize_record_literal(ctx: &mut CheckingContext<'_>, rec: &phalcom_ast::a
     let mut operands = Vec::new();
     let mut open_tail = None;
     let mut shape_failure = None;
-
     for entry in &rec.entries {
         match entry {
             RecordLiteralEntry::Field(f) => {
-                let name = match &f.label {
-                    ProductLabel::Static { symbol, .. } => match symbol {
-                        SymbolLiteralKind::Name(n) => n.clone(),
-                        SymbolLiteralKind::Selector { name, .. } => name.clone(),
-                        _ => "field".into(),
-                    },
-                    _ => "field".into(),
-                };
-                let field_expected = expected_record_field(ctx, expected, &name);
+                let name = product_label_name(&f.label);
+                let field_expected = name
+                    .as_deref()
+                    .map(|name| expected_record_field(ctx, expected, name))
+                    .unwrap_or(ExpectedType::None);
                 let typed = analyze_expression(ctx, &f.value, &field_expected);
-                if names.iter().any(|existing| existing.as_ref() == name.as_str()) {
-                    shape_failure.get_or_insert(RecordLiteralShapeFailure::DuplicateField {
-                        field: name.clone().into_boxed_str(),
-                        range: f.range,
-                    });
-                } else if let Some(RecordRowTail::Parameter(parameter)) = open_tail {
-                    if !record_extension_lacks_is_proven(ctx, expected, parameter, &name) {
-                        shape_failure.get_or_insert(RecordLiteralShapeFailure::LacksUnproven {
-                            parameter,
-                            field: name.clone().into_boxed_str(),
+                if let Some(name) = name {
+                    if names.iter().any(|existing| existing.as_ref() == name.as_ref()) {
+                        shape_failure = Some(RecordLiteralShapeFailure::DuplicateField {
+                            field: name.clone(),
                             range: f.range,
                         });
+                    } else {
+                        if let Some(RecordRowTail::Parameter(parameter)) = open_tail {
+                            if !record_extension_lacks_is_proven(ctx, expected, parameter, &name) {
+                                shape_failure.get_or_insert(RecordLiteralShapeFailure::LacksUnproven {
+                                    parameter,
+                                    field: name.clone(),
+                                    range: f.range,
+                                });
+                            }
+                        }
+                        names.push(name);
+                        knowledge.push(typed.knowledge.clone());
                     }
                 }
-                names.push(name.into_boxed_str());
-                knowledge.push(typed.knowledge.clone());
                 operands.push(typed);
             }
             RecordLiteralEntry::Expansion { expr, range } => {
                 let typed = analyze_expression(ctx, expr, &ExpectedType::None);
+                let strict_duplicate_check = typed.knowledge.ty().is_some_and(|ty| matches!(ctx.store.get(ty), TypeData::Record(_)));
                 match crate::checker::composition::project_record_shape(ctx.store, &typed.knowledge) {
                     Ok(projection) => {
                         if let Some(existing_tail) = open_tail {
@@ -2113,7 +2121,7 @@ fn synthesize_record_literal(ctx: &mut CheckingContext<'_>, rec: &phalcom_ast::a
                         }
                         if let RecordRowTail::Parameter(parameter) = projection.tail {
                             for existing in &names {
-                                if projection.fields.iter().any(|(name, _)| name == existing) {
+                                if strict_duplicate_check && projection.fields.iter().any(|(name, _)| name == existing) {
                                     shape_failure.get_or_insert(RecordLiteralShapeFailure::DuplicateField {
                                         field: existing.clone(),
                                         range: *range,
@@ -2129,17 +2137,20 @@ fn synthesize_record_literal(ctx: &mut CheckingContext<'_>, rec: &phalcom_ast::a
                         }
                         for (name, field_knowledge) in projection.fields {
                             if names.iter().any(|existing| existing == &name) {
+                                if !strict_duplicate_check {
+                                    continue;
+                                }
                                 shape_failure.get_or_insert(RecordLiteralShapeFailure::DuplicateField {
                                     field: name.clone(),
                                     range: *range,
                                 });
+                                continue;
                             }
                             names.push(name);
                             knowledge.push(field_knowledge);
                         }
                     }
                     Err(blocker) => {
-                        names.push("field".into());
                         knowledge.push(blocker);
                     }
                 }
@@ -2380,6 +2391,14 @@ fn synthesize_family_value_call(
         return analyze_unresolved_application(ctx, premise, arguments, UnresolvedApplicationReason::DispatchMissing).into();
     };
     let members = ctx.store.get_family(*family_id).members.to_vec();
+    let family_kind = match denotation {
+        Some(SemanticDenotation::AssociatedValue(assoc)) => match &**assoc {
+            AssociatedValueDenotation::Family { .. } => Some(crate::checker::associated::FamilyApplicationKind::Associated),
+            AssociatedValueDenotation::BehavioralFamily { .. } => Some(crate::checker::associated::FamilyApplicationKind::Behavioral),
+            AssociatedValueDenotation::Exact { .. } => None,
+        },
+        _ => None,
+    };
 
     match static_call_shape(arguments) {
         StaticCallShape::Exact(slots) => {
@@ -2412,6 +2431,7 @@ fn synthesize_family_value_call(
                     expression,
                     FamilyApplicationResolution {
                         family_type,
+                        kind: family_kind.expect("family denotation has an application kind"),
                         selection: FamilyApplicationSelection::Static {
                             operation,
                             target,
@@ -2445,6 +2465,7 @@ fn synthesize_family_value_call(
                     expression,
                     FamilyApplicationResolution {
                         family_type,
+                        kind: family_kind.expect("family denotation has an application kind"),
                         selection: FamilyApplicationSelection::Dynamic { candidates, result_type: None },
                     },
                 );

@@ -372,8 +372,7 @@ impl<'vm> Compiler<'vm> {
 
     fn emit_strict_zip_error(&mut self, range: SourceRange) {
         let error_sym = self.vm.interner.intern("ArgumentError");
-        let error_idx = self.add_constant(Value::symbol(error_sym));
-        self.emit(Bytecode::GetGlobal(error_idx), range);
+        self.emit_global_reference(error_sym, range);
         let message = self.vm.alloc_string_value("strict zip lanes ended at different times".to_string());
         let message_idx = self.add_constant(message);
         self.emit(Bytecode::Constant(message_idx), range);
@@ -400,8 +399,7 @@ impl<'vm> Compiler<'vm> {
     /// larger follow-on left for a future unit.
     fn emit_deopt_block_control_trap(&mut self, range: SourceRange) {
         let error_sym = self.vm.interner.intern("Error");
-        let error_idx = self.add_constant(Value::symbol(error_sym));
-        self.emit(Bytecode::GetGlobal(error_idx), range);
+        self.emit_global_reference(error_sym, range);
         let message = self.vm.alloc_string_value(
             "`break`/`continue` reached through a materialized block (a deopt fallback or a real \
              block-arg closure) cannot leave its enclosing loop — non-local break/continue across a \

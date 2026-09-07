@@ -7,7 +7,7 @@ use phalcom_common::range::SourceRange;
 use phalcom_modules::{DeclarationId, ModuleId, SourceId};
 use phalcom_semantic::associated::AssociatedMemberId;
 use phalcom_semantic::checker::associated::{
-    AssociatedResolution, AssociatedResolutionKind, BehavioralFamilySpec, FamilyApplicationResolution, FamilyApplicationSelection,
+    AssociatedResolution, AssociatedResolutionKind, BehavioralFamilySpec, FamilyApplicationKind, FamilyApplicationResolution, FamilyApplicationSelection,
 };
 use phalcom_semantic::enum_semantics::VariantShape;
 use phalcom_semantic::identity::{CallableId, ExpressionId, InvocationTargetId, VariantFieldId, VariantId};
@@ -133,12 +133,16 @@ pub enum AssociatedLoweringSpec {
 pub enum FamilyApplicationLoweringSpec {
     /// Statically known operation invocation on family.
     Static {
+        kind: FamilyApplicationKind,
         operation: FamilyOperationShape,
         target: Option<ExecutableInvocationTarget>,
         arity: u8,
     },
     /// Dynamic pack invocation restricted to frozen candidates.
-    DynamicPack { candidates: Box<[ExecutableFamilyCandidate]> },
+    DynamicPack {
+        kind: FamilyApplicationKind,
+        candidates: Box<[ExecutableFamilyCandidate]>,
+    },
 }
 
 /// Canonical payload field lowering specification.
@@ -747,6 +751,7 @@ fn project_family_application(snapshot: &SemanticSnapshot, fam_app: &FamilyAppli
             let exec_target = target.as_ref().map(|target| executable_invocation_target(snapshot, target, operation));
             let arity = u8::try_from(operation.slots.len()).map_err(|_| ProjectionError::ArityOverflow(operation.slots.len()))?;
             Ok(FamilyApplicationLoweringSpec::Static {
+                kind: fam_app.kind,
                 operation: operation.clone(),
                 target: exec_target,
                 arity,
@@ -764,7 +769,10 @@ fn project_family_application(snapshot: &SemanticSnapshot, fam_app: &FamilyAppli
                 })
                 .collect::<Vec<_>>()
                 .into_boxed_slice();
-            Ok(FamilyApplicationLoweringSpec::DynamicPack { candidates: exec_candidates })
+            Ok(FamilyApplicationLoweringSpec::DynamicPack {
+                kind: fam_app.kind,
+                candidates: exec_candidates,
+            })
         }
     }
 }

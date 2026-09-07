@@ -125,7 +125,7 @@ let dynamic_value = make(*args)
         .values()
         .find(|spec| matches!(spec, FamilyApplicationLoweringSpec::Static { .. }))
         .expect("static family application lowering");
-    let FamilyApplicationLoweringSpec::Static { operation, target, arity } = static_spec else {
+    let FamilyApplicationLoweringSpec::Static { operation, target, arity, .. } = static_spec else {
         unreachable!();
     };
     assert_eq!(operation.kind, SelectorKind::Method);
@@ -138,7 +138,7 @@ let dynamic_value = make(*args)
         .values()
         .find(|spec| matches!(spec, FamilyApplicationLoweringSpec::DynamicPack { .. }))
         .expect("dynamic family application lowering");
-    let FamilyApplicationLoweringSpec::DynamicPack { candidates } = dynamic_spec else {
+    let FamilyApplicationLoweringSpec::DynamicPack { candidates, .. } = dynamic_spec else {
         unreachable!();
     };
     assert_eq!(candidates.len(), 2);

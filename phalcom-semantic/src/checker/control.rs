@@ -234,7 +234,20 @@ pub(crate) fn analyze_branch_pair(
     };
     let else_flow = ctx.flow.clone();
 
-    let typed = join_branch_results(ctx, condition_typed.causal_invalidity, &then_result, &else_result, expected, whole_range);
+    let mut typed = join_branch_results(ctx, condition_typed.causal_invalidity, &then_result, &else_result, expected, whole_range);
+
+    // The one-armed Bool conditional is an Option-producing primitive: the
+    // taken branch is Some(value), while the absent branch is None. The
+    // ordinary branch join above intentionally models an omitted branch as
+    // Unit for control-flow purposes, so replace that intermediate union with
+    // the canonical applied Option type before it reaches method dispatch.
+    if else_body.is_none()
+        && let Some(value_type) = then_result.value.as_ref().and_then(|value| value.knowledge.ty())
+        && let Some(option_form) = ctx.core_type(&ctx.core_ids.option.clone())
+        && let Ok(option_type) = ctx.store.apply_type_form(option_form, &[value_type])
+    {
+        typed.knowledge = TypeKnowledge::established(option_type, EvidenceOrigin::Flow);
+    }
 
     BranchPairResult { typed, then_flow, else_flow }
 }

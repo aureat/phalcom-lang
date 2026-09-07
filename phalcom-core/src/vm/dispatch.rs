@@ -1835,14 +1835,33 @@ impl VM {
                 }
                 Bytecode::LoadVariantSingleton(variant_idx) => {
                     let variant_id = callable.chunk.executable_semantics.variant_target(variant_idx);
-                    let runtime_var_id = self.adt_registry.variant_by_semantic(variant_id).ok_or("unregistered variant")?;
+                    let runtime_var_id = match self.adt_registry.variant_by_semantic(variant_id) {
+                        Some(runtime_var_id) => runtime_var_id,
+                        None if phalcom_semantic::core_surface::CoreDeclarationIds::default().is_option(&variant_id.owner)
+                            && matches!(
+                                &variant_id.selector.base,
+                                phalcom_common::selector::SelectorBase::Named(name) if name == "None"
+                            ) =>
+                        {
+                            // Native Option represents None as an immediate
+                            // absence value. Preserve that representation even
+                            // when a canonical source closure is loaded before
+                            // the optional runtime registry row is materialized.
+                            self.stack.push(Value::none());
+                            continue;
+                        }
+                        None => return Err(crate::error::RuntimeError::Internal("unregistered variant".into()).into()),
+                    };
                     let vdesc = self.adt_registry.variant_descriptor(runtime_var_id).unwrap();
                     let val = vdesc.singleton.unwrap_or_else(|| Value::adt_singleton(runtime_var_id));
                     self.stack.push(val);
                 }
                 Bytecode::ConstructVariant { variant, arity } => {
                     let variant_id = callable.chunk.executable_semantics.variant_target(variant);
-                    let runtime_var_id = self.adt_registry.variant_by_semantic(variant_id).ok_or("unregistered variant")?;
+                    let runtime_var_id = self
+                        .adt_registry
+                        .variant_by_semantic(variant_id)
+                        .ok_or_else(|| crate::error::RuntimeError::Internal("unregistered variant".into()))?;
                     let argc = arity as usize;
                     let payload: Vec<Value> = self.stack.drain(self.stack.len() - argc..).collect();
                     let val = self.construct_variant_value(runtime_var_id, payload)?;

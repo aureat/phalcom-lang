@@ -295,6 +295,9 @@ impl<'vm> Compiler<'vm> {
         match expr {
             Expr::UnqualifiedCall(call) => {
                 let call = *call;
+                if self.compile_canonical_variant_constructor(&call.name, &call.args, call.range)? {
+                    return Ok(());
+                }
                 if self.compile_family_application_call(
                     Expr::Var {
                         value: call.name.clone(),
@@ -321,10 +324,11 @@ impl<'vm> Compiler<'vm> {
                             BareNameResolution::Local(slot) => self.emit(Bytecode::GetLocal(slot as u16), call.range),
                             BareNameResolution::Upvalue(upvalue) => self.emit(Bytecode::GetUpvalue(upvalue as u16), call.range),
                             BareNameResolution::Linked(binding) => self.emit(Bytecode::GetLinked(binding.0 as u16), call.range),
-                            BareNameResolution::Global | BareNameResolution::Unresolved => {
+                            BareNameResolution::Global => {
                                 let name_idx = self.add_constant(Value::symbol(name_sym));
                                 self.emit(Bytecode::GetGlobal(name_idx), call.range);
                             }
+                            BareNameResolution::Unresolved => self.emit_global_reference(name_sym, call.range),
                             BareNameResolution::ImplicitSelf => unreachable!("handled above"),
                         }
                         self.emit(Bytecode::SetLocal(receiver_slot), call.range);
@@ -355,10 +359,11 @@ impl<'vm> Compiler<'vm> {
                     BareNameResolution::Local(slot) => self.emit(Bytecode::GetLocal(slot as u16), call.range),
                     BareNameResolution::Upvalue(upvalue) => self.emit(Bytecode::GetUpvalue(upvalue as u16), call.range),
                     BareNameResolution::Linked(binding) => self.emit(Bytecode::GetLinked(binding.0 as u16), call.range),
-                    BareNameResolution::Global | BareNameResolution::Unresolved => {
+                    BareNameResolution::Global => {
                         let name_idx = self.add_constant(Value::symbol(name_sym));
                         self.emit(Bytecode::GetGlobal(name_idx), call.range);
                     }
+                    BareNameResolution::Unresolved => self.emit_global_reference(name_sym, call.range),
                     BareNameResolution::ImplicitSelf => {
                         let arity = checked_send_arity("implicit message send", call.args.len(), call.range)?;
                         let labels = self.pack_labels(&call.args)?;
@@ -385,6 +390,12 @@ impl<'vm> Compiler<'vm> {
             }
             Expr::MethodCall(method_call) => {
                 self.check_bounded_method_call(&method_call)?;
+                if matches!(method_call.method.as_str(), "call" | "new")
+                    && let Expr::Var { value, .. } = &method_call.object
+                    && self.compile_canonical_variant_constructor(value, &method_call.args, method_call.range)?
+                {
+                    return Ok(());
+                }
                 let internal_call = method_call.method.starts_with("_$");
                 let is_invariant_guard = method_call.method == "_$invariantEnter" || method_call.method == "_$invariantExit";
                 if internal_call && !is_invariant_guard && !self.compiling_privileged_universe() && !self.compiler_internal {
@@ -1008,14 +1019,28 @@ impl<'vm> Compiler<'vm> {
                     return Err(CompilerError::UndefinedVariable(value.clone()));
                 }
                 let name_sym = self.vm.interner.intern(&value);
+                if let Some(variant) = self.vm.canonical_variant_alias(name_sym).cloned()
+                    && variant.selector.slots.is_empty()
+                {
+                    let variant_index = self
+                        .functions
+                        .last_mut()
+                        .unwrap()
+                        .chunk
+                        .executable_semantics
+                        .add_variant_target(&variant, range)?;
+                    self.emit(Bytecode::LoadVariantSingleton(variant_index), range);
+                    return Ok(());
+                }
                 match self.resolve_bare_name(name_sym) {
                     BareNameResolution::Local(slot) => self.emit(Bytecode::GetLocal(slot as u16), range),
                     BareNameResolution::Upvalue(upvalue) => self.emit(Bytecode::GetUpvalue(upvalue as u16), range),
                     BareNameResolution::Linked(binding) => self.emit(Bytecode::GetLinked(binding.0 as u16), range),
-                    BareNameResolution::Global | BareNameResolution::Unresolved => {
+                    BareNameResolution::Global => {
                         let name_idx = self.add_constant(Value::symbol(name_sym));
                         self.emit(Bytecode::GetGlobal(name_idx), range);
                     }
+                    BareNameResolution::Unresolved => self.emit_global_reference(name_sym, range),
                     BareNameResolution::ImplicitSelf => {
                         self.emit_self(range);
                         let selector_idx = self.add_constant(Value::symbol(name_sym));
@@ -1416,8 +1441,7 @@ impl<'vm> Compiler<'vm> {
             Expr::TypeForm(type_annotation) => match &type_annotation.expr {
                 phalcom_ast::ast::TypeAnnotationExpr::Reference(sym_ref) => {
                     let sym = self.vm.interner.intern(sym_ref.leaf_name());
-                    let name_idx = self.add_constant(Value::symbol(sym));
-                    self.emit(Bytecode::GetGlobal(name_idx), sym_ref.range);
+                    self.emit_global_reference(sym, sym_ref.range);
                 }
                 _ => {
                     self.emit(Bytecode::Nil, type_annotation.range);
@@ -1425,6 +1449,42 @@ impl<'vm> Compiler<'vm> {
             },
         }
         Ok(())
+    }
+
+    /// Emits an exact ADT construction for a canonical variant alias such as
+    /// `Ok.new(value)` or `Err(value)`. The alias table is populated from the
+    /// canonical Universe enum identities during bootstrap; no owner is
+    /// inferred from the source spelling here.
+    fn compile_canonical_variant_constructor(&mut self, name: &str, args: &[PackItem], range: SourceRange) -> Result<bool, CompilerError> {
+        let name_sym = self.vm.interner.intern(name);
+        let Some(variant) = self.vm.canonical_variant_alias(name_sym).cloned() else {
+            return Ok(false);
+        };
+        let arity = variant.selector.slots.len();
+        if arity == 0 {
+            return Ok(false);
+        }
+        if args.len() != arity || args.iter().any(|arg| !matches!(arg, PackItem::Positional { .. })) {
+            return Ok(false);
+        }
+        let variant_index = self
+            .functions
+            .last_mut()
+            .unwrap()
+            .chunk
+            .executable_semantics
+            .add_variant_target(&variant, range)?;
+        for arg in args {
+            self.compile_pack_item(arg.clone())?;
+        }
+        self.emit(
+            Bytecode::ConstructVariant {
+                variant: variant_index,
+                arity: checked_send_arity("canonical variant constructor", arity, range)?,
+            },
+            range,
+        );
+        Ok(true)
     }
 }
 

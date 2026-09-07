@@ -3387,10 +3387,7 @@ impl<'source> Parser<'source> {
             let range = construct_start..construct_end;
 
             return Err(SyntaxError {
-                kind: SyntaxErrorKind::UnrecognizedToken {
-                    token: "construct".to_string(),
-                    expected: vec!["@constructor".to_string()],
-                },
+                kind: SyntaxErrorKind::Message("`construct` is reserved; use `@constructor`".to_string()),
                 range,
             });
         }

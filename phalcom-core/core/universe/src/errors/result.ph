@@ -263,7 +263,7 @@ enum Result<T, E> {
     /// Extracts the successful value from this result.
     ///
     /// If this result is `Ok(value)`, returns `value`. If this result is
-    /// `Error(error)`, raises an `UnwrapError` containing the error.
+    /// `Error(error)`, re-raises the contained error.
     ///
     /// Use this operation only when failure represents an unrecoverable
     /// condition or has already been ruled out. Prefer `match`, `map`,
@@ -276,10 +276,7 @@ enum Result<T, E> {
                 value
             },
             err: |error| {
-                UnwrapError(
-                    "called Result.unwrap on an Error value",
-                    error
-                ).raise()
+                error.raise()
             }
         )
     }
@@ -287,16 +284,13 @@ enum Result<T, E> {
     /// Extracts the error from this result.
     ///
     /// If this result is `Error(error)`, returns `error`. If this result is
-    /// `Ok(value)`, raises an `UnwrapError` containing the successful value.
+    /// `Ok(value)`, raises a fresh `Error`.
     ///
     /// @returns The error carried by `Error`.
     unwrapErr -> E {
         self.match(
             ok: |value| {
-                UnwrapError(
-                    "called Result.unwrapErr on an Ok value",
-                    value
-                ).raise()
+                Error.new().raise()
             },
             err: |error| {
                 error

@@ -1,9 +1,9 @@
-Ok(4)
-Err(bad)
-Ok(2)
-Err(wrapped:bad)
-Ok(3)
-Err(bad)
+Result::Ok(4)
+Result::Error(bad)
+Result::Ok(2)
+Result::Error(wrapped:bad)
+Result::Ok(3)
+Result::Error(bad)
 true
 false
 false

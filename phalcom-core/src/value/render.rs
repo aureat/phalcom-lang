@@ -42,6 +42,9 @@ impl Value {
         if self.is_none() {
             return "None".to_string();
         }
+        if let Some(rid) = self.as_adt_singleton() {
+            return render_adt_singleton(vm, rid, false);
+        }
         if let Some(id) = self.as_obj() {
             return match vm.heap.get(id) {
                 Object::LargeInt(bigint) => bigint.to_string(),
@@ -136,6 +139,9 @@ impl Value {
         if self.is_none() {
             return "None".to_string();
         }
+        if let Some(rid) = self.as_adt_singleton() {
+            return render_adt_singleton(vm, rid, true);
+        }
         if let Some(id) = self.as_obj() {
             return match vm.heap.get(id) {
                 Object::LargeInt(bigint) => bigint.to_string(),
@@ -184,6 +190,18 @@ impl Value {
         }
         "<invalid value>".to_string()
     }
+}
+
+fn render_adt_singleton(vm: &VM, rid: crate::adt::RuntimeVariantId, debug: bool) -> String {
+    let Some(descriptor) = vm.adt_registry.variant_descriptor(rid) else {
+        return if debug {
+            format!("<unknown ADT singleton {:?}>", rid)
+        } else {
+            format!("<unknown ADT singleton {:?}>", rid)
+        };
+    };
+    let rendered = format!("{}::{}", descriptor.semantic_id.owner.name, descriptor.semantic_id.selector.encode());
+    if debug { format!("<{rendered}>") } else { rendered }
 }
 
 /// Returns the surface literal (`"true"` / `"false"`) for a boolean.

@@ -137,6 +137,22 @@ pub(crate) fn project_record_shape(store: &TypeStore, knowledge: &TypeKnowledge)
                         tail: row.tail,
                     })
                 }
+                // A labeled tuple contributes only its labeled lane when it
+                // is expanded into a Record. Unlabeled tuple elements belong
+                // to the positional product lane and therefore do not become
+                // synthetic record fields.
+                TypeData::Tuple(elements) => Ok(RecordProjection {
+                    fields: elements
+                        .iter()
+                        .filter_map(|element| {
+                            element
+                                .label
+                                .clone()
+                                .map(|name| (name, knowledge.derive_known_type(element.ty, EvidenceOrigin::PatternDecomposition)))
+                        })
+                        .collect(),
+                    tail: RecordRowTail::Closed,
+                }),
                 _ => Err(TypeKnowledge::Unknown(UnknownReason::UncheckedExpression)),
             }
         }

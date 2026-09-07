@@ -478,6 +478,21 @@ fn lower_scoped_type_form(
                         let unit = store.unit();
                         return TypeFormationOutcome::Ready(intern_scoped_free(store, unit));
                     }
+                    // `Some` and `None` are the runtime behavior classes of
+                    // the canonical Option variants. They are not ordinary
+                    // prelude value bindings, but remain valid nominal type
+                    // forms for sealed-inheritance and class annotations.
+                    "Some" | "None" => {
+                        let key = if name == "Some" {
+                            phalcom_native_meta::UniverseKey::Some
+                        } else {
+                            phalcom_native_meta::UniverseKey::None
+                        };
+                        let declaration = crate::core_surface::universe_declaration(key);
+                        if let Some(form) = declarations.form(&declaration) {
+                            return TypeFormationOutcome::Ready(intern_scoped_free(store, form));
+                        }
+                    }
                     "Dynamic" => return TypeFormationOutcome::Dynamic,
                     _ => {}
                 }
@@ -846,6 +861,17 @@ pub fn resolve_type_form(
                 match name {
                     "Never" => return TypeFormResolution::Ready(store.never()),
                     "Unit" => return TypeFormResolution::Ready(store.unit()),
+                    "Some" | "None" => {
+                        let key = if name == "Some" {
+                            phalcom_native_meta::UniverseKey::Some
+                        } else {
+                            phalcom_native_meta::UniverseKey::None
+                        };
+                        let declaration = crate::core_surface::universe_declaration(key);
+                        if let Some(form) = declarations.form(&declaration) {
+                            return TypeFormResolution::Ready(form);
+                        }
+                    }
                     "Dynamic" => return TypeFormResolution::Dynamic,
                     _ => {}
                 }

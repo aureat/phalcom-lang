@@ -5,10 +5,10 @@
 // `Chunk.gcaches` guarded by `ModuleObject.globals_version`). The IC twin is
 // `ic_add_method_invalidates.ph`; this is the same shape for GetGlobal.
 //
-// A callsite that resolves a kernel name through the core-module fallback must
-// stop doing so the moment this module declares that name. The F12 prototype
-// cached (module, slot) with no guard and returned core's `List` forever — this
-// fixture is what fails if that regresses.
+// A callsite linked to the canonical prelude `List` must remain linked to that
+// declaration when a nested lexical binding uses the same spelling. The
+// second class below separately covers invalidation of a real module-global
+// slot.
 
 class C {
   @class
@@ -20,18 +20,23 @@ System.print(C.get)
 System.print(C.get)
 System.print(C.get)
 
-// Shadow the kernel name in this module. `declare` allocates a NEW slot, which
-// bumps globals_version and must invalidate the cached core resolution above.
-let List = 42
-System.print(C.get)
+// A lexical shadow does not rewrite the already-linked prelude reference.
+class Probe {
+  @class
+  run() {
+    let List = 42
+    System.print(C.get)
+    List = 99
+    System.print(C.get)
+  }
+}
+Probe.run()
 
-// Assignment rewrites the slot's value without moving it, so the cache stays
-// valid and must still observe the write.
-List = 99
-System.print(C.get)
-
-// Same-scope re-declaration is now a compile error (L-3/L-5) — the
-// idempotent-declare case this fixture used to exercise moved to
-// binding_const_redeclared_same_scope.ph / binding_var_is_not_a_keyword.ph's
-// sibling negative fixtures. Only the fresh-slot declare and plain-assignment
-// cases above remain here.
+let x = 1
+class D {
+  @class
+  get { x }
+}
+System.print(D.get)
+x = 2
+System.print(D.get)

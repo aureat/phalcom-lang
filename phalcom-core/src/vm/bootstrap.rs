@@ -76,6 +76,7 @@ impl VM {
             classes: HashMap::new(),
             kernel_class_names: std::collections::HashSet::new(),
             prelude_bindings: HashMap::new(),
+            prelude_variant_bindings: HashMap::new(),
             universe,
             next_frame_generation: 0,
             // The root fiber's `seq` is hardcoded to 1 (`FiberObject::root`); the
@@ -149,6 +150,12 @@ impl VM {
         let canonical = crate::modules::canonical_universe_program().map_err(|error| crate::error::VmBootstrapError::CanonicalUniverse(error.to_string()))?;
         let mut vm = Self::try_new_native_with_native_install_mode_and_output(native_install_mode, output)?;
 
+        // Source-authored Universe classes are referenced by other canonical
+        // modules while the source bootstrap is still being compiled. Reserve
+        // their real module slots before compiling any initializer so those
+        // references can use linked reads just like native Universe bindings.
+        vm.prepare_universe_source_bindings(canonical)?;
+
         // Compile and run the registered universe modules now that every native
         // primitive is installed: this is what actually attaches each
         // universe submodule's class-reopen (`List`, `Option`, `Some`, `System`,
@@ -156,6 +163,8 @@ impl VM {
         // `install_primitives` so a reopen can call the primitives it wraps
         // (e.g. `List.at(_:)` calling `at_(_:)`).
         vm.run_universe_modules(canonical).map_err(crate::error::VmBootstrapError::Runtime)?;
+        vm.bind_native_error_constructors();
+        vm.bind_canonical_variant_aliases()?;
         vm.sync_universe_class_aliases()?;
 
         // Semantic roots are late-bound to the exact values exported by the
@@ -210,6 +219,43 @@ impl VM {
         vm.universe.verify_invariants(&vm.heap).map_err(crate::error::VmBootstrapError::Invariant)?;
 
         Ok(vm)
+    }
+
+    /// Prepares canonical slots for source-only classes before the Universe
+    /// initializers are compiled.
+    ///
+    /// Canonical source modules may refer to an error/helper class owned by a
+    /// different Universe module without an explicit import. Those references
+    /// are still canonical bindings, not dynamic globals. Reserving their
+    /// owning slots lets the compiler emit `GetLinked` reads while preserving
+    /// the normal source-class allocation and initialization path.
+    fn prepare_universe_source_bindings(&mut self, canonical: &crate::modules::CanonicalUniverseProgram) -> Result<(), crate::error::VmBootstrapError> {
+        let source_only = canonical
+            .source_index()
+            .census
+            .classes
+            .iter()
+            .filter(|class| class.universe_key.is_none())
+            .collect::<Vec<_>>();
+        for class in source_only {
+            let module = self
+                .module_registry
+                .get(&class.module)
+                .ok_or_else(|| crate::error::VmBootstrapError::Invariant(format!("Universe source class module {} is not materialized", class.module)))?
+                .object;
+            let name = self.interner.intern(&class.name);
+            let slot = self.heap.module_mut(module).declare(name).map_err(crate::error::VmBootstrapError::Runtime)?;
+            self.prelude_bindings.insert(
+                name,
+                crate::modules::BindingRef {
+                    module,
+                    slot: u16::try_from(slot)
+                        .map_err(|_| crate::error::VmBootstrapError::Invariant(format!("Universe source class slot for `{}` does not fit u16", class.name)))?,
+                },
+            );
+        }
+
+        Ok(())
     }
 
     fn install_native_runtime(vm: &mut Self, native_install_mode: NativeInstallMode) -> Result<(), crate::error::VmBootstrapError> {
@@ -715,6 +761,114 @@ impl VM {
             );
         }
         Ok(())
+    }
+
+    /// Records the source-visible ADT aliases after canonical enum registration.
+    ///
+    /// These are semantic targets, not a second runtime name registry: the
+    /// compiler uses the retained `VariantId` to emit the existing exact ADT
+    /// lowering. `Err` is the historical spelling for canonical `Result::Error`.
+    fn bind_canonical_variant_aliases(&mut self) -> Result<(), crate::error::VmBootstrapError> {
+        let aliases = [
+            (
+                "Some",
+                phalcom_native_meta::UniverseKey::Option,
+                phalcom_common::selector::Selector::method("Some", vec![phalcom_common::selector::SelectorSlot::Positional]),
+            ),
+            (
+                "None",
+                phalcom_native_meta::UniverseKey::Option,
+                phalcom_common::selector::Selector::getter("None"),
+            ),
+            (
+                "Ok",
+                phalcom_native_meta::UniverseKey::Result,
+                phalcom_common::selector::Selector::method("Ok", vec![phalcom_common::selector::SelectorSlot::Positional]),
+            ),
+            (
+                "Err",
+                phalcom_native_meta::UniverseKey::Result,
+                phalcom_common::selector::Selector::method("Error", vec![phalcom_common::selector::SelectorSlot::Positional]),
+            ),
+            (
+                "Less",
+                phalcom_native_meta::UniverseKey::Ordering,
+                phalcom_common::selector::Selector::getter("Less"),
+            ),
+            (
+                "Equal",
+                phalcom_native_meta::UniverseKey::Ordering,
+                phalcom_common::selector::Selector::getter("Equal"),
+            ),
+            (
+                "Greater",
+                phalcom_native_meta::UniverseKey::Ordering,
+                phalcom_common::selector::Selector::getter("Greater"),
+            ),
+            (
+                "Unordered",
+                phalcom_native_meta::UniverseKey::Ordering,
+                phalcom_common::selector::Selector::getter("Unordered"),
+            ),
+        ];
+
+        self.prelude_variant_bindings.clear();
+        for (alias, owner_key, selector) in aliases {
+            let selector =
+                selector.map_err(|error| crate::error::VmBootstrapError::Invariant(format!("invalid canonical variant alias `{alias}`: {error}")))?;
+            let variant = phalcom_semantic::identity::VariantId::new(phalcom_semantic::core_surface::universe_declaration(owner_key), selector);
+            if self.adt_registry.variant_by_semantic(&variant).is_some() {
+                self.prelude_variant_bindings.insert(self.interner.intern(alias), variant);
+            }
+        }
+        Ok(())
+    }
+
+    /// Makes the source-authored `Error` constructors available on native
+    /// error subclasses as well. These classes are presented by empty
+    /// `@native` declarations, so their metaclass rows do not receive the
+    /// source constructor methods during class-body compilation even though
+    /// their instance-side superclass is `Error`.
+    fn bind_native_error_constructors(&mut self) {
+        let error = self.universe.classes.error_class;
+        let error_meta = self.heap.class(error).class;
+        let constructors = ["new()", "new(_)"]
+            .into_iter()
+            .filter_map(|selector| {
+                let symbol = self.interner.intern(selector);
+                crate::heap::lookup_method_in_hierarchy(&self.heap, error_meta, symbol).map(|method| (symbol, method))
+            })
+            .collect::<Vec<_>>();
+
+        for class in [
+            self.universe.classes.message_not_understood_class,
+            self.universe.classes.cannot_yield_across_native_frame_class,
+            self.universe.classes.use_after_close_error_class,
+        ] {
+            let metaclass = self.heap.class(class).class;
+            for (selector, method) in &constructors {
+                if self.heap.class(metaclass).methods.contains_key(selector) {
+                    continue;
+                }
+                self.heap.class_mut(metaclass).add_method(*selector, *method);
+                self.world_version += 1;
+            }
+        }
+
+        let class = self.universe.classes.use_after_close_error_class;
+        let metaclass = self.heap.class(class).class;
+        let selector = self.interner.intern("new(_)");
+        if !self.heap.class(metaclass).methods.contains_key(&selector) {
+            let method = crate::method::MethodObject::new_primitive(
+                selector,
+                crate::method::SignatureKind::Method(1),
+                crate::primitive::error::native_error_new,
+                class,
+            );
+            let method = self.heap.alloc(crate::heap::Object::Method(Box::new(method)));
+            self.heap.class_mut(metaclass).add_method(selector, method);
+            self.world_version += 1;
+        }
     }
 
     /// Finalizes every primordial class row's (and its metaclass's) base-name
