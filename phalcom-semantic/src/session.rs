@@ -3597,6 +3597,10 @@ impl SemanticWorkspaceSession {
             source_index_stats.formal_modules_rebuilt = source_index.len();
         } else {
             source_index_stats.formal_modules_rebuilt = source_index_rebuild_modules.iter().filter(|module| current_modules.contains(*module)).count();
+            let formal_modules_rebuilt_retained = source_index_rebuild_modules
+                .iter()
+                .filter(|module| current_modules.contains(*module) && previous_formal.is_some_and(|projection| projection.module(module).is_some()))
+                .count();
             let formal_modules_retired = removed_modules
                 .iter()
                 .filter(|module| previous_formal.is_some_and(|projection| projection.module(module).is_some()))
@@ -3606,7 +3610,7 @@ impl SemanticWorkspaceSession {
                 .map(|projection| {
                     projection
                         .module_count()
-                        .saturating_sub(source_index_stats.formal_modules_rebuilt)
+                        .saturating_sub(formal_modules_rebuilt_retained)
                         .saturating_sub(formal_modules_retired)
                 })
                 .unwrap_or_default();

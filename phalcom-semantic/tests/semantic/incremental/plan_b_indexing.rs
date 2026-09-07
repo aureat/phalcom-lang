@@ -355,6 +355,70 @@ fn pb_3_imported_binding() {
     );
 }
 
+#[test]
+fn pb_3_production_module_session_import_products_preserve_dual_identity() {
+    let root = tempfile::tempdir().expect("temporary workspace");
+    std::fs::write(root.path().join("package.ph"), "").expect("package marker");
+    let provider_path = root.path().join("provider.ph");
+    let consumer_path = root.path().join("consumer.ph");
+    let provider_source = SourceLocation {
+        source_id: SourceId(provider_path.to_string_lossy().into()),
+        display_path: provider_path.clone(),
+    };
+    let consumer_source = SourceLocation {
+        source_id: SourceId(consumer_path.to_string_lossy().into()),
+        display_path: consumer_path.clone(),
+    };
+    let mut session = SemanticWorkspaceSession::new();
+    let publication = session
+        .apply_module_mutations([
+            WorkspaceSourceBatchMutation::SetOverlay {
+                source: provider_source,
+                text: Arc::from("class Foo { @class make() -> Int { 1 } }\nexport Foo\n"),
+                revision: SourceRevision(1),
+                recovered_program: None,
+            },
+            WorkspaceSourceBatchMutation::SetOverlay {
+                source: consumer_source,
+                text: Arc::from("from .provider import Foo as Bar\nclass Consumer { run() -> Int { Bar.make() } }\n"),
+                revision: SourceRevision(1),
+                recovered_program: None,
+            },
+        ])
+        .expect("production module publication");
+
+    let provider = publication
+        .snapshot
+        .module_for_display_path(&provider_path)
+        .cloned()
+        .expect("provider module identity");
+    let consumer = publication
+        .snapshot
+        .module_for_display_path(&consumer_path)
+        .cloned()
+        .expect("consumer module identity");
+    let foo_target = SemanticTargetId::Declaration(DeclarationId::new(provider, "Foo".into()));
+    let consumer_shard = publication.snapshot.source_index().module(&consumer).expect("consumer source shard");
+    let bar_binding = consumer_shard
+        .structure
+        .bindings
+        .values()
+        .find(|binding| binding.name.as_ref() == "Bar")
+        .expect("import alias binding");
+    let origin = consumer_shard
+        .structure
+        .import_origin(&bar_binding.declaration_site)
+        .expect("canonical imported-binding origin");
+    assert_eq!(origin.remote_target, foo_target);
+
+    let bar_target = SemanticTargetId::Binding(bar_binding.declaration_site.clone());
+    let query = publication.snapshot.editor();
+    let lexical = query.reference_sites_in_domain(&bar_target, ReferenceDomain::Lexical);
+    assert_eq!(lexical.len(), 1);
+    let semantic = query.reference_sites_in_domain(&foo_target, ReferenceDomain::Semantic);
+    assert!(semantic.contains(&lexical[0]));
+}
+
 // -----------------------------------------------------------------------------
 // PB-4 — Alias dual relation
 // -----------------------------------------------------------------------------
@@ -710,6 +774,47 @@ fn pb_9b_high_fanout_one_consumer_reference_edit() {
     assert_eq!(src_stats.reference_workspace_scan_units, 0);
 }
 
+#[test]
+fn formal_reuse_stats_keep_previous_modules_reused_when_a_new_module_is_added() {
+    let root = tempfile::tempdir().expect("temporary workspace");
+    std::fs::write(root.path().join("package.ph"), "").expect("package marker");
+    let app_path = root.path().join("app.ph");
+    let newcomer_path = root.path().join("newcomer.ph");
+    let app = SourceLocation {
+        source_id: SourceId(app_path.to_string_lossy().into()),
+        display_path: app_path,
+    };
+    let newcomer = SourceLocation {
+        source_id: SourceId(newcomer_path.to_string_lossy().into()),
+        display_path: newcomer_path,
+    };
+    let mut session = SemanticWorkspaceSession::new();
+
+    let initial = session
+        .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
+            source: app,
+            text: Arc::from("class App { run() -> Int { 1 } }\n"),
+            revision: SourceRevision(1),
+            recovered_program: None,
+        }])
+        .expect("initial publication");
+    let previous_formal_modules = initial.snapshot.formal_projection().module_count();
+    assert!(previous_formal_modules >= 1);
+
+    let updated = session
+        .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
+            source: newcomer,
+            text: Arc::from("class Newcomer { run() -> Int { 2 } }\n"),
+            revision: SourceRevision(1),
+            recovered_program: None,
+        }])
+        .expect("new-module publication");
+    let stats = updated.snapshot.source_index().stats();
+    assert_eq!(stats.formal_modules_rebuilt, 1);
+    assert_eq!(stats.formal_modules_retired, 0);
+    assert_eq!(stats.formal_modules_reused, previous_formal_modules);
+}
+
 // -----------------------------------------------------------------------------
 // PB-10 — Cold/incremental editor parity
 // -----------------------------------------------------------------------------
@@ -856,6 +961,101 @@ fn pb_12_zero_prohibited_workspace_scans() {
     assert_eq!(src_stats.source_workspace_scan_units, 0);
     assert_eq!(src_stats.reference_workspace_scan_units, 0);
     assert_eq!(src_stats.formal_workspace_scan_units, 0);
+}
+
+#[test]
+fn pb_12_large_production_workspace_keeps_all_four_delta_scenarios_scan_free() {
+    let root = tempfile::tempdir().expect("temporary workspace");
+    std::fs::write(root.path().join("package.ph"), "").expect("package marker");
+    let provider_path = root.path().join("provider.ph");
+    let consumer_path = root.path().join("consumer.ph");
+    let provider = SourceLocation {
+        source_id: SourceId(provider_path.to_string_lossy().into()),
+        display_path: provider_path.clone(),
+    };
+    let consumer = SourceLocation {
+        source_id: SourceId(consumer_path.to_string_lossy().into()),
+        display_path: consumer_path.clone(),
+    };
+    let mut initial = vec![
+        WorkspaceSourceBatchMutation::SetOverlay {
+            source: provider.clone(),
+            text: Arc::from("class Foo { value() -> Int { 1 } }\nexport Foo\n"),
+            revision: SourceRevision(1),
+            recovered_program: None,
+        },
+        WorkspaceSourceBatchMutation::SetOverlay {
+            source: consumer.clone(),
+            text: Arc::from("import .provider.Foo\nlet value = Foo\n"),
+            revision: SourceRevision(1),
+            recovered_program: None,
+        },
+    ];
+    for index in 0..500 {
+        let path = root.path().join(format!("extra{index:03}.ph"));
+        initial.push(WorkspaceSourceBatchMutation::SetOverlay {
+            source: SourceLocation {
+                source_id: SourceId(path.to_string_lossy().into()),
+                display_path: path,
+            },
+            text: Arc::from(format!("class Extra{index:03} {{ value() -> Int {{ {index} }} }}\n")),
+            revision: SourceRevision(1),
+            recovered_program: None,
+        });
+    }
+
+    let mut session = SemanticWorkspaceSession::new();
+    let initial_publication = session.apply_module_mutations(initial).expect("large initial publication");
+    assert_eq!(initial_publication.snapshot.sources.len(), 502);
+
+    let assert_zero_scans = |publication: &phalcom_semantic::session::SemanticWorkspacePublication| {
+        let stats = publication.snapshot.source_index().stats();
+        assert_eq!(stats.source_workspace_scan_units, 0);
+        assert_eq!(stats.reference_workspace_scan_units, 0);
+        assert_eq!(stats.formal_workspace_scan_units, 0);
+    };
+
+    let body_only = session
+        .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
+            source: provider.clone(),
+            text: Arc::from("class Foo { value() -> Int { 2 } }\nexport Foo\n"),
+            revision: SourceRevision(2),
+            recovered_program: None,
+        }])
+        .expect("body-only publication");
+    assert_zero_scans(&body_only);
+    assert_eq!(body_only.snapshot.source_index().stats().source_modules_rebuilt, 1);
+
+    let reference_edit = session
+        .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
+            source: consumer.clone(),
+            text: Arc::from("import .provider.Foo\nlet first = Foo\nlet second = Foo\n"),
+            revision: SourceRevision(2),
+            recovered_program: None,
+        }])
+        .expect("reference publication");
+    assert_zero_scans(&reference_edit);
+    assert_eq!(reference_edit.snapshot.source_index().stats().source_modules_rebuilt, 1);
+
+    let presentation_only = session
+        .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
+            source: provider.clone(),
+            text: Arc::from("// moved presentation\n\nclass Foo { value() -> Int { 2 } }\nexport Foo\n"),
+            revision: SourceRevision(3),
+            recovered_program: None,
+        }])
+        .expect("presentation publication");
+    assert_zero_scans(&presentation_only);
+    assert_eq!(presentation_only.snapshot.source_index().stats().source_modules_rebuilt, 1);
+
+    let removal = session
+        .apply_module_mutations([WorkspaceSourceBatchMutation::RemoveSource {
+            source: consumer.source_id.clone(),
+        }])
+        .expect("removal publication");
+    assert_zero_scans(&removal);
+    assert_eq!(removal.snapshot.source_index().stats().source_modules_retired, 1);
+    assert!(removal.snapshot.module_for_display_path(&consumer_path).is_none());
 }
 
 #[test]

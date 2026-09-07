@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use phalcom_lsp::backend::Backend;
@@ -7,17 +8,17 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tower_lsp::lsp_types::Url;
 use tower_lsp::{LspService, Server};
 
+static NEXT_WORKSPACE: AtomicU64 = AtomicU64::new(1);
+
 struct ScratchWorkspace {
     root: PathBuf,
 }
 
 impl ScratchWorkspace {
     fn new() -> Self {
-        let root = std::env::temp_dir().join(format!(
-            "phalcom-lsp-imported-binding-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-        ));
+        let id = NEXT_WORKSPACE.fetch_add(1, Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!("phalcom-lsp-imported-binding-{}-{id}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("package.ph"), "").unwrap();
         Self {
