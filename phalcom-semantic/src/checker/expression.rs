@@ -1474,7 +1474,14 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
 
     let premise = CallPremise::from_typed(ctx, &receiver);
     let result = apply_resolved_callable(ctx, &target, &premise, &arguments, expected, invoke.range);
-    if let (Some(result_type), Some(expression)) = (result.knowledge.ty(), ctx.current_expression_id()) {
+    // Constructor lowering remains executable even when generic result
+    // publication is underconstrained (for example `Result::Ok(value)` with
+    // no evidence for the error parameter). The target already carries the
+    // canonical variant and its constructor return template; dropping the
+    // resolution here would make compiler fallback synthesize a module-local
+    // `Result` identity that the runtime registry correctly rejects.
+    let result_type = result.knowledge.ty().or_else(|| target.signature.return_type.ty());
+    if let (Some(result_type), Some(expression)) = (result_type, ctx.current_expression_id()) {
         ctx.record_associated_resolution(
             expression,
             AssociatedResolution {

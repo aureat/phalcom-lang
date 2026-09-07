@@ -2,7 +2,7 @@ use phalcom_core::modules::RuntimeLinkedRead;
 use phalcom_core::modules::compile::{EntrySelection, ProgramCompileError, ProgramCompiler};
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
-use phalcom_modules::{LinkError, LinkedReadSpec};
+use phalcom_modules::{LinkError, LinkedReadSpec, ModuleComponent, ModuleId, ModulePath};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -316,7 +316,11 @@ fn mat_06_module_import_binding_resolves_to_module() {
     let linked_read = vm.heap.module(importer_obj).linked_reads.first().copied().expect("linked read 0");
     match linked_read {
         RuntimeLinkedRead::Module(m) => {
-            assert!(vm.heap.module(m).name.contains("reflection.selector"));
+            let expected = ModuleId::universe(ModulePath::from_components(vec![
+                ModuleComponent::from_identifier("reflection").unwrap(),
+                ModuleComponent::from_identifier("selector").unwrap(),
+            ]));
+            assert_eq!(vm.heap.module(m).id, expected);
         }
         RuntimeLinkedRead::Binding(_) => panic!("expected Module linked read"),
     }

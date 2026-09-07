@@ -19,6 +19,7 @@ use phalcom_ast::ast::{
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
 use phalcom_modules::linker::SymbolId;
+use phalcom_modules::{ImportSiteId, ImportSiteLocalId};
 
 /// Canonical linked targets available while building source identity.
 #[derive(Clone, Debug, Default)]
@@ -31,6 +32,10 @@ pub struct SourceIndexContext {
     /// written logical path. This prevents source indexing from falling back
     /// to a disconnected default context.
     pub resolved_imports: BTreeMap<(ModuleId, String), ModuleId>,
+    /// Exact compiler-owned import products keyed by authored import site.
+    /// Production source indexing prefers this identity-keyed projection over
+    /// reconstructing meaning from a written path string.
+    pub import_products: BTreeMap<ImportSiteId, std::sync::Arc<phalcom_modules::resolver::ImportResolutionProduct>>,
     /// Canonical callable targets keyed by declaration and exact selector.
     pub callable_targets: BTreeMap<(DeclarationId, Selector), CallableId>,
     /// Canonical nominal type references keyed by source module and exact token range.
@@ -155,7 +160,7 @@ impl TypeReferenceTargetCollector<'_> {
                     }
                 }
             }
-            Statement::Enum(_) => {}
+            Statement::Enum(enum_def) => self.enum_definition(enum_def, bound),
             Statement::TypeAlias(alias) => {
                 let mut alias_bound = bound.clone();
                 alias_bound.extend(alias.generic_parameters.iter().map(|parameter| parameter.name.clone()));
@@ -190,6 +195,87 @@ impl TypeReferenceTargetCollector<'_> {
                     self.annotation(right, bound);
                 }
                 GenericConstraintSyntax::Invalid { .. } => {}
+            }
+        }
+    }
+
+    fn enum_definition(&mut self, enum_def: &EnumDef, bound: &BTreeSet<String>) {
+        let mut enum_bound = bound.clone();
+        enum_bound.extend(enum_def.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+        self.where_clause(enum_def.where_clause.as_ref(), &enum_bound);
+
+        for member in &enum_def.members {
+            match member {
+                EnumMember::Variant(variant) => {
+                    let mut variant_bound = enum_bound.clone();
+                    variant_bound.extend(variant.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                    self.where_clause(variant.where_clause.as_ref(), &variant_bound);
+                    if let Some(payload) = &variant.payload {
+                        for parameter in &payload.parameters {
+                            if let Some(annotation) = &parameter.annotation {
+                                self.annotation(annotation, &variant_bound);
+                            }
+                        }
+                    }
+                    if let Some(annotation) = &variant.result_annotation {
+                        self.annotation(annotation, &variant_bound);
+                    }
+                    if let Some(body) = &variant.body {
+                        for behavior in &body.members {
+                            self.enum_behavior(behavior, &variant_bound);
+                        }
+                    }
+                }
+                EnumMember::Behavior(behavior) => self.enum_behavior(behavior, &enum_bound),
+            }
+        }
+    }
+
+    fn enum_behavior(&mut self, behavior: &EnumBehaviorMember, parent_bound: &BTreeSet<String>) {
+        match behavior {
+            EnumBehaviorMember::Method(method) => {
+                let mut method_bound = parent_bound.clone();
+                method_bound.extend(method.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                for parameter in &method.params {
+                    if let Some(annotation) = &parameter.annotation {
+                        self.annotation(annotation, &method_bound);
+                    }
+                }
+                if let Some(annotation) = &method.return_annotation {
+                    self.annotation(annotation, &method_bound);
+                }
+                self.where_clause(method.where_clause.as_ref(), &method_bound);
+            }
+            EnumBehaviorMember::Getter(getter) => {
+                if let Some(annotation) = &getter.return_annotation {
+                    self.annotation(annotation, parent_bound);
+                }
+            }
+            EnumBehaviorMember::Setter(setter) => {
+                if let Some(annotation) = &setter.param.annotation {
+                    self.annotation(annotation, parent_bound);
+                }
+                if let Some(annotation) = &setter.return_annotation {
+                    self.annotation(annotation, parent_bound);
+                }
+            }
+            EnumBehaviorMember::Index(index) => {
+                let mut index_bound = parent_bound.clone();
+                index_bound.extend(index.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                for parameter in &index.params {
+                    if let Some(annotation) = &parameter.annotation {
+                        self.annotation(annotation, &index_bound);
+                    }
+                }
+                if let phalcom_ast::ast::IndexAccessor::Set { put } = &index.accessor
+                    && let Some(annotation) = &put.annotation
+                {
+                    self.annotation(annotation, &index_bound);
+                }
+                if let Some(annotation) = &index.return_annotation {
+                    self.annotation(annotation, &index_bound);
+                }
+                self.where_clause(index.where_clause.as_ref(), &index_bound);
             }
         }
     }
@@ -348,57 +434,73 @@ impl SourceScopeBuilder<'_> {
     }
 
     fn visit_imports(&mut self, program: &Program) {
+        let mut import_site_local = 0u32;
         for dependency in &program.preamble.dependencies {
-            let phalcom_ast::ast::DependencyDecl::Import(import) = dependency else {
-                continue;
-            };
-            match import {
-                phalcom_ast::ast::ImportDecl::Module(module_import) => {
-                    let name = module_import
-                        .alias
-                        .as_ref()
-                        .map(|alias| alias.name.clone())
-                        .or_else(|| module_import.path.segments.last().map(|segment| segment.name.clone()))
-                        .or_else(|| match &module_import.path.root {
-                            phalcom_ast::ast::ImportRoot::Absolute(segment) => Some(segment.name.clone()),
-                            phalcom_ast::ast::ImportRoot::Relative { .. } => None,
-                        });
-                    let Some(name) = name else { continue };
-                    let range = module_import.alias.as_ref().map_or(module_import.range, |alias| alias.range);
-                    let site = self.declare(self.index.root, name.clone(), SourceBindingKind::Import, range, false);
-                    if let Some(module) = self
-                        .context
-                        .resolved_imports
-                        .get(&(self.index.module.clone(), module_import.path.to_string()))
-                        .or_else(|| self.context.modules.get(&module_import.path.to_string()))
-                    {
-                        self.index.register_module(name, module.clone());
-                        self.index.register_import_origin(ImportBindingOrigin {
-                            local_binding: site,
-                            remote_target: SemanticTargetId::Module(module.clone()),
-                        });
-                    }
-                }
-                phalcom_ast::ast::ImportDecl::Selective(selective_import) => {
-                    let module = self
-                        .context
-                        .resolved_imports
-                        .get(&(self.index.module.clone(), selective_import.path.to_string()))
-                        .or_else(|| self.context.modules.get(&selective_import.path.to_string()));
-                    for item in &selective_import.items {
-                        let name = item.alias.as_ref().map_or_else(|| item.name.clone(), |alias| alias.name.clone());
-                        let range = item.alias.as_ref().map_or(item.name_range, |alias| alias.range);
-                        let site = self.declare(self.index.root, name, SourceBindingKind::Import, range, false);
-                        if let Some(module) = module
-                            && let Some(target) = self.context.targets.get(&(module.clone(), item.name.clone()))
-                        {
+            match dependency {
+                phalcom_ast::ast::DependencyDecl::Import(import) => match import {
+                    phalcom_ast::ast::ImportDecl::Module(module_import) => {
+                        let import_site = ImportSiteId::new(self.index.module.clone(), ImportSiteLocalId::new(import_site_local));
+                        import_site_local = import_site_local.saturating_add(1);
+                        let name = module_import
+                            .alias
+                            .as_ref()
+                            .map(|alias| alias.name.clone())
+                            .or_else(|| module_import.path.segments.last().map(|segment| segment.name.clone()))
+                            .or_else(|| match &module_import.path.root {
+                                phalcom_ast::ast::ImportRoot::Absolute(segment) => Some(segment.name.clone()),
+                                phalcom_ast::ast::ImportRoot::Relative { .. } => None,
+                            });
+                        let Some(name) = name else { continue };
+                        let range = module_import.alias.as_ref().map_or(module_import.range, |alias| alias.range);
+                        let site = self.declare(self.index.root, name.clone(), SourceBindingKind::Import, range, false);
+                        let module = match self.context.import_products.get(&import_site) {
+                            Some(product) => product.target.as_ref().ok().cloned(),
+                            None => self
+                                .context
+                                .resolved_imports
+                                .get(&(self.index.module.clone(), module_import.path.to_string()))
+                                .or_else(|| self.context.modules.get(&module_import.path.to_string()))
+                                .cloned(),
+                        };
+                        if let Some(module) = module {
+                            self.index.register_module(name, module.clone());
                             self.index.register_import_origin(ImportBindingOrigin {
                                 local_binding: site,
-                                remote_target: target.clone(),
+                                remote_target: SemanticTargetId::Module(module.clone()),
                             });
                         }
                     }
+                    phalcom_ast::ast::ImportDecl::Selective(selective_import) => {
+                        let import_site = ImportSiteId::new(self.index.module.clone(), ImportSiteLocalId::new(import_site_local));
+                        import_site_local = import_site_local.saturating_add(1);
+                        let module = match self.context.import_products.get(&import_site) {
+                            Some(product) => product.target.as_ref().ok().cloned(),
+                            None => self
+                                .context
+                                .resolved_imports
+                                .get(&(self.index.module.clone(), selective_import.path.to_string()))
+                                .or_else(|| self.context.modules.get(&selective_import.path.to_string()))
+                                .cloned(),
+                        };
+                        for item in &selective_import.items {
+                            let name = item.alias.as_ref().map_or_else(|| item.name.clone(), |alias| alias.name.clone());
+                            let range = item.alias.as_ref().map_or(item.name_range, |alias| alias.range);
+                            let site = self.declare(self.index.root, name, SourceBindingKind::Import, range, false);
+                            if let Some(module) = module.as_ref()
+                                && let Some(target) = self.context.targets.get(&(module.clone(), item.name.clone()))
+                            {
+                                self.index.register_import_origin(ImportBindingOrigin {
+                                    local_binding: site,
+                                    remote_target: target.clone(),
+                                });
+                            }
+                        }
+                    }
+                },
+                phalcom_ast::ast::DependencyDecl::ReExport(_) => {
+                    import_site_local = import_site_local.saturating_add(1);
                 }
+                phalcom_ast::ast::DependencyDecl::Expose(_) => {}
             }
         }
     }

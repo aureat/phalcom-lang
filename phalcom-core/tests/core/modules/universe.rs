@@ -251,12 +251,14 @@ fn curated_prelude_exposes_public_names_and_hides_internal_classes() {
         assert!(!vm.prelude_bindings.contains_key(&sym), "prelude must NOT contain {name}");
     }
 
-    // NONE-01: Prelude None is immediate Value::none(); universe.None is the None class object
+    // NONE-01: `None` remains a prelude convenience for Option::None's value.
     let none_sym = vm.interner.intern("None");
-    assert!(vm.prelude_bindings.contains_key(&none_sym));
-    let universe_pkg = vm.create_builtin_package("universe");
-    let none_cls = vm.universe.classes.none_class;
-    assert_eq!(vm.heap.module(universe_pkg).get(none_sym).unwrap(), Value::obj(none_cls));
+    let none_binding = vm
+        .prelude_bindings
+        .get(&none_sym)
+        .copied()
+        .expect("None should remain a prelude convenience binding");
+    assert_eq!(vm.heap.module(none_binding.module).get(none_sym), Some(Value::none()));
 }
 
 #[test]

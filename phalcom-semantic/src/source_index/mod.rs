@@ -246,13 +246,95 @@ pub struct ModuleSourceIndex {
 }
 
 impl ModuleSourceIndex {
-    pub(crate) fn from_scope_index(
+    /// Builds one final source shard after attaching every formal callable
+    /// product owned by the module. Publication must call this once per
+    /// rebuilt module; attaching callables one at a time republishes the
+    /// module's reverse-reference and symbol contributions repeatedly.
+    pub(crate) fn from_scope_index_with_formal(
         mut structure: SourceScopeIndex,
         program: &crate::source::ParsedModuleUnit,
         context: Option<&crate::source_index::builder::SourceIndexContext>,
-    ) -> Self {
+        analyses: &[&CallableAnalysis],
+    ) -> (Self, Vec<SourceAttachmentError>) {
         let occurrences = OccurrenceIndex::from_program_with_context(&mut structure, &program.program, context);
-        Self::new(structure, occurrences, BTreeMap::new())
+        let mut attachments = BTreeMap::new();
+        let mut incidents = Vec::new();
+        for analysis in analyses {
+            let (attachment, mut attachment_incidents) =
+                CallableSourceAttachment::from_analysis_with_incidents(analysis.callable.clone(), &structure, analysis);
+            attachments.insert(analysis.callable.clone(), Arc::new(attachment));
+            incidents.append(&mut attachment_incidents);
+        }
+        let shard = Self::from_structure_and_attachments(structure, occurrences, attachments);
+        (shard, incidents)
+    }
+
+    fn from_structure_and_attachments(
+        structure: SourceScopeIndex,
+        baseline_occurrences: OccurrenceIndex,
+        attachments: BTreeMap<CallableId, Arc<CallableSourceAttachment>>,
+    ) -> Self {
+        let mut all = baseline_occurrences.all().to_vec();
+        let mut exact_targets = structure.targets.clone();
+        for occurrence in &all {
+            if let Some(target) = baseline_occurrences.target_for(&occurrence.site) {
+                exact_targets.insert(occurrence.site.clone(), target.clone());
+            }
+        }
+        for attachment in attachments.values() {
+            for site in attachment.expression_sites.iter() {
+                let (kind, role) = if attachment.exact_targets.contains_key(&site.id) {
+                    (OccurrenceKind::Member, OccurrenceRole::Call)
+                } else {
+                    (OccurrenceKind::Operator, OccurrenceRole::Reference)
+                };
+                all.push(SemanticOccurrence {
+                    site: site.id.clone(),
+                    range: site.range,
+                    kind,
+                    role,
+                    owner: site.id.owner.clone(),
+                    hint: None,
+                });
+            }
+            exact_targets.extend(attachment.exact_targets.clone());
+        }
+        for (formal_site, target) in attachments.values().flat_map(|attachment| attachment.exact_targets.iter()) {
+            let Some(formal_source) = attachments
+                .values()
+                .flat_map(|attachment| attachment.expression_sites.iter())
+                .find(|site| &site.id == formal_site)
+            else {
+                continue;
+            };
+            for occurrence in &all {
+                if occurrence.role == OccurrenceRole::Call
+                    && formal_source.range.start <= occurrence.range.start
+                    && occurrence.range.end <= formal_source.range.end
+                {
+                    exact_targets.insert(occurrence.site.clone(), target.clone());
+                }
+            }
+        }
+        let occurrences = OccurrenceIndex::new(all, exact_targets);
+        let (expression_sites, expression_intervals) = expression_products(&structure, &attachments);
+        let reference_contribution = Arc::new(ModuleReferenceContribution::from_module_index(
+            &structure,
+            occurrences.all(),
+            &|site| occurrences.target_for(site).cloned(),
+            &attachments,
+        ));
+        let workspace_symbols = build_module_workspace_symbols(&structure);
+        Self {
+            structure: Arc::new(structure),
+            baseline_occurrences: Arc::new(baseline_occurrences),
+            occurrences: Arc::new(occurrences),
+            expression_sites,
+            expression_intervals,
+            attachments,
+            reference_contribution,
+            workspace_symbols,
+        }
     }
 
     pub fn new(structure: SourceScopeIndex, occurrences: OccurrenceIndex, attachments: BTreeMap<CallableId, Arc<CallableSourceAttachment>>) -> Self {
@@ -275,22 +357,6 @@ impl ModuleSourceIndex {
             reference_contribution,
             workspace_symbols,
         }
-    }
-
-    fn rebuild_expression_products(&mut self) {
-        let (expression_sites, expression_intervals) = expression_products(&self.structure, &self.attachments);
-        self.expression_sites = expression_sites;
-        self.expression_intervals = expression_intervals;
-    }
-
-    fn refresh_contributions(&mut self) {
-        self.reference_contribution = Arc::new(ModuleReferenceContribution::from_module_index(
-            &self.structure,
-            self.occurrences.all(),
-            &|site| self.occurrences.target_for(site).cloned(),
-            &self.attachments,
-        ));
-        self.workspace_symbols = build_module_workspace_symbols(&self.structure);
     }
 
     /// Returns the innermost compiler-owned AST expression site at `offset`.
@@ -550,15 +616,39 @@ impl SourceSemanticIndex {
     /// Replaces one module source shard and incrementally delta-maintains references and workspace symbols.
     pub fn replace_module_shard(&mut self, module: ModuleId, new_shard: Arc<ModuleSourceIndex>) {
         let old_shard = self.modules.get(&module).cloned();
-        let old_contrib = old_shard.as_ref().map(|s| s.reference_contribution.as_ref());
-        let new_contrib = Some(new_shard.reference_contribution.as_ref());
-        let new_references = self.references.replace_module_contribution(&module, old_contrib, new_contrib, &mut self.stats);
-        self.references = Arc::new(new_references);
+        let mut new_shard = new_shard;
+        let references_changed = old_shard
+            .as_ref()
+            .is_none_or(|old| old.reference_contribution.as_ref() != new_shard.reference_contribution.as_ref());
+        let symbols_changed = old_shard
+            .as_ref()
+            .is_none_or(|old| old.workspace_symbols.as_ref() != new_shard.workspace_symbols.as_ref());
 
-        let old_symbols = old_shard.as_ref().map_or(&[][..], |s| &s.workspace_symbols);
-        let new_symbols = &new_shard.workspace_symbols;
-        let new_sym_index = self.workspace_symbols.replace_module(&module, old_symbols, new_symbols, &mut self.stats);
-        self.workspace_symbols = Arc::new(new_sym_index);
+        if let Some(old) = old_shard.as_ref() {
+            if !references_changed || !symbols_changed {
+                let shard = Arc::make_mut(&mut new_shard);
+                if !references_changed {
+                    shard.reference_contribution = old.reference_contribution.clone();
+                }
+                if !symbols_changed {
+                    shard.workspace_symbols = old.workspace_symbols.clone();
+                }
+            }
+        }
+
+        if references_changed {
+            let old_contrib = old_shard.as_ref().map(|s| s.reference_contribution.as_ref());
+            let new_contrib = Some(new_shard.reference_contribution.as_ref());
+            let new_references = self.references.replace_module_contribution(&module, old_contrib, new_contrib, &mut self.stats);
+            self.references = Arc::new(new_references);
+        }
+
+        if symbols_changed {
+            let old_symbols = old_shard.as_ref().map_or(&[][..], |s| &s.workspace_symbols);
+            let new_symbols = &new_shard.workspace_symbols;
+            let new_sym_index = self.workspace_symbols.replace_module(&module, old_symbols, new_symbols, &mut self.stats);
+            self.workspace_symbols = Arc::new(new_sym_index);
+        }
 
         self.modules.insert(module, new_shard);
         self.stats.source_modules_rebuilt += 1;
@@ -610,6 +700,12 @@ impl SourceSemanticIndex {
         self.stats = stats;
     }
 
+    pub(crate) fn record_incidents(&mut self, incidents: impl IntoIterator<Item = SourceAttachmentError>) {
+        let mut retained = self.incidents.to_vec();
+        retained.extend(incidents);
+        self.incidents = Arc::from(retained.into_boxed_slice());
+    }
+
     /// Returns source attachment incidents without turning them into formal
     /// diagnostics or discarding valid source/formal products.
     pub fn incidents(&self) -> &[SourceAttachmentError] {
@@ -642,57 +738,13 @@ impl SourceSemanticIndex {
             return Err(Box::new(error));
         };
         let (attachment, incidents) = CallableSourceAttachment::from_analysis_with_incidents(analysis.callable.clone(), &module_index.structure, analysis);
-        let mut updated_module_index = (*module_index).clone();
-        updated_module_index.attachments.insert(analysis.callable.clone(), Arc::new(attachment));
-        let mut all = updated_module_index.baseline_occurrences.all().to_vec();
-        let mut exact_targets = updated_module_index.structure.targets.clone();
-        for occurrence in &all {
-            if let Some(target) = updated_module_index.baseline_occurrences.target_for(&occurrence.site) {
-                exact_targets.insert(occurrence.site.clone(), target.clone());
-            }
-        }
-        for attachment in updated_module_index.attachments.values() {
-            for site in attachment.expression_sites.iter() {
-                let (kind, role) = if attachment.exact_targets.contains_key(&site.id) {
-                    (OccurrenceKind::Member, OccurrenceRole::Call)
-                } else {
-                    (OccurrenceKind::Operator, OccurrenceRole::Reference)
-                };
-                all.push(SemanticOccurrence {
-                    site: site.id.clone(),
-                    range: site.range,
-                    kind,
-                    role,
-                    owner: site.id.owner.clone(),
-                    hint: None,
-                });
-            }
-            exact_targets.extend(attachment.exact_targets.clone());
-        }
-        for (formal_site, target) in updated_module_index.attachments.values().flat_map(|attachment| attachment.exact_targets.iter()) {
-            let Some(formal_source) = updated_module_index
-                .attachments
-                .values()
-                .flat_map(|attachment| attachment.expression_sites.iter())
-                .find(|site| &site.id == formal_site)
-            else {
-                continue;
-            };
-            for occurrence in &all {
-                if occurrence.role == OccurrenceRole::Call
-                    && formal_source.range.start <= occurrence.range.start
-                    && occurrence.range.end <= formal_source.range.end
-                {
-                    exact_targets.insert(occurrence.site.clone(), target.clone());
-                }
-            }
-        }
-        let occurrences = OccurrenceIndex::new(all, exact_targets);
-        updated_module_index.occurrences = Arc::new(occurrences);
-        updated_module_index.rebuild_expression_products();
-        updated_module_index.refresh_contributions();
-
-        let updated_shard = Arc::new(updated_module_index);
+        let mut attachments = module_index.attachments.clone();
+        attachments.insert(analysis.callable.clone(), Arc::new(attachment));
+        let updated_shard = Arc::new(ModuleSourceIndex::from_structure_and_attachments(
+            (*module_index.structure).clone(),
+            (*module_index.baseline_occurrences).clone(),
+            attachments,
+        ));
         self.replace_module_shard(module.clone(), updated_shard);
 
         if !incidents.is_empty() {

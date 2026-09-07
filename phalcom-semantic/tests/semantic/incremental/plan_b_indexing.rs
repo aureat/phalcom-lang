@@ -22,12 +22,7 @@ fn module(name: &str) -> ModuleId {
     )
 }
 
-fn two_module_input(
-    provider_source: &str,
-    consumer_source: &str,
-    has_alias: bool,
-    generation: u64,
-) -> SemanticWorkspaceInput {
+fn two_module_input(provider_source: &str, consumer_source: &str, has_alias: bool, generation: u64) -> SemanticWorkspaceInput {
     let provider = module("provider");
     let consumer = module("consumer");
     let mut sources = BTreeMap::new();
@@ -118,6 +113,14 @@ fn pb_1_presentation_only_movement() {
 
     let app_initial_source_shard = initial.snapshot.source_index().module_arc(&app).unwrap();
     let unrelated_initial_source_shard = initial.snapshot.source_index().module_arc(&unrelated).unwrap();
+    let app_target = SemanticTargetId::Declaration(DeclarationId::new(app.clone(), "App".into()));
+    let app_initial_references = initial
+        .snapshot
+        .source_index()
+        .references()
+        .target_set(&app_target)
+        .cloned()
+        .expect("App reference contribution");
     let initial_app_fps = app_initial_source_shard.fingerprints();
 
     // Mutate with leading comments and whitespace, meaning unchanged
@@ -139,12 +142,23 @@ fn pb_1_presentation_only_movement() {
     // Unrelated source index shard Arc retained
     let updated_unrelated_shard = updated.snapshot.source_index().module_arc(&unrelated).unwrap();
     assert!(Arc::ptr_eq(&unrelated_initial_source_shard, &updated_unrelated_shard));
+    let app_updated_references = updated
+        .snapshot
+        .source_index()
+        .references()
+        .target_set(&app_target)
+        .expect("App reference contribution retained");
+    assert!(Arc::ptr_eq(&app_initial_references, app_updated_references));
 
     // App source shard updated
     assert!(!Arc::ptr_eq(&app_initial_source_shard, &updated_app_shard));
 
     // Ranges updated for App declaration
-    let app_decl = updated.snapshot.source_index().declaration_source(&DeclarationId::new(app.clone(), "App".into())).unwrap();
+    let app_decl = updated
+        .snapshot
+        .source_index()
+        .declaration_source(&DeclarationId::new(app.clone(), "App".into()))
+        .unwrap();
     assert!(app_decl.declaration_range.start > 0);
 
     // Stats assert zero prohibited scans
@@ -152,6 +166,7 @@ fn pb_1_presentation_only_movement() {
     assert_eq!(src_stats.source_workspace_scan_units, 0);
     assert_eq!(src_stats.reference_workspace_scan_units, 0);
     assert_eq!(src_stats.formal_workspace_scan_units, 0);
+    assert_eq!(src_stats.reference_targets_touched, 0);
 }
 
 // -----------------------------------------------------------------------------
@@ -172,7 +187,8 @@ fn pb_2_local_references() {
     z + x
   }
 }
-"#.into(),
+"#
+            .into(),
         )],
         1,
     ));
@@ -215,7 +231,12 @@ fn pb_3_imported_binding() {
     let foo_target = SemanticTargetId::Declaration(DeclarationId::new(provider.clone(), "Foo".into()));
 
     let consumer_shard = publication.snapshot.source_index().module(&consumer).unwrap();
-    let import_binding = consumer_shard.structure.bindings.values().find(|b| b.name.as_ref() == "Foo").expect("imported Foo binding");
+    let import_binding = consumer_shard
+        .structure
+        .bindings
+        .values()
+        .find(|b| b.name.as_ref() == "Foo")
+        .expect("imported Foo binding");
     let import_target = SemanticTargetId::Binding(import_binding.declaration_site.clone());
 
     // Import declaration is local binding definition
@@ -235,7 +256,13 @@ fn pb_3_imported_binding() {
     assert_eq!(
         def_locs[0],
         phalcom_semantic::editor::SemanticDefinitionLocation::SourceSite(
-            publication.snapshot.source_index().declaration_source(&DeclarationId::new(provider, "Foo".into())).unwrap().declaration_site.clone()
+            publication
+                .snapshot
+                .source_index()
+                .declaration_source(&DeclarationId::new(provider, "Foo".into()))
+                .unwrap()
+                .declaration_site
+                .clone()
         )
     );
 }
@@ -260,7 +287,12 @@ fn pb_4_alias_dual_relation() {
     let foo_target = SemanticTargetId::Declaration(DeclarationId::new(provider.clone(), "Foo".into()));
 
     let consumer_shard = publication.snapshot.source_index().module(&consumer).unwrap();
-    let bar_binding = consumer_shard.structure.bindings.values().find(|b| b.name.as_ref() == "Bar").expect("Bar alias binding");
+    let bar_binding = consumer_shard
+        .structure
+        .bindings
+        .values()
+        .find(|b| b.name.as_ref() == "Bar")
+        .expect("Bar alias binding");
     let bar_target = SemanticTargetId::Binding(bar_binding.declaration_site.clone());
 
     // Bar declaration is local Binding definition
@@ -272,11 +304,17 @@ fn pb_4_alias_dual_relation() {
 
     // Bar uses are semantic references to Foo from consumer module (1 import site + 2 call sites)
     let foo_semantic_refs = query.reference_sites_in_domain(&foo_target, ReferenceDomain::Semantic);
-    let consumer_foo_semantic_refs = foo_semantic_refs.iter().filter(|s| match &s.owner {
-        phalcom_semantic::identity::SourceOwner::Module(m) => m == &consumer,
-        phalcom_semantic::identity::SourceOwner::Callable(c) => c.module() == &consumer,
-    }).count();
-    assert_eq!(consumer_foo_semantic_refs, 3, "three semantic references to Foo in consumer (1 import + 2 call sites)");
+    let consumer_foo_semantic_refs = foo_semantic_refs
+        .iter()
+        .filter(|s| match &s.owner {
+            phalcom_semantic::identity::SourceOwner::Module(m) => m == &consumer,
+            phalcom_semantic::identity::SourceOwner::Callable(c) => c.module() == &consumer,
+        })
+        .count();
+    assert_eq!(
+        consumer_foo_semantic_refs, 3,
+        "three semantic references to Foo in consumer (1 import + 2 call sites)"
+    );
 
     // Foo upstream definition does not include Bar declaration
     let foo_defs = query.definition_sites(&foo_target);
@@ -343,12 +381,7 @@ fn pb_6_target_disappears() {
     assert_eq!(initial.snapshot.editor().workspace_symbols("Foo", 10).len(), 1);
 
     // Provider removes Foo
-    let updated_input = two_module_input(
-        "class Gone {}\n",
-        "import provider.Foo\nclass Consumer { run() -> Int { 0 } }\n",
-        false,
-        2,
-    );
+    let updated_input = two_module_input("class Gone {}\n", "import provider.Foo\nclass Consumer { run() -> Int { 0 } }\n", false, 2);
     let updated = session.update(updated_input);
     let updated_query = updated.snapshot.editor();
     assert_eq!(updated_query.definition_sites(&foo_target).len(), 0);
@@ -472,9 +505,10 @@ fn make_fanout_input(provider_source: &str, consumer_sources: Vec<(usize, String
     for i in 0..CONSUMER_COUNT {
         let name = format!("c{i:02}");
         let c_mod_id = module(&name);
-        let src_str = consumer_map.get(&i).cloned().unwrap_or_else(|| {
-            format!("import provider.Foo\nclass C{i:02} {{ run() -> Int {{ Foo.value() }} }}\n")
-        });
+        let src_str = consumer_map
+            .get(&i)
+            .cloned()
+            .unwrap_or_else(|| format!("import provider.Foo\nclass C{i:02} {{ run() -> Int {{ Foo.value() }} }}\n"));
         let c_src: Arc<str> = Arc::from(src_str);
         let c_prog = Arc::new(phalcom_ast::parse(&c_src, 0).program);
         sources.insert(
@@ -517,6 +551,14 @@ fn pb_9a_high_fanout_provider_body_only_edit() {
     let mut session = SemanticWorkspaceSession::new();
     let initial = session.update(make_fanout_input("class Foo { @class value() -> Int { 1 } }\nexport Foo\n", Vec::new(), 1));
     assert!(initial.snapshot.source_index().modules().count() >= 51);
+    let foo_target = SemanticTargetId::Declaration(DeclarationId::new(module("provider"), "Foo".into()));
+    let initial_foo_references = initial
+        .snapshot
+        .source_index()
+        .references()
+        .target_set(&foo_target)
+        .cloned()
+        .expect("provider reference contribution");
 
     // Capture consumer shards from initial snapshot
     let initial_consumers = (0..50)
@@ -534,11 +576,21 @@ fn pb_9a_high_fanout_provider_body_only_edit() {
     assert_eq!(src_stats.source_workspace_scan_units, 0);
     assert_eq!(src_stats.reference_workspace_scan_units, 0);
     assert_eq!(src_stats.formal_workspace_scan_units, 0);
-    assert!(src_stats.source_modules_rebuilt <= 2, "at most provider and entry rebuilt");
+    assert_eq!(src_stats.source_modules_rebuilt, 1, "only the provider shard changes");
     assert_eq!(src_stats.source_modules_retired, 0);
+    assert_eq!(src_stats.reference_targets_touched, 0);
+    assert!(Arc::ptr_eq(
+        &initial_foo_references,
+        updated
+            .snapshot
+            .source_index()
+            .references()
+            .target_set(&foo_target)
+            .expect("provider reference contribution retained")
+    ));
 
-    // Consumers (c01..c49) are structurally shared and retained
-    for (m, initial_shard) in &initial_consumers[1..] {
+    // Every consumer is structurally shared and retained.
+    for (m, initial_shard) in &initial_consumers {
         let updated_shard = updated.snapshot.source_index().module_arc(m).unwrap();
         assert!(Arc::ptr_eq(initial_shard, &updated_shard), "consumer shard {} retained", m);
     }
@@ -607,10 +659,7 @@ fn pb_10_cold_incremental_parity() {
         inc_query.reference_sites_in_domain(&foo_target, ReferenceDomain::Semantic).len(),
         cold_query.reference_sites_in_domain(&foo_target, ReferenceDomain::Semantic).len()
     );
-    assert_eq!(
-        inc_query.workspace_symbols("Foo", 10).len(),
-        cold_query.workspace_symbols("Foo", 10).len()
-    );
+    assert_eq!(inc_query.workspace_symbols("Foo", 10).len(), cold_query.workspace_symbols("Foo", 10).len());
 }
 
 // -----------------------------------------------------------------------------

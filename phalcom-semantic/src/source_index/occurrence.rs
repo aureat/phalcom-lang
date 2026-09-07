@@ -11,6 +11,7 @@ use crate::source_index::site::{SourceSite, SourceSiteKind};
 use phalcom_ast::ast::{BlockExpr, DependencyDecl, Expr, ImportDecl, ImportPath, PackItem, Program, Statement};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
+use phalcom_modules::{ImportSiteId, ImportSiteLocalId};
 
 /// Broad syntax category for one source occurrence.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -174,6 +175,7 @@ impl OccurrenceIndex {
             occurrences: result.all().to_vec(),
             targets,
             context,
+            next_import_site: 0,
         };
         visitor.dependencies(&program.preamble.dependencies);
         for statement in &program.statements {
@@ -238,6 +240,7 @@ struct OccurrenceBuilder<'a> {
     occurrences: Vec<SemanticOccurrence>,
     targets: BTreeMap<SourceSiteId, SemanticTargetId>,
     context: Option<&'a SourceIndexContext>,
+    next_import_site: u32,
 }
 
 impl OccurrenceBuilder<'_> {
@@ -245,13 +248,15 @@ impl OccurrenceBuilder<'_> {
         for dependency in dependencies {
             match dependency {
                 DependencyDecl::Import(ImportDecl::Module(import)) => {
-                    if let Some(module) = self.resolve_path(&import.path) {
-                        self.path_occurrences(&import.path, SemanticTargetId::Module(module));
+                    let (module, prefixes) = self.resolve_import_path(&import.path);
+                    if let Some(module) = module {
+                        self.path_occurrences(&import.path, prefixes.as_deref(), module);
                     }
                 }
                 DependencyDecl::Import(ImportDecl::Selective(import)) => {
-                    if let Some(module) = self.resolve_path(&import.path) {
-                        self.path_occurrences(&import.path, SemanticTargetId::Module(module.clone()));
+                    let (module, prefixes) = self.resolve_import_path(&import.path);
+                    if let Some(module) = module {
+                        self.path_occurrences(&import.path, prefixes.as_deref(), module.clone());
                         for item in &import.items {
                             if let Some(target) = self.context.and_then(|context| context.targets.get(&(module.clone(), item.name.clone()))) {
                                 self.record_targeted(
@@ -266,8 +271,9 @@ impl OccurrenceBuilder<'_> {
                     }
                 }
                 DependencyDecl::ReExport(reexport) => {
-                    if let Some(module) = self.resolve_path(&reexport.path) {
-                        self.path_occurrences(&reexport.path, SemanticTargetId::Module(module.clone()));
+                    let (module, prefixes) = self.resolve_import_path(&reexport.path);
+                    if let Some(module) = module {
+                        self.path_occurrences(&reexport.path, prefixes.as_deref(), module.clone());
                         for item in &reexport.items {
                             if let Some(target) = self
                                 .context
@@ -308,27 +314,56 @@ impl OccurrenceBuilder<'_> {
         }
     }
 
-    fn path_occurrences(&mut self, path: &ImportPath, target: SemanticTargetId) {
+    fn path_occurrences(
+        &mut self,
+        path: &ImportPath,
+        prefixes: Option<&[phalcom_modules::resolver::ResolvedImportPrefix]>,
+        fallback_module: crate::identity::ModuleId,
+    ) {
+        let target_for = |index: usize| {
+            prefixes
+                .and_then(|prefixes| prefixes.get(index))
+                .map(|prefix| SemanticTargetId::Module(prefix.module.clone()))
+                .unwrap_or_else(|| SemanticTargetId::Module(fallback_module.clone()))
+        };
         match &path.root {
             phalcom_ast::ast::ImportRoot::Absolute(segment) => {
-                self.record_targeted(segment.range, OccurrenceKind::Module, OccurrenceRole::Reference, None, Some(target.clone()));
+                self.record_targeted(segment.range, OccurrenceKind::Module, OccurrenceRole::Reference, None, Some(target_for(0)));
             }
             phalcom_ast::ast::ImportRoot::Relative { range, .. } => {
-                self.record_targeted(*range, OccurrenceKind::Module, OccurrenceRole::Reference, None, Some(target.clone()));
+                self.record_targeted(*range, OccurrenceKind::Module, OccurrenceRole::Reference, None, Some(target_for(0)));
             }
         }
-        for segment in &path.segments {
-            self.record_targeted(segment.range, OccurrenceKind::Module, OccurrenceRole::Reference, None, Some(target.clone()));
+        for (index, segment) in path.segments.iter().enumerate() {
+            self.record_targeted(
+                segment.range,
+                OccurrenceKind::Module,
+                OccurrenceRole::Reference,
+                None,
+                Some(target_for(index + 1)),
+            );
         }
     }
 
-    fn resolve_path(&self, path: &ImportPath) -> Option<crate::identity::ModuleId> {
-        let context = self.context?;
-        context
+    fn resolve_import_path(&mut self, path: &ImportPath) -> (Option<crate::identity::ModuleId>, Option<Vec<phalcom_modules::resolver::ResolvedImportPrefix>>) {
+        let local = ImportSiteLocalId::new(self.next_import_site);
+        self.next_import_site = self.next_import_site.saturating_add(1);
+        let Some(context) = self.context else {
+            return (None, None);
+        };
+        let site = ImportSiteId::new(self.scopes.module.clone(), local);
+        if let Some(product) = context.import_products.get(&site) {
+            return (product.target.clone().ok(), Some(product.prefixes.to_vec()));
+        }
+        // Standalone source-index tests may provide only the legacy context;
+        // production workspace publication always supplies identity-keyed
+        // import products above.
+        let module = context
             .resolved_imports
             .get(&(self.scopes.module.clone(), path.to_string()))
             .cloned()
-            .or_else(|| context.modules.get(&path.to_string()).cloned())
+            .or_else(|| context.modules.get(&path.to_string()).cloned());
+        (module, None)
     }
 
     fn exposed_child(&self, child: &str) -> Option<crate::identity::ModuleId> {

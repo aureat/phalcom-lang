@@ -6,6 +6,8 @@ use phalcom_semantic::checker::flow::graph::FlowGraph;
 use phalcom_semantic::db::ProductFingerprint;
 use phalcom_semantic::explain::ExplanationArena;
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide, FieldId, SourceOwner, SourceSiteId, SourceSiteLocalId, SourceSiteRef};
+use phalcom_semantic::source_index::resolve_type_reference_targets;
+use phalcom_semantic::types::annotation::SimpleTypeResolver;
 use phalcom_semantic::types::evidence::{TypeKnowledge, UnknownReason};
 use phalcom_semantic::{
     FormalFactRef, FormalSemanticProjection, ModuleId, OccurrenceIndex, OccurrenceKind, OccurrenceRole, SemanticOccurrence, SemanticRevision, SemanticTargetId,
@@ -14,6 +16,9 @@ use phalcom_semantic::{
 };
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
+
+use phalcom_modules::identity::{ImportSiteId, ImportSiteLocalId, ModuleComponent, ModulePath, ResolvedProjectId};
+use phalcom_modules::resolver::{ImportPathIdentity, ImportResolutionProduct, ResolvedImportPrefix};
 
 fn declaration(name: &str) -> DeclarationId {
     DeclarationId::new(ModuleId::universe_root(), name.into())
@@ -241,6 +246,78 @@ fn imports_attach_only_to_canonical_linked_targets() {
 }
 
 #[test]
+fn exact_import_site_product_controls_compound_path_occurrences() {
+    let source = "import a.b.c\n";
+    let parsed = parse(source, 0);
+    assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
+
+    let project = ResolvedProjectId::from_raw(77);
+    let importer = ModuleId::resolved(project, ModulePath::from_components(Vec::new()));
+    let module_for = |components: &[&str]| {
+        ModuleId::resolved(
+            project,
+            ModulePath::from_components(
+                components
+                    .iter()
+                    .map(|component| ModuleComponent::from_identifier(component).unwrap())
+                    .collect::<Vec<_>>(),
+            ),
+        )
+    };
+    let first = module_for(&["a"]);
+    let second = module_for(&["a", "b"]);
+    let target = module_for(&["a", "b", "c"]);
+    let site = ImportSiteId::new(importer.clone(), ImportSiteLocalId::new(0));
+    let product = ImportResolutionProduct::new(
+        site.clone(),
+        ImportPathIdentity {
+            written: "a.b.c".into(),
+            is_relative: false,
+        },
+        Arc::from([
+            ResolvedImportPrefix {
+                prefix: "a".into(),
+                module: first.clone(),
+            },
+            ResolvedImportPrefix {
+                prefix: "a.b".into(),
+                module: second.clone(),
+            },
+            ResolvedImportPrefix {
+                prefix: "a.b.c".into(),
+                module: target.clone(),
+            },
+        ]),
+        Ok(target.clone()),
+        Default::default(),
+    );
+    let mut context = SourceIndexContext::default().with_resolved_import(importer.clone(), "a.b.c", module_for(&["wrong"]));
+    context.import_products.insert(site, Arc::new(product));
+
+    let mut scopes = build_source_scope_index(importer.clone(), &parsed.program, &context);
+    let occurrences = OccurrenceIndex::from_program_with_context(&mut scopes, &parsed.program, Some(&context));
+    for (name, expected) in [("a", first), ("b", second), ("c", target)] {
+        let path_start = source.find("a.b.c").expect("import path");
+        let offset = path_start
+            + match name {
+                "a" => 0,
+                "b" => 2,
+                "c" => 4,
+                _ => unreachable!("test path segment"),
+            };
+        assert_eq!(
+            occurrences
+                .all()
+                .iter()
+                .find(|occurrence| occurrence.kind == OccurrenceKind::Module && occurrence.range.contains(offset))
+                .and_then(|occurrence| occurrences.target_for(&occurrence.site)),
+            Some(&SemanticTargetId::Module(expected)),
+            "segment {name} must use its exact resolved prefix"
+        );
+    }
+}
+
+#[test]
 fn source_index_covers_enum_variants_fields_and_behaviors() {
     let source = "enum Option { @variant Some(_ value: Int) run() { value } }\n";
     let parsed = parse(source, 0);
@@ -274,6 +351,36 @@ fn source_index_covers_enum_variants_fields_and_behaviors() {
             .any(|site| matches!(&site.kind, phalcom_semantic::SourceSiteKind::VariantField(id) if id == &field))
     );
     assert!(index.callable_sources.keys().any(|callable| callable.declaration_owner() == &owner));
+}
+
+#[test]
+fn type_reference_index_covers_enum_headers_variants_and_behaviors() {
+    let source = r#"
+enum Choice<T> {
+  @variant Item<U>(_ value: Box<U>) -> Choice<Box<U>> where U <: Base
+  run(_ input: Input) -> Output { input }
+}
+"#;
+    let parsed = parse(source, 0);
+    assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
+    let module = ModuleId::universe_root();
+    let mut resolver = SimpleTypeResolver::new();
+    let declarations = ["Box", "Base", "Choice", "Input", "Output"]
+        .into_iter()
+        .map(|name| (name, DeclarationId::new(module.clone(), name.into())))
+        .collect::<BTreeMap<_, _>>();
+    for (name, declaration) in &declarations {
+        resolver.insert(*name, declaration.clone());
+    }
+
+    let targets = resolve_type_reference_targets(&module, &parsed.program, &resolver);
+    for name in ["Box", "Base", "Choice", "Input", "Output"] {
+        assert!(
+            targets.values().any(|target| target == &declarations[name]),
+            "enum type reference {name} must be indexed"
+        );
+    }
+    assert!(!targets.values().any(|target| target.name.as_ref() == "T" || target.name.as_ref() == "U"));
 }
 
 #[test]

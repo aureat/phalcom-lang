@@ -578,6 +578,28 @@ impl VM {
             self.kernel_class_names.insert(name_sym);
         }
 
+        // User superclass resolution follows the canonical source-module
+        // identity above, not the compatibility bindings in the Universe
+        // root. Mirror callable sealing at those canonical keys so a user
+        // declaration cannot evade the VM-owned closed hierarchy by resolving
+        // `Function`/`Closure`/etc. through its source presentation.
+        for key in [
+            phalcom_native_meta::UniverseKey::Function,
+            phalcom_native_meta::UniverseKey::Closure,
+            phalcom_native_meta::UniverseKey::BoundMethod,
+            phalcom_native_meta::UniverseKey::Method,
+            phalcom_native_meta::UniverseKey::Family,
+        ] {
+            let owner_id = Self::canonical_universe_module_id(key)?;
+            let owner = self
+                .module_registry
+                .get(&owner_id)
+                .ok_or_else(|| crate::error::VmBootstrapError::Invariant(format!("canonical callable owner module {owner_id} is not registered")))?
+                .object;
+            let name = self.interner.intern(key.name());
+            self.sealed_classes.insert(crate::vm::ClassKey { module: owner, name }, owner);
+        }
+
         for key in [
             phalcom_native_meta::UniverseKey::Option,
             phalcom_native_meta::UniverseKey::Some,

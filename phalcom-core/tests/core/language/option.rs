@@ -1,8 +1,12 @@
 //! Immediate Option object-model, constructor, and allocation regressions.
 
+use phalcom_common::selector::{Selector, SelectorSlot};
+use phalcom_core::adt::{RuntimeAdtRepresentation, RuntimeVariantShape};
 use phalcom_core::primitive::option::{some_call, some_new};
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
+use phalcom_semantic::core_surface::CoreDeclarationIds;
+use phalcom_semantic::identity::VariantId;
 
 fn send0(vm: &mut VM, receiver: Value, selector: &str) -> Value {
     let selector = vm.get_or_intern(selector);
@@ -47,15 +51,71 @@ fn immediate_option_reflection_and_dispatch_are_ordinary() {
 }
 
 #[test]
-fn bootstrap_binds_immediate_none_and_zero_field_variants() {
-    let mut vm = VM::new();
-    let universe = vm.universe_module().expect("Universe root");
-    let none_name = vm.interner.intern("None");
+fn canonical_option_none_is_immediate_and_registered_as_singleton_variant() {
+    let vm = VM::new();
+    let option = CoreDeclarationIds::default().option;
+    let none = VariantId::new(option, Selector::getter("None").expect("valid None getter"));
+    let runtime_none = vm.adt_registry.variant_by_semantic(&none).expect("canonical Option::None must be registered");
+    let descriptor = vm.adt_registry.variant_descriptor(runtime_none).expect("canonical Option::None descriptor");
 
-    assert_eq!(vm.heap.module(universe).get(none_name), Some(Value::none()));
+    assert_eq!(descriptor.shape, RuntimeVariantShape::Singleton);
+    assert_eq!(descriptor.payload_arity, 0);
+    assert_eq!(descriptor.singleton, Some(Value::none()));
+    assert_eq!(vm.runtime_variant_of(Value::none()), Some(runtime_none));
     assert_eq!(vm.heap.class(vm.universe.classes.some_class).field_count, 0);
     assert_eq!(vm.heap.class(vm.universe.classes.none_class).field_count, 0);
+
+    // `none_class` is the hidden runtime behavior class for the
+    // Option::None exact case. It is not a separate semantic declaration.
     assert_eq!(Value::none().class(&vm), vm.universe.classes.none_class);
+}
+
+#[test]
+fn option_none_has_variant_identity_without_independent_class_identity() {
+    let vm = VM::new();
+    let ids = CoreDeclarationIds::default();
+    let option = ids.option;
+    let some = VariantId::new(
+        option.clone(),
+        Selector::method("Some", vec![SelectorSlot::Positional]).expect("valid Some constructor"),
+    );
+    let none = VariantId::new(option.clone(), Selector::getter("None").expect("valid None getter"));
+
+    let enum_id = vm.adt_registry.enum_by_declaration(&option).expect("canonical Option enum must be registered");
+    let enum_descriptor = vm.adt_registry.enum_descriptor(enum_id).expect("canonical Option enum descriptor");
+
+    assert_eq!(enum_descriptor.representation, RuntimeAdtRepresentation::NativeOption);
+    assert_eq!(enum_descriptor.root_class, vm.universe.classes.option_class);
+    assert_eq!(enum_descriptor.variants.len(), 2);
+
+    let runtime_some = vm
+        .adt_registry
+        .variant_by_semantic(&some)
+        .expect("canonical Option::Some(_) must be registered");
+    let runtime_none = vm.adt_registry.variant_by_semantic(&none).expect("canonical Option::None must be registered");
+    assert!(enum_descriptor.variants.contains(&runtime_some));
+    assert!(enum_descriptor.variants.contains(&runtime_none));
+
+    let some_descriptor = vm.adt_registry.variant_descriptor(runtime_some).expect("canonical Option::Some(_) descriptor");
+    assert_eq!(some_descriptor.semantic_id, some);
+    assert_eq!(some_descriptor.enum_id, enum_id);
+    assert_eq!(some_descriptor.shape, RuntimeVariantShape::Constructor);
+    assert_eq!(some_descriptor.payload_arity, 1);
+    assert_eq!(some_descriptor.behavior_class, vm.universe.classes.some_class);
+
+    let none_descriptor = vm.adt_registry.variant_descriptor(runtime_none).expect("canonical Option::None descriptor");
+    assert_eq!(none_descriptor.semantic_id, none);
+    assert_eq!(none_descriptor.semantic_id.owner, option);
+    assert_eq!(none_descriptor.enum_id, enum_id);
+    assert_eq!(none_descriptor.shape, RuntimeVariantShape::Singleton);
+    assert_eq!(none_descriptor.payload_arity, 0);
+    assert_eq!(none_descriptor.behavior_class, vm.universe.classes.none_class);
+    assert_eq!(none_descriptor.singleton, Some(Value::none()));
+    assert_eq!(vm.runtime_variant_of(Value::none()), Some(runtime_none));
+
+    assert_eq!(vm.case_behavior_class(Value::none()), Some(vm.universe.classes.none_class));
+    assert_eq!(Value::none().class(&vm), vm.universe.classes.none_class);
+    assert_ne!(vm.universe.classes.none_class, enum_descriptor.root_class);
 }
 
 #[test]

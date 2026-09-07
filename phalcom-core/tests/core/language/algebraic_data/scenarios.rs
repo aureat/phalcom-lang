@@ -205,6 +205,7 @@ let b = match none_val {
     let (vm, module) = run_inline(source).expect("Option matching should execute");
     assert_eq!(slot(&vm, module, "a"), Some(Value::int(42)));
     assert_eq!(slot(&vm, module, "b"), Some(Value::int(100)));
+    assert_eq!(slot(&vm, module, "none_val"), Some(Value::none()));
 }
 
 #[test]

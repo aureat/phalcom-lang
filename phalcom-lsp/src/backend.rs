@@ -22,7 +22,7 @@
 //! `textDocument/semanticTokens/full`, a flat lexer-driven token-coloring
 //! pass ([`crate::semantic_tokens`]).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, RwLock};
 
 use crate::analysis_service::{AnalysisEvent, AnalysisService, CachedSource, DiskRefresh, SourceCache, WorkspaceScanRequest, builtin_module_from_uri};
@@ -96,16 +96,30 @@ fn combined_diagnostics_for(
     }
     if let Some(semantic_diagnostics) = compiler_snapshot.diagnostics.get(module) {
         let mut diagnostic_sources = BTreeMap::new();
-        for (module, source) in compiler_snapshot.sources.iter() {
-            if let Some(source_uri) = compiler_uri_for_module(compiler_snapshot, module) {
-                diagnostic_sources.insert(
-                    module.clone(),
-                    SemanticDiagnosticSource {
-                        uri: source_uri,
-                        line_index: LineIndex::new(&source.text),
-                    },
-                );
-            }
+        let mut related_modules = BTreeSet::new();
+        for diagnostic in semantic_diagnostics.iter() {
+            related_modules.extend(diagnostic.labels.iter().map(|label| label.span.module.clone()));
+        }
+        related_modules.remove(module);
+        for related_module in related_modules {
+            let Some(source_uri) = compiler_uri_for_module(compiler_snapshot, &related_module) else {
+                continue;
+            };
+            let source = compiler_snapshot
+                .sources
+                .get(&related_module)
+                .map(|published| published.text.as_ref())
+                .or_else(|| compiler_snapshot.presentation_source(&related_module));
+            let Some(source) = source else {
+                continue;
+            };
+            diagnostic_sources.insert(
+                related_module,
+                SemanticDiagnosticSource {
+                    uri: source_uri,
+                    line_index: LineIndex::new(source),
+                },
+            );
         }
         diagnostic_sources.insert(
             module.clone(),
@@ -696,7 +710,6 @@ impl<'a> SnapshotLocationMapper<'a> {
 }
 
 impl Backend {
-
     fn compiler_site_location(&self, compiler: &phalcom_semantic::SemanticSnapshot, site: &phalcom_semantic::SourceSiteId) -> Option<Location> {
         let mut mapper = SnapshotLocationMapper::new(compiler);
         mapper.site_location(site)

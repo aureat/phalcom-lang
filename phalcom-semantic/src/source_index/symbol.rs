@@ -67,13 +67,7 @@ impl WorkspaceSymbolIndex {
     }
 
     /// Replaces or removes symbols contributed by one module.
-    pub fn replace_module(
-        &self,
-        module: &ModuleId,
-        old: &[WorkspaceSymbolEntry],
-        new: &[WorkspaceSymbolEntry],
-        stats: &mut SourceIndexUpdateStats,
-    ) -> Self {
+    pub fn replace_module(&self, module: &ModuleId, old: &[WorkspaceSymbolEntry], new: &[WorkspaceSymbolEntry], stats: &mut SourceIndexUpdateStats) -> Self {
         stats.workspace_symbol_contributions_replaced += 1;
         stats.workspace_symbol_entries_removed += old.len();
         stats.workspace_symbol_entries_added += new.len();
@@ -117,11 +111,7 @@ impl WorkspaceSymbolIndex {
             by_module.insert(module.clone(), Arc::from(new_ids.into_boxed_slice()));
         }
 
-        Self {
-            entries,
-            by_module,
-            trigrams,
-        }
+        Self { entries, by_module, trigrams }
     }
 
     /// Searches symbols using case-insensitive substring matching.

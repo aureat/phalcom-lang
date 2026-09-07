@@ -173,9 +173,7 @@ pub struct ReferenceIndex {
 impl ReferenceIndex {
     /// Creates a reference index with empty target sets.
     pub fn new() -> Self {
-        Self {
-            by_target: im::OrdMap::new(),
-        }
+        Self { by_target: im::OrdMap::new() }
     }
 
     /// Returns definitions for a target.
@@ -237,11 +235,7 @@ impl ReferenceIndex {
             let current_set = by_target.get(&target).cloned().unwrap_or_default();
 
             let update_slice = |current: &[SourceSiteId], new_contrib_slice: Option<&Arc<[SourceSiteId]>>| -> Arc<[SourceSiteId]> {
-                let mut kept = current
-                    .iter()
-                    .filter(|site| !site_belongs_to_module(site))
-                    .cloned()
-                    .collect::<Vec<_>>();
+                let mut kept = current.iter().filter(|site| !site_belongs_to_module(site)).cloned().collect::<Vec<_>>();
                 if let Some(new_slice) = new_contrib_slice {
                     kept.extend(new_slice.iter().cloned());
                 }

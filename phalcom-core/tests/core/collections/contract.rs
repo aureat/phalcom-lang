@@ -10,8 +10,13 @@
 //! calls into a collection's own primitives, so the contract exercises
 //! exactly the surface a user program would.
 
+use phalcom_common::selector::{Selector, SelectorSlot};
+use phalcom_core::modules::AssociatedLoweringSpec;
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
+use phalcom_modules::{ModuleComponent, ModuleId, ModulePath};
+use phalcom_semantic::core_surface::CoreDeclarationIds;
+use phalcom_semantic::identity::VariantId;
 
 /// The static parameters that distinguish one collection kind from another
 /// (as-built.md §2): whether it supports in-place growth, whether it is a
@@ -431,6 +436,39 @@ fn range_literals_drive_collection_slices() {
     assert_eq!(as_number(send0(&mut vm, inclusive_slice, "size")), 4.0);
     for (index, expected) in [1, 2, 3, 4].into_iter().enumerate() {
         assert_eq!(as_number(send1(&mut vm, inclusive_slice, "at(_)", Value::int(index as i64))), expected as f64);
+    }
+}
+
+/// The canonical Range implementation constructs Result cases through the
+/// semantic VariantIds registered for the Universe Result enum. This guards
+/// the lowering/runtime boundary that would otherwise be hidden by the slice
+/// result alone.
+#[test]
+fn canonical_range_result_lowering_keeps_variant_identity() {
+    let vm = VM::new();
+    let result = CoreDeclarationIds::default().result;
+    let ok = VariantId::new(result.clone(), Selector::method("Ok", vec![SelectorSlot::Positional]).unwrap());
+    let error = VariantId::new(result, Selector::method("Error", vec![SelectorSlot::Positional]).unwrap());
+
+    let range_id = ModuleId::universe(ModulePath::from_components(vec![
+        ModuleComponent::from_identifier("collections").unwrap(),
+        ModuleComponent::from_identifier("range").unwrap(),
+    ]));
+    let range_obj = vm.module_registry.get(&range_id).expect("canonical Range module").object;
+    let lowering = vm.heap.module(range_obj).lowering.as_ref().expect("Range lowering");
+
+    for expected in [&ok, &error] {
+        assert!(
+            lowering.associated.values().any(|spec| matches!(
+                spec,
+                AssociatedLoweringSpec::ConstructVariant { variant, .. } if variant == expected
+            )),
+            "Range lowering must retain canonical Result variant {expected:?}"
+        );
+        assert!(
+            vm.adt_registry.variant_by_semantic(expected).is_some(),
+            "canonical Result variant {expected:?} must be registered"
+        );
     }
 }
 
