@@ -1,0 +1,19 @@
+    Blocking waiting for file lock on build directory
+   Compiling phalcom-semantic v0.1.0 (/Users/altunhasanli/dev/phalcom/phalcom/phalcom-semantic)
+   Compiling phalcom-core v0.1.0 (/Users/altunhasanli/dev/phalcom/phalcom/phalcom-core)
+    Finished `dev` profile [unoptimized] target(s) in 15.80s
+     Running `target/debug/examples/native_lifecycle_probe`
+CASE auditControl() result=Err(Runtime(Internal("audit outer/inner failure")))
+after outer: selector=Some("auditControl()") class=Some("Int")
+{"ev":"traceback","error":{"message":"internal error (this is a Phalcom bug, please report): audit outer/inner failure","kind":""},"frames":[{"module":"[native]","file":"[native]","line":0,"name":"Int.auditControl()","core":false,"fiber":1}]}
+inside outer after nested success: selector=None class=None
+CASE auditOuterSuccessFail() result=Err(Runtime(Internal("audit outer/inner failure")))
+after outer: selector=None class=None
+{"ev":"traceback","error":{"message":"internal error (this is a Phalcom bug, please report): audit outer/inner failure","kind":""},"frames":[]}
+inside outer after caught nested error: selector=Some("auditFail()") class=Some("Int")
+CASE auditOuterCatchFail() result=Err(Runtime(Internal("audit outer/inner failure")))
+after outer: selector=Some("auditFail()") class=Some("Int")
+{"ev":"traceback","error":{"message":"internal error (this is a Phalcom bug, please report): audit outer/inner failure","kind":""},"frames":[{"module":"[native]","file":"[native]","line":0,"name":"Int.auditFail()","core":false,"fiber":1}]}
+inside outer after caught error then success: selector=None class=None
+CASE auditOuterCatchOk() result=Ok(7)
+after outer: selector=None class=None

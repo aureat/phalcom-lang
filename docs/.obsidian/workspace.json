@@ -187,6 +187,16 @@
   },
   "active": "46e666892420d783",
   "lastOpenFiles": [
+    "audit/runtime-2026-09-07/AUDIT-L20-L21-ordering-and-string-contract-investigation.md",
+    "audit/runtime-2026-09-07/AUD-RUNTIME-S3-new-numeric-and-string-leads.md",
+    "audit/runtime-2026-09-07/AUD-RUNTIME-006-numeric-domain-contracts.md",
+    "audit/runtime-2026-09-07/evidence/numeric-contract-output.txt",
+    "audit/runtime-2026-09-07/evidence/numeric_contract_probe.rs",
+    "audit/runtime-2026-09-07/AUDIT-L05-raw-run-reuse-and-capture-lifetime.md",
+    "audit/runtime-2026-09-07/evidence/native-lifecycle-output.txt",
+    "audit/runtime-2026-09-07/evidence/native_lifecycle_probe.rs",
+    "impl/lsp/architecture/phalcom-plan-b-completion-patch-grade-implementation-plan.md",
+    "audit/runtime-2026-09-07/AUD-RUNTIME-S2-uninvestigated-leads-and-insights.md",
     "audit/runtime-2026-09-07/AUD-RUNTIME-S1-cybersecurity-warning-explanation.md",
     "audit/runtime-2026-09-07/evidence/README.md",
     "audit/runtime-2026-09-07/runtime-audit-executive-report.md",
@@ -208,20 +218,10 @@
     "spec/reflection/Untitled.md",
     "type tests.md",
     "impl/lsp/architecture/phalcom-lsp-module-architecture-plan-a-incrementality-dependency-precision-semantic-propagation.md",
-    "impl/lsp/architecture",
     "work/modules/plan-a-implementation-state.md",
-    "impl/lsp/untitled folder",
     "spec/symbols.md",
     "spec/selectors.md",
     "spec/README.md",
-    "spec/adts.md",
-    "spec/primitives/Selectors II.md",
-    "spec/universe.md",
-    "spec/typing-generics.md",
-    "spec/reflection",
-    "work/modules/lsp-module-architecture-handoff-c2-to-c3.md",
-    "work/modules/lsp-module-architecture-handoff-c1-to-c2.md",
-    "work/modules/lsp-module-architecture-implementation-state.md",
-    "work/modules"
+    "spec/adts.md"
   ]
 }

@@ -67,6 +67,31 @@ Measured: `Value=16` bytes, alignment 8; `Bytecode=8`; `CallFrame=120`; each `Ce
 - **Construction:** factories allocate, call a hidden initializer and return the allocated instance. No rollback/transactional initialization was found. An initializer may publish `self` before failing; establish the language's required rule before calling this a violation.
 - **Identity lifetime:** runtime IDs and Symbols are VM-local, not transferable identities between VMs. Generational handles are not globally unique across heaps. Reification should not silently reinterpret them as global identities.
 
+## 6. Nested native calls lose or misattribute diagnostic context
+
+- Severity: Medium; diagnostic correctness
+- Confidence: Confirmed by a bounded legacy-native probe and the shipping JSON traceback renderer at HEAD `94b9f14361333dfda06cd8abd792f672d12db06a`.
+- Scope: L02 diagnostic lifecycle. No authority escalation or source-only reproducer is claimed.
+
+`vm/send.rs::call_method_legacy` sets singleton `native_selector`/`native_class`, calls native code, pops authority context, and clears diagnostic fields only on success. A nested call overwrites those fields without saving/restoring its parent's identity. `diagnostics/traceback.rs::render_json_traceback` and `maybe_native_frame_line` consume that pair directly.
+
+Executed with fresh kernel VMs and zero-argument diagnostic primitives:
+
+| Sequence | Observed result |
+| --- | --- |
+| Direct native failure (control) | JSON includes `Int.auditControl()` |
+| Outer → nested success → outer failure | JSON has no native frame (`frames: []`) |
+| Outer catches nested failure → outer failure | JSON attributes failure to `Int.auditFail()`, the caught inner call |
+| Outer catches nested failure → nested success → outer success | Returns `Ok(7)`; diagnostic pair is cleared |
+
+Evidence: [exact probe](evidence/native_lifecycle_probe.rs), [completed output](evidence/native-lifecycle-output.txt). The probe catches an ordinary `PhResult::Err`, not a Rust panic; it installs native methods on the kernel Int class. It does not prove ordinary-source reachability or complete stack/capture cleanup after a caught native error.
+
+**Underlying cause:** active native identity and retained failure identity share one mutable pair with different lifetimes. Saving/restoring active state must also preserve the actual uncaught failure origin; simply restoring the parent on every error could misattribute an inner error that propagates unchanged.
+
+**Direction:** distinguish scoped active diagnostic context from the error's retained origin. Cover nested success, caught/replaced errors and unchanged propagated errors in both native ABIs. Preserve flat `EnteredFrame` behavior and diagnostic capture before unwind.
+
+**Counterevidence and limits:** both legacy and shape-aware activation push/pop `native_method_contexts` around the native function before ordinary error propagation. This supports balanced authority restoration by source inspection, not an executed access-control test. Shape-aware `Returned` has the same singleton-clearing structure; `EnteredFrame` retains the pair. Shape-aware transitions, fiber switches, GC retention of authority owners and complete post-error stack state remain unresolved.
+
 ## Recommended order and verification
 
 First fix [001](AUD-RUNTIME-001-unchecked-operand-narrowing.md) and [002](AUD-RUNTIME-002-super-dispatch-loses-lexical-identity.md), then [003](AUD-RUNTIME-003-gc-misses-authority-edges.md) and [004](AUD-RUNTIME-004-native-entry-validation.md). Establish executable validation and API cleanup next. Measure metadata overhead and call-shape waste before selecting an optimization. Preserve the current handle arena, direct slots, cache guards and flat gateways.

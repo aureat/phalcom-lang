@@ -114,3 +114,15 @@ Duplicated metadata has purpose: signature/Callable arity serves different call 
 ## Next checkpoint
 
 The highest-value next work is to turn issues 001–004 into fixes or focused plans, if authorized. If continuing the audit instead: reproduce GC expiry with ordinary REPL source; test locals/inherited-field limits; establish all retained side-table ownership; test raw-run reuse after failure; and complete the CFG/operand matrix. Do not repeat the already-preserved architecture reads and probes. Full performance benchmarks and exhaustive abnormal-control-flow testing remain open.
+
+## Audit continuation — native lifecycle and parameter callers
+
+At HEAD `94b9f14361333dfda06cd8abd792f672d12db06a`, a new bounded native lifecycle probe confirmed missing/misattributed native traceback frames after nested calls; see [005 §6](AUD-RUNTIME-005-grouped-contract-and-performance-findings.md#6-nested-native-calls-lose-or-misattribute-diagnostic-context). All four diagnostic cases completed. This is diagnostic evidence, not a passing regression suite. Authority push/pop was inspected, while shape-aware/fiber lifecycle and GC owner retention remain open.
+
+L03's suspected labeled-rest misbinding was disproved for current compiler-produced paths: closures are positional, and method rest acceptance separately checks fixed-label prefixes. The general metadata helper remains weaker for manually constructed labeled shapes. Details and next steps are in [S2's continuation checkpoint](AUD-RUNTIME-S2-uninvestigated-leads-and-insights.md#continuation-checkpoint--2026-09-07).
+
+Provisional B and incomplete coverage remain unchanged. No implementation fixes, commits, benchmarks or broad gates were performed. Unrelated concurrent working-tree changes were preserved.
+
+## New slice — numeric and string contracts
+
+[006](AUD-RUNTIME-006-numeric-domain-contracts.md) confirms incorrect float remainder signs and lost precision in mixed exact floor division through shipping native dispatch. Four valid arithmetic cases completed, including an integer-only control. [S3](AUD-RUNTIME-S3-new-numeric-and-string-leads.md) records new leads L19–L22 and the guarded UTF-8 slicing counterexample. Source compilation, boundary-panic execution and performance measurements were not performed. Provisional B and incomplete audit status remain unchanged.

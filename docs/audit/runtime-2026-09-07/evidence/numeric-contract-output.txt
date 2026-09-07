@@ -1,0 +1,7 @@
+   Compiling phalcom-core v0.1.0 (/Users/altunhasanli/dev/phalcom/phalcom/phalcom-core)
+    Finished `dev` profile [unoptimized] target(s) in 0.88s
+     Running `target/debug/examples/numeric_contract_probe`
+negative float remainder: Ok(-2.0)
+negative divisor float remainder: Ok(2.0)
+mixed exact quotient: Ok(9007199254740992)
+integer quotient control: Ok(9007199254740993)

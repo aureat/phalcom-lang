@@ -25,3 +25,13 @@ The full-Universe super reproduction uses `VM::new`; literal, layout and missing
 - `SHIPPING_NATIVE wrong_arity_panics=true`: actual number primitive reached with an empty argument slice.
 - `BYTECODE empty_chunk_panics=true`: internal bytecode validation is absent at execution admission.
 - `SUPER before=Ok(1)` / `SUPER old_receiver_after_rebind=Ok(2)`: old receiver's super anchor follows new name binding.
+
+## Native lifecycle continuation
+
+[Probe source](native_lifecycle_probe.rs) and [completed output](native-lifecycle-output.txt) record four bounded kernel-native cases at HEAD `94b9f14361333dfda06cd8abd792f672d12db06a`. The shipping JSON traceback renderer demonstrates missing/misattributed native frames; the final caught-error/success case returns 7. No panic injection or runtime fix was used.
+
+Executed serially with `RUSTFLAGS='' RUSTC_WRAPPER='' cargo run -p phalcom-core --example native_lifecycle_probe` (exit 0). The temporary example was removed after execution. This is a diagnostic probe recording defects, not a passing regression test. No other Cargo validation was run in this continuation.
+
+## Numeric contract continuation
+
+[Exact probe](numeric_contract_probe.rs), [completed output](numeric-contract-output.txt): four valid arithmetic sends using native bootstrap. Executed with `RUSTFLAGS='' RUSTC_WRAPPER='' cargo run -p phalcom-core --example numeric_contract_probe`, exit 0. Results record two numeric contract divergences, not passing regression assertions. The temporary example was removed; no other Cargo checks ran in this slice.
