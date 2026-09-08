@@ -10,6 +10,7 @@ use tokio::{
 use tower_lsp::lsp_types::Position;
 use tower_lsp::{LspService, Server};
 
+use phalcom_lsp::parity::{ParityObservation, ShadowParityHarness};
 use phalcom_lsp::perf::{CounterSnapshot, PerfCountersHandle};
 use phalcom_lsp::{Backend, SemanticPublicationHandle};
 
@@ -22,6 +23,7 @@ pub struct TestLsp {
     next_version: i32,
     counters: Arc<Mutex<Option<PerfCountersHandle>>>,
     publication: Arc<Mutex<Option<SemanticPublicationHandle>>>,
+    parity: Arc<Mutex<Option<ShadowParityHarness>>>,
 }
 
 impl TestLsp {
@@ -33,10 +35,13 @@ impl TestLsp {
         let counters_for_backend = counters.clone();
         let publication = Arc::new(Mutex::new(None));
         let publication_for_backend = publication.clone();
+        let parity = Arc::new(Mutex::new(None));
+        let parity_for_backend = parity.clone();
         let (service, socket) = LspService::build(move |client| {
             let backend = Backend::new(client);
             *counters_for_backend.lock().expect("counter capture lock poisoned") = Some(backend.perf_counters());
             *publication_for_backend.lock().expect("publication capture lock poisoned") = Some(backend.semantic_publication_handle());
+            *parity_for_backend.lock().expect("parity capture lock poisoned") = Some(backend.parity_harness());
             backend
         })
         .custom_method("phalcom/sourceText", Backend::source_text)
@@ -52,6 +57,7 @@ impl TestLsp {
             next_version: 1,
             counters,
             publication,
+            parity,
         }
     }
 
@@ -168,6 +174,16 @@ impl TestLsp {
         .await;
     }
 
+    pub async fn watched_file_created(&mut self, uri: &str) {
+        self.notify(
+            "workspace/didChangeWatchedFiles",
+            json!({
+                "changes": [{ "uri": uri, "type": 1 }]
+            }),
+        )
+        .await;
+    }
+
     pub async fn completion(&mut self, uri: &str, position: Position) -> Value {
         self.request(
             "textDocument/completion",
@@ -227,6 +243,15 @@ impl TestLsp {
             .as_ref()
             .expect("backend counter handle captured during start")
             .snapshot()
+    }
+
+    pub fn parity_observations(&self) -> Vec<ParityObservation> {
+        self.parity
+            .lock()
+            .expect("parity capture lock poisoned")
+            .as_ref()
+            .expect("backend parity handle captured during start")
+            .observations()
     }
 
     pub async fn wait_for_publication_after(&self, before: CounterSnapshot) {

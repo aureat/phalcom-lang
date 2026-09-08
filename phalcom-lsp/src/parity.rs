@@ -30,6 +30,19 @@ pub struct ParityMismatch {
     pub advisory: Option<String>,
 }
 
+/// One formal/advisory comparison observed by a production LSP query.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ParityObservation {
+    /// Surface that produced the comparison.
+    pub surface: ParitySurface,
+    /// User-facing target or binding name associated with the comparison.
+    pub target_name: String,
+    /// Formal compiler representation, if one was available.
+    pub formal: Option<String>,
+    /// Advisory representation, if one was available.
+    pub advisory: Option<String>,
+}
+
 /// Records shadow comparisons between formal compiler facts and advisory LSP facts.
 ///
 /// The harness is intentionally observational: recording a mismatch never
@@ -38,6 +51,7 @@ pub struct ParityMismatch {
 #[derive(Clone, Debug, Default)]
 pub struct ShadowParityHarness {
     mismatches: Arc<Mutex<Vec<ParityMismatch>>>,
+    observations: Arc<Mutex<Vec<ParityObservation>>>,
 }
 
 impl ShadowParityHarness {
@@ -45,6 +59,7 @@ impl ShadowParityHarness {
     pub fn new() -> Self {
         Self {
             mismatches: Arc::new(Mutex::new(Vec::new())),
+            observations: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -70,6 +85,11 @@ impl ShadowParityHarness {
         self.mismatches.lock().expect("parity mismatch lock poisoned").clone()
     }
 
+    /// Returns a snapshot of every comparison observed by production queries.
+    pub fn observations(&self) -> Vec<ParityObservation> {
+        self.observations.lock().expect("parity observation lock poisoned").clone()
+    }
+
     /// Returns the number of retained mismatches.
     pub fn mismatch_count(&self) -> usize {
         self.mismatches.lock().expect("parity mismatch lock poisoned").len()
@@ -78,6 +98,7 @@ impl ShadowParityHarness {
     /// Clears retained mismatches so a harness can be reused for another run.
     pub fn clear(&self) {
         self.mismatches.lock().expect("parity mismatch lock poisoned").clear();
+        self.observations.lock().expect("parity observation lock poisoned").clear();
     }
 
     /// Panics with the retained evidence if any parity mismatch was observed.
@@ -87,6 +108,12 @@ impl ShadowParityHarness {
     }
 
     fn record(&self, surface: ParitySurface, target_name: &str, formal: Option<&str>, advisory: Option<&str>) {
+        self.observations.lock().expect("parity observation lock poisoned").push(ParityObservation {
+            surface,
+            target_name: target_name.to_string(),
+            formal: formal.map(str::to_string),
+            advisory: advisory.map(str::to_string),
+        });
         if formal == advisory {
             return;
         }
@@ -148,7 +175,9 @@ mod tests {
         clone.record_hover_parity("x", Some("Int"), Some("String"));
 
         assert_eq!(harness.mismatch_count(), 1);
+        assert_eq!(clone.observations().len(), 1);
         harness.clear();
         assert_eq!(clone.mismatch_count(), 0);
+        assert_eq!(clone.observations().len(), 0);
     }
 }

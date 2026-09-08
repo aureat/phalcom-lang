@@ -1,7 +1,7 @@
 use phalcom_ast::parser::parse;
 use phalcom_modules::{
-    ImportBindingId, InterfaceBuilder, LinkError, LinkedReadSpec, ModuleComponent, ModuleId, ModuleKind, ModuleLinker, ModulePath, ProjectUniverse,
-    ResolvedProjectId, SymbolId, UnlinkedModuleInterface,
+    ImportBindingId, InterfaceBuilder, LinkError, LinkedReadSpec, ModuleComponent, ModuleDiagnostic, ModuleDiagnosticKind, ModuleId, ModuleKind, ModuleLinker,
+    ModulePath, ProjectUniverse, ResolvedProjectId, SymbolId, UnlinkedModuleInterface,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -53,12 +53,38 @@ fn link_02_selective_import_missing_export() {
     let iface_map = interfaces(&[(exporter.clone(), "class Private {}\n"), (importer.clone(), "from .exporter import Private\n")]);
     let resolved = BTreeMap::from([((importer.clone(), ".exporter".to_string()), exporter.clone())]);
     let linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), iface_map);
-    let result = linker.link(importer, &resolved);
+    let result = linker.link(importer.clone(), &resolved);
 
     assert!(
-        matches!(result, Err(LinkError::MissingExport { ref name, .. }) if name == "Private"),
+        matches!(result, Err(LinkError::MissingExport { ref module, importer: ref error_importer, ref name, .. })
+            if module == &exporter && error_importer == &importer && name == "Private"),
         "expected MissingExport for Private, got {:?}",
         result
+    );
+}
+
+/// LINK-02b — Missing-export diagnostics retain importer ownership and target provenance.
+#[test]
+fn link_02b_missing_export_diagnostic_uses_importer_range_owner() {
+    let exporter = module("exporter");
+    let importer = module("importer");
+    let iface_map = interfaces(&[(exporter.clone(), "class Private {}\n"), (importer.clone(), "from .exporter import Private\n")]);
+    let resolved = BTreeMap::from([((importer.clone(), ".exporter".to_string()), exporter.clone())]);
+    let linker = ModuleLinker::new(Arc::new(ProjectUniverse::new()), iface_map.clone());
+    let error = linker.link(importer.clone(), &resolved).expect_err("link should report a missing export");
+    let LinkError::MissingExport { range, .. } = error.clone() else {
+        panic!("expected MissingExport, got {error:?}");
+    };
+
+    let diagnostic = ModuleDiagnostic::from_link_error(error, Some(&iface_map[&exporter]));
+    assert_eq!(diagnostic.module, importer);
+    assert_eq!(diagnostic.range, range);
+    assert_eq!(
+        diagnostic.kind,
+        ModuleDiagnosticKind::NonExportedImport {
+            module: exporter.to_string(),
+            name: "Private".to_string(),
+        }
     );
 }
 

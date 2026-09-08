@@ -5,6 +5,7 @@ use phalcom_semantic::{AdvisoryConfidence, AdvisoryPresenter, EditorTypeHint, Ed
 use tower_lsp::lsp_types::{InlayHint, InlayHintKind, InlayHintLabel, InlayHintTooltip, MarkupContent, MarkupKind, Range};
 
 use crate::line_index::LineIndex;
+use crate::parity::ShadowParityHarness;
 use crate::request_context::RequestContext;
 
 /// Server policy for runtime-value inlay hints.
@@ -20,6 +21,18 @@ pub enum HintPolicy {
 
 /// Computes inlay hints from one pinned request context.
 pub fn hints_for_request(request: &RequestContext, visible: Range, policy: HintPolicy, suppress_obvious: bool) -> Vec<InlayHint> {
+    hints_for_request_with_parity(request, visible, policy, suppress_obvious, None)
+}
+
+/// Computes inlay hints and records the formal/advisory comparisons made by
+/// this production query when a parity handle is supplied.
+pub fn hints_for_request_with_parity(
+    request: &RequestContext,
+    visible: Range,
+    policy: HintPolicy,
+    suppress_obvious: bool,
+    parity: Option<&ShadowParityHarness>,
+) -> Vec<InlayHint> {
     if policy == HintPolicy::Off {
         return Vec::new();
     }
@@ -43,11 +56,28 @@ pub fn hints_for_request(request: &RequestContext, visible: Range, policy: HintP
             {
                 return None;
             }
+            if let Some(parity) = parity {
+                let formal = hint.formal.as_ref().map(FormalPresentation::text);
+                let advisory = hint.advisory.as_ref().map(|fact| AdvisoryPresenter::present_shape(&fact.shape));
+                parity.record_inlay_hint_parity(&type_hint_target_name(snapshot, module, &hint), formal.as_deref(), advisory.as_deref());
+            }
             render_hint(&request.document.line_index, hint, policy)
         })
         .collect::<Vec<_>>();
     hints.sort_by_key(|hint| (hint.position.line, hint.position.character));
     hints
+}
+
+fn type_hint_target_name(snapshot: &phalcom_semantic::SemanticSnapshot, module: &phalcom_modules::ModuleId, hint: &EditorTypeHint) -> String {
+    if let Some(phalcom_semantic::SemanticTargetId::Binding(site)) = hint.target.as_ref()
+        && let Some(source) = snapshot.source_index().module(module)
+        && let Some(binding) = source.structure.bindings.get(site)
+    {
+        return binding.name.to_string();
+    }
+    hint.target
+        .as_ref()
+        .map_or_else(|| format!("{:?}@{}", hint.kind, hint.source_range.start), |target| format!("{target:?}"))
 }
 
 fn obvious_initializer_text(text: &str, range: SourceRange) -> bool {

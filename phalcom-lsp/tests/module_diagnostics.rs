@@ -62,9 +62,10 @@ async fn unresolved_module_diagnostic_uses_canonical_code_and_clears_after_repai
         "unresolved module diagnostic must use the canonical code: {initial:#?}"
     );
 
-    std::fs::write(workspace.root.join("provider.ph"), "class Provider {}\nexport Provider\n").expect("repair missing module");
+    let missing_uri = workspace.file_uri("missing.ph");
+    std::fs::write(workspace.root.join("missing.ph"), "class Missing {}\nexport Missing\n").expect("repair missing module");
     let before = lsp.counter_snapshot();
-    lsp.change(&main_uri, "import .provider as provider\n").await;
+    lsp.watched_file_created(&missing_uri).await;
     lsp.wait_for_semantic_publication_after(before).await;
 
     let repaired = lsp.wait_for_publish_diagnostics(&main_uri).await;

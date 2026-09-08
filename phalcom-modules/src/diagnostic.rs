@@ -330,27 +330,32 @@ impl ModuleDiagnostic {
                 range,
                 message: format!("unresolved import '{}'", path),
             },
-            LinkError::MissingExport { module, name, range } => {
+            LinkError::MissingExport {
+                module: target,
+                importer,
+                name,
+                range,
+            } => {
                 let is_private = target_interface.map_or(false, |iface| iface.declarations.contains_key(&name));
                 if is_private {
                     Self {
-                        module: module.clone(),
+                        module: importer,
                         kind: ModuleDiagnosticKind::NonExportedImport {
-                            module: module.to_string(),
+                            module: target.to_string(),
                             name: name.clone(),
                         },
                         range,
-                        message: format!("module {} declares '{}' but does not export it", module, name),
+                        message: format!("module {} declares '{}' but does not export it", target, name),
                     }
                 } else {
                     Self {
-                        module: module.clone(),
+                        module: importer,
                         kind: ModuleDiagnosticKind::UnknownImportName {
-                            module: module.to_string(),
+                            module: target.to_string(),
                             name: name.clone(),
                         },
                         range,
-                        message: format!("module {} does not export '{}'", module, name),
+                        message: format!("module {} does not export '{}'", target, name),
                     }
                 }
             }

@@ -83,8 +83,16 @@ pub enum LinkError {
     #[error("unresolved import '{path}' from module {module}")]
     UnresolvedImport { module: ModuleId, path: String, range: SourceRange },
     /// A selected name is absent from a target interface.
+    ///
+    /// `module` identifies the provider being queried; `importer` owns the
+    /// source range and therefore owns the resulting diagnostic.
     #[error("module {module} does not export '{name}'")]
-    MissingExport { module: ModuleId, name: String, range: SourceRange },
+    MissingExport {
+        module: ModuleId,
+        importer: ModuleId,
+        name: String,
+        range: SourceRange,
+    },
     /// A local name is not declared or imported.
     #[error("module {module} has no binding '{name}'")]
     MissingBinding { module: ModuleId, name: String, range: SourceRange },
@@ -418,7 +426,7 @@ impl ModuleLinker {
                     continue;
                 };
                 let target = context.target(module, path, range)?;
-                let export = context.resolve_export(&target, remote, range)?;
+                let export = context.resolve_export(&target, remote, range, module)?;
                 let symbol = export.symbol().cloned().ok_or_else(|| LinkError::MissingBinding {
                     module: target.clone(),
                     name: remote.to_string(),
@@ -468,7 +476,7 @@ impl ModuleLinker {
         let name = reference.leaf_name();
         let mut context = LinkContext::new(self, resolved, false, false);
         context.collect_imports_and_graphs()?;
-        let export = context.resolve_export(&target, name, reference.range)?;
+        let export = context.resolve_export(&target, name, reference.range, module)?;
         let symbol = export.symbol().cloned().ok_or_else(|| LinkError::MissingBinding {
             module: target,
             name: name.to_string(),
@@ -528,7 +536,7 @@ impl<'a> LinkContext<'a> {
                 })
                 .unwrap_or_default();
             for (name, range) in names {
-                match self.resolve_export(module, &name, range) {
+                match self.resolve_export(module, &name, range, module) {
                     Ok(_) => {}
                     Err(err) => {
                         if self.tolerant {
@@ -798,7 +806,7 @@ impl<'a> LinkContext<'a> {
                         };
                         for item in &decl.items {
                             let local = item.alias.as_ref().map(|alias| alias.name.clone()).unwrap_or_else(|| item.name.clone());
-                            let linked_exp = match self.resolve_export(&target, &item.name, item.range) {
+                            let linked_exp = match self.resolve_export(&target, &item.name, item.range, module) {
                                 Ok(exp) => exp,
                                 Err(err) => {
                                     if self.tolerant {
@@ -830,7 +838,7 @@ impl<'a> LinkContext<'a> {
                         };
                         for item in &decl.items {
                             let local = item.local_or_remote_name.clone();
-                            let linked_exp = match self.resolve_export(&target, &item.local_or_remote_name, item.range) {
+                            let linked_exp = match self.resolve_export(&target, &item.local_or_remote_name, item.range, module) {
                                 Ok(exp) => exp,
                                 Err(err) => {
                                     if self.tolerant {
@@ -897,7 +905,7 @@ impl<'a> LinkContext<'a> {
         }
     }
 
-    fn resolve_export(&mut self, module: &ModuleId, name: &str, range: SourceRange) -> Result<LinkedExport, LinkError> {
+    fn resolve_export(&mut self, module: &ModuleId, name: &str, range: SourceRange, importer: &ModuleId) -> Result<LinkedExport, LinkError> {
         let key = (module.clone(), name.to_string());
         if let Some(export) = self.linked_exports.get(&key) {
             return Ok(export.clone());
@@ -908,13 +916,14 @@ impl<'a> LinkContext<'a> {
                 name: name.to_string(),
             });
         }
-        let interface = self.linker.interfaces.get(module).ok_or_else(|| LinkError::MissingExport {
-            module: module.clone(),
-            name: name.to_string(),
-            range,
-        })?;
+        let interface = self
+            .linker
+            .interfaces
+            .get(module)
+            .ok_or_else(|| LinkError::MissingModule { module: module.clone() })?;
         let surface = interface.exports.get(name).ok_or_else(|| LinkError::MissingExport {
             module: module.clone(),
+            importer: importer.clone(),
             name: name.to_string(),
             range,
         })?;
@@ -942,7 +951,7 @@ impl<'a> LinkContext<'a> {
             }
             UnlinkedExportTarget::ReExport { path, remote } => {
                 let target_mod = self.target(module, path, surface.range)?;
-                let linked = self.resolve_export(&target_mod, remote, surface.range)?;
+                let linked = self.resolve_export(&target_mod, remote, surface.range, module)?;
                 (linked.target, surface.range)
             }
             UnlinkedExportTarget::CanonicalDeclaration { module: target_module, name } => {
@@ -978,14 +987,14 @@ impl<'a> LinkContext<'a> {
     }
 
     fn linked_interface(&mut self, module: &ModuleId) -> Result<LinkedModuleInterface, LinkError> {
-        let unlinked = self.linker.interfaces.get(module).ok_or_else(|| LinkError::MissingExport {
-            module: module.clone(),
-            name: "<module>".to_string(),
-            range: SourceRange::default(),
-        })?;
+        let unlinked = self
+            .linker
+            .interfaces
+            .get(module)
+            .ok_or_else(|| LinkError::MissingModule { module: module.clone() })?;
         let mut exports = BTreeMap::new();
         for (name, surface) in &unlinked.exports {
-            let linked = self.resolve_export(module, name, surface.range)?;
+            let linked = self.resolve_export(module, name, surface.range, module)?;
             exports.insert(name.clone().into_boxed_str(), linked);
         }
         Ok(LinkedModuleInterface {

@@ -48,6 +48,7 @@ use crate::documents::DocumentStore;
 use crate::hover::{self, SelectorSite};
 use crate::inlay_hints::HintPolicy;
 use crate::line_index::LineIndex;
+use crate::parity::ShadowParityHarness;
 use crate::perf::{PerfCountersHandle, PerfSpan};
 use crate::request_context::{RequestContext, SourceMatch};
 use crate::semantic_tokens;
@@ -285,6 +286,8 @@ pub struct Backend {
     closed_sources: SourceCache,
     /// Mutable server configuration.
     config: RwLock<ServerConfig>,
+    /// Observational formal/advisory parity evidence from live LSP queries.
+    parity: ShadowParityHarness,
     /// Whether client requested dynamic watched-file registration.
     watch_registration: RwLock<bool>,
     inlay_refresh: Arc<PublicationRefresh>,
@@ -342,6 +345,7 @@ impl Backend {
             workspace_roots: RwLock::new(Vec::new()),
             closed_sources,
             config: RwLock::new(ServerConfig::default()),
+            parity: ShadowParityHarness::new(),
             watch_registration: RwLock::new(false),
             inlay_refresh: Arc::new(PublicationRefresh::default()),
             semantic_token_refresh: Arc::new(PublicationRefresh::default()),
@@ -358,6 +362,11 @@ impl Backend {
     /// scheduling. It cannot perform semantic queries or mutate compiler state.
     pub fn semantic_publication_handle(&self) -> crate::publication::SemanticPublicationHandle {
         self.analysis.semantic_publication_handle()
+    }
+
+    /// Returns the observational parity handle used by live editor queries.
+    pub fn parity_harness(&self) -> ShadowParityHarness {
+        self.parity.clone()
     }
 
     /// Serves canonical Universe source text to an editor content
@@ -544,8 +553,13 @@ impl Backend {
         let formal = signature.map_or(FormalPresentation::Unknown, |signature| {
             phalcom_semantic::CallablePresentation::from_signature(signature, source, &presenter).return_type
         });
+        let selector = callable.selector.encode();
+        let advisory = compiler.advisory_callable(callable).map(|summary| summary.return_fact.clone());
+        let formal_text = formal.text();
+        let advisory_text = advisory.as_ref().map(|fact| phalcom_semantic::AdvisoryPresenter::present_shape(&fact.shape));
+        self.parity.record_hover_parity(&selector, Some(&formal_text), advisory_text.as_deref());
         Some((
-            callable.selector.encode(),
+            selector,
             SelectorSite {
                 owner: callable.owner.declaration().clone(),
                 receiver: None,
@@ -553,7 +567,7 @@ impl Backend {
             },
             phaldoc,
             formal,
-            compiler.advisory_callable(callable).map(|summary| summary.return_fact.clone()),
+            advisory,
             compiler.editor().native_callable_presentation(callable),
         ))
     }
@@ -1531,11 +1545,12 @@ impl LanguageServer for Backend {
         let config = self.config.read().expect("server config lock poisoned").clone();
         let uri = params.text_document.uri.clone();
         let Some(request) = self.request_context(&uri) else { return Ok(None) };
-        Ok(Some(crate::inlay_hints::hints_for_request(
+        Ok(Some(crate::inlay_hints::hints_for_request_with_parity(
             &request,
             params.range,
             config.inlay_hints,
             config.suppress_obvious,
+            Some(&self.parity),
         )))
     }
 
