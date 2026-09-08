@@ -1620,6 +1620,7 @@ fn a7_production_module_delta_body_edit_reuses_structural_world() {
     let module_stats = updated.module_stats.expect("production path publishes module stats");
     assert_eq!(module_stats.imports_resolved, 0);
     assert_eq!(module_stats.linked_components_recomputed, 0);
+    assert_eq!(updated.stats.linked_importers_considered, 0);
     assert_eq!(updated.stats.semantic_structure_shards_recomputed, 0);
     assert_eq!(updated.stats.semantic_structure_shards_reused, 3);
     assert!(updated.stats.query_products_recomputed > 0);

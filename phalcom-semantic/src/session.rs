@@ -92,6 +92,8 @@ pub struct SemanticUpdateStats {
     pub query_products_revalidated: usize,
     pub exact_name_products_recomputed: usize,
     pub exact_name_products_reused: usize,
+    /// Number of linked importer modules inspected while seeding semantic work.
+    pub linked_importers_considered: usize,
     pub reverse_candidates_considered: usize,
     pub semantic_dependents_recomputed: usize,
     pub semantic_dependents_reused: usize,
@@ -300,6 +302,49 @@ fn changed_fingerprinted_keys<K: Clone + Ord>(current: Option<&BTreeMap<K, u64>>
     changed
 }
 
+/// Replaces one forward dependency contribution while keeping its reverse
+/// index exact. Both maps are updated as one logical operation so incremental
+/// worklists can traverse consumers without scanning unrelated providers.
+fn replace_reverse_dependencies<K: Clone + Ord>(
+    forward: &mut BTreeMap<K, BTreeSet<K>>,
+    reverse: &mut BTreeMap<K, BTreeSet<K>>,
+    consumer: K,
+    dependencies: BTreeSet<K>,
+) {
+    if let Some(previous) = forward.remove(&consumer) {
+        for dependency in previous {
+            if let Some(consumers) = reverse.get_mut(&dependency) {
+                consumers.remove(&consumer);
+                if consumers.is_empty() {
+                    reverse.remove(&dependency);
+                }
+            }
+        }
+    }
+    if dependencies.is_empty() {
+        return;
+    }
+    for dependency in &dependencies {
+        reverse.entry(dependency.clone()).or_default().insert(consumer.clone());
+    }
+    forward.insert(consumer, dependencies);
+}
+
+/// Removes one forward dependency contribution and all corresponding reverse
+/// edges without inspecting unrelated consumers.
+fn remove_reverse_dependencies<K: Clone + Ord>(forward: &mut BTreeMap<K, BTreeSet<K>>, reverse: &mut BTreeMap<K, BTreeSet<K>>, consumer: &K) {
+    if let Some(previous) = forward.remove(consumer) {
+        for dependency in previous {
+            if let Some(consumers) = reverse.get_mut(&dependency) {
+                consumers.remove(consumer);
+                if consumers.is_empty() {
+                    reverse.remove(&dependency);
+                }
+            }
+        }
+    }
+}
+
 fn removed_fingerprinted_keys<K: Clone + Ord>(current: Option<&BTreeMap<K, u64>>, previous: Option<&BTreeMap<K, u64>>) -> BTreeSet<K> {
     previous
         .into_iter()
@@ -395,8 +440,10 @@ pub struct SemanticWorkspaceSession {
     default_field_lifecycle: crate::checker::field_lifecycle::FieldLifecycleTable,
     semantic_structure_shards: BTreeMap<ModuleId, Arc<ModuleSemanticStructureShard>>,
     generic_header_dependencies: BTreeMap<DeclarationId, BTreeSet<DeclarationId>>,
+    generic_header_reverse_dependencies: BTreeMap<DeclarationId, BTreeSet<DeclarationId>>,
     alias_sources: BTreeMap<DeclarationId, (ModuleId, phalcom_ast::ast::TypeAliasDef)>,
     alias_dependencies: BTreeMap<DeclarationId, BTreeSet<DeclarationId>>,
+    alias_reverse_dependencies: BTreeMap<DeclarationId, BTreeSet<DeclarationId>>,
     alias_forms: Arc<BTreeMap<DeclarationId, TypeId>>,
     module_diagnostics: BTreeMap<ModuleId, Vec<phalcom_modules::diagnostic::ModuleDiagnostic>>,
     semantic_diagnostic_contributions: BTreeMap<ModuleId, Arc<[SemanticDiagnostic]>>,
@@ -699,8 +746,10 @@ impl SemanticWorkspaceSession {
             default_field_lifecycle: crate::checker::field_lifecycle::FieldLifecycleTable::default(),
             semantic_structure_shards: BTreeMap::new(),
             generic_header_dependencies: BTreeMap::new(),
+            generic_header_reverse_dependencies: BTreeMap::new(),
             alias_sources: BTreeMap::new(),
             alias_dependencies: BTreeMap::new(),
+            alias_reverse_dependencies: BTreeMap::new(),
             alias_forms: Arc::new(BTreeMap::new()),
             module_diagnostics: BTreeMap::new(),
             semantic_diagnostic_contributions: BTreeMap::new(),
@@ -1119,20 +1168,17 @@ impl SemanticWorkspaceSession {
             }
         }
         changed_header_dependencies.extend(generic_header_work.iter().cloned());
-        loop {
-            let additions = self
-                .generic_header_dependencies
-                .iter()
-                .filter(|(consumer, dependencies)| {
-                    !generic_header_work.contains(*consumer) && dependencies.iter().any(|dependency| changed_header_dependencies.contains(dependency))
-                })
-                .map(|(consumer, _)| consumer.clone())
-                .collect::<Vec<_>>();
-            if additions.is_empty() {
-                break;
+        let mut pending_header_providers = changed_header_dependencies.iter().cloned().collect::<Vec<_>>();
+        while let Some(provider) = pending_header_providers.pop() {
+            let Some(consumers) = self.generic_header_reverse_dependencies.get(&provider) else {
+                continue;
+            };
+            for consumer in consumers {
+                if generic_header_work.insert(consumer.clone()) {
+                    changed_header_dependencies.insert(consumer.clone());
+                    pending_header_providers.push(consumer.clone());
+                }
             }
-            changed_header_dependencies.extend(additions.iter().cloned());
-            generic_header_work.extend(additions);
         }
 
         // Convert source contribution deltas into typed query roots. The
@@ -1319,8 +1365,31 @@ impl SemanticWorkspaceSession {
             .chain(declaration_shell_work.iter())
             .chain(declaration_surface_work.iter())
             .collect::<BTreeSet<_>>();
-        for (importer_id, linked_mod) in &input.linked.modules {
-            if !current_modules.contains(importer_id) || semantic_work_modules.contains(importer_id) {
+        // Production module updates carry an exact reverse module-import index.
+        // Use it to bound the linked-read inspection to actual importers of a
+        // changed declaration's module. Direct compatibility inputs do not
+        // have that index, so retain the complete scan there.
+        let linked_importer_candidates = if delta_driven {
+            let mut candidates = BTreeSet::new();
+            if let Some(reverse_imports) = input.reverse_imports.as_ref() {
+                for module in changed_declarations.iter().map(|declaration| &declaration.module) {
+                    if let Some(importers) = reverse_imports.get(module) {
+                        candidates.extend(importers.iter().cloned());
+                    }
+                }
+            } else {
+                candidates.extend(input.linked.modules.keys().cloned());
+            }
+            candidates
+        } else {
+            input.linked.modules.keys().cloned().collect()
+        };
+        stats.linked_importers_considered = linked_importer_candidates.len();
+        for importer_id in linked_importer_candidates {
+            let Some(linked_mod) = input.linked.modules.get(&importer_id) else {
+                continue;
+            };
+            if !current_modules.contains(&importer_id) || semantic_work_modules.contains(&importer_id) {
                 continue;
             }
             let imports_changed_decl = linked_mod.linked_reads.iter().any(|read| match read {
@@ -1665,6 +1734,7 @@ impl SemanticWorkspaceSession {
             .as_ref()
             .map_or_else(TypeAliasTable::new, |snapshot| (*snapshot.type_aliases).clone());
         let mut alias_dependencies = self.alias_dependencies.clone();
+        let mut alias_reverse_dependencies = self.alias_reverse_dependencies.clone();
         let mut alias_recomputed_declarations = declaration_shell_work
             .iter()
             .filter(|declaration| type_aliases.contains_key(declaration))
@@ -1680,20 +1750,16 @@ impl SemanticWorkspaceSession {
         // alone cannot seed retained alias consumers. Walk the compact retained
         // dependency graph in reverse to add exactly those consumers whose
         // lowered forms depend on a changed alias.
-        loop {
-            let additions = alias_dependencies
-                .iter()
-                .filter(|(consumer, dependencies)| {
-                    alias_sources.contains_key(*consumer)
-                        && !alias_recomputed_declarations.contains(*consumer)
-                        && dependencies.iter().any(|dependency| alias_recomputed_declarations.contains(dependency))
-                })
-                .map(|(consumer, _)| consumer.clone())
-                .collect::<Vec<_>>();
-            if additions.is_empty() {
-                break;
+        let mut pending_alias_providers = alias_recomputed_declarations.iter().cloned().collect::<Vec<_>>();
+        while let Some(provider) = pending_alias_providers.pop() {
+            let Some(consumers) = self.alias_reverse_dependencies.get(&provider) else {
+                continue;
+            };
+            for consumer in consumers {
+                if alias_sources.contains_key(consumer) && alias_recomputed_declarations.insert(consumer.clone()) {
+                    pending_alias_providers.push(consumer.clone());
+                }
             }
-            alias_recomputed_declarations.extend(additions);
         }
         let mut alias_form_updates = BTreeMap::new();
         for declaration in &alias_recomputed_declarations {
@@ -1705,7 +1771,7 @@ impl SemanticWorkspaceSession {
         }
         for declaration in &alias_recomputed_declarations {
             type_aliases.remove(declaration);
-            alias_dependencies.remove(declaration);
+            remove_reverse_dependencies(&mut alias_dependencies, &mut alias_reverse_dependencies, declaration);
         }
         if let Err(err) = shell_table.realize_semantic_graph(&semantic_graph) {
             match err {
@@ -1746,7 +1812,7 @@ impl SemanticWorkspaceSession {
             };
             let mut dependencies = BTreeSet::new();
             collect_alias_dependencies(&alias.body, module_id, &resolver, &alias_declarations, &mut dependencies);
-            alias_dependencies.insert(declaration.clone(), dependencies);
+            replace_reverse_dependencies(&mut alias_dependencies, &mut alias_reverse_dependencies, declaration.clone(), dependencies);
         }
         stats.alias_dependency_nodes_considered = alias_recomputed_declarations.len();
         let alias_cycle_seeds = if previous_snapshot.is_none() {
@@ -1839,6 +1905,7 @@ impl SemanticWorkspaceSession {
         // contribution for unchanged headers; only structurally changed or
         // exact reverse-dependent headers are rebuilt below.
         let mut next_generic_header_dependencies = self.generic_header_dependencies.clone();
+        let mut next_generic_header_reverse_dependencies = self.generic_header_reverse_dependencies.clone();
         for module in &structural_recomputed_modules {
             if let Some(previous_shard) = previous_structure_shards.get(module) {
                 for declaration in previous_shard.declaration_header_fingerprints.keys() {
@@ -1847,7 +1914,11 @@ impl SemanticWorkspaceSession {
                         .get(module)
                         .is_some_and(|shard| shard.declaration_header_fingerprints.contains_key(declaration));
                     if !still_declared || generic_header_work.contains(declaration) {
-                        next_generic_header_dependencies.remove(declaration);
+                        remove_reverse_dependencies(
+                            &mut next_generic_header_dependencies,
+                            &mut next_generic_header_reverse_dependencies,
+                            declaration,
+                        );
                     }
                 }
             }
@@ -1884,7 +1955,12 @@ impl SemanticWorkspaceSession {
                         }
                     }
                     header_dependencies.remove(&decl_id);
-                    next_generic_header_dependencies.insert(decl_id.clone(), header_dependencies);
+                    replace_reverse_dependencies(
+                        &mut next_generic_header_dependencies,
+                        &mut next_generic_header_reverse_dependencies,
+                        decl_id.clone(),
+                        header_dependencies,
+                    );
                     let formation_site = TypeFormationSite::member(module_id.clone(), decl_id.clone(), DispatchSide::Instance);
                     let generic_signature = if !class_def.generic_parameters.is_empty() {
                         let outcome = resolve_generic_signature(
@@ -2013,7 +2089,12 @@ impl SemanticWorkspaceSession {
                         }
                     }
                     header_dependencies.remove(&decl_id);
-                    next_generic_header_dependencies.insert(decl_id.clone(), header_dependencies);
+                    replace_reverse_dependencies(
+                        &mut next_generic_header_dependencies,
+                        &mut next_generic_header_reverse_dependencies,
+                        decl_id.clone(),
+                        header_dependencies,
+                    );
                     let formation_site = TypeFormationSite::member(module_id.clone(), decl_id.clone(), DispatchSide::Instance);
                     let generic_signature = if !enum_def.generic_parameters.is_empty() {
                         let outcome = resolve_generic_signature(
@@ -3812,8 +3893,10 @@ impl SemanticWorkspaceSession {
         self.last_known_good = Some(snapshot.clone());
         self.field_lifecycle_fingerprints = next_field_lifecycle_fingerprints;
         self.generic_header_dependencies = next_generic_header_dependencies;
+        self.generic_header_reverse_dependencies = next_generic_header_reverse_dependencies;
         self.alias_sources = alias_sources;
         self.alias_dependencies = alias_dependencies;
+        self.alias_reverse_dependencies = alias_reverse_dependencies;
         if !alias_form_updates.is_empty() {
             let mut next_alias_forms = (*self.alias_forms).clone();
             for (declaration, form) in alias_form_updates {

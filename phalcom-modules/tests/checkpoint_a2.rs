@@ -112,24 +112,27 @@ fn checkpoint_a2_evidence_2_body_only_edit_zero_import_resolutions() {
 
     // Body-only edit in b.ph
     let up_b = session
-        .set_overlay(location(&file_b), Arc::from("class B { foo() -> Int { 999 } }\nexport B\n"), SourceRevision(2))
+        .set_overlay(location(&file_b), Arc::from("class B { foo() -> Int { 2 } }\nexport B\n"), SourceRevision(2))
         .unwrap();
 
     // EXACT ACCEPTANCE CRITERIA:
     // "Body-only edit across multi-module session produces imports_resolved == 0"
     assert_eq!(up_b.stats.imports_resolved, 0, "body-only edit must resolve 0 imports");
+    assert_eq!(up_b.stats.import_resolutions_recomputed, 0);
+    assert_eq!(up_b.stats.import_sites_retained, 1);
     assert!(up_b.stats.import_sites_reused >= 1, "import sites must be reused");
 
     // Body-only edit in a.ph
     let up_a = session
         .set_overlay(
             location(&file_a),
-            Arc::from("import .b as B\nclass A { bar() -> Int { 777 } }\nexport A\n"),
+            Arc::from("import .b as B\nclass A { bar() -> Int { 3 } }\nexport A\n"),
             SourceRevision(2),
         )
         .unwrap();
 
     assert_eq!(up_a.stats.imports_resolved, 0, "body-only edit must resolve 0 imports");
+    assert_eq!(up_a.stats.import_resolutions_recomputed, 0);
     assert!(up_a.stats.import_sites_reused >= 1, "import sites must be reused");
 }
 

@@ -129,10 +129,14 @@ pub struct ComponentLinkedProduct {
 pub struct WorkspaceModuleStats {
     pub interfaces_built: usize,
     pub interfaces_reused: usize,
+    /// Number of import products retained without being considered by this update.
+    pub import_sites_retained: usize,
     pub import_sites_considered: usize,
     pub import_sites_validated: usize,
     pub import_sites_reused: usize,
     pub imports_resolved: usize,
+    /// Number of import resolutions recomputed during this update.
+    pub import_resolutions_recomputed: usize,
     pub import_resolutions_reused: usize,
     pub negative_resolutions_reused: usize,
     pub linked_modules_recomputed: usize,
@@ -211,6 +215,10 @@ pub struct StagedOverlayProvider<'a, P: SourceProvider> {
     pub removed_overlays: &'a BTreeSet<ModuleId>,
     pub staged_by_source: &'a BTreeMap<SourceId, ModuleId>,
     pub removed_by_source: &'a BTreeSet<SourceId>,
+    /// Source identities whose committed content cache is invalidated by the
+    /// pending transaction. Reads for these identities must bypass that cache
+    /// until the transaction reaches the commit barrier.
+    pub invalidated_sources: &'a BTreeSet<SourceId>,
 }
 
 #[derive(Debug)]
@@ -440,6 +448,9 @@ impl<'a, P: SourceProvider> SourceProvider for StagedOverlayProvider<'a, P> {
         }
         if self.removed_by_source.contains(source) {
             return self.base.base().read(source);
+        }
+        if self.invalidated_sources.contains(source) {
+            return self.base.base().read_uncached(source);
         }
         self.base.read(source)
     }
@@ -1246,7 +1257,6 @@ impl WorkspaceModuleSession {
                     if self.modules_by_source.contains_key(&source.source_id) || mutated_modules_by_source.contains_key(&source.source_id) {
                         stats.ownership_cache_hits += 1;
                     }
-                    self.provider.base().invalidate_source_content(&source.source_id);
                     let module = Self::resolve_module_for_location_delta(
                         &source,
                         &self.universe,
@@ -1267,7 +1277,7 @@ impl WorkspaceModuleSession {
                     if had_overlay {
                         overlay_ops.push(OverlayOp::Remove(module.clone()));
                     }
-                    let text = self.provider.base().read(&source.source_id)?;
+                    let text = self.provider.base().read_uncached(&source.source_id)?;
                     let kind = Self::kind_for_source_delta(&module, &source, &mutated_sources, &removed_sources, &self.sources_by_module);
                     let parsed = parse_source(module.clone(), kind, source.clone(), text)?;
                     let state = WorkspaceSourceState {
@@ -1419,6 +1429,7 @@ impl WorkspaceModuleSession {
             removed_overlays: &removed_overlays,
             staged_by_source: &staged_by_source,
             removed_by_source: &removed_by_source,
+            invalidated_sources: &pending_content_invalidations,
         };
 
         let effective_universe = universe_override.as_ref().unwrap_or(&self.universe);
@@ -1883,6 +1894,11 @@ impl WorkspaceModuleSession {
                         if let Ok(target) = &prod.target {
                             if let Some(rev) = reverse_site_importers.get_mut(target) {
                                 rev.remove(site);
+                                if !rev.iter().any(|remaining| &remaining.importer == removed)
+                                    && let Some(importers) = reverse_importers.get_mut(target)
+                                {
+                                    importers.remove(removed);
+                                }
                             }
                         }
                     }
@@ -1899,18 +1915,18 @@ impl WorkspaceModuleSession {
             if reverse_importers.remove(removed).is_some() {
                 stats.purged_products += 1;
             }
-            for importers in reverse_importers.values_mut() {
-                importers.remove(removed);
-            }
         }
 
         // 2. Build or check unlinked interfaces for changed/new modules
         let mut modules_with_changed_interface = BTreeSet::new();
         let mut changed_exposures = BTreeSet::new();
-        for (module, state) in sources_by_module.iter_states() {
-            if !changed_modules.contains(module) && interfaces.contains_key(module) {
-                stats.interfaces_reused += 1;
+        let mut added_modules = BTreeSet::new();
+        for module in &changed_modules {
+            let Some(state) = sources_by_module.get_state(module) else {
                 continue;
+            };
+            if !self.sources_by_module.contains_key(module) {
+                added_modules.insert(module.clone());
             }
             stats.interfaces_built += 1;
             match InterfaceBuilder::build(module.clone(), state.kind, &state.parsed.program) {
@@ -1941,13 +1957,10 @@ impl WorkspaceModuleSession {
                 }
             }
         }
-
-        let mut added_modules = BTreeSet::new();
-        for (id, _) in sources_by_module.iter_states() {
-            if !self.sources_by_module.contains_key(id) {
-                added_modules.insert(id.clone());
-            }
-        }
+        // Retained interface products are reused without revalidating every
+        // untouched source. Keep this as a product-reuse count, distinct from
+        // the keyed interface-build work above.
+        stats.interfaces_reused = self.interfaces.len().saturating_sub(stats.interfaces_built);
         let delta = TopologyDelta {
             added_modules: added_modules.clone(),
             removed_modules: removed_modules.clone(),
@@ -1959,7 +1972,7 @@ impl WorkspaceModuleSession {
         // 3. Body-only edit short-circuit:
         if modules_with_changed_interface.is_empty() && removed_modules.is_empty() && identity_changes.is_empty() && self.linked.is_some() {
             stats.linked_modules_reused = linked_modules.len();
-            stats.linked_components_considered = self.retained_components.len();
+            stats.linked_components_considered = 0;
             stats.linked_components = 0;
             stats.linked_components_reused = self.retained_components.len();
             stats.linked_components_recomputed = 0;
@@ -1968,8 +1981,7 @@ impl WorkspaceModuleSession {
             stats.filesystem_resolution_misses = resolution_misses_after.saturating_sub(resolution_misses_before) as usize;
             stats.affected_modules = changed_modules.len() + removed_modules.len();
             let total_sites = import_products.len();
-            stats.import_sites_considered = total_sites;
-            stats.import_sites_validated = total_sites;
+            stats.import_sites_retained = total_sites;
             stats.import_sites_reused = total_sites;
             stats.import_resolutions_reused = total_sites;
             stats.negative_resolutions_reused = import_products.values().filter(|p| p.target.is_err()).count();
@@ -2038,11 +2050,13 @@ impl WorkspaceModuleSession {
                     } else {
                         recomputed_importers.insert(module.clone());
                         stats.imports_resolved += 1;
+                        stats.import_resolutions_recomputed += 1;
                         Arc::new(resolver.resolve_import_product_for_site(site.clone(), path_syntax))
                     }
                 } else {
                     recomputed_importers.insert(module.clone());
                     stats.imports_resolved += 1;
+                    stats.import_resolutions_recomputed += 1;
                     Arc::new(resolver.resolve_import_product_for_site(site.clone(), path_syntax))
                 };
 
@@ -2068,6 +2082,7 @@ impl WorkspaceModuleSession {
                                 interfaces.insert(target_id.clone(), (Arc::new(loaded_iface), fp));
                                 parsed_sources.insert(target_id.clone(), loaded.clone());
                                 if !sources_by_module.contains_state(&target_id) {
+                                    added_modules.insert(target_id.clone());
                                     if let Some(loc) = loaded.source.clone() {
                                         new_discovered_sources.push(WorkspaceSourceState {
                                             module: target_id.clone(),
@@ -2276,6 +2291,7 @@ impl WorkspaceModuleSession {
         let (resolution_hits_after, resolution_misses_after) = self.provider.base().resolution_metrics();
         stats.filesystem_resolution_hits = resolution_hits_after.saturating_sub(resolution_hits_before) as usize;
         stats.filesystem_resolution_misses = resolution_misses_after.saturating_sub(resolution_misses_before) as usize;
+        stats.import_sites_retained = import_products.len();
 
         let mut source_locations: BTreeMap<ModuleId, SourceLocation> = sources_by_module
             .iter_states()

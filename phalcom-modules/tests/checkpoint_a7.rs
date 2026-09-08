@@ -218,7 +218,7 @@ fn checkpoint_a7_acceptance_matrix_module_work_counts() {
         .unwrap();
     assert_eq!(body_only.stats.imports_resolved, 0);
     assert_eq!(body_only.stats.linked_components_recomputed, 0);
-    assert_eq!(body_only.stats.linked_components_considered, 1);
+    assert_eq!(body_only.stats.linked_components_considered, 0);
     assert!(body_only.stats.linked_components_reused >= 1);
 
     let unrelated = session
@@ -259,8 +259,9 @@ fn checkpoint_a7_thousand_module_linear_fixture_has_bounded_body_edit_work() {
         )
         .unwrap();
     assert_eq!(update.stats.imports_resolved, 0);
+    assert_eq!(update.stats.interfaces_built, 1);
     assert_eq!(update.stats.linked_components_recomputed, 0);
-    assert_eq!(update.stats.linked_components_considered, 1);
+    assert_eq!(update.stats.linked_components_considered, 0);
     assert_eq!(update.stats.linked_modules_reused, count + 1);
 }
 
