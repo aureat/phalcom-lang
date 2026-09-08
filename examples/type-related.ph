@@ -1,5 +1,6 @@
 @data
-class User {
+class User
+{
     const _name
     const _age
 
