@@ -41,6 +41,10 @@ pub struct ModuleQueryProducts {
     pub universe: Arc<ProjectUniverse>,
     pub unlinked: Arc<BTreeMap<ModuleId, UnlinkedModuleInterface>>,
     pub linked: Arc<BTreeMap<ModuleId, LinkedModuleInterface>>,
+    /// Exact canonical import-resolution products retained for semantic and
+    /// integration queries. The flattened target map below is a convenience
+    /// projection and must not replace these products as evidence.
+    pub import_products: Arc<BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>>,
     pub resolved_imports: Arc<BTreeMap<(ModuleId, String), ModuleId>>,
     pub sources: Arc<BTreeMap<ModuleId, SourceLocation>>,
     pub source_modules: Arc<BTreeMap<SourceId, ModuleId>>,
@@ -54,6 +58,7 @@ impl ModuleQueryProducts {
         universe: Arc<ProjectUniverse>,
         unlinked: Arc<BTreeMap<ModuleId, UnlinkedModuleInterface>>,
         linked: Arc<BTreeMap<ModuleId, LinkedModuleInterface>>,
+        import_products: Arc<BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>>,
         resolved_imports: Arc<BTreeMap<(ModuleId, String), ModuleId>>,
         sources: Arc<BTreeMap<ModuleId, SourceLocation>>,
         topology: Arc<ModuleTopology>,
@@ -70,6 +75,7 @@ impl ModuleQueryProducts {
             universe,
             unlinked,
             linked,
+            import_products,
             resolved_imports,
             sources,
             source_modules,
@@ -86,6 +92,7 @@ impl ModuleQueryProducts {
             universe,
             unlinked: Arc::new(BTreeMap::new()),
             linked: Arc::new(BTreeMap::new()),
+            import_products: Arc::new(BTreeMap::new()),
             resolved_imports: Arc::new(BTreeMap::new()),
             sources: Arc::new(BTreeMap::new()),
             source_modules: Arc::new(BTreeMap::new()),

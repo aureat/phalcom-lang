@@ -86,17 +86,23 @@ fn startup_ingests_manifest_and_scans_dependency_source_roots() {
     assert_eq!(provider_module.project, ProjectIdentity::Resolved(dependency_project.id));
     assert_ne!(main_module.project, provider_module.project);
 
-    let resolved = snapshot
+    let import_product = snapshot
         .module_products
-        .resolved_imports
-        .iter()
-        .find(|((importer, _), _)| importer == main_module)
-        .map(|(_, target)| target);
+        .import_products
+        .values()
+        .find(|product| product.importer() == main_module && product.written_path.written == "dep.provider")
+        .expect("the canonical import product must be retained for the dependency import");
+    assert!(
+        matches!(&import_product.target, Ok(target) if target == provider_module),
+        "the canonical import product must resolve the dependency alias to its provider module: {import_product:?}"
+    );
     assert_eq!(
-        resolved,
+        snapshot
+            .module_products
+            .resolved_imports
+            .get(&(main_module.clone(), "dep.provider".to_string())),
         Some(provider_module),
-        "the canonical import product must resolve the dependency alias to its provider module: {:?}",
-        snapshot.module_products.resolved_imports
+        "the flattened import projection must agree with the retained canonical product"
     );
 
     service.shutdown();

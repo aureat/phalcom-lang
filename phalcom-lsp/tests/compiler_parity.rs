@@ -74,11 +74,17 @@ async fn live_hover_consumes_the_same_canonical_formal_product_it_publishes() {
         .find(|sample| sample.surface == ParitySurface::Hover)
         .expect("production hover path must feed canonical parity evidence");
     assert_eq!(sample.module, module);
-    assert_eq!(sample.formal, Some(FormalPresentation::Known("Int".into())));
-    assert!(
-        matches!(sample.target.as_ref(), Some(SemanticTargetId::Callable(callable)) if callable.selector.base == SelectorBase::Named("value".into())),
-        "hover must retain the callable target identity: {sample:#?}"
-    );
+    let Some(SemanticTargetId::Callable(callable)) = sample.target.as_ref() else {
+        panic!("hover must retain the callable target identity: {sample:#?}");
+    };
+    assert_eq!(callable.selector.base, SelectorBase::Named("value".into()));
+    let signature = snapshot
+        .callable_signatures()
+        .get(callable)
+        .expect("the sampled callable must have a canonical signature");
+    assert_eq!(&signature.callable, callable);
+    let expected_formal = phalcom_semantic::TypePresenter::new(&snapshot.store).present_knowledge(&signature.published_return_knowledge());
+    assert_eq!(sample.formal, Some(expected_formal));
     assert_eq!(lsp.parity_stats().observations_total, 1);
 
     lsp.finish().await;

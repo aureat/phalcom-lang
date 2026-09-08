@@ -435,13 +435,14 @@ Expected end state:
 
 ### Task 21 — Canonical Module Diagnostics
 
-**Status:** Partial; canonical codes, source ownership, LSP projection, incremental clearing, and hostile private/missing-name coverage are implemented; invalid-root and cross-project matrix coverage remains.
+**Status:** Partial; canonical codes, primary source ownership/ranges, LSP projection, incremental clearing, and hostile private/missing-name coverage are implemented; structured secondary labels, invalid-root, and cross-project matrix coverage remain.
 
 **Files:** `phalcom-modules/src/`, `phalcom-semantic/src/diagnostic.rs`, `phalcom-semantic/src/db/`, `phalcom-lsp/src/diagnostics.rs`, `phalcom-lsp/tests/module_diagnostics.rs`.
 
 - [x] Produce structured compiler/module facts for unresolved imports, rejected exposure, missing exports, invalid relative roots, and link failures.
 - [x] Assign stable diagnostic codes such as `module.import.unresolved` and `module.exposure.rejected` at the canonical producer.
-- [x] Preserve source ownership and labels for every module diagnostic.
+- [x] Preserve primary source ownership and exact primary ranges for every module diagnostic.
+- [ ] Preserve structured secondary labels where a module diagnostic has provider-side source provenance.
 - [x] Convert canonical diagnostics to the LSP Problems panel without recomputation or information loss.
 - [x] Clear diagnostics incrementally when the import or exposure is fixed.
 - [ ] Test invalid-root and cross-project cases; unresolved, private, missing-export, and repaired-import cases are covered.
@@ -472,9 +473,11 @@ Expected end state:
 Parity means agreement on canonical formal facts, not byte-identical UI text:
 
 - [x] Same `ModuleId` and source ownership.
-- [x] Same declaration and callable targets.
+- [x] Same callable target at the live hover adapter boundary.
+- [ ] Same declaration targets across the relevant LSP adapters.
 - [x] Same formal presentation and explicit epistemic state at the LSP adapter boundary.
-- [ ] Same callable target and visibility.
+- [ ] Same callable visibility across the relevant LSP adapters.
+- [ ] Same underlying formal `TypeKnowledge`/`TypeId` and explicit analysis status at the compiler/LSP integration boundary.
 - [ ] Same linked exports and exposure decisions.
 - [ ] Same diagnostic code, severity, and source labels.
 - [x] Advisory LSP shape/inference remains outside parity unless displayed in a separately labeled section.

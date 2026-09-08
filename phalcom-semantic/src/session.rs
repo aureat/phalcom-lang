@@ -3512,6 +3512,7 @@ impl SemanticWorkspaceSession {
             input.linked.universe.clone(),
             Arc::new(unlinked_map),
             Arc::new(linked_map),
+            Arc::new(input.import_products.clone()),
             Arc::new(resolved_imports_map.clone()),
             Arc::new(sources_loc_map),
             topology,
@@ -3831,6 +3832,7 @@ impl SemanticWorkspaceSession {
         let module_graph_changed = previous_snapshot.as_deref().is_none_or(|previous| {
             previous.semantic_graph != snapshot.semantic_graph
                 || previous.module_products.resolved_imports != snapshot.module_products.resolved_imports
+                || previous.module_products.import_products != snapshot.module_products.import_products
                 || !previous.module_products.linked.keys().eq(snapshot.module_products.linked.keys())
         });
         let declaration_index_changed = previous_snapshot.as_deref().is_none_or(|previous| {
