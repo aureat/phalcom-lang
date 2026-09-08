@@ -50,5 +50,13 @@ class SelectorPart {
 ```
 
 ```ph
+List #size
+Behavior #class
+String.class #empty
+String #trim(_)
+```
 
+```
+object.someMethod(10, 20, debug: true)
+obj.method(10, 20, :debug, #{^debug, ^dump})
 ```

@@ -60,7 +60,7 @@ impl Sig {
     pub const toString: &'static str = "toString";
     pub const toNumber: &'static str = "toNumber";
     pub const toBool: &'static str = "toBool";
-    pub const toDebug: &'static str = "toDebug";
+    pub const toDebugString: &'static str = "toDebugString";
 
     pub const new: &'static str = "new()";
     pub const new_1: &'static str = "new(_)";
