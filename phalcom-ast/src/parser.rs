@@ -1370,6 +1370,7 @@ impl<'source> Parser<'source> {
         let name_start = self.cur_start();
         let name = self.expect_identifier(&["type alias name"])?;
         let name_range = (name_start..self.prev_end).into();
+        self.skip_newlines_if_followed_by(&Token::Less);
         let generic_parameters = if matches!(self.peek(), Token::Less) {
             self.parse_generic_parameters(GenericBinderContext::Alias)?
         } else {
@@ -2773,6 +2774,10 @@ impl<'source> Parser<'source> {
         let name = self.expect_identifier(&["identifier"])?;
         let name_range = (name_start..self.prev_end).into();
 
+        // The class body is mandatory, so once the declaration name has been
+        // consumed, newlines before the next header component are formatting.
+        // This also permits a generic opener on its own line.
+        self.skip_newlines();
         let generic_parameters = if matches!(self.peek(), Token::Less) {
             self.parse_generic_parameters(GenericBinderContext::NominalDeclaration)?
         } else {
@@ -2781,14 +2786,16 @@ impl<'source> Parser<'source> {
 
         // Superclass clause: `is` is Token::Is keyword (PDR-0030).
         // Grammar: `class` IDENT GENERIC_PARAMS? (`is` TYPE_FORM)? WHERE_CLAUSE? `{` … `}`.
+        self.skip_newlines();
         let superclass = if matches!(self.peek(), Token::Is) {
             self.advance(); // 'is'
+            self.skip_newlines();
             Some(self.parse_type_annotation()?)
         } else {
             None
         };
 
-        self.skip_newlines_if_followed_by(&Token::Where);
+        self.skip_newlines();
 
         let where_clause = if matches!(self.peek(), Token::Where) {
             Some(self.parse_where_clause()?)
@@ -2796,7 +2803,7 @@ impl<'source> Parser<'source> {
             None
         };
 
-        self.skip_newlines_if_followed_by(&Token::LBrace);
+        self.skip_newlines();
 
         self.expect(&Token::LBrace, &["\"{\""])?;
         let previous_class_context = self.in_class_body;
@@ -2911,13 +2918,16 @@ impl<'source> Parser<'source> {
         let name = self.expect_identifier(&["identifier"])?;
         let name_range = (name_start..self.prev_end).into();
 
+        // The enum body is mandatory, so header newlines are formatting after
+        // the declaration name and between each optional header component.
+        self.skip_newlines();
         let generic_parameters = if matches!(self.peek(), Token::Less) {
             self.parse_generic_parameters(GenericBinderContext::NominalDeclaration)?
         } else {
             Vec::new()
         };
 
-        self.skip_newlines_if_followed_by(&Token::Where);
+        self.skip_newlines();
 
         let where_clause = if matches!(self.peek(), Token::Where) {
             Some(self.parse_where_clause()?)
@@ -2925,7 +2935,7 @@ impl<'source> Parser<'source> {
             None
         };
 
-        self.skip_newlines_if_followed_by(&Token::LBrace);
+        self.skip_newlines();
 
         self.expect(&Token::LBrace, &["\"{\""])?;
         let members = self.parse_enum_body()?;

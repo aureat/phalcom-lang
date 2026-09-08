@@ -1507,11 +1507,24 @@ fn generic_class_header_is_layout_insensitive() {
     for source in [
         "class X<T> {\n}\n",
         "class X<T>\n{\n}\n",
+        "class X\n\n<T>\n{\n}\n",
         "class X<\n    T\n>\n{\n}\n",
         "class X<\n    A,\n    B\n>\n\n{\n}\n",
+        "class X<T>\n\n    is\n\nBase<T>\n\nwhere\n\nT == Y\n\n{\n}\n",
     ] {
         parse_source(source, 0).unwrap_or_else(|error| panic!("source failed:\n{source}\nerrors: {error:?}"));
     }
+}
+
+#[test]
+fn enum_header_is_layout_insensitive() {
+    let source = "enum Result\n\n<T>\n\nwhere\n\nT == Y\n\n{\n    Ok\n}\n";
+    let program = parse_source(source, 0).expect("multiline enum header should parse");
+    let Statement::Enum(enumeration) = &program.statements[0] else {
+        panic!("expected enum");
+    };
+    assert_eq!(enumeration.generic_parameters.len(), 1);
+    assert_eq!(enumeration.where_clause.as_ref().expect("where clause").constraints.len(), 1);
 }
 
 #[test]
