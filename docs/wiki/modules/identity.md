@@ -1,5 +1,8 @@
 # Identity and module paths
 
+> Raw: [module topology source snapshot](../raw/modules/2026-09-08-module-topology.md)
+> Updated: 2026-09-08
+
 Semantic identity is the foundation of Phalcom's module system. Every project, module, and source unit has a canonical stable identity that enables caching, incremental analysis, and cross-tool communication. See [identity.rs](../../../phalcom-modules/src/identity.rs).
 
 ## Project identities

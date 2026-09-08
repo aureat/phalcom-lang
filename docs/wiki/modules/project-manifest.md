@@ -1,5 +1,8 @@
 # Project manifests
 
+> Raw: [module topology source snapshot](../raw/modules/2026-09-08-module-topology.md)
+> Updated: 2026-09-08
+
 The `modules` crate models project structure through `project.toml` manifests. See [manifest.rs](../../../phalcom-modules/src/manifest.rs).
 
 ## Manifest structure

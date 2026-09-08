@@ -1,5 +1,8 @@
 # Sessions and incremental updates
 
+> Raw: [module topology source snapshot](../raw/modules/2026-09-08-module-topology.md)
+> Updated: 2026-09-08
+
 The `modules` crate supports workspace sessions that track source state and enable incremental updates without full project reloads. See [session.rs](../../../phalcom-modules/src/session.rs).
 
 ## WorkspaceModuleSession

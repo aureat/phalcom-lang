@@ -1,5 +1,8 @@
 # Module resolution
 
+> Raw: [module topology source snapshot](../raw/modules/2026-09-08-module-topology.md)
+> Updated: 2026-09-08
+
 The module resolution layer sits at the boundary between project identity and concrete source lookup. It turns import syntax into a target source unit using project roots, module paths, and package exposure rules. See [resolver.rs](../../../phalcom-modules/src/resolver.rs).
 
 ## Entry point: ModuleResolver

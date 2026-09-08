@@ -1,5 +1,8 @@
 # Linking and symbols
 
+> Raw: [module topology source snapshot](../raw/modules/2026-09-08-module-topology.md)
+> Updated: 2026-09-08
+
 The `modules` crate assigns global symbol identities to module-level bindings and constructs module-level layout tables. See [linker.rs](../../../phalcom-modules/src/linker.rs).
 
 ## SymbolId

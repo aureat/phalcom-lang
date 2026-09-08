@@ -1,77 +1,152 @@
-# Modules Wiki
+# Phalcom Knowledge Base
 
-Documentation for the `modules` crate (`phalcom-modules`), the project and module-graph layer in Phalcom.
+A concept-oriented map of Phalcom's language, semantic, execution, tooling, and evidence boundaries. Package names remain in source provenance; article names follow the future decomposition.
 
-## Core Topics
+## Language
 
-### Foundation
-- [Overview](modules/overview.md) — architecture and main responsibilities
-- [Identity and module paths](modules/identity.md) — semantic identities for projects and modules
+Source syntax and the language surface.
 
-### Project and manifest
-- [Project structure](modules/project-structure.md) — projects, universes, and project resolution
-- [Project manifests](modules/project-manifest.md) — `project.toml` structure, validation, and dependency specs
+- [Language surface](language/overview.md)
+- [Lexical structure](language/lexical-structure.md)
+- [Expressions and control flow](language/expressions-and-control-flow.md)
+- [Blocks and closures](language/blocks-and-closures.md)
+- [Strings and interpolation](language/strings-and-interpolation.md)
+- [Patterns and matching](language/patterns-and-matching.md)
+- [Annotations and Phaldoc](language/annotations-and-phaldoc.md)
 
-### Module resolution and visibility
-- [Module resolution](modules/module-resolution.md) — import roots, path resolution, and exposure boundaries
-- [Source providers](modules/source-providers.md) — loading source units and module kinds
+## Type system
 
-### Interfaces and linking
-- [Interfaces](modules/interfaces.md) — declarations, exports, imports, and interface extraction
-- [Linking and symbols](modules/linking-symbols.md) — module binding, symbol resolution, and global symbol layout
+Symbolic types, callable contracts, families, rows, and published metadata.
 
-### Dependencies and relationships
-- [Dependency graphs](modules/dependency-graphs.md) — reference, semantic, and runtime graphs; phases and edge kinds
-- [Sessions and incremental updates](modules/sessions.md) — workspace sessions and source mutations
+- [Type system](type-system/overview.md)
+- [Symbolic type notation](type-system/symbolic-type-notation.md)
+- [Callable and generic contracts](type-system/callable-and-generic-contracts.md)
+- [ADT/GADT families](type-system/adt-gadt-families.md)
+- [Records and rows](type-system/records-and-rows.md)
+- [Semantic type metadata](type-system/semantic-type-metadata.md)
 
-## Type System
+## Modules and project topology
 
-Documentation for Phalcom's syntax-level type notation and serialized semantic type metadata.
+Project identity, source loading, interfaces, linking, dependency graphs, and sessions.
 
-- [Phalcom Type Syntax](type-system/phalcom-type-syntax.md) — VM-free parser and AST for type expressions, callable signatures, parameters, and generic constraints
-- [Phalcom Type Metadata](type-system/phalcom-type-meta.md) — versioned semantic metadata graphs, stable identities, JSON transport, fingerprints, and validation invariants
+- [Modules overview](modules/overview.md)
+- [Identity and module paths](modules/identity.md)
+- [Project structure](modules/project-structure.md)
+- [Project manifests](modules/project-manifest.md)
+- [Module resolution](modules/module-resolution.md)
+- [Source providers](modules/source-providers.md)
+- [Interfaces](modules/interfaces.md)
+- [Linking and symbols](modules/linking-symbols.md)
+- [Dependency graphs](modules/dependency-graphs.md)
+- [Sessions and incremental updates](modules/sessions.md)
 
-## Benchmarks
+## Semantic analysis
 
-Measurement corpora, VM baselines, mathematical correctness programs, Wren ports, and result schemas.
+Canonical authority, inference, identity, snapshots, capabilities, and proof products.
 
-- [Phalcom Benchmarks](benchmarks/benchmarks.md) — benchmark families, measurement boundaries, result storage, and promotion discipline
+- [Semantic analysis](semantic/overview.md)
+- [Type formation and inference](semantic/type-formation-and-inference.md)
+- [Authority and identity](semantic/authority-and-identity.md)
+- [Workspace incrementality](semantic/workspace-incrementality.md)
+- [Capability and flow](semantic/capability-and-flow.md)
+- [Products and reflection](semantic/products-and-reflection.md)
+- [Pattern coverage and constructors](semantic/pattern-coverage-and-constructors.md)
 
-## Common Utilities
+## Collections
 
-Compiler-stage-agnostic source ranges and selector identity shared across the toolchain.
+Product values, maps, indexing, traversal, and argument packs.
 
-- [Phalcom Common](common/phalcom-common.md) — copyable source spans, exact/pattern selectors, and total runtime selector decoding
+- [Collections](collections/overview.md)
+- [Product model](collections/product-model.md)
+- [Maps](collections/maps.md)
+- [Indexed access and ranges](collections/indexed-access-and-ranges.md)
+- [Collection traversal](collections/traversal.md)
+- [Argument expansion](collections/argument-expansion.md)
+
+## Runtime
+
+Object/value representation, compiler lowering, execution, lifecycle, and dispatch identity.
+
+- [Runtime](runtime/overview.md)
+- [Representation and object model](runtime/representation-and-object-model.md)
+- [Compiler and VM boundary](runtime/compiler-vm-boundary.md)
+- [Lifecycle and memory](runtime/lifecycle-and-memory.md)
+- [Selector identity](runtime/selector-identity.md)
+
+## Concurrency
+
+Fibers, scheduling, reactor integration, and futures.
+
+- [Concurrency](concurrency/overview.md)
+- [Fibers and scheduling](concurrency/fibers-and-scheduling.md)
+- [Reactor](concurrency/reactor.md)
+- [Fiber reflection](concurrency/fiber-reflection.md)
+- [Futures](concurrency/futures.md)
+
+## Native surfaces
+
+Authored declarations, canonical universe records, generated surfaces, and host capabilities.
+
+- [Native surfaces](native/overview.md)
+- [Universe catalog](native/universe-catalog.md)
+- [Primitive contracts](native/primitive-contracts.md)
+- [Declaration pipeline](native/declaration-pipeline.md)
+- [Canonical native surface](native/canonical-surface.md)
+- [Generated surface drift](native/generated-surface-drift.md)
+- [Host capabilities](native/host-capabilities.md)
 
 ## Diagnostics
 
-Structured diagnostic rendering, snippets, terminal styles, and report assembly.
+Structured reports, source context, terminal rendering, and runtime error products.
 
-- [Phalcom Diagnostics](diagnostics/phalcom-diagnostics.md) — severity/report models, Unicode-aware snippets, glyphs, color, and width policy
+- [Diagnostics](diagnostics/overview.md)
+- [Report model](diagnostics/report-model.md)
+- [Source snippets and locations](diagnostics/source-snippets-and-locations.md)
+- [Terminal rendering](diagnostics/terminal-rendering.md)
+- [Result, error, and traceback surfaces](diagnostics/result-error-traceback.md)
 
-## Native Metadata and Declarations
+## Editor integration
 
-Declarative native primitive contracts and the shared parsing/validation boundary.
+LSP architecture, semantic projections, snapshots, and clickable locations.
 
-- [Phalcom Native Metadata](native-meta/phalcom-native-meta.md) — primitive contracts, symbolic type specs, effects, lifecycle, and universe catalog
-- [Phalcom Native Declarations](native-decl/phalcom-native-decl.md) — normalized primitive attributes, documentation capture, and declaration validation
-- [Phalcom Native Macros](native-macros/phalcom-native-macros.md) — the `#[primitive]` procedural attribute and compile-time contract expansion
+- [Editor integration](editor/overview.md)
+- [LSP architecture](editor/lsp-architecture.md)
+- [Semantic editor products](editor/semantic-editor-products.md)
+- [Workspace snapshots and incrementality](editor/workspace-snapshots-and-incrementality.md)
+- [Editor source locations](editor/source-locations.md)
+- [Editor performance](editor/performance.md)
 
-## Native Surface
+## Tooling
 
-The generated canonical native-member catalog and its deterministic generation/drift checks.
+REPL sessions, interactive intelligence, Phaldoc, and documentation organization.
 
-- [Phalcom Native Surface](native-surface/phalcom-native-surface.md) — catalog records, lookup indexes, structural fingerprints, and invariants
-- [Phalcom Native Surface Generator](native-surface-gen/phalcom-native-surface-gen.md) — primitive census, metadata lowering, generated Rust output, and `--check` drift gate
+- [Tooling](tooling/overview.md)
+- [REPL sessions](tooling/repl-sessions.md)
+- [Interactive intelligence](tooling/interactive-intelligence.md)
+- [REPL commands](tooling/repl-commands.md)
+- [Phaldoc and documentation](tooling/phaldoc-and-documentation.md)
 
-## Scope
+## Performance
 
-The `modules` crate is Phalcom's project and module-system layer. It defines logical project identity, module interfaces, symbol resolution, dependency graphs, and the manifest/runtime boundaries used by compiler and semantic stages. See [lib.rs](../../../phalcom-modules/src/lib.rs) for the full public API.
+Measurement protocol, benchmark evidence, hot paths, and optimization seams.
 
-## Cross-links
+- [Performance](performance/overview.md)
+- [Benchmark corpus](performance/benchmark-corpus.md)
+- [Measurement and instrumentation](performance/measurement-and-instrumentation.md)
+- [Hot paths and inline caches](performance/hotpaths-and-inline-caches.md)
 
-- **Phalcom implementation**: See [phalcom-core](../../../phalcom-core/src) for the compiler, bytecode VM, and runtime
-- **AST and parsing**: See [phalcom-ast](../../../phalcom-ast/src) for lexer, parser, and AST types
-- **Diagnostics**: See [phalcom-diagnostics](../../../phalcom-diagnostics/src) for error rendering
-- **Semantic analysis**: See [phalcom-semantic](../../../phalcom-semantic/src) for type inference and scope resolution
-- **LSP support**: See [phalcom-lsp](../../../phalcom-lsp/src) for language server integration
+## Standard library
+
+User-facing numeric and collection-library contracts.
+
+- [Standard library](standard-library/overview.md)
+- [Numeric contracts](standard-library/numeric-contracts.md)
+- [Numeric literals and arithmetic](standard-library/numeric-literals-and-arithmetic.md)
+- [Float, text, and numeric errors](standard-library/float-text-and-errors.md)
+- [Collection library surface](standard-library/collection-library-surface.md)
+
+## Evidence and provenance
+
+Compiled pages cite immutable raw snapshots under [raw/](raw/). The append-only [operation log](log.md) records source ingests, taxonomy decisions, and migrations. Normative language and semantic rules remain in [docs/spec/](../spec/); implementation lifecycle remains in [docs/implementation/](../implementation/).
+
+The wiki is an explanatory index, not a release certification. Each page labels proposed, partial, implemented, focused-tested, and unverified boundaries explicitly.

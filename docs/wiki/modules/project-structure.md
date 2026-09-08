@@ -1,5 +1,8 @@
 # Project structure
 
+> Raw: [module topology source snapshot](../raw/modules/2026-09-08-module-topology.md)
+> Updated: 2026-09-08
+
 The `modules` crate resolves projects via `project.toml` manifests into a `ProjectUniverse`. See [project.rs](../../../phalcom-modules/src/project.rs) and [manifest.rs](../../../phalcom-modules/src/manifest.rs).
 
 ## ResolvedProject

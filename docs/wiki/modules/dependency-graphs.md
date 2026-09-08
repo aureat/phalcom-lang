@@ -1,5 +1,8 @@
 # Dependency graphs
 
+> Raw: [module topology source snapshot](../raw/modules/2026-09-08-module-topology.md)
+> Updated: 2026-09-08
+
 The `modules` crate maintains three separate dependency graphs: reference, semantic, and runtime. This separation is intentional: a declaration cycle is valid input to a semantic fixed point, but a runtime initialization cycle is not. See [graph.rs](../../../phalcom-modules/src/graph.rs).
 
 ## DependencyPhase

@@ -1,5 +1,8 @@
 # Modules overview
 
+> Raw: [module topology source snapshot](../raw/modules/2026-09-08-module-topology.md)
+> Updated: 2026-09-08
+
 The `modules` crate (`phalcom-modules/src/lib.rs`) is the project and module-graph layer in Phalcom. It doesn't implement the VM or parser; instead, it models how projects are discovered, modules are named, imports resolve, and interfaces and dependencies are tracked.
 
 ## Main responsibilities

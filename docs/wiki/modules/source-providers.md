@@ -1,5 +1,8 @@
 # Source providers
 
+> Raw: [module topology source snapshot](../raw/modules/2026-09-08-module-topology.md)
+> Updated: 2026-09-08
+
 The `modules` crate abstracts source loading via the `SourceProvider` trait, enabling different source backends (filesystem, in-memory, network). See [source.rs](../../../phalcom-modules/src/source.rs).
 
 ## SourceProvider trait

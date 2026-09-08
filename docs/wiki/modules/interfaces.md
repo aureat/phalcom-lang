@@ -1,5 +1,8 @@
 # Interfaces
 
+> Raw: [module topology source snapshot](../raw/modules/2026-09-08-module-topology.md)
+> Updated: 2026-09-08
+
 Interfaces capture module-level declarations, exports, and imports. They are extracted from parsed source before linking. See [interface.rs](../../../phalcom-modules/src/interface.rs).
 
 ## UnlinkedModuleInterface
