@@ -1515,6 +1515,16 @@ fn generic_class_header_is_layout_insensitive() {
 }
 
 #[test]
+fn generic_type_arguments_are_layout_insensitive_in_value_positions() {
+    let source = "const value = Option<\n    String\n>\n";
+    let program = parse_source(source, 0).expect("multiline value type application should parse");
+    let Statement::Let(binding) = &program.statements[0] else {
+        panic!("expected const binding");
+    };
+    assert!(matches!(binding.value, Some(Expr::TypeForm(_))), "expected type application: {binding:?}");
+}
+
+#[test]
 fn where_clause_layout_is_flexible_but_commas_remain_required() {
     for source in [
         "class X<T>\n    where T == Y\n{\n}\n",

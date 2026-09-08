@@ -575,16 +575,19 @@ impl<'source> Parser<'source> {
                 Token::Greater => {
                     depth -= 1;
                     if depth == 0 {
-                        return i + 1 < self.tokens.len() && matches!(self.tokens[i + 1].token, Token::TypeLambdaArrow);
+                        let next = self.skip_newlines_at(i + 1);
+                        return self.tokens.get(next).is_some_and(|lexeme| matches!(lexeme.token, Token::TypeLambdaArrow));
                     }
                 }
                 Token::ShiftRight => {
                     depth -= 2;
                     if depth <= 0 {
-                        return i + 1 < self.tokens.len() && matches!(self.tokens[i + 1].token, Token::TypeLambdaArrow);
+                        let next = self.skip_newlines_at(i + 1);
+                        return self.tokens.get(next).is_some_and(|lexeme| matches!(lexeme.token, Token::TypeLambdaArrow));
                     }
                 }
-                Token::Newline | Token::Semicolon | Token::Eof | Token::LBrace | Token::RBrace => return false,
+                Token::Newline => {}
+                Token::Semicolon | Token::Eof | Token::LBrace | Token::RBrace => return false,
                 _ => {}
             }
             i += 1;
@@ -608,7 +611,8 @@ impl<'source> Parser<'source> {
                 Token::Greater => {
                     depth -= 1;
                     if compact_type_lambda && !saw_compact_type_lambda && depth == 1 {
-                        if !self.tokens.get(i + 1).is_some_and(|lexeme| matches!(lexeme.token, Token::TypeLambdaArrow)) {
+                        let next = self.skip_newlines_at(i + 1);
+                        if !self.tokens.get(next).is_some_and(|lexeme| matches!(lexeme.token, Token::TypeLambdaArrow)) {
                             return false;
                         }
                         saw_compact_type_lambda = true;
@@ -623,7 +627,8 @@ impl<'source> Parser<'source> {
                         return !compact_type_lambda || saw_compact_type_lambda;
                     }
                 }
-                Token::Newline | Token::Semicolon | Token::Eof | Token::LBrace | Token::RBrace => return false,
+                Token::Newline => {}
+                Token::Semicolon | Token::Eof | Token::LBrace | Token::RBrace => return false,
                 _ => {}
             }
             i += 1;
@@ -1634,6 +1639,7 @@ impl<'source> Parser<'source> {
     pub fn parse_type_lambda(&mut self) -> ParserResult<TypeAnnotation> {
         let start = self.cur_start();
         self.expect(&Token::Less, &["\"<\""])?;
+        self.skip_newlines();
         let mut parameters = Vec::new();
         while !matches!(self.peek(), Token::Greater | Token::ShiftRight | Token::Eof) {
             let param_start = self.cur_start();
@@ -1660,11 +1666,15 @@ impl<'source> Parser<'source> {
             };
             let range = (param_start..self.prev_end).into();
             parameters.push(TypeLambdaParameter { name, name_range, kind, range });
-            if !self.eat(&Token::Comma) {
+            if self.eat(&Token::Comma) {
+                self.skip_newlines();
+            } else {
                 break;
             }
         }
+        self.skip_newlines();
         self.expect_greater()?;
+        self.skip_newlines();
         self.expect(&Token::TypeLambdaArrow, &["\"=>>\""])?;
         let body = self.parse_type_form()?;
         let range = (start..self.prev_end).into();
@@ -1839,13 +1849,17 @@ impl<'source> Parser<'source> {
         while matches!(self.peek(), Token::Less | Token::ShiftLeft) {
             let start = atom.range.start;
             self.eat_less();
+            self.skip_newlines();
             let mut arguments = Vec::new();
             while !matches!(self.peek(), Token::Greater | Token::ShiftRight | Token::Eof) {
                 arguments.push(self.parse_type_form()?);
-                if !self.eat(&Token::Comma) {
+                if self.eat(&Token::Comma) {
+                    self.skip_newlines();
+                } else {
                     break;
                 }
             }
+            self.skip_newlines();
             self.expect_greater()?;
             let range = (start..self.prev_end).into();
             atom = TypeAnnotation {
@@ -2033,6 +2047,7 @@ impl<'source> Parser<'source> {
     /// Parses generic parameter binders with contextual variance checks (Spec 04 §6).
     pub fn parse_generic_parameters(&mut self, context: GenericBinderContext) -> ParserResult<Vec<GenericParameterSyntax>> {
         self.expect(&Token::Less, &["\"<\""])?;
+        self.skip_newlines();
         let mut params = Vec::new();
         while !matches!(self.peek(), Token::Greater | Token::ShiftRight | Token::Eof) {
             let param_start = self.cur_start();
@@ -2101,10 +2116,13 @@ impl<'source> Parser<'source> {
                 range,
             });
 
-            if !self.eat(&Token::Comma) {
+            if self.eat(&Token::Comma) {
+                self.skip_newlines();
+            } else {
                 break;
             }
         }
+        self.skip_newlines();
         self.expect_greater()?;
         Ok(params)
     }
@@ -4679,13 +4697,17 @@ impl<'source> Parser<'source> {
             if matches!(self.peek(), Token::Less | Token::ShiftLeft) && self.cur_start() == self.prev_end && self.is_type_arguments_ahead() {
                 if let Some(origin) = Self::expr_to_type_annotation(&expr) {
                     self.eat_less();
+                    self.skip_newlines();
                     let mut arguments = Vec::new();
                     while !matches!(self.peek(), Token::Greater | Token::ShiftRight | Token::Eof) {
                         arguments.push(self.parse_type_form()?);
-                        if !self.eat(&Token::Comma) {
+                        if self.eat(&Token::Comma) {
+                            self.skip_newlines();
+                        } else {
                             break;
                         }
                     }
+                    self.skip_newlines();
                     self.expect_greater()?;
                     let range = (start..self.prev_end).into();
                     expr = Expr::TypeForm(Box::new(TypeAnnotation {
