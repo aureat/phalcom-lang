@@ -1444,3 +1444,112 @@ type Baz<T>
 
     parse_source(source, 0).expect("class, enum, and type alias headers with multiline where and body should parse");
 }
+
+fn assert_generic_typed_fields(source: &str) {
+    let program = parse_source(source, 0).expect("generic typed fields should parse");
+    let Statement::Class(class) = &program.statements[0] else {
+        panic!("expected class");
+    };
+    assert_eq!(class.members.len(), 2);
+
+    let expected = [("_name", "String"), ("_age", "Int")];
+    for (member, (field_name, argument_name)) in class.members.iter().zip(expected) {
+        let ClassMember::Field(field) = member else {
+            panic!("expected field member, got {member:?}");
+        };
+        assert_eq!(field.name, field_name);
+        let Some(annotation) = &field.annotation else {
+            panic!("expected annotation for {field_name}");
+        };
+        let TypeAnnotationExpr::Application { origin, arguments, .. } = &annotation.expr else {
+            panic!("expected generic application for {field_name}: {annotation:?}");
+        };
+        assert_eq!(origin.origin_symbol_ref().expect("generic origin").root, "Option");
+        assert_eq!(arguments.len(), 1);
+        assert_eq!(arguments[0].origin_symbol_ref().expect("generic argument").root, argument_name);
+    }
+}
+
+#[test]
+fn generic_typed_fields_are_separated_by_physical_newlines() {
+    assert_generic_typed_fields(
+        r#"
+class User {
+    _name: Option<String>
+    _age: Option<Int>
+}
+"#,
+    );
+}
+
+#[test]
+fn data_generic_typed_fields_are_separated_by_physical_newlines() {
+    assert_generic_typed_fields(
+        r#"
+@data
+class User {
+    _name: Option<String>
+    _age: Option<Int>
+}
+"#,
+    );
+}
+
+#[test]
+fn class_body_brace_is_layout_insensitive() {
+    for source in ["class X {\n}\n", "class X\n{\n}\n", "class X\n\n{\n}\n", "class X\n\n    {\n}\n"] {
+        parse_source(source, 0).unwrap_or_else(|error| panic!("source failed:\n{source}\nerrors: {error:?}"));
+    }
+}
+
+#[test]
+fn generic_class_header_is_layout_insensitive() {
+    for source in [
+        "class X<T> {\n}\n",
+        "class X<T>\n{\n}\n",
+        "class X<\n    T\n>\n{\n}\n",
+        "class X<\n    A,\n    B\n>\n\n{\n}\n",
+    ] {
+        parse_source(source, 0).unwrap_or_else(|error| panic!("source failed:\n{source}\nerrors: {error:?}"));
+    }
+}
+
+#[test]
+fn where_clause_layout_is_flexible_but_commas_remain_required() {
+    for source in [
+        "class X<T>\n    where T == Y\n{\n}\n",
+        "class X<T>\n\nwhere T == Y\n\n{\n}\n",
+        "class X<T>\nwhere\n    T == Y\n{\n}\n",
+        "class User<Name, Age>\n    where Name == String,\n        Age == Int\n{\n}\n",
+        "class User<\n    Name,\n    Age\n>\n\nwhere\n\n    Name == String,\n\n\n    Age == Int\n\n{\n}\n",
+    ] {
+        parse_source(source, 0).unwrap_or_else(|error| panic!("source failed:\n{source}\nerrors: {error:?}"));
+    }
+
+    for source in [
+        "class User<Name, Age>\n    where Name == String\n        Age == Int\n{\n}\n",
+        "class X<A B> {\n}\n",
+        "class X<\n    A\n    B\n> {\n}\n",
+        "class Map<\n    String\n    Int\n> {\n}\n",
+    ] {
+        assert!(parse_source(source, 0).is_err(), "missing punctuation was accepted:\n{source}");
+    }
+}
+
+#[test]
+fn comparison_greater_allows_rhs_on_following_lines() {
+    for source in ["const result = left >\n    right\n", "const result = left >\n\n\n    right\n"] {
+        let program = parse_source(source, 0).unwrap_or_else(|error| panic!("source failed:\n{source}\nerrors: {error:?}"));
+        assert_eq!(program.statements.len(), 1);
+        let Statement::Let(binding) = &program.statements[0] else {
+            panic!("expected const binding");
+        };
+        assert!(matches!(binding.value, Some(Expr::Binary(_))), "expected comparison expression: {binding:?}");
+    }
+}
+
+#[test]
+fn value_terminated_newline_remains_a_statement_boundary() {
+    let program = parse_source("left\nright\n", 0).expect("separate expressions should parse");
+    assert_eq!(program.statements.len(), 2);
+}

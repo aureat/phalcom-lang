@@ -92,6 +92,17 @@ fn newline_after_value_is_preserved() {
 }
 
 #[test]
+fn newline_after_generic_closing_greater_is_preserved() {
+    let toks = tokens("Option<String>\n_age");
+    let greater = toks
+        .iter()
+        .position(|token| matches!(token, Token::Greater))
+        .expect("generic closer should lex as `>`");
+
+    assert!(matches!(toks.get(greater + 1), Some(Token::Newline)), "tokens: {toks:?}");
+}
+
+#[test]
 fn multiline_string_basic_dedent() {
     let src = "\"\"\"\n    first\n        second\n    third\n    \"\"\"";
     let toks = tokens(src);
