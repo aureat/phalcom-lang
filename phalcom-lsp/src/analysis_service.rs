@@ -245,6 +245,32 @@ pub struct PublicationEffects {
     pub semantic_tokens_changed: bool,
 }
 
+#[derive(Clone, Copy)]
+enum PublicationKind {
+    Interactive,
+    Scan,
+}
+
+/// Commits one immutable candidate to the request-visible publication cell
+/// before announcing it. Keeping this operation shared prevents a worker path
+/// from emitting `Published` for a snapshot that requests cannot observe.
+fn publish_snapshot(
+    publication: &SemanticPublication,
+    counters: &PerfCountersHandle,
+    event_tx: &mpsc::UnboundedSender<AnalysisEvent>,
+    snapshot: Arc<phalcom_semantic::SemanticSnapshot>,
+    effects: PublicationEffects,
+    kind: PublicationKind,
+) {
+    let generation = snapshot.generation;
+    publication.publish(snapshot);
+    match kind {
+        PublicationKind::Interactive => counters.semantic_batches_published.fetch_add(1, Ordering::Relaxed),
+        PublicationKind::Scan => counters.scan_batches_published.fetch_add(1, Ordering::Relaxed),
+    };
+    let _ = event_tx.send(AnalysisEvent::Published { generation, effects });
+}
+
 /// Front-end handle for managing background semantic analysis.
 pub struct AnalysisService {
     publication: Arc<SemanticPublication>,
@@ -549,6 +575,7 @@ fn worker_loop(
                     source_cache: source_cache.as_ref(),
                     shared: &shared,
                     event_tx: &event_tx,
+                    publication: &publication,
                 };
                 process_scan_batch(&scan_env, &mut compiler_workspace_state, scan.mode, batch, &mut discovered_files);
                 let snap = shared.counters.snapshot();
@@ -599,6 +626,7 @@ fn worker_loop(
                     source_cache: source_cache.as_ref(),
                     shared: &shared,
                     event_tx: &event_tx,
+                    publication: &publication,
                 };
                 process_scan_batch(&scan_env, &mut compiler_workspace_state, scan.mode, batch, &mut discovered_files);
                 let snap = shared.counters.snapshot();
@@ -684,6 +712,7 @@ fn worker_loop(
                 source_cache: source_cache.as_ref(),
                 shared: &shared,
                 event_tx: &event_tx,
+                publication: &publication,
             };
             let mut delta = DiskRefreshDelta {
                 file_updates: &mut file_updates,
@@ -718,15 +747,13 @@ fn worker_loop(
             let publication_result = compiler_workspace_state.session.apply_module_mutations(mutations);
             let mut effects = PublicationEffects::default();
             let mut publication_failed = false;
+            let mut candidate_snapshot = None;
             match publication_result {
                 Ok(publication_result) => {
                     latest_generation = publication_result.snapshot.generation;
                     if !cancelled() {
                         effects = publication_effects_from_compiler(&publication_result.effects);
-                        publication.publish(publication_result.snapshot);
-                        status_tracker.set_generation(latest_generation);
-                        let status = status_tracker.transition(AnalysisPhase::Publishing, None);
-                        let _ = event_tx.send(AnalysisEvent::Status(status));
+                        candidate_snapshot = Some(publication_result.snapshot);
                     }
                 }
                 Err(err) => {
@@ -754,7 +781,7 @@ fn worker_loop(
 
             // Epoch staleness check: if newer edits were enqueued during execution, discard intermediate result as stale
             let current_epoch = shared.epoch.load(Ordering::SeqCst);
-            if publication_failed || cancelled() || current_epoch > batch_epoch {
+            if publication_failed || candidate_snapshot.is_none() || cancelled() || current_epoch > batch_epoch {
                 shared.counters.stale_batches_discarded.fetch_add(1, Ordering::Relaxed);
                 let _ = event_tx.send(AnalysisEvent::StaleBatchDiscarded { epoch: batch_epoch });
                 let _ = event_tx.send(AnalysisEvent::Log(Box::new(AnalysisLogEvent {
@@ -773,11 +800,17 @@ fn worker_loop(
                     counters: Some(shared.counters.snapshot()),
                 })));
             } else {
-                shared.counters.semantic_batches_published.fetch_add(1, Ordering::Relaxed);
-                let _ = event_tx.send(AnalysisEvent::Published {
-                    generation: latest_generation,
+                publish_snapshot(
+                    &publication,
+                    &shared.counters,
+                    &event_tx,
+                    candidate_snapshot.expect("successful semantic update has a publication candidate"),
                     effects,
-                });
+                    PublicationKind::Interactive,
+                );
+                status_tracker.set_generation(latest_generation);
+                let status = status_tracker.transition(AnalysisPhase::Publishing, None);
+                let _ = event_tx.send(AnalysisEvent::Status(status));
                 let snap = shared.counters.snapshot();
                 status_tracker.update_counts(
                     snap.workspace_files_discovered,
@@ -861,6 +894,7 @@ struct ScanEnv<'a> {
     source_cache: Option<&'a SourceCache>,
     shared: &'a WorkerShared,
     event_tx: &'a mpsc::UnboundedSender<AnalysisEvent>,
+    publication: &'a SemanticPublication,
 }
 
 struct DiskRefreshDelta<'a> {
@@ -935,6 +969,7 @@ fn process_scan_batch(
         gate.wait();
     }
 
+    let batch_epoch = env.shared.epoch.load(Ordering::Acquire);
     let mut semantic_files = Vec::new();
     for discovered in files {
         let ticket = env.shared.epoch.load(Ordering::Acquire);
@@ -993,6 +1028,13 @@ fn process_scan_batch(
         semantic_files.push((discovered.uri, revision, source_text, (*program).clone()));
     }
     if !semantic_files.is_empty() {
+        // Do not let a scan candidate cross a newer interactive update. The
+        // worker session may derive the candidate, but only a still-current
+        // candidate may become request-visible.
+        if env.shared.epoch.load(Ordering::Acquire) != batch_epoch {
+            env.shared.counters.scan_results_discarded_as_stale.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
         let _span = PerfSpan::start_with_context_and_counters(
             "scan_semantic_publish",
             PerfContext {
@@ -1011,10 +1053,19 @@ fn process_scan_batch(
             })
         });
         if let Ok(publication) = identity.session.apply_module_mutations(mutations) {
-            let generation = publication.snapshot.generation;
             let effects = publication_effects_from_compiler(&publication.effects);
-            env.shared.counters.scan_batches_published.fetch_add(1, Ordering::Relaxed);
-            let _ = env.event_tx.send(AnalysisEvent::Published { generation, effects });
+            if env.shared.epoch.load(Ordering::Acquire) == batch_epoch {
+                publish_snapshot(
+                    env.publication,
+                    &env.shared.counters,
+                    env.event_tx,
+                    publication.snapshot,
+                    effects,
+                    PublicationKind::Scan,
+                );
+            } else {
+                env.shared.counters.scan_results_discarded_as_stale.fetch_add(1, Ordering::Relaxed);
+            }
         }
     }
 }

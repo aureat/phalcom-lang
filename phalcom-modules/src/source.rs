@@ -205,6 +205,19 @@ impl<P: SourceProvider> SourceProvider for OverlaySourceProvider<P> {
         }
         self.base.read(source)
     }
+
+    fn read_uncached(&self, source: &SourceId) -> Result<Arc<str>, SourceError> {
+        {
+            let by_src = self.overlays_by_source.read().unwrap();
+            if let Some(mod_id) = by_src.get(source) {
+                let by_mod = self.overlays_by_module.read().unwrap();
+                if let Some(overlay) = by_mod.get(mod_id) {
+                    return Ok(overlay.text.clone());
+                }
+            }
+        }
+        self.base.read_uncached(source)
+    }
 }
 
 /// Trait abstracting source location and reading.
@@ -212,6 +225,15 @@ pub trait SourceProvider {
     fn locate(&self, project: &ResolvedProject, path: &ModulePath) -> Result<SourceUnit, ModuleResolutionError>;
 
     fn read(&self, source: &SourceId) -> Result<Arc<str>, SourceError>;
+
+    /// Reads source content without consulting a provider cache.
+    ///
+    /// Transactional staging uses this operation when a pending mutation has
+    /// invalidated a source. The default preserves the behavior of providers
+    /// that do not maintain a cache.
+    fn read_uncached(&self, source: &SourceId) -> Result<Arc<str>, SourceError> {
+        self.read(source)
+    }
 }
 
 /// Kind of filesystem entry discovered in a directory.
@@ -640,13 +662,16 @@ impl SourceProvider for FilesystemSourceProvider {
             }
         }
 
-        let path = Path::new(&*source.0);
-        let content = std::fs::read_to_string(path).map_err(|e| SourceError::Io(format!("Failed to read {}: {}", path.display(), e)))?;
-
-        let arc: Arc<str> = Arc::from(content);
+        let arc = self.read_uncached(source)?;
         let mut cache = self.cache.source_cache.lock().unwrap();
         cache.insert((self.generation(), source.clone()), arc.clone());
         Ok(arc)
+    }
+
+    fn read_uncached(&self, source: &SourceId) -> Result<Arc<str>, SourceError> {
+        let path = Path::new(&*source.0);
+        let content = std::fs::read_to_string(path).map_err(|e| SourceError::Io(format!("Failed to read {}: {}", path.display(), e)))?;
+        Ok(Arc::from(content))
     }
 }
 

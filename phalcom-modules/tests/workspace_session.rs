@@ -1,5 +1,6 @@
 use phalcom_modules::{
-    ModuleId, NullDependencyProvider, ProjectUniverse, SourceId, SourceLocation, SourceRevision, WorkspaceModuleSession, WorkspaceSourceBatchMutation,
+    ModuleId, NullDependencyProvider, ProjectUniverse, SourceId, SourceLocation, SourceProvider, SourceRevision, WorkspaceModuleSession,
+    WorkspaceSourceBatchMutation,
 };
 use std::fs;
 use std::sync::Arc;
@@ -533,6 +534,36 @@ fn failed_transaction_does_not_mutate_committed_state() {
         "source text must remain initial on late failure"
     );
     assert_eq!(session.source(&mod_id).unwrap().revision, SourceRevision(1));
+}
+
+#[test]
+fn failed_disk_refresh_does_not_invalidate_committed_source_cache() {
+    let temp = TempDir::new().unwrap();
+    let file = temp.path().join("demo.ph");
+    fs::write(&file, "class Initial {}\n").unwrap();
+    let source = location(&file);
+    let mut session = WorkspaceModuleSession::new();
+
+    session.refresh_disk(source.clone(), SourceRevision(1)).unwrap();
+    let module = session.module_for_source(&source.source_id).cloned().unwrap();
+    let canonical_source = session.source(&module).unwrap().location.source_id.clone();
+    // Prime the provider cache so the failed refresh can prove that its
+    // staged invalidation did not mutate committed cache state.
+    assert_eq!(session.provider().base().read(&canonical_source).unwrap().as_ref(), "class Initial {}\n");
+
+    fs::write(&file, "class ChangedOnDisk {}\n").unwrap();
+    session.inject_late_rebuild_failure(true);
+    assert!(session.refresh_disk(source.clone(), SourceRevision(2)).is_err());
+
+    // The failed transaction must not have invalidated the committed cache:
+    // the provider still exposes the content belonging to the committed
+    // generation even though the file on disk has changed.
+    assert_eq!(session.provider().base().read(&canonical_source).unwrap().as_ref(), "class Initial {}\n");
+    assert_eq!(session.source(&module).unwrap().text.as_ref(), "class Initial {}\n");
+
+    session.inject_late_rebuild_failure(false);
+    session.refresh_disk(source, SourceRevision(3)).unwrap();
+    assert_eq!(session.source(&module).unwrap().text.as_ref(), "class ChangedOnDisk {}\n");
 }
 
 #[test]

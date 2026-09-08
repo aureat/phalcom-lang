@@ -78,3 +78,7 @@ path = "tests/plan_b_indexing.rs"
 [[test]]
 name = "performance"
 path = "tests/performance.rs"
+
+[[test]]
+name = "scan_publication"
+path = "tests/scan_publication.rs"
