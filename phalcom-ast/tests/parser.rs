@@ -1661,7 +1661,10 @@ fn comparison_greater_allows_rhs_on_following_lines() {
         let Statement::Let(binding) = &program.statements[0] else {
             panic!("expected const binding");
         };
-        assert!(matches!(binding.value, Some(Expr::Binary(_))), "expected comparison expression: {binding:?}");
+        let Some(Expr::Binary(binary)) = &binding.value else {
+            panic!("expected comparison expression: {binding:?}");
+        };
+        assert_eq!(source_slice(source, binary.op_range.expect("comparison operator range")), ">");
     }
 }
 

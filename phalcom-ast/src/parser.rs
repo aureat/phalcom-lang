@@ -4445,13 +4445,13 @@ impl<'source> Parser<'source> {
             }
             let op_start = self.cur_start();
             self.advance();
+            let op_range: SourceRange = (op_start..self.prev_end).into();
             // Once an infix operator has been recognized and consumed, its
             // right-hand side is mandatory. Any intervening physical newlines
             // are therefore formatting, regardless of which operator was
             // used. Newlines are not skipped before operator recognition, so
             // completed expressions still retain their statement boundaries.
             self.skip_newlines();
-            let op_range: SourceRange = (op_start..self.prev_end).into();
             let right = self.parse_binary(prec + 1)?;
             let range = (start..self.prev_end).into();
             if let RelationOp::Binary(binary) = op.clone()
