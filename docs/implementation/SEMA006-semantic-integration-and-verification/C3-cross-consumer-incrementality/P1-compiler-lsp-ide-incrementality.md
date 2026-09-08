@@ -4,8 +4,8 @@ category: SEMA
 program: SEMA006
 checkpoint: SEMA006.C3
 kind: implementation
-status: PROPOSED
-completion: NOT_STARTED
+status: IN_PROGRESS
+completion: PARTIAL
 verification: UNVERIFIED
 depends_on: []
 follows: null

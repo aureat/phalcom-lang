@@ -4,8 +4,8 @@ category: LSPX
 program: LSPX004
 checkpoint: LSPX004.C1
 kind: implementation
-status: PROPOSED
-completion: NOT_STARTED
+status: IN_PROGRESS
+completion: PARTIAL
 verification: UNVERIFIED
 depends_on: []
 follows: null
@@ -466,7 +466,7 @@ Expected end state:
 
 ### Task 23 — Compiler/LSP Canonical Formal Parity
 
-**Status:** Partial/incident; bounded test-enabled canonical formal adapter evidence is implemented, while the broader product matrix and compiler-boundary fixture remain.
+**Status:** Partial; bounded test-enabled canonical formal adapter evidence is implemented, while the broader product matrix and compiler-boundary fixture remain.
 
 **Files:** `phalcom-lsp/src/parity.rs`, `phalcom-core/tests/compiler_lsp_parity.rs`, `phalcom-lsp/tests/compiler_parity.rs`, shared test fixtures.
 
