@@ -401,6 +401,16 @@ impl<'source> Parser<'source> {
         }
     }
 
+    /// Returns whether the current token can begin a new top-level item. A
+    /// malformed header must stop before these tokens even when an earlier
+    /// operator caused the lexer to suppress the separating newline.
+    fn at_top_level_item_boundary(&self) -> bool {
+        matches!(
+            self.peek(),
+            Token::At | Token::Class | Token::Enum | Token::TypeKw | Token::Let | Token::Const | Token::Return
+        )
+    }
+
     /// Returns the current lookahead token without consuming it.
     fn peek(&self) -> &Token {
         &self.tokens[self.pos].token
@@ -1359,12 +1369,7 @@ impl<'source> Parser<'source> {
         let name_start = self.cur_start();
         let name = self.expect_identifier(&["type alias name"])?;
         let name_range = (name_start..self.prev_end).into();
-        self.skip_newlines_if_followed_by(&Token::Less);
-        let generic_parameters = if matches!(self.peek(), Token::Less) {
-            self.parse_generic_parameters(GenericBinderContext::Alias)?
-        } else {
-            Vec::new()
-        };
+        let generic_parameters = self.parse_optional_generic_parameters(GenericBinderContext::Alias)?;
         self.skip_newlines_if_followed_by(&Token::Where);
         let where_clause = if matches!(self.peek(), Token::Where) {
             Some(self.parse_where_clause()?)
@@ -1616,6 +1621,13 @@ impl<'source> Parser<'source> {
         self.parse_type_form()
     }
 
+    /// Parses the required type following `->`. The arrow proves that the
+    /// header continues, so physical newlines before the type are formatting.
+    fn parse_type_after_arrow(&mut self) -> ParserResult<TypeAnnotation> {
+        self.skip_newlines();
+        self.parse_type_annotation()
+    }
+
     /// Parses a type form: type lambda or union type (Spec 04 §5.1).
     pub fn parse_type_form(&mut self) -> ParserResult<TypeAnnotation> {
         if matches!(self.peek(), Token::Less) && self.is_type_lambda_ahead() {
@@ -1715,7 +1727,7 @@ impl<'source> Parser<'source> {
         } else {
             let atom = self.parse_postfix_type()?;
             if self.eat(&Token::Arrow) {
-                let result = self.parse_type_form()?;
+                let result = self.parse_type_after_arrow()?;
                 let range = (start..self.prev_end).into();
                 let param = TypeCallableParameter {
                     label: None,
@@ -1744,7 +1756,7 @@ impl<'source> Parser<'source> {
         if self.eat(&Token::RParen) {
             let unit_range = (start..self.prev_end).into();
             if self.eat(&Token::Arrow) {
-                let result = self.parse_type_form()?;
+                let result = self.parse_type_after_arrow()?;
                 let range = (start..self.prev_end).into();
                 return Ok(TypeAnnotation {
                     expr: TypeAnnotationExpr::Callable {
@@ -1790,7 +1802,7 @@ impl<'source> Parser<'source> {
         self.expect(&Token::RParen, &["\")\""])?;
 
         if self.eat(&Token::Arrow) {
-            let result = self.parse_type_form()?;
+            let result = self.parse_type_after_arrow()?;
             let range = (start..self.prev_end).into();
             let parameters = items
                 .into_iter()
@@ -2022,6 +2034,7 @@ impl<'source> Parser<'source> {
         };
 
         if self.eat(&Token::Arrow) {
+            self.skip_newlines();
             let result = self.parse_kind_expression()?;
             let range = (start..self.prev_end).into();
             Ok(KindSyntax::Arrow {
@@ -2032,6 +2045,32 @@ impl<'source> Parser<'source> {
         } else {
             Ok(atom)
         }
+    }
+
+    /// Parses optional generic parameters after a declaration name.
+    ///
+    /// A newline before `<` is formatting only when the following token proves
+    /// that the declaration continues with its generic binder. Otherwise the
+    /// newline remains available to terminate an otherwise complete member.
+    fn parse_optional_generic_parameters(&mut self, context: GenericBinderContext) -> ParserResult<Vec<GenericParameterSyntax>> {
+        self.skip_newlines_if_followed_by(&Token::Less);
+        let parameters = if matches!(self.peek(), Token::Less) {
+            self.parse_generic_parameters(context)?
+        } else {
+            Vec::new()
+        };
+
+        if context == GenericBinderContext::Callable {
+            // Callable headers may continue with a setter marker, parameter
+            // list, return type, where clause, or body. Each token proves that
+            // a newline here belongs to this member rather than terminating
+            // it, so keep the decision centralized with generic parsing.
+            for expected in [Token::Equal, Token::LParen, Token::Arrow, Token::Where, Token::LBrace] {
+                self.skip_newlines_if_followed_by(&expected);
+            }
+        }
+
+        Ok(parameters)
     }
 
     /// Parses generic parameter binders with contextual variance checks (Spec 04 §6).
@@ -2125,9 +2164,15 @@ impl<'source> Parser<'source> {
         let mut constraints = Vec::new();
         let mut range_end = self.prev_end;
         while !matches!(self.peek(), Token::LBrace | Token::Equal | Token::Newline | Token::Eof) {
+            if self.at_top_level_item_boundary() {
+                return Err(self.error_here(strs(&["generic constraint"])));
+            }
             let c_start = self.cur_start();
             let left = self.parse_type_form()?;
             if self.eat(&Token::Subtype) {
+                if self.at_top_level_item_boundary() {
+                    return Err(self.error_here(strs(&["type name"])));
+                }
                 let right = self.parse_type_form()?;
                 let range = (c_start..self.prev_end).into();
                 constraints.push(GenericConstraintSyntax::Subtype {
@@ -2136,6 +2181,9 @@ impl<'source> Parser<'source> {
                     range,
                 });
             } else if self.eat(&Token::EqualEqual) {
+                if self.at_top_level_item_boundary() {
+                    return Err(self.error_here(strs(&["type name"])));
+                }
                 let right = self.parse_type_form()?;
                 let range = (c_start..self.prev_end).into();
                 constraints.push(GenericConstraintSyntax::Equivalent { left, right, range });
@@ -2772,11 +2820,7 @@ impl<'source> Parser<'source> {
         // consumed, newlines before the next header component are formatting.
         // This also permits a generic opener on its own line.
         self.skip_newlines();
-        let generic_parameters = if matches!(self.peek(), Token::Less) {
-            self.parse_generic_parameters(GenericBinderContext::NominalDeclaration)?
-        } else {
-            Vec::new()
-        };
+        let generic_parameters = self.parse_optional_generic_parameters(GenericBinderContext::NominalDeclaration)?;
 
         // Superclass clause: `is` is Token::Is keyword (PDR-0030).
         // Grammar: `class` IDENT GENERIC_PARAMS? (`is` TYPE_FORM)? WHERE_CLAUSE? `{` … `}`.
@@ -2915,11 +2959,7 @@ impl<'source> Parser<'source> {
         // The enum body is mandatory, so header newlines are formatting after
         // the declaration name and between each optional header component.
         self.skip_newlines();
-        let generic_parameters = if matches!(self.peek(), Token::Less) {
-            self.parse_generic_parameters(GenericBinderContext::NominalDeclaration)?
-        } else {
-            Vec::new()
-        };
+        let generic_parameters = self.parse_optional_generic_parameters(GenericBinderContext::NominalDeclaration)?;
 
         self.skip_newlines();
 
@@ -2992,11 +3032,7 @@ impl<'source> Parser<'source> {
         let name = self.expect_identifier(&["variant name"])?;
         let name_range = (name_start..self.prev_end).into();
 
-        let generic_parameters = if matches!(self.peek(), Token::Less) {
-            self.parse_generic_parameters(GenericBinderContext::Callable)?
-        } else {
-            Vec::new()
-        };
+        let generic_parameters = self.parse_optional_generic_parameters(GenericBinderContext::Callable)?;
 
         let payload = if matches!(self.peek(), Token::LParen) {
             let p_start = self.cur_start();
@@ -3025,7 +3061,7 @@ impl<'source> Parser<'source> {
 
         let result_annotation = if matches!(self.peek(), Token::Arrow) {
             self.advance(); // '->'
-            Some(self.parse_type_annotation()?)
+            Some(self.parse_type_after_arrow()?)
         } else {
             None
         };
@@ -3038,6 +3074,7 @@ impl<'source> Parser<'source> {
             None
         };
 
+        self.skip_newlines_if_followed_by(&Token::LBrace);
         let body = if matches!(self.peek(), Token::LBrace) {
             let b_start = self.cur_start();
             self.advance(); // '{'
@@ -3098,13 +3135,10 @@ impl<'source> Parser<'source> {
         let name_start = self.cur_start();
         let name = self.parse_method_name()?;
         let name_range = (name_start..self.prev_end).into();
-        let generic_parameters = if matches!(self.peek(), Token::Less) {
-            self.parse_generic_parameters(GenericBinderContext::Callable)?
-        } else {
-            Vec::new()
-        };
+        let generic_parameters = self.parse_optional_generic_parameters(GenericBinderContext::Callable)?;
         let has_equal = self.eat(&Token::Equal);
         if has_equal {
+            self.skip_newlines();
             self.expect(&Token::LParen, &["\"(\""])?;
             let start_put = self.cur_start();
             let put_str = self.expect_identifier(&["\"put\""])?;
@@ -3128,7 +3162,11 @@ impl<'source> Parser<'source> {
                 annotation,
                 range: (start_put..self.prev_end).into(),
             };
-            let return_annotation = if self.eat(&Token::Arrow) { Some(self.parse_type_annotation()?) } else { None };
+            let return_annotation = if self.eat(&Token::Arrow) {
+                Some(self.parse_type_after_arrow()?)
+            } else {
+                None
+            };
             self.skip_newlines_if_followed_by(&Token::Where);
             let where_clause = if matches!(self.peek(), Token::Where) {
                 Some(self.parse_where_clause()?)
@@ -3158,7 +3196,11 @@ impl<'source> Parser<'source> {
         } else {
             None
         };
-        let return_annotation = if self.eat(&Token::Arrow) { Some(self.parse_type_annotation()?) } else { None };
+        let return_annotation = if self.eat(&Token::Arrow) {
+            Some(self.parse_type_after_arrow()?)
+        } else {
+            None
+        };
 
         self.skip_newlines_if_followed_by(&Token::Where);
 
@@ -3423,13 +3465,10 @@ impl<'source> Parser<'source> {
         let name_start = self.cur_start();
         let name = self.parse_method_name()?;
         let name_range = (name_start..self.prev_end).into();
-        let generic_parameters = if matches!(self.peek(), Token::Less) {
-            self.parse_generic_parameters(GenericBinderContext::Callable)?
-        } else {
-            Vec::new()
-        };
+        let generic_parameters = self.parse_optional_generic_parameters(GenericBinderContext::Callable)?;
         let has_equal = self.eat(&Token::Equal);
         if has_equal {
+            self.skip_newlines();
             self.expect(&Token::LParen, &["\"(\""])?;
             let start_put = self.cur_start();
             let put_str = self.expect_identifier(&["\"put\""])?;
@@ -3453,7 +3492,11 @@ impl<'source> Parser<'source> {
                 annotation,
                 range: (start_put..self.prev_end).into(),
             };
-            let return_annotation = if self.eat(&Token::Arrow) { Some(self.parse_type_annotation()?) } else { None };
+            let return_annotation = if self.eat(&Token::Arrow) {
+                Some(self.parse_type_after_arrow()?)
+            } else {
+                None
+            };
             self.skip_newlines_if_followed_by(&Token::Where);
             let where_clause = if matches!(self.peek(), Token::Where) {
                 Some(self.parse_where_clause()?)
@@ -3483,7 +3526,11 @@ impl<'source> Parser<'source> {
         } else {
             None
         };
-        let return_annotation = if self.eat(&Token::Arrow) { Some(self.parse_type_annotation()?) } else { None };
+        let return_annotation = if self.eat(&Token::Arrow) {
+            Some(self.parse_type_after_arrow()?)
+        } else {
+            None
+        };
 
         self.skip_newlines_if_followed_by(&Token::Where);
 
@@ -3541,12 +3588,9 @@ impl<'source> Parser<'source> {
         }
         self.expect(&Token::RBracket, &["\"]\""])?;
         let name_range = (name_start..self.prev_end).into();
-        let generic_parameters = if matches!(self.peek(), Token::Less) {
-            self.parse_generic_parameters(GenericBinderContext::Callable)?
-        } else {
-            Vec::new()
-        };
+        let generic_parameters = self.parse_optional_generic_parameters(GenericBinderContext::Callable)?;
         let accessor = if self.eat(&Token::Equal) {
+            self.skip_newlines();
             self.expect(&Token::LParen, &["\"(\""])?;
             let start_put = self.cur_start();
             let put_str = self.expect_identifier(&["\"put\""])?;
@@ -3573,7 +3617,11 @@ impl<'source> Parser<'source> {
         } else {
             IndexAccessor::Get
         };
-        let return_annotation = if self.eat(&Token::Arrow) { Some(self.parse_type_annotation()?) } else { None };
+        let return_annotation = if self.eat(&Token::Arrow) {
+            Some(self.parse_type_after_arrow()?)
+        } else {
+            None
+        };
         self.skip_newlines_if_followed_by(&Token::Where);
         let where_clause = if matches!(self.peek(), Token::Where) {
             Some(self.parse_where_clause()?)
@@ -6941,9 +6989,8 @@ mod tests {
         // Two broken top-level statements must both be reported, not just the
         // first — error recovery synchronises between them. Each line must end
         // in a token that *can* end a statement (a number here) so the
-        // separating newline is not suppressed by D3's continuation rule
-        // (`lexer::suppresses_following_newline`); a line ending in an operator
-        // would legitimately continue onto the next.
+        // separating newline is preserved after a value; a line ending in an
+        // operator is joined by the lexer/parser continuation rules.
         let result = parse("let 9\nlet 9\n", 0);
         assert!(result.errors.len() >= 2, "expected at least two recovered errors, got {:?}", result.errors);
     }

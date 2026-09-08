@@ -1528,6 +1528,100 @@ fn enum_header_is_layout_insensitive() {
 }
 
 #[test]
+fn type_alias_header_and_body_are_layout_insensitive() {
+    let source = "type Maybe\n\n<T>\n\nwhere\n\nT == Y\n\n=\n\nOption<\n    T\n>\n";
+    let program = parse_source(source, 0).expect("multiline type alias should parse");
+    let Statement::TypeAlias(alias) = &program.statements[0] else {
+        panic!("expected type alias");
+    };
+    assert_eq!(alias.generic_parameters.len(), 1);
+    assert_eq!(alias.where_clause.as_ref().expect("where clause").constraints.len(), 1);
+    assert!(matches!(alias.body.expr, TypeAnnotationExpr::Application { .. }));
+}
+
+#[test]
+fn callable_declaration_header_is_layout_insensitive() {
+    let source = r#"
+class Box {
+    value
+
+    <T>
+
+    ->
+
+    T
+
+    where
+
+    T == Number
+
+    {
+    }
+}
+"#;
+    let program = parse_source(source, 0).expect("multiline generic callable header should parse");
+    let Statement::Class(class) = &program.statements[0] else {
+        panic!("expected class");
+    };
+    let ClassMember::Getter(getter) = &class.members[0] else {
+        panic!("expected generic getter");
+    };
+    assert_eq!(getter.generic_parameters.len(), 1);
+    assert!(getter.where_clause.is_some());
+    assert!(matches!(getter.body, MemberBody::Block(_)));
+}
+
+#[test]
+fn formatting_does_not_expand_syntax_ranges() {
+    let source = "class X<\n    T\n>\nwhere\n    T == Y\n{\n    _value: Option<\n        Int\n    >\n}\n";
+    let program = parse_source(source, 0).expect("formatted class should parse");
+    let Statement::Class(class) = &program.statements[0] else {
+        panic!("expected class");
+    };
+    assert_eq!(source_slice(source, class.name_range), "X");
+    assert_eq!(source_slice(source, class.generic_parameters[0].name_range), "T");
+    let where_clause = class.where_clause.as_ref().expect("where clause");
+    assert_eq!(source_slice(source, where_clause.constraints[0].range()), "T == Y");
+    let ClassMember::Field(field) = &class.members[0] else {
+        panic!("expected field");
+    };
+    assert_eq!(source_slice(source, field.name_range), "_value");
+    assert_eq!(
+        source_slice(source, field.annotation.as_ref().expect("field annotation").range),
+        "Option<\n        Int\n    >"
+    );
+}
+
+#[test]
+fn incomplete_headers_still_report_eof_diagnostics() {
+    for source in ["class X", "const result = left >"] {
+        let parsed = parse_with_recovery(source, 0);
+        assert!(
+            parsed.errors.iter().any(|error| matches!(error.kind, SyntaxErrorKind::UnrecognizedEof { .. })),
+            "expected EOF diagnostic for {source:?}, got {:?}",
+            parsed.errors
+        );
+    }
+}
+
+#[test]
+fn malformed_header_recovers_at_the_next_declaration() {
+    let source = "class Broken<T>\n    where T ==\n\nclass Good {\n}\n";
+    let parsed = parse_with_recovery(source, 0);
+    assert!(!parsed.errors.is_empty(), "broken header should diagnose");
+    assert!(
+        parsed
+            .program
+            .statements
+            .iter()
+            .any(|statement| matches!(statement, Statement::Class(class) if class.name == "Good")),
+        "errors: {:?}; statements: {:?}",
+        parsed.errors,
+        parsed.program.statements
+    );
+}
+
+#[test]
 fn generic_type_arguments_are_layout_insensitive_in_value_positions() {
     let source = "const value = Option<\n    String\n>\n";
     let program = parse_source(source, 0).expect("multiline value type application should parse");

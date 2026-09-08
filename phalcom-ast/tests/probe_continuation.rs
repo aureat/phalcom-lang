@@ -73,7 +73,9 @@ fn classifies_truncated_wrong_and_finished_input() {
         // Incomplete — the parser reached EOF still wanting more.
         ("class Foo {", Verdict::Incomplete),
         ("class Foo {\n  bar() { 1 }", Verdict::Incomplete),
+        ("class Foo", Verdict::Incomplete),
         ("let x = 1 +", Verdict::Incomplete),
+        ("const result = left >", Verdict::Incomplete),
         ("let x =", Verdict::Incomplete),
         ("foo(1,", Verdict::Incomplete),
         ("[1, 2,", Verdict::Incomplete),
