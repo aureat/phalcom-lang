@@ -427,17 +427,6 @@ impl<'source> Parser<'source> {
         self.source[(lexeme.start - self.offset)..(lexeme.end - self.offset)].to_string()
     }
 
-    /// Returns whether source contains a physical line break between the
-    /// previously consumed token and current lookahead. Lexer D3 can suppress
-    /// that newline when previous token is `>`, which is also a generic-type
-    /// closer; class-member parsing still needs to recognize declaration
-    /// termination before a following attribute.
-    fn has_source_newline_before_current(&self) -> bool {
-        let start = self.prev_end.saturating_sub(self.offset);
-        let end = self.cur_start().saturating_sub(self.offset);
-        self.source.get(start..end).is_some_and(|gap| gap.contains('\n'))
-    }
-
     /// Consumes and returns the current token, advancing the cursor.
     ///
     /// The cursor never advances past the [`Token::Eof`] sentinel;
@@ -3947,7 +3936,6 @@ impl<'source> Parser<'source> {
                 Ok(crate::ast::MemberBody::Block(stmts))
             }
             Token::Newline | Token::RBrace | Token::Eof => Ok(crate::ast::MemberBody::Declaration),
-            Token::At if self.has_source_newline_before_current() => Ok(crate::ast::MemberBody::Declaration),
             _ => Err(self.error_here(strs(&["\"{\"", "newline or member terminator"]))),
         }
     }
