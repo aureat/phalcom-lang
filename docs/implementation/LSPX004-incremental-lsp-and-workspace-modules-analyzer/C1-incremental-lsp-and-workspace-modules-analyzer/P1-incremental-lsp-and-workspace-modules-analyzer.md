@@ -1,18 +1,18 @@
 ---
-id: SEMA006.C3.P2
-category: SEMA
-program: SEMA006
-checkpoint: SEMA006.C3
+id: LSPX004.C1.P1
+category: LSPX
+program: LSPX004
+checkpoint: LSPX004.C1
 kind: implementation
-status: IN_PROGRESS
-completion: PARTIAL
+status: PROPOSED
+completion: NOT_STARTED
 verification: UNVERIFIED
-depends_on: [SEMA006.C3.P1]
-follows: SEMA006.C3.P1
+depends_on: []
+follows: null
 supersedes: null
 deferred_reason: null
 ---
-# SEMA006.C3.P2 — compiler, LSP, and IDE integration progress plan
+# LSPX004.C1.P1 — incremental LSP and workspace modules analyzer
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
