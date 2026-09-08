@@ -541,8 +541,52 @@ fn worker_loop(
         }
 
         if let Some(request) = pending.workspace_scan.take() {
+            let manifest_roots = request
+                .roots
+                .iter()
+                .filter_map(|root| phalcom_modules::discover_owning_project(root).ok().flatten())
+                .collect::<BTreeSet<_>>();
+            let scan_roots = if manifest_roots.is_empty() {
+                request.roots.clone()
+            } else {
+                match compiler_workspace_state
+                    .session
+                    .prepare_workspace_roots(&manifest_roots.iter().cloned().collect::<Vec<_>>())
+                {
+                    Ok(semantic_publication) => {
+                        publish_snapshot(
+                            &publication,
+                            &shared.counters,
+                            &event_tx,
+                            semantic_publication.snapshot.clone(),
+                            publication_effects_from_compiler(&semantic_publication.effects),
+                            PublicationKind::Scan,
+                        );
+                        let mut roots = compiler_workspace_state
+                            .session
+                            .module_session()
+                            .universe()
+                            .projects()
+                            .iter()
+                            .map(|project| project.source_root.clone())
+                            .collect::<BTreeSet<_>>();
+                        for root in &request.roots {
+                            if phalcom_modules::discover_owning_project(root).ok().flatten().is_none() {
+                                roots.insert(root.clone());
+                            }
+                        }
+                        roots.into_iter().collect()
+                    }
+                    Err(err) => {
+                        let _ = event_tx.send(AnalysisEvent::Error {
+                            message: format!("workspace project preparation failed: {err}"),
+                        });
+                        request.roots.clone()
+                    }
+                }
+            };
             let mut next = WorkspaceScanState::new(request.mode, ExcludeMatcher::new(&request.excludes));
-            next.set_roots(request.roots.clone());
+            next.set_roots(scan_roots);
             scanner = Some(next);
             let status = status_tracker.increment_session(request.mode);
             let _ = event_tx.send(AnalysisEvent::Status(status.clone()));

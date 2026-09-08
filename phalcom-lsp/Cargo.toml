@@ -90,3 +90,7 @@ path = "tests/performance.rs"
 [[test]]
 name = "scan_publication"
 path = "tests/scan_publication.rs"
+
+[[test]]
+name = "project_startup"
+path = "tests/project_startup.rs"

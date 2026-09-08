@@ -756,6 +756,13 @@ impl SemanticWorkspaceSession {
         &mut self.module_session
     }
 
+    /// Loads requested project roots into the compiler-owned module session
+    /// before source discovery begins.
+    pub fn prepare_workspace_roots(&mut self, roots: &[std::path::PathBuf]) -> Result<SemanticWorkspacePublication, WorkspaceModuleSessionError> {
+        let update = self.module_session.set_workspace_roots(roots, &phalcom_modules::NullDependencyProvider)?;
+        Ok(self.update_module_workspace(update))
+    }
+
     /// Applies one module lifecycle mutation and publishes its semantic snapshot.
     pub fn apply_module_mutation(&mut self, mutation: WorkspaceSourceMutation) -> Result<SemanticWorkspaceUpdate, WorkspaceModuleSessionError> {
         let update = self.module_session.apply(mutation)?;
