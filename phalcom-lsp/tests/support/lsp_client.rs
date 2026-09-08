@@ -10,7 +10,7 @@ use tokio::{
 use tower_lsp::lsp_types::Position;
 use tower_lsp::{LspService, Server};
 
-use phalcom_lsp::parity::{ParityObservation, ShadowParityHarness};
+use phalcom_lsp::parity::{CanonicalParityHarness, CanonicalParitySample};
 use phalcom_lsp::perf::{CounterSnapshot, PerfCountersHandle};
 use phalcom_lsp::{Backend, SemanticPublicationHandle};
 
@@ -23,7 +23,7 @@ pub struct TestLsp {
     next_version: i32,
     counters: Arc<Mutex<Option<PerfCountersHandle>>>,
     publication: Arc<Mutex<Option<SemanticPublicationHandle>>>,
-    parity: Arc<Mutex<Option<ShadowParityHarness>>>,
+    parity: Arc<Mutex<Option<CanonicalParityHarness>>>,
 }
 
 impl TestLsp {
@@ -38,10 +38,11 @@ impl TestLsp {
         let parity = Arc::new(Mutex::new(None));
         let parity_for_backend = parity.clone();
         let (service, socket) = LspService::build(move |client| {
-            let backend = Backend::new(client);
+            let parity_handle = CanonicalParityHarness::new();
+            let backend = Backend::new_with_parity(client, Some(parity_handle));
             *counters_for_backend.lock().expect("counter capture lock poisoned") = Some(backend.perf_counters());
             *publication_for_backend.lock().expect("publication capture lock poisoned") = Some(backend.semantic_publication_handle());
-            *parity_for_backend.lock().expect("parity capture lock poisoned") = Some(backend.parity_harness());
+            *parity_for_backend.lock().expect("parity capture lock poisoned") = backend.parity_harness();
             backend
         })
         .custom_method("phalcom/sourceText", Backend::source_text)
@@ -245,13 +246,32 @@ impl TestLsp {
             .snapshot()
     }
 
-    pub fn parity_observations(&self) -> Vec<ParityObservation> {
+    pub fn parity_observations(&self) -> Vec<CanonicalParitySample> {
         self.parity
             .lock()
             .expect("parity capture lock poisoned")
             .as_ref()
             .expect("backend parity handle captured during start")
             .observations()
+    }
+
+    pub fn parity_stats(&self) -> phalcom_lsp::parity::CanonicalParityStats {
+        self.parity
+            .lock()
+            .expect("parity capture lock poisoned")
+            .as_ref()
+            .expect("backend parity handle captured during start")
+            .stats()
+    }
+
+    pub fn semantic_snapshot(&self) -> Arc<phalcom_semantic::SemanticSnapshot> {
+        self.publication
+            .lock()
+            .expect("publication capture lock poisoned")
+            .as_ref()
+            .expect("backend publication handle captured during start")
+            .snapshot()
+            .expect("backend must have published a semantic snapshot")
     }
 
     pub async fn wait_for_publication_after(&self, before: CounterSnapshot) {

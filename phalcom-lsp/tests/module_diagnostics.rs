@@ -46,6 +46,21 @@ fn diagnostic_code(params: &Value, code: &str) -> bool {
         .is_some_and(|diagnostics| diagnostics.iter().any(|diagnostic| diagnostic["code"] == code))
 }
 
+fn assert_missing_export_diagnostic(params: &Value, main_uri: &str, source: &str, provider_name: &str, imported_name: &str) {
+    let diagnostic = params["diagnostics"]
+        .as_array()
+        .and_then(|diagnostics| diagnostics.iter().find(|diagnostic| diagnostic["code"] == "module.export.missing"))
+        .unwrap_or_else(|| panic!("expected module.export.missing diagnostic: {params:#?}"));
+    assert_eq!(params["uri"], main_uri);
+    assert_eq!(diagnostic["severity"], 1, "missing export is an error");
+    assert_eq!(diagnostic["range"]["start"]["line"], 0);
+    let start = source.find(imported_name).expect("imported name must occur in source");
+    assert_eq!(diagnostic["range"]["start"]["character"], start);
+    assert_eq!(diagnostic["range"]["end"]["character"], start + imported_name.len());
+    assert!(diagnostic["message"].as_str().is_some_and(|message| message.contains(provider_name)));
+    assert!(diagnostic["message"].as_str().is_some_and(|message| message.contains(imported_name)));
+}
+
 #[tokio::test]
 async fn unresolved_module_diagnostic_uses_canonical_code_and_clears_after_repair() {
     let workspace = ScratchWorkspace::new();
@@ -74,5 +89,35 @@ async fn unresolved_module_diagnostic_uses_canonical_code_and_clears_after_repai
         "repair must clear the canonical module diagnostic: {repaired:#?}"
     );
 
+    lsp.finish().await;
+}
+
+#[tokio::test]
+async fn private_export_diagnostic_keeps_importer_uri_and_exact_name_range() {
+    let workspace = ScratchWorkspace::new();
+    let main_uri = workspace.file_uri("main.ph");
+    std::fs::write(workspace.root.join("provider.ph"), "class Private {}\n").expect("write private provider");
+    let source = "from .provider import Private\n";
+
+    let mut lsp = TestLsp::start().await;
+    lsp.initialize(Some(&workspace.root_uri())).await;
+    lsp.open_and_wait(&main_uri, source).await;
+    let published = lsp.wait_for_nonempty_publish_diagnostics(&main_uri).await;
+    assert_missing_export_diagnostic(&published, &main_uri, source, "provider", "Private");
+    lsp.finish().await;
+}
+
+#[tokio::test]
+async fn unknown_export_name_diagnostic_keeps_importer_uri_and_exact_name_range() {
+    let workspace = ScratchWorkspace::new();
+    let main_uri = workspace.file_uri("main.ph");
+    std::fs::write(workspace.root.join("provider.ph"), "class Public {}\nexport Public\n").expect("write provider");
+    let source = "from .provider import DoesNotExist\n";
+
+    let mut lsp = TestLsp::start().await;
+    lsp.initialize(Some(&workspace.root_uri())).await;
+    lsp.open_and_wait(&main_uri, source).await;
+    let published = lsp.wait_for_nonempty_publish_diagnostics(&main_uri).await;
+    assert_missing_export_diagnostic(&published, &main_uri, source, "provider", "DoesNotExist");
     lsp.finish().await;
 }

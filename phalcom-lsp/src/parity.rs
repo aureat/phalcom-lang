@@ -1,15 +1,22 @@
-//! Shadow Parity Harness for LSP queries (Spec 04.5 / Wave 6 Workstream L).
+//! Bounded canonical parity evidence for LSP adapters.
 //!
-//! Under DEC-IMPL-LSP-PARITY-COMPATIBILITY, queries check formal compiler
-//! products against legacy advisory facts and record divergences without
-//! disrupting user-visible LSP responses.
+//! Compiler/LSP parity is agreement on the canonical semantic products an LSP
+//! adapter consumes. Advisory runtime shapes are a separate semantic domain
+//! and are intentionally not compared with formal presentations here.
 
+use phalcom_modules::ModuleId;
+use phalcom_semantic::{FormalPresentation, SemanticTargetId};
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-/// The LSP surface on which a formal/advisory divergence was observed.
+/// Maximum number of canonical samples retained for test diagnostics.
+pub const MAX_SAMPLES: usize = 64;
+
+/// The LSP surface that consumed a canonical semantic product.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ParitySurface {
-    /// A hover type comparison.
+    /// A hover type/signature comparison.
     Hover,
     /// A receiver/completion comparison.
     Receiver,
@@ -17,167 +24,199 @@ pub enum ParitySurface {
     InlayHint,
 }
 
-/// A retained formal/advisory divergence.
+/// One bounded sample of canonical data consumed by an LSP adapter.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ParityMismatch {
-    /// Surface that produced the mismatch.
+pub struct CanonicalParitySample {
+    /// Surface that consumed the canonical product.
     pub surface: ParitySurface,
-    /// User-facing target or binding name associated with the comparison.
-    pub target_name: String,
-    /// Formal compiler representation, if one was available.
-    pub formal: Option<String>,
-    /// Advisory representation, if one was available.
-    pub advisory: Option<String>,
+    /// Canonical source/module owner for the query.
+    pub module: ModuleId,
+    /// Canonical semantic target, when the adapter resolved one.
+    pub target: Option<SemanticTargetId>,
+    /// Formal product consumed by the adapter, preserving its epistemic state.
+    pub formal: Option<FormalPresentation>,
 }
 
-/// One formal/advisory comparison observed by a production LSP query.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ParityObservation {
-    /// Surface that produced the comparison.
-    pub surface: ParitySurface,
-    /// User-facing target or binding name associated with the comparison.
-    pub target_name: String,
-    /// Formal compiler representation, if one was available.
-    pub formal: Option<String>,
-    /// Advisory representation, if one was available.
-    pub advisory: Option<String>,
+/// Aggregate counts and bounded-buffer state for canonical parity evidence.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct CanonicalParityStats {
+    /// Number of canonical observations recorded since the last clear.
+    pub observations_total: u64,
+    /// Number of hover observations recorded.
+    pub hover_observations: u64,
+    /// Number of receiver observations recorded.
+    pub receiver_observations: u64,
+    /// Number of inlay-hint observations recorded.
+    pub inlay_hint_observations: u64,
+    /// Number of retained diagnostic samples.
+    pub retained_samples: usize,
 }
 
-/// Records shadow comparisons between formal compiler facts and advisory LSP facts.
+#[derive(Debug, Default)]
+struct ParityCounts {
+    observations_total: AtomicU64,
+    hover_observations: AtomicU64,
+    receiver_observations: AtomicU64,
+    inlay_hint_observations: AtomicU64,
+    retained_samples: AtomicU64,
+}
+
+/// Records bounded, canonical compiler facts consumed by LSP requests.
 ///
-/// The harness is intentionally observational: recording a mismatch never
-/// changes an LSP response. Tests and diagnostics can inspect the retained
-/// mismatches and assert that a parity-sensitive query stayed aligned.
+/// Production backends construct this harness in the disabled state (`None`);
+/// the test client explicitly enables it. Once the bounded sample buffer is
+/// full, normal queries update only atomics and do not contend on the sample
+/// mutex or allocate retained evidence.
 #[derive(Clone, Debug, Default)]
-pub struct ShadowParityHarness {
-    mismatches: Arc<Mutex<Vec<ParityMismatch>>>,
-    observations: Arc<Mutex<Vec<ParityObservation>>>,
+pub struct CanonicalParityHarness {
+    counts: Arc<ParityCounts>,
+    samples: Arc<Mutex<VecDeque<CanonicalParitySample>>>,
 }
 
-impl ShadowParityHarness {
-    /// Creates a new shadow parity harness instance.
+impl CanonicalParityHarness {
+    /// Creates an empty bounded parity harness.
     pub fn new() -> Self {
-        Self {
-            mismatches: Arc::new(Mutex::new(Vec::new())),
-            observations: Arc::new(Mutex::new(Vec::new())),
+        Self::default()
+    }
+
+    /// Records a hover adapter consuming canonical compiler data.
+    pub fn observe_hover(&self, module: &ModuleId, target: &SemanticTargetId, formal: Option<&FormalPresentation>) {
+        self.observe(ParitySurface::Hover, module, Some(target), formal);
+    }
+
+    /// Records a receiver/completion adapter consuming canonical compiler data.
+    pub fn observe_receiver(&self, module: &ModuleId, target: Option<&SemanticTargetId>, formal: Option<&FormalPresentation>) {
+        self.observe(ParitySurface::Receiver, module, target, formal);
+    }
+
+    /// Records an inlay-hint adapter consuming canonical compiler data.
+    pub fn observe_inlay_hint(&self, module: &ModuleId, target: Option<&SemanticTargetId>, formal: Option<&FormalPresentation>) {
+        self.observe(ParitySurface::InlayHint, module, target, formal);
+    }
+
+    /// Returns aggregate counts and the number of retained samples.
+    pub fn stats(&self) -> CanonicalParityStats {
+        CanonicalParityStats {
+            observations_total: self.counts.observations_total.load(Ordering::Relaxed),
+            hover_observations: self.counts.hover_observations.load(Ordering::Relaxed),
+            receiver_observations: self.counts.receiver_observations.load(Ordering::Relaxed),
+            inlay_hint_observations: self.counts.inlay_hint_observations.load(Ordering::Relaxed),
+            retained_samples: self.counts.retained_samples.load(Ordering::Relaxed) as usize,
         }
     }
 
-    /// Records hover parity between formal type representation and advisory inferred value.
-    pub fn record_hover_parity(&self, target_name: &str, formal_type: Option<&str>, advisory_type: Option<&str>) {
-        self.record(ParitySurface::Hover, target_name, formal_type, advisory_type);
+    /// Returns the bounded canonical samples retained for diagnostics.
+    pub fn samples(&self) -> Vec<CanonicalParitySample> {
+        self.samples.lock().expect("parity sample lock poisoned").iter().cloned().collect()
     }
 
-    /// Records receiver/completion parity between formal resolved receiver and advisory receiver.
-    pub fn record_receiver_parity(&self, receiver_name: &str, formal_classes: &[String], advisory_classes: &[String]) {
-        let formal = (!formal_classes.is_empty()).then(|| formal_classes.join(", "));
-        let advisory = (!advisory_classes.is_empty()).then(|| advisory_classes.join(", "));
-        self.record(ParitySurface::Receiver, receiver_name, formal.as_deref(), advisory.as_deref());
+    /// Compatibility accessor for the former observation terminology.
+    pub fn observations(&self) -> Vec<CanonicalParitySample> {
+        self.samples()
     }
 
-    /// Records inlay hint parity between formal binding type and advisory runtime shape.
-    pub fn record_inlay_hint_parity(&self, binding_name: &str, formal_type: Option<&str>, advisory_shape: Option<&str>) {
-        self.record(ParitySurface::InlayHint, binding_name, formal_type, advisory_shape);
-    }
-
-    /// Returns a snapshot of all retained mismatches.
-    pub fn mismatches(&self) -> Vec<ParityMismatch> {
-        self.mismatches.lock().expect("parity mismatch lock poisoned").clone()
-    }
-
-    /// Returns a snapshot of every comparison observed by production queries.
-    pub fn observations(&self) -> Vec<ParityObservation> {
-        self.observations.lock().expect("parity observation lock poisoned").clone()
-    }
-
-    /// Returns the number of retained mismatches.
-    pub fn mismatch_count(&self) -> usize {
-        self.mismatches.lock().expect("parity mismatch lock poisoned").len()
-    }
-
-    /// Clears retained mismatches so a harness can be reused for another run.
+    /// Clears aggregate counts and retained samples for a fresh test run.
     pub fn clear(&self) {
-        self.mismatches.lock().expect("parity mismatch lock poisoned").clear();
-        self.observations.lock().expect("parity observation lock poisoned").clear();
+        self.samples.lock().expect("parity sample lock poisoned").clear();
+        self.counts.observations_total.store(0, Ordering::Relaxed);
+        self.counts.hover_observations.store(0, Ordering::Relaxed);
+        self.counts.receiver_observations.store(0, Ordering::Relaxed);
+        self.counts.inlay_hint_observations.store(0, Ordering::Relaxed);
+        self.counts.retained_samples.store(0, Ordering::Relaxed);
     }
 
-    /// Panics with the retained evidence if any parity mismatch was observed.
-    pub fn assert_no_mismatches(&self) {
-        let mismatches = self.mismatches();
-        assert!(mismatches.is_empty(), "formal/advisory parity mismatches: {mismatches:#?}");
-    }
+    fn observe(&self, surface: ParitySurface, module: &ModuleId, target: Option<&SemanticTargetId>, formal: Option<&FormalPresentation>) {
+        self.counts.observations_total.fetch_add(1, Ordering::Relaxed);
+        match surface {
+            ParitySurface::Hover => self.counts.hover_observations.fetch_add(1, Ordering::Relaxed),
+            ParitySurface::Receiver => self.counts.receiver_observations.fetch_add(1, Ordering::Relaxed),
+            ParitySurface::InlayHint => self.counts.inlay_hint_observations.fetch_add(1, Ordering::Relaxed),
+        };
 
-    fn record(&self, surface: ParitySurface, target_name: &str, formal: Option<&str>, advisory: Option<&str>) {
-        self.observations.lock().expect("parity observation lock poisoned").push(ParityObservation {
-            surface,
-            target_name: target_name.to_string(),
-            formal: formal.map(str::to_string),
-            advisory: advisory.map(str::to_string),
-        });
-        if formal == advisory {
+        let reserved = self
+            .counts
+            .retained_samples
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |count| (count < MAX_SAMPLES as u64).then_some(count + 1))
+            .is_ok();
+        if !reserved {
             return;
         }
-        self.mismatches.lock().expect("parity mismatch lock poisoned").push(ParityMismatch {
+
+        self.samples.lock().expect("parity sample lock poisoned").push_back(CanonicalParitySample {
             surface,
-            target_name: target_name.to_string(),
-            formal: formal.map(str::to_string),
-            advisory: advisory.map(str::to_string),
+            module: module.clone(),
+            target: target.cloned(),
+            formal: formal.cloned(),
         });
     }
 }
+
+/// Compatibility name for callers that used the initial shadow-harness API.
+/// The retained data is canonical-only; this alias does not restore the old
+/// formal/advisory string comparison behavior.
+pub type ShadowParityHarness = CanonicalParityHarness;
+
+/// Compatibility name for the old observation type.
+pub type ParityObservation = CanonicalParitySample;
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn module() -> ModuleId {
+        ModuleId::universe(phalcom_modules::identity::ModulePath::from_components(vec![
+            phalcom_modules::identity::ModuleComponent::from_identifier("test").unwrap(),
+        ]))
+    }
+
     #[test]
-    fn parity_harness_records_without_panic() {
-        let harness = ShadowParityHarness::new();
-        harness.record_hover_parity("x", Some("Int"), Some("Int"));
-        harness.record_hover_parity("x", Some("Int"), Some("String"));
-        harness.record_hover_parity("x", Some("Int"), None);
-        harness.record_hover_parity("x", None, Some("Int"));
-        harness.record_hover_parity("x", None, None);
+    fn canonical_samples_preserve_identity_and_formal_state() {
+        let harness = CanonicalParityHarness::new();
+        let module = module();
+        let target = SemanticTargetId::Module(module.clone());
+        let formal = FormalPresentation::Known("Int | String".into());
+        harness.observe_hover(&module, &target, Some(&formal));
 
-        harness.record_receiver_parity("u", &["User".into()], &["User".into()]);
-        harness.record_receiver_parity("u", &["User".into()], &[]);
-
-        harness.record_inlay_hint_parity("x", Some("Int"), Some("Int"));
-        harness.record_inlay_hint_parity("x", Some("Int"), None);
-
-        assert_eq!(harness.mismatch_count(), 5);
+        assert_eq!(harness.stats().observations_total, 1);
         assert_eq!(
-            harness.mismatches()[0],
-            ParityMismatch {
+            harness.samples(),
+            vec![CanonicalParitySample {
                 surface: ParitySurface::Hover,
-                target_name: "x".into(),
-                formal: Some("Int".into()),
-                advisory: Some("String".into()),
-            }
+                module,
+                target: Some(target),
+                formal: Some(formal),
+            }]
         );
     }
 
     #[test]
-    fn matching_formal_and_advisory_facts_are_assertion_clean() {
-        let harness = ShadowParityHarness::new();
-        harness.record_hover_parity("x", Some("Int"), Some("Int"));
-        harness.record_receiver_parity("receiver", &["User".into()], &["User".into()]);
-        harness.record_inlay_hint_parity("x", None, None);
+    fn samples_are_bounded_but_aggregate_counts_continue() {
+        let harness = CanonicalParityHarness::new();
+        let module = module();
+        let target = SemanticTargetId::Module(module.clone());
+        let formal = FormalPresentation::Unknown;
+        for _ in 0..(MAX_SAMPLES + 12) {
+            harness.observe_inlay_hint(&module, Some(&target), Some(&formal));
+        }
 
-        harness.assert_no_mismatches();
-        assert_eq!(harness.mismatches(), Vec::new());
+        let stats = harness.stats();
+        assert_eq!(stats.observations_total, (MAX_SAMPLES + 12) as u64);
+        assert_eq!(stats.inlay_hint_observations, (MAX_SAMPLES + 12) as u64);
+        assert_eq!(stats.retained_samples, MAX_SAMPLES);
+        assert_eq!(harness.samples().len(), MAX_SAMPLES);
     }
 
     #[test]
-    fn cloned_harnesses_share_observations_and_clear_together() {
-        let harness = ShadowParityHarness::new();
+    fn cloned_harnesses_share_and_clear_evidence() {
+        let harness = CanonicalParityHarness::new();
         let clone = harness.clone();
-        clone.record_hover_parity("x", Some("Int"), Some("String"));
+        let module = module();
+        let target = SemanticTargetId::Module(module.clone());
+        clone.observe_hover(&module, &target, None);
 
-        assert_eq!(harness.mismatch_count(), 1);
-        assert_eq!(clone.observations().len(), 1);
+        assert_eq!(harness.stats().observations_total, 1);
         harness.clear();
-        assert_eq!(clone.mismatch_count(), 0);
-        assert_eq!(clone.observations().len(), 0);
+        assert_eq!(clone.stats(), CanonicalParityStats::default());
+        assert!(clone.samples().is_empty());
     }
 }

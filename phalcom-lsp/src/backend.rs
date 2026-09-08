@@ -48,7 +48,7 @@ use crate::documents::DocumentStore;
 use crate::hover::{self, SelectorSite};
 use crate::inlay_hints::HintPolicy;
 use crate::line_index::LineIndex;
-use crate::parity::ShadowParityHarness;
+use crate::parity::CanonicalParityHarness;
 use crate::perf::{PerfCountersHandle, PerfSpan};
 use crate::request_context::{RequestContext, SourceMatch};
 use crate::semantic_tokens;
@@ -286,8 +286,9 @@ pub struct Backend {
     closed_sources: SourceCache,
     /// Mutable server configuration.
     config: RwLock<ServerConfig>,
-    /// Observational formal/advisory parity evidence from live LSP queries.
-    parity: ShadowParityHarness,
+    /// Optional canonical parity evidence. Production servers leave this off;
+    /// focused integration tests enable the bounded evidence channel.
+    parity: Option<CanonicalParityHarness>,
     /// Whether client requested dynamic watched-file registration.
     watch_registration: RwLock<bool>,
     inlay_refresh: Arc<PublicationRefresh>,
@@ -334,6 +335,11 @@ impl Backend {
     /// Creates a new [`Backend`] bound to `client`, with an empty document
     /// store and an empty workspace index.
     pub fn new(client: Client) -> Self {
+        Self::new_with_parity(client, None)
+    }
+
+    /// Creates a backend with optional canonical parity evidence.
+    pub fn new_with_parity(client: Client, parity: Option<CanonicalParityHarness>) -> Self {
         let _span = PerfSpan::start_with_counters("backend_construction", Arc::new(crate::perf::PerfCounters::new()));
         let closed_sources = Arc::new(RwLock::new(BTreeMap::new()));
         let (analysis, event_rx) = AnalysisService::new_with_source_cache(Some(closed_sources.clone()));
@@ -345,7 +351,7 @@ impl Backend {
             workspace_roots: RwLock::new(Vec::new()),
             closed_sources,
             config: RwLock::new(ServerConfig::default()),
-            parity: ShadowParityHarness::new(),
+            parity,
             watch_registration: RwLock::new(false),
             inlay_refresh: Arc::new(PublicationRefresh::default()),
             semantic_token_refresh: Arc::new(PublicationRefresh::default()),
@@ -365,7 +371,7 @@ impl Backend {
     }
 
     /// Returns the observational parity handle used by live editor queries.
-    pub fn parity_harness(&self) -> ShadowParityHarness {
+    pub fn parity_harness(&self) -> Option<CanonicalParityHarness> {
         self.parity.clone()
     }
 
@@ -555,9 +561,9 @@ impl Backend {
         });
         let selector = callable.selector.encode();
         let advisory = compiler.advisory_callable(callable).map(|summary| summary.return_fact.clone());
-        let formal_text = formal.text();
-        let advisory_text = advisory.as_ref().map(|fact| phalcom_semantic::AdvisoryPresenter::present_shape(&fact.shape));
-        self.parity.record_hover_parity(&selector, Some(&formal_text), advisory_text.as_deref());
+        if let (Some(parity), Some(module)) = (&self.parity, request.compiler_module()) {
+            parity.observe_hover(module, &phalcom_semantic::SemanticTargetId::Callable(callable.clone()), Some(&formal));
+        }
         Some((
             selector,
             SelectorSite {
@@ -1550,7 +1556,7 @@ impl LanguageServer for Backend {
             params.range,
             config.inlay_hints,
             config.suppress_obvious,
-            Some(&self.parity),
+            self.parity.as_ref(),
         )))
     }
 

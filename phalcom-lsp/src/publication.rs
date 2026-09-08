@@ -42,6 +42,13 @@ impl SemanticPublicationHandle {
         };
         snapshot.sources.get(module).is_some_and(|source| source.text.as_ref() == text)
     }
+
+    /// Returns the immutable canonical snapshot currently visible to LSP
+    /// requests. The returned `Arc` pins that generation for read-only tests
+    /// and scheduling checks; it cannot mutate compiler state.
+    pub fn snapshot(&self) -> Option<Arc<phalcom_semantic::SemanticSnapshot>> {
+        self.publication.load()
+    }
 }
 
 impl SemanticPublication {

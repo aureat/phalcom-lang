@@ -420,32 +420,32 @@ Expected end state:
 
 ### Task 20 — Project-Aware Startup and Progressive Readiness
 
-**Status:** Pending; scanner, budgets, and local/workspace modes exist, but startup must use the compiler session and project manifest directly.
+**Status:** Partial; manifest-driven project startup, canonical source/dependency roots, bounded scanning, and publication readiness are implemented, while priority/negative startup assertions remain.
 
 **Files:** `phalcom-lsp/src/analysis_service.rs`, `phalcom-lsp/src/workspace_scan.rs`, project/session query APIs, `phalcom-lsp/tests/project_startup.rs`.
 
-- [ ] Ingest root `project.toml` before broad file discovery.
-- [ ] Derive project source roots and dependency roots through canonical project products.
+- [x] Ingest root `project.toml` before broad file discovery.
+- [x] Derive project source roots and dependency roots through canonical project products.
 - [ ] Prioritize open documents and their required dependency closure.
-- [ ] Bound background scanning with existing scan budgets and counters.
-- [ ] Publish basic editor-query readiness before full background analysis completes.
+- [x] Bound background scanning with existing scan budgets and counters.
+- [x] Publish basic editor-query readiness before full background analysis completes.
 - [ ] Assert startup does not construct a second project session or perform query-path disk I/O.
-- [ ] Test manifest startup, dependency roots, open-document priority, bounded scanning, and progressive readiness.
-- [ ] Run `cargo test -p phalcom-lsp --test project_startup -- --nocapture`.
+- [x] Test manifest startup and dependency-root identity/resolution; open-document priority and progressive-readiness negatives remain.
+- [x] Run `cargo test -p phalcom-lsp --test project_startup -- --nocapture`.
 
 ### Task 21 — Canonical Module Diagnostics
 
-**Status:** Pending; current resolver/load/link errors can be silently continued and canonical module diagnostic codes are absent.
+**Status:** Partial; canonical codes, source ownership, LSP projection, incremental clearing, and hostile private/missing-name coverage are implemented; invalid-root and cross-project matrix coverage remains.
 
 **Files:** `phalcom-modules/src/`, `phalcom-semantic/src/diagnostic.rs`, `phalcom-semantic/src/db/`, `phalcom-lsp/src/diagnostics.rs`, `phalcom-lsp/tests/module_diagnostics.rs`.
 
-- [ ] Produce structured compiler/module facts for unresolved imports, rejected exposure, missing exports, invalid relative roots, and link failures.
-- [ ] Assign stable diagnostic codes such as `module.import.unresolved` and `module.exposure.rejected` at the canonical producer.
-- [ ] Preserve source ownership and labels for every module diagnostic.
-- [ ] Convert canonical diagnostics to the LSP Problems panel without recomputation or information loss.
-- [ ] Clear diagnostics incrementally when the import or exposure is fixed.
-- [ ] Test unresolved, private, missing-export, invalid-root, cross-project, and repaired-import cases.
-- [ ] Run `cargo test -p phalcom-lsp --test module_diagnostics -- --nocapture`.
+- [x] Produce structured compiler/module facts for unresolved imports, rejected exposure, missing exports, invalid relative roots, and link failures.
+- [x] Assign stable diagnostic codes such as `module.import.unresolved` and `module.exposure.rejected` at the canonical producer.
+- [x] Preserve source ownership and labels for every module diagnostic.
+- [x] Convert canonical diagnostics to the LSP Problems panel without recomputation or information loss.
+- [x] Clear diagnostics incrementally when the import or exposure is fixed.
+- [ ] Test invalid-root and cross-project cases; unresolved, private, missing-export, and repaired-import cases are covered.
+- [x] Run `cargo test -p phalcom-lsp --test module_diagnostics -- --nocapture`.
 
 ### Task 22 — VS Code Extension Finishing
 
@@ -465,24 +465,24 @@ Expected end state:
 
 ### Task 23 — Compiler/LSP Canonical Formal Parity
 
-**Status:** Pending; current `ShadowParityHarness` is a no-op recorder.
+**Status:** Partial/incident; bounded test-enabled canonical formal adapter evidence is implemented, while the broader product matrix and compiler-boundary fixture remain.
 
 **Files:** `phalcom-lsp/src/parity.rs`, `phalcom-core/tests/compiler_lsp_parity.rs`, `phalcom-lsp/tests/compiler_parity.rs`, shared test fixtures.
 
 Parity means agreement on canonical formal facts, not byte-identical UI text:
 
-- [ ] Same `ModuleId` and source ownership.
-- [ ] Same declaration and callable targets.
-- [ ] Same formal `TypeKnowledge` and explicit analysis status.
+- [x] Same `ModuleId` and source ownership.
+- [x] Same declaration and callable targets.
+- [x] Same formal presentation and explicit epistemic state at the LSP adapter boundary.
 - [ ] Same callable target and visibility.
 - [ ] Same linked exports and exposure decisions.
 - [ ] Same diagnostic code, severity, and source labels.
-- [ ] Advisory LSP shape/inference remains outside parity unless displayed in a separately labeled section.
+- [x] Advisory LSP shape/inference remains outside parity unless displayed in a separately labeled section.
 
-- [ ] Replace no-op parity recording with assertions over compiler products and LSP adapters.
-- [ ] Add parity fixtures for imports, visibility, generic types, flow narrowing, dynamic/unknown states, callable targets, and diagnostics.
+- [x] Replace the unbounded formal/advisory recorder with bounded canonical evidence and assertions over compiler products and the LSP hover adapter.
+- [ ] Add the remaining parity fixtures for imports, visibility, generic types, flow narrowing, dynamic/unknown states, and diagnostics.
 - [ ] Run `cargo test -p phalcom-core --test compiler_lsp_parity -- --nocapture`.
-- [ ] Run `cargo test -p phalcom-lsp --test compiler_parity -- --nocapture`.
+- [x] Run `cargo test -p phalcom-lsp --test compiler_parity -- --nocapture`.
 
 ### Task 24 — Structural Performance Gates and IDE-Golden Acceptance
 

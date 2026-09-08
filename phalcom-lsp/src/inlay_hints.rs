@@ -5,7 +5,7 @@ use phalcom_semantic::{AdvisoryConfidence, AdvisoryPresenter, EditorTypeHint, Ed
 use tower_lsp::lsp_types::{InlayHint, InlayHintKind, InlayHintLabel, InlayHintTooltip, MarkupContent, MarkupKind, Range};
 
 use crate::line_index::LineIndex;
-use crate::parity::ShadowParityHarness;
+use crate::parity::CanonicalParityHarness;
 use crate::request_context::RequestContext;
 
 /// Server policy for runtime-value inlay hints.
@@ -31,7 +31,7 @@ pub fn hints_for_request_with_parity(
     visible: Range,
     policy: HintPolicy,
     suppress_obvious: bool,
-    parity: Option<&ShadowParityHarness>,
+    parity: Option<&CanonicalParityHarness>,
 ) -> Vec<InlayHint> {
     if policy == HintPolicy::Off {
         return Vec::new();
@@ -57,27 +57,13 @@ pub fn hints_for_request_with_parity(
                 return None;
             }
             if let Some(parity) = parity {
-                let formal = hint.formal.as_ref().map(FormalPresentation::text);
-                let advisory = hint.advisory.as_ref().map(|fact| AdvisoryPresenter::present_shape(&fact.shape));
-                parity.record_inlay_hint_parity(&type_hint_target_name(snapshot, module, &hint), formal.as_deref(), advisory.as_deref());
+                parity.observe_inlay_hint(module, hint.target.as_ref(), hint.formal.as_ref());
             }
             render_hint(&request.document.line_index, hint, policy)
         })
         .collect::<Vec<_>>();
     hints.sort_by_key(|hint| (hint.position.line, hint.position.character));
     hints
-}
-
-fn type_hint_target_name(snapshot: &phalcom_semantic::SemanticSnapshot, module: &phalcom_modules::ModuleId, hint: &EditorTypeHint) -> String {
-    if let Some(phalcom_semantic::SemanticTargetId::Binding(site)) = hint.target.as_ref()
-        && let Some(source) = snapshot.source_index().module(module)
-        && let Some(binding) = source.structure.bindings.get(site)
-    {
-        return binding.name.to_string();
-    }
-    hint.target
-        .as_ref()
-        .map_or_else(|| format!("{:?}@{}", hint.kind, hint.source_range.start), |target| format!("{target:?}"))
 }
 
 fn obvious_initializer_text(text: &str, range: SourceRange) -> bool {
