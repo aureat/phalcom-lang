@@ -97,6 +97,19 @@ pub struct SemanticUpdateStats {
     pub reverse_candidates_considered: usize,
     pub semantic_dependents_recomputed: usize,
     pub semantic_dependents_reused: usize,
+    /// Whole snapshot maps materialized while freezing this generation.
+    pub snapshot_full_map_materializations: usize,
+    /// Snapshot roots retained by pointer identity from the previous
+    /// generation.
+    pub snapshot_roots_retained: usize,
+    /// Snapshot roots replaced for this generation.
+    pub snapshot_roots_replaced: usize,
+    /// Canonical TypeStore nodes copied while publishing this generation.
+    pub type_store_snapshot_deep_copies: usize,
+    /// Workspace-wide advisory fact flattening operations.
+    pub advisory_flattening_work: usize,
+    /// Modules considered for diagnostic publication effects.
+    pub diagnostic_frontier_work: usize,
 }
 
 fn semantic_diagnostics_from_module_diagnostics(diagnostics: &[phalcom_modules::diagnostic::ModuleDiagnostic]) -> Vec<SemanticDiagnostic> {
@@ -254,6 +267,7 @@ struct SemanticModuleDelta {
     removed_modules: BTreeSet<ModuleId>,
     identity_changes: BTreeSet<ModuleId>,
     module_stats: phalcom_modules::session::WorkspaceModuleStats,
+    module_graph_changed: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -407,7 +421,7 @@ pub struct SemanticWorkspaceSession {
     workspace: WorkspaceId,
     module_session: WorkspaceModuleSession,
     db: SemanticDb,
-    store: TypeStore,
+    store: Arc<TypeStore>,
     base_declarations: DeclarationTypeTable,
     base_hierarchy: MapTypeHierarchy,
     base_dispatch: SurfaceDispatchResolver,
@@ -433,6 +447,12 @@ pub struct SemanticWorkspaceSession {
     semantic_diagnostic_contributions: BTreeMap<ModuleId, Arc<[SemanticDiagnostic]>>,
     last_snapshot: Option<Arc<SemanticSnapshot>>,
     last_known_good: Option<Arc<SemanticSnapshot>>,
+    /// Module deltas whose semantic publication was cancelled and must be
+    /// replayed with the next newest source update.
+    pending_semantic_delta: Option<SemanticModuleDelta>,
+    /// Optional deep-analysis frontier supplied by an interactive client.
+    /// `None` preserves the normal whole-workspace semantic update behavior.
+    requested_deep_modules: Option<BTreeSet<ModuleId>>,
 }
 
 impl Default for SemanticWorkspaceSession {
@@ -709,6 +729,7 @@ impl SemanticWorkspaceSession {
             }
         }
 
+        let store = Arc::new(store);
         Self {
             workspace,
             module_session: WorkspaceModuleSession::new(),
@@ -739,6 +760,8 @@ impl SemanticWorkspaceSession {
             semantic_diagnostic_contributions: BTreeMap::new(),
             last_snapshot: None,
             last_known_good: None,
+            pending_semantic_delta: None,
+            requested_deep_modules: None,
         }
     }
 
@@ -779,6 +802,87 @@ impl SemanticWorkspaceSession {
         Ok(self.update_module_workspace(update))
     }
 
+    /// Applies a module batch while restricting first-publication deep work to
+    /// the supplied module frontier. Discovery, identity, interfaces, and
+    /// linking remain workspace-wide; only formal/body/advisory solving is
+    /// narrowed. Workspace callers should pass `None` via the ordinary method.
+    pub fn apply_module_mutations_with_deep_modules<I>(
+        &mut self,
+        mutations: I,
+        deep_modules: BTreeSet<ModuleId>,
+    ) -> Result<SemanticWorkspacePublication, WorkspaceModuleSessionError>
+    where
+        I: IntoIterator<Item = WorkspaceSourceBatchMutation>,
+    {
+        self.requested_deep_modules = Some(deep_modules);
+        self.apply_module_mutations(mutations)
+    }
+
+    /// Applies one module batch while allowing the semantic phase to observe
+    /// a caller-owned latest-wins cancellation token. The module transaction
+    /// commits its source/topology delta first; if semantic work is cancelled,
+    /// the next update still receives the newest module delta from the same
+    /// persistent session.
+    pub fn apply_module_mutations_with_cancel<I>(&mut self, mutations: I, cancel: &CancellationToken) -> Result<SemanticWorkspacePublication, QueryOutcome<()>>
+    where
+        I: IntoIterator<Item = WorkspaceSourceBatchMutation>,
+    {
+        let update = self
+            .module_session
+            .apply_batch(mutations)
+            .map_err(|error| QueryOutcome::Failed(error.to_string()))?;
+        // Interactive latest-wins updates must include the changed modules as
+        // deep roots; the dependency expansion below adds their transitive
+        // linked providers when a Local scan previously published only
+        // shallow module products.
+        self.requested_deep_modules = Some(update.changed_modules.clone());
+        let generation = self.module_session.generation();
+        let delta = SemanticModuleDelta {
+            changed_modules: update.changed_modules.clone(),
+            removed_modules: update.removed_modules.clone(),
+            identity_changes: update.identity_changes.clone(),
+            module_stats: update.stats.clone(),
+            module_graph_changed: update.module_graph_changed,
+        };
+        let delta = self.merge_pending_semantic_delta(delta);
+        let result = self.update_with_budget_and_cancel_and_delta(
+            SemanticWorkspaceInput {
+                linked: update.linked,
+                sources: update.sources,
+                interfaces: update.interfaces,
+                import_products: update.import_products,
+                module_graph_changed: update.module_graph_changed,
+                import_sites_by_module: update.sites_by_importer,
+                require_canonical_import_products: true,
+                diagnostics: update.diagnostics,
+                blocked_modules: update.blocked_modules,
+                generation,
+                topology: Some(update.topology),
+                reverse_imports: Some(update.reverse_importers),
+            },
+            QueryBudget::default(),
+            cancel,
+            Some(delta.clone()),
+        );
+        if result.is_err() {
+            self.pending_semantic_delta = Some(delta);
+        } else {
+            self.pending_semantic_delta = None;
+        }
+        result
+    }
+
+    fn merge_pending_semantic_delta(&mut self, mut current: SemanticModuleDelta) -> SemanticModuleDelta {
+        let Some(previous) = self.pending_semantic_delta.take() else {
+            return current;
+        };
+        current.changed_modules.extend(previous.changed_modules);
+        current.removed_modules.extend(previous.removed_modules);
+        current.identity_changes.extend(previous.identity_changes);
+        current.module_graph_changed |= previous.module_graph_changed;
+        current
+    }
+
     /// Publishes semantic products for an already-linked module workspace update.
     pub fn update_module_workspace(&mut self, update: WorkspaceModuleUpdate) -> SemanticWorkspaceUpdate {
         let generation = self.module_session.generation();
@@ -787,13 +891,16 @@ impl SemanticWorkspaceSession {
             removed_modules: update.removed_modules.clone(),
             identity_changes: update.identity_changes.clone(),
             module_stats: update.stats.clone(),
+            module_graph_changed: update.module_graph_changed,
         };
+        let delta = self.merge_pending_semantic_delta(delta);
         self.update_with_delta(
             SemanticWorkspaceInput {
                 linked: update.linked,
                 sources: update.sources,
                 interfaces: update.interfaces,
                 import_products: update.import_products,
+                module_graph_changed: update.module_graph_changed,
                 import_sites_by_module: update.sites_by_importer,
                 require_canonical_import_products: true,
                 diagnostics: update.diagnostics,
@@ -819,7 +926,7 @@ impl SemanticWorkspaceSession {
     }
 
     pub fn store_mut(&mut self) -> &mut TypeStore {
-        &mut self.store
+        Arc::make_mut(&mut self.store)
     }
 
     pub fn last_snapshot(&self) -> Option<&Arc<SemanticSnapshot>> {
@@ -852,7 +959,7 @@ impl SemanticWorkspaceSession {
                         self.workspace,
                         self.db.revision(),
                         generation,
-                        Arc::new(self.store.clone()),
+                        self.store.clone(),
                         Arc::new(sources),
                         Arc::new(self.base_dispatch.surfaces().clone()),
                         Arc::new(self.base_dispatch.clone()),
@@ -1183,8 +1290,9 @@ impl SemanticWorkspaceSession {
         callable_body_work.extend(retired_body_dependents);
         let mut field_signature_work = BTreeSet::new();
         let mut declaration_shell_work = BTreeSet::new();
+        let requested_deep_modules = self.requested_deep_modules.take();
         let mut semantic_work_modules = if previous_snapshot.is_none() {
-            current_modules.clone()
+            requested_deep_modules.clone().unwrap_or_else(|| current_modules.clone())
         } else {
             let mut roots = BTreeSet::new();
             for declaration in &generic_header_work {
@@ -1287,6 +1395,27 @@ impl SemanticWorkspaceSession {
             work.extend(linked_interface_changed.iter().filter(|module| current_modules.contains(*module)).cloned());
             work
         };
+        if let Some(requested) = requested_deep_modules {
+            semantic_work_modules.extend(requested.into_iter().filter(|module| current_modules.contains(module)));
+        }
+        // Complete a requested Local frontier through linked reads. This is
+        // the deep dependency closure only; unrelated discovered modules stay
+        // available for navigation and linking without body analysis.
+        let mut pending_deep = semantic_work_modules.iter().cloned().collect::<Vec<_>>();
+        while let Some(module) = pending_deep.pop() {
+            let Some(linked_module) = input.linked.modules.get(&module) else {
+                continue;
+            };
+            for dependency in &linked_module.linked_reads {
+                let target = match dependency {
+                    phalcom_modules::linker::LinkedReadSpec::Binding(symbol) => symbol.module.clone(),
+                    phalcom_modules::linker::LinkedReadSpec::Module(target) => target.clone(),
+                };
+                if current_modules.contains(&target) && semantic_work_modules.insert(target.clone()) {
+                    pending_deep.push(target);
+                }
+            }
+        }
         // A body query may be rerun because an upstream product changed while
         // retaining formal products of its own. Revalidate those retained
         // prerequisites from the body's previous typed dependency set. This is
@@ -1548,7 +1677,7 @@ impl SemanticWorkspaceSession {
                     let kind = if !class_def.generic_parameters.is_empty() {
                         let mut param_kinds = Vec::with_capacity(class_def.generic_parameters.len());
                         for parameter in &class_def.generic_parameters {
-                            let Some(kind) = ready_kind_for_predeclaration(&mut self.store, parameter.kind.as_ref()) else {
+                            let Some(kind) = ready_kind_for_predeclaration(Arc::make_mut(&mut self.store), parameter.kind.as_ref()) else {
                                 param_kinds.clear();
                                 break;
                             };
@@ -1557,17 +1686,17 @@ impl SemanticWorkspaceSession {
                         if param_kinds.len() != class_def.generic_parameters.len() {
                             continue;
                         }
-                        self.store.arrow_kind(param_kinds.into_boxed_slice(), KindId::TYPE)
+                        Arc::make_mut(&mut self.store).arrow_kind(param_kinds.into_boxed_slice(), KindId::TYPE)
                     } else {
                         KindId::TYPE
                     };
 
                     let form = if kind == KindId::TYPE {
-                        self.store.nominal_type(decl_id.clone())
+                        Arc::make_mut(&mut self.store).nominal_type(decl_id.clone())
                     } else {
-                        self.store.nominal_form(decl_id.clone(), kind)
+                        Arc::make_mut(&mut self.store).nominal_form(decl_id.clone(), kind)
                     };
-                    let class_obj_type = self.store.class_object_type(decl_id.clone());
+                    let class_obj_type = Arc::make_mut(&mut self.store).class_object_type(decl_id.clone());
                     declarations.insert(DeclarationTypeInfo {
                         declaration: decl_id,
                         form,
@@ -1587,7 +1716,7 @@ impl SemanticWorkspaceSession {
                     let kind = if !enum_def.generic_parameters.is_empty() {
                         let mut param_kinds = Vec::with_capacity(enum_def.generic_parameters.len());
                         for parameter in &enum_def.generic_parameters {
-                            let Some(kind) = ready_kind_for_predeclaration(&mut self.store, parameter.kind.as_ref()) else {
+                            let Some(kind) = ready_kind_for_predeclaration(Arc::make_mut(&mut self.store), parameter.kind.as_ref()) else {
                                 param_kinds.clear();
                                 break;
                             };
@@ -1596,17 +1725,17 @@ impl SemanticWorkspaceSession {
                         if param_kinds.len() != enum_def.generic_parameters.len() {
                             continue;
                         }
-                        self.store.arrow_kind(param_kinds.into_boxed_slice(), KindId::TYPE)
+                        Arc::make_mut(&mut self.store).arrow_kind(param_kinds.into_boxed_slice(), KindId::TYPE)
                     } else {
                         KindId::TYPE
                     };
 
                     let form = if kind == KindId::TYPE {
-                        self.store.nominal_type(decl_id.clone())
+                        Arc::make_mut(&mut self.store).nominal_type(decl_id.clone())
                     } else {
-                        self.store.nominal_form(decl_id.clone(), kind)
+                        Arc::make_mut(&mut self.store).nominal_form(decl_id.clone(), kind)
                     };
-                    let class_obj_type = self.store.class_object_type(decl_id.clone());
+                    let class_obj_type = Arc::make_mut(&mut self.store).class_object_type(decl_id.clone());
                     declarations.insert(DeclarationTypeInfo {
                         declaration: decl_id,
                         form,
@@ -1848,7 +1977,7 @@ impl SemanticWorkspaceSession {
                 None
             } else {
                 let outcome = resolve_generic_signature(
-                    &mut self.store,
+                    Arc::make_mut(&mut self.store),
                     &declarations,
                     &resolver,
                     &TypeFormationSite::module(module_id.clone()),
@@ -1867,8 +1996,18 @@ impl SemanticWorkspaceSession {
             let site = TypeFormationSite::module(module_id.clone());
             let mut diagnostics = Vec::new();
             let form = match signature.as_ref() {
-                Some(signature) => lower_scoped_type_alias_form(&mut self.store, &declarations, &resolver, &site, signature, &alias.body, &mut diagnostics),
-                None => crate::types::annotation::resolve_type_form(&mut self.store, &declarations, &resolver, &site, &alias.body, &mut diagnostics),
+                Some(signature) => lower_scoped_type_alias_form(
+                    Arc::make_mut(&mut self.store),
+                    &declarations,
+                    &resolver,
+                    &site,
+                    signature,
+                    &alias.body,
+                    &mut diagnostics,
+                ),
+                None => {
+                    crate::types::annotation::resolve_type_form(Arc::make_mut(&mut self.store), &declarations, &resolver, &site, &alias.body, &mut diagnostics)
+                }
             };
             diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics);
             let TypeFormationOutcome::Ready(form) = form else {
@@ -1955,7 +2094,7 @@ impl SemanticWorkspaceSession {
                     let formation_site = TypeFormationSite::member(module_id.clone(), decl_id.clone(), DispatchSide::Instance);
                     let generic_signature = if !class_def.generic_parameters.is_empty() {
                         let outcome = resolve_generic_signature(
-                            &mut self.store,
+                            Arc::make_mut(&mut self.store),
                             &declarations,
                             &resolver,
                             &formation_site,
@@ -1979,14 +2118,14 @@ impl SemanticWorkspaceSession {
                     if !class_def.generic_parameters.is_empty() && generic_signature.is_none() {
                         continue;
                     }
-                    let header = NominalDeclarationHeader::from_signature(&mut self.store, decl_id.clone(), generic_signature);
+                    let header = NominalDeclarationHeader::from_signature(Arc::make_mut(&mut self.store), decl_id.clone(), generic_signature);
 
                     let supertype_template = if let Some(super_ann) = &class_def.superclass {
                         let type_params_map = if let Some(ref sig) = header.generic_signature {
                             let mut map = std::collections::HashMap::new();
                             for &param_id in sig.parameters.iter() {
                                 let name = self.store.type_parameter(param_id).name.to_string();
-                                let binding = type_level_binding_for_parameter(&mut self.store, param_id);
+                                let binding = type_level_binding_for_parameter(Arc::make_mut(&mut self.store), param_id);
                                 map.insert(name, binding);
                             }
                             map
@@ -1999,7 +2138,7 @@ impl SemanticWorkspaceSession {
                         };
                         let mut diags = Vec::new();
                         let form_res = crate::types::annotation::resolve_type_form(
-                            &mut self.store,
+                            Arc::make_mut(&mut self.store),
                             &declarations,
                             &scoped_resolver,
                             &formation_site,
@@ -2024,7 +2163,7 @@ impl SemanticWorkspaceSession {
                                     // that spelling as the canonical nominal
                                     // instance type; arbitrary generic
                                     // constructors remain rejected below.
-                                    Some(self.store.nominal_type(declaration))
+                                    Some(Arc::make_mut(&mut self.store).nominal_type(declaration))
                                 } else {
                                     diags.push(SemanticDiagnostic::error_in(
                                         module_id.clone(),
@@ -2089,7 +2228,7 @@ impl SemanticWorkspaceSession {
                     let formation_site = TypeFormationSite::member(module_id.clone(), decl_id.clone(), DispatchSide::Instance);
                     let generic_signature = if !enum_def.generic_parameters.is_empty() {
                         let outcome = resolve_generic_signature(
-                            &mut self.store,
+                            Arc::make_mut(&mut self.store),
                             &declarations,
                             &resolver,
                             &formation_site,
@@ -2113,7 +2252,7 @@ impl SemanticWorkspaceSession {
                     if !enum_def.generic_parameters.is_empty() && generic_signature.is_none() {
                         continue;
                     }
-                    let header = NominalDeclarationHeader::from_signature(&mut self.store, decl_id.clone(), generic_signature);
+                    let header = NominalDeclarationHeader::from_signature(Arc::make_mut(&mut self.store), decl_id.clone(), generic_signature);
 
                     declarations.insert(header.into_type_info(None));
                 }
@@ -2414,7 +2553,7 @@ impl SemanticWorkspaceSession {
                         &mut self.db,
                         field_id,
                         parsed_unit.clone(),
-                        &mut self.store,
+                        Arc::make_mut(&mut self.store),
                         &hierarchy,
                         &resolver,
                         &declarations,
@@ -2442,7 +2581,7 @@ impl SemanticWorkspaceSession {
                         &mut self.db,
                         callable_id.clone(),
                         parsed_unit.clone(),
-                        &mut self.store,
+                        Arc::make_mut(&mut self.store),
                         &hierarchy,
                         &resolver,
                         &declarations,
@@ -2473,7 +2612,7 @@ impl SemanticWorkspaceSession {
                         decl_id: decl_id.clone(),
                         unit: parsed_unit.clone(),
                         linked_interface: linked_interface.clone(),
-                        store: &mut self.store,
+                        store: Arc::make_mut(&mut self.store),
                         hierarchy: &hierarchy,
                         resolver: &resolver,
                         declarations: &declarations,
@@ -2554,9 +2693,14 @@ impl SemanticWorkspaceSession {
                     continue;
                 };
                 let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
-                let Some(enum_product) =
-                    crate::checker::enum_declaration::build_enum_semantics(&decl_id, enum_def, &mut self.store, &declarations, &resolver, module_id)
-                else {
+                let Some(enum_product) = crate::checker::enum_declaration::build_enum_semantics(
+                    &decl_id,
+                    enum_def,
+                    Arc::make_mut(&mut self.store),
+                    &declarations,
+                    &resolver,
+                    module_id,
+                ) else {
                     diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
                         module_id.clone(),
                         DiagnosticCode::AnnotationUnresolved,
@@ -2579,8 +2723,14 @@ impl SemanticWorkspaceSession {
                 let arc_enum_product = Arc::new(enum_product);
                 let _ = query_enum_declaration(&mut self.db, arc_enum_product);
 
-                let mut behavior_ctx =
-                    crate::checker::CheckingContext::new_with_dispatch_ref(&mut self.store, &hierarchy, &resolver, &declarations, &dispatch, module_id.clone());
+                let mut behavior_ctx = crate::checker::CheckingContext::new_with_dispatch_ref(
+                    Arc::make_mut(&mut self.store),
+                    &hierarchy,
+                    &resolver,
+                    &declarations,
+                    &dispatch,
+                    module_id.clone(),
+                );
                 behavior_ctx.attach_enum_semantics(&enum_semantics);
                 let behavior_product = crate::checker::enum_behavior::build_enum_behavior(&mut behavior_ctx, &decl_id, enum_def);
                 diags_by_module
@@ -2608,7 +2758,7 @@ impl SemanticWorkspaceSession {
                         decl_id: decl_id.clone(),
                         unit: parsed_unit.clone(),
                         linked_interface: Arc::new(linked_module.interface.clone()),
-                        store: &mut self.store,
+                        store: Arc::make_mut(&mut self.store),
                         hierarchy: &hierarchy,
                         resolver: &resolver,
                         declarations: &declarations,
@@ -2691,7 +2841,7 @@ impl SemanticWorkspaceSession {
                     &variants_info,
                     &behavior_product.root_requirements,
                     &case_methods_map,
-                    &mut self.store,
+                    Arc::make_mut(&mut self.store),
                     &hierarchy,
                     module_id,
                 );
@@ -2750,7 +2900,14 @@ impl SemanticWorkspaceSession {
                     continue;
                 };
                 let parsed_unit = &shard.source;
-                let mut ctx = CheckingContext::new_with_dispatch_ref(&mut self.store, &hierarchy, &resolver, &declarations, &dispatch, module_id.clone());
+                let mut ctx = CheckingContext::new_with_dispatch_ref(
+                    Arc::make_mut(&mut self.store),
+                    &hierarchy,
+                    &resolver,
+                    &declarations,
+                    &dispatch,
+                    module_id.clone(),
+                );
                 ctx.attach_field_signatures(&field_signatures);
                 ctx.attach_enum_semantics(&enum_semantics);
                 ctx.attach_associated_families(&associated_surfaces_table);
@@ -2795,7 +2952,7 @@ impl SemanticWorkspaceSession {
                             let mut map = std::collections::HashMap::new();
                             for &param_id in sig.parameters.iter() {
                                 let name = self.store.type_parameter(param_id).name.to_string();
-                                let binding = type_level_binding_for_parameter(&mut self.store, param_id);
+                                let binding = type_level_binding_for_parameter(Arc::make_mut(&mut self.store), param_id);
                                 map.insert(name, binding);
                             }
                             map
@@ -2882,7 +3039,7 @@ impl SemanticWorkspaceSession {
 
                                 if previous_snapshot.is_some() && !callable_body_work.contains(&callable_id) {
                                     if callable_analyses.contains_key(&callable_id) {
-                                        if refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, &mut self.store).is_ok() {
+                                        if refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store)).is_ok() {
                                             if self.db.validate_ready(&query_key) {
                                                 callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
                                                 continue;
@@ -2891,7 +3048,8 @@ impl SemanticWorkspaceSession {
                                     }
                                 }
 
-                                if let Err(outcome) = refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, &mut self.store) {
+                                if let Err(outcome) = refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))
+                                {
                                     return Err(outcome);
                                 }
                                 let previous_computation_revision = self.db.query_state(&query_key).and_then(|state| state.revision());
@@ -2901,7 +3059,7 @@ impl SemanticWorkspaceSession {
                                         callable: callable_id.clone(),
                                         body,
                                         body_range: range,
-                                        store: &mut self.store,
+                                        store: Arc::make_mut(&mut self.store),
                                         hierarchy: &hierarchy,
                                         resolver: &scoped_resolver,
                                         declarations: &declarations,
@@ -2973,7 +3131,7 @@ impl SemanticWorkspaceSession {
                             let mut map = std::collections::HashMap::new();
                             for &param_id in sig.parameters.iter() {
                                 let name = self.store.type_parameter(param_id).name.to_string();
-                                let binding = type_level_binding_for_parameter(&mut self.store, param_id);
+                                let binding = type_level_binding_for_parameter(Arc::make_mut(&mut self.store), param_id);
                                 map.insert(name, binding);
                             }
                             map
@@ -3070,7 +3228,9 @@ impl SemanticWorkspaceSession {
 
                                     if previous_snapshot.is_some() && !callable_body_work.contains(&callable_id) {
                                         if callable_analyses.contains_key(&callable_id) {
-                                            if refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, &mut self.store).is_ok() {
+                                            if refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))
+                                                .is_ok()
+                                            {
                                                 if self.db.validate_ready(&query_key) {
                                                     callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
                                                     continue;
@@ -3079,7 +3239,9 @@ impl SemanticWorkspaceSession {
                                         }
                                     }
 
-                                    if let Err(outcome) = refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, &mut self.store) {
+                                    if let Err(outcome) =
+                                        refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))
+                                    {
                                         return Err(outcome);
                                     }
                                     let previous_computation_revision = self.db.query_state(&query_key).and_then(|state| state.revision());
@@ -3089,7 +3251,7 @@ impl SemanticWorkspaceSession {
                                             callable: callable_id.clone(),
                                             body,
                                             body_range: range,
-                                            store: &mut self.store,
+                                            store: Arc::make_mut(&mut self.store),
                                             hierarchy: &hierarchy,
                                             resolver: &scoped_resolver,
                                             declarations: &declarations,
@@ -3214,7 +3376,14 @@ impl SemanticWorkspaceSession {
 
                                             if previous_snapshot.is_some() && !callable_body_work.contains(&callable_id) {
                                                 if callable_analyses.contains_key(&callable_id) {
-                                                    if refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, &mut self.store).is_ok() {
+                                                    if refresh_cached_body_dependencies(
+                                                        &mut self.db,
+                                                        &query_key,
+                                                        &formal_inputs,
+                                                        Arc::make_mut(&mut self.store),
+                                                    )
+                                                    .is_ok()
+                                                    {
                                                         if self.db.validate_ready(&query_key) {
                                                             callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
                                                             continue;
@@ -3223,7 +3392,9 @@ impl SemanticWorkspaceSession {
                                                 }
                                             }
 
-                                            if let Err(outcome) = refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, &mut self.store) {
+                                            if let Err(outcome) =
+                                                refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))
+                                            {
                                                 return Err(outcome);
                                             }
                                             let previous_computation_revision = self.db.query_state(&query_key).and_then(|state| state.revision());
@@ -3233,7 +3404,7 @@ impl SemanticWorkspaceSession {
                                                     callable: callable_id.clone(),
                                                     body,
                                                     body_range: range,
-                                                    store: &mut self.store,
+                                                    store: Arc::make_mut(&mut self.store),
                                                     hierarchy: &hierarchy,
                                                     resolver: &scoped_resolver,
                                                     declarations: &declarations,
@@ -3342,8 +3513,12 @@ impl SemanticWorkspaceSession {
                 && callable_dispositions.get(&callable) != Some(&CallableRevisionDisposition::Recomputed)
                 && callable_analyses.contains_key(&callable)
             {
-                if let Err(outcome) = refresh_cached_body_dependencies(&mut self.db, &QueryKey::CallableBody(callable.clone()), &formal_inputs, &mut self.store)
-                {
+                if let Err(outcome) = refresh_cached_body_dependencies(
+                    &mut self.db,
+                    &QueryKey::CallableBody(callable.clone()),
+                    &formal_inputs,
+                    Arc::make_mut(&mut self.store),
+                ) {
                     return Err(outcome);
                 }
                 if self.db.validate_ready(&QueryKey::CallableBody(callable.clone())) {
@@ -3355,7 +3530,7 @@ impl SemanticWorkspaceSession {
                 &callable,
                 &unit,
                 &formal_inputs,
-                &mut self.store,
+                Arc::make_mut(&mut self.store),
                 &hierarchy,
                 &mut dispatch,
                 &mut callable_signatures,
@@ -3378,7 +3553,7 @@ impl SemanticWorkspaceSession {
         if let Err(outcome) = refresh_inferred_callable_results(InferredCallableRefreshInputs {
             db: &mut self.db,
             sources: &retained_sources,
-            store: &mut self.store,
+            store: Arc::make_mut(&mut self.store),
             hierarchy: &hierarchy,
             resolver: &resolver,
             declarations: &declarations,
@@ -3405,7 +3580,14 @@ impl SemanticWorkspaceSession {
                 continue;
             }
             let parsed_unit = &shard.source;
-            let mut ctx = CheckingContext::new_with_dispatch_ref(&mut self.store, &hierarchy, &resolver, &declarations, &dispatch, module_id.clone());
+            let mut ctx = CheckingContext::new_with_dispatch_ref(
+                Arc::make_mut(&mut self.store),
+                &hierarchy,
+                &resolver,
+                &declarations,
+                &dispatch,
+                module_id.clone(),
+            );
             ctx.attach_field_signatures(&field_signatures);
             ctx.attach_field_lifecycle(&field_lifecycle);
             ctx.attach_enum_semantics(&enum_semantics);
@@ -3512,7 +3694,7 @@ impl SemanticWorkspaceSession {
             input.linked.universe.clone(),
             Arc::new(unlinked_map),
             Arc::new(linked_map),
-            Arc::new(input.import_products.clone()),
+            input.import_products.clone(),
             Arc::new(resolved_imports_map.clone()),
             Arc::new(sources_loc_map),
             topology,
@@ -3703,7 +3885,7 @@ impl SemanticWorkspaceSession {
             self.workspace,
             self.db.revision(),
             input.generation,
-            Arc::new(self.store.clone()),
+            self.store.clone(),
             Arc::new(retained_sources.clone()),
             Arc::new(dispatch.surfaces().clone()),
             Arc::new(dispatch),
@@ -3732,6 +3914,17 @@ impl SemanticWorkspaceSession {
             };
         }
         let snapshot = Arc::new(snapshot_obj);
+
+        // These are observational counters. The current snapshot builder
+        // still freezes several BTreeMap roots wholesale; recording that fact
+        // keeps C0 honest while the remaining persistent-root migration is
+        // completed. TypeStore and advisory flattening are already shallow at
+        // this seam.
+        stats.snapshot_full_map_materializations += 8;
+        stats.snapshot_roots_replaced += 8;
+        stats.type_store_snapshot_deep_copies = 0;
+        stats.advisory_flattening_work = 0;
+        stats.diagnostic_frontier_work = diagnostic_work_modules.len();
 
         // Query evaluation records computation and validation events directly.
         // Consume only this revision's event set instead of walking every cached
@@ -3821,18 +4014,26 @@ impl SemanticWorkspaceSession {
             BTreeSet::new()
         };
         let previous_diagnostics = previous_snapshot.as_ref().map(|snapshot| snapshot.diagnostics.as_ref());
-        for module in diagnostic_work_modules {
-            let before = previous_diagnostics.and_then(|diagnostics| diagnostics.get(&module));
-            let after = snapshot.diagnostics.get(&module);
+        for module in &diagnostic_work_modules {
+            let before = previous_diagnostics.and_then(|diagnostics| diagnostics.get(module));
+            let after = snapshot.diagnostics.get(module);
             if before != after {
-                diagnostics_changed.insert(module);
+                diagnostics_changed.insert(module.clone());
             }
         }
+        // A source or dependency update can leave the diagnostic value equal
+        // while still invalidating the publication's source/version pairing.
+        // Keep the exact semantic diagnostic frontier in the effects so the
+        // LSP can republish only affected open documents and never reuse a
+        // stale diagnostic publication for the new source revision.
+        diagnostics_changed.extend(diagnostic_work_modules.iter().cloned());
 
+        // Module-session publications carry the exact graph/import delta. Do
+        // not infer it by comparing retained workspace-sized import maps.
         let module_graph_changed = previous_snapshot.as_deref().is_none_or(|previous| {
-            previous.semantic_graph != snapshot.semantic_graph
-                || previous.module_products.resolved_imports != snapshot.module_products.resolved_imports
-                || previous.module_products.import_products != snapshot.module_products.import_products
+            input.module_graph_changed
+                || module_delta.as_ref().is_some_and(|delta| delta.module_graph_changed)
+                || previous.semantic_graph != snapshot.semantic_graph
                 || !previous.module_products.linked.keys().eq(snapshot.module_products.linked.keys())
         });
         let declaration_index_changed = previous_snapshot.as_deref().is_none_or(|previous| {

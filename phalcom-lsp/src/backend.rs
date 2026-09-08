@@ -36,9 +36,10 @@ use tower_lsp::lsp_types::{
     DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, FileChangeType, GotoDefinitionParams, GotoDefinitionResponse,
     Hover, HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, InlayHint, InlayHintOptions,
     InlayHintParams, InlayHintServerCapabilities, Location, MarkupContent, MarkupKind, MessageType, OneOf, Position, PositionEncodingKind, ReferenceParams,
-    Registration, SemanticTokensFullOptions, SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult, SemanticTokensServerCapabilities,
-    ServerCapabilities, SignatureHelp, SignatureHelpOptions, SignatureHelpParams, SymbolInformation, SymbolKind, TextDocumentSyncCapability,
-    TextDocumentSyncKind, Url, WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities, WorkspaceSymbolParams,
+    Registration, SemanticTokensDelta, SemanticTokensDeltaParams, SemanticTokensEdit, SemanticTokensFullDeltaResult, SemanticTokensFullOptions,
+    SemanticTokensOptions, SemanticTokensParams, SemanticTokensResult, SemanticTokensServerCapabilities, ServerCapabilities, SignatureHelp,
+    SignatureHelpOptions, SignatureHelpParams, SymbolInformation, SymbolKind, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
+    WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities, WorkspaceSymbolParams,
 };
 use tower_lsp::{Client, LanguageServer};
 
@@ -293,6 +294,18 @@ pub struct Backend {
     watch_registration: RwLock<bool>,
     inlay_refresh: Arc<PublicationRefresh>,
     semantic_token_refresh: Arc<PublicationRefresh>,
+    /// Last semantic-token result per open document, retained only for the
+    /// protocol's result-id/delta window.
+    semantic_tokens: Mutex<BTreeMap<Url, CachedSemanticTokens>>,
+    /// Request-adaptation line indexes keyed by immutable source identity.
+    /// The cache stores indexes, not source text or snapshots.
+    line_index_cache: Arc<Mutex<BTreeMap<(phalcom_modules::ModuleId, usize, usize), Arc<LineIndex>>>>,
+}
+
+struct CachedSemanticTokens {
+    revision: phalcom_modules::SourceRevision,
+    result_id: String,
+    data: Vec<tower_lsp::lsp_types::SemanticToken>,
 }
 
 #[derive(Default)]
@@ -355,6 +368,8 @@ impl Backend {
             watch_registration: RwLock::new(false),
             inlay_refresh: Arc::new(PublicationRefresh::default()),
             semantic_token_refresh: Arc::new(PublicationRefresh::default()),
+            semantic_tokens: Mutex::new(BTreeMap::new()),
+            line_index_cache: Arc::new(Mutex::new(BTreeMap::new())),
         }
     }
 
@@ -684,9 +699,10 @@ impl Backend {
 /// Cached location mapper translating compiler source sites to LSP Locations.
 pub struct SnapshotLocationMapper<'a> {
     compiler: &'a phalcom_semantic::SemanticSnapshot,
-    line_indices: HashMap<phalcom_modules::ModuleId, LineIndex>,
+    line_indices: HashMap<phalcom_modules::ModuleId, Arc<LineIndex>>,
     uris: HashMap<phalcom_modules::ModuleId, Option<Url>>,
     counters: Option<PerfCountersHandle>,
+    line_index_cache: Option<Arc<Mutex<BTreeMap<(phalcom_modules::ModuleId, usize, usize), Arc<LineIndex>>>>>,
 }
 
 impl<'a> SnapshotLocationMapper<'a> {
@@ -697,12 +713,34 @@ impl<'a> SnapshotLocationMapper<'a> {
             line_indices: HashMap::new(),
             uris: HashMap::new(),
             counters: None,
+            line_index_cache: None,
         }
     }
 
     /// Creates a mapper that records bounded request-local conversion work.
     pub fn new_with_counters(compiler: &'a phalcom_semantic::SemanticSnapshot, counters: PerfCountersHandle) -> Self {
         let mut mapper = Self::new(compiler);
+        mapper.counters = Some(counters);
+        mapper
+    }
+
+    /// Creates a mapper that shares immutable line indexes across requests.
+    pub fn new_with_cache(
+        compiler: &'a phalcom_semantic::SemanticSnapshot,
+        line_index_cache: Arc<Mutex<BTreeMap<(phalcom_modules::ModuleId, usize, usize), Arc<LineIndex>>>>,
+    ) -> Self {
+        let mut mapper = Self::new(compiler);
+        mapper.line_index_cache = Some(line_index_cache);
+        mapper
+    }
+
+    /// Creates a counter-enabled mapper with the shared line-index cache.
+    pub fn new_with_counters_and_cache(
+        compiler: &'a phalcom_semantic::SemanticSnapshot,
+        counters: PerfCountersHandle,
+        line_index_cache: Arc<Mutex<BTreeMap<(phalcom_modules::ModuleId, usize, usize), Arc<LineIndex>>>>,
+    ) -> Self {
+        let mut mapper = Self::new_with_cache(compiler, line_index_cache);
         mapper.counters = Some(counters);
         mapper
     }
@@ -730,10 +768,26 @@ impl<'a> SnapshotLocationMapper<'a> {
                 .get(module)
                 .map(|published| published.text.as_ref())
                 .or_else(|| self.compiler.presentation_source(module))?;
-            self.line_indices.insert(module.clone(), LineIndex::new(text));
+            let cache_key = (module.clone(), text.as_ptr() as usize, text.len());
+            let cached = self
+                .line_index_cache
+                .as_ref()
+                .and_then(|cache| cache.lock().expect("line-index cache lock poisoned").get(&cache_key).cloned());
+            let index = if let Some(index) = cached {
+                index
+            } else {
+                let index = Arc::new(LineIndex::new(text));
+                if let Some(cache) = &self.line_index_cache {
+                    cache.lock().expect("line-index cache lock poisoned").insert(cache_key, index.clone());
+                }
+                if let Some(counters) = &self.counters {
+                    counters.reference_line_indexes_built.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
+                index
+            };
+            self.line_indices.insert(module.clone(), index);
             if let Some(counters) = &self.counters {
                 counters.reference_source_modules_converted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                counters.reference_line_indexes_built.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
         }
         let line_index = self.line_indices.get(module)?;
@@ -744,7 +798,7 @@ impl<'a> SnapshotLocationMapper<'a> {
 
 impl Backend {
     fn compiler_target_locations(&self, compiler: &phalcom_semantic::SemanticSnapshot, target: &phalcom_semantic::SemanticTargetId) -> Vec<Location> {
-        let mut mapper = SnapshotLocationMapper::new_with_counters(compiler, self.perf_counters());
+        let mut mapper = SnapshotLocationMapper::new_with_counters_and_cache(compiler, self.perf_counters(), self.line_index_cache.clone());
         let mut locations = Vec::new();
         for definition in compiler.editor().definition_locations(target) {
             let location = match definition {
@@ -773,7 +827,7 @@ impl Backend {
         include_declaration: bool,
     ) -> Vec<Location> {
         let sites = compiler.editor().reference_sites(target);
-        let mut mapper = SnapshotLocationMapper::new_with_counters(compiler, self.perf_counters());
+        let mut mapper = SnapshotLocationMapper::new_with_counters_and_cache(compiler, self.perf_counters(), self.line_index_cache.clone());
         let mut locations = Vec::with_capacity(sites.len());
         for site in sites {
             if let Some(location) = mapper.site_location(&site) {
@@ -799,7 +853,7 @@ impl Backend {
         // Workspace-symbol conversion is a separate request domain. The
         // reference/definition counters must not depend on which symbols were
         // mapped since their last reset.
-        let mut mapper = SnapshotLocationMapper::new(compiler);
+        let mut mapper = SnapshotLocationMapper::new_with_cache(compiler, self.line_index_cache.clone());
         let mut symbols = Vec::with_capacity(entries.len());
         for entry in entries {
             let kind = match entry.kind {
@@ -1182,7 +1236,7 @@ impl LanguageServer for Backend {
                 }))),
                 semantic_tokens_provider: Some(SemanticTokensServerCapabilities::SemanticTokensOptions(SemanticTokensOptions {
                     legend: semantic_tokens::legend(),
-                    full: Some(SemanticTokensFullOptions::Bool(true)),
+                    full: Some(SemanticTokensFullOptions::Delta { delta: Some(true) }),
                     ..SemanticTokensOptions::default()
                 })),
                 workspace: Some(WorkspaceServerCapabilities {
@@ -1226,8 +1280,16 @@ impl LanguageServer for Backend {
                             cache.remove(&uri);
                         }
                         AnalysisEvent::Published { effects, .. } => {
+                            let compiler_snapshot = publication.load();
                             for uri in documents.open_uris() {
-                                let Some(publication) = combined_diagnostics_for(&documents, publication.load().as_deref(), &uri) else {
+                                let affected = compiler_snapshot.as_ref().is_none_or(|snapshot| {
+                                    compiler_module_for_uri(snapshot, &uri)
+                                        .is_none_or(|module| effects.diagnostic_modules.iter().any(|affected| affected == module))
+                                });
+                                if !affected {
+                                    continue;
+                                }
+                                let Some(publication) = combined_diagnostics_for(&documents, compiler_snapshot.as_deref(), &uri) else {
                                     continue;
                                 };
                                 client.publish_diagnostics(uri, publication.diagnostics, publication.version).await;
@@ -1399,6 +1461,7 @@ impl LanguageServer for Backend {
     /// same as deleting the file.
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let uri = params.text_document.uri;
+        self.semantic_tokens.lock().expect("semantic token cache lock poisoned").remove(&uri);
         self.documents.close(&uri);
         self.analysis.mark_closed(&uri);
         let _revision = self.documents.bump_revision(&uri);
@@ -1572,11 +1635,76 @@ impl LanguageServer for Backend {
     async fn semantic_tokens_full(&self, params: SemanticTokensParams) -> Result<Option<SemanticTokensResult>> {
         let uri = params.text_document.uri;
         let Some(request) = self.request_context(&uri) else { return Ok(None) };
-        let data = semantic_tokens::tokens_for_request(&request);
+        let cached = self.semantic_tokens_for_request(&request);
         Ok(Some(SemanticTokensResult::Tokens(tower_lsp::lsp_types::SemanticTokens {
-            result_id: None,
-            data,
+            result_id: Some(cached.result_id),
+            data: cached.data,
         })))
+    }
+
+    /// Answers `textDocument/semanticTokens/full/delta` from the same cached
+    /// token vector used by the full request. A changed document is represented
+    /// as one protocol edit; clients still receive the exact complete result
+    /// without a second parse/classification pass.
+    async fn semantic_tokens_full_delta(&self, params: SemanticTokensDeltaParams) -> Result<Option<SemanticTokensFullDeltaResult>> {
+        let uri = params.text_document.uri;
+        let Some(request) = self.request_context(&uri) else { return Ok(None) };
+        let previous = self
+            .semantic_tokens
+            .lock()
+            .expect("semantic token cache lock poisoned")
+            .get(&uri)
+            .and_then(|entry| (entry.result_id == params.previous_result_id).then(|| (entry.data.len(), entry.result_id.clone())));
+        let cached = self.semantic_tokens_for_request(&request);
+        let result = match previous {
+            Some((_len, result_id)) if result_id == cached.result_id => SemanticTokensFullDeltaResult::TokensDelta(SemanticTokensDelta {
+                result_id: Some(result_id),
+                edits: Vec::new(),
+            }),
+            Some((len, _)) => SemanticTokensFullDeltaResult::TokensDelta(SemanticTokensDelta {
+                result_id: Some(cached.result_id),
+                edits: vec![SemanticTokensEdit {
+                    start: 0,
+                    delete_count: len as u32,
+                    data: Some(cached.data),
+                }],
+            }),
+            None => SemanticTokensFullDeltaResult::Tokens(tower_lsp::lsp_types::SemanticTokens {
+                result_id: Some(cached.result_id),
+                data: cached.data,
+            }),
+        };
+        Ok(Some(result))
+    }
+}
+
+impl Backend {
+    fn semantic_tokens_for_request(&self, request: &RequestContext) -> CachedSemanticTokens {
+        if let Some(cached) = self.semantic_tokens.lock().expect("semantic token cache lock poisoned").get(&request.uri)
+            && cached.revision == request.document.revision
+        {
+            return CachedSemanticTokens {
+                revision: cached.revision,
+                result_id: cached.result_id.clone(),
+                data: cached.data.clone(),
+            };
+        }
+        let data = semantic_tokens::tokens_for_request(request);
+        let result_id = format!("{}:{}", request.document.revision.0, data.len());
+        let cached = CachedSemanticTokens {
+            revision: request.document.revision,
+            result_id,
+            data,
+        };
+        self.semantic_tokens.lock().expect("semantic token cache lock poisoned").insert(
+            request.uri.clone(),
+            CachedSemanticTokens {
+                revision: cached.revision,
+                result_id: cached.result_id.clone(),
+                data: cached.data.clone(),
+            },
+        );
+        cached
     }
 }
 

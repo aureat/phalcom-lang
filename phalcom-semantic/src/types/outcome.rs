@@ -142,12 +142,25 @@ impl QueryBudget {
 #[derive(Clone, Debug, Default)]
 pub struct CancellationToken {
     cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    epoch: Option<(std::sync::Arc<std::sync::atomic::AtomicU64>, u64)>,
 }
 
 impl CancellationToken {
     pub fn new() -> Self {
         Self {
             cancelled: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            epoch: None,
+        }
+    }
+
+    /// Creates a token that is also cancelled when the shared editor epoch
+    /// advances. This lets long semantic queries observe latest-wins changes
+    /// at their existing cooperative safe points without coupling the
+    /// semantic layer to LSP worker state.
+    pub fn for_epoch(epoch: std::sync::Arc<std::sync::atomic::AtomicU64>, expected: u64) -> Self {
+        Self {
+            cancelled: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            epoch: Some((epoch, expected)),
         }
     }
 
@@ -157,6 +170,10 @@ impl CancellationToken {
 
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(std::sync::atomic::Ordering::Relaxed)
+            || self
+                .epoch
+                .as_ref()
+                .is_some_and(|(epoch, expected)| epoch.load(std::sync::atomic::Ordering::Acquire) != *expected)
     }
 
     pub fn check(&self) -> Result<(), CancellationError> {

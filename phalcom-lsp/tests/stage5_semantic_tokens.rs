@@ -83,7 +83,7 @@ async fn semantic_tokens_full_classifies_a_representative_document() {
     let init_response = read_response(&mut client_end, 1).await;
     let provider = &init_response["result"]["capabilities"]["semanticTokensProvider"];
     assert!(provider.is_object(), "{init_response:#?}");
-    assert_eq!(provider["full"], json!(true));
+    assert_eq!(provider["full"], json!({"delta": true}));
     let token_types = provider["legend"]["tokenTypes"].as_array().expect("legend token types array");
     assert!(token_types.iter().any(|t| t == "selector"), "{token_types:#?}");
 

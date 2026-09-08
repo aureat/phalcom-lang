@@ -160,6 +160,12 @@ pub struct WorkspaceModuleStats {
     pub module_entries_staged: usize,
     /// Number of source identity alias keys changed by the transaction.
     pub source_alias_entries_staged: usize,
+    /// Number of times the complete retained import root was cloned for a
+    /// graph-changing transaction.
+    pub import_product_root_full_clones: usize,
+    /// Number of mutable import-root materializations performed by a
+    /// graph-changing transaction.
+    pub import_product_root_materializations: usize,
 }
 
 /// Products published after one source mutation.
@@ -167,8 +173,9 @@ pub struct WorkspaceModuleStats {
 pub struct WorkspaceModuleUpdate {
     pub linked: Arc<LinkedProgram>,
     pub sources: BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
-    pub interfaces: BTreeMap<ModuleId, Arc<UnlinkedModuleInterface>>,
-    pub import_products: BTreeMap<ImportSiteId, Arc<crate::resolver::ImportResolutionProduct>>,
+    pub interfaces: Arc<BTreeMap<ModuleId, Arc<UnlinkedModuleInterface>>>,
+    /// Persistent exact import-product root for this publication.
+    pub import_products: Arc<BTreeMap<ImportSiteId, Arc<crate::resolver::ImportResolutionProduct>>>,
     pub diagnostics: BTreeMap<ModuleId, Vec<ModuleDiagnostic>>,
     pub blocked_modules: BTreeSet<ModuleId>,
     pub changed_modules: BTreeSet<ModuleId>,
@@ -179,6 +186,8 @@ pub struct WorkspaceModuleUpdate {
     pub reverse_importers: Arc<BTreeMap<ModuleId, BTreeSet<ModuleId>>>,
     pub sites_by_importer: Arc<BTreeMap<ModuleId, BTreeSet<ImportSiteId>>>,
     pub reverse_site_importers: Arc<BTreeMap<ModuleId, BTreeSet<ImportSiteId>>>,
+    /// Exact graph/import/topology change computed by the module transaction.
+    pub module_graph_changed: bool,
 }
 
 #[derive(Debug, Error)]
@@ -460,8 +469,8 @@ pub struct RebuildOutput {
     pub linked: Arc<LinkedProgram>,
     pub parsed_sources: BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
     pub new_discovered_sources: Vec<WorkspaceSourceState>,
-    pub interfaces: BTreeMap<ModuleId, (Arc<UnlinkedModuleInterface>, crate::fingerprint::InterfaceFingerprint)>,
-    pub import_products: BTreeMap<ImportSiteId, Arc<crate::resolver::ImportResolutionProduct>>,
+    pub interfaces: Arc<BTreeMap<ModuleId, (Arc<UnlinkedModuleInterface>, crate::fingerprint::InterfaceFingerprint)>>,
+    pub import_products: Arc<BTreeMap<ImportSiteId, Arc<crate::resolver::ImportResolutionProduct>>>,
     pub resolved_imports: BTreeMap<(ModuleId, String), ModuleId>,
     pub reverse_importers: Arc<BTreeMap<ModuleId, BTreeSet<ModuleId>>>,
     pub sites_by_importer: Arc<BTreeMap<ModuleId, BTreeSet<ImportSiteId>>>,
@@ -474,6 +483,7 @@ pub struct RebuildOutput {
     pub blocked_modules: BTreeSet<ModuleId>,
     pub stats: WorkspaceModuleStats,
     pub topology: Arc<ModuleTopology>,
+    pub module_graph_changed: bool,
 }
 
 /// Helper function to atomically reconcile forward and reverse dependencies for an importer.
@@ -748,8 +758,8 @@ pub struct WorkspaceModuleSession {
     sources_by_module: BTreeMap<ModuleId, WorkspaceSourceState>,
     standalone_projects: BTreeMap<SourceId, SyntheticProjectId>,
     synthetic_ids: SyntheticProjectIdAllocator,
-    interfaces: BTreeMap<ModuleId, (Arc<UnlinkedModuleInterface>, crate::fingerprint::InterfaceFingerprint)>,
-    import_products: BTreeMap<ImportSiteId, Arc<crate::resolver::ImportResolutionProduct>>,
+    interfaces: Arc<BTreeMap<ModuleId, (Arc<UnlinkedModuleInterface>, crate::fingerprint::InterfaceFingerprint)>>,
+    import_products: Arc<BTreeMap<ImportSiteId, Arc<crate::resolver::ImportResolutionProduct>>>,
     reverse_importers: Arc<BTreeMap<ModuleId, BTreeSet<ModuleId>>>,
     sites_by_importer: Arc<BTreeMap<ModuleId, BTreeSet<ImportSiteId>>>,
     reverse_site_importers: Arc<BTreeMap<ModuleId, BTreeSet<ImportSiteId>>>,
@@ -786,8 +796,8 @@ impl WorkspaceModuleSession {
             sources_by_module: BTreeMap::new(),
             standalone_projects: BTreeMap::new(),
             synthetic_ids: SyntheticProjectIdAllocator,
-            interfaces: BTreeMap::new(),
-            import_products: BTreeMap::new(),
+            interfaces: Arc::new(BTreeMap::new()),
+            import_products: Arc::new(BTreeMap::new()),
             reverse_importers: Arc::new(BTreeMap::new()),
             sites_by_importer: Arc::new(BTreeMap::new()),
             reverse_site_importers: Arc::new(BTreeMap::new()),
@@ -840,7 +850,7 @@ impl WorkspaceModuleSession {
     }
 
     pub fn interfaces(&self) -> &BTreeMap<ModuleId, (Arc<UnlinkedModuleInterface>, crate::fingerprint::InterfaceFingerprint)> {
-        &self.interfaces
+        self.interfaces.as_ref()
     }
 
     pub fn interface(&self, module: &ModuleId) -> Option<&Arc<UnlinkedModuleInterface>> {
@@ -848,7 +858,7 @@ impl WorkspaceModuleSession {
     }
 
     pub fn import_products(&self) -> &BTreeMap<ImportSiteId, Arc<crate::resolver::ImportResolutionProduct>> {
-        &self.import_products
+        self.import_products.as_ref()
     }
 
     pub fn import_product(&self, site: &ImportSiteId) -> Option<&Arc<crate::resolver::ImportResolutionProduct>> {
@@ -1026,7 +1036,7 @@ impl WorkspaceModuleSession {
         self.blocked_modules = rebuild_output.blocked_modules.clone();
         self.generation = self.generation.saturating_add(1);
 
-        let interfaces = self.interfaces.iter().map(|(id, (iface, _))| (id.clone(), iface.clone())).collect();
+        let interfaces = Arc::new(self.interfaces.iter().map(|(id, (iface, _))| (id.clone(), iface.clone())).collect());
 
         Ok(WorkspaceModuleUpdate {
             linked: rebuild_output.linked,
@@ -1043,6 +1053,7 @@ impl WorkspaceModuleSession {
             reverse_importers: rebuild_output.reverse_importers,
             sites_by_importer: rebuild_output.sites_by_importer,
             reverse_site_importers: rebuild_output.reverse_site_importers,
+            module_graph_changed: true,
         })
     }
 
@@ -1518,7 +1529,7 @@ impl WorkspaceModuleSession {
         // 5. Advance generation once at successful commit
         self.generation = self.generation.saturating_add(1);
 
-        let interfaces = self.interfaces.iter().map(|(id, (iface, _))| (id.clone(), iface.clone())).collect();
+        let interfaces = Arc::new(self.interfaces.iter().map(|(id, (iface, _))| (id.clone(), iface.clone())).collect());
 
         Ok(WorkspaceModuleUpdate {
             linked: rebuild_output.linked,
@@ -1535,6 +1546,7 @@ impl WorkspaceModuleSession {
             reverse_importers: rebuild_output.reverse_importers,
             sites_by_importer: rebuild_output.sites_by_importer,
             reverse_site_importers: rebuild_output.reverse_site_importers,
+            module_graph_changed: rebuild_output.module_graph_changed,
         })
     }
 
@@ -1816,7 +1828,13 @@ impl WorkspaceModuleSession {
                 removed_sources_by_module.insert(old_module.clone());
             }
 
-            let kind = Self::kind_for_source_delta(&module, &state.location, &mutated_sources_by_module, &removed_sources_by_module, &self.sources_by_module);
+            let kind = Self::kind_for_source_delta(
+                &module,
+                &state.location,
+                &mutated_sources_by_module,
+                &removed_sources_by_module,
+                &self.sources_by_module,
+            );
             let updated = if module == old_module && kind == state.kind {
                 state.clone()
             } else {
@@ -1869,9 +1887,16 @@ impl WorkspaceModuleSession {
         stats.identity_changes = identity_changes.len();
         let (resolution_hits_before, resolution_misses_before) = self.provider.base().resolution_metrics();
 
-        let mut interfaces = self.interfaces.clone();
+        let mut interfaces = (*self.interfaces).clone();
         let mut linked_modules = self.linked_modules.clone();
-        let mut import_products = self.import_products.clone();
+        // Keep the retained import root shared through body-only updates. A
+        // mutable working map is materialized only when a topology/interface
+        // change actually requires import reconciliation.
+        let mut import_products = (!removed_modules.is_empty()).then(|| {
+            stats.import_product_root_full_clones += 1;
+            stats.import_product_root_materializations += 1;
+            (*self.import_products).clone()
+        });
         let mut resolved_imports = self.resolved_imports.clone();
         let mut reverse_importers = (*self.reverse_importers).clone();
         let mut sites_by_importer = (*self.sites_by_importer).clone();
@@ -1889,7 +1914,7 @@ impl WorkspaceModuleSession {
             }
             if let Some(sites) = sites_by_importer.remove(removed) {
                 for site in &sites {
-                    if let Some(prod) = import_products.remove(site) {
+                    if let Some(prod) = import_products.as_mut().and_then(|products| products.remove(site)) {
                         stats.purged_products += 1;
                         if let Ok(target) = &prod.target {
                             if let Some(rev) = reverse_site_importers.get_mut(target) {
@@ -1906,7 +1931,9 @@ impl WorkspaceModuleSession {
             }
             if let Some(rev_sites) = reverse_site_importers.remove(removed) {
                 for site in &rev_sites {
-                    import_products.remove(site);
+                    if let Some(products) = import_products.as_mut() {
+                        products.remove(site);
+                    }
                 }
             }
             let resolved_imports_before = resolved_imports.len();
@@ -1980,11 +2007,11 @@ impl WorkspaceModuleSession {
             stats.filesystem_resolution_hits = resolution_hits_after.saturating_sub(resolution_hits_before) as usize;
             stats.filesystem_resolution_misses = resolution_misses_after.saturating_sub(resolution_misses_before) as usize;
             stats.affected_modules = changed_modules.len() + removed_modules.len();
-            let total_sites = import_products.len();
+            let total_sites = self.import_products.len();
             stats.import_sites_retained = total_sites;
             stats.import_sites_reused = total_sites;
             stats.import_resolutions_reused = total_sites;
-            stats.negative_resolutions_reused = import_products.values().filter(|p| p.target.is_err()).count();
+            stats.negative_resolutions_reused = self.import_products.values().filter(|p| p.target.is_err()).count();
             let parsed_sources = sources_by_module.iter_states().map(|(id, state)| (id.clone(), state.parsed.clone())).collect();
             let mut topology = (*self.topology).clone();
             topology.generation = target_generation;
@@ -1993,8 +2020,8 @@ impl WorkspaceModuleSession {
                 linked: self.linked.clone().unwrap(),
                 parsed_sources,
                 new_discovered_sources: Vec::new(),
-                interfaces,
-                import_products,
+                interfaces: self.interfaces.clone(),
+                import_products: self.import_products.clone(),
                 resolved_imports,
                 reverse_importers: Arc::new(reverse_importers),
                 sites_by_importer: self.sites_by_importer.clone(),
@@ -2007,8 +2034,15 @@ impl WorkspaceModuleSession {
                 blocked_modules: self.blocked_modules.clone(),
                 stats,
                 topology,
+                module_graph_changed: false,
             });
         }
+
+        let mut import_products = import_products.unwrap_or_else(|| {
+            stats.import_product_root_full_clones += 1;
+            stats.import_product_root_materializations += 1;
+            (*self.import_products).clone()
+        });
 
         // 4. Validate-before-resolve import loop
         let mut parsed_sources = sources_by_module
@@ -2307,12 +2341,18 @@ impl WorkspaceModuleSession {
                 .with_source_alias_entries(source_identity_aliases.iter_aliases()),
         );
 
+        let module_graph_changed = !modules_with_changed_interface.is_empty()
+            || !removed_modules.is_empty()
+            || !identity_changes.is_empty()
+            || stats.import_resolutions_recomputed > 0
+            || stats.linked_components_recomputed > 0;
+
         Ok(RebuildOutput {
             linked,
             parsed_sources,
             new_discovered_sources,
-            interfaces,
-            import_products,
+            interfaces: Arc::new(interfaces),
+            import_products: Arc::new(import_products),
             resolved_imports,
             reverse_importers: Arc::new(reverse_importers),
             sites_by_importer: Arc::new(sites_by_importer),
@@ -2325,6 +2365,7 @@ impl WorkspaceModuleSession {
             blocked_modules,
             stats,
             topology,
+            module_graph_changed,
         })
     }
 }

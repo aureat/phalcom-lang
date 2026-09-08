@@ -419,6 +419,109 @@ fn pb_3_production_module_session_import_products_preserve_dual_identity() {
     assert!(semantic.contains(&lexical[0]));
 }
 
+#[test]
+fn ia1_import_product_root_is_retained_and_replaced_by_exact_delta() {
+    let root = tempfile::tempdir().expect("temporary workspace");
+    std::fs::write(root.path().join("package.ph"), "").expect("package marker");
+    let provider_path = root.path().join("provider.ph");
+    let replacement_path = root.path().join("replacement.ph");
+    let consumer_path = root.path().join("consumer.ph");
+    let location = |path: &std::path::Path| SourceLocation {
+        source_id: SourceId(path.to_string_lossy().into()),
+        display_path: path.to_path_buf(),
+    };
+    let provider = location(&provider_path);
+    let replacement = location(&replacement_path);
+    let consumer = location(&consumer_path);
+    let mut session = SemanticWorkspaceSession::new();
+
+    let first = session
+        .apply_module_mutations([
+            WorkspaceSourceBatchMutation::SetOverlay {
+                source: provider.clone(),
+                text: Arc::from("class Foo { value() { 1 } }\n"),
+                revision: SourceRevision(1),
+                recovered_program: None,
+            },
+            WorkspaceSourceBatchMutation::SetOverlay {
+                source: consumer.clone(),
+                text: Arc::from("from .provider import Foo\nlet value = Foo\n"),
+                revision: SourceRevision(1),
+                recovered_program: None,
+            },
+        ])
+        .expect("initial import publication");
+    let first_root = first.snapshot.module_products.import_products.clone();
+    let first_product = first
+        .snapshot
+        .module_products
+        .import_products
+        .values()
+        .find(|product| product.written_path.written == ".provider")
+        .expect("initial canonical import product");
+    let first_target = first_product.target.clone().expect("initial import resolves");
+
+    let second = session
+        .apply_module_mutations([
+            WorkspaceSourceBatchMutation::SetOverlay {
+                source: replacement.clone(),
+                text: Arc::from("class Foo { value() { 1 } }\n"),
+                revision: SourceRevision(1),
+                recovered_program: None,
+            },
+            WorkspaceSourceBatchMutation::SetOverlay {
+                source: consumer.clone(),
+                text: Arc::from("from .replacement import Foo\nlet value = Foo\n"),
+                revision: SourceRevision(2),
+                recovered_program: None,
+            },
+        ])
+        .expect("retargeted import publication");
+    let second_product = second
+        .snapshot
+        .module_products
+        .import_products
+        .values()
+        .find(|product| product.written_path.written == ".replacement")
+        .expect("retargeted canonical import product");
+    let second_target = second_product.target.clone().expect("retargeted import resolves");
+    assert_ne!(first_target, second_target);
+    assert!(second.effects.module_graph_changed, "an import retarget is a graph delta");
+    assert_eq!(
+        first
+            .snapshot
+            .module_products
+            .import_products
+            .values()
+            .next()
+            .map(|product| product.target.clone()),
+        Some(Ok(first_target)),
+        "old snapshot retains the original canonical product"
+    );
+    assert_ne!(first_root.as_ref(), second.snapshot.module_products.import_products.as_ref());
+
+    let body_only = session
+        .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
+            source: provider,
+            text: Arc::from("class Foo { value() { 1 } }\n"),
+            revision: SourceRevision(2),
+            recovered_program: None,
+        }])
+        .expect("body-only publication");
+    assert!(
+        !body_only.effects.module_graph_changed,
+        "body-only edit has no graph delta: effects={:?}, module_stats={:?}",
+        body_only.effects, body_only.module_stats
+    );
+    assert!(
+        Arc::ptr_eq(
+            &second.snapshot.module_products.import_products,
+            &body_only.snapshot.module_products.import_products
+        ),
+        "body-only publication retains the exact import-product root"
+    );
+}
+
 // -----------------------------------------------------------------------------
 // PB-4 — Alias dual relation
 // -----------------------------------------------------------------------------

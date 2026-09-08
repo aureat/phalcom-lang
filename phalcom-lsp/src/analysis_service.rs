@@ -99,7 +99,7 @@ pub(crate) struct DiskRefresh {
 /// Shared synchronization primitive for the analysis service worker.
 pub(crate) struct WorkerShared {
     /// Monotonic epoch counter incremented on every enqueued update batch.
-    pub(crate) epoch: AtomicU64,
+    pub(crate) epoch: Arc<AtomicU64>,
     /// Coalesced pending work state.
     pub(crate) pending: Mutex<PendingWork>,
     /// Condvar used to signal worker thread when new work arrives or shutdown is requested.
@@ -237,12 +237,14 @@ pub enum AnalysisEvent {
 }
 
 /// Product-level effects of one semantic publication.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct PublicationEffects {
     /// Inlay values or policies may have changed.
     pub inlay_hints_changed: bool,
     /// Source occurrence/token classification may have changed.
     pub semantic_tokens_changed: bool,
+    /// Compiler-owned modules whose diagnostics changed in this publication.
+    pub diagnostic_modules: Arc<[phalcom_modules::ModuleId]>,
 }
 
 #[derive(Clone, Copy)]
@@ -295,7 +297,7 @@ impl AnalysisService {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         let counters = Arc::new(crate::perf::PerfCounters::new());
         let shared = Arc::new(WorkerShared {
-            epoch: AtomicU64::new(0),
+            epoch: Arc::new(AtomicU64::new(0)),
             pending: Mutex::new(PendingWork::default()),
             condvar: Condvar::new(),
             shutdown: AtomicBool::new(false),
@@ -764,7 +766,8 @@ fn worker_loop(
             };
             refresh_disk_sources(&scan_env, disk_refreshes, &mut delta);
             let batch = file_updates;
-            let cancelled = || shared.shutdown.load(Ordering::SeqCst) || shared.epoch.load(Ordering::Acquire) != batch_epoch;
+            let cancel = phalcom_semantic::CancellationToken::for_epoch(shared.epoch.clone(), batch_epoch);
+            let cancelled = || shared.shutdown.load(Ordering::SeqCst) || cancel.is_cancelled();
             let _span = PerfSpan::start_with_context_and_counters(
                 "semantic_solve_flow_publish",
                 PerfContext {
@@ -788,7 +791,10 @@ fn worker_loop(
                     recovered_program: Some(update.program),
                 });
             }
-            let publication_result = compiler_workspace_state.session.apply_module_mutations(mutations);
+            let publication_result = compiler_workspace_state.session.apply_module_mutations_with_cancel(mutations, &cancel);
+            if cancel.is_cancelled() {
+                shared.counters.semantic_cancellation_requested.fetch_add(1, Ordering::Relaxed);
+            }
             let mut effects = PublicationEffects::default();
             let mut publication_failed = false;
             let mut candidate_snapshot = None;
@@ -801,6 +807,9 @@ fn worker_loop(
                     }
                 }
                 Err(err) => {
+                    if matches!(err, phalcom_semantic::db::QueryOutcome::Cancelled) {
+                        shared.counters.semantic_cancellation_observed.fetch_add(1, Ordering::Relaxed);
+                    }
                     publication_failed = true;
                     let _ = event_tx.send(AnalysisEvent::Error {
                         message: format!("module mutation application failed: {err:?}"),
@@ -917,6 +926,7 @@ fn publication_effects_from_compiler(effects: &phalcom_semantic::SemanticPublica
     PublicationEffects {
         inlay_hints_changed: !effects.formal_changed.is_empty() || !effects.advisory_changed.is_empty(),
         semantic_tokens_changed: !effects.source_index_changed.is_empty(),
+        diagnostic_modules: Arc::from(effects.diagnostics_changed.iter().cloned().collect::<Vec<_>>()),
     }
 }
 
@@ -1004,7 +1014,7 @@ fn refresh_disk_sources(env: &ScanEnv<'_>, refreshes: BTreeSet<Url>, delta: &mut
 fn process_scan_batch(
     env: &ScanEnv<'_>,
     identity: &mut CompilerWorkspaceState,
-    _mode: AnalysisMode,
+    mode: AnalysisMode,
     files: Vec<crate::workspace_scan::DiscoveredFile>,
     discovered_files: &mut BTreeSet<Url>,
 ) {
@@ -1096,7 +1106,15 @@ fn process_scan_batch(
                 recovered_program: Some(Arc::new(program)),
             })
         });
-        if let Ok(publication) = identity.session.apply_module_mutations(mutations) {
+        let publication = if mode == AnalysisMode::Local {
+            // Local mode still indexes and links every discovered module, but
+            // has no open-document deep frontier in this scan batch. Open
+            // files are submitted through the interactive path below.
+            identity.session.apply_module_mutations_with_deep_modules(mutations, BTreeSet::new())
+        } else {
+            identity.session.apply_module_mutations(mutations)
+        };
+        if let Ok(publication) = publication {
             let effects = publication_effects_from_compiler(&publication.effects);
             if env.shared.epoch.load(Ordering::Acquire) == batch_epoch {
                 publish_snapshot(

@@ -16,8 +16,13 @@ use phalcom_modules::diagnostic::ModuleDiagnostic;
 pub struct SemanticWorkspaceInput {
     pub linked: Arc<LinkedProgram>,
     pub sources: BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
-    pub interfaces: BTreeMap<ModuleId, Arc<phalcom_modules::interface::UnlinkedModuleInterface>>,
-    pub import_products: BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>,
+    pub interfaces: Arc<BTreeMap<ModuleId, Arc<phalcom_modules::interface::UnlinkedModuleInterface>>>,
+    /// Exact canonical import products. Production module-session updates
+    /// retain this immutable root across semantic publication.
+    pub import_products: Arc<BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>>,
+    /// Exact module-layer graph/import delta, when supplied by the persistent
+    /// module session. Direct compatibility inputs leave this false.
+    pub module_graph_changed: bool,
     /// Exact importer-owned import-site worklists retained by Plan A.
     pub import_sites_by_module: Arc<BTreeMap<ModuleId, BTreeSet<phalcom_modules::identity::ImportSiteId>>>,
     /// Production module updates require canonical import products; direct
@@ -35,8 +40,9 @@ impl SemanticWorkspaceInput {
         Self {
             linked,
             sources,
-            interfaces: BTreeMap::new(),
-            import_products: BTreeMap::new(),
+            interfaces: Arc::new(BTreeMap::new()),
+            import_products: Arc::new(BTreeMap::new()),
+            module_graph_changed: false,
             import_sites_by_module: Arc::new(BTreeMap::new()),
             require_canonical_import_products: false,
             diagnostics: BTreeMap::new(),
@@ -58,12 +64,20 @@ impl SemanticWorkspaceInput {
     }
 
     pub fn with_interfaces(mut self, interfaces: BTreeMap<ModuleId, Arc<phalcom_modules::interface::UnlinkedModuleInterface>>) -> Self {
-        self.interfaces = interfaces;
+        self.interfaces = Arc::new(interfaces);
         self
     }
 
     pub fn with_import_sites_by_module(mut self, import_sites_by_module: Arc<BTreeMap<ModuleId, BTreeSet<phalcom_modules::identity::ImportSiteId>>>) -> Self {
         self.import_sites_by_module = import_sites_by_module;
+        self
+    }
+
+    pub fn with_import_products(
+        mut self,
+        import_products: Arc<BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>>,
+    ) -> Self {
+        self.import_products = import_products;
         self
     }
 
@@ -151,8 +165,8 @@ pub fn analyze_single_module(module: ModuleId, source: Arc<str>, program: Arc<Pr
     analyze_workspace(SemanticWorkspaceInput {
         linked,
         sources,
-        interfaces: input_interfaces,
-        import_products: BTreeMap::new(),
+        interfaces: Arc::new(input_interfaces),
+        import_products: Arc::new(BTreeMap::new()),
         import_sites_by_module: Arc::new(BTreeMap::new()),
         require_canonical_import_products: false,
         diagnostics: BTreeMap::new(),
@@ -160,5 +174,6 @@ pub fn analyze_single_module(module: ModuleId, source: Arc<str>, program: Arc<Pr
         generation: 0,
         topology: None,
         reverse_imports: None,
+        module_graph_changed: false,
     })
 }

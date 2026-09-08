@@ -23,6 +23,10 @@ pub struct PerfCounters {
     pub scan_batches_published: AtomicU64,
     /// Count of completed analysis batches discarded because a newer epoch superseded them.
     pub stale_batches_discarded: AtomicU64,
+    /// Count of semantic batches whose linked epoch cancellation was requested.
+    pub semantic_cancellation_requested: AtomicU64,
+    /// Count of semantic batches that observed cancellation inside the compiler.
+    pub semantic_cancellation_observed: AtomicU64,
     /// Count of workspace files discovered by scanner.
     pub workspace_files_discovered: AtomicU64,
     /// Count of workspace files parsed.
@@ -98,6 +102,8 @@ impl PerfCounters {
         self.semantic_batches_published.store(0, Ordering::Relaxed);
         self.scan_batches_published.store(0, Ordering::Relaxed);
         self.stale_batches_discarded.store(0, Ordering::Relaxed);
+        self.semantic_cancellation_requested.store(0, Ordering::Relaxed);
+        self.semantic_cancellation_observed.store(0, Ordering::Relaxed);
         self.workspace_files_discovered.store(0, Ordering::Relaxed);
         self.workspace_files_parsed.store(0, Ordering::Relaxed);
         self.flow_passes.store(0, Ordering::Relaxed);
@@ -139,6 +145,8 @@ impl PerfCounters {
             semantic_batches_published: self.semantic_batches_published.load(Ordering::Relaxed),
             scan_batches_published: self.scan_batches_published.load(Ordering::Relaxed),
             stale_batches_discarded: self.stale_batches_discarded.load(Ordering::Relaxed),
+            semantic_cancellation_requested: self.semantic_cancellation_requested.load(Ordering::Relaxed),
+            semantic_cancellation_observed: self.semantic_cancellation_observed.load(Ordering::Relaxed),
             workspace_files_discovered: self.workspace_files_discovered.load(Ordering::Relaxed),
             workspace_files_parsed: self.workspace_files_parsed.load(Ordering::Relaxed),
             flow_passes: self.flow_passes.load(Ordering::Relaxed),
@@ -190,6 +198,10 @@ pub struct CounterSnapshot {
     pub scan_batches_published: u64,
     /// Count of stale batches discarded.
     pub stale_batches_discarded: u64,
+    /// Count of semantic batches whose linked epoch cancellation was requested.
+    pub semantic_cancellation_requested: u64,
+    /// Count of semantic batches that observed cancellation inside the compiler.
+    pub semantic_cancellation_observed: u64,
     /// Count of workspace files discovered.
     pub workspace_files_discovered: u64,
     /// Count of workspace files parsed.
@@ -384,6 +396,8 @@ mod tests {
                 semantic_batches_published: 0,
                 scan_batches_published: 0,
                 stale_batches_discarded: 0,
+                semantic_cancellation_requested: 0,
+                semantic_cancellation_observed: 0,
                 workspace_files_discovered: 0,
                 workspace_files_parsed: 0,
                 flow_passes: 0,

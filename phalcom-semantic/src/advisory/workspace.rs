@@ -76,18 +76,8 @@ impl AdvisoryModuleProduct {
 pub struct AdvisoryWorkspace {
     /// Reusable per-module advisory shards.
     pub modules: Arc<BTreeMap<ModuleId, Arc<AdvisoryModuleProduct>>>,
-    /// Advisory expression facts keyed by snapshot-local source sites.
-    pub expressions: Arc<BTreeMap<SourceSiteId, AdvisoryFact>>,
-    /// Advisory binding facts keyed by snapshot-local declaration sites.
-    pub bindings: Arc<BTreeMap<SourceSiteId, AdvisoryFact>>,
-    /// Advisory field facts keyed by canonical field identity.
-    pub fields: Arc<BTreeMap<FieldId, AdvisoryFact>>,
-    /// Advisory parameter facts keyed by canonical callable/index slots.
-    pub parameters: Arc<BTreeMap<AdvisoryParameterSlot, AdvisoryFact>>,
     /// Advisory callable summaries keyed by canonical callable identity.
     pub callables: Arc<BTreeMap<CallableId, Arc<AdvisoryCallableSummary>>>,
-    /// Advisory target resolutions keyed by source site.
-    pub targets: Arc<BTreeMap<SourceSiteId, AdvisoryTargetResolution>>,
     /// Explicit outcome of workspace advisory publication.
     pub status: AdvisoryProductStatus,
     /// Deterministic fingerprint of the complete advisory workspace product.
@@ -107,42 +97,20 @@ impl AdvisoryWorkspace {
         callables: BTreeMap<CallableId, Arc<AdvisoryCallableSummary>>,
         status: AdvisoryProductStatus,
     ) -> Self {
-        let mut expressions = BTreeMap::new();
-        let mut bindings = BTreeMap::new();
-        let mut fields = BTreeMap::new();
-        let mut parameters = BTreeMap::new();
-        let mut targets = BTreeMap::new();
-        for shard in modules.values() {
-            expressions.extend(shard.expressions.iter().map(|(site, fact)| (site.clone(), fact.clone())));
-            bindings.extend(shard.bindings.iter().map(|(site, fact)| (site.clone(), fact.clone())));
-            fields.extend(shard.fields.iter().map(|(field, fact)| (field.clone(), fact.clone())));
-            parameters.extend(shard.parameters.iter().map(|(slot, fact)| (slot.clone(), fact.clone())));
-            targets.extend(shard.targets.iter().map(|(site, target)| (site.clone(), target.clone())));
-        }
         let mut hasher = DefaultHasher::new();
         for (module, shard) in &modules {
             module.hash(&mut hasher);
             shard.fingerprint.hash(&mut hasher);
         }
-        hash_facts(&mut hasher, &expressions);
-        hash_facts(&mut hasher, &bindings);
-        hash_facts(&mut hasher, &fields);
-        hash_facts(&mut hasher, &parameters);
         for (callable, summary) in &callables {
             callable.hash(&mut hasher);
             summary.fingerprint.hash(&mut hasher);
         }
-        targets.hash(&mut hasher);
         status.hash(&mut hasher);
         let fingerprint = ProductFingerprint::new(hasher.finish());
         Self {
             modules: Arc::new(modules),
-            expressions: Arc::new(expressions),
-            bindings: Arc::new(bindings),
-            fields: Arc::new(fields),
-            parameters: Arc::new(parameters),
             callables: Arc::new(callables),
-            targets: Arc::new(targets),
             status,
             fingerprint,
         }
@@ -155,22 +123,29 @@ impl AdvisoryWorkspace {
 
     /// Returns expression fact only when a product was published for `site`.
     pub fn expression(&self, site: &SourceSiteId) -> Option<&AdvisoryFact> {
-        self.expressions.get(site)
+        self.module_for_site(site)?.expressions.get(site)
     }
 
     /// Returns binding fact only when a product was published for `site`.
     pub fn binding(&self, site: &SourceSiteId) -> Option<&AdvisoryFact> {
-        self.bindings.get(site)
+        self.module_for_site(site)?.bindings.get(site)
     }
 
     /// Returns field fact only when a product was published for `field`.
     pub fn field(&self, field: &FieldId) -> Option<&AdvisoryFact> {
-        self.fields.get(field)
+        self.modules.get(&field.owner.module)?.fields.get(field)
     }
 
     /// Returns parameter fact only when a product was published for `slot`.
     pub fn parameter(&self, slot: &AdvisoryParameterSlot) -> Option<&AdvisoryFact> {
-        self.parameters.get(slot)
+        self.modules
+            .get(&slot.callable.owner.module)
+            .and_then(|module| module.parameters.get(slot))
+            .or_else(|| {
+                self.callables
+                    .get(&slot.callable)
+                    .and_then(|summary| summary.parameters.iter().find(|(candidate, _)| candidate == slot).map(|(_, fact)| fact))
+            })
     }
 
     /// Returns callable summary only when a product was published for `callable`.
@@ -180,7 +155,7 @@ impl AdvisoryWorkspace {
 
     /// Returns target resolution only when a product was published for `site`.
     pub fn target(&self, site: &SourceSiteId) -> Option<&AdvisoryTargetResolution> {
-        self.targets.get(site)
+        self.module_for_site(site)?.targets.get(site)
     }
 
     /// Returns an explicit unknown fact for callers that opt into that view.
@@ -188,6 +163,14 @@ impl AdvisoryWorkspace {
     /// the corresponding other query methods.
     pub fn expression_or_unknown(&self, site: &SourceSiteId) -> AdvisoryFact {
         self.expression(site).cloned().unwrap_or_else(AdvisoryFact::unknown)
+    }
+
+    fn module_for_site(&self, site: &SourceSiteId) -> Option<&AdvisoryModuleProduct> {
+        let module = match &site.owner {
+            crate::identity::SourceOwner::Module(module) => module,
+            crate::identity::SourceOwner::Callable(callable) => &callable.owner.module,
+        };
+        self.modules.get(module).map(AsRef::as_ref)
     }
 
     /// Returns whether workspace advisory publication completed.
