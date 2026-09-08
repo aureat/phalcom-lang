@@ -2132,7 +2132,9 @@ impl<'source> Parser<'source> {
     pub fn parse_where_clause(&mut self) -> ParserResult<WhereClauseSyntax> {
         let start = self.cur_start();
         self.expect(&Token::Where, &["\"where\""])?;
+        self.skip_newlines();
         let mut constraints = Vec::new();
+        let mut range_end = self.prev_end;
         while !matches!(self.peek(), Token::LBrace | Token::Equal | Token::Newline | Token::Eof) {
             let c_start = self.cur_start();
             let left = self.parse_type_form()?;
@@ -2181,11 +2183,14 @@ impl<'source> Parser<'source> {
                 break;
             }
 
-            if !self.eat(&Token::Comma) {
+            range_end = self.prev_end;
+            if self.eat(&Token::Comma) {
+                self.skip_newlines();
+            } else {
                 break;
             }
         }
-        let range = (start..self.prev_end).into();
+        let range = (start..range_end).into();
         Ok(WhereClauseSyntax { constraints, range })
     }
 
