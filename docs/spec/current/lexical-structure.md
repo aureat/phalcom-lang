@@ -9,9 +9,13 @@ Semicolons are **optional**. Statements are newline-terminated.
 **Implementation.** The lexer emits `NEWLINE` tokens; the grammar treats them as
 terminators only where a statement may end. Do **not** attempt ASI in the parser —
 that is how JavaScript acquired the `return\n{}` bug. A newline is **suppressed**
-(not emitted as a terminator) when the previous token cannot end a statement — a
-binary operator, `,`, `(`, `{`, `=>`, `.`, etc. This is a small lexer-level state
-machine, not parser lookahead.
+(not emitted as a terminator) when the previous token cannot end a statement in
+every grammatical role — a binary operator, `,`, `(`, `{`, `=>`, `.`, etc. This
+is a small lexer-level state machine, not parser lookahead. The `>` token is an
+intentional exception: it is both an infix comparison operator and a generic or
+type-parameter closer, so the lexer preserves a following physical newline and
+the parser decides whether the current construct continues. `>=` has no generic
+closer role and remains an unconditional suppressor.
 
 ## 2. Comments
 

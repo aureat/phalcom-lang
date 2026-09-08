@@ -1150,9 +1150,12 @@ impl<'input> Lexer<'input> {
 ///
 /// The rule (D3, `docs/spec/lexical-structure.md` §1) is one-sided: it keys on
 /// the **previous** significant token only. Suppression fires exactly when
-/// `prev` *cannot end a statement* — an arithmetic/comparison/logical/assignment
-/// operator, an [`Option`](Token::CoalesceQuestion) operator, an opener or
-/// separator (`(`, `{`, `[`, `,`, `.`, `::`, `:`), or an arrow (`->`, `=>`).
+/// `prev` *cannot end a statement* in every relevant grammatical role — an
+/// arithmetic/comparison/logical/assignment operator, an
+/// [`Option`](Token::CoalesceQuestion) operator, an opener or separator (`(`,
+/// `{`, `[`, `,`, `.`, `::`, `:`), or an arrow (`->`, `=>`). Tokens whose
+/// grammatical roles disagree about whether a newline continues the construct
+/// are left visible for the parser to resolve.
 /// After any token that *can* end a statement — an identifier, a literal, a
 /// closer (`)`, `}`, `]`), `self`/`super`/`true`/`false`, or a
 /// `return`/`break`/`continue` keyword — the newline is preserved so it still
@@ -1182,7 +1185,12 @@ fn suppresses_following_newline(prev: &Token) -> bool {
             | Token::Less
             | Token::LessEqual
             | Token::Spaceship
-            | Token::Greater
+            // `>` is both an infix comparison and a generic/type closer. A
+            // newline after the former continues an expression, while after
+            // the latter it may terminate a declaration or member. The lexer
+            // cannot distinguish those grammatical roles, so preserve it for
+            // the parser. `>=` has no generic-closer role and remains a
+            // suppressor below.
             | Token::GreaterEqual
             // Logical keywords.
             | Token::And
