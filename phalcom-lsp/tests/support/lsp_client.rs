@@ -280,6 +280,22 @@ impl TestLsp {
         panic!("did not observe non-empty publishDiagnostics for {uri} within message budget");
     }
 
+    pub async fn wait_for_publish_diagnostics(&mut self, uri: &str) -> Value {
+        for _ in 0..128 {
+            let message = self.read_message().await;
+            if message.get("method").and_then(Value::as_str) == Some("textDocument/publishDiagnostics") && message["params"]["uri"].as_str() == Some(uri) {
+                return message["params"].clone();
+            }
+            if let Some(req_id) = message.get("id")
+                && message.get("method").is_some()
+            {
+                let resp = json!({ "jsonrpc": "2.0", "id": req_id, "result": null });
+                self.write_message(&resp).await;
+            }
+        }
+        panic!("did not observe publishDiagnostics for {uri} within message budget");
+    }
+
     pub async fn request(&mut self, method: &str, params: Value) -> Value {
         let id = self.next_id;
         self.next_id += 1;

@@ -352,6 +352,29 @@ mod tests {
     }
 
     #[test]
+    fn canonical_module_codes_survive_lsp_adaptation() {
+        let source = "import .missing\n";
+        let index = LineIndex::new(source);
+        let uri = tower_lsp::lsp_types::Url::parse("file:///workspace/main.ph").unwrap();
+        let semantic = phalcom_semantic::SemanticDiagnostic::error_in(
+            phalcom_modules::identity::ModuleId::universe_root(),
+            phalcom_semantic::DiagnosticCode::ModuleExposureRejected,
+            "module path is not exposed",
+            (7..14).into(),
+        );
+
+        let diagnostic = semantic_diagnostic_to_lsp_diagnostic(&semantic, &index, &uri);
+
+        assert_eq!(diagnostic.source.as_deref(), Some("phalcom-typecheck"));
+        assert_eq!(
+            diagnostic.code,
+            Some(tower_lsp::lsp_types::NumberOrString::String("module.exposure.rejected".to_string()))
+        );
+        assert_eq!(diagnostic.range, index.range(7..14));
+        assert_eq!(diagnostic.message, "module path is not exposed");
+    }
+
+    #[test]
     fn semantic_diagnostic_resolves_secondary_label_uri_from_source_module() {
         let primary_source = "let value: Int = \"text\"\n";
         let secondary_source = "const declared: String = 1\n";

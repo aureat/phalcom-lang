@@ -103,30 +103,14 @@ fn semantic_diagnostics_from_module_diagnostics(diagnostics: &[phalcom_modules::
     diagnostics
         .iter()
         .map(|diag| {
-            let code = match &diag.kind {
-                phalcom_modules::diagnostic::ModuleDiagnosticKind::RuntimeCycle { .. } => DiagnosticCode::ModuleRuntimeCycle,
-                phalcom_modules::diagnostic::ModuleDiagnosticKind::UnresolvedImport { .. }
-                | phalcom_modules::diagnostic::ModuleDiagnosticKind::RelativeImportBeyondRoot { .. }
-                | phalcom_modules::diagnostic::ModuleDiagnosticKind::RelativeImportWithoutPackage
-                | phalcom_modules::diagnostic::ModuleDiagnosticKind::ModuleNotFound(_)
-                | phalcom_modules::diagnostic::ModuleDiagnosticKind::PackageNotFound(_)
-                | phalcom_modules::diagnostic::ModuleDiagnosticKind::ModulePathNotExposed { .. }
-                | phalcom_modules::diagnostic::ModuleDiagnosticKind::ImportOutsideSourceRoot(_)
-                | phalcom_modules::diagnostic::ModuleDiagnosticKind::UnknownImportRoot(_) => DiagnosticCode::ModuleImportUnresolved,
-                phalcom_modules::diagnostic::ModuleDiagnosticKind::UnknownImportName { .. }
-                | phalcom_modules::diagnostic::ModuleDiagnosticKind::NonExportedImport { .. }
-                | phalcom_modules::diagnostic::ModuleDiagnosticKind::UnknownExport { .. }
-                | phalcom_modules::diagnostic::ModuleDiagnosticKind::DuplicateExport { .. }
-                | phalcom_modules::diagnostic::ModuleDiagnosticKind::DuplicateDeclaration { .. }
-                | phalcom_modules::diagnostic::ModuleDiagnosticKind::ExposeOutsidePackage
-                | phalcom_modules::diagnostic::ModuleDiagnosticKind::InvalidExposeTarget(_)
-                | phalcom_modules::diagnostic::ModuleDiagnosticKind::ImportOutsidePreamble
-                | phalcom_modules::diagnostic::ModuleDiagnosticKind::InvalidModuleMetadata { .. }
-                | phalcom_modules::diagnostic::ModuleDiagnosticKind::ModuleAttributeOutsideHeader
-                | phalcom_modules::diagnostic::ModuleDiagnosticKind::InvalidModuleName(_)
-                | phalcom_modules::diagnostic::ModuleDiagnosticKind::ParseError(_)
-                | phalcom_modules::diagnostic::ModuleDiagnosticKind::InterfaceError(_) => DiagnosticCode::ModuleInterfaceFailed,
-                _ => DiagnosticCode::ModuleLinkFailed,
+            let code = match diag.code() {
+                phalcom_modules::diagnostic::ModuleDiagnosticCode::ImportUnresolved => DiagnosticCode::ModuleImportUnresolved,
+                phalcom_modules::diagnostic::ModuleDiagnosticCode::ExposureRejected => DiagnosticCode::ModuleExposureRejected,
+                phalcom_modules::diagnostic::ModuleDiagnosticCode::ExportMissing => DiagnosticCode::ModuleExportMissing,
+                phalcom_modules::diagnostic::ModuleDiagnosticCode::RelativeInvalidRoot => DiagnosticCode::ModuleRelativeInvalidRoot,
+                phalcom_modules::diagnostic::ModuleDiagnosticCode::LinkFailed => DiagnosticCode::ModuleLinkFailed,
+                phalcom_modules::diagnostic::ModuleDiagnosticCode::InterfaceFailed => DiagnosticCode::ModuleInterfaceFailed,
+                phalcom_modules::diagnostic::ModuleDiagnosticCode::RuntimeCycle => DiagnosticCode::ModuleRuntimeCycle,
             };
             SemanticDiagnostic::error_in(diag.module.clone(), code, diag.message.clone(), diag.range)
         })
@@ -5549,4 +5533,65 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::semantic_diagnostics_from_module_diagnostics;
+    use crate::diagnostic::DiagnosticCode;
+    use phalcom_common::range::SourceRange;
+    use phalcom_modules::diagnostic::{ModuleDiagnostic, ModuleDiagnosticKind};
+    use phalcom_modules::identity::ModuleId;
+
+    #[test]
+    fn canonical_module_diagnostic_mapping_preserves_owner_range_and_code() {
+        let module = ModuleId::universe_root();
+        let cases = [
+            (
+                ModuleDiagnosticKind::UnresolvedImport { path: ".missing".into() },
+                DiagnosticCode::ModuleImportUnresolved,
+            ),
+            (
+                ModuleDiagnosticKind::ModulePathNotExposed {
+                    path: "dep.private".into(),
+                    project: "dep".into(),
+                },
+                DiagnosticCode::ModuleExposureRejected,
+            ),
+            (
+                ModuleDiagnosticKind::NonExportedImport {
+                    module: "dep".into(),
+                    name: "Hidden".into(),
+                },
+                DiagnosticCode::ModuleExportMissing,
+            ),
+            (
+                ModuleDiagnosticKind::RelativeImportBeyondRoot { dots: 2, depth: 1 },
+                DiagnosticCode::ModuleRelativeInvalidRoot,
+            ),
+            (ModuleDiagnosticKind::BindingCollision { name: "name".into() }, DiagnosticCode::ModuleLinkFailed),
+        ];
+        let diagnostics = cases
+            .iter()
+            .enumerate()
+            .map(|(index, (kind, _))| {
+                ModuleDiagnostic::new(
+                    module.clone(),
+                    kind.clone(),
+                    SourceRange::new(index, index + 1),
+                    format!("module failure {index}"),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let semantic = semantic_diagnostics_from_module_diagnostics(&diagnostics);
+
+        assert_eq!(semantic.len(), cases.len());
+        for (index, (diagnostic, (_, expected_code))) in semantic.iter().zip(cases.iter()).enumerate() {
+            assert_eq!(diagnostic.code, *expected_code);
+            assert_eq!(diagnostic.primary.module, module);
+            assert_eq!(diagnostic.primary_range, SourceRange::new(index, index + 1));
+            assert_eq!(diagnostic.message, format!("module failure {index}"));
+        }
+    }
 }

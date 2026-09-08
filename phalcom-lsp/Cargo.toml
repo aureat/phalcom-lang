@@ -56,6 +56,14 @@ name = "module_navigation"
 path = "tests/module_navigation.rs"
 
 [[test]]
+name = "module_diagnostics"
+path = "tests/module_diagnostics.rs"
+
+[[test]]
+name = "compiler_parity"
+path = "tests/compiler_parity.rs"
+
+[[test]]
 name = "imported_binding_resolution"
 path = "tests/imported_binding_resolution.rs"
 

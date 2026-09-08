@@ -63,6 +63,10 @@ fn explicit_diagnostic_constructor_keeps_range_and_severity_behavior() {
 fn foundation_codes_have_stable_wire_names() {
     assert_eq!(DiagnosticCode::ProjectLoadFailed.as_str(), "project.load.failed");
     assert_eq!(DiagnosticCode::ModuleLinkFailed.as_str(), "module.link.failed");
+    assert_eq!(DiagnosticCode::ModuleImportUnresolved.as_str(), "module.import.unresolved");
+    assert_eq!(DiagnosticCode::ModuleExposureRejected.as_str(), "module.exposure.rejected");
+    assert_eq!(DiagnosticCode::ModuleExportMissing.as_str(), "module.export.missing");
+    assert_eq!(DiagnosticCode::ModuleRelativeInvalidRoot.as_str(), "module.relative.invalid_root");
     assert_eq!(DiagnosticCode::AnalysisBlocked.as_str(), "analysis.blocked");
     assert_eq!(DiagnosticCode::AnalysisBudgetExceeded.as_str(), "analysis.budget_exceeded");
     assert_eq!(DiagnosticCode::TypeDynamicBoundary.as_str(), "type.dynamic_boundary");

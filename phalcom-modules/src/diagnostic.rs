@@ -46,6 +46,8 @@ pub enum ModuleDiagnosticKind {
     ModuleAttributeOutsideHeader,
     /// Import binding collision in linked module.
     BindingCollision { name: String },
+    /// Linker expected a module that is absent from the link universe.
+    LinkMissingModule(ModuleId),
     /// Cyclic re-export.
     CyclicReExport { name: String },
     /// Cyclic module runtime initialization.
@@ -62,6 +64,70 @@ pub enum ModuleDiagnosticKind {
     ParseError(String),
     /// General interface error.
     InterfaceError(String),
+}
+
+/// Stable wire-level category assigned by the canonical module producer.
+///
+/// Keeping this classification in `phalcom-modules` prevents downstream
+/// consumers from having to infer the meaning of a resolver or linker error
+/// from its display text or from reimplementing the module rules.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ModuleDiagnosticCode {
+    ImportUnresolved,
+    ExposureRejected,
+    ExportMissing,
+    RelativeInvalidRoot,
+    LinkFailed,
+    InterfaceFailed,
+    RuntimeCycle,
+}
+
+impl ModuleDiagnosticCode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ImportUnresolved => "module.import.unresolved",
+            Self::ExposureRejected => "module.exposure.rejected",
+            Self::ExportMissing => "module.export.missing",
+            Self::RelativeInvalidRoot => "module.relative.invalid_root",
+            Self::LinkFailed => "module.link.failed",
+            Self::InterfaceFailed => "module.interface.failed",
+            Self::RuntimeCycle => "module.runtime_cycle",
+        }
+    }
+}
+
+impl std::fmt::Display for ModuleDiagnosticCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl ModuleDiagnosticKind {
+    /// Returns the stable category for this canonical module failure.
+    pub const fn code(&self) -> ModuleDiagnosticCode {
+        match self {
+            Self::RelativeImportBeyondRoot { .. } | Self::RelativeImportWithoutPackage => ModuleDiagnosticCode::RelativeInvalidRoot,
+            Self::ModulePathNotExposed { .. } | Self::ExposeOutsidePackage | Self::InvalidExposeTarget(_) => ModuleDiagnosticCode::ExposureRejected,
+            Self::UnknownImportName { .. } | Self::NonExportedImport { .. } | Self::UnknownExport { .. } => ModuleDiagnosticCode::ExportMissing,
+            Self::UnresolvedImport { .. }
+            | Self::ModuleNotFound(_)
+            | Self::PackageNotFound(_)
+            | Self::ImportOutsideSourceRoot(_)
+            | Self::UnknownImportRoot(_) => ModuleDiagnosticCode::ImportUnresolved,
+            Self::BindingCollision { .. } | Self::LinkMissingModule(_) | Self::CyclicReExport { .. } => ModuleDiagnosticCode::LinkFailed,
+            Self::RuntimeCycle { .. } => ModuleDiagnosticCode::RuntimeCycle,
+            Self::DuplicateExport { .. }
+            | Self::DuplicateBinding { .. }
+            | Self::DuplicateImportBinding { .. }
+            | Self::DuplicateDeclaration { .. }
+            | Self::ImportOutsidePreamble
+            | Self::InvalidModuleMetadata { .. }
+            | Self::ModuleAttributeOutsideHeader
+            | Self::InvalidModuleName(_)
+            | Self::ParseError(_)
+            | Self::InterfaceError(_) => ModuleDiagnosticCode::InterfaceFailed,
+        }
+    }
 }
 
 /// A structured module diagnostic with module identity and precise source range.
@@ -81,6 +147,11 @@ impl ModuleDiagnostic {
             range,
             message: message.into(),
         }
+    }
+
+    /// Stable wire-level category for this canonical module diagnostic.
+    pub const fn code(&self) -> ModuleDiagnosticCode {
+        self.kind.code()
     }
 
     /// Converts a syntax error into a `ModuleDiagnostic`.
@@ -300,7 +371,7 @@ impl ModuleDiagnostic {
             },
             LinkError::MissingModule { module } => Self {
                 module: module.clone(),
-                kind: ModuleDiagnosticKind::ModuleNotFound(module.to_string()),
+                kind: ModuleDiagnosticKind::LinkMissingModule(module.clone()),
                 range: SourceRange::default(),
                 message: format!("module {} is absent from the link universe", module),
             },
@@ -320,5 +391,55 @@ impl ModuleDiagnostic {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn canonical_module_diagnostic_codes_are_stable() {
+        assert_eq!(ModuleDiagnosticCode::ImportUnresolved.as_str(), "module.import.unresolved");
+        assert_eq!(ModuleDiagnosticCode::ExposureRejected.as_str(), "module.exposure.rejected");
+        assert_eq!(ModuleDiagnosticCode::ExportMissing.as_str(), "module.export.missing");
+        assert_eq!(ModuleDiagnosticCode::RelativeInvalidRoot.as_str(), "module.relative.invalid_root");
+        assert_eq!(ModuleDiagnosticCode::LinkFailed.as_str(), "module.link.failed");
+    }
+
+    #[test]
+    fn module_error_families_are_classified_by_the_canonical_producer() {
+        assert_eq!(
+            ModuleDiagnosticKind::UnresolvedImport { path: ".missing".into() }.code(),
+            ModuleDiagnosticCode::ImportUnresolved
+        );
+        assert_eq!(
+            ModuleDiagnosticKind::ModulePathNotExposed {
+                path: "dep.private".into(),
+                project: "dep".into()
+            }
+            .code(),
+            ModuleDiagnosticCode::ExposureRejected
+        );
+        assert_eq!(
+            ModuleDiagnosticKind::NonExportedImport {
+                module: "dep".into(),
+                name: "Hidden".into()
+            }
+            .code(),
+            ModuleDiagnosticCode::ExportMissing
+        );
+        assert_eq!(
+            ModuleDiagnosticKind::RelativeImportBeyondRoot { dots: 3, depth: 1 }.code(),
+            ModuleDiagnosticCode::RelativeInvalidRoot
+        );
+        assert_eq!(
+            ModuleDiagnosticKind::BindingCollision { name: "x".into() }.code(),
+            ModuleDiagnosticCode::LinkFailed
+        );
+        assert_eq!(
+            ModuleDiagnosticKind::LinkMissingModule(ModuleId::universe_root()).code(),
+            ModuleDiagnosticCode::LinkFailed
+        );
     }
 }
