@@ -16,7 +16,7 @@
 
 ## Decisions
 
-- D-01 through D-11 remain as ratified in `docs/implementation/INBOX/phalcom-concurrency-control-patch-grade-implementation-plan.md`.
+- D-01 through D-11 remain as ratified in [`CONC002.C1.P1-concurrency-control-remediation.md`](CONC002.C1.P1-concurrency-control-remediation.md).
 - C0 uses `FiberStatus::{New, Running, BlockedOnChild, Yielded, Parked, Queued, Done, Failed}`; C1 owns `Queued` and C2 owns generation-tagged `Parked`.
 - Manual `call`/`try` accepts only `New` and `Yielded` in C0.
 - Scheduler admission is VM-owned: `New`/`Yielded` transition atomically to `Queued`; duplicate, parked, active, blocked, and terminal fibers are rejected.

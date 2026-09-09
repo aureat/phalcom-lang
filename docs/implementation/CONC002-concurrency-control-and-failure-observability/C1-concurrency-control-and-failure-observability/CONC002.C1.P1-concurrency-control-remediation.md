@@ -1,4 +1,21 @@
-# Phalcom Concurrency Control Remediation
+---
+id: CONC002.C1.P1
+category: CONC
+program: CONC002
+checkpoint: CONC002.C1
+kind: implementation
+status: IN_PROGRESS
+completion: PARTIAL
+verification: BASELINE_BLOCKED
+depends_on: []
+follows: null
+supersedes: null
+deferred_reason: null
+---
+
+# CONC002.C1.P1 — concurrency control remediation
+
+## Phalcom Concurrency Control Remediation
 ## Repository-Grounded, Checkpoint-Driven, Patch-Grade Implementation Plan
 
 **Program:** Fiber / Scheduler / Future control-transfer correctness  
@@ -2841,7 +2858,7 @@ If the semantic design is contradicted, stop with `PLAN DRIFT`.
 Create or reuse one concise state document for this program. If no repository convention has already been established by the implementer, use:
 
 ```text
-docs/work/concurrency-control-implementation-state.md
+        docs/implementation/CONC002-concurrency-control-and-failure-observability/C1-concurrency-control-and-failure-observability/concurrency-control-implementation-state.md
 ```
 
 After each checkpoint record:

@@ -4,7 +4,7 @@ Status: implementation complete through C0–C4; focused gates and workspace bui
 
 ## Scope
 
-- Plan: `phalcom-ampersand-and-associated-lookup-implementation-spec.md`
+- Plan: [`LANG004.C1.P1-ampersand-and-associated-lookup.md`](LANG004.C1.P1-ampersand-and-associated-lookup.md)
 - Worktree: `/Users/altunhasanli/dev/phalcom/phalcom/.worktrees/ampersand-associated-lookup`
 - Branch: `codex/ampersand-associated-lookup`
 - Base: `288da3f5 chore(repo): fix formatting drift`

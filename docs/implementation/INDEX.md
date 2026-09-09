@@ -10,6 +10,7 @@
 | [LANG001](lang/LANG001-language-surface/PROGRAM.md) | LANG | Language surface and historical language records | IN_PROGRESS |
 | [LANG002](lang/LANG002-language-transition/PROGRAM.md) | LANG | Language surface transition | PROPOSED |
 | [LANG003](lang/LANG003-language-semantics/PROGRAM.md) | LANG | Repository-grounded language semantics | PROPOSED |
+| [LANG004](LANG004-associated-lookup-and-logical-paths/PROGRAM.md) | LANG | Associated lookup and logical paths | IN_PROGRESS |
 | [COLL001](coll/COLL001-product-model/PROGRAM.md) | COLL | Collection product model | PROPOSED |
 | [COLL002](coll/COLL002-map-model/PROGRAM.md) | COLL | Map model and literal construction | PROPOSED |
 | [COLL003](coll/COLL003-indexed-ranges/PROGRAM.md) | COLL | Indexed access and ranges | PROPOSED |
@@ -18,6 +19,7 @@
 | [COMP001](comp/COMP001-compiler-structure/PROGRAM.md) | COMP | Compiler structural refactors | PROPOSED |
 | [COMP002](comp/COMP002-compiler-runtime/PROGRAM.md) | COMP | Compiler/runtime integration | PROPOSED |
 | [CONC001](conc/CONC001-fiber-scheduling/PROGRAM.md) | CONC | Fiber and concurrency runtime | IN_PROGRESS |
+| [CONC002](CONC002-concurrency-control-and-failure-observability/PROGRAM.md) | CONC | Concurrency control and failure observability | IN_PROGRESS |
 | [TYPE001](type/TYPE001-adt-gadt/PROGRAM.md) | TYPE | ADT/GADT implementation and remediation | IN_PROGRESS |
 | [TYPE002](type/TYPE002-typing-integration/PROGRAM.md) | TYPE | Typing integration and semantic type authority | IN_PROGRESS |
 | [TYPE003](type/TYPE003-callables/PROGRAM.md) | TYPE | Callable surface implementation | PROPOSED |

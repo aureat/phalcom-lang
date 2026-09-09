@@ -13,8 +13,8 @@ category/
     C1-checkpoint-name/
       CHECKPOINT.md
       STATUS.md
-      P1-plan-name.md
-      P2-follow-up-plan.md
+      PROGRAM001.C1.P1-plan-name.md
+      PROGRAM001.C1.P2-follow-up-plan.md
       topic-spec.md
 ```
 
@@ -49,9 +49,10 @@ status is not encoded by a separate canonical folder.
 - Decision records explain why significant choices were made.
 - `docs/implementation/` records how implementation work is planned and
   specified. Numbered implementation work is always a
-  `P<n>-specific-name.md` plan directly under its checkpoint. Genuine technical
-  or formal companions use a topic-specific `*-spec.md` name in the same
-  checkpoint.
+  `<PROGRAM>.<C<n>>.<P<n>>-specific-name.md` plan directly under its
+  checkpoint, using the plan's full identifier in the filename. Genuine
+  technical or formal companions use a topic-specific `*-spec.md` name in the
+  same checkpoint.
 - `docs/design/` contains unresolved proposals and research.
 - `docs/archive/` contains superseded or historical records.
 
