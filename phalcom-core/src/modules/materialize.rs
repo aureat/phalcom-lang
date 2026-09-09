@@ -51,9 +51,8 @@ impl VM {
                         public_sym,
                         RuntimeExportRef::Binding(BindingRef {
                             module: target_mod_obj,
-                            slot: u16::try_from(slot).map_err(|_| {
-                                RuntimeError::Internal(format!("export binding slot overflow in {}::{}", symbol.module, symbol.name))
-                            })?,
+                            slot: u16::try_from(slot)
+                                .map_err(|_| RuntimeError::Internal(format!("export binding slot overflow in {}::{}", symbol.module, symbol.name)))?,
                         }),
                     );
                 }
