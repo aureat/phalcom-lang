@@ -239,11 +239,7 @@ impl<'vm> Compiler<'vm> {
             self.emit(Bytecode::GetGlobal(name_idx), range);
         } else if let Some(binding) = self.linked_binding(name) {
             self.emit(Bytecode::GetLinked(binding.0 as u16), range);
-        } else if let Some(binding) = if self.compiling_privileged_universe() {
-            self.vm.canonical_universe_binding(name)
-        } else {
-            self.vm.canonical_universe_bare_binding(name)
-        } {
+        } else if let Some(binding) = self.vm.canonical_universe_binding(name) {
             let index = self.vm.heap.module(self.module).linked_reads.len();
             self.vm
                 .heap

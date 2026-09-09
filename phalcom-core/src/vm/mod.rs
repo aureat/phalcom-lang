@@ -581,21 +581,6 @@ impl VM {
         })
     }
 
-    /// Resolves a canonical name that user code may reference without an
-    /// explicit import. `True`/`False` and the Option aliases are language
-    /// conveniences even though their native metadata rows are not marked as
-    /// ordinary prelude classes; other non-prelude native classes remain
-    /// module-scoped.
-    pub fn canonical_universe_bare_binding(&self, name: Symbol) -> Option<crate::modules::BindingRef> {
-        let key = phalcom_native_meta::UniverseKey::from_name(self.resolve_symbol(name))?;
-        let allowed = phalcom_native_meta::UNIVERSE_BINDINGS
-            .iter()
-            .find(|binding| binding.key == key)
-            .is_some_and(|binding| binding.prelude)
-            || matches!(key, phalcom_native_meta::UniverseKey::True | phalcom_native_meta::UniverseKey::False);
-        allowed.then(|| self.canonical_universe_binding(name)).flatten()
-    }
-
     /// Returns the exact semantic variant target for a canonical alias.
     pub(crate) fn canonical_variant_alias(&self, name: Symbol) -> Option<&phalcom_semantic::identity::VariantId> {
         self.prelude_variant_bindings.get(&name)
