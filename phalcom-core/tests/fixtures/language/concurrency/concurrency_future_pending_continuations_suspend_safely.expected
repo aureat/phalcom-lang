@@ -1,0 +1,10 @@
+then-start
+map-start
+catch-start
+pending: false,false,false
+then-done
+None
+catch-data: data
+nested-pending: false
+nested-done
+callback-error: callback-failure

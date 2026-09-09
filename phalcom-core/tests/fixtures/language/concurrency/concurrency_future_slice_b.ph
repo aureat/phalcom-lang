@@ -30,10 +30,8 @@ System.print(f3.await)
 // Re-blessed with E004's fix: the root-fiber `await` pump now stops as soon as
 // its OWN future settles, instead of draining the whole ready queue every
 // iteration (it used to call `System.runScheduled`, which pumps to exhaustion).
-// Same twelve lines, same callbacks, same results — only the interleaving of
-// `map run` and `then result` swaps, because `f5.await` no longer runs f6's
-// waiter before returning. Nothing is dropped; the remaining waiters run on the
-// next pump.
+// Same callbacks and results. Terminal observer handoffs are scheduler work,
+// so both callback actions may begin before either derived Future is settled.
 const f4 = Future.new()
 const f5 = f4.then |v| {
   System.print("then run: " + v)

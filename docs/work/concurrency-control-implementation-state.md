@@ -3,7 +3,7 @@
 ## Repository state
 
 - branch: `codex/concurrency-control-remediation`
-- HEAD: `a185dcae` plus the C3 working changes below
+- HEAD: `73346c49` plus the C4 working changes below
 - relevant local changes preserved: baseline audit, plan, and unrelated files are in the pushed parent commits
 
 ## Established invariants
@@ -26,6 +26,8 @@
 - Root await pumps through the C1 internal scheduler dequeue/resume path; non-root await rejects manual ownership and refuses native re-entry before registration.
 - Fiber completion ownership is a single GC-traced observer handle, detached exactly once at `Done`/`Failed` and admitted as fresh scheduler work.
 - Terminal result access is independent of `resumer`; call-mode failure cascades notify every terminalized observer-bearing Fiber.
+- `Future.async` and pending `then`/`map`/`catch` use terminal observers; parked action/callback turns do not settle derived Futures.
+- Callback terminal values are flattened/adopted only after terminal success, preserving `None` and `Error` as ordinary successful data.
 
 ## Evidence ledger
 
@@ -42,6 +44,7 @@
 | C3 | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-core` | PASS | observer field, traced edge, internal binding/result seams, and centralized terminal handoff compile |
 | C3 | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --lib terminal_observer_is_detached_and_admitted_once -- --nocapture` | PASS, 1 test | observer detaches once and becomes a queued fresh Fiber |
 | C3 | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test language-corpus corpus::concurrency -- --nocapture` | PASS, 2 tests | C0–C2 behavior remains green with observer infrastructure installed |
+| C4 | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test language-corpus corpus::concurrency -- --nocapture` | PASS, 2 tests | multi-await async completion, late failure, call cascade, forced-GC observer retention, suspending continuation matrix, nested Future adoption, and existing compatibility fixtures |
 
 ## Negative/deletion gates
 
@@ -50,19 +53,20 @@
 - `rg 'ready_queue\.(push_back|pop_front)' phalcom-core/src` → matches only VM-owned admission/dequeue helpers.
 - `rg '_waiters.*Fiber|System\.schedule\(rawAwaiter\)' phalcom-core/core/universe/src/concurrency/fiber.ph` → no raw Fiber waiter path; await stores ticketed tuples.
 - `completion_observer` is traced from `Object::Fiber` and is taken before observer scheduling; no Rust closure or Future-specific heap pointer is stored.
+- `rg 'const res = fib\.try|const driver = Fiber\.new' phalcom-core/core/universe/src/concurrency/fiber.ph` → no one-turn Future driver remains.
 
 ## Deferred gates
 
 - scheduler admission/resume → C1 complete
 - ticketed Future parking/wake → C2 complete
-- durable completion observers → C3 complete; end-to-end Future adoption is C4
-- terminal Future settlement and continuations → C4
+- durable completion observers → C3 complete
+- terminal Future adoption, settlement, and suspension-safe continuations → C4 complete
 - ownership closure, specs, and broad gates → C5/final gate
 
 ## Unexpected findings
 
 - `System.nextScheduled` remains a compatibility getter that releases its queue reservation; production scheduler pumps and root await use the internal dequeue and scheduler-resume seams. Public raw-authority removal is deferred to C5 after Future consumers migrate.
-- Internal observer selectors are reserved to the core/runtime implementation; end-to-end language fixtures will exercise them through the Future consumer added in C4.
+- Internal observer selectors are reserved to the core/runtime implementation; end-to-end language fixtures exercise them through the Future consumer.
 
 ## Active incident
 
@@ -70,4 +74,4 @@ None.
 
 ## Next resume action
 
-Begin C4, Task 17 — route Future.async and pending continuations through terminal completion.
+Begin C5, Task 21 — close raw scheduler authority and align specs/regressions.

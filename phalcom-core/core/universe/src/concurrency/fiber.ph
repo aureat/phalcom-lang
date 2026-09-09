@@ -257,21 +257,58 @@ class Future {
     return _value
   }
 
-  // Runs `action` on a fresh fiber and settles the returned future with its
-  // result (or captured error if it fails).
+  // Runs `action` to terminal completion and invokes the matching callback.
+  // Nonterminal park/yield turns do not call either callback.
+  @private
+  @class
+  runToTerminal(_ action, _ onSuccess, _ onError) {
+    const fiber = Fiber.new(action)
+    fiber._$onComplete(|| {
+      if fiber.error.isSome {
+        onError.call(fiber.error.unwrapOr(None))
+      } else {
+        onSuccess.call(fiber._$terminalValue)
+      }
+    })
+    System.schedule(fiber)
+    fiber
+  }
+
+  // Adopts a terminal callback result into a derived Future, preserving the
+  // existing flattening rule for callbacks that return another Future.
+  @private
+  @class
+  adoptCallbackResult(_ f_next, _ result) {
+    const flattened = Future.flatten(result)
+    flattened.then |value| { f_next.settleValue(value) }
+    flattened.catch |error| { f_next.settleError(error) }
+    ()
+  }
+
+  // Runs one pending continuation callback to terminal completion. The
+  // callback Fiber owns all suspension; the derived Future changes only from
+  // its terminal observer.
+  @private
+  @class
+  runCallbackToFuture(_ callback, _ value, _ f_next) {
+    Future.runToTerminal(
+      || { callback.call(value) },
+      |result| { Future.adoptCallbackResult(f_next, result) },
+      |error| { f_next.settleError(error) }
+    )
+    ()
+  }
+
+  // Runs `action` on a fresh Fiber and settles the returned Future only from
+  // the action's terminal result.
   @class
   async(_ action) {
     const f = Future.new()
-    const driver = Fiber.new || {
-      const fib = Fiber.new(action)
-      const res = fib.try()
-      if (fib.error.isSome) {
-        f.settleError(fib.error.unwrapOr(None))
-      } else {
-        f.settleValue(res)
-      }
-    }
-    System.schedule(driver)
+    Future.runToTerminal(
+      action,
+      |value| { f.settleValue(value) },
+      |error| { f.settleError(error) }
+    )
     return f
   }
 
@@ -300,15 +337,7 @@ class Future {
       const f_next = Future.new()
       _waiters._$push(|| {
         if (_state == "fulfilled") {
-          const fib = Fiber.new(|| { f.call(_value) })
-          const res = fib.try()
-          if (fib.error.isSome) {
-            f_next.settleError(fib.error.unwrapOr(None))
-          } else {
-            const flattened = Future.flatten(res)
-            flattened.then |value| { f_next.settleValue(value) }
-            flattened.catch |error| { f_next.settleError(error) }
-          }
+          Future.runCallbackToFuture(f, _value, f_next)
         } else {
           f_next.settleError(_value)
         }
@@ -329,15 +358,7 @@ class Future {
       const f_next = Future.new()
       _waiters._$push(|| {
         if (_state == "fulfilled") {
-          const fib = Fiber.new(|| { f.call(_value) })
-          const res = fib.try()
-          if (fib.error.isSome) {
-            f_next.settleError(fib.error.unwrapOr(None))
-          } else {
-            const flattened = Future.flatten(res)
-            flattened.then |value| { f_next.settleValue(value) }
-            flattened.catch |error| { f_next.settleError(error) }
-          }
+          Future.runCallbackToFuture(f, _value, f_next)
         } else {
           f_next.settleError(_value)
         }
@@ -359,15 +380,7 @@ class Future {
       const f_next = Future.new()
       _waiters._$push(|| {
         if (_state == "rejected") {
-          const fib = Fiber.new(|| { f.call(_value) })
-          const res = fib.try()
-          if (fib.error.isSome) {
-            f_next.settleError(fib.error.unwrapOr(None))
-          } else {
-            const flattened = Future.flatten(res)
-            flattened.then |value| { f_next.settleValue(value) }
-            flattened.catch |error| { f_next.settleError(error) }
-          }
+          Future.runCallbackToFuture(f, _value, f_next)
         } else {
           f_next.settleValue(_value)
         }
