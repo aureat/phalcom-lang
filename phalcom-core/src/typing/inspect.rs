@@ -792,10 +792,10 @@ pub fn type_use_written(registry: &RuntimeTypingRegistry, handle: crate::typing:
 // Declaration queries
 // ---------------------------------------------------------------------------
 
-pub fn declaration_record_for_class<'a>(
-    registry: &'a RuntimeTypingRegistry,
+pub fn declaration_record_for_class(
+    registry: &RuntimeTypingRegistry,
     class_id: ClassId,
-) -> Option<(crate::typing::handle::MetadataPoolId, &'a phalcom_type_meta::declaration::DeclarationTypeRecord)> {
+) -> Option<(crate::typing::handle::MetadataPoolId, &phalcom_type_meta::declaration::DeclarationTypeRecord)> {
     let declaration = registry.declaration_for_nominal(class_id)?;
     for (pool_idx, loaded) in registry.pools().iter().enumerate() {
         for decl in loaded.bundle.declarations.iter() {

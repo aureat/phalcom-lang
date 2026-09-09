@@ -322,7 +322,7 @@ pub fn fiber_error(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<V
 #[phalcom_native_macros::primitive(Fiber, "_$onComplete(_)", visibility = internal)]
 pub fn fiber_on_complete(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let fiber_ref = expect_fiber(vm, receiver)?;
-    let observer = args.first().copied().ok_or_else(|| RuntimeError::Type {
+    let observer = args.first().copied().ok_or(RuntimeError::Type {
         expected: "Function",
         found: "missing",
     })?;

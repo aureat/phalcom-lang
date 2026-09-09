@@ -194,11 +194,7 @@ impl Value {
 
 fn render_adt_singleton(vm: &VM, rid: crate::adt::RuntimeVariantId, debug: bool) -> String {
     let Some(descriptor) = vm.adt_registry.variant_descriptor(rid) else {
-        return if debug {
-            format!("<unknown ADT singleton {:?}>", rid)
-        } else {
-            format!("<unknown ADT singleton {:?}>", rid)
-        };
+        return format!("<unknown ADT singleton {:?}>", rid);
     };
     let rendered = format!("{}::{}", descriptor.semantic_id.owner.name, descriptor.semantic_id.selector.encode());
     if debug { format!("<{rendered}>") } else { rendered }
