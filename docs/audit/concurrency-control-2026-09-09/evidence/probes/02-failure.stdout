@@ -1,0 +1,17 @@
+true
+true
+true
+true
+77
+true
+A survived
+true
+top survived
+abort caught
+99
+true
+cannot resume a fiber across a native call frame (e.g. inside an .on(_) handler or .ensure(_) cleanup)
+guard cleanup
+false
+CHILD ENTERED
+true

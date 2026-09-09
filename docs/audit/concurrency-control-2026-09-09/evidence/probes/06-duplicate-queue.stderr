@@ -1,0 +1,11 @@
+Traceback (most recent call last):
+  synthetic#1:<root>.ph:7   in <main>
+      System.runScheduled()
+  fiber.ph:60   in runScheduled()
+  [native]   in Fiber.try()
+× cannot resume a finished fiber
+   +-[fiber.ph:60:7]
+60 |       f.try()
+   :       -------
+   :       `-- cannot resume a finished fiber
+   `----

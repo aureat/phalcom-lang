@@ -1,0 +1,14 @@
+2026-09-08T22:57:37.454345Z [fiber] spawn   #2 <closure in <closure>>  parent=#1  at synthetic#1:<root>.ph:2
+2026-09-08T22:57:37.454375Z [fiber] yield   #2 @ synthetic#1:<root>.ph:3  value=1
+2026-09-08T22:57:37.454380Z [fiber] switch  #2  ──→  #1 @ synthetic#1:<root>.ph:8
+2026-09-08T22:57:37.454441Z [fiber] yield   #2 @ fiber.ph:246  value=None
+2026-09-08T22:57:37.454445Z [fiber] switch  #2  ──→  #1 @ synthetic#1:<root>.ph:9
+2026-09-08T22:57:37.454586Z [fiber] yield   #2 @ synthetic#1:<root>.ph:5  value=42
+2026-09-08T22:57:37.454597Z [fiber] switch  #2  ──→  #1 @ fiber.ph:60
+2026-09-08T22:57:37.454617Z [fiber] done    #2  result=terminal  frames=0
+2026-09-08T22:57:37.454621Z [fiber] switch  #2  ──→  #1 @ synthetic#1:<root>.ph:15
+2026-09-08T22:57:37.454643Z [fiber] spawn   #3 <closure in <closure>>  parent=#1  at synthetic#1:<root>.ph:18
+2026-09-08T22:57:37.454682Z [fiber] yield   #3 @ fiber.ph:246  value=None
+2026-09-08T22:57:37.454691Z [fiber] switch  #3  ──→  #1 @ synthetic#1:<root>.ph:19
+2026-09-08T22:57:37.454786Z [fiber] done    #3  result=waiter terminal  frames=0
+2026-09-08T22:57:37.454794Z [fiber] switch  #3  ──→  #1 @ fiber.ph:60

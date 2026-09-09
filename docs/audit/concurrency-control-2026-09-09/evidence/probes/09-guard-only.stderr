@@ -1,0 +1,8 @@
+2026-09-08T22:57:50.557998Z [fiber] spawn   #2 <closure in <closure>>  parent=#1  at synthetic#1:<root>.ph:3
+2026-09-08T22:57:50.558052Z [fiber] spawn   #3 <closure in <closure>>  parent=#2  at synthetic#1:<root>.ph:4
+2026-09-08T22:57:50.558105Z [fiber] yield   #3 @ fiber.ph:246  value=None
+2026-09-08T22:57:50.558110Z [fiber] switch  #3  ──→  #2 @ synthetic#1:<root>.ph:5
+2026-09-08T22:57:50.558116Z [fiber] done    #2  result=None  frames=0
+2026-09-08T22:57:50.558124Z [fiber] switch  #2  ──→  #1 @ fiber.ph:60
+2026-09-08T22:57:50.558274Z [fiber] done    #3  result=42  frames=0
+2026-09-08T22:57:50.558281Z [fiber] switch  #3  ──→  #1 @ fiber.ph:60

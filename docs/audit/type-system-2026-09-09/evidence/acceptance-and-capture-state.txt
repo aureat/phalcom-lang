@@ -1,0 +1,32 @@
+   Compiling phalcom-semantic v0.1.0 (/Users/altunhasanli/dev/phalcom/phalcom/phalcom-semantic)
+    Finished `test` profile [unoptimized] target(s) in 1.87s
+     Running tests/semantic.rs (target/debug/build/phalcom-semantic/98b72b9f0929153a/out/semantic-98b72b9f0929153a)
+
+running 5 tests
+
+thread 'semantic::foundations::audit_2026_09_09::repeated_union_obligation_is_not_recursion' (379133) panicked at phalcom-semantic/tests/semantic/foundations/audit_2026_09_09.rs:25:5:
+independent equal obligations must both succeed
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'semantic::foundations::audit_2026_09_09::recursive_relation_charges_pair_budget' (379132) panicked at phalcom-semantic/tests/semantic/foundations/audit_2026_09_09.rs:52:5:
+two distinct pairs exceed limit one: Proven { value: (), evidence: RelationEvidence { notes: [] } }, QueryBudget { max_steps: 10000, max_relation_pairs: 1, max_scc_iterations: 100, max_type_depth: 128, max_diagnostic_notes: 32, steps_taken: 3, pairs_checked: 1, scc_iterations_taken: 0 }
+
+thread 'semantic::foundations::audit_2026_09_09::applied_subclass_retains_nongeneric_superclass' (379129) panicked at phalcom-semantic/tests/semantic/foundations/audit_2026_09_09.rs:38:5:
+assertion failed: is_subtype(&mut s, &h, applied, base)
+test semantic::foundations::audit_2026_09_09::applied_subclass_retains_nongeneric_superclass ... FAILED
+test semantic::foundations::audit_2026_09_09::recursive_relation_charges_pair_budget ... FAILED
+test semantic::foundations::audit_2026_09_09::repeated_union_obligation_is_not_recursion ... FAILED
+return expression: BindingState { binding: BindingId(0), name: "x", parameter: None, range: CopyRange { start: 49, end: 50 }, contract: Some(BindingContract { ty: TypeId(376), origin: SourceAnnotation, source: Some(CopyRange { start: 52, end: 64 }) }), current: Known(TypeEvidence { ty: TypeId(16), status: Established, origin: Syntax, provenance: EvidenceSet { ranges: [CopyRange { start: 67, end: 68 }], descriptions: [] } }), denotation: None, consistency: Validated, causal_invalidity: Clean, mutable: true, version: 0, explanation: Some(ExplanationId(3)) }
+test semantic::foundations::audit_2026_09_09::captured_write_probe ... ok
+test semantic::foundations::audit_2026_09_09::incompatible_override_probe ... ok
+
+failures:
+
+failures:
+    semantic::foundations::audit_2026_09_09::applied_subclass_retains_nongeneric_superclass
+    semantic::foundations::audit_2026_09_09::recursive_relation_charges_pair_budget
+    semantic::foundations::audit_2026_09_09::repeated_union_obligation_is_not_recursion
+
+test result: FAILED. 2 passed; 3 failed; 0 ignored; 0 measured; 1180 filtered out; finished in 0.77s
+
+error: test failed, to rerun pass `-p phalcom-semantic --test semantic`

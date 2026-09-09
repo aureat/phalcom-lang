@@ -1,0 +1,492 @@
+   Compiling phalcom-semantic v0.1.0 (/Users/altunhasanli/dev/phalcom/phalcom/phalcom-semantic)
+    Finished `test` profile [unoptimized] target(s) in 3.67s
+     Running tests/semantic.rs (target/debug/build/phalcom-semantic/98b72b9f0929153a/out/semantic-98b72b9f0929153a)
+
+running 9 tests
+
+thread 'semantic::foundations::audit_2026_09_09::repeated_union_obligation_is_not_recursion' (383378) panicked at phalcom-semantic/tests/semantic/foundations/audit_2026_09_09.rs:25:5:
+independent equal obligations must both succeed
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'semantic::foundations::audit_2026_09_09::applied_subclass_retains_nongeneric_superclass' (383373) panicked at phalcom-semantic/tests/semantic/foundations/audit_2026_09_09.rs:38:5:
+assertion failed: is_subtype(&mut s, &h, applied, base)
+
+thread 'semantic::foundations::audit_2026_09_09::recursive_relation_charges_pair_budget' (383377) panicked at phalcom-semantic/tests/semantic/foundations/audit_2026_09_09.rs:52:5:
+two distinct pairs exceed limit one: Proven { value: (), evidence: RelationEvidence { notes: [] } }, QueryBudget { max_steps: 10000, max_relation_pairs: 1, max_scc_iterations: 100, max_type_depth: 128, max_diagnostic_notes: 32, steps_taken: 3, pairs_checked: 1, scc_iterations_taken: 0 }
+test semantic::foundations::audit_2026_09_09::recursive_relation_charges_pair_budget ... FAILED
+test semantic::foundations::audit_2026_09_09::repeated_union_obligation_is_not_recursion ... FAILED
+test semantic::foundations::audit_2026_09_09::applied_subclass_retains_nongeneric_superclass ... FAILED
+
+thread 'semantic::foundations::audit_2026_09_09::tuple_union_source_accepts_both_components' (383379) panicked at phalcom-semantic/tests/semantic/support/fixture.rs:392:9:
+unexpected semantic errors: [
+    SemanticDiagnostic {
+        code: BindingInitializerMismatch,
+        severity: Error,
+        message: "initializer expression is not assignable to declared type",
+        primary: SemanticSourceSpan {
+            module: ModuleId {
+                project: Universe,
+                path: <root>,
+            },
+            range: CopyRange {
+                start: 32,
+                end: 80,
+            },
+        },
+        primary_range: CopyRange {
+            start: 32,
+            end: 80,
+        },
+        labels: [
+            DiagnosticLabel {
+                span: SemanticSourceSpan {
+                    module: ModuleId {
+                        project: Universe,
+                        path: <root>,
+                    },
+                    range: CopyRange {
+                        start: 43,
+                        end: 71,
+                    },
+                },
+                range: CopyRange {
+                    start: 43,
+                    end: 71,
+                },
+                message: "declared type",
+            },
+            DiagnosticLabel {
+                span: SemanticSourceSpan {
+                    module: ModuleId {
+                        project: Universe,
+                        path: <root>,
+                    },
+                    range: CopyRange {
+                        start: 74,
+                        end: 80,
+                    },
+                },
+                range: CopyRange {
+                    start: 74,
+                    end: 80,
+                },
+                message: "inferred type",
+            },
+        ],
+        notes: [],
+        helps: [],
+        guidance: [
+            ChangeAnnotation {
+                range: CopyRange {
+                    start: 43,
+                    end: 71,
+                },
+                ty: TypeId(
+                    378,
+                ),
+            },
+        ],
+        explanations: [
+            ExplanationRef {
+                callable: CallableId {
+                    owner: Declaration(
+                        DeclarationId {
+                            module: ModuleId {
+                                project: Universe,
+                                path: <root>,
+                            },
+                            name: "Probe",
+                        },
+                    ),
+                    selector: Selector {
+                        base: Named(
+                            "run",
+                        ),
+                        kind: Method,
+                        slots: [],
+                    },
+                    side: Class,
+                },
+                explanation: ExplanationId(
+                    6,
+                ),
+            },
+        ],
+        fixes: [],
+        root_cause: Some(
+            DiagnosticCauseId(
+                0,
+            ),
+        ),
+    },
+]
+
+thread 'semantic::foundations::audit_2026_09_09::captured_write_must_invalidate_previous_int_fact' (383374) panicked at phalcom-semantic/tests/semantic/foundations/audit_2026_09_09.rs:64:5:
+executing the captured String write must prevent certifying an Int return
+
+thread 'semantic::foundations::audit_2026_09_09::unit_spellings_have_one_source_identity' (383380) panicked at phalcom-semantic/tests/semantic/support/fixture.rs:392:9:
+unexpected semantic errors: [
+    SemanticDiagnostic {
+        code: BindingInitializerMismatch,
+        severity: Error,
+        message: "initializer expression is not assignable to declared type",
+        primary: SemanticSourceSpan {
+            module: ModuleId {
+                project: Universe,
+                path: <root>,
+            },
+            range: CopyRange {
+                start: 30,
+                end: 46,
+            },
+        },
+        primary_range: CopyRange {
+            start: 30,
+            end: 46,
+        },
+        labels: [
+            DiagnosticLabel {
+                span: SemanticSourceSpan {
+                    module: ModuleId {
+                        project: Universe,
+                        path: <root>,
+                    },
+                    range: CopyRange {
+                        start: 37,
+                        end: 41,
+                    },
+                },
+                range: CopyRange {
+                    start: 37,
+                    end: 41,
+                },
+                message: "declared type",
+            },
+            DiagnosticLabel {
+                span: SemanticSourceSpan {
+                    module: ModuleId {
+                        project: Universe,
+                        path: <root>,
+                    },
+                    range: CopyRange {
+                        start: 44,
+                        end: 46,
+                    },
+                },
+                range: CopyRange {
+                    start: 44,
+                    end: 46,
+                },
+                message: "inferred type",
+            },
+        ],
+        notes: [],
+        helps: [],
+        guidance: [
+            ChangeAnnotation {
+                range: CopyRange {
+                    start: 37,
+                    end: 41,
+                },
+                ty: TypeId(
+                    376,
+                ),
+            },
+        ],
+        explanations: [
+            ExplanationRef {
+                callable: CallableId {
+                    owner: Declaration(
+                        DeclarationId {
+                            module: ModuleId {
+                                project: Universe,
+                                path: <root>,
+                            },
+                            name: "Probe",
+                        },
+                    ),
+                    selector: Selector {
+                        base: Named(
+                            "run",
+                        ),
+                        kind: Method,
+                        slots: [],
+                    },
+                    side: Class,
+                },
+                explanation: ExplanationId(
+                    2,
+                ),
+            },
+        ],
+        fixes: [],
+        root_cause: Some(
+            DiagnosticCauseId(
+                0,
+            ),
+        ),
+    },
+    SemanticDiagnostic {
+        code: BindingInitializerMismatch,
+        severity: Error,
+        message: "initializer expression is not assignable to declared type",
+        primary: SemanticSourceSpan {
+            module: ModuleId {
+                project: Universe,
+                path: <root>,
+            },
+            range: CopyRange {
+                start: 48,
+                end: 62,
+            },
+        },
+        primary_range: CopyRange {
+            start: 48,
+            end: 62,
+        },
+        labels: [
+            DiagnosticLabel {
+                span: SemanticSourceSpan {
+                    module: ModuleId {
+                        project: Universe,
+                        path: <root>,
+                    },
+                    range: CopyRange {
+                        start: 55,
+                        end: 57,
+                    },
+                },
+                range: CopyRange {
+                    start: 55,
+                    end: 57,
+                },
+                message: "declared type",
+            },
+            DiagnosticLabel {
+                span: SemanticSourceSpan {
+                    module: ModuleId {
+                        project: Universe,
+                        path: <root>,
+                    },
+                    range: CopyRange {
+                        start: 60,
+                        end: 62,
+                    },
+                },
+                range: CopyRange {
+                    start: 60,
+                    end: 62,
+                },
+                message: "inferred type",
+            },
+        ],
+        notes: [],
+        helps: [],
+        guidance: [
+            ChangeAnnotation {
+                range: CopyRange {
+                    start: 55,
+                    end: 57,
+                },
+                ty: TypeId(
+                    376,
+                ),
+            },
+        ],
+        explanations: [
+            ExplanationRef {
+                callable: CallableId {
+                    owner: Declaration(
+                        DeclarationId {
+                            module: ModuleId {
+                                project: Universe,
+                                path: <root>,
+                            },
+                            name: "Probe",
+                        },
+                    ),
+                    selector: Selector {
+                        base: Named(
+                            "run",
+                        ),
+                        kind: Method,
+                        slots: [],
+                    },
+                    side: Class,
+                },
+                explanation: ExplanationId(
+                    6,
+                ),
+            },
+        ],
+        fixes: [],
+        root_cause: Some(
+            DiagnosticCauseId(
+                1,
+            ),
+        ),
+    },
+]
+test semantic::foundations::audit_2026_09_09::tuple_union_source_accepts_both_components ... FAILED
+test semantic::foundations::audit_2026_09_09::applied_constructor_has_precise_static_type ... ok
+test semantic::foundations::audit_2026_09_09::captured_write_must_invalidate_previous_int_fact ... FAILED
+test semantic::foundations::audit_2026_09_09::unit_spellings_have_one_source_identity ... FAILED
+
+thread 'semantic::foundations::audit_2026_09_09::generic_inheritance_source_accepts_base_parameter' (383375) panicked at phalcom-semantic/tests/semantic/support/fixture.rs:392:9:
+unexpected semantic errors: [
+    SemanticDiagnostic {
+        code: GenericInferenceConflict,
+        severity: Error,
+        message: "generic argument constraints conflict",
+        primary: SemanticSourceSpan {
+            module: ModuleId {
+                project: Universe,
+                path: <root>,
+            },
+            range: CopyRange {
+                start: 174,
+                end: 190,
+            },
+        },
+        primary_range: CopyRange {
+            start: 174,
+            end: 190,
+        },
+        labels: [],
+        notes: [],
+        helps: [],
+        guidance: [],
+        explanations: [
+            ExplanationRef {
+                callable: CallableId {
+                    owner: Declaration(
+                        DeclarationId {
+                            module: ModuleId {
+                                project: Universe,
+                                path: <root>,
+                            },
+                            name: "Probe",
+                        },
+                    ),
+                    selector: Selector {
+                        base: Named(
+                            "run",
+                        ),
+                        kind: Method,
+                        slots: [],
+                    },
+                    side: Class,
+                },
+                explanation: ExplanationId(
+                    9,
+                ),
+            },
+        ],
+        fixes: [],
+        root_cause: Some(
+            DiagnosticCauseId(
+                0,
+            ),
+        ),
+    },
+    SemanticDiagnostic {
+        code: ArgumentMismatch,
+        severity: Error,
+        message: "argument at position 1 does not match expected parameter type `value`",
+        primary: SemanticSourceSpan {
+            module: ModuleId {
+                project: Universe,
+                path: <root>,
+            },
+            range: CopyRange {
+                start: 174,
+                end: 190,
+            },
+        },
+        primary_range: CopyRange {
+            start: 174,
+            end: 190,
+        },
+        labels: [],
+        notes: [],
+        helps: [],
+        guidance: [],
+        explanations: [
+            ExplanationRef {
+                callable: CallableId {
+                    owner: Declaration(
+                        DeclarationId {
+                            module: ModuleId {
+                                project: Universe,
+                                path: <root>,
+                            },
+                            name: "Probe",
+                        },
+                    ),
+                    selector: Selector {
+                        base: Named(
+                            "run",
+                        ),
+                        kind: Method,
+                        slots: [],
+                    },
+                    side: Class,
+                },
+                explanation: ExplanationId(
+                    12,
+                ),
+            },
+            ExplanationRef {
+                callable: CallableId {
+                    owner: Declaration(
+                        DeclarationId {
+                            module: ModuleId {
+                                project: Universe,
+                                path: <root>,
+                            },
+                            name: "Probe",
+                        },
+                    ),
+                    selector: Selector {
+                        base: Named(
+                            "run",
+                        ),
+                        kind: Method,
+                        slots: [],
+                    },
+                    side: Class,
+                },
+                explanation: ExplanationId(
+                    13,
+                ),
+            },
+        ],
+        fixes: [],
+        root_cause: Some(
+            DiagnosticCauseId(
+                1,
+            ),
+        ),
+    },
+]
+
+thread 'semantic::foundations::audit_2026_09_09::incompatible_override_must_not_certify_int' (383376) panicked at phalcom-semantic/tests/semantic/foundations/audit_2026_09_09.rs:58:5:
+an incompatible String override must not satisfy a Base Int contract
+test semantic::foundations::audit_2026_09_09::generic_inheritance_source_accepts_base_parameter ... FAILED
+test semantic::foundations::audit_2026_09_09::incompatible_override_must_not_certify_int ... FAILED
+
+failures:
+
+failures:
+    semantic::foundations::audit_2026_09_09::applied_subclass_retains_nongeneric_superclass
+    semantic::foundations::audit_2026_09_09::captured_write_must_invalidate_previous_int_fact
+    semantic::foundations::audit_2026_09_09::generic_inheritance_source_accepts_base_parameter
+    semantic::foundations::audit_2026_09_09::incompatible_override_must_not_certify_int
+    semantic::foundations::audit_2026_09_09::recursive_relation_charges_pair_budget
+    semantic::foundations::audit_2026_09_09::repeated_union_obligation_is_not_recursion
+    semantic::foundations::audit_2026_09_09::tuple_union_source_accepts_both_components
+    semantic::foundations::audit_2026_09_09::unit_spellings_have_one_source_identity
+
+test result: FAILED. 1 passed; 8 failed; 0 ignored; 0 measured; 1180 filtered out; finished in 0.72s
+
+error: test failed, to rerun pass `-p phalcom-semantic --test semantic`

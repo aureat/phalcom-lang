@@ -1,0 +1,9 @@
+Traceback (most recent call last):
+  synthetic#1:<root>.ph:5   in <main>
+  [native]   in Object.doesNotUnderstand(_)
+× None does not understand 'new()'
+   ╭─[synthetic#1:<root>.ph:5:14]
+ 5 │ System.print(Box<Int>.new().class)
+   ·              ──────────────
+   ·              ╰── None does not understand 'new()'
+   ╰────

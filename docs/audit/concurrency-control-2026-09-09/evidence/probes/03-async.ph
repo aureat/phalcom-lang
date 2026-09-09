@@ -1,0 +1,26 @@
+const a = Future.new()
+const b = Future.new()
+const c = Future.new()
+const result = Future.async || {
+  System.print(a.await)
+  System.print(b.await)
+  System.print(c.await)
+  System.print("terminal reached")
+  "FINAL"
+}
+System.runScheduled()
+System.print(result.isReady)
+System.print(result.value)
+a.settleValue("A")
+System.runScheduled()
+b.settleValue("B")
+System.runScheduled()
+c.settleValue("C")
+System.runScheduled()
+System.print(result.value)
+const pending = Future.new()
+const failed = Future.async || { pending.await; Error.new("late failure").raise() }
+System.runScheduled()
+pending.settleValue(1)
+System.runScheduled()
+System.print(failed.value)

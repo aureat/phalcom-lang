@@ -28,7 +28,9 @@ class Monad<F: Type -> Type> is Applicative<F> {
         _ value: F<A>,
         _ f: (A) -> F<B>
     ) -> F<B> {
-        throw Error.new("Monad.flatMap is a contract stub")
+        Error
+            .new("Monad.flatMap is a contract stub")
+            .raise()
     }
 }
 
@@ -57,11 +59,14 @@ class EitherMonad<E> is Monad<<X> =>> Either<E, X>> {
         _ right: Either<E, B>,
         _ f: (A, B) -> C
     ) -> Either<E, C> {
-        left.flatMap(|leftValue| {
-            right.map(|rightValue| {
-                f.call(leftValue, rightValue)
-            })
-        })
+        left.flatMap |leftValue| {
+            right.map |rightValue| {
+                f.call(
+                    leftValue,
+                    rightValue
+                )
+            }
+        }
     }
 
     flatMap<A, B>(

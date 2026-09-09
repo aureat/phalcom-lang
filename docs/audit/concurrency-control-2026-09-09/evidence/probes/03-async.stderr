@@ -1,0 +1,20 @@
+2026-09-08T22:57:23.993113Z [fiber] spawn   #2 <closure in <closure>>  parent=#1  at fiber.ph:260
+2026-09-08T22:57:23.993185Z [fiber] spawn   #3 <closure in <closure>>  parent=#2  at fiber.ph:261
+2026-09-08T22:57:23.993240Z [fiber] yield   #3 @ fiber.ph:246  value=None
+2026-09-08T22:57:23.993264Z [fiber] switch  #3  ──→  #2 @ fiber.ph:262
+2026-09-08T22:57:23.993325Z [fiber] done    #2  result=<Future instance>  frames=0
+2026-09-08T22:57:23.993333Z [fiber] switch  #2  ──→  #1 @ fiber.ph:60
+2026-09-08T22:57:23.993497Z [fiber] yield   #3 @ fiber.ph:246  value=None
+2026-09-08T22:57:23.993505Z [fiber] switch  #3  ──→  #1 @ fiber.ph:60
+2026-09-08T22:57:23.993636Z [fiber] yield   #3 @ fiber.ph:246  value=None
+2026-09-08T22:57:23.993649Z [fiber] switch  #3  ──→  #1 @ fiber.ph:60
+2026-09-08T22:57:23.993752Z [fiber] done    #3  result=FINAL  frames=0
+2026-09-08T22:57:23.993759Z [fiber] switch  #3  ──→  #1 @ fiber.ph:60
+2026-09-08T22:57:23.993825Z [fiber] spawn   #4 <closure in <closure>>  parent=#1  at fiber.ph:260
+2026-09-08T22:57:23.993865Z [fiber] spawn   #5 <closure in <closure>>  parent=#4  at fiber.ph:261
+2026-09-08T22:57:23.993903Z [fiber] yield   #5 @ fiber.ph:246  value=None
+2026-09-08T22:57:23.993927Z [fiber] switch  #5  ──→  #4 @ fiber.ph:262
+2026-09-08T22:57:23.993968Z [fiber] done    #4  result=<Future instance>  frames=0
+2026-09-08T22:57:23.993976Z [fiber] switch  #4  ──→  #1 @ fiber.ph:60
+2026-09-08T22:57:23.994071Z [fiber] fail    #5  error=<Error instance>
+2026-09-08T22:57:23.994083Z [fiber] switch  #5 <<closure>> @ synthetic#1:<root>.ph:22  ──→  #1 @ fiber.ph:60

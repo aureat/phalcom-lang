@@ -1,13 +1,13 @@
-@data
-class User<T>
- {
-    const _name
-    const _age
+class User
+{
+    _name
+    _age
 
-    @class
+    @constructor
     anonymous() {
-        User.new(name: Option<String>::None, age: Option<Int>::None)
+        _name = Option<String>::None
+        _age = Option<Int>::None
     }
 }
 
-System.print(User.anonymous())
+System.print((User.class >> #anonymous()))
