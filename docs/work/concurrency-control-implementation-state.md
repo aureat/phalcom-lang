@@ -58,7 +58,7 @@
 | Final | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo clippy -p phalcom-modules --all-targets -- -D warnings` | PASS | all five requested `phalcom-modules` findings are fixed |
 | Final | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-repl --test repl_import_bugs -- --nocapture` | BASELINE-BLOCKED: 3 failures, 3 passes; see diagnosis below | reproduced the unrelated REPL import baseline independently |
 | Final | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test --workspace --all-targets` | BASELINE-BLOCKED: the same 3 failures in `phalcom-repl/tests/repl_import_bugs.rs`; core target and language corpus remain green | workspace-wide behavioral baseline; no failure was in the concurrency targets |
-| Final | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo clippy --workspace --all-targets -- -D warnings` | BASELINE-BLOCKED after the module fix: 36 findings in `phalcom-semantic`; the requested five `phalcom-modules` findings no longer appear | workspace lint baseline beyond the requested module scope |
+| Final | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo clippy --workspace --all-targets -- -D warnings` | PASS after resolving the semantic, core, and LSP findings; no warnings remain under `-D warnings` | workspace lint-clean delivery |
 
 ## ASTRA audit
 
@@ -87,8 +87,8 @@ The source/interface layer contains the intended declarations: `errors/unsupport
 - `completion_observer` is traced from `Object::Fiber` and is taken before observer scheduling; no Rust closure or Future-specific heap pointer is stored.
 - `rg 'const res = fib\.try|const driver = Fiber\.new' phalcom-core/core/universe/src/concurrency/fiber.ph` → no one-turn Future driver remains.
 - `rg 'nextScheduled' --glob '!target/**'` → only internal `_$nextScheduled` implementation/spec references and historical audit/context references remain; no public `System.nextScheduled` declaration or installed public surface record remains.
-- The five requested `phalcom-modules` Clippy findings are gone; package Clippy/tests are green. Workspace Clippy now reaches 36 pre-existing `phalcom-semantic` findings, which remain outside this task.
-- Workspace tests remain baseline-blocked by the three diagnosed builtin runtime import/export failures above; formatting, build, module tests/Clippy, and all concurrency-focused gates are green.
+- Workspace Clippy is green across all packages and targets after resolving the semantic, core, and LSP diagnostics; package tests for the affected semantic, core, and LSP crates are also green.
+- Workspace tests remain baseline-blocked by the three diagnosed builtin runtime import/export failures above; formatting, build, workspace Clippy, affected-package tests, and all concurrency-focused gates are green.
 - C5 documentation closure: complete for the reviewed stale rustdoc, floor-census count/surface, ADR-0030 opcode wording, and E010 mechanism description.
 
 ## Deferred gates
@@ -98,7 +98,7 @@ The source/interface layer contains the intended declarations: `errors/unsupport
 - durable completion observers → C3 complete
 - terminal Future adoption, settlement, and suspension-safe continuations → C4 complete
 - ownership closure, specs, and permanent regressions → C5 complete
-- format → PASS; module tests/Clippy → PASS; workspace test → baseline-blocked by diagnosed REPL failures; workspace Clippy → baseline-blocked by 36 `phalcom-semantic` findings; workspace build → PASS
+- format → PASS; affected-package tests/Clippy → PASS; workspace test → baseline-blocked by diagnosed REPL failures; workspace Clippy → PASS; workspace build → PASS
 
 ## Unexpected findings
 
@@ -107,8 +107,8 @@ The source/interface layer contains the intended declarations: `errors/unsupport
 
 ## Active incident
 
-Final workspace certification remains blocked by the diagnosed REPL builtin export failures and 36 unrelated `phalcom-semantic` Clippy findings. The requested five `phalcom-modules` findings are fixed. E010 remains an intentional open concurrency-policy issue; it was not silently closed by C5.
+Final workspace certification remains blocked only by the diagnosed REPL builtin export failures. Workspace Clippy and the requested five `phalcom-modules` findings are fixed. E010 remains an intentional open concurrency-policy issue; it was not silently closed by C5.
 
 ## Next resume action
 
-Implementation and reviewed documentation closure complete; retain the final-gate classifications above. Resolve the builtin runtime export projection and the remaining `phalcom-semantic` Clippy baseline separately if full workspace certification is required.
+Implementation and reviewed documentation closure complete; retain the final-gate classifications above. Resolve the builtin runtime export projection if full workspace test certification is required.
