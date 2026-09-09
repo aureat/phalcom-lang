@@ -2,8 +2,8 @@
 // spec: concurrency.md; E010
 // status: PASS
 
-// Root await must surface the actual scheduled failure that made progress
-// impossible, not replace it with the generic scheduler-empty diagnostic.
+// Root await keeps its quiescence diagnostic, but includes the unhandled
+// scheduler failures produced while this await itself drove the scheduler.
 const pending = Future.new()
 System.schedule || {
   Error.new("settler failed").raise()

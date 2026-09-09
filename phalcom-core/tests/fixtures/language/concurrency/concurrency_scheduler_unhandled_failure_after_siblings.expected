@@ -1,3 +1,6 @@
 failing task
 sibling survived
-caught: scheduled boom
+Unhandled scheduled Fiber failure:
+scheduled boom
+after first drain
+after second drain

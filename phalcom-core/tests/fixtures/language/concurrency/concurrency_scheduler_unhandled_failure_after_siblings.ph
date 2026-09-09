@@ -3,7 +3,8 @@
 // status: PASS
 
 // An unowned scheduled failure is isolated until the current pump has drained
-// unrelated ready work, then surfaced to the pump caller.
+// unrelated ready work, then reported without turning the pump call into an
+// exception. A second drain proves the report is consumed exactly once.
 System.schedule || {
   System.print("failing task")
   Error.new("scheduled boom").raise()
@@ -13,8 +14,7 @@ System.schedule || {
   System.print("sibling survived")
 }
 
-try {
-  System.runScheduled()
-} catch e {
-  System.print("caught: " + e.message)
-}
+System.runScheduled()
+System.print("after first drain")
+System.runScheduled()
+System.print("after second drain")
