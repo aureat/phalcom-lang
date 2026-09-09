@@ -26,15 +26,22 @@ from it.
 - an **entry** — the [`Function`](functions.md) the fiber runs when first resumed;
 - its **own value stack** and **own `CallFrame` stack** — a fiber does not share
   the caller's stack, which is what makes suspension possible;
-- a **status** — one of `suspended` (created or yielded, resumable),
-  `running` (currently on the CPU), `done` (entry returned), `failed`
-  (entry raised, error captured);
+- a **status** — one of `new`, `running`, `blockedOnChild`, `yielded`,
+  `parked(generation)`, `queued`, `done`, or `failed`. `running` identifies
+  exactly `VM.current`; a child-blocked, Future-parked, or queued fiber is not
+  manually resumable;
+- a **root marker** — root identity is stable and is not inferred from the
+  dynamic caller chain;
 - a **resumer link** — the fiber to hand control back to on `yield` / return /
-  failure (forming a dynamic caller chain, not a fixed parent);
-- a **result slot** — the last yielded/returned value, or the captured `Error`.
+  failure (forming a dynamic immediate-control-transfer chain, not a fixed
+  parent or durable completion owner);
+- a **result slot** — the last yielded/returned value, or the captured `Error`;
+- for Future parking, a monotonic **park generation** and a single completion
+  observer handle, both retained with the Fiber object.
 
-The **root fiber** is the main program; it is `suspended` only while a callee
-fiber runs.
+The **root fiber** is the main program and remains identifiable even when its
+dynamic resumer link is empty. A non-root Fiber reaches `done` or `failed` only
+once; terminal state is never resumed.
 
 ### Interface
 
@@ -64,8 +71,10 @@ counter.call()   // 2
 ```
 
 Control transfer is symmetric and explicit: `call` pushes onto the resumer chain,
-`yield`/return pops it. There is no implicit scheduler at this layer — that is
-`Future`'s job (§2).
+`yield`/return pops it. The link describes immediate control transfer only; it is
+not the ownership channel for an asynchronous completion. Scheduler admission,
+Future parking/wake, and terminal completion use the explicit internal seams
+described in §2.
 
 ### Implementation
 
@@ -163,24 +172,19 @@ a **scheduler** (a run loop over ready work) drives settlement.
 ### Structure
 
 - a **state** — `pending`, `fulfilled(value)`, or `rejected(error)`;
-- a **waiters** list — fibers suspended in `await` on this future, plus `then`
-  continuations, resumed/queued when it settles;
-- (for `async` futures) the driving `Fiber`.
+- a **waiters** list — exact `(Fiber, generation)` tickets for suspended `await`
+  operations and closures for pending `then`/`map`/`catch` callbacks;
+- (for `async` futures) an action Fiber whose terminal observer owns settlement.
 
 A `Future` settles **exactly once**; further completions are ignored.
 
 ### Interface
 
 **Both slices are landed.** The status column below records which slice a member
-came from, not whether it exists: **A** = U-FUTURE Slice A (pure `.ph`, no
-`Fiber`/scheduler involvement); **B** = Slice B, landed in `06432bd`
-(2026-07-14) over the native ready-queue. Slice B's `await` did not actually
-*work* until [E004](../../errors/E004-await-cannot-suspend.md) was fixed — it
-probed its own permission to yield with a wrapper that made the yield illegal,
-so it never suspended a fiber; `Fiber#isRoot` replaced the probe
-([U-SCHED](../../forge/units/U-SCHED-FIBER/U-SCHED/plan.md), ratified per
-[DEC-FUT-SCHED](../../forge/units/U-FUTURE/plan.md#9-blocked-on-decision-register)
-Option 1).
+came from, not whether it exists: **A** = the scheduler-free state-machine
+surface; **B** = the scheduler-backed async/await and pending-continuation
+surface. The original yield-probe implementation was replaced by the stable
+`Fiber#isRoot` predicate when E004 was fixed.
 
 | Signature | Side | Status | Meaning |
 |-----------|------|--------|---------|
@@ -194,11 +198,12 @@ Option 1).
 | `isReady` | instance | **A** | `true` once `fulfilled` or `rejected` |
 | `value` | instance | **A** | the settled value as `Option` (never blocks) |
 
-On an already-settled receiver, `then`/`map`/`catch` fire synchronously today
-(Slice A, pure `.ph`) — no suspension involved. On a `pending` receiver they
-currently **raise** rather than register a continuation and hang, since Slice
-A has no drain to ever fire it later; registering an actual continuation is
-Slice B.
+On an already-settled receiver, `then`/`map`/`catch` fire synchronously — no
+suspension is involved. On a pending receiver, the continuation is registered
+as a closure and runs on a fresh scheduler-owned callback Fiber after settlement.
+That callback Fiber may park; the derived Future changes only from its terminal
+observer, and a successful callback result is flattened so `None`, `Error`, and
+nested Future values retain their specified meanings.
 
 ```phalcom
 let f = Future.async { slowComputation() }
@@ -206,11 +211,13 @@ doOtherWork()
 let result = f.await          // suspends this fiber until f settles
 ```
 
-`await` is **sugar-free suspension**, not blocking: the fiber yields to the
-scheduler, which runs other ready fibers until `f` settles, then resumes this one.
-`then`/`map`/`catch` are the non-suspending, continuation-passing form; `await` is
-the direct-style form. They are interconvertible because both bottom out in the
-same waiter list.
+`await` is **sugar-free suspension**, not blocking. A root Fiber pumps the
+internal scheduler dequeue/resume path while the Future is pending. A
+scheduler-owned non-root Fiber obtains a park generation, registers the exact
+`(Fiber, generation)` ticket, and parks; settlement wakes it only when the
+generation still matches. Manual Fiber call-chains cannot await a pending Future
+under this contract (D-07), and native-boundary refusal is checked before a
+waiter is registered.
 
 ### Implementation
 
@@ -225,51 +232,23 @@ settle-once state machine over three private fields (`_state`/`_value`/
 synchronously. **Zero native code, zero `Fiber` involvement** — a settled
 future never suspends.
 
-**Slice B — landed** in `06432bd` (2026-07-14), over `Fiber` (§1) as the
-substrate and the native ready-queue below. What it took:
+**Slice B — landed** over `Fiber` (§1) and the native ready-queue. Public code
+admits work with `System.schedule(_)` and drains it with `System.runScheduled`;
+raw dequeue, scheduler resume, park/wake, and completion-observer operations are
+internal runtime seams. The public raw `System.nextScheduled` getter was removed
+because it released queue ownership and allowed a queued Fiber to be stolen by
+manual `try`.
 
-1. `await` = "add `current` to the future's waiters, then `Fiber.yield` to
-   the scheduler" — plus, on the **root** fiber, which has no resumer and so
-   cannot yield at all, a degrade to driving the queue in place. Choosing
-   between those two branches turned out to need a *predicate*
-   (`Fiber#isRoot`): the shipped implementation originally chose by attempting
-   a yield inside `{ … }.attempt()` and inspecting the failure, and since
-   `.attempt()` is itself two native re-entrant frames, the probe tripped the
-   restricted-yield guard (§4) it was probing for — so `await` never suspended
-   any fiber until [E004](../../errors/E004-await-cannot-suspend.md) was fixed.
-   Also uses `Fiber#isDone`/`error`
-   ([U-FIBER-REFLECT](../../work/pending/fiber-schedule/reflect/plan.md))
-   to detect an `async` driver's completion/failure;
-2. a **scheduler**: a ready-queue of resumable fibers plus a source of
-   external completions (timers, I/O) exposed through [`System`](system.md).
-   No `.ph`-reachable class-side/module mutable state exists today
-   ([object-model.md](object-model.md)/[classes.md](classes.md)), so the
-   ready-queue needed a native home — **landed** as `System.schedule(_)`/
-   `System.nextScheduled`/`System.runScheduled` (`system.md` §2, `VM::ready_queue`)
-   — not a "top level runs inside the scheduler's root fiber" retrofit as
-   originally sketched, but a **root-drive pump**: `VM::run` drains the
-   ready-queue once the top-level program's own activation ends, so `await`
-   degrades to "drain, re-check" rather than requiring `main` itself to be a
-   scheduler fiber;
-3. settlement moves the future to `fulfilled`/`rejected` and enqueues every
-   waiter fiber and `then` continuation onto the ready-queue — the
-   enqueue-on-settle half is `Future`'s own job (`drain`), since U-SCHED's
-   `runScheduled` only ever *pops*, never pushes a resumed-later fiber back
-   on. `drain` skips a waiter fiber that has already finished: one can fail
-   *after* registering, and resuming it would abort the run and take the
-   future's healthy waiters with it (E004(c)).
+The root-drive pump in `VM::run` and the `.ph` pump both dequeue FIFO work and
+resume it through the scheduler mode. A scheduled failure is isolated from
+sibling work according to the current Call/Try/Scheduler policy; E010 remains an
+open error-observation issue, not a silent claim of resolution.
 
-The native ready-queue seam is landed
-([U-SCHED](../../forge/units/U-SCHED-FIBER/U-SCHED/plan.md),
-ratified — [DEC-FUT-SCHED](../../work/pending/fiber-schedule/future/plan.md#9-blocked-on-decision-register)
-Option 1); `Future` deliberately owns **no** new VM mechanism beyond
-`Fiber` + a queue — keeping the concurrency primitive singular
-([ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md)).
-`Future`'s own waiter-list/settlement wiring over that substrate is what Slice
-B added, and it is now landed too. `_waiters` holds two kinds of thing —
-`Fiber`s registered by `await`, `Block`s registered by `then`/`map`/`catch` —
-unified by `System.schedule(_)`, which enqueues a fiber as-is and wraps anything
-else.
+Future settlement drains two waiter forms: exact `(Fiber, generation)` tickets
+for parked awaiters, and closures for pending `then`/`map`/`catch`. Each callback
+is run on a fresh Fiber with a durable terminal observer. Terminal success or
+failure, rather than a first yield or the dynamic `resumer`, settles the derived
+Future. Observer handles are GC-traced and detached once at `Done`/`Failed`.
 
 ---
 

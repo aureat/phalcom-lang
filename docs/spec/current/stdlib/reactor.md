@@ -8,7 +8,7 @@
 > it adds is `System.sleep(_)` (§6, ruled in substance by PDR-0004 §5).
 > **Floor delta: +3** (`System.sleep_(_,_)` and the two pump seams
 > `System.nextCompletion_` / `System.parkForCompletion_(_)` — the U-SCHED
-> `schedule_`/`nextScheduled` seam precedent; amended from "+1" by
+> `schedule_`/internal-dequeue seam precedent; amended from "+1" by
 > [`../../forge/units/U-REACTOR/implementation-spec.md`](../../forge/units/U-REACTOR/implementation-spec.md), which also rules phase 1 std-only:
 > worker pool + timers, no poller, no sockets, no new dependency); census arithmetic follows
 > [PDR-0012](../../../pdr/0012-numeric-tower-implementation-and-floor-amendment.md)
@@ -78,8 +78,8 @@ submit -> park -> complete -> drain (safepoint) -> settle -> ready
 ## 4. The pump and the liveness law
 
 The scheduler currently has one completion source: the ready queue, drained by
-`System.runScheduled` (`core.ph:1317`) over the `system_schedule`/`system_next_scheduled`
-seam (`primitive/system.rs:56`/`:70`), with the VM's root-drive pump behind it. This
+`System.runScheduled` (`core.ph:1317`) over the `system_schedule`/`system_next_scheduled_internal`
+seam (`primitive/system.rs`), with the VM's root-drive pump behind it. This
 machinery adds a second source, and PDR-0004 names the resulting failure mode the
 sharpest in the decision:
 

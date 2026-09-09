@@ -1,6 +1,6 @@
 # E007 · `Future.async` settles prematurely when its action `await`s — wrong value, silently
 
-- **Status:** OPEN — confirmed 2026-07-20 (reproduced under `target/debug/phalcom`, isolated by control)
+- **Status:** FIXED — verified by C4/C5 terminal-completion regressions on 2026-09-09
 - **Severity:** **blocker** — the canonical `async { … await … }` composition returns garbage (`Some(None)`) with no error; wrong data propagates downstream
 - **Subsystem:** core library (`Future.async`) × fiber resume semantics
 - **Related:** [E004](E004-await-cannot-suspend.md) (this is the defect *behind* the one E004 fixed: awaiting now suspends, but the suspension is misread); `docs/spec/impl/reactor` completion-machinery spec (the structural fix's home)
@@ -60,7 +60,7 @@ A non-suspending action settles correctly — `Future.async { 42 }` yields `Some
 (covered by `tests/lang/concurrency/concurrency_future_async_await.ph`). The defect is
 strictly in the *suspending* composition, which no fixture exercises.
 
-## Fix direction (unverified — reproduce-then-re-derive applies)
+## Historical fix direction (superseded)
 
 The driver's premise ("one `try()` = one lifetime") is false whenever the action can
 suspend. Candidate repairs, none verified:
@@ -75,3 +75,17 @@ suspend. Candidate repairs, none verified:
 
 Option 2's inadequacy is the instructive part: any fix that keeps completion delivery
 keyed to the *dynamic resumer* re-creates the leak somewhere else.
+
+## Implemented repair and verification
+
+C4 replaced the one-turn driver with a durable terminal observer: the action Fiber
+may park and resume repeatedly, while the outer Future settles only from `Done` or
+`Failed`. Pending continuation callbacks use the same terminal path and retain
+flattening for nested Future results.
+
+Permanent regressions are `concurrency_future_async_multi_await_terminal_completion.ph`,
+`concurrency_future_async_late_failure.ph`,
+`concurrency_future_async_call_cascade_observer.ph`, and
+`concurrency_future_async_observer_survives_gc.ph`. Focused evidence:
+`cargo test -p phalcom-core --test language-corpus concurrency` passed both the
+positive and negative concurrency lanes at C5.

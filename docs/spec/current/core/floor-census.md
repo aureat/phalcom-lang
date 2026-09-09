@@ -226,14 +226,13 @@ row, not the count, is what makes the freeze real.
 > §1.1 stayed consistent with the chain, which is exactly why it never looked wrong. All
 > five are reconstructed from the test's constants and the install site — see §1.3._
 >
-> **U-SCHED amendment ([ADR-0030](../../../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md) §Consequences).**
-> The native ready-queue scheduler seam admits **+2** bindings (113 → 115) and **+2**
-> distinct fns (98 → 100), both class-side on `System` and both `primitive/system.rs`:
-> `System.schedule(_)` (`system_schedule`) enqueues a block on the ready queue, and
-> `System.nextScheduled` (`system_next_scheduled`, a getter) pops the next one. They are
-> the floor under the `.ph` scheduler: the queue itself is native because it outlives any
-> one fiber and must be reachable from the collector's roots. Floor-carrying classes stay
-> **22** — `System` already carried `print(_)`/`new()`.
+> **U-SCHED ownership amendment ([ADR-0030](../../../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md) §Consequences).**
+> Public scheduler admission is `System.schedule(_)` (`system_schedule`). The raw
+> dequeue (`System._$nextScheduled`), scheduler resume (`Fiber._$resumeScheduled`),
+> ticketed wake (`System._$wake`), and park/completion seams are internal runtime
+> bindings; no public `System.nextScheduled` raw-pop authority remains. The queue is
+> native because it outlives any one fiber and must be reachable from collector roots.
+> Floor-carrying classes stay **22** — `System` already carried `print(_)`/`new()`.
 >
 > **U-ANNOT-CONTRACTS amendment ([ADR-0052](../../../adr/accepted/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md) Fix 1).**
 > The `@invariant` re-entrancy guard admits **+2** bindings (115 → 117) and **+2** distinct
@@ -540,8 +539,10 @@ snapshot that BoundMethodFamily closes over.
 | `_$write(_)` | class-side | `system_raw_write` | internal raw stdout write; public wrappers are `.ph`-derived |
 
 > Also present but not yet catalogued in this table: `schedule(_)`/`system_schedule`,
-> `nextScheduled`/`system_next_scheduled` (U-SCHED), `gc()`/`system_gc` (U-GC step 3).
-> Pre-existing staleness, out of scope for the U-STRING doc-sync pass.
+> internal `_$nextScheduled`/`system_next_scheduled_internal`, `_$wake`/`system_wake`
+> (U-SCHED), and `gc()`/`system_gc` (U-GC step 3). The public raw
+> `nextScheduled` getter was removed in C5; the internal rows are listed here to
+> keep the floor inventory explicit.
 
 ### 2.12 `Module` — namespace object (U15, [ADR-0045](../../../adr/0045-module-import-relative-path-whole-module-binding.md))
 
@@ -707,8 +708,16 @@ value, or with one), which is why 11 bindings need only 8 native fns.
 | `isDone` | instance | `fiber_is_done` | pure read over `FiberObject::status`; no scheduler dependency (U-FIBER-REFLECT) |
 | `error` | instance | `fiber_error` | pure read over `FiberObject::result`; `RuntimeError::Type` if the receiver is not a `Fiber` |
 
-The scheduler seam (`System.schedule(_)` / `System.nextScheduled`) is **not** here — it is
-class-side on `System` (§2.11), and is what the `.ph` scheduler is written over.
+The scheduler-owned internal Fiber seams are not public coroutine operations:
+`_$resumeScheduled()` consumes a queued reservation, `_$preparePark()` and
+`_$park(_)` create and enter a ticketed Future park, `_$onComplete(_)` installs
+the single GC-traced terminal observer, and `_$terminalValue` reads a terminal
+result for that observer. They are installed by the native floor but are only
+called by the scheduler/Future implementation.
+
+The scheduler seam (`System.schedule(_)` plus internal dequeue/resume/wake) is
+**not** here — it is class-side on `System` (§2.11), and is what the `.ph`
+scheduler is written over.
 
 ## 3. The floor ↔ `core.ph` boundary
 

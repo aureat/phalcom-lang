@@ -1,6 +1,6 @@
 # E008 · Scheduling the same fiber twice fails the whole run — the pre-flight refusal rides the failure channel
 
-- **Status:** OPEN — confirmed 2026-07-20 (reproduced under `target/debug/phalcom`, isolated by control)
+- **Status:** FIXED — verified by C1/C5 scheduler-admission regressions on 2026-09-09
 - **Severity:** **major** — program's own code succeeds, then the run dies with exit 1; contradicts the documented capture-not-propagate pump contract
 - **Subsystem:** fibers / scheduler (`System.schedule`, root-drive pump)
 - **Related:** [E003](E003-schedule-pump-arity.md) (same channel confusion: an error *about resuming* a scheduled fiber is indistinguishable from an error *raised by* it)
@@ -40,7 +40,7 @@ Output: `main-exits`, `ran`, then `Traceback … cannot resume a finished fiber`
 Two *distinct* fibers schedule and drain cleanly in FIFO order (`a`, `b` print after
 `end`, no traceback).
 
-## Fix direction (unverified)
+## Historical fix direction (superseded)
 
 Either end works; they differ in *where* the contract lives:
 
@@ -51,3 +51,18 @@ Either end works; they differ in *where* the contract lives:
 
 (1) fails fast at the user's line; (2) makes the pump total. Doing only (2) leaves
 double-schedule silently meaning "run once", which then needs a spec sentence.
+
+## Implemented repair and verification
+
+`System.schedule(_)` now owns admission. It atomically accepts only `New` or
+explicitly `Yielded` fibers, transitions them to `Queued`, and rejects duplicate
+queued admission as well as active, blocked, parked, and terminal fibers. The
+queue is FIFO and scheduler-only dequeue/resume preserves the reservation, so a
+public `Fiber#try` cannot steal queued work.
+
+The permanent regression `concurrency_sched_duplicate_admission_isolated.ph`
+proves that duplicate admission is rejected without poisoning a healthy sibling.
+The C5 raw-authority regression also proves `System.nextScheduled` is no longer
+a public selector. Focused evidence:
+`cargo test -p phalcom-core --test language-corpus concurrency` passed both the
+positive and negative concurrency lanes at C5.
