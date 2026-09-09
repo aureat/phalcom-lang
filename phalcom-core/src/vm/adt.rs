@@ -291,7 +291,7 @@ impl VM {
                     let [value] = payload.as_slice() else {
                         return Err(RuntimeError::Message(format!("variant Some takes 1 argument, got {}", payload.len())));
                     };
-                    return Ok(value.wrap_some()?);
+                    return value.wrap_some();
                 }
 
                 Err(RuntimeError::Internal("non-Option variant registered under NativeOption representation".into()))

@@ -245,6 +245,18 @@ struct ReclassificationDelta {
     identity_changes: BTreeSet<ModuleId>,
 }
 
+struct LocationDeltaResolution<'a> {
+    base_universe: &'a ProjectUniverse,
+    committed_modules: &'a BTreeMap<SourceId, ModuleId>,
+    committed_standalone: &'a BTreeMap<SourceId, SyntheticProjectId>,
+    mutated_modules: &'a mut BTreeMap<SourceId, ModuleId>,
+    removed_modules: &'a BTreeSet<SourceId>,
+    project_roots: &'a mut BTreeMap<ProjectSourceIdentity, crate::identity::ResolvedProjectId>,
+    standalone_projects: &'a mut BTreeMap<SourceId, SyntheticProjectId>,
+    synthetic_ids: &'a mut SyntheticProjectIdAllocator,
+    universe_override: &'a mut Option<ProjectUniverse>,
+}
+
 #[derive(Debug)]
 enum EntryDelta<V> {
     Set(V),
@@ -1120,18 +1132,20 @@ impl WorkspaceModuleSession {
                     if self.modules_by_source.contains_key(&source.source_id) || mutated_modules_by_source.contains_key(&source.source_id) {
                         stats.ownership_cache_hits += 1;
                     }
-                    let module = Self::resolve_module_for_location_delta(
-                        &source,
-                        &self.universe,
-                        &self.modules_by_source,
-                        &self.standalone_projects,
-                        &mut mutated_modules_by_source,
-                        &removed_modules_by_source,
-                        &mut mutated_project_roots,
-                        &mut mutated_standalone_projects,
-                        &mut synthetic_ids,
-                        &mut universe_override,
-                    )?;
+                    let module = {
+                        let mut context = LocationDeltaResolution {
+                            base_universe: &self.universe,
+                            committed_modules: &self.modules_by_source,
+                            committed_standalone: &self.standalone_projects,
+                            mutated_modules: &mut mutated_modules_by_source,
+                            removed_modules: &removed_modules_by_source,
+                            project_roots: &mut mutated_project_roots,
+                            standalone_projects: &mut mutated_standalone_projects,
+                            synthetic_ids: &mut synthetic_ids,
+                            universe_override: &mut universe_override,
+                        };
+                        Self::resolve_module_for_location_delta(&source, &mut context)?
+                    };
                     let kind = Self::kind_for_source_delta(&module, &source, &mutated_sources, &removed_sources, &self.sources_by_module);
                     let text_for_parse = text.clone();
                     let parsed = recovered_program.map_or_else(
@@ -1180,18 +1194,20 @@ impl WorkspaceModuleSession {
                     if self.modules_by_source.contains_key(&source.source_id) || mutated_modules_by_source.contains_key(&source.source_id) {
                         stats.ownership_cache_hits += 1;
                     }
-                    let module = Self::resolve_module_for_location_delta(
-                        &source,
-                        &self.universe,
-                        &self.modules_by_source,
-                        &self.standalone_projects,
-                        &mut mutated_modules_by_source,
-                        &removed_modules_by_source,
-                        &mut mutated_project_roots,
-                        &mut mutated_standalone_projects,
-                        &mut synthetic_ids,
-                        &mut universe_override,
-                    )?;
+                    let module = {
+                        let mut context = LocationDeltaResolution {
+                            base_universe: &self.universe,
+                            committed_modules: &self.modules_by_source,
+                            committed_standalone: &self.standalone_projects,
+                            mutated_modules: &mut mutated_modules_by_source,
+                            removed_modules: &removed_modules_by_source,
+                            project_roots: &mut mutated_project_roots,
+                            standalone_projects: &mut mutated_standalone_projects,
+                            synthetic_ids: &mut synthetic_ids,
+                            universe_override: &mut universe_override,
+                        };
+                        Self::resolve_module_for_location_delta(&source, &mut context)?
+                    };
                     let kind = Self::kind_for_source_delta(&module, &source, &mutated_sources, &removed_sources, &self.sources_by_module);
                     let text_for_parse = text.clone();
                     let parsed = recovered_program.map_or_else(
@@ -1268,18 +1284,20 @@ impl WorkspaceModuleSession {
                     if self.modules_by_source.contains_key(&source.source_id) || mutated_modules_by_source.contains_key(&source.source_id) {
                         stats.ownership_cache_hits += 1;
                     }
-                    let module = Self::resolve_module_for_location_delta(
-                        &source,
-                        &self.universe,
-                        &self.modules_by_source,
-                        &self.standalone_projects,
-                        &mut mutated_modules_by_source,
-                        &removed_modules_by_source,
-                        &mut mutated_project_roots,
-                        &mut mutated_standalone_projects,
-                        &mut synthetic_ids,
-                        &mut universe_override,
-                    )?;
+                    let module = {
+                        let mut context = LocationDeltaResolution {
+                            base_universe: &self.universe,
+                            committed_modules: &self.modules_by_source,
+                            committed_standalone: &self.standalone_projects,
+                            mutated_modules: &mut mutated_modules_by_source,
+                            removed_modules: &removed_modules_by_source,
+                            project_roots: &mut mutated_project_roots,
+                            standalone_projects: &mut mutated_standalone_projects,
+                            synthetic_ids: &mut synthetic_ids,
+                            universe_override: &mut universe_override,
+                        };
+                        Self::resolve_module_for_location_delta(&source, &mut context)?
+                    };
                     let had_overlay = mutated_sources
                         .get(&module)
                         .map(|s| s.open_overlay)
@@ -1670,56 +1688,48 @@ impl WorkspaceModuleSession {
 
     fn resolve_module_for_location_delta(
         location: &SourceLocation,
-        base_universe: &ProjectUniverse,
-        committed_modules: &BTreeMap<SourceId, ModuleId>,
-        committed_standalone: &BTreeMap<SourceId, SyntheticProjectId>,
-        mutated_modules: &mut BTreeMap<SourceId, ModuleId>,
-        removed_modules: &BTreeSet<SourceId>,
-        project_roots: &mut BTreeMap<ProjectSourceIdentity, crate::identity::ResolvedProjectId>,
-        standalone_projects: &mut BTreeMap<SourceId, SyntheticProjectId>,
-        synthetic_ids: &mut SyntheticProjectIdAllocator,
-        universe_override: &mut Option<ProjectUniverse>,
+        context: &mut LocationDeltaResolution<'_>,
     ) -> Result<ModuleId, WorkspaceModuleSessionError> {
-        if !removed_modules.contains(&location.source_id) {
-            if let Some(m) = mutated_modules.get(&location.source_id) {
+        if !context.removed_modules.contains(&location.source_id) {
+            if let Some(m) = context.mutated_modules.get(&location.source_id) {
                 return Ok(m.clone());
             }
-            if let Some(m) = committed_modules.get(&location.source_id) {
+            if let Some(m) = context.committed_modules.get(&location.source_id) {
                 return Ok(m.clone());
             }
         }
 
         let path = crate::source::canonicalize_path(&location.display_path);
-        let u = universe_override.get_or_insert_with(|| base_universe.clone());
+        let u = context.universe_override.get_or_insert_with(|| context.base_universe.clone());
         let ownership = classify_entry_ownership(&path, u)?;
         match ownership {
             EntryOwnership::ProjectOwned { project } => {
                 let project_ref = u.get_project(project).expect("loaded project is present");
-                project_roots.insert(ProjectSourceIdentity::from_path(&project_ref.root_dir), project);
+                context.project_roots.insert(ProjectSourceIdentity::from_path(&project_ref.root_dir), project);
                 let unit = crate::source::resolve_source_path(project_ref, &path).map_err(WorkspaceModuleSessionError::from)?;
-                mutated_modules.insert(location.source_id.clone(), unit.id.clone());
+                context.mutated_modules.insert(location.source_id.clone(), unit.id.clone());
                 Ok(unit.id)
             }
             EntryOwnership::StandalonePackageOwned { package_root } => {
                 let project_id = u.load_standalone_package(&package_root, None)?;
-                project_roots.insert(ProjectSourceIdentity::from_path(&package_root), project_id);
+                context.project_roots.insert(ProjectSourceIdentity::from_path(&package_root), project_id);
                 let project_ref = u.get_project(project_id).expect("loaded package is present");
                 let unit = crate::source::resolve_source_path(project_ref, &path).map_err(WorkspaceModuleSessionError::from)?;
-                mutated_modules.insert(location.source_id.clone(), unit.id.clone());
+                context.mutated_modules.insert(location.source_id.clone(), unit.id.clone());
                 Ok(unit.id)
             }
             EntryOwnership::StandaloneModule { file: _ } => {
-                let sid = if let Some(sid) = standalone_projects.get(&location.source_id).copied() {
+                let sid = if let Some(sid) = context.standalone_projects.get(&location.source_id).copied() {
                     sid
-                } else if let Some(sid) = committed_standalone.get(&location.source_id).copied() {
+                } else if let Some(sid) = context.committed_standalone.get(&location.source_id).copied() {
                     sid
                 } else {
-                    let allocated = synthetic_ids.allocate();
-                    standalone_projects.insert(location.source_id.clone(), allocated);
+                    let allocated = context.synthetic_ids.allocate();
+                    context.standalone_projects.insert(location.source_id.clone(), allocated);
                     allocated
                 };
                 let mid = ModuleId::synthetic(sid, ModulePath::root());
-                mutated_modules.insert(location.source_id.clone(), mid.clone());
+                context.mutated_modules.insert(location.source_id.clone(), mid.clone());
                 Ok(mid)
             }
             EntryOwnership::Inline { synthetic } => Ok(ModuleId::synthetic(synthetic, ModulePath::root())),

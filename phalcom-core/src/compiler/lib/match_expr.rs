@@ -60,7 +60,7 @@ impl<'vm> Compiler<'vm> {
             let mut failure_jumps = Vec::new();
             self.emit_executable_pattern(&arm_spec.pattern, scrutinee_slot, &frame, &mut failure_jumps, arm.range)?;
 
-            let arm_scratch_count = (self.functions.last().unwrap().num_locals as usize) - (frame.scope_start as usize);
+            let arm_scratch_count = self.functions.last().unwrap().num_locals - frame.scope_start as usize;
 
             // Success path: commit bindings to visible locals
             self.commit_pattern_frame(&frame, arm.range)?;

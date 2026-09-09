@@ -41,7 +41,7 @@ use phalcom_core::value::{Value, sentinel_to_option};
 use phalcom_core::vm::{ClassKey, VM};
 use std::collections::HashSet;
 
-/// The 21 named kernel classes (`CoreClasses` rows), paired with a stable name.
+/// The 37 named audited kernel classes (`CoreClasses` rows), paired with a stable name.
 ///
 /// Used by the R-INV-0.x audit substrate to enumerate every class whose own —
 /// or whose metaclass's own — method dictionary can carry a floor binding.
@@ -698,7 +698,8 @@ fn subclass_static_field_offset_stability() {
 fn floor_census_matches_installed_bindings() {
     // R-INV-0.1 — reconstruct the installed `(class, selector)` floor from a
     // live `VM::new()` and assert it equals the census in
-    // `docs/spec/core/floor-census.md` (count = 88 after ADR-0023's +7,
+    // `docs/spec/current/core/floor-census.md` (the current assertion is 229;
+    // the historical amendment progression below starts at count = 88 after ADR-0023's +7,
     // ADR-0028's +5, U-CORE-4's +1, and U-CORE-6's own +2). Turns silent
     // floor drift — an accidental extra primitive, or a dropped one — into a
     // red test. The baseline is 73; the first +7 (marked NEW below) is the
@@ -734,9 +735,8 @@ fn floor_census_matches_installed_bindings() {
     // bindings remain native; its call activation rebuilds the target selector
     // directly.
     // U-SCHED (floor-census.md amendment, ADR-0030 §Consequences): the
-    // native ready-queue scheduler seam admits **+2** bindings (113 -> 115):
-    // `System::schedule(_)` (`system_schedule`) and `System::nextScheduled`
-    // (`system_next_scheduled`), both `primitive/system.rs`.
+    // native ready-queue scheduler seam admits `System::schedule(_)`; raw
+    // dequeue and scheduler resume are internal runtime bindings.
     // U-ANNOT-CONTRACTS (ADR-0052 Fix 1, this unit's own amendment): the
     // `@invariant` re-entrancy guard admits **+2** bindings (115 -> 117):
     // `Object::__invariantEnter()` and `Object::__invariantExit()`, both
@@ -949,7 +949,6 @@ fn floor_census_matches_installed_bindings() {
         (c.system_class, true, "new()"),
         // Native ready-queue scheduler seam (U-SCHED) — NEW_SCHED
         (c.system_class, true, "schedule(_)"),
-        (c.system_class, true, "nextScheduled"),
         (c.system_class, true, "gc"),
         // U-STRING raw I/O seam (ADR-0049 amendment)
         (c.system_class, true, "_$write(_)"), // NEW (ADR-0049)
@@ -1052,9 +1051,19 @@ fn floor_census_matches_installed_bindings() {
         (c.fiber_class, false, "isDone"),
         (c.fiber_class, false, "isRoot"),
         (c.fiber_class, false, "error"),
+        (c.fiber_class, false, "_$resumeScheduled()"),
+        (c.fiber_class, false, "_$preparePark()"),
+        (c.fiber_class, false, "_$park(_)"),
+        (c.fiber_class, false, "_$onComplete(_)"),
+        (c.fiber_class, false, "_$terminalValue"),
         // System (Resource tracking primitives)
         (c.system_class, true, "_$leakReport"),
         (c.system_class, true, "_$strictResources(_)"),
+        (c.system_class, true, "_$nextScheduled"),
+        (c.system_class, true, "_$schedulerFailureCursor"),
+        (c.system_class, true, "_$takeUnhandledScheduledFailures(_)"),
+        (c.system_class, true, "_$reportUnhandledScheduledFailures"),
+        (c.system_class, true, "_$wake(_,_)"),
     ];
 
     // Resolve each binding to its owning class (metaclass for statics).
@@ -1125,10 +1134,10 @@ fn floor_census_matches_installed_bindings() {
 
     assert_eq!(
         expected.len(),
-        220,
-        "census must enumerate exactly 220 bindings after Number + getter + bilateral semantics + Selector/SelectorPattern + Behavior typing reflection + Method provenance additions"
+        229,
+        "census must enumerate exactly 229 bindings after concurrency scheduler failure reporting seams"
     );
-    assert_eq!(live.len(), 220, "the live floor must be exactly 220 bindings");
+    assert_eq!(live.len(), 229, "the live floor must be exactly 229 bindings");
 }
 
 #[test]

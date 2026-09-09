@@ -644,6 +644,27 @@ impl VM {
         self.run_until(0)
     }
 
+    fn mark_fiber_done(&mut self, fiber: ObjRef, value: Value) {
+        self.heap.fiber_mut(fiber).status = crate::heap::FiberStatus::Done;
+        self.heap.fiber_mut(fiber).result = value;
+    }
+
+    fn mark_fiber_failed(&mut self, fiber: ObjRef, error: Value) {
+        self.heap.fiber_mut(fiber).status = crate::heap::FiberStatus::Failed;
+        self.heap.fiber_mut(fiber).result = error;
+    }
+
+    /// Detaches a terminal observer and admits it as fresh scheduler work.
+    /// Observer bytecode never executes inline at the fiber floor.
+    fn enqueue_completion_observer(&mut self, fiber: ObjRef) -> PhResult<()> {
+        let observer = self.heap.fiber_mut(fiber).completion_observer.take();
+        let Some(observer) = observer else {
+            return Ok(());
+        };
+        let observer_fiber = crate::primitive::fiber::new_fiber_ref(self, Value::obj(observer))?;
+        self.enqueue_unowned_fiber(observer_fiber)
+    }
+
     /// Runs the dispatch loop until the frame stack shrinks back to
     /// `base_frames`, returning the value produced by the frame that dropped it
     /// there.
@@ -677,7 +698,7 @@ impl VM {
             match self.run_until_inner(0) {
                 Ok(value) => {
                     let finished = self.current;
-                    let Some(resumer) = self.heap.fiber(finished).resumer else {
+                    if self.heap.fiber(finished).is_root {
                         // The root fiber's own top-level activation ended.
                         // Root-drive pump (concurrency.md §2, "a root-drive
                         // pump: `VM::run` drains the ready-queue once the
@@ -688,7 +709,7 @@ impl VM {
                         // can rely on this firing automatically without the
                         // top-level program calling `runScheduled` itself.
                         //
-                        // `fiber_try` expects the ordinary Invoke calling
+                        // The scheduler resume path expects the ordinary Invoke calling
                         // convention (a receiver value already sitting on
                         // `self.stack`, consumed via its own `resume_slot`
                         // bookkeeping) — push a placeholder so its
@@ -697,19 +718,25 @@ impl VM {
                         // `store_live_into` and overwritten on restore
                         // (`switch_to_fiber_and_deliver`'s `stack.truncate`),
                         // so it never leaks.
-                        if let Some(next) = self.ready_queue.pop_front() {
+                        if let Some(next) = self.pop_next_queued() {
                             self.stack.push(Value::obj(next));
-                            crate::primitive::fiber::fiber_try(self, &Value::obj(next), &[])?;
+                            crate::primitive::fiber::fiber_resume_scheduled(self, &Value::obj(next), &[])?;
                             continue;
                         }
+                        self.report_unhandled_scheduler_failures()?;
                         return Ok(value);
-                    };
+                    }
+                    let resumer = self
+                        .heap
+                        .fiber(finished)
+                        .resumer
+                        .ok_or_else(|| RuntimeError::Internal("non-root fiber finished without a resumer".to_string()))?;
                     // Fiber-floor capture, success path (spec §3.2): `finished`
                     // is a non-root fiber whose entry activation just drained
                     // to nothing. Deliver `value` to the resumer's `call`/
                     // `try` expression and switch back to it.
-                    self.heap.fiber_mut(finished).status = crate::heap::FiberStatus::Done;
-                    self.heap.fiber_mut(finished).result = value;
+                    self.mark_fiber_done(finished, value);
+                    self.enqueue_completion_observer(finished)?;
 
                     if self.trace_fibers {
                         let finished_seq = self.heap.fiber(finished).seq;
@@ -766,8 +793,7 @@ impl VM {
                     self.close_upvalues_from(0);
                     let mut failed = self.current;
                     loop {
-                        self.heap.fiber_mut(failed).status = crate::heap::FiberStatus::Failed;
-                        self.heap.fiber_mut(failed).result = error_value;
+                        self.mark_fiber_failed(failed, error_value);
 
                         if self.trace_fibers {
                             let failed_seq = self.heap.fiber(failed).seq;
@@ -795,6 +821,7 @@ impl VM {
                         self.close_fiber_upvalues_from(failed, 0);
 
                         let mode = self.heap.fiber(failed).resume_mode;
+                        let had_completion_owner = self.heap.fiber(failed).completion_observer.is_some();
                         let Some(resumer) = self.heap.fiber(failed).resumer else {
                             return Err(e);
                         };
@@ -848,9 +875,13 @@ impl VM {
                         self.heap.fiber_mut(failed).frames.clear();
                         self.heap.fiber_mut(failed).stack.clear();
                         self.heap.fiber_mut(failed).open_upvalues.clear();
+                        if mode == crate::heap::FiberResumeMode::Scheduler && !had_completion_owner {
+                            self.record_unhandled_scheduler_failure(failed, error_value);
+                        }
+                        self.enqueue_completion_observer(failed)?;
 
                         match mode {
-                            crate::heap::FiberResumeMode::Try => {
+                            crate::heap::FiberResumeMode::Try | crate::heap::FiberResumeMode::Scheduler => {
                                 self.switch_to_fiber_and_deliver(resumer, error_value);
                                 break;
                             }
@@ -876,6 +907,7 @@ impl VM {
     /// `pub(crate)` so [`crate::primitive::fiber::fiber_yield`] can reuse it
     /// instead of hand-inlining the same four-step sequence.
     pub(crate) fn switch_to_fiber_and_deliver(&mut self, target: ObjRef, value: Value) {
+        debug_assert_eq!(self.heap.fiber(target).status, crate::heap::FiberStatus::BlockedOnChild);
         if self.trace_fibers {
             let from_seq = self.heap.fiber(self.current).seq;
             let to_seq = self.heap.fiber(target).seq;
@@ -2605,8 +2637,10 @@ impl VM {
 mod tests {
     use super::VM;
     use crate::compiler::lib::UnitKind;
-    use crate::heap::Object;
+    use crate::frame::CallContext;
+    use crate::heap::{FiberObject, FiberStatus, Object};
     use crate::method::{MethodKind, MethodObject, RestLayout, RestMode, SignatureKind};
+    use crate::vm::BufferedOutput;
 
     #[test]
     fn duplicate_rest_family_is_rejected_before_index_mutation() {
@@ -2652,6 +2686,51 @@ mod tests {
         assert!(
             !vm.heap.class(target).methods.contains_key(&second_selector),
             "rejected rest family must not leak into the structural method dictionary"
+        );
+    }
+
+    #[test]
+    fn terminal_observer_is_detached_and_admitted_once() {
+        let mut vm = VM::new();
+        let module = vm.create_module("main", "completion_observer");
+        let action = vm.compile_closure_as(module, "42\n", UnitKind::File).expect("action closure should compile");
+        let observer = vm.compile_closure_as(module, "1\n", UnitKind::File).expect("observer closure should compile");
+        let fiber = vm.heap.alloc(Object::Fiber(Box::new(FiberObject::new_entry(action))));
+        vm.mark_fiber_done(fiber, crate::value::Value::int(42));
+        vm.heap.fiber_mut(fiber).completion_observer = Some(observer);
+
+        vm.enqueue_completion_observer(fiber).expect("valid observer should enqueue");
+        assert_eq!(vm.heap.fiber(fiber).completion_observer, None);
+        let observer_fiber = vm.pop_next_queued().expect("observer should be queued");
+        assert_eq!(vm.heap.fiber(observer_fiber).status, FiberStatus::Queued);
+        assert_eq!(vm.heap.fiber(observer_fiber).entry, Some(observer));
+        vm.enqueue_completion_observer(fiber).expect("detached observer is a no-op");
+        assert_eq!(vm.pop_next_queued(), None);
+    }
+
+    #[test]
+    fn failing_completion_observer_becomes_unhandled_scheduler_work() {
+        let output = BufferedOutput::new();
+        let handle = output.handle();
+        let mut vm = VM::new_with_output(Box::new(output));
+        let module = vm.create_module("main", "completion_observer_failure");
+        let action = vm.compile_closure_as(module, "42\n", UnitKind::File).expect("action closure should compile");
+        let observer = vm
+            .compile_closure_as(module, "Error.new(\"observer boom\").raise()\n", UnitKind::File)
+            .expect("observer closure should compile");
+        let root = vm.compile_closure_as(module, "1\n", UnitKind::File).expect("root closure should compile");
+        let action_fiber = vm.heap.alloc(Object::Fiber(Box::new(FiberObject::new_entry(action))));
+        vm.mark_fiber_done(action_fiber, crate::value::Value::int(42));
+        vm.heap.fiber_mut(action_fiber).completion_observer = Some(observer);
+        vm.enqueue_completion_observer(action_fiber).expect("observer should be admitted");
+
+        let frame = vm.new_call_frame(root, CallContext::Module { module }, 0, 0, None);
+        vm.push_frame(frame).expect("root frame should push");
+        vm.run().expect("observer failure must stay isolated");
+
+        assert_eq!(
+            String::from_utf8(handle.bytes()).expect("runtime output should be UTF-8"),
+            "Unhandled scheduled Fiber failure:\nobserver boom\n"
         );
     }
 }

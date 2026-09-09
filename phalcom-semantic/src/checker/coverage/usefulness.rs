@@ -360,83 +360,6 @@ impl CoverageEngine {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::db::budget::{CancellationToken, QueryBudget};
-    use crate::declarations::bootstrap_universe_declarations;
-    use crate::identity::{DeclarationId, ModuleId};
-    use crate::types::id::TypeId;
-    use crate::types::relation::MapTypeHierarchy;
-    use crate::types::rigid::RigidArena;
-    use crate::types::store::TypeStore;
-
-    #[test]
-    fn first_blocked_state_is_sticky_and_distinct_from_known_opaque() {
-        let reason = BlockReason::RecursiveFixpoint;
-        let mut engine = CoverageEngine::new(CoverageSubject::canonical(TypeId(0)), CheckerControl::default());
-        assert_eq!(
-            engine.classify_in_domain(UsefulnessSearch::Blocked(reason.clone())),
-            Some(PatternUsefulness::Useful)
-        );
-        engine.mark_blocked_for_test(BlockReason::ReflectionBoundary);
-
-        assert_eq!(engine.blocked_reason(), Some(&reason));
-
-        let module = ModuleId::universe_root();
-        let mut store = TypeStore::new();
-        let declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(module.clone(), key.name().into()));
-        let hierarchy = MapTypeHierarchy::new();
-        let mut rigids = RigidArena::new();
-        assert_eq!(
-            engine.summarize_residual(&declarations, &mut store, &hierarchy, &mut rigids, None),
-            PatternSpaceSummary::Blocked(reason.clone())
-        );
-        assert_eq!(
-            engine.finalize_exhaustiveness(&declarations, &mut store, &hierarchy, &mut rigids, None),
-            ExhaustivenessResult::Blocked(reason)
-        );
-    }
-
-    #[test]
-    fn shared_control_budget_and_cancellation_fail_closed() {
-        let module = ModuleId::universe_root();
-        let mut store = TypeStore::new();
-        let declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(module.clone(), key.name().into()));
-        let hierarchy = MapTypeHierarchy::new();
-        let mut rigids = RigidArena::new();
-        let token = CancellationToken::new();
-        let control = CheckerControl::new(QueryBudget::new(1), &token);
-        let mut engine = CoverageEngine::new(CoverageSubject::canonical(store.unit()), control);
-        let wildcard = engine.arena_mut().wildcard();
-
-        assert_eq!(
-            engine.classify_arm(&declarations, &mut store, &hierarchy, &mut rigids, None, wildcard),
-            PatternUsefulness::Useful
-        );
-        assert!(engine.metrics().witness_states > 0);
-        assert!(engine.metrics().inhabitation_iterations > 0);
-        assert!(matches!(
-            engine.finalize_exhaustiveness(&declarations, &mut store, &hierarchy, &mut rigids, None),
-            ExhaustivenessResult::Blocked(BlockReason::BudgetExceeded(_))
-        ));
-
-        let cancel = CancellationToken::new();
-        cancel.cancel();
-        let control = CheckerControl::new(QueryBudget::default(), &cancel);
-        let mut engine = CoverageEngine::new(CoverageSubject::canonical(store.unit()), control);
-        let wildcard = engine.arena_mut().wildcard();
-        assert_eq!(
-            engine.classify_arm(&declarations, &mut store, &hierarchy, &mut rigids, None, wildcard),
-            PatternUsefulness::Useful
-        );
-        assert!(matches!(
-            engine.finalize_exhaustiveness(&declarations, &mut store, &hierarchy, &mut rigids, None),
-            ExhaustivenessResult::Blocked(BlockReason::UnknownType(UnknownReason::InferenceCancelled))
-        ));
-    }
-}
-
 pub(crate) fn witness_to_summary(witness: &CoverageWitness) -> PatternSpaceSummary {
     match witness {
         CoverageWitness::Wildcard => PatternSpaceSummary::Empty,
@@ -922,5 +845,82 @@ fn construct_case_witness(case: &ConstructorCase, subject: &CoverageSubject, chi
         }
         ConstructorHead::ListNil => CoverageWitness::List(Box::new([])),
         ConstructorHead::ListCons => CoverageWitness::List(Box::new([CoverageWitness::Wildcard])),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::budget::{CancellationToken, QueryBudget};
+    use crate::declarations::bootstrap_universe_declarations;
+    use crate::identity::{DeclarationId, ModuleId};
+    use crate::types::id::TypeId;
+    use crate::types::relation::MapTypeHierarchy;
+    use crate::types::rigid::RigidArena;
+    use crate::types::store::TypeStore;
+
+    #[test]
+    fn first_blocked_state_is_sticky_and_distinct_from_known_opaque() {
+        let reason = BlockReason::RecursiveFixpoint;
+        let mut engine = CoverageEngine::new(CoverageSubject::canonical(TypeId(0)), CheckerControl::default());
+        assert_eq!(
+            engine.classify_in_domain(UsefulnessSearch::Blocked(reason.clone())),
+            Some(PatternUsefulness::Useful)
+        );
+        engine.mark_blocked_for_test(BlockReason::ReflectionBoundary);
+
+        assert_eq!(engine.blocked_reason(), Some(&reason));
+
+        let module = ModuleId::universe_root();
+        let mut store = TypeStore::new();
+        let declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(module.clone(), key.name().into()));
+        let hierarchy = MapTypeHierarchy::new();
+        let mut rigids = RigidArena::new();
+        assert_eq!(
+            engine.summarize_residual(&declarations, &mut store, &hierarchy, &mut rigids, None),
+            PatternSpaceSummary::Blocked(reason.clone())
+        );
+        assert_eq!(
+            engine.finalize_exhaustiveness(&declarations, &mut store, &hierarchy, &mut rigids, None),
+            ExhaustivenessResult::Blocked(reason)
+        );
+    }
+
+    #[test]
+    fn shared_control_budget_and_cancellation_fail_closed() {
+        let module = ModuleId::universe_root();
+        let mut store = TypeStore::new();
+        let declarations = bootstrap_universe_declarations(&mut store, &|key| DeclarationId::new(module.clone(), key.name().into()));
+        let hierarchy = MapTypeHierarchy::new();
+        let mut rigids = RigidArena::new();
+        let token = CancellationToken::new();
+        let control = CheckerControl::new(QueryBudget::new(1), &token);
+        let mut engine = CoverageEngine::new(CoverageSubject::canonical(store.unit()), control);
+        let wildcard = engine.arena_mut().wildcard();
+
+        assert_eq!(
+            engine.classify_arm(&declarations, &mut store, &hierarchy, &mut rigids, None, wildcard),
+            PatternUsefulness::Useful
+        );
+        assert!(engine.metrics().witness_states > 0);
+        assert!(engine.metrics().inhabitation_iterations > 0);
+        assert!(matches!(
+            engine.finalize_exhaustiveness(&declarations, &mut store, &hierarchy, &mut rigids, None),
+            ExhaustivenessResult::Blocked(BlockReason::BudgetExceeded(_))
+        ));
+
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let control = CheckerControl::new(QueryBudget::default(), &cancel);
+        let mut engine = CoverageEngine::new(CoverageSubject::canonical(store.unit()), control);
+        let wildcard = engine.arena_mut().wildcard();
+        assert_eq!(
+            engine.classify_arm(&declarations, &mut store, &hierarchy, &mut rigids, None, wildcard),
+            PatternUsefulness::Useful
+        );
+        assert!(matches!(
+            engine.finalize_exhaustiveness(&declarations, &mut store, &hierarchy, &mut rigids, None),
+            ExhaustivenessResult::Blocked(BlockReason::UnknownType(UnknownReason::InferenceCancelled))
+        ));
     }
 }

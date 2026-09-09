@@ -418,7 +418,7 @@ pub fn discover_standalone_package_root(source_path: &Path) -> Option<PathBuf> {
             return None;
         }
         canonical
-    } else if canonical.file_name().map_or(false, |n| n == "package.ph") {
+    } else if canonical.file_name().is_some_and(|n| n == "package.ph") {
         canonical.parent()?.to_path_buf()
     } else {
         let parent = canonical.parent()?;

@@ -23,8 +23,9 @@ pub mod walk;
 
 pub use output::{BufferedOutput, OutputHandle, RuntimeOutput, StdoutOutput};
 
+use crate::error::{PhResult, RuntimeError};
 use crate::frame::CallFrame;
-use crate::heap::{ClassId, Heap, ObjRef};
+use crate::heap::{ClassId, FiberStatus, Heap, ObjRef};
 use crate::interner::{Interner, Symbol};
 use crate::universe::Universe;
 use crate::value::Value;
@@ -141,6 +142,21 @@ pub struct RuntimeRoots {
     pub universe: ObjRef,
     /// Program entry module handle, if known.
     pub entry: Option<ObjRef>,
+}
+
+/// A terminal scheduler-owned Fiber failure that has no completion observer.
+///
+/// The record owns both handles needed for later diagnostic reporting. Keeping
+/// the captured error beside the Fiber avoids relying on a terminal Fiber's
+/// other reachability after the scheduler has consumed it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct UnhandledSchedulerFailure {
+    /// Monotonic identity used to delimit a root-await scheduler drive window.
+    pub(crate) seq: u64,
+    /// Failed scheduler-owned Fiber.
+    pub(crate) fiber: ObjRef,
+    /// Surface Error captured at the Fiber floor.
+    pub(crate) error: Value,
 }
 
 /// Late-bound VM-owned identities required by language semantics. These are
@@ -305,12 +321,16 @@ pub struct VM {
     ///
     /// Populated by `System.schedule(_)`; drained by the root-drive pump
     /// ([`VM::run`]) and by any `.ph`-level pump loop (`System.runScheduled`,
-    /// `core.ph`) via [`crate::primitive::system::system_next_scheduled`]. A
+    /// `core.ph`) via the internal scheduler dequeue primitive. A
     /// fiber in this queue has never been resumed
     /// (`FiberObject::started == false`) — draining it resumes it as a fresh
     /// entry call, exactly like `Fiber#call`'s first-resume path
     /// (`primitive/fiber.rs` `fiber_resume`).
     pub(crate) ready_queue: VecDeque<ObjRef>,
+    /// Terminal scheduler-owned failures that have no completion observer.
+    pub(crate) unhandled_scheduler_failures: VecDeque<UnhandledSchedulerFailure>,
+    /// Sequence assigned to the next unhandled scheduler failure.
+    pub(crate) next_scheduler_failure_seq: u64,
     /// Handles a native primitive holds in a Rust local across a **re-entrant
     /// call**, kept reachable for the collector ([ADR-0050](../../../docs/adr/accepted/0050-non-moving-mark-sweep-collector.md) §7).
     ///
@@ -411,6 +431,119 @@ pub struct VM {
 }
 
 impl VM {
+    /// Atomically reserves an unowned runnable fiber for the scheduler.
+    /// `FiberObject::status` is the admission source of truth; the queue is
+    /// only the FIFO storage for already-reserved work.
+    pub(crate) fn enqueue_unowned_fiber(&mut self, fiber: ObjRef) -> PhResult<()> {
+        let status = self.heap.fiber(fiber).status;
+        match status {
+            FiberStatus::New | FiberStatus::Yielded => {
+                self.heap.fiber_mut(fiber).status = FiberStatus::Queued;
+                self.ready_queue.push_back(fiber);
+                Ok(())
+            }
+            FiberStatus::Queued => Err(RuntimeError::NotAllowed("fiber is already queued".to_string()).into()),
+            FiberStatus::Parked(_) => Err(RuntimeError::NotAllowed("fiber is parked on a Future".to_string()).into()),
+            FiberStatus::Running => Err(RuntimeError::NotAllowed("fiber is already running".to_string()).into()),
+            FiberStatus::BlockedOnChild => Err(RuntimeError::NotAllowed("fiber is blocked on a child".to_string()).into()),
+            FiberStatus::Done | FiberStatus::Failed => Err(RuntimeError::NotAllowed("cannot schedule a finished fiber".to_string()).into()),
+        }
+    }
+
+    /// Pops the next valid scheduler-owned fiber in FIFO order. Stale queue
+    /// entries are defensive noise: they are skipped without scanning the
+    /// queue or affecting unrelated ready work.
+    pub(crate) fn pop_next_queued(&mut self) -> Option<ObjRef> {
+        while let Some(fiber) = self.ready_queue.pop_front() {
+            if self.heap.fiber(fiber).status == FiberStatus::Queued {
+                return Some(fiber);
+            }
+        }
+        None
+    }
+
+    /// Returns the sequence boundary for a root Future-await scheduler drive.
+    pub(crate) fn scheduler_failure_cursor(&self) -> u64 {
+        self.next_scheduler_failure_seq
+    }
+
+    /// Retains an unowned scheduler failure until a safe reporting boundary.
+    pub(crate) fn record_unhandled_scheduler_failure(&mut self, fiber: ObjRef, error: Value) {
+        let seq = self.next_scheduler_failure_seq;
+        self.next_scheduler_failure_seq = self.next_scheduler_failure_seq.wrapping_add(1);
+        self.unhandled_scheduler_failures.push_back(UnhandledSchedulerFailure { seq, fiber, error });
+    }
+
+    /// Renders a captured surface Error without re-entering the dispatch loop.
+    fn render_unhandled_scheduler_error(&mut self, error: Value) -> String {
+        crate::primitive::error::error_message(self, &error, &[])
+            .map(|message| message.to_string(self))
+            .unwrap_or_else(|_| error.to_string(self))
+    }
+
+    /// Writes one or more detached scheduler failures through the VM output
+    /// sink. This is called only at a safe scheduler/root boundary.
+    fn write_unhandled_scheduler_failures(&mut self, failures: &[UnhandledSchedulerFailure]) -> PhResult<()> {
+        if failures.is_empty() {
+            return Ok(());
+        }
+
+        let mut output = String::new();
+        for failure in failures {
+            output.push_str("Unhandled scheduled Fiber failure:\n");
+            output.push_str(&self.render_unhandled_scheduler_error(failure.error));
+            output.push('\n');
+        }
+        self.write_output(output.as_bytes())?;
+        self.flush_output()
+    }
+
+    /// Consumes and reports all currently pending detached scheduler failures.
+    pub(crate) fn report_unhandled_scheduler_failures(&mut self) -> PhResult<usize> {
+        let failures = self.unhandled_scheduler_failures.drain(..).collect::<Vec<_>>();
+        let count = failures.len();
+        self.write_unhandled_scheduler_failures(&failures)?;
+        Ok(count)
+    }
+
+    /// Consumes failures produced since `cursor` for a root-await diagnostic.
+    /// Older pending failures are still reported, but are not attributed to the
+    /// current await drive window.
+    pub(crate) fn take_unhandled_scheduler_failures_since(&mut self, cursor: u64) -> PhResult<Option<String>> {
+        let failures = self.unhandled_scheduler_failures.drain(..).collect::<Vec<_>>();
+        let (older, current): (Vec<_>, Vec<_>) = failures.into_iter().partition(|failure| failure.seq < cursor);
+        self.write_unhandled_scheduler_failures(&older)?;
+        if current.is_empty() {
+            return Ok(None);
+        }
+
+        let count = current.len();
+        let mut summary = if count == 1 {
+            "1 scheduled computation failed while this await was driving the scheduler:\n".to_owned()
+        } else {
+            format!("{count} scheduled computations failed while this await was driving the scheduler:\n")
+        };
+        for (index, failure) in current.iter().enumerate() {
+            if index > 0 {
+                summary.push('\n');
+            }
+            summary.push_str(&self.render_unhandled_scheduler_error(failure.error));
+        }
+        Ok(Some(summary))
+    }
+
+    /// Atomically consumes an exact Future park ticket and admits the parked
+    /// fiber to the scheduler. Mismatched, duplicate, and terminal wakes are
+    /// harmless stale waiter cleanup and therefore return `false`.
+    pub(crate) fn wake_parked_fiber(&mut self, fiber: ObjRef, generation: i64) -> bool {
+        if self.heap.fiber(fiber).status != FiberStatus::Parked(generation) {
+            return false;
+        }
+        self.heap.fiber_mut(fiber).status = FiberStatus::Queued;
+        self.ready_queue.push_back(fiber);
+        true
+    }
+
     /// Returns canonical Universe root package.
     ///
     /// # Errors
@@ -524,5 +657,51 @@ impl Default for VM {
     /// (the bootstrapped kernel tower), so `Default` and `new` coincide.
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod scheduler_tests {
+    use super::VM;
+    use crate::heap::{FiberObject, FiberStatus, Object};
+    use crate::vm::BufferedOutput;
+
+    #[test]
+    fn parked_wake_requires_the_exact_generation_and_is_once_only() {
+        let mut vm = VM::new_kernel();
+        let entry = vm.heap.alloc_string("test-entry".to_string());
+        let fiber = vm.heap.alloc(Object::Fiber(Box::new(FiberObject::new_entry(entry))));
+        vm.heap.fiber_mut(fiber).status = FiberStatus::Parked(7);
+
+        assert!(!vm.wake_parked_fiber(fiber, 6));
+        assert_eq!(vm.heap.fiber(fiber).status, FiberStatus::Parked(7));
+        assert!(vm.wake_parked_fiber(fiber, 7));
+        assert_eq!(vm.heap.fiber(fiber).status, FiberStatus::Queued);
+        assert!(!vm.wake_parked_fiber(fiber, 7));
+        assert_eq!(vm.pop_next_queued(), Some(fiber));
+    }
+
+    #[test]
+    fn unhandled_scheduler_failure_survives_gc_until_reported() {
+        let output = BufferedOutput::new();
+        let handle = output.handle();
+        let mut vm = VM::new_with_output(Box::new(output));
+        let entry = vm.heap.alloc_string("failure-entry".to_string());
+        let fiber = vm.heap.alloc(Object::Fiber(Box::new(FiberObject::new_entry(entry))));
+        let error = vm.alloc_string_value("gc-safe failure".to_string());
+
+        vm.record_unhandled_scheduler_failure(fiber, error);
+        vm.force_gc();
+
+        assert!(
+            matches!(vm.heap.get(fiber), Object::Fiber(_)),
+            "failure Fiber must remain rooted before reporting"
+        );
+        assert_eq!(vm.report_unhandled_scheduler_failures().expect("report should flush"), 1);
+        assert_eq!(
+            String::from_utf8(handle.bytes()).expect("runtime output should be UTF-8"),
+            "Unhandled scheduled Fiber failure:\ngc-safe failure\n"
+        );
+        assert_eq!(vm.report_unhandled_scheduler_failures().expect("second report should flush"), 0);
     }
 }

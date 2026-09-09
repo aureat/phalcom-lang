@@ -1,2 +1,4 @@
 main-exits-cleanly
 second-ran
+Unhandled scheduled Fiber failure:
+None

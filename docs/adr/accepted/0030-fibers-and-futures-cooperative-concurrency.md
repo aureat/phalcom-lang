@@ -44,7 +44,8 @@ be scheduled.
 ## Decision
 
 **Cooperative, single-threaded fibers on a restricted re-entrant loop (audit
-Option A / Lua-5.1 style), with `Future` as a pure library layer.**
+Option A / Lua-5.1 style), with `Future` as a library layer over explicit
+Fiber/scheduler ownership seams.**
 
 ### 1. `Fiber` is the sole concurrency primitive
 
@@ -124,6 +125,31 @@ stack and frame stack are GC roots for as long as the fiber is reachable and not
 `current` would free objects held solely by a parked fiber. Keeping the stacks
 *inside the arena object* (§2) is what lets the future collector reach them.
 
+### 8. Ownership correction from C5
+
+The C5 concurrency repair amends the older scheduler-facing wording in this
+ADR. The dynamic `resumer` remains the immediate control-transfer recipient for
+manual `call`/`yield`/return/failure paths; it is not durable asynchronous
+completion ownership. Fiber lifecycle now distinguishes `New`, `Running`,
+`BlockedOnChild`, `Yielded`, `Parked(generation)`, `Queued`, `Done`, and `Failed`,
+with a stable root marker and a monotonic Future park generation.
+
+Public code admits work with `System.schedule(_)` and drains it with
+`System.runScheduled`. Raw dequeue, scheduler resume, exact-ticket wake, park,
+and terminal-observer operations are internal. The public `System.nextScheduled`
+raw-pop getter is removed because releasing a queue reservation for public
+`Fiber#try` allowed scheduler ownership to be stolen. A matching
+`System._$wake(fiber, generation)` is the only Future wake admission, and stale
+or duplicate tickets are no-ops.
+
+Fiber completion observers are GC-traced, detached exactly once at `Done` or
+`Failed`, and scheduled as fresh work rather than executed inline. `Future.async`
+and pending `then`/`map`/`catch` therefore settle only from terminal action or
+callback outcomes; an intermediate park/yield turn is not a result. Call-mode
+failure cascades still follow the existing capture/propagation policy. E010,
+the separate policy issue of observing captured scheduled-task errors, remains
+open.
+
 ## Consequences
 
 - **Smallest correct step.** Option A is a small VM change (a typed switch signal
@@ -136,13 +162,14 @@ stack and frame stack are GC roots for as long as the fiber is reachable and not
   collector to scan or relocate; [ADR-0009](0009-handle-arena-heap.md)'s
   moving-ready arena claim is preserved intact.
 - **New floor surface (ADR-0019 amendment).** The Fiber/Future primitive set —
-  `call`/`yield`/`current`/`abort`, a `Yield` opcode, per-fiber stack machinery,
-  and the scheduler hooks exposed through [`System`](../../spec/current/system.md) — is a
+  `call`/`yield`/`current`/`abort`, per-fiber stack machinery, and the scheduler
+  hooks exposed through [`System`](../../spec/current/system.md) — is a
   deliberate extension of the frozen floor, authorized here per the
   [ADR-0019](0019-freeze-vm-blessed-primitive-floor.md) amendment convention (as
   [ADR-0020](0020-kernel-list-native-array-protocol.md)/[ADR-0023](0023-amend-floor-admit-hash-and-kernel-reflection.md)
   did for `List`/`hash`). `Future` adds **no** VM mechanism beyond `Fiber` + a
-  ready-queue.
+  ready-queue; its internal park/wake and completion-observer seams are owned by
+  the runtime, keeping the concurrency primitive singular.
 - **`CannotYieldAcrossNativeFrame` is a real, catchable error** users can hit; the
   spec documents the restriction and the index-iteration workaround.
 - Five pre-fiber invariants (§5–§7 plus frame-relative `stack_offset` and

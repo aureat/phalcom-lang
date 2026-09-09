@@ -263,8 +263,7 @@ pub fn fiber_is_done(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
     Ok(Value::bool(matches!(status, FiberStatus::Done | FiberStatus::Failed)))
 }
 
-/// Signature: `Fiber#isRoot` — `true` if the receiver is the root fiber, i.e.
-/// it has no resumer to hand control back to.
+/// Signature: `Fiber#isRoot` — `true` if the receiver is the root fiber.
 ///
 /// This is the *predicate form* of [`fiber_yield`]'s first refusal: a root
 /// fiber cannot yield, because there is nowhere to yield to. Exposing it as a
@@ -292,7 +291,7 @@ pub fn fiber_is_done(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
 #[phalcom_native_macros::primitive(Fiber, "isRoot")]
 pub fn fiber_is_root(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let fiber_ref = expect_fiber(vm, receiver)?;
-    Ok(Value::bool(vm.heap.fiber(fiber_ref).resumer.is_none()))
+    Ok(Value::bool(vm.heap.fiber(fiber_ref).is_root))
 }
 
 /// Signature: `Fiber#error` — the captured `Error` as `Option`, if the
@@ -317,19 +316,58 @@ pub fn fiber_error(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<V
     }
 }
 
+/// Internal durable completion binding. The observer is retained by the
+/// Fiber until terminal handoff, so it remains connected across scheduler
+/// parks and resumer changes.
+#[phalcom_native_macros::primitive(Fiber, "_$onComplete(_)", visibility = internal)]
+pub fn fiber_on_complete(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let fiber_ref = expect_fiber(vm, receiver)?;
+    let observer = args.first().copied().ok_or(RuntimeError::Type {
+        expected: "Function",
+        found: "missing",
+    })?;
+    let observer_ref = observer
+        .as_obj()
+        .filter(|id| matches!(vm.heap.get(*id), Object::Block(_) | Object::Closure(_)))
+        .ok_or_else(|| RuntimeError::Type {
+            expected: "Function",
+            found: observer.type_name(),
+        })?;
+    let fiber = vm.heap.fiber(fiber_ref);
+    if matches!(fiber.status, FiberStatus::Done | FiberStatus::Failed) {
+        return Err(RuntimeError::NotAllowed("cannot attach an observer to a finished fiber".to_string()).into());
+    }
+    if fiber.completion_observer.is_some() {
+        return Err(RuntimeError::NotAllowed("fiber already has a completion observer".to_string()).into());
+    }
+    vm.heap.fiber_mut(fiber_ref).completion_observer = Some(observer_ref);
+    Ok(*receiver)
+}
+
+/// Internal terminal-result access for a durable completion observer.
+#[phalcom_native_macros::primitive(Fiber, "_$terminalValue", visibility = internal)]
+pub fn fiber_terminal_value(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let fiber_ref = expect_fiber(vm, receiver)?;
+    let fiber = vm.heap.fiber(fiber_ref);
+    if !matches!(fiber.status, FiberStatus::Done | FiberStatus::Failed) {
+        return Err(RuntimeError::NotAllowed("fiber has not completed".to_string()).into());
+    }
+    Ok(fiber.result)
+}
+
 /// Signature: `Fiber::abort(_)` — raises `args[0]` at the fiber floor, caught
 /// by `VM::run_until`'s fiber-floor capture exactly like any other raise.
 ///
 /// # Errors
 ///
-/// Returns [`RuntimeError::NotAllowed`] if the current fiber is the root
-/// (has no resumer) — the root fiber has nowhere to propagate a fiber-floor
+/// Returns [`RuntimeError::NotAllowed`] if the current fiber is the root — the
+/// root fiber has nowhere to propagate a fiber-floor
 /// capture to, so aborting it is illegal (spec §2 rule 7, §6). Otherwise
 /// returns [`RuntimeError::Raise`] wrapping `args[0]`.
 #[phalcom_native_macros::primitive(Fiber, "abort(_)", side = class)]
 pub fn fiber_abort(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let me = vm.current;
-    if vm.heap.fiber(me).resumer.is_none() {
+    if vm.heap.fiber(me).is_root {
         return Err(RuntimeError::NotAllowed("cannot abort the root fiber".to_string()).into());
     }
     let error = args[0];
@@ -367,6 +405,89 @@ pub fn fiber_try_with_value(vm: &mut VM, receiver: &Value, args: &[Value]) -> Ph
     fiber_try(vm, receiver, args)
 }
 
+/// Internal scheduler-owned resume. Unlike public `call`/`try`, the receiver
+/// must already be reserved in `FiberStatus::Queued` by VM queue admission.
+#[phalcom_native_macros::primitive(Fiber, "_$resumeScheduled()", visibility = internal)]
+pub fn fiber_resume_scheduled(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    fiber_resume(vm, receiver, args, FiberResumeMode::Scheduler)
+}
+
+/// Internal Future parking preparation. This validates every condition that
+/// could reject a switch before the Future records a waiter, then advances the
+/// fiber-local wake generation. The generation is intentionally returned to
+/// Phalcom so the matching Future owns the eventual wake authority.
+#[phalcom_native_macros::primitive(Fiber, "_$preparePark()", visibility = internal)]
+pub fn fiber_prepare_park(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let fiber_ref = expect_fiber(vm, receiver)?;
+    if fiber_ref != vm.current {
+        return Err(RuntimeError::NotAllowed("fiber park receiver is not current".to_string()).into());
+    }
+    let fiber = vm.heap.fiber(fiber_ref);
+    if fiber.is_root {
+        return Err(RuntimeError::NotAllowed("cannot park the root fiber".to_string()).into());
+    }
+    if fiber.status != FiberStatus::Running {
+        return Err(RuntimeError::NotAllowed("fiber is not running".to_string()).into());
+    }
+    if vm.native_reentry_depth != fiber.floor_depth {
+        return Err(cannot_yield_across_native_frame(vm));
+    }
+    if fiber.resume_mode != FiberResumeMode::Scheduler {
+        return Err(RuntimeError::NotAllowed("fiber park requires scheduler ownership".to_string()).into());
+    }
+    let generation = fiber
+        .park_generation
+        .checked_add(1)
+        .ok_or_else(|| RuntimeError::Internal("fiber park generation exhausted".to_string()))?;
+    vm.heap.fiber_mut(fiber_ref).park_generation = generation;
+    Ok(Value::int(generation))
+}
+
+/// Internal Future park commit. A valid call changes the current scheduler
+/// fiber to `Parked(generation)` and returns control to its blocked scheduler
+/// resumer. No public coroutine operation can create this state.
+#[phalcom_native_macros::primitive(Fiber, "_$park(_)", visibility = internal)]
+pub fn fiber_park(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let fiber_ref = expect_fiber(vm, receiver)?;
+    let generation = args.first().and_then(|value| value.as_int()).ok_or_else(|| RuntimeError::Type {
+        expected: "Int",
+        found: args.first().map_or("missing", Value::type_name),
+    })?;
+    if fiber_ref != vm.current {
+        return Err(RuntimeError::NotAllowed("fiber park receiver is not current".to_string()).into());
+    }
+    let fiber = vm.heap.fiber(fiber_ref);
+    if fiber.is_root {
+        return Err(RuntimeError::NotAllowed("cannot park the root fiber".to_string()).into());
+    }
+    if fiber.status != FiberStatus::Running {
+        return Err(RuntimeError::NotAllowed("fiber is not running".to_string()).into());
+    }
+    if fiber.resume_mode != FiberResumeMode::Scheduler {
+        return Err(RuntimeError::NotAllowed("fiber park requires scheduler ownership".to_string()).into());
+    }
+    if fiber.park_generation != generation {
+        return Err(RuntimeError::NotAllowed("fiber park generation is stale".to_string()).into());
+    }
+    if vm.native_reentry_depth != fiber.floor_depth {
+        return Err(cannot_yield_across_native_frame(vm));
+    }
+    let Some(resumer) = fiber.resumer else {
+        return Err(RuntimeError::NotAllowed("fiber has no scheduler resumer".to_string()).into());
+    };
+    if vm.heap.fiber(resumer).status != FiberStatus::BlockedOnChild {
+        return Err(RuntimeError::NotAllowed("fiber scheduler resumer is not blocked".to_string()).into());
+    }
+
+    let receiver_idx = vm.stack.len() - 1 - args.len();
+    vm.heap.fiber_mut(fiber_ref).resume_slot = receiver_idx;
+    vm.heap.fiber_mut(fiber_ref).status = FiberStatus::Parked(generation);
+    store_live_into(vm, fiber_ref);
+    vm.switch_to_fiber_and_deliver(resumer, vm.none_value());
+    vm.switch_pending = true;
+    Ok(Value::nil())
+}
+
 /// Shared engine behind [`fiber_call`]/[`fiber_try`] (ADR-0030 §3/§4).
 ///
 /// Parks the current fiber, switches `VM::current` to the callee, and
@@ -389,14 +510,27 @@ fn fiber_resume(vm: &mut VM, receiver: &Value, args: &[Value], mode: FiberResume
         return Err(cannot_resume_across_native_frame(vm));
     }
     let callee_ref = expect_fiber(vm, receiver)?;
-    match vm.heap.fiber(callee_ref).status {
-        FiberStatus::Done | FiberStatus::Failed => {
+    match (mode, vm.heap.fiber(callee_ref).status) {
+        (_, FiberStatus::Done | FiberStatus::Failed) => {
             return Err(RuntimeError::NotAllowed("cannot resume a finished fiber".to_string()).into());
         }
-        FiberStatus::Running => {
+        (_, FiberStatus::Running) => {
             return Err(RuntimeError::NotAllowed("fiber is already running".to_string()).into());
         }
-        FiberStatus::Suspended => {}
+        (_, FiberStatus::BlockedOnChild) => {
+            return Err(RuntimeError::NotAllowed("fiber is blocked on a child".to_string()).into());
+        }
+        (_, FiberStatus::Parked(_)) => {
+            return Err(RuntimeError::NotAllowed("fiber is parked on a Future".to_string()).into());
+        }
+        (FiberResumeMode::Call | FiberResumeMode::Try, FiberStatus::Queued) => {
+            return Err(RuntimeError::NotAllowed("fiber is queued for scheduler resume".to_string()).into());
+        }
+        (FiberResumeMode::Scheduler, FiberStatus::Queued) => {}
+        (FiberResumeMode::Call | FiberResumeMode::Try, FiberStatus::New | FiberStatus::Yielded) => {}
+        (FiberResumeMode::Scheduler, FiberStatus::New | FiberStatus::Yielded) => {
+            return Err(RuntimeError::NotAllowed("fiber was not admitted to the scheduler".to_string()).into());
+        }
     }
 
     // Resolve and validate the entry callable *before* any state mutation
@@ -419,6 +553,7 @@ fn fiber_resume(vm: &mut VM, receiver: &Value, args: &[Value], mode: FiberResume
             let signature = match mode {
                 FiberResumeMode::Call => "call",
                 FiberResumeMode::Try => "try",
+                FiberResumeMode::Scheduler => "scheduler",
             };
             return Err(RuntimeError::Arity {
                 signature,
@@ -439,7 +574,9 @@ fn fiber_resume(vm: &mut VM, receiver: &Value, args: &[Value], mode: FiberResume
 
     let receiver_idx = vm.stack.len() - 1 - args.len();
     let resumer_ref = vm.current;
+    debug_assert_eq!(vm.heap.fiber(resumer_ref).status, FiberStatus::Running);
     vm.heap.fiber_mut(resumer_ref).resume_slot = receiver_idx;
+    vm.heap.fiber_mut(resumer_ref).status = FiberStatus::BlockedOnChild;
     store_live_into(vm, resumer_ref);
 
     vm.heap.fiber_mut(callee_ref).resumer = Some(resumer_ref);
@@ -476,15 +613,22 @@ fn fiber_resume(vm: &mut VM, receiver: &Value, args: &[Value], mode: FiberResume
 ///
 /// # Errors
 ///
-/// Returns [`RuntimeError::NotAllowed`] if the current fiber is the root
-/// (has no resumer), or the `CannotYieldAcrossNativeFrame` error if
+/// Returns [`RuntimeError::NotAllowed`] if the current fiber is the root,
+/// or if its linked resumer is not blocked on this child, or the
+/// `CannotYieldAcrossNativeFrame` error if
 /// `VM::native_reentry_depth` has grown past the fiber's recorded
 /// `floor_depth` since it was last resumed (ADR-0030 §4).
 #[phalcom_native_macros::primitive(Fiber, "yield()", side = class)]
 pub fn fiber_yield(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let me = vm.current;
-    let Some(resumer) = vm.heap.fiber(me).resumer else {
+    if vm.heap.fiber(me).is_root {
         return Err(RuntimeError::NotAllowed("cannot yield the root fiber".to_string()).into());
+    }
+    let Some(resumer) = vm.heap.fiber(me).resumer else {
+        return Err(RuntimeError::NotAllowed("fiber has no resumer".to_string()).into());
+    };
+    if vm.heap.fiber(resumer).status != FiberStatus::BlockedOnChild {
+        return Err(RuntimeError::NotAllowed("fiber resumer is not blocked on this child".to_string()).into());
     };
     if vm.native_reentry_depth != vm.heap.fiber(me).floor_depth {
         return Err(cannot_yield_across_native_frame(vm));
@@ -533,7 +677,7 @@ pub fn fiber_yield(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<V
     }
 
     vm.heap.fiber_mut(me).resume_slot = receiver_idx;
-    vm.heap.fiber_mut(me).status = FiberStatus::Suspended;
+    vm.heap.fiber_mut(me).status = FiberStatus::Yielded;
     store_live_into(vm, me);
 
     vm.switch_to_fiber_and_deliver(resumer, value);

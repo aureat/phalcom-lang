@@ -3450,7 +3450,7 @@ pub fn synthesize_match_expr(ctx: &mut CheckingContext<'_>, match_expr: &phalcom
     let scrutinee_local_ty = scrutinee_typed.local_type.clone();
     let scrutinee_subject = crate::checker::coverage::CoverageSubject::from_parts(
         scrutinee_ty,
-        scrutinee_local_ty.clone().unwrap_or_else(|| crate::types::LocalType::Canonical(scrutinee_ty)),
+        scrutinee_local_ty.clone().unwrap_or(crate::types::LocalType::Canonical(scrutinee_ty)),
     );
     let mut engine = crate::checker::coverage::CoverageEngine::new(scrutinee_subject.clone(), ctx.control.clone());
     let mut arm_resolutions = Vec::with_capacity(match_expr.arms.len());

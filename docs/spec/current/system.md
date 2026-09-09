@@ -78,13 +78,13 @@ All class-side. Grouped by service.
 | Signature | Meaning |
 |-----------|---------|
 | `schedule(_)` | enqueue a `Function` to run on a fresh fiber at the next scheduler turn — **landed** (U-SCHED, floor-census.md amendment): wraps `args[0]` as a fresh `Fiber` via the same validation `Fiber.new(_)` uses and pushes it onto the native ready-queue (`VM::ready_queue`); returns the `Fiber` handle, does not run it |
-| `nextScheduled` | **landed** (U-SCHED, not originally in this table — a floor amendment in the same vein as ADR-0037/0038/0039/0049): pops and returns the next queued fiber as `Option<Fiber>`, `None` once the queue is empty; the drain seam every pump (native root-drive, `.ph` `runScheduled`) bottoms out in |
-| `runScheduled` | **landed** (U-SCHED, `.ph`, `core.ph`): `while (next.isSome) { … }` pump over `nextScheduled` — drains everything queued so far, in order, including work newly scheduled mid-drain, then returns; the mid-program counterpart to the native root-drive below |
+| `runScheduled` | **landed** (U-SCHED, `.ph`, `core.ph`): drains all admitted work in FIFO order, including work scheduled mid-drain; raw dequeue and scheduler resume are internal runtime operations |
 | `sleep(_)` | return a `Future` that settles after the given integral **milliseconds** — **ruled** ([PDR-0004](../../pdr/0004-io-is-future-shaped-reactor-owned.md) §5 closed the question this row left open; normative contract [`stdlib/reactor.md`](stdlib/reactor.md) §6: monotonic, `>=`-bounded). Unbuilt — lands with U-REACTOR ([`impl/reactor.md`](impl/reactor.md)) |
 
 `VM::run`'s **root-drive pump** (`vm/dispatch.rs`) is the belt-and-suspenders
 counterpart to `runScheduled`: once the top-level program's own activation
-ends, it drains `VM::ready_queue` to exhaustion — via `fiber_try` (capture,
+ends, it drains `VM::ready_queue` to exhaustion — via the internal
+scheduler-resume mode (capture,
 not propagate) — even if `main` never explicitly calls `runScheduled`, so a
 scheduled task's side effect is never silently dropped at program exit.
 
@@ -106,11 +106,12 @@ Each service is a `PrimitiveFn`
 (`System class`), since the calls are class-side. A primitive receives
 `(&mut VM, receiver, args)` and returns a `PhResult<Value>`, so it can touch VM
 state (the scheduler queue, the interner) directly — this is why `schedule`
-belongs here rather than in Phalcom code (`system_schedule`/
-`system_next_scheduled`, [`primitive/system.rs`](../../../phalcom-core/src/primitive/system.rs);
+belongs here rather than in Phalcom code (`system_schedule` and the internal
+dequeue/wake seams, [`primitive/system.rs`](../../../phalcom-core/src/primitive/system.rs);
 `VM::ready_queue`, [`vm/mod.rs`](../../../phalcom-core/src/vm/mod.rs)).
-`runScheduled` itself is pure `.ph` orchestration over `nextScheduled` — no VM
-state touched directly, so it lives in `core.ph` rather than native
+`runScheduled` itself is pure `.ph` orchestration over the internal dequeue and
+scheduler-resume selectors — no VM state touched directly, so it lives in
+`core.ph` rather than native
 ([U-SCHED](../../forge/units/U-SCHED-FIBER/U-SCHED/plan.md)).
 
 To reach the specified surface from today's tree:
@@ -118,7 +119,7 @@ To reach the specified surface from today's tree:
 1. install `write`, `printErr`, `readLine`, `clock`, `now`, `args`, `env`,
    `exit`, `gc`, `version` as primitives alongside `print`;
 2. give the VM a monotonic clock handle and (for `readLine`) buffered stdin;
-3. `schedule`/`nextScheduled`/`runScheduled` are landed (U-SCHED); `sleep` is
+3. `schedule`/`runScheduled` are landed (U-SCHED); `sleep` is
    **ruled and specced** ([`stdlib/reactor.md`](stdlib/reactor.md) §6 — fairness has a
    proposed default there, Q-R1) and lands with U-REACTOR; the process/environment
    rows land under [`stdlib/process.md`](stdlib/process.md) once PDR-0019 ratifies.

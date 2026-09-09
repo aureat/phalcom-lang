@@ -35,14 +35,15 @@ language is *self-hosting above a small, fixed native boundary*
 
 | Metric | Count |
 |---|---|
-| Installed `(class, selector)` bindings — **all audited** (§1.3) | **150** |
+| Installed `(class, selector)` bindings — **all audited** (§1.3) | **229** |
 | Distinct native Rust functions | not separately maintained |
-| Classes carrying floor primitives | **23** (of 29 audited kernel classes) |
+| Classes carrying floor primitives | **28** (of 37 audited kernel classes) |
 | Sacred selectors (§5) | **7** |
 
-**Installed = audited, as of 2026-08-11.** Every native binding `VM::new()` installs is
-enumerated in §2 and guarded by R-INV-0.1. That is a new property, not a standing one —
-until CB-5 closed, `Fiber`'s 11 were installed but audited by nothing (§1.4).
+**Installed = audited, as of the current source-of-record test.** Every native binding
+`VM::new()` installs is enumerated in §2 and guarded by R-INV-0.1. The test currently
+asserts 229 bindings, including the scheduler-ownership, terminal-observer, and
+detached scheduler-failure reporting seams.
 
 ### 1.3 The source of record is the test, not this file
 
@@ -226,14 +227,13 @@ row, not the count, is what makes the freeze real.
 > §1.1 stayed consistent with the chain, which is exactly why it never looked wrong. All
 > five are reconstructed from the test's constants and the install site — see §1.3._
 >
-> **U-SCHED amendment ([ADR-0030](../../../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md) §Consequences).**
-> The native ready-queue scheduler seam admits **+2** bindings (113 → 115) and **+2**
-> distinct fns (98 → 100), both class-side on `System` and both `primitive/system.rs`:
-> `System.schedule(_)` (`system_schedule`) enqueues a block on the ready queue, and
-> `System.nextScheduled` (`system_next_scheduled`, a getter) pops the next one. They are
-> the floor under the `.ph` scheduler: the queue itself is native because it outlives any
-> one fiber and must be reachable from the collector's roots. Floor-carrying classes stay
-> **22** — `System` already carried `print(_)`/`new()`.
+> **U-SCHED ownership amendment ([ADR-0030](../../../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md) §Consequences).**
+> Public scheduler admission is `System.schedule(_)` (`system_schedule`). The raw
+> dequeue (`System._$nextScheduled`), scheduler resume (`Fiber._$resumeScheduled`),
+> ticketed wake (`System._$wake`), and park/completion seams are internal runtime
+> bindings; no public `System.nextScheduled` raw-pop authority remains. The queue is
+> native because it outlives any one fiber and must be reachable from collector roots.
+> Floor-carrying classes stay **22** — `System` already carried `print(_)`/`new()`.
 >
 > **U-ANNOT-CONTRACTS amendment ([ADR-0052](../../../adr/accepted/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md) Fix 1).**
 > The `@invariant` re-entrancy guard admits **+2** bindings (115 → 117) and **+2** distinct
@@ -289,9 +289,12 @@ row, not the count, is what makes the freeze real.
 > enumeration. This is the one row in the chain where the delta is the *census* catching up
 > to the code rather than the code being extended.
 >
-> **Baseline:** post-U-STRING, + `Fiber` admitted — the figures above (**136 / 118 / 23 / 7** =
-> bindings / distinct fns / floor-carrying classes / sacred selectors) are the current
-> **audited** floor (was **121 / 106 / 22 / 7** post-U-GC, **120 / 105 / 22 / 7**
+> **Historical baseline:** post-U-STRING, + `Fiber` admitted — the figures above (**136 / 118 / 23 / 7** =
+> bindings / distinct fns / floor-carrying classes / sacred selectors) describe the
+> 2026-07-15 audit point, not the current floor. Later runtime work added further
+> audited bindings, including the scheduler and completion-observer seams. The current
+> source-of-record test asserts **229** bindings; the remaining figures below explain
+> historical amendment chronology only (was **121 / 106 / 22 / 7** post-U-GC, **120 / 105 / 22 / 7**
 > post-M-ATTR-ROOT, **117 / 102 / 22 / 7** post-U-ANNOT-CONTRACTS,
 > **115 / 100 / 22 / 7** post-U-SCHED, **113 / 98 / 22 / 7** post-former Family amendment,
 > **112 / 97 / 21 / 7** post-U15, **111 / 96 / 21 / 7** post-U-ERR,
@@ -300,7 +303,8 @@ row, not the count, is what makes the freeze real.
 > **125 / 110 / 22 / 7** for the ~24h in 2026-07-15 between CB-2 reconciling the count and
 > CB-5 admitting `Fiber`). **Do not quote this line** — it is a dated rendering of
 > `invariants.rs` (§1.3), and it sat five amendments stale (at post-U15 / 112) until
-> 2026-07-15. Installed now equals audited: all **136** (§1.1).
+> 2026-07-15. The current installed count is the machine-checked **229** (§1.1), after
+> the three E010 scheduler-failure reporting bindings were added.
 > This census is the ground-truth *enumeration*; the count's authority is the test. The
 > landing history + drift policy live in [`README.md`](./README.md) §"Baseline & drift
 > policy" (itself re-baselined 2026-07-15 — it had been frozen at U-ERR/111).
@@ -537,11 +541,17 @@ snapshot that BoundMethodFamily closes over.
 |---|---|---|---|
 | `print(_)` | static | `system_class_print` | the sole I/O primitive |
 | `new()` | static | `system_class_new` | |
+| `schedule(_)` | static | `system_schedule` | scheduler admission |
+| `gc` | static | `system_gc` | force a collection |
 | `_$write(_)` | class-side | `system_raw_write` | internal raw stdout write; public wrappers are `.ph`-derived |
+| `_$nextScheduled` | static | `system_next_scheduled_internal` | internal FIFO dequeue |
+| `_$schedulerFailureCursor` | static | `system_scheduler_failure_cursor` | internal root-await drive boundary |
+| `_$takeUnhandledScheduledFailures(_)` | static | `system_take_unhandled_scheduled_failures` | internal root-await consumption |
+| `_$reportUnhandledScheduledFailures` | static | `system_report_unhandled_scheduled_failures` | internal safe-boundary reporting |
+| `_$wake(_,_)` | static | `system_wake` | internal exact Future wake |
 
-> Also present but not yet catalogued in this table: `schedule(_)`/`system_schedule`,
-> `nextScheduled`/`system_next_scheduled` (U-SCHED), `gc()`/`system_gc` (U-GC step 3).
-> Pre-existing staleness, out of scope for the U-STRING doc-sync pass.
+> The public raw `nextScheduled` getter was removed in C5; the internal rows above
+> retain queue ownership and failure-reporting authority inside the runtime.
 
 ### 2.12 `Module` — namespace object (U15, [ADR-0045](../../../adr/0045-module-import-relative-path-whole-module-binding.md))
 
@@ -691,7 +701,9 @@ act on whatever fiber is running *now*, which the receiver cannot name).
 in what an uncaught failure does — `call` re-raises it into the resumer
 (`FiberResumeMode::Call`); `try` captures it at the fiber floor and delivers it as an
 `Error` value (`FiberResumeMode::Try`). Each is bound at arity 0 and 1 (resume with no
-value, or with one), which is why 11 bindings need only 8 native fns.
+value, or with one). The public surface has 12 bindings; the five internal scheduler,
+parking, and completion-observer seams bring the Fiber row to 17 bindings, backed by 14
+native functions because the call/try/yield arities share implementations.
 
 | Selector | Side | Native fn | Notes |
 |---|---|---|---|
@@ -705,10 +717,19 @@ value, or with one), which is why 11 bindings need only 8 native fns.
 | `current` | static | `fiber_current` | the running fiber (`VM::current`) |
 | `abort(_)` | static | `fiber_abort` | fails the running fiber with the given value (`RuntimeError::Raise`); `RuntimeError::NotAllowed` from the root fiber — it has nowhere to propagate a floor capture to (spec §2 rule 7, §6) |
 | `isDone` | instance | `fiber_is_done` | pure read over `FiberObject::status`; no scheduler dependency (U-FIBER-REFLECT) |
+| `isRoot` | instance | `fiber_is_root` | stable root identity; never inferred from the dynamic `resumer` link |
 | `error` | instance | `fiber_error` | pure read over `FiberObject::result`; `RuntimeError::Type` if the receiver is not a `Fiber` |
 
-The scheduler seam (`System.schedule(_)` / `System.nextScheduled`) is **not** here — it is
-class-side on `System` (§2.11), and is what the `.ph` scheduler is written over.
+The scheduler-owned internal Fiber seams are not public coroutine operations:
+`_$resumeScheduled()` consumes a queued reservation, `_$preparePark()` and
+`_$park(_)` create and enter a ticketed Future park, `_$onComplete(_)` installs
+the single GC-traced terminal observer, and `_$terminalValue` reads a terminal
+result for that observer. They are installed by the native floor but are only
+called by the scheduler/Future implementation.
+
+The scheduler seam (`System.schedule(_)` plus internal dequeue/resume/wake) is
+**not** here — it is class-side on `System` (§2.11), and is what the `.ph`
+scheduler is written over.
 
 ## 3. The floor ↔ `core.ph` boundary
 
@@ -829,9 +850,9 @@ Because the floor is frozen (ADR-0019), this census is a **contract**:
    [`tests/invariants.rs`](../../../../phalcom-core/tests/invariants.rs)
    reconstructs the installed native-`(class, selector)` set from a live
    `VM::new()` (filtering out `core.ph`-defined closures) and asserts it equals
-   the census here. **The test is the source of record for the count (§1.3); do
-   not restate the number here.** As of 2026-07-15 it is **136**, the sum of its
-   own per-amendment constants — but read the constants, not this sentence.
+   the census here. **The test is the source of record for the count (§1.3).**
+   It currently asserts **229** bindings; read the test and its live set rather
+   than treating this prose as an independent checksum.
    This turns silent floor drift into a red test; §1.1 is no longer a manual
    checksum.
 

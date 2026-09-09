@@ -7,7 +7,15 @@ class System is Object {
 
   @class @native schedule(_ fiber: Object) -> Fiber
 
-  @class @native nextScheduled -> Option<Fiber>
+  @class @internal @native _$nextScheduled -> Option<Fiber>
+
+  @class @internal @native _$schedulerFailureCursor -> Int
+
+  @class @internal @native _$takeUnhandledScheduledFailures(_ cursor: Int) -> Option<String>
+
+  @class @internal @native _$reportUnhandledScheduledFailures -> Unit
+
+  @class @internal @native _$wake(_ fiber: Fiber, _ generation: Int) -> Bool
 
   @class @native gc -> Unit
 
@@ -41,25 +49,27 @@ class System is Object {
 
   // U-SCHED: the `.ph`-callable counterpart to `VM::run`'s native
   // root-drive belt-and-suspenders pump (`vm/dispatch.rs`) — pumps
-  // `System.nextScheduled` to exhaustion, `try()`-resuming each queued
+  // `System._$nextScheduled` to exhaustion, scheduler-resuming each queued
   // fiber (capture-not-propagate, so one scheduled task's uncaught raise
   // cannot abort another) — including any fiber a running scheduled fiber
-  // itself schedules mid-drain, since `nextScheduled` is re-read every
+  // itself schedules mid-drain, since `_$nextScheduled` is re-read every
   // iteration. Deliberately does **not** unwrap via `.match(some:none:)`
   // (which runs its arm through `Closure#call`'s native re-entrant
-  // `run_until`, forbidding a fiber switch underneath, ADR-0030 §4): `f.try()`
+  // `run_until`, forbidding a fiber switch underneath, ADR-0030 §4):
+  // `f._$resumeScheduled()`
   // must run at this method's own top level, not nested inside a block a
   // native primitive is driving, so the receiver is unwrapped via
-  // `unwrapOr(_)` into a plain local first, and `try()` sent as its own
+  // `unwrapOr(_)` into a plain local first, and `_$resumeScheduled()` sent as its own
   // statement.
   @class
   runScheduled() -> Unit {
-    let next = System.nextScheduled
+    let next = System._$nextScheduled
     while (next.isSome) {
       let f = next.unwrapOr(None)
-      f.try()
-      next = System.nextScheduled
+      f._$resumeScheduled()
+      next = System._$nextScheduled
     }
+    System._$reportUnhandledScheduledFailures
     ()
   }
 }
@@ -75,6 +85,16 @@ class Fiber is Object {
   @native try() -> Dynamic
 
   @native try(_ value: Dynamic) -> Dynamic
+
+  @internal @native _$resumeScheduled() -> Dynamic
+
+  @internal @native _$preparePark() -> Int
+
+  @internal @native _$park(_ generation: Int) -> Dynamic
+
+  @internal @native _$onComplete(_ observer: Dynamic) -> Fiber
+
+  @internal @native _$terminalValue -> Dynamic
 
   @class @native yield() -> Dynamic
 
@@ -93,23 +113,22 @@ class Fiber is Object {
 
 // `Future` (concurrency.md §2; ADR-0030 §1): a settle-once state machine over
 // a fulfilled/rejected result. A **plain `InstanceObject`** (concurrency.md §2
-// "Implementation" ¶1) — zero new floor, written entirely in Phalcom over the
-// same two public seams user code has, `System.schedule(_)` and `Fiber.yield`.
+// "Implementation" ¶1) — zero new floor, with scheduler-owned waiting routed
+// through private ticketed Fiber park/wake seams.
 //
 // **Both slices are landed.** Slice A is the scheduler-free half:
 // `value(_)`/`error(_)` construct an already-settled future, `isReady`/`value`
 // read it, and `then`/`map`/`catch` fire synchronously on an already-settled
-// receiver. Slice B added `async(_)`, `await`, and the pending→settle `drain`
-// over the native ready queue (`06432bd`, 2026-07-14). Note that this comment
-// previously still described Slice B as "deliberately NOT built" long after it
-// shipped, eleven lines above its own implementation — see
-// `docs/learn/concurrency/future-await.md`.
+  // receiver. Slice B added `async(_)`, `await`, pending continuation drain,
+  // ticketed park/wake, and terminal completion observers over the native ready
+  // queue.
 //
 // State lives in three private fields (plan §6.1): `_state` (one of the
 // strings `"pending"`, `"fulfilled"`, `"rejected"`), `_value` (the settled
-// value or the captured `Error`), and `_waiters` — a `List` holding two kinds
-// of thing, `Fiber`s registered by `await` and `Closure`s registered by
-// `then`/`map`/`catch`, unified by `System.schedule(_)` accepting both.
+// value or the captured `Error`), and `_waiters` — a `List` holding
+// ticketed `Tuple`s registered by `await` and `Closure`s registered by
+// `then`/`map`/`catch`. The tuple owns both the Fiber and the exact park
+// generation that is allowed to wake it.
 class Future {
   // Builds a pending future (U-FUTURE Slice B).
   @constructor
@@ -173,20 +192,14 @@ class Future {
     self
   }
 
-  // Reschedules all waiters once settled.
-  //
-  // A waiter is either a `Fiber` (registered by `await`) or a `Closure`
-  // (registered by `then`/`map`/`catch`); `System.schedule(_)` accepts both,
-  // enqueueing a fiber as-is and wrapping anything else. A fiber waiter can,
-  // however, be *finished* by the time we settle — it may have failed after
-  // registering (E004(c): a caller that `await`s from under a native frame
-  // raises out of `await` with its registration still in the list). Resuming a
-  // finished fiber aborts the whole run, taking every other waiter on this
-  // future down with it, so skip those rather than scheduling a corpse.
+  // Wakes all waiters once settled. A `Tuple` is `(Fiber, generation)` and
+  // must go through the ticket-aware wake authority; a closure is a
+  // continuation work item and still uses ordinary scheduler admission.
   drain() -> Unit {
     _waiters.each |w| {
-      const dead = w is Fiber and w.isDone
-      if not dead {
+      if w is Tuple {
+        System._$wake(w.at(0), w.at(1))
+      } else {
         System.schedule(w)
       }
     }
@@ -206,44 +219,45 @@ class Future {
     }
   }
 
-  // Suspends the current fiber until settled (U-FUTURE Slice B). On the root
-  // fiber — which has no resumer and so cannot yield — degrades to driving the
-  // scheduler here instead.
+  // Suspends the current scheduler-owned fiber until settled (U-FUTURE Slice
+  // B). A non-root await registers an exact `(Fiber, generation)` ticket and
+  // performs an authorized Future park. The root fiber drives the scheduler
+  // because it cannot park itself.
   //
   // The branch is chosen by **asking** (`Fiber#isRoot`), not by attempting a
-  // yield and inspecting the failure. It used to do the latter, via
-  // `{ Fiber.yield(None) }.attempt()`, and that could never work: `.attempt()`
-  // is two nested native re-entrant frames (`block_on` + `block_call`), so the
-  // probe tripped the restricted-yield guard (ADR-0030 §4) it was probing for,
-  // unconditionally, for every fiber. `await` therefore never suspended anyone
-  // — E004. Attempt-and-inspect cannot work when the attempt changes the answer.
+  // suspension and inspecting the failure. The old yield probe ran through
+  // nested native re-entry and could never distinguish a supported park from
+  // a forbidden switch.
   //
-  // Consequently the `Fiber.yield` below is **bare**. Wrapping it in anything
-  // that reaches `Closure#call` — `.attempt()`, `.on(_)`, `ensure` — puts a native
-  // frame between the fiber floor and the switch and reinstates the bug. A
-  // `CannotYieldAcrossNativeFrame` raised from here is now a real one: it means
-  // the *caller* invoked `await` from inside a block a native primitive is
-  // driving, which is genuinely unsupported and correctly propagates.
+  // Park preparation checks the native boundary before registration, so a
+  // refusal cannot leave an actionable stale waiter behind. Wake is only
+  // permission to run again; the loop rechecks readiness after every wake.
   await {
-    if (not self.isReady) {
+    while (not self.isReady) {
       if (Fiber.current.isRoot) {
         // Pump until someone settles us. If the ready queue drains while we are
         // still pending, nothing can settle us and looping again would spin
-        // forever in silence (E004(b)) — report it instead. `try()`-resume, so
-        // one scheduled task's uncaught raise cannot abort the others, and as
-        // its own statement rather than inside a block, for the same reason
-        // `System.runScheduled` is written that way.
+        // forever in silence (E004(b)) — report it instead. Scheduler resume
+        // isolates one scheduled task's uncaught raise from the others.
+        const failure_cursor = System._$schedulerFailureCursor
         while (not self.isReady) {
-          const next = System.nextScheduled
+          const next = System._$nextScheduled
           if (next.isNone) {
+            const failures = System._$takeUnhandledScheduledFailures(failure_cursor)
+            if failures.isSome {
+              const details = failures.unwrapOr("")
+              return Error.new("await: the future is still pending and the scheduler is empty; nothing can currently settle it.\n" + details).raise()
+            }
             return Error.new("await: the future is still pending and the scheduler is empty; nothing can settle it").raise()
           }
           const f = next.unwrapOr(None)
-          f.try()
+          f._$resumeScheduled()
         }
       } else {
-        _waiters._$push(Fiber.current)
-        Fiber.yield(None)
+        const current = Fiber.current
+        const generation = current._$preparePark()
+        _waiters._$push(Tuple._$fromList([current, generation]))
+        current._$park(generation)
       }
     }
     if (_state == "rejected") {
@@ -252,21 +266,58 @@ class Future {
     return _value
   }
 
-  // Runs `action` on a fresh fiber and settles the returned future with its
-  // result (or captured error if it fails).
+  // Runs `action` to terminal completion and invokes the matching callback.
+  // Nonterminal park/yield turns do not call either callback.
+  @private
+  @class
+  runToTerminal(_ action, _ onSuccess, _ onError) {
+    const fiber = Fiber.new(action)
+    fiber._$onComplete(|| {
+      if fiber.error.isSome {
+        onError.call(fiber.error.unwrapOr(None))
+      } else {
+        onSuccess.call(fiber._$terminalValue)
+      }
+    })
+    System.schedule(fiber)
+    fiber
+  }
+
+  // Adopts a terminal callback result into a derived Future, preserving the
+  // existing flattening rule for callbacks that return another Future.
+  @private
+  @class
+  adoptCallbackResult(_ f_next, _ result) {
+    const flattened = Future.flatten(result)
+    flattened.then |value| { f_next.settleValue(value) }
+    flattened.catch |error| { f_next.settleError(error) }
+    ()
+  }
+
+  // Runs one pending continuation callback to terminal completion. The
+  // callback Fiber owns all suspension; the derived Future changes only from
+  // its terminal observer.
+  @private
+  @class
+  runCallbackToFuture(_ callback, _ value, _ f_next) {
+    Future.runToTerminal(
+      || { callback.call(value) },
+      |result| { Future.adoptCallbackResult(f_next, result) },
+      |error| { f_next.settleError(error) }
+    )
+    ()
+  }
+
+  // Runs `action` on a fresh Fiber and settles the returned Future only from
+  // the action's terminal result.
   @class
   async(_ action) {
     const f = Future.new()
-    const driver = Fiber.new || {
-      const fib = Fiber.new(action)
-      const res = fib.try()
-      if (fib.error.isSome) {
-        f.settleError(fib.error.unwrapOr(None))
-      } else {
-        f.settleValue(res)
-      }
-    }
-    System.schedule(driver)
+    Future.runToTerminal(
+      action,
+      |value| { f.settleValue(value) },
+      |error| { f.settleError(error) }
+    )
     return f
   }
 
@@ -295,15 +346,7 @@ class Future {
       const f_next = Future.new()
       _waiters._$push(|| {
         if (_state == "fulfilled") {
-          const fib = Fiber.new(|| { f.call(_value) })
-          const res = fib.try()
-          if (fib.error.isSome) {
-            f_next.settleError(fib.error.unwrapOr(None))
-          } else {
-            const flattened = Future.flatten(res)
-            flattened.then |value| { f_next.settleValue(value) }
-            flattened.catch |error| { f_next.settleError(error) }
-          }
+          Future.runCallbackToFuture(f, _value, f_next)
         } else {
           f_next.settleError(_value)
         }
@@ -324,15 +367,7 @@ class Future {
       const f_next = Future.new()
       _waiters._$push(|| {
         if (_state == "fulfilled") {
-          const fib = Fiber.new(|| { f.call(_value) })
-          const res = fib.try()
-          if (fib.error.isSome) {
-            f_next.settleError(fib.error.unwrapOr(None))
-          } else {
-            const flattened = Future.flatten(res)
-            flattened.then |value| { f_next.settleValue(value) }
-            flattened.catch |error| { f_next.settleError(error) }
-          }
+          Future.runCallbackToFuture(f, _value, f_next)
         } else {
           f_next.settleError(_value)
         }
@@ -354,15 +389,7 @@ class Future {
       const f_next = Future.new()
       _waiters._$push(|| {
         if (_state == "rejected") {
-          const fib = Fiber.new(|| { f.call(_value) })
-          const res = fib.try()
-          if (fib.error.isSome) {
-            f_next.settleError(fib.error.unwrapOr(None))
-          } else {
-            const flattened = Future.flatten(res)
-            flattened.then |value| { f_next.settleValue(value) }
-            flattened.catch |error| { f_next.settleError(error) }
-          }
+          Future.runCallbackToFuture(f, _value, f_next)
         } else {
           f_next.settleValue(_value)
         }

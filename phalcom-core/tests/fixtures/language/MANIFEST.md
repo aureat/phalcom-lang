@@ -253,8 +253,8 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
   (`VM::run`'s belt-and-suspenders drain fires even though `main` never calls
   `runScheduled`), `concurrency_sched_raising_fiber_does_not_abort_host` (an
   uncaught raise in one scheduled fiber, captured via `fiber_try`, does not stop
-  a later one or the host's own exit), `concurrency_sched_next_scheduled_empty_is_none`
-  (`System.nextScheduled` on an empty queue is the `None` singleton, never a raise),
+  a later one or the host's own exit), `concurrency_sched_raw_pop_is_not_public`
+  (`System.nextScheduled` is no longer a public raw dequeue seam),
   and `concurrency_sched_run_scheduled_drains_including_nested` (`System.runScheduled`
   drains to exhaustion mid-program, including a fiber a running scheduled fiber
   itself schedules). Ratifies DEC-FUT-SCHED (`U-FUTURE/plan.md` §9): `Future`'s
@@ -292,7 +292,7 @@ directory. Each case is a `<name>.ph` plus a sibling `<name>.expected`.
 | absence | 24 (Wren-absence-port: `absence_none_isa_type`) | 2 (Wren-absence-port: `absence_none_no_constructor`, `absence_none_not_operator_dnu`) | 3 | `check_pass` + `check_negative` + `check_pending` | values-and-absence.md; ADR-0007; ADR-0021; selectors.md |
 | blocks | – | – | 3 | `check_pending` | blocks.md; functions.md |
 | booleans | 11 (Wren-bool-port: `bool_equality`, `bool_not`, `bool_to_string`, `bool_isa_type`) | – | – | `check_pass` | control-flow.md |
-| concurrency | 38 (Wren-fiber-port: 9 PASS cases; U-FIBER-REFLECT: +4 — `concurrency_fiber_is_done_false_while_suspended`, `concurrency_fiber_is_done_true_once_done`, `concurrency_fiber_is_done_and_error_once_failed`, and `concurrency_fiber_wren_is_done_and_error` graduated from `pending/`; U-SCHED: +6 — `concurrency_sched_schedule_does_not_run_synchronously`, `concurrency_sched_fifo_order`, `concurrency_sched_root_drive_runs_at_exit`, `concurrency_sched_raising_fiber_does_not_abort_host`, `concurrency_sched_next_scheduled_empty_is_none`, `concurrency_sched_run_scheduled_drains_including_nested`) | 8 (Wren-fiber-port: 5 NEG cases in `concurrency/negative/`) | 1 (`concurrency_future_async_await`, gated on U-SCHED/DEC-FUT-SCHED — U-SCHED itself has now landed as this row's own precondition; `Future` Slice B remains the open item) | `check_pass` + `check_negative` + `check_pending` | concurrency.md; ADR-0030; U-FIBER-REFLECT; U-SCHED |
+| concurrency | 38 (Wren-fiber-port: 9 PASS cases; U-FIBER-REFLECT: +4 — `concurrency_fiber_is_done_false_while_suspended`, `concurrency_fiber_is_done_true_once_done`, `concurrency_fiber_is_done_and_error_once_failed`, and `concurrency_fiber_wren_is_done_and_error` graduated from `pending/`; U-SCHED: +6 — `concurrency_sched_schedule_does_not_run_synchronously`, `concurrency_sched_fifo_order`, `concurrency_sched_root_drive_runs_at_exit`, `concurrency_sched_raising_fiber_does_not_abort_host`, `concurrency_sched_raw_pop_is_not_public`, `concurrency_sched_run_scheduled_drains_including_nested`) | 8 (Wren-fiber-port: 5 NEG cases in `concurrency/negative/`) | 1 (`concurrency_future_async_await`, gated on U-SCHED/DEC-FUT-SCHED — U-SCHED itself has now landed as this row's own precondition; `Future` Slice B remains the open item) | `check_pass` + `check_negative` + `check_pending` | concurrency.md; ADR-0030; U-FIBER-REFLECT; U-SCHED |
 | errors | 9 | – | – | `check_pass` | error-handling.md; result.md; ADR-0008/0031/0038 |
 | functions | 7 (Wren-function-port: `functions_block_arity`, `functions_block_type`, `functions_block_equality`, `functions_block_to_string`) | 3 (Wren-function-port, new `functions/negative/`: `functions_call_extra_arguments`, `functions_call_missing_arguments`, `functions_call_runtime_error`) | 1 | `check_pass` + `check_negative` + `check_pending` | functions.md; selectors.md |
 | imports | 5 | 2 | – | `check_pass` + `check_negative` | modules.md; object-model.md §4; ADR-0027; ADR-0045 |

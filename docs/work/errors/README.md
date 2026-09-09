@@ -27,8 +27,6 @@ fix. The auditor's word confirms nothing; the machine does.
 | [E003](E003-schedule-pump-arity.md) | `System.schedule` pump resumes an arity-1 entry with zero args, failing the run | minor | 2026-07-19 |
 | [E005](E005-nonlocal-return-some-wrapped.md) | A non-local `return` through `bool_if_true`/`bool_if_false` comes back `Some`-wrapped | **major** (silent wrong answer) | 2026-07-20 |
 | [E006](E006-inherited-field-diagnostic-shadowing.md) | Reading an inherited field reports "Read-before-write"; following that advice silently creates a second slot | **major** (diagnostic steers into field shadowing) | 2026-07-20 |
-| [E007](E007-async-await-missettle.md) | `Future.async` settles prematurely when its action `await`s — wrong value, silently | **blocker** (silent wrong result) | 2026-07-20 |
-| [E008](E008-double-schedule-kills-run.md) | Scheduling the same fiber twice fails the whole run via the pre-flight refusal channel | **major** | 2026-07-20 |
 | [E009](E009-return-in-fiber-entry-deadframe.md) | Explicit `return` in a fiber entry block always raises `DeadFrameError` | **major** | 2026-07-20 |
 | [E010](E010-pump-swallows-task-errors.md) | Scheduler pumps swallow captured task errors; `await`'s quiescence diagnostic masks the cause | **major** (misleading diagnostic) | 2026-07-20 |
 
@@ -51,6 +49,8 @@ inside.
 |----|-------|----------|----------|
 | [E001](E001-gc-ensure-temp-root-uaf.md) | `block_ensure` frees the protected block's pending result if the cleanup collects | `cdd2117` — `VM::push_temp_root` + `collect_roots` enumeration | 2026-07-19 (all repros + control + the error-carrying path) |
 | [E004](E004-await-cannot-suspend.md) | `Future#await` could never suspend a fiber; its own `.attempt()` wrapper tripped the restricted-yield guard | `f479189` — `Fiber#isRoot` predicate + bare yield, pump quiescence check, `drain` skips finished waiters | 2026-07-19 (all 3 repros + both controls + clean-checkout suite) |
+| [E007](E007-async-await-missettle.md) | `Future.async` settled on an intermediate await turn instead of terminal completion | `b2084e98` — durable terminal observers for async actions and pending continuations | 2026-09-09 (C4/C5 concurrency corpus) |
+| [E008](E008-double-schedule-kills-run.md) | Duplicate Fiber admission poisoned scheduler pumps through the resume-refusal channel | `a45a5cf4` — VM-owned admission and explicit scheduler resume mode | 2026-09-09 (C1/C5 concurrency corpus) |
 
 E004 is the sharpest illustration of this directory's method note: its diagnosis was reproduced and
 correct, and **its fix direction was still wrong**. The recorded prescription for E004(c) — unregister

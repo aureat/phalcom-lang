@@ -1,12 +1,10 @@
-use phalcom_modules::fingerprint::{interface_fingerprint, linked_interface_fingerprint, unlinked_interface_input_fingerprint};
-use phalcom_modules::interface::{
-    DeclarationSurface, ExportSurface, LinkedExport, LinkedExportTarget, LinkedModuleInterface, UnlinkedExportTarget, UnlinkedModuleInterface,
-};
+use phalcom_modules::fingerprint::interface_fingerprint;
+use phalcom_modules::interface::{DeclarationSurface, UnlinkedModuleInterface};
 use phalcom_modules::metadata::ModuleMetadata;
-use phalcom_modules::resolver::{ImportPathIdentity, ImportResolutionProduct, ResolutionFingerprint, ResolutionTopologyDependencies};
+use phalcom_modules::resolver::{ImportPathIdentity, ImportResolutionProduct, ResolutionTopologyDependencies};
 use phalcom_modules::source::ModuleKind;
 use phalcom_modules::stabilization::ResolverGeneration;
-use phalcom_modules::topology::{ModuleTopology, TopologyFingerprint, TopologyNode};
+use phalcom_modules::topology::ModuleTopology;
 use phalcom_modules::{ModuleComponent, ModuleId, ModulePath, ProjectUniverse, SourceId, SourceLocation};
 use std::collections::{BTreeMap, BTreeSet};
 

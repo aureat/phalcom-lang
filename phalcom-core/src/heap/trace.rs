@@ -190,6 +190,9 @@ pub fn trace_object(obj: &Object, push: &mut impl FnMut(ObjRef)) {
             if let Some(resumer) = fiber.resumer {
                 push(resumer);
             }
+            if let Some(observer) = fiber.completion_observer {
+                push(observer);
+            }
             trace_value(fiber.result, push);
             if let Some(entry) = fiber.entry {
                 push(entry);

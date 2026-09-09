@@ -49,6 +49,24 @@ pub struct FormalQueryInputs<'a> {
     pub associated_families: Option<&'a crate::associated::AssociatedFamilyTable>,
 }
 
+pub struct HierarchyEdgeQueryInputs<'a> {
+    pub linked_interface: Arc<LinkedModuleInterface>,
+    pub resolver: &'a dyn TypeResolver,
+    pub linked: &'a LinkedProgram,
+    pub declarations: &'a DeclarationTypeTable,
+    pub import_products: &'a BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>,
+}
+
+pub struct SignatureQueryInputs<'a> {
+    pub store: &'a mut TypeStore,
+    pub hierarchy: &'a dyn TypeHierarchy,
+    pub resolver: &'a dyn TypeResolver,
+    pub declarations: &'a DeclarationTypeTable,
+    pub linked: Option<&'a LinkedProgram>,
+    pub type_aliases: Option<&'a crate::type_alias::TypeAliasTable>,
+    pub import_products: Option<&'a BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>>,
+}
+
 fn semantic_dependency_query_key(dependency: &crate::checker::analysis::SemanticDependency) -> QueryKey {
     match dependency {
         crate::checker::analysis::SemanticDependency::DeclarationShell(declaration) => QueryKey::DeclarationShell(declaration.clone()),
@@ -578,12 +596,15 @@ pub fn query_hierarchy_edge(
     db: &mut SemanticDb,
     class_decl: DeclarationId,
     unit: Arc<ParsedModuleUnit>,
-    linked_interface: Arc<LinkedModuleInterface>,
-    resolver: &dyn TypeResolver,
-    linked: &LinkedProgram,
-    declarations: &DeclarationTypeTable,
-    import_products: &BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>,
+    inputs: HierarchyEdgeQueryInputs<'_>,
 ) -> QueryOutcome<Arc<HierarchyEdgeProduct>> {
+    let HierarchyEdgeQueryInputs {
+        linked_interface,
+        resolver,
+        linked,
+        declarations,
+        import_products,
+    } = inputs;
     let key = QueryKey::HierarchyEdge(class_decl.clone());
     if unit.id != class_decl.module || linked_interface.module != class_decl.module {
         return query_failure(db, key, format!("hierarchy query inputs do not belong to declaration {class_decl:?}"));
@@ -1045,13 +1066,15 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
                 db,
                 callable.clone(),
                 unit,
-                store,
-                inputs.hierarchy,
-                inputs.base_resolver,
-                inputs.declarations,
-                Some(inputs.linked),
-                Some(inputs.type_aliases),
-                Some(inputs.import_products),
+                SignatureQueryInputs {
+                    store,
+                    hierarchy: inputs.hierarchy,
+                    resolver: inputs.base_resolver,
+                    declarations: inputs.declarations,
+                    linked: Some(inputs.linked),
+                    type_aliases: Some(inputs.type_aliases),
+                    import_products: Some(inputs.import_products),
+                },
             ))
         }
         crate::checker::analysis::SemanticDependency::FieldSignature(field) => {
@@ -1062,13 +1085,15 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
                 db,
                 field.clone(),
                 unit,
-                store,
-                inputs.hierarchy,
-                inputs.base_resolver,
-                inputs.declarations,
-                Some(inputs.linked),
-                Some(inputs.type_aliases),
-                Some(inputs.import_products),
+                SignatureQueryInputs {
+                    store,
+                    hierarchy: inputs.hierarchy,
+                    resolver: inputs.base_resolver,
+                    declarations: inputs.declarations,
+                    linked: Some(inputs.linked),
+                    type_aliases: Some(inputs.type_aliases),
+                    import_products: Some(inputs.import_products),
+                },
             ))
         }
         crate::checker::analysis::SemanticDependency::DeclarationSurface(declaration) => {
@@ -1105,11 +1130,13 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
                 db,
                 declaration.clone(),
                 unit,
-                Arc::new(linked_module.interface.clone()),
-                inputs.base_resolver,
-                inputs.linked,
-                inputs.declarations,
-                inputs.import_products,
+                HierarchyEdgeQueryInputs {
+                    linked_interface: Arc::new(linked_module.interface.clone()),
+                    resolver: inputs.base_resolver,
+                    linked: inputs.linked,
+                    declarations: inputs.declarations,
+                    import_products: inputs.import_products,
+                },
             ))
         }
         crate::checker::analysis::SemanticDependency::LinkedInterface(_)
@@ -1377,21 +1404,37 @@ pub fn query_callable_signature(
     resolver: &dyn TypeResolver,
     declarations: &DeclarationTypeTable,
 ) -> QueryOutcome<Arc<CallableSemanticSignature>> {
-    query_callable_signature_with_inputs(db, callable, unit, store, hierarchy, resolver, declarations, None, None, None)
+    query_callable_signature_with_inputs(
+        db,
+        callable,
+        unit,
+        SignatureQueryInputs {
+            store,
+            hierarchy,
+            resolver,
+            declarations,
+            linked: None,
+            type_aliases: None,
+            import_products: None,
+        },
+    )
 }
 
 pub fn query_callable_signature_with_inputs(
     db: &mut SemanticDb,
     callable: CallableId,
     unit: Arc<ParsedModuleUnit>,
-    store: &mut TypeStore,
-    hierarchy: &dyn TypeHierarchy,
-    resolver: &dyn TypeResolver,
-    declarations: &DeclarationTypeTable,
-    linked: Option<&LinkedProgram>,
-    type_aliases: Option<&crate::type_alias::TypeAliasTable>,
-    import_products: Option<&BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>>,
+    inputs: SignatureQueryInputs<'_>,
 ) -> QueryOutcome<Arc<CallableSemanticSignature>> {
+    let SignatureQueryInputs {
+        store,
+        hierarchy,
+        resolver,
+        declarations,
+        linked,
+        type_aliases,
+        import_products,
+    } = inputs;
     let key = QueryKey::CallableSignature(callable.clone());
     if unit.id != *callable.module() {
         return query_failure(db, key, format!("source unit does not own callable {callable:?}"));
@@ -1577,21 +1620,37 @@ pub fn query_field_signature(
     resolver: &dyn TypeResolver,
     declarations: &DeclarationTypeTable,
 ) -> QueryOutcome<Arc<FieldSemanticSignature>> {
-    query_field_signature_with_inputs(db, field, unit, store, hierarchy, resolver, declarations, None, None, None)
+    query_field_signature_with_inputs(
+        db,
+        field,
+        unit,
+        SignatureQueryInputs {
+            store,
+            hierarchy,
+            resolver,
+            declarations,
+            linked: None,
+            type_aliases: None,
+            import_products: None,
+        },
+    )
 }
 
 pub fn query_field_signature_with_inputs(
     db: &mut SemanticDb,
     field: FieldId,
     unit: Arc<ParsedModuleUnit>,
-    store: &mut TypeStore,
-    hierarchy: &dyn TypeHierarchy,
-    resolver: &dyn TypeResolver,
-    declarations: &DeclarationTypeTable,
-    linked: Option<&LinkedProgram>,
-    type_aliases: Option<&crate::type_alias::TypeAliasTable>,
-    import_products: Option<&BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>>,
+    inputs: SignatureQueryInputs<'_>,
 ) -> QueryOutcome<Arc<FieldSemanticSignature>> {
+    let SignatureQueryInputs {
+        store,
+        hierarchy,
+        resolver,
+        declarations,
+        linked,
+        type_aliases,
+        import_products,
+    } = inputs;
     let key = QueryKey::FieldSignature(field.clone());
     if unit.id != field.owner.module {
         return query_failure(db, key, format!("source unit does not own field {field:?}"));
@@ -1813,13 +1872,15 @@ fn ensure_callable_signature_with_inputs(
         db,
         callable.clone(),
         unit,
-        store,
-        formal_inputs.hierarchy,
-        formal_inputs.base_resolver,
-        formal_inputs.declarations,
-        Some(formal_inputs.linked),
-        Some(formal_inputs.type_aliases),
-        Some(formal_inputs.import_products),
+        SignatureQueryInputs {
+            store,
+            hierarchy: formal_inputs.hierarchy,
+            resolver: formal_inputs.base_resolver,
+            declarations: formal_inputs.declarations,
+            linked: Some(formal_inputs.linked),
+            type_aliases: Some(formal_inputs.type_aliases),
+            import_products: Some(formal_inputs.import_products),
+        },
     )
 }
 
@@ -2183,10 +2244,12 @@ fn query_callable_body_with_requirement(
             body,
             body_range,
             store,
-            inputs.sources,
-            inputs.source_resolution_input,
-            inputs.linked_component_product,
-            inputs.field_lifecycle,
+            crate::db::fingerprint::CallableBodyFormalInputFingerprint {
+                sources: inputs.sources,
+                source_resolution_input: inputs.source_resolution_input,
+                linked_component_product: inputs.linked_component_product,
+                lifecycle: inputs.field_lifecycle,
+            },
         ),
         None => crate::db::fingerprint::callable_body_input_fingerprint(&callable, body, body_range, store),
     };

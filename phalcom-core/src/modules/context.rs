@@ -1,7 +1,7 @@
 //! Shared semantic execution context for modules, projects, and the interactive REPL.
 
 use crate::error::{PhResult, RuntimeError};
-use crate::heap::ObjRef;
+use crate::heap::{ObjRef, RuntimeExportRef};
 use crate::modules::compile::{EntrySelection, ProgramCompiler};
 use crate::modules::linkage::{BindingRef, CompileBindings, LinkedImportInfo, RuntimeLinkedRead, TopLevelBindingInfo, TopLevelBindingKind};
 use crate::vm::VM;
@@ -155,32 +155,44 @@ impl ModuleExecutionContext {
                         };
 
                         let item_sym = vm.interner.intern(&item.name);
-                        let exports = &vm.heap.module(target_obj).exports;
-                        if !exports.contains_key(&item_sym) {
-                            return Err(RuntimeError::Internal(format!(
+                        let export = vm.heap.module(target_obj).exports.get(&item_sym).copied().ok_or_else(|| {
+                            RuntimeError::Internal(format!(
                                 "selective import resolution failed: module {} does not export '{}'",
                                 resolved_target.id, item.name
                             ))
-                            .into());
-                        }
+                        })?;
 
-                        let slot = vm
-                            .heap
-                            .module(target_obj)
-                            .slot_of(item_sym)
-                            .expect("export is confirmed; slot must exist after materialization");
+                        let (runtime_read, target, symbol) = match export {
+                            RuntimeExportRef::Binding(binding) => {
+                                let (target_module_id, target_name_sym) = {
+                                    let target_module = vm.heap.module(binding.module);
+                                    let target_name_sym = target_module
+                                        .name_to_slot
+                                        .iter()
+                                        .find_map(|(symbol, slot)| (*slot == binding.slot as usize).then_some(*symbol))
+                                        .ok_or_else(|| {
+                                            RuntimeError::Internal(format!(
+                                                "runtime export '{}' in {} points at unknown slot {}",
+                                                item.name, resolved_target.id, binding.slot
+                                            ))
+                                        })?;
+                                    (target_module.id.clone(), target_name_sym)
+                                };
+                                let symbol_id = SymbolId {
+                                    module: target_module_id,
+                                    name: vm.resolve_symbol(target_name_sym).to_owned().into_boxed_str(),
+                                };
+                                (RuntimeLinkedRead::Binding(binding), LinkedReadSpec::Binding(symbol_id.clone()), Some(symbol_id))
+                            }
+                            RuntimeExportRef::Module(module) => {
+                                let target_module_id = vm.heap.module(module).id.clone();
+                                (RuntimeLinkedRead::Module(module), LinkedReadSpec::Module(target_module_id), None)
+                            }
+                        };
 
                         let binding_index = self.linked_reads.len() as u32;
                         let binding_id = ImportBindingId(binding_index);
-                        let symbol_id = SymbolId {
-                            module: resolved_target.id.clone(),
-                            name: item.name.clone().into_boxed_str(),
-                        };
-
-                        self.linked_reads.push(RuntimeLinkedRead::Binding(BindingRef {
-                            module: target_obj,
-                            slot: slot as u16,
-                        }));
+                        self.linked_reads.push(runtime_read);
 
                         let local_boxed: Box<str> = local_name.into_boxed_str();
                         self.bindings.entries.insert(
@@ -195,8 +207,8 @@ impl ModuleExecutionContext {
                             LinkedImportInfo {
                                 local_name: local_boxed,
                                 binding: binding_id,
-                                target: LinkedReadSpec::Binding(symbol_id.clone()),
-                                symbol: Some(symbol_id),
+                                target,
+                                symbol,
                             },
                         );
                     }

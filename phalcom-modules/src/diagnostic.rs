@@ -336,7 +336,7 @@ impl ModuleDiagnostic {
                 name,
                 range,
             } => {
-                let is_private = target_interface.map_or(false, |iface| iface.declarations.contains_key(&name));
+                let is_private = target_interface.is_some_and(|iface| iface.declarations.contains_key(&name));
                 if is_private {
                     Self {
                         module: importer,

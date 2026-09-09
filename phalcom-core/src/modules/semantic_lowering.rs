@@ -283,7 +283,7 @@ pub enum ProjectionError {
     #[error("missing variant metadata for {0:?}")]
     MissingVariantMetadata(VariantId),
     #[error("missing field layout for field {0:?} in variant {1:?}")]
-    MissingFieldLayout(VariantFieldId, VariantId),
+    MissingFieldLayout(Box<VariantFieldId>, Box<VariantId>),
     #[error("missing pattern binding for {0:?}")]
     MissingPatternBinding(phalcom_semantic::identity::BindingId),
     #[error("pattern binding index overflow for {0}")]
@@ -478,7 +478,7 @@ fn project_match_resolution(
             .bindings
             .iter()
             .map(|b| ExecutableBindingSpec {
-                binding: b.binding.clone(),
+                binding: b.binding,
                 name: b.name.clone(),
                 range: b.source,
             })
@@ -508,7 +508,7 @@ fn project_pattern_resolution(
             let index = bindings
                 .iter()
                 .position(|b| b.binding == *binding)
-                .ok_or_else(|| ProjectionError::MissingPatternBinding(binding.clone()))?;
+                .ok_or(ProjectionError::MissingPatternBinding(*binding))?;
             let binding_index = u32::try_from(index).map_err(|_| ProjectionError::PatternBindingIndexOverflow(index))?;
             Ok(ExecutablePattern::Binding {
                 binding_index,
@@ -528,7 +528,7 @@ fn project_pattern_resolution(
                         .fields
                         .iter()
                         .position(|f| f.id == field.field)
-                        .ok_or_else(|| ProjectionError::MissingFieldLayout(field.field.clone(), candidate.variant.clone()))?;
+                        .ok_or_else(|| ProjectionError::MissingFieldLayout(Box::new(field.field.clone()), Box::new(candidate.variant.clone())))?;
                     let slot = u16::try_from(idx).map_err(|_| ProjectionError::SlotOverflow(idx))?;
 
                     let child = project_pattern_resolution(&field.child, bindings, snapshot)?;

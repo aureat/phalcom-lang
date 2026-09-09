@@ -731,8 +731,8 @@ fn exact_reverse_edge_replacement_leaves_no_stale_dependency() {
     let b_mod = session.module_for_source(&b_loc.source_id).unwrap().clone();
     let c_mod = session.module_for_source(&c_loc.source_id).unwrap().clone();
 
-    assert!(session.reverse_importers().get(&b_mod).map_or(false, |s| s.contains(&a_mod)));
-    assert!(!session.reverse_importers().get(&c_mod).map_or(false, |s| s.contains(&a_mod)));
+    assert!(session.reverse_importers().get(&b_mod).is_some_and(|s| s.contains(&a_mod)));
+    assert!(!session.reverse_importers().get(&c_mod).is_some_and(|s| s.contains(&a_mod)));
 
     // A changed to import C
     session
@@ -740,8 +740,8 @@ fn exact_reverse_edge_replacement_leaves_no_stale_dependency() {
         .unwrap();
 
     // B must no longer have A as reverse importer; C must have A
-    assert!(!session.reverse_importers().get(&b_mod).map_or(false, |s| s.contains(&a_mod)));
-    assert!(session.reverse_importers().get(&c_mod).map_or(false, |s| s.contains(&a_mod)));
+    assert!(!session.reverse_importers().get(&b_mod).is_some_and(|s| s.contains(&a_mod)));
+    assert!(session.reverse_importers().get(&c_mod).is_some_and(|s| s.contains(&a_mod)));
 }
 
 #[test]
