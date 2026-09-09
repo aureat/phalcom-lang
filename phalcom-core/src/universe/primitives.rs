@@ -46,7 +46,7 @@ use crate::primitive::selector_pattern::*;
 use crate::primitive::set::{set_class_new, set_raw_add, set_raw_at, set_raw_has, set_raw_remove, set_raw_size};
 use crate::primitive::string::{string_add, string_class_new, string_hash, string_raw_byte_at, string_raw_byte_count, string_raw_slice};
 use crate::primitive::symbol::{symbol_class_new, symbol_hash, symbol_is_selector, symbol_is_selector_pattern, symbol_tostring};
-use crate::primitive::system::{system_class_new, system_class_print, system_gc, system_next_scheduled, system_next_scheduled_internal, system_raw_write, system_schedule, system_wake};
+use crate::primitive::system::{system_class_new, system_class_print, system_gc, system_next_scheduled_internal, system_raw_write, system_schedule, system_wake};
 use crate::primitive::tuple::{
     tuple_from_list_internal, tuple_raw_at, tuple_raw_label_at, tuple_raw_labeled, tuple_raw_positional_size, tuple_raw_positionals, tuple_raw_size,
     tuple_raw_slice,
@@ -368,14 +368,11 @@ impl Universe {
         let system_cls = vm.universe.classes.system_class;
         primitive_static!(vm, system_cls, "print", SignatureKind::Method(1), system_class_print);
         primitive_static!(vm, system_cls, "new", SignatureKind::Method(0), system_class_new);
-        // Native ready-queue scheduler seam (U-SCHED, floor-census.md
-        // amendment): `schedule(_)` wraps a `Function` as a fresh `Fiber` and
-        // enqueues it on `VM::ready_queue`; `nextScheduled` pops the FIFO's
-        // front as `Option<Fiber>`. Neither runs the fiber — see
-        // `primitive::system::system_schedule`/`system_next_scheduled` for
-        // the drain contract and `VM::run`'s root-drive pump.
+        // Native ready-queue scheduler seam: public code admits work with
+        // `schedule(_)` and drains it with `.ph` `runScheduled`; raw dequeue
+        // and scheduler resume remain internal so queued work cannot be stolen
+        // by public `Fiber#call`/`#try`.
         primitive_static!(vm, system_cls, "schedule", SignatureKind::Method(1), system_schedule);
-        primitive_static!(vm, system_cls, "nextScheduled", SignatureKind::Getter, system_next_scheduled);
         primitive_static_internal!(vm, system_cls, "_$nextScheduled", SignatureKind::Getter, system_next_scheduled_internal);
         primitive_static_internal!(vm, system_cls, "_$wake", SignatureKind::Method(2), system_wake);
         primitive_static!(vm, system_cls, "gc", SignatureKind::Getter, system_gc);

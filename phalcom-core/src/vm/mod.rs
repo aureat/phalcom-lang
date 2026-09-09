@@ -306,7 +306,7 @@ pub struct VM {
     ///
     /// Populated by `System.schedule(_)`; drained by the root-drive pump
     /// ([`VM::run`]) and by any `.ph`-level pump loop (`System.runScheduled`,
-    /// `core.ph`) via [`crate::primitive::system::system_next_scheduled`]. A
+    /// `core.ph`) via the internal scheduler dequeue primitive. A
     /// fiber in this queue has never been resumed
     /// (`FiberObject::started == false`) — draining it resumes it as a fresh
     /// entry call, exactly like `Fiber#call`'s first-resume path
@@ -453,17 +453,6 @@ impl VM {
         self.heap.fiber_mut(fiber).status = FiberStatus::Queued;
         self.ready_queue.push_back(fiber);
         true
-    }
-
-    /// Legacy public `System.nextScheduled` compatibility: removing an item
-    /// from the raw getter releases its scheduler reservation so existing code
-    /// may still choose the public `Fiber#try` path. Production scheduler pumps
-    /// use `pop_next_queued` and the explicit scheduler resume instead.
-    pub(crate) fn pop_public_scheduled(&mut self) -> Option<ObjRef> {
-        let fiber = self.pop_next_queued()?;
-        let status = if self.heap.fiber(fiber).started { FiberStatus::Yielded } else { FiberStatus::New };
-        self.heap.fiber_mut(fiber).status = status;
-        Some(fiber)
     }
 
     /// Returns canonical Universe root package.

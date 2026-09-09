@@ -734,9 +734,8 @@ fn floor_census_matches_installed_bindings() {
     // bindings remain native; its call activation rebuilds the target selector
     // directly.
     // U-SCHED (floor-census.md amendment, ADR-0030 §Consequences): the
-    // native ready-queue scheduler seam admits **+2** bindings (113 -> 115):
-    // `System::schedule(_)` (`system_schedule`) and `System::nextScheduled`
-    // (`system_next_scheduled`), both `primitive/system.rs`.
+    // native ready-queue scheduler seam admits `System::schedule(_)`; raw
+    // dequeue and scheduler resume are internal runtime bindings.
     // U-ANNOT-CONTRACTS (ADR-0052 Fix 1, this unit's own amendment): the
     // `@invariant` re-entrancy guard admits **+2** bindings (115 -> 117):
     // `Object::__invariantEnter()` and `Object::__invariantExit()`, both
@@ -949,7 +948,6 @@ fn floor_census_matches_installed_bindings() {
         (c.system_class, true, "new()"),
         // Native ready-queue scheduler seam (U-SCHED) — NEW_SCHED
         (c.system_class, true, "schedule(_)"),
-        (c.system_class, true, "nextScheduled"),
         (c.system_class, true, "gc"),
         // U-STRING raw I/O seam (ADR-0049 amendment)
         (c.system_class, true, "_$write(_)"), // NEW (ADR-0049)
@@ -1052,9 +1050,16 @@ fn floor_census_matches_installed_bindings() {
         (c.fiber_class, false, "isDone"),
         (c.fiber_class, false, "isRoot"),
         (c.fiber_class, false, "error"),
+        (c.fiber_class, false, "_$resumeScheduled()"),
+        (c.fiber_class, false, "_$preparePark()"),
+        (c.fiber_class, false, "_$park(_)"),
+        (c.fiber_class, false, "_$onComplete(_)"),
+        (c.fiber_class, false, "_$terminalValue"),
         // System (Resource tracking primitives)
         (c.system_class, true, "_$leakReport"),
         (c.system_class, true, "_$strictResources(_)"),
+        (c.system_class, true, "_$nextScheduled"),
+        (c.system_class, true, "_$wake(_,_)"),
     ];
 
     // Resolve each binding to its owning class (metaclass for statics).
@@ -1125,10 +1130,10 @@ fn floor_census_matches_installed_bindings() {
 
     assert_eq!(
         expected.len(),
-        220,
-        "census must enumerate exactly 220 bindings after Number + getter + bilateral semantics + Selector/SelectorPattern + Behavior typing reflection + Method provenance additions"
+        226,
+        "census must enumerate exactly 226 bindings after concurrency scheduler ownership and terminal observer seams"
     );
-    assert_eq!(live.len(), 220, "the live floor must be exactly 220 bindings");
+    assert_eq!(live.len(), 226, "the live floor must be exactly 226 bindings");
 }
 
 #[test]

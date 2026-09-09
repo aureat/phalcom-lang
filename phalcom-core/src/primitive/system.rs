@@ -62,24 +62,8 @@ pub fn system_schedule(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResu
     Ok(Value::obj(fiber_ref))
 }
 
-/// Signature: `System::nextScheduled` — pops and returns the next queued
-#[phalcom_native_macros::primitive(
-    System,
-    "nextScheduled",
-    params = [],
-    returns = "Option<Fiber>",
-    types = "() -> Option<Fiber>",
-    side = class
-)]
-pub fn system_next_scheduled(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    match vm.pop_public_scheduled() {
-        Some(fiber_ref) => Ok(wrap_some(vm, Value::obj(fiber_ref))?),
-        None => Ok(vm.none_value()),
-    }
-}
-
-/// Internal scheduler dequeue. Unlike the legacy public getter, this keeps
-/// the `Queued` reservation until the scheduler resume primitive consumes it.
+/// Internal scheduler dequeue. The `Queued` reservation remains owned by the
+/// scheduler until the scheduler resume primitive consumes it.
 #[phalcom_native_macros::primitive(System, "_$nextScheduled", side = class, visibility = internal)]
 pub fn system_next_scheduled_internal(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     match vm.pop_next_queued() {

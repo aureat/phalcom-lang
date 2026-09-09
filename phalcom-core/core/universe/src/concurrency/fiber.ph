@@ -7,8 +7,6 @@ class System is Object {
 
   @class @native schedule(_ fiber: Object) -> Fiber
 
-  @class @native nextScheduled -> Option<Fiber>
-
   @class @internal @native _$nextScheduled -> Option<Fiber>
 
   @class @internal @native _$wake(_ fiber: Fiber, _ generation: Int) -> Bool
@@ -114,11 +112,9 @@ class Fiber is Object {
 // **Both slices are landed.** Slice A is the scheduler-free half:
 // `value(_)`/`error(_)` construct an already-settled future, `isReady`/`value`
 // read it, and `then`/`map`/`catch` fire synchronously on an already-settled
-// receiver. Slice B added `async(_)`, `await`, and the pending→settle `drain`
-// over the native ready queue (`06432bd`, 2026-07-14). Note that this comment
-// previously still described Slice B as "deliberately NOT built" long after it
-// shipped, eleven lines above its own implementation — see
-// `docs/learn/concurrency/future-await.md`.
+  // receiver. Slice B added `async(_)`, `await`, pending continuation drain,
+  // ticketed park/wake, and terminal completion observers over the native ready
+  // queue.
 //
 // State lives in three private fields (plan §6.1): `_state` (one of the
 // strings `"pending"`, `"fulfilled"`, `"rejected"`), `_value` (the settled
@@ -192,14 +188,14 @@ class Future {
   // Wakes all waiters once settled. A `Tuple` is `(Fiber, generation)` and
   // must go through the ticket-aware wake authority; a closure is a
   // continuation work item and still uses ordinary scheduler admission.
- drain() -> Unit {
-   _waiters.each |w| {
+  drain() -> Unit {
+    _waiters.each |w| {
       if w is Tuple {
         System._$wake(w.at(0), w.at(1))
       } else {
-       System.schedule(w)
-     }
-   }
+        System.schedule(w)
+      }
+    }
     _waiters = List.new()
 
     return ()
