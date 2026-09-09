@@ -9,7 +9,7 @@ use crate::primitive::bytes::{
 use crate::primitive::class::{behavior_extract_shape, behavior_methods, behavior_name, class_add, class_new_, class_set_superclass, class_superclass};
 use crate::primitive::error::{error_message, error_raise};
 use crate::primitive::family::{family_get, family_is_exact, family_pattern, family_receiver, family_selector, family_set};
-use crate::primitive::fiber::{fiber_abort, fiber_call, fiber_current, fiber_error, fiber_is_done, fiber_is_root, fiber_new, fiber_park, fiber_prepare_park, fiber_resume_scheduled, fiber_try, fiber_yield};
+use crate::primitive::fiber::{fiber_abort, fiber_call, fiber_current, fiber_error, fiber_is_done, fiber_is_root, fiber_new, fiber_on_complete, fiber_park, fiber_prepare_park, fiber_resume_scheduled, fiber_terminal_value, fiber_try, fiber_yield};
 use crate::primitive::float::{
     float_abs, float_ceil, float_class_new, float_floor, float_is_finite, float_is_infinite, float_is_integer, float_is_nan, float_rounded, float_sign,
     float_to_int_exact, float_truncated,
@@ -673,6 +673,8 @@ impl Universe {
         primitive_internal!(vm, fiber_cls, "_$resumeScheduled", SignatureKind::Method(0), fiber_resume_scheduled);
         primitive_internal!(vm, fiber_cls, "_$preparePark", SignatureKind::Method(0), fiber_prepare_park);
         primitive_internal!(vm, fiber_cls, "_$park", SignatureKind::Method(1), fiber_park);
+        primitive_internal!(vm, fiber_cls, "_$onComplete", SignatureKind::Method(1), fiber_on_complete);
+        primitive_internal!(vm, fiber_cls, "_$terminalValue", SignatureKind::Getter, fiber_terminal_value);
         primitive_static!(vm, fiber_cls, "yield", SignatureKind::Method(0), fiber_yield);
         primitive_static!(vm, fiber_cls, "yield", SignatureKind::Method(1), fiber_yield);
         primitive_static!(vm, fiber_cls, "current", SignatureKind::Getter, fiber_current);

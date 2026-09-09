@@ -316,6 +316,42 @@ pub fn fiber_error(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<V
     }
 }
 
+/// Internal durable completion binding. The observer is retained by the
+/// Fiber until terminal handoff, so it remains connected across scheduler
+/// parks and resumer changes.
+#[phalcom_native_macros::primitive(Fiber, "_$onComplete(_)", visibility = internal)]
+pub fn fiber_on_complete(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let fiber_ref = expect_fiber(vm, receiver)?;
+    let observer = args.first().copied().ok_or_else(|| RuntimeError::Type {
+        expected: "Function",
+        found: "missing",
+    })?;
+    let observer_ref = observer.as_obj().filter(|id| matches!(vm.heap.get(*id), Object::Block(_) | Object::Closure(_))).ok_or_else(|| RuntimeError::Type {
+        expected: "Function",
+        found: observer.type_name(),
+    })?;
+    let fiber = vm.heap.fiber(fiber_ref);
+    if matches!(fiber.status, FiberStatus::Done | FiberStatus::Failed) {
+        return Err(RuntimeError::NotAllowed("cannot attach an observer to a finished fiber".to_string()).into());
+    }
+    if fiber.completion_observer.is_some() {
+        return Err(RuntimeError::NotAllowed("fiber already has a completion observer".to_string()).into());
+    }
+    vm.heap.fiber_mut(fiber_ref).completion_observer = Some(observer_ref);
+    Ok(*receiver)
+}
+
+/// Internal terminal-result access for a durable completion observer.
+#[phalcom_native_macros::primitive(Fiber, "_$terminalValue", visibility = internal)]
+pub fn fiber_terminal_value(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let fiber_ref = expect_fiber(vm, receiver)?;
+    let fiber = vm.heap.fiber(fiber_ref);
+    if !matches!(fiber.status, FiberStatus::Done | FiberStatus::Failed) {
+        return Err(RuntimeError::NotAllowed("fiber has not completed".to_string()).into());
+    }
+    Ok(fiber.result)
+}
+
 /// Signature: `Fiber::abort(_)` — raises `args[0]` at the fiber floor, caught
 /// by `VM::run_until`'s fiber-floor capture exactly like any other raise.
 ///

@@ -644,6 +644,27 @@ impl VM {
         self.run_until(0)
     }
 
+    fn mark_fiber_done(&mut self, fiber: ObjRef, value: Value) {
+        self.heap.fiber_mut(fiber).status = crate::heap::FiberStatus::Done;
+        self.heap.fiber_mut(fiber).result = value;
+    }
+
+    fn mark_fiber_failed(&mut self, fiber: ObjRef, error: Value) {
+        self.heap.fiber_mut(fiber).status = crate::heap::FiberStatus::Failed;
+        self.heap.fiber_mut(fiber).result = error;
+    }
+
+    /// Detaches a terminal observer and admits it as fresh scheduler work.
+    /// Observer bytecode never executes inline at the fiber floor.
+    fn enqueue_completion_observer(&mut self, fiber: ObjRef) -> PhResult<()> {
+        let observer = self.heap.fiber_mut(fiber).completion_observer.take();
+        let Some(observer) = observer else {
+            return Ok(());
+        };
+        let observer_fiber = crate::primitive::fiber::new_fiber_ref(self, Value::obj(observer))?;
+        self.enqueue_unowned_fiber(observer_fiber)
+    }
+
     /// Runs the dispatch loop until the frame stack shrinks back to
     /// `base_frames`, returning the value produced by the frame that dropped it
     /// there.
@@ -711,8 +732,8 @@ impl VM {
                     // is a non-root fiber whose entry activation just drained
                     // to nothing. Deliver `value` to the resumer's `call`/
                     // `try` expression and switch back to it.
-                    self.heap.fiber_mut(finished).status = crate::heap::FiberStatus::Done;
-                    self.heap.fiber_mut(finished).result = value;
+                    self.mark_fiber_done(finished, value);
+                    self.enqueue_completion_observer(finished)?;
 
                     if self.trace_fibers {
                         let finished_seq = self.heap.fiber(finished).seq;
@@ -769,8 +790,7 @@ impl VM {
                     self.close_upvalues_from(0);
                     let mut failed = self.current;
                     loop {
-                        self.heap.fiber_mut(failed).status = crate::heap::FiberStatus::Failed;
-                        self.heap.fiber_mut(failed).result = error_value;
+                        self.mark_fiber_failed(failed, error_value);
 
                         if self.trace_fibers {
                             let failed_seq = self.heap.fiber(failed).seq;
@@ -851,6 +871,7 @@ impl VM {
                         self.heap.fiber_mut(failed).frames.clear();
                         self.heap.fiber_mut(failed).stack.clear();
                         self.heap.fiber_mut(failed).open_upvalues.clear();
+                        self.enqueue_completion_observer(failed)?;
 
                         match mode {
                             crate::heap::FiberResumeMode::Try | crate::heap::FiberResumeMode::Scheduler => {
@@ -2609,7 +2630,7 @@ impl VM {
 mod tests {
     use super::VM;
     use crate::compiler::lib::UnitKind;
-    use crate::heap::Object;
+    use crate::heap::{FiberObject, FiberStatus, Object};
     use crate::method::{MethodKind, MethodObject, RestLayout, RestMode, SignatureKind};
 
     #[test]
@@ -2657,5 +2678,24 @@ mod tests {
             !vm.heap.class(target).methods.contains_key(&second_selector),
             "rejected rest family must not leak into the structural method dictionary"
         );
+    }
+
+    #[test]
+    fn terminal_observer_is_detached_and_admitted_once() {
+        let mut vm = VM::new();
+        let module = vm.create_module("main", "completion_observer");
+        let action = vm.compile_closure_as(module, "42\n", UnitKind::File).expect("action closure should compile");
+        let observer = vm.compile_closure_as(module, "1\n", UnitKind::File).expect("observer closure should compile");
+        let fiber = vm.heap.alloc(Object::Fiber(Box::new(FiberObject::new_entry(action))));
+        vm.mark_fiber_done(fiber, crate::value::Value::int(42));
+        vm.heap.fiber_mut(fiber).completion_observer = Some(observer);
+
+        vm.enqueue_completion_observer(fiber).expect("valid observer should enqueue");
+        assert_eq!(vm.heap.fiber(fiber).completion_observer, None);
+        let observer_fiber = vm.pop_next_queued().expect("observer should be queued");
+        assert_eq!(vm.heap.fiber(observer_fiber).status, FiberStatus::Queued);
+        assert_eq!(vm.heap.fiber(observer_fiber).entry, Some(observer));
+        vm.enqueue_completion_observer(fiber).expect("detached observer is a no-op");
+        assert_eq!(vm.pop_next_queued(), None);
     }
 }

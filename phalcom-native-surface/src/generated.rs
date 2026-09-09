@@ -1,7 +1,7 @@
 #![doc = r" Generated canonical native surface records."]
 #[doc = r" Number of authored `#[primitive]` declarations scanned by the surface"]
 #[doc = r" generator."]
-pub const GENERATED_PRIMITIVE_DECLARATION_COUNT: usize = 324usize;
+pub const GENERATED_PRIMITIVE_DECLARATION_COUNT: usize = 326usize;
 use crate::{NativeMemberKind, NativeReturnShape, NativeSurfaceRecord};
 use phalcom_native_meta::*;
 pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
@@ -11623,6 +11623,55 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             key: PrimitiveKey {
                 owner: UniverseKey::Fiber,
                 side: NativeDispatch::Instance,
+                selector: "_$onComplete(_)",
+            },
+            visibility: NativeVisibility::Internal,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Unknown,
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Unknown,
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Unknown,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: Some(
+                " Internal durable completion binding. The observer is retained by the\n Fiber until terminal handoff, so it remains connected across scheduler\n parks and resumer changes.",
+            ),
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Method,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Unknown,
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
+                owner: UniverseKey::Fiber,
+                side: NativeDispatch::Instance,
                 selector: "_$park(_)",
             },
             visibility: NativeVisibility::Internal,
@@ -11762,6 +11811,53 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             conceptual: None,
         },
         kind: NativeMemberKind::Method,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Unknown,
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
+                owner: UniverseKey::Fiber,
+                side: NativeDispatch::Instance,
+                selector: "_$terminalValue",
+            },
+            visibility: NativeVisibility::Internal,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Unknown,
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Unknown,
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Unknown,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: Some(" Internal terminal-result access for a durable completion observer."),
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Getter,
         abi: PrimitiveAbi::Value,
         return_shape: NativeReturnShape::Unknown,
     },

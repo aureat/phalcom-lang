@@ -96,6 +96,9 @@ pub struct FiberObject {
     /// Monotonic ticket for the current or next Future-owned park. Wake
     /// authority must match the exact generation recorded in `Parked`.
     pub park_generation: i64,
+    /// Durable terminal observer, independent of the dynamic `resumer` chain.
+    /// It is taken exactly once when this fiber reaches `Done` or `Failed`.
+    pub completion_observer: Option<ObjRef>,
     /// Stable constructor identity: true only for the VM's root fiber.
     /// Rootness must not be inferred from the dynamic `resumer` link, which is
     /// a control-transfer detail and may be absent for scheduler-managed work.
@@ -169,6 +172,7 @@ impl FiberObject {
             open_upvalues: BTreeMap::new(),
             status: FiberStatus::New,
             park_generation: 0,
+            completion_observer: None,
             is_root: false,
             resumer: None,
             result: Value::nil(),
@@ -196,6 +200,7 @@ impl FiberObject {
             open_upvalues: BTreeMap::new(),
             status: FiberStatus::New,
             park_generation: 0,
+            completion_observer: None,
             is_root: false,
             resumer: None,
             result: Value::nil(),
@@ -222,6 +227,7 @@ impl FiberObject {
             open_upvalues: BTreeMap::new(),
             status: FiberStatus::Running,
             park_generation: 0,
+            completion_observer: None,
             is_root: true,
             resumer: None,
             result: Value::nil(),

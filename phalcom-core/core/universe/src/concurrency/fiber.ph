@@ -87,6 +87,10 @@ class Fiber is Object {
 
   @internal @native _$park(_ generation: Int) -> Dynamic
 
+  @internal @native _$onComplete(_ observer: Dynamic) -> Fiber
+
+  @internal @native _$terminalValue -> Dynamic
+
   @class @native yield() -> Dynamic
 
   @class @native yield(_ value: Dynamic) -> Dynamic
