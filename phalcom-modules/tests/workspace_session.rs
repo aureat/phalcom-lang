@@ -824,9 +824,7 @@ fn failed_reclassification_transaction_does_not_mutate_committed_identity_state(
     let pkg_loc = location(&pkg_file);
     let a_loc = location(&file_a);
 
-    session
-        .set_overlay(pkg_loc.clone(), Arc::from("expose .a\n"), SourceRevision(1))
-        .unwrap();
+    session.set_overlay(pkg_loc.clone(), Arc::from("expose .a\n"), SourceRevision(1)).unwrap();
     session
         .set_overlay(a_loc.clone(), Arc::from("class A {}\nexport A\n"), SourceRevision(1))
         .unwrap();
@@ -841,11 +839,7 @@ fn failed_reclassification_transaction_does_not_mutate_committed_identity_state(
     // Now attempt a mutation on package.ph that triggers ownership reclassification,
     // but inject a late failure before commit.
     session.inject_late_rebuild_failure(true);
-    let fail_res = session.set_overlay(
-        pkg_loc.clone(),
-        Arc::from("expose .a\n"),
-        SourceRevision(2),
-    );
+    let fail_res = session.set_overlay(pkg_loc.clone(), Arc::from("expose .a\n"), SourceRevision(2));
     assert!(fail_res.is_err(), "late failure must return Err");
 
     // Assert committed state is 100% untouched
@@ -862,9 +856,7 @@ fn failed_reclassification_transaction_does_not_mutate_committed_identity_state(
 
     // Disable failure and apply same mutation successfully
     session.inject_late_rebuild_failure(false);
-    let success = session
-        .set_overlay(pkg_loc, Arc::from("expose .a\nexpose .b\n"), SourceRevision(2))
-        .unwrap();
+    let success = session.set_overlay(pkg_loc, Arc::from("expose .a\nexpose .b\n"), SourceRevision(2)).unwrap();
     assert_eq!(session.generation(), initial_gen + 1);
     assert_eq!(success.stats.identity_changes, 0);
 }
