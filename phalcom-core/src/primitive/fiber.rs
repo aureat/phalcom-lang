@@ -326,10 +326,13 @@ pub fn fiber_on_complete(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRes
         expected: "Function",
         found: "missing",
     })?;
-    let observer_ref = observer.as_obj().filter(|id| matches!(vm.heap.get(*id), Object::Block(_) | Object::Closure(_))).ok_or_else(|| RuntimeError::Type {
-        expected: "Function",
-        found: observer.type_name(),
-    })?;
+    let observer_ref = observer
+        .as_obj()
+        .filter(|id| matches!(vm.heap.get(*id), Object::Block(_) | Object::Closure(_)))
+        .ok_or_else(|| RuntimeError::Type {
+            expected: "Function",
+            found: observer.type_name(),
+        })?;
     let fiber = vm.heap.fiber(fiber_ref);
     if matches!(fiber.status, FiberStatus::Done | FiberStatus::Failed) {
         return Err(RuntimeError::NotAllowed("cannot attach an observer to a finished fiber".to_string()).into());

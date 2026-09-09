@@ -23,8 +23,8 @@ pub mod walk;
 
 pub use output::{BufferedOutput, OutputHandle, RuntimeOutput, StdoutOutput};
 
-use crate::frame::CallFrame;
 use crate::error::{PhResult, RuntimeError};
+use crate::frame::CallFrame;
 use crate::heap::{ClassId, FiberStatus, Heap, ObjRef};
 use crate::interner::{Interner, Symbol};
 use crate::universe::Universe;

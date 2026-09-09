@@ -725,9 +725,11 @@ impl VM {
                         }
                         return Ok(value);
                     }
-                    let resumer = self.heap.fiber(finished).resumer.ok_or_else(|| {
-                        RuntimeError::Internal("non-root fiber finished without a resumer".to_string())
-                    })?;
+                    let resumer = self
+                        .heap
+                        .fiber(finished)
+                        .resumer
+                        .ok_or_else(|| RuntimeError::Internal("non-root fiber finished without a resumer".to_string()))?;
                     // Fiber-floor capture, success path (spec §3.2): `finished`
                     // is a non-root fiber whose entry activation just drained
                     // to nothing. Deliver `value` to the resumer's `call`/
