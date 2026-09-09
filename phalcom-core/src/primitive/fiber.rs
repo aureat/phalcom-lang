@@ -366,6 +366,13 @@ pub fn fiber_try_with_value(vm: &mut VM, receiver: &Value, args: &[Value]) -> Ph
     fiber_try(vm, receiver, args)
 }
 
+/// Internal scheduler-owned resume. Unlike public `call`/`try`, the receiver
+/// must already be reserved in `FiberStatus::Queued` by VM queue admission.
+#[phalcom_native_macros::primitive(Fiber, "_$resumeScheduled()", visibility = internal)]
+pub fn fiber_resume_scheduled(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    fiber_resume(vm, receiver, args, FiberResumeMode::Scheduler)
+}
+
 /// Shared engine behind [`fiber_call`]/[`fiber_try`] (ADR-0030 §3/§4).
 ///
 /// Parks the current fiber, switches `VM::current` to the callee, and
@@ -388,23 +395,27 @@ fn fiber_resume(vm: &mut VM, receiver: &Value, args: &[Value], mode: FiberResume
         return Err(cannot_resume_across_native_frame(vm));
     }
     let callee_ref = expect_fiber(vm, receiver)?;
-    match vm.heap.fiber(callee_ref).status {
-        FiberStatus::Done | FiberStatus::Failed => {
+    match (mode, vm.heap.fiber(callee_ref).status) {
+        (_, FiberStatus::Done | FiberStatus::Failed) => {
             return Err(RuntimeError::NotAllowed("cannot resume a finished fiber".to_string()).into());
         }
-        FiberStatus::Running => {
+        (_, FiberStatus::Running) => {
             return Err(RuntimeError::NotAllowed("fiber is already running".to_string()).into());
         }
-        FiberStatus::BlockedOnChild => {
+        (_, FiberStatus::BlockedOnChild) => {
             return Err(RuntimeError::NotAllowed("fiber is blocked on a child".to_string()).into());
         }
-        FiberStatus::Parked(_) => {
+        (_, FiberStatus::Parked(_)) => {
             return Err(RuntimeError::NotAllowed("fiber is parked on a Future".to_string()).into());
         }
-        FiberStatus::Queued => {
+        (FiberResumeMode::Call | FiberResumeMode::Try, FiberStatus::Queued) => {
             return Err(RuntimeError::NotAllowed("fiber is queued for scheduler resume".to_string()).into());
         }
-        FiberStatus::New | FiberStatus::Yielded => {}
+        (FiberResumeMode::Scheduler, FiberStatus::Queued) => {}
+        (FiberResumeMode::Call | FiberResumeMode::Try, FiberStatus::New | FiberStatus::Yielded) => {}
+        (FiberResumeMode::Scheduler, FiberStatus::New | FiberStatus::Yielded) => {
+            return Err(RuntimeError::NotAllowed("fiber was not admitted to the scheduler".to_string()).into());
+        }
     }
 
     // Resolve and validate the entry callable *before* any state mutation
@@ -427,6 +438,7 @@ fn fiber_resume(vm: &mut VM, receiver: &Value, args: &[Value], mode: FiberResume
             let signature = match mode {
                 FiberResumeMode::Call => "call",
                 FiberResumeMode::Try => "try",
+                FiberResumeMode::Scheduler => "scheduler",
             };
             return Err(RuntimeError::Arity {
                 signature,

@@ -52,6 +52,10 @@ pub enum FiberResumeMode {
     /// Resumed via `Fiber#try`/`try(_:)` — a failure is captured and
     /// delivered as the `Error` value instead of raised.
     Try,
+    /// Resumed by the ready-queue scheduler. A terminal failure is isolated
+    /// from unrelated queued work like `Try`, while the explicit mode keeps
+    /// scheduler ownership distinct from the public coroutine API.
+    Scheduler,
 }
 
 /// A cooperative, single-threaded fiber: its own value + call stacks, a

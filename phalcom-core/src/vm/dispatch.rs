@@ -677,7 +677,7 @@ impl VM {
             match self.run_until_inner(0) {
                 Ok(value) => {
                     let finished = self.current;
-                    let Some(resumer) = self.heap.fiber(finished).resumer else {
+                    if self.heap.fiber(finished).is_root {
                         // The root fiber's own top-level activation ended.
                         // Root-drive pump (concurrency.md §2, "a root-drive
                         // pump: `VM::run` drains the ready-queue once the
@@ -688,7 +688,7 @@ impl VM {
                         // can rely on this firing automatically without the
                         // top-level program calling `runScheduled` itself.
                         //
-                        // `fiber_try` expects the ordinary Invoke calling
+                        // The scheduler resume path expects the ordinary Invoke calling
                         // convention (a receiver value already sitting on
                         // `self.stack`, consumed via its own `resume_slot`
                         // bookkeeping) — push a placeholder so its
@@ -697,13 +697,16 @@ impl VM {
                         // `store_live_into` and overwritten on restore
                         // (`switch_to_fiber_and_deliver`'s `stack.truncate`),
                         // so it never leaks.
-                        if let Some(next) = self.ready_queue.pop_front() {
+                        if let Some(next) = self.pop_next_queued() {
                             self.stack.push(Value::obj(next));
-                            crate::primitive::fiber::fiber_try(self, &Value::obj(next), &[])?;
+                            crate::primitive::fiber::fiber_resume_scheduled(self, &Value::obj(next), &[])?;
                             continue;
                         }
                         return Ok(value);
-                    };
+                    }
+                    let resumer = self.heap.fiber(finished).resumer.ok_or_else(|| {
+                        RuntimeError::Internal("non-root fiber finished without a resumer".to_string())
+                    })?;
                     // Fiber-floor capture, success path (spec §3.2): `finished`
                     // is a non-root fiber whose entry activation just drained
                     // to nothing. Deliver `value` to the resumer's `call`/
@@ -850,7 +853,7 @@ impl VM {
                         self.heap.fiber_mut(failed).open_upvalues.clear();
 
                         match mode {
-                            crate::heap::FiberResumeMode::Try => {
+                            crate::heap::FiberResumeMode::Try | crate::heap::FiberResumeMode::Scheduler => {
                                 self.switch_to_fiber_and_deliver(resumer, error_value);
                                 break;
                             }

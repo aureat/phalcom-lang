@@ -1,7 +1,7 @@
 #![doc = r" Generated canonical native surface records."]
 #[doc = r" Number of authored `#[primitive]` declarations scanned by the surface"]
 #[doc = r" generator."]
-pub const GENERATED_PRIMITIVE_DECLARATION_COUNT: usize = 319usize;
+pub const GENERATED_PRIMITIVE_DECLARATION_COUNT: usize = 321usize;
 use crate::{NativeMemberKind, NativeReturnShape, NativeSurfaceRecord};
 use phalcom_native_meta::*;
 pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
@@ -10904,6 +10904,55 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             key: PrimitiveKey {
                 owner: UniverseKey::System,
                 side: NativeDispatch::Class,
+                selector: "_$nextScheduled",
+            },
+            visibility: NativeVisibility::Internal,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Unknown,
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Unknown,
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Unknown,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: Some(
+                " Internal scheduler dequeue. Unlike the legacy public getter, this keeps\n the `Queued` reservation until the scheduler resume primitive consumes it.",
+            ),
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Getter,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Unknown,
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
+                owner: UniverseKey::System,
+                side: NativeDispatch::Class,
                 selector: "_$strictResources(_)",
             },
             visibility: NativeVisibility::Internal,
@@ -11525,6 +11574,55 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             key: PrimitiveKey {
                 owner: UniverseKey::Fiber,
                 side: NativeDispatch::Instance,
+                selector: "_$resumeScheduled()",
+            },
+            visibility: NativeVisibility::Internal,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Unknown,
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Unknown,
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Unknown,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: Some(
+                " Internal scheduler-owned resume. Unlike public `call`/`try`, the receiver\n must already be reserved in `FiberStatus::Queued` by VM queue admission.",
+            ),
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Method,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Unknown,
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
+                owner: UniverseKey::Fiber,
+                side: NativeDispatch::Instance,
                 selector: "call()",
             },
             visibility: NativeVisibility::Public,
@@ -11755,7 +11853,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             intrinsic: None,
             trust: NativeTrust::Ordinary,
             docs: Some(
-                " Signature: `Fiber#isRoot` — `true` if the receiver is the root fiber, i.e.\n it has no resumer to hand control back to.\n\n This is the *predicate form* of [`fiber_yield`]'s first refusal: a root\n fiber cannot yield, because there is nowhere to yield to. Exposing it as a\n getter lets `.ph` code ask the question **before** attempting a switch.\n\n That distinction is the whole reason this primitive exists. `Future#await`\n (`core/core.ph`) previously discovered its own root-ness by wrapping a\n `Fiber.yield` in `{ … }.attempt()` and inspecting the failure — but\n `.attempt()` is itself two nested native re-entrant frames (`block_on` +\n `block_call`, each bumping `native_reentry_depth`), so the\n probe tripped the restricted-yield guard it was probing for and `await`\n could never suspend any fiber at all ([E004]). Attempt-and-inspect cannot\n work when the attempt changes the answer; a predicate can.\n\n Like `isDone`/`error`, a pure read with no scheduler or suspension\n dependency — callable from anywhere, including under a native re-entrant\n frame ([U-FIBER-REFLECT]).\n\n [U-FIBER-REFLECT]: ../../../docs/forge/units/U-SCHED-FIBER/U-FIBER-REFLECT/plan.md\n [E004]: ../../../docs/errors/E004-await-cannot-suspend.md\n\n # Errors\n\n Returns [`RuntimeError::Type`] if `receiver` is not a `Fiber`.",
+                " Signature: `Fiber#isRoot` — `true` if the receiver is the root fiber.\n\n This is the *predicate form* of [`fiber_yield`]'s first refusal: a root\n fiber cannot yield, because there is nowhere to yield to. Exposing it as a\n getter lets `.ph` code ask the question **before** attempting a switch.\n\n That distinction is the whole reason this primitive exists. `Future#await`\n (`core/core.ph`) previously discovered its own root-ness by wrapping a\n `Fiber.yield` in `{ … }.attempt()` and inspecting the failure — but\n `.attempt()` is itself two nested native re-entrant frames (`block_on` +\n `block_call`, each bumping `native_reentry_depth`), so the\n probe tripped the restricted-yield guard it was probing for and `await`\n could never suspend any fiber at all ([E004]). Attempt-and-inspect cannot\n work when the attempt changes the answer; a predicate can.\n\n Like `isDone`/`error`, a pure read with no scheduler or suspension\n dependency — callable from anywhere, including under a native re-entrant\n frame ([U-FIBER-REFLECT]).\n\n [U-FIBER-REFLECT]: ../../../docs/forge/units/U-SCHED-FIBER/U-FIBER-REFLECT/plan.md\n [E004]: ../../../docs/errors/E004-await-cannot-suspend.md\n\n # Errors\n\n Returns [`RuntimeError::Type`] if `receiver` is not a `Fiber`.",
             ),
             conceptual: None,
         },
@@ -11900,7 +11998,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             intrinsic: None,
             trust: NativeTrust::Ordinary,
             docs: Some(
-                " Signature: `Fiber::abort(_)` — raises `args[0]` at the fiber floor, caught\n by `VM::run_until`'s fiber-floor capture exactly like any other raise.\n\n # Errors\n\n Returns [`RuntimeError::NotAllowed`] if the current fiber is the root\n (has no resumer) — the root fiber has nowhere to propagate a fiber-floor\n capture to, so aborting it is illegal (spec §2 rule 7, §6). Otherwise\n returns [`RuntimeError::Raise`] wrapping `args[0]`.",
+                " Signature: `Fiber::abort(_)` — raises `args[0]` at the fiber floor, caught\n by `VM::run_until`'s fiber-floor capture exactly like any other raise.\n\n # Errors\n\n Returns [`RuntimeError::NotAllowed`] if the current fiber is the root — the\n root fiber has nowhere to propagate a fiber-floor\n capture to, so aborting it is illegal (spec §2 rule 7, §6). Otherwise\n returns [`RuntimeError::Raise`] wrapping `args[0]`.",
             ),
             conceptual: None,
         },
@@ -12045,7 +12143,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             intrinsic: None,
             trust: NativeTrust::Ordinary,
             docs: Some(
-                " Signature: `Fiber::yield`/`yield(_)` — suspends the current fiber and\n hands control back to its resumer, delivering `args[0]` (or `None`) as the\n resumer's `call`/`try` result.\n\n # Errors\n\n Returns [`RuntimeError::NotAllowed`] if the current fiber is the root\n (has no resumer), or the `CannotYieldAcrossNativeFrame` error if\n `VM::native_reentry_depth` has grown past the fiber's recorded\n `floor_depth` since it was last resumed (ADR-0030 §4).",
+                " Signature: `Fiber::yield`/`yield(_)` — suspends the current fiber and\n hands control back to its resumer, delivering `args[0]` (or `None`) as the\n resumer's `call`/`try` result.\n\n # Errors\n\n Returns [`RuntimeError::NotAllowed`] if the current fiber is the root,\n or if its linked resumer is not blocked on this child, or the\n `CannotYieldAcrossNativeFrame` error if\n `VM::native_reentry_depth` has grown past the fiber's recorded\n `floor_depth` since it was last resumed (ADR-0030 §4).",
             ),
             conceptual: None,
         },

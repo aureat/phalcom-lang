@@ -24,7 +24,8 @@ pub mod walk;
 pub use output::{BufferedOutput, OutputHandle, RuntimeOutput, StdoutOutput};
 
 use crate::frame::CallFrame;
-use crate::heap::{ClassId, Heap, ObjRef};
+use crate::error::{PhResult, RuntimeError};
+use crate::heap::{ClassId, FiberStatus, Heap, ObjRef};
 use crate::interner::{Interner, Symbol};
 use crate::universe::Universe;
 use crate::value::Value;
@@ -411,6 +412,48 @@ pub struct VM {
 }
 
 impl VM {
+    /// Atomically reserves an unowned runnable fiber for the scheduler.
+    /// `FiberObject::status` is the admission source of truth; the queue is
+    /// only the FIFO storage for already-reserved work.
+    pub(crate) fn enqueue_unowned_fiber(&mut self, fiber: ObjRef) -> PhResult<()> {
+        let status = self.heap.fiber(fiber).status;
+        match status {
+            FiberStatus::New | FiberStatus::Yielded => {
+                self.heap.fiber_mut(fiber).status = FiberStatus::Queued;
+                self.ready_queue.push_back(fiber);
+                Ok(())
+            }
+            FiberStatus::Queued => Err(RuntimeError::NotAllowed("fiber is already queued".to_string()).into()),
+            FiberStatus::Parked(_) => Err(RuntimeError::NotAllowed("fiber is parked on a Future".to_string()).into()),
+            FiberStatus::Running => Err(RuntimeError::NotAllowed("fiber is already running".to_string()).into()),
+            FiberStatus::BlockedOnChild => Err(RuntimeError::NotAllowed("fiber is blocked on a child".to_string()).into()),
+            FiberStatus::Done | FiberStatus::Failed => Err(RuntimeError::NotAllowed("cannot schedule a finished fiber".to_string()).into()),
+        }
+    }
+
+    /// Pops the next valid scheduler-owned fiber in FIFO order. Stale queue
+    /// entries are defensive noise: they are skipped without scanning the
+    /// queue or affecting unrelated ready work.
+    pub(crate) fn pop_next_queued(&mut self) -> Option<ObjRef> {
+        while let Some(fiber) = self.ready_queue.pop_front() {
+            if self.heap.fiber(fiber).status == FiberStatus::Queued {
+                return Some(fiber);
+            }
+        }
+        None
+    }
+
+    /// Legacy public `System.nextScheduled` compatibility: removing an item
+    /// from the raw getter releases its scheduler reservation so existing code
+    /// may still choose the public `Fiber#try` path. Production scheduler pumps
+    /// use `pop_next_queued` and the explicit scheduler resume instead.
+    pub(crate) fn pop_public_scheduled(&mut self) -> Option<ObjRef> {
+        let fiber = self.pop_next_queued()?;
+        let status = if self.heap.fiber(fiber).started { FiberStatus::Yielded } else { FiberStatus::New };
+        self.heap.fiber_mut(fiber).status = status;
+        Some(fiber)
+    }
+
     /// Returns canonical Universe root package.
     ///
     /// # Errors

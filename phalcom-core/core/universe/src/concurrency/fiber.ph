@@ -9,6 +9,8 @@ class System is Object {
 
   @class @native nextScheduled -> Option<Fiber>
 
+  @class @internal @native _$nextScheduled -> Option<Fiber>
+
   @class @native gc -> Unit
 
   @class @internal @native _$write(_ value: String) -> Unit
@@ -41,24 +43,25 @@ class System is Object {
 
   // U-SCHED: the `.ph`-callable counterpart to `VM::run`'s native
   // root-drive belt-and-suspenders pump (`vm/dispatch.rs`) — pumps
-  // `System.nextScheduled` to exhaustion, `try()`-resuming each queued
+  // `System._$nextScheduled` to exhaustion, scheduler-resuming each queued
   // fiber (capture-not-propagate, so one scheduled task's uncaught raise
   // cannot abort another) — including any fiber a running scheduled fiber
-  // itself schedules mid-drain, since `nextScheduled` is re-read every
+  // itself schedules mid-drain, since `_$nextScheduled` is re-read every
   // iteration. Deliberately does **not** unwrap via `.match(some:none:)`
   // (which runs its arm through `Closure#call`'s native re-entrant
-  // `run_until`, forbidding a fiber switch underneath, ADR-0030 §4): `f.try()`
+  // `run_until`, forbidding a fiber switch underneath, ADR-0030 §4):
+  // `f._$resumeScheduled()`
   // must run at this method's own top level, not nested inside a block a
   // native primitive is driving, so the receiver is unwrapped via
-  // `unwrapOr(_)` into a plain local first, and `try()` sent as its own
+  // `unwrapOr(_)` into a plain local first, and `_$resumeScheduled()` sent as its own
   // statement.
   @class
   runScheduled() -> Unit {
-    let next = System.nextScheduled
+    let next = System._$nextScheduled
     while (next.isSome) {
       let f = next.unwrapOr(None)
-      f.try()
-      next = System.nextScheduled
+      f._$resumeScheduled()
+      next = System._$nextScheduled
     }
     ()
   }
@@ -75,6 +78,8 @@ class Fiber is Object {
   @native try() -> Dynamic
 
   @native try(_ value: Dynamic) -> Dynamic
+
+  @internal @native _$resumeScheduled() -> Dynamic
 
   @class @native yield() -> Dynamic
 
