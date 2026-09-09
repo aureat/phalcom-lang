@@ -3,7 +3,7 @@
 ## Repository state
 
 - branch: `codex/concurrency-control-remediation`
-- HEAD: `7ccc208c`
+- HEAD: `914d38bb`
 - relevant local changes preserved: baseline audit, plan, and unrelated files are in the pushed parent commits
 
 ## Established invariants
@@ -53,8 +53,11 @@
 | C5 | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test language-corpus` | PASS, 61 passed, 4 ignored | complete language corpus, including concurrency and negative fixtures |
 | Final | `cargo fmt --all -- --check` | PASS after formatting the three existing drift files | workspace formatting hygiene |
 | Final | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo build --workspace --all-targets` | PASS, existing warnings only | all workspace targets compile with the patch |
-| Final | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test --workspace --all-targets` | BASELINE-BLOCKED: 3 failures in `phalcom-repl/tests/repl_import_bugs.rs`; core target and language corpus remain green | workspace-wide behavioral baseline; no failure was in the concurrency targets |
-| Final | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo clippy --workspace --all-targets -- -D warnings` | BASELINE-BLOCKED: 5 findings in `phalcom-modules` (`unnecessary_map_or` x2, `too_many_arguments`, `type_complexity`, `collapsible_if`) | workspace lint baseline outside the patch scope |
+| Final | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-modules --all-targets` | PASS, all module targets | module-session/source changes remain behaviorally green |
+| Final | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo clippy -p phalcom-modules --all-targets -- -D warnings` | PASS | all five requested `phalcom-modules` findings are fixed |
+| Final | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-repl --test repl_import_bugs -- --nocapture` | BASELINE-BLOCKED: 3 failures, 3 passes; see diagnosis below | reproduced the unrelated REPL import baseline independently |
+| Final | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test --workspace --all-targets` | BASELINE-BLOCKED: the same 3 failures in `phalcom-repl/tests/repl_import_bugs.rs`; core target and language corpus remain green | workspace-wide behavioral baseline; no failure was in the concurrency targets |
+| Final | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo clippy --workspace --all-targets -- -D warnings` | BASELINE-BLOCKED after the module fix: 36 findings in `phalcom-semantic`; the requested five `phalcom-modules` findings no longer appear | workspace lint baseline beyond the requested module scope |
 
 ## ASTRA audit
 
@@ -62,6 +65,16 @@
 - E008 is fixed: VM-owned admission rejects duplicate scheduling; the regression covers one execution and continued healthy work.
 - E010 is correctly open: scheduled failure isolation does not provide general reporting for failed fire-and-forget tasks.
 - Audit limitation: ASTRA reviewed this state and cited evidence but did not independently rerun the recorded commands; the implementation run above is the fresh verification record.
+
+## REPL baseline diagnosis
+
+The focused target reproduces three failures and three passes:
+
+- `selective_import_selector_class_is_non_none`: `from universe.errors.unsupported import unsupported` is rejected because the runtime `universe:errors.unsupported` module has no installed `unsupported` export.
+- `module_import_selector_property_access_is_non_none`: `import universe.errors.unsupported` succeeds, but `unsupported.unsupported` reaches module `doesNotUnderstand` for the same missing runtime export.
+- `universe_root_exports_package_info`: `from universe import PackageInfo` is rejected because the pre-materialized Universe root has no `PackageInfo` export.
+
+The source/interface layer contains the intended declarations: `errors/unsupported.ph` exports `unsupported`, `reflection/package-info.ph` declares `PackageInfo`, and the module-interface tests confirm the root interface exposes native Universe bindings. The runtime path diverges: `phalcom-core/src/modules/builtin_materialize.rs` installs native bindings in their canonical owner modules and direct child packages, but does not project source-level export tables into the eagerly materialized builtin modules; `phalcom-core/src/modules/context.rs` then returns early for those already-registered modules. The failures are therefore a builtin runtime materialization/export-surface mismatch, unrelated to concurrency and unrelated to the `phalcom-modules` lint cleanup. No REPL expectation or source export was changed in this task.
 
 ## Negative/deletion gates
 
@@ -72,7 +85,8 @@
 - `completion_observer` is traced from `Object::Fiber` and is taken before observer scheduling; no Rust closure or Future-specific heap pointer is stored.
 - `rg 'const res = fib\.try|const driver = Fiber\.new' phalcom-core/core/universe/src/concurrency/fiber.ph` → no one-turn Future driver remains.
 - `rg 'nextScheduled' --glob '!target/**'` → only internal `_$nextScheduled` implementation/spec references and historical audit/context references remain; no public `System.nextScheduled` declaration or installed public surface record remains.
-- Workspace tests and workspace clippy remain baseline-blocked by the unrelated findings recorded in the final evidence ledger; formatting and all concurrency-focused gates are green.
+- The five requested `phalcom-modules` Clippy findings are gone; package Clippy/tests are green. Workspace Clippy now reaches 36 pre-existing `phalcom-semantic` findings, which remain outside this task.
+- Workspace tests remain baseline-blocked by the three diagnosed builtin runtime import/export failures above; formatting, build, module tests/Clippy, and all concurrency-focused gates are green.
 
 ## Deferred gates
 
@@ -81,7 +95,7 @@
 - durable completion observers → C3 complete
 - terminal Future adoption, settlement, and suspension-safe continuations → C4 complete
 - ownership closure, specs, and permanent regressions → C5 complete
-- format → PASS; workspace test/clippy → final gate baseline-blocked and classified; workspace build → PASS
+- format → PASS; module tests/Clippy → PASS; workspace test → baseline-blocked by diagnosed REPL failures; workspace Clippy → baseline-blocked by 36 `phalcom-semantic` findings; workspace build → PASS
 
 ## Unexpected findings
 
@@ -90,8 +104,8 @@
 
 ## Active incident
 
-Final workspace certification remains blocked by unrelated REPL import and `phalcom-modules` clippy findings. E010 remains an intentional open concurrency-policy issue; it was not silently closed by C5.
+Final workspace certification remains blocked by the diagnosed REPL builtin export failures and 36 unrelated `phalcom-semantic` Clippy findings. The requested five `phalcom-modules` findings are fixed. E010 remains an intentional open concurrency-policy issue; it was not silently closed by C5.
 
 ## Next resume action
 
-Implementation complete; retain the final-gate classifications above and resolve unrelated baseline blockers separately.
+Implementation complete; retain the final-gate classifications above. Resolve the builtin runtime export projection and the remaining `phalcom-semantic` Clippy baseline separately if full workspace certification is required.
