@@ -79,10 +79,6 @@ pub use editor::{
     AccessContext, EditorMember, EditorMemberTarget, EditorSemanticQuery, EditorTypeHint, EditorTypeHintKind, NativeCallablePresentation, PartialCallPattern,
     ReceiverAlternative, ReceiverMode, ReferenceDomain, RenameTargetView, ResolvedReceiver, SemanticDefinitionLocation, VisibleSymbol,
 };
-pub use source_index::{
-    EditorSymbolKind, ModuleReferenceContribution, ReferenceIndex, SourceIndexUpdateStats, TargetReferenceSet, WorkspaceSymbolEntry, WorkspaceSymbolId,
-    WorkspaceSymbolIndex,
-};
 pub use effects::{
     EffectAtom, EffectKnowledge, EffectOpaqueReason, EffectSet, adapt_effect_atom, adapt_effect_spec, infer_interprocedural_effects_scc,
     infer_intraprocedural_effects,
@@ -121,6 +117,10 @@ pub use signature::{
     CallableParameterSemantic, CallableSemanticSignature, CallableSignatureTable, FieldSemanticSignature, FieldSignatureTable, ReturnContractValidation,
 };
 pub use snapshot::{ModuleQueryProducts, SemanticSnapshot};
+pub use source_index::{
+    EditorSymbolKind, ModuleReferenceContribution, ReferenceIndex, SourceIndexUpdateStats, TargetReferenceSet, WorkspaceSymbolEntry, WorkspaceSymbolId,
+    WorkspaceSymbolIndex,
+};
 pub use termination::{
     RankingMeasure, TerminationBlockedReason, TerminationCounterevidence, TerminationEvidence, TerminationKnowledge, TerminationRequirement,
     analyze_callable_termination, check_cfg_acyclicity,

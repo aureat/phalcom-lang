@@ -361,7 +361,12 @@ impl<'a> EditorSemanticQuery<'a> {
                 .then(|| SemanticDefinitionLocation::Module(module.clone()))
                 .into_iter()
                 .collect(),
-            _ => self.definition_sites(target).iter().cloned().map(SemanticDefinitionLocation::SourceSite).collect(),
+            _ => self
+                .definition_sites(target)
+                .iter()
+                .cloned()
+                .map(SemanticDefinitionLocation::SourceSite)
+                .collect(),
         }
     }
 
