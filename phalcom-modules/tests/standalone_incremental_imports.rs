@@ -73,7 +73,7 @@ fn standalone_module_cannot_relative_import_sibling() {
     let linked_main = second.linked.modules.get(&main_module).expect("importer is present");
     // Without package.ph, the relative import MUST NOT be linked
     assert!(
-        linked_main.bindings.imports.get("shapes").is_none(),
+        !linked_main.bindings.imports.contains_key("shapes"),
         "standalone module without package.ph must not link relative sibling"
     );
 }

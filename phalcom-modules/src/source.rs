@@ -8,6 +8,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+type ResolutionCacheKey = (u64, ResolvedProjectId, ModulePath);
+type ResolutionCacheValue = Result<SourceUnit, ModuleResolutionError>;
+type ResolutionCache = HashMap<ResolutionCacheKey, ResolutionCacheValue>;
+
 /// Ownership classification of an entry before compilation/linking.
 ///
 /// This classification is authoritative across the compiler, semantic workspace,
@@ -302,7 +306,7 @@ impl DirectorySnapshot {
 
 #[derive(Debug, Default)]
 struct FilesystemCacheState {
-    resolution: Mutex<HashMap<(u64, ResolvedProjectId, ModulePath), Result<SourceUnit, ModuleResolutionError>>>,
+    resolution: Mutex<ResolutionCache>,
     source_cache: Mutex<HashMap<(u64, SourceId), Arc<str>>>,
     source_id_to_module: Mutex<HashMap<(u64, SourceId), ModuleId>>,
     directory_cache: Mutex<HashMap<(u64, PathBuf), Arc<DirectorySnapshot>>>,
@@ -581,13 +585,11 @@ impl FilesystemSourceProvider {
         let logical = comp.as_str();
         let physical = comp.to_kebab();
         let snapshot = self.get_directory_snapshot(parent).map_err(ModuleResolutionError::Source)?;
-        if logical != physical {
-            if snapshot.entries.get(logical) == Some(&DirEntryKind::Directory) {
-                return Err(ModuleResolutionError::NonCanonicalPhysicalName {
-                    path: parent.join(logical),
-                    expected: physical,
-                });
-            }
+        if logical != physical && snapshot.entries.get(logical) == Some(&DirEntryKind::Directory) {
+            return Err(ModuleResolutionError::NonCanonicalPhysicalName {
+                path: parent.join(logical),
+                expected: physical,
+            });
         }
         if snapshot.entries.get(&physical) == Some(&DirEntryKind::Directory) {
             Ok((parent.join(&physical), true))

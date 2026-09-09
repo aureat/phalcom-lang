@@ -3,14 +3,14 @@ use phalcom_modules::interface::UnlinkedModuleInterface;
 use phalcom_modules::linker::ModuleLinker;
 use phalcom_modules::session::{WorkspaceModuleSession, WorkspaceSourceBatchMutation};
 use std::fs;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::Arc;
 use tempfile::TempDir;
 
-fn location(path: &PathBuf) -> SourceLocation {
+fn location(path: &Path) -> SourceLocation {
     SourceLocation {
         source_id: SourceId(path.to_string_lossy().into()),
-        display_path: path.clone(),
+        display_path: path.to_path_buf(),
     }
 }
 

@@ -43,7 +43,11 @@ fn linear_chain(count: usize) -> Vec<FixtureSource> {
     let mut sources = vec![package()];
     for index in 0..count {
         let name = format!("m{index:04}.ph");
-        let import = (index + 1 < count).then(|| format!("import .m{:04} as Next\n", index + 1)).unwrap_or_default();
+        let import = if index + 1 < count {
+            format!("import .m{:04} as Next\n", index + 1)
+        } else {
+            String::new()
+        };
         sources.push(FixtureSource {
             name,
             text: format!("{import}class C{index:04} {{}}\nexport C{index:04}\n"),
