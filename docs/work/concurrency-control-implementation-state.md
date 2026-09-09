@@ -3,7 +3,7 @@
 ## Repository state
 
 - branch: `codex/concurrency-control-remediation`
-- HEAD: `c8aeb99c`
+- HEAD: `f8a009b7`
 - relevant local changes preserved: baseline audit, plan, and unrelated files are in the pushed parent commits
 
 ## Established invariants
@@ -56,6 +56,13 @@
 | Final | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test --workspace --all-targets` | BASELINE-BLOCKED: 3 failures in `phalcom-repl/tests/repl_import_bugs.rs`; core target and language corpus remain green | workspace-wide behavioral baseline; no failure was in the concurrency targets |
 | Final | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo clippy --workspace --all-targets -- -D warnings` | BASELINE-BLOCKED: 5 findings in `phalcom-modules` (`unnecessary_map_or` x2, `too_many_arguments`, `type_complexity`, `collapsible_if`) | workspace lint baseline outside the patch scope |
 
+## ASTRA audit
+
+- E007 is fixed: terminal observers settle `Future.async` only after terminal completion; the multi-await regression covers pending turns and the final value.
+- E008 is fixed: VM-owned admission rejects duplicate scheduling; the regression covers one execution and continued healthy work.
+- E010 is correctly open: scheduled failure isolation does not provide general reporting for failed fire-and-forget tasks.
+- Audit limitation: ASTRA reviewed this state and cited evidence but did not independently rerun the recorded commands; the implementation run above is the fresh verification record.
+
 ## Negative/deletion gates
 
 - `rg 'FiberStatus::Suspended' phalcom-core/src` → no matches.
@@ -74,7 +81,7 @@
 - durable completion observers → C3 complete
 - terminal Future adoption, settlement, and suspension-safe continuations → C4 complete
 - ownership closure, specs, and permanent regressions → C5 complete
-- format, workspace build/test/clippy → final gate pending
+- format and workspace test/clippy → final gate baseline-blocked and classified; workspace build → PASS
 
 ## Unexpected findings
 
