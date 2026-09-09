@@ -1335,23 +1335,28 @@ impl InferenceSession {
     }
 
     /// Propagates constraints until a fixed point is reached without terminalizing frame/root underconstraint.
-    pub fn propagate_with_control(&mut self, store: &mut TypeStore, hierarchy: &dyn TypeHierarchy, control: &CheckerControl) -> Result<bool, InferenceOutcome> {
+    pub fn propagate_with_control(
+        &mut self,
+        store: &mut TypeStore,
+        hierarchy: &dyn TypeHierarchy,
+        control: &CheckerControl,
+    ) -> Result<bool, Box<InferenceOutcome>> {
         let mut any_changed = false;
         loop {
             if control.is_cancelled() {
-                return Err(InferenceOutcome::Cancelled);
+                return Err(Box::new(InferenceOutcome::Cancelled));
             }
             if let Err(report) = control.charge_scc_iteration() {
-                return Err(InferenceOutcome::BudgetExceeded(report));
+                return Err(Box::new(InferenceOutcome::BudgetExceeded(report)));
             }
             let mut changed = false;
             let constraints = self.constraints.clone();
             for (constraint_index, constraint) in constraints.iter().enumerate() {
                 if control.is_cancelled() {
-                    return Err(InferenceOutcome::Cancelled);
+                    return Err(Box::new(InferenceOutcome::Cancelled));
                 }
                 if let Err(report) = control.charge_step() {
-                    return Err(InferenceOutcome::BudgetExceeded(report));
+                    return Err(Box::new(InferenceOutcome::BudgetExceeded(report)));
                 }
                 let effect = match &constraint.relation {
                     InferenceRelation::Equivalent(left, right) => self.unify_terms(left, right, store),
@@ -1365,24 +1370,27 @@ impl InferenceSession {
                     }
                     Err(failure) => {
                         let related = self.related_constraint_indices(&constraint.relation);
-                        return Err(self.failure_outcome_with_related(failure, Some(constraint_index as u32), Some(constraint.origin.clone()), &related));
+                        return Err(Box::new(self.failure_outcome_with_related(
+                            failure,
+                            Some(constraint_index as u32),
+                            Some(constraint.origin.clone()),
+                            &related,
+                        )));
                     }
                 }
             }
 
-            match self.propagate_subtype_edges(store, hierarchy, control) {
-                Ok(effect) => changed |= effect.is_changed(),
-                Err(outcome) => return Err(outcome),
-            }
+            let effect = self.propagate_subtype_edges(store, hierarchy, control)?;
+            changed |= effect.is_changed();
 
             // Try to resolve remaining var_terms
             let var_terms = self.var_terms.clone();
             for (var, term) in var_terms {
                 if control.is_cancelled() {
-                    return Err(InferenceOutcome::Cancelled);
+                    return Err(Box::new(InferenceOutcome::Cancelled));
                 }
                 if let Err(report) = control.charge_step() {
-                    return Err(InferenceOutcome::BudgetExceeded(report));
+                    return Err(Box::new(InferenceOutcome::BudgetExceeded(report)));
                 }
                 let rep = self.find_var(var);
                 if !self.substitutions.contains_key(&rep) {
@@ -1390,7 +1398,7 @@ impl InferenceSession {
                         match self.bind(rep, ty, store) {
                             Ok(effect) => changed |= effect.is_changed(),
                             Err(failure) => {
-                                return Err(self.failure_outcome(failure, None, None));
+                                return Err(Box::new(self.failure_outcome(failure, None, None)));
                             }
                         }
                     }
@@ -1401,10 +1409,10 @@ impl InferenceSession {
             let vars_to_check: Vec<InferVarId> = self.variables.iter().map(|v| self.find_var(v.id)).collect();
             for rep in vars_to_check {
                 if control.is_cancelled() {
-                    return Err(InferenceOutcome::Cancelled);
+                    return Err(Box::new(InferenceOutcome::Cancelled));
                 }
                 if let Err(report) = control.charge_step() {
-                    return Err(InferenceOutcome::BudgetExceeded(report));
+                    return Err(Box::new(InferenceOutcome::BudgetExceeded(report)));
                 }
                 if !self.substitutions.contains_key(&rep) {
                     if let Some(lowers) = self.lower_bounds.get(&rep).cloned() {
@@ -1435,13 +1443,13 @@ impl InferenceSession {
                                         .get(&(rep, upper))
                                         .map(|(index, origin)| (Some(*index), Some(origin.clone())))
                                         .unwrap_or((None, None));
-                                    return Err(self.failure_outcome(failure, constraint_index, origin));
+                                    return Err(Box::new(self.failure_outcome(failure, constraint_index, origin)));
                                 }
                             }
                             match self.bind(rep, candidate, store) {
                                 Ok(effect) => changed |= effect.is_changed(),
                                 Err(failure) => {
-                                    return Err(self.failure_outcome(failure, None, None));
+                                    return Err(Box::new(self.failure_outcome(failure, None, None)));
                                 }
                             }
                         }
@@ -1462,19 +1470,19 @@ impl InferenceSession {
                                     .get(&(rep, failed_upper))
                                     .map(|(index, origin)| (Some(*index), Some(origin.clone())))
                                     .unwrap_or((None, None));
-                                return Err(self.failure_outcome(failure, constraint_index, origin));
+                                return Err(Box::new(self.failure_outcome(failure, constraint_index, origin)));
                             }
                             match self.bind(rep, candidate, store) {
                                 Ok(effect) => changed |= effect.is_changed(),
                                 Err(failure) => {
-                                    return Err(self.failure_outcome(failure, None, None));
+                                    return Err(Box::new(self.failure_outcome(failure, None, None)));
                                 }
                             }
                         } else if uppers.len() == 1 && !self.is_declaration_restriction_only(rep, uppers[0]) {
                             match self.bind(rep, uppers[0], store) {
                                 Ok(effect) => changed |= effect.is_changed(),
                                 Err(failure) => {
-                                    return Err(self.failure_outcome(failure, None, None));
+                                    return Err(Box::new(self.failure_outcome(failure, None, None)));
                                 }
                             }
                         }
@@ -1498,7 +1506,7 @@ impl InferenceSession {
                             .get(&(rep, lower))
                             .map(|(index, origin)| (Some(*index), Some(origin.clone())))
                             .unwrap_or((None, None));
-                        return Err(self.failure_outcome(
+                        return Err(Box::new(self.failure_outcome(
                             InferenceFailureReason::ConflictingBounds {
                                 var: rep,
                                 lower,
@@ -1506,7 +1514,7 @@ impl InferenceSession {
                             },
                             constraint_index,
                             origin,
-                        ));
+                        )));
                     }
                 }
                 for upper in self.upper_bounds.get(&rep).cloned().unwrap_or_default() {
@@ -1516,7 +1524,7 @@ impl InferenceSession {
                             .get(&(rep, upper))
                             .map(|(index, origin)| (Some(*index), Some(origin.clone())))
                             .unwrap_or((None, None));
-                        return Err(self.failure_outcome(
+                        return Err(Box::new(self.failure_outcome(
                             InferenceFailureReason::ConflictingBounds {
                                 var: rep,
                                 lower: candidate,
@@ -1524,7 +1532,7 @@ impl InferenceSession {
                             },
                             constraint_index,
                             origin,
-                        ));
+                        )));
                     }
                 }
             }
@@ -1598,7 +1606,7 @@ impl InferenceSession {
     pub fn solve_with_control(&mut self, store: &mut TypeStore, hierarchy: &dyn TypeHierarchy, control: &CheckerControl) -> InferenceOutcome {
         match self.propagate_with_control(store, hierarchy, control) {
             Ok(_) => self.finish_root(),
-            Err(outcome) => outcome,
+            Err(outcome) => *outcome,
         }
     }
 
@@ -1724,15 +1732,15 @@ impl InferenceSession {
         store: &mut TypeStore,
         hierarchy: &dyn TypeHierarchy,
         control: &CheckerControl,
-    ) -> Result<SolveEffect, InferenceOutcome> {
+    ) -> Result<SolveEffect, Box<InferenceOutcome>> {
         let edges = self.subtype_edges.clone();
         let mut changed = false;
         for edge in edges {
             if control.is_cancelled() {
-                return Err(InferenceOutcome::Cancelled);
+                return Err(Box::new(InferenceOutcome::Cancelled));
             }
             if let Err(report) = control.charge_step() {
-                return Err(InferenceOutcome::BudgetExceeded(report));
+                return Err(Box::new(InferenceOutcome::BudgetExceeded(report)));
             }
             let sub = self.find_var(edge.sub);
             let sup = self.find_var(edge.sup);
@@ -1749,7 +1757,7 @@ impl InferenceSession {
                             left: Box::new(InferenceTerm::Var(sub)),
                             right: Box::new(InferenceTerm::Var(sup)),
                         };
-                        return Err(self.failure_outcome(failure, None, None));
+                        return Err(Box::new(self.failure_outcome(failure, None, None)));
                     }
                 }
                 (Some(sub_ty), None) => {

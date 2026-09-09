@@ -208,8 +208,7 @@ fn resolve_record_pattern(
         });
     }
 
-    let resolution = PatternResolution::Record(resolved.into_boxed_slice());
-    resolution
+    PatternResolution::Record(resolved.into_boxed_slice())
 }
 
 fn resolve_map_pattern(
@@ -749,21 +748,18 @@ fn resolve_variant_pattern(
             };
             if !matches_variant_info(v_info, &variant_pat.base, &constraint, variant_pat) {
                 // Check what kind of mismatch occurred for diagnostic precision
-                match &variant_pat.mode {
-                    VariantPatternMode::ExactCall { arguments } => {
-                        if arguments.len() != v_info.fields.len() {
-                            had_arity_mismatch = true;
-                        } else {
-                            had_field_mismatch = true;
-                        }
+                if let VariantPatternMode::ExactCall { arguments } = &variant_pat.mode {
+                    if arguments.len() != v_info.fields.len() {
+                        had_arity_mismatch = true;
+                    } else {
+                        had_field_mismatch = true;
                     }
-                    _ => {}
                 }
                 continue;
             }
             had_shape_or_label_match = true;
 
-            let Some(opened) = crate::checker::coverage::open_variant_case(ctx.declarations, ctx.store, &ctx.hierarchy, &mut ctx.rigids, &subject, v_info)
+            let Some(opened) = crate::checker::coverage::open_variant_case(ctx.declarations, ctx.store, &ctx.hierarchy, &mut ctx.rigids, subject, v_info)
             else {
                 continue;
             };

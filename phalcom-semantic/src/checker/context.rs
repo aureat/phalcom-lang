@@ -809,7 +809,7 @@ impl<'a> CheckingContext<'a> {
     pub(crate) fn propagate_inference(
         &mut self,
         session: &mut crate::checker::inference::InferenceSession,
-    ) -> Result<bool, crate::checker::inference::InferenceOutcome> {
+    ) -> Result<bool, Box<crate::checker::inference::InferenceOutcome>> {
         session.propagate_with_control(self.store, &self.hierarchy, &self.control)
     }
 
@@ -820,7 +820,7 @@ impl<'a> CheckingContext<'a> {
     ) -> crate::checker::inference::InferenceOutcome {
         match session.propagate_with_control(self.store, &self.hierarchy, &self.control) {
             Ok(_) => session.finish_frame(frame),
-            Err(outcome) => outcome,
+            Err(outcome) => *outcome,
         }
     }
 

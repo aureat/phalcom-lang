@@ -16,11 +16,11 @@ use crate::db::budget::{CancellationToken, QueryBudget};
 use crate::db::key::QueryKey;
 use crate::db::product::EnumRequirementsProduct;
 use crate::db::query::{
-    CallableBodyQuery, DeclarationSurfaceQuery, FormalQueryInputs, bootstrap_advisory_callable, query_advisory_callable, query_advisory_module,
-    query_associated_surface, query_bootstrap_callable_signature, query_bootstrap_declaration_surface, query_bootstrap_hierarchy_edge,
-    query_callable_body_with_formal_inputs, query_callable_signature_with_inputs, query_declaration_shell, query_declaration_surface, query_enum_declaration,
-    query_enum_requirements, query_field_signature_with_inputs, query_hierarchy_edge, query_linked_interface, query_source_formal_attachment,
-    query_source_structure, query_unlinked_interface,
+    CallableBodyQuery, DeclarationSurfaceQuery, FormalQueryInputs, HierarchyEdgeQueryInputs, SignatureQueryInputs, bootstrap_advisory_callable,
+    query_advisory_callable, query_advisory_module, query_associated_surface, query_bootstrap_callable_signature, query_bootstrap_declaration_surface,
+    query_bootstrap_hierarchy_edge, query_callable_body_with_formal_inputs, query_callable_signature_with_inputs, query_declaration_shell,
+    query_declaration_surface, query_enum_declaration, query_enum_requirements, query_field_signature_with_inputs, query_hierarchy_edge,
+    query_linked_interface, query_source_formal_attachment, query_source_structure, query_unlinked_interface,
 };
 use crate::db::state::QueryOutcome;
 use crate::declarations::{
@@ -2304,11 +2304,7 @@ impl SemanticWorkspaceSession {
 
         // Publish alias shells in dependency order so each edge records the
         // dependency's actual structural product fingerprint.
-        let alias_shell_work = if previous_snapshot.is_none() {
-            alias_recomputed_declarations.clone()
-        } else {
-            alias_recomputed_declarations.clone()
-        };
+        let alias_shell_work = alias_recomputed_declarations.clone();
         let mut pending_alias_shells = alias_shell_work
             .iter()
             .filter(|declaration| type_aliases.contains_key(declaration))
@@ -2433,11 +2429,13 @@ impl SemanticWorkspaceSession {
                         &mut self.db,
                         class_decl.clone(),
                         parsed_unit.clone(),
-                        linked_interface.clone(),
-                        &resolver,
-                        input.linked.as_ref(),
-                        &declarations,
-                        &input.import_products,
+                        HierarchyEdgeQueryInputs {
+                            linked_interface: linked_interface.clone(),
+                            resolver: &resolver,
+                            linked: input.linked.as_ref(),
+                            declarations: &declarations,
+                            import_products: &input.import_products,
+                        },
                     ) {
                         QueryOutcome::Ready(edge) => edge,
                         QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
@@ -2465,11 +2463,13 @@ impl SemanticWorkspaceSession {
                         &mut self.db,
                         enum_decl.clone(),
                         parsed_unit.clone(),
-                        linked_interface.clone(),
-                        &resolver,
-                        input.linked.as_ref(),
-                        &declarations,
-                        &input.import_products,
+                        HierarchyEdgeQueryInputs {
+                            linked_interface: linked_interface.clone(),
+                            resolver: &resolver,
+                            linked: input.linked.as_ref(),
+                            declarations: &declarations,
+                            import_products: &input.import_products,
+                        },
                     ) {
                         QueryOutcome::Ready(edge) => edge,
                         QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
@@ -2553,13 +2553,15 @@ impl SemanticWorkspaceSession {
                         &mut self.db,
                         field_id,
                         parsed_unit.clone(),
-                        Arc::make_mut(&mut self.store),
-                        &hierarchy,
-                        &resolver,
-                        &declarations,
-                        Some(input.linked.as_ref()),
-                        Some(&type_aliases),
-                        Some(&input.import_products),
+                        SignatureQueryInputs {
+                            store: Arc::make_mut(&mut self.store),
+                            hierarchy: &hierarchy,
+                            resolver: &resolver,
+                            declarations: &declarations,
+                            linked: Some(input.linked.as_ref()),
+                            type_aliases: Some(&type_aliases),
+                            import_products: Some(&input.import_products),
+                        },
                     ) {
                         QueryOutcome::Ready(signature) => field_signatures.insert((*signature).clone()),
                         QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
@@ -2581,13 +2583,15 @@ impl SemanticWorkspaceSession {
                         &mut self.db,
                         callable_id.clone(),
                         parsed_unit.clone(),
-                        Arc::make_mut(&mut self.store),
-                        &hierarchy,
-                        &resolver,
-                        &declarations,
-                        Some(input.linked.as_ref()),
-                        Some(&type_aliases),
-                        Some(&input.import_products),
+                        SignatureQueryInputs {
+                            store: Arc::make_mut(&mut self.store),
+                            hierarchy: &hierarchy,
+                            resolver: &resolver,
+                            declarations: &declarations,
+                            linked: Some(input.linked.as_ref()),
+                            type_aliases: Some(&type_aliases),
+                            import_products: Some(&input.import_products),
+                        },
                     ) {
                         QueryOutcome::Ready(signature) => {
                             let mut signature = (*signature).clone();
@@ -3037,21 +3041,17 @@ impl SemanticWorkspaceSession {
                                     associated_families: Some(&associated_surfaces_table),
                                 };
 
-                                if previous_snapshot.is_some() && !callable_body_work.contains(&callable_id) {
-                                    if callable_analyses.contains_key(&callable_id) {
-                                        if refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store)).is_ok() {
-                                            if self.db.validate_ready(&query_key) {
-                                                callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
-                                                continue;
-                                            }
-                                        }
-                                    }
+                                if previous_snapshot.is_some()
+                                    && !callable_body_work.contains(&callable_id)
+                                    && callable_analyses.contains_key(&callable_id)
+                                    && refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store)).is_ok()
+                                    && self.db.validate_ready(&query_key)
+                                {
+                                    callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
+                                    continue;
                                 }
 
-                                if let Err(outcome) = refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))
-                                {
-                                    return Err(outcome);
-                                }
+                                refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))?;
                                 let previous_computation_revision = self.db.query_state(&query_key).and_then(|state| state.revision());
                                 let outcome = query_callable_body_with_formal_inputs(
                                     &mut self.db,
@@ -3226,24 +3226,17 @@ impl SemanticWorkspaceSession {
                                         associated_families: Some(&associated_surfaces_table),
                                     };
 
-                                    if previous_snapshot.is_some() && !callable_body_work.contains(&callable_id) {
-                                        if callable_analyses.contains_key(&callable_id) {
-                                            if refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))
-                                                .is_ok()
-                                            {
-                                                if self.db.validate_ready(&query_key) {
-                                                    callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
-                                                    continue;
-                                                }
-                                            }
-                                        }
+                                    if previous_snapshot.is_some()
+                                        && !callable_body_work.contains(&callable_id)
+                                        && callable_analyses.contains_key(&callable_id)
+                                        && refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store)).is_ok()
+                                        && self.db.validate_ready(&query_key)
+                                    {
+                                        callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
+                                        continue;
                                     }
 
-                                    if let Err(outcome) =
-                                        refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))
-                                    {
-                                        return Err(outcome);
-                                    }
+                                    refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))?;
                                     let previous_computation_revision = self.db.query_state(&query_key).and_then(|state| state.revision());
                                     let outcome = query_callable_body_with_formal_inputs(
                                         &mut self.db,
@@ -3374,29 +3367,18 @@ impl SemanticWorkspaceSession {
                                                 associated_families: Some(&associated_surfaces_table),
                                             };
 
-                                            if previous_snapshot.is_some() && !callable_body_work.contains(&callable_id) {
-                                                if callable_analyses.contains_key(&callable_id) {
-                                                    if refresh_cached_body_dependencies(
-                                                        &mut self.db,
-                                                        &query_key,
-                                                        &formal_inputs,
-                                                        Arc::make_mut(&mut self.store),
-                                                    )
+                                            if previous_snapshot.is_some()
+                                                && !callable_body_work.contains(&callable_id)
+                                                && callable_analyses.contains_key(&callable_id)
+                                                && refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))
                                                     .is_ok()
-                                                    {
-                                                        if self.db.validate_ready(&query_key) {
-                                                            callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
-                                                            continue;
-                                                        }
-                                                    }
-                                                }
+                                                && self.db.validate_ready(&query_key)
+                                            {
+                                                callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
+                                                continue;
                                             }
 
-                                            if let Err(outcome) =
-                                                refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))
-                                            {
-                                                return Err(outcome);
-                                            }
+                                            refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))?;
                                             let previous_computation_revision = self.db.query_state(&query_key).and_then(|state| state.revision());
                                             let outcome = query_callable_body_with_formal_inputs(
                                                 &mut self.db,
@@ -3474,7 +3456,7 @@ impl SemanticWorkspaceSession {
             .into_iter()
             .filter_map(|key| match key {
                 QueryKey::CallableBody(callable)
-                    if current_modules.contains(&callable.module())
+                    if current_modules.contains(callable.module())
                         && callable_dispositions.get(&callable) != Some(&CallableRevisionDisposition::Recomputed) =>
                 {
                     Some(callable)
@@ -3484,7 +3466,7 @@ impl SemanticWorkspaceSession {
             .collect::<BTreeSet<_>>();
         semantic_work_modules.extend(downstream_body_work.iter().map(|callable| callable.module().clone()));
         for callable in downstream_body_work {
-            let Some(unit) = retained_sources.get(&callable.module()).cloned() else {
+            let Some(unit) = retained_sources.get(callable.module()).cloned() else {
                 continue;
             };
             let is_constructor = callable_signatures.get_for_body(&callable).is_some_and(|signature| signature.is_constructor());
@@ -3513,35 +3495,33 @@ impl SemanticWorkspaceSession {
                 && callable_dispositions.get(&callable) != Some(&CallableRevisionDisposition::Recomputed)
                 && callable_analyses.contains_key(&callable)
             {
-                if let Err(outcome) = refresh_cached_body_dependencies(
+                refresh_cached_body_dependencies(
                     &mut self.db,
                     &QueryKey::CallableBody(callable.clone()),
                     &formal_inputs,
                     Arc::make_mut(&mut self.store),
-                ) {
-                    return Err(outcome);
-                }
+                )?;
                 if self.db.validate_ready(&QueryKey::CallableBody(callable.clone())) {
                     continue;
                 }
             }
-            if let Err(outcome) = revalidate_downstream_callable_body(
+            revalidate_downstream_callable_body(
                 &mut self.db,
                 &callable,
                 &unit,
                 &formal_inputs,
-                Arc::make_mut(&mut self.store),
-                &hierarchy,
-                &mut dispatch,
-                &mut callable_signatures,
-                &mut callable_analyses,
-                &mut callable_dispositions,
-                &mut diags_by_module,
-                budget,
-                cancel,
-            ) {
-                return Err(outcome);
-            }
+                DownstreamCallableBodyState {
+                    store: Arc::make_mut(&mut self.store),
+                    hierarchy: &hierarchy,
+                    dispatch: &mut dispatch,
+                    callable_signatures: &mut callable_signatures,
+                    callable_analyses: &mut callable_analyses,
+                    callable_dispositions: &mut callable_dispositions,
+                    diagnostics: &mut diags_by_module,
+                    budget,
+                    cancel,
+                },
+            )?;
         }
 
         // 7. Refine Callable Return Interfaces and Reach Fixed Point
@@ -3550,7 +3530,7 @@ impl SemanticWorkspaceSession {
         // interface publication iterate until return contracts stabilize.
         // During each iteration, we only run inference and update dispatch; we
         // do not run full checking or re-emit diagnostics.
-        if let Err(outcome) = refresh_inferred_callable_results(InferredCallableRefreshInputs {
+        refresh_inferred_callable_results(InferredCallableRefreshInputs {
             db: &mut self.db,
             sources: &retained_sources,
             store: Arc::make_mut(&mut self.store),
@@ -3571,9 +3551,7 @@ impl SemanticWorkspaceSession {
             previous_callable_signatures: previous_snapshot.as_ref().map(|snapshot| snapshot.callable_signatures.as_ref()),
             budget,
             cancel,
-        }) {
-            return Err(outcome);
-        }
+        })?;
 
         for (module_id, shard) in &self.semantic_structure_shards {
             if !semantic_work_modules.contains(module_id) {
@@ -3690,16 +3668,16 @@ impl SemanticWorkspaceSession {
             Arc::new(rev)
         });
 
-        let module_products = Arc::new(crate::snapshot::ModuleQueryProducts::new(
-            input.linked.universe.clone(),
-            Arc::new(unlinked_map),
-            Arc::new(linked_map),
-            input.import_products.clone(),
-            Arc::new(resolved_imports_map.clone()),
-            Arc::new(sources_loc_map),
+        let module_products = Arc::new(crate::snapshot::ModuleQueryProducts::new(crate::snapshot::ModuleQueryProductsInputs {
+            universe: input.linked.universe.clone(),
+            unlinked: Arc::new(unlinked_map),
+            linked: Arc::new(linked_map),
+            import_products: input.import_products.clone(),
+            resolved_imports: Arc::new(resolved_imports_map.clone()),
+            sources: Arc::new(sources_loc_map),
             topology,
             reverse_imports,
-        ));
+        }));
 
         let mut source_index_rebuild_modules = changed_modules.clone();
         source_index_rebuild_modules.extend(
@@ -3717,21 +3695,21 @@ impl SemanticWorkspaceSession {
             callables.extend(shard.callable_body_fingerprints.keys().cloned());
             source_index_analysis_callables.insert(module.clone(), callables);
         }
-        let (mut source_index, presentation_sources) = build_source_semantic_index(
-            &input.sources,
-            &callable_analyses,
-            &input.import_products,
-            input.require_canonical_import_products,
-            input.linked.as_ref(),
-            &resolver,
-            &known_declarations,
-            previous_snapshot.as_deref().map(|snapshot| snapshot.source_index.as_ref()),
-            &source_index_rebuild_modules,
-            &removed_modules,
-            &current_modules,
-            &source_index_analysis_callables,
-            &input.import_sites_by_module,
-        );
+        let (mut source_index, presentation_sources) = build_source_semantic_index(SourceSemanticIndexInputs {
+            sources: &input.sources,
+            callable_analyses: &callable_analyses,
+            import_products: &input.import_products,
+            require_canonical_import_products: input.require_canonical_import_products,
+            linked: input.linked.as_ref(),
+            type_resolver: &resolver,
+            nominal_declarations: &known_declarations,
+            previous: previous_snapshot.as_deref().map(|snapshot| snapshot.source_index.as_ref()),
+            rebuild_modules: &source_index_rebuild_modules,
+            retired_modules: &removed_modules,
+            current_modules: &current_modules,
+            analysis_callables: &source_index_analysis_callables,
+            import_sites_by_module: &input.import_sites_by_module,
+        });
         // Presentation-only Universe source shards provide provenance and
         // navigation. They are deliberately not workspace query inputs.
         for module in &source_index_rebuild_modules {
@@ -3983,7 +3961,7 @@ impl SemanticWorkspaceSession {
                         stats.hierarchy_edges_reused += 1;
                     }
                 }
-                QueryKey::CallableSignature(callable) if snapshot.sources.contains_key(&callable.module()) => {
+                QueryKey::CallableSignature(callable) if snapshot.sources.contains_key(callable.module()) => {
                     if recomputed {
                         stats.callable_signatures_recomputed += 1;
                     } else {
@@ -3997,7 +3975,7 @@ impl SemanticWorkspaceSession {
                         stats.field_signatures_reused += 1;
                     }
                 }
-                QueryKey::CallableBody(callable) if snapshot.sources.contains_key(&callable.module()) => {
+                QueryKey::CallableBody(callable) if snapshot.sources.contains_key(callable.module()) => {
                     if recomputed {
                         stats.callable_bodies_recomputed += 1;
                     } else {
@@ -4368,21 +4346,38 @@ fn semantic_target_for_linked_symbol(symbol: &SymbolId, nominal_declarations: &H
     }
 }
 
-fn build_source_semantic_index(
-    sources: &BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
-    callable_analyses: &HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>,
-    import_products: &BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>,
+struct SourceSemanticIndexInputs<'a> {
+    sources: &'a BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
+    callable_analyses: &'a HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>,
+    import_products: &'a BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>,
     require_canonical_import_products: bool,
-    linked: &LinkedProgram,
-    type_resolver: &dyn TypeResolver,
-    nominal_declarations: &HashSet<DeclarationId>,
-    previous: Option<&SourceSemanticIndex>,
-    rebuild_modules: &BTreeSet<ModuleId>,
-    retired_modules: &BTreeSet<ModuleId>,
-    current_modules: &BTreeSet<ModuleId>,
-    analysis_callables: &BTreeMap<ModuleId, BTreeSet<crate::identity::CallableId>>,
-    import_sites_by_module: &BTreeMap<ModuleId, BTreeSet<phalcom_modules::identity::ImportSiteId>>,
-) -> (SourceSemanticIndex, BTreeMap<ModuleId, Arc<str>>) {
+    linked: &'a LinkedProgram,
+    type_resolver: &'a dyn TypeResolver,
+    nominal_declarations: &'a HashSet<DeclarationId>,
+    previous: Option<&'a SourceSemanticIndex>,
+    rebuild_modules: &'a BTreeSet<ModuleId>,
+    retired_modules: &'a BTreeSet<ModuleId>,
+    current_modules: &'a BTreeSet<ModuleId>,
+    analysis_callables: &'a BTreeMap<ModuleId, BTreeSet<crate::identity::CallableId>>,
+    import_sites_by_module: &'a BTreeMap<ModuleId, BTreeSet<phalcom_modules::identity::ImportSiteId>>,
+}
+
+fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (SourceSemanticIndex, BTreeMap<ModuleId, Arc<str>>) {
+    let SourceSemanticIndexInputs {
+        sources,
+        callable_analyses,
+        import_products,
+        require_canonical_import_products,
+        linked,
+        type_resolver,
+        nominal_declarations,
+        previous,
+        rebuild_modules,
+        retired_modules,
+        current_modules,
+        analysis_callables,
+        import_sites_by_module,
+    } = inputs;
     // Canonical Universe modules are source-owned presentation inputs: index
     // their declarations for navigation without linking or deeply analyzing
     // their bodies as part of an ordinary workspace update. On an incremental
@@ -4393,7 +4388,7 @@ fn build_source_semantic_index(
     let provider = phalcom_modules::UniverseSourceProvider::new();
     let presentation_modules = provider
         .nodes()
-        .into_iter()
+        .iter()
         .map(|node| {
             let path = phalcom_modules::ModulePath::from_components(
                 node.path
@@ -5375,21 +5370,36 @@ fn source_body_for_callable<'a>(callable: &CallableId, unit: &'a ParsedModuleUni
     None
 }
 
+struct DownstreamCallableBodyState<'a> {
+    store: &'a mut TypeStore,
+    hierarchy: &'a MapTypeHierarchy,
+    dispatch: &'a mut SurfaceDispatchResolver,
+    callable_signatures: &'a mut CallableSignatureTable,
+    callable_analyses: &'a mut HashMap<CallableId, Arc<crate::checker::CallableAnalysis>>,
+    callable_dispositions: &'a mut BTreeMap<CallableId, CallableRevisionDisposition>,
+    diagnostics: &'a mut BTreeMap<ModuleId, Vec<SemanticDiagnostic>>,
+    budget: QueryBudget,
+    cancel: &'a CancellationToken,
+}
+
 fn revalidate_downstream_callable_body(
     db: &mut SemanticDb,
     callable: &CallableId,
     unit: &ParsedModuleUnit,
     formal_inputs: &FormalQueryInputs<'_>,
-    store: &mut TypeStore,
-    hierarchy: &MapTypeHierarchy,
-    dispatch: &mut SurfaceDispatchResolver,
-    callable_signatures: &mut CallableSignatureTable,
-    callable_analyses: &mut HashMap<CallableId, Arc<crate::checker::CallableAnalysis>>,
-    callable_dispositions: &mut BTreeMap<CallableId, CallableRevisionDisposition>,
-    diagnostics: &mut BTreeMap<ModuleId, Vec<SemanticDiagnostic>>,
-    budget: QueryBudget,
-    cancel: &CancellationToken,
+    state: DownstreamCallableBodyState<'_>,
 ) -> Result<(), QueryOutcome<()>> {
+    let DownstreamCallableBodyState {
+        store,
+        hierarchy,
+        dispatch,
+        callable_signatures,
+        callable_analyses,
+        callable_dispositions,
+        diagnostics,
+        budget,
+        cancel,
+    } = state;
     let Some((body, body_range)) = source_body_for_callable(callable, unit) else {
         return Ok(());
     };

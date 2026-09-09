@@ -53,17 +53,29 @@ pub struct ModuleQueryProducts {
     pub reverse_imports: Arc<BTreeMap<ModuleId, BTreeSet<ModuleId>>>,
 }
 
+pub struct ModuleQueryProductsInputs {
+    pub universe: Arc<ProjectUniverse>,
+    pub unlinked: Arc<BTreeMap<ModuleId, UnlinkedModuleInterface>>,
+    pub linked: Arc<BTreeMap<ModuleId, LinkedModuleInterface>>,
+    pub import_products: Arc<BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>>,
+    pub resolved_imports: Arc<BTreeMap<(ModuleId, String), ModuleId>>,
+    pub sources: Arc<BTreeMap<ModuleId, SourceLocation>>,
+    pub topology: Arc<ModuleTopology>,
+    pub reverse_imports: Arc<BTreeMap<ModuleId, BTreeSet<ModuleId>>>,
+}
+
 impl ModuleQueryProducts {
-    pub fn new(
-        universe: Arc<ProjectUniverse>,
-        unlinked: Arc<BTreeMap<ModuleId, UnlinkedModuleInterface>>,
-        linked: Arc<BTreeMap<ModuleId, LinkedModuleInterface>>,
-        import_products: Arc<BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>>,
-        resolved_imports: Arc<BTreeMap<(ModuleId, String), ModuleId>>,
-        sources: Arc<BTreeMap<ModuleId, SourceLocation>>,
-        topology: Arc<ModuleTopology>,
-        reverse_imports: Arc<BTreeMap<ModuleId, BTreeSet<ModuleId>>>,
-    ) -> Self {
+    pub fn new(inputs: ModuleQueryProductsInputs) -> Self {
+        let ModuleQueryProductsInputs {
+            universe,
+            unlinked,
+            linked,
+            import_products,
+            resolved_imports,
+            sources,
+            topology,
+            reverse_imports,
+        } = inputs;
         let source_modules = Arc::new(sources.iter().map(|(module, location)| (location.source_id.clone(), module.clone())).collect());
         let display_path_modules = Arc::new(
             sources

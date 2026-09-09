@@ -328,7 +328,7 @@ fn pb_3_imported_binding() {
     let import_target = SemanticTargetId::Binding(import_binding.declaration_site.clone());
 
     // Import declaration is local binding definition
-    assert_eq!(query.definition_sites(&import_target), &[import_binding.declaration_site.clone()]);
+    assert_eq!(query.definition_sites(&import_target), std::slice::from_ref(&import_binding.declaration_site));
 
     // Downstream use is local lexical ref to the binding
     let lexical_refs = query.reference_sites_in_domain(&import_target, ReferenceDomain::Lexical);
@@ -551,7 +551,7 @@ fn pb_4_alias_dual_relation() {
     let bar_target = SemanticTargetId::Binding(bar_binding.declaration_site.clone());
 
     // Bar declaration is local Binding definition
-    assert_eq!(query.definition_sites(&bar_target), &[bar_binding.declaration_site.clone()]);
+    assert_eq!(query.definition_sites(&bar_target), std::slice::from_ref(&bar_binding.declaration_site));
 
     // Bar uses are local lexical references to Bar
     let bar_lexical_refs = query.reference_sites_in_domain(&bar_target, ReferenceDomain::Lexical);

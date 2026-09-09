@@ -1291,16 +1291,26 @@ pub fn callable_body_input_fingerprint_with_fields(
 /// Exact semantic dependencies are recorded separately, but broad source and
 /// linked-program barriers remain until the next checkpoint proves they can be
 /// removed safely.
+pub struct CallableBodyFormalInputFingerprint<'a> {
+    pub sources: &'a BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
+    pub source_resolution_input: InputFingerprint,
+    pub linked_component_product: ProductFingerprint,
+    pub lifecycle: Option<&'a crate::checker::field_lifecycle::FieldLifecycleTable>,
+}
+
 pub fn callable_body_input_fingerprint_with_formal_inputs(
     callable: &CallableId,
     body: &[Statement],
     body_range: SourceRange,
     store: &TypeStore,
-    sources: &BTreeMap<ModuleId, Arc<ParsedModuleUnit>>,
-    source_resolution_input: InputFingerprint,
-    _linked_component_product: ProductFingerprint,
-    lifecycle: Option<&crate::checker::field_lifecycle::FieldLifecycleTable>,
+    inputs: CallableBodyFormalInputFingerprint<'_>,
 ) -> InputFingerprint {
+    let CallableBodyFormalInputFingerprint {
+        sources,
+        source_resolution_input,
+        linked_component_product: _linked_component_product,
+        lifecycle,
+    } = inputs;
     let mut hasher = DefaultHasher::new();
     callable_body_input_fingerprint(callable, body, body_range, store).0.hash(&mut hasher);
     if let Some(unit) = sources.get(callable.module()) {

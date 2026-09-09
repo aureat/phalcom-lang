@@ -1166,7 +1166,7 @@ fn semantic_parity_projection(snapshot: &SemanticSnapshot) -> SemanticParityProj
         .map(|(callable, analysis)| {
             let current_body_range = snapshot
                 .source_index
-                .module(&callable.module())
+                .module(callable.module())
                 .and_then(|index| index.structure.callable_body_ranges.get(callable).copied())
                 .unwrap_or(analysis.body_range);
             let expressions = analysis
