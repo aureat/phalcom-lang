@@ -3,7 +3,7 @@
 ## Repository state
 
 - branch: `codex/concurrency-control-remediation`
-- HEAD: `e8628a46` plus the final-gate ledger changes below
+- HEAD: `c8aeb99c`
 - relevant local changes preserved: baseline audit, plan, and unrelated files are in the pushed parent commits
 
 ## Established invariants
@@ -87,4 +87,4 @@ Final workspace certification remains blocked by unrelated formatting, REPL impo
 
 ## Next resume action
 
-Run the final format, workspace build, workspace test, and workspace clippy gates; classify any clean-baseline blockers separately from the concurrency evidence above.
+Implementation complete; retain the final-gate classifications above and resolve unrelated baseline blockers separately.
