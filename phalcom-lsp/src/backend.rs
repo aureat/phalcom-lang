@@ -68,6 +68,8 @@ type CompilerCallableHover = (
     Option<phalcom_semantic::NativeCallablePresentation>,
 );
 
+type LineIndexCache = Arc<Mutex<BTreeMap<(phalcom_modules::ModuleId, usize, usize), Arc<LineIndex>>>>;
+
 struct DiagnosticPublication {
     diagnostics: Vec<tower_lsp::lsp_types::Diagnostic>,
     version: Option<i32>,
@@ -299,7 +301,7 @@ pub struct Backend {
     semantic_tokens: Mutex<BTreeMap<Url, CachedSemanticTokens>>,
     /// Request-adaptation line indexes keyed by immutable source identity.
     /// The cache stores indexes, not source text or snapshots.
-    line_index_cache: Arc<Mutex<BTreeMap<(phalcom_modules::ModuleId, usize, usize), Arc<LineIndex>>>>,
+    line_index_cache: LineIndexCache,
 }
 
 struct CachedSemanticTokens {
@@ -702,7 +704,7 @@ pub struct SnapshotLocationMapper<'a> {
     line_indices: HashMap<phalcom_modules::ModuleId, Arc<LineIndex>>,
     uris: HashMap<phalcom_modules::ModuleId, Option<Url>>,
     counters: Option<PerfCountersHandle>,
-    line_index_cache: Option<Arc<Mutex<BTreeMap<(phalcom_modules::ModuleId, usize, usize), Arc<LineIndex>>>>>,
+    line_index_cache: Option<LineIndexCache>,
 }
 
 impl<'a> SnapshotLocationMapper<'a> {
@@ -725,10 +727,7 @@ impl<'a> SnapshotLocationMapper<'a> {
     }
 
     /// Creates a mapper that shares immutable line indexes across requests.
-    pub fn new_with_cache(
-        compiler: &'a phalcom_semantic::SemanticSnapshot,
-        line_index_cache: Arc<Mutex<BTreeMap<(phalcom_modules::ModuleId, usize, usize), Arc<LineIndex>>>>,
-    ) -> Self {
+    pub fn new_with_cache(compiler: &'a phalcom_semantic::SemanticSnapshot, line_index_cache: LineIndexCache) -> Self {
         let mut mapper = Self::new(compiler);
         mapper.line_index_cache = Some(line_index_cache);
         mapper
@@ -738,7 +737,7 @@ impl<'a> SnapshotLocationMapper<'a> {
     pub fn new_with_counters_and_cache(
         compiler: &'a phalcom_semantic::SemanticSnapshot,
         counters: PerfCountersHandle,
-        line_index_cache: Arc<Mutex<BTreeMap<(phalcom_modules::ModuleId, usize, usize), Arc<LineIndex>>>>,
+        line_index_cache: LineIndexCache,
     ) -> Self {
         let mut mapper = Self::new_with_cache(compiler, line_index_cache);
         mapper.counters = Some(counters);

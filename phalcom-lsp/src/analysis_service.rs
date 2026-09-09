@@ -834,7 +834,7 @@ fn worker_loop(
 
             // Epoch staleness check: if newer edits were enqueued during execution, discard intermediate result as stale
             let current_epoch = shared.epoch.load(Ordering::SeqCst);
-            if publication_failed || candidate_snapshot.is_none() || cancelled() || current_epoch > batch_epoch {
+            let discard_stale = || {
                 shared.counters.stale_batches_discarded.fetch_add(1, Ordering::Relaxed);
                 let _ = event_tx.send(AnalysisEvent::StaleBatchDiscarded { epoch: batch_epoch });
                 let _ = event_tx.send(AnalysisEvent::Log(Box::new(AnalysisLogEvent {
@@ -852,12 +852,15 @@ fn worker_loop(
                     message: Some(format!("batch for epoch {} cancelled or superseded by {}", batch_epoch, current_epoch)),
                     counters: Some(shared.counters.snapshot()),
                 })));
-            } else {
+            };
+            if publication_failed || cancelled() || current_epoch > batch_epoch {
+                discard_stale();
+            } else if let Some(candidate_snapshot) = candidate_snapshot {
                 publish_snapshot(
                     &publication,
                     &shared.counters,
                     &event_tx,
-                    candidate_snapshot.expect("successful semantic update has a publication candidate"),
+                    candidate_snapshot,
                     effects,
                     PublicationKind::Interactive,
                 );
@@ -885,6 +888,8 @@ fn worker_loop(
                     message: Some(format!("published snapshot generation {latest_generation}")),
                     counters: Some(snap),
                 })));
+            } else {
+                discard_stale();
             }
 
             // Re-acquire lock and notify any flush callers

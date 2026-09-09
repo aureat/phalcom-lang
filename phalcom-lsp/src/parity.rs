@@ -133,11 +133,20 @@ impl CanonicalParityHarness {
             ParitySurface::InlayHint => self.counts.inlay_hint_observations.fetch_add(1, Ordering::Relaxed),
         };
 
-        let reserved = self
-            .counts
-            .retained_samples
-            .try_update(Ordering::Relaxed, Ordering::Relaxed, |count| (count < MAX_SAMPLES as u64).then_some(count + 1))
-            .is_ok();
+        let mut retained = self.counts.retained_samples.load(Ordering::Relaxed);
+        let reserved = loop {
+            if retained >= MAX_SAMPLES as u64 {
+                break false;
+            }
+            match self
+                .counts
+                .retained_samples
+                .compare_exchange_weak(retained, retained + 1, Ordering::Relaxed, Ordering::Relaxed)
+            {
+                Ok(_) => break true,
+                Err(current) => retained = current,
+            }
+        };
         if !reserved {
             return;
         }

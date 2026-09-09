@@ -1,3 +1,5 @@
+#![allow(dead_code, unused_imports)]
+
 mod fixture;
 mod lsp_client;
 mod workspace;
