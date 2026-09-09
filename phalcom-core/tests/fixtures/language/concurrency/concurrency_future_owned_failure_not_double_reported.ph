@@ -9,11 +9,9 @@ const owned = Future.async || {
   Error.new("owned failure").raise()
 }
 
-try {
-  owned.await
-} catch e {
-  System.print("future: " + e.message)
-}
-
+// Drain the action and its terminal observer before consuming the rejected
+// Future. Awaiting here would put the scheduler switch beneath `block_on`;
+// the native-frame guard is intentionally tested separately.
 System.runScheduled()
+owned.catch |e| { System.print("future: " + e.message) }
 System.print("after pump")

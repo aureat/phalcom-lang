@@ -723,6 +723,7 @@ impl VM {
                             crate::primitive::fiber::fiber_resume_scheduled(self, &Value::obj(next), &[])?;
                             continue;
                         }
+                        self.report_unhandled_scheduler_failures()?;
                         return Ok(value);
                     }
                     let resumer = self
@@ -820,6 +821,7 @@ impl VM {
                         self.close_fiber_upvalues_from(failed, 0);
 
                         let mode = self.heap.fiber(failed).resume_mode;
+                        let had_completion_owner = self.heap.fiber(failed).completion_observer.is_some();
                         let Some(resumer) = self.heap.fiber(failed).resumer else {
                             return Err(e);
                         };
@@ -873,6 +875,9 @@ impl VM {
                         self.heap.fiber_mut(failed).frames.clear();
                         self.heap.fiber_mut(failed).stack.clear();
                         self.heap.fiber_mut(failed).open_upvalues.clear();
+                        if mode == crate::heap::FiberResumeMode::Scheduler && !had_completion_owner {
+                            self.record_unhandled_scheduler_failure(failed, error_value);
+                        }
                         self.enqueue_completion_observer(failed)?;
 
                         match mode {
@@ -2632,8 +2637,10 @@ impl VM {
 mod tests {
     use super::VM;
     use crate::compiler::lib::UnitKind;
+    use crate::frame::CallContext;
     use crate::heap::{FiberObject, FiberStatus, Object};
     use crate::method::{MethodKind, MethodObject, RestLayout, RestMode, SignatureKind};
+    use crate::vm::BufferedOutput;
 
     #[test]
     fn duplicate_rest_family_is_rejected_before_index_mutation() {
@@ -2699,5 +2706,31 @@ mod tests {
         assert_eq!(vm.heap.fiber(observer_fiber).entry, Some(observer));
         vm.enqueue_completion_observer(fiber).expect("detached observer is a no-op");
         assert_eq!(vm.pop_next_queued(), None);
+    }
+
+    #[test]
+    fn failing_completion_observer_becomes_unhandled_scheduler_work() {
+        let output = BufferedOutput::new();
+        let handle = output.handle();
+        let mut vm = VM::new_with_output(Box::new(output));
+        let module = vm.create_module("main", "completion_observer_failure");
+        let action = vm.compile_closure_as(module, "42\n", UnitKind::File).expect("action closure should compile");
+        let observer = vm
+            .compile_closure_as(module, "Error.new(\"observer boom\").raise()\n", UnitKind::File)
+            .expect("observer closure should compile");
+        let root = vm.compile_closure_as(module, "1\n", UnitKind::File).expect("root closure should compile");
+        let action_fiber = vm.heap.alloc(Object::Fiber(Box::new(FiberObject::new_entry(action))));
+        vm.mark_fiber_done(action_fiber, crate::value::Value::int(42));
+        vm.heap.fiber_mut(action_fiber).completion_observer = Some(observer);
+        vm.enqueue_completion_observer(action_fiber).expect("observer should be admitted");
+
+        let frame = vm.new_call_frame(root, CallContext::Module { module }, 0, 0, None);
+        vm.push_frame(frame).expect("root frame should push");
+        vm.run().expect("observer failure must stay isolated");
+
+        assert_eq!(
+            String::from_utf8(handle.bytes()).expect("runtime output should be UTF-8"),
+            "Unhandled scheduled Fiber failure:\nobserver boom\n"
+        );
     }
 }

@@ -46,6 +46,9 @@ impl VM {
             // Fibers enqueued by `System.schedule(_)`, not yet started. Reachable
             // from nowhere else until the pump drains them.
             ready_queue,
+            // Detached scheduler failures retain their terminal Fiber and
+            // captured Error until a safe reporting boundary consumes them.
+            unhandled_scheduler_failures,
 
             // Handles a native primitive is holding in a Rust local across a
             // re-entrant call. Reachable from nowhere else for the duration —
@@ -90,6 +93,7 @@ impl VM {
             next_frame_generation: _,
             // A `u32` counter, no object handles — not a GC root.
             next_fiber_seq: _,
+            next_scheduler_failure_seq: _,
             world_version: _,
             start_time: _,
             output: _,
@@ -123,6 +127,12 @@ impl VM {
         out.push(*current);
         out.extend(open_upvalues.values().copied());
         out.extend(ready_queue.iter().copied());
+        for failure in unhandled_scheduler_failures {
+            out.push(failure.fiber);
+            if let Some(id) = failure.error.gc_obj_ref() {
+                out.push(id);
+            }
+        }
         out.extend(temp_roots.iter().copied());
         module_registry.each_handle(&mut |id| out.push(id));
         if let Some(roots) = runtime_roots {

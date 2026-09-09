@@ -1,4 +1,8 @@
 waiter-start
+Unhandled scheduled Fiber failure:
+fiber is parked on a Future
+Unhandled scheduled Fiber failure:
+fiber is parked on a Future
 schedule: fiber is parked on a Future
 call: fiber is parked on a Future
 try: fiber is parked on a Future

@@ -1,7 +1,7 @@
 #![doc = r" Generated canonical native surface records."]
 #[doc = r" Number of authored `#[primitive]` declarations scanned by the surface"]
 #[doc = r" generator."]
-pub const GENERATED_PRIMITIVE_DECLARATION_COUNT: usize = 326usize;
+pub const GENERATED_PRIMITIVE_DECLARATION_COUNT: usize = 328usize;
 use crate::{NativeMemberKind, NativeReturnShape, NativeSurfaceRecord};
 use phalcom_native_meta::*;
 pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
@@ -10940,13 +10940,111 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             intrinsic: None,
             trust: NativeTrust::Ordinary,
             docs: Some(
-                " Internal scheduler dequeue. Unlike the legacy public getter, this keeps\n the `Queued` reservation until the scheduler resume primitive consumes it.",
+                " Internal scheduler dequeue. The `Queued` reservation remains owned by the\n scheduler until the scheduler resume primitive consumes it.",
             ),
             conceptual: None,
         },
         kind: NativeMemberKind::Getter,
         abi: PrimitiveAbi::Value,
         return_shape: NativeReturnShape::Unknown,
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
+                owner: UniverseKey::System,
+                side: NativeDispatch::Class,
+                selector: "_$reportUnhandledScheduledFailures",
+            },
+            visibility: NativeVisibility::Internal,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Unit),
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Unit),
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Unknown,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: Some(
+                " Internal `System.runScheduled` reporting boundary. It drains the pending\n detached-failure records without propagating a guest error through the\n scheduler caller.",
+            ),
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Getter,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Instance("Unit"),
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
+                owner: UniverseKey::System,
+                side: NativeDispatch::Class,
+                selector: "_$schedulerFailureCursor",
+            },
+            visibility: NativeVisibility::Internal,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int),
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int),
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Unknown,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: Some(
+                " Internal root-await cursor for the VM-owned unhandled scheduler-failure\n channel. The cursor is a boundary, not a queue index; records are consumed\n exactly once by the matching safe-boundary primitive.",
+            ),
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Getter,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Instance("Int"),
     },
     NativeSurfaceRecord {
         surface: PrimitiveSurfaceSpec {
@@ -10994,6 +11092,55 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
         kind: NativeMemberKind::Method,
         abi: PrimitiveAbi::Value,
         return_shape: NativeReturnShape::Instance("Unit"),
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
+                owner: UniverseKey::System,
+                side: NativeDispatch::Class,
+                selector: "_$takeUnhandledScheduledFailures(_)",
+            },
+            visibility: NativeVisibility::Internal,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Option),
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Int)],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Universe(::phalcom_native_meta::UniverseKey::Option),
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Unknown,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: Some(
+                " Internal root-await consumption boundary. Failures produced since the\n supplied cursor become a compact diagnostic fragment; older failures are\n reported normally but are not attributed to the current await.",
+            ),
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Method,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Instance("Option"),
     },
     NativeSurfaceRecord {
         surface: PrimitiveSurfaceSpec {

@@ -50,7 +50,8 @@ use crate::primitive::set::{set_class_new, set_raw_add, set_raw_at, set_raw_has,
 use crate::primitive::string::{string_add, string_class_new, string_hash, string_raw_byte_at, string_raw_byte_count, string_raw_slice};
 use crate::primitive::symbol::{symbol_class_new, symbol_hash, symbol_is_selector, symbol_is_selector_pattern, symbol_tostring};
 use crate::primitive::system::{
-    system_class_new, system_class_print, system_gc, system_next_scheduled_internal, system_raw_write, system_schedule, system_wake,
+    system_class_new, system_class_print, system_gc, system_next_scheduled_internal, system_raw_write, system_report_unhandled_scheduled_failures,
+    system_schedule, system_scheduler_failure_cursor, system_take_unhandled_scheduled_failures, system_wake,
 };
 use crate::primitive::tuple::{
     tuple_from_list_internal, tuple_raw_at, tuple_raw_label_at, tuple_raw_labeled, tuple_raw_positional_size, tuple_raw_positionals, tuple_raw_size,
@@ -379,6 +380,27 @@ impl Universe {
         // by public `Fiber#call`/`#try`.
         primitive_static!(vm, system_cls, "schedule", SignatureKind::Method(1), system_schedule);
         primitive_static_internal!(vm, system_cls, "_$nextScheduled", SignatureKind::Getter, system_next_scheduled_internal);
+        primitive_static_internal!(
+            vm,
+            system_cls,
+            "_$schedulerFailureCursor",
+            SignatureKind::Getter,
+            system_scheduler_failure_cursor
+        );
+        primitive_static_internal!(
+            vm,
+            system_cls,
+            "_$takeUnhandledScheduledFailures",
+            SignatureKind::Method(1),
+            system_take_unhandled_scheduled_failures
+        );
+        primitive_static_internal!(
+            vm,
+            system_cls,
+            "_$reportUnhandledScheduledFailures",
+            SignatureKind::Getter,
+            system_report_unhandled_scheduled_failures
+        );
         primitive_static_internal!(vm, system_cls, "_$wake", SignatureKind::Method(2), system_wake);
         primitive_static!(vm, system_cls, "gc", SignatureKind::Getter, system_gc);
         // U-STRING raw I/O seam (ADR-0019 amendment, ADR-0049): raw stdout write of

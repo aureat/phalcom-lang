@@ -9,6 +9,12 @@ class System is Object {
 
   @class @internal @native _$nextScheduled -> Option<Fiber>
 
+  @class @internal @native _$schedulerFailureCursor -> Int
+
+  @class @internal @native _$takeUnhandledScheduledFailures(_ cursor: Int) -> Option<String>
+
+  @class @internal @native _$reportUnhandledScheduledFailures -> Unit
+
   @class @internal @native _$wake(_ fiber: Fiber, _ generation: Int) -> Bool
 
   @class @native gc -> Unit
@@ -63,6 +69,7 @@ class System is Object {
       f._$resumeScheduled()
       next = System._$nextScheduled
     }
+    System._$reportUnhandledScheduledFailures
     ()
   }
 }
@@ -232,9 +239,15 @@ class Future {
         // still pending, nothing can settle us and looping again would spin
         // forever in silence (E004(b)) — report it instead. Scheduler resume
         // isolates one scheduled task's uncaught raise from the others.
+        const failure_cursor = System._$schedulerFailureCursor
         while (not self.isReady) {
           const next = System._$nextScheduled
           if (next.isNone) {
+            const failures = System._$takeUnhandledScheduledFailures(failure_cursor)
+            if failures.isSome {
+              const details = failures.unwrapOr("")
+              return Error.new("await: the future is still pending and the scheduler is empty; nothing can currently settle it.\n" + details).raise()
+            }
             return Error.new("await: the future is still pending and the scheduler is empty; nothing can settle it").raise()
           }
           const f = next.unwrapOr(None)

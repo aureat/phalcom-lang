@@ -72,6 +72,69 @@ pub fn system_next_scheduled_internal(vm: &mut VM, _receiver: &Value, _args: &[V
     }
 }
 
+/// Internal root-await cursor for the VM-owned unhandled scheduler-failure
+/// channel. The cursor is a boundary, not a queue index; records are consumed
+/// exactly once by the matching safe-boundary primitive.
+#[phalcom_native_macros::primitive(
+    System,
+    "_$schedulerFailureCursor",
+    returns = Int,
+    types = "() -> Int",
+    side = class,
+    visibility = internal
+)]
+pub fn system_scheduler_failure_cursor(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let cursor =
+        i64::try_from(vm.scheduler_failure_cursor()).map_err(|_| RuntimeError::Internal("scheduler failure sequence exceeded Int range".to_string()))?;
+    Ok(Value::int(cursor))
+}
+
+/// Internal root-await consumption boundary. Failures produced since the
+/// supplied cursor become a compact diagnostic fragment; older failures are
+/// reported normally but are not attributed to the current await.
+#[phalcom_native_macros::primitive(
+    System,
+    "_$takeUnhandledScheduledFailures(_)",
+    params = [Int],
+    returns = Option,
+    types = "(Int) -> Option",
+    side = class,
+    visibility = internal
+)]
+pub fn system_take_unhandled_scheduled_failures(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let cursor = args.first().and_then(|value| value.as_int()).ok_or_else(|| RuntimeError::Type {
+        expected: "Int",
+        found: args.first().map_or("missing", Value::type_name),
+    })?;
+    let cursor = u64::try_from(cursor).map_err(|_| RuntimeError::Type {
+        expected: "non-negative Int",
+        found: "negative Int",
+    })?;
+    match vm.take_unhandled_scheduler_failures_since(cursor)? {
+        Some(summary) => {
+            let summary = vm.alloc_string_value(summary);
+            Ok(wrap_some(vm, summary)?)
+        }
+        None => Ok(vm.none_value()),
+    }
+}
+
+/// Internal `System.runScheduled` reporting boundary. It drains the pending
+/// detached-failure records without propagating a guest error through the
+/// scheduler caller.
+#[phalcom_native_macros::primitive(
+    System,
+    "_$reportUnhandledScheduledFailures",
+    returns = Unit,
+    types = "() -> Unit",
+    side = class,
+    visibility = internal
+)]
+pub fn system_report_unhandled_scheduled_failures(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    vm.report_unhandled_scheduler_failures()?;
+    Ok(vm.unit_value())
+}
+
 /// Internal Future wake. Only an exact `Parked(generation)` state can be
 /// admitted, so stale and duplicate waiter entries are harmless no-ops.
 #[phalcom_native_macros::primitive(System, "_$wake(_,_)", side = class, visibility = internal)]

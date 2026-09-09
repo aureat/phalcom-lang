@@ -85,6 +85,8 @@ impl VM {
             world_version: 0,
             open_upvalues: BTreeMap::new(),
             ready_queue: std::collections::VecDeque::new(),
+            unhandled_scheduler_failures: std::collections::VecDeque::new(),
+            next_scheduler_failure_seq: 0,
             temp_roots: Vec::new(),
             field_layouts: HashMap::new(),
             class_parents: HashMap::new(),
