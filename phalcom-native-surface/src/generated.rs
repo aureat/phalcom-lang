@@ -1,7 +1,7 @@
 #![doc = r" Generated canonical native surface records."]
 #[doc = r" Number of authored `#[primitive]` declarations scanned by the surface"]
 #[doc = r" generator."]
-pub const GENERATED_PRIMITIVE_DECLARATION_COUNT: usize = 321usize;
+pub const GENERATED_PRIMITIVE_DECLARATION_COUNT: usize = 324usize;
 use crate::{NativeMemberKind, NativeReturnShape, NativeSurfaceRecord};
 use phalcom_native_meta::*;
 pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
@@ -11000,6 +11000,55 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             key: PrimitiveKey {
                 owner: UniverseKey::System,
                 side: NativeDispatch::Class,
+                selector: "_$wake(_,_)",
+            },
+            visibility: NativeVisibility::Internal,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown, ::phalcom_native_meta::TypeExprSpec::Unknown],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Unknown,
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown, ::phalcom_native_meta::TypeExprSpec::Unknown],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Unknown,
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Unknown,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: Some(
+                " Internal Future wake. Only an exact `Parked(generation)` state can be\n admitted, so stale and duplicate waiter entries are harmless no-ops.",
+            ),
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Method,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Unknown,
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
+                owner: UniverseKey::System,
+                side: NativeDispatch::Class,
                 selector: "_$write(_)",
             },
             visibility: NativeVisibility::Internal,
@@ -11562,6 +11611,104 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             trust: NativeTrust::Ordinary,
             docs: Some(
                 " Signature: `Error::raise()` — unwinds the stack with `self` as a surface\n `Error` ([ADR-0008](../../../docs/adr/accepted/0008-layered-exceptions-and-result.md);\n `throw expr` desugars to this send per\n [ADR-0031](../../../docs/adr/accepted/0031-error-handling-surface-syntax.md) §1).\n Only `Error` and its subclasses respond to `raise` — the primitive is\n installed on `Error` only, so a non-`Error` receiver misses (dNU →\n `MessageNotUnderstood`), realizing the runtime half of R-INV-6.3.\n\n Renders `rendered` via the receiver's own `message` send (rather than\n reading slot 0 directly) so a future computed override on a user `Error`\n subclass is honored; re-entering the VM here is safe (the stack is healthy\n — this runs inside a live primitive, before any unwind), the same pattern\n [`object_perform_shape`](crate::primitive::object::object_perform_shape) uses.\n\n # Errors\n\n Always returns [`RuntimeError::Raise`] carrying `self` as the raised\n `error` value — the `Raise` payload of the unified unwind. A future\n `on(_)`/`ensure` (ADR-0031) or a fiber's result-slot capture intercepts it;\n uncaught, it renders and exits exactly like the retired native\n `MessageNotUnderstood` did.",
+            ),
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Method,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Unknown,
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
+                owner: UniverseKey::Fiber,
+                side: NativeDispatch::Instance,
+                selector: "_$park(_)",
+            },
+            visibility: NativeVisibility::Internal,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Unknown,
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Unknown,
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Unknown,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: Some(
+                " Internal Future park commit. A valid call changes the current scheduler\n fiber to `Parked(generation)` and returns control to its blocked scheduler\n resumer. No public coroutine operation can create this state.",
+            ),
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Method,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Unknown,
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
+                owner: UniverseKey::Fiber,
+                side: NativeDispatch::Instance,
+                selector: "_$preparePark()",
+            },
+            visibility: NativeVisibility::Internal,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Unknown,
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Unknown,
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Unknown,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: Some(
+                " Internal Future parking preparation. This validates every condition that\n could reject a switch before the Future records a waiter, then advances the\n fiber-local wake generation. The generation is intentionally returned to\n Phalcom so the matching Future owns the eventual wake authority.",
             ),
             conceptual: None,
         },

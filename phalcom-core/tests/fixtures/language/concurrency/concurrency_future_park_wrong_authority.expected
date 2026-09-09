@@ -1,0 +1,5 @@
+waiter-start
+schedule: fiber is parked on a Future
+call: fiber is parked on a Future
+try: fiber is parked on a Future
+waiter-resumed

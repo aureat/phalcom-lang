@@ -373,6 +373,82 @@ pub fn fiber_resume_scheduled(vm: &mut VM, receiver: &Value, args: &[Value]) -> 
     fiber_resume(vm, receiver, args, FiberResumeMode::Scheduler)
 }
 
+/// Internal Future parking preparation. This validates every condition that
+/// could reject a switch before the Future records a waiter, then advances the
+/// fiber-local wake generation. The generation is intentionally returned to
+/// Phalcom so the matching Future owns the eventual wake authority.
+#[phalcom_native_macros::primitive(Fiber, "_$preparePark()", visibility = internal)]
+pub fn fiber_prepare_park(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let fiber_ref = expect_fiber(vm, receiver)?;
+    if fiber_ref != vm.current {
+        return Err(RuntimeError::NotAllowed("fiber park receiver is not current".to_string()).into());
+    }
+    let fiber = vm.heap.fiber(fiber_ref);
+    if fiber.is_root {
+        return Err(RuntimeError::NotAllowed("cannot park the root fiber".to_string()).into());
+    }
+    if fiber.status != FiberStatus::Running {
+        return Err(RuntimeError::NotAllowed("fiber is not running".to_string()).into());
+    }
+    if vm.native_reentry_depth != fiber.floor_depth {
+        return Err(cannot_yield_across_native_frame(vm));
+    }
+    if fiber.resume_mode != FiberResumeMode::Scheduler {
+        return Err(RuntimeError::NotAllowed("fiber park requires scheduler ownership".to_string()).into());
+    }
+    let generation = fiber
+        .park_generation
+        .checked_add(1)
+        .ok_or_else(|| RuntimeError::Internal("fiber park generation exhausted".to_string()))?;
+    vm.heap.fiber_mut(fiber_ref).park_generation = generation;
+    Ok(Value::int(generation))
+}
+
+/// Internal Future park commit. A valid call changes the current scheduler
+/// fiber to `Parked(generation)` and returns control to its blocked scheduler
+/// resumer. No public coroutine operation can create this state.
+#[phalcom_native_macros::primitive(Fiber, "_$park(_)", visibility = internal)]
+pub fn fiber_park(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let fiber_ref = expect_fiber(vm, receiver)?;
+    let generation = args.first().and_then(|value| value.as_int()).ok_or_else(|| RuntimeError::Type {
+        expected: "Int",
+        found: args.first().map_or("missing", Value::type_name),
+    })?;
+    if fiber_ref != vm.current {
+        return Err(RuntimeError::NotAllowed("fiber park receiver is not current".to_string()).into());
+    }
+    let fiber = vm.heap.fiber(fiber_ref);
+    if fiber.is_root {
+        return Err(RuntimeError::NotAllowed("cannot park the root fiber".to_string()).into());
+    }
+    if fiber.status != FiberStatus::Running {
+        return Err(RuntimeError::NotAllowed("fiber is not running".to_string()).into());
+    }
+    if fiber.resume_mode != FiberResumeMode::Scheduler {
+        return Err(RuntimeError::NotAllowed("fiber park requires scheduler ownership".to_string()).into());
+    }
+    if fiber.park_generation != generation {
+        return Err(RuntimeError::NotAllowed("fiber park generation is stale".to_string()).into());
+    }
+    if vm.native_reentry_depth != fiber.floor_depth {
+        return Err(cannot_yield_across_native_frame(vm));
+    }
+    let Some(resumer) = fiber.resumer else {
+        return Err(RuntimeError::NotAllowed("fiber has no scheduler resumer".to_string()).into());
+    };
+    if vm.heap.fiber(resumer).status != FiberStatus::BlockedOnChild {
+        return Err(RuntimeError::NotAllowed("fiber scheduler resumer is not blocked".to_string()).into());
+    }
+
+    let receiver_idx = vm.stack.len() - 1 - args.len();
+    vm.heap.fiber_mut(fiber_ref).resume_slot = receiver_idx;
+    vm.heap.fiber_mut(fiber_ref).status = FiberStatus::Parked(generation);
+    store_live_into(vm, fiber_ref);
+    vm.switch_to_fiber_and_deliver(resumer, vm.none_value());
+    vm.switch_pending = true;
+    Ok(Value::nil())
+}
+
 /// Shared engine behind [`fiber_call`]/[`fiber_try`] (ADR-0030 §3/§4).
 ///
 /// Parks the current fiber, switches `VM::current` to the callee, and

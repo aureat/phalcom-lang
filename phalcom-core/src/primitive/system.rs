@@ -88,6 +88,25 @@ pub fn system_next_scheduled_internal(vm: &mut VM, _receiver: &Value, _args: &[V
     }
 }
 
+/// Internal Future wake. Only an exact `Parked(generation)` state can be
+/// admitted, so stale and duplicate waiter entries are harmless no-ops.
+#[phalcom_native_macros::primitive(System, "_$wake(_,_)", side = class, visibility = internal)]
+pub fn system_wake(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let fiber_ref = args
+        .first()
+        .and_then(Value::as_obj)
+        .filter(|id| vm.heap.as_fiber(*id).is_some())
+        .ok_or_else(|| RuntimeError::Type {
+            expected: "Fiber",
+            found: args.first().map_or("missing", Value::type_name),
+        })?;
+    let generation = args.get(1).and_then(|value| value.as_int()).ok_or_else(|| RuntimeError::Type {
+        expected: "Int",
+        found: args.get(1).map_or("missing", Value::type_name),
+    })?;
+    Ok(Value::bool(vm.wake_parked_fiber(fiber_ref, generation)))
+}
+
 /// Signature: `System.gc` — forces one full mark-sweep and returns `Unit`.
 #[phalcom_native_macros::primitive(
     System,

@@ -9,7 +9,7 @@ use crate::primitive::bytes::{
 use crate::primitive::class::{behavior_extract_shape, behavior_methods, behavior_name, class_add, class_new_, class_set_superclass, class_superclass};
 use crate::primitive::error::{error_message, error_raise};
 use crate::primitive::family::{family_get, family_is_exact, family_pattern, family_receiver, family_selector, family_set};
-use crate::primitive::fiber::{fiber_abort, fiber_call, fiber_current, fiber_error, fiber_is_done, fiber_is_root, fiber_new, fiber_resume_scheduled, fiber_try, fiber_yield};
+use crate::primitive::fiber::{fiber_abort, fiber_call, fiber_current, fiber_error, fiber_is_done, fiber_is_root, fiber_new, fiber_park, fiber_prepare_park, fiber_resume_scheduled, fiber_try, fiber_yield};
 use crate::primitive::float::{
     float_abs, float_ceil, float_class_new, float_floor, float_is_finite, float_is_infinite, float_is_integer, float_is_nan, float_rounded, float_sign,
     float_to_int_exact, float_truncated,
@@ -46,7 +46,7 @@ use crate::primitive::selector_pattern::*;
 use crate::primitive::set::{set_class_new, set_raw_add, set_raw_at, set_raw_has, set_raw_remove, set_raw_size};
 use crate::primitive::string::{string_add, string_class_new, string_hash, string_raw_byte_at, string_raw_byte_count, string_raw_slice};
 use crate::primitive::symbol::{symbol_class_new, symbol_hash, symbol_is_selector, symbol_is_selector_pattern, symbol_tostring};
-use crate::primitive::system::{system_class_new, system_class_print, system_gc, system_next_scheduled, system_next_scheduled_internal, system_raw_write, system_schedule};
+use crate::primitive::system::{system_class_new, system_class_print, system_gc, system_next_scheduled, system_next_scheduled_internal, system_raw_write, system_schedule, system_wake};
 use crate::primitive::tuple::{
     tuple_from_list_internal, tuple_raw_at, tuple_raw_label_at, tuple_raw_labeled, tuple_raw_positional_size, tuple_raw_positionals, tuple_raw_size,
     tuple_raw_slice,
@@ -377,6 +377,7 @@ impl Universe {
         primitive_static!(vm, system_cls, "schedule", SignatureKind::Method(1), system_schedule);
         primitive_static!(vm, system_cls, "nextScheduled", SignatureKind::Getter, system_next_scheduled);
         primitive_static_internal!(vm, system_cls, "_$nextScheduled", SignatureKind::Getter, system_next_scheduled_internal);
+        primitive_static_internal!(vm, system_cls, "_$wake", SignatureKind::Method(2), system_wake);
         primitive_static!(vm, system_cls, "gc", SignatureKind::Getter, system_gc);
         // U-STRING raw I/O seam (ADR-0019 amendment, ADR-0049): raw stdout write of
         // an already-formed `String`, no newline, no formatting — the irreducible
@@ -670,6 +671,8 @@ impl Universe {
         primitive!(vm, fiber_cls, "try", SignatureKind::Method(0), fiber_try);
         primitive!(vm, fiber_cls, "try", SignatureKind::Method(1), fiber_try);
         primitive_internal!(vm, fiber_cls, "_$resumeScheduled", SignatureKind::Method(0), fiber_resume_scheduled);
+        primitive_internal!(vm, fiber_cls, "_$preparePark", SignatureKind::Method(0), fiber_prepare_park);
+        primitive_internal!(vm, fiber_cls, "_$park", SignatureKind::Method(1), fiber_park);
         primitive_static!(vm, fiber_cls, "yield", SignatureKind::Method(0), fiber_yield);
         primitive_static!(vm, fiber_cls, "yield", SignatureKind::Method(1), fiber_yield);
         primitive_static!(vm, fiber_cls, "current", SignatureKind::Getter, fiber_current);

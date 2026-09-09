@@ -93,6 +93,9 @@ pub struct FiberObject {
     pub open_upvalues: BTreeMap<usize, ObjRef>,
     /// The fiber's lifecycle state ([`FiberStatus`]).
     pub status: FiberStatus,
+    /// Monotonic ticket for the current or next Future-owned park. Wake
+    /// authority must match the exact generation recorded in `Parked`.
+    pub park_generation: i64,
     /// Stable constructor identity: true only for the VM's root fiber.
     /// Rootness must not be inferred from the dynamic `resumer` link, which is
     /// a control-transfer detail and may be absent for scheduler-managed work.
@@ -165,6 +168,7 @@ impl FiberObject {
             frames: Vec::new(),
             open_upvalues: BTreeMap::new(),
             status: FiberStatus::New,
+            park_generation: 0,
             is_root: false,
             resumer: None,
             result: Value::nil(),
@@ -191,6 +195,7 @@ impl FiberObject {
             frames,
             open_upvalues: BTreeMap::new(),
             status: FiberStatus::New,
+            park_generation: 0,
             is_root: false,
             resumer: None,
             result: Value::nil(),
@@ -216,6 +221,7 @@ impl FiberObject {
             frames: Vec::new(),
             open_upvalues: BTreeMap::new(),
             status: FiberStatus::Running,
+            park_generation: 0,
             is_root: true,
             resumer: None,
             result: Value::nil(),

@@ -11,6 +11,8 @@ class System is Object {
 
   @class @internal @native _$nextScheduled -> Option<Fiber>
 
+  @class @internal @native _$wake(_ fiber: Fiber, _ generation: Int) -> Bool
+
   @class @native gc -> Unit
 
   @class @internal @native _$write(_ value: String) -> Unit
@@ -81,6 +83,10 @@ class Fiber is Object {
 
   @internal @native _$resumeScheduled() -> Dynamic
 
+  @internal @native _$preparePark() -> Int
+
+  @internal @native _$park(_ generation: Int) -> Dynamic
+
   @class @native yield() -> Dynamic
 
   @class @native yield(_ value: Dynamic) -> Dynamic
@@ -98,8 +104,8 @@ class Fiber is Object {
 
 // `Future` (concurrency.md §2; ADR-0030 §1): a settle-once state machine over
 // a fulfilled/rejected result. A **plain `InstanceObject`** (concurrency.md §2
-// "Implementation" ¶1) — zero new floor, written entirely in Phalcom over the
-// same two public seams user code has, `System.schedule(_)` and `Fiber.yield`.
+// "Implementation" ¶1) — zero new floor, with scheduler-owned waiting routed
+// through private ticketed Fiber park/wake seams.
 //
 // **Both slices are landed.** Slice A is the scheduler-free half:
 // `value(_)`/`error(_)` construct an already-settled future, `isReady`/`value`
@@ -112,9 +118,10 @@ class Fiber is Object {
 //
 // State lives in three private fields (plan §6.1): `_state` (one of the
 // strings `"pending"`, `"fulfilled"`, `"rejected"`), `_value` (the settled
-// value or the captured `Error`), and `_waiters` — a `List` holding two kinds
-// of thing, `Fiber`s registered by `await` and `Closure`s registered by
-// `then`/`map`/`catch`, unified by `System.schedule(_)` accepting both.
+// value or the captured `Error`), and `_waiters` — a `List` holding
+// ticketed `Tuple`s registered by `await` and `Closure`s registered by
+// `then`/`map`/`catch`. The tuple owns both the Fiber and the exact park
+// generation that is allowed to wake it.
 class Future {
   // Builds a pending future (U-FUTURE Slice B).
   @constructor
@@ -178,23 +185,17 @@ class Future {
     self
   }
 
-  // Reschedules all waiters once settled.
-  //
-  // A waiter is either a `Fiber` (registered by `await`) or a `Closure`
-  // (registered by `then`/`map`/`catch`); `System.schedule(_)` accepts both,
-  // enqueueing a fiber as-is and wrapping anything else. A fiber waiter can,
-  // however, be *finished* by the time we settle — it may have failed after
-  // registering (E004(c): a caller that `await`s from under a native frame
-  // raises out of `await` with its registration still in the list). Resuming a
-  // finished fiber aborts the whole run, taking every other waiter on this
-  // future down with it, so skip those rather than scheduling a corpse.
-  drain() -> Unit {
-    _waiters.each |w| {
-      const dead = w is Fiber and w.isDone
-      if not dead {
-        System.schedule(w)
-      }
-    }
+  // Wakes all waiters once settled. A `Tuple` is `(Fiber, generation)` and
+  // must go through the ticket-aware wake authority; a closure is a
+  // continuation work item and still uses ordinary scheduler admission.
+ drain() -> Unit {
+   _waiters.each |w| {
+      if w is Tuple {
+        System._$wake(w.at(0), w.at(1))
+      } else {
+       System.schedule(w)
+     }
+   }
     _waiters = List.new()
 
     return ()
@@ -211,44 +212,39 @@ class Future {
     }
   }
 
-  // Suspends the current fiber until settled (U-FUTURE Slice B). On the root
-  // fiber — which has no resumer and so cannot yield — degrades to driving the
-  // scheduler here instead.
+  // Suspends the current scheduler-owned fiber until settled (U-FUTURE Slice
+  // B). A non-root await registers an exact `(Fiber, generation)` ticket and
+  // performs an authorized Future park. The root fiber drives the scheduler
+  // because it cannot park itself.
   //
   // The branch is chosen by **asking** (`Fiber#isRoot`), not by attempting a
-  // yield and inspecting the failure. It used to do the latter, via
-  // `{ Fiber.yield(None) }.attempt()`, and that could never work: `.attempt()`
-  // is two nested native re-entrant frames (`block_on` + `block_call`), so the
-  // probe tripped the restricted-yield guard (ADR-0030 §4) it was probing for,
-  // unconditionally, for every fiber. `await` therefore never suspended anyone
-  // — E004. Attempt-and-inspect cannot work when the attempt changes the answer.
+  // suspension and inspecting the failure. The old yield probe ran through
+  // nested native re-entry and could never distinguish a supported park from
+  // a forbidden switch.
   //
-  // Consequently the `Fiber.yield` below is **bare**. Wrapping it in anything
-  // that reaches `Closure#call` — `.attempt()`, `.on(_)`, `ensure` — puts a native
-  // frame between the fiber floor and the switch and reinstates the bug. A
-  // `CannotYieldAcrossNativeFrame` raised from here is now a real one: it means
-  // the *caller* invoked `await` from inside a block a native primitive is
-  // driving, which is genuinely unsupported and correctly propagates.
+  // Park preparation checks the native boundary before registration, so a
+  // refusal cannot leave an actionable stale waiter behind. Wake is only
+  // permission to run again; the loop rechecks readiness after every wake.
   await {
-    if (not self.isReady) {
+    while (not self.isReady) {
       if (Fiber.current.isRoot) {
         // Pump until someone settles us. If the ready queue drains while we are
         // still pending, nothing can settle us and looping again would spin
-        // forever in silence (E004(b)) — report it instead. `try()`-resume, so
-        // one scheduled task's uncaught raise cannot abort the others, and as
-        // its own statement rather than inside a block, for the same reason
-        // `System.runScheduled` is written that way.
+        // forever in silence (E004(b)) — report it instead. Scheduler resume
+        // isolates one scheduled task's uncaught raise from the others.
         while (not self.isReady) {
-          const next = System.nextScheduled
+          const next = System._$nextScheduled
           if (next.isNone) {
             return Error.new("await: the future is still pending and the scheduler is empty; nothing can settle it").raise()
           }
           const f = next.unwrapOr(None)
-          f.try()
+          f._$resumeScheduled()
         }
       } else {
-        _waiters._$push(Fiber.current)
-        Fiber.yield(None)
+        const current = Fiber.current
+        const generation = current._$preparePark()
+        _waiters._$push(Tuple._$fromList([current, generation]))
+        current._$park(generation)
       }
     }
     if (_state == "rejected") {

@@ -443,6 +443,18 @@ impl VM {
         None
     }
 
+    /// Atomically consumes an exact Future park ticket and admits the parked
+    /// fiber to the scheduler. Mismatched, duplicate, and terminal wakes are
+    /// harmless stale waiter cleanup and therefore return `false`.
+    pub(crate) fn wake_parked_fiber(&mut self, fiber: ObjRef, generation: i64) -> bool {
+        if self.heap.fiber(fiber).status != FiberStatus::Parked(generation) {
+            return false;
+        }
+        self.heap.fiber_mut(fiber).status = FiberStatus::Queued;
+        self.ready_queue.push_back(fiber);
+        true
+    }
+
     /// Legacy public `System.nextScheduled` compatibility: removing an item
     /// from the raw getter releases its scheduler reservation so existing code
     /// may still choose the public `Fiber#try` path. Production scheduler pumps
@@ -567,5 +579,26 @@ impl Default for VM {
     /// (the bootstrapped kernel tower), so `Default` and `new` coincide.
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod scheduler_tests {
+    use super::VM;
+    use crate::heap::{FiberObject, FiberStatus, Object};
+
+    #[test]
+    fn parked_wake_requires_the_exact_generation_and_is_once_only() {
+        let mut vm = VM::new_kernel();
+        let entry = vm.heap.alloc_string("test-entry".to_string());
+        let fiber = vm.heap.alloc(Object::Fiber(Box::new(FiberObject::new_entry(entry))));
+        vm.heap.fiber_mut(fiber).status = FiberStatus::Parked(7);
+
+        assert!(!vm.wake_parked_fiber(fiber, 6));
+        assert_eq!(vm.heap.fiber(fiber).status, FiberStatus::Parked(7));
+        assert!(vm.wake_parked_fiber(fiber, 7));
+        assert_eq!(vm.heap.fiber(fiber).status, FiberStatus::Queued);
+        assert!(!vm.wake_parked_fiber(fiber, 7));
+        assert_eq!(vm.pop_next_queued(), Some(fiber));
     }
 }
