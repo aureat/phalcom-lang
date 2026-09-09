@@ -25,6 +25,7 @@ skills-lock.json
 
 # git worktrees used by agents
 .claude/worktrees/
+/.worktrees/
 
 # Local AI-agent runtimes and generated instruction surfaces
 /.codex/
