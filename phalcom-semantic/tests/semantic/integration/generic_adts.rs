@@ -61,7 +61,7 @@ fn callable_resolution<'a>(
         .expect("callable reference resolution")
         .kind
     {
-        CallableReferenceResolutionKind::Associated(resolution) => resolution,
+        CallableReferenceResolutionKind::Associated(resolution) => resolution.as_ref(),
         CallableReferenceResolutionKind::BoundFamily { .. } => panic!("expected associated callable reference"),
     }
 }

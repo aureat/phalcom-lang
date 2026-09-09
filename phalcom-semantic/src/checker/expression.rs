@@ -1120,7 +1120,7 @@ fn synthesize_associated_callable_reference(
             ctx.record_callable_reference_resolution(
                 expression,
                 CallableReferenceResolution {
-                    kind: CallableReferenceResolutionKind::Associated(AssociatedResolution {
+                    kind: CallableReferenceResolutionKind::Associated(Box::new(AssociatedResolution {
                         owner_form: owner.owner_form,
                         lookup_owner: owner.lookup_owner.clone(),
                         family: Some(family.id.clone()),
@@ -1129,7 +1129,7 @@ fn synthesize_associated_callable_reference(
                             target: target.clone(),
                             callable_type: value_type,
                         },
-                    }),
+                    })),
                 },
             );
         }
@@ -1177,7 +1177,7 @@ fn synthesize_associated_callable_reference(
         ctx.record_callable_reference_resolution(
             expression,
             CallableReferenceResolution {
-                kind: CallableReferenceResolutionKind::Associated(AssociatedResolution {
+                kind: CallableReferenceResolutionKind::Associated(Box::new(AssociatedResolution {
                     owner_form: owner.owner_form,
                     lookup_owner: owner.lookup_owner.clone(),
                     family: Some(family.id.clone()),
@@ -1185,7 +1185,7 @@ fn synthesize_associated_callable_reference(
                         family_type: value_type,
                         members: specialized_members.into_boxed_slice(),
                     },
-                }),
+                })),
             },
         );
     }

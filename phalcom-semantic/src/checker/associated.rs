@@ -81,7 +81,7 @@ pub enum CallableReferenceResolutionKind {
     },
     /// An associated lookup result. The nested resolution is restricted to
     /// associated `ExactCallable` or `Family` outcomes by the checker.
-    Associated(AssociatedResolution),
+    Associated(Box<AssociatedResolution>),
 }
 
 /// Source-independent selector specification for an ordinary bound family.

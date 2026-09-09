@@ -26,7 +26,7 @@ fn resolution<'a>(case: &'a super::super::support::AdtCase, text: &str) -> &'a p
                             return None;
                         }
                         match &reference.kind {
-                            CallableReferenceResolutionKind::Associated(associated) => Some(associated),
+                            CallableReferenceResolutionKind::Associated(associated) => Some(associated.as_ref()),
                             CallableReferenceResolutionKind::BoundFamily { .. } => None,
                         }
                     })
