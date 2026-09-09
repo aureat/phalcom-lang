@@ -3,7 +3,7 @@
 // status: PASS
 // `System.runScheduled` drains everything queued so far, in order, then
 // returns — including a fiber a running scheduled fiber itself schedules
-// mid-drain (`System.nextScheduled` is re-read every loop iteration), before
+// mid-drain (`System._$nextScheduled` is re-read every loop iteration), before
 // control returns to `main`.
 
 System.schedule(|| {
