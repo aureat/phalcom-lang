@@ -876,6 +876,7 @@ impl VM {
     /// `pub(crate)` so [`crate::primitive::fiber::fiber_yield`] can reuse it
     /// instead of hand-inlining the same four-step sequence.
     pub(crate) fn switch_to_fiber_and_deliver(&mut self, target: ObjRef, value: Value) {
+        debug_assert_eq!(self.heap.fiber(target).status, crate::heap::FiberStatus::BlockedOnChild);
         if self.trace_fibers {
             let from_seq = self.heap.fiber(self.current).seq;
             let to_seq = self.heap.fiber(target).seq;

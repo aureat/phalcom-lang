@@ -10,12 +10,23 @@ use super::ObjRef;
 /// `concurrency.md` §1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FiberStatus {
-    /// Created but not yet started, or suspended at a `yield` — resumable via
-    /// `Fiber#call`/`Fiber#try`.
-    Suspended,
+    /// Created but not yet started. A new fiber may be admitted by the
+    /// scheduler or resumed by `Fiber#call`/`Fiber#try`.
+    New,
     /// Currently executing on the VM: this is the `vm.current` fiber, whose
     /// live stacks are mirrored in [`VM::frames`](crate::vm::VM)/`stack`.
     Running,
+    /// Its stacks are parked because this fiber resumed a child that currently
+    /// owns execution. It is not manually resumable while the child runs.
+    BlockedOnChild,
+    /// Suspended at an explicit `Fiber.yield`; the linked resumer may deliver
+    /// the next resume value through `Fiber#call`/`Fiber#try`.
+    Yielded,
+    /// Parked behind a Future-owned wait. The generation is the only authority
+    /// that may later admit this fiber back to the scheduler.
+    Parked(i64),
+    /// Reserved by the scheduler and waiting for one scheduler resume.
+    Queued,
     /// The entry function returned normally; [`FiberObject::result`] holds the
     /// return value and the fiber can no longer be resumed.
     Done,
@@ -78,6 +89,10 @@ pub struct FiberObject {
     pub open_upvalues: BTreeMap<usize, ObjRef>,
     /// The fiber's lifecycle state ([`FiberStatus`]).
     pub status: FiberStatus,
+    /// Stable constructor identity: true only for the VM's root fiber.
+    /// Rootness must not be inferred from the dynamic `resumer` link, which is
+    /// a control-transfer detail and may be absent for scheduler-managed work.
+    pub is_root: bool,
     /// The fiber to hand control back to on `yield`/return/failure — a dynamic
     /// caller chain, not a fixed parent (`None` for the root fiber).
     pub resumer: Option<ObjRef>,
@@ -101,7 +116,7 @@ pub struct FiberObject {
     pub floor_depth: usize,
     /// How this fiber was last resumed ([`FiberResumeMode`]) — read at the
     /// fiber-floor capture when this fiber later finishes/fails. Meaningless
-    /// while [`FiberStatus::Suspended`] pre-first-resume; set on every
+    /// while [`FiberStatus::New`] pre-first-resume; set on every
     /// `call`/`try`.
     pub resume_mode: FiberResumeMode,
     /// The identity set of receivers currently under `@invariant`
@@ -136,7 +151,7 @@ pub struct FiberObject {
 impl FiberObject {
     /// Builds a fresh, not-yet-started fiber wrapping `entry` (its
     /// [`super::Object::Block`]/[`super::Object::Closure`] entry), status
-    /// [`FiberStatus::Suspended`] (ADR-0030 §2).
+    /// [`FiberStatus::New`] (ADR-0030 §2).
     pub fn new_entry(entry: ObjRef) -> Self {
         #[cfg(feature = "fiber-pool")]
         return Self::new_entry_with_buffers(entry, Vec::new(), Vec::new());
@@ -145,7 +160,8 @@ impl FiberObject {
             stack: Vec::new(),
             frames: Vec::new(),
             open_upvalues: BTreeMap::new(),
-            status: FiberStatus::Suspended,
+            status: FiberStatus::New,
+            is_root: false,
             resumer: None,
             result: Value::nil(),
             entry: Some(entry),
@@ -170,7 +186,8 @@ impl FiberObject {
             stack,
             frames,
             open_upvalues: BTreeMap::new(),
-            status: FiberStatus::Suspended,
+            status: FiberStatus::New,
+            is_root: false,
             resumer: None,
             result: Value::nil(),
             entry: Some(entry),
@@ -195,6 +212,7 @@ impl FiberObject {
             frames: Vec::new(),
             open_upvalues: BTreeMap::new(),
             status: FiberStatus::Running,
+            is_root: true,
             resumer: None,
             result: Value::nil(),
             entry: None,
