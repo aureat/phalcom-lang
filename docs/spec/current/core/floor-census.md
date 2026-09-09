@@ -35,14 +35,15 @@ language is *self-hosting above a small, fixed native boundary*
 
 | Metric | Count |
 |---|---|
-| Installed `(class, selector)` bindings — **all audited** (§1.3) | **226** |
+| Installed `(class, selector)` bindings — **all audited** (§1.3) | **229** |
 | Distinct native Rust functions | not separately maintained |
 | Classes carrying floor primitives | **28** (of 37 audited kernel classes) |
 | Sacred selectors (§5) | **7** |
 
 **Installed = audited, as of the current source-of-record test.** Every native binding
 `VM::new()` installs is enumerated in §2 and guarded by R-INV-0.1. The test currently
-asserts 226 bindings, including the scheduler-ownership and terminal-observer seams.
+asserts 229 bindings, including the scheduler-ownership, terminal-observer, and
+detached scheduler-failure reporting seams.
 
 ### 1.3 The source of record is the test, not this file
 
@@ -292,7 +293,7 @@ row, not the count, is what makes the freeze real.
 > bindings / distinct fns / floor-carrying classes / sacred selectors) describe the
 > 2026-07-15 audit point, not the current floor. Later runtime work added further
 > audited bindings, including the scheduler and completion-observer seams. The current
-> source-of-record test asserts **226** bindings; the remaining figures below explain
+> source-of-record test asserts **229** bindings; the remaining figures below explain
 > historical amendment chronology only (was **121 / 106 / 22 / 7** post-U-GC, **120 / 105 / 22 / 7**
 > post-M-ATTR-ROOT, **117 / 102 / 22 / 7** post-U-ANNOT-CONTRACTS,
 > **115 / 100 / 22 / 7** post-U-SCHED, **113 / 98 / 22 / 7** post-former Family amendment,
@@ -302,7 +303,8 @@ row, not the count, is what makes the freeze real.
 > **125 / 110 / 22 / 7** for the ~24h in 2026-07-15 between CB-2 reconciling the count and
 > CB-5 admitting `Fiber`). **Do not quote this line** — it is a dated rendering of
 > `invariants.rs` (§1.3), and it sat five amendments stale (at post-U15 / 112) until
-> 2026-07-15. The current installed count is the machine-checked **226** (§1.1).
+> 2026-07-15. The current installed count is the machine-checked **229** (§1.1), after
+> the three E010 scheduler-failure reporting bindings were added.
 > This census is the ground-truth *enumeration*; the count's authority is the test. The
 > landing history + drift policy live in [`README.md`](./README.md) §"Baseline & drift
 > policy" (itself re-baselined 2026-07-15 — it had been frozen at U-ERR/111).
@@ -539,13 +541,17 @@ snapshot that BoundMethodFamily closes over.
 |---|---|---|---|
 | `print(_)` | static | `system_class_print` | the sole I/O primitive |
 | `new()` | static | `system_class_new` | |
+| `schedule(_)` | static | `system_schedule` | scheduler admission |
+| `gc` | static | `system_gc` | force a collection |
 | `_$write(_)` | class-side | `system_raw_write` | internal raw stdout write; public wrappers are `.ph`-derived |
+| `_$nextScheduled` | static | `system_next_scheduled_internal` | internal FIFO dequeue |
+| `_$schedulerFailureCursor` | static | `system_scheduler_failure_cursor` | internal root-await drive boundary |
+| `_$takeUnhandledScheduledFailures(_)` | static | `system_take_unhandled_scheduled_failures` | internal root-await consumption |
+| `_$reportUnhandledScheduledFailures` | static | `system_report_unhandled_scheduled_failures` | internal safe-boundary reporting |
+| `_$wake(_,_)` | static | `system_wake` | internal exact Future wake |
 
-> Also present but not yet catalogued in this table: `schedule(_)`/`system_schedule`,
-> internal `_$nextScheduled`/`system_next_scheduled_internal`, `_$wake`/`system_wake`
-> (U-SCHED), and `gc()`/`system_gc` (U-GC step 3). The public raw
-> `nextScheduled` getter was removed in C5; the internal rows are listed here to
-> keep the floor inventory explicit.
+> The public raw `nextScheduled` getter was removed in C5; the internal rows above
+> retain queue ownership and failure-reporting authority inside the runtime.
 
 ### 2.12 `Module` — namespace object (U15, [ADR-0045](../../../adr/0045-module-import-relative-path-whole-module-binding.md))
 
@@ -845,7 +851,7 @@ Because the floor is frozen (ADR-0019), this census is a **contract**:
    reconstructs the installed native-`(class, selector)` set from a live
    `VM::new()` (filtering out `core.ph`-defined closures) and asserts it equals
    the census here. **The test is the source of record for the count (§1.3).**
-   It currently asserts **226** bindings; read the test and its live set rather
+   It currently asserts **229** bindings; read the test and its live set rather
    than treating this prose as an independent checksum.
    This turns silent floor drift into a red test; §1.1 is no longer a manual
    checksum.

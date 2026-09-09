@@ -698,7 +698,7 @@ fn subclass_static_field_offset_stability() {
 fn floor_census_matches_installed_bindings() {
     // R-INV-0.1 — reconstruct the installed `(class, selector)` floor from a
     // live `VM::new()` and assert it equals the census in
-    // `docs/spec/current/core/floor-census.md` (the current assertion is 226;
+    // `docs/spec/current/core/floor-census.md` (the current assertion is 229;
     // the historical amendment progression below starts at count = 88 after ADR-0023's +7,
     // ADR-0028's +5, U-CORE-4's +1, and U-CORE-6's own +2). Turns silent
     // floor drift — an accidental extra primitive, or a dropped one — into a
@@ -1060,6 +1060,9 @@ fn floor_census_matches_installed_bindings() {
         (c.system_class, true, "_$leakReport"),
         (c.system_class, true, "_$strictResources(_)"),
         (c.system_class, true, "_$nextScheduled"),
+        (c.system_class, true, "_$schedulerFailureCursor"),
+        (c.system_class, true, "_$takeUnhandledScheduledFailures(_)"),
+        (c.system_class, true, "_$reportUnhandledScheduledFailures"),
         (c.system_class, true, "_$wake(_,_)"),
     ];
 
@@ -1131,10 +1134,10 @@ fn floor_census_matches_installed_bindings() {
 
     assert_eq!(
         expected.len(),
-        226,
-        "census must enumerate exactly 226 bindings after concurrency scheduler ownership and terminal observer seams"
+        229,
+        "census must enumerate exactly 229 bindings after concurrency scheduler failure reporting seams"
     );
-    assert_eq!(live.len(), 226, "the live floor must be exactly 226 bindings");
+    assert_eq!(live.len(), 229, "the live floor must be exactly 229 bindings");
 }
 
 #[test]
