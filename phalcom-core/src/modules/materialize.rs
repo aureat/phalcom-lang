@@ -11,7 +11,71 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 impl VM {
-    /// Materializes one module's symbolic linked reads into VM-local entries.
+    /// Materializes one linked interface's public exports into runtime module
+    /// references. This is the single runtime projection from canonical linked
+    /// export identity to [`RuntimeExportRef`], shared by ordinary programs and
+    /// the eagerly allocated canonical Universe.
+    pub(crate) fn materialize_linked_exports_for_module(
+        &mut self,
+        id: &phalcom_modules::ModuleId,
+        interface: &phalcom_modules::LinkedModuleInterface,
+    ) -> PhResult<()> {
+        let obj_ref = self
+            .module_registry
+            .get(id)
+            .ok_or_else(|| RuntimeError::Internal(format!("module {id} not registered for export materialization")))?
+            .object;
+        let mut exports = HashMap::new();
+
+        for (exported_name, linked_export) in &interface.exports {
+            let public_sym = self.interner.intern(exported_name);
+            match &linked_export.target {
+                phalcom_modules::LinkedExportTarget::Binding(symbol) => {
+                    let target_mod_obj = self
+                        .module_registry
+                        .get(&symbol.module)
+                        .ok_or_else(|| RuntimeError::Internal(format!("export target module {} not registered", symbol.module)))?
+                        .object;
+                    let target_sym = self.interner.intern(&symbol.name);
+                    let slot = match self.heap.module(target_mod_obj).slot_of(target_sym) {
+                        Some(slot) => slot,
+                        None => self.heap.module_mut(target_mod_obj).declare(target_sym)?,
+                    };
+                    if symbol.module.project.is_universe() {
+                        let declaration = phalcom_modules::DeclarationId::new(symbol.module.clone(), symbol.name.clone());
+                        if let Some(class_id) = self.resolve_universe_declaration_class(&declaration) {
+                            self.heap.module_mut(target_mod_obj).set_global(slot, crate::value::Value::obj(class_id))?;
+                        }
+                    }
+                    exports.insert(
+                        public_sym,
+                        RuntimeExportRef::Binding(BindingRef {
+                            module: target_mod_obj,
+                            slot: u16::try_from(slot).map_err(|_| {
+                                RuntimeError::Internal(format!("export binding slot overflow in {}::{}", symbol.module, symbol.name))
+                            })?,
+                        }),
+                    );
+                }
+                phalcom_modules::LinkedExportTarget::Module(target_mod_id) => {
+                    let target_mod_obj = self
+                        .module_registry
+                        .get(target_mod_id)
+                        .ok_or_else(|| RuntimeError::Internal(format!("export target module {target_mod_id} not registered")))?
+                        .object;
+                    exports.insert(public_sym, RuntimeExportRef::Module(target_mod_obj));
+                }
+            }
+        }
+
+        self.heap.module_mut(obj_ref).exports = exports;
+        Ok(())
+    }
+
+    /// Materializes one module's symbolic linked reads and public exports into
+    /// VM-local references. Canonical Universe compilation uses this same seam,
+    /// so an eagerly allocated builtin module cannot drift from its linked
+    /// interface's export surface.
     pub(crate) fn materialize_linked_reads_for_module(
         &mut self,
         id: &phalcom_modules::ModuleId,
@@ -62,6 +126,7 @@ impl VM {
         }
 
         self.heap.module_mut(obj_ref).linked_reads = materialized_reads;
+        self.materialize_linked_exports_for_module(id, &compiled_mod.interface)?;
         Ok(())
     }
 
@@ -296,57 +361,14 @@ impl VM {
             }
         }
 
-        // Phase 4: Materialize linked reads (resolve LinkedReadSpec -> RuntimeLinkedRead).
+        // Phase 4: Materialize linked reads and export tables.
         for (id, compiled_mod) in &program.modules {
             self.materialize_linked_reads_for_module(id, compiled_mod)?;
         }
 
-        // Phase 5: Materialize export table on ModuleObject.
-        for (id, compiled_mod) in &program.modules {
-            let obj_ref = self.module_registry.get(id).expect("module allocated").object;
-            let mut exports = HashMap::new();
-
-            for (exported_name, linked_export) in &compiled_mod.interface.exports {
-                let public_sym = self.interner.intern(exported_name);
-                match &linked_export.target {
-                    phalcom_modules::LinkedExportTarget::Binding(symbol) => {
-                        let target_mod_obj = self
-                            .module_registry
-                            .get(&symbol.module)
-                            .ok_or_else(|| RuntimeError::Internal(format!("export target module {} not registered", symbol.module)))?
-                            .object;
-                        let target_sym = self.interner.intern(&symbol.name);
-
-                        let slot = match self.heap.module(target_mod_obj).slot_of(target_sym) {
-                            Some(s) => s,
-                            None => self.heap.module_mut(target_mod_obj).declare(target_sym)?,
-                        };
-                        if symbol.module.project.is_universe() {
-                            let declaration = phalcom_modules::DeclarationId::new(symbol.module.clone(), symbol.name.clone());
-                            if let Some(class_id) = self.resolve_universe_declaration_class(&declaration) {
-                                self.heap.module_mut(target_mod_obj).set_global(slot, crate::value::Value::obj(class_id))?;
-                            }
-                        }
-                        exports.insert(
-                            public_sym,
-                            RuntimeExportRef::Binding(BindingRef {
-                                module: target_mod_obj,
-                                slot: slot as u16,
-                            }),
-                        );
-                    }
-                    phalcom_modules::LinkedExportTarget::Module(target_mod_id) => {
-                        let target_mod_obj = self
-                            .module_registry
-                            .get(target_mod_id)
-                            .ok_or_else(|| RuntimeError::Internal(format!("export target module {target_mod_id} not registered")))?
-                            .object;
-                        exports.insert(public_sym, RuntimeExportRef::Module(target_mod_obj));
-                    }
-                }
-            }
-            self.heap.module_mut(obj_ref).exports = exports;
-        }
+        // Phase 5 is intentionally folded into Phase 4. Canonical Universe
+        // compilation also calls `materialize_linked_reads_for_module`, so both
+        // runtime paths now share exactly one linked-export projection.
 
         // Phase 6: Top-level closures are compiled on-demand by run_compiled rather than pre-stored on plans.
 
