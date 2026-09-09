@@ -6,6 +6,7 @@ use phalcom_core::bytecode::Bytecode;
 use phalcom_core::compiler::lib::CompilerError;
 use phalcom_core::error::PhError;
 use phalcom_core::modules::compile::{CompiledProgram, EntrySelection, ProgramCompiler};
+use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
 use std::sync::Arc;
 
@@ -64,7 +65,7 @@ enum Weird {
   @variant Marker(_ value: Int)
 }
 
-let make = Weird::Marker::*;
+let make = &Weird::Marker;
 let static_value = make(1)
 let args = [1];
 let dynamic_value = make(*args)
@@ -114,7 +115,7 @@ enum Weird {
   @variant Marker(_ value: Int)
 }
 
-let value = (Weird::Marker::*)(1)
+let value = (&Weird::Marker)(1)
 "#;
     let mut program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("program should analyze");
     let entry = program.entry.clone();
@@ -129,4 +130,39 @@ let value = (Weird::Marker::*)(1)
         .compile_program_module_closure(&entry, source, &program)
         .expect_err("missing family application lowering must be a compiler error");
     assert!(matches!(err, PhError::Compile(CompilerError::MissingFamilyApplicationResolution(_))));
+}
+
+#[test]
+fn bound_callable_reference_uses_family_lowering_and_evaluates_receiver_once() {
+    let source = r#"
+class Router {
+  route(_ value: Int) -> Int { value }
+}
+
+let family = &Router.new().route(_)
+let result = family(7)
+"#;
+    let (mut vm, program, closure) = compile_inline(source).expect("bound callable reference should compile");
+    let lowering = &program.modules[&program.entry].lowering;
+    assert!(lowering.associated.is_empty(), "bound references must not use associated lowering");
+    let reference = lowering.callable_references.values().next().expect("bound callable reference lowering");
+    assert!(matches!(
+        reference,
+        phalcom_core::modules::semantic_lowering::CallableReferenceLoweringSpec::MakeBoundFamily { .. }
+    ));
+
+    let chunk = &vm.heap.closure(closure).callable.chunk;
+    assert_eq!(chunk.code.iter().filter(|op| matches!(op, Bytecode::MakeFamily { .. })).count(), 1);
+    assert!(!chunk.code.iter().any(|op| matches!(op, Bytecode::InvokeResolvedAssociated { .. })));
+
+    vm.run_compiled(&program)
+        .expect("bound family should execute through the canonical compiler path");
+    let entry_id = program.initialization_order.last().expect("entry module");
+    let module = vm.module_registry.get(entry_id).expect("entry module registered").object;
+    let result = vm
+        .heap
+        .module(module)
+        .get(vm.interner.find("result").expect("result symbol"))
+        .expect("result binding");
+    assert_eq!(result, Value::int(7));
 }

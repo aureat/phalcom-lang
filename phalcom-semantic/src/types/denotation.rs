@@ -21,6 +21,15 @@ pub struct CapturedBehavioralMember {
     pub target: InvocationTargetId,
 }
 
+/// Semantic denotation for a family bound to an ordinary receiver.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct BehavioralFamilyDenotation {
+    pub receiver_type: TypeId,
+    pub receiver_application: Option<TypeId>,
+    pub spec: BehavioralFamilySpec,
+    pub members: Arc<[CapturedBehavioralMember]>,
+}
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum AssociatedValueDenotation {
     Exact {
@@ -34,19 +43,6 @@ pub enum AssociatedValueDenotation {
         lookup_owner: DeclarationId,
         family: AssociatedFamilyId,
         members: Arc<[CapturedAssociatedMember]>,
-    },
-    /// Ordinary receiver-bound behavioral family. Its receiver is retained in
-    /// the executable `MakeFamily` projection; targets here are static
-    /// candidate knowledge only.
-    BehavioralFamily {
-        receiver_type: TypeId,
-        /// Applied class-side type form, when the family was captured from a
-        /// type-form receiver. `receiver_type` remains the runtime dispatch
-        /// descriptor; this field preserves declaration arguments for the
-        /// later family-member invocation.
-        receiver_application: Option<TypeId>,
-        spec: BehavioralFamilySpec,
-        members: Arc<[CapturedBehavioralMember]>,
     },
 }
 
@@ -76,6 +72,8 @@ pub enum SemanticDenotation {
     TypeForm(TypeId),
     Kind(KindId),
     AssociatedValue(Box<AssociatedValueDenotation>),
+    /// A behavioral family captured from an ordinary receiver.
+    BehavioralFamily(Box<BehavioralFamilyDenotation>),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

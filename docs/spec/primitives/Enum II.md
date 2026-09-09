@@ -100,9 +100,10 @@ NominalType Option<T> {
 
 ```ph
 
-(Person::name::)()
+(&Person.name)()
 
-Person::name::=(_)(value)
+// Setter callable references have no separate source spelling; use the
+// ordinary setter send or the reflection API when a setter route is needed.
 
 System::"init new(_)"
 
@@ -126,15 +127,11 @@ enum Result<T, E> {
 Result::Err(TypeError("type mismatch"))
 Result:Ok(())
 
-Result::Err:: // the getter only
-Result::Err::* // the whole family
+&Result::Err
+&Result::Err(_)
+&Result::Err(...)
 
-Result::Err
-Result::Err*
-
-Result::*call::* // really want this to be the whole family
-
-Result::Ok:: // getter only
+&Result::Ok
 ```
 
 ```ph
@@ -159,23 +156,18 @@ enum Option<T> {
 	@variant None
 }
 
-const Ok = Result::*Ok()
-const Ok = Result::Ok(_)
-const Err = Result::*Err
-const Err = Result::Err(_)
+const Ok = &Result::Ok
+const Err = &Result::Err
 
-const Some = Option::Some::(10)
+const Some = &Option::Some
 const None = Option::None
 
 
 ```
 
 ```ph
-10::+() // 10
-10::-() // -10
-10::not() // Object::doesNotUnderstand::(_)
-
-10::not
+10 + 0 // ordinary operator send
+10.not // ordinary dot send; absent behavior follows normal dispatch
 
 Option::None
 ```

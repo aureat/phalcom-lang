@@ -169,8 +169,8 @@ impl Universe {
         let fiber_class = make_core_class(heap, "Fiber", object_class, metaclass_class);
         let cannot_yield_across_native_frame_class = make_core_class(heap, "CannotYieldAcrossNativeFrame", error_class, metaclass_class);
 
-        // `Family` (selectors.md §3, U16-Open, ADR-0047): the callable value
-        // a `::` method reference produces, a native `Object::Family` heap
+        // `Family` (selectors.md §3, ADR-0047): the callable value an `&`
+        // callable reference produces, a native `Object::Family` heap
         // variant (no `Value::Family` arm) sitting directly under `Object`,
         // mirroring `Fiber`/`List`.
         let resource_class = make_core_class(heap, "Resource", object_class, metaclass_class);
@@ -514,8 +514,8 @@ pub struct CoreClasses {
     /// native frame (ADR-0030 §4, D-FIB-1). A direct subclass of
     /// [`Self::error_class`].
     pub cannot_yield_across_native_frame_class: ClassId,
-    /// `Family`, the callable value a `::` method reference produces
-    /// (selectors.md §3, U16-Open, [ADR-0047](../../../docs/adr/accepted/0047-amend-floor-admit-family-call-router.md)).
+    /// `Family`, the callable value an `&` callable reference produces
+    /// (selectors.md §3, [ADR-0047](../../../docs/adr/accepted/0047-amend-floor-admit-family-call-router.md)).
     /// Backed by [`crate::heap::Object::Family`] — no `Value::Family` arm.
     pub family_class: ClassId,
     /// `Resource`, kernel disposable handle base class.

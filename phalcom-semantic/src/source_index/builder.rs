@@ -1151,6 +1151,10 @@ impl SourceScopeBuilder<'_> {
                 self.visit_expr(scope, &invoke.receiver);
                 self.visit_pack_items(scope, &invoke.args);
             }
+            Expr::CallableReference(reference) => match &reference.target {
+                phalcom_ast::ast::CallableReferenceTarget::BoundNamed { receiver, .. }
+                | phalcom_ast::ast::CallableReferenceTarget::AssociatedNamed { receiver, .. } => self.visit_expr(scope, receiver),
+            },
             Expr::Match(match_expr) => {
                 self.visit_expr(scope, &match_expr.value);
                 for arm in &match_expr.arms {

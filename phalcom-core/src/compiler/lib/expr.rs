@@ -541,6 +541,9 @@ impl<'vm> Compiler<'vm> {
             Expr::AssociatedInvoke(expr) => {
                 self.compile_associated_invoke(&expr)?;
             }
+            Expr::CallableReference(expr) => {
+                self.compile_callable_reference(&expr)?;
+            }
             Expr::GetProperty(get_prop) => {
                 self.check_bounded_property(&get_prop.property, &get_prop.object, get_prop.range)?;
                 // `super.prop` is a zero-arg super send (U-INH §3.4); the

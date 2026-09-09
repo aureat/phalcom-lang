@@ -1,8 +1,7 @@
 use crate::semantic::support::{Fixture, applied};
 use phalcom_semantic::checker::analysis::AnalysisStatus;
-use phalcom_semantic::checker::associated::AssociatedResolutionKind;
 use phalcom_semantic::diagnostic::DiagnosticCode;
-use phalcom_semantic::identity::{DispatchSide, InvocationTargetId};
+use phalcom_semantic::identity::DispatchSide;
 use phalcom_semantic::types::evidence::{TypeKnowledge, UnknownReason};
 
 #[test]
@@ -52,34 +51,14 @@ class Probe {
 
     let inferred_call = fixture.expression(run, "Box.new(10)");
     let explicit_call = fixture.expression(run, "Box<Int>.new(10)");
-    let inferred_resolution = run
-        .associated_resolutions
-        .get(&inferred_call.id)
-        .expect("inferred class-side invocation resolution");
-    let explicit_resolution = run
-        .associated_resolutions
-        .get(&explicit_call.id)
-        .expect("explicit class-side invocation resolution");
-    let int_get = fixture.expression(run, "Box<Int>.instances");
-    let string_get = fixture.expression(run, "Box<String>.instances");
-    let invocation = |resolution: &phalcom_semantic::checker::associated::AssociatedResolution| {
-        let AssociatedResolutionKind::BoundBehavioralInvoke {
-            target: InvocationTargetId::Behavioral(callable),
-            ..
-        } = &resolution.kind
-        else {
-            panic!("expected bound behavioral invocation, got {:?}", resolution.kind);
-        };
-        (callable.clone(), resolution.owner_form)
-    };
-    let (inferred_target, inferred_owner) = invocation(inferred_resolution);
-    let (explicit_target, explicit_owner) = invocation(explicit_resolution);
-    assert_eq!(inferred_target, explicit_target, "constructor callable identity must be shared");
-    assert_eq!(inferred_owner, explicit_owner, "inferred and explicit Int construction must converge");
-    assert_eq!(explicit_owner, fixture.binding(run, "explicit").current.ty().expect("explicit receiver type"));
-    let (_, int_get_owner) = invocation(run.associated_resolutions.get(&int_get.id).expect("Int getter resolution"));
-    let (_, string_get_owner) = invocation(run.associated_resolutions.get(&string_get.id).expect("String getter resolution"));
-    assert_ne!(int_get_owner, string_get_owner, "applied class-side receiver applications remain distinct");
+    assert!(
+        run.associated_resolutions.get(&inferred_call.id).is_none(),
+        "ordinary class-side calls are not associated lookups"
+    );
+    assert!(
+        run.associated_resolutions.get(&explicit_call.id).is_none(),
+        "ordinary class-side calls are not associated lookups"
+    );
     assert!(matches!(inferred_call.status, AnalysisStatus::Ready), "{inferred_call:#?}");
     fixture.assert_no_diagnostic(DiagnosticCode::GenericInferenceConflict);
 }

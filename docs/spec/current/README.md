@@ -20,7 +20,7 @@ silently invented.
 | [Blocks](blocks.md) | Blocks/lambdas, non-local return, `Block` as a class |
 | [Functions, Blocks & Methods](functions.md) | The callable tower: abstract `Function`, `Block`, `Method`, one closure representation |
 | [Messages & Selectors](messages-and-selectors.md) | Selector identity, labels, spread & rest |
-| [Selectors, Symbols & References](selectors.md) | Selector identity, # symbols, :: method references, @ attributes, field visibility |
+| [Selectors, Symbols & References](selectors.md) | Selector identity, # symbols, & callable references, @ attributes, field visibility |
 | [Classes](classes.md) | `@constructor`, `@class`, fields, methods, accessors, operators |
 | [Method Lookup](method-lookup.md) | Resolution order, `doesNotUnderstand`, `Message` |
 | [Control Flow](control-flow.md) | `if`/`while`/`for` sugar, `and`/`or`, the inliner |

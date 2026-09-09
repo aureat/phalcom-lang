@@ -3,7 +3,7 @@ use std::sync::Arc;
 use phalcom_common::selector::Selector;
 use phalcom_modules::identity::ModuleId;
 use phalcom_semantic::analyze_single_module;
-use phalcom_semantic::checker::AssociatedResolutionKind;
+use phalcom_semantic::checker::{AssociatedResolutionKind, CallableReferenceResolutionKind};
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 
 #[test]
@@ -17,7 +17,7 @@ enum Option<T> {
 }
 class Probe {
   @class direct() { Option<Int>::Some(42) }
-  @class family() { Option<Int>::Some::* }
+  @class family() { &Option<Int>::Some }
 }
 "#,
     );
@@ -30,7 +30,7 @@ class Probe {
     assert!(matches!(direct.kind, AssociatedResolutionKind::StaticInvoke { .. }));
     assert!(direct.owner_form != phalcom_semantic::TypeId::DUMMY);
 
-    let family = callable_resolution(&analysis, &source, &probe, "family", "Option<Int>::Some::*");
+    let family = callable_resolution(&analysis, &source, &probe, "family", "&Option<Int>::Some");
     assert!(matches!(&family.kind, AssociatedResolutionKind::Family { members, .. } if members.len() == 1));
 }
 
@@ -52,5 +52,16 @@ fn callable_resolution<'a>(
         .values()
         .find(|candidate| source.get(candidate.range.start..candidate.range.end) == Some(text))
         .expect("associated expression");
-    callable_analysis.associated_resolutions.get(&expression.id).expect("associated resolution")
+    if let Some(resolution) = callable_analysis.associated_resolutions.get(&expression.id) {
+        return resolution;
+    }
+    match &callable_analysis
+        .callable_reference_resolutions
+        .get(&expression.id)
+        .expect("callable reference resolution")
+        .kind
+    {
+        CallableReferenceResolutionKind::Associated(resolution) => resolution,
+        CallableReferenceResolutionKind::BoundFamily { .. } => panic!("expected associated callable reference"),
+    }
 }

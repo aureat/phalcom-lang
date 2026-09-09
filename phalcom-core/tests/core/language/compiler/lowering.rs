@@ -67,7 +67,7 @@ let payload = Weird::Marker(1, 2)
 }
 
 #[test]
-fn behavioral_bound_call_projects_exact_selector_without_associated_fallback() {
+fn class_side_call_uses_ordinary_dispatch_without_associated_lowering() {
     let source = r#"
 class Factory {
   @class make(value: Int) -> Int {
@@ -75,20 +75,15 @@ class Factory {
   }
 }
 
-let result = Factory::make(value: 1)
+let result = Factory.make(value: 1)
 "#;
     let (vm, program, closure) = compile_inline(source).expect("source should compile");
     let lowering = &program.modules[&program.entry].lowering;
-    let spec = lowering
-        .associated
-        .iter()
-        .find(|(site, _)| site.kind == LoweringSiteKind::AssociatedInvoke)
-        .map(|(_, spec)| spec)
-        .expect("associated invocation lowering");
-    let AssociatedLoweringSpec::InvokeBoundBehavioral { selector } = spec else {
-        panic!("expected ordinary bound invocation lowering, got {spec:?}");
-    };
-    assert_eq!(selector.slots.as_ref(), [SelectorSlot::Label("value".into())]);
+    assert!(lowering.associated.is_empty(), "ordinary class-side calls must not use associated lowering");
+    assert!(
+        lowering.callable_references.is_empty(),
+        "ordinary class-side calls must not use reference lowering"
+    );
 
     let chunk = &vm.heap.closure(closure).callable.chunk;
     assert!(chunk.code.iter().any(|op| matches!(op, Bytecode::Invoke(1, _))));
@@ -105,7 +100,7 @@ enum Weird {
   @variant Marker(_ value: Int)
 }
 
-let make = Weird::Marker::*;
+let make = &Weird::Marker;
 let static_value = make(1)
 let args = [1];
 let dynamic_value = make(*args)

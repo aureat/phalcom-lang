@@ -681,20 +681,15 @@ fn hash_denotation(denotation: &Option<SemanticDenotation>, hasher: &mut impl Ha
                         m.hash(hasher);
                     }
                 }
-                crate::types::denotation::AssociatedValueDenotation::BehavioralFamily {
-                    receiver_type,
-                    receiver_application,
-                    spec,
-                    members,
-                } => {
-                    2u8.hash(hasher);
-                    receiver_type.hash(hasher);
-                    receiver_application.hash(hasher);
-                    spec.hash(hasher);
-                    for member in members.iter() {
-                        member.hash(hasher);
-                    }
-                }
+            }
+        }
+        Some(SemanticDenotation::BehavioralFamily(family)) => {
+            4u8.hash(hasher);
+            family.receiver_type.hash(hasher);
+            family.receiver_application.hash(hasher);
+            family.spec.hash(hasher);
+            for member in family.members.iter() {
+                member.hash(hasher);
             }
         }
     }

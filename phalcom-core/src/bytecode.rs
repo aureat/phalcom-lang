@@ -361,7 +361,7 @@ pub enum Bytecode {
     /// materialization is performed by the program runtime, not this opcode.
     GetLinked(u16),
 
-    /// Builds a bound `::` method-reference **Family** value from a receiver
+    /// Builds a bound `&` callable-reference **Family** value from a receiver
     /// on the stack. `kind` explicitly identifies whether `spec` is an exact
     /// interned selector or a first-class structural pattern. Construction is
     /// pure capture: it does not resolve or authorize a target method. The

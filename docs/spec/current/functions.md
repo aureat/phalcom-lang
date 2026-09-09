@@ -173,8 +173,8 @@ values: `let g = 3.methodFor(#+(_))`; `g.invokeOn(3, ***(4,))` → `7`. (`#+(_)`
 bare selector-symbol literal, comma form — see
 [Selectors, Symbols & References §2](selectors.md#2-symbol-literals-).)
 
-**Relationship to `::` families.** `Method.bind`/`methodFor`/`invokeOn` above and
-[Selectors, Symbols & References §3](selectors.md#3-method-references-) (`::`
+**Relationship to `Family` values.** `Method.bind`/`methodFor`/`invokeOn` above and
+[Selectors, Symbols & References §3](selectors.md#3-callable-references-) (`&`
 `Family`) produce different concrete Function values, but both enter through
 Function's shape-aware `call(***)` gateway. Family routing is explicit runtime
 activation; it does not rely on an intentional `doesNotUnderstand(_)` miss.

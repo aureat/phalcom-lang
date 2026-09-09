@@ -1,10 +1,11 @@
 use indexmap::IndexMap;
 use phalcom_common::selector::{SelectorKindPattern, SelectorPattern};
 use phalcom_core::bytecode::{Bytecode, FamilySpecKind};
-use phalcom_core::compiler::lib::UnitKind;
 use phalcom_core::error::{PhError, RuntimeError};
 use phalcom_core::heap::{BoundMethodFamilyObject, InstanceObject, MethodFamilyObject, Object};
 use phalcom_core::method::{MethodObject, SignatureKind};
+use phalcom_core::modules::ModuleFailure;
+use phalcom_core::modules::compile::{CompiledProgram, EntrySelection, ProgramCompiler};
 use phalcom_core::primitive::block::block_call;
 use phalcom_core::primitive::class::{behavior_extract, class_new_};
 use phalcom_core::primitive::method::method_bind;
@@ -12,15 +13,20 @@ use phalcom_core::primitive::method_family::{method_family_bind, method_family_m
 use phalcom_core::primitive::object::object_method_for;
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
+use std::sync::Arc;
+
+fn compile_inline(source: &str) -> Result<(VM, CompiledProgram, phalcom_core::heap::ObjRef), PhError> {
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).map_err(PhError::from)?;
+    let mut vm = VM::new();
+    vm.materialize_program(&program)?;
+    let closure = vm.compile_program_module_closure(&program.entry, source, &program)?;
+    Ok((vm, program, closure))
+}
 
 #[test]
-#[ignore = "associated lowering scheduled for Part 3/4"]
-fn make_family_uses_explicit_exact_discriminator_and_allows_future_method() {
-    let mut vm = VM::new();
-    let module = vm.create_module("main", "<family>");
-    let closure = vm
-        .compile_closure_as(module, "const f = 1::future::()\n", UnitKind::File)
-        .expect("exact family compiles");
+fn make_family_uses_explicit_exact_discriminator() {
+    let source = "const f = &1.compare(_)\n";
+    let (mut vm, program, closure) = compile_inline(source).expect("exact family compiles");
     let chunk = &vm.heap.closure(closure).callable.chunk;
     assert!(chunk.code.iter().any(|opcode| matches!(
         opcode,
@@ -29,17 +35,13 @@ fn make_family_uses_explicit_exact_discriminator_and_allows_future_method() {
             ..
         }
     )));
-    vm.run_cell(module, closure).expect("family construction does not resolve target method");
+    vm.run_compiled(&program).expect("family construction does not resolve target method");
 }
 
 #[test]
-#[ignore = "associated lowering scheduled for Part 3/4"]
 fn make_family_compiles_pattern_object_without_punctuation_heuristic() {
-    let mut vm = VM::new();
-    let module = vm.create_module("main", "<family>");
-    let closure = vm
-        .compile_closure_as(module, "const f = 1::future::*\n", UnitKind::File)
-        .expect("pattern family compiles");
+    let source = "const f = &1.compare\n";
+    let (mut vm, program, closure) = compile_inline(source).expect("pattern family compiles");
     let chunk = &vm.heap.closure(closure).callable.chunk;
     let pattern = chunk.constants.iter().find_map(|constant| {
         if let Some(id) = constant.as_obj() {
@@ -57,27 +59,26 @@ fn make_family_compiles_pattern_object_without_punctuation_heuristic() {
             ..
         }
     )));
-    vm.run_cell(module, closure).expect("pattern family construction succeeds");
+    vm.run_compiled(&program).expect("pattern family construction succeeds");
 }
 
 #[test]
-#[ignore = "associated lowering scheduled for Part 3/4"]
 fn family_pattern_mismatch_returns_typed_error_before_dispatch() {
-    let mut vm = VM::new();
-    let module = vm.create_module("main", "family-pattern-mismatch");
-    let closure = vm
-        .compile_closure(
-            module,
-            "class Router { route() { 0 } route(_ value) { value } }\nconst family = Router.new()::route::*\nfamily()\n",
-        )
-        .expect("family mismatch fixture compiles");
+    let source = "class Router { route() { 0 } route(_ value) { value } }\nlet family = &Router.new().route(_, ...)\nfamily()\n";
+    let (mut vm, program, _closure) = compile_inline(source).expect("family mismatch fixture compiles");
 
-    let error = vm.run_in_module(module, closure).expect_err("mismatched family call must fail");
-    let PhError::Runtime(RuntimeError::SelectorPatternMismatch(ctx)) = error else {
-        panic!("expected typed selector-pattern mismatch, got {error:?}");
+    let error = vm.run_compiled(&program).expect_err("mismatched family call must fail");
+    let PhError::ModuleInitialization(initialization) = error else {
+        panic!("expected module initialization envelope, got {error:?}");
     };
-    let pattern = ctx.pattern;
-    let selector = ctx.selector;
+    let ModuleFailure::Initializer { cause } = initialization.failure.as_ref() else {
+        panic!("expected initializer failure, got {:?}", initialization.failure);
+    };
+    let PhError::Runtime(RuntimeError::SelectorPatternMismatch(ctx)) = cause.as_ref() else {
+        panic!("expected typed selector-pattern mismatch, got {cause:?}");
+    };
+    let pattern = &ctx.pattern;
+    let selector = &ctx.selector;
     let family_id = ctx.family.as_obj().expect("expected family obj");
     let receiver_id = ctx.receiver.as_obj().expect("expected receiver obj");
 
@@ -88,25 +89,20 @@ fn family_pattern_mismatch_returns_typed_error_before_dispatch() {
 }
 
 #[test]
-#[ignore = "associated lowering scheduled for Part 3/4"]
-fn immediately_called_exact_method_ref_uses_direct_send_shape() {
-    let mut vm = VM::new();
-    let module = vm.create_module("main", "<family-specialization>");
-    let closure = vm
-        .compile_closure(module, "let result = 1::future(2)\n")
-        .expect("immediate exact MethodRef compiles");
-    let selector = vm.get_or_intern("future(_)");
+fn immediately_called_exact_method_ref_keeps_family_shape() {
+    let source = "let result = (&1.compare(_))(2)\n";
+    let (vm, _program, closure) = compile_inline(source).expect("immediate exact callable reference compiles");
     let chunk = &vm.heap.closure(closure).callable.chunk;
     assert!(
-        !chunk.code.iter().any(|opcode| matches!(opcode, Bytecode::MakeFamily { .. })),
-        "specialized call must not allocate Family"
+        chunk.code.iter().any(|opcode| matches!(
+            opcode,
+            Bytecode::MakeFamily {
+                kind: FamilySpecKind::Exact,
+                ..
+            }
+        )),
+        "bound exact references must retain Family construction"
     );
-    assert!(chunk.code.iter().any(|opcode| {
-        let Bytecode::Invoke(1, selector_idx) = opcode else {
-            return false;
-        };
-        chunk.constants[*selector_idx as usize].as_symbol().ok() == Some(selector)
-    }));
 }
 
 #[test]
@@ -333,20 +329,6 @@ fn any_named_bound_family_prefers_method_shape_over_accessor_shapes() {
     let unary = vm.heap.module(module).get(vm.interner.intern("unary")).expect("unary result should exist");
     assert_eq!(nullary, Value::int(2));
     assert_eq!(unary, Value::int(4));
-}
-
-#[test]
-#[ignore = "associated lowering scheduled for Part 3/4"]
-fn exact_setter_family_accepts_family_set_shape() {
-    let mut vm = VM::new();
-    let module = vm.create_module("main", "exact_setter_family_shape");
-    vm.interpret_source(
-        module,
-        "class Source { @constructor new() { _name = 1 } name { _name } name=(put value) { _name = value } }\nlet source = Source.new()\nlet setter = source::name=(put)\nsetter.set(42)\nlet result = source.name\n",
-    )
-    .expect("exact setter Family should accept Family#set shape");
-    let result = vm.heap.module(module).get(vm.interner.intern("result")).expect("result should exist");
-    assert_eq!(result, Value::int(42));
 }
 
 #[test]

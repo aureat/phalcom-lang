@@ -16,7 +16,7 @@ enum State {
 }
 class Probe {
   @class run() {
-    let first = State::Ready::*;
+    let first = &State::Ready;
     let second = first;
     second
   }
@@ -32,7 +32,7 @@ class Probe {
     let capture = callable
         .expressions
         .values()
-        .find(|candidate| source.get(candidate.range.start..candidate.range.end) == Some("State::Ready::*"))
+        .find(|candidate| source.get(candidate.range.start..candidate.range.end) == Some("&State::Ready"))
         .expect("family capture");
     let stored = callable
         .expressions

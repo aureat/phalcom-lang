@@ -4,7 +4,7 @@ use phalcom_common::selector::{Selector, SelectorKind, SelectorSlot};
 use phalcom_modules::identity::ModuleId;
 use phalcom_semantic::AssociatedMemberId;
 use phalcom_semantic::analyze_single_module;
-use phalcom_semantic::checker::AssociatedResolutionKind;
+use phalcom_semantic::checker::{AssociatedResolutionKind, CallableReferenceResolutionKind};
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide, VariantId};
 use phalcom_semantic::types::denotation::{AssociatedValueDenotation, SemanticDenotation};
 
@@ -19,7 +19,7 @@ enum Weird {
   @variant Marker(_ value: Int)
 }
 class Probe {
-  @class run() { Weird::Marker::* }
+  @class run() { &Weird::Marker }
 }
 "#,
     );
@@ -32,9 +32,12 @@ class Probe {
     let expression = callable
         .expressions
         .values()
-        .find(|candidate| source.get(candidate.range.start..candidate.range.end) == Some("Weird::Marker::*"))
+        .find(|candidate| source.get(candidate.range.start..candidate.range.end) == Some("&Weird::Marker"))
         .expect("family capture expression");
-    let resolution = callable.associated_resolutions.get(&expression.id).expect("family resolution");
+    let reference = callable.callable_reference_resolutions.get(&expression.id).expect("family resolution");
+    let CallableReferenceResolutionKind::Associated(resolution) = &reference.kind else {
+        panic!("expected associated callable reference resolution, got {:?}", reference.kind);
+    };
 
     let AssociatedResolutionKind::Family { members, .. } = &resolution.kind else {
         panic!("expected family resolution, got {:?}", resolution.kind);

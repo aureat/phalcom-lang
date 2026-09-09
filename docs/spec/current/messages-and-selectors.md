@@ -123,7 +123,7 @@ name-symbol vs. selector-symbol distinction.
 ---
 
 See [Selectors, Symbols & References](selectors.md) for the full treatment of
-selector identity (§1), `#` symbol literals (§2), `::` method references (§3),
+selector identity (§1), `#` symbol literals (§2), `&` callable references (§3),
 `@` attributes (§4), and field visibility (§5) — this part covers send syntax
 and declaration; selectors.md covers symbol/reference machinery built on top.
 </content>

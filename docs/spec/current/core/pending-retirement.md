@@ -122,7 +122,7 @@ one, others are co-requisites. "syntax" always means **U-LEX**.
 | `dispatch/dispatch_spread_call` | C | `[1,2,3]` list literal + `f(*args)` spread-call syntax | **U-LEX** (STATE.md: spread-call future) |
 | `functions/functions_method_bind` | C+B | `#greet(_)` literal + `methodFor(_)`/`Method#bind(_)` | U-LEX + **U-CORE-1/3** |
 | `functions/functions_method_for_invoke_on` | C+B | `#+(_)` literal + `[4]` literal + `methodFor(_)`/`Method#invokeOn(_,_)` | U-LEX + **U-CORE-3** |
-| `messages/messages_family_reference` | C+B | `p::move` family reference (`::`) | U-LEX + **U-CORE-3** (Family) |
+| `messages/messages_family_reference` | C+B | `&p.move` callable reference (`&`) | U-LEX + **U-CORE-3** (Family) |
 | `messages/messages_selector_symbol_literal` | C | `#move(_,to,duration)` selector literal + its `toString` | **U-LEX** (+ U-CORE-4 Symbol `toString`) |
 | `lexical/lexical_list_literal` | C | `[…]` literal lowering | **U-LEX** |
 | `lexical/lexical_tuple_literal` | C+E | `(a,b)` literal + `Tuple` class | U-LEX + collections |
@@ -151,7 +151,7 @@ an immediate green.
 |---|---|---|
 | **U-CORE-1** kernel reflection | `metaclass/metaclass_is_a` (via `isA(_)`) | `functions/functions_method_bind` (via `methodFor`/`Method`), partial |
 | **U-CORE-2** absence + Boolean | — (its combinators already landed `0da64d6`; no pending fixture is gated on the residue) | — |
-| **U-CORE-3** callables/Block | — | `functions/functions_method_for_invoke_on`, `functions/functions_method_bind`, `messages/messages_family_reference` (all need U-LEX `#…`/`::`) |
+| **U-CORE-3** callables/Block | — | `functions/functions_method_for_invoke_on`, `functions/functions_method_bind`, `messages/messages_family_reference` (all need U-LEX `#…`/`&`) |
 | **U-CORE-4** value classes | `absence/absence_option_none`, `absence/absence_var_defaults_to_none`, `bindings/binding_var_uninitialized` (all via `None#toString`) | `absence/absence_option_some` (needs U-LEX `Some(_)` sugar too); `messages/messages_selector_symbol_literal` (Symbol `toString`, needs U-LEX literal) |
 | **U-CORE-5** collection contract | — (contract, not classes — ADR-0020; flips nothing directly) | enables `Map`/`Set` fixtures once those classes land |
 | **U-CORE-6** errors | — | `errors/errors_result_bridge`, `errors/errors_throw_try_catch_finally` (both need error-syntax sugar) |

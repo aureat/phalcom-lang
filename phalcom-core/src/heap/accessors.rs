@@ -443,8 +443,7 @@ impl Heap {
         }
     }
 
-    /// Borrows the [`FamilyObject`] behind `id` (selectors.md §3, U16-Open,
-    /// U16-Pinned).
+    /// Borrows the [`FamilyObject`] behind `id` (selectors.md §3).
     ///
     /// # Panics
     ///

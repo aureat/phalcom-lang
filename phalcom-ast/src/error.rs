@@ -234,14 +234,6 @@ pub enum SyntaxErrorKind {
     #[error("`@variant` may only declare a variant inside an `enum` body")]
     VariantOutsideEnum,
 
-    /// Legacy ellipsis used in associated lookup instead of `::*`.
-    #[error("associated whole-family lookup uses `::*`, not `...`")]
-    AssociatedLegacyFamilyEllipsis,
-
-    /// Exact selector narrowing attempted without a second `::`.
-    #[error("exact associated member narrowing requires a second `::`")]
-    AssociatedExactShapeRequiresSecondSeparator,
-
     /// Rest parameters are unsupported in variant payloads.
     #[error("rest parameters are not supported in variant payloads")]
     VariantRestParameterUnsupported,
@@ -284,8 +276,6 @@ impl SyntaxErrorKind {
             Self::InvalidMultilineStringLineEnding => "string.multiline.invalid_line_ending",
             Self::RestParameter(kind) => kind.code(),
             Self::VariantOutsideEnum => "syntax.enum.variant_outside_enum",
-            Self::AssociatedLegacyFamilyEllipsis => "syntax.associated.legacy_family_ellipsis",
-            Self::AssociatedExactShapeRequiresSecondSeparator => "syntax.associated.exact_requires_second_separator",
             Self::VariantRestParameterUnsupported => "syntax.enum.variant_rest_unsupported",
             Self::Unknown => "syntax.unknown",
             Self::Message(_) => "syntax.message",

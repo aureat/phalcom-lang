@@ -3,7 +3,7 @@ use std::sync::Arc;
 use phalcom_common::selector::Selector;
 use phalcom_modules::identity::ModuleId;
 use phalcom_semantic::analyze_single_module;
-use phalcom_semantic::checker::AssociatedResolutionKind;
+use phalcom_semantic::checker::CallableReferenceResolutionKind;
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide, InvocationTargetId};
 
 #[test]
@@ -17,7 +17,10 @@ class Base {
 class Child is Base {
 }
 class Probe {
-  @class run() { Child::make() }
+  @class run() {
+    let make = &Child.make
+    make()
+  }
 }
 "#,
     );
@@ -30,17 +33,20 @@ class Probe {
     let expression = callable
         .expressions
         .values()
-        .find(|candidate| source.get(candidate.range.start..candidate.range.end) == Some("Child::make()"))
-        .expect("Child::make() expression");
-    let resolution = callable.associated_resolutions.get(&expression.id).expect("associated resolution");
-
-    assert_eq!(resolution.lookup_owner, DeclarationId::new(module.clone(), "Child".into()));
-    let AssociatedResolutionKind::BoundBehavioralInvoke {
-        target: InvocationTargetId::Behavioral(target),
-        ..
-    } = &resolution.kind
-    else {
-        panic!("expected bound inherited behavioral invocation, got {:?}", resolution.kind);
+        .find(|candidate| source.get(candidate.range.start..candidate.range.end) == Some("&Child.make"))
+        .expect("&Child.make expression");
+    let resolution = callable
+        .callable_reference_resolutions
+        .get(&expression.id)
+        .expect("callable reference resolution");
+    let CallableReferenceResolutionKind::BoundFamily { members, .. } = &resolution.kind else {
+        panic!("expected bound inherited behavioral family, got {:?}", resolution.kind);
     };
-    assert_eq!(target.declaration_owner(), &DeclarationId::new(module, "Base".into()));
+    assert!(members.iter().any(|member| {
+        matches!(
+            &member.target,
+            InvocationTargetId::Behavioral(target)
+                if target.declaration_owner() == &DeclarationId::new(module.clone(), "Base".into())
+        )
+    }));
 }

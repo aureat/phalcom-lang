@@ -24,7 +24,7 @@ a semantic concern, not a syntax one — see [Control Flow](../control-flow.md).
 | 12 | multiplicative `* / % ~/` | left |
 | 13 | power `**` | right |
 | 14 | unary prefix `- ~ ! not` | right |
-| 15 | postfix `.` `?.` call `(...)` trailing-block `::` | left |
+| 15 | postfix `.` `?.` call `(...)` trailing-block | left |
 | 16 | primary | — |
 
 > Range (`.. ...`) is a reserved-inactive binary operator ([ADR-0032]); its
@@ -53,17 +53,17 @@ shift         := additive { ( "<<" | ">>" ) additive }
 additive      := multiplicative { ( "+" | "-" ) multiplicative }
 multiplicative:= unary { ( "*" | "/" | "%" | "~/" ) unary }
 unary         := ( "-" | "~" | "!" | "not" ) unary
+               | "&" callable_reference
                | power
 power         := postfix [ "**" unary ]
 
 postfix       := primary { send_tail }
 send_tail     := "." [ "?" ] ( IDENT | keyword ) [ arg_list ]
                | "(" [ arg { "," arg } [ "," ] ] ")"     (* call sugar, §2 *)
-               | "::" ( IDENT | "#" selector )
                | block_literal                           (* trailing block, §2 *)
 
 primary       := literal | grouping | tuple | list | map | block
-               | symbol | method_ref | "self" | "super" | IDENT | FIELD
+               | symbol | "self" | "super" | IDENT | FIELD
 ```
 
 Every binary and unary operator here is sugar for a message send: `a + b` is
@@ -232,19 +232,24 @@ single-parameter and expression-body only — it cannot contain statements or a
 brace-delimited body. See [Blocks](../blocks.md) for the full rationale
 (comma ambiguity, non-local return).
 
-**Symbol / method-reference / self / super.**
+**Symbols, callable references, `self`, and `super`.**
 
 ```
 symbol     := "#" ( IDENT | selector )
-method_ref := postfix "::" ( IDENT | "#" selector )
+callable_reference := bound_reference | associated_reference
+bound_reference := postfix "." IDENT [ selector_spec ]
+associated_reference := type_form "::" IDENT [ selector_spec ]
+selector_spec := "(" [ slot { "," slot } ] ")" | "..."
 ```
 
 `#name` / `#sel` builds a `Symbol` ([Selectors §2](../selectors.md#2)).
-`recv::name`, `recv::name()`, and `recv::#sel(...)` build exact bound Family
-references; an ellipsis selector builds a structural-pattern Family
-([Selectors §3](../selectors.md#3)). `recv::name` is the exact getter, not an
-open base-name reference. Family construction evaluates the receiver once and
-never probes its method table.
+`&recv.name`, `&recv.name(_)`, and `&recv.name(...)` build bound Family
+references; `&Owner::name` selects the declaration-associated family. The
+bare named form captures the whole named family, a gap-free selector is exact,
+and `...` creates a structural pattern ([Selectors §3](../selectors.md#3)).
+Family construction evaluates the receiver once and never probes its method
+table. There is no separate exact-getter, operator, or subscript reference
+spelling.
 `self` is the current receiver; `super.m(a)` is a super-send — lookup begins
 in the superclass of the method's holder, not the receiver's class.
 

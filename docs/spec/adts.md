@@ -174,9 +174,10 @@ Getter-shaped and zero-argument callable selectors are never interchangeable.
 ## 5. Associated access to variants
 
 Enum variants are declaration-owned associated members exposed through `::`.
-Associated lookup has precedence over ordinary receiver-bound `::` behavioral family
-resolution at a reserved associated base. Outside an associated base, `::` retains its
-ordinary receiver-bound deferred-dispatch semantics.
+Associated lookup is restricted to declaration-owned names; ordinary receiver
+behavior is always reached through `.`. Callable references use an explicit
+`&` prefix, so there is no runtime-value fallback from associated lookup to a
+bound behavioral family.
 
 If a declaration exposes an associated base (such as `Some`), no ordinary behavior declared
 in that same declaration may use base `Some`, regardless of exact selector shape or dispatch side.
@@ -219,20 +220,21 @@ A variant constructor is a constructor identity, not an ordinary method identity
 An exact constructor member may be reified by specifying its residual selector shape.
 
 ```phalcom
-const some = Option::Some::(_)
+const some = &Option::Some(_)
 ```
 
 The resulting value is callable, but its semantic executable identity remains a variant constructor rather than a method.
 
 ### 5.4 Whole family
 
-The complete associated family is written:
+The complete associated family is written with the callable-reference prefix:
 
 ```phalcom
-Option::Some::*
+&Option::Some
 ```
 
-`::*` is the only whole-family form. `Option::Some` is not an abbreviation for it.
+`&Option::Some` is the whole-family form. `Option::Some` remains a bare
+associated value lookup and is not an abbreviation for the family.
 
 Whole-family values are first-class capability values. Their detailed structural typing is specified separately.
 
@@ -580,7 +582,7 @@ constructor
 associated lookup (`::`)
 != message send (`.`)
 
-whole associated family (`::*`)
+callable reference (`&`)
 != exact getter lookup
 
 GADT equality evidence
@@ -690,7 +692,11 @@ Phalcom ADTs are closed nominal sums with first-class exact variant identity.
 
 Variants are explicit `@variant` declarations and may be canonical singletons or constructor-shaped cases. Parentheses are semantically meaningful: a bare singleton and a zero-argument constructor are different declarations and different operations.
 
-Variant construction and lookup live on the associated `::` surface, which takes precedence over receiver-bound behavioral `::` resolution at reserved associated bases. Ordinary `.` sends remain behavioral dispatch. Exact cases retain more precise static types than their enum roots, generic ADTs use ordinary specialization, and GADT result annotations establish case-specific type equalities.
+Variant construction and lookup live on the associated `::` surface. Callable
+family capture uses `&`; ordinary `.` sends remain behavioral dispatch. Exact
+cases retain more precise static types than their enum roots, generic ADTs use
+ordinary specialization, and GADT result annotations establish case-specific
+type equalities.
 
 Enum-root bodyful behavior is shared/default instance behavior. Enum-root signature-only behavior is a closed-enum requirement that every variant must satisfy.
 

@@ -54,9 +54,10 @@ pub use advisory::{
 };
 pub use associated::{AssociatedFamilyInfo, AssociatedFamilyKind, AssociatedFamilyTable, AssociatedMemberId, AssociatedSurface};
 pub use checker::{
-    AssociatedResolution, AssociatedResolutionIndex, AssociatedResolutionKind, CheckingContext, FamilyApplicationCandidate, FamilyApplicationResolution,
-    FamilyApplicationResolutionIndex, FamilyApplicationSelection, SpecializedAssociatedMember, StatementControl, TypeCheckReport, TypedExpression, check_class,
-    check_class_bodies, check_statement, register_class_surface, synthesize_expr, synthesize_typed_expr,
+    AssociatedResolution, AssociatedResolutionIndex, AssociatedResolutionKind, CallableReferenceResolution, CallableReferenceResolutionIndex,
+    CallableReferenceResolutionKind, CheckingContext, FamilyApplicationCandidate, FamilyApplicationResolution, FamilyApplicationResolutionIndex,
+    FamilyApplicationSelection, SpecializedAssociatedMember, StatementControl, TypeCheckReport, TypedExpression, check_class, check_class_bodies,
+    check_statement, register_class_surface, synthesize_expr, synthesize_typed_expr,
 };
 pub use contracts::{ConditionKind, ContractCondition, ContractSpec};
 pub use control_summary::{ControlFacts, DivergenceKnowledge, DivergenceOpaqueReason, ExitSummary, RaiseKnowledge, RaiseOpaqueReason};

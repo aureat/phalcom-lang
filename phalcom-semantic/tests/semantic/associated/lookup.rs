@@ -3,7 +3,7 @@ use std::sync::Arc;
 use phalcom_common::selector::Selector;
 use phalcom_modules::identity::ModuleId;
 use phalcom_semantic::analyze_single_module;
-use phalcom_semantic::checker::AssociatedResolutionKind;
+use phalcom_semantic::checker::{AssociatedResolutionKind, CallableReferenceResolutionKind};
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
 
@@ -137,8 +137,8 @@ class Cat is Animal {
 
 class Probe {
   @class run() {
-    let a = Dog::kind()
-    let b = Cat::kind()
+    let a = &Dog.kind
+    let b = &Cat.kind
   }
 }
 "#,
@@ -155,31 +155,28 @@ class Probe {
     let dog_call = run_analysis
         .expressions
         .values()
-        .find(|e| source.get(e.range.start..e.range.end) == Some("Dog::kind()"))
-        .expect("Dog::kind() expr");
-    let dog_res = run_analysis.associated_resolutions.get(&dog_call.id).expect("Dog resolution");
-    let dog_decl = DeclarationId::new(module.clone(), "Dog".into());
-    assert_eq!(dog_res.lookup_owner, dog_decl);
+        .find(|e| source.get(e.range.start..e.range.end) == Some("&Dog.kind"))
+        .expect("&Dog.kind expr");
+    let dog_res = run_analysis.callable_reference_resolutions.get(&dog_call.id).expect("Dog resolution");
+    let CallableReferenceResolutionKind::BoundFamily { members: dog_members, .. } = &dog_res.kind else {
+        panic!("expected Dog behavioral family, got {:?}", dog_res.kind);
+    };
+    assert!(dog_members.iter().any(|member| {
+        matches!(&member.target, phalcom_semantic::identity::InvocationTargetId::Behavioral(target) if target.declaration_owner().name.as_ref() == "Dog")
+    }));
 
     let cat_call = run_analysis
         .expressions
         .values()
-        .find(|e| source.get(e.range.start..e.range.end) == Some("Cat::kind()"))
-        .expect("Cat::kind() expr");
-    let cat_res = run_analysis.associated_resolutions.get(&cat_call.id).expect("Cat resolution");
-    let cat_decl = DeclarationId::new(module.clone(), "Cat".into());
-    let animal_decl = DeclarationId::new(module.clone(), "Animal".into());
-    assert_eq!(cat_res.lookup_owner, cat_decl);
-    match &cat_res.kind {
-        AssociatedResolutionKind::BoundBehavioralInvoke { target, .. } => {
-            if let phalcom_semantic::identity::InvocationTargetId::Behavioral(c) = target {
-                assert_eq!(c.declaration_owner(), &animal_decl);
-            } else {
-                panic!("Expected behavioral target");
-            }
-        }
-        _ => panic!("Expected BoundBehavioralInvoke"),
-    }
+        .find(|e| source.get(e.range.start..e.range.end) == Some("&Cat.kind"))
+        .expect("&Cat.kind expr");
+    let cat_res = run_analysis.callable_reference_resolutions.get(&cat_call.id).expect("Cat resolution");
+    let CallableReferenceResolutionKind::BoundFamily { members: cat_members, .. } = &cat_res.kind else {
+        panic!("expected Cat behavioral family, got {:?}", cat_res.kind);
+    };
+    assert!(cat_members.iter().any(|member| {
+        matches!(&member.target, phalcom_semantic::identity::InvocationTargetId::Behavioral(target) if target.declaration_owner().name.as_ref() == "Animal")
+    }));
 }
 
 #[test]
@@ -233,7 +230,7 @@ enum Option<T> {
 class Test {
   @class
   bad_reify_some() {
-    Option::Some::(_)
+    &Option::Some(_)
   }
   @class
   bad_reify_none() {
@@ -241,11 +238,11 @@ class Test {
   }
   @class
   bad_reify_family() {
-    Option::Some::*
+    &Option::Some
   }
   @class
   good_reify_concrete() {
-    Option<Int>::Some::(_)
+    &Option<Int>::Some(_)
   }
 }
 "#,

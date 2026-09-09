@@ -1,11 +1,11 @@
-# Phalcom — Selectors, Symbols, and Method References
+# Phalcom — Selectors, Symbols, and Callable References
 
 Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
 
 **Governing ADRs:**
 [ADR-0012](../../adr/0012-selector-signature-encoding-and-dispatch.md) (label-encoded selectors and inline-cache-ready dispatch)
 
-Scope: selector identity, `#` symbol literals, `::` method references, `@`
+Scope: selector identity, `#` symbol literals, `&` callable references, `@`
 attributes, field visibility. Supersedes `SignatureKind::Method(u8)`
 (arity-only) in `phalcom-vm`.
 
@@ -70,7 +70,7 @@ Two distinct value types, both backed by an interned `Symbol`:
 | Literal | Type | Meaning | Used for |
 | --- | --- | --- | --- |
 | `#move` | **Name symbol** | A bare method name; identifies a *family*, not a method. | `respondsTo`, map keys, reflection queries |
-| `#move(_,to,duration)` | **Selector symbol** | A complete method identity. | `perform`, pinned method refs |
+| `#move(_,to,duration)` | **Selector symbol** | A complete method identity. | `perform`, selector-based reflection |
 | `#+`, `#==`, `#&`, `#~` | Selector symbol | Operator selectors (`#~` is nullary). | same |
 
 `perform` accepts **only** selector symbols. Passing a name symbol is a type error. (`perform` itself is not yet implemented — U-LEX-HASH lexes and interns both symbol shapes only.)
@@ -127,47 +127,39 @@ All three intern to the same `u32`.
 
 ---
 
-## 3. Method references (`::`), selector patterns, and associated member lookup
+## 3. Callable references (`&`), selector patterns, and associated lookup
 
-`::` is the double-colon operator with layered semantics:
+`&` introduces a callable reference. A dot reference binds an ordinary
+receiver, including a class object:
 
 ```text
-receiver::selector-spec
-    1. evaluate receiver once
-    2. if the receiver denotes/is a declaration-backed class object whose declaration
-       exposes an associated member at this selector base, resolve associated member
-    3. otherwise construct ordinary bound behavioral Family/reference
+&receiver.name
+&receiver.name(_)
+&receiver.name(...)
 ```
 
-Associated members (such as enum variants) live in a declaration-owned associated
-namespace and take precedence over ordinary receiver-bound `::` behavioral family
-resolution at a reserved associated base. Outside an associated base, `::` always creates
-a bound `Family` value. The receiver expression is evaluated once and stored;
-construction never probes receiver behavior and never rejects an absent selector.
+The bare named form captures the whole named family. A parenthesized selector
+with no gap selects an exact callable shape; an ellipsis creates a structural
+pattern with fixed prefix and suffix slots. The receiver expression is
+evaluated once and stored. Construction never probes receiver behavior and
+never rejects an absent selector.
 
-A class object is an ordinary receiver; `Foo::bar` on ordinary behavior refers to
-behavior callable on `Foo`, namely behavior declared with `@class` on the class
-declaration `Foo`. Whole-base reservation prevents behavioral and associated overload
-mixing within the same declaration.
+`::` is reserved for declaration-associated lookup. Associated callable
+families are selected with `&`:
 
+```text
+&Owner::member
+&Owner::member(_)
+&Owner::member(...)
+```
 
-The current exact and pattern forms are:
+Direct associated invocation remains `Owner::member(args)`, while class-side
+behavior is an ordinary dot send such as `Foo.bar(args)`. There is no runtime
+receiver fallback from an associated lookup to a bound behavioral family.
 
-    obj::name          // exact getter selector `name`
-    obj::name()        // exact nullary method selector `name()`
-    obj::#name(_)      // exact method selector `name(_)`
-    obj::name(...)     // named structural pattern
-    obj::#name(...,_)  // structural pattern with fixed prefix/suffix
-
-`obj::name` is not an old open-family base-name reference. The parser and
-compiler normalize it to exact getter selector `name`. `obj::name()` is a
-distinct exact nullary method selector and its `()` belongs to the `::`
-selector specification. There are no unbound `Type::...` forms in this
-runtime.
-
-An exact Family stores selector identity and the receiver. A pattern Family
-stores an immutable structural predicate. Both defer method lookup until each
-call, so method replacement after Family construction is observable.
+The selector specification preserves labels as labels, not destructuring
+bindings. The reference syntax does not add exact-getter, operator, or
+subscript reference forms.
 
 ### Selector-pattern grammar and laws
 
@@ -191,11 +183,11 @@ while a pattern Family derives a candidate selector from its predicate and
 incoming shape. The selected Method is then activated through current
 ordinary dispatch; the bound receiver does not participate in route selection.
 
-    let family = object::#render(_)
+    let family = &object.render(_)
     // Replacing object/render(_) after this line changes the next family call.
     family(value)
 
-    let family = object::render(...)
+    let family = &object.render(...)
     // Adding/replacing matching methods after construction affects the next call.
     family(value)
 
@@ -205,105 +197,10 @@ separate immutable snapshot returned by `Behavior#>>(pattern)`; a missing
 Family route reaches ordinary `doesNotUnderstand(_)` at call time. No
 empty-family reference-time error exists.
 
-The old `MethodRefKind::Open`/`Pinned` split, `::#selector` pinned-only
-interpretation, string-punctuation heuristic, and empty-family construction
-rule are retired and superseded by exact selector versus structural pattern
+The old `MethodRefKind::Open`/`Pinned` split, bound `::` references,
+string-punctuation heuristic, and empty-family construction rule are retired
+and superseded by `&` references with exact-selector versus structural-pattern
 normalization.
-
-<!--
-### Representation
-
-```rust
-enum Family {
-    Open   { recv: Option<Value>, name: Symbol },      // obj::move
-    Pinned { recv: Option<Value>, selector: Symbol },  // obj::#move(_,to,duration)
-}
-```
-
-`recv: None` = unbound.
-
-### Semantics
-
-**Open families resolve at call time, not at reference time.** The call site knows its own labels statically, so the selector is built from `family.name` + the call's label suffix, and then dispatched as an ordinary send.
-
-```
-let f = obj::move
-f(to: p, duration: 2)    // dispatches move(to,duration)
-f(p, duration: 2)        // dispatches move(_,duration)
-f(p, 2)                  // dispatches move(_,_)
-```
-
-This means an Open family is **never stale** — the method table is consulted on every call — and an unbound `Point::move` dispatches on the *actual receiver passed in*, so subclass overrides work correctly.
-
-**Pinned families** have their selector fully known at compile time. No re-interning; straight to the send. This is the fast path and the way to name one specific overload.
-
-**A family call *is* a send.** There is no second dispatch mechanism:
-
-```mermaid
-flowchart TD
-    accTitle: Family Call Resolution
-    accDescr: An open family call builds its selector from the family name and the call site labels, then enters the ordinary send path. A pinned family skips straight to the send. A lookup miss becomes a normal doesNotUnderstand, enriched with the family's candidate list.
-
-    call["📞 family(args...)"]
-    kind{"Open or Pinned?"}
-    build["Build selector:<br/>name + call-site labels"]
-    use["Use fixed selector"]
-    send["✉️ Ordinary send(recv, selector, args)"]
-    hit["✅ Method found — invoke"]
-    dnu["⚠️ doesNotUnderstand<br/>(error enriched with family candidates)"]
-
-    call --> kind
-    kind -->|Open| build
-    kind -->|Pinned| use
-    build --> send
-    use --> send
-    send --> hit
-    send --> dnu
-
-    classDef entry fill:#dbeafe,stroke:#2563eb,stroke-width:2px,color:#1e3a5f
-    classDef step fill:#f1f5f9,stroke:#64748b,stroke-width:1px,color:#0f172a
-    classDef good fill:#dcfce7,stroke:#16a34a,stroke-width:2px,color:#14532d
-    classDef bad fill:#fef9c3,stroke:#ca8a04,stroke-width:2px,color:#713f12
-
-    class call entry
-    class kind,build,use,send step
-    class hit good
-    class dnu bad
-```
-
-### Performance
-
-An Open call costs the same as a normal send: the call site emits a constant label-suffix, and a monomorphic inline cache keyed by `(call_site, class_id)` collapses the intern step after the first hit.
-
-### Error behavior
-
-| Situation | Behavior |
-| --- | --- |
-| **Empty family** — `obj::typo` where no method named `typo` exists | Error **at reference time**, naming the class. Checked against a per-class base-name index (§3.1). |
-| Empty family, but class defines `doesNotUnderstand` | **Not an error.** The family is callable and routes to the DNU hook. The check is `empty && no DNU hook`. |
-| **Call-time miss** — labels match no member of the family | Ordinary `doesNotUnderstand`, with the error enriched by the family's candidate list. |
-| Call-time miss where the supplied labels are a strict subset of exactly one candidate | Report the *specific* missing label (`missing label 'duration'`) rather than dumping all candidates. |
-
-### 3.1 Base-name index
-
-Built per class at class-finalization time, flattened through inheritance like a vtable:
-
-```rust
-base_names: HashMap<Symbol /* "move" */, SmallVec<[Symbol; 2]> /* full selectors */>
-```
-
-Serves three purposes: the empty-family check, the candidate list in error messages, and reflection.
-
-**Implementation note (U16-Open, U16-Pinned):** the Open empty-family check
-queries this index directly (`ClassObject::responds_to_base_name`). A
-Pinned reference's empty-family check does **not** use this index — a
-Pinned selector is already the exact target identity, so the check is an
-ordinary hierarchy lookup for that one selector
-(`class::lookup_method_in_hierarchy`), same DNU-override exemption as Open.
-
----
-
--->
 
 ## 4. Attributes (`@`)
 
@@ -359,7 +256,7 @@ Explicitly **rejected**: JS-style `#field` privates (would give `#` two meanings
 | `MakeFamily` | Stores the evaluated receiver plus exact Symbol or immutable SelectorPattern specification. |
 | Family call gateway | Derives exact shape or matches a live structural predicate, then activates the selected Method directly. |
 | MethodFamily | Immutable exact map plus captured compatible rest chain; inaccessible routes are omitted during capture. |
-| Compiler specialization | Only immediately-called, exact, statically shape-matched MethodRefs may lower to an ordinary direct send. |
+| Compiler specialization | Associated exact references may lower to a resolved target; bound references retain `MakeFamily` semantics. |
 | Old Open/Pinned and empty-family rules | Retired; they are not compatibility semantics. |
 
 ---

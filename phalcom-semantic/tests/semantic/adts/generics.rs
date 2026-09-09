@@ -277,7 +277,7 @@ enum Expr<T> {
 class Probe {
   @class
   run() {
-    let family = Expr<Int>::Pair::*;
+    let family = &Expr<Int>::Pair;
     let value = family(1, "text");
   }
 }

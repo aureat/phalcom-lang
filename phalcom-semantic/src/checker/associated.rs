@@ -61,19 +61,27 @@ pub enum AssociatedResolutionKind {
         candidates: Box<[SpecializedAssociatedMember]>,
         result_type: Option<TypeId>,
     },
-    /// Ordinary receiver-bound `::` family/reference resolution. Kept as a
-    /// distinct variant so lowering never infers namespace ownership from a
-    /// callable side or from an `AssociatedMemberId`.
-    BoundBehavioralFamily {
+}
+
+/// Semantic resolution product for a prefix-`&` callable reference.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CallableReferenceResolution {
+    /// The bound behavioral or declaration-associated reference result.
+    pub kind: CallableReferenceResolutionKind,
+}
+
+/// The semantic ownership split for callable references.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CallableReferenceResolutionKind {
+    /// A behavioral family bound to the reference receiver.
+    BoundFamily {
         family_type: TypeId,
         spec: BehavioralFamilySpec,
         members: Box<[BoundBehavioralMember]>,
     },
-    /// Ordinary receiver-bound direct `::` invocation.
-    BoundBehavioralInvoke {
-        target: InvocationTargetId,
-        result_type: TypeId,
-    },
+    /// An associated lookup result. The nested resolution is restricted to
+    /// associated `ExactCallable` or `Family` outcomes by the checker.
+    Associated(AssociatedResolution),
 }
 
 /// Source-independent selector specification for an ordinary bound family.
@@ -133,6 +141,9 @@ pub struct FamilyApplicationCandidate {
 
 /// Body-local index of associated syntax resolutions.
 pub type AssociatedResolutionIndex = BTreeMap<ExpressionId, AssociatedResolution>;
+
+/// Body-local index of prefix-`&` callable-reference resolutions.
+pub type CallableReferenceResolutionIndex = BTreeMap<ExpressionId, CallableReferenceResolution>;
 
 /// Body-local index of ordinary family value application resolutions.
 pub type FamilyApplicationResolutionIndex = BTreeMap<ExpressionId, FamilyApplicationResolution>;
@@ -228,7 +239,7 @@ pub fn resolve_effective_associated_family(
     Err(AssociatedResolutionError)
 }
 
-/// Resolves an ordinary receiver-bound `::` family without consulting the
+/// Resolves an ordinary receiver-bound callable family without consulting the
 /// declaration-owned associated namespace. Candidate discovery is static, but
 /// each target remains a behavioral selector dispatched against the captured
 /// receiver at runtime.
@@ -244,7 +255,7 @@ pub fn resolve_bound_behavioral_family(
         ctx.emit_diagnostic(SemanticDiagnostic::error_in(
             ctx.current_module.clone(),
             DiagnosticCode::AssociatedOwnerUnresolved,
-            "bound `::` receiver has no dispatch owner",
+            "bound `&` receiver has no dispatch owner",
             range,
         ));
         return Err(AssociatedResolutionError);

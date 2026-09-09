@@ -627,6 +627,23 @@ impl OccurrenceBuilder<'_> {
                 self.expr(&invoke.receiver, OccurrenceRole::Reference);
                 self.pack(&invoke.args);
             }
+            Expr::CallableReference(reference) => match &reference.target {
+                phalcom_ast::ast::CallableReferenceTarget::BoundNamed {
+                    receiver, name, name_range, ..
+                }
+                | phalcom_ast::ast::CallableReferenceTarget::AssociatedNamed {
+                    receiver, name, name_range, ..
+                } => {
+                    self.record(
+                        *name_range,
+                        OccurrenceKind::Member,
+                        OccurrenceRole::Reference,
+                        Some(OccurrenceHint::Name(name.clone().into())),
+                        None,
+                    );
+                    self.expr(receiver, OccurrenceRole::Reference);
+                }
+            },
             Expr::TupleLiteral(tuple) => {
                 for entry in &tuple.entries {
                     match entry {

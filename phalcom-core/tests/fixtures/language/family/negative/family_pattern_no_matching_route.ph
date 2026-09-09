@@ -5,5 +5,5 @@
 // route reaches ordinary target doesNotUnderstand.
 
 class Box {}
-const family = Box::missing::*;
+const family = &Box.missing;
 System.print(family())

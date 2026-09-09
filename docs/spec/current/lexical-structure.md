@@ -149,16 +149,15 @@ removes the ambiguity without a lookahead.
 **not adopted** (see [Selectors §5](selectors.md#5-field-visibility)); `@` (§12
 below) owns attributes/decorators, so `#` and `@` never compete.
 
-## 11. Method references: `::`
+## 11. Callable references: `&`
 
-Full semantics in [Selectors, Symbols & References §3](selectors.md#3-method-references-).
+Full semantics in [Selectors, Symbols & References §3](selectors.md#3-callable-references-).
 
-`::` is a **postfix token** producing a bound Family. The selector
-specification is normalized immediately as an exact selector or a structural
-pattern: `receiver::name` is exact getter `name`, `receiver::name()` is exact
-nullary method `name()`, and an ellipsis form is a structural pattern. The
-grammar is LR(1)-clean: after lexing `::`, the parser reads the selector form
-without backtracking or a cover grammar.
+`&` is a **prefix token** producing a bound Family. A dot target binds an
+ordinary receiver; an associated `::` target is permitted only after `&`:
+`&receiver.name`, `&receiver.name(_)`, `&receiver.name(...)`, and
+`&Owner::member(...)`. The grammar reads the target and selector specification
+as one production, without compatibility fallback to a postfix `::` reference.
 
 ## 12. Attribute token: `@`
 
@@ -167,8 +166,8 @@ Full semantics in [Selectors, Symbols & References §4](selectors.md#4-attribute
 `@` prefixes a class, member, or field declaration to mark an attribute
 (`@constructor`, `@class`, `@get`, `@set`, `@requires`, …). Attributes desugar to
 ordinary method-table entries at compile time — no new dispatch machinery. `@` is
-reserved for this role only and does not overlap with `#` (symbols) or `::` (method
-references).
+reserved for this role only and does not overlap with `#` (symbols) or `::` (associated
+lookup).
 
 Member metadata lives here rather than in the keyword space. `@construct` derives
 constructors from classes, `@constructor` marks constructor methods, and `@class`

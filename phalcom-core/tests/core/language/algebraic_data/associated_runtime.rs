@@ -24,7 +24,7 @@ enum Weird {
   @variant Marker(_ value: Int)
 }
 
-let family = Weird::Marker::*;
+let family = &Weird::Marker;
 "#;
     let (vm, module) = run_inline(source).expect("associated family should execute");
     let family = vm

@@ -93,17 +93,22 @@ bit_and        := shift { "&" shift }
 shift          := additive { ( "<<" | ">>" ) additive }
 additive       := multiplicative { ( "+" | "-" ) multiplicative }
 multiplicative := unary { ( "*" | "/" | "%" | "~/" ) unary }
-unary          := ( "-" | "~" | "!" | "not" ) unary | power
+unary          := ( "-" | "~" | "!" | "not" ) unary
+                 | "&" callable_reference
+                 | power
 power          := postfix [ "**" unary ]
 
 postfix        := primary { "." ( IDENT | keyword ) [ arg_list ]  (* send / property *)
                            | "?." IDENT [ arg_list ]              (* optional send *)
                            | arg_list                             (* call -> .call *)
-                           | block                                (* trailing block *)
-                           | "::" ( "#" symbol_sel | IDENT ) }    (* method reference *)
+                           | block                                (* trailing block *) }
+
+callable_reference := postfix ( "." | "::" ) ( IDENT | keyword ) [ selector_spec ]
 
 arg_list       := "(" [ arg { "," arg } [ "," ] ] ")"
 arg            := [ IDENT ":" ] [ "*" ] expr
+selector_spec  := "(" [ slot { "," slot } ] [ "," "..." ] ")" | "..."
+slot           := "_" | IDENT
 
 (* ================================================================ *)
 (* Primaries                                                         *)

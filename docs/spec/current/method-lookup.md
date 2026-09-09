@@ -38,9 +38,9 @@ DSLs, delegation, and `Object.respondsTo(_)` fall out for free.
 chain, fails, *then* re-sends `doesNotUnderstand(_)`. Cache the resolved handler
 per receiver class so proxy-heavy code does not re-walk the chain on every call.
 
-A `doesNotUnderstand` triggered by a `::` family call-time miss is enriched with
+A `doesNotUnderstand` triggered by a callable-family call-time miss is enriched with
 the family's candidate list rather than a bare "not understood" — see
-[Selectors, Symbols & References §3](selectors.md#3-method-references-), error
+[Selectors, Symbols & References §3](selectors.md#3-callable-references-), error
 behavior table, and the [Base-name index §3.1](selectors.md#31-base-name-index)
 that backs both the empty-family check and this candidate list.
 

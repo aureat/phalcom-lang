@@ -326,6 +326,10 @@ pub enum CompilerError {
     #[error("associated family invocation lowering is not implemented until associated semantic resolution lands")]
     AssociatedInvokeNotLoweredYet(SourceRange),
 
+    /// Callable-reference staging error.
+    #[error("callable reference lowering is not implemented until callable-reference semantic resolution lands")]
+    CallableReferenceNotLoweredYet(SourceRange),
+
     /// No formal lowering semantics provided for enum declaration.
     #[error("internal: enum declaration has no formal lowering semantics")]
     MissingEnumLoweringSemantics(SourceRange),

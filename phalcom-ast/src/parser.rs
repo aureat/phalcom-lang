@@ -2704,6 +2704,7 @@ impl<'source> Parser<'source> {
                 | Token::LBracket
                 | Token::Not
                 | Token::Minus
+                | Token::Ampersand
                 | Token::LBrace
                 | Token::Pipe
                 | Token::If
@@ -4230,6 +4231,7 @@ impl<'source> Parser<'source> {
             | Token::Minus
             | Token::Not
             | Token::Tilde
+            | Token::Ampersand
             | Token::DotDotDot => true,
             Token::LBrace => {
                 (matches!(self.peek_next(), Token::Identifier(_)) && self.tokens.get(self.pos + 2).is_some_and(|t| matches!(t.token, Token::Colon)))
@@ -4641,6 +4643,9 @@ impl<'source> Parser<'source> {
     ///
     /// Propagates any error from the operand expression.
     fn parse_unary(&mut self) -> ParserResult<Expr> {
+        if matches!(self.peek(), Token::Ampersand) {
+            return self.parse_callable_reference();
+        }
         let op = match self.peek() {
             Token::Plus => UnaryOp::Plus,
             Token::Minus => UnaryOp::Minus,
@@ -4883,6 +4888,294 @@ impl<'source> Parser<'source> {
         Ok(expr)
     }
 
+    /// Parses the prefix `&` callable-reference production. The receiver is
+    /// parsed with a small postfix loop so the final `.`/`::` and its selector
+    /// specification remain syntax owned by the reference rather than being
+    /// interpreted as an ordinary call.
+    fn parse_callable_reference(&mut self) -> ParserResult<Expr> {
+        let start = self.cur_start();
+        self.advance(); // `&`
+        let ampersand_range: SourceRange = (start..self.prev_end).into();
+        let mut receiver = self.parse_primary()?;
+
+        loop {
+            let receiver_start = receiver.range().start;
+            if matches!(self.peek(), Token::Newline) {
+                let next = self.skip_newlines_at(self.pos);
+                let continues = matches!(
+                    self.tokens.get(next).map(|lexeme| &lexeme.token),
+                    Some(Token::Dot | Token::QuestionDot | Token::ColonColon)
+                );
+                if continues {
+                    while self.pos < next {
+                        self.advance();
+                    }
+                } else {
+                    break;
+                }
+            }
+
+            if matches!(self.peek(), Token::Less | Token::ShiftLeft) && self.cur_start() == self.prev_end && self.is_type_arguments_ahead() {
+                if let Some(origin) = Self::expr_to_type_annotation(&receiver) {
+                    self.eat_less();
+                    self.skip_newlines();
+                    let mut arguments = Vec::new();
+                    while !matches!(self.peek(), Token::Greater | Token::ShiftRight | Token::Eof) {
+                        arguments.push(self.parse_type_form()?);
+                        if self.eat(&Token::Comma) {
+                            self.skip_newlines();
+                        } else {
+                            break;
+                        }
+                    }
+                    self.skip_newlines();
+                    self.expect_greater()?;
+                    let range = (receiver_start..self.prev_end).into();
+                    receiver = Expr::TypeForm(Box::new(TypeAnnotation {
+                        expr: TypeAnnotationExpr::Application {
+                            origin: Box::new(origin),
+                            arguments,
+                            range,
+                        },
+                        range,
+                    }));
+                    continue;
+                }
+            }
+
+            match self.peek() {
+                Token::Dot => {
+                    let is_target = !self.has_reference_separator_after(self.pos + 1);
+                    self.advance();
+                    let name_start = self.cur_start();
+                    let name = self.parse_property_name()?;
+                    let name_range = (name_start..self.prev_end).into();
+                    if is_target {
+                        let selector = self.parse_callable_reference_selector(name.clone(), name_range)?;
+                        let range = (start..self.prev_end).into();
+                        return Ok(Expr::CallableReference(Box::new(CallableReferenceExpr {
+                            ampersand_range,
+                            target: CallableReferenceTarget::BoundNamed {
+                                receiver: Box::new(receiver),
+                                name,
+                                name_range,
+                                selector,
+                            },
+                            range,
+                        })));
+                    }
+
+                    if self.eat(&Token::LParen) {
+                        let args = self.parse_arg_list()?;
+                        self.expect(&Token::RParen, &["\")\""])?;
+                        let range = (receiver_start..self.prev_end).into();
+                        receiver = Expr::MethodCall(Box::new(MethodCallExpr {
+                            object: receiver,
+                            method: name,
+                            method_range: Some(name_range),
+                            args,
+                            range,
+                        }));
+                    } else {
+                        let range = (receiver_start..self.prev_end).into();
+                        receiver = Expr::GetProperty(Box::new(GetPropertyExpr {
+                            object: receiver,
+                            property: name,
+                            property_range: Some(name_range),
+                            range,
+                        }));
+                    }
+                }
+                Token::ColonColon => {
+                    let is_target = !self.has_reference_separator_after(self.pos + 1);
+                    let separator_start = self.cur_start();
+                    self.advance();
+                    let separator_range = (separator_start..self.prev_end).into();
+                    let name_start = self.cur_start();
+                    let name = self.parse_property_name()?;
+                    let name_range = (name_start..self.prev_end).into();
+                    if is_target {
+                        let selector = self.parse_callable_reference_selector(name.clone(), name_range)?;
+                        let range = (start..self.prev_end).into();
+                        return Ok(Expr::CallableReference(Box::new(CallableReferenceExpr {
+                            ampersand_range,
+                            target: CallableReferenceTarget::AssociatedNamed {
+                                receiver: Box::new(receiver),
+                                separator_range,
+                                name,
+                                name_range,
+                                selector,
+                            },
+                            range,
+                        })));
+                    }
+                    receiver = self.parse_associated_suffix(receiver, receiver_start)?;
+                }
+                Token::QuestionDot => {
+                    self.advance();
+                    receiver = self.parse_optional_send(receiver, receiver_start)?;
+                }
+                Token::LParen => {
+                    self.advance();
+                    let args = self.parse_arg_list()?;
+                    self.expect(&Token::RParen, &["\")\""])?;
+                    let range = (receiver_start..self.prev_end).into();
+                    receiver = match receiver {
+                        Expr::Var { value, range: name_range } => Expr::UnqualifiedCall(Box::new(UnqualifiedCallExpr {
+                            name: value,
+                            name_range: Some(name_range),
+                            args,
+                            range,
+                        })),
+                        Expr::ImplementationSelector { value, range: method_range } => Expr::MethodCall(Box::new(MethodCallExpr {
+                            object: Expr::SelfVar { range },
+                            method: value,
+                            method_range: Some(method_range),
+                            args,
+                            range,
+                        })),
+                        object => Expr::MethodCall(Box::new(MethodCallExpr {
+                            object,
+                            method: "call".to_string(),
+                            method_range: None,
+                            args,
+                            range,
+                        })),
+                    };
+                }
+                Token::LBracket => {
+                    let selector_start = self.cur_start();
+                    self.advance();
+                    let args = self.parse_arg_list()?;
+                    self.expect(&Token::RBracket, &["\"]\""])?;
+                    let selector_range = (selector_start..self.prev_end).into();
+                    let range = (receiver_start..self.prev_end).into();
+                    receiver = Expr::Index(Box::new(IndexExpr {
+                        object: receiver,
+                        args,
+                        selector_range: Some(selector_range),
+                        range,
+                    }));
+                }
+                _ => break,
+            }
+        }
+
+        Err(self.error_here(strs(&["`.` or `::` after `&` receiver"])))
+    }
+
+    /// Returns whether a later member separator belongs to the receiver
+    /// postfix chain. Delimited selector/call arguments are skipped, while a
+    /// binary operator or statement boundary ends the chain.
+    fn has_reference_separator_after(&self, mut index: usize) -> bool {
+        let mut parens = 0usize;
+        let mut brackets = 0usize;
+        let mut braces = 0usize;
+        while let Some(lexeme) = self.tokens.get(index) {
+            match &lexeme.token {
+                Token::LParen => parens += 1,
+                Token::RParen => {
+                    if parens == 0 {
+                        return false;
+                    }
+                    parens -= 1;
+                }
+                Token::LBracket => brackets += 1,
+                Token::RBracket => {
+                    if brackets == 0 {
+                        return false;
+                    }
+                    brackets -= 1;
+                }
+                Token::LBrace => braces += 1,
+                Token::RBrace => {
+                    if braces == 0 {
+                        return false;
+                    }
+                    braces -= 1;
+                }
+                Token::Dot | Token::QuestionDot | Token::ColonColon if parens == 0 && brackets == 0 && braces == 0 => return true,
+                Token::Newline if parens == 0 && brackets == 0 && braces == 0 => {
+                    let next = self.skip_newlines_at(index);
+                    if !matches!(
+                        self.tokens.get(next).map(|token| &token.token),
+                        Some(Token::Dot | Token::QuestionDot | Token::ColonColon)
+                    ) {
+                        return false;
+                    }
+                    index = next;
+                    continue;
+                }
+                Token::Comma | Token::Semicolon | Token::Eof | Token::Equal if parens == 0 && brackets == 0 && braces == 0 => return false,
+                token
+                    if parens == 0
+                        && brackets == 0
+                        && braces == 0
+                        && (binary_op(token).is_some() || matches!(token, Token::And | Token::Or | Token::In | Token::Is)) =>
+                {
+                    return false;
+                }
+                _ => {}
+            }
+            index += 1;
+        }
+        false
+    }
+
+    /// Parses the optional selector signature/pattern after a named reference
+    /// base. The selector text remains a [`SelectorSpecSyntax`] node and is
+    /// never lowered as an invocation argument pack.
+    fn parse_callable_reference_selector(&mut self, base: String, base_range: SourceRange) -> ParserResult<Option<SelectorSpecSyntax>> {
+        let base_start = base_range.start;
+        let selector = if self.eat(&Token::LParen) {
+            let (prefix, suffix, gap_range, end) = self.parse_selector_spec_slots(Token::RParen)?;
+            let range = (base_start..end).into();
+            if let Some(gap_range) = gap_range {
+                Some(SelectorSpecSyntax::Pattern(SelectorPatternSyntax {
+                    base,
+                    kind: phalcom_common::selector::SelectorKindPattern::Exact(phalcom_common::selector::SelectorKind::Method),
+                    prefix,
+                    suffix,
+                    is_subscript: false,
+                    gap_range,
+                    base_range,
+                    range,
+                }))
+            } else {
+                let mut slots = prefix;
+                slots.extend(suffix);
+                Some(SelectorSpecSyntax::Exact(ExactSelectorSyntax {
+                    base,
+                    kind: phalcom_common::selector::SelectorKind::Method,
+                    slots,
+                    is_subscript: false,
+                    base_range,
+                    range,
+                }))
+            }
+        } else if self.eat(&Token::DotDotDot) {
+            let gap_range = (self.tokens[self.pos.saturating_sub(1)].start..self.prev_end).into();
+            let range = (base_start..self.prev_end).into();
+            Some(SelectorSpecSyntax::Pattern(SelectorPatternSyntax {
+                base,
+                kind: phalcom_common::selector::SelectorKindPattern::AnyNamed,
+                prefix: Vec::new(),
+                suffix: Vec::new(),
+                is_subscript: false,
+                gap_range,
+                base_range,
+                range,
+            }))
+        } else {
+            None
+        };
+
+        if matches!(self.peek(), Token::ColonColon) {
+            return Err(self.error_message_here("callable references use one `.` or `::`; the second separator is obsolete"));
+        }
+        Ok(selector)
+    }
+
     fn parse_associated_suffix(&mut self, receiver: Expr, start: usize) -> ParserResult<Expr> {
         let first_separator_range: SourceRange = (self.tokens[self.pos.saturating_sub(1)].start..self.prev_end).into();
 
@@ -4899,7 +5192,7 @@ impl<'source> Parser<'source> {
             let dot_start = self.cur_start();
             self.advance();
             return Err(SyntaxError {
-                kind: SyntaxErrorKind::AssociatedLegacyFamilyEllipsis,
+                kind: SyntaxErrorKind::Message("associated family capture uses `&receiver::name`, not a bare ellipsis".to_string()),
                 range: dot_start..self.prev_end,
             });
         }
@@ -4910,7 +5203,7 @@ impl<'source> Parser<'source> {
             let (prefix, suffix, gap_range, mut end) = self.parse_selector_spec_slots(Token::RBracket)?;
             if gap_range.is_some() {
                 return Err(SyntaxError {
-                    kind: SyntaxErrorKind::AssociatedLegacyFamilyEllipsis,
+                    kind: SyntaxErrorKind::Message("associated selector lookup does not accept family ellipses; use `&receiver::name...`".to_string()),
                     range: bracket_start..end,
                 });
             }
@@ -4988,7 +5281,7 @@ impl<'source> Parser<'source> {
                 let (prefix, suffix, gap_range, _end) = self.parse_selector_spec_slots(Token::RParen)?;
                 if gap_range.is_some() {
                     return Err(SyntaxError {
-                        kind: SyntaxErrorKind::AssociatedLegacyFamilyEllipsis,
+                        kind: SyntaxErrorKind::Message("associated selector lookup does not accept family ellipses; use `&receiver::name...`".to_string()),
                         range: base_start..self.prev_end,
                     });
                 }
@@ -5026,24 +5319,6 @@ impl<'source> Parser<'source> {
         let base_range = (base_start..self.prev_end).into();
 
         if matches!(self.peek(), Token::LParen) {
-            let next_tok = self.peek_next();
-            if matches!(next_tok, Token::Underscore) {
-                let err_start = self.cur_start();
-                self.advance(); // consume '('
-                return Err(SyntaxError {
-                    kind: SyntaxErrorKind::AssociatedExactShapeRequiresSecondSeparator,
-                    range: err_start..self.cur_start() + 1,
-                });
-            }
-            if matches!(next_tok, Token::DotDotDot) {
-                let err_start = self.cur_start();
-                self.advance(); // consume '('
-                return Err(SyntaxError {
-                    kind: SyntaxErrorKind::AssociatedLegacyFamilyEllipsis,
-                    range: err_start..self.cur_start() + 3,
-                });
-            }
-
             self.advance(); // consume '('
             let args = self.parse_arg_list()?;
             self.expect(&Token::RParen, &["\")\""])?;
@@ -5059,112 +5334,18 @@ impl<'source> Parser<'source> {
         }
 
         if self.eat(&Token::ColonColon) {
-            let second_separator_range: SourceRange = (self.tokens[self.pos.saturating_sub(1)].start..self.prev_end).into();
-            if self.eat(&Token::Asterisk) {
-                let star_range: SourceRange = (self.tokens[self.pos.saturating_sub(1)].start..self.prev_end).into();
-                let member_range = (base_start..self.prev_end).into();
-                let whole_range = (start..self.prev_end).into();
-                return Ok(Expr::AssociatedLookup(Box::new(AssociatedLookupExpr {
-                    receiver,
-                    first_separator_range,
-                    member: AssociatedMemberSyntax::Named(AssociatedNamedMemberSyntax {
-                        base,
-                        base_range,
-                        mode: AssociatedNamedMode::Family {
-                            second_separator_range,
-                            star_range,
-                        },
-                        range: member_range,
-                    }),
-                    range: whole_range,
-                })));
-            }
-
-            if self.eat(&Token::LParen) {
-                let res_start = self.tokens[self.pos.saturating_sub(1)].start;
-                let (prefix, suffix, gap_range, end) = self.parse_selector_spec_slots(Token::RParen)?;
-                if gap_range.is_some() {
-                    return Err(SyntaxError {
-                        kind: SyntaxErrorKind::AssociatedLegacyFamilyEllipsis,
-                        range: res_start..end,
-                    });
-                }
-                let mut slots = prefix;
-                slots.extend(suffix);
-                let res_range = (res_start..end).into();
-                let member_range = (base_start..end).into();
-                let whole_range = (start..end).into();
-                return Ok(Expr::AssociatedLookup(Box::new(AssociatedLookupExpr {
-                    receiver,
-                    first_separator_range,
-                    member: AssociatedMemberSyntax::Named(AssociatedNamedMemberSyntax {
-                        base,
-                        base_range,
-                        mode: AssociatedNamedMode::Exact {
-                            second_separator_range,
-                            residual: AssociatedResidualSelectorSyntax::Method { slots, range: res_range },
-                        },
-                        range: member_range,
-                    }),
-                    range: whole_range,
-                })));
-            }
-
-            if self.eat(&Token::Equal) {
-                let res_start = self.tokens[self.pos.saturating_sub(1)].start;
-                self.expect(&Token::LParen, &["\"(put)\""])?;
-                let put_start = self.cur_start();
-                let put = self.expect_identifier(&["\"put\""])?;
-                if put != "put" {
-                    return Err(SyntaxError {
-                        kind: SyntaxErrorKind::Message("setter parameter must start with \"put\"".to_string()),
-                        range: put_start..self.prev_end,
-                    });
-                }
-                self.expect(&Token::RParen, &["\")\""])?;
-                let put_range = (put_start..put_start + 3).into();
-                let res_range = (res_start..self.prev_end).into();
-                let member_range = (base_start..self.prev_end).into();
-                let whole_range = (start..self.prev_end).into();
-                return Ok(Expr::AssociatedLookup(Box::new(AssociatedLookupExpr {
-                    receiver,
-                    first_separator_range,
-                    member: AssociatedMemberSyntax::Named(AssociatedNamedMemberSyntax {
-                        base,
-                        base_range,
-                        mode: AssociatedNamedMode::Exact {
-                            second_separator_range,
-                            residual: AssociatedResidualSelectorSyntax::Setter { put_range, range: res_range },
-                        },
-                        range: member_range,
-                    }),
-                    range: whole_range,
-                })));
-            }
-
-            // Explicit getter separator: `owner::name::`
-            let member_range = (base_start..self.prev_end).into();
-            let whole_range = (start..self.prev_end).into();
-            return Ok(Expr::AssociatedLookup(Box::new(AssociatedLookupExpr {
-                receiver,
-                first_separator_range,
-                member: AssociatedMemberSyntax::Named(AssociatedNamedMemberSyntax {
-                    base,
-                    base_range,
-                    mode: AssociatedNamedMode::Getter {
-                        explicit_separator_range: Some(second_separator_range),
-                    },
-                    range: member_range,
-                }),
-                range: whole_range,
-            })));
+            let second_separator_start = self.tokens[self.pos.saturating_sub(1)].start;
+            return Err(SyntaxError {
+                kind: SyntaxErrorKind::Message("the second `::` reference syntax is obsolete; use `&receiver::name` or `&receiver::name(...)`".to_string()),
+                range: second_separator_start..self.prev_end,
+            });
         }
 
         if matches!(self.peek(), Token::DotDotDot) {
             let dot_start = self.cur_start();
             self.advance();
             return Err(SyntaxError {
-                kind: SyntaxErrorKind::AssociatedLegacyFamilyEllipsis,
+                kind: SyntaxErrorKind::Message("associated family capture uses `&receiver::name`, not a bare ellipsis".to_string()),
                 range: dot_start..self.prev_end,
             });
         }
@@ -5178,9 +5359,7 @@ impl<'source> Parser<'source> {
             member: AssociatedMemberSyntax::Named(AssociatedNamedMemberSyntax {
                 base,
                 base_range,
-                mode: AssociatedNamedMode::Getter {
-                    explicit_separator_range: None,
-                },
+                mode: AssociatedNamedMode::Getter,
                 range: member_range,
             }),
             range: whole_range,

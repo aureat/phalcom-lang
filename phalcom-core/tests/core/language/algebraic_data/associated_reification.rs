@@ -25,7 +25,7 @@ enum Option<T> {
   @variant None
 }
 
-let ctor = Option<Int>::Some::(_)
+let ctor = &Option<Int>::Some(_)
 let some = ctor(42)
 "#;
     let (vm, module) = run_inline(source).expect("constructor reference should execute");
@@ -46,7 +46,7 @@ enum Option<T> {
   @variant Some(_ value: T)
 }
 
-let ctor = Option<Int>::Some::(_)
+let ctor = &Option<Int>::Some(_)
 "#;
     let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("constructor reference should compile");
     let mut vm = VM::new();
@@ -57,11 +57,11 @@ let ctor = Option<Int>::Some::(_)
     let chunk = &vm.heap.closure(closure).callable.chunk;
     let spec = program.modules[&program.entry]
         .lowering
-        .associated
+        .callable_references
         .values()
         .next()
         .expect("constructor reference lowering");
-    let phalcom_core::modules::semantic_lowering::AssociatedLoweringSpec::MakeVariantConstructorThunk { operation, .. } = spec else {
+    let phalcom_core::modules::semantic_lowering::CallableReferenceLoweringSpec::MakeVariantConstructorThunk { operation, .. } = spec else {
         panic!("expected constructor thunk lowering, got {spec:?}");
     };
     assert_eq!(operation.slots.as_ref(), [SelectorSlot::Positional]);

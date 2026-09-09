@@ -3,9 +3,11 @@
 use crate::bytecode::Bytecode;
 use crate::compiler::lib::error::CompilerError;
 use crate::compiler::lib::{Compiler, checked_send_arity};
-use crate::modules::semantic_lowering::{AssociatedLoweringSpec, ExecutableFamilyCandidateSet, FamilyApplicationLoweringSpec, LoweringSiteKind};
+use crate::modules::semantic_lowering::{
+    AssociatedLoweringSpec, CallableReferenceLoweringSpec, ExecutableFamilyCandidateSet, FamilyApplicationLoweringSpec, LoweringSiteKind,
+};
 use crate::value::Value;
-use phalcom_ast::ast::{AssociatedInvokeExpr, AssociatedLookupExpr, AssociatedMemberSyntax, Expr, PackItem};
+use phalcom_ast::ast::{AssociatedInvokeExpr, AssociatedLookupExpr, AssociatedMemberSyntax, CallableReferenceExpr, CallableReferenceTarget, Expr, PackItem};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
 use phalcom_modules::DeclarationId;
@@ -108,7 +110,58 @@ impl<'vm> Compiler<'vm> {
         Ok(true)
     }
 
-    /// Lowers an AssociatedLookup expression (e.g. `Option::None`, `Option::Some::`, `Type::#method::*`).
+    /// Lowers a prefix-`&` callable reference from the canonical semantic
+    /// product. Ordinary references compile their receiver exactly once;
+    /// associated references use the already-resolved callable/family target.
+    pub fn compile_callable_reference(&mut self, expr: &CallableReferenceExpr) -> Result<(), CompilerError> {
+        let spec = self
+            .lowering()
+            .and_then(|lowering| {
+                lowering
+                    .callable_references
+                    .iter()
+                    .find(|(site, _)| site.range == expr.range && site.kind == LoweringSiteKind::CallableReference)
+                    .map(|(_, spec)| spec.clone())
+            })
+            .ok_or(CompilerError::CallableReferenceNotLoweredYet(expr.range))?;
+
+        match spec {
+            CallableReferenceLoweringSpec::MakeBoundFamily { spec } => {
+                let CallableReferenceTarget::BoundNamed { receiver, .. } = &expr.target else {
+                    return Err(CompilerError::CallableReferenceNotLoweredYet(expr.range));
+                };
+                self.compile_expr((**receiver).clone())?;
+                let (spec_idx, kind) = self.compile_behavioral_family_spec(&spec)?;
+                self.emit(Bytecode::MakeFamily { spec: spec_idx, kind }, expr.range);
+            }
+            CallableReferenceLoweringSpec::MakeResolvedBoundMethod { target } => {
+                let target_idx = self
+                    .functions
+                    .last_mut()
+                    .unwrap()
+                    .chunk
+                    .executable_semantics
+                    .add_associated_target(target, expr.range)?;
+                self.emit(Bytecode::MakeResolvedBoundMethod(target_idx), expr.range);
+            }
+            CallableReferenceLoweringSpec::MakeVariantConstructorThunk { variant, .. } => {
+                self.compile_variant_constructor_thunk(&variant, expr.range)?;
+            }
+            CallableReferenceLoweringSpec::MakeAssociatedFamily { descriptor } => {
+                let desc_idx = self
+                    .functions
+                    .last_mut()
+                    .unwrap()
+                    .chunk
+                    .executable_semantics
+                    .add_family_descriptor(descriptor, expr.range)?;
+                self.emit(Bytecode::MakeAssociatedFamily(desc_idx), expr.range);
+            }
+        }
+        Ok(())
+    }
+
+    /// Lowers an associated value expression such as `Option::None`.
     pub fn compile_associated_lookup(&mut self, expr: &AssociatedLookupExpr) -> Result<(), CompilerError> {
         let spec = self.lowering().and_then(|l| {
             l.associated
@@ -119,12 +172,6 @@ impl<'vm> Compiler<'vm> {
 
         if let Some(spec) = spec {
             match spec {
-                AssociatedLoweringSpec::MakeBehavioralFamily { spec } => {
-                    self.compile_expr(expr.receiver.clone())?;
-                    let (spec_idx, kind) = self.compile_behavioral_family_spec(&spec)?;
-                    self.emit(Bytecode::MakeFamily { spec: spec_idx, kind }, expr.range);
-                    return Ok(());
-                }
                 AssociatedLoweringSpec::SingletonLoad { variant } => {
                     let var_idx = self
                         .functions
@@ -203,17 +250,6 @@ impl<'vm> Compiler<'vm> {
 
         if let Some(spec) = spec {
             match spec {
-                AssociatedLoweringSpec::InvokeBoundBehavioral { selector } => {
-                    let arity = checked_send_arity("associated message send", expr.args.len(), expr.range)?;
-                    self.compile_expr(expr.receiver.clone())?;
-                    for arg in &expr.args {
-                        self.compile_pack_item(arg.clone())?;
-                    }
-                    let selector_sym = self.vm.interner.intern(&selector.encode());
-                    let selector_idx = self.add_constant(Value::symbol(selector_sym));
-                    self.emit(Bytecode::Invoke(arity, selector_idx), expr.range);
-                    return Ok(());
-                }
                 AssociatedLoweringSpec::SingletonLoad { variant } => {
                     let var_idx = self
                         .functions

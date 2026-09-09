@@ -123,9 +123,8 @@ pub enum Object {
     /// compact two-Value-plus-flag layout. Progression and equality semantics
     /// are deferred.
     Range(RangeObject),
-    /// A bound `::` method reference — the callable **Family** value
-    /// produced by `obj::name` (Open) or `obj::#name(...)` (Pinned)
-    /// ([`FamilyObject`], selectors.md §3, U16-Open, U16-Pinned, [ADR-0047]).
+    /// A bound `&` callable reference — the callable **Family** value
+    /// produced by `&obj.name` ([`FamilyObject`], selectors.md §3, [ADR-0047]).
     ///
     /// Bound forms only in this unit: `receiver` is always a concrete bound
     /// value. The spec is either an exact interned selector or an immutable
@@ -189,7 +188,7 @@ pub enum Object {
     AssociatedFamily(Box<super::associated::AssociatedFamilyObject>),
 }
 
-/// A bound `::` method reference (selectors.md §3, U16-Open, U16-Pinned).
+/// A bound `&` callable reference (selectors.md §3).
 ///
 /// Reached through [`Value::obj`](crate::value::Value::obj) exactly as an [`Object::List`] is — there
 /// is no `Value::Family` arm (`Value` stays minimal, ADR-0010). All fields
@@ -197,8 +196,8 @@ pub enum Object {
 /// `Family` is immutable once constructed.
 #[derive(Debug, Clone, Copy)]
 pub struct FamilyObject {
-    /// The receiver this family is bound to — `obj` in `obj::name`, or the
-    /// class object itself in `Type::name`.
+    /// The receiver this family is bound to — `obj` in `&obj.name`, or the
+    /// class object itself in `&Type.name`.
     pub receiver: Value,
     /// Exact selectors remain compact interned symbols; patterns are heap
     /// objects so their structural predicate can be shared by all calls.

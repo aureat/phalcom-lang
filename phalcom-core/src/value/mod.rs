@@ -141,7 +141,7 @@ impl Value {
                 Object::Tuple(_) => vm.universe.classes.tuple_class,
                 Object::Record(_) => vm.universe.classes.record_class,
                 Object::Range(_) => vm.universe.classes.range_class,
-                // `::` method reference (selectors.md §3, U16-Open) — reached
+                // `&` callable reference (selectors.md §3) — reached
                 // through `Value::obj` exactly as `Object::List` is; no
                 // `Value::Family` arm (ADR-0010 keeps `Value` minimal).
                 Object::Family(_) => vm.universe.classes.family_class,

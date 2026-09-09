@@ -31,7 +31,7 @@ The class chapters are deliberately separate:
 | Complete VM-backed callable root | [Function](function.md) |
 | Lexically captured executable value | [Closure](closure.md) |
 | Exact Method paired with a receiver | [BoundMethod](bound-method.md) |
-| Bound exact/pattern `::` reference | [Family](family.md) |
+| Bound exact/pattern `&` reference | [Family](family.md) |
 | Immutable reflection route snapshot | [Reflection](reflection.md) |
 | Snapshot route plus receiver | [Reflection](reflection.md) |
 
@@ -45,7 +45,7 @@ lexical captures. A **Method** is reified holder-owned behavior requiring an
 explicit receiver. A **BoundMethod** is an exact Method paired with a captured
 receiver. A **Function** is a sealed abstract VM-backed callable
 whose remaining runtime inputs are only explicitly supplied call arguments. A
-**Family** is a bound `::` exact-selector or structural-pattern reference
+**Family** is a bound `&` exact-selector or structural-pattern reference
 that performs lookup when called. A **MethodFamily** is an immutable reflection
 snapshot of matching Methods. A **BoundMethodFamily** is a MethodFamily
 snapshot paired with a receiver and is a Function descendant.

@@ -5,13 +5,13 @@ Phalcom uses `::` for associated lookup.
 Associated lookup resolves a name relative to a nominal declaration or another associated declaration.
 
 ```phalcom
-Option::Some::(_)
-Result::Ok::(_)
+&Option::Some(_)
+&Result::Ok(_)
 Shape::Circle(r)
 Parser::parse(_, mode, context)
-PrintUtilities::print::(***)
-SumUtilities::sum::(*)
-RecordUtilities::from::(**)
+&PrintUtilities::print(...)
+&SumUtilities::sum(...)
+&RecordUtilities::from(...)
 ```
 
 An associated name does not denote one universal kind of entity.
@@ -35,10 +35,11 @@ Surface selection is driven by use rather than by a precedence rule between decl
 Conceptually:
 
 ```text
-E::V<T>       type lookup
-E::V          value lookup
-E::V(...)     family lookup + invocation
-E::V::*       first-class family lookup
+E::V<T>        type lookup
+E::V           value lookup
+E::V(...)      family lookup + invocation
+&E::V          first-class family lookup
+&E::V(...)     selected or patterned family member
 ```
 
 These forms are related, but they are not aliases for one another.
@@ -153,7 +154,7 @@ enum Variants {
 Variants::Nullary()
 ```
 
-constructs a fresh `Variants::Nullary::()` value.
+constructs a fresh `Variants::Nullary()` value.
 
 The existence of that constructor does not imply the existence of a canonical value returned by:
 
@@ -171,12 +172,13 @@ If Phalcom provides declarations that introduce singleton variants or other asso
 
 Callable declarations are represented through callable families.
 
-The family associated with a name is explicitly obtained using `::*`.
+The family associated with a name is explicitly obtained using the callable
+reference prefix `&`.
 
 For a variant constructor:
 
 ```phalcom
-Option::Some::*
+&Option::Some
 ```
 
 denotes the constructor family associated with the base `Some`, starting with `Option::Some`.
@@ -184,7 +186,7 @@ denotes the constructor family associated with the base `Some`, starting with `O
 Conceptually:
 
 ```text
-Option::Some::*
+&Option::Some
     : callable family containing the constructor signatures for Some
 ```
 
@@ -206,14 +208,15 @@ the family contains a constructor shape conceptually equivalent to:
 
 The exact internal representation of the family is implementation-defined, but its semantic identity is not.
 
-`::*` produces the family itself rather than invoking one of its members.
+`&Option::Some` produces the family itself rather than invoking one of its
+members.
 
 This permits families to be passed, stored, reflected upon, constrained, or otherwise manipulated as first-class callable-family entities where the type system permits.
 
 For example:
 
 ```phalcom
-const constructor = Option::Some::*
+const constructor = &Option::Some
 ```
 
 The resulting value represents the `Some` constructor family, not a constructed `Some` value.
@@ -250,7 +253,7 @@ Thus:
 
 ```phalcom
 Option::Some
-Option::Some::*
+&Option::Some
 Option::Some(10)
 ```
 
@@ -262,7 +265,7 @@ Conceptually:
 Option::Some
     associated value lookup
 
-Option::Some::*
+&Option::Some
     associated family lookup
 
 Option::Some(10)
@@ -292,7 +295,7 @@ The constructor family contains a zero-argument member:
 The explicit family is:
 
 ```phalcom
-Variants::Nullary::*
+&Variants::Nullary
 ```
 
 The invocation is:
@@ -312,7 +315,7 @@ still requests the value surface.
 It must not be rewritten into either:
 
 ```phalcom
-Variants::Nullary::*
+&Variants::Nullary
 ```
 
 or:
@@ -332,7 +335,7 @@ For example, a language construct could theoretically publish all of:
 ```text
 Foo::bar<T>     associated type
 Foo::bar        associated value
-Foo::bar::*     callable family
+&Foo::bar       callable family
 ```
 
 These entities share an associated name but are semantically distinct.
@@ -377,7 +380,7 @@ For example, an associated family could conceptually expose:
 The family itself is obtained using:
 
 ```phalcom
-Owner::member::*
+&Owner::member
 ```
 
 A specific member is selected only when a call is made or when the surrounding type context requires a compatible callable member.
@@ -402,17 +405,17 @@ enum Result<T, E> {
 the associated constructor families are:
 
 ```phalcom
-Result::Ok::*
-Result::Err::*
+&Result::Ok
+&Result::Err
 ```
 
 Conceptually:
 
 ```text
-Result::Ok::*
+&Result::Ok
     contains <T, E>(T) -> Result::Ok<T, E>
 
-Result::Err::*
+&Result::Err
     contains <T, E>(E) -> Result::Err<T, E>
 ```
 
@@ -429,7 +432,7 @@ Associated lookup may begin from a generic or specialized owner.
 Conceptually:
 
 ```phalcom
-Option::Some::*
+&Option::Some
 ```
 
 denotes the polymorphic constructor family.
@@ -437,7 +440,7 @@ denotes the polymorphic constructor family.
 Where supported by generic associated lookup:
 
 ```phalcom
-Option<Int>::Some::*
+&Option<Int>::Some
 ```
 
 denotes the same family under the substitution:
@@ -489,18 +492,18 @@ Expr::Bool
 and the constructor families are:
 
 ```phalcom
-Expr::Int::*
-Expr::Bool::*
+&Expr::Int
+&Expr::Bool
 ```
 
 Their constructor result types retain the variant's GADT refinement:
 
 ```text
-Expr::Int::*:
+&Expr::Int:
     (Int) -> Expr::Int
     where Expr::Int <: Expr<Int>
 
-Expr::Bool::*:
+&Expr::Bool:
     (Bool) -> Expr::Bool
     where Expr::Bool <: Expr<Bool>
 ```
@@ -532,7 +535,7 @@ passes a value.
 Where the parameter accepts an appropriate callable family:
 
 ```phalcom
-mapConstructor(Option::Some::*)
+mapConstructor(&Option::Some)
 ```
 
 passes the constructor family.
@@ -546,7 +549,7 @@ enqueue(Variants::Nullary())
 passes a newly constructed Nullary value.
 
 ```phalcom
-register(Variants::Nullary::*)
+register(&Variants::Nullary)
 ```
 
 passes the family capable of constructing Nullarys.
@@ -562,15 +565,15 @@ Variant constructors use the general associated-family mechanism rather than int
 The same family projection applies to other associated callables:
 
 ```phalcom
-Parser::parse::*
-Factory::build::*
-Collection::from::*
+&Parser::parse
+&Factory::build
+&Collection::from
 ```
 
 Therefore:
 
 ```phalcom
-Option::Some::*
+&Option::Some
 ```
 
 is not special syntax meaning "variant constructor."
@@ -640,7 +643,7 @@ Associated lookup must preserve the following invariants.
 
 5. E::name<T> or another type-required position requests the type surface.
 
-6. E::name::* explicitly requests the callable-family surface.
+6. `&E::name` explicitly requests the callable-family surface.
 
 7. E::name(...) resolves and invokes the callable-family surface.
 
@@ -672,7 +675,7 @@ For a typical payload-carrying variant:
 ```text
 Option::Some<T>       variant type
 Option::Some          no value, unless separately provided
-Option::Some::*       variant constructor family
+&Option::Some         variant constructor family
 Option::Some(value)   constructor-family invocation
 ```
 
@@ -680,7 +683,7 @@ For a nullary non-singleton variant:
 
 ```text
 Variants::Nullary         no value, unless separately provided
-Variants::Nullary::*      () -> Variants::Nullary family
+&Variants::Nullary        () -> Variants::Nullary family
 Variants::Nullary()       fresh Variants::Nullary value
 ```
 

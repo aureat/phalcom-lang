@@ -253,25 +253,22 @@ lex error, not merely unconventional.
 A `#!` at byte offset 0 of the source file (a shebang line) is skipped by the
 lexer and does not produce a `SYMBOL` token; `#!` anywhere else lexes normally.
 
-## 10. Method-reference token (`::`)
+## 10. Callable-reference token (`&`)
 
-`::` is a postfix token producing a bound Family
-([`../selectors.md#3-method-references-`](../selectors.md)). The selector
-specification after it is normalized immediately as an exact selector or a
-structural pattern. `obj::name` is exact getter `name`; `obj::name()` is exact
-nullary method `name()`; `obj::name(...)` is a structural pattern. Construction
-stores the receiver and never probes behavior. The old Open/Pinned split and
-reference-time empty-family rule are retired.
+`&` introduces a bound Family
+([`../selectors.md#3-callable-references-`](../selectors.md)). Dot references
+bind ordinary receivers; `::` is used only for an associated declaration
+owner after `&`.
 
 ```
-METHOD-REF := "::" ( IDENT | "#" SELECTOR | PATTERN )
+CALLABLE-REF := "&" receiver ( "." | "::" ) IDENT selector-spec?
 ```
 
 ```phalcom
-obj::move         // exact getter
-obj::move()       // exact nullary method
-obj::move(...)    // structural pattern
-obj::#move(_)     // exact selector
+&obj.move
+&obj.move(_)
+&obj.move(...)
+&Option::Some(_)
 ```
 
 ## 11. Attribute token (`@`)
@@ -352,7 +349,7 @@ SELECTOR-BODY    := IDENT "(" SELECTOR-ARGS ")" | OPERATOR-CHARS | "[" "]"
 SELECTOR-ARGS    := SELECTOR-ARG { "," SELECTOR-ARG }
 SELECTOR-ARG     := "_" | IDENT
 
-METHOD-REF  := "::" [ "#" ]
+CALLABLE-REF := "&" receiver ( "." | "::" ) IDENT selector-spec?
 ATTRIBUTE   := "@" IDENT
 
 BINARY-OP  :=

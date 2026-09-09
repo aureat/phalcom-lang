@@ -1394,6 +1394,8 @@ pub enum Expr {
     Block(Box<BlockExpr>),
     AssociatedLookup(Box<AssociatedLookupExpr>),
     AssociatedInvoke(Box<AssociatedInvokeExpr>),
+    /// A callable or callable-family capture introduced by `&`.
+    CallableReference(Box<CallableReferenceExpr>),
     /// A `#`-prefixed symbol literal (selectors.md §2, U-LEX-HASH). See
     /// [`SymbolExpr`].
     Symbol(Box<SymbolExpr>),
@@ -1452,6 +1454,7 @@ impl Expr {
             Expr::Block(e) => e.range,
             Expr::AssociatedLookup(e) => e.range,
             Expr::AssociatedInvoke(e) => e.range,
+            Expr::CallableReference(e) => e.range,
             Expr::Symbol(e) => e.range,
             Expr::TupleLiteral(e) => e.range,
             Expr::RecordLiteral(e) => e.range,
@@ -1659,9 +1662,7 @@ pub struct GetPropertyExpr {
     pub range: SourceRange,
 }
 
-/// A method reference expression, `receiver::name` / `receiver::#sel(...)`
-/// (selectors.md §3, U16-Open + U16-Pinned — the **bound** forms only; the
-/// unbound `Type::name` / `Type::#sel(...)` "receiver is the first argument"
+/// An associated lookup expression, `owner::name` or `owner::name(args)`.
 #[derive(Debug, Clone)]
 pub struct AssociatedLookupExpr {
     pub receiver: Expr,
@@ -1687,24 +1688,48 @@ pub struct AssociatedNamedMemberSyntax {
 
 #[derive(Debug, Clone)]
 pub enum AssociatedNamedMode {
-    /// `owner::name` or `owner::name::`.
-    Getter { explicit_separator_range: Option<SourceRange> },
-    /// `owner::name::shape`.
-    Exact {
-        second_separator_range: SourceRange,
-        residual: AssociatedResidualSelectorSyntax,
+    /// A bare associated value lookup, `owner::name`.
+    Getter,
+}
+
+/// The syntactic target of a callable reference.
+#[derive(Debug, Clone)]
+pub enum CallableReferenceTarget {
+    /// A family or selected member bound to an ordinary receiver.
+    BoundNamed {
+        /// The expression evaluated to obtain the captured receiver.
+        receiver: Box<Expr>,
+        /// The callable base name.
+        name: String,
+        /// The source range of the callable base name.
+        name_range: SourceRange,
+        /// `None` captures the whole family; `Some` selects a signature/pattern.
+        selector: Option<SelectorSpecSyntax>,
     },
-    /// `owner::name::*`.
-    Family {
-        second_separator_range: SourceRange,
-        star_range: SourceRange,
+    /// A family or selected member in a declaration-associated namespace.
+    AssociatedNamed {
+        /// The type-form expression owning the associated namespace.
+        receiver: Box<Expr>,
+        /// The source range of the associated `::` separator.
+        separator_range: SourceRange,
+        /// The callable base name.
+        name: String,
+        /// The source range of the callable base name.
+        name_range: SourceRange,
+        /// `None` captures the whole family; `Some` selects a signature/pattern.
+        selector: Option<SelectorSpecSyntax>,
     },
 }
 
+/// A callable or callable-family reference introduced by `&`.
 #[derive(Debug, Clone)]
-pub enum AssociatedResidualSelectorSyntax {
-    Method { slots: Vec<SelectorSlotSyntax>, range: SourceRange },
-    Setter { put_range: SourceRange, range: SourceRange },
+pub struct CallableReferenceExpr {
+    /// The source range of the prefix `&` token.
+    pub ampersand_range: SourceRange,
+    /// The bound or associated reference target.
+    pub target: CallableReferenceTarget,
+    /// The complete source range, including `&` and any selector pattern.
+    pub range: SourceRange,
 }
 
 #[derive(Debug, Clone)]

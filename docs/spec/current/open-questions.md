@@ -175,7 +175,7 @@ before the work it blocks begins.
     existing `surface_none` boundary once there is a GC + benchmarks to justify it.
 
 14. ~~**`Family` introspection.**~~ **RESOLVED** (ruling, no ADR): ship `Family`
-    ([Selectors §3](selectors.md#3-method-references-)) as a **callable value only**
+    ([Selectors §3](selectors.md#3-callable-references-)) as a **callable value only**
     for now — its candidate list stays a VM-internal detail feeding
     `doesNotUnderstand` messages. Exposing `Family` as a **first-class reflective
     mirror** (`.candidates`, `.arities`, `.name`, `.receiver`, `.respondsTo(_)`,

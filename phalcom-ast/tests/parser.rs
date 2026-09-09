@@ -19,8 +19,8 @@
 
 use phalcom_ast::{
     ast::{
-        AssociatedMemberSyntax, AssociatedNamedMode, AssociatedResidualSelectorSyntax, ClassMember, EnumMember, Expr, GenericConstraintSyntax, KindSyntax,
-        MemberBody, RecordLiteralEntry, ReturnStatement, Statement, SymbolLiteralKind, TypeAnnotationExpr, VarianceSyntax,
+        AssociatedMemberSyntax, ClassMember, EnumMember, Expr, GenericConstraintSyntax, KindSyntax, MemberBody, RecordLiteralEntry, ReturnStatement, Statement,
+        SymbolLiteralKind, TypeAnnotationExpr, VarianceSyntax,
     },
     error::SyntaxErrorKind,
     parse as parse_with_recovery, parse_source,
@@ -247,7 +247,7 @@ fn parser_retains_exact_written_declaration_and_method_reference_ranges() {
 }
 
 #[test]
-fn associated_invoke_and_exact_method_syntax() {
+fn associated_invoke_and_callable_reference_syntax() {
     let source = "receiver::method()\n";
     let program = parse_source(source, 0).expect("direct associated invoke parses");
     let Statement::Expr {
@@ -260,20 +260,20 @@ fn associated_invoke_and_exact_method_syntax() {
     assert_eq!(invoke.base, "method");
     assert!(invoke.args.is_empty());
 
-    let source = "receiver::method::()\n";
-    let program = parse_source(source, 0).expect("exact method lookup parses");
+    let source = "&receiver.method()\n";
+    let program = parse_source(source, 0).expect("exact method reference parses");
     let Statement::Expr {
-        expr: Expr::AssociatedLookup(lookup),
+        expr: Expr::CallableReference(reference),
         ..
     } = &program.statements[0]
     else {
-        panic!("expected AssociatedLookup");
+        panic!("expected CallableReference");
     };
-    let AssociatedMemberSyntax::Named(named) = &lookup.member else {
-        panic!("expected named member");
+    let phalcom_ast::ast::CallableReferenceTarget::BoundNamed { name, selector, .. } = &reference.target else {
+        panic!("expected bound named target");
     };
-    assert_eq!(named.base, "method");
-    assert!(matches!(named.mode, AssociatedNamedMode::Exact { residual: AssociatedResidualSelectorSyntax::Method { ref slots, .. }, .. } if slots.is_empty()));
+    assert_eq!(name, "method");
+    assert!(matches!(selector, Some(phalcom_ast::ast::SelectorSpecSyntax::Exact(exact)) if exact.slots.is_empty()));
 }
 
 #[test]

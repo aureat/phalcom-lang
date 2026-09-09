@@ -176,6 +176,32 @@ fn source_index_records_implicit_receiver_identity() {
 }
 
 #[test]
+fn source_index_records_callable_reference_member_and_receiver() {
+    let source = "class Sample { method(_ value) { value } }\nlet sample = Sample.new()\nlet family = &sample.method(_)\n";
+    let parsed = parse(source, 0);
+    assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
+    let module = ModuleId::universe_root();
+    let mut scopes = build_source_scope_index(module.clone(), &parsed.program, &SourceIndexContext::default());
+    let occurrences = OccurrenceIndex::from_program_with_context(&mut scopes, &parsed.program, None);
+    let reference_start = source.rfind("method").expect("callable-reference member");
+    let member = occurrences
+        .all()
+        .iter()
+        .find(|occurrence| occurrence.range == (reference_start..reference_start + "method".len()).into())
+        .expect("callable-reference member occurrence");
+    assert_eq!(member.kind, OccurrenceKind::Member);
+    assert_eq!(member.role, OccurrenceRole::Reference);
+
+    let receiver_start = source.rfind("sample.method").expect("callable-reference receiver");
+    assert!(
+        occurrences
+            .all()
+            .iter()
+            .any(|occurrence| { occurrence.range == (receiver_start..receiver_start + "sample".len()).into() && occurrence.role == OccurrenceRole::Reference })
+    );
+}
+
+#[test]
 fn same_scope_redeclaration_keeps_first_lexical_target() {
     let source = "let value = 1\nlet value = 2\nvalue\n";
     let parsed = parse(source, 0);
@@ -588,6 +614,7 @@ fn formal_products_attach_by_callable_and_checker_ids() {
             ),
         )]),
         associated_resolutions: Arc::new(BTreeMap::new()),
+        callable_reference_resolutions: Arc::new(BTreeMap::new()),
         family_applications: Arc::new(BTreeMap::new()),
         match_resolutions: Arc::new(BTreeMap::new()),
         flow_graph: Arc::new(FlowGraph::default()),

@@ -664,14 +664,14 @@ inherits `message`/`raise` from `Error`.
 | `message` | instance | `error_message` | reads `_message` (slot 0); mirrors `Message`'s native accessors |
 | `raise()` | instance | `error_raise` | initiates the unified unwind's `Raise` payload (`RuntimeError::Raise`); `throw expr === expr.raise()` (ADR-0031 §1); installed on `Error` only (R-INV-6.3) |
 
-### 2.16 `Family` — `::` method-reference Function value ([selectors.md §3](../selectors.md#3-method-references-))
+### 2.16 `Family` — `&` callable-reference Function value ([selectors.md §3](../selectors.md#3-callable-references-), [callables/family.md](../callables/family.md))
 
-`Family` remains a native heap representation under `Object`. `obj::name` is
-an exact getter reference, `obj::name()` is an exact nullary-method reference,
-and ellipsis forms are structural-pattern references; unbound type-qualified
-references do not exist. Calls enter through the shared Function gateway: exact
-Families retain selector identity, while pattern Families match their stored
-predicate against the current method table. Family installs no
+`Family` remains a native heap representation under `Object`. A bound `&`
+reference stores its receiver and either an exact selector or a structural
+selector pattern. Associated families use `&Owner::name`; ordinary class-side
+behavior remains a dot send. Calls enter through the shared Function gateway:
+exact Families retain selector identity, while pattern Families match their
+stored predicate against the current method table. Family installs no
 `doesNotUnderstand(_)` router primitive.
 
 ### 2.17 `Fiber` — cooperative coroutine (U-FIBER / U-FIBER-REFLECT, [ADR-0030](../../../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md))

@@ -32,8 +32,9 @@ pub use analysis::{
     FlowStateSummary,
 };
 pub use associated::{
-    AssociatedResolution, AssociatedResolutionIndex, AssociatedResolutionKind, FamilyApplicationCandidate, FamilyApplicationKind, FamilyApplicationResolution,
-    FamilyApplicationResolutionIndex, FamilyApplicationSelection, SpecializedAssociatedMember,
+    AssociatedResolution, AssociatedResolutionIndex, AssociatedResolutionKind, CallableReferenceResolution, CallableReferenceResolutionIndex,
+    CallableReferenceResolutionKind, FamilyApplicationCandidate, FamilyApplicationKind, FamilyApplicationResolution, FamilyApplicationResolutionIndex,
+    FamilyApplicationSelection, SpecializedAssociatedMember,
 };
 pub use binding::{
     AssumptionBasis, BindingConsistency, BindingContract, BindingContractOrigin, BindingDeclarationResult, BindingReconciliation, BindingSeed,

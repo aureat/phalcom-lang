@@ -33,7 +33,9 @@ pub use application::TypeApplicationError;
 pub use case_environment::{CaseEnvironmentError, CaseTypeEnvironment, derive_case_environment};
 pub use case_instantiation::CaseInstantiation;
 pub use constraint::{ConstraintSet, TypeConstraint};
-pub use denotation::{AssociatedValueDenotation, CapturedAssociatedMember, SemanticDenotation, ValueSemanticFact};
+pub use denotation::{
+    AssociatedValueDenotation, BehavioralFamilyDenotation, CapturedAssociatedMember, CapturedBehavioralMember, SemanticDenotation, ValueSemanticFact,
+};
 pub use environment::{SpecializedCallableView, SpecializedMemberView, TypeEnvironment, TypeView};
 pub use evidence::{
     ContractAssumptionEligibility, DynamicReason, EvidenceOrigin, EvidenceSet, EvidenceStatus, TypeEvidence, TypeKnowledge, UnknownReason, join_type_knowledge,

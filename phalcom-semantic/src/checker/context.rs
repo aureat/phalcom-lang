@@ -403,6 +403,7 @@ pub struct CheckingContext<'a> {
     pub next_binding_id: u32,
     pub expressions: ExpressionAnalysisIndex,
     pub associated_resolutions: crate::checker::associated::AssociatedResolutionIndex,
+    pub callable_reference_resolutions: crate::checker::associated::CallableReferenceResolutionIndex,
     pub family_applications: crate::checker::associated::FamilyApplicationResolutionIndex,
     pub match_resolutions: crate::match_semantics::MatchResolutionIndex,
     pub explanations: crate::explain::ExplanationArena,
@@ -499,6 +500,7 @@ impl<'a> CheckingContext<'a> {
             next_binding_id: 0,
             expressions: ExpressionAnalysisIndex::new(),
             associated_resolutions: crate::checker::associated::AssociatedResolutionIndex::new(),
+            callable_reference_resolutions: crate::checker::associated::CallableReferenceResolutionIndex::new(),
             family_applications: crate::checker::associated::FamilyApplicationResolutionIndex::new(),
             match_resolutions: crate::match_semantics::MatchResolutionIndex::new(),
             explanations: crate::explain::ExplanationArena::new(),
@@ -577,6 +579,7 @@ impl<'a> CheckingContext<'a> {
             next_binding_id: 0,
             expressions: ExpressionAnalysisIndex::new(),
             associated_resolutions: crate::checker::associated::AssociatedResolutionIndex::new(),
+            callable_reference_resolutions: crate::checker::associated::CallableReferenceResolutionIndex::new(),
             family_applications: crate::checker::associated::FamilyApplicationResolutionIndex::new(),
             match_resolutions: crate::match_semantics::MatchResolutionIndex::new(),
             explanations: crate::explain::ExplanationArena::new(),
@@ -634,6 +637,7 @@ impl<'a> CheckingContext<'a> {
             next_binding_id: self.next_binding_id,
             expressions: self.expressions.clone(),
             associated_resolutions: self.associated_resolutions.clone(),
+            callable_reference_resolutions: self.callable_reference_resolutions.clone(),
             family_applications: self.family_applications.clone(),
             match_resolutions: self.match_resolutions.clone(),
             explanations: self.explanations.clone(),
@@ -2231,6 +2235,7 @@ impl<'a> CheckingContext<'a> {
                 bindings
             },
             associated_resolutions: std::sync::Arc::new(self.associated_resolutions),
+            callable_reference_resolutions: std::sync::Arc::new(self.callable_reference_resolutions),
             family_applications: std::sync::Arc::new(self.family_applications),
             match_resolutions: std::sync::Arc::new(self.match_resolutions),
             flow_graph,
@@ -2250,6 +2255,10 @@ impl<'a> CheckingContext<'a> {
 
     pub fn record_associated_resolution(&mut self, expr_id: ExpressionId, resolution: crate::checker::associated::AssociatedResolution) {
         self.associated_resolutions.insert(expr_id, resolution);
+    }
+
+    pub fn record_callable_reference_resolution(&mut self, expr_id: ExpressionId, resolution: crate::checker::associated::CallableReferenceResolution) {
+        self.callable_reference_resolutions.insert(expr_id, resolution);
     }
 
     pub fn record_family_application(&mut self, expr_id: ExpressionId, resolution: crate::checker::associated::FamilyApplicationResolution) {

@@ -1,6 +1,6 @@
 use phalcom_ast::{
     ast::{
-        AssociatedInvokeExpr, AssociatedLookupExpr, AssociatedMemberSyntax, AssociatedNamedMode, AssociatedResidualSelectorSyntax, BinaryOp, Expr, Statement,
+        AssociatedInvokeExpr, AssociatedLookupExpr, AssociatedMemberSyntax, AssociatedNamedMode, BinaryOp, CallableReferenceTarget, Expr, Statement,
         SymbolLiteralKind,
     },
     error::SyntaxErrorKind,
@@ -36,86 +36,16 @@ fn associated_invoke(source: &str) -> AssociatedInvokeExpr {
 }
 
 #[test]
-fn associated_named_modes_parse_correctly() {
-    // 1. Implicit getter: receiver::name
+fn associated_named_lookup_and_invoke_are_distinct() {
     let lookup = associated_lookup("receiver::name");
     let AssociatedMemberSyntax::Named(named) = lookup.member else {
         panic!("expected Named member");
     };
     assert_eq!(named.base, "name");
-    assert!(matches!(
-        named.mode,
-        AssociatedNamedMode::Getter {
-            explicit_separator_range: None
-        }
-    ));
+    assert!(matches!(named.mode, AssociatedNamedMode::Getter));
 
-    // 2. Explicit getter: receiver::name::
-    let lookup = associated_lookup("receiver::name::");
-    let AssociatedMemberSyntax::Named(named) = lookup.member else {
-        panic!("expected Named member");
-    };
-    assert_eq!(named.base, "name");
-    assert!(matches!(
-        named.mode,
-        AssociatedNamedMode::Getter {
-            explicit_separator_range: Some(_)
-        }
-    ));
-
-    // 3. Family lookup: receiver::name::*
-    let lookup = associated_lookup("receiver::name::*");
-    let AssociatedMemberSyntax::Named(named) = lookup.member else {
-        panic!("expected Named member");
-    };
-    assert_eq!(named.base, "name");
-    assert!(matches!(named.mode, AssociatedNamedMode::Family { .. }));
-
-    // 4. Exact zero-arg method: receiver::name::()
-    let lookup = associated_lookup("receiver::name::()");
-    let AssociatedMemberSyntax::Named(named) = lookup.member else {
-        panic!("expected Named member");
-    };
-    assert_eq!(named.base, "name");
-    let AssociatedNamedMode::Exact {
-        residual: AssociatedResidualSelectorSyntax::Method { slots, .. },
-        ..
-    } = named.mode
-    else {
-        panic!("expected Exact method mode");
-    };
-    assert!(slots.is_empty());
-
-    // 5. Exact method with slots: receiver::name::(_, foo)
-    let lookup = associated_lookup("receiver::name::(_, foo)");
-    let AssociatedMemberSyntax::Named(named) = lookup.member else {
-        panic!("expected Named member");
-    };
-    assert_eq!(named.base, "name");
-    let AssociatedNamedMode::Exact {
-        residual: AssociatedResidualSelectorSyntax::Method { slots, .. },
-        ..
-    } = named.mode
-    else {
-        panic!("expected Exact method mode");
-    };
-    assert_eq!(slots.len(), 2);
-    assert_eq!(slots[0].slot, SelectorSlot::Positional);
-    assert_eq!(slots[1].slot, SelectorSlot::Label("foo".to_string()));
-
-    // 6. Exact setter: receiver::name::=(put)
-    let lookup = associated_lookup("receiver::name::=(put)");
-    let AssociatedMemberSyntax::Named(named) = lookup.member else {
-        panic!("expected Named member");
-    };
-    assert_eq!(named.base, "name");
-    assert!(matches!(
-        named.mode,
-        AssociatedNamedMode::Exact {
-            residual: AssociatedResidualSelectorSyntax::Setter { .. },
-            ..
-        }
-    ));
+    let invoke = associated_invoke("receiver::name(_, debug)");
+    assert_eq!(invoke.args.len(), 2);
 }
 
 #[test]
@@ -153,22 +83,74 @@ fn associated_direct_invoke_parses_correctly() {
 
 #[test]
 fn legacy_family_and_shape_errors_are_diagnosed() {
-    // Single-colon-colon exact shape error
-    let err = parse_source("receiver::name(_)", 0).unwrap_err();
-    assert_eq!(err.kind, SyntaxErrorKind::AssociatedExactShapeRequiresSecondSeparator);
+    for source in ["receiver::name::", "receiver::name::*", "receiver::name::()"] {
+        let err = parse_source(source, 0).unwrap_err();
+        assert!(
+            matches!(err.kind, SyntaxErrorKind::Message(_)),
+            "obsolete syntax should be rejected: {source:?}"
+        );
+    }
+}
 
-    // Legacy ellipsis errors
-    let err = parse_source("receiver::name...", 0).unwrap_err();
-    assert_eq!(err.kind, SyntaxErrorKind::AssociatedLegacyFamilyEllipsis);
+#[test]
+fn ampersand_reference_preserves_selector_shapes() {
+    let Expr::CallableReference(reference) = parse_expr_stmt("&object.method(_, _, debug)") else {
+        panic!("expected callable reference");
+    };
+    let CallableReferenceTarget::BoundNamed { receiver, name, selector, .. } = reference.target else {
+        panic!("expected bound named target");
+    };
+    assert!(matches!(*receiver, Expr::Var { ref value, .. } if value == "object"));
+    assert_eq!(name, "method");
+    assert!(matches!(selector, Some(phalcom_ast::ast::SelectorSpecSyntax::Exact(exact)) if exact.slots.len() == 3));
 
-    let err = parse_source("receiver::name(...)", 0).unwrap_err();
-    assert_eq!(err.kind, SyntaxErrorKind::AssociatedLegacyFamilyEllipsis);
+    let Expr::CallableReference(reference) = parse_expr_stmt("&object.method(..., _, param)") else {
+        panic!("expected callable reference");
+    };
+    let CallableReferenceTarget::BoundNamed { selector, .. } = reference.target else {
+        panic!("expected bound named target");
+    };
+    assert!(matches!(selector, Some(phalcom_ast::ast::SelectorSpecSyntax::Pattern(pattern)) if pattern.prefix.is_empty() && pattern.suffix.len() == 2));
+}
 
-    let err = parse_source("receiver::...", 0).unwrap_err();
-    assert_eq!(err.kind, SyntaxErrorKind::AssociatedLegacyFamilyEllipsis);
+#[test]
+fn associated_ampersand_reference_and_parenthesized_invocation_parse() {
+    let Expr::CallableReference(reference) = parse_expr_stmt("&Option::Some(_)") else {
+        panic!("expected callable reference");
+    };
+    assert!(matches!(reference.target, CallableReferenceTarget::AssociatedNamed { selector: Some(_), .. }));
 
-    let err = parse_source("receiver::name::(...)", 0).unwrap_err();
-    assert_eq!(err.kind, SyntaxErrorKind::AssociatedLegacyFamilyEllipsis);
+    let Expr::MethodCall(call) = parse_expr_stmt("(&Option::Some(_))(42)") else {
+        panic!("expected invocation of a reference value");
+    };
+    assert_eq!(call.method, "call");
+}
+
+#[test]
+fn callable_reference_matrix_keeps_bound_and_associated_targets_distinct() {
+    for source in [
+        "&object.method",
+        "&object.method(_)",
+        "&object.method(_, _, debug)",
+        "&object.method(...)",
+        "&object.method...",
+        "&object.method(_, _, ...)",
+        "&object.method(..., _, param)",
+        "&Fiber.new",
+        "&Fiber.new(_)",
+    ] {
+        assert!(
+            matches!(parse_expr_stmt(source), Expr::CallableReference(_)),
+            "bound reference should parse: {source:?}"
+        );
+    }
+
+    for source in ["&Option::Some", "&Option::Some(_)", "&Option::Some(...)", "&Option<Int>::Some(_)"] {
+        let Expr::CallableReference(reference) = parse_expr_stmt(source) else {
+            panic!("associated reference should parse: {source:?}");
+        };
+        assert!(matches!(reference.target, CallableReferenceTarget::AssociatedNamed { .. }));
+    }
 }
 
 #[test]

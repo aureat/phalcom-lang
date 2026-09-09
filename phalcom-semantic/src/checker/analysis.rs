@@ -301,6 +301,7 @@ pub struct CallableAnalysis {
     pub expressions: ExpressionAnalysisIndex,
     pub bindings: BindingAnalysisIndex,
     pub associated_resolutions: Arc<crate::checker::associated::AssociatedResolutionIndex>,
+    pub callable_reference_resolutions: Arc<crate::checker::associated::CallableReferenceResolutionIndex>,
     pub family_applications: Arc<crate::checker::associated::FamilyApplicationResolutionIndex>,
     pub match_resolutions: Arc<crate::match_semantics::MatchResolutionIndex>,
     pub flow_graph: Arc<crate::checker::flow::graph::FlowGraph>,

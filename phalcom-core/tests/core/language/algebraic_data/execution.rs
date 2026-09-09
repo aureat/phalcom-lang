@@ -148,7 +148,7 @@ class MathUtils {
   }
 }
 
-let sum = MathUtils::add(a: 10, b: 20)
+let sum = MathUtils.add(a: 10, b: 20)
 "#;
     let (vm, main_mod) = run_inline(src).expect("should run successfully");
     let sum_sym = vm.interner.find("sum").unwrap();

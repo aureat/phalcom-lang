@@ -7,7 +7,8 @@ use phalcom_common::range::SourceRange;
 use phalcom_modules::{DeclarationId, ModuleId, SourceId};
 use phalcom_semantic::associated::AssociatedMemberId;
 use phalcom_semantic::checker::associated::{
-    AssociatedResolution, AssociatedResolutionKind, BehavioralFamilySpec, FamilyApplicationKind, FamilyApplicationResolution, FamilyApplicationSelection,
+    AssociatedResolution, AssociatedResolutionKind, BehavioralFamilySpec, CallableReferenceResolution, CallableReferenceResolutionKind, FamilyApplicationKind,
+    FamilyApplicationResolution, FamilyApplicationSelection,
 };
 use phalcom_semantic::enum_semantics::VariantShape;
 use phalcom_semantic::identity::{CallableId, ExpressionId, InvocationTargetId, VariantFieldId, VariantId};
@@ -25,6 +26,7 @@ use thiserror::Error;
 pub enum LoweringSiteKind {
     AssociatedLookup,
     AssociatedInvoke,
+    CallableReference,
     FamilyApplication,
     Match,
 }
@@ -119,12 +121,20 @@ pub enum AssociatedLoweringSpec {
     MakeAssociatedFamily { descriptor: Arc<ExecutableFamilyDescriptor> },
     /// Dynamic associated invocation over frozen candidate set.
     DynamicInvoke { candidates: Box<[ExecutableFamilyCandidate]> },
-    /// Ordinary receiver-bound family capture. Runtime retains captured
+}
+
+/// Lowering specification for a prefix-`&` callable reference.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CallableReferenceLoweringSpec {
+    /// Ordinary receiver-bound family capture. Runtime retains the captured
     /// receiver and performs live behavioral dispatch on future invocation.
-    MakeBehavioralFamily { spec: BehavioralFamilySpec },
-    /// Ordinary receiver-bound direct invocation. Runtime uses normal dispatch
-    /// against the expression's receiver.
-    InvokeBoundBehavioral { selector: phalcom_common::selector::Selector },
+    MakeBoundFamily { spec: BehavioralFamilySpec },
+    /// Exact associated behavioral member reification as a bound method.
+    MakeResolvedBoundMethod { target: ExecutableInvocationTarget },
+    /// Exact associated variant constructor reification as a closure thunk.
+    MakeVariantConstructorThunk { variant: VariantId, operation: FamilyOperationShape },
+    /// Frozen associated family capture.
+    MakeAssociatedFamily { descriptor: Arc<ExecutableFamilyDescriptor> },
 }
 
 /// Lowering specification for an application on a first-class family value.
@@ -241,6 +251,7 @@ pub struct ModuleLoweringSemantics {
     pub module: ModuleId,
     pub enums: Box<[EnumLoweringSpec]>,
     pub associated: BTreeMap<LoweringSite, AssociatedLoweringSpec>,
+    pub callable_references: BTreeMap<LoweringSite, CallableReferenceLoweringSpec>,
     pub family_values: BTreeSet<LoweringSite>,
     pub family_application_sites: BTreeSet<LoweringSite>,
     pub family_applications: BTreeMap<LoweringSite, FamilyApplicationLoweringSpec>,
@@ -253,6 +264,7 @@ impl ModuleLoweringSemantics {
             module,
             enums: Box::new([]),
             associated: BTreeMap::new(),
+            callable_references: BTreeMap::new(),
             family_values: BTreeSet::new(),
             family_application_sites: BTreeSet::new(),
             family_applications: BTreeMap::new(),
@@ -282,8 +294,8 @@ pub enum ProjectionError {
     SlotOverflow(usize),
     #[error("non-proven match reached executable lowering for expression {0:?}")]
     NonProvenMatch(ExpressionId),
-    #[error("ordinary behavioral resolution carried a non-behavioral target")]
-    InvalidBoundBehavioralTarget,
+    #[error("callable reference carried an invalid lowering specification")]
+    InvalidCallableReferenceSpec,
     #[error("missing constructor metadata for variant {0:?}")]
     MissingConstructorMetadata(VariantId),
 }
@@ -344,6 +356,7 @@ pub fn build_module_lowering_semantics(module: &ModuleId, snapshot: &SemanticSna
 
     // 2. Project Associated Expressions & Family Applications
     let mut associated = BTreeMap::new();
+    let mut callable_references = BTreeMap::new();
     let mut family_values = BTreeSet::new();
     let mut family_application_sites = BTreeSet::new();
     let mut family_applications = BTreeMap::new();
@@ -371,13 +384,30 @@ pub fn build_module_lowering_semantics(module: &ModuleId, snapshot: &SemanticSna
             associated.insert(site, spec);
         }
 
+        // Prefix-`&` callable references have a separate semantic product and
+        // lowering lane. Their receiver expression is compiled by the
+        // expression visitor at the attached source range.
+        for (expr_id, resolution) in analysis.callable_reference_resolutions.iter() {
+            let expr_analysis = analysis.expressions.get(expr_id);
+            let range = match expr_analysis {
+                Some(ea) => ea.range,
+                None => return Err(ProjectionError::MissingSourceRange(*expr_id)),
+            };
+            let spec = project_callable_reference_resolution(resolution, snapshot)?;
+            let site = LoweringSite::new(source_id.clone(), range, LoweringSiteKind::CallableReference);
+            if callable_references.contains_key(&site) {
+                return Err(ProjectionError::AmbiguousLoweringSiteAttachment(site));
+            }
+            callable_references.insert(site, spec);
+        }
+
         // Family-valued expressions
         for expression in analysis.expressions.values() {
             let is_associated_family = matches!(
                 expression.denotation.as_ref(),
                 Some(SemanticDenotation::AssociatedValue(assoc))
                     if matches!(&**assoc, AssociatedValueDenotation::Family { .. })
-            );
+            ) || matches!(expression.denotation.as_ref(), Some(SemanticDenotation::BehavioralFamily(_)));
             if is_associated_family
                 && let Some(ty) = expression.knowledge.ty()
                 && matches!(snapshot.store.get(ty), TypeData::Family(_))
@@ -426,6 +456,7 @@ pub fn build_module_lowering_semantics(module: &ModuleId, snapshot: &SemanticSna
         module: module.clone(),
         enums: enums.into_boxed_slice(),
         associated,
+        callable_references,
         family_values,
         family_application_sites,
         family_applications,
@@ -689,20 +720,25 @@ fn project_associated_resolution(
             };
             Ok((LoweringSiteKind::AssociatedInvoke, spec))
         }
-        AssociatedResolutionKind::BoundBehavioralFamily { spec, .. } => Ok((
-            LoweringSiteKind::AssociatedLookup,
-            AssociatedLoweringSpec::MakeBehavioralFamily { spec: spec.clone() },
-        )),
-        AssociatedResolutionKind::BoundBehavioralInvoke { target, .. } => {
-            let InvocationTargetId::Behavioral(callable) = target else {
-                return Err(ProjectionError::InvalidBoundBehavioralTarget);
-            };
-            Ok((
-                LoweringSiteKind::AssociatedInvoke,
-                AssociatedLoweringSpec::InvokeBoundBehavioral {
-                    selector: callable.selector.clone(),
-                },
-            ))
+    }
+}
+
+fn project_callable_reference_resolution(
+    resolution: &CallableReferenceResolution,
+    snapshot: &SemanticSnapshot,
+) -> Result<CallableReferenceLoweringSpec, ProjectionError> {
+    match &resolution.kind {
+        CallableReferenceResolutionKind::BoundFamily { spec, .. } => Ok(CallableReferenceLoweringSpec::MakeBoundFamily { spec: spec.clone() }),
+        CallableReferenceResolutionKind::Associated(associated) => {
+            let (_, spec) = project_associated_resolution(associated, snapshot)?;
+            match spec {
+                AssociatedLoweringSpec::MakeResolvedBoundMethod { target } => Ok(CallableReferenceLoweringSpec::MakeResolvedBoundMethod { target }),
+                AssociatedLoweringSpec::MakeVariantConstructorThunk { variant, operation } => {
+                    Ok(CallableReferenceLoweringSpec::MakeVariantConstructorThunk { variant, operation })
+                }
+                AssociatedLoweringSpec::MakeAssociatedFamily { descriptor } => Ok(CallableReferenceLoweringSpec::MakeAssociatedFamily { descriptor }),
+                _ => Err(ProjectionError::InvalidCallableReferenceSpec),
+            }
         }
     }
 }

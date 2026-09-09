@@ -113,6 +113,7 @@ fn callable_analysis() -> CallableAnalysis {
         expressions: BTreeMap::new(),
         bindings: BTreeMap::new(),
         associated_resolutions: Arc::new(BTreeMap::new()),
+        callable_reference_resolutions: Arc::new(BTreeMap::new()),
         family_applications: Arc::new(BTreeMap::new()),
         match_resolutions: Arc::new(BTreeMap::new()),
         flow_graph: Arc::new(FlowGraph::default()),

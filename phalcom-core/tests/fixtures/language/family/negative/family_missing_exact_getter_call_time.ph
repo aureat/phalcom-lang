@@ -6,5 +6,5 @@
 
 class Foo {}
 const f = Foo.new()
-const g = f::typo
-System.print(g.get())
+const g = &f.typo
+System.print(g())

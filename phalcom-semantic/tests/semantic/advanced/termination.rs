@@ -34,6 +34,7 @@ fn mock_callable(id: CallableId, expressions: BTreeMap<ExpressionId, ExpressionA
         expressions,
         bindings: BTreeMap::new(),
         associated_resolutions: Arc::new(BTreeMap::new()),
+        callable_reference_resolutions: Arc::new(BTreeMap::new()),
         family_applications: Arc::new(BTreeMap::new()),
         match_resolutions: Arc::new(BTreeMap::new()),
         flow_graph: Arc::new(phalcom_semantic::checker::flow::graph::FlowGraph::default()),
