@@ -35,14 +35,14 @@ language is *self-hosting above a small, fixed native boundary*
 
 | Metric | Count |
 |---|---|
-| Installed `(class, selector)` bindings — **all audited** (§1.3) | **150** |
+| Installed `(class, selector)` bindings — **all audited** (§1.3) | **226** |
 | Distinct native Rust functions | not separately maintained |
-| Classes carrying floor primitives | **23** (of 29 audited kernel classes) |
+| Classes carrying floor primitives | **28** (of 37 audited kernel classes) |
 | Sacred selectors (§5) | **7** |
 
-**Installed = audited, as of 2026-08-11.** Every native binding `VM::new()` installs is
-enumerated in §2 and guarded by R-INV-0.1. That is a new property, not a standing one —
-until CB-5 closed, `Fiber`'s 11 were installed but audited by nothing (§1.4).
+**Installed = audited, as of the current source-of-record test.** Every native binding
+`VM::new()` installs is enumerated in §2 and guarded by R-INV-0.1. The test currently
+asserts 226 bindings, including the scheduler-ownership and terminal-observer seams.
 
 ### 1.3 The source of record is the test, not this file
 
@@ -288,9 +288,12 @@ row, not the count, is what makes the freeze real.
 > enumeration. This is the one row in the chain where the delta is the *census* catching up
 > to the code rather than the code being extended.
 >
-> **Baseline:** post-U-STRING, + `Fiber` admitted — the figures above (**136 / 118 / 23 / 7** =
-> bindings / distinct fns / floor-carrying classes / sacred selectors) are the current
-> **audited** floor (was **121 / 106 / 22 / 7** post-U-GC, **120 / 105 / 22 / 7**
+> **Historical baseline:** post-U-STRING, + `Fiber` admitted — the figures above (**136 / 118 / 23 / 7** =
+> bindings / distinct fns / floor-carrying classes / sacred selectors) describe the
+> 2026-07-15 audit point, not the current floor. Later runtime work added further
+> audited bindings, including the scheduler and completion-observer seams. The current
+> source-of-record test asserts **226** bindings; the remaining figures below explain
+> historical amendment chronology only (was **121 / 106 / 22 / 7** post-U-GC, **120 / 105 / 22 / 7**
 > post-M-ATTR-ROOT, **117 / 102 / 22 / 7** post-U-ANNOT-CONTRACTS,
 > **115 / 100 / 22 / 7** post-U-SCHED, **113 / 98 / 22 / 7** post-former Family amendment,
 > **112 / 97 / 21 / 7** post-U15, **111 / 96 / 21 / 7** post-U-ERR,
@@ -299,7 +302,7 @@ row, not the count, is what makes the freeze real.
 > **125 / 110 / 22 / 7** for the ~24h in 2026-07-15 between CB-2 reconciling the count and
 > CB-5 admitting `Fiber`). **Do not quote this line** — it is a dated rendering of
 > `invariants.rs` (§1.3), and it sat five amendments stale (at post-U15 / 112) until
-> 2026-07-15. Installed now equals audited: all **136** (§1.1).
+> 2026-07-15. The current installed count is the machine-checked **226** (§1.1).
 > This census is the ground-truth *enumeration*; the count's authority is the test. The
 > landing history + drift policy live in [`README.md`](./README.md) §"Baseline & drift
 > policy" (itself re-baselined 2026-07-15 — it had been frozen at U-ERR/111).
@@ -692,7 +695,9 @@ act on whatever fiber is running *now*, which the receiver cannot name).
 in what an uncaught failure does — `call` re-raises it into the resumer
 (`FiberResumeMode::Call`); `try` captures it at the fiber floor and delivers it as an
 `Error` value (`FiberResumeMode::Try`). Each is bound at arity 0 and 1 (resume with no
-value, or with one), which is why 11 bindings need only 8 native fns.
+value, or with one). The public surface has 12 bindings; the five internal scheduler,
+parking, and completion-observer seams bring the Fiber row to 17 bindings, backed by 14
+native functions because the call/try/yield arities share implementations.
 
 | Selector | Side | Native fn | Notes |
 |---|---|---|---|
@@ -706,6 +711,7 @@ value, or with one), which is why 11 bindings need only 8 native fns.
 | `current` | static | `fiber_current` | the running fiber (`VM::current`) |
 | `abort(_)` | static | `fiber_abort` | fails the running fiber with the given value (`RuntimeError::Raise`); `RuntimeError::NotAllowed` from the root fiber — it has nowhere to propagate a floor capture to (spec §2 rule 7, §6) |
 | `isDone` | instance | `fiber_is_done` | pure read over `FiberObject::status`; no scheduler dependency (U-FIBER-REFLECT) |
+| `isRoot` | instance | `fiber_is_root` | stable root identity; never inferred from the dynamic `resumer` link |
 | `error` | instance | `fiber_error` | pure read over `FiberObject::result`; `RuntimeError::Type` if the receiver is not a `Fiber` |
 
 The scheduler-owned internal Fiber seams are not public coroutine operations:
@@ -838,9 +844,9 @@ Because the floor is frozen (ADR-0019), this census is a **contract**:
    [`tests/invariants.rs`](../../../../phalcom-core/tests/invariants.rs)
    reconstructs the installed native-`(class, selector)` set from a live
    `VM::new()` (filtering out `core.ph`-defined closures) and asserts it equals
-   the census here. **The test is the source of record for the count (§1.3); do
-   not restate the number here.** As of 2026-07-15 it is **136**, the sum of its
-   own per-amendment constants — but read the constants, not this sentence.
+   the census here. **The test is the source of record for the count (§1.3).**
+   It currently asserts **226** bindings; read the test and its live set rather
+   than treating this prose as an independent checksum.
    This turns silent floor drift into a red test; §1.1 is no longer a manual
    checksum.
 

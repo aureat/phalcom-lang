@@ -3,8 +3,9 @@
 ## Repository state
 
 - branch: `codex/concurrency-control-remediation`
-- HEAD: `914d38bb`
-- relevant local changes preserved: baseline audit, plan, and unrelated files are in the pushed parent commits
+- runtime implementation commit: `914d38bb`
+- baseline diagnosis commit: `0a8658ac`
+- current exact HEAD is represented by the pushed branch history; this record avoids duplicating a hash that becomes stale when documentation is amended
 
 ## Established invariants
 
@@ -64,6 +65,7 @@
 - E007 is fixed: terminal observers settle `Future.async` only after terminal completion; the multi-await regression covers pending turns and the final value.
 - E008 is fixed: VM-owned admission rejects duplicate scheduling; the regression covers one execution and continued healthy work.
 - E010 is correctly open: scheduled failure isolation does not provide general reporting for failed fire-and-forget tasks.
+- E010 documentation now describes scheduler-mode resume and captured-error loss; its OPEN status is unchanged.
 - Audit limitation: ASTRA reviewed this state and cited evidence but did not independently rerun the recorded commands; the implementation run above is the fresh verification record.
 
 ## REPL baseline diagnosis
@@ -87,6 +89,7 @@ The source/interface layer contains the intended declarations: `errors/unsupport
 - `rg 'nextScheduled' --glob '!target/**'` → only internal `_$nextScheduled` implementation/spec references and historical audit/context references remain; no public `System.nextScheduled` declaration or installed public surface record remains.
 - The five requested `phalcom-modules` Clippy findings are gone; package Clippy/tests are green. Workspace Clippy now reaches 36 pre-existing `phalcom-semantic` findings, which remain outside this task.
 - Workspace tests remain baseline-blocked by the three diagnosed builtin runtime import/export failures above; formatting, build, module tests/Clippy, and all concurrency-focused gates are green.
+- C5 documentation closure: complete for the reviewed stale rustdoc, floor-census count/surface, ADR-0030 opcode wording, and E010 mechanism description.
 
 ## Deferred gates
 
@@ -108,4 +111,4 @@ Final workspace certification remains blocked by the diagnosed REPL builtin expo
 
 ## Next resume action
 
-Implementation complete; retain the final-gate classifications above. Resolve the builtin runtime export projection and the remaining `phalcom-semantic` Clippy baseline separately if full workspace certification is required.
+Implementation and reviewed documentation closure complete; retain the final-gate classifications above. Resolve the builtin runtime export projection and the remaining `phalcom-semantic` Clippy baseline separately if full workspace certification is required.

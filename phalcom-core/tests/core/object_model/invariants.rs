@@ -41,7 +41,7 @@ use phalcom_core::value::{Value, sentinel_to_option};
 use phalcom_core::vm::{ClassKey, VM};
 use std::collections::HashSet;
 
-/// The 21 named kernel classes (`CoreClasses` rows), paired with a stable name.
+/// The 37 named audited kernel classes (`CoreClasses` rows), paired with a stable name.
 ///
 /// Used by the R-INV-0.x audit substrate to enumerate every class whose own —
 /// or whose metaclass's own — method dictionary can carry a floor binding.
@@ -698,7 +698,8 @@ fn subclass_static_field_offset_stability() {
 fn floor_census_matches_installed_bindings() {
     // R-INV-0.1 — reconstruct the installed `(class, selector)` floor from a
     // live `VM::new()` and assert it equals the census in
-    // `docs/spec/core/floor-census.md` (count = 88 after ADR-0023's +7,
+    // `docs/spec/current/core/floor-census.md` (the current assertion is 226;
+    // the historical amendment progression below starts at count = 88 after ADR-0023's +7,
     // ADR-0028's +5, U-CORE-4's +1, and U-CORE-6's own +2). Turns silent
     // floor drift — an accidental extra primitive, or a dropped one — into a
     // red test. The baseline is 73; the first +7 (marked NEW below) is the

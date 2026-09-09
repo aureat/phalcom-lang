@@ -162,8 +162,8 @@ open.
   collector to scan or relocate; [ADR-0009](0009-handle-arena-heap.md)'s
   moving-ready arena claim is preserved intact.
 - **New floor surface (ADR-0019 amendment).** The Fiber/Future primitive set —
-  `call`/`yield`/`current`/`abort`, a `Yield` opcode, per-fiber stack machinery,
-  and the scheduler hooks exposed through [`System`](../../spec/current/system.md) — is a
+  `call`/`yield`/`current`/`abort`, per-fiber stack machinery, and the scheduler
+  hooks exposed through [`System`](../../spec/current/system.md) — is a
   deliberate extension of the frozen floor, authorized here per the
   [ADR-0019](0019-freeze-vm-blessed-primitive-floor.md) amendment convention (as
   [ADR-0020](0020-kernel-list-native-array-protocol.md)/[ADR-0023](0023-amend-floor-admit-hash-and-kernel-reflection.md)

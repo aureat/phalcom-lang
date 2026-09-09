@@ -7,12 +7,12 @@
 
 ## Defect
 
-Both pumps resume scheduled fibers with `f.try()` and **discard the result**
-(`phalcom-core/core/core.ph:1478-1485` `runScheduled`; `core.ph:1621-1628` `await`'s
-root-drive branch; native pump `phalcom-core/src/vm/dispatch.rs:296-299`). Capture-not-
-propagate is the design — one task's failure must not abort its siblings — but the
-captured `Error` is then reachable *nowhere*: no hook, no log, no aggregation. A
-fire-and-forget task that fails is indistinguishable from one that succeeded.
+Both pumps dequeue scheduled fibers and resume them through the internal
+`Fiber._$resumeScheduled()` scheduler path (`phalcom-core/core/universe/src/concurrency/fiber.ph`
+`System.runScheduled`; `phalcom-core/src/vm/dispatch.rs` root-drive pump). The
+scheduler mode isolates one task's failure so it cannot abort sibling work, but
+the captured `Error` is then reachable *nowhere*: no hook, no log, no aggregation.
+A fire-and-forget task that fails is indistinguishable from one that succeeded.
 
 The sharp edge is `await`'s composition with it. If the task that was supposed to settle
 the future fails, the pump swallows the failure, the queue drains, and `await` raises its

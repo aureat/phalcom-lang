@@ -71,9 +71,11 @@ pub enum FiberResumeMode {
 /// **inside the arena object** (never in native Rust memory) is what lets a
 /// future tracing GC reach a parked fiber's roots (ADR-0030 §7, D1).
 ///
-/// The `resumer` link + `result` slot are deliberately **general**, not
-/// generator-specific, so the deferred `Future`/`await` layer can suspend
-/// through exactly them (ADR-0030 §Consequences, forward-compat §7.2).
+/// The `resumer` link and `result` slot retain immediate coroutine handoff and
+/// terminal value/error state. They are not durable Future-completion
+/// ownership: scheduler-managed Future work uses ticketed park/wake and the
+/// GC-traced `completion_observer`, which is independent of `resumer`
+/// (ADR-0030 §Consequences, forward-compat §7.2).
 pub struct FiberObject {
     /// The fiber's private operand stack (empty while running — mirrored by
     /// [`VM::stack`](crate::vm::VM)). `stack_offset`s are window-relative
