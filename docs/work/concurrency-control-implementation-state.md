@@ -3,7 +3,7 @@
 ## Repository state
 
 - branch: `codex/concurrency-control-remediation`
-- HEAD: `f8a009b7`
+- HEAD: `7ccc208c`
 - relevant local changes preserved: baseline audit, plan, and unrelated files are in the pushed parent commits
 
 ## Established invariants
@@ -51,7 +51,7 @@
 | C5 | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core object_model_invariants::floor_census_matches_installed_bindings` | PASS, 1 test | native floor census matches the 226 installed public/internal bindings |
 | C5 | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core` | PASS, 456 passed, 29 ignored | complete core integration target, including scheduler/fiber object-model invariants |
 | C5 | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test language-corpus` | PASS, 61 passed, 4 ignored | complete language corpus, including concurrency and negative fixtures |
-| Final | `cargo fmt --all -- --check` | BASELINE-BLOCKED: only `phalcom-modules/tests/workspace_session.rs` remains unformatted; concurrency files were formatted in `e8628a46` | repository formatting hygiene outside the patch scope |
+| Final | `cargo fmt --all -- --check` | PASS after formatting the three existing drift files | workspace formatting hygiene |
 | Final | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo build --workspace --all-targets` | PASS, existing warnings only | all workspace targets compile with the patch |
 | Final | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo test --workspace --all-targets` | BASELINE-BLOCKED: 3 failures in `phalcom-repl/tests/repl_import_bugs.rs`; core target and language corpus remain green | workspace-wide behavioral baseline; no failure was in the concurrency targets |
 | Final | `RUSTFLAGS='' RUSTC_WRAPPER='' cargo clippy --workspace --all-targets -- -D warnings` | BASELINE-BLOCKED: 5 findings in `phalcom-modules` (`unnecessary_map_or` x2, `too_many_arguments`, `type_complexity`, `collapsible_if`) | workspace lint baseline outside the patch scope |
@@ -72,7 +72,7 @@
 - `completion_observer` is traced from `Object::Fiber` and is taken before observer scheduling; no Rust closure or Future-specific heap pointer is stored.
 - `rg 'const res = fib\.try|const driver = Fiber\.new' phalcom-core/core/universe/src/concurrency/fiber.ph` → no one-turn Future driver remains.
 - `rg 'nextScheduled' --glob '!target/**'` → only internal `_$nextScheduled` implementation/spec references and historical audit/context references remain; no public `System.nextScheduled` declaration or installed public surface record remains.
-- `cargo fmt --all -- --check`, workspace tests, and workspace clippy are not release-green because of the unrelated baseline findings recorded in the final evidence ledger; no concurrency-focused gate is blocked.
+- Workspace tests and workspace clippy remain baseline-blocked by the unrelated findings recorded in the final evidence ledger; formatting and all concurrency-focused gates are green.
 
 ## Deferred gates
 
@@ -81,7 +81,7 @@
 - durable completion observers → C3 complete
 - terminal Future adoption, settlement, and suspension-safe continuations → C4 complete
 - ownership closure, specs, and permanent regressions → C5 complete
-- format and workspace test/clippy → final gate baseline-blocked and classified; workspace build → PASS
+- format → PASS; workspace test/clippy → final gate baseline-blocked and classified; workspace build → PASS
 
 ## Unexpected findings
 
@@ -90,7 +90,7 @@
 
 ## Active incident
 
-Final workspace certification remains blocked by unrelated formatting, REPL import, and `phalcom-modules` clippy findings. E010 remains an intentional open concurrency-policy issue; it was not silently closed by C5.
+Final workspace certification remains blocked by unrelated REPL import and `phalcom-modules` clippy findings. E010 remains an intentional open concurrency-policy issue; it was not silently closed by C5.
 
 ## Next resume action
 
