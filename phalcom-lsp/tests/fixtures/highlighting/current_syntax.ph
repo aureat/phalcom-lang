@@ -17,7 +17,7 @@ class Widget is Base {
 
   value { _value }
 
-  value=(put next) {
+  value=(_ next) {
     _value = next
   }
 
@@ -38,7 +38,7 @@ class Widget is Base {
     return index
   }
 
-  [_ index]=(put value) {
+  [_ index]=(_ value) {
     _value = value
   }
 }

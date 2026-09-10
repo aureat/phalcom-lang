@@ -211,11 +211,11 @@ single index for free:
 | Source | Selector sent |
 |---|---|
 | `expr[idx]` | `[_]` |
-| `expr[idx] = value` | `[_]=(put)` |
+| `expr[idx] = value` | `[_]=(_)` |
 | `expr[i, j]` | `[_,_]` |
 | `expr[key, default: fallback]` | `[_,default]` |
 | `expr[]` | `[]` |
-| `expr[] = value` | `[]=(put)` |
+| `expr[] = value` | `[]=(_)` |
 
 A collection opts into `[]`/`[]=` explicitly — implementing `at(_)` does not
 automatically make a class indexable (collection-protocol.md §2 governs
@@ -229,10 +229,10 @@ ordinary `(`/`)`:
 ```
 class Example {
   [_ idx] { ... }                    // read — selector [_]
-  [_ idx]=(put value) { ... }        // write — selector [_]=(put)
+  [_ idx]=(_ value) { ... }          // write — selector [_]=(_)
   [_ key, default fallback] { ... }  // read — selector [_,default]
   [] { ... }              // zero-arity read — selector []
-  []=(put value) { ... }  // zero-arity write — selector []=(put)
+  []=(_ value) { ... }    // zero-arity write — selector []=(_)
 }
 ```
 

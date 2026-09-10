@@ -5,7 +5,7 @@
 
 use phalcom_ast::ast::{Pattern, Program, Statement};
 use phalcom_common::range::SourceRange;
-use phalcom_common::selector::SelectorKind;
+use phalcom_common::selector::{Selector, SelectorBase, SelectorKind};
 use tower_lsp::lsp_types::{CompletionItem, CompletionItemKind, InsertTextFormat, Position};
 
 use crate::documents::{Document, DocumentSnapshot};
@@ -222,7 +222,7 @@ fn compiler_class_completions(
                 let label = callable.selector.encode();
                 let (kind, insert_text, insert_text_format) = match callable.selector.kind {
                     SelectorKind::Getter => (CompletionItemKind::PROPERTY, label.clone(), InsertTextFormat::PLAIN_TEXT),
-                    SelectorKind::Setter => (CompletionItemKind::PROPERTY, setter_snippet(&label), InsertTextFormat::SNIPPET),
+                    SelectorKind::Setter => (CompletionItemKind::PROPERTY, setter_snippet(&callable.selector), InsertTextFormat::SNIPPET),
                     SelectorKind::Method | SelectorKind::SubscriptGet | SelectorKind::SubscriptSet => {
                         (CompletionItemKind::METHOD, method_snippet(&label), InsertTextFormat::SNIPPET)
                     }
@@ -374,10 +374,11 @@ fn method_snippet(selector: &str) -> String {
     format!("{name}({})", slots.join(", "))
 }
 
-fn setter_snippet(selector: &str) -> String {
-    selector
-        .strip_suffix("=(put)")
-        .map_or_else(|| selector.to_string(), |base| format!("{base} = ${{1:value}}"))
+fn setter_snippet(selector: &Selector) -> String {
+    match &selector.base {
+        SelectorBase::Named(name) => format!("{name} = ${{1:value}}"),
+        SelectorBase::Subscript => selector.encode(),
+    }
 }
 
 #[cfg(test)]
@@ -395,6 +396,6 @@ mod tests {
     #[test]
     fn snippets_preserve_selector_shape() {
         assert_eq!(method_snippet("move(_,to,duration)"), "move(${1:_}, to: ${2:_}, duration: ${3:_})");
-        assert_eq!(setter_snippet("x=(put)"), "x = ${1:value}");
+        assert_eq!(setter_snippet(&Selector::setter("x").unwrap()), "x = ${1:value}");
     }
 }

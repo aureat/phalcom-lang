@@ -628,19 +628,25 @@ impl OccurrenceBuilder<'_> {
                 self.pack(&invoke.args);
             }
             Expr::CallableReference(reference) => match &reference.target {
-                phalcom_ast::ast::CallableReferenceTarget::BoundNamed {
-                    receiver, name, name_range, ..
-                }
-                | phalcom_ast::ast::CallableReferenceTarget::AssociatedNamed {
-                    receiver, name, name_range, ..
-                } => {
-                    self.record(
-                        *name_range,
-                        OccurrenceKind::Member,
-                        OccurrenceRole::Reference,
-                        Some(OccurrenceHint::Name(name.clone().into())),
-                        None,
-                    );
+                phalcom_ast::ast::CallableReferenceTarget::Bound { receiver, member, .. }
+                | phalcom_ast::ast::CallableReferenceTarget::Associated { receiver, member, .. } => {
+                    match member {
+                        phalcom_ast::ast::CallableReferenceMemberSyntax::Named { name, name_range, .. } => {
+                            self.record(
+                                *name_range,
+                                OccurrenceKind::Member,
+                                OccurrenceRole::Reference,
+                                Some(OccurrenceHint::Name(name.clone().into())),
+                                None,
+                            );
+                        }
+                        phalcom_ast::ast::CallableReferenceMemberSyntax::Operator(selector) => {
+                            self.record(selector.range(), OccurrenceKind::Member, OccurrenceRole::Reference, None, None);
+                        }
+                        phalcom_ast::ast::CallableReferenceMemberSyntax::Subscript(selector) => {
+                            self.record(selector.range(), OccurrenceKind::Member, OccurrenceRole::Reference, None, None);
+                        }
+                    }
                     self.expr(receiver, OccurrenceRole::Reference);
                 }
             },

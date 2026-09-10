@@ -9,7 +9,7 @@ class Behavior is Object {
   superclass -> Dynamic
 
   @native
-  superclass=(put value: Dynamic) -> Dynamic
+  superclass=(_ value: Dynamic) -> Dynamic
 
   @native
   name -> String

@@ -96,7 +96,7 @@ pub fn object_hash(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<
 /// Signature: `Object::class=(_)` — always an error; an object's class is fixed.
 #[phalcom_native_macros::primitive(
     Object,
-    "class=(put)",
+    "class=(_)",
     params = [Object],
     returns = Never,
     types = "(Object) -> Never",

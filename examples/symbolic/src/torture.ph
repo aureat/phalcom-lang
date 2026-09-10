@@ -41,7 +41,7 @@ class Option {
     _value
   }
 
-  value=(put next) {
+  value=(_ next) {
     _value = next
     self
   }
@@ -80,7 +80,7 @@ class Demo is Base {
     _name
   }
 
-  name=(put next) {
+  name=(_ next) {
     _name = next
   }
 
@@ -131,7 +131,7 @@ class Demo is Base {
     }
   }
 
-  [_ index]=(put value) {
+  [_ index]=(_ value) {
     if (index == 0) {
       _name = value
     } else {
@@ -175,7 +175,7 @@ const selector = #describe
 const method_selector = #move(_,to)
 const operator_selector = #+
 const index_selector = #[_]
-const setter_selector = #name=(put)
+const setter_selector = #name=(_)
 const any_selector = #render(...)
 
 let point = (10, 20)

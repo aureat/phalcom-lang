@@ -6,10 +6,10 @@ class Box {
   @constructor
   new() { _value = 1 }
   value { _value }
-  value=(put next) { _value = next }
+  value=(_ next) { _value = next }
 }
 
 const box = Box.new()
-const setter = (Box >> #value=...).bind(box)
+const setter = (Box >> #value=(_)).bind(box)
 setter(12)
 System.print(box.value)

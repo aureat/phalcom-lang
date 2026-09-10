@@ -83,12 +83,12 @@ recv.name                       // name
 recv.add(1, 2)                  // add(_,_)
 recv.move(to: p, duration: 2)   // move(to,duration)
 a + b                           // +(_)
-recv.name = v                   // name=(put)
+recv.name = v                   // name=(_)
 ```
 
 ```
 send      := postfix "." ( IDENT | keyword ) [ arg_list ]
-assign_send := postfix "." IDENT "=" expr        (* property assignment, name=(put) *)
+assign_send := postfix "." IDENT "=" expr        (* property assignment, name=(_) *)
 keyword   := IDENT { IDENT ":" }                  (* one or more labeled parts *)
 ```
 
@@ -237,19 +237,20 @@ brace-delimited body. See [Blocks](../blocks.md) for the full rationale
 ```
 symbol     := "#" ( IDENT | selector )
 callable_reference := bound_reference | associated_reference
-bound_reference := postfix "." IDENT [ selector_spec ]
-associated_reference := type_form "::" IDENT [ selector_spec ]
-selector_spec := "(" [ slot { "," slot } ] ")" | "..."
+bound_reference := postfix "." selector_target
+associated_reference := type_form "::" selector_target
+selector_target := IDENT [ selector_spec ] | operator [ selector_spec ] | subscript_spec
+selector_spec := "(" [ slot { "," slot } ] ")" | "=(_)" | "=" | "..."
 ```
 
 `#name` / `#sel` builds a `Symbol` ([Selectors §2](../selectors.md#2)).
-`&recv.name`, `&recv.name(_)`, and `&recv.name(...)` build bound Family
-references; `&Owner::name` selects the declaration-associated family. The
-bare named form captures the whole named family, a gap-free selector is exact,
-and `...` creates a structural pattern ([Selectors §3](../selectors.md#3)).
-Family construction evaluates the receiver once and never probes its method
-table. There is no separate exact-getter, operator, or subscript reference
-spelling.
+`&recv.name`, `&recv.name(_)`, `&recv.name=(_)`, and `&recv.name(...)` build
+bound Family references; `&Owner::name` selects the declaration-associated
+namespace. A bare named reference is an exact Getter, `name=` is the named
+accessor pattern, and `name...` is the complete named family. Bracket and
+operator targets retain their SubscriptGet/SubscriptSet and Method identities
+([Selectors §3](../selectors.md#3)). Family construction evaluates the receiver
+once and never probes its method table.
 `self` is the current receiver; `super.m(a)` is a super-send — lookup begins
 in the superclass of the method's holder, not the receiver's class.
 

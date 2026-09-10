@@ -211,13 +211,13 @@ enum Broken<T> {
 class Probe {
   @class
   run() {
-    let family = &Broken::Value
+    let family = &Broken::Value...
   }
 }
 "#,
     );
     let run = fixture.callable("Probe", "run", DispatchSide::Class);
-    let family = fixture.expression(run, "&Broken::Value");
+    let family = fixture.expression(run, "&Broken::Value...");
     assert_eq!(family.knowledge.ty(), None);
     assert!(matches!(family.knowledge, TypeKnowledge::Unknown(UnknownReason::InferenceBlocked)));
     assert!(

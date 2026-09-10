@@ -186,7 +186,7 @@ Receiver.new().take([probe.badLabel()]: probe.sideEffect())
 }
 
 #[test]
-fn implicit_put_duplicate_prevents_subscript_rhs() {
+fn put_is_an_ordinary_subscript_label_and_rhs_stays_separate() {
     let (mut interp, main, result) = run_source_keep(
         r#"
 class Probe {
@@ -195,17 +195,20 @@ class Probe {
   new() { _state = 0 }
   sideEffect() { _state = 1; return 42 }
 }
-class Sink {}
+class Sink {
+  [put]=(_ value) { return value }
+}
 let probe = Probe.new()
 let sink = Sink.new()
-sink[**(put: 1,)] = probe.sideEffect()
+let assignment = sink[**(put: 1,)] = probe.sideEffect()
 "#,
     );
 
-    let error = result.expect_err("dynamic setter must reserve compiler-owned put before RHS");
-    assert!(error.contains("duplicate argument label `put`"), "unexpected error: {error}");
+    result.expect("`put` must remain available as a user-written subscript label");
+    let assignment = global_value(&mut interp, main, "assignment");
+    assert_eq!(assignment, Value::int(42), "subscript assignment must evaluate to the original RHS");
     let probe = global_value(&mut interp, main, "probe");
-    assert_eq!(instance_slot(&interp, probe, 0), Value::int(0), "RHS must not run after duplicate `put`");
+    assert_eq!(instance_slot(&interp, probe, 0), Value::int(1), "RHS must run after dynamic index expansion");
 }
 
 #[test]
@@ -422,7 +425,7 @@ Receiver.new().missing(*args)
 }
 
 #[test]
-fn dynamic_subscript_set_arity_counts_the_implicit_put_value() {
+fn dynamic_subscript_set_arity_counts_the_rhs_value() {
     let indices_254 = tuple_literal(254);
     let ok_source = format!(
         r#"
@@ -433,7 +436,7 @@ let result = sink[*indices] = 7
 "#
     );
     let accepted = on_large_stack(move || eval_source(&ok_source, "result"));
-    assert_eq!(accepted.expect("254 indices + put/RHS = 255 total args must be legal"), Value::int(7));
+    assert_eq!(accepted.expect("254 indices + RHS = 255 total args must be legal"), Value::int(7));
 
     let indices_255 = tuple_literal(255);
     let overflow_source = format!(
@@ -444,7 +447,7 @@ let sink = Sink.new()
 sink[*indices] = 7
 "#
     );
-    let error = on_large_stack(move || run_source(&overflow_source)).expect_err("255 indices + put/RHS must overflow");
+    let error = on_large_stack(move || run_source(&overflow_source)).expect_err("255 indices + RHS must overflow");
     assert!(
         error.contains("dynamic send has 256 arguments; limit is 255"),
         "unexpected setter arity error: {error}"

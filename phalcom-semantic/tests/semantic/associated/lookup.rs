@@ -137,8 +137,8 @@ class Cat is Animal {
 
 class Probe {
   @class run() {
-    let a = &Dog.kind
-    let b = &Cat.kind
+    let a = &Dog.kind...
+    let b = &Cat.kind...
   }
 }
 "#,
@@ -155,7 +155,7 @@ class Probe {
     let dog_call = run_analysis
         .expressions
         .values()
-        .find(|e| source.get(e.range.start..e.range.end) == Some("&Dog.kind"))
+        .find(|e| source.get(e.range.start..e.range.end) == Some("&Dog.kind..."))
         .expect("&Dog.kind expr");
     let dog_res = run_analysis.callable_reference_resolutions.get(&dog_call.id).expect("Dog resolution");
     let CallableReferenceResolutionKind::BoundFamily { members: dog_members, .. } = &dog_res.kind else {
@@ -168,7 +168,7 @@ class Probe {
     let cat_call = run_analysis
         .expressions
         .values()
-        .find(|e| source.get(e.range.start..e.range.end) == Some("&Cat.kind"))
+        .find(|e| source.get(e.range.start..e.range.end) == Some("&Cat.kind..."))
         .expect("&Cat.kind expr");
     let cat_res = run_analysis.callable_reference_resolutions.get(&cat_call.id).expect("Cat resolution");
     let CallableReferenceResolutionKind::BoundFamily { members: cat_members, .. } = &cat_res.kind else {
@@ -238,7 +238,7 @@ class Test {
   }
   @class
   bad_reify_family() {
-    &Option::Some
+    &Option::Some...
   }
   @class
   good_reify_concrete() {

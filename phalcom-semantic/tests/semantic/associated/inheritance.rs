@@ -18,7 +18,7 @@ class Child is Base {
 }
 class Probe {
   @class run() {
-    let make = &Child.make
+    let make = &Child.make()
     make()
   }
 }
@@ -33,7 +33,7 @@ class Probe {
     let expression = callable
         .expressions
         .values()
-        .find(|candidate| source.get(candidate.range.start..candidate.range.end) == Some("&Child.make"))
+        .find(|candidate| source.get(candidate.range.start..candidate.range.end) == Some("&Child.make()"))
         .expect("&Child.make expression");
     let resolution = callable
         .callable_reference_resolutions

@@ -127,7 +127,7 @@ impl<'vm> Compiler<'vm> {
 
         match spec {
             CallableReferenceLoweringSpec::MakeBoundFamily { spec } => {
-                let CallableReferenceTarget::BoundNamed { receiver, .. } = &expr.target else {
+                let CallableReferenceTarget::Bound { receiver, .. } = &expr.target else {
                     return Err(CompilerError::CallableReferenceNotLoweredYet(expr.range));
                 };
                 self.compile_expr((**receiver).clone())?;

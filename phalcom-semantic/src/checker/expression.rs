@@ -39,7 +39,7 @@ use phalcom_ast::ast::{
     Statement, SymbolExpr, SymbolLiteralKind, TupleLiteralEntry, UnaryExpr, UnaryOp, UnqualifiedCallExpr,
 };
 use phalcom_common::range::SourceRange;
-use phalcom_common::selector::{Selector, SelectorBase, SelectorPattern, SelectorSlot};
+use phalcom_common::selector::{Selector, SelectorBase, SelectorKind, SelectorSlot};
 use std::collections::HashMap;
 
 /// Central entry point for bidirectional expression analysis (Spec 04.5 / E4).
@@ -982,19 +982,10 @@ fn synthesize_associated_lookup(ctx: &mut CheckingContext<'_>, lookup: &Associat
     }
 }
 
-fn behavioral_family_spec(name: &str, selector: Option<&phalcom_ast::ast::SelectorSpecSyntax>) -> Option<BehavioralFamilySpec> {
+fn behavioral_family_spec(_name: &str, selector: &phalcom_ast::ast::SelectorSpecSyntax) -> Option<BehavioralFamilySpec> {
     match selector {
-        None => SelectorPattern::named(
-            name.to_string(),
-            phalcom_common::selector::SelectorKindPattern::AnyNamed,
-            Vec::<SelectorSlot>::new(),
-            Vec::<SelectorSlot>::new(),
-            true,
-        )
-        .ok()
-        .map(BehavioralFamilySpec::Pattern),
-        Some(phalcom_ast::ast::SelectorSpecSyntax::Exact(exact)) => exact.normalize().ok().map(BehavioralFamilySpec::Exact),
-        Some(phalcom_ast::ast::SelectorSpecSyntax::Pattern(pattern)) => pattern.normalize().ok().map(BehavioralFamilySpec::Pattern),
+        phalcom_ast::ast::SelectorSpecSyntax::Exact(exact) => exact.normalize().ok().map(BehavioralFamilySpec::Exact),
+        phalcom_ast::ast::SelectorSpecSyntax::Pattern(pattern) => pattern.normalize().ok().map(BehavioralFamilySpec::Pattern),
     }
 }
 
@@ -1003,12 +994,18 @@ fn behavioral_family_spec(name: &str, selector: Option<&phalcom_ast::ast::Select
 /// associated targets require a declaration-backed type form.
 fn synthesize_callable_reference(ctx: &mut CheckingContext<'_>, reference: &CallableReferenceExpr, expected: &ExpectedType) -> TypedExpression {
     match &reference.target {
-        CallableReferenceTarget::BoundNamed { receiver, name, selector, .. } => {
+        CallableReferenceTarget::Bound { receiver, member, .. } => {
             let receiver = analyze_expression(ctx, receiver, &ExpectedType::None);
             let Some(receiver_type) = receiver.knowledge.ty() else {
                 return TypedExpression::unknown(UnknownReason::DynamicMessageSend);
             };
-            let Some(spec) = behavioral_family_spec(name, selector.as_ref()) else {
+            let (name, selector) = match member {
+                phalcom_ast::ast::CallableReferenceMemberSyntax::Named { name, selector, .. } => (name.as_str(), selector),
+                phalcom_ast::ast::CallableReferenceMemberSyntax::Operator(selector) | phalcom_ast::ast::CallableReferenceMemberSyntax::Subscript(selector) => {
+                    (selector.base(), selector)
+                }
+            };
+            let Some(spec) = behavioral_family_spec(name, selector) else {
                 return TypedExpression::unknown(UnknownReason::UncheckedExpression);
             };
             let receiver_form = receiver_type_form(&receiver);
@@ -1058,8 +1055,8 @@ fn synthesize_callable_reference(ctx: &mut CheckingContext<'_>, reference: &Call
                 })),
             )
         }
-        CallableReferenceTarget::AssociatedNamed { receiver, name, selector, .. } => {
-            synthesize_associated_callable_reference(ctx, receiver, name, selector.as_ref(), reference.range, expected)
+        CallableReferenceTarget::Associated { receiver, member, .. } => {
+            synthesize_associated_callable_reference(ctx, receiver, member, reference.range, expected)
         }
     }
 }
@@ -1067,8 +1064,7 @@ fn synthesize_callable_reference(ctx: &mut CheckingContext<'_>, reference: &Call
 fn synthesize_associated_callable_reference(
     ctx: &mut CheckingContext<'_>,
     receiver_expr: &Expr,
-    name: &str,
-    selector: Option<&phalcom_ast::ast::SelectorSpecSyntax>,
+    member: &phalcom_ast::ast::CallableReferenceMemberSyntax,
     range: SourceRange,
     expected: &ExpectedType,
 ) -> TypedExpression {
@@ -1076,12 +1072,16 @@ fn synthesize_associated_callable_reference(
     let Ok(owner) = resolve_associated_owner(ctx, &receiver, range) else {
         return TypedExpression::unknown(UnknownReason::UncheckedExpression);
     };
-    let base = SelectorBase::Named(name.to_string());
+    let (base, selector, display_name) = match member {
+        phalcom_ast::ast::CallableReferenceMemberSyntax::Named { name, selector, .. } => (SelectorBase::Named(name.clone()), selector, name.as_str()),
+        phalcom_ast::ast::CallableReferenceMemberSyntax::Operator(selector) => (SelectorBase::Named(selector.base().to_string()), selector, selector.base()),
+        phalcom_ast::ast::CallableReferenceMemberSyntax::Subscript(selector) => (SelectorBase::Subscript, selector, "[]"),
+    };
     let Ok(family) = resolve_effective_associated_family(ctx, &owner, &base, range) else {
         return TypedExpression::unknown(UnknownReason::UncheckedExpression);
     };
 
-    let normalized = selector.and_then(|selector| selector.normalize().ok());
+    let normalized = selector.normalize().ok();
     let member_ids = family
         .members
         .iter()
@@ -1099,7 +1099,7 @@ fn synthesize_associated_callable_reference(
         ctx.emit_diagnostic(SemanticDiagnostic::error_in(
             ctx.current_module.clone(),
             DiagnosticCode::AssociatedMemberMissing,
-            format!("no associated member matches reference `{name}`"),
+            format!("no associated member matches reference `{display_name}`"),
             range,
         ));
         return TypedExpression::unknown(UnknownReason::UncheckedExpression);
@@ -1111,7 +1111,49 @@ fn synthesize_associated_callable_reference(
             return TypedExpression::unknown(UnknownReason::UncheckedExpression);
         };
         let Some(target) = specialized.target.clone() else {
-            return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+            // A singleton variant is a value in ordinary associated lookup,
+            // but its callable reference is the Getter-shaped capability that
+            // produces that value. Keep this distinction in the semantic
+            // product so lowering can reuse the existing singleton family
+            // target without eagerly loading the variant here.
+            let Ok(family_type) = ctx.store.family_type(vec![crate::types::family::FamilyMemberType::value(
+                specialized.operation.clone(),
+                specialized.value_type,
+            )]) else {
+                return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+            };
+            let Ok(value_type) = check_reification_underconstrained(ctx, family_type, expected, range) else {
+                return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+            };
+            if let Some(expression) = ctx.current_expression_id() {
+                ctx.record_callable_reference_resolution(
+                    expression,
+                    CallableReferenceResolution {
+                        kind: CallableReferenceResolutionKind::Associated(Box::new(AssociatedResolution {
+                            owner_form: owner.owner_form,
+                            lookup_owner: owner.lookup_owner.clone(),
+                            family: Some(family.id.clone()),
+                            kind: AssociatedResolutionKind::Family {
+                                family_type: value_type,
+                                members: Box::new([specialized.clone()]),
+                            },
+                        })),
+                    },
+                );
+            }
+            let captured = [crate::types::denotation::CapturedAssociatedMember {
+                operation: specialized.operation.clone(),
+                member: member_id.clone(),
+                target: None,
+            }];
+            return TypedExpression::established(value_type, EvidenceOrigin::DeclarationSemantics, range).with_denotation(SemanticDenotation::AssociatedValue(
+                Box::new(AssociatedValueDenotation::family(
+                    owner.owner_form,
+                    owner.lookup_owner,
+                    family.id,
+                    captured.to_vec(),
+                )),
+            ));
         };
         let Ok(value_type) = check_reification_underconstrained(ctx, specialized.value_type, expected, range) else {
             return TypedExpression::unknown(UnknownReason::UncheckedExpression);
@@ -3319,6 +3361,21 @@ fn synthesize_index_expr(ctx: &mut CheckingContext<'_>, idx: &IndexExpr, expecte
         };
         return analyze_unresolved_application(ctx, &premise, &arguments, reason).into();
     };
+    if matches!(ctx.store.get(recv_ty), TypeData::Family(_)) && is_family_denotation(recv_typed.denotation.as_ref()) {
+        return synthesize_family_subscript(
+            ctx,
+            recv_ty,
+            FamilySubscriptRequest {
+                denotation: recv_typed.denotation.as_ref(),
+                premise: &premise,
+                index_arguments: &arguments,
+                all_arguments: &arguments,
+                expected,
+                setter: false,
+                range: idx.range,
+            },
+        );
+    }
     let slots = match super::call::static_call_shape(&arguments) {
         StaticCallShape::Exact(slots) => slots,
         StaticCallShape::Dynamic(reason) => {
@@ -3377,6 +3434,22 @@ fn synthesize_set_index_expr(ctx: &mut CheckingContext<'_>, set_idx: &SetIndexEx
         let operation = analyze_unresolved_application(ctx, &premise, &all_arguments, reason);
         return super::call::assignment_result_from_call(ctx, operation, set_idx.range);
     };
+    if matches!(ctx.store.get(recv_ty), TypeData::Family(_)) && is_family_denotation(recv_typed.denotation.as_ref()) {
+        let operation = synthesize_family_subscript(
+            ctx,
+            recv_ty,
+            FamilySubscriptRequest {
+                denotation: recv_typed.denotation.as_ref(),
+                premise: &premise,
+                index_arguments: &index_arguments,
+                all_arguments: &all_arguments,
+                expected: &ExpectedType::None,
+                setter: true,
+                range: set_idx.range,
+            },
+        );
+        return assignment_result_from_typed_operation(ctx, operation, set_idx.range);
+    }
     let slots = match super::call::static_call_shape(&index_arguments) {
         StaticCallShape::Exact(slots) => slots,
         StaticCallShape::Dynamic(reason) => {
@@ -3415,6 +3488,125 @@ fn synthesize_set_index_expr(ctx: &mut CheckingContext<'_>, set_idx: &SetIndexEx
     }
     let operation = analyze_unresolved_application(ctx, &premise, &all_arguments, UnresolvedApplicationReason::DispatchMissing);
     super::call::assignment_result_from_call(ctx, operation, set_idx.range)
+}
+
+fn is_family_denotation(denotation: Option<&SemanticDenotation>) -> bool {
+    match denotation {
+        Some(SemanticDenotation::BehavioralFamily(_)) => true,
+        Some(SemanticDenotation::AssociatedValue(assoc)) => matches!(&**assoc, AssociatedValueDenotation::Family { .. }),
+        _ => false,
+    }
+}
+
+fn assignment_result_from_typed_operation(ctx: &mut CheckingContext<'_>, operation: TypedExpression, range: SourceRange) -> TypedExpression {
+    let mut typed = TypedExpression::established(ctx.store.unit(), EvidenceOrigin::Syntax, range);
+    typed.status = operation.status;
+    typed.causal_invalidity = operation.causal_invalidity;
+    typed.callable = operation.callable;
+    typed.explanation_parents = operation.explanation_parents;
+    typed.debug_assert_coherent();
+    typed
+}
+
+struct FamilySubscriptRequest<'a> {
+    denotation: Option<&'a SemanticDenotation>,
+    premise: &'a CallPremise,
+    index_arguments: &'a [super::call::ApplicationArgument<'a>],
+    all_arguments: &'a [super::call::ApplicationArgument<'a>],
+    expected: &'a ExpectedType,
+    setter: bool,
+    range: SourceRange,
+}
+
+fn synthesize_family_subscript(ctx: &mut CheckingContext<'_>, family_type: TypeId, request: FamilySubscriptRequest<'_>) -> TypedExpression {
+    let FamilySubscriptRequest {
+        denotation,
+        premise,
+        index_arguments,
+        all_arguments,
+        expected,
+        setter,
+        range,
+    } = request;
+    let TypeData::Family(family_id) = ctx.store.get(family_type) else {
+        return analyze_unresolved_application(ctx, premise, all_arguments, UnresolvedApplicationReason::DispatchMissing).into();
+    };
+    let members = ctx.store.get_family(*family_id).members.to_vec();
+    let family_kind = match denotation {
+        Some(SemanticDenotation::AssociatedValue(assoc)) if matches!(&**assoc, AssociatedValueDenotation::Family { .. }) => {
+            Some(crate::checker::associated::FamilyApplicationKind::Associated)
+        }
+        Some(SemanticDenotation::BehavioralFamily(_)) => Some(crate::checker::associated::FamilyApplicationKind::Behavioral),
+        _ => None,
+    };
+    let structural_kind = if setter { SelectorKind::SubscriptSet } else { SelectorKind::SubscriptGet };
+
+    match static_call_shape(index_arguments) {
+        StaticCallShape::Exact(slots) => {
+            let operation = FamilyOperationShape::new(structural_kind, slots);
+            let Some(member) = members
+                .iter()
+                .find(|member| member.member_kind == FamilyMemberTypeKind::Callable && member.operation == operation)
+            else {
+                return analyze_unresolved_application(ctx, premise, all_arguments, UnresolvedApplicationReason::DispatchMissing).into();
+            };
+            let callable_type = member.ty;
+            let authority = premise.knowledge.status().unwrap_or(EvidenceStatus::Assumed);
+            let target = captured_family_target(denotation, &operation);
+            let Some(application_target) = family_callable_application_target(ctx, callable_type, denotation, authority, &operation, range) else {
+                return analyze_unresolved_application(ctx, premise, all_arguments, UnresolvedApplicationReason::DispatchMissing).into();
+            };
+            let fallback_result_type = independent_callable_return_type(ctx, callable_type);
+            let result = apply_resolved_callable(ctx, &application_target, premise, all_arguments, expected, range);
+            let Some(result_type) = result.knowledge.ty().or(fallback_result_type) else {
+                return result.into();
+            };
+            if let Some(kind) = family_kind
+                && let Some(expression) = ctx.current_expression_id()
+            {
+                ctx.record_family_application(
+                    expression,
+                    FamilyApplicationResolution {
+                        family_type,
+                        kind,
+                        selection: FamilyApplicationSelection::Static {
+                            operation,
+                            target,
+                            callable_type,
+                            result_type,
+                        },
+                    },
+                );
+            }
+            result.into()
+        }
+        StaticCallShape::Dynamic(reason) => {
+            let candidates = members
+                .iter()
+                .filter(|member| member.member_kind == FamilyMemberTypeKind::Callable && member.operation.kind == structural_kind)
+                .map(|member| FamilyApplicationCandidate {
+                    operation: member.operation.clone(),
+                    target: captured_family_target(denotation, &member.operation),
+                    callable_type: member.ty,
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
+            let result = analyze_unresolved_application(ctx, premise, all_arguments, UnresolvedApplicationReason::DynamicShape(reason));
+            if let Some(kind) = family_kind
+                && let Some(expression) = ctx.current_expression_id()
+            {
+                ctx.record_family_application(
+                    expression,
+                    FamilyApplicationResolution {
+                        family_type,
+                        kind,
+                        selection: FamilyApplicationSelection::Dynamic { candidates, result_type: None },
+                    },
+                );
+            }
+            result.into()
+        }
+    }
 }
 
 fn bind_pattern(ctx: &mut CheckingContext<'_>, pattern: &Pattern, fact: ValueSemanticFact, causal_invalidity: crate::checker::causal::CausalInvalidity) {

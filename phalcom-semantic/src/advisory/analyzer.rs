@@ -12,7 +12,6 @@ use phalcom_ast::ast::{
     SymbolLiteralKind, TupleLiteralEntry,
 };
 use phalcom_common::range::SourceRange;
-use phalcom_common::selector::{SelectorKindPattern, SelectorPattern, SelectorSlot};
 
 use crate::declarations::DeclarationTypeTable;
 use crate::identity::{CallableId, DeclarationId, DispatchSide, FieldId, SourceSiteId};
@@ -262,26 +261,25 @@ fn analyze_expr_inner(expr: &Expr, context: &AdvisoryExpressionContext<'_>) -> A
             unknown_at(context, range)
         }
         Expr::CallableReference(reference) => {
-            let (receiver, name, selector) = match &reference.target {
-                phalcom_ast::ast::CallableReferenceTarget::BoundNamed { receiver, name, selector, .. } => (receiver, name, selector),
-                phalcom_ast::ast::CallableReferenceTarget::AssociatedNamed { receiver, .. } => {
+            let (receiver, selector) = match &reference.target {
+                phalcom_ast::ast::CallableReferenceTarget::Bound { receiver, member, .. } => {
+                    let selector = match member {
+                        phalcom_ast::ast::CallableReferenceMemberSyntax::Named { selector, .. }
+                        | phalcom_ast::ast::CallableReferenceMemberSyntax::Operator(selector)
+                        | phalcom_ast::ast::CallableReferenceMemberSyntax::Subscript(selector) => selector,
+                    };
+                    (receiver, selector)
+                }
+                phalcom_ast::ast::CallableReferenceTarget::Associated { receiver, .. } => {
                     let _ = analyze_expr(receiver, context);
                     return unknown_at(context, range);
                 }
             };
             let receiver = analyze_expr(receiver, context);
-            let spec = match selector {
-                Some(selector) => selector.normalize().ok(),
-                None => SelectorPattern::named(
-                    name.clone(),
-                    SelectorKindPattern::AnyNamed,
-                    Vec::<SelectorSlot>::new(),
-                    Vec::<SelectorSlot>::new(),
-                    true,
-                )
-                .ok()
-                .map(NormalizedSelectorSpec::Pattern),
-            };
+            let spec = selector.normalize().ok().map(|spec| match spec {
+                NormalizedSelectorSpec::Exact(exact) => NormalizedSelectorSpec::Exact(exact),
+                NormalizedSelectorSpec::Pattern(pattern) => NormalizedSelectorSpec::Pattern(pattern),
+            });
             if let Some(spec) = spec
                 && let Some(resolve) = context.resolve_method_family
                 && let Some(family) = resolve(&receiver.shape, &spec)

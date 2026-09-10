@@ -127,7 +127,7 @@ pub fn extract_source_declarations(module_id: &ModuleId, program: &Program) -> V
                             if let Ok(sel) = Selector::setter(&s.name) {
                                 members.push(SourceMemberRecord {
                                     selector: sel,
-                                    selector_raw: format!("{}=(put)", s.name),
+                                    selector_raw: format!("{}=(_)", s.name),
                                     side: if s.is_static { DispatchSide::Class } else { DispatchSide::Instance },
                                     is_getter: false,
                                     is_setter: true,
@@ -222,7 +222,7 @@ pub fn extract_source_declarations(module_id: &ModuleId, program: &Program) -> V
                                 if let Ok(sel) = Selector::setter(&s.name) {
                                     members.push(SourceMemberRecord {
                                         selector: sel,
-                                        selector_raw: format!("{}=(put)", s.name),
+                                        selector_raw: format!("{}=(_)", s.name),
                                         side: if s.is_static { DispatchSide::Class } else { DispatchSide::Instance },
                                         is_getter: false,
                                         is_setter: true,

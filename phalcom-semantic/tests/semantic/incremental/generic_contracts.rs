@@ -159,14 +159,14 @@ fn setter_and_index_generic_contract_edits_invalidate_dependent_calls() {
     let setter_a = r#"
 class Number {}
 class Box {
-  value<T>=(put next: T) { }
+  value<T>=(_ next: T) { }
   run() { self.value = "text" }
 }
 "#;
     let setter_b = r#"
 class Number {}
 class Box {
-  value<T>=(put next: T) where T <: Number { }
+  value<T>=(_ next: T) where T <: Number { }
   run() { self.value = "text" }
 }
 "#;
@@ -200,14 +200,14 @@ class Box {
     let index_a = r#"
 class Number {}
 class Store {
-  [_ key: U]<U>=(put value: U) { }
+  [_ key: U]<U>=(_ value: U) { }
   run(_ store: Store) { store["text"] = "text" }
 }
 "#;
     let index_b = r#"
 class Number {}
 class Store {
-  [_ key: U]<U>=(put value: U) where U <: Number { }
+  [_ key: U]<U>=(_ value: U) where U <: Number { }
   run(_ store: Store) { store["text"] = "text" }
 }
 "#;

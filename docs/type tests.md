@@ -644,9 +644,9 @@ class List<T> is Iterable {
   // U-INDEX (ADR-0060): `[]` is its own dedicated, user-overridable  
   // selector — not `at`'s call-site sugar — so `List` must opt in  
   // explicitly with a thin delegation, same as any other collection  
-  // author would. `xs[i]` sends `[_]`; `xs[i] = v` sends `[_]=(put)`.  
+  // author would. `xs[i]` sends `[_]`; `xs[i] = v` sends `[_]=(_)`.
   @raises IndexError  
-  [_ i]=(put val) {  
+  [_ i]=(_ val) {
     if i is Range {  
         return self.replace(i, with: val).unwrap  
     }  

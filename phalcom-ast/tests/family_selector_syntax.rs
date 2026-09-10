@@ -1,7 +1,7 @@
 use phalcom_ast::{
     ast::{
-        AssociatedInvokeExpr, AssociatedLookupExpr, AssociatedMemberSyntax, AssociatedNamedMode, BinaryOp, CallableReferenceTarget, Expr, Statement,
-        SymbolLiteralKind,
+        AssociatedInvokeExpr, AssociatedLookupExpr, AssociatedMemberSyntax, AssociatedNamedMode, BinaryOp, CallableReferenceMemberSyntax,
+        CallableReferenceTarget, Expr, Statement, SymbolLiteralKind,
     },
     error::SyntaxErrorKind,
     parse_source,
@@ -54,6 +54,9 @@ fn associated_operator_and_subscript_parse_correctly() {
     let AssociatedMemberSyntax::Operator(exact) = lookup.member else {
         panic!("expected Operator member");
     };
+    let phalcom_ast::ast::SelectorSpecSyntax::Exact(exact) = exact else {
+        panic!("expected exact operator selector");
+    };
     assert_eq!(exact.base, "+");
     assert_eq!(exact.kind, SelectorKind::Method);
 
@@ -97,20 +100,26 @@ fn ampersand_reference_preserves_selector_shapes() {
     let Expr::CallableReference(reference) = parse_expr_stmt("&object.method(_, _, debug)") else {
         panic!("expected callable reference");
     };
-    let CallableReferenceTarget::BoundNamed { receiver, name, selector, .. } = reference.target else {
+    let CallableReferenceTarget::Bound { receiver, member, .. } = reference.target else {
         panic!("expected bound named target");
     };
     assert!(matches!(*receiver, Expr::Var { ref value, .. } if value == "object"));
+    let CallableReferenceMemberSyntax::Named { name, selector, .. } = member else {
+        panic!("expected named member");
+    };
     assert_eq!(name, "method");
-    assert!(matches!(selector, Some(phalcom_ast::ast::SelectorSpecSyntax::Exact(exact)) if exact.slots.len() == 3));
+    assert!(matches!(selector, phalcom_ast::ast::SelectorSpecSyntax::Exact(exact) if exact.slots.len() == 3));
 
     let Expr::CallableReference(reference) = parse_expr_stmt("&object.method(..., _, param)") else {
         panic!("expected callable reference");
     };
-    let CallableReferenceTarget::BoundNamed { selector, .. } = reference.target else {
+    let CallableReferenceTarget::Bound { member, .. } = reference.target else {
         panic!("expected bound named target");
     };
-    assert!(matches!(selector, Some(phalcom_ast::ast::SelectorSpecSyntax::Pattern(pattern)) if pattern.prefix.is_empty() && pattern.suffix.len() == 2));
+    let CallableReferenceMemberSyntax::Named { selector, .. } = member else {
+        panic!("expected named member");
+    };
+    assert!(matches!(selector, phalcom_ast::ast::SelectorSpecSyntax::Pattern(pattern) if pattern.prefix.is_empty() && pattern.suffix.len() == 2));
 }
 
 #[test]
@@ -118,7 +127,13 @@ fn associated_ampersand_reference_and_parenthesized_invocation_parse() {
     let Expr::CallableReference(reference) = parse_expr_stmt("&Option::Some(_)") else {
         panic!("expected callable reference");
     };
-    assert!(matches!(reference.target, CallableReferenceTarget::AssociatedNamed { selector: Some(_), .. }));
+    assert!(matches!(
+        reference.target,
+        CallableReferenceTarget::Associated {
+            member: CallableReferenceMemberSyntax::Named { .. },
+            ..
+        }
+    ));
 
     let Expr::MethodCall(call) = parse_expr_stmt("(&Option::Some(_))(42)") else {
         panic!("expected invocation of a reference value");
@@ -149,7 +164,7 @@ fn callable_reference_matrix_keeps_bound_and_associated_targets_distinct() {
         let Expr::CallableReference(reference) = parse_expr_stmt(source) else {
             panic!("associated reference should parse: {source:?}");
         };
-        assert!(matches!(reference.target, CallableReferenceTarget::AssociatedNamed { .. }));
+        assert!(matches!(reference.target, CallableReferenceTarget::Associated { .. }));
     }
 }
 
@@ -179,7 +194,7 @@ fn first_class_selector_specs_keep_hash_for_reflection() {
         "#name(..., foo)",
         "#name(_, ..., foo)",
         "#name=...",
-        "#name=(put)",
+        "#name=(_)",
     ] {
         assert!(parse_source(source, 0).is_ok(), "first-class selector spec should parse: {source:?}");
     }

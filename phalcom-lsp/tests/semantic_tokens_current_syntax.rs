@@ -51,7 +51,7 @@ async fn membership_operators_semantic_tokens() {
 
 #[tokio::test]
 async fn modules_decorators_and_all_class_member_forms_are_highlighted() {
-    let src = "from .base import (Var, BinOp)\nfrom .base import Var\nexpose .base\nexport Var\nlet value = 1\nconst other = 2\nif value { other } else { value }\n\n@class\nclass Widget {\n  @constructor\n  new() {}\n\n  @get\n  value { other }\n\n  @set\n  value=(put next) { next }\n\n  +(_ rhs) { rhs }\n  ==(_ rhs) { rhs }\n  [_ index] { index }\n  [_ index]=(put stored) { stored }\n}\n";
+    let src = "from .base import (Var, BinOp)\nfrom .base import Var\nexpose .base\nexport Var\nlet value = 1\nconst other = 2\nif value { other } else { value }\n\n@class\nclass Widget {\n  @constructor\n  new() {}\n\n  @get\n  value { other }\n\n  @set\n  value=(_ next) { next }\n\n  +(_ rhs) { rhs }\n  ==(_ rhs) { rhs }\n  [_ index] { index }\n  [_ index]=(_ stored) { stored }\n}\n";
     let uri = "file:///test_modules_and_members.ph";
 
     let mut lsp = TestLsp::start().await;

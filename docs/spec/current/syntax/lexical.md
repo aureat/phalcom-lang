@@ -265,7 +265,7 @@ CALLABLE-REF := "&" receiver ( "." | "::" ) IDENT selector-spec?
 ```
 
 ```phalcom
-&obj.move
+&obj.move...
 &obj.move(_)
 &obj.move(...)
 &Option::Some(_)

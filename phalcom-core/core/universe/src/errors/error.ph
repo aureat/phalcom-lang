@@ -50,15 +50,15 @@ class Error is Object {
 
   kind { _kind }
 
-  kind=(put value) { _kind = value }
+  kind=(_ value) { _kind = value }
 
   cause { _cause }
 
-  cause=(put value) { _cause = value }
+  cause=(_ value) { _cause = value }
 
   displaced { _displaced }
 
-  displaced=(put value) { _displaced = value }
+  displaced=(_ value) { _displaced = value }
 }
 
 @native

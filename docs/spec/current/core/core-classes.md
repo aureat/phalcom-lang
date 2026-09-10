@@ -44,7 +44,7 @@ Each class entry gives:
 - **Status.** ✅ landed · ◐ partial · ❌ absent, plus the owning unit for any gap.
 
 **Selector notation.** Human-facing per [floor-census §1.2](./floor-census.md): a
-getter is a bare name (`size`), a setter `name=(put)`, an arity-*n* method
+getter is a bare name (`size`), a setter `name=(_)`, an arity-*n* method
 `name(_, …)`, labeled args named (`match(some, none)`). The interner currently
 emits the colon form (`match(some:none:)`); migrating it to the canonical comma
 form is [U-CORE-4](../../../forge/units/U-CORE-4/ucore4.md) (BD-CORE4-2).
@@ -105,7 +105,7 @@ asserts them is `Universe::verify_invariants` (`universe.rs`), extended by
 | Representation | every value answers it; `x.class` is total |
 | Status | ◐ partial (universal protocol landed through U-CORE-1; `toString` still class-name default until U-CORE-4) |
 
-**Interface — floor** ([census §2.1](./floor-census.md)): `class` · `class=(put)` ·
+**Interface — floor** ([census §2.1](./floor-census.md)): `class` · `class=(_)` ·
 `==(_)` · `!=(_)` (identity by default; value types override) · `name` ·
 `toString` (aliases `name`, [ADR-0015](../../../adr/0015-object-default-tostring.md)) ·
 `hash` (identity digest of the heap handle — **landed U-CORE-1**,
@@ -138,7 +138,7 @@ Surface `MessageNotUnderstood` for dNU to raise — U-CORE-6.
 | Status | ◐ partial |
 
 **Interface — floor** ([census §2.2](./floor-census.md)): `superclass` ·
-`superclass=(put)` · `name` (the receiver class's **own** name — **shadows**
+`superclass=(_)` · `name` (the receiver class's **own** name — **shadows**
 `Object#name` for class receivers, **landed U-CORE-1**) · `methods` (own method-dict
 selector `Symbol`s as a fresh `List` — **landed U-CORE-1**).
 
@@ -352,7 +352,7 @@ unit — element stringification was blocked on U-CORE-4).
 **Interface — `.ph`** ([`core.ph`](../../../../phalcom-core/core/core.ph) L142–212, all
 over the raw floor): `size` · `at(_)` · `add(_)` · `each(_)` (**U-LIST**) ·
 `map(_)` · `filter(_)` · `fold(initial,using)` · `reduce(using)` · `includes(_)` · `isEmpty` ·
-`at(_,put)` (wraps `_$set`) · `[_]` · `[_,default]` · `[_]=(put)` (**U-STD**).
+`at(_,put)` (wraps `_$set`) · `[_]` · `[_,default]` · `[_]=(_)` (**U-STD**).
 
 **Architecture.** The hybrid pattern in miniature: five raw native primitives that
 touch the backing `Vec`, everything else self-hosted. `List` is **mutable ⇒ not

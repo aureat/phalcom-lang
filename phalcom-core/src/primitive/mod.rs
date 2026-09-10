@@ -51,11 +51,11 @@ impl Sig {
     pub const NOT: &'static str = "not";
 
     pub const name: &'static str = "name";
-    pub const name_set: &'static str = "name=(put)";
+    pub const name_set: &'static str = "name=(_)";
     pub const class: &'static str = "class";
-    pub const class_set: &'static str = "class=(put)";
+    pub const class_set: &'static str = "class=(_)";
     pub const superclass: &'static str = "superclass";
-    pub const superclass_set: &'static str = "superclass=(put)";
+    pub const superclass_set: &'static str = "superclass=(_)";
 
     pub const toString: &'static str = "toString";
     pub const toNumber: &'static str = "toNumber";

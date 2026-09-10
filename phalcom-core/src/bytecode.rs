@@ -95,6 +95,7 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "IsVariant",
     "GetVariantPayload",
     "MatchInvariantFailure",
+    "InvokeSubscriptSetPack",
 ];
 
 /// Distinguishes exact selector identity from a structural selector pattern
@@ -611,12 +612,20 @@ pub enum Bytecode {
 
     /// Internal invariant failure when an exhaustive match falls through.
     MatchInvariantFailure,
+
+    /// Dynamic subscript setter send with the assigned value kept outside the
+    /// ordinary index argument pack. The stack window is `receiver, pack,
+    /// value`; the pack contributes only bracket positionals and labels.
+    InvokeSubscriptSetPack {
+        base_name: u16,
+        access: PackAccess,
+    },
 }
 
 impl Bytecode {
     /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
     /// histogram in `opcode_stats`.
-    pub const VARIANTS: usize = 91;
+    pub const VARIANTS: usize = 92;
 
     /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
     ///
@@ -718,6 +727,7 @@ impl Bytecode {
             Bytecode::IsVariant(..) => 88,
             Bytecode::GetVariantPayload(..) => 89,
             Bytecode::MatchInvariantFailure => 90,
+            Bytecode::InvokeSubscriptSetPack { .. } => 91,
         }
     }
 

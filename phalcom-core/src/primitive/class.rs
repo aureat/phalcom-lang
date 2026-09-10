@@ -30,7 +30,7 @@ pub fn class_superclass(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
 /// Signature: `Class::superclass=(_)` — always an error; the tower is fixed here.
 #[phalcom_native_macros::primitive(
     Behavior,
-    "superclass=(put)",
+    "superclass=(_)",
     params = [Object],
     returns = Never,
     types = "(Object) -> Never",

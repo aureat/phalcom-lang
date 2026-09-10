@@ -24,7 +24,7 @@ enum Weird {
   @variant Marker(_ value: Int)
 }
 
-let family = &Weird::Marker;
+let family = &Weird::Marker...;
 "#;
     let (vm, module) = run_inline(source).expect("associated family should execute");
     let family = vm
@@ -56,4 +56,35 @@ let family = &Weird::Marker;
         2
     );
     assert!(family_obj.bound_owner.is_none(), "variant family needs no runtime hierarchy owner");
+}
+
+#[test]
+fn singleton_reference_is_a_getter_family_for_the_canonical_value() {
+    let source = r#"
+enum Option {
+  @variant None
+}
+
+let direct = Option::None
+let capability = &Option::None
+let via_get = capability.get()
+let via_value = capability.value
+let same_get = direct === via_get
+let same_value = direct === via_value
+"#;
+    let (vm, module) = run_inline(source).expect("singleton reference should execute");
+    assert_eq!(
+        vm.heap.module(module).get(vm.interner.find("same_get").expect("same_get symbol")),
+        Some(phalcom_core::value::Value::bool(true))
+    );
+    assert_eq!(
+        vm.heap.module(module).get(vm.interner.find("same_value").expect("same_value symbol")),
+        Some(phalcom_core::value::Value::bool(true))
+    );
+    let capability = vm
+        .heap
+        .module(module)
+        .get(vm.interner.find("capability").expect("capability symbol"))
+        .expect("capability binding");
+    assert!(matches!(capability.as_obj(), Some(id) if matches!(vm.heap.get(id), Object::AssociatedFamily(_))));
 }

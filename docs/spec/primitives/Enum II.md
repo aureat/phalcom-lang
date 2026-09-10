@@ -127,11 +127,11 @@ enum Result<T, E> {
 Result::Err(TypeError("type mismatch"))
 Result:Ok(())
 
-&Result::Err
+&Result::Err...
 &Result::Err(_)
 &Result::Err(...)
 
-&Result::Ok
+&Result::Ok...
 ```
 
 ```ph
@@ -156,10 +156,10 @@ enum Option<T> {
 	@variant None
 }
 
-const Ok = &Result::Ok
-const Err = &Result::Err
+const Ok = &Result::Ok...
+const Err = &Result::Err...
 
-const Some = &Option::Some
+const Some = &Option::Some...
 const None = Option::None
 
 

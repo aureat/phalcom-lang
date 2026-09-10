@@ -40,7 +40,7 @@ fn make_family_uses_explicit_exact_discriminator() {
 
 #[test]
 fn make_family_compiles_pattern_object_without_punctuation_heuristic() {
-    let source = "const f = &1.compare\n";
+    let source = "const f = &1.compare...\n";
     let (mut vm, program, closure) = compile_inline(source).expect("pattern family compiles");
     let chunk = &vm.heap.closure(closure).callable.chunk;
     let pattern = chunk.constants.iter().find_map(|constant| {
@@ -322,13 +322,57 @@ fn any_named_bound_family_prefers_method_shape_over_accessor_shapes() {
     let module = vm.create_module("main", "any_named_bound_family_shapes");
     vm.interpret_source(
         module,
-        "class Source { name { 1 } name() { 2 } name=(put value) { 3 } name(_ value) { 4 } }\nlet source = Source.new()\nlet family = Source >> #name(...)\nlet bound = family.bind(source)\nlet nullary = bound()\nlet unary = bound(9)\n",
+        "class Source { name { 1 } name() { 2 } name=(_ value) { 3 } name(_ value) { 4 } }\nlet source = Source.new()\nlet family = Source >> #name(...)\nlet bound = family.bind(source)\nlet nullary = bound()\nlet unary = bound(9)\n",
     )
     .expect("accessor and method overloads should compile");
     let nullary = vm.heap.module(module).get(vm.interner.intern("nullary")).expect("nullary result should exist");
     let unary = vm.heap.module(module).get(vm.interner.intern("unary")).expect("unary result should exist");
     assert_eq!(nullary, Value::int(2));
     assert_eq!(unary, Value::int(4));
+}
+
+#[test]
+fn bound_subscript_family_activates_get_and_set_lanes() {
+    let source = "class Table { [_ index] { index } [_ index]=(_ value) { value } }\nlet table = Table.new()\nlet family = &table[_]\nlet family_set = &table[_]=(_)\nlet got = family[3]\nlet stored = family_set[3] = 9\n";
+    let (mut vm, program, _closure) = compile_inline(source).expect("bound subscript family should compile");
+    vm.run_compiled(&program).expect("bound subscript family should dispatch both lanes");
+    let module = vm.module_registry.get(&program.entry).expect("entry module should be materialized").object;
+    let got = vm.heap.module(module).get(vm.interner.intern("got")).expect("getter result should exist");
+    let stored = vm.heap.module(module).get(vm.interner.intern("stored")).expect("setter result should exist");
+    assert_eq!(got, Value::int(3));
+    assert_eq!(stored, Value::int(9));
+}
+
+#[test]
+fn family_accessor_aliases_activate_named_getter_and_setter_lanes() {
+    let source = "class Box { value { 7 } value=(_ newValue) { newValue } }\nlet box = Box.new()\nlet getter = &box.value\nlet setter = &box.value=(_)\nlet getCall = getter.get()\nlet getValue = getter.value\nlet setCall = setter.set(9)\nlet setValue = setter.value = 11\n";
+    let (mut vm, program, _closure) = compile_inline(source).expect("family accessor aliases should compile");
+    vm.run_compiled(&program).expect("family accessor aliases should activate");
+    let module = vm.module_registry.get(&program.entry).expect("entry module should be materialized").object;
+    for (name, expected) in [("getCall", 7), ("getValue", 7), ("setCall", 9), ("setValue", 11)] {
+        let actual = vm.heap.module(module).get(vm.interner.intern(name)).expect("family result should exist");
+        assert_eq!(actual, Value::int(expected), "unexpected {name} result");
+    }
+}
+
+#[test]
+fn family_subscript_tuple_apis_preserve_index_shape_and_rhs_lane() {
+    let source = "class Table { [_ index] { index } [_ index]=(_ value) { value } }\nlet table = Table.new()\nlet getter = &table[_]\nlet setter = &table[_]=(_)\nlet getValue = getter.get((3,))\nlet setValue = setter.set((4,), 12)\n";
+    let (mut vm, program, _closure) = compile_inline(source).expect("family subscript APIs should compile");
+    vm.run_compiled(&program).expect("family subscript APIs should activate");
+    let module = vm.module_registry.get(&program.entry).expect("entry module should be materialized").object;
+    let get_value = vm
+        .heap
+        .module(module)
+        .get(vm.interner.intern("getValue"))
+        .expect("subscript getter result should exist");
+    let set_value = vm
+        .heap
+        .module(module)
+        .get(vm.interner.intern("setValue"))
+        .expect("subscript setter result should exist");
+    assert_eq!(get_value, Value::int(3));
+    assert_eq!(set_value, Value::int(12));
 }
 
 #[test]

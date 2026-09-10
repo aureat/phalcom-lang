@@ -166,8 +166,8 @@ pub fn check_class_bodies(ctx: &mut CheckingContext<'_>, class_def: &ClassDef, s
             }
             ClassMember::Index(i) => {
                 let mut params = i.params.clone();
-                if let phalcom_ast::ast::IndexAccessor::Set { put } = &i.accessor {
-                    params.push((**put).clone());
+                if let phalcom_ast::ast::IndexAccessor::Set { value } = &i.accessor {
+                    params.push((**value).clone());
                 }
                 let callable = super::declaration_signature::callable_id_for_member(&decl_id, member);
                 if let Some(signature) = callable.as_ref().and_then(|id| signatures.get(id)) {

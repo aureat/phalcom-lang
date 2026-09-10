@@ -349,7 +349,7 @@ fn setter_assignment_expression_is_unit_and_keeps_callable() {
 class Box {
   _value: Int = 0
   value { _value }
-  value=(put next: Int) { _value = next }
+  value=(_ next: Int) { _value = next }
   run() { let result = (self.value = 1) }
 }
 "#,
@@ -367,7 +367,7 @@ fn setter_assignment_checks_value_and_keeps_unit() {
         r#"
 class Box {
   _value: Int = 0
-  value=(put next: Int) { _value = next }
+  value=(_ next: Int) { _value = next }
   run() { self.value = "wrong" }
 }
 "#,
@@ -437,7 +437,7 @@ fn user_defined_subscript_set_keeps_exact_callable_identity() {
     let fixture = Fixture::new(
         r#"
 class Table {
-  [_ key: Int]=(put value: String) -> String {
+  [_ key: Int]=(_ value: String) -> String {
     value
   }
 

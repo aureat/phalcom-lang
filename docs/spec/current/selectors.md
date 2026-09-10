@@ -23,6 +23,8 @@ move(_,_)               // 2 positional
 size()                  // nullary
 +(_)                    // binary operator
 ~()                     // unary operator
+name=(_)                // named setter; RHS is a dedicated value lane
+[_,debug]=(_)           // subscript setter; RHS is outside index slots
 ```
 
 Grammar of the canonical string:
@@ -33,6 +35,20 @@ slot      := "_" | label
 name      := ident | operator
 label     := ident
 ```
+
+Getter, setter, and subscript selectors are also canonical identities:
+
+```text
+name                      // Getter
+name=(_)                  // Setter
+[_,debug]                 // SubscriptGet
+[_,debug]=(_)             // SubscriptSet
+```
+
+The setter `(_)` is not an ordinary selector slot. A named setter has no
+ordinary slots, and a subscript setter contains only its bracket/index slots;
+the assigned value is one distinguished value lane. Setter declarations MUST
+therefore use exactly `=(_ local)` after the property or bracket shape.
 
 ### Slot escaping and transitional rest
 
@@ -134,15 +150,31 @@ receiver, including a class object:
 
 ```text
 &receiver.name
+&receiver.name()
 &receiver.name(_)
+&receiver.name=(_)
+&receiver.name=
 &receiver.name(...)
+&receiver.name...
+&receiver[_, debug]
+&receiver[_, debug]=(_)
+&receiver[...]
+&receiver[...]=(_)
+&receiver[...]=
 ```
 
-The bare named form captures the whole named family. A parenthesized selector
-with no gap selects an exact callable shape; an ellipsis creates a structural
-pattern with fixed prefix and suffix slots. The receiver expression is
-evaluated once and stored. Construction never probes receiver behavior and
-never rejects an absent selector.
+The reference names the selector shape that is written. A bare named reference
+is an exact Getter; `name()` and `name(_)` are exact Methods; `name=(_)` is an
+exact Setter. A trailing `=` selects named accessors, `name(...)` is a
+Method-only pattern, and `name...` captures the complete named family
+(Getter, Setter, or Method). Bracket references follow the same rule for
+SubscriptGet and SubscriptSet; `[...]` and `[...]=(_)` are structural patterns,
+while `[...]=` selects both subscript accessor kinds.
+
+The receiver expression is evaluated once and stored. Construction never
+probes receiver behavior and never rejects an absent selector. The exact
+Getter capability is activated through `get()` or `value`, not ordinary `()`;
+ordinary `()` remains Method-kind.
 
 `::` is reserved for declaration-associated lookup. Associated callable
 families are selected with `&`:
@@ -158,14 +190,15 @@ behavior is an ordinary dot send such as `Foo.bar(args)`. There is no runtime
 receiver fallback from an associated lookup to a bound behavioral family.
 
 The selector specification preserves labels as labels, not destructuring
-bindings. The reference syntax does not add exact-getter, operator, or
-subscript reference forms.
+bindings. Operators retain Method identity, so `&receiver.+(_)` is an exact
+operator Method and `&receiver.+...` is its complete named family.
 
 ### Selector-pattern grammar and laws
 
-    selector_spec := exact_selector | pattern_selector
-    exact_selector := name | name "(" [ slot { "," slot } ] ")"
-    pattern_selector := name "(" pattern_slots ")"
+    selector_spec := exact_selector | pattern_selector | accessor_pattern
+    exact_selector := name | name "(" [ slot { "," slot } ] ")" | name "=(_)"
+    pattern_selector := name "(" pattern_slots ")" | name "..."
+    accessor_pattern := name "="
     pattern_slots := slot { "," slot } [ "," "..." ] | "..."
     slot := "_" | label
 
@@ -173,8 +206,15 @@ The concrete parser accepts its canonical `...` gap spelling and preserves
 fixed prefix/suffix slots around that gap. Matching requires the same base and
 kind, exact kind for an exact pattern, and ordered slot equality for every
 fixed prefix/suffix slot. `AnyNamed` patterns match named getters, setters,
-and methods; they never match subscripts. Pattern matching is a predicate,
+and methods; `NamedAccessors` matches only Getter and Setter; `AnySubscript`
+matches only SubscriptGet and SubscriptSet. Pattern matching is a predicate,
 not a dispatch key, and does not reorder labels or invent positional slots.
+
+For indexed assignment, the receiver and every index expression are evaluated
+left-to-right, followed by the setter RHS. The assignment expression evaluates
+to the original RHS, independently of the setter body's return value. The RHS
+is never appended to the ordinary bracket slot list, so the normal
+positional-before-label rule remains unchanged.
 
 ### Call and mutation laws
 

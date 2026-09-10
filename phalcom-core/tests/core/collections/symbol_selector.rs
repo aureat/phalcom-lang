@@ -29,7 +29,7 @@ fn exact_symbol_values_use_canonical_selector_spelling() {
 #[test]
 fn zero_allocation_symbol_pattern_literal() {
     let value = eval_source(
-        "let a = #foo(...); let b = #foo(_, ..., bar); let c = #[_, ...]=(put); let result = a.class == Symbol and b.class == Symbol and c.class == Symbol\n",
+        "let a = #foo(...); let b = #foo(_, ..., bar); let c = #[_, ...]=(_); let result = a.class == Symbol and b.class == Symbol and c.class == Symbol\n",
         "result",
     )
     .expect("symbol patterns evaluate to symbol");

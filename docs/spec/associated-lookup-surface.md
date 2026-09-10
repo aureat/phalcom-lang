@@ -36,9 +36,9 @@ Conceptually:
 
 ```text
 E::V<T>        type lookup
-E::V           value lookup
+E::V           value lookup (including an exact singleton getter)
 E::V(...)      family lookup + invocation
-&E::V          first-class family lookup
+&E::V...       first-class whole-family lookup
 &E::V(...)     selected or patterned family member
 ```
 
@@ -178,7 +178,7 @@ reference prefix `&`.
 For a variant constructor:
 
 ```phalcom
-&Option::Some
+&Option::Some...
 ```
 
 denotes the constructor family associated with the base `Some`, starting with `Option::Some`.
@@ -186,7 +186,7 @@ denotes the constructor family associated with the base `Some`, starting with `O
 Conceptually:
 
 ```text
-&Option::Some
+&Option::Some...
     : callable family containing the constructor signatures for Some
 ```
 
@@ -208,7 +208,7 @@ the family contains a constructor shape conceptually equivalent to:
 
 The exact internal representation of the family is implementation-defined, but its semantic identity is not.
 
-`&Option::Some` produces the family itself rather than invoking one of its
+`&Option::Some...` produces the family itself rather than invoking one of its
 members.
 
 This permits families to be passed, stored, reflected upon, constrained, or otherwise manipulated as first-class callable-family entities where the type system permits.
@@ -216,7 +216,7 @@ This permits families to be passed, stored, reflected upon, constrained, or othe
 For example:
 
 ```phalcom
-const constructor = &Option::Some
+const constructor = &Option::Some...
 ```
 
 The resulting value represents the `Some` constructor family, not a constructed `Some` value.
@@ -253,7 +253,7 @@ Thus:
 
 ```phalcom
 Option::Some
-&Option::Some
+&Option::Some...
 Option::Some(10)
 ```
 
@@ -265,7 +265,7 @@ Conceptually:
 Option::Some
     associated value lookup
 
-&Option::Some
+&Option::Some...
     associated family lookup
 
 Option::Some(10)
@@ -295,7 +295,7 @@ The constructor family contains a zero-argument member:
 The explicit family is:
 
 ```phalcom
-&Variants::Nullary
+&Variants::Nullary...
 ```
 
 The invocation is:
@@ -315,7 +315,7 @@ still requests the value surface.
 It must not be rewritten into either:
 
 ```phalcom
-&Variants::Nullary
+&Variants::Nullary...
 ```
 
 or:
@@ -405,17 +405,17 @@ enum Result<T, E> {
 the associated constructor families are:
 
 ```phalcom
-&Result::Ok
-&Result::Err
+&Result::Ok...
+&Result::Err...
 ```
 
 Conceptually:
 
 ```text
-&Result::Ok
+&Result::Ok...
     contains <T, E>(T) -> Result::Ok<T, E>
 
-&Result::Err
+&Result::Err...
     contains <T, E>(E) -> Result::Err<T, E>
 ```
 
@@ -432,7 +432,7 @@ Associated lookup may begin from a generic or specialized owner.
 Conceptually:
 
 ```phalcom
-&Option::Some
+&Option::Some...
 ```
 
 denotes the polymorphic constructor family.
@@ -535,7 +535,7 @@ passes a value.
 Where the parameter accepts an appropriate callable family:
 
 ```phalcom
-mapConstructor(&Option::Some)
+mapConstructor(&Option::Some...)
 ```
 
 passes the constructor family.
@@ -549,7 +549,7 @@ enqueue(Variants::Nullary())
 passes a newly constructed Nullary value.
 
 ```phalcom
-register(&Variants::Nullary)
+register(&Variants::Nullary...)
 ```
 
 passes the family capable of constructing Nullarys.
@@ -565,15 +565,15 @@ Variant constructors use the general associated-family mechanism rather than int
 The same family projection applies to other associated callables:
 
 ```phalcom
-&Parser::parse
-&Factory::build
-&Collection::from
+&Parser::parse...
+&Factory::build...
+&Collection::from...
 ```
 
 Therefore:
 
 ```phalcom
-&Option::Some
+&Option::Some...
 ```
 
 is not special syntax meaning "variant constructor."
@@ -675,7 +675,7 @@ For a typical payload-carrying variant:
 ```text
 Option::Some<T>       variant type
 Option::Some          no value, unless separately provided
-&Option::Some         variant constructor family
+&Option::Some...      variant constructor family
 Option::Some(value)   constructor-family invocation
 ```
 
@@ -683,7 +683,7 @@ For a nullary non-singleton variant:
 
 ```text
 Variants::Nullary         no value, unless separately provided
-&Variants::Nullary        () -> Variants::Nullary family
+&Variants::Nullary...      () -> Variants::Nullary family
 Variants::Nullary()       fresh Variants::Nullary value
 ```
 

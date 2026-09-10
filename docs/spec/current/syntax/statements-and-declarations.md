@@ -61,7 +61,7 @@ expr_statement := expr
 ```
 
 Assignments (`x = v`, `obj.prop = v` — the latter desugaring to a send of
-`prop=(put)`) and message sends are both expression statements; neither needs
+`prop=(_)`) and message sends are both expression statements; neither needs
 extra statement-level syntax.
 
 ## 5. Class declarations
@@ -95,7 +95,7 @@ class Point is Shape {
   new(_ x, _ y) { _x = x; _y = y }
 
   x => _x                    // getter — selector `x`, distinct from `x()`
-  y=(put value) { _y = value } // setter — selector `y=(put)`
+  y=(_ value) { _y = value } // setter — selector `y=(_)`
 
   +(other) => Point.new(x: _x + other.x, y: _y + other.y)
 
@@ -128,7 +128,7 @@ for the semantics.
   dispatch.
 - **Getter**: no parameter list. `name` and `name()` are different selectors.
 - **Setter**: `IDENT "=" param_list method_body` — the single parameter is
-  written `put` or `put local`, and selector identity is always `name=(put)`.
+written `_ value`, and selector identity is always `name=(_)`.
 - **Field declaration**: `[ "const" ] FIELD [ "=" expr ]` ([ADR-0064]). A mutable
   field takes **no keyword** (`_x`, or `_x = e` for a declaration default); `const _x = e`
   is immutable and defined at the declaration; `const _id` defers its one value to a

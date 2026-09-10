@@ -303,7 +303,11 @@ pub fn resolve_bound_behavioral_family(
                     continue;
                 };
                 for (selector, signature, callable) in candidates {
-                    if selector.base != *base || !matches!(selector.kind, SelectorKind::Getter | SelectorKind::Setter | SelectorKind::Method) {
+                    let kind_allowed = match base {
+                        SelectorBase::Named(_) => matches!(selector.kind, SelectorKind::Getter | SelectorKind::Setter | SelectorKind::Method),
+                        SelectorBase::Subscript => matches!(selector.kind, SelectorKind::SubscriptGet | SelectorKind::SubscriptSet),
+                    };
+                    if selector.base != *base || !kind_allowed {
                         continue;
                     }
                     if !seen.insert(selector.clone()) {

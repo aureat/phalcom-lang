@@ -48,7 +48,7 @@ fn generic_index_setter_uses_key_and_put_value_as_arguments() {
     let fixture = Fixture::new(
         r#"
 class Store {
-  [_ key: U]<U>=(put value: U) { }
+  [_ key: U]<U>=(_ value: U) { }
   run(store: Store) { store[1] = "wrong" }
 }
 "#,

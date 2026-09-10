@@ -16,7 +16,7 @@ receiver.move(to: p, duration: 2)  //               -> selector `move(to,duratio
 a + b                              // binary        -> selector `+(_)`
 a & b                              // binary        -> selector `&(_)`
 ~a                                 // unary         -> selector `~()`
-a.name = v                         // assignment    -> selector `name=(put)`
+a.name = v                         // assignment    -> selector `name=(_)`
 ```
 
 ## 2. Selector identity
@@ -31,7 +31,7 @@ for the full canonical-form grammar and rules R1–R5.
 | `p.add(1, 2)` | `add(_,_)` |
 | `p.move(to: a, duration: b)` | `move(to,duration)` |
 | `p.move(a, b)` | `move(_,_)` |
-| `p.name = v` | `name=(put)` |
+| `p.name = v` | `name=(_)` |
 | `a + b` | `+(_)` |
 | `a & b` | `&(_)` |
 | `~a` | `~()` |

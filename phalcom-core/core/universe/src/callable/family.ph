@@ -7,6 +7,10 @@ class Family is Function {
   @native isExact -> Bool
   @native get() -> Dynamic
   @native set(_ method: Dynamic) -> Dynamic
+  @native value -> Dynamic
+  @native value=(_ newValue: Dynamic) -> Dynamic
+  @native get(_ shape: Tuple) -> Dynamic
+  @native set(_ shape: Tuple, _ value: Dynamic) -> Dynamic
 }
 
 @native

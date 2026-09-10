@@ -114,7 +114,7 @@ class Bytes is Iterable {
 
   at(_ i, put) { return self.set(i, put) }
 
-  [_ i]=(put val) { return self.set(i, val) }
+  [_ i]=(_ val) { return self.set(i, val) }
 
   fill(_ v) {
     if (not self.isOctet(v)) {

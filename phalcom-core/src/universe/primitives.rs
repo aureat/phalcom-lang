@@ -8,7 +8,10 @@ use crate::primitive::bytes::{
 };
 use crate::primitive::class::{behavior_extract_shape, behavior_methods, behavior_name, class_add, class_new_, class_set_superclass, class_superclass};
 use crate::primitive::error::{error_message, error_raise};
-use crate::primitive::family::{family_get, family_is_exact, family_pattern, family_receiver, family_selector, family_set};
+use crate::primitive::family::{
+    family_get, family_get_shape, family_is_exact, family_pattern, family_receiver, family_selector, family_set, family_set_shape, family_value,
+    family_value_set,
+};
 use crate::primitive::fiber::{
     fiber_abort, fiber_call, fiber_current, fiber_error, fiber_is_done, fiber_is_root, fiber_new, fiber_on_complete, fiber_park, fiber_prepare_park,
     fiber_resume_scheduled, fiber_terminal_value, fiber_try, fiber_yield,
@@ -330,6 +333,10 @@ impl Universe {
         primitive!(vm, family_cls, "isExact", SignatureKind::Getter, family_is_exact);
         primitive_shape!(vm, family_cls, "get", SignatureKind::Method(0), family_get);
         primitive_shape!(vm, family_cls, "set", SignatureKind::Method(1), family_set);
+        primitive_shape!(vm, family_cls, "value", SignatureKind::Getter, family_value);
+        primitive_shape!(vm, family_cls, "value=", SignatureKind::Setter, family_value_set);
+        primitive_shape!(vm, family_cls, "get", SignatureKind::Method(1), family_get_shape);
+        primitive_shape!(vm, family_cls, "set", SignatureKind::Method(2), family_set_shape);
 
         let method_family_cls = vm.universe.classes.method_family_class;
         primitive!(vm, method_family_cls, "selectors", SignatureKind::Getter, method_family_selectors);

@@ -106,7 +106,7 @@ Selector.from(#foo)
 Selector.from(#foo())
 Selector.from(#foo(_))
 Selector.from(#+(_))
-Selector.from(#[_, default]=(put))
+Selector.from(#[_, default]=(_))
 ```
 
 It should reject arbitrary symbols that cannot be interpreted as selectors.
@@ -194,13 +194,13 @@ Selector.from(#foo()).form
 Selector.from(#foo(_)).form
 // #call
 
-Selector.from(#foo=(put)).form
+Selector.from(#foo=(_)).form
 // #setter
 
 Selector.from(#[x]).form
 // #index
 
-Selector.from(#[x]=(put)).form
+Selector.from(#[x]=(_)).form
 // perhaps #indexSetter
 ```
 

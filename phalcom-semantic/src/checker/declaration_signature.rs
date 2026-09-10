@@ -534,18 +534,18 @@ pub(crate) fn semantic_signature_for_syntax(
                     index.return_annotation.as_ref(),
                     UnknownReason::NoTypeEvidence,
                 ),
-                phalcom_ast::ast::IndexAccessor::Set { put } => {
-                    let put_semantic = parameter_fact(
+                phalcom_ast::ast::IndexAccessor::Set { value } => {
+                    let value_semantic = parameter_fact(
                         ctx,
                         &callable,
                         parameters.len(),
-                        put,
+                        value,
                         &index_resolver,
                         &formation_site,
                         UnknownReason::NoTypeEvidence,
                     );
-                    let result = put_semantic.declared_type.clone();
-                    parameters.push(put_semantic);
+                    let result = value_semantic.declared_type.clone();
+                    parameters.push(value_semantic);
                     result
                 }
             };

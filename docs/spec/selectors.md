@@ -183,7 +183,7 @@ Setter methods are represented as selector symbols.
 Examples:
 
 ``` phalcom
-#property=(put)
+#property=(_)
 ```
 
 Setter selectors remain exact selector symbols.
@@ -206,8 +206,8 @@ Examples:
 
 #[_]
 
-#[x, y]=(put)
-#[_]=(put)
+#[x, y]=(_)
+#[_]=(_)
 ```
 
 Index selectors allow indexing and assignment operations to participate
@@ -283,7 +283,7 @@ Examples:
 #+
 #+(_)
 
-#property=(put)
+#property=(_)
 
 #[x,y]
 ```
@@ -508,7 +508,7 @@ semantics.
 #name(_, label)
         mixed selector symbol
 
-#name=(put)
+#name=(_)
         setter selector symbol
 
 #[x,y]

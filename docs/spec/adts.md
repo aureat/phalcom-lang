@@ -230,10 +230,10 @@ The resulting value is callable, but its semantic executable identity remains a 
 The complete associated family is written with the callable-reference prefix:
 
 ```phalcom
-&Option::Some
+&Option::Some...
 ```
 
-`&Option::Some` is the whole-family form. `Option::Some` remains a bare
+`&Option::Some...` is the whole-family form. `Option::Some` remains a bare
 associated value lookup and is not an abbreviation for the family.
 
 Whole-family values are first-class capability values. Their detailed structural typing is specified separately.

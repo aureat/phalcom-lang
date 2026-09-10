@@ -17,7 +17,7 @@ enum Option<T> {
 }
 class Probe {
   @class direct() { Option<Int>::Some(42) }
-  @class family() { &Option<Int>::Some }
+  @class family() { &Option<Int>::Some... }
 }
 "#,
     );
@@ -30,7 +30,7 @@ class Probe {
     assert!(matches!(direct.kind, AssociatedResolutionKind::StaticInvoke { .. }));
     assert!(direct.owner_form != phalcom_semantic::TypeId::DUMMY);
 
-    let family = callable_resolution(&analysis, &source, &probe, "family", "&Option<Int>::Some");
+    let family = callable_resolution(&analysis, &source, &probe, "family", "&Option<Int>::Some...");
     assert!(matches!(&family.kind, AssociatedResolutionKind::Family { members, .. } if members.len() == 1));
 }
 

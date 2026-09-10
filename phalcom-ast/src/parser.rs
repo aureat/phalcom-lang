@@ -538,7 +538,7 @@ impl<'source> Parser<'source> {
             true
         } else if matches!(self.peek(), Token::GreaterEqual) {
             // A generic setter header may close its binders immediately
-            // before `=` (`value<T>=(put next: T)`). Split maximal-munch
+            // before `=` (`value<T>=(_ next: T)`). Split maximal-munch
             // `>=` exactly as nested `>>` is split above.
             let lex = &mut self.tokens[self.pos];
             let start = lex.start;
@@ -3141,14 +3141,8 @@ impl<'source> Parser<'source> {
         if has_equal {
             self.skip_newlines();
             self.expect(&Token::LParen, &["\"(\""])?;
-            let start_put = self.cur_start();
-            let put_str = self.expect_identifier(&["\"put\""])?;
-            if put_str != "put" {
-                return Err(SyntaxError {
-                    kind: SyntaxErrorKind::Message("setter parameter must start with \"put\"".to_string()),
-                    range: start_put..self.prev_end,
-                });
-            }
+            let start_value = self.cur_start();
+            self.expect(&Token::Underscore, &["\"_\""])?;
             let local_start = self.cur_start();
             let local_name = self.expect_identifier(&["parameter name"])?;
             let local_range = (local_start..self.prev_end).into();
@@ -3161,7 +3155,7 @@ impl<'source> Parser<'source> {
                 label_range: None,
                 rest_mode: RestMode::None,
                 annotation,
-                range: (start_put..self.prev_end).into(),
+                range: (start_value..self.prev_end).into(),
             };
             let return_annotation = if self.eat(&Token::Arrow) {
                 Some(self.parse_type_after_arrow()?)
@@ -3396,8 +3390,8 @@ impl<'source> Parser<'source> {
 
     /// Parses a single class member: a method, getter, or setter.
     ///
-    /// A trailing `=` after the name marks a setter (whose external parameter
-    /// label is always `put`); an explicit parameter list marks a method; neither marks
+    /// A trailing `=` after the name marks a setter with one distinguished
+    /// positional value lane; an explicit parameter list marks a method; neither marks
     /// a getter. Mirrors the LALRPOP `ClassMember` rule.
     ///
     /// # Errors
@@ -3437,7 +3431,7 @@ impl<'source> Parser<'source> {
             return self.parse_field_decl(start, false);
         }
         // U-INDEX (ADR-0060): a bracket subscript method (`[_ idx] { ... }` /
-        // `[_ idx]=(put value) { ... }`) is a distinct grammar production, not
+        // `[_ idx]=(_ value) { ... }`) is a distinct grammar production, not
         // routed through `parse_method_name` — there is no separate name
         // token at all, the brackets themselves are the whole of this
         // member's identity. Must be checked before the `Construct`/name
@@ -3471,14 +3465,8 @@ impl<'source> Parser<'source> {
         if has_equal {
             self.skip_newlines();
             self.expect(&Token::LParen, &["\"(\""])?;
-            let start_put = self.cur_start();
-            let put_str = self.expect_identifier(&["\"put\""])?;
-            if put_str != "put" {
-                return Err(SyntaxError {
-                    kind: SyntaxErrorKind::Message("setter parameter must start with \"put\"".to_string()),
-                    range: start_put..self.prev_end,
-                });
-            }
+            let start_value = self.cur_start();
+            self.expect(&Token::Underscore, &["\"_\""])?;
             let local_start = self.cur_start();
             let local_name = self.expect_identifier(&["parameter name"])?;
             let local_range = (local_start..self.prev_end).into();
@@ -3491,7 +3479,7 @@ impl<'source> Parser<'source> {
                 label_range: None,
                 rest_mode: RestMode::None,
                 annotation,
-                range: (start_put..self.prev_end).into(),
+                range: (start_value..self.prev_end).into(),
             };
             let return_annotation = if self.eat(&Token::Arrow) {
                 Some(self.parse_type_after_arrow()?)
@@ -3575,7 +3563,7 @@ impl<'source> Parser<'source> {
     }
 
     /// Parses a bracket subscript method — `[_ idx] { ... }` /
-    /// `[_ idx]=(put value) { ... }` / `[] { ... }` / `[]=(put value) { ... }` (U-INDEX,
+    /// `[_ idx]=(_ value) { ... }` / `[] { ... }` / `[]=(_ value) { ... }` (U-INDEX,
     /// [ADR-0060](../../docs/adr/accepted/0060-index-operator-as-real-selector.md)).
     fn parse_index_member(&mut self, start: usize) -> ParserResult<ClassMember> {
         let name_start = self.cur_start();
@@ -3593,28 +3581,22 @@ impl<'source> Parser<'source> {
         let accessor = if self.eat(&Token::Equal) {
             self.skip_newlines();
             self.expect(&Token::LParen, &["\"(\""])?;
-            let start_put = self.cur_start();
-            let put_str = self.expect_identifier(&["\"put\""])?;
-            if put_str != "put" {
-                return Err(SyntaxError {
-                    kind: SyntaxErrorKind::Message("setter parameter must start with \"put\"".to_string()),
-                    range: start_put..self.prev_end,
-                });
-            }
+            let start_value = self.cur_start();
+            self.expect(&Token::Underscore, &["\"_\""])?;
             let local_start = self.cur_start();
             let local_name = self.expect_identifier(&["parameter name"])?;
             let annotation = if self.eat(&Token::Colon) { Some(self.parse_type_annotation()?) } else { None };
             self.expect(&Token::RParen, &["\")\""])?;
-            let put = ParameterDef {
+            let value = ParameterDef {
                 name: local_name,
                 name_range: (local_start..self.prev_end).into(),
                 label: None,
                 label_range: None,
                 rest_mode: RestMode::None,
                 annotation,
-                range: (start_put..self.prev_end).into(),
+                range: (start_value..self.prev_end).into(),
             };
-            IndexAccessor::Set { put: Box::new(put) }
+            IndexAccessor::Set { value: Box::new(value) }
         } else {
             IndexAccessor::Get
         };
@@ -4946,20 +4928,63 @@ impl<'source> Parser<'source> {
             match self.peek() {
                 Token::Dot => {
                     let is_target = !self.has_reference_separator_after(self.pos + 1);
+                    let separator_start = self.cur_start();
                     self.advance();
                     let name_start = self.cur_start();
+                    if matches!(
+                        self.peek(),
+                        Token::Plus
+                            | Token::Minus
+                            | Token::Asterisk
+                            | Token::DoubleAsterisk
+                            | Token::Power
+                            | Token::TripleAsterisk
+                            | Token::Slash
+                            | Token::SlashTilde
+                            | Token::Percent
+                            | Token::ShiftLeft
+                            | Token::ShiftRight
+                            | Token::Ampersand
+                            | Token::Pipe
+                            | Token::Caret
+                            | Token::Tilde
+                            | Token::EqualEqual
+                            | Token::TripleEqual
+                            | Token::BangEqual
+                            | Token::Less
+                            | Token::LessEqual
+                            | Token::Greater
+                            | Token::GreaterEqual
+                            | Token::Spaceship
+                    ) {
+                        let name = self.parse_method_name()?;
+                        let name_range = (name_start..self.prev_end).into();
+                        if is_target {
+                            let selector = self.parse_callable_reference_selector(name, name_range)?;
+                            let range = (start..self.prev_end).into();
+                            return Ok(Expr::CallableReference(Box::new(CallableReferenceExpr {
+                                ampersand_range,
+                                target: CallableReferenceTarget::Bound {
+                                    receiver: Box::new(receiver),
+                                    member: CallableReferenceMemberSyntax::Operator(selector),
+                                    separator_range: (separator_start..separator_start + 1).into(),
+                                },
+                                range,
+                            })));
+                        }
+                    }
                     let name = self.parse_property_name()?;
                     let name_range = (name_start..self.prev_end).into();
                     if is_target {
                         let selector = self.parse_callable_reference_selector(name.clone(), name_range)?;
+                        let member = CallableReferenceMemberSyntax::Named { name, name_range, selector };
                         let range = (start..self.prev_end).into();
                         return Ok(Expr::CallableReference(Box::new(CallableReferenceExpr {
                             ampersand_range,
-                            target: CallableReferenceTarget::BoundNamed {
+                            target: CallableReferenceTarget::Bound {
                                 receiver: Box::new(receiver),
-                                name,
-                                name_range,
-                                selector,
+                                member,
+                                separator_range: (separator_start..separator_start + 1).into(),
                             },
                             range,
                         })));
@@ -4991,20 +5016,74 @@ impl<'source> Parser<'source> {
                     let separator_start = self.cur_start();
                     self.advance();
                     let separator_range = (separator_start..self.prev_end).into();
+                    if is_target && matches!(self.peek(), Token::LBracket) {
+                        let selector = self.parse_callable_reference_subscript()?;
+                        let range = (start..self.prev_end).into();
+                        return Ok(Expr::CallableReference(Box::new(CallableReferenceExpr {
+                            ampersand_range,
+                            target: CallableReferenceTarget::Associated {
+                                receiver: Box::new(receiver),
+                                separator_range,
+                                member: CallableReferenceMemberSyntax::Subscript(selector),
+                            },
+                            range,
+                        })));
+                    }
                     let name_start = self.cur_start();
+                    if matches!(
+                        self.peek(),
+                        Token::Plus
+                            | Token::Minus
+                            | Token::Asterisk
+                            | Token::DoubleAsterisk
+                            | Token::Power
+                            | Token::TripleAsterisk
+                            | Token::Slash
+                            | Token::SlashTilde
+                            | Token::Percent
+                            | Token::ShiftLeft
+                            | Token::ShiftRight
+                            | Token::Ampersand
+                            | Token::Pipe
+                            | Token::Caret
+                            | Token::Tilde
+                            | Token::EqualEqual
+                            | Token::TripleEqual
+                            | Token::BangEqual
+                            | Token::Less
+                            | Token::LessEqual
+                            | Token::Greater
+                            | Token::GreaterEqual
+                            | Token::Spaceship
+                    ) {
+                        let name = self.parse_method_name()?;
+                        let name_range = (name_start..self.prev_end).into();
+                        if is_target {
+                            let selector = self.parse_callable_reference_selector(name, name_range)?;
+                            let range = (start..self.prev_end).into();
+                            return Ok(Expr::CallableReference(Box::new(CallableReferenceExpr {
+                                ampersand_range,
+                                target: CallableReferenceTarget::Associated {
+                                    receiver: Box::new(receiver),
+                                    separator_range,
+                                    member: CallableReferenceMemberSyntax::Operator(selector),
+                                },
+                                range,
+                            })));
+                        }
+                    }
                     let name = self.parse_property_name()?;
                     let name_range = (name_start..self.prev_end).into();
                     if is_target {
                         let selector = self.parse_callable_reference_selector(name.clone(), name_range)?;
+                        let member = CallableReferenceMemberSyntax::Named { name, name_range, selector };
                         let range = (start..self.prev_end).into();
                         return Ok(Expr::CallableReference(Box::new(CallableReferenceExpr {
                             ampersand_range,
-                            target: CallableReferenceTarget::AssociatedNamed {
+                            target: CallableReferenceTarget::Associated {
                                 receiver: Box::new(receiver),
                                 separator_range,
-                                name,
-                                name_range,
-                                selector,
+                                member,
                             },
                             range,
                         })));
@@ -5044,18 +5123,17 @@ impl<'source> Parser<'source> {
                     };
                 }
                 Token::LBracket => {
-                    let selector_start = self.cur_start();
-                    self.advance();
-                    let args = self.parse_arg_list()?;
-                    self.expect(&Token::RBracket, &["\"]\""])?;
-                    let selector_range = (selector_start..self.prev_end).into();
-                    let range = (receiver_start..self.prev_end).into();
-                    receiver = Expr::Index(Box::new(IndexExpr {
-                        object: receiver,
-                        args,
-                        selector_range: Some(selector_range),
+                    let selector = self.parse_callable_reference_subscript()?;
+                    let range = (start..self.prev_end).into();
+                    return Ok(Expr::CallableReference(Box::new(CallableReferenceExpr {
+                        ampersand_range,
+                        target: CallableReferenceTarget::Bound {
+                            receiver: Box::new(receiver),
+                            member: CallableReferenceMemberSyntax::Subscript(selector),
+                            separator_range: (receiver_start..receiver_start).into(),
+                        },
                         range,
-                    }));
+                    })));
                 }
                 _ => break,
             }
@@ -5125,13 +5203,13 @@ impl<'source> Parser<'source> {
     /// Parses the optional selector signature/pattern after a named reference
     /// base. The selector text remains a [`SelectorSpecSyntax`] node and is
     /// never lowered as an invocation argument pack.
-    fn parse_callable_reference_selector(&mut self, base: String, base_range: SourceRange) -> ParserResult<Option<SelectorSpecSyntax>> {
+    fn parse_callable_reference_selector(&mut self, base: String, base_range: SourceRange) -> ParserResult<SelectorSpecSyntax> {
         let base_start = base_range.start;
         let selector = if self.eat(&Token::LParen) {
             let (prefix, suffix, gap_range, end) = self.parse_selector_spec_slots(Token::RParen)?;
             let range = (base_start..end).into();
             if let Some(gap_range) = gap_range {
-                Some(SelectorSpecSyntax::Pattern(SelectorPatternSyntax {
+                SelectorSpecSyntax::Pattern(SelectorPatternSyntax {
                     base,
                     kind: phalcom_common::selector::SelectorKindPattern::Exact(phalcom_common::selector::SelectorKind::Method),
                     prefix,
@@ -5140,23 +5218,51 @@ impl<'source> Parser<'source> {
                     gap_range,
                     base_range,
                     range,
-                }))
+                })
             } else {
                 let mut slots = prefix;
                 slots.extend(suffix);
-                Some(SelectorSpecSyntax::Exact(ExactSelectorSyntax {
+                SelectorSpecSyntax::Exact(ExactSelectorSyntax {
                     base,
                     kind: phalcom_common::selector::SelectorKind::Method,
                     slots,
                     is_subscript: false,
                     base_range,
                     range,
-                }))
+                })
+            }
+        } else if self.eat(&Token::Equal) {
+            let marker_start = self.tokens[self.pos.saturating_sub(1)].start;
+            if self.eat(&Token::LParen) {
+                self.expect(&Token::Underscore, &["\"_\""])?;
+                self.expect(&Token::RParen, &["\")\""])?;
+                let range = (base_start..self.prev_end).into();
+                SelectorSpecSyntax::Exact(ExactSelectorSyntax {
+                    base,
+                    kind: phalcom_common::selector::SelectorKind::Setter,
+                    slots: Vec::new(),
+                    is_subscript: false,
+                    base_range,
+                    range,
+                })
+            } else {
+                let gap_range = (marker_start..self.prev_end).into();
+                let range = (base_start..self.prev_end).into();
+                SelectorSpecSyntax::Pattern(SelectorPatternSyntax {
+                    base,
+                    kind: phalcom_common::selector::SelectorKindPattern::NamedAccessors,
+                    prefix: Vec::new(),
+                    suffix: Vec::new(),
+                    is_subscript: false,
+                    gap_range,
+                    base_range,
+                    range,
+                })
             }
         } else if self.eat(&Token::DotDotDot) {
             let gap_range = (self.tokens[self.pos.saturating_sub(1)].start..self.prev_end).into();
             let range = (base_start..self.prev_end).into();
-            Some(SelectorSpecSyntax::Pattern(SelectorPatternSyntax {
+            SelectorSpecSyntax::Pattern(SelectorPatternSyntax {
                 base,
                 kind: phalcom_common::selector::SelectorKindPattern::AnyNamed,
                 prefix: Vec::new(),
@@ -5165,15 +5271,73 @@ impl<'source> Parser<'source> {
                 gap_range,
                 base_range,
                 range,
-            }))
+            })
         } else {
-            None
+            let range = (base_start..self.prev_end).into();
+            SelectorSpecSyntax::Exact(ExactSelectorSyntax {
+                base,
+                kind: phalcom_common::selector::SelectorKind::Getter,
+                slots: Vec::new(),
+                is_subscript: false,
+                base_range,
+                range,
+            })
         };
 
         if matches!(self.peek(), Token::ColonColon) {
             return Err(self.error_message_here("callable references use one `.` or `::`; the second separator is obsolete"));
         }
         Ok(selector)
+    }
+
+    fn parse_callable_reference_subscript(&mut self) -> ParserResult<SelectorSpecSyntax> {
+        let bracket_start = self.cur_start();
+        self.expect(&Token::LBracket, &["\"[\""])?;
+        let (prefix, suffix, gap_range, mut end) = self.parse_selector_spec_slots(Token::RBracket)?;
+        let setter = if self.eat(&Token::Equal) {
+            if self.eat(&Token::LParen) {
+                self.expect(&Token::Underscore, &["\"_\""])?;
+                self.expect(&Token::RParen, &["\")\""])?;
+                end = self.prev_end;
+                Some(true)
+            } else {
+                Some(false)
+            }
+        } else {
+            None
+        };
+        let base_range = (bracket_start..bracket_start + 1).into();
+        let range = (bracket_start..end).into();
+        let mut slots = prefix.clone();
+        slots.extend(suffix.clone());
+        let kind = match setter {
+            Some(true) => phalcom_common::selector::SelectorKind::SubscriptSet,
+            _ => phalcom_common::selector::SelectorKind::SubscriptGet,
+        };
+        if let Some(gap_range) = gap_range {
+            return Ok(SelectorSpecSyntax::Pattern(SelectorPatternSyntax {
+                base: String::new(),
+                kind: if matches!(setter, Some(false)) {
+                    phalcom_common::selector::SelectorKindPattern::AnySubscript
+                } else {
+                    phalcom_common::selector::SelectorKindPattern::Exact(kind)
+                },
+                prefix,
+                suffix,
+                is_subscript: true,
+                gap_range,
+                base_range,
+                range,
+            }));
+        }
+        Ok(SelectorSpecSyntax::Exact(ExactSelectorSyntax {
+            base: String::new(),
+            kind,
+            slots,
+            is_subscript: true,
+            base_range,
+            range,
+        }))
     }
 
     fn parse_associated_suffix(&mut self, receiver: Expr, start: usize) -> ParserResult<Expr> {
@@ -5208,15 +5372,8 @@ impl<'source> Parser<'source> {
                 });
             }
             let setter = if self.eat(&Token::Equal) {
-                self.expect(&Token::LParen, &["\"(put)\""])?;
-                let put_start = self.cur_start();
-                let put = self.expect_identifier(&["\"put\""])?;
-                if put != "put" {
-                    return Err(SyntaxError {
-                        kind: SyntaxErrorKind::Message("setter parameter must start with \"put\"".to_string()),
-                        range: put_start..self.prev_end,
-                    });
-                }
+                self.expect(&Token::LParen, &["\"(_)\""])?;
+                self.expect(&Token::Underscore, &["\"_\""])?;
                 self.expect(&Token::RParen, &["\")\""])?;
                 end = self.prev_end;
                 true
@@ -5309,7 +5466,7 @@ impl<'source> Parser<'source> {
             return Ok(Expr::AssociatedLookup(Box::new(AssociatedLookupExpr {
                 receiver,
                 first_separator_range,
-                member: AssociatedMemberSyntax::Operator(exact),
+                member: AssociatedMemberSyntax::Operator(SelectorSpecSyntax::Exact(exact)),
                 range: whole_range,
             })));
         }
@@ -6309,11 +6466,8 @@ impl<'source> Parser<'source> {
             let bracket_start = self.tokens[self.pos.saturating_sub(1)].start;
             let (prefix, suffix, gap_range, mut end) = self.parse_selector_spec_slots(Token::RBracket)?;
             let setter = if self.eat(&Token::Equal) {
-                self.expect(&Token::LParen, &["\"(put)\""])?;
-                let put = self.expect_identifier(&["\"put\""])?;
-                if put != "put" {
-                    return Err(self.error_here(strs(&["\"put\""])));
-                }
+                self.expect(&Token::LParen, &["\"(_)\""])?;
+                self.expect(&Token::Underscore, &["\"_\""])?;
                 self.expect(&Token::RParen, &["\")\""])?;
                 end = self.prev_end;
                 true
@@ -6416,11 +6570,8 @@ impl<'source> Parser<'source> {
                     range,
                 }));
             }
-            self.expect(&Token::LParen, &["\"(put)\""])?;
-            let put = self.expect_identifier(&["\"put\""])?;
-            if put != "put" {
-                return Err(self.error_here(strs(&["\"put\""])));
-            }
+            self.expect(&Token::LParen, &["\"(_)\""])?;
+            self.expect(&Token::Underscore, &["\"_\""])?;
             self.expect(&Token::RParen, &["\")\""])?;
             let range = (base_start..self.prev_end).into();
             return Ok(SelectorSpecSyntax::Exact(ExactSelectorSyntax {
@@ -6993,7 +7144,7 @@ fn symbol_text(symbol: &SymbolLiteralKind) -> String {
                 .map(|label| label.clone().unwrap_or_else(|| "_".to_string()))
                 .collect::<Vec<_>>()
                 .join(",");
-            if *setter { format!("[{slots}]=(put)") } else { format!("[{slots}]") }
+            if *setter { format!("[{slots}]=(_)") } else { format!("[{slots}]") }
         }
         SymbolLiteralKind::Pattern(pattern) => pattern.normalize().map(|p| p.encode()).unwrap_or_else(|_| pattern.base.clone()),
     }
@@ -7017,7 +7168,7 @@ fn exact_symbol_kind(spec: ExactSelectorSyntax) -> SymbolLiteralKind {
         phalcom_common::selector::SelectorKind::Getter => SymbolLiteralKind::Name(spec.base),
         phalcom_common::selector::SelectorKind::Setter => SymbolLiteralKind::Selector {
             name: format!("{}=", spec.base),
-            labels: vec![Some("put".to_string())],
+            labels: vec![None],
         },
         _ => SymbolLiteralKind::Selector {
             name: spec.base,
@@ -7143,7 +7294,7 @@ mod tests {
     #[test]
     fn class_keyword_is_valid_selector_in_class_members() {
         let source =
-            "@native\nclass Object {\n  @native\n  class -> Dynamic\n  @native\n  class=(put value: Dynamic) -> Dynamic\n  @native\n  try() -> Dynamic\n}\n";
+            "@native\nclass Object {\n  @native\n  class -> Dynamic\n  @native\n  class=(_ value: Dynamic) -> Dynamic\n  @native\n  try() -> Dynamic\n}\n";
         let program = parse_source(source, 0).expect("class selectors must parse");
         let Statement::Class(class) = program.statements.into_iter().next().expect("class statement") else {
             panic!("expected class declaration");

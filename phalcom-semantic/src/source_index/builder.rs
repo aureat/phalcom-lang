@@ -153,8 +153,8 @@ impl TypeReferenceTargetCollector<'_> {
                                     self.annotation(annotation, &index_bound);
                                 }
                             }
-                            if let phalcom_ast::ast::IndexAccessor::Set { put } = &index.accessor
-                                && let Some(annotation) = &put.annotation
+                            if let phalcom_ast::ast::IndexAccessor::Set { value } = &index.accessor
+                                && let Some(annotation) = &value.annotation
                             {
                                 self.annotation(annotation, &index_bound);
                             }
@@ -274,8 +274,8 @@ impl TypeReferenceTargetCollector<'_> {
                         self.annotation(annotation, &index_bound);
                     }
                 }
-                if let phalcom_ast::ast::IndexAccessor::Set { put } = &index.accessor
-                    && let Some(annotation) = &put.annotation
+                if let phalcom_ast::ast::IndexAccessor::Set { value } = &index.accessor
+                    && let Some(annotation) = &value.annotation
                 {
                     self.annotation(annotation, &index_bound);
                 }
@@ -707,8 +707,8 @@ impl SourceScopeBuilder<'_> {
             }),
             EnumBehaviorMember::Index(index) => {
                 let mut parameters = index.params.clone();
-                if let phalcom_ast::ast::IndexAccessor::Set { put } = &index.accessor {
-                    parameters.push((**put).clone());
+                if let phalcom_ast::ast::IndexAccessor::Set { value } = &index.accessor {
+                    parameters.push((**value).clone());
                 }
                 let body = MemberBody::Block(index.body.clone());
                 self.visit_callable(CallableVisit {
@@ -809,8 +809,8 @@ impl SourceScopeBuilder<'_> {
                 let Some(selector) = selector.ok() else { return };
                 let callable = CallableId::new(declaration.clone(), selector, member_side);
                 let mut parameters = index.params.clone();
-                if let phalcom_ast::ast::IndexAccessor::Set { put } = &index.accessor {
-                    parameters.push((**put).clone());
+                if let phalcom_ast::ast::IndexAccessor::Set { value } = &index.accessor {
+                    parameters.push((**value).clone());
                 }
                 self.visit_callable(CallableVisit {
                     parent,
@@ -1152,8 +1152,9 @@ impl SourceScopeBuilder<'_> {
                 self.visit_pack_items(scope, &invoke.args);
             }
             Expr::CallableReference(reference) => match &reference.target {
-                phalcom_ast::ast::CallableReferenceTarget::BoundNamed { receiver, .. }
-                | phalcom_ast::ast::CallableReferenceTarget::AssociatedNamed { receiver, .. } => self.visit_expr(scope, receiver),
+                phalcom_ast::ast::CallableReferenceTarget::Bound { receiver, .. } | phalcom_ast::ast::CallableReferenceTarget::Associated { receiver, .. } => {
+                    self.visit_expr(scope, receiver)
+                }
             },
             Expr::Match(match_expr) => {
                 self.visit_expr(scope, &match_expr.value);

@@ -78,7 +78,7 @@ class Map<K, V> is Iterable {
   }
 
   // `m[k] = v` shares insert's key identity and encounter-order semantics.
-  [_ k]=(put val) { self._$put(k, val) }
+  [_ k]=(_ val) { self._$put(k, val) }
 
   contains(_ k) { self._$has(k) }
   includes(_ k) { self.contains(k) }

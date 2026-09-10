@@ -156,7 +156,7 @@ class Container {
   [_ key] {
     return _items[key]
   }
-  [_ key]=(put val) {
+  [_ key]=(_ val) {
     _items[key] = val
   }
 }
@@ -192,8 +192,8 @@ class Foo {
 fn test_duplicate_subscript_setters_rejected() {
     let src = r#"
 class Foo {
-  [_ index]=(put v1) { }
-  [_ key]=(put v2) { }
+  [_ index]=(_ v1) { }
+  [_ key]=(_ v2) { }
 }
 "#;
     let res = run_source(src);
@@ -220,8 +220,8 @@ class Foo {
 fn test_duplicate_method_setters_rejected() {
     let src = r#"
 class Foo {
-  bar=(put v1) { }
-  bar=(put v2) { }
+  bar=(_ v1) { }
+  bar=(_ v2) { }
 }
 "#;
     let res = run_source(src);
@@ -261,7 +261,7 @@ fn test_dispatch_setter_name_put_value() {
 class Box {
   _val
   val { _val }
-  val=(put v) {
+  val=(_ v) {
     _val = v
   }
 }
@@ -286,7 +286,7 @@ class Storage {
   [_ k] {
     return _m[k]
   }
-  [_ k]=(put v) {
+  [_ k]=(_ v) {
     _m[k] = v
   }
 }

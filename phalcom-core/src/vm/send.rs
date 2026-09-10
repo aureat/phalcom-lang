@@ -6,6 +6,7 @@ use crate::value::Value;
 use indexmap::IndexMap;
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{SelectorBase, SelectorKind, SelectorKindPattern};
+use phalcom_semantic::types::family::FamilyOperationShape;
 
 use super::VM;
 
@@ -14,6 +15,8 @@ pub(crate) enum FamilyInvocationKind {
     Method,
     Getter,
     Setter,
+    SubscriptGet,
+    SubscriptSet,
 }
 
 impl VM {
@@ -499,7 +502,7 @@ impl VM {
             Object::Block(block) => self.activate_closure_call(receiver, block.closure, Some(block.home_frame_token), view, source_range),
             Object::Closure(_) => self.activate_closure_call(receiver, id, None, view, source_range),
             Object::BoundMethod(bound) => self.activate_bound_method(*bound, view, source_range),
-            Object::Family(_) => self.activate_family_with_kind(view, FamilyInvocationKind::Method, source_range),
+            Object::Family(_) | Object::AssociatedFamily(_) => self.activate_family_with_kind(view, FamilyInvocationKind::Method, source_range),
             Object::BoundMethodFamily(bound) => self.activate_bound_method_family(*bound, view, source_range),
             _ => Err(RuntimeError::Type {
                 expected: "Function",
@@ -845,6 +848,7 @@ impl VM {
             .into());
         };
         let family = match self.heap.get(family_id) {
+            Object::AssociatedFamily(_) => return self.activate_associated_family_with_kind(view, invocation, source_range),
             Object::Family(family) => *family,
             _ => {
                 return Err(RuntimeError::Type {
@@ -862,6 +866,8 @@ impl VM {
                     FamilyInvocationKind::Method => matches!(kind, SignatureKind::Method(_)),
                     FamilyInvocationKind::Getter => matches!(kind, SignatureKind::Getter),
                     FamilyInvocationKind::Setter => matches!(kind, SignatureKind::Setter),
+                    FamilyInvocationKind::SubscriptGet => matches!(kind, SignatureKind::SubscriptGet(_)),
+                    FamilyInvocationKind::SubscriptSet => matches!(kind, SignatureKind::SubscriptSet(_)),
                 };
                 if !kind_matches {
                     return Err(RuntimeError::Message(format!("exact family `{base}` does not accept this invocation kind")).into());
@@ -878,6 +884,7 @@ impl VM {
                 };
                 let expected_positional = match invocation {
                     FamilyInvocationKind::Setter => 1,
+                    FamilyInvocationKind::SubscriptSet => expected_positional + 1,
                     _ => expected_positional,
                 };
                 if expected_positional != view.positional_count() || expected_labels.as_slice() != labels {
@@ -890,11 +897,15 @@ impl VM {
                     FamilyInvocationKind::Getter => phalcom_common::selector::SelectorKind::Getter,
                     FamilyInvocationKind::Setter => phalcom_common::selector::SelectorKind::Setter,
                     FamilyInvocationKind::Method => phalcom_common::selector::SelectorKind::Method,
+                    FamilyInvocationKind::SubscriptGet => phalcom_common::selector::SelectorKind::SubscriptGet,
+                    FamilyInvocationKind::SubscriptSet => phalcom_common::selector::SelectorKind::SubscriptSet,
                 };
 
                 let structural_positionals = match invocation {
                     FamilyInvocationKind::Getter | FamilyInvocationKind::Setter => 0,
                     FamilyInvocationKind::Method => view.positional_count(),
+                    FamilyInvocationKind::SubscriptGet => view.positional_count(),
+                    FamilyInvocationKind::SubscriptSet => view.positional_count().saturating_sub(1),
                 };
 
                 let (base_sym, matches) = {
@@ -903,16 +914,14 @@ impl VM {
                         _ => return Err(RuntimeError::Internal("Family pattern handle is not a selector pattern".into()).into()),
                     };
                     let base_sym = match pattern.runtime.base {
-                        crate::heap::selector_pattern::RuntimeSelectorBase::Named(sym) => sym,
-                        crate::heap::selector_pattern::RuntimeSelectorBase::Subscript => {
-                            return Err(RuntimeError::Message("subscript selector patterns require index activation".into()).into());
-                        }
+                        crate::heap::selector_pattern::RuntimeSelectorBase::Named(sym) => Some(sym),
+                        crate::heap::selector_pattern::RuntimeSelectorBase::Subscript => None,
                     };
                     let matches = pattern.runtime.matches_call(selector_kind, structural_positionals, labels);
                     (base_sym, matches)
                 };
 
-                let base_name = self.resolve_symbol(base_sym);
+                let base_name = base_sym.map_or_else(|| "".to_string(), |sym| self.resolve_symbol(sym).to_owned());
 
                 if !matches {
                     let pattern = match self.heap.get(pattern_id) {
@@ -921,11 +930,11 @@ impl VM {
                     };
                     let selector = match invocation {
                         FamilyInvocationKind::Getter => {
-                            let s = crate::method::make_signature(base_name, SignatureKind::Getter);
+                            let s = crate::method::make_signature(&base_name, SignatureKind::Getter);
                             self.get_or_intern(&s)
                         }
                         FamilyInvocationKind::Setter => {
-                            let s = crate::method::make_signature(base_name, SignatureKind::Setter);
+                            let s = crate::method::make_signature(&base_name, SignatureKind::Setter);
                             self.get_or_intern(&s)
                         }
                         FamilyInvocationKind::Method => {
@@ -934,12 +943,30 @@ impl VM {
                                 limit: u8::MAX as usize,
                             })?;
                             let s = crate::method::encode_selector_symbols(
-                                base_name,
+                                &base_name,
                                 view.positional_count(),
                                 labels,
                                 SignatureKind::Method(total),
                                 &self.interner,
                             );
+                            self.get_or_intern(&s)
+                        }
+                        FamilyInvocationKind::SubscriptGet | FamilyInvocationKind::SubscriptSet => {
+                            let index_count = if matches!(invocation, FamilyInvocationKind::SubscriptSet) {
+                                view.positional_count().saturating_sub(1)
+                            } else {
+                                view.positional_count()
+                            };
+                            let total = u8::try_from(index_count + labels.len()).map_err(|_| RuntimeError::SendArityExceedsLimit {
+                                found: index_count + labels.len(),
+                                limit: u8::MAX as usize,
+                            })?;
+                            let kind = if matches!(invocation, FamilyInvocationKind::SubscriptSet) {
+                                SignatureKind::SubscriptSet(total)
+                            } else {
+                                SignatureKind::SubscriptGet(total)
+                            };
+                            let s = crate::method::encode_selector_symbols("", index_count, labels, kind, &self.interner);
                             self.get_or_intern(&s)
                         }
                     };
@@ -949,11 +976,11 @@ impl VM {
 
                 match invocation {
                     FamilyInvocationKind::Getter => {
-                        let s = crate::method::make_signature(base_name, SignatureKind::Getter);
+                        let s = crate::method::make_signature(&base_name, SignatureKind::Getter);
                         self.get_or_intern(&s)
                     }
                     FamilyInvocationKind::Setter => {
-                        let s = crate::method::make_signature(base_name, SignatureKind::Setter);
+                        let s = crate::method::make_signature(&base_name, SignatureKind::Setter);
                         self.get_or_intern(&s)
                     }
                     FamilyInvocationKind::Method => {
@@ -962,28 +989,119 @@ impl VM {
                             limit: u8::MAX as usize,
                         })?;
                         let s =
-                            crate::method::encode_selector_symbols(base_name, view.positional_count(), labels, SignatureKind::Method(total), &self.interner);
+                            crate::method::encode_selector_symbols(&base_name, view.positional_count(), labels, SignatureKind::Method(total), &self.interner);
+                        self.get_or_intern(&s)
+                    }
+                    FamilyInvocationKind::SubscriptGet | FamilyInvocationKind::SubscriptSet => {
+                        let index_count = if matches!(invocation, FamilyInvocationKind::SubscriptSet) {
+                            view.positional_count().saturating_sub(1)
+                        } else {
+                            view.positional_count()
+                        };
+                        let total = u8::try_from(index_count + labels.len()).map_err(|_| RuntimeError::SendArityExceedsLimit {
+                            found: index_count + labels.len(),
+                            limit: u8::MAX as usize,
+                        })?;
+                        let kind = if matches!(invocation, FamilyInvocationKind::SubscriptSet) {
+                            SignatureKind::SubscriptSet(total)
+                        } else {
+                            SignatureKind::SubscriptGet(total)
+                        };
+                        let s = crate::method::encode_selector_symbols("", index_count, labels, kind, &self.interner);
                         self.get_or_intern(&s)
                     }
                 }
             }
         };
         self.stack[receiver_idx] = family.receiver;
-        let positional_count = match invocation {
-            FamilyInvocationKind::Setter => 1,
-            _ => view.positional_count(),
-        };
+        let positional_count = view.positional_count();
         self.dispatch_shape_at_as(receiver_idx, selector, positional_count, labels, source_range, view.caller_authority())
+    }
+
+    fn activate_associated_family_with_kind(
+        &mut self,
+        view: ArgumentView,
+        invocation: FamilyInvocationKind,
+        source_range: SourceRange,
+    ) -> PhResult<CallOutcome> {
+        let receiver_idx = view.receiver_index();
+        let family_id = self.stack[receiver_idx].as_obj().ok_or(RuntimeError::NotAnAssociatedFamily)?;
+        let descriptor = match self.heap.get(family_id) {
+            Object::AssociatedFamily(family) => family.descriptor.clone(),
+            _ => return Err(RuntimeError::NotAnAssociatedFamily.into()),
+        };
+
+        let slots = |positional_count: usize, labels: &[Symbol]| {
+            let mut slots = Vec::with_capacity(positional_count + labels.len());
+            slots.extend(std::iter::repeat_n(phalcom_common::selector::SelectorSlot::Positional, positional_count));
+            slots.extend(
+                labels
+                    .iter()
+                    .map(|label| phalcom_common::selector::SelectorSlot::Label(self.resolve_symbol(*label).to_owned())),
+            );
+            slots.into_boxed_slice()
+        };
+        let operation = match invocation {
+            FamilyInvocationKind::Getter => FamilyOperationShape::getter(),
+            FamilyInvocationKind::Setter => FamilyOperationShape::setter(),
+            FamilyInvocationKind::Method => FamilyOperationShape::method(slots(view.positional_count(), view.labels())),
+            FamilyInvocationKind::SubscriptGet => FamilyOperationShape::new(SelectorKind::SubscriptGet, slots(view.positional_count(), view.labels())),
+            FamilyInvocationKind::SubscriptSet => {
+                FamilyOperationShape::new(SelectorKind::SubscriptSet, slots(view.positional_count().saturating_sub(1), view.labels()))
+            }
+        };
+        let entry = descriptor
+            .entries
+            .iter()
+            .find(|entry| entry.operation == operation)
+            .cloned()
+            .ok_or(RuntimeError::AssociatedFamilyNoMatchingCandidate)?;
+
+        match entry.target {
+            crate::modules::semantic_lowering::ExecutableFamilyTarget::Singleton { variant } => {
+                let runtime_var_id = self.adt_registry.variant_by_semantic(&variant).ok_or("unregistered variant")?;
+                let vdesc = self.adt_registry.variant_descriptor(runtime_var_id).unwrap();
+                let value = vdesc.singleton.unwrap_or_else(|| Value::adt_singleton(runtime_var_id));
+                self.stack.truncate(receiver_idx);
+                self.stack.push(value);
+                Ok(CallOutcome::Returned(value))
+            }
+            crate::modules::semantic_lowering::ExecutableFamilyTarget::VariantConstructor { variant } => {
+                let runtime_var_id = self.adt_registry.variant_by_semantic(&variant).ok_or("unregistered variant")?;
+                let payload: Vec<Value> = self.stack.drain(receiver_idx + 1..).collect();
+                let case_ref = self.heap.alloc_adt_case(runtime_var_id, payload.into_boxed_slice());
+                let value = Value::obj(case_ref);
+                self.stack.truncate(receiver_idx);
+                self.stack.push(value);
+                Ok(CallOutcome::Returned(value))
+            }
+            crate::modules::semantic_lowering::ExecutableFamilyTarget::Behavioral { target } => {
+                let resolved = self.bind_behavioral_associated_target(&target)?;
+                let selector = match &target {
+                    crate::modules::semantic_lowering::ExecutableInvocationTarget::Behavioral { callable, .. } => {
+                        self.get_or_intern(&callable.selector.to_string())
+                    }
+                    crate::modules::semantic_lowering::ExecutableInvocationTarget::VariantConstructor { .. } => unreachable!(),
+                };
+                self.stack[receiver_idx] = resolved.receiver;
+                self.dispatch_selected_method_as(
+                    &resolved.receiver,
+                    resolved.method,
+                    view.positional_count() + view.labeled_count(),
+                    selector,
+                    Some((view.positional_count(), view.labeled_count())),
+                    source_range,
+                    view.caller_authority(),
+                )
+            }
+        }
     }
 
     /// Reifies a message send as a `Message` instance (method-lookup.md §2,
     /// ADR-0012), for the `doesNotUnderstand(_)` miss path.
     pub fn new_message(&mut self, selector: Symbol, args: &[Value]) -> Value {
         let selector_str = self.resolve_symbol(selector).to_string();
-        let (name, mut labels, kind) = crate::method::decode_selector(&selector_str);
-        if let SignatureKind::SubscriptSet(_) = kind {
-            labels.push(Some("put".to_string()));
-        }
+        let (name, labels, _kind) = crate::method::decode_selector(&selector_str);
 
         let name_val = self.alloc_string_value(name);
 

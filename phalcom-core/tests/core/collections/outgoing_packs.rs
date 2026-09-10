@@ -185,7 +185,7 @@ class Box {
   @constructor
   new() { _values = Map.new() }
   [_ index] { return _values[index] }
-  [_ index]=(put value) {
+  [_ index]=(_ value) {
     _values[index] = value
     return -1
   }
@@ -208,7 +208,7 @@ class Box {
   @constructor
   new() { _values = Map.new() }
   [_ index] { return _values[index] }
-  [_ index]=(put value) { _values[index] = value }
+  [_ index]=(_ value) { _values[index] = value }
 }
 let box = Box.new()
 let index = (5,)

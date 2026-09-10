@@ -204,7 +204,7 @@ pub fn selector_kind(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
         SelectorKind::Setter => "setter",
         SelectorKind::Method => "method",
         SelectorKind::SubscriptGet => "[_]",
-        SelectorKind::SubscriptSet => "[_]=(put)",
+        SelectorKind::SubscriptSet => "[_]=(_)",
     };
     Ok(Value::symbol(vm.get_or_intern(kind_str)))
 }

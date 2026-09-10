@@ -269,11 +269,14 @@ fn associated_invoke_and_callable_reference_syntax() {
     else {
         panic!("expected CallableReference");
     };
-    let phalcom_ast::ast::CallableReferenceTarget::BoundNamed { name, selector, .. } = &reference.target else {
+    let phalcom_ast::ast::CallableReferenceTarget::Bound { member, .. } = &reference.target else {
         panic!("expected bound named target");
     };
+    let phalcom_ast::ast::CallableReferenceMemberSyntax::Named { name, selector, .. } = member else {
+        panic!("expected named member");
+    };
     assert_eq!(name, "method");
-    assert!(matches!(selector, Some(phalcom_ast::ast::SelectorSpecSyntax::Exact(exact)) if exact.slots.is_empty()));
+    assert!(matches!(selector, phalcom_ast::ast::SelectorSpecSyntax::Exact(exact) if exact.slots.is_empty()));
 }
 
 #[test]
@@ -387,7 +390,7 @@ fn symbol_punctuation_bang_rest_and_bracket_forms_parse() {
         let source = format!("let s = {source}\n");
         parse_source(&source, 0).expect("symbol form should parse");
     }
-    parse_source("let s = #[...]=(put)\n", 0).expect("subscript pattern setter should parse");
+    parse_source("let s = #[...]=(_)\n", 0).expect("subscript pattern setter should parse");
     parse_source("let s = #\"!\"\n", 0).expect("quoted symbol should parse");
 }
 
@@ -668,9 +671,9 @@ fn parse_param_underscore_label_and_shorthand() {
 }
 
 #[test]
-fn parse_setter_name_put_value() {
-    let res = parse_source("class Foo {\n  width=(put val) {\n    self.width = val\n  }\n}\n", 0);
-    assert!(res.is_ok(), "failed to parse `width=(put val)`: {:?}", res.err());
+fn parse_setter_name_value() {
+    let res = parse_source("class Foo {\n  width=(_ val) {\n    self.width = val\n  }\n}\n", 0);
+    assert!(res.is_ok(), "failed to parse `width=(_ val)`: {:?}", res.err());
 }
 
 #[test]
@@ -679,9 +682,9 @@ fn parse_subscript_getter_and_setter() {
     let res = parse_source("class Foo {\n  [_ index] {\n    return self.items[index]\n  }\n}\n", 0);
     assert!(res.is_ok(), "failed to parse subscript getter `[_ index]`: {:?}", res.err());
 
-    // Setter: [_ index]=(put value)
-    let res = parse_source("class Foo {\n  [_ index]=(put val) {\n    self.items[index] = val\n  }\n}\n", 0);
-    assert!(res.is_ok(), "failed to parse subscript setter `[_ index]=(put val)`: {:?}", res.err());
+    // Setter: [_ index]=(_ value)
+    let res = parse_source("class Foo {\n  [_ index]=(_ val) {\n    self.items[index] = val\n  }\n}\n", 0);
+    assert!(res.is_ok(), "failed to parse subscript setter `[_ index]=(_ val)`: {:?}", res.err());
 }
 
 #[test]
@@ -1321,7 +1324,7 @@ fn generic_enum_getter_accepts_callable_local_binder() {
 fn generic_setter_accepts_callable_local_binder_and_where_clause() {
     let source = r#"
 class Box {
-    value<T>=(put newValue: T)
+    value<T>=(_ newValue: T)
         where T <: Number
     {
     }
@@ -1345,7 +1348,7 @@ fn generic_index_getter_and_setter_preserve_index_shape() {
     let source = r#"
 class Store {
     [_ key]<U> -> U {}
-    [_ key]<U>=(put value: U) where U <: Object {}
+    [_ key]<U>=(_ value: U) where U <: Object {}
 }
 "#;
     let program = parse_source(source, 0).expect("generic index members should parse");

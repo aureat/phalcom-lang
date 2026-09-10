@@ -41,7 +41,7 @@ impl FamilyOperationShape {
     }
 
     pub fn setter() -> Self {
-        Self::new(SelectorKind::Setter, Box::new([SelectorSlot::Positional]) as Box<[SelectorSlot]>)
+        Self::new(SelectorKind::Setter, Box::new([]) as Box<[SelectorSlot]>)
     }
 }
 

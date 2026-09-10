@@ -28,7 +28,7 @@ pub enum SignatureKind {
     Method(u8),
     /// A no-argument getter, `foo`.
     Getter,
-    /// A one-argument setter, `foo=(put)`.
+    /// A one-argument setter, `foo=(_)`.
     Setter,
     /// A bracket subscript getter.
     SubscriptGet(u8),
@@ -129,7 +129,7 @@ impl Signature {
 ///
 /// [`SignatureKind::SubscriptGet`] / [`SignatureKind::SubscriptSet`] ignore `name` entirely (U-INDEX,
 /// ADR-0060) — the bracket delimiter itself carries the selector's whole
-/// identity, so `[_]`/`[_,default]` and their `=(put)` setter counterparts use the same
+/// identity, so `[_]`/`[_,default]` and their `=(_)` setter counterparts use the same
 /// `comma_form_slots` every keyword method uses, just bracket- rather than
 /// paren-delimited and with no leading name.
 pub fn encode_selector(name: &str, labels: &[Option<String>], kind: SignatureKind) -> String {
@@ -248,11 +248,6 @@ pub fn decode_selector(selector: &str) -> (String, Vec<Option<String>>, Signatur
         common_selector::SelectorKind::SubscriptGet => SignatureKind::SubscriptGet(u8::try_from(decoded.slots.len()).unwrap_or(u8::MAX)),
         common_selector::SelectorKind::SubscriptSet => SignatureKind::SubscriptSet(u8::try_from(decoded.slots.len()).unwrap_or(u8::MAX)),
     };
-    let labels = if matches!(kind, SignatureKind::Setter) {
-        vec![Some("put".to_string())]
-    } else {
-        labels
-    };
     (name, labels, kind)
 }
 
@@ -346,7 +341,7 @@ mod tests {
         let setter = encode_selector("class", &[], SignatureKind::Setter);
         let (name, labels, kind) = decode_selector(&setter);
         assert_eq!(name, "class");
-        assert_eq!(labels, vec![Some("put".to_string())]);
+        assert!(labels.is_empty());
         assert_eq!(kind, SignatureKind::Setter);
 
         // `==(_)` must decode to a one-arg method, not a setter named `=`.
@@ -398,9 +393,9 @@ mod tests {
         assert_eq!(kind, SignatureKind::SubscriptGet(1));
         assert_eq!(encode_selector(&name, &labels, kind), get);
 
-        // `[_ idx]=(put value) { ... }` — write, positional index + fixed value role.
+        // `[_ idx]=(_ value) { ... }` — write, positional index + fixed value role.
         let set = encode_selector("", &[None], SignatureKind::SubscriptSet(1));
-        assert_eq!(set, "[_]=(put)");
+        assert_eq!(set, "[_]=(_)");
         let (sname, slabels, skind) = decode_selector(&set);
         assert_eq!(sname, "[]=");
         assert_eq!(slabels, vec![None]);
@@ -415,9 +410,9 @@ mod tests {
         assert!(elabels.is_empty());
         assert_eq!(ekind, SignatureKind::SubscriptGet(0));
 
-        // `[]=(put value) { ... }` — zero-arity write.
+        // `[]=(_ value) { ... }` — zero-arity write.
         let put_only = encode_selector("", &[], SignatureKind::SubscriptSet(0));
-        assert_eq!(put_only, "[]=(put)");
+        assert_eq!(put_only, "[]=(_)");
         let (pname, plabels, pkind) = decode_selector(&put_only);
         assert_eq!(pname, "[]=");
         assert!(plabels.is_empty());

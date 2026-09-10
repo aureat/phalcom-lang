@@ -741,7 +741,7 @@ pub enum ClassMember {
     /// `compiler::attributes::expand_class_attributes`.
     Variant(VariantDef),
     /// A bracket-delimited subscript method — `[_ idx] { ... }` (read) or
-    /// `[_ idx]=(put value) { ... }` (write), U-INDEX,
+    /// `[_ idx]=(_ value) { ... }` (write), U-INDEX,
     /// [ADR-0060](../../../docs/adr/accepted/0060-index-operator-as-real-selector.md).
     /// See [`IndexMethodDef`].
     Index(IndexMethodDef),
@@ -812,7 +812,7 @@ impl ClassMember {
 }
 
 /// A bracket-delimited subscript method definition — `[_ idx] { ... }` /
-/// `[_ idx]=(put value) { ... }` / `[] { ... }` / `[]=(put value) { ... }` (U-INDEX,
+/// `[_ idx]=(_ value) { ... }` / `[] { ... }` / `[]=(_ value) { ... }` (U-INDEX,
 /// [ADR-0060](../../../docs/adr/accepted/0060-index-operator-as-real-selector.md)).
 ///
 /// Unlike every other [`ClassMember`], this selector carries no separate name
@@ -821,12 +821,12 @@ impl ClassMember {
 /// substituting `[`/`]` for `(`/`)`) live *inside* them rather than in a
 /// following `(...)` slot.
 /// Getter identity is bracket arity + labels; setter identity appends the
-/// fixed assignment role. Thus `[_ idx, default fallback]=(put value)` is
-/// `[_,default]=(put)`.
+/// fixed assignment role. Thus `[_ idx, default fallback]=(_ value)` is
+/// `[_,default]=(_)`.
 #[derive(Debug, Clone)]
 pub enum IndexAccessor {
     Get,
-    Set { put: Box<ParameterDef> },
+    Set { value: Box<ParameterDef> },
 }
 
 #[derive(Debug, Clone)]
@@ -1561,7 +1561,7 @@ pub struct SetPropertyExpr {
 /// `cache[key, default: fallback]` sends `[_,default]`, and empty `xs[]`
 /// sends the zero-arity `[]`. Compiles to a direct send against the bracket
 /// selector the args' arity/labels encode (`phalcom-core`'s
-/// `SignatureKind::Subscript`) — **no** `at`/`at(_,put:)` lowering (ADR-0060
+/// `SignatureKind::Subscript`) — **no** `at`/`at(_,value:)` lowering (ADR-0060
 /// supersedes ADR-0055's sugar-over-`at` draft).
 ///
 /// Kept as a distinct node (rather than an immediate `MethodCall` desugar) so
@@ -1584,9 +1584,10 @@ pub struct IndexExpr {
 /// A postfix subscript write — `object[args...] = value` (U-INDEX,
 /// [ADR-0060](../../../docs/adr/accepted/0060-index-operator-as-real-selector.md)).
 ///
-/// Sends the bracket-write selector `args`' arity/labels encode with `put:
-/// value` appended in the fixed setter role (e.g. `xs[i] = v` sends
-/// `[_]=(put)`) — **no** `at(_,put)` lowering (ADR-0060 supersedes ADR-0055).
+/// Sends the bracket-write selector `args`' arity/labels encode with the
+/// dedicated setter value appended in the fixed setter role (e.g. `xs[i] = v`
+/// sends `[_]=(_)`) — **no** `at(_,value:)` lowering (ADR-0060 supersedes
+/// ADR-0055).
 /// Produced by `parse_assignment` when it sees an `Expr::Index` on the left
 /// of `=`, parallel to `SetProperty`'s production from `GetProperty`.
 #[derive(Debug, Clone)]
@@ -1595,7 +1596,7 @@ pub struct SetIndexExpr {
     pub object: Expr,
     /// The bracketed argument list — positional and/or `label:` arguments,
     /// in source order (the index/key side only; `value` is appended as the
-    /// selector's trailing `put:` argument by the compiler, not stored here).
+    /// selector's dedicated setter value lane by the compiler, not stored here).
     pub args: Vec<PackItem>,
     /// The written bracket selector span, excluding the receiver and RHS.
     pub selector_range: Option<SourceRange>,
@@ -1674,7 +1675,7 @@ pub struct AssociatedLookupExpr {
 #[derive(Debug, Clone)]
 pub enum AssociatedMemberSyntax {
     Named(AssociatedNamedMemberSyntax),
-    Operator(ExactSelectorSyntax),
+    Operator(SelectorSpecSyntax),
     Subscript(ExactSelectorSyntax),
 }
 
@@ -1696,29 +1697,38 @@ pub enum AssociatedNamedMode {
 #[derive(Debug, Clone)]
 pub enum CallableReferenceTarget {
     /// A family or selected member bound to an ordinary receiver.
-    BoundNamed {
+    Bound {
         /// The expression evaluated to obtain the captured receiver.
         receiver: Box<Expr>,
-        /// The callable base name.
-        name: String,
-        /// The source range of the callable base name.
-        name_range: SourceRange,
-        /// `None` captures the whole family; `Some` selects a signature/pattern.
-        selector: Option<SelectorSpecSyntax>,
+        /// The rightmost callable selector component.
+        member: CallableReferenceMemberSyntax,
+        /// The source range of the `.` separator.
+        separator_range: SourceRange,
     },
     /// A family or selected member in a declaration-associated namespace.
-    AssociatedNamed {
+    Associated {
         /// The type-form expression owning the associated namespace.
         receiver: Box<Expr>,
         /// The source range of the associated `::` separator.
         separator_range: SourceRange,
-        /// The callable base name.
-        name: String,
-        /// The source range of the callable base name.
-        name_range: SourceRange,
-        /// `None` captures the whole family; `Some` selects a signature/pattern.
-        selector: Option<SelectorSpecSyntax>,
+        /// The rightmost associated selector component.
+        member: CallableReferenceMemberSyntax,
     },
+}
+
+/// Selector component targeted by a prefix-`&` reference.
+#[derive(Debug, Clone)]
+pub enum CallableReferenceMemberSyntax {
+    /// Named getter, setter, method, or named-family syntax.
+    Named {
+        name: String,
+        name_range: SourceRange,
+        selector: SelectorSpecSyntax,
+    },
+    /// Operator-family syntax such as `+(_)` or `+...`.
+    Operator(SelectorSpecSyntax),
+    /// Bracket-family syntax such as `[_, debug]` or `[...] =`.
+    Subscript(SelectorSpecSyntax),
 }
 
 /// A callable or callable-family reference introduced by `&`.
@@ -1813,6 +1823,7 @@ impl ExactSelectorSyntax {
 
 impl SelectorPatternSyntax {
     pub fn normalize(&self) -> Result<SelectorPattern, SelectorError> {
+        let has_gap = !matches!(self.kind, SelectorKindPattern::NamedAccessors);
         SelectorPattern::new(
             if self.is_subscript {
                 phalcom_common::selector::SelectorBase::Subscript
@@ -1822,7 +1833,7 @@ impl SelectorPatternSyntax {
             self.kind.clone(),
             self.prefix.iter().map(|slot| slot.slot.clone()).collect::<Vec<_>>().into_boxed_slice(),
             self.suffix.iter().map(|slot| slot.slot.clone()).collect::<Vec<_>>().into_boxed_slice(),
-            true,
+            has_gap,
         )
     }
 }
@@ -1881,11 +1892,11 @@ pub enum SymbolLiteralKind {
         /// placeholder `_`.
         labels: Vec<Option<String>>,
     },
-    /// An exact bracket selector such as `#[_]` or `#[_]=(put)`.
+    /// An exact bracket selector such as `#[_]` or `#[_]=(_)`.
     Subscript {
         /// Index slots, with `None` representing `_`.
         labels: Vec<Option<String>>,
-        /// Whether this is the bracket setter spelling `]=(put)`.
+        /// Whether this is the bracket setter spelling `]=(_)`.
         setter: bool,
     },
     /// A structural selector pattern such as `#name(...)` or

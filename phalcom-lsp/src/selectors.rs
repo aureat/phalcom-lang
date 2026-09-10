@@ -55,9 +55,9 @@ pub fn getter_selector(g: &GetterDef) -> String {
     selector_from_getter(g).encode()
 }
 
-/// The comma-form selector a `name=(put)` write resolves to, given just the bare property name.
+/// The comma-form selector a `name=(_)` write resolves to, given just the bare property name.
 pub fn setter_selector_from_name(name: &str) -> String {
-    Selector::setter(name).map(|s| s.encode()).unwrap_or_else(|_| format!("{name}=(put)"))
+    Selector::setter(name).map(|s| s.encode()).unwrap_or_else(|_| format!("{name}=(_)"))
 }
 
 /// The comma-form selector a setter's write resolves to.
@@ -95,7 +95,7 @@ pub fn index_selector_from_labels(labels: &[Option<String>], setter: bool) -> St
     let kind = if setter { SelectorKind::SubscriptSet } else { SelectorKind::SubscriptGet };
     Selector::new(SelectorBase::Subscript, kind, slots.into_boxed_slice())
         .map(|s| s.encode())
-        .unwrap_or_else(|_| if setter { "[_]=(put)".into() } else { "[_]".into() })
+        .unwrap_or_else(|_| if setter { "[_]=(_)".into() } else { "[_]".into() })
 }
 
 /// The comma-form selector any [`ClassMember`] declaration defines.
@@ -155,11 +155,11 @@ mod tests {
 
     #[test]
     fn setter_is_literal_single_slot() {
-        let class_def = parse_class("class Point {\n  x=(put v) { }\n}\n");
+        let class_def = parse_class("class Point {\n  x=(_ v) { }\n}\n");
         let member = &class_def.members[0];
         let selector = selector_from_member(member);
         assert_eq!(selector.kind, SelectorKind::Setter);
-        assert_eq!(selector.encode(), "x=(put)");
+        assert_eq!(selector.encode(), "x=(_)");
     }
 
     #[test]
@@ -181,7 +181,7 @@ mod tests {
 
     #[test]
     fn subscript_get_and_set() {
-        let class_def = parse_class("class Arr {\n  [_ idx] { }\n  [_ idx]=(put value) { }\n}\n");
+        let class_def = parse_class("class Arr {\n  [_ idx] { }\n  [_ idx]=(_ value) { }\n}\n");
         let get_member = &class_def.members[0];
         let set_member = &class_def.members[1];
         let get_sel = selector_from_member(get_member);
@@ -189,6 +189,6 @@ mod tests {
         assert_eq!(get_sel.kind, SelectorKind::SubscriptGet);
         assert_eq!(set_sel.kind, SelectorKind::SubscriptSet);
         assert_eq!(get_sel.encode(), "[_]");
-        assert_eq!(set_sel.encode(), "[_]=(put)");
+        assert_eq!(set_sel.encode(), "[_]=(_)");
     }
 }

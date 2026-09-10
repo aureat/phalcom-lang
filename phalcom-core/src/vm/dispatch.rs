@@ -122,17 +122,10 @@ impl VM {
                 found: slots.len(),
                 limit: u8::MAX as usize,
             })?),
-            PackSendKind::SubscriptSet => {
-                let put = self.interner.find("put");
-                if labels.last().copied() != put {
-                    return Err(RuntimeError::Internal("dynamic subscript setter missing final put label".into()).into());
-                }
-                slots.pop();
-                SignatureKind::SubscriptSet(u8::try_from(slots.len()).map_err(|_| RuntimeError::SendArityExceedsLimit {
-                    found: slots.len(),
-                    limit: u8::MAX as usize,
-                })?)
-            }
+            PackSendKind::SubscriptSet => SignatureKind::SubscriptSet(u8::try_from(slots.len()).map_err(|_| RuntimeError::SendArityExceedsLimit {
+                found: slots.len(),
+                limit: u8::MAX as usize,
+            })?),
         };
         Ok(self.interner.intern(&encode_selector(&base, &slots, signature)))
     }
@@ -1023,6 +1016,40 @@ impl VM {
         let receiver_class = receiver.class(self);
         let selector_val = callable.chunk.constants[selector_idx as usize];
         let selector_sym = selector_val.as_symbol().unwrap();
+
+        // A Family owns the selector shape of a callable reference. Bracket
+        // sends therefore activate the family directly instead of looking up
+        // the Family protocol's ordinary methods.
+        let (_, slots, kind) = decode_selector(self.resolve_symbol(selector_sym));
+        if matches!(kind, SignatureKind::SubscriptGet(_) | SignatureKind::SubscriptSet(_))
+            && receiver
+                .as_obj()
+                .is_some_and(|id| matches!(self.heap.get(id), Object::Family(_) | Object::AssociatedFamily(_)))
+        {
+            let positional_count = arity.saturating_sub(slots.iter().filter(|slot| slot.is_some()).count());
+            let labels = slots
+                .iter()
+                .filter_map(|slot| slot.as_ref())
+                .map(|label| self.interner.intern(label))
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
+            let invocation = if matches!(kind, SignatureKind::SubscriptSet(_)) {
+                crate::vm::FamilyInvocationKind::SubscriptSet
+            } else {
+                crate::vm::FamilyInvocationKind::SubscriptGet
+            };
+            let view = crate::method::ArgumentView::shaped_with_labels(
+                receiver_idx,
+                positional_count,
+                labels,
+                selector_sym,
+                self.current_access_class(),
+                self.current_has_internal_privilege(),
+            );
+            match self.activate_family_with_kind(view, invocation, callable.chunk.span_at(cache_ip))? {
+                crate::method::CallOutcome::EnteredFrame | crate::method::CallOutcome::Returned(_) => return Ok(()),
+            }
+        }
 
         // Cache probe. `chunk` is a shared borrow; the `Cell` is what lets us
         // write back through it (U-IC §2.1). `span_at(cache_ip)` rides along in
@@ -2362,6 +2389,45 @@ impl VM {
                     let selector = self.dynamic_pack_selector(base, kind, positionals.len(), &labels)?;
                     self.stack.extend(positionals);
                     self.stack.extend(values);
+                    let range = callable.chunk.span_at(ip);
+                    if access == PackAccess::CompilerInternal {
+                        self.compiler_internal_dispatch_depth += 1;
+                    }
+                    let result = self.invoke_dynamic_selector(receiver_idx, selector, arity, range);
+                    if access == PackAccess::CompilerInternal {
+                        self.compiler_internal_dispatch_depth -= 1;
+                    }
+                    result?;
+                }
+                Bytecode::InvokeSubscriptSetPack { base_name, access } => {
+                    let rhs = self.pop()?;
+                    let builder = self.pop()?;
+                    let receiver_idx = self
+                        .stack
+                        .len()
+                        .checked_sub(1)
+                        .ok_or(RuntimeError::Internal("missing dynamic subscript setter receiver".into()))?;
+                    let Some(id) = builder.as_obj() else {
+                        return Err(RuntimeError::Internal("pack builder is not an object".into()).into());
+                    };
+                    if self.heap.pack_builder(id).has_pending() {
+                        return Err(RuntimeError::Internal("unfinished pack label at dynamic subscript setter".into()).into());
+                    }
+                    let (positionals, labels, values) = self.heap.pack_builder_mut(id).take_parts();
+                    let index_arity = positionals.len() + values.len();
+                    let arity = index_arity + 1;
+                    if arity > u8::MAX as usize {
+                        return Err(RuntimeError::SendArityExceedsLimit {
+                            found: arity,
+                            limit: u8::MAX as usize,
+                        }
+                        .into());
+                    }
+                    let base = callable.chunk.constants[base_name as usize].as_symbol().map_err(RuntimeError::Internal)?;
+                    let selector = self.dynamic_pack_selector(base, PackSendKind::SubscriptSet, positionals.len(), &labels)?;
+                    self.stack.extend(positionals);
+                    self.stack.extend(values);
+                    self.stack.push(rhs);
                     let range = callable.chunk.span_at(ip);
                     if access == PackAccess::CompilerInternal {
                         self.compiler_internal_dispatch_depth += 1;

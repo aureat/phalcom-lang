@@ -153,7 +153,7 @@ fn harvest_universe_sources(classes: &mut BTreeMap<String, Vec<SelectorEntry>>) 
                     }
                     ClassMember::Setter(s) => {
                         entries.push(SelectorEntry {
-                            selector: format!("{}=(put)", s.name),
+                            selector: format!("{}=(_)", s.name),
                             kind: "setter",
                             class_side,
                             visibility,
@@ -232,7 +232,7 @@ fn member_visibility(member: &ClassMember) -> &'static str {
 fn bracket_form(labels: &[Option<String>], setter: bool) -> String {
     let inner = labels.iter().map(|l| l.as_deref().unwrap_or("_")).collect::<Vec<_>>().join(",");
     let base = format!("[{inner}]");
-    if setter { format!("{base}=(put)") } else { base }
+    if setter { format!("{base}=(_)") } else { base }
 }
 
 /// Builds the comma-form selector string: `name(_,label,...)`, or `name()`
@@ -320,7 +320,7 @@ fn comma_form_from_signature_kind(name: &str, kind_expr: &str) -> (String, &'sta
         return (name.to_string(), "getter");
     }
     if kind_expr.starts_with("SignatureKind::Setter") {
-        return (format!("{name}=(put)"), "setter");
+        return (format!("{name}=(_)"), "setter");
     }
     if let Some(n) = extract_arity(kind_expr, "SignatureKind::Method") {
         return (positional_comma_form(name, n), "method");
@@ -329,7 +329,7 @@ fn comma_form_from_signature_kind(name: &str, kind_expr: &str) -> (String, &'sta
         return ("[]".to_string(), "method");
     }
     if kind_expr.starts_with("SignatureKind::SubscriptSet") {
-        return ("[]=(put)".to_string(), "method");
+        return ("[]=(_)".to_string(), "method");
     }
     // Unrecognized kind expression (future SignatureKind variant): fall back
     // to the bare name rather than panic — a codegen tool must not crash on

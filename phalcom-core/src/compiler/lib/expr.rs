@@ -569,7 +569,7 @@ impl<'vm> Compiler<'vm> {
             Expr::Index(ix) => {
                 // U-INDEX (ADR-0060): `xs[a, b, ...]` sends directly to the
                 // bracket selector the args' arity/labels encode (`[_]`,
-                // `[_,_]`, `[default]`, ...) — no `at`/`at(_,put:)` lowering.
+                // `[_,_]`, `[default]`, ...) — no `at`/`at(_,value:)` lowering.
                 // `args` is a full call-shaped argument list (reusing
                 // `parse_arg_list`), so this rides the ordinary generic-send
                 // path for any arity/label combination without further
@@ -601,23 +601,18 @@ impl<'vm> Compiler<'vm> {
                     self.emit(Bytecode::SetLocal(builder_slot), six.range);
                     self.emit(Bytecode::Pop, six.range);
                     self.compile_dynamic_pack_items(builder_slot, six.args)?;
-                    let put = self.vm.interner.intern("put");
-                    let put_idx = self.add_constant(Value::symbol(put));
-                    self.emit(Bytecode::GetLocal(builder_slot), six.range);
-                    self.emit(Bytecode::PackReserveStaticLabel(put_idx), six.range);
                     let rhs_slot = self.reserve_pack_scratch("$setindex_rhs", six.range)?;
                     self.compile_expr(six.value)?;
                     self.emit(Bytecode::SetLocal(rhs_slot), six.range);
-                    self.emit(Bytecode::GetLocal(builder_slot), six.range);
-                    self.emit(Bytecode::PackFillReservedLabel, six.range);
+                    self.emit(Bytecode::Pop, six.range);
                     let base = self.vm.interner.intern("");
                     let base_idx = self.add_constant(Value::symbol(base));
                     self.emit(Bytecode::GetLocal(receiver_slot), six.range);
                     self.emit(Bytecode::GetLocal(builder_slot), six.range);
+                    self.emit(Bytecode::GetLocal(rhs_slot), six.range);
                     self.emit(
-                        Bytecode::InvokePack {
+                        Bytecode::InvokeSubscriptSetPack {
                             base_name: base_idx,
-                            kind: PackSendKind::SubscriptSet,
                             access: PackAccess::Ordinary,
                         },
                         six.range,
@@ -627,22 +622,6 @@ impl<'vm> Compiler<'vm> {
                     self.release_pack_scratch_from(receiver_slot, 3, six.range);
                     return Ok(());
                 }
-                // Compiler-owned `put` occupies the final setter label.
-                if let Some(PackItem::Labeled {
-                    label: PackLabel::Static { text, range },
-                    ..
-                }) = six
-                    .args
-                    .iter()
-                    .find(|item| matches!(item, PackItem::Labeled { label: PackLabel::Static { text, .. }, .. } if text == "put"))
-                {
-                    return Err(CompilerError::DuplicateArgumentLabel {
-                        label: text.clone(),
-                        span: *range,
-                        first_span: six.range,
-                    });
-                }
-
                 let labels = self.pack_labels(&six.args)?;
                 let index_argc = checked_send_arity("subscript write index", six.args.len(), six.range)?;
                 let invoke_argc = checked_send_arity("subscript write", six.args.len() + 1, six.range)?;

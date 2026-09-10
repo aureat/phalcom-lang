@@ -20,6 +20,8 @@ pub(crate) enum RuntimeSelectorBase {
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub(crate) enum RuntimeSelectorKindPattern {
     AnyNamed,
+    NamedAccessors,
+    AnySubscript,
     Exact(SelectorKind),
 }
 
@@ -47,6 +49,8 @@ impl RuntimeSelectorPattern {
 
         let kind = match pattern.kind {
             SelectorKindPattern::AnyNamed => RuntimeSelectorKindPattern::AnyNamed,
+            SelectorKindPattern::NamedAccessors => RuntimeSelectorKindPattern::NamedAccessors,
+            SelectorKindPattern::AnySubscript => RuntimeSelectorKindPattern::AnySubscript,
             SelectorKindPattern::Exact(k) => RuntimeSelectorKindPattern::Exact(k),
         };
 
@@ -97,6 +101,16 @@ impl RuntimeSelectorPattern {
         match self.kind {
             RuntimeSelectorKindPattern::AnyNamed => {
                 if !matches!(kind, SelectorKind::Getter | SelectorKind::Setter | SelectorKind::Method) {
+                    return false;
+                }
+            }
+            RuntimeSelectorKindPattern::NamedAccessors => {
+                if !matches!(kind, SelectorKind::Getter | SelectorKind::Setter) {
+                    return false;
+                }
+            }
+            RuntimeSelectorKindPattern::AnySubscript => {
+                if !matches!(kind, SelectorKind::SubscriptGet | SelectorKind::SubscriptSet) {
                     return false;
                 }
             }

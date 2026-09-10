@@ -51,7 +51,7 @@ Some symbol forms overlap with selector syntax:
 #method
 #method()
 #method(_)
-#property=(put)
+#property=(_)
 ```
 
 These represent exact symbolic selector spellings.
@@ -222,7 +222,7 @@ Examples:
 #is!
 #is!(_)
 #method(_)
-#property=(put)
+#property=(_)
 ```
 
 The exact selector grammar is defined separately in the Selector
@@ -291,7 +291,7 @@ in the selector domain.
 ``` phalcom
 const plus = #+
 const comparison = #==
-const setter = #value=(put)
+const setter = #value=(_)
 const internal = #_$method
 const arbitrary = #"not a bare symbol"
 ```

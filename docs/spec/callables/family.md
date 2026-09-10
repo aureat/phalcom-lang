@@ -13,27 +13,37 @@ ordinary receiver, including a class object:
 
 ```phalcom
 &object.method
+&object.method()
 &object.method(_)
 &object.method(_, _, debug)
 &object.method(...)
 &object.method...
 &object.method(_, _, ...)
 &object.method(..., _, param)
+&object.method=(_)
+&object.method=
+&object[...]
+&object[...]=(_)
+&object[...]=
 
-&Fiber.new
+&Fiber.new()
 &Fiber.new(_)
 ```
 
-The bare named form captures the whole named family. A parenthesized selector
-with no gap selects an exact callable shape; an ellipsis creates a structural
-pattern with fixed prefix and suffix slots. Selector labels are labels, not
-destructuring bindings. A reference does not add a separate syntax for exact
-getter capture, operators, or subscripts.
+The written selector shape determines the capability. A bare name is an exact
+Getter; `method()` and `method(_)` are exact Methods; `method=(_)` is an exact
+Setter. `method=` is the Getter-or-Setter accessor pattern, `method(...)` is a
+Method-only pattern, and `method...` is the complete named family. Operator
+references retain Method identity. Bracket references use SubscriptGet and
+SubscriptSet; `[...]=` is the all-subscript-accessor pattern.
+
+Selector labels are labels, not destructuring bindings. The receiver expression
+is evaluated once and retained by the resulting Family.
 
 Associated callable families use `::` only after `&`:
 
 ```phalcom
-&Option::Some
+&Option::Some...
 &Option::Some(_)
 &Option::Some(...)
 ```
@@ -47,8 +57,9 @@ Option::Some(42)
 Class-side methods remain ordinary dot sends, so `Fiber.new { ... }` and
 `Fiber.new()` are not associated lookups.
 
-The receiver expression is evaluated once and retained by the resulting
-Family.
+Exact Getter families are activated by `family.get()` or `family.value`.
+`family()` remains Method-kind and does not fall back to Getter. Named setter
+aliases are `family.set(rhs)` and `family.value = rhs`.
 
 ## 2. Exact Family calls
 
@@ -93,6 +104,19 @@ call.
 
 A call with no matching route reaches ordinary `doesNotUnderstand` at the
 target call boundary.
+
+Subscript families have both direct and explicit tuple-shaped APIs:
+
+```phalcom
+family[index, debug: mode]
+family[index, debug: mode] = rhs
+family.get((index, debug: mode))
+family.set((index, debug: mode), rhs)
+```
+
+The first explicit API argument is a real Tuple/product. Its positional and
+labeled values retain their source order; the setter RHS remains outside that
+product as the one dedicated value lane.
 
 ## 4. Function and reflection surface
 

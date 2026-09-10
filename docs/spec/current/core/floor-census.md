@@ -35,15 +35,16 @@ language is *self-hosting above a small, fixed native boundary*
 
 | Metric | Count |
 |---|---|
-| Installed `(class, selector)` bindings — **all audited** (§1.3) | **229** |
+| Installed `(class, selector)` bindings — **all audited** (§1.3) | **233** |
 | Distinct native Rust functions | not separately maintained |
 | Classes carrying floor primitives | **28** (of 37 audited kernel classes) |
 | Sacred selectors (§5) | **7** |
 
 **Installed = audited, as of the current source-of-record test.** Every native binding
 `VM::new()` installs is enumerated in §2 and guarded by R-INV-0.1. The test currently
-asserts 229 bindings, including the scheduler-ownership, terminal-observer, and
-detached scheduler-failure reporting seams.
+asserts 233 bindings, including the scheduler-ownership, terminal-observer,
+detached scheduler-failure reporting seams, and the four Family accessor/API
+bindings.
 
 ### 1.3 The source of record is the test, not this file
 
@@ -293,7 +294,7 @@ row, not the count, is what makes the freeze real.
 > bindings / distinct fns / floor-carrying classes / sacred selectors) describe the
 > 2026-07-15 audit point, not the current floor. Later runtime work added further
 > audited bindings, including the scheduler and completion-observer seams. The current
-> source-of-record test asserts **229** bindings; the remaining figures below explain
+> source-of-record test asserts **233** bindings; the remaining figures below explain
 > historical amendment chronology only (was **121 / 106 / 22 / 7** post-U-GC, **120 / 105 / 22 / 7**
 > post-M-ATTR-ROOT, **117 / 102 / 22 / 7** post-U-ANNOT-CONTRACTS,
 > **115 / 100 / 22 / 7** post-U-SCHED, **113 / 98 / 22 / 7** post-former Family amendment,
@@ -303,7 +304,7 @@ row, not the count, is what makes the freeze real.
 > **125 / 110 / 22 / 7** for the ~24h in 2026-07-15 between CB-2 reconciling the count and
 > CB-5 admitting `Fiber`). **Do not quote this line** — it is a dated rendering of
 > `invariants.rs` (§1.3), and it sat five amendments stale (at post-U15 / 112) until
-> 2026-07-15. The current installed count is the machine-checked **229** (§1.1), after
+> 2026-07-15. The historical installed count was machine-checked at **229** (§1.1), after
 > the three E010 scheduler-failure reporting bindings were added.
 > This census is the ground-truth *enumeration*; the count's authority is the test. The
 > landing history + drift policy live in [`README.md`](./README.md) §"Baseline & drift
@@ -338,7 +339,7 @@ row, not the count, is what makes the freeze real.
 ### 1.2 Selector notation
 
 Selectors are shown in **human-facing notation**: a getter is a bare name
-(`size`), a setter is `name=(put)`, an arity-*n* method is `name(_, …)` with *n*
+(`size`), a setter is `name=(_)`, an arity-*n* method is `name(_, …)` with *n*
 positional holes (`+(_)`, `new()`), and labeled arguments are named
 (`ifTrue(_, ifFalse)`, `match(some, none)`).
 
@@ -347,7 +348,7 @@ positional holes (`+(_)`, `new()`), and labeled arguments are named
 > ([`method.rs`](../../../../phalcom-core/src/method.rs),
 > [ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md))
 > actually intern, which writes each positional hole as `_:` and each label as
-> `label:`. So `+(_)` interns as `+(_:)`, `class=(put)` as `class=(_:)`, and
+> `label:`. So `+(_)` interns as `+(_:)`, `class=(_)` as `class=(_:)`, and
 > `match(some, none)` as `match(some:none:)` — the same selector, different
 > surface. The `_:` form is what you will find in `Universe::BOOL_SACRED_SELECTORS`
 > and on the heap. (Heads-up: the `Sig` constants in
@@ -379,7 +380,7 @@ Ordered as `install_primitives` installs them
 |---|---|---|---|
 | `name` | instance | `object_name` | class-name string ([ADR-0015](../../../adr/0015-object-default-tostring.md)) |
 | `class` | instance | `object_class` | |
-| `class=(put)` | instance | `object_set_class` | reflective class reassignment |
+| `class=(_)` | instance | `object_set_class` | reflective class reassignment |
 | `toString` | instance | `object_to_string` | default display, `"<ClassName>"` for an instance / own name for a class receiver (ADR-0015; U-CORE-4 re-home off `object_name`, fixes DEFERRED F4) |
 | `==(_)` | instance | `object_eq` | ordinary send, **not** an opcode (control-flow.md §1) |
 | `!=(_)` | instance | `object_neq` | ordinary send |
@@ -399,7 +400,7 @@ Ordered as `install_primitives` installs them
 | Selector | Side | Native fn | Notes |
 |---|---|---|---|
 | `superclass` | instance | `class_superclass` | on `Behavior` so `Class` and `Metaclass` both inherit it ([ADR-0003](../../../adr/0003-introduce-behavior-kernel-class.md)) |
-| `superclass=(put)` | instance | `class_set_superclass` | |
+| `superclass=(_)` | instance | `class_set_superclass` | |
 | `name` | instance | `behavior_name` | the receiver class's OWN name; **shadows** `Object#name` for class receivers (ADR-0023) |
 | `methods` | instance | `behavior_methods` | own method-dictionary selector Symbols, as a fresh `List` (ADR-0023) |
 
@@ -571,7 +572,7 @@ public protocol (`size`/`at`/`add`/`each`) is `core.ph` over them (§3).
 | `new()` | static | `list_class_new` | |
 | `_$length` | instance | `list_raw_length` | internal; wrapped by `size` |
 | `_$at(_)` | instance | `list_raw_at` | internal; wrapped by `at(_)` |
-| `_$set(_, _)` | instance | `list_raw_set` | internal; wrapped by `at(_,put)` and `[_]=(put)` |
+| `_$set(_, _)` | instance | `list_raw_set` | internal; wrapped by `at(_,put)` and `[_]=(_)` |
 | `_$push(_)` | instance | `list_raw_push` | internal; wrapped by `add(_)` |
 | `_$replaceSlice(_, _, _)` | instance | `list_replace_slice` | internal variable-length replacement |
 | `toString` | instance | `list_to_string` | native this unit (see U-LIST return contract) |
@@ -682,7 +683,9 @@ selector pattern. Associated families use `&Owner::name`; ordinary class-side
 behavior remains a dot send. Calls enter through the shared Function gateway:
 exact Families retain selector identity, while pattern Families match their
 stored predicate against the current method table. Family installs no
-`doesNotUnderstand(_)` router primitive.
+`doesNotUnderstand(_)` router primitive. Its native surface includes `get()`,
+`set(_)`, `value`, `value=(_)`, `get(_)` for Tuple-shaped subscripts, and
+`set(_,_)` for Tuple-shaped subscript assignment.
 
 ### 2.17 `Fiber` — cooperative coroutine (U-FIBER / U-FIBER-REFLECT, [ADR-0030](../../../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md))
 
@@ -851,7 +854,7 @@ Because the floor is frozen (ADR-0019), this census is a **contract**:
    reconstructs the installed native-`(class, selector)` set from a live
    `VM::new()` (filtering out `core.ph`-defined closures) and asserts it equals
    the census here. **The test is the source of record for the count (§1.3).**
-   It currently asserts **229** bindings; read the test and its live set rather
+   It currently asserts **233** bindings; read the test and its live set rather
    than treating this prose as an independent checksum.
    This turns silent floor drift into a red test; §1.1 is no longer a manual
    checksum.

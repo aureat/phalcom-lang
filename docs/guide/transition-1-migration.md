@@ -7,9 +7,9 @@ Declarations changed; call-site `label:` syntax did not.
 | `foo(x)` positional | `foo(_ x)` |
 | `foo(label:)` | `foo(label)` |
 | `foo(label: local)` | `foo(label local)` |
-| `foo=(value)` | `foo=(put value)` |
-| `[idx, put:]` | `[_ idx]=(put value)` |
-| `[idx, default:, put:]` | `[_ idx, default fallback]=(put value)` |
+| `foo=(value)` | `foo=(_ value)` |
+| `[idx, put:]` | `[_ idx]=(_ value)` |
+| `[idx, default:, put:]` | `[_ idx, default fallback]=(_ value)` |
 | `static foo(...)` | `@class` followed by `foo(...)` |
 | `static _field` | `@class` followed by `_field` |
 | `_helper(...)` as private convention | `@private helper(...)` |
@@ -27,7 +27,7 @@ class Cache {
   normalize(_ key) => key.toString
 
   get(_ key, orElse fallback) { ... }
-  [_ key, default fallback]=(put value) { ... }
+  [_ key, default fallback]=(_ value) { ... }
 }
 
 cache.get(key, orElse: { None })

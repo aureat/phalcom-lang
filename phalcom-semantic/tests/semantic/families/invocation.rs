@@ -19,13 +19,13 @@ enum Weird {
 }
 
 class Probe {
-  @class run() { (&Weird::Marker)(1) }
+  @class run() { (&Weird::Marker...)(1) }
 }
 "#,
     );
     let analysis = analyze_source(module.clone(), source.clone());
     let probe = DeclarationId::new(module, "Probe".into());
-    let resolution = find_application(&analysis, &source, &probe, "run", "(&Weird::Marker)(1)");
+    let resolution = find_application(&analysis, &source, &probe, "run", "(&Weird::Marker...)(1)");
 
     let FamilyApplicationSelection::Static { operation, target, .. } = &resolution.selection else {
         panic!("expected static family application, got {:?}", resolution.selection);
@@ -48,7 +48,7 @@ enum Weird {
 
 class Probe {
   @class run() {
-    let make = &Weird::Marker;
+    let make = &Weird::Marker...;
     make(1)
   }
 }
@@ -79,7 +79,7 @@ enum Weird {
 
 class Probe {
   @class run() {
-    let make = &Weird::Marker;
+    let make = &Weird::Marker...;
     let args = [1];
     make(*args)
   }
@@ -121,7 +121,7 @@ class Box<T> {
 class Probe {
   @class
   run(_ box: Box<Int>) {
-    let family = &box.convert;
+    let family = &box.convert...;
     let value = family()
   }
 }
@@ -138,7 +138,7 @@ class Probe {
     let family_capture = callable
         .expressions
         .values()
-        .find(|candidate| source.get(candidate.range.start..candidate.range.end) == Some("&box.convert"))
+        .find(|candidate| source.get(candidate.range.start..candidate.range.end) == Some("&box.convert..."))
         .expect("generic family capture expression");
     assert!(
         family_capture.knowledge.is_known(),
@@ -176,7 +176,7 @@ class Box<T> {
 class Probe {
   @class
   run(_ box: Box<Int>) {
-    let family = &box.convert;
+    let family = &box.convert...;
     let value: Int = family();
   }
 }
@@ -211,7 +211,7 @@ enum Option<T> {
 class Probe {
   @class
   run() {
-    let family = &Option<Int>::Some;
+    let family = &Option<Int>::Some...;
     let value = family(1);
   }
 }
@@ -282,8 +282,8 @@ class Service {
 class Probe {
   @class
   run(_ service: Service) {
-    let instance = &service.take;
-    let class_side = &Service.make;
+    let instance = &service.take...;
+    let class_side = &Service.make...;
     let instance_result = instance(1)
     let class_result = class_side(1)
   }
@@ -307,7 +307,7 @@ class Probe {
             .find(|expression| source.get(expression.range.start..expression.range.end) == Some(text))
             .unwrap_or_else(|| panic!("missing family capture {text}"))
     };
-    for (text, expected_side) in [("&service.take", DispatchSide::Instance), ("&Service.make", DispatchSide::Class)] {
+    for (text, expected_side) in [("&service.take...", DispatchSide::Instance), ("&Service.make...", DispatchSide::Class)] {
         let capture = capture_for(text);
         let resolution = callable.callable_reference_resolutions.get(&capture.id).expect("family resolution");
         let CallableReferenceResolutionKind::BoundFamily { members, .. } = &resolution.kind else {
@@ -347,8 +347,8 @@ class Right {
 class Probe {
   @class
   run() {
-    let left = &Left.make;
-    let right = &Right.make;
+    let left = &Left.make...;
+    let right = &Right.make...;
   }
 }
 "#,
@@ -369,8 +369,8 @@ class Probe {
             .find(|expression| source.get(expression.range.start..expression.range.end) == Some(text))
             .unwrap_or_else(|| panic!("missing family capture {text}"))
     };
-    let left = capture("&Left.make");
-    let right = capture("&Right.make");
+    let left = capture("&Left.make...");
+    let right = capture("&Right.make...");
     assert_eq!(
         left.knowledge.ty(),
         right.knowledge.ty(),

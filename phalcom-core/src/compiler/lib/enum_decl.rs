@@ -190,9 +190,9 @@ impl<'vm> Compiler<'vm> {
                         let mut param_names: Vec<String> = index_def.params.iter().map(|p| p.name.clone()).collect();
                         let sig_kind = match &index_def.accessor {
                             IndexAccessor::Get => SignatureKind::SubscriptGet(arity),
-                            IndexAccessor::Set { put } => {
+                            IndexAccessor::Set { value } => {
                                 checked_send_arity("subscript declaration", index_def.params.len() + 1, index_def.range)?;
-                                param_names.push(put.name.clone());
+                                param_names.push(value.name.clone());
                                 SignatureKind::SubscriptSet(arity)
                             }
                         };
@@ -344,9 +344,9 @@ impl<'vm> Compiler<'vm> {
                                     let mut param_names: Vec<String> = index_def.params.iter().map(|p| p.name.clone()).collect();
                                     let sig_kind = match &index_def.accessor {
                                         IndexAccessor::Get => SignatureKind::SubscriptGet(arity),
-                                        IndexAccessor::Set { put } => {
+                                        IndexAccessor::Set { value } => {
                                             checked_send_arity("subscript declaration", index_def.params.len() + 1, index_def.range)?;
-                                            param_names.push(put.name.clone());
+                                            param_names.push(value.name.clone());
                                             SignatureKind::SubscriptSet(arity)
                                         }
                                     };

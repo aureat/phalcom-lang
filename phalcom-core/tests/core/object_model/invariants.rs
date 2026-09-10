@@ -804,7 +804,7 @@ fn floor_census_matches_installed_bindings() {
         // §2.1 Object
         (c.object_class, false, "name"),
         (c.object_class, false, "class"),
-        (c.object_class, false, "class=(put)"),
+        (c.object_class, false, "class=(_)"),
         (c.object_class, false, "toString"),
         (c.object_class, false, "hash"), // NEW (ADR-0023)
         (c.object_class, false, "==(_)"),
@@ -823,7 +823,7 @@ fn floor_census_matches_installed_bindings() {
         (c.object_class, false, "_$freezeAttributes()"), // NEW_ATTR_ROOT (M-ATTR-ROOT)
         // §2.2 Behavior
         (c.behavior_class, false, "superclass"),
-        (c.behavior_class, false, "superclass=(put)"),
+        (c.behavior_class, false, "superclass=(_)"),
         (c.behavior_class, false, "name"),    // NEW (ADR-0023)
         (c.behavior_class, false, "methods"), // NEW (ADR-0023)
         (c.behavior_class, false, ">>(_)"),   // selector-pattern reflection
@@ -932,6 +932,10 @@ fn floor_census_matches_installed_bindings() {
         (c.family_class, false, "isExact"),
         (c.family_class, false, "get()"),
         (c.family_class, false, "set(_)"),
+        (c.family_class, false, "value"),
+        (c.family_class, false, "value=(_)"),
+        (c.family_class, false, "get(_)"),
+        (c.family_class, false, "set(_,_)"),
         // §2.10 Function
         (c.function_class, false, "arity"),
         (c.function_class, false, "name"),
@@ -1134,10 +1138,10 @@ fn floor_census_matches_installed_bindings() {
 
     assert_eq!(
         expected.len(),
-        229,
-        "census must enumerate exactly 229 bindings after concurrency scheduler failure reporting seams"
+        233,
+        "census must enumerate exactly 233 bindings after Family accessor API additions"
     );
-    assert_eq!(live.len(), 229, "the live floor must be exactly 229 bindings");
+    assert_eq!(live.len(), 233, "the live floor must be exactly 233 bindings");
 }
 
 #[test]

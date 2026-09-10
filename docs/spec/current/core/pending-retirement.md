@@ -122,7 +122,7 @@ one, others are co-requisites. "syntax" always means **U-LEX**.
 | `dispatch/dispatch_spread_call` | C | `[1,2,3]` list literal + `f(*args)` spread-call syntax | **U-LEX** (STATE.md: spread-call future) |
 | `functions/functions_method_bind` | C+B | `#greet(_)` literal + `methodFor(_)`/`Method#bind(_)` | U-LEX + **U-CORE-1/3** |
 | `functions/functions_method_for_invoke_on` | C+B | `#+(_)` literal + `[4]` literal + `methodFor(_)`/`Method#invokeOn(_,_)` | U-LEX + **U-CORE-3** |
-| `messages/messages_family_reference` | C+B | `&p.move` callable reference (`&`) | U-LEX + **U-CORE-3** (Family) |
+| `messages/messages_family_reference` | C+B | `&p.move...` callable reference (`&`) | U-LEX + **U-CORE-3** (Family) |
 | `messages/messages_selector_symbol_literal` | C | `#move(_,to,duration)` selector literal + its `toString` | **U-LEX** (+ U-CORE-4 Symbol `toString`) |
 | `lexical/lexical_list_literal` | C | `[…]` literal lowering | **U-LEX** |
 | `lexical/lexical_tuple_literal` | C+E | `(a,b)` literal + `Tuple` class | U-LEX + collections |

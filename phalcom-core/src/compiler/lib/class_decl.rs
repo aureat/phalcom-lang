@@ -1117,10 +1117,10 @@ impl<'vm> Compiler<'vm> {
                 // exhaustiveness over `ClassMember`'s full variant set.
                 ClassMember::Variant(_) => {}
                 // A bracket subscript method (U-INDEX, ADR-0060: `[idx] {
-                // ... }` / `[idx, put:] { ... }`) — same codegen shape as an
+                // ... }` / `[idx, label:] { ... }`) — same codegen shape as an
                 // ordinary `Method`, just with no name token and a
-                // `SignatureKind::Subscript` selector (`[_]`, `[_,put]`,
-                // `[]`, `[put]`, ...) instead of `name(...)`. Always an
+                // `SignatureKind::Subscript` selector (`[_]`, `[_,label]`,
+                // `[]`, `[label]`, ...) instead of `name(...)`. Always an
                 // instance method — the grammar has no `static [idx] {}`
                 // form.
                 ClassMember::Index(index_def) => {
@@ -1131,9 +1131,9 @@ impl<'vm> Compiler<'vm> {
                     let mut param_names: Vec<String> = index_def.params.iter().map(|p| p.name.clone()).collect();
                     let sig_kind = match &index_def.accessor {
                         IndexAccessor::Get => SignatureKind::SubscriptGet(arity),
-                        IndexAccessor::Set { put } => {
+                        IndexAccessor::Set { value } => {
                             checked_send_arity("subscript declaration", index_def.params.len() + 1, index_def.range)?;
-                            param_names.push(put.name.clone());
+                            param_names.push(value.name.clone());
                             SignatureKind::SubscriptSet(arity)
                         }
                     };

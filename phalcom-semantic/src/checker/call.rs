@@ -740,7 +740,7 @@ pub(crate) fn structural_list_index_set_target(ctx: &mut CheckingContext<'_>, re
         selector,
         vec![
             CallableParameter::new("index", TypeKnowledge::established(int_ty, EvidenceOrigin::DeclarationSemantics)),
-            CallableParameter::new("put", TypeKnowledge::established(element_ty, EvidenceOrigin::DeclarationSemantics)),
+            CallableParameter::new("value", TypeKnowledge::established(element_ty, EvidenceOrigin::DeclarationSemantics)),
         ],
         TypeKnowledge::established(element_ty, EvidenceOrigin::DeclarationSemantics),
     );

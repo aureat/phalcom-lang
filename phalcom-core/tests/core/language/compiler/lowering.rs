@@ -100,7 +100,7 @@ enum Weird {
   @variant Marker(_ value: Int)
 }
 
-let make = &Weird::Marker;
+let make = &Weird::Marker...;
 let static_value = make(1)
 let args = [1];
 let dynamic_value = make(*args)

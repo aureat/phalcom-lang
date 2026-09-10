@@ -4,6 +4,7 @@
 - Date: 2026-08-08
 - Supersedes: ADR-0061 in full
 - Amends: ADR-0060's subscript-setter identity and PDR-0028's legacy-syntax compatibility policy
+- Setter value-lane spelling amended by LANG004.C1.P2 on 2026-09-10
 - Related: `docs/work/pending/transition-1/01` through `06`; current lexical, object-model, functions, and core-class specs
 
 ## Context
@@ -35,9 +36,10 @@ and generated metadata.
 3. Declaration parameters are `_ local`, `label local`, `label`, and final `*rest`. Call-site
    `label:` syntax is unchanged. Selector identity uses external labels, never local names.
 
-4. Setter values occupy a fixed role: `name=(put)` and `[index-args]=(put)`. Bracket slots
-   describe indexing arguments only. Thus `[_ index, default fallback]=(put value)` has identity
-   `[_,default]=(put)`.
+4. Setter values occupy a fixed role: `name=(_)` and `[index-args]=(_)`. Bracket slots
+   describe indexing arguments only. Thus `[_ index, default fallback]=(_ value)` has identity
+   `[_,default]=(_)`. The final `(_)` is a dedicated value lane, not an additional
+   selector slot and not an invitation to place a positional argument after a label.
 
 5. `@private` permits calls only from the defining lexical class. `@protected` permits the
    defining class and subclasses. Runtime authorization applies to direct sends, caches, method

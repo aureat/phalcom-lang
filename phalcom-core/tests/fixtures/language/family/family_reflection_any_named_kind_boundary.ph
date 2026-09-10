@@ -7,7 +7,7 @@ class Box {
   value { 1 }
   value() { 2 }
   value(_ x) { 3 }
-  value=(put x) { 4 }
+  value=(_ x) { 4 }
 }
 
 System.print((Box >> #value...).size)

@@ -7,7 +7,7 @@ class Person { name { _name }
   new(_ n) {
     _name = n
   }
-  name=(put v) {
+  name=(_ v) {
     _name = v
   }
 }

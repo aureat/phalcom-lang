@@ -206,9 +206,9 @@ pub fn declaration_surface_source_input_fingerprint(
                 hash_generic_contract_source(&unit.text, &index.generic_parameters, index.where_clause.as_ref(), &mut hasher);
                 match &index.accessor {
                     IndexAccessor::Get => 0u8.hash(&mut hasher),
-                    IndexAccessor::Set { put } => {
+                    IndexAccessor::Set { value } => {
                         1u8.hash(&mut hasher);
-                        hash_parameter_source(&unit.text, put, &mut hasher);
+                        hash_parameter_source(&unit.text, value, &mut hasher);
                     }
                 }
                 index.params.len().hash(&mut hasher);

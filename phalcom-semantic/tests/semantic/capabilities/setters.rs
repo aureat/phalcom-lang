@@ -12,7 +12,7 @@ fn generic_setter_infers_rhs_and_returns_unit() {
     let fixture = Fixture::new(
         r#"
 class Box {
-  value<T>=(put next: T) { }
+  value<T>=(_ next: T) { }
   run() {
     self.value = 1
     self.value = "text"
@@ -44,7 +44,7 @@ fn generic_setter_where_bound_rejects_rhs_without_dynamic_escape() {
         r#"
 class Number {}
 class Box {
-  value<T>=(put next: T) where T <: Number { }
+  value<T>=(_ next: T) where T <: Number { }
   run() { self.value = "wrong" }
 }
 "#,
@@ -62,7 +62,7 @@ fn generic_setter_instantiations_keep_one_selector_identity() {
     let fixture = Fixture::new(
         r#"
 class Box {
-  value<T>=(put next: T) { }
+  value<T>=(_ next: T) { }
   run() { self.value = 1; self.value = "text" }
 }
 "#,

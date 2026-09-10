@@ -117,7 +117,7 @@ zero()                   no-argument method
 sum(_,_)                 two positional arguments
 move(_,to,duration)      one positional, then two labeled arguments
 name                     getter
-name=(put)               setter
+name=(_)                 setter (RHS is a dedicated value lane)
 ```
 
 The implementation uses an interned Symbol for this complete identity. The

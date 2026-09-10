@@ -65,7 +65,7 @@ enum Weird {
   @variant Marker(_ value: Int)
 }
 
-let make = &Weird::Marker;
+let make = &Weird::Marker...;
 let static_value = make(1)
 let args = [1];
 let dynamic_value = make(*args)
@@ -115,7 +115,7 @@ enum Weird {
   @variant Marker(_ value: Int)
 }
 
-let value = (&Weird::Marker)(1)
+let value = (&Weird::Marker...)(1)
 "#;
     let mut program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("program should analyze");
     let entry = program.entry.clone();

@@ -174,13 +174,13 @@ These are all distinct selectors:
 #method(_, _)
 #method(_, duration)
 
-#value=(put)
+#value=(_)
 
 #+
 #+(_)
 
 #[index]
-#[index]=(put)
+#[index]=(_)
 ```
 
 So `Selector` should represent the complete dispatch identity.

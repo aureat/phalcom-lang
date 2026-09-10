@@ -19,7 +19,7 @@ enum Weird {
   @variant Marker(_ value: Int)
 }
 class Probe {
-  @class run() { &Weird::Marker }
+  @class run() { &Weird::Marker... }
 }
 "#,
     );
@@ -32,7 +32,7 @@ class Probe {
     let expression = callable
         .expressions
         .values()
-        .find(|candidate| source.get(candidate.range.start..candidate.range.end) == Some("&Weird::Marker"))
+        .find(|candidate| source.get(candidate.range.start..candidate.range.end) == Some("&Weird::Marker..."))
         .expect("family capture expression");
     let reference = callable.callable_reference_resolutions.get(&expression.id).expect("family resolution");
     let CallableReferenceResolutionKind::Associated(resolution) = &reference.kind else {
@@ -67,4 +67,28 @@ class Probe {
             .iter()
             .all(|member| matches!(member.member, AssociatedMemberId::Variant(VariantId { .. })))
     );
+}
+
+#[test]
+fn bound_subscript_reference_publishes_subscript_family_member() {
+    let module = ModuleId::universe_root();
+    let source: Arc<str> = Arc::from(
+        r#"
+class Table {
+  [_ index] { index }
+  [_ index]=(_ value) { value }
+}
+class Probe {
+  @class run() {
+    let table = Table.new()
+    let family = &table[_]
+    family[1]
+  }
+}
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module, source, Arc::new(parsed.program));
+    assert!(!analysis.snapshot.has_errors(), "diagnostics: {:?}", analysis.snapshot.diagnostics);
 }

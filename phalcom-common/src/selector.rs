@@ -40,6 +40,8 @@ pub struct Selector {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum SelectorKindPattern {
     AnyNamed,
+    NamedAccessors,
+    AnySubscript,
     Exact(SelectorKind),
 }
 
@@ -129,10 +131,10 @@ impl Selector {
         let slots = encode_slots(&self.slots);
         match (&self.base, self.kind) {
             (SelectorBase::Named(name), SelectorKind::Getter) => name.clone(),
-            (SelectorBase::Named(name), SelectorKind::Setter) => format!("{name}=(put)"),
+            (SelectorBase::Named(name), SelectorKind::Setter) => format!("{name}=(_)"),
             (SelectorBase::Named(name), SelectorKind::Method) => format!("{name}({slots})"),
             (SelectorBase::Subscript, SelectorKind::SubscriptGet) => format!("[{slots}]"),
-            (SelectorBase::Subscript, SelectorKind::SubscriptSet) => format!("[{slots}]=(put)"),
+            (SelectorBase::Subscript, SelectorKind::SubscriptSet) => format!("[{slots}]=(_)"),
             // Public fields permit a caller to construct an invalid pair. Keep
             // encoding total for reflection and diagnostics rather than panic.
             (SelectorBase::Named(name), SelectorKind::SubscriptGet | SelectorKind::SubscriptSet) => format!("{name}({slots})"),
@@ -147,7 +149,7 @@ impl Selector {
         }
 
         if let Some(rest) = text.strip_prefix('[') {
-            if let Some(inner) = rest.strip_suffix("]=(put)") {
+            if let Some(inner) = rest.strip_suffix("]=(_)") {
                 let slots = parse_slots_strict(inner)?;
                 return Self::subscript_set(slots.into_boxed_slice());
             }
@@ -167,7 +169,7 @@ impl Selector {
 
         let head = &text[..open];
         let inner = &text[open + 1..text.len() - 1];
-        if inner == "put" {
+        if inner == "_" && head.ends_with('=') && looks_like_named_base(head) {
             let name = head.strip_suffix('=').ok_or_else(|| SelectorError::InvalidSyntax(text.to_string()))?;
             validate_named_base(name)?;
             return Self::setter(name);
@@ -222,18 +224,25 @@ impl SelectorPattern {
                 if self.has_gap {
                     format!("{name}=...")
                 } else {
-                    format!("{name}=(put)")
+                    format!("{name}=(_)")
                 }
             }
+            (SelectorBase::Named(name), SelectorKindPattern::NamedAccessors) => format!("{name}="),
             (SelectorBase::Named(name), SelectorKindPattern::Exact(SelectorKind::Method)) => format!("{name}({slots})"),
             (SelectorBase::Subscript, SelectorKindPattern::Exact(SelectorKind::SubscriptGet)) => format!("[{slots}]"),
-            (SelectorBase::Subscript, SelectorKindPattern::Exact(SelectorKind::SubscriptSet)) => format!("[{slots}]=(put)"),
-            (SelectorBase::Named(name), SelectorKindPattern::Exact(SelectorKind::SubscriptGet | SelectorKind::SubscriptSet)) => {
+            (SelectorBase::Subscript, SelectorKindPattern::Exact(SelectorKind::SubscriptSet)) => format!("[{slots}]=(_)"),
+            (SelectorBase::Subscript, SelectorKindPattern::AnySubscript) => format!("[{slots}]="),
+            (
+                SelectorBase::Named(name),
+                SelectorKindPattern::AnySubscript | SelectorKindPattern::Exact(SelectorKind::SubscriptGet | SelectorKind::SubscriptSet),
+            ) => {
                 format!("{name}({slots})")
             }
             (
                 SelectorBase::Subscript,
-                SelectorKindPattern::AnyNamed | SelectorKindPattern::Exact(SelectorKind::Getter | SelectorKind::Setter | SelectorKind::Method),
+                SelectorKindPattern::AnyNamed
+                | SelectorKindPattern::NamedAccessors
+                | SelectorKindPattern::Exact(SelectorKind::Getter | SelectorKind::Setter | SelectorKind::Method),
             ) => {
                 format!("[{slots}]")
             }
@@ -249,7 +258,7 @@ impl SelectorPattern {
     ) -> Result<Self, SelectorError> {
         let prefix = prefix.into();
         let suffix = suffix.into();
-        if !has_gap {
+        if !has_gap && !matches!(kind, SelectorKindPattern::NamedAccessors) {
             return Err(SelectorError::MissingGap);
         }
         validate_slots(&prefix)?;
@@ -261,15 +270,22 @@ impl SelectorPattern {
         match (&base, &kind) {
             (
                 SelectorBase::Named(name),
-                SelectorKindPattern::AnyNamed | SelectorKindPattern::Exact(SelectorKind::Getter | SelectorKind::Setter | SelectorKind::Method),
+                SelectorKindPattern::AnyNamed
+                | SelectorKindPattern::NamedAccessors
+                | SelectorKindPattern::Exact(SelectorKind::Getter | SelectorKind::Setter | SelectorKind::Method),
             ) => {
                 validate_named_base(name)?;
             }
+            (SelectorBase::Subscript, SelectorKindPattern::AnySubscript) => {}
             (SelectorBase::Subscript, SelectorKindPattern::Exact(SelectorKind::SubscriptGet | SelectorKind::SubscriptSet)) => {}
             _ => return Err(SelectorError::IncompatiblePatternKind { base, kind }),
         }
 
-        if matches!(kind, SelectorKindPattern::Exact(SelectorKind::Getter | SelectorKind::Setter)) && (!prefix.is_empty() || !suffix.is_empty()) {
+        if matches!(
+            kind,
+            SelectorKindPattern::Exact(SelectorKind::Getter | SelectorKind::Setter) | SelectorKindPattern::NamedAccessors
+        ) && (!prefix.is_empty() || !suffix.is_empty())
+        {
             return Err(SelectorError::InvalidPatternSlots);
         }
 
@@ -311,6 +327,16 @@ impl SelectorPattern {
                     return false;
                 }
             }
+            SelectorKindPattern::NamedAccessors => {
+                if !matches!(selector.kind, SelectorKind::Getter | SelectorKind::Setter) {
+                    return false;
+                }
+            }
+            SelectorKindPattern::AnySubscript => {
+                if !matches!(selector.kind, SelectorKind::SubscriptGet | SelectorKind::SubscriptSet) {
+                    return false;
+                }
+            }
             SelectorKindPattern::Exact(kind) if kind != selector.kind => return false,
             SelectorKindPattern::Exact(_) => {}
         }
@@ -332,11 +358,21 @@ impl SelectorPattern {
         }
 
         if let Some(rest) = text.strip_prefix('[') {
-            if let Some(inner) = rest.strip_suffix("]=(put)") {
+            if let Some(inner) = rest.strip_suffix("]=(_)") {
                 let (prefix, suffix) = parse_pattern_slots_strict(inner)?;
                 return Self::new(
                     SelectorBase::Subscript,
                     SelectorKindPattern::Exact(SelectorKind::SubscriptSet),
+                    prefix.into_boxed_slice(),
+                    suffix.into_boxed_slice(),
+                    true,
+                );
+            }
+            if let Some(inner) = rest.strip_suffix("]=") {
+                let (prefix, suffix) = parse_pattern_slots_strict(inner)?;
+                return Self::new(
+                    SelectorBase::Subscript,
+                    SelectorKindPattern::AnySubscript,
                     prefix.into_boxed_slice(),
                     suffix.into_boxed_slice(),
                     true,
@@ -355,14 +391,14 @@ impl SelectorPattern {
             return Err(SelectorError::InvalidSyntax(text.to_string()));
         }
 
-        if let Some(base) = text.strip_suffix("=...") {
+        if let Some(base) = text.strip_suffix('=') {
             validate_named_base(base)?;
             return Self::new(
                 SelectorBase::Named(base.to_string()),
-                SelectorKindPattern::Exact(SelectorKind::Setter),
+                SelectorKindPattern::NamedAccessors,
                 Vec::<SelectorSlot>::new(),
                 Vec::<SelectorSlot>::new(),
-                true,
+                false,
             );
         }
 
@@ -443,6 +479,14 @@ fn validate_named_base(name: &str) -> Result<(), SelectorError> {
         return Err(SelectorError::InvalidBase(name.to_string()));
     }
     Ok(())
+}
+
+/// Setter transport ends in `=(_)`, while comparison/operator selectors such
+/// as `==(_)`, `<=(_)`, and `<=>(_)` also end in `=`. Only an identifier-like
+/// head can be the named base of a setter; punctuation-only heads remain
+/// ordinary operator methods.
+fn looks_like_named_base(name: &str) -> bool {
+    name.chars().any(|character| character.is_alphanumeric() || character == '_')
 }
 
 fn validate_slots(slots: &[SelectorSlot]) -> Result<(), SelectorError> {
@@ -543,7 +587,7 @@ fn parse_pattern_slots_strict(inner: &str) -> Result<(Vec<SelectorSlot>, Vec<Sel
 /// therefore intentionally bypass strict positional-before-label validation.
 fn decode_runtime_form(text: &str) -> Option<Selector> {
     if let Some(rest) = text.strip_prefix('[') {
-        if let Some(inner) = rest.strip_suffix("]=(put)") {
+        if let Some(inner) = rest.strip_suffix("]=(_)") {
             return Some(Selector {
                 base: SelectorBase::Subscript,
                 kind: SelectorKind::SubscriptSet,
@@ -566,7 +610,7 @@ fn decode_runtime_form(text: &str) -> Option<Selector> {
     }
     let head = &text[..open];
     let inner = &text[open + 1..text.len() - 1];
-    if inner == "put" {
+    if inner == "_" && head.ends_with('=') && looks_like_named_base(head) {
         let name = head.strip_suffix('=')?;
         if validate_named_base(name).is_ok() {
             return Some(Selector {
@@ -675,9 +719,9 @@ mod tests {
             "foo...",
             "foo=...",
             "[...]",
-            "[...]=(put)",
+            "[...]=(_)",
             "[_, ...]",
-            "[_, ...]=(put)",
+            "[_, ...]=(_)",
             "+...",
             "+(...)",
         ];
