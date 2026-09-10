@@ -187,6 +187,8 @@
   },
   "active": "46e666892420d783",
   "lastOpenFiles": [
+    "implementation/LANG004-associated-lookup-and-logical-paths/C1-associated-lookup/selector-shapes-and-family-activation-implementation-state.md",
+    "implementation/LANG004-associated-lookup-and-logical-paths/C1-associated-lookup/LANG004.C1.P2-selector-shapes-setter-lanes-and-family-activation-plan.md",
     "implementation/INBOX/phalcom-concurrency-control-patch-grade-implementation-plan.md",
     "audit/concurrency-control-2026-09-09.zip",
     "audit/type-system-2026-09-09/evidence/acceptance-and-capture-state.txt",
@@ -220,8 +222,6 @@
     "work/logs/2026-09-07-plan-b-completion-audit-remediation.md",
     "work/logs/2026-09-07-plan-b-adt-semantic-index-repair.md",
     "impl/lsp/architecture/phalcom-plan-b-completion-patch-grade-implementation-plan.md",
-    "audit/runtime-2026-09-07/AUDIT-L20-L21-ordering-and-string-contract-investigation.md",
-    "audit/runtime-2026-09-07/AUDIT-L05-raw-run-reuse-and-capture-lifetime.md",
-    "audit/runtime-2026-09-07/AUD-RUNTIME-S3-new-numeric-and-string-leads.md"
+    "audit/runtime-2026-09-07/AUDIT-L20-L21-ordering-and-string-contract-investigation.md"
   ]
 }

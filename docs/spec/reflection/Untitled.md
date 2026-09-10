@@ -103,5 +103,9 @@ const user = User("Altun", 24)
 user::Some()
 user::None()
 
+&object.(method...)
 
+&object.(...)
+
+&object[_, _, default]=(_)
 ```
