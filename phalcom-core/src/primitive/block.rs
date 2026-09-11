@@ -12,7 +12,7 @@
 use crate::error::{PhError, PhResult, RuntimeError};
 use crate::frame::{CallContext, FrameToken};
 use crate::heap::Object;
-use crate::method::{ArgumentView, CallOutcome};
+use crate::method::{ArgumentView, CallOutcome, InvocationLayout};
 use crate::parameters::{ArgumentShape, RestKind};
 use crate::value::Value;
 use crate::vm::VM;
@@ -178,20 +178,8 @@ pub fn block_call_with_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -
     vm.stack.extend_from_slice(&positionals);
     vm.stack.extend(labeled.iter().map(|(_, value)| *value));
 
-    let mut slots = Vec::with_capacity(positionals.len() + labeled.len());
-    slots.extend(std::iter::repeat_n(None, positionals.len()));
-    slots.extend(labeled.iter().map(|(label, _)| Some(vm.resolve_symbol(*label).to_owned())));
-    let selector_text = crate::method::encode_selector(
-        "call",
-        &slots,
-        crate::method::SignatureKind::Method(u8::try_from(slots.len()).map_err(|_| RuntimeError::SendArityExceedsLimit {
-            found: slots.len(),
-            limit: u8::MAX as usize,
-        })?),
-    );
-    let selector = vm.get_or_intern(&selector_text);
     let label_syms: Box<[crate::interner::Symbol]> = labeled.iter().map(|(label, _)| *label).collect();
-    let shaped = args.with_selector(selector, positionals.len(), label_syms);
+    let shaped = args.with_layout(InvocationLayout::ordinary(positionals.len(), label_syms));
     vm.activate_function(receiver, shaped, phalcom_common::range::SourceRange::default())
 }
 

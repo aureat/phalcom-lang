@@ -48,19 +48,29 @@ pub fn method_invoke_on_shape(vm: &mut VM, receiver: Value, args: ArgumentView) 
     let (caller, internal) = args.caller_authority();
     vm.authorize_method_access_as(method_id, caller, internal)?;
     let labels = args.labels().to_vec();
-    let residual_positionals = args.positional_count().checked_sub(1).ok_or_else(|| RuntimeError::Arity {
+    let residual_arity = args.physical_arity().checked_sub(1).ok_or_else(|| RuntimeError::Arity {
         signature: "invokeOn",
         expected: 1,
-        found: args.positional_count(),
+        found: args.physical_arity(),
     })?;
-    let actual_selector = vm.validate_captured_method_shape(method_id, residual_positionals, &labels)?;
+    let method_selector = vm.heap.method(method_id).signature.selector;
+    let layout = vm.invocation_layout_for_selector(method_selector, residual_arity)?;
+    if layout.labels() != labels.as_slice() {
+        return Err(RuntimeError::Arity {
+            signature: "invokeOn",
+            expected: layout.physical_arity() + 1,
+            found: args.physical_arity(),
+        }
+        .into());
+    }
+    vm.validate_captured_method_shape(method_id, &layout)?;
 
     let receiver_index = args.receiver_index();
     let residual = vm.stack[receiver_index + 2..].to_vec();
     vm.stack[receiver_index] = target;
     vm.stack.truncate(receiver_index + 1);
     vm.stack.extend_from_slice(&residual);
-    let shaped = args.with_selector(actual_selector, residual_positionals, labels.into_boxed_slice());
+    let shaped = args.with_layout(layout);
     vm.activate_captured_method_as(target, method_id, shaped, phalcom_common::range::SourceRange::default())
 }
 

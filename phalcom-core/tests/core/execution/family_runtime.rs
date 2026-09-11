@@ -3,7 +3,7 @@ use phalcom_common::selector::{SelectorKindPattern, SelectorPattern};
 use phalcom_core::bytecode::{Bytecode, FamilySpecKind};
 use phalcom_core::error::{PhError, RuntimeError};
 use phalcom_core::heap::{BoundMethodFamilyObject, InstanceObject, MethodFamilyObject, Object};
-use phalcom_core::method::{MethodObject, SignatureKind};
+use phalcom_core::method::{ArgumentView, CallOutcome, MethodObject, Signature, SignatureKind};
 use phalcom_core::modules::ModuleFailure;
 use phalcom_core::modules::compile::{CompiledProgram, EntrySelection, ProgramCompiler};
 use phalcom_core::primitive::block::block_call;
@@ -21,6 +21,21 @@ fn compile_inline(source: &str) -> Result<(VM, CompiledProgram, phalcom_core::he
     vm.materialize_program(&program)?;
     let closure = vm.compile_program_module_closure(&program.entry, source, &program)?;
     Ok((vm, program, closure))
+}
+
+fn lane_probe(vm: &mut VM, receiver: Value, args: ArgumentView) -> phalcom_core::error::PhResult<CallOutcome> {
+    let key = args.positional(vm, 0).ok_or_else(|| RuntimeError::Internal("missing positional lane".into()))?;
+    let debug = args.labeled_value(vm, 0).ok_or_else(|| RuntimeError::Internal("missing labeled lane".into()))?;
+    let value = args.setter_value(vm).ok_or_else(|| RuntimeError::Internal("missing setter lane".into()))?;
+    assert_eq!(args.positional_count(), 1);
+    assert_eq!(args.labels().len(), 1);
+    assert!(args.has_setter_value());
+    let Some(receiver_id) = receiver.as_obj() else {
+        return Err(RuntimeError::Internal("lane probe receiver is not an instance".into()).into());
+    };
+    let encoded = key.as_int().unwrap_or_default() + if debug == Value::bool(true) { 10 } else { 0 } + value.as_int().unwrap_or_default() * 100;
+    vm.heap.instance_mut(receiver_id).slots[0] = Value::int(encoded);
+    Ok(CallOutcome::Returned(Value::unit()))
 }
 
 #[test]
@@ -344,6 +359,26 @@ fn bound_subscript_family_activates_get_and_set_lanes() {
 }
 
 #[test]
+fn pattern_subscript_family_labeled_setter_preserves_tuple_and_rhs_lanes() {
+    let source = "class Table { @constructor new() { _seen = 0 } [_ key, debug flag]=(_ value) { _seen = key + flag * 10 + value * 100 } seen { _seen } }\nlet table = Table.new()\nlet setter = &table[...]=(_)\nsetter[2, debug: 3] = 4\nlet direct = table.seen\nsetter.set((5, debug: 6), 7)\nlet tuple = table.seen\n";
+    let (mut vm, program, _closure) = compile_inline(source).expect("pattern labeled setter fixture should compile");
+    vm.run_compiled(&program).expect("pattern labeled setter fixture should execute");
+    let module = vm.module_registry.get(&program.entry).expect("entry module should be materialized").object;
+    let direct = vm
+        .heap
+        .module(module)
+        .get(vm.interner.intern("direct"))
+        .expect("pattern direct result should exist");
+    let tuple = vm
+        .heap
+        .module(module)
+        .get(vm.interner.intern("tuple"))
+        .expect("pattern tuple result should exist");
+    assert_eq!(direct, Value::int(432));
+    assert_eq!(tuple, Value::int(765));
+}
+
+#[test]
 fn family_accessor_aliases_activate_named_getter_and_setter_lanes() {
     let source = "class Box { value { 7 } value=(_ newValue) { newValue } }\nlet box = Box.new()\nlet getter = &box.value\nlet setter = &box.value=(_)\nlet getCall = getter.get()\nlet getValue = getter.value\nlet setCall = setter.set(9)\nlet setValue = setter.value = 11\n";
     let (mut vm, program, _closure) = compile_inline(source).expect("family accessor aliases should compile");
@@ -373,6 +408,52 @@ fn family_subscript_tuple_apis_preserve_index_shape_and_rhs_lane() {
         .expect("subscript setter result should exist");
     assert_eq!(get_value, Value::int(3));
     assert_eq!(set_value, Value::int(12));
+}
+
+#[test]
+fn family_labeled_subscript_setter_keeps_tuple_and_rhs_lanes_separate() {
+    let source = "class Table { @constructor new() { _seen = 0 } [_ key, debug flag]=(_ value) { _seen = key + flag * 10 + value * 100 } seen { _seen } }\nlet table = Table.new()\nlet setter = &table[_, debug]=(_)\nsetter[2, debug: 3] = 4\nlet direct = table.seen\nsetter.set((5, debug: 6), 7)\nlet tuple = table.seen\n";
+    let (mut vm, program, _closure) = compile_inline(source).expect("labeled setter fixture should compile");
+    vm.run_compiled(&program).expect("labeled setter fixture should execute");
+    let module = vm.module_registry.get(&program.entry).expect("entry module should be materialized").object;
+    let direct = vm.heap.module(module).get(vm.interner.intern("direct")).expect("direct result should exist");
+    let tuple = vm.heap.module(module).get(vm.interner.intern("tuple")).expect("tuple result should exist");
+    assert_eq!(direct, Value::int(432));
+    assert_eq!(tuple, Value::int(765));
+}
+
+#[test]
+fn shape_aware_subscript_setter_reads_structural_and_rhs_lanes() {
+    let mut vm = VM::new();
+    let module = vm.create_module("main", "shape_aware_subscript_setter");
+    vm.interpret_source(
+        module,
+        "class Table { @constructor new() { _seen = 0 } seen { _seen } }\nlet table = Table.new()\n",
+    )
+    .expect("shape-aware setter receiver should compile");
+    let table = vm.heap.module(module).get(vm.interner.intern("table")).expect("table should exist");
+    let table_id = table.as_obj().expect("table should be an instance");
+    let class = vm.heap.instance(table_id).class;
+    let selector = vm.get_or_intern("[_,debug]=(_)");
+    let signature = Signature::new(selector, SignatureKind::SubscriptSet(2));
+    let method = vm.heap.alloc(Object::Method(Box::new(MethodObject::new_shape_primitive(
+        selector, signature, lane_probe, class,
+    ))));
+    vm.heap.class_mut(class).add_method(selector, method);
+
+    vm.interpret_source(module, "table[42, debug: true] = 99\n")
+        .expect("static subscript setter should dispatch");
+    let seen = vm.get_or_intern("seen");
+    let static_result = vm.send_dynamic(table, seen, &[]).expect("static setter observation getter should dispatch");
+    assert_eq!(static_result, Value::int(9952));
+
+    vm.send_dynamic(table, selector, &[Value::int(42), Value::bool(true), Value::int(99)])
+        .expect("shape-aware setter should dispatch");
+
+    vm.interpret_source(module, "let shape = (7, debug: true)\ntable[***shape] = 88\n")
+        .expect("dynamic subscript setter should dispatch");
+    let dynamic_result = vm.send_dynamic(table, seen, &[]).expect("dynamic setter observation getter should dispatch");
+    assert_eq!(dynamic_result, Value::int(8817));
 }
 
 #[test]

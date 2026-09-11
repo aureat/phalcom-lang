@@ -8,7 +8,7 @@ use crate::heap::ClosureObject;
 use crate::heap::Upvalue;
 use crate::heap::{ObjRef, Object, is_strict_subclass, lookup_method_with_definer};
 use crate::interner::Symbol;
-use crate::method::{SignatureKind, decode_selector, encode_selector};
+use crate::method::{InvocationLayout, SignatureKind, decode_selector, encode_selector};
 use crate::value::Value;
 use crate::value::{FALSE, TRUE};
 use phalcom_common::range::SourceRange;
@@ -131,26 +131,15 @@ impl VM {
     }
 
     fn invoke_dynamic_selector(&mut self, receiver_idx: usize, selector: Symbol, arity: usize, source_range: SourceRange) -> PhResult<()> {
-        let receiver = self.stack[receiver_idx];
-        if let Some(method) = receiver.lookup_method(self, selector) {
-            self.call_method(&receiver, method, arity, source_range)
-        } else {
-            let (name, slots, kind) = decode_selector(self.resolve_symbol(selector));
-            let positional_count = slots.iter().filter(|slot| slot.is_none()).count();
-            let labels = slots
-                .iter()
-                .filter_map(|slot| slot.as_ref())
-                .map(|label| self.interner.intern(label))
-                .collect::<Vec<_>>();
-            let rest = matches!(kind, SignatureKind::Method(_))
-                .then(|| self.interner.intern(&name))
-                .and_then(|base| self.lookup_rest_method(receiver.class(self), base, positional_count, &labels));
-            if let Some(method) = rest {
-                self.activate_rest_method(&receiver, method, receiver_idx, positional_count, &labels, selector, source_range)
-            } else {
-                self.forward_does_not_understand(receiver_idx, selector, source_range)
-            }
-        }
+        let layout = self.invocation_layout_for_selector(selector, arity)?;
+        self.dispatch_selector_window_as(
+            receiver_idx,
+            selector,
+            layout,
+            source_range,
+            (self.current_access_class(), self.current_has_internal_privilege()),
+        )
+        .map(|_| ())
     }
 
     /// Finds an accepting rest method after an already-complete exact walk has
@@ -309,7 +298,7 @@ impl VM {
                 method,
                 total,
                 selector,
-                Some((positional_count, labels.len())),
+                Some(InvocationLayout::ordinary(positional_count, labels.to_vec().into_boxed_slice())),
                 source_range,
                 caller_authority,
             );
@@ -1016,39 +1005,25 @@ impl VM {
         let receiver_class = receiver.class(self);
         let selector_val = callable.chunk.constants[selector_idx as usize];
         let selector_sym = selector_val.as_symbol().unwrap();
+        let layout = self.invocation_layout_for_selector(selector_sym, arity)?;
 
         // A Family owns the selector shape of a callable reference. Bracket
         // sends therefore activate the family directly instead of looking up
         // the Family protocol's ordinary methods.
-        let (_, slots, kind) = decode_selector(self.resolve_symbol(selector_sym));
+        let (_, _, kind) = decode_selector(self.resolve_symbol(selector_sym));
         if matches!(kind, SignatureKind::SubscriptGet(_) | SignatureKind::SubscriptSet(_))
             && receiver
                 .as_obj()
                 .is_some_and(|id| matches!(self.heap.get(id), Object::Family(_) | Object::AssociatedFamily(_)))
         {
-            let positional_count = arity.saturating_sub(slots.iter().filter(|slot| slot.is_some()).count());
-            let labels = slots
-                .iter()
-                .filter_map(|slot| slot.as_ref())
-                .map(|label| self.interner.intern(label))
-                .collect::<Vec<_>>()
-                .into_boxed_slice();
-            let invocation = if matches!(kind, SignatureKind::SubscriptSet(_)) {
-                crate::vm::FamilyInvocationKind::SubscriptSet
-            } else {
-                crate::vm::FamilyInvocationKind::SubscriptGet
-            };
-            let view = crate::method::ArgumentView::shaped_with_labels(
+            self.dispatch_selector_window_as(
                 receiver_idx,
-                positional_count,
-                labels,
                 selector_sym,
-                self.current_access_class(),
-                self.current_has_internal_privilege(),
-            );
-            match self.activate_family_with_kind(view, invocation, callable.chunk.span_at(cache_ip))? {
-                crate::method::CallOutcome::EnteredFrame | crate::method::CallOutcome::Returned(_) => return Ok(()),
-            }
+                layout.clone(),
+                callable.chunk.span_at(cache_ip),
+                (self.current_access_class(), self.current_has_internal_privilege()),
+            )?;
+            return Ok(());
         }
 
         // Cache probe. `chunk` is a shared borrow; the `Cell` is what lets us
@@ -1082,7 +1057,15 @@ impl VM {
                 }
                 self.activate_rest_method(&receiver, method, receiver_idx, positional_count, &labels, selector_sym, source_range)?;
             } else {
-                self.call_method(&receiver, method, arity, source_range)?;
+                self.call_method_with_selector_as(
+                    &receiver,
+                    method,
+                    arity,
+                    selector_sym,
+                    Some(layout.clone()),
+                    source_range,
+                    (self.current_access_class(), self.current_has_internal_privilege()),
+                )?;
             }
         } else {
             if let Some(method) = receiver.lookup_method(self, selector_sym) {
@@ -1094,7 +1077,15 @@ impl VM {
                     version: self.world_version,
                 };
                 callable.chunk.caches[cache_ip].set(Some(entry));
-                self.call_method(&receiver, method, arity, source_range)?;
+                self.call_method_with_selector_as(
+                    &receiver,
+                    method,
+                    arity,
+                    selector_sym,
+                    Some(layout.clone()),
+                    source_range,
+                    (self.current_access_class(), self.current_has_internal_privilege()),
+                )?;
             } else {
                 let (name, slots, kind) = decode_selector(self.resolve_symbol(selector_sym));
                 let positional_count = slots.iter().filter(|slot| slot.is_none()).count();

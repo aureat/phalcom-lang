@@ -73,6 +73,7 @@ pub fn family_get(vm: &mut VM, _receiver: Value, args: ArgumentView) -> PhResult
 
 #[phalcom_native_macros::primitive(Family, "set(_)" , abi = shape)]
 pub fn family_set(vm: &mut VM, _receiver: Value, args: ArgumentView) -> PhResult<CallOutcome> {
+    let args = args.reclassify_unary_method_as_setter()?;
     vm.activate_family_with_kind(args, crate::vm::FamilyInvocationKind::Setter, phalcom_common::range::SourceRange::default())
 }
 
@@ -102,14 +103,7 @@ pub fn family_get_shape(vm: &mut VM, _receiver: Value, args: ArgumentView) -> Ph
     vm.stack.truncate(receiver_idx + 1);
     vm.stack.extend(positionals.iter().copied());
     vm.stack.extend(labeled_values);
-    let view = ArgumentView::shaped_with_labels(
-        receiver_idx,
-        positionals.len(),
-        labels,
-        vm.get_or_intern("get(_)"),
-        args.caller_authority().0,
-        args.caller_authority().1,
-    );
+    let view = ArgumentView::ordinary_window(receiver_idx, positionals.len(), labels, args.caller_authority().0, args.caller_authority().1);
     vm.activate_family_with_kind(
         view,
         crate::vm::FamilyInvocationKind::SubscriptGet,
@@ -139,14 +133,7 @@ pub fn family_set_shape(vm: &mut VM, _receiver: Value, args: ArgumentView) -> Ph
     vm.stack.extend(positionals.iter().copied());
     vm.stack.extend(labeled_values);
     vm.stack.push(value);
-    let view = ArgumentView::shaped_with_labels(
-        receiver_idx,
-        positionals.len() + 1,
-        labels,
-        vm.get_or_intern("set(_,_)"),
-        args.caller_authority().0,
-        args.caller_authority().1,
-    );
+    let view = ArgumentView::setter_window(receiver_idx, positionals.len(), labels, args.caller_authority().0, args.caller_authority().1);
     vm.activate_family_with_kind(
         view,
         crate::vm::FamilyInvocationKind::SubscriptSet,

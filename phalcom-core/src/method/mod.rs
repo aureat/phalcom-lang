@@ -7,7 +7,7 @@
 
 mod object;
 
-pub use object::{ArgumentView, CallOutcome, LegacyPrimitiveFn, MethodKind, MethodObject, PrimitiveFn};
+pub use object::{ArgumentView, CallOutcome, InvocationLayout, LegacyPrimitiveFn, MethodKind, MethodObject, PrimitiveFn};
 
 use crate::interner::Symbol;
 use phalcom_common::selector as common_selector;
@@ -417,5 +417,29 @@ mod tests {
         assert_eq!(pname, "[]=");
         assert!(plabels.is_empty());
         assert_eq!(pkind, SignatureKind::SubscriptSet(0));
+    }
+
+    #[test]
+    fn invocation_layout_keeps_setter_value_outside_structural_lanes() {
+        let ordinary = InvocationLayout::ordinary(2, Box::new([Symbol(1)]));
+        assert_eq!(ordinary.structural_positionals(), 2);
+        assert_eq!(ordinary.labeled_count(), 1);
+        assert!(!ordinary.has_setter_value());
+        assert_eq!(ordinary.physical_arity(), 3);
+        assert!(ordinary.validate_for_kind(SignatureKind::Method(3)).is_ok());
+        assert!(ordinary.validate_for_kind(SignatureKind::SubscriptSet(3)).is_err());
+
+        let setter = InvocationLayout::setter(2, Box::new([Symbol(1)]));
+        assert_eq!(setter.structural_positionals(), 2);
+        assert_eq!(setter.labels(), &[Symbol(1)]);
+        assert!(setter.has_setter_value());
+        assert_eq!(setter.physical_arity(), 4);
+        assert!(setter.validate_for_kind(SignatureKind::SubscriptSet(3)).is_ok());
+        assert!(setter.validate_for_kind(SignatureKind::Method(3)).is_err());
+        assert!(setter.validate_for_kind(SignatureKind::Setter).is_err());
+        let setter_without_structural_lanes = InvocationLayout::setter(0, Box::default());
+        assert!(setter_without_structural_lanes.validate_for_kind(SignatureKind::Getter).is_err());
+        assert!(setter_without_structural_lanes.validate_for_kind(SignatureKind::Method(0)).is_err());
+        assert!(InvocationLayout::setter(1, Box::default()).validate_for_kind(SignatureKind::Setter).is_err());
     }
 }

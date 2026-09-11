@@ -1,7 +1,7 @@
 use crate::error::{PhResult, RuntimeError};
 use crate::heap::{ClassId, ObjRef, Object};
 use crate::interner::Symbol;
-use crate::method::{ArgumentView, CallOutcome, MemberVisibility, MethodKind, PrimitiveFn, SignatureKind, decode_selector};
+use crate::method::{ArgumentView, CallOutcome, InvocationLayout, MemberVisibility, MethodKind, PrimitiveFn, SignatureKind, decode_selector};
 use crate::value::Value;
 use indexmap::IndexMap;
 use phalcom_common::range::SourceRange;
@@ -320,11 +320,11 @@ impl VM {
         method: ObjRef,
         arity: usize,
         selector: Symbol,
-        shape: Option<(usize, usize)>,
+        layout: Option<InvocationLayout>,
         source_range: SourceRange,
     ) -> PhResult<()> {
         let caller_authority = (self.current_access_class(), self.current_has_internal_privilege());
-        self.call_method_with_selector_as(callee, method, arity, selector, shape, source_range, caller_authority)
+        self.call_method_with_selector_as(callee, method, arity, selector, layout, source_range, caller_authority)
     }
 
     // Keep activation inputs explicit: each field maps to a distinct VM
@@ -336,7 +336,7 @@ impl VM {
         method: ObjRef,
         arity: usize,
         selector: Symbol,
-        shape: Option<(usize, usize)>,
+        layout: Option<InvocationLayout>,
         source_range: SourceRange,
         caller_authority: (Option<ClassId>, bool),
     ) -> PhResult<()> {
@@ -355,22 +355,20 @@ impl VM {
                 Ok(())
             }
             MethodKind::Primitive(PrimitiveFn::Shape(native_fn)) => {
-                let view = match shape {
-                    Some((positionals, labeled_count)) => {
-                        let labels = if labeled_count > 0 {
-                            let (_, slots, _) = crate::method::decode_selector(self.resolve_symbol(selector));
-                            slots
-                                .into_iter()
-                                .filter_map(|slot| slot.map(|label| self.interner.intern(&label)))
-                                .collect::<Vec<_>>()
-                                .into_boxed_slice()
-                        } else {
-                            Box::default()
-                        };
-                        ArgumentView::shaped_with_labels(receiver_idx, positionals, labels, selector, caller_authority.0, caller_authority.1)
-                    }
-                    None => ArgumentView::positional_window(receiver_idx, arity, caller_authority.0, caller_authority.1),
+                let layout = match layout {
+                    Some(layout) => layout,
+                    None => self.invocation_layout_for_selector(selector, arity)?,
                 };
+                layout.validate_for_kind(self.heap.method(method).signature.kind)?;
+                if layout.physical_arity() != arity {
+                    return Err(RuntimeError::Internal(format!(
+                        "invocation layout arity {} does not match physical arity {}",
+                        layout.physical_arity(),
+                        arity
+                    ))
+                    .into());
+                }
+                let view = ArgumentView::from_layout(receiver_idx, layout, caller_authority.0, caller_authority.1);
                 let method_obj = self.heap.method(method);
                 let selector_sym = method_obj.signature.selector;
                 let class_name = method_obj
@@ -423,12 +421,12 @@ impl VM {
         method: ObjRef,
         arity: usize,
         selector: Symbol,
-        shape: Option<(usize, usize)>,
+        layout: Option<InvocationLayout>,
         source_range: SourceRange,
         caller_authority: (Option<ClassId>, bool),
     ) -> PhResult<CallOutcome> {
         let before = self.frames.len();
-        self.call_method_with_selector_as(callee, method, arity, selector, shape, source_range, caller_authority)?;
+        self.call_method_with_selector_as(callee, method, arity, selector, layout, source_range, caller_authority)?;
         if self.frames.len() > before {
             Ok(CallOutcome::EnteredFrame)
         } else {
@@ -443,8 +441,7 @@ impl VM {
         &mut self,
         receiver_idx: usize,
         selector: Symbol,
-        positional_count: usize,
-        labels: &[Symbol],
+        layout: InvocationLayout,
         source_range: SourceRange,
         caller_authority: (Option<ClassId>, bool),
     ) -> PhResult<CallOutcome> {
@@ -454,9 +451,9 @@ impl VM {
             self.call_method_with_selector_as(
                 &receiver,
                 method,
-                positional_count + labels.len(),
+                layout.physical_arity(),
                 selector,
-                Some((positional_count, labels.len())),
+                Some(layout.clone()),
                 source_range,
                 caller_authority,
             )?;
@@ -464,14 +461,14 @@ impl VM {
             let (name, _, kind) = decode_selector(self.resolve_symbol(selector));
             let rest = matches!(kind, SignatureKind::Method(_))
                 .then(|| self.interner.intern(&name))
-                .and_then(|base| self.lookup_rest_method(receiver.class(self), base, positional_count, labels));
+                .and_then(|base| self.lookup_rest_method(receiver.class(self), base, layout.structural_positionals(), layout.labels()));
             if let Some(method) = rest {
                 self.activate_rest_method_as(
                     &receiver,
                     method,
                     receiver_idx,
-                    positional_count,
-                    labels,
+                    layout.structural_positionals(),
+                    layout.labels(),
                     selector,
                     source_range,
                     caller_authority,
@@ -485,6 +482,64 @@ impl VM {
         } else {
             Ok(CallOutcome::Returned(self.stack.last().copied().unwrap_or_else(Value::nil)))
         }
+    }
+
+    /// Dispatches one selector-shaped window through the shared runtime ABI.
+    ///
+    /// Subscript calls on Family and AssociatedFamily receivers are intercepted
+    /// here so static invokes and dynamic packs observe the same setter lane.
+    /// Ordinary receivers continue through exact lookup, rest lookup, and DNU
+    /// using the supplied layout unchanged.
+    pub(crate) fn dispatch_selector_window_as(
+        &mut self,
+        receiver_idx: usize,
+        selector: Symbol,
+        layout: InvocationLayout,
+        source_range: SourceRange,
+        caller_authority: (Option<ClassId>, bool),
+    ) -> PhResult<CallOutcome> {
+        let receiver = self.stack[receiver_idx];
+        let (_, _, kind) = decode_selector(self.resolve_symbol(selector));
+        if matches!(kind, SignatureKind::SubscriptGet(_) | SignatureKind::SubscriptSet(_))
+            && receiver
+                .as_obj()
+                .is_some_and(|id| matches!(self.heap.get(id), Object::Family(_) | Object::AssociatedFamily(_)))
+        {
+            let invocation = if matches!(kind, SignatureKind::SubscriptSet(_)) {
+                FamilyInvocationKind::SubscriptSet
+            } else {
+                FamilyInvocationKind::SubscriptGet
+            };
+            let view = ArgumentView::from_layout(receiver_idx, layout, caller_authority.0, caller_authority.1);
+            return self.activate_family_with_kind(view, invocation, source_range);
+        }
+        self.dispatch_shape_at_as(receiver_idx, selector, layout, source_range, caller_authority)
+    }
+
+    /// Derives the exact physical invocation lanes from an encoded selector.
+    pub(crate) fn invocation_layout_for_selector(&mut self, selector: Symbol, physical_arity: usize) -> Result<InvocationLayout, RuntimeError> {
+        let (_, slots, kind) = decode_selector(self.resolve_symbol(selector));
+        let structural_positionals = slots.iter().filter(|slot| slot.is_none()).count();
+        let labels = slots
+            .iter()
+            .filter_map(|slot| slot.as_ref())
+            .map(|label| self.interner.intern(label))
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        let layout = if matches!(kind, SignatureKind::Setter | SignatureKind::SubscriptSet(_)) {
+            InvocationLayout::setter(structural_positionals, labels)
+        } else {
+            InvocationLayout::ordinary(structural_positionals, labels)
+        };
+        if layout.physical_arity() != physical_arity {
+            return Err(RuntimeError::Internal(format!(
+                "selector `{}` layout arity {} does not match physical arity {}",
+                self.resolve_symbol(selector),
+                layout.physical_arity(),
+                physical_arity
+            )));
+        }
+        Ok(layout)
     }
 
     /// Activates the concrete representation behind the sealed Function
@@ -560,14 +615,14 @@ impl VM {
         Ok(CallOutcome::EnteredFrame)
     }
 
-    pub(crate) fn validate_captured_method_shape(&mut self, method: ObjRef, positional_count: usize, actual_labels: &[Symbol]) -> PhResult<Symbol> {
+    pub(crate) fn validate_captured_method_shape(&mut self, method: ObjRef, layout: &InvocationLayout) -> PhResult<Symbol> {
         let method_selector = self.heap.method(method).signature.selector;
         let selector_text = self.resolve_symbol(method_selector).to_owned();
         let (base, expected_slots, _) = decode_selector(&selector_text);
         let signature_kind = self.heap.method(method).signature.kind;
-        let (expected_positional, expected_labels) = match signature_kind {
-            SignatureKind::Getter => (0, Vec::new()),
-            SignatureKind::Setter => (1, Vec::new()),
+        let (expected_positional, expected_labels, expected_setter) = match signature_kind {
+            SignatureKind::Getter => (0, Vec::new(), false),
+            SignatureKind::Setter => (0, Vec::new(), true),
             SignatureKind::SubscriptGet(_) => (
                 expected_slots.iter().filter(|slot| slot.is_none()).count(),
                 expected_slots
@@ -575,14 +630,16 @@ impl VM {
                     .filter_map(|slot| slot.as_ref())
                     .map(|label| self.interner.intern(label))
                     .collect(),
+                false,
             ),
             SignatureKind::SubscriptSet(_) => (
-                expected_slots.iter().filter(|slot| slot.is_none()).count() + 1,
+                expected_slots.iter().filter(|slot| slot.is_none()).count(),
                 expected_slots
                     .iter()
                     .filter_map(|slot| slot.as_ref())
                     .map(|label| self.interner.intern(label))
                     .collect(),
+                true,
             ),
             SignatureKind::Method(_) => (
                 expected_slots.iter().filter(|slot| slot.is_none()).count(),
@@ -591,39 +648,43 @@ impl VM {
                     .filter_map(|slot| slot.as_ref())
                     .map(|label| self.interner.intern(label))
                     .collect(),
+                false,
             ),
         };
         let rest_layout = self.heap.method(method).signature.rest.clone();
         if let Some(rest) = rest_layout.as_ref() {
-            let mut slots = Vec::with_capacity(positional_count + actual_labels.len());
-            slots.extend(std::iter::repeat_n(None, positional_count));
-            slots.extend(actual_labels.iter().map(|label| Some(self.resolve_symbol(*label).to_owned())));
+            let mut slots = Vec::with_capacity(layout.structural_positionals() + layout.labeled_count());
+            slots.extend(std::iter::repeat_n(None, layout.structural_positionals()));
+            slots.extend(layout.labels().iter().map(|label| Some(self.resolve_symbol(*label).to_owned())));
             let selector = self.get_or_intern(&crate::method::encode_selector(
                 &base,
                 &slots,
-                SignatureKind::Method(
-                    u8::try_from(positional_count + actual_labels.len()).map_err(|_| RuntimeError::SendArityExceedsLimit {
-                        found: positional_count + actual_labels.len(),
+                SignatureKind::Method(u8::try_from(layout.structural_positionals() + layout.labeled_count()).map_err(|_| {
+                    RuntimeError::SendArityExceedsLimit {
+                        found: layout.structural_positionals() + layout.labeled_count(),
                         limit: u8::MAX as usize,
-                    })?,
-                ),
+                    }
+                })?),
             ));
-            if !rest.accepts(positional_count, actual_labels) {
+            if layout.has_setter_value() || !rest.accepts(layout.structural_positionals(), layout.labels()) {
                 return Err(RuntimeError::Arity {
                     signature: "call",
                     expected: expected_positional,
-                    found: positional_count + actual_labels.len(),
+                    found: layout.physical_arity(),
                 }
                 .into());
             }
             return Ok(selector);
         }
 
-        if expected_positional != positional_count || expected_labels != actual_labels {
+        if expected_positional != layout.structural_positionals()
+            || expected_labels.as_slice() != layout.labels()
+            || expected_setter != layout.has_setter_value()
+        {
             return Err(RuntimeError::Arity {
                 signature: "call",
-                expected: expected_positional,
-                found: positional_count + actual_labels.len(),
+                expected: expected_positional + usize::from(expected_setter),
+                found: layout.physical_arity(),
             }
             .into());
         }
@@ -639,11 +700,10 @@ impl VM {
     ) -> PhResult<CallOutcome> {
         self.authorize_method_access_as(method, view.caller_authority().0, view.caller_authority().1)?;
         let method_selector = self.heap.method(method).signature.selector;
-        let actual_labels = view.labels();
-        let actual_selector = self.validate_captured_method_shape(method, view.positional_count(), actual_labels)?;
+        let actual_selector = self.validate_captured_method_shape(method, view.layout())?;
         let receiver_idx = view.receiver_index();
         self.stack[receiver_idx] = receiver;
-        let total = view.positional_count() + view.labeled_count();
+        let total = view.physical_arity();
         let before = self.frames.len();
         let outcome =
             if self.heap.method(method).signature.rest.is_some() && !matches!(self.heap.method(method).kind, MethodKind::Primitive(PrimitiveFn::Shape(_))) {
@@ -652,7 +712,7 @@ impl VM {
                     method,
                     receiver_idx,
                     view.positional_count(),
-                    actual_labels,
+                    view.labels(),
                     source_range,
                     view.caller_authority(),
                 )?;
@@ -667,7 +727,7 @@ impl VM {
                     method,
                     total,
                     actual_selector,
-                    Some((view.positional_count(), view.labeled_count())),
+                    Some(view.layout().clone()),
                     source_range,
                     view.caller_authority(),
                 )?
@@ -691,7 +751,7 @@ impl VM {
         self.activate_captured_method_as(bound.receiver, bound.method, view, source_range)
     }
 
-    fn selectors_for_bound_method_family(&mut self, pattern_id: ObjRef, view: ArgumentView) -> PhResult<Vec<(Symbol, usize, Vec<Symbol>)>> {
+    fn selectors_for_bound_method_family(&mut self, pattern_id: ObjRef, view: ArgumentView) -> PhResult<Vec<(Symbol, InvocationLayout)>> {
         let pattern = match self.heap.get(pattern_id) {
             Object::SelectorPattern(pattern) => pattern.pattern.clone(),
             _ => return Err(RuntimeError::Internal("MethodFamily pattern handle is not a selector pattern".into()).into()),
@@ -700,33 +760,45 @@ impl VM {
         let mut candidates = Vec::new();
         match (&pattern.base, &pattern.kind) {
             (SelectorBase::Named(base), SelectorKindPattern::AnyNamed) => {
-                let mut slots = Vec::with_capacity(view.positional_count() + labels.len());
-                slots.extend(std::iter::repeat_n(None, view.positional_count()));
-                slots.extend(labels.iter().map(|label| Some(self.resolve_symbol(*label).to_owned())));
-                let arity = u8::try_from(slots.len()).map_err(|_| RuntimeError::SendArityExceedsLimit {
-                    found: slots.len(),
-                    limit: u8::MAX as usize,
-                })?;
-                let method_selector = self.get_or_intern(&crate::method::encode_selector(base, &slots, SignatureKind::Method(arity)));
-                let method_structural = phalcom_common::selector::Selector::decode(self.resolve_symbol(method_selector));
-                if pattern.matches(&method_structural) {
-                    candidates.push((method_selector, view.positional_count(), labels.clone()));
+                if view.has_setter_value() {
+                    if view.positional_count() == 0 && labels.is_empty() {
+                        let selector = self.get_or_intern(&crate::method::make_signature(base, SignatureKind::Setter));
+                        let structural = phalcom_common::selector::Selector::decode(self.resolve_symbol(selector));
+                        if pattern.matches(&structural) {
+                            candidates.push((selector, InvocationLayout::setter(0, Box::default())));
+                        }
+                    }
+                } else {
+                    let mut slots = Vec::with_capacity(view.positional_count() + labels.len());
+                    slots.extend(std::iter::repeat_n(None, view.positional_count()));
+                    slots.extend(labels.iter().map(|label| Some(self.resolve_symbol(*label).to_owned())));
+                    let arity = u8::try_from(slots.len()).map_err(|_| RuntimeError::SendArityExceedsLimit {
+                        found: slots.len(),
+                        limit: u8::MAX as usize,
+                    })?;
+                    let method_selector = self.get_or_intern(&crate::method::encode_selector(base, &slots, SignatureKind::Method(arity)));
+                    let method_structural = phalcom_common::selector::Selector::decode(self.resolve_symbol(method_selector));
+                    if pattern.matches(&method_structural) {
+                        candidates.push((method_selector, view.layout().clone()));
+                    }
                 }
-                if view.positional_count() == 0 && labels.is_empty() {
+                if !view.has_setter_value() && view.positional_count() == 0 && labels.is_empty() {
                     let selector = self.get_or_intern(&crate::method::make_signature(base, SignatureKind::Getter));
                     let structural = phalcom_common::selector::Selector::decode(self.resolve_symbol(selector));
                     if pattern.matches(&structural) {
-                        candidates.push((selector, 0, Vec::new()));
-                    }
-                } else if view.positional_count() == 1 && labels.is_empty() {
-                    let selector = self.get_or_intern(&crate::method::make_signature(base, SignatureKind::Setter));
-                    let structural = phalcom_common::selector::Selector::decode(self.resolve_symbol(selector));
-                    if pattern.matches(&structural) {
-                        candidates.push((selector, 1, Vec::new()));
+                        candidates.push((selector, InvocationLayout::ordinary(0, Box::default())));
                     }
                 }
             }
             (SelectorBase::Named(base), SelectorKindPattern::Exact(SelectorKind::Method)) => {
+                if view.has_setter_value() {
+                    return Err(RuntimeError::Arity {
+                        signature: "call",
+                        expected: view.positional_count() + labels.len(),
+                        found: view.physical_arity(),
+                    }
+                    .into());
+                }
                 let mut slots = Vec::with_capacity(view.positional_count() + labels.len());
                 slots.extend(std::iter::repeat_n(None, view.positional_count()));
                 slots.extend(labels.iter().map(|label| Some(self.resolve_symbol(*label).to_owned())));
@@ -737,47 +809,50 @@ impl VM {
                 let selector = self.get_or_intern(&crate::method::encode_selector(base, &slots, SignatureKind::Method(arity)));
                 let structural = phalcom_common::selector::Selector::decode(self.resolve_symbol(selector));
                 if pattern.matches(&structural) {
-                    candidates.push((selector, view.positional_count(), labels.clone()));
+                    candidates.push((selector, view.layout().clone()));
                 }
             }
             (SelectorBase::Named(base), SelectorKindPattern::Exact(SelectorKind::Getter)) => {
-                if view.positional_count() != 0 || !labels.is_empty() {
+                if view.has_setter_value() || view.positional_count() != 0 || !labels.is_empty() {
                     return Err(RuntimeError::Arity {
                         signature: "call",
                         expected: 0,
-                        found: view.positional_count() + labels.len(),
+                        found: view.physical_arity(),
                     }
                     .into());
                 }
                 let selector = self.get_or_intern(&crate::method::make_signature(base, SignatureKind::Getter));
                 let structural = phalcom_common::selector::Selector::decode(self.resolve_symbol(selector));
                 if pattern.matches(&structural) {
-                    candidates.push((selector, 0, Vec::new()));
+                    candidates.push((selector, InvocationLayout::ordinary(0, Box::default())));
                 }
             }
             (SelectorBase::Named(base), SelectorKindPattern::Exact(SelectorKind::Setter)) => {
-                if view.positional_count() != 1 || !labels.is_empty() {
+                if !view.has_setter_value() || view.positional_count() != 0 || !labels.is_empty() {
                     return Err(RuntimeError::Arity {
                         signature: "call",
                         expected: 1,
-                        found: view.positional_count() + labels.len(),
+                        found: view.physical_arity(),
                     }
                     .into());
                 }
                 let selector = self.get_or_intern(&crate::method::make_signature(base, SignatureKind::Setter));
                 let structural = phalcom_common::selector::Selector::decode(self.resolve_symbol(selector));
                 if pattern.matches(&structural) {
-                    candidates.push((selector, 1, Vec::new()));
+                    candidates.push((selector, InvocationLayout::setter(0, Box::default())));
                 }
             }
             (SelectorBase::Subscript, SelectorKindPattern::Exact(SelectorKind::SubscriptGet | SelectorKind::SubscriptSet)) => {
                 let is_setter = matches!(&pattern.kind, SelectorKindPattern::Exact(SelectorKind::SubscriptSet));
-                let setter_values = if is_setter { 1 } else { 0 };
-                let slot_positionals = view.positional_count().checked_sub(setter_values).ok_or_else(|| RuntimeError::Arity {
-                    signature: "call",
-                    expected: setter_values,
-                    found: view.positional_count(),
-                })?;
+                if view.has_setter_value() != is_setter {
+                    return Err(RuntimeError::Arity {
+                        signature: "call",
+                        expected: view.positional_count() + labels.len() + usize::from(is_setter),
+                        found: view.physical_arity(),
+                    }
+                    .into());
+                }
+                let slot_positionals = view.positional_count();
                 let mut slots = Vec::with_capacity(slot_positionals + labels.len());
                 slots.extend(std::iter::repeat_n(None, slot_positionals));
                 slots.extend(labels.iter().map(|label| Some(self.resolve_symbol(*label).to_owned())));
@@ -793,7 +868,7 @@ impl VM {
                 let selector = self.get_or_intern(&crate::method::encode_selector("[]", &slots, kind));
                 let structural = phalcom_common::selector::Selector::decode(self.resolve_symbol(selector));
                 if pattern.matches(&structural) {
-                    candidates.push((selector, view.positional_count(), labels.clone()));
+                    candidates.push((selector, view.layout().clone()));
                 }
             }
             _ => {
@@ -813,7 +888,7 @@ impl VM {
         source_range: SourceRange,
     ) -> PhResult<CallOutcome> {
         let family = self.heap.method_family(bound.family).clone();
-        for (selector, positional_count, labels) in self.selectors_for_bound_method_family(family.pattern, view.clone())? {
+        for (selector, layout) in self.selectors_for_bound_method_family(family.pattern, view.clone())? {
             let method = family.exact_methods.get(&selector).copied().or_else(|| {
                 family.rest_candidates.iter().copied().find(|method| {
                     self.heap
@@ -821,13 +896,13 @@ impl VM {
                         .signature
                         .rest
                         .as_ref()
-                        .is_some_and(|rest| rest.accepts(positional_count, &labels))
+                        .is_some_and(|rest| !layout.has_setter_value() && rest.accepts(layout.structural_positionals(), layout.labels()))
                 })
             });
             let Some(method) = method else {
                 continue;
             };
-            let shaped = view.with_selector(selector, positional_count, labels.into_boxed_slice());
+            let shaped = view.with_layout(layout);
             return self.activate_captured_method_as(bound.receiver, method, shaped, source_range);
         }
         Err(RuntimeError::Message("captured MethodFamily has no method for this call shape".into()).into())
@@ -839,6 +914,13 @@ impl VM {
         invocation: FamilyInvocationKind,
         source_range: SourceRange,
     ) -> PhResult<CallOutcome> {
+        let expects_setter = matches!(invocation, FamilyInvocationKind::Setter | FamilyInvocationKind::SubscriptSet);
+        if view.has_setter_value() != expects_setter {
+            return Err(RuntimeError::Internal(format!("Family invocation kind {invocation:?} does not match setter lane presence")).into());
+        }
+        if matches!(invocation, FamilyInvocationKind::Getter | FamilyInvocationKind::Setter) && (view.positional_count() != 0 || !view.labels().is_empty()) {
+            return Err(RuntimeError::Internal(format!("Family accessor invocation has structural lanes for {invocation:?}")).into());
+        }
         let receiver_idx = view.receiver_index();
         let Some(family_id) = self.stack[receiver_idx].as_obj() else {
             return Err(RuntimeError::Type {
@@ -882,11 +964,6 @@ impl VM {
                         .map(|label| self.interner.intern(label))
                         .collect::<Vec<_>>()
                 };
-                let expected_positional = match invocation {
-                    FamilyInvocationKind::Setter => 1,
-                    FamilyInvocationKind::SubscriptSet => expected_positional + 1,
-                    _ => expected_positional,
-                };
                 if expected_positional != view.positional_count() || expected_labels.as_slice() != labels {
                     return Err(RuntimeError::Message(format!("call does not match the callable shape of exact family `{base}`")).into());
                 }
@@ -905,7 +982,7 @@ impl VM {
                     FamilyInvocationKind::Getter | FamilyInvocationKind::Setter => 0,
                     FamilyInvocationKind::Method => view.positional_count(),
                     FamilyInvocationKind::SubscriptGet => view.positional_count(),
-                    FamilyInvocationKind::SubscriptSet => view.positional_count().saturating_sub(1),
+                    FamilyInvocationKind::SubscriptSet => view.positional_count(),
                 };
 
                 let (base_sym, matches) = {
@@ -952,11 +1029,7 @@ impl VM {
                             self.get_or_intern(&s)
                         }
                         FamilyInvocationKind::SubscriptGet | FamilyInvocationKind::SubscriptSet => {
-                            let index_count = if matches!(invocation, FamilyInvocationKind::SubscriptSet) {
-                                view.positional_count().saturating_sub(1)
-                            } else {
-                                view.positional_count()
-                            };
+                            let index_count = view.positional_count();
                             let total = u8::try_from(index_count + labels.len()).map_err(|_| RuntimeError::SendArityExceedsLimit {
                                 found: index_count + labels.len(),
                                 limit: u8::MAX as usize,
@@ -993,11 +1066,7 @@ impl VM {
                         self.get_or_intern(&s)
                     }
                     FamilyInvocationKind::SubscriptGet | FamilyInvocationKind::SubscriptSet => {
-                        let index_count = if matches!(invocation, FamilyInvocationKind::SubscriptSet) {
-                            view.positional_count().saturating_sub(1)
-                        } else {
-                            view.positional_count()
-                        };
+                        let index_count = view.positional_count();
                         let total = u8::try_from(index_count + labels.len()).map_err(|_| RuntimeError::SendArityExceedsLimit {
                             found: index_count + labels.len(),
                             limit: u8::MAX as usize,
@@ -1014,8 +1083,7 @@ impl VM {
             }
         };
         self.stack[receiver_idx] = family.receiver;
-        let positional_count = view.positional_count();
-        self.dispatch_shape_at_as(receiver_idx, selector, positional_count, labels, source_range, view.caller_authority())
+        self.dispatch_shape_at_as(receiver_idx, selector, view.layout().clone(), source_range, view.caller_authority())
     }
 
     fn activate_associated_family_with_kind(
@@ -1046,9 +1114,7 @@ impl VM {
             FamilyInvocationKind::Setter => FamilyOperationShape::setter(),
             FamilyInvocationKind::Method => FamilyOperationShape::method(slots(view.positional_count(), view.labels())),
             FamilyInvocationKind::SubscriptGet => FamilyOperationShape::new(SelectorKind::SubscriptGet, slots(view.positional_count(), view.labels())),
-            FamilyInvocationKind::SubscriptSet => {
-                FamilyOperationShape::new(SelectorKind::SubscriptSet, slots(view.positional_count().saturating_sub(1), view.labels()))
-            }
+            FamilyInvocationKind::SubscriptSet => FamilyOperationShape::new(SelectorKind::SubscriptSet, slots(view.positional_count(), view.labels())),
         };
         let entry = descriptor
             .entries
@@ -1087,9 +1153,9 @@ impl VM {
                 self.dispatch_selected_method_as(
                     &resolved.receiver,
                     resolved.method,
-                    view.positional_count() + view.labeled_count(),
+                    view.physical_arity(),
                     selector,
-                    Some((view.positional_count(), view.labeled_count())),
+                    Some(view.layout().clone()),
                     source_range,
                     view.caller_authority(),
                 )
@@ -1163,25 +1229,14 @@ impl VM {
         self.stack.extend_from_slice(args);
 
         let base_frames = self.frames.len();
-        if let Some(method) = receiver.lookup_method(self, selector) {
-            self.call_method(&receiver, method, args.len(), SourceRange::default())?;
-        } else {
-            let (name, slots, kind) = decode_selector(self.resolve_symbol(selector));
-            let positional_count = slots.iter().filter(|slot| slot.is_none()).count();
-            let labels = slots
-                .iter()
-                .filter_map(|slot| slot.as_ref())
-                .map(|label| self.interner.intern(label))
-                .collect::<Vec<_>>();
-            let rest = (args.len() == slots.len() && matches!(kind, SignatureKind::Method(_)))
-                .then(|| self.interner.intern(&name))
-                .and_then(|base| self.lookup_rest_method(receiver.class(self), base, positional_count, &labels));
-            if let Some(method) = rest {
-                self.activate_rest_method(&receiver, method, receiver_idx, positional_count, &labels, selector, SourceRange::default())?;
-            } else {
-                self.forward_does_not_understand(receiver_idx, selector, SourceRange::default())?;
-            }
-        }
+        let layout = self.invocation_layout_for_selector(selector, args.len())?;
+        self.dispatch_selector_window_as(
+            receiver_idx,
+            selector,
+            layout,
+            SourceRange::default(),
+            (self.current_access_class(), self.current_has_internal_privilege()),
+        )?;
         self.check_native_reentry()?;
         self.native_reentry_depth += 1;
         let result = self.run_until(base_frames);
@@ -1213,7 +1268,9 @@ impl VM {
         self.stack.extend_from_slice(args);
 
         let base_frames = self.frames.len();
-        let view = ArgumentView::positional_window(receiver_idx, args.len(), caller_authority.0, caller_authority.1);
+        let selector = self.heap.method(method_id).signature.selector;
+        let layout = self.invocation_layout_for_selector(selector, args.len())?;
+        let view = ArgumentView::from_layout(receiver_idx, layout, caller_authority.0, caller_authority.1);
         self.activate_captured_method_as(receiver, method_id, view, SourceRange::default())?;
         self.check_native_reentry()?;
         self.native_reentry_depth += 1;

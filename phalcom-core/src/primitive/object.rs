@@ -202,22 +202,21 @@ pub fn object_perform_shape(vm: &mut VM, receiver: Value, args: ArgumentView) ->
         found: args.positional_count(),
     })?;
     let selector = expect_value!(&selector_value, Symbol);
-    let positional_count = args.positional_count().checked_sub(1).ok_or_else(|| RuntimeError::Arity {
+    let residual_arity = args.physical_arity().checked_sub(1).ok_or_else(|| RuntimeError::Arity {
         signature: "perform",
         expected: 1,
-        found: args.positional_count(),
+        found: args.physical_arity(),
     })?;
-    let labels = args.labels();
     let receiver_index = args.receiver_index();
+    let layout = vm.invocation_layout_for_selector(selector, residual_arity)?;
     let residual = vm.stack[receiver_index + 2..].to_vec();
     vm.stack[receiver_index] = receiver;
     vm.stack.truncate(receiver_index + 1);
     vm.stack.extend_from_slice(&residual);
-    vm.dispatch_shape_at_as(
+    vm.dispatch_selector_window_as(
         receiver_index,
         selector,
-        positional_count,
-        labels,
+        layout,
         phalcom_common::range::SourceRange::default(),
         args.caller_authority(),
     )

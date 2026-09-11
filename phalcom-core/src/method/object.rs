@@ -1,4 +1,4 @@
-use crate::error::PhResult;
+use crate::error::{PhResult, RuntimeError};
 use crate::heap::{ClassId, ObjRef};
 use crate::interner::Symbol;
 use crate::value::Value;
@@ -23,54 +23,155 @@ pub enum CallOutcome {
 /// The old native ABI, retained only as a mechanical migration adapter.
 pub type LegacyPrimitiveFn = fn(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value>;
 
+/// The physical argument lanes for one selector-shaped invocation.
+///
+/// Selector slots describe behavior identity. This layout describes the
+/// values occupying the runtime window: structural positional values,
+/// structural labeled values, and (for setters) the distinguished trailing
+/// assigned value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvocationLayout {
+    structural_positionals: usize,
+    labels: Box<[Symbol]>,
+    setter_value: bool,
+}
+
+impl InvocationLayout {
+    /// Creates an ordinary method/getter/subscript-get layout.
+    pub(crate) fn ordinary(structural_positionals: usize, labels: Box<[Symbol]>) -> Self {
+        Self {
+            structural_positionals,
+            labels,
+            setter_value: false,
+        }
+    }
+
+    /// Creates a setter layout with a distinguished trailing value lane.
+    pub(crate) fn setter(structural_positionals: usize, labels: Box<[Symbol]>) -> Self {
+        Self {
+            structural_positionals,
+            labels,
+            setter_value: true,
+        }
+    }
+
+    /// Returns the number of structural positional values.
+    pub fn structural_positionals(&self) -> usize {
+        self.structural_positionals
+    }
+
+    /// Returns structural labels in their physical call order.
+    pub fn labels(&self) -> &[Symbol] {
+        &self.labels
+    }
+
+    /// Returns the number of structural labeled values.
+    pub fn labeled_count(&self) -> usize {
+        self.labels.len()
+    }
+
+    /// Returns whether this invocation has a distinguished setter value lane.
+    pub fn has_setter_value(&self) -> bool {
+        self.setter_value
+    }
+
+    /// Returns the number of values after the receiver in the physical stack window.
+    pub fn physical_arity(&self) -> usize {
+        self.structural_positionals + self.labels.len() + usize::from(self.setter_value)
+    }
+
+    /// Validates the lane invariant required by a resolved signature kind.
+    pub(crate) fn validate_for_kind(&self, kind: SignatureKind) -> Result<(), RuntimeError> {
+        let requires_setter = matches!(kind, SignatureKind::Setter | SignatureKind::SubscriptSet(_));
+        if self.setter_value != requires_setter {
+            return Err(RuntimeError::Internal(format!(
+                "invocation layout setter lane does not match signature kind {kind:?}"
+            )));
+        }
+
+        match kind {
+            SignatureKind::Getter | SignatureKind::Setter if self.structural_positionals != 0 || !self.labels.is_empty() => {
+                Err(RuntimeError::Internal(format!("accessor invocation layout has structural lanes for {kind:?}")))
+            }
+            _ => Ok(()),
+        }
+    }
+}
+
 /// A compact, non-borrowing view of the current argument window.
 ///
 /// `labels` is always pre-decoded: it is populated at the call site from the
 /// already-interned selector constituents, so the Family hot path never has to
-/// call `decode_selector()` to recover them.
+/// call `decode_selector()` to recover them. The lane counts and offsets are
+/// delegated to [`InvocationLayout`], which keeps setter values out of the
+/// ordinary positional lane.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ArgumentView {
     receiver_index: usize,
-    positional_count: usize,
-    labeled_count: usize,
-    selector: Option<Symbol>,
-    /// Pre-decoded label symbols in call order; empty for positional-only
-    /// and getter/setter calls.
-    labels: Box<[Symbol]>,
+    layout: InvocationLayout,
     caller_access: Option<ClassId>,
     caller_internal: bool,
 }
 
-impl ArgumentView {
-    /// Describes a positional-only window at `receiver_index`.
-    pub(crate) fn positional_window(receiver_index: usize, positional_count: usize, caller_access: Option<ClassId>, caller_internal: bool) -> Self {
-        Self {
-            receiver_index,
-            positional_count,
-            labeled_count: 0,
-            selector: None,
-            labels: Box::default(),
-            caller_access,
-            caller_internal,
-        }
-    }
+#[cfg(test)]
+mod tests {
+    use super::{ArgumentView, InvocationLayout};
+    use crate::interner::Symbol;
+    use crate::value::Value;
+    use crate::vm::VM;
 
-    /// Describes a selector-shaped window with pre-decoded labels.
-    pub(crate) fn shaped_with_labels(
+    #[test]
+    fn argument_view_keeps_labeled_and_setter_offsets_independent() {
+        let mut vm = VM::new();
+        vm.stack = vec![Value::nil(), Value::int(10), Value::int(20), Value::bool(true), Value::int(99)];
+        let view = ArgumentView::from_layout(0, InvocationLayout::setter(2, Box::new([Symbol(7)])), None, false);
+
+        assert_eq!(view.positional(&vm, 0), Some(Value::int(10)));
+        assert_eq!(view.positional(&vm, 1), Some(Value::int(20)));
+        assert_eq!(view.labeled_value(&vm, 0), Some(Value::bool(true)));
+        assert_eq!(view.setter_value(&vm), Some(Value::int(99)));
+        assert_eq!(view.physical_arity(), 4);
+    }
+}
+
+impl ArgumentView {
+    /// Describes an ordinary selector-shaped window at `receiver_index`.
+    pub(crate) fn ordinary_window(
         receiver_index: usize,
-        positional_count: usize,
+        structural_positionals: usize,
         labels: Box<[Symbol]>,
-        selector: Symbol,
         caller_access: Option<ClassId>,
         caller_internal: bool,
     ) -> Self {
-        let labeled_count = labels.len();
+        Self::from_layout(
+            receiver_index,
+            InvocationLayout::ordinary(structural_positionals, labels),
+            caller_access,
+            caller_internal,
+        )
+    }
+
+    /// Describes a setter-shaped window at `receiver_index`.
+    pub(crate) fn setter_window(
+        receiver_index: usize,
+        structural_positionals: usize,
+        labels: Box<[Symbol]>,
+        caller_access: Option<ClassId>,
+        caller_internal: bool,
+    ) -> Self {
+        Self::from_layout(
+            receiver_index,
+            InvocationLayout::setter(structural_positionals, labels),
+            caller_access,
+            caller_internal,
+        )
+    }
+
+    /// Builds a view from an explicit invocation layout.
+    pub(crate) fn from_layout(receiver_index: usize, layout: InvocationLayout, caller_access: Option<ClassId>, caller_internal: bool) -> Self {
         Self {
             receiver_index,
-            positional_count,
-            labeled_count,
-            selector: Some(selector),
-            labels,
+            layout,
             caller_access,
             caller_internal,
         }
@@ -78,27 +179,34 @@ impl ArgumentView {
 
     /// Number of positional values in the argument lane.
     pub fn positional_count(&self) -> usize {
-        self.positional_count
+        self.layout.structural_positionals()
     }
 
     /// Number of labeled values in the argument lane.
     pub fn labeled_count(&self) -> usize {
-        self.labeled_count
+        self.layout.labeled_count()
     }
 
     /// Returns positional value `index`.
     pub fn positional(&self, vm: &VM, index: usize) -> Option<Value> {
-        (index < self.positional_count).then(|| vm.stack[self.receiver_index + 1 + index])
+        (index < self.positional_count()).then(|| vm.stack[self.receiver_index + 1 + index])
     }
 
     /// Returns labeled value `index` in label order.
     pub fn labeled_value(&self, vm: &VM, index: usize) -> Option<Value> {
-        (index < self.labeled_count).then(|| vm.stack[self.receiver_index + 1 + self.positional_count + index])
+        (index < self.labeled_count()).then(|| vm.stack[self.receiver_index + 1 + self.positional_count() + index])
+    }
+
+    /// Returns the distinguished setter value, when this is a setter window.
+    pub fn setter_value(&self, vm: &VM) -> Option<Value> {
+        self.layout
+            .has_setter_value()
+            .then(|| vm.stack[self.receiver_index + self.layout.physical_arity()])
     }
 
     /// Returns the label for labeled lane position `index`.
     pub fn label(&self, index: usize) -> Option<Symbol> {
-        self.labels.get(index).copied()
+        self.layout.labels().get(index).copied()
     }
 
     /// Returns pre-decoded label symbols in call order.
@@ -106,7 +214,22 @@ impl ArgumentView {
     /// Never calls `decode_selector()`; labels were decoded once at call-site
     /// construction and cached in this view.
     pub fn labels(&self) -> &[Symbol] {
-        &self.labels
+        self.layout.labels()
+    }
+
+    /// Returns the invocation lane metadata backing this view.
+    pub(crate) fn layout(&self) -> &InvocationLayout {
+        &self.layout
+    }
+
+    /// Returns whether this view carries a distinguished setter value.
+    pub fn has_setter_value(&self) -> bool {
+        self.layout.has_setter_value()
+    }
+
+    /// Returns the physical argument arity after the receiver.
+    pub fn physical_arity(&self) -> usize {
+        self.layout.physical_arity()
     }
 
     /// Returns the source stack receiver index for VM activation helpers.
@@ -119,18 +242,27 @@ impl ArgumentView {
         (self.caller_access, self.caller_internal)
     }
 
-    /// Returns a view with a newly encoded call-site selector and shape.
-    pub(crate) fn with_selector(self, selector: Symbol, positional_count: usize, labels: Box<[Symbol]>) -> Self {
-        let labeled_count = labels.len();
+    /// Returns a view with a newly resolved selector and invocation layout.
+    pub(crate) fn with_layout(self, layout: InvocationLayout) -> Self {
         Self {
             receiver_index: self.receiver_index,
-            positional_count,
-            labeled_count,
-            selector: Some(selector),
-            labels,
+            layout,
             caller_access: self.caller_access,
             caller_internal: self.caller_internal,
         }
+    }
+
+    /// Reclassifies a unary ordinary method window as a named setter window.
+    ///
+    /// `Family.set(_)` receives one ordinary positional argument at its public
+    /// protocol boundary. The captured setter receives the same physical value
+    /// as its dedicated trailing lane, so this operation changes metadata only.
+    pub(crate) fn reclassify_unary_method_as_setter(mut self) -> Result<Self, RuntimeError> {
+        if self.has_setter_value() || self.positional_count() != 1 || self.labeled_count() != 0 {
+            return Err(RuntimeError::Internal("Family.set(_) requires one ordinary positional value".into()));
+        }
+        self.layout = InvocationLayout::setter(0, Box::default());
+        Ok(self)
     }
 }
 
