@@ -116,5 +116,5 @@ All verification commands executed serially on `main` with cleared compiler flag
 ## 7. Next Actions and Handoff
 
 - **Active Plan**: `CONC002.C2.P2` (*Coroutine consumer / executor separation and Fiber protocol completion*).
-- **Handoff Document**: [`p2_handoff.md`](p2_handoff.md).
+- **Handoff Document**: [`CONC002.C2.P2-handoff.md`](CONC002.C2.P2-handoff.md).
 - **Primary Goal**: Separate manual `coroutine_consumer` from `executor` driving to enable `yield -> await -> yield` and complete the `Fiber` surface protocol.

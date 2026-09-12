@@ -99,4 +99,4 @@ All test gates were executed serially with clean compiler flags (`RUSTFLAGS='' R
 ## 5. Next Steps
 
 - **Handoff Target**: `CONC002.C2.P2` (*Coroutine Consumer / Executor Separation and Fiber Protocol*).
-- See `p2_handoff.md` for the detailed execution plan and prerequisites.
+- See `CONC002.C2.P2-handoff.md` for the detailed execution plan and prerequisites.
