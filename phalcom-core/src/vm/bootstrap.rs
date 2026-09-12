@@ -105,6 +105,7 @@ impl VM {
             native_class: None,
             resources: crate::resource::ResourceTable::new(),
             strict_resources: false,
+            reactor: crate::reactor::Reactor::default(),
             numeric_policy: crate::value::NumericPolicy::standard(),
             adt_registry: crate::adt::RuntimeAdtRegistry::new(),
 

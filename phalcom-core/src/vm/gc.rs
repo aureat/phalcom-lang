@@ -110,6 +110,7 @@ impl VM {
             trace_fibers: _,
             resources: _,
             strict_resources: _,
+            reactor,
             numeric_policy: _,
             adt_registry,
             typing_registry: _,
@@ -130,6 +131,7 @@ impl VM {
         out.push(*current);
         out.push(*root_fiber);
         control_stack.trace_roots(&mut |id| out.push(id));
+        reactor.trace_roots(&mut |id| out.push(id));
         out.extend(open_upvalues.values().copied());
         out.extend(ready_queue.iter().copied());
         out.extend(scheduler_drivers.iter().copied());
@@ -244,6 +246,7 @@ impl VM {
     /// memory-management.md §4), and never mid-opcode: several opcodes have a window
     /// where a value is popped or `split_off` the stack and held only in a Rust local.
     pub(crate) fn service_gc_safepoint(&mut self) {
+        self.reactor.poll_ingress_safepoint(32);
         if self.heap.gc_due_at_safepoint() {
             self.force_gc();
         }

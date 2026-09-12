@@ -82,6 +82,10 @@ pub fn system_leak_report(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> Ph
         let str_obj = vm.heap.alloc_string(line);
         str_vals.push(Value::obj(str_obj));
     }
+    for reactor_leak in vm.reactor.leak_report() {
+        let str_obj = vm.heap.alloc_string(reactor_leak);
+        str_vals.push(Value::obj(str_obj));
+    }
     let list_obj = vm.heap.alloc_list(str_vals);
     Ok(Value::obj(list_obj))
 }

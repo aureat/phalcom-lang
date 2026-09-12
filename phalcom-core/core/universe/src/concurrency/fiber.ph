@@ -7,6 +7,8 @@ class System is Object {
 
   @class @native schedule(_ fiber: Object) -> Fiber
 
+  @class @native sleep(_ milliseconds: Int) -> Future<Unit>
+
   @class @internal @native _$nextScheduled -> Option<Fiber>
 
   @class @internal @native _$schedulerFailureCursor -> Int
@@ -240,6 +242,9 @@ class Future<T> {
         while (not self.isReady) {
           const next = System._$nextScheduled
           if (next.isNone) {
+            if (self.isReady) {
+              break
+            }
             const failures = System._$takeUnhandledScheduledFailures(failure_cursor)
             if failures.isSome {
               const details = failures.unwrapOr("")

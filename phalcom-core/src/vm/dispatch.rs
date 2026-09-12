@@ -711,6 +711,20 @@ impl VM {
                             self.resume_queued_fiber(next)?;
                             continue;
                         }
+                        self.drain_and_deliver_reactor_completions()?;
+                        if let Some(next) = self.pop_next_queued() {
+                            crate::primitive::fiber::store_live_into(self, finished);
+                            self.resume_queued_fiber(next)?;
+                            continue;
+                        }
+                        if self.reactor.has_pending_progress() {
+                            crate::primitive::fiber::store_live_into(self, finished);
+                            self.reactor_idle_wait()?;
+                            if let Some(next) = self.pop_next_queued() {
+                                self.resume_queued_fiber(next)?;
+                                continue;
+                            }
+                        }
                         self.report_unhandled_scheduler_failures()?;
                         return Ok(self.heap.fiber(finished).result);
                     }
@@ -753,6 +767,7 @@ impl VM {
                     }
 
                     // No consumer: detached scheduled work finished.
+                    self.drain_and_deliver_reactor_completions()?;
                     if let Some(next) = self.pop_next_queued() {
                         self.resume_queued_fiber(next)?;
                         continue;
@@ -761,6 +776,18 @@ impl VM {
                     if let Some(driver) = self.scheduler_drivers.pop() {
                         self.switch_to_fiber_and_deliver(driver, Value::nil());
                         continue;
+                    }
+
+                    if self.reactor.has_pending_progress() {
+                        self.reactor_idle_wait()?;
+                        if let Some(next) = self.pop_next_queued() {
+                            self.resume_queued_fiber(next)?;
+                            continue;
+                        }
+                        if let Some(driver) = self.scheduler_drivers.pop() {
+                            self.switch_to_fiber_and_deliver(driver, Value::nil());
+                            continue;
+                        }
                     }
 
                     if let Some(parked_leaf) = self.find_root_blocking_parked_leaf() {
@@ -845,6 +872,7 @@ impl VM {
                         self.enqueue_completion_observer(failed)?;
 
                         let Some(consumer) = consumer else {
+                            self.drain_and_deliver_reactor_completions()?;
                             if let Some(next) = self.pop_next_queued() {
                                 self.resume_queued_fiber(next)?;
                                 break;
@@ -852,6 +880,17 @@ impl VM {
                             if let Some(driver) = self.scheduler_drivers.pop() {
                                 self.switch_to_fiber_and_deliver(driver, Value::nil());
                                 break;
+                            }
+                            if self.reactor.has_pending_progress() {
+                                self.reactor_idle_wait()?;
+                                if let Some(next) = self.pop_next_queued() {
+                                    self.resume_queued_fiber(next)?;
+                                    break;
+                                }
+                                if let Some(driver) = self.scheduler_drivers.pop() {
+                                    self.switch_to_fiber_and_deliver(driver, Value::nil());
+                                    break;
+                                }
                             }
                             if self.heap.fiber(failed).is_root {
                                 return Err(e);

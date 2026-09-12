@@ -427,6 +427,8 @@ pub struct VM {
     pub resources: crate::resource::ResourceTable,
     /// Whether unclosed resources at VM teardown produce an exit failure.
     pub strict_resources: bool,
+    /// Phase-1 reactor managing timers, worker pool, and external completions.
+    pub reactor: crate::reactor::Reactor,
     /// Numeric budget/resource policy.
     pub numeric_policy: crate::value::NumericPolicy,
     /// Runtime ADT registry for enums and variants.
@@ -763,6 +765,69 @@ impl VM {
             }
         }
         None
+    }
+
+    /// Resolves the canonical `Future` class object from the Universe prelude bindings.
+    pub fn resolve_future_class(&self) -> Option<Value> {
+        let class_name = self.interner.find("Future")?;
+        let binding = self.prelude_bindings.get(&class_name).copied()?;
+        self.heap.module(binding.module).get_by_slot(binding.slot as usize)
+    }
+
+    /// Constructs a fresh pending `Future<T>` instance by calling `@constructor new()`.
+    pub fn create_pending_future(&mut self) -> PhResult<Value> {
+        let class_val = self
+            .resolve_future_class()
+            .ok_or_else(|| RuntimeError::Internal("Future class is not defined in prelude bindings".to_string()))?;
+        let new_sym = self.interner.intern("new()");
+        self.send_dynamic(class_val, new_sym, &[])
+    }
+
+    /// Materializes a plain-data worker outcome and settles the given `Future` target.
+    pub fn settle_future(&mut self, target: ObjRef, outcome: &crate::reactor::WorkerOutcome) -> PhResult<Value> {
+        match outcome {
+            crate::reactor::WorkerOutcome::Success(res) => {
+                let val = match res {
+                    crate::reactor::WorkerResult::Unit => self.unit_value(),
+                    crate::reactor::WorkerResult::Int(n) => Value::int(*n),
+                    crate::reactor::WorkerResult::Bool(b) => Value::bool(*b),
+                    crate::reactor::WorkerResult::Bytes(bytes) => {
+                        let id = self.heap.alloc_bytes(crate::heap::BytesObject::from_vec(bytes.clone()));
+                        Value::obj(id)
+                    }
+                    crate::reactor::WorkerResult::String(s) => self.alloc_string_value(s.clone()),
+                };
+                let settle_value_sym = self.interner.intern("settleValue(_)");
+                self.send_dynamic(Value::obj(target), settle_value_sym, &[val])
+            }
+            crate::reactor::WorkerOutcome::Error(msg) => {
+                let class = self.universe.classes.error_class;
+                let field_count = self.heap.class(class).field_count;
+                let mut inst = crate::heap::InstanceObject::new(class, field_count);
+                inst.slots[0] = self.alloc_string_value(msg.clone());
+                let error = Value::obj(self.heap.alloc(crate::heap::Object::Instance(inst)));
+                let settle_error_sym = self.interner.intern("settleError(_)");
+                self.send_dynamic(Value::obj(target), settle_error_sym, &[error])
+            }
+        }
+    }
+
+    /// Drains due reactor completions and settles their target futures on the VM thread.
+    pub fn drain_and_deliver_reactor_completions(&mut self) -> PhResult<usize> {
+        let events = self.reactor.drain_completions(64);
+        let count = events.len();
+        for event in events {
+            self.settle_future(event.target, &event.outcome)?;
+        }
+        Ok(count)
+    }
+
+    /// Blocks in reactor idle wait until the next timer deadline or worker completion,
+    /// then drains and delivers any completions.
+    pub fn reactor_idle_wait(&mut self) -> PhResult<()> {
+        self.reactor.idle_wait();
+        self.drain_and_deliver_reactor_completions()?;
+        Ok(())
     }
 
     /// Writes Phalcom-visible output through this VM's sink.

@@ -62,10 +62,36 @@ pub fn system_schedule(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResu
     Ok(Value::obj(fiber_ref))
 }
 
+/// Signature: `System.class::sleep(_)` — registers a monotonic timer for `milliseconds`
+/// and returns a pending `Future<Unit>`.
+#[phalcom_native_macros::primitive(System, "sleep(_)", side = class)]
+pub fn system_sleep(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let millis = args.first().and_then(|v| v.as_int()).ok_or_else(|| RuntimeError::Type {
+        expected: "Int",
+        found: args.first().map_or("missing", Value::type_name),
+    })?;
+    if millis < 0 {
+        return Err(RuntimeError::Type {
+            expected: "non-negative Int",
+            found: "negative Int",
+        }
+        .into());
+    }
+    let duration = std::time::Duration::from_millis(millis as u64);
+    let future = vm.create_pending_future()?;
+    let future_ref = future.as_obj().ok_or_else(|| RuntimeError::Internal("Future must be an object".to_string()))?;
+    vm.reactor.register_timer(future_ref, duration);
+    Ok(future)
+}
+
 /// Internal scheduler dequeue. The `Queued` reservation remains owned by the
 /// scheduler until the scheduler resume primitive consumes it.
 #[phalcom_native_macros::primitive(System, "_$nextScheduled", side = class, visibility = internal)]
 pub fn system_next_scheduled_internal(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    vm.drain_and_deliver_reactor_completions()?;
+    if vm.ready_queue.is_empty() && vm.reactor.has_pending_progress() {
+        vm.reactor_idle_wait()?;
+    }
     match vm.pop_next_queued() {
         Some(fiber_ref) => Ok(wrap_some(vm, Value::obj(fiber_ref))?),
         None => Ok(vm.none_value()),
