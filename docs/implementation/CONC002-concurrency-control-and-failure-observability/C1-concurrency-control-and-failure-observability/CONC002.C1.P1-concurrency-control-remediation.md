@@ -4,8 +4,8 @@ category: CONC
 program: CONC002
 checkpoint: CONC002.C1
 kind: implementation
-status: IN_PROGRESS
-completion: PARTIAL
+status: COMPLETE
+completion: IMPLEMENTED
 verification: BASELINE_BLOCKED
 depends_on: []
 follows: null
@@ -14,6 +14,8 @@ deferred_reason: null
 ---
 
 # CONC002.C1.P1 — concurrency control remediation
+
+> **Closure status — implemented.** The C0–C5 concurrency-control remediation described by this plan landed and its focused/core/language-corpus/workspace-build/Clippy evidence is retained in `CONC002.C1-CHECKPOINT.md`. The final workspace-test gate was baseline-blocked by separately diagnosed REPL builtin export failures, so the plan is `COMPLETE / IMPLEMENTED / BASELINE_BLOCKED`, not release-complete. Later mainline changes to `Future<T>`, Future callback/adoption semantics, Unit canonicalization, scheduler-yield handling, scheduler entry validation and root-result retention are **not retroactively covered by this plan's evidence**; `CONC002.C1.P3` owns recertification of the combined state.
 
 ## Phalcom Concurrency Control Remediation
 ## Repository-Grounded, Checkpoint-Driven, Patch-Grade Implementation Plan

@@ -159,14 +159,18 @@ fn system_pending() {
 
 #[test]
 fn concurrency() {
-    // U-FIBER (ADR-0030): bare cooperative `Fiber` — `call`/`try`/`yield`/
-    // `current`/`abort`, the restricted-yield guard, and fiber-floor error
-    // capture. `Future`/`async`/`await` stay pending (see below).
+    // CONC002/C1: cooperative Fiber + scheduler/Future execution.
+    // The active corpus covers manual call/try/yield/current/abort semantics,
+    // truthful Fiber lifecycle, scheduler reservation, ticketed Future await,
+    // durable terminal completion, Future async/combinator behavior, scheduler
+    // failure isolation/observability and the retained native-boundary guards.
     //
-    // `each_generator_raises.ph` (U-ITER deferred item 5): `List#each { Fiber.yield }`
-    // yields across `each`'s native block-call frame — `CannotYieldAcrossNativeFrame`,
-    // same guard as `concurrency_fiber_restricted_yield_guard.ph` but reached via the
-    // collection protocol rather than `Function#call` directly.
+    // Ordinary Function invocation and source-language collection callbacks use
+    // VM-visible activations and may suspend when their execution owner permits
+    // it. The remaining CannotYieldAcrossNativeFrame cases are specifically
+    // native/host callbacks whose semantic continuation is still held in Rust
+    // state; C2.P1-R1 migrates the language-control cases while preserving guards
+    // on residual synchronous host algorithms.
     support::check_pass("concurrency");
 }
 

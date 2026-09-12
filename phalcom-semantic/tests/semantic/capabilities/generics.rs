@@ -487,11 +487,78 @@ class InvalidFutureProbe {
         assert!(
             f.analysis.snapshot.all_diagnostics().any(|diagnostic| {
                 diagnostic.severity == phalcom_semantic::diagnostic::DiagnosticSeverity::Error
-                    && (diagnostic.primary_range.start as usize) < end
-                    && (diagnostic.primary_range.end as usize) > start
+                    && diagnostic.primary_range.start < end
+                    && diagnostic.primary_range.end > start
             }),
             "{expression} must be rejected, diagnostics: {:?}",
             f.analysis.snapshot.diagnostics,
         );
     }
+}
+
+/// LAW: unsaturated generic constructors in proper-type positions emit clean
+/// diagnostics (`AnnotationUnsaturatedConstructor`) without compiler or type-store panic.
+#[test]
+fn unsaturated_generic_constructors_are_cleanly_rejected_in_proper_type_positions() {
+    let source = format!(
+        "{}\n{}",
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../phalcom-core/core/universe/src/concurrency/fiber.ph")),
+        r#"
+class ProperTypeProbe {
+  @class
+  run(_ bareFuture: Future, _ unionWithBare: Future | Int) {
+  }
+}
+"#,
+    );
+    let f = Fixture::new(&source);
+    let diagnostics: Vec<_> = f
+        .analysis
+        .snapshot
+        .all_diagnostics()
+        .filter(|d| d.severity == phalcom_semantic::diagnostic::DiagnosticSeverity::Error)
+        .collect();
+    assert!(!diagnostics.is_empty(), "bare generic constructor must emit diagnostics");
+    let codes: Vec<_> = diagnostics.iter().map(|d| d.code).collect();
+    assert!(
+        codes.contains(&DiagnosticCode::KindExpectedType),
+        "bare parameter annotation must emit KindExpectedType; codes: {:?}",
+        codes
+    );
+    assert!(
+        codes.contains(&DiagnosticCode::AnnotationUnsaturatedConstructor),
+        "union member position must emit AnnotationUnsaturatedConstructor; codes: {:?}",
+        codes
+    );
+}
+
+/// LAW: generic callable return inference successfully solves `R` from exact-domain
+/// callables, establishing why arbitrary parameter packs require full pack polymorphism.
+#[test]
+fn generic_callable_return_inference_requires_exact_parameter_domain() {
+    let f = Fixture::new(
+        r#"
+class CallableProbe {
+  @class
+  spawnZero<R>(_ body: () -> R) -> R {
+    body()
+  }
+
+  @class
+  spawnUnary<A, R>(_ body: (A) -> R, _ arg: A) -> R {
+    body(arg)
+  }
+
+  @class
+  run() {
+    let a = CallableProbe.spawnZero(|| { 42 })
+    let b = CallableProbe.spawnUnary(|x| { "res:" + x.toString }, 10)
+  }
+}
+"#,
+    );
+    let run = f.callable("CallableProbe", "run", DispatchSide::Class);
+    assert_eq!(f.binding(run, "a").current.ty(), Some(f.ty("Int")));
+    assert_eq!(f.binding(run, "b").current.ty(), Some(f.ty("String")));
+    f.assert_no_error_diagnostics();
 }

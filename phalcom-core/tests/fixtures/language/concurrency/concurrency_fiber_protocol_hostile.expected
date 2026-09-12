@@ -1,0 +1,20 @@
+f1 entry: 41
+f1 call 1: ready
+f1 resumed: continue
+f1 call 2: true
+f2 call 1: 1
+f2 yield 1 received: one
+f2 call 2: two
+f2 yield 2 received: true
+f2 call 3: 42
+fData yielded: yielded-data
+fData isDone after yield: false
+fData error after yield isNone: true
+fData received after err: resumed-with-string
+fData returned: returned-data
+fData isDone after return: true
+fData error after return isNone: true
+fFail try returned: genuine-failure
+fFail isDone: true
+fFail error isSome: true
+fFail error message: genuine-failure

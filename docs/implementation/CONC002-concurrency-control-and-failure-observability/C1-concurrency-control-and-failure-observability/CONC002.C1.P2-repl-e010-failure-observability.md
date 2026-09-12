@@ -4,9 +4,9 @@ category: CONC
 program: CONC002
 checkpoint: CONC002.C1
 kind: implementation
-status: PROPOSED
-completion: NOT_STARTED
-verification: UNVERIFIED
+status: COMPLETE
+completion: IMPLEMENTED
+verification: FOCUSED_TESTED
 depends_on: [CONC002.C1.P1]
 follows: CONC002.C1.P1
 supersedes: null
@@ -14,6 +14,8 @@ deferred_reason: null
 ---
 
 # CONC002.C1.P2 — REPL/E010 failure observability
+
+> **Closure status — E010 implemented.** The CONC002-owned Patch B is complete: detached scheduler-mode terminal failures without a completion observer are retained by a VM-owned, GC-traced failure channel and reported at safe root/scheduler boundaries; root-await diagnostics can attribute failures produced during their drive window. The implementation landed in `44f9364e` with follow-up documentation in `c1b9d907`. Patch A remains historical module/REPL companion context and is not used to keep this concurrency plan open.
 
 ## Phalcom REPL Export Materialization + E010 Scheduler Failure Observability
 ## Patch-Grade Implementation Plan

@@ -156,8 +156,9 @@ primitive; reuse the landed one via its existing `pub fn` signature
 
 ```phalcom
 class System {
-  static runScheduled() {
-    while (let Some(f) = System.nextScheduled) {
+  @class
+  runScheduled() {
+    while let Some(f) = System.nextScheduled {
       f.try()
     }
   }
