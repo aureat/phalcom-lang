@@ -415,3 +415,83 @@ class Probe {
     f.assert_expression_ready(f.expression(run, "Probe.keep(value)"));
     f.assert_no_error_diagnostics();
 }
+
+#[test]
+fn universe_future_preserves_payload_types_through_async_map_then_and_await() {
+    let source = format!(
+        "{}\n{}",
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../phalcom-core/core/universe/src/concurrency/fiber.ph")),
+        r#"
+class GenericFutureProbe {
+  @class
+  run() {
+    const created = Future.async(|| { 42 })
+    const fromValue = Future.value(42)
+    const pending: Future<Int> = Future.new()
+    const awaited = created.await
+    const mapped = created.map(|value| { "mapped" })
+    const chained = created.then(|value| { Future.async(|| { "chained" }) })
+    const nested = created.map(|value| { Future.async(|| { 7 }) })
+    const unit = Future.async(|| { () })
+  }
+}
+"#,
+    );
+    let f = Fixture::new(&source);
+    let run = f.callable("GenericFutureProbe", "run", DispatchSide::Class);
+    use crate::semantic::support::{applied, nominal};
+    for (name, expected) in [
+        ("created", applied("Future", [nominal("Int")])),
+        ("fromValue", applied("Future", [nominal("Int")])),
+        ("pending", applied("Future", [nominal("Int")])),
+        ("mapped", applied("Future", [nominal("String")])),
+        ("chained", applied("Future", [nominal("String")])),
+        ("nested", applied("Future", [applied("Future", [nominal("Int")])])),
+    ] {
+        let ty = f.binding(run, name).current.ty().unwrap_or_else(|| panic!("{name} must retain a formal type"));
+        f.assert_type(ty, expected);
+    }
+    assert_eq!(f.binding(run, "awaited").current.ty(), Some(f.ty("Int")));
+    let unit = f.binding(run, "unit").current.ty().expect("Future<Unit>");
+    let phalcom_semantic::types::TypeData::Applied { arguments, .. } = f.analysis.snapshot.store.get(unit) else {
+        panic!("expected applied Future<Unit>");
+    };
+    assert_eq!(arguments.as_ref(), &[f.analysis.snapshot.store.unit()]);
+    f.assert_no_error_diagnostics();
+}
+
+#[test]
+fn universe_future_rejects_incompatible_settlement_chaining_and_recovery() {
+    let source = format!(
+        "{}\n{}",
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../phalcom-core/core/universe/src/concurrency/fiber.ph")),
+        r#"
+class InvalidFutureProbe {
+  @class
+  run(_ input: Future<Int>) {
+    input.settleValue("wrong")
+    input.then(|value| { 42 })
+    input.catch(|error| { "wrong" })
+  }
+}
+"#,
+    );
+    let f = Fixture::new(&source);
+    for expression in [
+        "input.settleValue(\"wrong\")",
+        "input.then(|value| { 42 })",
+        "input.catch(|error| { \"wrong\" })",
+    ] {
+        let start = source.find(expression).expect("probe expression");
+        let end = start + expression.len();
+        assert!(
+            f.analysis.snapshot.all_diagnostics().any(|diagnostic| {
+                diagnostic.severity == phalcom_semantic::diagnostic::DiagnosticSeverity::Error
+                    && (diagnostic.primary_range.start as usize) < end
+                    && (diagnostic.primary_range.end as usize) > start
+            }),
+            "{expression} must be rejected, diagnostics: {:?}",
+            f.analysis.snapshot.diagnostics,
+        );
+    }
+}

@@ -49,12 +49,12 @@ once; terminal state is never resumed.
 |-----------|------|---------|
 | `@constructor new(_)` | class | wrap a `Function` as a not-yet-started fiber |
 | `call` / `call(_)` | instance | resume; the argument becomes the value of the suspended `yield` (or the entry's parameter on first resume). Returns the next yielded/returned value |
-| `try` / `try(_)` | instance | like `call`, but a failure yields `None`/an `Error` value instead of propagating |
+| `try` / `try(_)` | instance | like `call`, but terminal failure delivers an `Error` value; use `error`/`isDone` to distinguish it from Error data |
 | `isDone` | instance | `true` once `done` or `failed` |
 | `error` | instance | the captured `Error` as `Option`, if `failed` |
 | `yield(_)` | **class** | suspend the *current* fiber, handing the value to its resumer. Returns the value passed to the next `call` |
 | `current` | **class** | the fiber now running |
-| `abort(_)` | **class** | raise an `Error` out of the current fiber to its resumer |
+| `abort(_)` | **class** | raise in the current non-root fiber; has no normal return (`Never`); this is not cancellation |
 
 `Fiber.yield(_)` is class-side because it always acts on the running fiber, never
 a named one — you cannot yield another fiber. This mirrors the receiver-less
@@ -75,6 +75,15 @@ Control transfer is symmetric and explicit: `call` pushes onto the resumer chain
 not the ownership channel for an asynchronous completion. Scheduler admission,
 Future parking/wake, and terminal completion use the explicit internal seams
 described in §2.
+
+A scheduler-owned Fiber MUST NOT use user `yield`: its queue driver has no
+coroutine consumer to receive that value. Such an attempt raises before any
+transfer. Manual coroutine yield remains available, including None and Error
+as ordinary data. Await parking uses a separate, ticketed operation.
+
+`call` currently has linked terminal failure semantics: uncaught child failure
+terminally fails Call-linked parents until a Try/Scheduler boundary or root.
+It does not inject an ordinary catchable exception at the call expression.
 
 ### Implementation
 
@@ -119,47 +128,17 @@ needed no scheduler and no new state.
 Because there is no preemption, no synchronization primitives are needed: a fiber
 switch happens only at an explicit `call`/`yield`/`await` point.
 
-### Execution model — restricted yield (Option A)
+### Suspension through calls
 
-The suspension mechanism is the **restricted re-entrant loop** ratified by
-[ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md) §4. The
-VM dispatch loop is *not* a flat trampoline: pure Phalcom→Phalcom sends are
-trampolined, but any primitive that calls a block back into Phalcom (`block_call`,
-`perform`, `doesNotUnderstand` forwarding, and every collection combinator built
-on them — `each`/`map`/`reduce`) **re-enters the loop on the native Rust stack**.
+Ordinary Function calls and source-language collection callbacks use flat VM
+activations and permit suspension. A stored closure or `each` callback can yield
+when driven by a manual Fiber; an executor-driven callback can await.
 
-`Fiber.yield` therefore integrates with the **top-level** loop only. Yielding
-while such a native frame sits between the fiber's entry and the yield site raises
-a catchable **`CannotYieldAcrossNativeFrame`** error rather than corrupting the
-suspended position:
-
-- **Suspends freely** — bodies using pure sends and *inlined* control flow
-  (`while`/`ifTrue:` lower to `Jump`/`Loop` in one chunk,
-  [ADR-0018](../../adr/0018-sacred-selector-inliner-and-override-guard.md)); the
-  `counter` generator above is exactly this shape.
-- **Foreclosed** — the *callback generator*
-  `Fiber.new { list.each { x => Fiber.yield(x) } }`, where `yield` sits under
-  `each`'s native `block_call`, raises `CannotYieldAcrossNativeFrame`. Write the
-  generator with a **`for` loop** instead, which lowers to an inlined `while` over
-  the cursor protocol — no `block_call`, so it suspends freely
-  ([iteration.md](iteration.md) §2/§6, [ADR-0035](../../adr/0035-iteration-protocol-cursor.md)):
-
-  ```phalcom
-  Fiber.new { for (x in list) { Fiber.yield(x) } }   // ✅ inlined while — suspends
-  ```
-
-  This is the idiomatic v0.2 form and supersedes the older "rewrite with index
-  iteration" advice; `for` also gives `break`/`continue`, which a block handed to
-  `each` cannot express.
-
-This restriction is a **guard, not a wall**: lifting it for the residue that `for`
-cannot express (`.each { yield }`, a stored-block generator, a user-defined native
-combinator that yields) is the deferred general lift
-[ADR-0033](../../adr/0033-amend-fiber-execution-trampolined-block-callsite.md) —
-de-recursing the block call-site (audit Option B), purely additive, breaking no
-program that ran under A, to land with the typed fiber-switch signal below. The
-switch is signalled to the loop as a typed control-flow value, never inferred from
-a frame-count change (which a fiber swap and a non-local return would both trip).
+Native helpers that recursively drive user code on the Rust stack, including
+`on` and `ensure`, remain non-suspendable. Attempting to switch beneath such a
+frame MUST raise `CannotYieldAcrossNativeFrame` before changing execution
+ownership. This guard protects host continuation state; it is not an async
+modifier requirement on ordinary functions.
 
 ---
 
@@ -192,18 +171,32 @@ surface. The original yield-probe implementation was replaced by the stable
 | `@constructor error(_)` | class | **A** | an already-`rejected` future |
 | `async(_)` | class | **B** | run a `Function` on a fresh fiber, returning a future for its result |
 | `await` | instance | **B** | suspend the current fiber until settled; return the value or re-raise the error |
-| `then(_)` | instance | **A** (settled-only); pending continuation is **B** | register a continuation; returns a future for the continuation's result |
-| `map(_)` | instance | **A** (settled-only); pending continuation is **B** | `then` for the non-error path only |
-| `catch(_)` | instance | **A** (settled-only); pending continuation is **B** | register an error handler; returns a recovered future |
+| `then(_)` | instance | **A** (settled-only); pending continuation is **B** | chain a callback returning Future<U>; return Future<U> |
+| `map(_)` | instance | **A** (settled-only); pending continuation is **B** | map a fulfilled value through (T) -> U; return Future<U> |
+| `catch(_)` | instance | **A** (settled-only); pending continuation is **B** | recover an error with (Error) -> T; return Future<T> |
 | `isReady` | instance | **A** | `true` once `fulfilled` or `rejected` |
 | `value` | instance | **A** | the settled value as `Option` (never blocks) |
 
-On an already-settled receiver, `then`/`map`/`catch` fire synchronously — no
-suspension is involved. On a pending receiver, the continuation is registered
-as a closure and runs on a fresh scheduler-owned callback Fiber after settlement.
-That callback Fiber may park; the derived Future changes only from its terminal
-observer, and a successful callback result is flattened so `None`, `Error`, and
-nested Future values retain their specified meanings.
+Matching `then`/`map`/`catch` callbacks MUST run on scheduler-owned Fibers,
+independent of receiver readiness. Registration MUST return before invoking user
+code. The derived Future settles from terminal callback success or failure;
+parking does not settle it. A thrown callback Error rejects the derived Future;
+a returned Error or None fulfills it as data. An unmatched already-settled
+outcome may pass through immediately without invoking a callback.
+
+`Future<T>` is invariant because it exposes `settleValue(T)`. Its `await`
+result is T and its `value` is Option<T>. `async<U>(() -> U)` returns Future<U>.
+A pending constructor requires sufficient contextual type evidence.
+
+`map<U>((T) -> U)` returns Future<U> and preserves every callback result as data,
+including Future values. `then<U>((T) -> Future<U>)` returns Future<U> by adopting
+the returned Future. `catch((Error) -> T)` recovers with a value of the original
+payload type; `recoverWith((Error) -> Future<T>)` recovers by adopting asynchronous
+work. `flatten<U>(Future<Future<U>>)` removes exactly one Future layer. These
+operations MUST NOT infer value mapping versus chaining from runtime payload type.
+Direct self-adoption MUST reject the result. Indirect dependency cycles are not
+detected. Dynamic callers whose chaining callback returns a non-Future receive a
+rejected result, rather than losing the completion observer.
 
 ```phalcom
 let f = Future.async { slowComputation() }
@@ -228,9 +221,9 @@ waiter is registered.
 Future`, [U-FUTURE](../../work/pending/fiber-schedule/future/plan.md)): a pure-`.ph`
 settle-once state machine over three private fields (`_state`/`_value`/
 `_waiters`). `value(_)`/`error(_)` construct an already-settled future;
-`isReady`/`value` read state; settled-receiver `then`/`map`/`catch` fire
-synchronously. **Zero native code, zero `Fiber` involvement** — a settled
-future never suspends.
+`isReady`/`value` read state. Reading or awaiting an already-settled Future
+does not suspend; matching continuation callbacks use the observed execution
+bridge even when registration occurs after settlement.
 
 **Slice B — landed** over `Fiber` (§1) and the native ready-queue. Public code
 admits work with `System.schedule(_)` and drains it with `System.runScheduled`;
@@ -241,8 +234,11 @@ manual `try`.
 
 The root-drive pump in `VM::run` and the `.ph` pump both dequeue FIFO work and
 resume it through the scheduler mode. A scheduled failure is isolated from
-sibling work according to the current Call/Try/Scheduler policy; E010 remains an
-open error-observation issue, not a silent claim of resolution.
+sibling work according to the Call/Try/Scheduler policy. Detached failures are
+reported at safe scheduler/root boundaries; completion-owned failures instead
+reach their Future. Admission MUST reject an unstarted entry that cannot accept
+zero arguments before reserving queue ownership, so malformed work cannot
+poison a later drain.
 
 Future settlement drains two waiter forms: exact `(Fiber, generation)` tickets
 for parked awaiters, and closures for pending `then`/`map`/`catch`. Each callback

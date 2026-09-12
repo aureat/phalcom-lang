@@ -109,3 +109,96 @@ user::None()
 
 &object[_, _, default]=(_)
 ```
+
+```ph
+User(...)
+```
+
+```ph
+enum Option<T> {
+	type Some(_ value: T)
+	type None
+}
+
+type UnitCircle {
+
+	private constructor(x: Int, y: Int)
+
+	@constructor 
+	of(_ x: Int, _ y: Int) -> Result<UnitCircle, Error> {
+		if x**2 + y**2 == 1 
+			then UnitCircle(x, y)
+			else Error("x**2 and y**2 should add up to 1")
+	}
+}
+
+class for Option<T> {
+	
+}
+
+```
+
+```ph
+data Point(x: Int, y: Int) {
+	constructor(private)
+	
+	
+}
+
+data Config(
+	_ name: String, 
+	options: #{
+		ip: String,
+		host: String,
+	}
+) class {
+	
+}
+
+data ConfigOptions {
+	ip: String,
+	host: String
+} class {
+	
+}
+
+```
+
+```ph
+type class Trait {
+	name -> String
+}
+
+class Implementer {
+	_name: String
+	name -> String = _name
+}
+
+class Implementer {
+	@get _name: String
+}
+
+impl Trait for Implementer {
+	
+}
+```
+
+```ph
+trait Counter {
+	private mut count: Int
+	// translates to:
+	// count -> Int
+	// count=(_: Int) -> ()
+	
+	increment { count++ }
+}
+
+class CounterImpl with Counter {
+	private mut count: Int = _count
+	// translates to
+	// _count: Int
+	// private mut count = _count
+	// which in turn means
+	// count
+}
+```

@@ -17,4 +17,5 @@ f.settleValue(1)
 System.print(f.isReady)
 System.print(f.value)
 const caught = f.catch |e| { (e == firstErr) }
+System.runScheduled()
 System.print(caught.value)

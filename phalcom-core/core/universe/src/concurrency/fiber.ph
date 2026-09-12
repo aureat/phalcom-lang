@@ -76,7 +76,7 @@ class System is Object {
 
 @native
 class Fiber is Object {
-  @class @native new(_ body: Dynamic) -> Fiber
+  @class @native new(_ body: Function) -> Fiber
 
   @native call() -> Dynamic
 
@@ -92,7 +92,7 @@ class Fiber is Object {
 
   @internal @native _$park(_ generation: Int) -> Dynamic
 
-  @internal @native _$onComplete(_ observer: Dynamic) -> Fiber
+  @internal @native _$onComplete(_ observer: () -> Unit) -> Fiber
 
   @internal @native _$terminalValue -> Dynamic
 
@@ -102,7 +102,7 @@ class Fiber is Object {
 
   @class @native current -> Fiber
 
-  @class @native abort(_ error: Error) -> Dynamic
+  @class @native abort(_ error: Error) -> Never
 
   @native isDone -> Bool
 
@@ -116,12 +116,9 @@ class Fiber is Object {
 // "Implementation" ¶1) — zero new floor, with scheduler-owned waiting routed
 // through private ticketed Fiber park/wake seams.
 //
-// **Both slices are landed.** Slice A is the scheduler-free half:
-// `value(_)`/`error(_)` construct an already-settled future, `isReady`/`value`
-// read it, and `then`/`map`/`catch` fire synchronously on an already-settled
-  // receiver. Slice B added `async(_)`, `await`, pending continuation drain,
-  // ticketed park/wake, and terminal completion observers over the native ready
-  // queue.
+// Matching then/map/catch callbacks always run on observed scheduler Fibers,
+// independent of whether the receiver was already settled at registration.
+// Await of an already-settled Future is an immediate state read.
 //
 // State lives in three private fields (plan §6.1): `_state` (one of the
 // strings `"pending"`, `"fulfilled"`, `"rejected"`), `_value` (the settled
@@ -129,7 +126,7 @@ class Fiber is Object {
 // ticketed `Tuple`s registered by `await` and `Closure`s registered by
 // `then`/`map`/`catch`. The tuple owns both the Fiber and the exact park
 // generation that is allowed to wake it.
-class Future {
+class Future<T> {
   // Builds a pending future (U-FUTURE Slice B).
   @constructor
   new() {
@@ -143,7 +140,7 @@ class Future {
   // rather than setting `_state`/`_value` directly so construction and
   // post-construction settlement share one settle-once code path.
   @constructor
-  value(_ v) {
+  value(_ v: T) {
     _state = "pending"
     _value = None
     _waiters = List.new()
@@ -154,7 +151,7 @@ class Future {
   // `@constructor error(_)`); see `value(_)` for why this routes
   // through `settleError` instead of assigning state directly.
   @constructor
-  error(_ e) {
+  error(_ e: Error) {
     _state = "pending"
     _value = None
     _waiters = List.new()
@@ -169,7 +166,7 @@ class Future {
   // once, C-FUT-3): a `self.isReady` receiver is a no-op that returns `self`
   // unchanged, so a second `settleValue`/`settleError` can never clobber the
   // first result. Returns `self` either way so callers can chain.
-  settleValue(_ v) -> Self {
+  settleValue(_ v: T) -> Future<T> {
     if not self.isReady {
       _state = "fulfilled"
       _value = v
@@ -182,7 +179,7 @@ class Future {
   // Settles `self` as `rejected` with `e` (an `Error`), unless already
   // settled — the rejection sibling of `settleValue(_)`; see it for
   // the settle-once contract (C-FUT-3).
-  settleError(_ e) -> Self {
+  settleError(_ e: Error) -> Future<T> {
     if not self.isReady {
       _state = "rejected"
       _value = e
@@ -211,7 +208,7 @@ class Future {
   // The settled value as an `Option` (concurrency.md §2): `Some(v)` once
   // `fulfilled`, `None` while `pending` or once `rejected` (the rejection
   // reason is reached via `catch(_)`/`then(_)`, not `value`).
-  value {
+  value -> Option<T> {
     if _state == "fulfilled" {
       return Some(_value)
     } else {
@@ -232,7 +229,7 @@ class Future {
   // Park preparation checks the native boundary before registration, so a
   // refusal cannot leave an actionable stale waiter behind. Wake is only
   // permission to run again; the loop rechecks readiness after every wake.
-  await {
+  await -> T {
     while (not self.isReady) {
       if (Fiber.current.isRoot) {
         // Pump until someone settles us. If the ready queue drains while we are
@@ -270,7 +267,7 @@ class Future {
   // Nonterminal park/yield turns do not call either callback.
   @private
   @class
-  runToTerminal(_ action, _ onSuccess, _ onError) {
+  runToTerminal<U>(_ action: () -> U, _ onSuccess: (U) -> Unit, _ onError: (Error) -> Unit) -> Fiber {
     const fiber = Fiber.new(action)
     fiber._$onComplete(|| {
       if fiber.error.isSome {
@@ -283,119 +280,112 @@ class Future {
     fiber
   }
 
-  // Adopts a terminal callback result into a derived Future, preserving the
-  // existing flattening rule for callbacks that return another Future.
+  // Subscribe to source readiness; this continuation only admits user work.
   @private
-  @class
-  adoptCallbackResult(_ f_next, _ result) {
-    const flattened = Future.flatten(result)
-    flattened.then |value| { f_next.settleValue(value) }
-    flattened.catch |error| { f_next.settleError(error) }
+  whenReady(_ continuation: () -> Unit) -> Unit {
+    if self.isReady {
+      continuation.call()
+    } else {
+      _waiters._$push(continuation)
+    }
     ()
   }
 
-  // Runs one pending continuation callback to terminal completion. The
-  // callback Fiber owns all suspension; the derived Future changes only from
-  // its terminal observer.
-  @private
   @class
-  runCallbackToFuture(_ callback, _ value, _ f_next) {
-    Future.runToTerminal(
-      || { callback.call(value) },
-      |result| { Future.adoptCallbackResult(f_next, result) },
-      |error| { f_next.settleError(error) }
-    )
-    ()
-  }
-
-  // Runs `action` on a fresh Fiber and settles the returned Future only from
-  // the action's terminal result.
-  @class
-  async(_ action) {
-    const f = Future.new()
+  async<U>(_ action: () -> U) -> Future<U> {
+    const result: Future<U> = Future.new()
     Future.runToTerminal(
       action,
-      |value| { f.settleValue(value) },
-      |error| { f.settleError(error) }
+      |value| { result.settleValue(value); () },
+      |error| { result.settleError(error); () }
     )
-    return f
+    result
   }
 
-  // Normalizes a continuation result into a single Future layer. A callback
-  // returning a Future is adopted; a plain value becomes an already-fulfilled
-  // Future. This is the Future assimilation rule used by then/map/catch.
+  // Value mapping preserves U exactly, including when U is itself a Future.
+  map<U>(_ callback: (T) -> U) -> Future<U> {
+    const result: Future<U> = Future.new()
+    self.whenReady(|| {
+      if _state == "fulfilled" {
+        Future.runToTerminal(
+          || { callback.call(_value) },
+          |value| { result.settleValue(value); () },
+          |error| { result.settleError(error); () }
+        )
+      } else {
+        result.settleError(_value)
+      }
+      ()
+    })
+    result
+  }
+
+  // Chaining explicitly adopts the callback's Future; there is no type-based
+  // runtime guess between U-as-data and Future<U>-as-computation.
+  then<U>(_ callback: (T) -> Future<U>) -> Future<U> {
+    const result: Future<U> = Future.new()
+    self.whenReady(|| {
+      if _state == "fulfilled" {
+        Future.runToTerminal(
+          || {
+            const next = callback.call(_value)
+            if next == result { throw Error.new("Future callback cannot adopt its own result") }
+            next.await
+          },
+          |value| { result.settleValue(value); () },
+          |error| { result.settleError(error); () }
+        )
+      } else {
+        result.settleError(_value)
+      }
+      ()
+    })
+    result
+  }
+
+  // A recovery value must inhabit the Future's payload type. Returning another
+  // Future as data remains distinct from recovering with asynchronous work.
+  catch(_ callback: (Error) -> T) -> Future<T> {
+    const result: Future<T> = Future.new()
+    self.whenReady(|| {
+      if _state == "rejected" {
+        Future.runToTerminal(
+          || { callback.call(_value) },
+          |value| { result.settleValue(value); () },
+          |error| { result.settleError(error); () }
+        )
+      } else {
+        result.settleValue(_value)
+      }
+      ()
+    })
+    result
+  }
+
+  recoverWith(_ callback: (Error) -> Future<T>) -> Future<T> {
+    const result: Future<T> = Future.new()
+    self.whenReady(|| {
+      if _state == "rejected" {
+        Future.runToTerminal(
+          || {
+            const next = callback.call(_value)
+            if next == result { throw Error.new("Future callback cannot adopt its own result") }
+            next.await
+          },
+          |value| { result.settleValue(value); () },
+          |error| { result.settleError(error); () }
+        )
+      } else {
+        result.settleValue(_value)
+      }
+      ()
+    })
+    result
+  }
+
   @class
-  flatten(_ value) {
-    if (value.is(Future)) {
-      return value
-    }
-    return Future.value(value)
-  }
-
-  // Registers a continuation on the settled/fulfilled path (concurrency.md
-  // §2 `then(_)`). If pending, registers a continuation that will settle
-  // the returned future when this receiver settles.
-  then(_ f) {
-    if (self.isReady) {
-      if (_state == "fulfilled") {
-        return Future.flatten(f.call(_value))
-      } else {
-        return self
-      }
-    } else {
-      const f_next = Future.new()
-      _waiters._$push(|| {
-        if (_state == "fulfilled") {
-          Future.runCallbackToFuture(f, _value, f_next)
-        } else {
-          f_next.settleError(_value)
-        }
-      })
-      return f_next
-    }
-  }
-
-  // `then(_)` restricted to the fulfilled path (concurrency.md §2 `map(_)`).
-  map(_ f) {
-    if (self.isReady) {
-      if (_state == "fulfilled") {
-        return Future.flatten(f.call(_value))
-      } else {
-        return self
-      }
-    } else {
-      const f_next = Future.new()
-      _waiters._$push(|| {
-        if (_state == "fulfilled") {
-          Future.runCallbackToFuture(f, _value, f_next)
-        } else {
-          f_next.settleError(_value)
-        }
-      })
-      return f_next
-    }
-  }
-
-  // Registers an error handler on the rejected path (concurrency.md §2
-  // `catch(_)`).
-  catch(_ f) {
-    if (self.isReady) {
-      if (_state == "rejected") {
-        return Future.flatten(f.call(_value))
-      } else {
-        return self
-      }
-    } else {
-      const f_next = Future.new()
-      _waiters._$push(|| {
-        if (_state == "rejected") {
-          Future.runCallbackToFuture(f, _value, f_next)
-        } else {
-          f_next.settleValue(_value)
-        }
-      })
-      return f_next
-    }
+  flatten<U>(_ nested: Future<Future<U>>) -> Future<U> {
+    nested.then(|inner| { inner })
   }
 }
 
@@ -409,11 +399,11 @@ class Future {
 // class has no caller yet — the sink protocol is ready when it lands.
 class Tracer {
   @class
-  stdout { Tracer.new() }
+  stdout -> Tracer { Tracer.new() }
 
-  enter(_ name, _ args) { System.print("-> " + name.toString + " " + args.toString) }
-  exit(_ name, _ result, _ elapsed) { System.print("<- " + name.toString + " = " + result.toString) }
-  threw(_ name, _ err) { System.print("!! " + name.toString + " threw " + err.toString) }
+  enter(_ name: Object, _ args: Object) -> Unit { System.print("-> " + name.toString + " " + args.toString) }
+  exit(_ name: Object, _ result: Dynamic, _ elapsed: Object) -> Unit { System.print("<- " + name.toString + " = " + result.toString) }
+  threw(_ name: Object, _ err: Error) -> Unit { System.print("!! " + name.toString + " threw " + err.toString) }
 }
 
 // `OffBehavior` (decorators-dispatch-observability.md D-3, ratified
@@ -425,17 +415,17 @@ class Tracer {
 // interception envelope is Install/Dispatch/Runtime mechanism work.
 class OffBehavior {
   @class
-  raise { OffBehavior.new("raise", None) }
+  raise -> OffBehavior { OffBehavior.new("raise", None) }
   @class
-  fallback(_ sel) { OffBehavior.new("fallback", Some(sel)) }
+  fallback(_ sel: Symbol) -> OffBehavior { OffBehavior.new("fallback", Some(sel)) }
   @class
-  skip(_ value) { OffBehavior.new("skip", Some(value)) }
+  skip(_ value: Dynamic) -> OffBehavior { OffBehavior.new("skip", Some(value)) }
 
   @constructor
-  new(_ kind, _ payload) { _kind = kind; _payload = payload }
+  new(_ kind: String, _ payload: Dynamic) { _kind = kind; _payload = payload }
 
-  kind { _kind }
-  payload { _payload }
+  kind -> String { _kind }
+  payload -> Dynamic { _payload }
 }
 
 // `Backoff` (decorators-behavioral.md B-2, ratified 2026-07-13): `@retry`'s
@@ -450,16 +440,16 @@ class OffBehavior {
 // pretending to work.
 class Backoff {
   @class
-  none { Backoff.new("none", 0, 0) }
+  none -> Backoff { Backoff.new("none", 0, 0) }
   @class
-  fixed(_ ms) { Backoff.new("fixed", ms, 0) }
+  fixed(_ ms: Int) -> Backoff { Backoff.new("fixed", ms, 0) }
   @class
-  exponential(base, max) { Backoff.new("exponential", base, max) }
+  exponential(base: Int, max: Int) -> Backoff { Backoff.new("exponential", base, max) }
 
   @constructor
-  new(_ kind, _ a, _ b) { _kind = kind; _a = a; _b = b }
+  new(_ kind: String, _ a: Int, _ b: Int) { _kind = kind; _a = a; _b = b }
 
-  waitBefore(_ attempt) {
+  waitBefore(_ attempt: Int) -> Option<Never> {
     if (_kind == "none") {
       return None
     } else {

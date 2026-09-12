@@ -11,6 +11,12 @@ fn decl(name: &str) -> DeclarationId {
 }
 
 #[test]
+fn empty_tuple_has_the_canonical_unit_identity() {
+    let mut store = TypeStore::new();
+    assert_eq!(store.tuple(Box::new([])), store.unit());
+}
+
+#[test]
 fn proper_type_enforcement_and_kinds() {
     let mut store = TypeStore::new();
     let int_id = store.nominal_type(decl("Int"));

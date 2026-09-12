@@ -9,7 +9,7 @@ const gate = Future.new()
 const thenFuture = source.then |value| {
   System.print("then-start")
   gate.await
-  "then-done"
+  Future.value("then-done")
 }
 const mapFuture = source.map |value| {
   System.print("map-start")

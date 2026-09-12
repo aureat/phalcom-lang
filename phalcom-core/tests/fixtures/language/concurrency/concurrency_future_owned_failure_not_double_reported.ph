@@ -14,4 +14,5 @@ const owned = Future.async || {
 // the native-frame guard is intentionally tested separately.
 System.runScheduled()
 owned.catch |e| { System.print("future: " + e.message) }
+System.runScheduled()
 System.print("after pump")

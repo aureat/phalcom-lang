@@ -120,6 +120,31 @@ fn resolve(env: &mut TestEnv, annotation: &TypeAnnotation) -> (TypeKnowledge, Ve
 }
 
 #[test]
+fn empty_tuple_annotation_and_unit_share_nested_generic_identity() {
+    let mut env = setup();
+    let empty = TypeAnnotation {
+        expr: TypeAnnotationExpr::Tuple {
+            elements: vec![],
+            range: RANGE,
+        },
+        range: RANGE,
+    };
+    let unit = TypeAnnotation {
+        expr: TypeAnnotationExpr::Unit { range: RANGE },
+        range: RANGE,
+    };
+    let (empty_type, empty_diagnostics) = resolve(&mut env, &application(reference("List"), vec![empty]));
+    let (unit_type, unit_diagnostics) = resolve(&mut env, &application(reference("List"), vec![unit]));
+    assert!(empty_diagnostics.is_empty(), "{empty_diagnostics:?}");
+    assert!(unit_diagnostics.is_empty(), "{unit_diagnostics:?}");
+    assert_eq!(empty_type.ty(), unit_type.ty());
+    let TypeData::Applied { arguments, .. } = env.store.get(empty_type.ty().expect("List<()> type")) else {
+        panic!("expected applied List type");
+    };
+    assert_eq!(arguments.as_ref(), &[env.store.unit()]);
+}
+
+#[test]
 fn lowers_list_and_map_applications() {
     let mut env = setup();
 

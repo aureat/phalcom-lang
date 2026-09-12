@@ -676,11 +676,19 @@ impl VM {
         if base_frames != 0 {
             return self.run_until_inner(base_frames);
         }
+        let mut draining_root = false;
         loop {
             match self.run_until_inner(0) {
                 Ok(value) => {
                     let finished = self.current;
                     if self.heap.fiber(finished).is_root {
+                        if !draining_root {
+                            // Keep the host activation's outcome independently
+                            // of values returned by the scheduler pump. The root
+                            // Fiber is GC-traced while child work is running.
+                            self.heap.fiber_mut(finished).result = value;
+                            draining_root = true;
+                        }
                         // The root fiber's own top-level activation ended.
                         // Root-drive pump (concurrency.md §2, "a root-drive
                         // pump: `VM::run` drains the ready-queue once the
@@ -706,7 +714,7 @@ impl VM {
                             continue;
                         }
                         self.report_unhandled_scheduler_failures()?;
-                        return Ok(value);
+                        return Ok(self.heap.fiber(finished).result);
                     }
                     let resumer = self
                         .heap
@@ -2763,6 +2771,23 @@ mod tests {
         assert_eq!(vm.heap.fiber(observer_fiber).entry, Some(observer));
         vm.enqueue_completion_observer(fiber).expect("detached observer is a no-op");
         assert_eq!(vm.pop_next_queued(), None);
+    }
+
+    #[test]
+    fn root_result_survives_scheduler_drain_and_gc() {
+        let mut vm = VM::new();
+        let module = vm.create_module("main", "root_result_drain");
+        let root = vm
+            .compile_closure_as(
+                module,
+                "System.schedule(|| { System.gc; \"discarded\" })\n\"root-\" + \"result\"\n",
+                UnitKind::File,
+            )
+            .expect("root closure should compile");
+        let frame = vm.new_call_frame(root, CallContext::Module { module }, 0, 0, None);
+        vm.push_frame(frame).expect("root frame should push");
+        let value = vm.run().expect("scheduled work should drain");
+        assert_eq!(value.to_string(&vm), "root-result");
     }
 
     #[test]

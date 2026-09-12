@@ -19,10 +19,6 @@ universe:collections.set	type.annotation.unsaturated_constructor	61	64
 universe:collections.tuple	type.annotation.unsaturated_constructor	382	386
 universe:collections.tuple	type.annotation.unsaturated_constructor	616	620
 universe:collections.tuple	type.annotation.unsaturated_constructor	654	657
-universe:concurrency.fiber	type.return.mismatch	2518	2520
-universe:concurrency.fiber	type.return.mismatch	5864	5868
-universe:concurrency.fiber	type.return.mismatch	6186	6190
-universe:concurrency.fiber	type.return.mismatch	6607	6616
 universe:errors.result	associated.generic.underconstrained	14943	14955
 universe:errors.result	associated.generic.underconstrained	15517	15529
 universe:errors.result	associated.generic.underconstrained	15903	15915

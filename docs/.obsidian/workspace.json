@@ -4,21 +4,17 @@
     "type": "split",
     "children": [
       {
-        "id": "e160eeaf4a4cc27e",
+        "id": "e153876d10644283",
         "type": "tabs",
         "children": [
           {
-            "id": "46e666892420d783",
+            "id": "5352b906845ff7b4",
             "type": "leaf",
             "state": {
-              "type": "markdown",
-              "state": {
-                "file": "spec/reflection/Untitled.md",
-                "mode": "source",
-                "source": false
-              },
+              "type": "empty",
+              "state": {},
               "icon": "lucide-file",
-              "title": "Untitled"
+              "title": "New tab"
             }
           }
         ]
@@ -185,8 +181,24 @@
       "bases:Create new base": false
     }
   },
-  "active": "46e666892420d783",
+  "active": "5352b906845ff7b4",
   "lastOpenFiles": [
+    "spec/reflection/Untitled.md",
+    "implementation/CONC002-concurrency-control-and-failure-observability/C3-concurrency-library-polish-and-composition-primitives/CONC002.C3.P2-completion-composition-time-and-task-primitives.md",
+    "implementation/CONC002-concurrency-control-and-failure-observability/C3-concurrency-library-polish-and-composition-primitives/CONC002.C3.P1-existing-library-typing-and-behavior-polish.md",
+    "implementation/CONC002-concurrency-control-and-failure-observability/C3-concurrency-library-polish-and-composition-primitives/CHECKPOINT.md",
+    "implementation/CONC002-concurrency-control-and-failure-observability/C3-concurrency-library-polish-and-composition-primitives",
+    "implementation/CONC002-concurrency-control-and-failure-observability/C2-native-suspension-and-reactor-groundwork/CONC002.C2.P1-R1-native-suspension-and-reactor-groundwork.md",
+    "implementation/CONC002-concurrency-control-and-failure-observability/C3-concurrency-standard-library/CONC002.C3.P1-concurrency-standard-library-enhancement.md",
+    "implementation/CONC002-concurrency-control-and-failure-observability/C3-concurrency-standard-library/CHECKPOINT.md",
+    "implementation/CONC002-concurrency-control-and-failure-observability/C3-concurrency-standard-library",
+    "implementation/CONC002-concurrency-control-and-failure-observability/C1-concurrency-control-and-failure-observability/CONC002.C1.P4-remaining-fiber-and-native-activation-work.md",
+    "implementation/CONC002-concurrency-control-and-failure-observability/C2-native-suspension-and-reactor-groundwork/CONC002.C2.P1-native-suspension-and-reactor-groundwork.md",
+    "implementation/CONC002-concurrency-control-and-failure-observability/C2-native-suspension-and-reactor-groundwork/CHECKPOINT.md",
+    "implementation/CONC002-concurrency-control-and-failure-observability/C2-native-suspension-and-reactor-groundwork",
+    "implementation/CONC002-concurrency-control-and-failure-observability/C1-concurrency-control-and-failure-observability/CONC002.C1.P3-concurrency-architecture-and-continuation-semantics.md",
+    "implementation/LANG004-associated-lookup-and-logical-paths/C1-associated-lookup/LANG004.C1.P2.R1-setter-value-lane-invocation-abi-remediation-plan.md",
+    "implementation/LANG004-associated-lookup-and-logical-paths/LANG004.C1.P2.R1-setter-value-lane-invocation-abi-remediation-plan.md",
     "implementation/LANG004-associated-lookup-and-logical-paths/C1-associated-lookup/selector-shapes-and-family-activation-implementation-state.md",
     "implementation/LANG004-associated-lookup-and-logical-paths/C1-associated-lookup/LANG004.C1.P2-selector-shapes-setter-lanes-and-family-activation-plan.md",
     "implementation/INBOX/phalcom-concurrency-control-patch-grade-implementation-plan.md",
@@ -205,23 +217,7 @@
     "audit/concurrency-control-2026-09-09/AUD-CONCURRENCY-001-async-completion-observer.md",
     "audit/concurrency-control-2026-09-09/evidence/probes/12-resume-validation.stderr",
     "audit/concurrency-control-2026-09-09/evidence/probes/12-resume-validation.stdout",
-    "audit/concurrency-control-2026-09-09/evidence/probes/12-resume-validation.ph",
-    "audit/concurrency-control-2026-09-09/evidence/probes/12-resume-validation.exit",
-    "audit/concurrency-control-2026-09-09/evidence/probes/11-root-drive-stale.stdout",
     "audit/type-system-2026-09-09/semantic-audit-executive-report.md",
-    "audit/type-system-2026-09-09/AUD-SEM-007-relation-budgets.md",
-    "audit/type-system-2026-09-09/AUD-SEM-006-unit-normalization.md",
-    "audit/type-system-2026-09-09/AUD-SEM-005-applied-nominal-supertype.md",
-    "audit/type-system-2026-09-09/AUD-SEM-004-union-cycle-state.md",
-    "audit/type-system-2026-09-09/AUD-SEM-003-applied-type-lowering.md",
-    "audit/type-system-2026-09-09/AUD-SEM-002-captured-write-stale-fact.md",
-    "audit/type-system-2026-09-09/AUD-SEM-001-incompatible-overrides.md",
-    "audit/type-system-2026-09-09/evidence/original-audit-prompt.md",
-    "audit/type-system-2026-09-09/evidence/README.md",
-    "audit/concurrency-control-2026-09-09/README.md",
-    "work/logs/2026-09-07-plan-b-completion-audit-remediation.md",
-    "work/logs/2026-09-07-plan-b-adt-semantic-index-repair.md",
-    "impl/lsp/architecture/phalcom-plan-b-completion-patch-grade-implementation-plan.md",
-    "audit/runtime-2026-09-07/AUDIT-L20-L21-ordering-and-string-contract-investigation.md"
+    "audit/type-system-2026-09-09/AUD-SEM-007-relation-budgets.md"
   ]
 }

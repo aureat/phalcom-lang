@@ -35,7 +35,7 @@ System.print(f3.await)
 const f4 = Future.new()
 const f5 = f4.then |v| {
   System.print("then run: " + v)
-  "then result"
+  Future.value("then result")
 }
 const f6 = f4.map |v| {
   System.print("map run: " + v)
@@ -62,8 +62,8 @@ System.print(f9.await)
 // C-FUT-8: callbacks returning a Future are assimilated, rather than wrapped
 // as a Future value. This exercises fulfilled, pending, and rejected paths.
 System.print(Future.value("then").then |v| { Future.value(v + " flattened") }.await)
-System.print(Future.value("map").map |v| { Future.value(v + " flattened") }.await)
-System.print(Future.error(Error.new("catch")).catch |e| { Future.value(e.message + " flattened") }.await)
+System.print(Future.value("map").then |v| { Future.value(v + " flattened") }.await)
+System.print(Future.error(Error.new("catch")).recoverWith |e| { Future.value(e.message + " flattened") }.await)
 
 // C-FUT-7: await under native frame raises CannotYieldAcrossNativeFrame
 const f10 = Future.new()

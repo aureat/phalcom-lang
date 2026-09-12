@@ -438,6 +438,23 @@ impl VM {
         let status = self.heap.fiber(fiber).status;
         match status {
             FiberStatus::New | FiberStatus::Yielded => {
+                // The scheduler always supplies zero entry arguments. Reject
+                // an incompatible entry before reserving it: discovering this
+                // only at dequeue would raise in the driver and strand healthy
+                // siblings (and leave this Fiber permanently Queued).
+                if !self.heap.fiber(fiber).started {
+                    let entry = self.heap.fiber(fiber).entry.expect("unstarted fiber has an entry");
+                    let (closure, _) = crate::primitive::block::resolve_callable(self, &Value::obj(entry))?;
+                    let shape = &self.heap.closure(closure).callable.parameter_shape;
+                    if !shape.accepts(&crate::parameters::ArgumentShape::positional(0)) {
+                        return Err(RuntimeError::Arity {
+                            signature: "scheduler",
+                            expected: shape.fixed_positionals,
+                            found: 0,
+                        }
+                        .into());
+                    }
+                }
                 self.heap.fiber_mut(fiber).status = FiberStatus::Queued;
                 self.ready_queue.push_back(fiber);
                 Ok(())

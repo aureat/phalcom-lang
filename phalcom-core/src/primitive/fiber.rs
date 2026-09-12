@@ -624,6 +624,9 @@ pub fn fiber_yield(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<V
     if vm.heap.fiber(me).is_root {
         return Err(RuntimeError::NotAllowed("cannot yield the root fiber".to_string()).into());
     }
+    if vm.heap.fiber(me).resume_mode == FiberResumeMode::Scheduler {
+        return Err(RuntimeError::NotAllowed("scheduled fiber cannot yield without a coroutine consumer".to_string()).into());
+    }
     let Some(resumer) = vm.heap.fiber(me).resumer else {
         return Err(RuntimeError::NotAllowed("fiber has no resumer".to_string()).into());
     };

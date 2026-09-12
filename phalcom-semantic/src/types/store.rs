@@ -507,6 +507,9 @@ impl TypeStore {
 
     /// Interns a tuple type.
     pub fn tuple(&mut self, elements: Box<[TupleTypeElement]>) -> TypeId {
+        if elements.is_empty() {
+            return self.unit();
+        }
         for elem in elements.iter() {
             debug_assert!(self.is_proper_type(elem.ty), "tuple element must be a proper type");
         }

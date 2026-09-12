@@ -36,8 +36,8 @@ pub enum FiberStatus {
     Failed,
 }
 
-/// How a fiber was last resumed — `call` re-raises the callee's failure into
-/// the resumer, `try` captures it instead (ADR-0030 §6, spec §3.2/§5.2).
+/// How a fiber was last resumed — `call` cascades terminal failure through
+/// linked resumers; `try` captures it instead (ADR-0030 §6).
 ///
 /// Recorded on the *callee* [`FiberObject`] at resume time so the fiber-floor
 /// capture (in `VM::run_until`) knows how to deliver a `Failed`
@@ -46,8 +46,9 @@ pub enum FiberStatus {
 /// success/failure is known.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FiberResumeMode {
-    /// Resumed via `Fiber#call`/`call(_:)` — an uncaught failure re-raises
-    /// into the resumer as if it had been raised at the `call` site.
+    /// Resumed via `Fiber#call`/`call(_:)` — an uncaught failure terminally
+    /// fails linked resumers until a Try/Scheduler boundary or the root.
+    /// This currently does not deliver a catchable exception at the call site.
     Call,
     /// Resumed via `Fiber#try`/`try(_:)` — a failure is captured and
     /// delivered as the `Error` value instead of raised.
