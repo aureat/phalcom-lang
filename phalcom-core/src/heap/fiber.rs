@@ -36,31 +36,25 @@ pub enum FiberStatus {
     Failed,
 }
 
-/// How a fiber was last resumed — `call` cascades terminal failure through
-/// linked resumers; `try` captures it instead (ADR-0030 §6).
-///
-/// Recorded on the *callee* [`FiberObject`] at resume time so the fiber-floor
-/// capture (in `VM::run_until`) knows how to deliver a `Failed`
-/// outcome once it later happens — the resume call itself returns
-/// immediately (an O(1) switch), long before the callee's eventual
-/// success/failure is known.
+/// How a fiber consumer was resumed — `call` propagates exceptions / unwinds
+/// through the parent call site; `try` captures errors as values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FiberResumeMode {
-    /// Resumed via `Fiber#call`/`call(_:)` — an uncaught failure terminally
-    /// fails linked resumers until a Try/Scheduler boundary or the root.
-    /// This currently does not deliver a catchable exception at the call site.
+pub enum FiberConsumerMode {
+    /// Resumed via `Fiber#call`/`call(_)` — failure injects `Raise` at the caller call site.
     Call,
-    /// Resumed via `Fiber#try`/`try(_:)` — a failure is captured and
-    /// delivered as the `Error` value instead of raised.
+    /// Resumed via `Fiber#try`/`try(_)` — failure is captured and delivered as an `Error` value.
     Try,
-    /// Resumed by the ready-queue scheduler. A terminal failure is isolated
-    /// from unrelated queued work like `Try`, while the explicit mode keeps
-    /// scheduler ownership distinct from the public coroutine API.
-    Scheduler,
+}
+
+/// The active manual coroutine consumer waiting for a user stop from a fiber.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FiberConsumer {
+    pub fiber: ObjRef,
+    pub mode: FiberConsumerMode,
 }
 
 /// A cooperative, single-threaded fiber: its own value + call stacks, a
-/// lifecycle [`FiberStatus`], a dynamic resumer link, a result slot, and its
+/// lifecycle [`FiberStatus`], an active coroutine consumer, a result slot, and its
 /// entry closure ([ADR-0030](../../../docs/adr/0030-fibers-and-futures-cooperative-concurrency.md) §2,
 /// `concurrency.md` §1).
 ///
@@ -72,10 +66,10 @@ pub enum FiberResumeMode {
 /// **inside the arena object** (never in native Rust memory) is what lets a
 /// future tracing GC reach a parked fiber's roots (ADR-0030 §7, D1).
 ///
-/// The `resumer` link and `result` slot retain immediate coroutine handoff and
+/// The `consumer` link and `result` slot retain immediate coroutine handoff and
 /// terminal value/error state. They are not durable Future-completion
 /// ownership: scheduler-managed Future work uses ticketed park/wake and the
-/// GC-traced `completion_observer`, which is independent of `resumer`
+/// GC-traced `completion_observer`, which is independent of `consumer`
 /// (ADR-0030 §Consequences, forward-compat §7.2).
 pub struct FiberObject {
     /// The fiber's private operand stack (empty while running — mirrored by
@@ -99,16 +93,16 @@ pub struct FiberObject {
     /// Monotonic ticket for the current or next Future-owned park. Wake
     /// authority must match the exact generation recorded in `Parked`.
     pub park_generation: i64,
-    /// Durable terminal observer, independent of the dynamic `resumer` chain.
+    /// Durable terminal observer, independent of the dynamic `consumer` chain.
     /// It is taken exactly once when this fiber reaches `Done` or `Failed`.
     pub completion_observer: Option<ObjRef>,
     /// Stable constructor identity: true only for the VM's root fiber.
-    /// Rootness must not be inferred from the dynamic `resumer` link, which is
+    /// Rootness must not be inferred from the dynamic `consumer` link, which is
     /// a control-transfer detail and may be absent for scheduler-managed work.
     pub is_root: bool,
-    /// The fiber to hand control back to on `yield`/return/failure — a dynamic
-    /// caller chain, not a fixed parent (`None` for the root fiber).
-    pub resumer: Option<ObjRef>,
+    /// The active coroutine consumer waiting for the next user stop (yield/return/failure).
+    /// Preserved across Future park/wake/resume episodes.
+    pub consumer: Option<FiberConsumer>,
     /// The last yielded/returned value, or the captured `Error` when
     /// [`FiberStatus::Failed`] (ADR-0030 §6).
     pub result: Value,
@@ -131,11 +125,6 @@ pub struct FiberObject {
     /// (ADR-0030 §4): a `yield` is legal iff no native re-entrant `run_until`
     /// (a `block_call` and friends) has been entered since.
     pub floor_depth: usize,
-    /// How this fiber was last resumed ([`FiberResumeMode`]) — read at the
-    /// fiber-floor capture when this fiber later finishes/fails. Meaningless
-    /// while [`FiberStatus::New`] pre-first-resume; set on every
-    /// `call`/`try`.
-    pub resume_mode: FiberResumeMode,
     /// The identity set of receivers currently under `@invariant`
     /// re-entrancy-guard checking on this fiber (empty while running —
     /// mirrored by [`VM::checking`](crate::vm::VM)), populated/drained by the
@@ -181,7 +170,7 @@ impl FiberObject {
             park_generation: 0,
             completion_observer: None,
             is_root: false,
-            resumer: None,
+            consumer: None,
             result: Value::nil(),
             entry: Some(entry),
             started: false,
@@ -189,7 +178,6 @@ impl FiberObject {
             resume_destination: None,
             control_stack: crate::vm::control::ControlStack::new(),
             floor_depth: 0,
-            resume_mode: FiberResumeMode::Call,
             checking: HashSet::new(),
             seq: 0,
             spawn_file: None,
@@ -211,7 +199,7 @@ impl FiberObject {
             park_generation: 0,
             completion_observer: None,
             is_root: false,
-            resumer: None,
+            consumer: None,
             result: Value::nil(),
             entry: Some(entry),
             started: false,
@@ -219,7 +207,6 @@ impl FiberObject {
             resume_destination: None,
             control_stack: crate::vm::control::ControlStack::new(),
             floor_depth: 0,
-            resume_mode: FiberResumeMode::Call,
             checking: HashSet::new(),
             seq: 0,
             spawn_file: None,
@@ -240,7 +227,7 @@ impl FiberObject {
             park_generation: 0,
             completion_observer: None,
             is_root: true,
-            resumer: None,
+            consumer: None,
             result: Value::nil(),
             entry: None,
             started: true,
@@ -248,7 +235,6 @@ impl FiberObject {
             resume_destination: None,
             control_stack: crate::vm::control::ControlStack::new(),
             floor_depth: 0,
-            resume_mode: FiberResumeMode::Call,
             checking: HashSet::new(),
             // The root fiber is always display id 1 (traceback implementation
             // spec §6) — the one fiber never spawned through

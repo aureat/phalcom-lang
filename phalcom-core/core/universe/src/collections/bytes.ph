@@ -529,8 +529,9 @@ class BufferedWriter is Resource {
       return Future.value(None)
     }
     let chunk = _buf.slice(0, _len)
-    return _inner.write(chunk).then |bytesWritten| {
-      _len = 0
+    let submitted = _inner.write(chunk)
+    _len = 0
+    return submitted.then |bytesWritten| {
       Future.value(None)
     }
   }
@@ -545,7 +546,7 @@ class BufferedWriter is Resource {
 
   finish {
     return self.flush.then |_| {
-      self.close
+      Future.value(self.close)
     }
   }
 }

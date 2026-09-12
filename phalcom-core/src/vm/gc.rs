@@ -42,11 +42,13 @@ impl VM {
             stack,
             control_stack,
             current,
+            root_fiber,
             open_upvalues,
 
             // Fibers enqueued by `System.schedule(_)`, not yet started. Reachable
             // from nowhere else until the pump drains them.
             ready_queue,
+            scheduler_drivers,
             // Detached scheduler failures retain their terminal Fiber and
             // captured Error until a safe reporting boundary consumes them.
             unhandled_scheduler_failures,
@@ -126,9 +128,11 @@ impl VM {
             }
         }
         out.push(*current);
+        out.push(*root_fiber);
         control_stack.trace_roots(&mut |id| out.push(id));
         out.extend(open_upvalues.values().copied());
         out.extend(ready_queue.iter().copied());
+        out.extend(scheduler_drivers.iter().copied());
         for failure in unhandled_scheduler_failures {
             out.push(failure.fiber);
             if let Some(id) = failure.error.gc_obj_ref() {

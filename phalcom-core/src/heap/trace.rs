@@ -187,8 +187,8 @@ pub fn trace_object(obj: &Object, push: &mut impl FnMut(ObjRef)) {
             for cell in fiber.open_upvalues.values() {
                 push(*cell);
             }
-            if let Some(resumer) = fiber.resumer {
-                push(resumer);
+            if let Some(consumer) = fiber.consumer {
+                push(consumer.fiber);
             }
             if let Some(observer) = fiber.completion_observer {
                 push(observer);

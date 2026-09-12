@@ -1,0 +1,4 @@
+Unhandled scheduled Fiber failure:
+scheduled fiber cannot yield without a coroutine consumer
+worker failed: true
+error: scheduled fiber cannot yield without a coroutine consumer

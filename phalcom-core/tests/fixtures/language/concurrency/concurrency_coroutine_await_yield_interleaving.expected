@@ -1,0 +1,9 @@
+coroutine: started
+caller received: yield-1
+coroutine: awaiting future
+scheduler task: settling future
+coroutine: resumed after await with 99
+caller received: yield-2
+coroutine: completing
+caller received: done
+worker isDone: true

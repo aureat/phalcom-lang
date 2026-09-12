@@ -60,7 +60,7 @@ pub use block::BlockObject;
 pub use bytes::BytesObject;
 pub use class::{ClassObject, is_strict_subclass, lookup_method_in_hierarchy, lookup_method_with_definer};
 pub use closure::ClosureObject;
-pub use fiber::{FiberObject, FiberResumeMode, FiberStatus};
+pub use fiber::{FiberConsumer, FiberConsumerMode, FiberObject, FiberStatus};
 pub use instance::InstanceObject;
 pub use list::ListObject;
 pub use map::MapObject;
@@ -217,6 +217,11 @@ impl Heap {
             }
         });
         self.gc_pending || stress_due
+    }
+
+    /// Iterates over all active objects in the heap.
+    pub(crate) fn iter_objects(&self) -> impl Iterator<Item = (ObjRef, &Object)> {
+        self.objects.iter()
     }
 
     /// Allocates `object` and returns its fresh [`ObjRef`].

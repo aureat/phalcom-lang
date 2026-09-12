@@ -706,42 +706,18 @@ impl VM {
                             self.heap.fiber_mut(finished).result = value;
                             draining_root = true;
                         }
-                        // The root fiber's own top-level activation ended.
-                        // Root-drive pump (concurrency.md §2, "a root-drive
-                        // pump: `VM::run` drains the ready-queue once the
-                        // top-level program's own activation ends"): before
-                        // finishing, resume any fiber `System.schedule(_)`
-                        // queued, exactly like the `.ph`-level manual pump
-                        // (`System.runScheduled`, `core.ph`) does, so `await`
-                        // can rely on this firing automatically without the
-                        // top-level program calling `runScheduled` itself.
-                        //
-                        // The scheduler resume path expects the ordinary Invoke calling
-                        // convention (a receiver value already sitting on
-                        // `self.stack`, consumed via its own `resume_slot`
-                        // bookkeeping) — push a placeholder so its
-                        // `receiver_idx` arithmetic doesn't underflow; it is
-                        // parked into this (root) fiber's stack by
-                        // `store_live_into` and overwritten on restore
-                        // (`switch_to_fiber_and_deliver`'s `stack.truncate`),
-                        // so it never leaks.
                         if let Some(next) = self.pop_next_queued() {
-                            self.stack.push(Value::obj(next));
-                            crate::primitive::fiber::fiber_resume_scheduled(self, &Value::obj(next), &[])?;
+                            crate::primitive::fiber::store_live_into(self, finished);
+                            self.resume_queued_fiber(next)?;
                             continue;
                         }
                         self.report_unhandled_scheduler_failures()?;
                         return Ok(self.heap.fiber(finished).result);
                     }
-                    let resumer = self
-                        .heap
-                        .fiber(finished)
-                        .resumer
-                        .ok_or_else(|| RuntimeError::Internal("non-root fiber finished without a resumer".to_string()))?;
+
                     // Fiber-floor capture, success path (spec §3.2): `finished`
                     // is a non-root fiber whose entry activation just drained
-                    // to nothing. Deliver `value` to the resumer's `call`/
-                    // `try` expression and switch back to it.
+                    // to nothing.
                     self.mark_fiber_done(finished, value);
                     self.enqueue_completion_observer(finished)?;
 
@@ -769,8 +745,45 @@ impl VM {
                             self.fiber_pool.push((stack, frames));
                         }
                     }
-                    self.switch_to_fiber_and_deliver(resumer, value);
-                    // Loop again: keep draining, now as `resumer`.
+
+                    let consumer = self.heap.fiber_mut(finished).consumer.take();
+                    if let Some(consumer) = consumer {
+                        self.switch_to_fiber_and_deliver(consumer.fiber, value);
+                        continue;
+                    }
+
+                    // No consumer: detached scheduled work finished.
+                    if let Some(next) = self.pop_next_queued() {
+                        self.resume_queued_fiber(next)?;
+                        continue;
+                    }
+
+                    if let Some(driver) = self.scheduler_drivers.pop() {
+                        self.switch_to_fiber_and_deliver(driver, Value::nil());
+                        continue;
+                    }
+
+                    if let Some(parked_leaf) = self.find_root_blocking_parked_leaf() {
+                        self.heap.fiber_mut(parked_leaf).park_generation += 1;
+                        self.heap.fiber_mut(parked_leaf).status = crate::heap::FiberStatus::Running;
+                        crate::primitive::fiber::load_live_from(self, parked_leaf);
+                        let msg = "await: the future is still pending and the scheduler is empty; nothing can settle it".to_string();
+                        let class = self.universe.classes.error_class;
+                        let field_count = self.heap.class(class).field_count;
+                        let mut inst = crate::heap::InstanceObject::new(class, field_count);
+                        inst.slots[0] = self.alloc_string_value(msg.clone());
+                        let error = Value::obj(self.heap.alloc(Object::Instance(inst)));
+                        return Err(RuntimeError::Raise {
+                            error,
+                            rendered: msg,
+                            traceback: None,
+                            help: None,
+                        }
+                        .into());
+                    }
+
+                    self.report_unhandled_scheduler_failures()?;
+                    return Ok(self.heap.fiber(self.root_fiber).result);
                 }
                 Err(mut e) => {
                     if !self.control_stack.is_empty() {
@@ -797,30 +810,7 @@ impl VM {
                         }
                     }
 
-                    // Fiber-floor capture, failure path (spec §3.2, the
-                    // DEC-FIB-A fix): the U-CORE-6 unwind reached the top of
-                    // the current fiber's own activation uncaught. Capture it
-                    // into its result slot instead of propagating past the
-                    // fiber boundary. Under `call`, cascade the same capture
-                    // straight up the resumer chain — without executing any
-                    // of an intermediate `call`-mode resumer's own bytecode,
-                    // exactly as if `e` raised at each `call()` site
-                    // in turn with no handler — until a `try`-mode resumer
-                    // (which gets the `Error` delivered as a value instead)
-                    // or the root fiber (which ends the whole run) is
-                    // reached. The host, and every fiber the failure doesn't
-                    // reach, survives.
                     let error_value = self.capture_error_value(&e);
-                    // E002 fix: close the originating fiber's own open
-                    // upvalues against its still-live stack *before* the
-                    // cascade below discards anything, mirroring
-                    // `unwind_to`'s close-before-truncate order (dispatch.rs
-                    // ~L96-103) for the fiber-floor failure path, which
-                    // previously skipped it entirely. This must run before
-                    // `self.current` is repointed by `switch_to_fiber_and_deliver`
-                    // (`load_live_from` would otherwise overwrite
-                    // `self.open_upvalues`/`self.stack` first, discarding the
-                    // failing fiber's slots un-closed).
                     self.close_upvalues_from(0);
                     let mut failed = self.current;
                     loop {
@@ -842,11 +832,54 @@ impl VM {
                             self.close_fiber_upvalues_from(failed, 0);
                         }
 
-                        let mode = self.heap.fiber(failed).resume_mode;
+                        let consumer = self.heap.fiber_mut(failed).consumer.take();
                         let had_completion_owner = self.heap.fiber(failed).completion_observer.is_some();
-                        let Some(resumer) = self.heap.fiber(failed).resumer else {
-                            return Err(e);
+
+                        self.heap.fiber_mut(failed).frames.clear();
+                        self.heap.fiber_mut(failed).stack.clear();
+                        self.heap.fiber_mut(failed).open_upvalues.clear();
+
+                        if consumer.is_none() && !had_completion_owner {
+                            self.record_unhandled_scheduler_failure(failed, error_value);
+                        }
+                        self.enqueue_completion_observer(failed)?;
+
+                        let Some(consumer) = consumer else {
+                            if let Some(next) = self.pop_next_queued() {
+                                self.resume_queued_fiber(next)?;
+                                break;
+                            }
+                            if let Some(driver) = self.scheduler_drivers.pop() {
+                                self.switch_to_fiber_and_deliver(driver, Value::nil());
+                                break;
+                            }
+                            if self.heap.fiber(failed).is_root {
+                                return Err(e);
+                            }
+                            if let Some(parked_leaf) = self.find_root_blocking_parked_leaf() {
+                                self.heap.fiber_mut(parked_leaf).park_generation += 1;
+                                self.heap.fiber_mut(parked_leaf).status = crate::heap::FiberStatus::Running;
+                                crate::primitive::fiber::load_live_from(self, parked_leaf);
+                                let msg = "await: the future is still pending and the scheduler is empty; nothing can settle it".to_string();
+                                let class = self.universe.classes.error_class;
+                                let field_count = self.heap.class(class).field_count;
+                                let mut inst = crate::heap::InstanceObject::new(class, field_count);
+                                inst.slots[0] = self.alloc_string_value(msg.clone());
+                                let error = Value::obj(self.heap.alloc(Object::Instance(inst)));
+                                return Err(RuntimeError::Raise {
+                                    error,
+                                    rendered: msg,
+                                    traceback: None,
+                                    help: None,
+                                }
+                                .into());
+                            }
+                            self.report_unhandled_scheduler_failures()?;
+                            return Ok(self.heap.fiber(self.root_fiber).result);
                         };
+
+                        let resumer = consumer.fiber;
+                        let mode = consumer.mode;
 
                         if !matches!(e, PhError::Runtime(RuntimeError::Raise { .. })) {
                             let error = error_value;
@@ -875,30 +908,12 @@ impl VM {
                             tb.extend(resumer_frames);
                         }
 
-                        // Spec §5.1: a `Failed` fiber can never resume, so its
-                        // parked state is pure retention — clear all three
-                        // parked fields here (not just `frames`). The
-                        // originating fiber's own `FiberObject` fields are
-                        // already empty (they were `vm.frames`/`stack`/
-                        // `open_upvalues`, the live mirror, when it raised);
-                        // this matters for an intermediate `Call`-mode
-                        // resumer walked by this cascade, whose fields still
-                        // hold the state it parked when it resumed the fiber
-                        // that ultimately failed.
-                        self.heap.fiber_mut(failed).frames.clear();
-                        self.heap.fiber_mut(failed).stack.clear();
-                        self.heap.fiber_mut(failed).open_upvalues.clear();
-                        if mode == crate::heap::FiberResumeMode::Scheduler && !had_completion_owner {
-                            self.record_unhandled_scheduler_failure(failed, error_value);
-                        }
-                        self.enqueue_completion_observer(failed)?;
-
                         match mode {
-                            crate::heap::FiberResumeMode::Try | crate::heap::FiberResumeMode::Scheduler => {
+                            crate::heap::FiberConsumerMode::Try => {
                                 self.switch_to_fiber_and_deliver(resumer, error_value);
                                 break;
                             }
-                            crate::heap::FiberResumeMode::Call => {
+                            crate::heap::FiberConsumerMode::Call => {
                                 self.switch_to_fiber_without_deliver(resumer);
                                 if !self.control_stack.is_empty() {
                                     match self.step_control_transfer(Transfer::Raise(e.clone()))? {

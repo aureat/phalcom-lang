@@ -22,7 +22,7 @@ C2 owns VM control continuation state, coroutine-consumer/executor semantics, an
 | Plan | Scope | Status | Verification | Summary / Outcome |
 |---|---|---|---|---|
 | `CONC002.C2.P1-R1` | Native suspension, VM-owned protected/cleanup control, transfer routing, Call failure injection, native-control migration | **COMPLETE** | `VERIFIED` | VM-owned `ControlStack` implemented; `on`, `ensure`, `whileTrue`, `Bool`, and `Option` migrated to shape ABI; Call-mode parent exception injection verified; genuine host re-entry guards preserved. |
-| `CONC002.C2.P2` | Coroutine consumer / executor separation, VM-owned queued driving, manual pending await, yield-await-yield, nested GC/failure verification, conditional `Fiber<R>` | **READY / IN_PROGRESS** | `UNVERIFIED` | Published; separates manual coroutine consumption from executor driving; unblocks `yield -> await -> yield`. |
+| `CONC002.C2.P2` | Coroutine consumer / executor separation, VM-owned queued driving, manual pending await, yield-await-yield, nested GC/failure verification, conditional `Fiber<R>` | **IMPLEMENTED** | `FOCUSED VERIFIED / WORKSPACE BASELINE BLOCKED` | Separates manual coroutine consumption from executor driving; unblocks `yield -> await -> yield`; lib, concurrency, and stream suites verified. The workspace gate reaches an independently reproduced REPL reflection-export baseline. |
 
 ---
 
@@ -115,6 +115,6 @@ All verification commands executed serially on `main` with cleared compiler flag
 
 ## 7. Next Actions and Handoff
 
-- **Active Plan**: `CONC002.C2.P2` (*Coroutine consumer / executor separation and Fiber protocol completion*).
+- **Active Plan**: `CONC002.C2.P2` (*Coroutine consumer / executor separation and Fiber protocol completion*) is implemented and focused-verified.
 - **Handoff Document**: [`CONC002.C2.P2-handoff.md`](CONC002.C2.P2-handoff.md).
-- **Primary Goal**: Separate manual `coroutine_consumer` from `executor` driving to enable `yield -> await -> yield` and complete the `Fiber` surface protocol.
+- **Release Gate**: Workspace certification remains blocked by the clean-`HEAD` `phalcom-repl --test repl_imports` reflection-export failure; it is outside C2's changed paths.

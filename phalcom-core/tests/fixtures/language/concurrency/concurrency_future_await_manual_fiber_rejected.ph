@@ -1,8 +1,7 @@
-// area: concurrency
-// spec: concurrency.md §2; patch-grade plan C2
+// spec: concurrency.md §2; CONC002.C2.P2
 // status: PASS
-// Await is a scheduler-owned operation. A manually resumed Fiber must fail
-// before it registers a Future waiter.
+// A manually resumed Fiber may await a pending Future. When the Future is pending
+// and the scheduler is empty with no progress, quiescence detection raises a catchable error.
 
 const pending = Future.new()
 const manual = Fiber.new || { pending.await }

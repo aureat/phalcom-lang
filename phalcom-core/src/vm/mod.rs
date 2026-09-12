@@ -22,6 +22,7 @@ mod send;
 pub(crate) use send::FamilyInvocationKind;
 pub mod walk;
 
+use crate::heap::Object;
 pub use output::{BufferedOutput, OutputHandle, RuntimeOutput, StdoutOutput};
 
 use crate::error::{PhResult, RuntimeError};
@@ -218,6 +219,8 @@ pub struct VM {
     /// this just makes it addressable. `Object::Fiber` is not reached through
     /// any new `Value` arm (D2); this handle is the VM's own bookkeeping.
     pub(crate) current: ObjRef,
+    /// Handle of the root fiber created at bootstrap.
+    pub(crate) root_fiber: ObjRef,
     /// Set by a fiber-switch primitive (`fiber_call`/`fiber_try`/
     /// `fiber_yield`) just before it returns, to tell
     /// [`Self::call_method`]'s `Primitive` arm that [`Self::frames`]/
@@ -331,6 +334,8 @@ pub struct VM {
     /// entry call, exactly like `Fiber#call`'s first-resume path
     /// (`primitive/fiber.rs` `fiber_resume`).
     pub(crate) ready_queue: VecDeque<ObjRef>,
+    /// Active scheduler driver fibers awaiting completion of a scheduled step.
+    pub(crate) scheduler_drivers: Vec<ObjRef>,
     /// Terminal scheduler-owned failures that have no completion observer.
     pub(crate) unhandled_scheduler_failures: VecDeque<UnhandledSchedulerFailure>,
     /// Sequence assigned to the next unhandled scheduler failure.
@@ -441,7 +446,7 @@ impl VM {
     pub(crate) fn enqueue_unowned_fiber(&mut self, fiber: ObjRef) -> PhResult<()> {
         let status = self.heap.fiber(fiber).status;
         match status {
-            FiberStatus::New | FiberStatus::Yielded => {
+            FiberStatus::New => {
                 // The scheduler always supplies zero entry arguments. Reject
                 // an incompatible entry before reserving it: discovering this
                 // only at dequeue would raise in the driver and strand healthy
@@ -463,6 +468,7 @@ impl VM {
                 self.ready_queue.push_back(fiber);
                 Ok(())
             }
+            FiberStatus::Yielded => Err(RuntimeError::NotAllowed("cannot schedule a yielded fiber".to_string()).into()),
             FiberStatus::Queued => Err(RuntimeError::NotAllowed("fiber is already queued".to_string()).into()),
             FiberStatus::Parked(_) => Err(RuntimeError::NotAllowed("fiber is parked on a Future".to_string()).into()),
             FiberStatus::Running => Err(RuntimeError::NotAllowed("fiber is already running".to_string()).into()),
@@ -563,6 +569,103 @@ impl VM {
         self.heap.fiber_mut(fiber).status = FiberStatus::Queued;
         self.ready_queue.push_back(fiber);
         true
+    }
+
+    /// Resumes a queued fiber as executor-driven work.
+    /// Does NOT create or alter the fiber's `consumer`.
+    pub(crate) fn resume_queued_fiber(&mut self, callee_ref: ObjRef) -> PhResult<()> {
+        let started = self.heap.fiber(callee_ref).started;
+        let entry_call = if !started {
+            let entry = self.heap.fiber(callee_ref).entry.expect("non-root fiber always has an entry");
+            let (closure_id, home_frame_token) = match self.heap.get(entry) {
+                Object::Block(block) => (block.closure, Some(block.home_frame_token)),
+                Object::Closure(_) => (entry, None),
+                _ => unreachable!("fiber_new only accepts Block/Closure entries"),
+            };
+            let shape = self.heap.closure(closure_id).callable.parameter_shape.clone();
+            if !shape.accepts(&crate::parameters::ArgumentShape::positional(0)) {
+                return Err(RuntimeError::Arity {
+                    signature: "scheduler",
+                    expected: shape.fixed_positionals,
+                    found: 0,
+                }
+                .into());
+            }
+            let bound_args = Vec::new();
+            Some((entry, closure_id, home_frame_token, bound_args))
+        } else {
+            None
+        };
+
+        if let Some((entry, closure_id, home_frame_token, bound_args)) = entry_call {
+            self.frames.clear();
+            self.stack.clear();
+            self.open_upvalues.clear();
+            self.control_stack.clear();
+            self.checking.clear();
+            let stack_offset = self.stack.len();
+            self.stack.push(Value::obj(entry));
+            self.stack.extend_from_slice(&bound_args);
+            let mut frame = self.new_call_frame(closure_id, crate::frame::CallContext::Instance { instance: entry }, 0, stack_offset, None);
+            frame.home_frame_token = home_frame_token;
+            self.push_frame(frame)?;
+            self.heap.fiber_mut(callee_ref).started = true;
+        } else {
+            crate::primitive::fiber::load_live_from(self, callee_ref);
+            let slot = self.heap.fiber(callee_ref).resume_slot;
+            self.stack.truncate(slot);
+            self.stack.push(Value::nil());
+        }
+
+        self.heap.fiber_mut(callee_ref).status = FiberStatus::Running;
+        self.heap.fiber_mut(callee_ref).floor_depth = self.native_reentry_depth;
+        self.current = callee_ref;
+        self.switch_pending = true;
+        Ok(())
+    }
+
+    /// Determines if following the consumer chain from `leaf` reaches the root fiber.
+    pub(crate) fn is_root_blocking_chain(&self, leaf: ObjRef) -> bool {
+        let mut cur = leaf;
+        while let Some(consumer) = self.heap.fiber(cur).consumer {
+            if self.heap.fiber(consumer.fiber).is_root {
+                return true;
+            }
+            cur = consumer.fiber;
+        }
+        false
+    }
+
+    /// Finds a parked leaf fiber that blocks the root fiber via an active coroutine consumer chain.
+    pub(crate) fn find_root_blocking_parked_leaf(&self) -> Option<ObjRef> {
+        let root_ref = self.root_fiber;
+        if self.heap.fiber(root_ref).status != FiberStatus::BlockedOnChild {
+            return None;
+        }
+
+        // Find child whose consumer is root
+        let mut cur = root_ref;
+        loop {
+            let mut next_child = None;
+            for (ref_id, obj) in self.heap.iter_objects() {
+                if let Object::Fiber(fiber) = obj {
+                    if let Some(consumer) = fiber.consumer {
+                        if consumer.fiber == cur {
+                            next_child = Some(ref_id);
+                            break;
+                        }
+                    }
+                }
+            }
+            let child = next_child?;
+            match self.heap.fiber(child).status {
+                FiberStatus::Parked(_) => return Some(child),
+                FiberStatus::BlockedOnChild => {
+                    cur = child;
+                }
+                _ => return None,
+            }
+        }
     }
 
     /// Returns canonical Universe root package.
