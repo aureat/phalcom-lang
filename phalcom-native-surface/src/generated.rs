@@ -1,7 +1,7 @@
 #![doc = r" Generated canonical native surface records."]
 #[doc = r" Number of authored `#[primitive]` declarations scanned by the surface"]
 #[doc = r" generator."]
-pub const GENERATED_PRIMITIVE_DECLARATION_COUNT: usize = 332usize;
+pub const GENERATED_PRIMITIVE_DECLARATION_COUNT: usize = 333usize;
 use crate::{NativeMemberKind, NativeReturnShape, NativeSurfaceRecord};
 use phalcom_native_meta::*;
 pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
@@ -3665,7 +3665,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             conceptual: None,
         },
         kind: NativeMemberKind::Method,
-        abi: PrimitiveAbi::Value,
+        abi: PrimitiveAbi::Shape,
         return_shape: NativeReturnShape::Instance("Object"),
     },
     NativeSurfaceRecord {
@@ -3759,7 +3759,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             conceptual: None,
         },
         kind: NativeMemberKind::Method,
-        abi: PrimitiveAbi::Value,
+        abi: PrimitiveAbi::Shape,
         return_shape: NativeReturnShape::Instance("Option"),
     },
     NativeSurfaceRecord {
@@ -3806,7 +3806,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             conceptual: None,
         },
         kind: NativeMemberKind::Method,
-        abi: PrimitiveAbi::Value,
+        abi: PrimitiveAbi::Shape,
         return_shape: NativeReturnShape::Instance("Option"),
     },
     NativeSurfaceRecord {
@@ -3859,7 +3859,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             conceptual: None,
         },
         kind: NativeMemberKind::Method,
-        abi: PrimitiveAbi::Value,
+        abi: PrimitiveAbi::Shape,
         return_shape: NativeReturnShape::Instance("Object"),
     },
     NativeSurfaceRecord {
@@ -3953,7 +3953,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             conceptual: None,
         },
         kind: NativeMemberKind::Method,
-        abi: PrimitiveAbi::Value,
+        abi: PrimitiveAbi::Shape,
         return_shape: NativeReturnShape::Instance("Object"),
     },
     NativeSurfaceRecord {
@@ -5368,12 +5368,12 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             intrinsic: None,
             trust: NativeTrust::Ordinary,
             docs: Some(
-                " Signature: `Block::ensure(_)` — the always-runs cleanup primitive `try`/\n `ensure` desugars to (error-handling.md §4, ADR-0008 §4.1,\n [ADR-0038](../../../docs/adr/accepted/0038-amend-floor-admit-block-on-ensure.md)).\n\n Runs the receiver (protected) block, then runs the cleanup block `args[0]`\n on **every** exit path — normal completion, a non-local `return` unwinding\n *through* the protected block, or an uncaught `throw` — and re-propagates\n the protected block's original outcome unchanged. `ensure` never catches a\n `Raise` (unlike [`block_on`]): an uncaught error's frames are left exactly\n as `run_until` produced them, so an enclosing `on`/the top-level trace\n renderer still sees the full stack.\n\n **Cleanup-supersedes** (ADR-0008 §4.2): if the cleanup block itself\n diverges — raises, or non-locally returns — that new outcome **replaces**\n the pending one instead of being merely run for effect.\n\n # Errors\n\n Propagates whichever of the protected/cleanup outcomes wins per the\n cleanup-supersedes rule above.",
+                " Signature: `Block::ensure(_)` — the always-runs cleanup primitive `try`/\n `ensure` desugars to (error-handling.md §4, ADR-0008 §4.1,\n [ADR-0038](../../../docs/adr/accepted/0038-amend-floor-admit-block-on-ensure.md)).",
             ),
             conceptual: None,
         },
         kind: NativeMemberKind::Method,
-        abi: PrimitiveAbi::Value,
+        abi: PrimitiveAbi::Shape,
         return_shape: NativeReturnShape::Unknown,
     },
     NativeSurfaceRecord {
@@ -5464,12 +5464,12 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             intrinsic: None,
             trust: NativeTrust::Ordinary,
             docs: Some(
-                " Signature: `Block::on(_)(_)` — the typed catch primitive `try`/`on`/`catch`\n desugar to (error-handling.md §2, [ADR-0008](../../../docs/adr/accepted/0008-layered-exceptions-and-result.md),\n [ADR-0038](../../../docs/adr/accepted/0038-amend-floor-admit-block-on-ensure.md)).\n\n Runs the receiver block (`args[0]` unused — the receiver *is* the\n protected block); if it completes with a caught `throw` whose `Error`\n `is(args[0])` (a `Class`), restores the VM to its pre-run snapshot and\n runs the handler block `args[1]` with the caught `Error`, returning its\n result. Any other outcome passes straight through:\n\n - **Normal completion**, or an **`Ok` with a shrunk frame stack** (a\n   non-local `return` unwound *through* the protected block, U10) — `on`\n   does not catch a `return`; it is not a `throw` (ADR-0008 §4.2). Returned\n   unchanged.\n - **A `Raise` whose `Error` does not match `args[0]`** — the original\n   `Err` is re-propagated, but only *after* `unwind_to` has torn the\n   protected block's frames down to this `on`'s own snapshot (the unwind\n   moved before the probe for PDR-0007 §2 — see the comment in the body).\n   An outer `on` still matches correctly because it records its own\n   snapshot at entry; a traceback rendered *above* this point sees the\n   stack only down to this boundary (first-match-wins, error-handling.md\n   §2; capture-at-boundary is PDR-0010 §3's job).\n - **Any other `Err`** (`DeadFrameError`, a future fiber `abort` payload,\n   …) — **wrapped into a synthetic base `Error` instance** carrying the\n   rendered message, then run through the *same* `is` probe as a real\n   `Raise`: a catch-all `on(Error)` catches it, a narrower class does not.\n   The native variant's identity is currently discarded in the wrap;\n   PDR-0010 §2's `kind` Symbol is the ruled fix. (This doc previously\n   claimed non-`Raise` errors were \"re-propagated unchanged\" — wrong on\n   both counts; error-handling-followups.md §3.)\n\n The snapshot/restore is **length-relative** (`vm.stack.len()`/\n `vm.frames.len()`, never an absolute index), so this stays fiber-local by\n construction once a fiber owns its own frame/stack buffers (ADR-0030 D7,\n forward-compat.md §7 D7) — never hardcode the main stack.\n\n # Errors\n\n Returns [`RuntimeError::Type`] if `args[0]` is not a `Class`. Propagates a\n non-matching `Err`/an `is` dispatch failure/any error raised running the\n protected or handler block.",
+                " Signature: `Block::on(_)(_)` — the typed catch primitive `try`/`on`/`catch`\n desugar to (error-handling.md §2, [ADR-0008](../../../docs/adr/accepted/0008-layered-exceptions-and-result.md),\n [ADR-0038](../../../docs/adr/accepted/0038-amend-floor-admit-block-on-ensure.md)).",
             ),
             conceptual: None,
         },
         kind: NativeMemberKind::Method,
-        abi: PrimitiveAbi::Value,
+        abi: PrimitiveAbi::Shape,
         return_shape: NativeReturnShape::Unknown,
     },
     NativeSurfaceRecord {
@@ -5513,12 +5513,12 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             intrinsic: None,
             trust: NativeTrust::Ordinary,
             docs: Some(
-                " Signature: `Block::whileTrue(_)` — sacred loop fallback (control-flow.md\n §1/§3: `while (c) { B }` desugars to `{ c }.whileTrue { B }`). Calls the\n receiver block each iteration as the condition; if its result is not a\n `Bool`, raises a type error (this is Phalcom's \"no truthiness\" floor —\n there is no generic coercion, only `Bool` may drive a branch). Loops\n while the condition is `true`, calling `args[0]` (the body) each pass and\n discarding its result; returns immediate `None` (surface absence value)\n on normal exit, matching the sacred inliner's `Bytecode::Nil` result site\n (Invariant 4, [ADR-0007](../../../docs/adr/accepted/0007-option-some-none.md)). This\n is what the inliner's\n `GuardBlock` deopt path sends to\n ([ADR-0018](../../../docs/adr/accepted/0018-sacred-selector-inliner-and-override-guard.md)).\n\n # Errors\n\n Returns [`RuntimeError::Type`] if a condition evaluation is not `Bool`,\n or any error raised calling the condition/body blocks.",
+                " Signature: `Block::whileTrue(_)` — sacred loop fallback (control-flow.md\n §1/§3: `while (c) { B }` desugars to `{ c }.whileTrue { B }`). Calls the\n receiver block each iteration as the condition; if its result is not a\n `Bool`, raises a type error (this is Phalcom's \"no truthiness\" floor —\n there is no generic coercion, only `Bool` may drive a branch). Loops\n while the condition is `true`, calling `args[0]` (the body) each pass and\n discarding its result; returns immediate `None` (surface absence value)\n on normal exit, matching the sacred inliner's `Bytecode::Nil` result site\n (Invariant 4, [ADR-0007](../../../docs/adr/accepted/0007-option-some-none.md)). This\n is what the inliner's\n `GuardBlock` deopt path sends to\n ([ADR-0018](../../../docs/adr/accepted/0018-sacred-selector-inliner-and-override-guard.md)).\n\n # Errors\n\n Returns [`RuntimeError::Type`] if a condition evaluation is not `Bool`,\n or any error raised calling the condition/body blocks.\n Signature: `Block::whileTrue(_)` — sacred loop fallback (control-flow.md\n §1/§3: `while (c) { B }` desugars to `{ c }.whileTrue { B }`). Calls the\n receiver block each iteration as the condition; if its result is not a\n `Bool`, raises a type error.",
             ),
             conceptual: None,
         },
         kind: NativeMemberKind::Method,
-        abi: PrimitiveAbi::Value,
+        abi: PrimitiveAbi::Shape,
         return_shape: NativeReturnShape::Unknown,
     },
     NativeSurfaceRecord {
@@ -6776,7 +6776,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             conceptual: None,
         },
         kind: NativeMemberKind::Method,
-        abi: PrimitiveAbi::Value,
+        abi: PrimitiveAbi::Shape,
         return_shape: NativeReturnShape::Instance("Object"),
     },
     NativeSurfaceRecord {
@@ -11617,6 +11617,53 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
     NativeSurfaceRecord {
         surface: PrimitiveSurfaceSpec {
             key: PrimitiveKey {
+                owner: UniverseKey::System,
+                side: NativeDispatch::Class,
+                selector: "sleep(_)",
+            },
+            visibility: NativeVisibility::Public,
+            stability: NativeStability::Unspecified,
+            anchor: NativeAnchorPolicy::Required,
+            params: &::phalcom_native_meta::ParameterTupleSpec {
+                positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
+                labeled: &[],
+                rest: None,
+            },
+            returns: &::phalcom_native_meta::TypeExprSpec::Unknown,
+            callable: &::phalcom_native_meta::CallableTypeSpec {
+                type_params: &[],
+                params: &::phalcom_native_meta::ParameterTupleSpec {
+                    positional: &[::phalcom_native_meta::TypeExprSpec::Unknown],
+                    labeled: &[],
+                    rest: None,
+                },
+                return_type: &::phalcom_native_meta::TypeExprSpec::Unknown,
+                constraints: &[],
+            },
+            raises: ::phalcom_native_meta::RaisesSpec::Unknown,
+            effects: ::phalcom_native_meta::EffectSpec::Unknown,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            termination: TerminationSpec::Unknown,
+            since: None,
+            deprecated_since: None,
+            replacement: None,
+            lifecycle: NativeLifecycleSpec {
+                since: None,
+                deprecated_since: None,
+                replacement: None,
+            },
+            intrinsic: None,
+            trust: NativeTrust::Ordinary,
+            docs: Some(" Signature: `System.class::sleep(_)` — registers a monotonic timer for `milliseconds`\n and returns a pending `Future<Unit>`."),
+            conceptual: None,
+        },
+        kind: NativeMemberKind::Method,
+        abi: PrimitiveAbi::Value,
+        return_shape: NativeReturnShape::Unknown,
+    },
+    NativeSurfaceRecord {
+        surface: PrimitiveSurfaceSpec {
+            key: PrimitiveKey {
                 owner: UniverseKey::Message,
                 side: NativeDispatch::Instance,
                 selector: "args",
@@ -11990,7 +12037,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             intrinsic: None,
             trust: NativeTrust::Ordinary,
             docs: Some(
-                " Internal Future park commit. A valid call changes the current scheduler\n fiber to `Parked(generation)` and returns control to its blocked scheduler\n resumer. No public coroutine operation can create this state.",
+                " Internal Future park commit. A valid call changes the current fiber to\n `Parked(generation)` and transfers execution to the next queued work or executor driver.\n The active coroutine consumer (if any) is preserved.",
             ),
             conceptual: None,
         },
@@ -12184,7 +12231,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             intrinsic: None,
             trust: NativeTrust::Ordinary,
             docs: Some(
-                " Signature: `Fiber#call`/`call(_)` — resumes the receiver fiber, re-raising\n an uncaught failure into the resumer ([`FiberResumeMode::Call`]).",
+                " Signature: `Fiber#call`/`call(_)` — resumes the receiver fiber, re-raising\n an uncaught failure into the consumer ([`FiberConsumerMode::Call`]).",
             ),
             conceptual: None,
         },
@@ -12427,7 +12474,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             intrinsic: None,
             trust: NativeTrust::Ordinary,
             docs: Some(
-                " Signature: `Fiber#try`/`try(_)` — resumes the receiver fiber, capturing an\n uncaught failure as the delivered `Error` value ([`FiberResumeMode::Try`]).",
+                " Signature: `Fiber#try`/`try(_)` — resumes the receiver fiber, capturing an\n uncaught failure as the delivered `Error` value ([`FiberConsumerMode::Try`]).",
             ),
             conceptual: None,
         },
@@ -12668,7 +12715,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
             intrinsic: None,
             trust: NativeTrust::Ordinary,
             docs: Some(
-                " Signature: `Fiber::yield`/`yield(_)` — suspends the current fiber and\n hands control back to its resumer, delivering `args[0]` (or `None`) as the\n resumer's `call`/`try` result.\n\n # Errors\n\n Returns [`RuntimeError::NotAllowed`] if the current fiber is the root,\n or if its linked resumer is not blocked on this child, or the\n `CannotYieldAcrossNativeFrame` error if\n `VM::native_reentry_depth` has grown past the fiber's recorded\n `floor_depth` since it was last resumed (ADR-0030 §4).",
+                " Signature: `Fiber::yield`/`yield(_)` — suspends the current fiber and\n hands control back to its consumer, delivering `args[0]` (or `None`) as the\n consumer's `call`/`try` result.\n\n # Errors\n\n Returns [`RuntimeError::NotAllowed`] if the current fiber is the root,\n or if it has no active coroutine consumer, or if its consumer is not blocked on this child.",
             ),
             conceptual: None,
         },

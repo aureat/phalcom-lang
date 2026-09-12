@@ -1034,6 +1034,7 @@ dependencies = [
  "criterion",
  "indexmap",
  "linkme",
+ "mio",
  "num-bigint",
  "num-integer",
  "num-traits",

@@ -24,6 +24,8 @@ pub enum ReactorSource {
     Timer,
     /// Background worker pool computation or I/O.
     Worker,
+    /// Pollable OS descriptor readiness (mio-backed).
+    Pollable,
 }
 
 /// Lifecycle state of a reactor registration.
@@ -155,6 +157,18 @@ impl ReactorRegistry {
             Some(entry) => entry.generation == token.generation && entry.state == RegistrationState::Active,
             None => false,
         }
+    }
+
+    /// Returns the current generation of `slot`, if the slot exists.
+    pub fn generation(&self, slot: u32) -> Option<u32> {
+        let slot_idx = slot as usize;
+        self.generations.get(slot_idx).copied()
+    }
+
+    /// Returns the entry at `slot`, if present.
+    pub fn get(&self, slot: u32) -> Option<&ReactorRegistration> {
+        let slot_idx = slot as usize;
+        self.entries.get(slot_idx)?.as_ref()
     }
 
     /// Returns the number of currently active registrations.

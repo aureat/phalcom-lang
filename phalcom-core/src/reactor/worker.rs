@@ -77,8 +77,8 @@ pub struct WorkerPool {
 
 impl WorkerPool {
     /// Creates a new worker pool with `num_threads` workers, sending completions
-    /// back through `completion_tx`.
-    pub fn new(num_threads: usize, completion_tx: Sender<WorkerCompletion>) -> Self {
+    /// back through `completion_tx` and waking `waker` if provided.
+    pub fn new(num_threads: usize, completion_tx: Sender<WorkerCompletion>, waker: Option<Arc<mio::Waker>>) -> Self {
         let (job_tx, job_rx) = channel::<WorkerMessage>();
         let job_rx = Arc::new(Mutex::new(job_rx));
         let mut workers = Vec::with_capacity(num_threads);
@@ -86,6 +86,7 @@ impl WorkerPool {
         for _ in 0..num_threads {
             let rx = Arc::clone(&job_rx);
             let tx = completion_tx.clone();
+            let thread_waker = waker.clone();
             let handle = spawn(move || {
                 loop {
                     let msg = {
@@ -104,6 +105,9 @@ impl WorkerPool {
                             let outcome = (job.work)();
                             let completion = WorkerCompletion { token: job.token, outcome };
                             let _ = tx.send(completion);
+                            if let Some(w) = &thread_waker {
+                                let _ = w.wake();
+                            }
                         }
                         WorkerMessage::Shutdown => break,
                     }

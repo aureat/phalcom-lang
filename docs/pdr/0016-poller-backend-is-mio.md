@@ -1,6 +1,6 @@
 # PDR-0016 — The poller backend is `mio`, wrapped once at the reactor seam; syscalls try first and register second
 
-- Status: Proposed
+- Status: Accepted (ratified 2026-09-12)
 - Date: 2026-07-20
 - Related: [PDR-0004](0004-io-is-future-shaped-reactor-owned.md) §3 (pollable descriptors
   get "a real reactor (`epoll`/`kqueue`/IOCP)"),

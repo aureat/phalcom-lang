@@ -3,14 +3,13 @@ id: CONC002.C3.P2
 program: CONC002
 checkpoint: CONC002.C3
 kind: implementation-plan
-status: BLOCKED
-completion: NOT_STARTED
-verification: UNVERIFIED
+status: COMPLETE
+completion: COMPLETE
+verification: VERIFIED
 prepared: 2026-09-12
 requires:
   - CONC002.C3.P1 COMPLETE
-blocked_on:
-  - PDR-0016 acceptance or replacement poller ruling
+blocked_on: []
 ---
 
 # CONC002.C3.P2 — Poller-backed external readiness

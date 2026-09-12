@@ -4,8 +4,8 @@ category: CONC
 program: CONC002
 checkpoint: CONC002.C3
 kind: checkpoint-record
-status: IN_PROGRESS
-completion: PARTIAL
+status: COMPLETE
+completion: COMPLETE
 verification: VERIFIED
 requires:
   - CONC002.C2.P1-R1 COMPLETE
@@ -18,7 +18,7 @@ C3 gives the post-C2 VM executor a real external progress source.
 
 It owns reactor registrations, worker completions, timers, executor idle/liveness integration, shutdown/leak mechanics, and the poller-backed readiness phase. It does not own Future composition policy, cancellation/structured concurrency, channels/select, or IO selector surfaces.
 
-`CONC002.C3.P1` (*Reactor core, workers, timers, and executor liveness*) is fully implemented and verified. The generational registration registry, plain-data background worker pool, monotonic timer queue, safepoint ingress, executor idle wait, and `System.sleep(Int) -> Future<Unit>` primitive are active and certified.
+`CONC002.C3` is fully completed and verified across both phases (`C3.P1` and `C3.P2`).
 
 ---
 
@@ -27,7 +27,7 @@ It owns reactor registrations, worker completions, timers, executor idle/livenes
 | Plan | Scope | Status | Verification | Summary / Outcome |
 |---|---|---|---|---|
 | `CONC002.C3.P1` | Reactor core, generational token registry, plain-data worker pool, monotonic timers, safepoint ingress, executor idle wait/liveness, `System.sleep` | **COMPLETE** | `VERIFIED` | Generational token table implemented; worker pool and channel transport strictly isolate threads from `Value`/`ObjRef`/`Heap`; timer min-heap integrated into executor idle wait; `System.sleep(Int) -> Future<Unit>` added; unit and language corpus tests green. |
-| `CONC002.C3.P2` | Poller-backed descriptor readiness and unified external wait | **BLOCKED** | `BLOCKED` | Awaiting PDR-0016 acceptance for poller backend selection. |
+| `CONC002.C3.P2` | Poller-backed descriptor readiness and unified external wait | **COMPLETE** | `VERIFIED` | PDR-0016 ratified (`mio` confined to `reactor/`); `Poller` and cross-thread `Waker` integrated; unified wait in `idle_wait`; try-first ET correctness verified; unit and corpus tests green. |
 
 ---
 

@@ -7,12 +7,12 @@
 > - PDR-0004 — Future-shaped blocking operations and reactor ownership.
 >
 > **Implementation owner:** CONC002.C3.
-> - Phase 1: `CONC002.C3.P1-reactor-core-workers-timers-and-executor-liveness.md`
-> - Poller phase: `CONC002.C3.P2-poller-and-external-readiness.md`
+> - Phase 1: `CONC002.C3.P1-reactor-core-workers-timers-and-executor-liveness.md` (Complete)
+> - Poller phase: `CONC002.C3.P2-poller-and-external-readiness.md` (Complete)
 >
-> PDR-0016 remains Proposed, therefore the poller phase is not yet dispatchable.
+> PDR-0016 is Accepted and implemented via `mio` confined to `phalcom-core::reactor`.
 >
-> **Implementation status:** unbuilt at this spec revision.
+> **Implementation status:** built and verified across C3.P1 and C3.P2 gates.
 >
 > The pre-C2 proposal that required guest/source-visible
 > `System.nextCompletion_` and `System.parkForCompletion_(_)` pump seams is
@@ -303,7 +303,7 @@ Poller-specific conformance belongs to C3.P2.
 |---|---|
 | fairness policy | default only, not language-ratified |
 | worker-pool size | bounded internal constant; measure |
-| poller backend | PDR-0016 Proposed |
+| poller backend | PDR-0016 Accepted (`mio`) |
 | public cancellation | C5 |
 | exact internal timer selector spelling | C3.P1 implementation detail/native-census decision |
 

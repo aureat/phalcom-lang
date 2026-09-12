@@ -1068,6 +1068,7 @@ fn floor_census_matches_installed_bindings() {
         (c.system_class, true, "_$takeUnhandledScheduledFailures(_)"),
         (c.system_class, true, "_$reportUnhandledScheduledFailures"),
         (c.system_class, true, "_$wake(_,_)"),
+        (c.system_class, true, "sleep(_)"),
     ];
 
     // Resolve each binding to its owning class (metaclass for statics).
@@ -1136,12 +1137,8 @@ fn floor_census_matches_installed_bindings() {
         describe(extra),
     );
 
-    assert_eq!(
-        expected.len(),
-        233,
-        "census must enumerate exactly 233 bindings after Family accessor API additions"
-    );
-    assert_eq!(live.len(), 233, "the live floor must be exactly 233 bindings");
+    assert_eq!(expected.len(), 234, "census must enumerate exactly 234 bindings after System.sleep(_) addition");
+    assert_eq!(live.len(), 234, "the live floor must be exactly 234 bindings");
 }
 
 #[test]

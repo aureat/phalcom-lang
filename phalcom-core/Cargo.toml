@@ -102,6 +102,7 @@ num-traits = "0.2"
 num-integer = "0.1"
 ryu = "1"
 criterion = { version = "0.5", optional = true }
+mio = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

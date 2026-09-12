@@ -89,4 +89,5 @@ syn = { version = "2.0", features = ["full", "extra-traits", "parsing", "printin
 quote = "1.0"
 proc-macro2 = "1.0"
 im = "15.1"
+mio = { version = "1.0", features = ["os-poll", "net"] }
 

@@ -7,7 +7,7 @@
   - `CONC002.C2` (**VM Suspension, Control Continuations, and Coroutine Semantics**) complete.
   - `CONC002.C3.P1` (**Reactor Core, Workers, Timers, and Executor Liveness**) complete and verified across all test gates.
 - **Active Plan**: `CONC002.C3.P2-poller-and-external-readiness.md`.
-- **Status**: **BLOCKED on PDR-0016 Acceptance**.
+- **Status**: **COMPLETE and VERIFIED**.
 
 ---
 
