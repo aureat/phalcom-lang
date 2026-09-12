@@ -31,6 +31,7 @@ pub(crate) fn store_live_into(vm: &mut VM, fiber_ref: ObjRef) {
     let frames = std::mem::take(&mut vm.frames);
     let stack = std::mem::take(&mut vm.stack);
     let open_upvalues = std::mem::take(&mut vm.open_upvalues);
+    let control_stack = std::mem::take(&mut vm.control_stack);
     // `checking` (ADR-0052 Fix 1, U-ANNOT-CONTRACTS) swaps alongside the
     // three fields above for the same reason: an `@invariant`-guarded call
     // can `yield` mid-body, so this fiber's in-flight guard bookkeeping must
@@ -40,11 +41,12 @@ pub(crate) fn store_live_into(vm: &mut VM, fiber_ref: ObjRef) {
     fiber.frames = frames;
     fiber.stack = stack;
     fiber.open_upvalues = open_upvalues;
+    fiber.control_stack = control_stack;
     fiber.checking = checking;
 }
 
 /// Moves the parked [`FiberObject`] behind `fiber_ref`'s stacks back into
-/// `vm`'s live mirror (`frames`/`stack`/`open_upvalues`/`checking`) — the
+/// `vm`'s live mirror (`frames`/`stack`/`open_upvalues`/`control_stack`/`checking`) — the
 /// reverse of [`store_live_into`], run on the fiber that is about to become
 /// [`VM::current`].
 pub(crate) fn load_live_from(vm: &mut VM, fiber_ref: ObjRef) {
@@ -52,10 +54,12 @@ pub(crate) fn load_live_from(vm: &mut VM, fiber_ref: ObjRef) {
     let frames = std::mem::take(&mut fiber.frames);
     let stack = std::mem::take(&mut fiber.stack);
     let open_upvalues = std::mem::take(&mut fiber.open_upvalues);
+    let control_stack = std::mem::take(&mut fiber.control_stack);
     let checking = std::mem::take(&mut fiber.checking);
     vm.frames = frames;
     vm.stack = stack;
     vm.open_upvalues = open_upvalues;
+    vm.control_stack = control_stack;
     vm.checking = checking;
 }
 

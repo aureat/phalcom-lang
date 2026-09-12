@@ -58,6 +58,7 @@ impl VM {
             heap,
             frames: Vec::with_capacity(256),
             stack: Vec::with_capacity(1024),
+            control_stack: crate::vm::control::ControlStack::new(),
             current,
             switch_pending: false,
             native_reentry_depth: 0,

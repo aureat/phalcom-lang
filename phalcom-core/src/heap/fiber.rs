@@ -122,6 +122,10 @@ pub struct FiberObject {
     /// when this fiber is next resumed — recorded at the `yield` send whose
     /// window the resume value replaces (ADR-0030 §3).
     pub resume_slot: usize,
+    /// Explicit control destination for fiber resume (operand stack vs control record).
+    pub resume_destination: Option<crate::vm::control::ControlDestination>,
+    /// The VM-owned control continuation stack parked with this fiber.
+    pub control_stack: crate::vm::control::ControlStack,
     /// The `run_until` nesting depth captured when the fiber last began
     /// running — the fiber floor the restricted-yield guard compares against
     /// (ADR-0030 §4): a `yield` is legal iff no native re-entrant `run_until`
@@ -182,6 +186,8 @@ impl FiberObject {
             entry: Some(entry),
             started: false,
             resume_slot: 0,
+            resume_destination: None,
+            control_stack: crate::vm::control::ControlStack::new(),
             floor_depth: 0,
             resume_mode: FiberResumeMode::Call,
             checking: HashSet::new(),
@@ -210,6 +216,8 @@ impl FiberObject {
             entry: Some(entry),
             started: false,
             resume_slot: 0,
+            resume_destination: None,
+            control_stack: crate::vm::control::ControlStack::new(),
             floor_depth: 0,
             resume_mode: FiberResumeMode::Call,
             checking: HashSet::new(),
@@ -237,6 +245,8 @@ impl FiberObject {
             entry: None,
             started: true,
             resume_slot: 0,
+            resume_destination: None,
+            control_stack: crate::vm::control::ControlStack::new(),
             floor_depth: 0,
             resume_mode: FiberResumeMode::Call,
             checking: HashSet::new(),

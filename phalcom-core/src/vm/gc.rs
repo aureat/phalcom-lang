@@ -40,6 +40,7 @@ impl VM {
             // running fiber's objects alive, not tracing its `FiberObject`.
             frames,
             stack,
+            control_stack,
             current,
             open_upvalues,
 
@@ -125,6 +126,7 @@ impl VM {
             }
         }
         out.push(*current);
+        control_stack.trace_roots(&mut |id| out.push(id));
         out.extend(open_upvalues.values().copied());
         out.extend(ready_queue.iter().copied());
         for failure in unhandled_scheduler_failures {
@@ -186,6 +188,7 @@ impl VM {
     /// Holding a handle across a mere *allocation* needs no temp root: Invariant
     /// L makes `Heap::alloc` latch rather than collect. The re-entrant case is
     /// the one this exists for.
+    #[allow(dead_code)]
     pub(crate) fn push_temp_root(&mut self, value: crate::value::Value) {
         if let Some(id) = value.gc_obj_ref() {
             self.temp_roots.push(id);
@@ -199,6 +202,7 @@ impl VM {
     /// re-entrant call can return through several paths (`Ok`, a raised `Err`, a
     /// non-local return) and truncation is correct on all of them without the
     /// caller counting its own pushes.
+    #[allow(dead_code)]
     pub(crate) fn temp_root_depth(&self) -> usize {
         self.temp_roots.len()
     }
@@ -207,6 +211,7 @@ impl VM {
     ///
     /// Idempotent and safe if the stack is already shorter — [`Vec::truncate`]
     /// is a no-op then.
+    #[allow(dead_code)]
     pub(crate) fn truncate_temp_roots(&mut self, depth: usize) {
         self.temp_roots.truncate(depth);
     }

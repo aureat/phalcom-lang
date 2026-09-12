@@ -3,15 +3,20 @@
 // status: PASS
 // C-FIB-3: `Fiber.yield` under a GENUINE re-entrant native call frame raises
 // `CannotYieldAcrossNativeFrame` instead of corrupting the fiber's suspended
-// position. Post flat-entry (U-BYTES follow-on, bytes.md §3.1): an ordinary
-// `f.call(...)` from bytecode no longer creates a native frame — that case is
-// now LEGAL and asserted by `concurrency_fiber_yield_through_block_call.ph`.
-// The guard's remaining territory is block invocation from inside a native
-// primitive: here, an `.on(_)` error handler, which the unwind machinery
-// invokes through the re-entrant `block_call` path.
+// position. Under C2.P1-R1 native suspension continuations, `.on(_)` and
+// `.ensure(_)` are suspension-transparent; the restricted-yield guard preserves
+// isolation for genuinely synchronous host algorithms (Map/Set hashing/equality).
+
+class Probe {
+  hash {
+    Fiber.yield(1)
+    return 0
+  }
+}
 
 const f = Fiber.new || {
-  || { throw Error.new("boom") }.on(Error) |e| { Fiber.yield(1) }
+  let s = Set.new()
+  s.add(Probe.new())
 }
 const result = f.try()
 System.print(result.class.name)

@@ -201,6 +201,7 @@ pub fn trace_object(obj: &Object, push: &mut impl FnMut(ObjRef)) {
             for receiver in &fiber.checking {
                 push(*receiver);
             }
+            fiber.control_stack.trace_roots(push);
         }
         // `Set` shares `MapObject`; its `.1` slots are always `Value::Nil`, which
         // `gc_obj_ref` filters out — so one arm body is correct for both.

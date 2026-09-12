@@ -12,6 +12,7 @@ pub mod adt;
 mod api;
 pub mod associated;
 mod bootstrap;
+pub mod control;
 mod dispatch;
 #[cfg(test)]
 mod f2_pack_authority_tests;
@@ -204,6 +205,9 @@ pub struct VM {
     /// The operand stack of `Copy` [`Value`]s — the live mirror of
     /// [`Self::current`]'s stack, mirroring [`Self::frames`] (see its doc).
     pub(crate) stack: Vec<Value>,
+    /// Active VM-owned control continuations and pending transfers — live mirror
+    /// of [`Self::current`]'s control stack.
+    pub control_stack: control::ControlStack,
     /// The currently-running [`crate::heap::Object::Fiber`]
     /// ([ADR-0030](../../../docs/adr/0030-fibers-and-futures-cooperative-concurrency.md)
     /// §2–§3). [`Self::frames`]/[`Self::stack`]/[`Self::open_upvalues`] are its

@@ -18,6 +18,10 @@ pub enum CallOutcome {
     Returned(Value),
     /// A bytecode activation was pushed onto the current VM loop.
     EnteredFrame,
+    /// A VM-owned control activation was pushed onto the control stack.
+    EnteredControl,
+    /// Execution switched to another fiber.
+    SwitchedFiber,
 }
 
 /// The old native ABI, retained only as a mechanical migration adapter.

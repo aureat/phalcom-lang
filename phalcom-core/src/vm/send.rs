@@ -387,6 +387,17 @@ impl VM {
                 self.native_method_contexts.pop();
                 match result? {
                     CallOutcome::EnteredFrame => Ok(()),
+                    CallOutcome::EnteredControl => {
+                        self.native_selector = None;
+                        self.native_class = None;
+                        Ok(())
+                    }
+                    CallOutcome::SwitchedFiber => {
+                        self.switch_pending = false;
+                        self.native_selector = None;
+                        self.native_class = None;
+                        Ok(())
+                    }
                     CallOutcome::Returned(value) => {
                         if self.switch_pending {
                             self.switch_pending = false;

@@ -1,12 +1,15 @@
 //! Native primitives on `Bool`.
 
 use crate::error::{PhResult, RuntimeError};
+use crate::method::{ArgumentView, CallOutcome, InvocationLayout};
 use crate::primitive::block::block_call;
 use crate::primitive::expect_class;
 use crate::primitive::option::wrap_some;
 use crate::value::Value;
 use crate::value::{FALSE, TRUE};
+use crate::vm::control::{BoolBranchKind, ControlDestination, ControlPhase};
 use crate::vm::VM;
+use phalcom_common::range::SourceRange;
 
 /// Signature: `Bool.class::new(_)` — coerces its argument to a boolean.
 #[phalcom_native_macros::primitive(
@@ -76,8 +79,26 @@ fn expect_bool(value: &Value) -> PhResult<bool> {
     params = [Object],
     returns = Object,
     types = "(Object) -> Object",
-    intrinsic = BoolAnd
+    intrinsic = BoolAnd,
+    abi = shape
 )]
+pub fn bool_and_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -> PhResult<CallOutcome> {
+    if !expect_bool(&receiver)? {
+        return Ok(CallOutcome::Returned(FALSE));
+    }
+    let block = args.positional(vm, 0).ok_or_else(|| RuntimeError::Arity {
+        signature: "and",
+        expected: 1,
+        found: args.positional_count(),
+    })?;
+    let receiver_idx = args.receiver_index();
+    vm.stack.truncate(receiver_idx);
+    vm.stack.push(block);
+    let layout = InvocationLayout::ordinary(0, Box::new([]));
+    let view = ArgumentView::from_layout(receiver_idx, layout, vm.current_access_class(), vm.current_has_internal_privilege());
+    vm.activate_function(block, view, SourceRange::default())
+}
+
 pub fn bool_and(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     if !expect_bool(receiver)? {
         return Ok(FALSE);
@@ -92,8 +113,26 @@ pub fn bool_and(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value
     params = [Object],
     returns = Object,
     types = "(Object) -> Object",
-    intrinsic = BoolOr
+    intrinsic = BoolOr,
+    abi = shape
 )]
+pub fn bool_or_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -> PhResult<CallOutcome> {
+    if expect_bool(&receiver)? {
+        return Ok(CallOutcome::Returned(TRUE));
+    }
+    let block = args.positional(vm, 0).ok_or_else(|| RuntimeError::Arity {
+        signature: "or",
+        expected: 1,
+        found: args.positional_count(),
+    })?;
+    let receiver_idx = args.receiver_index();
+    vm.stack.truncate(receiver_idx);
+    vm.stack.push(block);
+    let layout = InvocationLayout::ordinary(0, Box::new([]));
+    let view = ArgumentView::from_layout(receiver_idx, layout, vm.current_access_class(), vm.current_has_internal_privilege());
+    vm.activate_function(block, view, SourceRange::default())
+}
+
 pub fn bool_or(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     if expect_bool(receiver)? {
         return Ok(TRUE);
@@ -122,8 +161,43 @@ pub fn bool_not(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Val
     "ifTrue(_)",
     params = [Object],
     returns = Option,
-    types = "(Object) -> Option"
+    types = "(Object) -> Option",
+    abi = shape
 )]
+pub fn bool_if_true_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -> PhResult<CallOutcome> {
+    if !expect_bool(&receiver)? {
+        return Ok(CallOutcome::Returned(vm.none_value()));
+    }
+    let block = args.positional(vm, 0).ok_or_else(|| RuntimeError::Arity {
+        signature: "ifTrue",
+        expected: 1,
+        found: args.positional_count(),
+    })?;
+
+    let receiver_idx = args.receiver_index();
+    let callback_floor = vm.frames.len();
+    let owner = vm.frames.last().and_then(|f| f.home_frame_token);
+    let caller_auth = (vm.current_access_class(), vm.current_has_internal_privilege());
+    let source_range = SourceRange::default();
+
+    vm.control_stack.push(
+        owner,
+        receiver_idx,
+        callback_floor,
+        caller_auth,
+        source_range,
+        ControlDestination::StackOperand { target_index: receiver_idx },
+        ControlPhase::BoolBranch {
+            kind: BoolBranchKind::IfTrueOption,
+            branch: block,
+        },
+    );
+
+    let layout = InvocationLayout::ordinary(0, Box::new([]));
+    let view = ArgumentView::from_layout(receiver_idx, layout, caller_auth.0, caller_auth.1);
+    vm.activate_function(block, view, source_range)
+}
+
 pub fn bool_if_true(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     if expect_bool(receiver)? {
         let result = block_call(vm, &args[0], &[])?;
@@ -139,8 +213,43 @@ pub fn bool_if_true(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<V
     "ifFalse(_)",
     params = [Object],
     returns = Option,
-    types = "(Object) -> Option"
+    types = "(Object) -> Option",
+    abi = shape
 )]
+pub fn bool_if_false_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -> PhResult<CallOutcome> {
+    if expect_bool(&receiver)? {
+        return Ok(CallOutcome::Returned(vm.none_value()));
+    }
+    let block = args.positional(vm, 0).ok_or_else(|| RuntimeError::Arity {
+        signature: "ifFalse",
+        expected: 1,
+        found: args.positional_count(),
+    })?;
+
+    let receiver_idx = args.receiver_index();
+    let callback_floor = vm.frames.len();
+    let owner = vm.frames.last().and_then(|f| f.home_frame_token);
+    let caller_auth = (vm.current_access_class(), vm.current_has_internal_privilege());
+    let source_range = SourceRange::default();
+
+    vm.control_stack.push(
+        owner,
+        receiver_idx,
+        callback_floor,
+        caller_auth,
+        source_range,
+        ControlDestination::StackOperand { target_index: receiver_idx },
+        ControlPhase::BoolBranch {
+            kind: BoolBranchKind::IfFalseOption,
+            branch: block,
+        },
+    );
+
+    let layout = InvocationLayout::ordinary(0, Box::new([]));
+    let view = ArgumentView::from_layout(receiver_idx, layout, caller_auth.0, caller_auth.1);
+    vm.activate_function(block, view, source_range)
+}
+
 pub fn bool_if_false(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     if expect_bool(receiver)? {
         Ok(vm.none_value())
@@ -156,8 +265,32 @@ pub fn bool_if_false(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<
     "ifTrue(_,ifFalse)",
     params = [Object, ifFalse: Object],
     returns = Object,
-    types = "(Object, ifFalse: Object) -> Object"
+    types = "(Object, ifFalse: Object) -> Object",
+    abi = shape
 )]
+pub fn bool_if_true_if_false_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -> PhResult<CallOutcome> {
+    let branch = if expect_bool(&receiver)? {
+        args.positional(vm, 0).ok_or_else(|| RuntimeError::Arity {
+            signature: "ifTrue:ifFalse:",
+            expected: 2,
+            found: args.positional_count(),
+        })?
+    } else {
+        args.positional(vm, 1).ok_or_else(|| RuntimeError::Arity {
+            signature: "ifTrue:ifFalse:",
+            expected: 2,
+            found: args.positional_count(),
+        })?
+    };
+
+    let receiver_idx = args.receiver_index();
+    vm.stack.truncate(receiver_idx);
+    vm.stack.push(branch);
+    let layout = InvocationLayout::ordinary(0, Box::new([]));
+    let view = ArgumentView::from_layout(receiver_idx, layout, vm.current_access_class(), vm.current_has_internal_privilege());
+    vm.activate_function(branch, view, SourceRange::default())
+}
+
 pub fn bool_if_true_if_false(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let branch = if expect_bool(receiver)? { &args[0] } else { &args[1] };
     block_call(vm, branch, &[])

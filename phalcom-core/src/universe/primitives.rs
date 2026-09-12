@@ -1,7 +1,13 @@
 use crate::method::{MemberVisibility, MethodKind, MethodObject, RestLayout, RestMode, SignatureKind};
 use crate::primitive::attribute::{attribute_attach, attribute_attributes, attribute_freeze};
-use crate::primitive::block::{block_arity, block_call_shape, block_call_with_shape, block_ensure, block_name, block_on, block_while_true};
-use crate::primitive::boolean::{bool_and, bool_class_new, bool_hash, bool_if_false, bool_if_true, bool_if_true_if_false, bool_not, bool_or};
+use crate::primitive::block::{
+    block_arity, block_call_shape, block_call_with_shape, block_ensure_shape, block_name, block_on_shape,
+    block_while_true_shape,
+};
+use crate::primitive::boolean::{
+    bool_and_shape, bool_class_new, bool_hash, bool_if_false_shape, bool_if_true_if_false_shape, bool_if_true_shape,
+    bool_not, bool_or_shape,
+};
 use crate::primitive::bytes::{
     bytes_class_from_string, bytes_class_new, bytes_raw_at, bytes_raw_copy_into, bytes_raw_equals_constant_time, bytes_raw_fill, bytes_raw_set, bytes_raw_size,
     bytes_raw_slice, bytes_raw_utf8, bytes_raw_utf8_lossy,
@@ -37,7 +43,7 @@ use crate::primitive::object::{
     object_invariant_exit, object_matches, object_method_for, object_name, object_neq, object_perform_shape, object_responds_to, object_same, object_set_class,
     object_to_string, object_understands,
 };
-use crate::primitive::option::{option_match, some_call, some_new};
+use crate::primitive::option::{option_match_shape, some_call, some_new};
 use crate::primitive::primitive;
 use crate::primitive::primitive_internal;
 use crate::primitive::primitive_rest;
@@ -227,11 +233,11 @@ impl Universe {
         // Sacred selectors (control-flow.md §2–3): registered here as the
         // real send targets; ADR-0018's inliner special-cases literal-block
         // call sites but always deopts to exactly these on override/mismatch.
-        primitive!(vm, bool_cls, "and", SignatureKind::Method(1), bool_and);
-        primitive!(vm, bool_cls, "or", SignatureKind::Method(1), bool_or);
+        primitive_shape!(vm, bool_cls, "and", SignatureKind::Method(1), bool_and_shape);
+        primitive_shape!(vm, bool_cls, "or", SignatureKind::Method(1), bool_or_shape);
         primitive!(vm, bool_cls, "not", SignatureKind::Getter, bool_not);
-        primitive!(vm, bool_cls, "ifTrue", SignatureKind::Method(1), bool_if_true);
-        primitive!(vm, bool_cls, "ifFalse", SignatureKind::Method(1), bool_if_false);
+        primitive_shape!(vm, bool_cls, "ifTrue", SignatureKind::Method(1), bool_if_true_shape);
+        primitive_shape!(vm, bool_cls, "ifFalse", SignatureKind::Method(1), bool_if_false_shape);
         // control-flow.md §3's `ifTrue(_)ifFalse(_)` is Smalltalk's
         // independently-worded `ifTrue:ifFalse:` keyword pair; Phalcom's
         // selector model (ADR-0012) has no such shape — one base name plus
@@ -242,7 +248,7 @@ impl Universe {
         {
             let sig_str = crate::method::encode_selector("ifTrue", &[None, Some("ifFalse".to_string())], SignatureKind::Method(2));
             let symbol = vm.get_or_intern(&sig_str);
-            let method = MethodObject::new_primitive(symbol, SignatureKind::Method(2), bool_if_true_if_false, bool_cls);
+            let method = MethodObject::new_shape_primitive(symbol, crate::method::Signature::new(symbol, SignatureKind::Method(2)), bool_if_true_if_false_shape, bool_cls);
             let method_id = vm.heap.alloc(crate::heap::Object::Method(Box::new(method)));
             vm.heap.class_mut(bool_cls).add_method(symbol, method_id);
             vm.world_version += 1;
@@ -299,7 +305,7 @@ impl Universe {
         {
             let sig_str = crate::method::encode_selector("match", &[Some("some".to_string()), Some("none".to_string())], SignatureKind::Method(2));
             let symbol = vm.get_or_intern(&sig_str);
-            let method = MethodObject::new_primitive(symbol, SignatureKind::Method(2), option_match, option_cls);
+            let method = MethodObject::new_shape_primitive(symbol, crate::method::Signature::new(symbol, SignatureKind::Method(2)), option_match_shape, option_cls);
             let method_id = vm.heap.alloc(crate::heap::Object::Method(Box::new(method)));
             vm.heap.class_mut(option_cls).add_method(symbol, method_id);
             vm.world_version += 1;
@@ -365,7 +371,7 @@ impl Universe {
         // Sacred loop fallback (control-flow.md §1/§3); `repeat(_)` is
         // deferred — its receiver/semantics aren't pinned by the spec
         // (U5-plan.md BD-U5-2) — see `docs/forge/DEFERRED.md`.
-        primitive!(vm, block_cls, "whileTrue", SignatureKind::Method(1), block_while_true);
+        primitive_shape!(vm, block_cls, "whileTrue", SignatureKind::Method(1), block_while_true_shape);
         // The error-handling catch protocol (U-ERR, ADR-0008,
         // [ADR-0038](../../docs/adr/accepted/0038-amend-floor-admit-block-on-ensure.md)):
         // the +2 floor bindings this unit amends the frozen floor to admit.
@@ -375,8 +381,8 @@ impl Universe {
         // `whileTrue`, not `call`/`arity`/`name`/`callWith`): every `on`/
         // `ensure` receiver at a `try` desugar site or inside `Function#attempt`
         // is always a literal `{ }` block, never a bare `Function`.
-        primitive!(vm, block_cls, "on", SignatureKind::Method(2), block_on);
-        primitive!(vm, block_cls, "ensure", SignatureKind::Method(1), block_ensure);
+        primitive_shape!(vm, block_cls, "on", SignatureKind::Method(2), block_on_shape);
+        primitive_shape!(vm, block_cls, "ensure", SignatureKind::Method(1), block_ensure_shape);
 
         let system_cls = vm.universe.classes.system_class;
         primitive_static!(vm, system_cls, "print", SignatureKind::Method(1), system_class_print);

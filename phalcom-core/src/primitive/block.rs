@@ -9,13 +9,15 @@
 //! explicitly synchronous native combinators such as `on` and `ensure`
 //! (functions.md §1-2).
 
-use crate::error::{PhError, PhResult, RuntimeError};
+use crate::error::{PhResult, RuntimeError};
 use crate::frame::{CallContext, FrameToken};
 use crate::heap::Object;
 use crate::method::{ArgumentView, CallOutcome, InvocationLayout};
 use crate::parameters::{ArgumentShape, RestKind};
 use crate::value::Value;
+use crate::vm::control::{ControlDestination, ControlPhase};
 use crate::vm::VM;
+use phalcom_common::range::SourceRange;
 
 /// Resolves `receiver` to the [`crate::heap::ClosureObject`] handle it calls
 /// through, together with the block's home-frame token (`None` when the receiver
@@ -279,68 +281,68 @@ pub fn block_call(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
 ///
 /// Returns [`RuntimeError::Type`] if a condition evaluation is not `Bool`,
 /// or any error raised calling the condition/body blocks.
-#[phalcom_native_macros::primitive(Closure, "whileTrue(_)")]
+/// Signature: `Block::whileTrue(_)` — sacred loop fallback (control-flow.md
+/// §1/§3: `while (c) { B }` desugars to `{ c }.whileTrue { B }`). Calls the
+/// receiver block each iteration as the condition; if its result is not a
+/// `Bool`, raises a type error.
+#[phalcom_native_macros::primitive(Closure, "whileTrue(_)", abi = shape)]
+pub fn block_while_true_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -> PhResult<CallOutcome> {
+    let body = args.positional(vm, 0).ok_or_else(|| RuntimeError::Arity {
+        signature: "whileTrue",
+        expected: 1,
+        found: args.positional_count(),
+    })?;
+
+    let receiver_idx = args.receiver_index();
+    let callback_floor = vm.frames.len();
+    let owner = vm.frames.last().and_then(|f| f.home_frame_token);
+    let caller_auth = (vm.current_access_class(), vm.current_has_internal_privilege());
+    let source_range = SourceRange::default();
+
+    vm.control_stack.push(
+        owner,
+        receiver_idx,
+        callback_floor,
+        caller_auth,
+        source_range,
+        ControlDestination::StackOperand { target_index: receiver_idx },
+        ControlPhase::WhileCondition { condition: receiver, body },
+    );
+
+    let layout = InvocationLayout::ordinary(0, Box::new([]));
+    let view = ArgumentView::from_layout(receiver_idx, layout, caller_auth.0, caller_auth.1);
+    vm.activate_function(receiver, view, source_range)
+}
+
 pub fn block_while_true(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    loop {
-        let cond = block_call(vm, receiver, &[])?;
-        let Some(cond) = cond.as_bool() else {
-            return Err(RuntimeError::Type {
-                expected: "Bool",
-                found: cond.type_name(),
-            }
-            .into());
-        };
-        if !cond {
-            return Ok(vm.none_value());
+    let receiver_idx = vm.stack.len();
+    vm.stack.push(*receiver);
+    vm.stack.extend_from_slice(args);
+    let layout = InvocationLayout::ordinary(args.len(), Box::new([]));
+    let view = ArgumentView::from_layout(receiver_idx, layout, vm.current_access_class(), vm.current_has_internal_privilege());
+    match block_while_true_shape(vm, *receiver, view)? {
+        CallOutcome::Returned(v) => Ok(v),
+        CallOutcome::EnteredFrame | CallOutcome::EnteredControl => {
+            vm.check_native_reentry()?;
+            vm.native_reentry_depth += 1;
+            let res = vm.run_until(receiver_idx);
+            vm.native_reentry_depth -= 1;
+            res
         }
-        block_call(vm, &args[0], &[])?;
+        CallOutcome::SwitchedFiber => Ok(Value::nil()),
     }
 }
 
 /// Signature: `Block::on(_)(_)` — the typed catch primitive `try`/`on`/`catch`
 /// desugar to (error-handling.md §2, [ADR-0008](../../../docs/adr/accepted/0008-layered-exceptions-and-result.md),
 /// [ADR-0038](../../../docs/adr/accepted/0038-amend-floor-admit-block-on-ensure.md)).
-///
-/// Runs the receiver block (`args[0]` unused — the receiver *is* the
-/// protected block); if it completes with a caught `throw` whose `Error`
-/// `is(args[0])` (a `Class`), restores the VM to its pre-run snapshot and
-/// runs the handler block `args[1]` with the caught `Error`, returning its
-/// result. Any other outcome passes straight through:
-///
-/// - **Normal completion**, or an **`Ok` with a shrunk frame stack** (a
-///   non-local `return` unwound *through* the protected block, U10) — `on`
-///   does not catch a `return`; it is not a `throw` (ADR-0008 §4.2). Returned
-///   unchanged.
-/// - **A `Raise` whose `Error` does not match `args[0]`** — the original
-///   `Err` is re-propagated, but only *after* `unwind_to` has torn the
-///   protected block's frames down to this `on`'s own snapshot (the unwind
-///   moved before the probe for PDR-0007 §2 — see the comment in the body).
-///   An outer `on` still matches correctly because it records its own
-///   snapshot at entry; a traceback rendered *above* this point sees the
-///   stack only down to this boundary (first-match-wins, error-handling.md
-///   §2; capture-at-boundary is PDR-0010 §3's job).
-/// - **Any other `Err`** (`DeadFrameError`, a future fiber `abort` payload,
-///   …) — **wrapped into a synthetic base `Error` instance** carrying the
-///   rendered message, then run through the *same* `is` probe as a real
-///   `Raise`: a catch-all `on(Error)` catches it, a narrower class does not.
-///   The native variant's identity is currently discarded in the wrap;
-///   PDR-0010 §2's `kind` Symbol is the ruled fix. (This doc previously
-///   claimed non-`Raise` errors were "re-propagated unchanged" — wrong on
-///   both counts; error-handling-followups.md §3.)
-///
-/// The snapshot/restore is **length-relative** (`vm.stack.len()`/
-/// `vm.frames.len()`, never an absolute index), so this stays fiber-local by
-/// construction once a fiber owns its own frame/stack buffers (ADR-0030 D7,
-/// forward-compat.md §7 D7) — never hardcode the main stack.
-///
-/// # Errors
-///
-/// Returns [`RuntimeError::Type`] if `args[0]` is not a `Class`. Propagates a
-/// non-matching `Err`/an `is` dispatch failure/any error raised running the
-/// protected or handler block.
-#[phalcom_native_macros::primitive(Closure, "on(_,_)")]
-pub fn block_on(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let class_arg = args[0];
+#[phalcom_native_macros::primitive(Closure, "on(_,_)", abi = shape)]
+pub fn block_on_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -> PhResult<CallOutcome> {
+    let class_arg = args.positional(vm, 0).ok_or_else(|| RuntimeError::Arity {
+        signature: "on",
+        expected: 2,
+        found: args.positional_count(),
+    })?;
     let is_class = class_arg.as_obj().is_some_and(|id| matches!(vm.heap.get(id), Object::Class(_)));
     if !is_class {
         return Err(RuntimeError::Type {
@@ -349,124 +351,99 @@ pub fn block_on(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value
         }
         .into());
     }
-    let handler = args[1];
+    let handler = args.positional(vm, 1).ok_or_else(|| RuntimeError::Arity {
+        signature: "on",
+        expected: 2,
+        found: args.positional_count(),
+    })?;
 
-    let stack_len = vm.stack.len();
-    let frames_len = vm.frames.len();
-    let outcome = block_call(vm, receiver, &[]);
+    let receiver_idx = args.receiver_index();
+    let callback_floor = vm.frames.len();
+    let owner = vm.frames.last().and_then(|f| f.home_frame_token);
+    let caller_auth = (vm.current_access_class(), vm.current_has_internal_privilege());
+    let source_range = SourceRange::default();
 
-    match outcome {
-        Ok(v) => Ok(v),
-        Err(mut err) => {
-            let captured_tb = vm.capture_frames(frames_len);
-            let error = match &err {
-                PhError::Runtime(RuntimeError::Raise { error, .. }) => *error,
-                _ => {
-                    let error_class = vm.universe.classes.error_class;
-                    let field_count = vm.heap.class(error_class).field_count;
-                    let mut inst = crate::heap::InstanceObject::new(error_class, field_count);
-                    inst.slots[0] = vm.alloc_string_value(err.to_string());
-                    Value::obj(vm.heap.alloc(crate::heap::Object::Instance(inst)))
-                }
-            };
-            match err {
-                PhError::Runtime(RuntimeError::Raise {
-                    error,
-                    rendered,
-                    mut traceback,
-                    help,
-                }) => {
-                    if traceback.is_none() {
-                        traceback = Some(captured_tb);
-                    }
-                    err = PhError::Runtime(RuntimeError::Raise {
-                        error,
-                        rendered,
-                        traceback,
-                        help,
-                    });
-                }
-                _ => {
-                    let rendered = err.to_string();
-                    err = PhError::Runtime(RuntimeError::Raise {
-                        error,
-                        rendered,
-                        traceback: Some(captured_tb),
-                        help: None,
-                    });
-                }
-            }
-            vm.unwind_to(stack_len, frames_len);
+    vm.control_stack.push(
+        owner,
+        receiver_idx,
+        callback_floor,
+        caller_auth,
+        source_range,
+        ControlDestination::StackOperand { target_index: receiver_idx },
+        ControlPhase::OnBody { class: class_arg, handler },
+    );
 
-            let isa_sig = crate::method::encode_selector("is", &[None], crate::method::SignatureKind::Method(1));
-            let isa_sym = vm.get_or_intern(&isa_sig);
-            let matched = vm.send_dynamic(error, isa_sym, &[class_arg])?;
-            if matched.as_bool() == Some(true) {
-                block_call(vm, &handler, &[error])
-            } else {
-                Err(err)
-            }
+    let layout = InvocationLayout::ordinary(0, Box::new([]));
+    let view = ArgumentView::from_layout(receiver_idx, layout, caller_auth.0, caller_auth.1);
+    vm.activate_function(receiver, view, source_range)
+}
+
+pub fn block_on(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    let receiver_idx = vm.stack.len();
+    vm.stack.push(*receiver);
+    vm.stack.extend_from_slice(args);
+    let layout = InvocationLayout::ordinary(args.len(), Box::new([]));
+    let view = ArgumentView::from_layout(receiver_idx, layout, vm.current_access_class(), vm.current_has_internal_privilege());
+    match block_on_shape(vm, *receiver, view)? {
+        CallOutcome::Returned(v) => Ok(v),
+        CallOutcome::EnteredFrame | CallOutcome::EnteredControl => {
+            vm.check_native_reentry()?;
+            vm.native_reentry_depth += 1;
+            let res = vm.run_until(receiver_idx);
+            vm.native_reentry_depth -= 1;
+            res
         }
+        CallOutcome::SwitchedFiber => Ok(Value::nil()),
     }
 }
 
 /// Signature: `Block::ensure(_)` — the always-runs cleanup primitive `try`/
 /// `ensure` desugars to (error-handling.md §4, ADR-0008 §4.1,
 /// [ADR-0038](../../../docs/adr/accepted/0038-amend-floor-admit-block-on-ensure.md)).
-///
-/// Runs the receiver (protected) block, then runs the cleanup block `args[0]`
-/// on **every** exit path — normal completion, a non-local `return` unwinding
-/// *through* the protected block, or an uncaught `throw` — and re-propagates
-/// the protected block's original outcome unchanged. `ensure` never catches a
-/// `Raise` (unlike [`block_on`]): an uncaught error's frames are left exactly
-/// as `run_until` produced them, so an enclosing `on`/the top-level trace
-/// renderer still sees the full stack.
-///
-/// **Cleanup-supersedes** (ADR-0008 §4.2): if the cleanup block itself
-/// diverges — raises, or non-locally returns — that new outcome **replaces**
-/// the pending one instead of being merely run for effect.
-///
-/// # Errors
-///
-/// Propagates whichever of the protected/cleanup outcomes wins per the
-/// cleanup-supersedes rule above.
-#[phalcom_native_macros::primitive(Closure, "ensure(_)")]
+#[phalcom_native_macros::primitive(Closure, "ensure(_)", abi = shape)]
+pub fn block_ensure_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -> PhResult<CallOutcome> {
+    let cleanup = args.positional(vm, 0).ok_or_else(|| RuntimeError::Arity {
+        signature: "ensure",
+        expected: 1,
+        found: args.positional_count(),
+    })?;
+
+    let receiver_idx = args.receiver_index();
+    let callback_floor = vm.frames.len();
+    let owner = vm.frames.last().and_then(|f| f.home_frame_token);
+    let caller_auth = (vm.current_access_class(), vm.current_has_internal_privilege());
+    let source_range = SourceRange::default();
+
+    vm.control_stack.push(
+        owner,
+        receiver_idx,
+        callback_floor,
+        caller_auth,
+        source_range,
+        ControlDestination::StackOperand { target_index: receiver_idx },
+        ControlPhase::EnsureBody { cleanup },
+    );
+
+    let layout = InvocationLayout::ordinary(0, Box::new([]));
+    let view = ArgumentView::from_layout(receiver_idx, layout, caller_auth.0, caller_auth.1);
+    vm.activate_function(receiver, view, source_range)
+}
+
 pub fn block_ensure(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let cleanup = args[0];
-    let outcome = block_call(vm, receiver, &[]);
-
-    // The pending outcome lives only in this Rust local while the cleanup block
-    // runs, and that block re-enters the interpreter — so its back-edge
-    // safepoint can collect. Neither `vm.stack` nor `vm.frames` describes
-    // `outcome`, so without a temp root the collector frees it and `ensure`
-    // returns a dangling handle (ADR-0050 §7; memory-management.md §4).
-    //
-    // Both arms carry a handle: `Ok` is the protected block's value, and a
-    // `Raise` error is the surface `Error` instance an enclosing `on` will
-    // receive.
-    let roots = vm.temp_root_depth();
-    match &outcome {
-        Ok(value) => vm.push_temp_root(*value),
-        Err(PhError::Runtime(RuntimeError::Raise { error, .. })) => vm.push_temp_root(*error),
-        Err(_) => {}
-    }
-
-    let frames_before_cleanup = vm.frames.len();
-    let cleanup_outcome = block_call(vm, &cleanup, &[]);
-    vm.truncate_temp_roots(roots);
-
-    match cleanup_outcome {
-        // The cleanup block itself diverged (raised) — supersedes.
-        Err(cleanup_err) => Err(cleanup_err),
-        Ok(cleanup_value) => {
-            if vm.frames.len() < frames_before_cleanup {
-                // The cleanup block itself non-locally returned — supersedes.
-                Ok(cleanup_value)
-            } else {
-                // Cleanup ran to ordinary completion for effect only; its
-                // value is discarded and the original outcome resumes.
-                outcome
-            }
+    let receiver_idx = vm.stack.len();
+    vm.stack.push(*receiver);
+    vm.stack.extend_from_slice(args);
+    let layout = InvocationLayout::ordinary(args.len(), Box::new([]));
+    let view = ArgumentView::from_layout(receiver_idx, layout, vm.current_access_class(), vm.current_has_internal_privilege());
+    match block_ensure_shape(vm, *receiver, view)? {
+        CallOutcome::Returned(v) => Ok(v),
+        CallOutcome::EnteredFrame | CallOutcome::EnteredControl => {
+            vm.check_native_reentry()?;
+            vm.native_reentry_depth += 1;
+            let res = vm.run_until(receiver_idx);
+            vm.native_reentry_depth -= 1;
+            res
         }
+        CallOutcome::SwitchedFiber => Ok(Value::nil()),
     }
 }

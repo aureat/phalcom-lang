@@ -2,7 +2,7 @@ use crate::bytecode::{Bytecode, PackAccess, PackSendKind};
 use crate::callable::Callable;
 use crate::diagnostics::print_compile;
 use crate::error::{PhError, PhResult, RuntimeError};
-use crate::frame::{CallContext, CallFrame};
+use crate::frame::{CallContext, CallFrame, FrameToken};
 use crate::heap::BlockObject;
 use crate::heap::ClosureObject;
 use crate::heap::Upvalue;
@@ -11,6 +11,7 @@ use crate::interner::Symbol;
 use crate::method::{InvocationLayout, SignatureKind, decode_selector, encode_selector};
 use crate::value::Value;
 use crate::value::{FALSE, TRUE};
+use crate::vm::control::{ControlStepOutcome, Transfer};
 use phalcom_common::range::SourceRange;
 use std::rc::Rc;
 #[cfg(feature = "vm-trace")]
@@ -483,6 +484,22 @@ impl VM {
         self.stack.truncate(stack_len);
     }
 
+    /// Delivers a non-local return to the target home frame, closing escaping upvalues
+    /// and truncating intervening frames and stack.
+    pub(crate) fn execute_non_local_return(&mut self, token: FrameToken, return_value: Value) -> PhResult<()> {
+        let is_live = self.frames.get(token.frame_index).is_some_and(|home| home.generation == token.generation);
+        if !is_live {
+            return Err(RuntimeError::DeadFrameError.into());
+        }
+        let home_stack_offset = self.frames[token.frame_index].stack_offset;
+        let return_value = self.surface_absence(return_value);
+        self.close_upvalues_from(home_stack_offset);
+        self.stack.truncate(home_stack_offset);
+        self.stack.push(return_value);
+        self.frames.truncate(token.frame_index);
+        Ok(())
+    }
+
     /// Renders a runtime-error traceback to stderr and returns the error.
     ///
     /// Uses [`crate::diagnostics::traceback::render_traceback`] — the new renderer
@@ -756,6 +773,30 @@ impl VM {
                     // Loop again: keep draining, now as `resumer`.
                 }
                 Err(mut e) => {
+                    if !self.control_stack.is_empty() {
+                        match self.step_control_transfer(Transfer::Raise(e.clone()))? {
+                            ControlStepOutcome::Continued => continue,
+                            ControlStepOutcome::Completed(v) => {
+                                let finished = self.current;
+                                if self.heap.fiber(finished).is_root {
+                                    return Ok(v);
+                                }
+                                continue;
+                            }
+                            ControlStepOutcome::Propagate(Transfer::Raise(e2)) => {
+                                e = e2;
+                            }
+                            ControlStepOutcome::Propagate(Transfer::Returned(v)) => {
+                                self.stack.push(v);
+                                continue;
+                            }
+                            ControlStepOutcome::Propagate(Transfer::NonLocalReturn { target, value }) => {
+                                self.execute_non_local_return(target, value)?;
+                                continue;
+                            }
+                        }
+                    }
+
                     // Fiber-floor capture, failure path (spec §3.2, the
                     // DEC-FIB-A fix): the U-CORE-6 unwind reached the top of
                     // the current fiber's own activation uncaught. Capture it
@@ -795,20 +836,11 @@ impl VM {
                             }
                         }
 
-                        // Close `failed`'s own open upvalues before clearing
-                        // its parked state below. For the fiber that actually
-                        // raised (the first iteration) this is a no-op — its
-                        // `FiberObject` fields are still empty (they were
-                        // `vm.frames`/`stack`/`open_upvalues`, the live
-                        // mirror, when it raised), and `close_upvalues_from`
-                        // above already closed those against the live stack.
-                        // For each intermediate `Call`-mode resumer this
-                        // cascade walks past, its open upvalues are real:
-                        // parked (along with its own stack) when it resumed
-                        // the fiber that ultimately failed — hence the
-                        // fiber-scoped `close_fiber_upvalues_from` rather than
-                        // `close_upvalues_from`.
-                        self.close_fiber_upvalues_from(failed, 0);
+                        if failed == self.current {
+                            self.close_upvalues_from(0);
+                        } else {
+                            self.close_fiber_upvalues_from(failed, 0);
+                        }
 
                         let mode = self.heap.fiber(failed).resume_mode;
                         let had_completion_owner = self.heap.fiber(failed).completion_observer.is_some();
@@ -876,7 +908,25 @@ impl VM {
                                 break;
                             }
                             crate::heap::FiberResumeMode::Call => {
-                                failed = resumer;
+                                self.switch_to_fiber_without_deliver(resumer);
+                                if !self.control_stack.is_empty() {
+                                    match self.step_control_transfer(Transfer::Raise(e.clone()))? {
+                                        ControlStepOutcome::Continued => break,
+                                        ControlStepOutcome::Completed(_) => break,
+                                        ControlStepOutcome::Propagate(Transfer::Raise(e2)) => {
+                                            e = e2;
+                                            failed = resumer;
+                                            continue;
+                                        }
+                                        ControlStepOutcome::Propagate(Transfer::Returned(_)) => break,
+                                        ControlStepOutcome::Propagate(Transfer::NonLocalReturn { target, value }) => {
+                                            self.execute_non_local_return(target, value)?;
+                                            break;
+                                        }
+                                    }
+                                } else {
+                                    failed = resumer;
+                                }
                             }
                         }
                     }
@@ -961,6 +1011,27 @@ impl VM {
         let slot = self.heap.fiber(target).resume_slot;
         self.stack.truncate(slot);
         self.stack.push(value);
+        self.heap.fiber_mut(target).status = crate::heap::FiberStatus::Running;
+    }
+
+    /// Restores [`Self::current`] to `target` without pushing a success operand.
+    /// Used when a child fiber fails under `Call` mode and an exception must be injected
+    /// into the parent's control continuation / resume site.
+    pub(crate) fn switch_to_fiber_without_deliver(&mut self, target: ObjRef) {
+        debug_assert_eq!(self.heap.fiber(target).status, crate::heap::FiberStatus::BlockedOnChild);
+        if self.trace_fibers {
+            let from_seq = self.heap.fiber(self.current).seq;
+            let to_seq = self.heap.fiber(target).seq;
+            if self.trace_format_json {
+                tracing::debug!(target: "fibers", "{{\"ev\":\"restore\",\"from\":{},\"to\":{}}}", from_seq, to_seq);
+            } else {
+                tracing::debug!(target: "fibers", "[fiber] restore  #{}  ──→  #{}", from_seq, to_seq);
+            }
+        }
+        self.current = target;
+        crate::primitive::fiber::load_live_from(self, target);
+        let slot = self.heap.fiber(target).resume_slot;
+        self.stack.truncate(slot);
         self.heap.fiber_mut(target).status = crate::heap::FiberStatus::Running;
     }
 
@@ -2144,6 +2215,39 @@ impl VM {
                     // (ADR-0013). Must run before the stack is truncated.
                     self.close_upvalues_from(popped.stack_offset);
                     self.stack.truncate(popped.stack_offset);
+
+                    if self.control_stack.top().is_some_and(|c| c.callback_floor == self.frames.len()) {
+                        match self.step_control_transfer(Transfer::Returned(return_value))? {
+                            ControlStepOutcome::Continued => {
+                                hoisted = None;
+                                continue;
+                            }
+                            ControlStepOutcome::Completed(val) => {
+                                if self.frames.len() <= base_frames {
+                                    return Ok(val);
+                                }
+                                hoisted = None;
+                                continue;
+                            }
+                            ControlStepOutcome::Propagate(Transfer::Returned(val)) => {
+                                if self.frames.len() <= base_frames {
+                                    return Ok(val);
+                                }
+                                self.stack.push(val);
+                                hoisted = None;
+                                continue;
+                            }
+                            ControlStepOutcome::Propagate(Transfer::Raise(e)) => {
+                                return Err(e);
+                            }
+                            ControlStepOutcome::Propagate(Transfer::NonLocalReturn { target, value }) => {
+                                self.execute_non_local_return(target, value)?;
+                                hoisted = None;
+                                continue;
+                            }
+                        }
+                    }
+
                     if self.frames.len() <= base_frames {
                         return Ok(return_value);
                     }
@@ -2173,7 +2277,6 @@ impl VM {
                     if !is_live {
                         return Err(RuntimeError::DeadFrameError.into());
                     }
-                    let home_stack_offset = self.frames[token.frame_index].stack_offset;
 
                     // The return value is already on the stack top (the compiler
                     // emits the expression, or `Bytecode::Nil` for a bare
@@ -2182,21 +2285,41 @@ impl VM {
                     let return_value = self.stack.pop().unwrap_or(Value::nil());
                     let return_value = self.surface_absence(return_value);
 
-                    // Close every open upvalue at or above the home frame's
-                    // window before the stack is truncated, so captures escaping
-                    // *any* of the popped frames survive (one call covers all
-                    // popped frames: each popped frame's `stack_offset` is
-                    // `>= home_stack_offset`). Must run before truncation.
-                    self.close_upvalues_from(home_stack_offset);
-                    self.stack.truncate(home_stack_offset);
-                    self.stack.push(return_value);
-                    // Remove the home frame and everything above it. The value is
-                    // now exactly where an ordinary `Return` from the home method
-                    // would have left it; the unmodified top-of-loop drain check
-                    // (in whichever nested `run_until` first finds its floor at
-                    // or above the new length) yields it for real. Do NOT
-                    // `return Ok(_)` here — let the loop continue.
-                    self.frames.truncate(token.frame_index);
+                    if !self.control_stack.is_empty() {
+                        match self.step_control_transfer(Transfer::NonLocalReturn { target: token, value: return_value })? {
+                            ControlStepOutcome::Continued => {
+                                hoisted = None;
+                                continue;
+                            }
+                            ControlStepOutcome::Completed(v) => {
+                                if self.frames.len() <= base_frames {
+                                    return Ok(v);
+                                }
+                                hoisted = None;
+                                continue;
+                            }
+                            ControlStepOutcome::Propagate(Transfer::NonLocalReturn { target, value }) => {
+                                self.execute_non_local_return(target, value)?;
+                                hoisted = None;
+                                continue;
+                            }
+                            ControlStepOutcome::Propagate(Transfer::Returned(v)) => {
+                                if self.frames.len() <= base_frames {
+                                    return Ok(v);
+                                }
+                                self.stack.push(v);
+                                hoisted = None;
+                                continue;
+                            }
+                            ControlStepOutcome::Propagate(Transfer::Raise(e)) => {
+                                return Err(e);
+                            }
+                        }
+                    } else {
+                        self.execute_non_local_return(token, return_value)?;
+                        hoisted = None;
+                        continue;
+                    }
                 }
                 Bytecode::Jump(offset) => self.apply_jump_offset(offset),
                 Bytecode::JumpIfFalse(offset) => {

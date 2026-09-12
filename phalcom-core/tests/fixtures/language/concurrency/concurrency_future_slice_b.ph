@@ -66,13 +66,16 @@ System.print(Future.value("map").then |v| { Future.value(v + " flattened") }.awa
 System.print(Future.error(Error.new("catch")).recoverWith |e| { Future.value(e.message + " flattened") }.await)
 
 // C-FUT-7: await under native frame raises CannotYieldAcrossNativeFrame
+class Probe {
+  hash {
+    f10.await
+    return 0
+  }
+}
 const f10 = Future.new()
 const helper = Fiber.new || {
-  try {
-    // some body
-  } ensure {
-    f10.await
-  }
+  let s = Set.new()
+  s.add(Probe.new())
 }
 helper.try()
 System.print("caught yield across native frame: " + helper.error.unwrapOr(None).message)
