@@ -1,0 +1,5 @@
+[project]
+name = "logical_imports"
+namespace = "logical_imports"
+version = "0.1.0"
+entry = "logical_imports.main"

@@ -152,12 +152,6 @@ fn system() {
 }
 
 #[test]
-#[ignore = "PENDING: System/IO — later"]
-fn system_pending() {
-    support::check_pending("system");
-}
-
-#[test]
 fn concurrency() {
     // CONC002/C1: cooperative Fiber + scheduler/Future execution.
     // The active corpus covers manual call/try/yield/current/abort semantics,
@@ -227,9 +221,9 @@ fn collections() {
     support::check_pass("collections");
 }
 
-// NB: U-COLL's list/tuple/grouping/brace-disambiguation PASS fixtures live in
-// `tests/fixtures/language/collections/` and are exercised by `collections()` above; the
-// deferred-runtime cases are split out below.
+// NB: U-COLL's list/tuple/grouping/brace-disambiguation and bounded-expansion PASS
+// fixtures live in `tests/fixtures/language/collections/` and are exercised by
+// `collections()` above.
 
 #[test]
 fn collections_literals_negative() {
@@ -237,19 +231,6 @@ fn collections_literals_negative() {
     // outgoing spread diagnostics. These are real negative cases, not pending
     // success fixtures.
     support::check_negative("collections/negative");
-}
-
-#[test]
-#[ignore = "deferred collection spread and boundedness"]
-fn collections_pending() {
-    support::check_pending("collections");
-}
-
-#[test]
-fn collections_d1() {
-    // D.1 is complete independently of the still-deferred spread fixtures in
-    // the collections pending directory; keep its comprehensive gate active.
-    support::check_pending_case("collections", "eager_operations");
 }
 
 #[test]
@@ -346,14 +327,6 @@ fn values() {
 }
 
 #[test]
-#[ignore = "Modules v1 retires physical imports; runtime module loading is out of scope for Part I"]
-fn imports() {
-    // Retained as historical U15 runtime coverage. Modules v1 is compile-time
-    // only and intentionally rejects this physical-import corpus.
-    support::check_pass("imports");
-}
-
-#[test]
 fn family() {
     // Current Family semantics (`docs/spec/callables/family.md` §§1–5):
     // bound exact getter/nullary/method/setter references retain selector
@@ -406,14 +379,6 @@ fn strings_negative() {
 // live in `tests/fixtures/language/runtime-errors/`, already fully exercised by
 // `runtime_errors()` above (a second `check_negative("runtime-errors")` call
 // would just re-run the same directory).
-
-#[test]
-#[ignore = "Modules v1 retires physical imports; runtime module loading is out of scope for Part I"]
-fn imports_negative() {
-    // Retained as historical U15 runtime coverage. Modules v1 is compile-time
-    // only and intentionally rejects this physical-import corpus.
-    support::check_negative("imports/negative");
-}
 
 #[test]
 fn indexing() {

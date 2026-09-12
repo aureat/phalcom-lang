@@ -441,24 +441,9 @@ pub fn check_negative_at_phase(label: &str, expected_phase: ExpectedFailurePhase
 }
 
 /// Runs all PENDING cases in `tests/fixtures/language/<label>/pending/`.
+#[allow(dead_code)]
 pub fn check_pending(label: &str) {
     check_cases(label, true, false, ExpectedFailurePhase::Any);
-}
-
-/// Runs one named PENDING case without opening the rest of a deferred lane.
-/// This keeps an independently complete migration gate visible while unrelated
-/// pending cases remain intentionally deferred.
-pub fn check_pending_case(label: &str, case: &str) {
-    let path = corpus_root().join(label).join("pending").join(format!("{case}.ph"));
-    assert!(path.exists(), "missing pending corpus case: {}", path.display());
-    let expected = expected_path(&path);
-    assert!(expected.exists(), "missing expected sidecar for {}", path.display());
-
-    let output = run_corpus_case(&path);
-    let case_label = case_name(&path);
-    assert_success(&case_label, &output);
-    let expected_bytes = fs::read(&expected).unwrap_or_else(|err| panic!("failed to read {}: {err}", expected.display()));
-    assert_stdout_exact(&case_label, &output.stdout, &expected_bytes);
 }
 
 /// Disassembles the `for`-loop fixture at `rel_path` (relative to the corpus

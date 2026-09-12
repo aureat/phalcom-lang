@@ -1,8 +1,22 @@
 use phalcom_core::error::PhError;
 use phalcom_core::modules::compile::{EntrySelection, ProgramCompileError, ProgramCompiler};
-use phalcom_core::vm::VM;
+use phalcom_core::vm::{BufferedOutput, VM};
 use std::path::PathBuf;
 use std::sync::Arc;
+
+#[test]
+fn test_logical_imports_execute_without_physical_paths() {
+    let fixture_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/modules_v1/logical_imports");
+    let selection = EntrySelection::Project(fixture_dir);
+    let program = ProgramCompiler::compile_entry_selection(selection).expect("logical imports should compile and link");
+
+    let sink = BufferedOutput::new();
+    let handle = sink.handle();
+    let mut vm = VM::new_native_with_output(Box::new(sink));
+    vm.run_compiled(&program).expect("logical imports should execute");
+
+    assert_eq!(handle.bytes(), b"42\n3\n4\n3\n<True>\n42\n1\n99\n3\n");
+}
 
 #[test]
 fn test_diamond_module_materialization_and_execution() {

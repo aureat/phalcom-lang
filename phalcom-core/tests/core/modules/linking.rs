@@ -2,7 +2,7 @@ use phalcom_core::modules::RuntimeLinkedRead;
 use phalcom_core::modules::compile::{EntrySelection, ProgramCompileError, ProgramCompiler};
 use phalcom_core::value::Value;
 use phalcom_core::vm::VM;
-use phalcom_modules::{LinkError, LinkedReadSpec, ModuleComponent, ModuleId, ModulePath};
+use phalcom_modules::{LinkError, LinkedReadSpec, ModuleComponent, ModuleId, ModulePath, ModuleResolutionError};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -170,6 +170,28 @@ fn comp_07_cycle_ab_detected_and_rejected() {
         matches!(result, Err(ProgramCompileError::Link(LinkError::RuntimeCycle(_)))),
         "expected RuntimeCycle error, got {:?}",
         result
+    );
+}
+
+/// COMP-07b — Missing logical module is rejected during resolution.
+#[test]
+fn comp_07b_missing_logical_module_is_rejected() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(
+        root.join("project.toml"),
+        "[project]\nname = \"test_pkg\"\nnamespace = \"test_pkg\"\nversion = \"0.1.0\"\nentry = \"test_pkg.entry\"\n",
+    )
+    .unwrap();
+    let src_dir = root.join("src");
+    std::fs::create_dir_all(&src_dir).unwrap();
+    std::fs::write(src_dir.join("package.ph"), "expose .entry\n").unwrap();
+    std::fs::write(src_dir.join("entry.ph"), "import .missing as Missing\n").unwrap();
+
+    let result = ProgramCompiler::compile_entry_selection(EntrySelection::Project(root.to_path_buf()));
+    assert!(
+        matches!(result, Err(ProgramCompileError::Resolution(ModuleResolutionError::ModuleNotFound(_)))),
+        "expected missing logical module to fail resolution, got {result:?}"
     );
 }
 
