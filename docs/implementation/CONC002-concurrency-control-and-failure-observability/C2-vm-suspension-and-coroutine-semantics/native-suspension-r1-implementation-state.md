@@ -2,9 +2,9 @@
 
 - **Plan**: `CONC002.C2.P1-R1` (Native suspension and VM control continuations)
 - **Baseline Revision**: `ecc080664348ea1b3272f3da78350fed0afdefad` (clean `main`)
-- **Status**: IN_PROGRESS
-- **Active Incident**: None
-- **Next Task**: Gate C1 (Control ownership & activation outcomes)
+- **Status**: COMPLETE / IMPLEMENTED
+- **Active Incident**: None (all test gates verified)
+- **Next Task**: Handoff to `CONC002.C2.P2` (Coroutine consumer / executor separation)
 
 ---
 
@@ -52,11 +52,11 @@
 | Gate | Status | Command / Evidence | Result | Detail |
 |---|---|---|---|---|
 | **C0** | **COMPLETE** | `git status`, direct searches, baseline concurrency tests | PASS | Baseline clean (`ecc08066`), inventory classified, baseline tests green |
-| **C1** | IN_PROGRESS | `cargo check -p phalcom-core`, unit tests | PENDING | Core control representations (`ControlStack`, `CallOutcome`, etc.) |
-| **C2** | PENDING | transfer router, non-local unwind, host escape tests | PENDING | Unified transfers & host boundary escape |
-| **C3** | PENDING | `on`/`ensure` suspendable fixtures | PENDING | VM-owned `on`/`ensure` phases |
-| **C4** | PENDING | child failure -> parent Raise injection tests | PENDING | Parent call-site exception injection |
-| **C5** | PENDING | `Bool`, `Option`, `whileTrue`, `Ordering` fallback tests | PENDING | Native fallback migration |
-| **C6** | PENDING | GC tracing & traceback integration tests | PENDING | Lifetime & diagnostics validation |
-| **C7** | PENDING | exact wait generation & queue admission tests | PENDING | Executor readiness handoff |
-| **C8** | PENDING | full test suite, clippy, fmt, negative searches | PENDING | Final verification & closure |
+| **C1** | **COMPLETE** | `cargo check -p phalcom-core`, unit tests | PASS | Core control representations (`ControlStack`, `CallOutcome`, etc.) |
+| **C2** | **COMPLETE** | transfer router, non-local unwind, host escape tests | PASS | Unified transfers & host boundary escape |
+| **C3** | **COMPLETE** | `on`/`ensure` suspendable fixtures | PASS | VM-owned `on`/`ensure` phases (`concurrency_control_on_suspend.ph`, `concurrency_control_ensure_suspend.ph`) |
+| **C4** | **COMPLETE** | child failure -> parent Raise injection tests | PASS | Parent call-site exception injection (`concurrency_control_call_failure_parent_catch.ph`) |
+| **C5** | **COMPLETE** | `Bool`, `Option`, `whileTrue`, `Ordering` fallback tests | PASS | Native fallback migration (`concurrency_control_while_true_suspend.ph`, etc.) |
+| **C6** | **COMPLETE** | GC tracing & traceback integration tests | PASS | Lifetime & diagnostics validation (`control_phase_root_tracing_covers_all_variants`) |
+| **C7** | **COMPLETE** | exact wait generation & queue admission tests | PASS | Executor readiness handoff (`parked_wake_requires_the_exact_generation_and_is_once_only`) |
+| **C8** | **COMPLETE** | full test suite, clippy, fmt, negative searches | PASS | Final verification & closure across workspace |

@@ -11,8 +11,8 @@ verification: IN_PROGRESS
 
 | Plan | Scope | State |
 |---|---|---|
-| P1-R1 | native suspension, VM-owned protected/cleanup control, transfer routing, Call failure injection, native-control migration | IN_PROGRESS |
-| P2 | consumer/executor separation, VM-owned queued driving, manual pending await, yield-await-yield, nested GC/failure verification, conditional `Fiber<R>` | PROPOSED / PUBLISHED |
+| P1-R1 | native suspension, VM-owned protected/cleanup control, transfer routing, Call failure injection, native-control migration | COMPLETE / IMPLEMENTED |
+| P2 | consumer/executor separation, VM-owned queued driving, manual pending await, yield-await-yield, nested GC/failure verification, conditional `Fiber<R>` | READY / IN_PROGRESS |
 
 C2 owns VM control continuation state, coroutine-consumer/executor semantics, and the source-agnostic readiness handoff.
 

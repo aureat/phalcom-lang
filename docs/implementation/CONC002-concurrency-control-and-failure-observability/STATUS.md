@@ -10,7 +10,7 @@ verification: BASELINE_BLOCKED
 | Checkpoint | State | Next action |
 |---|---|---|
 | C1 | IN_PROGRESS / PARTIAL | finish/disposition P4 |
-| C2 | IN_PROGRESS | finish P1-R1, then execute published P2 |
+| C2 | IN_PROGRESS | execute published P2 (P1-R1 COMPLETE) |
 | C3 | PROPOSED | P1 after C2.P2; P2 blocked on PDR-0016 |
 | C4 | PROPOSED | P1 after C2.P2; P2 after P1, time portions after C3.P1 |
 | C5 | roadmap | no implementation plan yet |
