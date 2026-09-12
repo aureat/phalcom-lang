@@ -264,7 +264,7 @@ Invariant/regression: Slice A adds `class Future` to the tower — it must pass
   suspending futures. Options:
   - **Option 1 (RECOMMENDED, ADOPTED): U-FUTURE v1 = Slice A only (pure `.ph`, zero native).**
     Ship the scheduler-free `Future` now; async/await wait for a ratified, owned
-    [`CONC001.C2.P1`](../C2-scheduler-and-reactor/P1-ready-queue-and-root-drive.md) (native FIFO + root-drive pump —
+    [`CONC001.C2.P1`](../C2-scheduler/P1-ready-queue-and-root-drive-historical-closure.md) (native FIFO + root-drive pump —
     `Fiber#isDone`/`error` are no longer part of this gate, see P4 above).
     Smallest correct step; unblocks immediately; no `vm.rs` risk; exactly what
     [future-library-spec.md §2](future-library-spec.md) foresaw ("the scheduler-free set could ship as a
@@ -274,7 +274,7 @@ Invariant/regression: Slice A adds `class Future` to the tower — it must pass
     not-retrofittable root-drive definition, needs the seam design ratified, and inherits the
     OPEN fairness question. Bigger, `vm.rs`-SPINE, pulls unowned scope onto the critical path.
   - **Architect recommendation:** **Option 1.** Ship Slice A as U-FUTURE; use
-    [`CONC001.C2.P1`](../C2-scheduler-and-reactor/P1-ready-queue-and-root-drive.md) as its own plan for Slice B. Slice A does
+    [`CONC001.C2.P1`](../C2-scheduler/P1-ready-queue-and-root-drive-historical-closure.md) as its own plan for Slice B. Slice A does
     **not** depend on this ruling — it is buildable today regardless — so the decision gates
     only B.*, never A.*.
 
@@ -315,6 +315,6 @@ skill should draft a short `U-SCHED` ADR recording the FIFO + root-drive + fairn
 | `Fiber#isDone`/`error` not landed → ships via standalone P4, a Slice B precondition | `universe.rs` L487–496 vs concurrency.md §1; `../C3-fiber-reflection/P1-fiber-reflection-and-terminal-state.md` |
 | ADR-0031 catch syntax unimplemented → reject via `Fiber#try`+pump | ADR-0031 (Accepted, unbuilt); `universe.rs` L482 (`Error#raise` only) |
 | No `.ph` class-side state → ready-queue needs native home | object-model.md / classes.md (no class vars); `core.ph` L293 |
-| `System.schedule(_)`/`sleep(_)` reserved seam; P3 now owns the scheduler substrate | system.md §2/§3; scheduler-unit.md; `../C2-scheduler-and-reactor/P1-ready-queue-and-root-drive.md` |
+| `System.schedule(_)`/`sleep(_)` reserved seam; P3 now owns the scheduler substrate | system.md §2/§3; scheduler-unit.md; `../C2-scheduler/P1-ready-queue-and-root-drive-historical-closure.md` |
 | Still-open: structured concurrency, `select`/`race`, fairness, timers | open-questions.md §15; concurrency.md §3 |
 | U-FIBER follow-ons Future assumes (abort-root, depth-guard width) | DEFERRED.md (`fiber_abort` ~L109, `fiber_resume` L144) |

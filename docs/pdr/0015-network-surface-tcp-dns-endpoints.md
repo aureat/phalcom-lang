@@ -12,14 +12,14 @@
   [`stream-protocol.md`](../spec/current/stdlib/stream-protocol.md) (Reader/Writer protocols and
   the `close` laws, applied verbatim),
   [`reactor.md`](../spec/current/stdlib/reactor.md) §3/§7 (completion lifecycle and the
-  cancellation substrate), [`impl/reactor.md`](../forge/units/U-REACTOR/implementation-spec.md) (phase 1
+  cancellation substrate), [`impl/reactor.md`](../implementation/CONC002-concurrency-control-and-failure-observability/C3-reactor-and-external-completion/CONC002.C3.P1-reactor-core-workers-timers-and-executor-liveness.md) (phase 1
   std-only ruling: "epoll/kqueue arrives with a network unit" — this is that unit's
   surface), ADR-0012 (selector encoding), ADR-0043 (no default arguments, no flags).
 
 ## Context
 
 The reactor's phase 1 shipped worker pool + timers and deliberately deferred the poller:
-"`epoll`/`kqueue` arrives with a network unit" ([`impl/reactor.md`](../forge/units/U-REACTOR/implementation-spec.md)
+"`epoll`/`kqueue` arrives with a network unit" ([`impl/reactor.md`](../implementation/CONC002-concurrency-control-and-failure-observability/C3-reactor-and-external-completion/CONC002.C3.P1-reactor-core-workers-timers-and-executor-liveness.md)
 header ruling). PDR-0004's own mitigation for "machinery specified against no real usage"
 names the **socket echo** as a first-class consumer (reactor.md §10). So sockets are not
 one more surface — they are the thing the poller half of the reactor is built against, and

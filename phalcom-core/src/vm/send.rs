@@ -688,9 +688,17 @@ impl VM {
             return Ok(selector);
         }
 
-        if expected_positional != layout.structural_positionals()
-            || expected_labels.as_slice() != layout.labels()
-            || expected_setter != layout.has_setter_value()
+        let setter_as_positional = expected_setter
+            && !layout.has_setter_value()
+            && layout.structural_positionals() == 1
+            && layout.labels().is_empty()
+            && expected_positional == 0
+            && expected_labels.is_empty();
+
+        if !setter_as_positional
+            && (expected_positional != layout.structural_positionals()
+                || expected_labels.as_slice() != layout.labels()
+                || expected_setter != layout.has_setter_value())
         {
             return Err(RuntimeError::Arity {
                 signature: "call",

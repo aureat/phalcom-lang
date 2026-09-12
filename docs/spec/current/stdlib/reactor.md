@@ -1,202 +1,318 @@
-# Specification — The Reactor (completion machinery for `Future`-shaped IO)
+# Specification — The Reactor (completion machinery for Future-shaped IO)
 
-> **Status:** **Normative machinery contract.** Encodes
-> [PDR-0004](../../../pdr/0004-io-is-future-shaped-reactor-owned.md) §1–§5 and
-> [PDR-0003](../../../pdr/0003-no-user-visible-threads-fibers-and-isolates.md) §3 —
-> both **Accepted**, so rule 5 does not block this document. This is a *machinery* spec:
-> its consumer is the implementer, not the `.ph` programmer; the only user-visible selector
-> it adds is `System.sleep(_)` (§6, ruled in substance by PDR-0004 §5).
-> **Floor delta: +3** (`System.sleep_(_,_)` and the two pump seams
-> `System.nextCompletion_` / `System.parkForCompletion_(_)` — the U-SCHED
-> `schedule_`/internal-dequeue seam precedent; amended from "+1" by
-> [`../../forge/units/U-REACTOR/implementation-spec.md`](../../forge/units/U-REACTOR/implementation-spec.md), which also rules phase 1 std-only:
-> worker pool + timers, no poller, no sockets, no new dependency); census arithmetic follows
-> [PDR-0012](../../../pdr/0012-numeric-tower-implementation-and-floor-amendment.md)
-> ruling 21's rebase discipline alongside the other pending amendments.
-> **Build order is ruled:** this machinery lands **before** any `File`/`Fs`/socket surface
-> (PDR-0004 §2 — a stubbed always-settled `Future` keeps the types and breaks the
-> programs).
+> **Status:** Normative machinery contract.
 >
-> **Owner:** unassigned. Precondition met: E004 fixed (`f479189`) — fibers genuinely park
-> (`tests/lang/concurrency/concurrency_future_await_suspends.ph`).
+> Governing accepted decisions:
+> - PDR-0003 — worker/VM-thread discipline;
+> - PDR-0004 — Future-shaped blocking operations and reactor ownership.
+>
+> **Implementation owner:** CONC002.C3.
+> - Phase 1: `CONC002.C3.P1-reactor-core-workers-timers-and-executor-liveness.md`
+> - Poller phase: `CONC002.C3.P2-poller-and-external-readiness.md`
+>
+> PDR-0016 remains Proposed, therefore the poller phase is not yet dispatchable.
+>
+> **Implementation status:** unbuilt at this spec revision.
+>
+> The pre-C2 proposal that required guest/source-visible
+> `System.nextCompletion_` and `System.parkForCompletion_(_)` pump seams is
+> withdrawn. The post-C2 VM executor owns reactor ingress and idle waiting.
 
-## 1. Role and the two mechanisms
+## 1. Role
 
-The reactor is the thing that makes every `Future` in
-[`filesystem.md`](filesystem.md) / [`stream-protocol.md`](stream-protocol.md) settle.
-Split by what the kernel can actually poll (PDR-0004 §3):
+The reactor is the external-progress source below every Future-shaped operation
+whose completion depends on the operating system.
 
-| Source | Mechanism | Why |
-|---|---|---|
-| Sockets, pipes, TTYs, timers, signals | one poller (`epoll`/`kqueue`/IOCP), single-threaded | genuinely pollable; a waiting fiber costs nothing |
-| Filesystem operations | bounded worker pool running blocking syscalls | `epoll` reports regular files always-ready; async file IO does not exist at the OS level — libuv's thread pool is the proof, not a shortcut |
+Mechanisms:
 
-Both are invisible from `.ph`: user code sees only `Future`s.
-
-## 2. Thread discipline — the absolute law
-
-PDR-0003 §3 / PDR-0004 §4, restated as the invariant every line of this subsystem is
-reviewed against:
-
-1. **Workers receive owned plain data** (`PathBuf` built from `Path` bytes, `Vec<u8>`,
-   scalars) **and return owned plain data.** No `Value`, no `ObjRef`, no heap access, no
-   allocation into the Phalcom heap — enforced structurally: the job and completion enums
-   contain only plain-data types, so a violation is a compile error, not a review catch.
-2. **Completions cross back on one MPSC channel**, plain data only.
-3. **Only the VM thread mints handles, settles `Future`s, and touches
-   `VM::ready_queue`** — which therefore stays the unsynchronized single-threaded
-   `VecDeque<ObjRef>` it is today (`vm/mod.rs:221`), with no atomics added anywhere
-   (PDR-0003's single-VM-thread guarantee doing its work).
-
-## 3. Completion lifecycle
-
-```
-submit -> park -> complete -> drain (safepoint) -> settle -> ready
-```
-
-- **Submit.** A native IO primitive builds the plain-data job, registers it (poller
-  interest or pool queue) under a fresh **generation-tagged token** (the ADR-0013
-  frame-token / PDR-0005 §4 resource-table idea, third use), creates the un-settled
-  `Future`, and returns it. No syscall has happened on the VM thread.
-- **Park.** The caller `await`s; the fiber yields to its floor and is now owned by the
-  pending token, reachable via the registration — **the registration is a GC root for its
-  fiber and its `Future`** (a parked fiber with no other reference must not be collected
-  out from under a pending completion).
-- **Complete.** The poller reports readiness, or a worker finishes and pushes the
-  completion (token + plain result) onto the channel. Nothing else happens off-thread.
-- **Drain, only at the dispatch safepoint.** The VM thread drains the channel at the same
-  back-edge site that services the GC latch (`service_gc_safepoint`,
-  `vm/dispatch.rs:540`) — not at arbitrary points. Draining there is what keeps handle
-  minting single-threaded and composes with the `temp_roots` / Invariant L discipline
-  (PDR-0004 Consequences). A completion whose token generation is stale (cancelled,
-  §7) is dropped on the floor here, by design.
-- **Settle.** `Future` settles once, to `Ok(value)` or `Err(error)` — one settlement
-  channel, never `Future<Result>` nesting (PDR-0004 §1).
-- **Ready.** The parked fiber is pushed onto `ready_queue` and runs when the scheduler
-  reaches it — never immediately, never preempting the current fiber.
-
-## 4. The pump and the liveness law
-
-The scheduler currently has one completion source: the ready queue, drained by
-`System.runScheduled` (`core.ph:1317`) over the `system_schedule`/`system_next_scheduled_internal`
-seam (`primitive/system.rs`), with the VM's root-drive pump behind it. This
-machinery adds a second source, and PDR-0004 names the resulting failure mode the
-sharpest in the decision:
-
-> **Liveness law.** A program whose every fiber is parked on IO makes progress. The pump
-> must therefore treat "ready queue empty" as *"block in the poller until the next
-> completion or timer deadline"*, not as *"exit"*.
-
-Exit condition, exactly: no runnable fiber **and** no pending registration **and** no
-undrained completion. Anything less exits silently mid-IO; anything more never exits.
-This law is the **first test written** (§10), before any consumer exists.
-
-## 5. Fairness between the two sources
-
-Live question, not ruled (`open-questions.md` §15; PDR-0004 Consequences). This spec
-states a **proposed default** and marks it open rather than deciding silently:
-
-- At each safepoint drain, take the completions available **at entry** (a bounded batch —
-  later arrivals wait a round); resumed fibers join the **back** of `ready_queue`; a
-  completion never preempts a running fiber.
-
-That is starvation-free in both directions under a finite batch, and it is Q-R1 until a
-real workload confirms or refutes it.
-
-## 6. Timers — `System.sleep(_)`
-
-Ruled by PDR-0004 §5 (closes `system.md`'s open question): timers are a reactor
-completion source, and
-
-```
-System.sleep(_) -> Future     // settles Ok(None) after >= the given duration
-```
-
-- Duration is a `Number` of **integral milliseconds**, the [`filesystem.md`](filesystem.md)
-  ruling-8 wording (representation-independent; exact in f64). Negative or non-integral
-  raises; `0` is a valid yield-until-next-pump.
-- Clock is **monotonic** — wall-clock changes never fire or starve a timer.
-- `>=`, never `==`: settlement happens at the first pump after the deadline, and the spec
-  promises no tighter bound (single VM thread; a fiber that never yields delays every
-  timer — that is PDR-0003's documented cost, not a reactor defect).
-- Native: `System.sleep_(_,_)` — duration plus the pending future to register
-  (impl ruling: every reactor-registering native takes the future as its last
-  argument, because `Future` is pure `.ph` and natives never settle one). The `.ph`
-  `sleep` validates, creates the `Future`, registers, returns it.
-
-## 7. Cancellation — deferred here; now specced as its own unit
-
-Own unit — **specced 2026-07-20**: [PDR-0017](../../../pdr/0017-future-cancel-is-renunciation.md)
-(Proposed) + [`cancellation.md`](cancellation.md) (U-CANCEL), built on exactly the
-substrate below, which stays binding (PDR-0004 Consequences: "it cannot be deferred
-indefinitely — a leaked registration is an fd leak"):
-
-1. Every registration carries the generation-tagged token from §3; **deregistration is
-   generation bump + poller removal**, and a stale completion is dropped at the drain.
-   The mechanism ships with the reactor even though no user-facing `cancel` exists yet.
-2. A discarded parked fiber (unreachable but registered) is **not collectable** (§3's
-   root rule) — it is a *leak*, and it must appear in `System.leakReport` as a distinct
-   condition ("fiber parked on a registration nothing can complete"), the PDR-0005 §5
-   posture applied to registrations.
-3. `Future` gets no `cancel` selector in this spec. It now has one **specced**
-   ([`cancellation.md`](cancellation.md), normative upon PDR-0017 ratification), and it
-   composes with the token mechanism above exactly as required — no second mechanism.
-
-## 8. Shutdown
-
-On VM exit: stop intake, drain the completion channel once, drop poller registrations,
-signal and join pool workers (bounded wait — a worker stuck in an uninterruptible syscall
-is abandoned, documented), then run the PDR-0005 resource-table drain and the leak
-report. Pending `Future`s never settle at shutdown — they are reported (§7.2), not
-force-settled with a synthetic error (a synthetic `Err` looks like an IO failure and gets
-retried by well-meaning code).
-
-## 9. Laws, consolidated
-
-1. **No `Value` crosses a thread boundary, ever** (§2 — structural, not reviewed-for).
-2. **Settlement happens only at the safepoint drain, on the VM thread** (§3).
-3. **A `Future` settles at most once, to one channel** (`Ok`/`Err`, PDR-0004 §1).
-4. **Liveness**: parked-on-IO-only programs progress; the exit condition is §4's
-   three-way conjunction, exactly.
-5. **A pending registration roots its fiber and its `Future`** (§3); an unreachable
-   registered fiber is a reported leak, not a collection (§7).
-6. **Timers are monotonic and lower-bounded only** (§6).
-7. **Stale tokens complete into the void** (§3/§7) — a cancelled or superseded
-   completion is dropped at drain, never settled.
-
-## 10. Conformance — written before the surfaces exist
-
-PDR-0004's mitigation for "specified against no real usage" is that these are the
-*first consumers*, preceding `File`/`Socket`:
-
-| Check | Asserts |
+| Source | Mechanism |
 |---|---|
-| liveness | law 4: a program that only `sleep(50).await`s completes; one that awaits a never-completing registration with `strictResources` reports rather than spinning |
-| exit exactness | §4: exits iff the three-way conjunction; does not exit with a timer outstanding |
-| file-read integration | worker-pool path end to end: submit → park → drain → settle `Ok(count)`, with the fiber resumed on the queue, not inline |
-| socket echo | poller path end to end, two fibers, interleaved readiness |
-| settle-once | law 3: double completion for one token settles once, second is dropped |
-| stale token | law 7: deregistered token's completion is dropped at drain |
-| back-of-queue resume | §5 default: a resumed fiber runs after already-ready fibers, never preempts |
-| timer monotonicity | law 6: `sleep` unaffected by wall-clock jumps (where the harness can fake them); `sleep(0)` settles on the next pump |
-| plain-data boundary | §2.1: the job/completion enums contain no `Value`/`ObjRef` — a compile-time assertion (e.g. a `static_assert`-style impl-Send check), not a runtime test |
-| GC ⊗ parked fiber | law 5: a parked fiber with no `.ph` reference survives a forced `System.gc` and completes correctly |
+| pollable descriptors | one single-VM-thread poller |
+| timers | monotonic reactor timer heap |
+| blocking host work / regular files | bounded worker pool |
 
-## 11. Open questions
+User code sees Futures, not worker threads, tokens, poller events, or reactor registrations.
 
-| # | Question | Notes |
-|---|---|---|
-| Q-R1 | Fairness policy | §5's bounded-batch back-of-queue default, pending a real workload (`open-questions.md` §15) |
-| Q-R2 | Worker-pool size | Bounded, but bounded at what? libuv defaults to 4; measure, don't copy. Whatever it is, it is a constant with a doc comment, never a user-visible knob in v0.2 |
-| Q-R3 | Poller backend on macOS-first development | **Answered by [PDR-0016](../../../pdr/0016-poller-backend-is-mio.md) (Proposed):** `mio`, confined to `reactor.rs`, try-then-register. Closed when that record ratifies |
-| Q-R4 | `Future` cancellation surface | **Answered by [PDR-0017](../../../pdr/0017-future-cancel-is-renunciation.md) (Proposed):** renunciation semantics over the token substrate, unit U-CANCEL. Closed when that record ratifies |
+## 2. Thread discipline
 
-## 12. What this document does not cover
+The following are absolute laws:
 
-- **Any IO selector surface.** `File`/`Fs` are [`filesystem.md`](filesystem.md); sockets
-  and DNS are [`net.md`](net.md) (Proposed — normative upon PDR-0015 ratification); TLS
-  and process-wait have no spec yet. All plug into §3's lifecycle unchanged.
-- **Isolates.** PDR-0003 §2; if ever built, each isolate owns a reactor — nothing here
-  assumes a process singleton beyond `System.sleep`'s binding.
-- **Streaming/backpressure abstractions.** Q-3 of PDR-0013 and beyond; the reactor
-  settles single completions only.
+1. Workers receive and return owned plain data only.
+2. No worker may see `Value`, `ObjRef`, VM state, the Phalcom heap, Phalcom closures, or runtime objects.
+3. Worker completions cross to the VM over a plain-data channel.
+4. Only the VM thread creates Phalcom values, settles Futures, mutates the ready queue, or runs guest code.
+5. The ready queue and heap remain single-threaded; no atomics are added merely for the reactor.
+
+The job/completion types should make violations structurally difficult.
+
+## 3. Registration identity and GC lifetime
+
+Every external operation owns a generation-tagged reactor registration.
+
+Conceptually:
+
+```text
+ReactorToken = (slot, generation)
+```
+
+This token is distinct from:
+
+```text
+Fiber identity
+Fiber park generation
+scheduler admission identity
+C2 control/frame identity
+future C5 cancellation generation
+```
+
+The reactor registry roots the Phalcom completion target while the registration is live.
+
+For Future-shaped operations the ordinary object graph may be:
+
+```text
+reactor registration
+ -> Future/completion target
+   -> readiness registrations
+     -> parked Fiber
+```
+
+A live registration is released only by:
+
+```text
+completion
+explicit invalidation/deregistration
+shutdown
+```
+
+Slot reuse changes generation. A completion carrying an old generation is ignored.
+
+## 4. Completion lifecycle
+
+```text
+submit/register
+      ↓
+external progress
+      ↓
+plain completion/readiness
+      ↓
+VM ingress validates token
+      ↓
+VM-owned completion delivery
+      ↓
+ordinary Future settlement
+      ↓
+matching Future waiter wake
+      ↓
+Parked(generation) -> Queued
+      ↓
+later executor turn
+```
+
+### Submit
+
+A VM/native host operation:
+
+- creates or receives a pending Future/completion target;
+- allocates a fresh registration token;
+- copies only plain data into worker/poller/timer state;
+- records the target in the VM-thread registry;
+- returns without blocking.
+
+### External completion
+
+Workers return token plus plain data.
+
+Poller readiness and timers are observed on the VM thread.
+
+Nothing off-thread settles a Future.
+
+### Ingress
+
+Cross-thread completion transport is drained at a VM executor/dispatch safepoint in a bounded batch.
+
+Ingress validates generations and drops stale events before guest settlement work is activated.
+
+### Settlement
+
+Completion reaches Future through the VM's ordinary visible activation/dispatch path.
+
+The reactor does not depend on Future's private state representation.
+
+C4 may therefore change Future internals without changing C3.
+
+### Wake
+
+Future settlement may authorize an exact parked Fiber generation to become `Queued`.
+
+Wake never executes that Fiber inline.
+
+## 5. Executor liveness
+
+The post-C2 VM executor owns the progress loop.
+
+The runtime may finish only when:
+
+```text
+no runnable guest
+AND no pending reactor registration
+AND no undrained reactor event
+```
+
+If no guest is runnable but reactor progress is possible, the executor waits for external progress or the nearest timer deadline.
+
+If no guest is runnable and no reactor progress source exists, C2's ordinary exit/no-progress rule applies.
+
+## 6. Fairness
+
+Fairness remains an implementation policy until separately ratified.
+
+Default:
+
+- never preempt the current guest;
+- ingest a bounded batch;
+- woken Fibers join the back of the ready queue;
+- events beyond the batch boundary wait for a later round.
+
+No language-level priority guarantee is implied.
+
+## 7. Timers — `System.sleep(_)`
+
+Target surface:
+
+```phalcom
+System.sleep(_ milliseconds: Int) -> Future<Unit>
+```
+
+The older unparameterized-Future / `Ok(None)` wording is superseded by generic Future and canonical Unit.
+
+Rules:
+
+- non-negative integral milliseconds;
+- negative/out-of-range values raise;
+- monotonic clock;
+- settlement occurs no earlier than the deadline;
+- `sleep(0)` completes on a future executor turn, never inline;
+- no timer thread;
+- equal-deadline ordering is deterministic within the implementation.
+
+A `.ph` wrapper may create `Future<Unit>`, register it through one internal System/native timer seam, and return it.
+
+The registration primitive does not synchronously settle the Future.
+
+## 8. Worker pool
+
+Regular-file and other genuinely blocking host operations use a bounded worker pool.
+
+Requirements:
+
+- bounded worker count;
+- owned plain-data jobs/completions;
+- one completion transport to VM;
+- orderly shutdown;
+- pool size is an implementation constant in this phase, not a public knob.
+
+The reactor must prove worker liveness with a synthetic internal job before user filesystem APIs depend on it.
+
+## 9. Poller phase
+
+PDR-0004 requires a real poller for pollable descriptors.
+
+Backend choice is not accepted yet.
+
+PDR-0016 currently proposes:
+
+```text
+mio
+confined to the reactor module
+try syscall first
+register only on WouldBlock
+generation remains reactor-owned
+```
+
+C3.P2 may implement that backend only if PDR-0016 is accepted unchanged or a replacement ruling is ratified.
+
+Whatever backend is chosen:
+
+- no second executor/runtime;
+- readiness feeds the same registration/executor path;
+- stale readiness is harmless;
+- backend types remain confined to the reactor seam.
+
+## 10. Deregistration and future cancellation
+
+C3 ships the mechanism required to invalidate registrations:
+
+```text
+invalidate generation
+remove poller interest if any
+release target root
+ignore later stale completion
+```
+
+This is resource correctness, not user cancellation semantics.
+
+Public Future/Task cancellation belongs to C5 and must reuse this substrate.
+
+## 11. Shutdown
+
+On VM/process shutdown:
+
+1. stop reactor intake;
+2. drain completion ingress once;
+3. invalidate/remove live registrations;
+4. stop/join workers according to runtime policy;
+5. release reactor roots/state;
+6. run resource drain/leak reporting.
+
+Do not synthesize arbitrary IO failures merely to settle pending Futures during process shutdown.
+
+## 12. Laws
+
+1. no Phalcom heap value crosses a worker-thread boundary;
+2. VM-thread-only settlement;
+3. stale external generations are harmless;
+4. settlement remains at-most-once;
+5. registrations root their completion targets;
+6. timers are monotonic and lower-bounded;
+7. wake authorizes later execution, never inline guest execution;
+8. exit uses the three-way conjunction in §5;
+9. C3 is independent of Future private storage;
+10. cancellation semantics are not defined here.
+
+## 13. Conformance
+
+| Check | Requirement |
+|---|---|
+| sleep-only liveness | `System.sleep(...).await` progresses with no ready work |
+| exit exactness | pending registration prevents early exit |
+| worker round trip | worker completion settles on VM thread |
+| settle once | duplicate completion cannot settle twice |
+| stale token | old generation is ignored |
+| timer ordering | deterministic equal/deadline behavior |
+| zero timer | never inline |
+| plain-data boundary | cross-thread types contain no VM/heap handles |
+| GC parked target | live registration retains completion graph |
+| root release | completion/deregistration stops reactor retention |
+| wake separation | completion queues work but does not execute it |
+
+Poller-specific conformance belongs to C3.P2.
+
+## 14. Open questions
+
+| Question | Status |
+|---|---|
+| fairness policy | default only, not language-ratified |
+| worker-pool size | bounded internal constant; measure |
+| poller backend | PDR-0016 Proposed |
+| public cancellation | C5 |
+| exact internal timer selector spelling | C3.P1 implementation detail/native-census decision |
+
+## 15. Out of scope
+
+- filesystem/network/process user selector design;
+- TLS;
+- structured cancellation semantics;
+- channels/select;
+- isolates;
+- streaming/backpressure;
+- parallel executor.

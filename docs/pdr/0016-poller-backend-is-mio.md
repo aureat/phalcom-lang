@@ -9,7 +9,7 @@
   [PDR-0015](0015-network-surface-tcp-dns-endpoints.md) (the surface this serves; its
   ruling 7's one-pending-op rule is load-bearing below),
   [`reactor.md`](../spec/current/stdlib/reactor.md) §11 **Q-R3** (the question this closes),
-  [`impl/reactor.md`](../forge/units/U-REACTOR/implementation-spec.md) (phase 1's std-only ruling scoped the
+  [`impl/reactor.md`](../implementation/CONC002-concurrency-control-and-failure-observability/C3-reactor-and-external-completion/CONC002.C3.P1-reactor-core-workers-timers-and-executor-liveness.md) (phase 1's std-only ruling scoped the
   deferral: "epoll/kqueue arrives with a network unit"),
   [`impl/net.md`](../forge/units/U-NET/implementation-spec.md) (the consuming unit).
 

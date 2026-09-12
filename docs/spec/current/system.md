@@ -1,134 +1,88 @@
 # System
 
-Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
+Part of the Phalcom Language Specification. Status: Draft 0.1.
 
-`System` is the runtime's service surface: the single, well-known object through
-which Phalcom code reaches the outside world — the console, the clock, the garbage
-collector, process environment, and the concurrency scheduler
-([Fibers & Futures](concurrency.md)).
+`System` is the runtime service surface through which Phalcom code reaches
+console, clock, garbage collection, process environment, scheduler/executor
+services, and reactor timers.
 
-Design rule: **effects are named, not ambient.** There is no free-floating
-`print`; you send `print(_)` to `System`. Confining side effects to one receiver
-keeps the object model pure (everything else is value-in, value-out) and gives one
-obvious place to stub or sandbox the environment.
-
----
+Design rule: effects are named, not ambient.
 
 ## 1. Structure
 
-`System` is a **stateless singleton namespace**, not a data type:
+`System` is a stateless class-side service namespace:
 
-- it has **no instance fields** and no user-facing constructor — `System.new` is
-  not part of the surface protocol;
-- every service is a **class-side** method (`@class`), so `System` is used purely
-  as a receiver of class messages, exactly like a module of free functions;
-- the live values it returns (a `Float` clock reading, a `String` line of input)
-  are ordinary objects — `System` itself never appears inside them.
-
-In the [Object Model](object-model.md) catalog `System` is a `U` class whose sole
-instance, if any, is irrelevant: all protocol lives on `System class`.
-
----
+- no user-facing instance constructor;
+- services are class-side;
+- returned values are ordinary Phalcom values;
+- mutable runtime state stays behind VM-owned mechanisms.
 
 ## 2. Interface
-
-All class-side. Grouped by service.
 
 ### Console
 
 | Signature | Meaning |
-|-----------|---------|
-| `print(_)` | write `x.toString` followed by a newline to standard output; returns `Unit` |
-| `write(_)` | write `x.toString` with no trailing newline |
-| `printErr(_)` | write to standard error |
-| `readLine` | read one line from standard input as `Option<String>` (`None` at EOF) |
+|---|---|
+| `print(_)` | print plus newline; returns Unit |
+| `write(_)` | write without newline |
+| `printErr(_)` | stderr |
+| `readLine` | `Option<String>` |
 
 ### Time
 
 | Signature | Meaning |
-|-----------|---------|
-| `clock` | monotonic seconds as a `Float`, for measuring durations |
-| `now` | wall-clock epoch seconds as a `Float` |
+|---|---|
+| `clock` | monotonic seconds as Float |
+| `now` | wall-clock epoch seconds as Float |
 
-### Process & environment
+### Process and environment
 
-> **Specced 2026-07-20:** this group is promoted to
-> [`stdlib/process.md`](stdlib/process.md) (normative upon
-> [PDR-0019](../../pdr/0019-process-and-environment-surface.md) ratification),
-> which keeps these spellings, adds the exact-bytes siblings
-> (`envBytes(_)`/`argsBytes` — lossy/exact split, PDR-0013 ruling 4 pattern), rules
-> the environment **read-only**, and binds `exit(_)` to run reactor shutdown +
-> resource drain + leak report first. The rows below remain the quick reference.
-
-| Signature | Meaning |
-|-----------|---------|
-| `args` | the program's argument vector as a `List<String>` (lossy display form; `argsBytes` is exact) |
-| `env(_)` | an environment variable as `Option<String>` (lossy; `envBytes(_)` is exact) |
-| `exit(_)` | terminate the process with an integer status `0..255`, after the shutdown obligations |
+The full process contract is owned by `stdlib/process.md` subject to its PDR status.
 
 ### Runtime
 
 | Signature | Meaning |
-|-----------|---------|
-| `gc` | request a garbage collection; returns `Unit` ([Values & Absence](values-and-absence.md)) |
-| `version` | the runtime version `String` |
+|---|---|
+| `gc` | request full GC; returns Unit |
+| `version` | runtime version string |
 
-### Scheduler (with [Futures](concurrency.md))
+### Scheduler / executor
 
 | Signature | Meaning |
-|-----------|---------|
-| `schedule(_)` | enqueue a `Function` to run on a fresh fiber at the next scheduler turn — **landed** (U-SCHED, floor-census.md amendment): wraps `args[0]` as a fresh `Fiber` via the same validation `Fiber.new(_)` uses and pushes it onto the native ready-queue (`VM::ready_queue`); returns the `Fiber` handle, does not run it |
-| `runScheduled` | **landed** (U-SCHED, `.ph`, `core.ph`): drains all admitted work in FIFO order, including work scheduled mid-drain; raw dequeue and scheduler resume are internal runtime operations |
-| `sleep(_)` | return a `Future` that settles after the given integral **milliseconds** — **ruled** ([PDR-0004](../../pdr/0004-io-is-future-shaped-reactor-owned.md) §5 closed the question this row left open; normative contract [`stdlib/reactor.md`](stdlib/reactor.md) §6: monotonic, `>=`-bounded). Unbuilt — lands with U-REACTOR ([`impl/reactor.md`](impl/reactor.md)) |
+|---|---|
+| `schedule(_)` | admit fresh work for a later executor turn and return a Fiber handle |
+| `runScheduled` | synchronous library request to drive schedulable work according to executor semantics |
+| `sleep(_ milliseconds: Int)` | `Future<Unit>` completing no earlier than a monotonic deadline; reactor-owned; unbuilt until C3.P1 lands |
 
-`VM::run`'s **root-drive pump** (`vm/dispatch.rs`) is the belt-and-suspenders
-counterpart to `runScheduled`: once the top-level program's own activation
-ends, it drains `VM::ready_queue` to exhaustion — via the internal
-scheduler-resume mode (capture,
-not propagate) — even if `main` never explicitly calls `runScheduled`, so a
-scheduled task's side effect is never silently dropped at program exit.
+Current main has the ready queue/scheduling surface.
 
-`print(_)` returns `Unit`. It remains usable in expression position, consistent
-with everything being an expression ([Classes §4](classes.md)); callers that
-need the printed value should retain it separately.
+CONC002.C2.P2 owns the implementation transition from scheduler-as-coroutine-resumer driving to a VM-owned executor. The selector-level scheduler surface remains.
 
----
+`System.sleep` is governed by PDR-0004 and `stdlib/reactor.md`; implementation owner is CONC002.C3.P1.
 
-## 3. Implementation
+## 3. Implementation ownership
 
-Present in an embryonic form
-([`primitive/system.rs`](../../../phalcom-core/src/primitive/system.rs)):
-`system_class_print` and `system_class_new` exist; `System` is registered as a
-class in the [universe](../../../phalcom-core/src/universe.rs) bootstrap.
+Native System services live in:
 
-Each service is a `PrimitiveFn`
-([`method.rs`](../../../phalcom-core/src/method.rs)) installed **on the metaclass**
-(`System class`), since the calls are class-side. A primitive receives
-`(&mut VM, receiver, args)` and returns a `PhResult<Value>`, so it can touch VM
-state (the scheduler queue, the interner) directly — this is why `schedule`
-belongs here rather than in Phalcom code (`system_schedule` and the internal
-dequeue/wake seams, [`primitive/system.rs`](../../../phalcom-core/src/primitive/system.rs);
-`VM::ready_queue`, [`vm/mod.rs`](../../../phalcom-core/src/vm/mod.rs)).
-`runScheduled` itself is pure `.ph` orchestration over the internal dequeue and
-scheduler-resume selectors — no VM state touched directly, so it lives in
-`core.ph` rather than native
-([U-SCHED](../../forge/units/U-SCHED-FIBER/U-SCHED/plan.md)).
+```text
+phalcom-core/src/primitive/system.rs
+```
 
-To reach the specified surface from today's tree:
+and execution/scheduler state in `phalcom-core/src/vm/`.
 
-1. install `write`, `printErr`, `readLine`, `clock`, `now`, `args`, `env`,
-   `exit`, `gc`, `version` as primitives alongside `print`;
-2. give the VM a monotonic clock handle and (for `readLine`) buffered stdin;
-3. `schedule`/`runScheduled` are landed (U-SCHED); `sleep` is
-   **ruled and specced** ([`stdlib/reactor.md`](stdlib/reactor.md) §6 — fairness has a
-   proposed default there, Q-R1) and lands with U-REACTOR; the process/environment
-   rows land under [`stdlib/process.md`](stdlib/process.md) once PDR-0019 ratifies.
+Current scheduler hardening/executor semantics are owned by CONC002 C1/C2.
 
-Because `System` is the only sanctioned effect surface, a sandboxed or test
-embedding swaps the `System class` method dictionary for stubs and leaves the rest
-of the language untouched — no other class performs I/O.
+Reactor/timer implementation is owned by:
 
----
+```text
+docs/implementation/CONC002-concurrency-control-and-failure-observability/
+  C3-reactor-and-external-completion/
+```
 
-See [Fibers & Futures](concurrency.md) for the scheduler `System` drives, and
-[Implementation Status](implementation-status.md) for the current gap.
+The exact internal native timer-registration selector is finalized by C3.P1 against the native-floor census.
+
+The older proposal requiring source-visible `nextCompletion` / `parkForCompletion` guest pump seams is not normative.
+
+Potentially blocking filesystem/network/process operations consume the reactor through their own host-surface specifications rather than being implemented as System methods.
+
+See `concurrency.md` for Fiber/Future/executor semantics and `stdlib/reactor.md` for external completion machinery.

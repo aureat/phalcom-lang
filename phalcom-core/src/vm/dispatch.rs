@@ -849,16 +849,7 @@ impl VM {
                         };
 
                         if !matches!(e, PhError::Runtime(RuntimeError::Raise { .. })) {
-                            let error_class = self.universe.classes.error_class;
-                            let field_count = self.heap.class(error_class).field_count;
-                            let mut inst = crate::heap::InstanceObject::new(error_class, field_count);
-                            inst.slots[0] = self.alloc_string_value(e.to_string());
-                            if let PhError::Runtime(runtime_err) = &e {
-                                if let Some(kind_val) = self.error_kind_symbol(runtime_err) {
-                                    inst.slots[1] = kind_val;
-                                }
-                            }
-                            let error = Value::obj(self.heap.alloc(Object::Instance(inst)));
+                            let error = error_value;
                             let rendered = e.to_string();
                             let tb = if failed == self.current {
                                 self.capture_frames(0)
@@ -2286,7 +2277,10 @@ impl VM {
                     let return_value = self.surface_absence(return_value);
 
                     if !self.control_stack.is_empty() {
-                        match self.step_control_transfer(Transfer::NonLocalReturn { target: token, value: return_value })? {
+                        match self.step_control_transfer(Transfer::NonLocalReturn {
+                            target: token,
+                            value: return_value,
+                        })? {
                             ControlStepOutcome::Continued => {
                                 hoisted = None;
                                 continue;

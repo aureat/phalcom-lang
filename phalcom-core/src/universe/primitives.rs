@@ -1,12 +1,8 @@
 use crate::method::{MemberVisibility, MethodKind, MethodObject, RestLayout, RestMode, SignatureKind};
 use crate::primitive::attribute::{attribute_attach, attribute_attributes, attribute_freeze};
-use crate::primitive::block::{
-    block_arity, block_call_shape, block_call_with_shape, block_ensure_shape, block_name, block_on_shape,
-    block_while_true_shape,
-};
+use crate::primitive::block::{block_arity, block_call_shape, block_call_with_shape, block_ensure_shape, block_name, block_on_shape, block_while_true_shape};
 use crate::primitive::boolean::{
-    bool_and_shape, bool_class_new, bool_hash, bool_if_false_shape, bool_if_true_if_false_shape, bool_if_true_shape,
-    bool_not, bool_or_shape,
+    bool_and_shape, bool_class_new, bool_hash, bool_if_false_shape, bool_if_true_if_false_shape, bool_if_true_shape, bool_not, bool_or_shape,
 };
 use crate::primitive::bytes::{
     bytes_class_from_string, bytes_class_new, bytes_raw_at, bytes_raw_copy_into, bytes_raw_equals_constant_time, bytes_raw_fill, bytes_raw_set, bytes_raw_size,
@@ -248,7 +244,12 @@ impl Universe {
         {
             let sig_str = crate::method::encode_selector("ifTrue", &[None, Some("ifFalse".to_string())], SignatureKind::Method(2));
             let symbol = vm.get_or_intern(&sig_str);
-            let method = MethodObject::new_shape_primitive(symbol, crate::method::Signature::new(symbol, SignatureKind::Method(2)), bool_if_true_if_false_shape, bool_cls);
+            let method = MethodObject::new_shape_primitive(
+                symbol,
+                crate::method::Signature::new(symbol, SignatureKind::Method(2)),
+                bool_if_true_if_false_shape,
+                bool_cls,
+            );
             let method_id = vm.heap.alloc(crate::heap::Object::Method(Box::new(method)));
             vm.heap.class_mut(bool_cls).add_method(symbol, method_id);
             vm.world_version += 1;
@@ -305,7 +306,12 @@ impl Universe {
         {
             let sig_str = crate::method::encode_selector("match", &[Some("some".to_string()), Some("none".to_string())], SignatureKind::Method(2));
             let symbol = vm.get_or_intern(&sig_str);
-            let method = MethodObject::new_shape_primitive(symbol, crate::method::Signature::new(symbol, SignatureKind::Method(2)), option_match_shape, option_cls);
+            let method = MethodObject::new_shape_primitive(
+                symbol,
+                crate::method::Signature::new(symbol, SignatureKind::Method(2)),
+                option_match_shape,
+                option_cls,
+            );
             let method_id = vm.heap.alloc(crate::heap::Object::Method(Box::new(method)));
             vm.heap.class_mut(option_cls).add_method(symbol, method_id);
             vm.world_version += 1;

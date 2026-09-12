@@ -4,7 +4,7 @@
 // Proves parent call-site exception injection when child fiber fails under Call mode.
 
 let child = Fiber.new || {
-  Fiber.abort("child exploded")
+  Fiber.abort(Error.new("child exploded"))
 }
 
 let parent = Fiber.new || {

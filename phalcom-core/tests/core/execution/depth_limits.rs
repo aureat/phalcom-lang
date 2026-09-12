@@ -42,10 +42,11 @@ fn ph_call_depth_is_bounded() {
 
 #[test]
 fn native_reentry_is_bounded() {
-    // `whileTrue` is a native combinator whose block invocation uses the
-    // synchronous host helper. Nesting that combinator from its own block
+    // Retained native callback surfaces (such as Map/Set hashing/equality probing)
+    // use synchronous host re-entry. Nesting that probe recursively
     // must trip the native re-entry ceiling, not the ordinary frame ceiling.
-    let err = run("let loop = || { loop.whileTrue(loop) }\nloop.whileTrue(loop)\n").expect_err("unbounded native re-entrancy must fail");
+    let source = "class Probe {\n@constructor\nnew() {}\n  hash {\n    let s = Set.new()\n    s.add(Probe.new())\n    1\n  }\n}\nlet s = Set.new()\ns.add(Probe.new())\n";
+    let err = run(source).expect_err("unbounded native re-entrancy must fail");
     assert_depth_exceeded(err, "native re-entrancy depth", MAX_NATIVE_REENTRY);
 }
 
@@ -86,9 +87,8 @@ fn depth_error_is_an_ordinary_catchable_raise() {
 #[test]
 fn traceback_survives_a_frame_that_executed_nothing() {
     // Regression guard for the traceback walk at native re-entry depth.
-    // The nested combinator path reaches the error while a fresh frame still
-    // has `ip == 0`; reporting must not underflow while naming its span.
-    let err = run("let loop = || { loop.whileTrue(loop) }\nloop.whileTrue(loop)\n").expect_err("must raise");
+    let source = "class Probe {\n@constructor\nnew() {}\n  hash {\n    let s = Set.new()\n    s.add(Probe.new())\n    1\n  }\n}\nlet s = Set.new()\ns.add(Probe.new())\n";
+    let err = run(source).expect_err("must raise");
     // Reaching this line at all means the traceback walk did not panic.
     assert_depth_exceeded(err, "native re-entrancy depth", MAX_NATIVE_REENTRY);
 }

@@ -7,8 +7,8 @@ use crate::primitive::expect_class;
 use crate::primitive::option::wrap_some;
 use crate::value::Value;
 use crate::value::{FALSE, TRUE};
-use crate::vm::control::{BoolBranchKind, ControlDestination, ControlPhase};
 use crate::vm::VM;
+use crate::vm::control::{BoolBranchKind, ControlDestination, ControlPhase};
 use phalcom_common::range::SourceRange;
 
 /// Signature: `Bool.class::new(_)` — coerces its argument to a boolean.
@@ -273,14 +273,16 @@ pub fn bool_if_true_if_false_shape(vm: &mut VM, receiver: Value, args: ArgumentV
         args.positional(vm, 0).ok_or_else(|| RuntimeError::Arity {
             signature: "ifTrue:ifFalse:",
             expected: 2,
-            found: args.positional_count(),
+            found: args.physical_arity(),
         })?
     } else {
-        args.positional(vm, 1).ok_or_else(|| RuntimeError::Arity {
-            signature: "ifTrue:ifFalse:",
-            expected: 2,
-            found: args.positional_count(),
-        })?
+        args.labeled_value(vm, 0)
+            .or_else(|| args.positional(vm, 1))
+            .ok_or_else(|| RuntimeError::Arity {
+                signature: "ifTrue:ifFalse:",
+                expected: 2,
+                found: args.physical_arity(),
+            })?
     };
 
     let receiver_idx = args.receiver_index();

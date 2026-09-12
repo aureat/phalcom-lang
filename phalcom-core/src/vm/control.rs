@@ -217,6 +217,7 @@ impl ControlStack {
     }
 
     /// Pushes a new control activation and returns its unique [`ControlId`].
+    #[allow(clippy::too_many_arguments)]
     pub fn push(
         &mut self,
         owner: Option<FrameToken>,
@@ -307,22 +308,12 @@ pub enum ControlStepOutcome {
 
 impl VM {
     /// Helper to activate a callable receiver with positional arguments on top of the stack.
-    pub(crate) fn enter_callable_activation(
-        &mut self,
-        callable: Value,
-        args: &[Value],
-        source_range: SourceRange,
-    ) -> PhResult<CallOutcome> {
+    pub(crate) fn enter_callable_activation(&mut self, callable: Value, args: &[Value], source_range: SourceRange) -> PhResult<CallOutcome> {
         let receiver_idx = self.stack.len();
         self.stack.push(callable);
         self.stack.extend_from_slice(args);
         let layout = InvocationLayout::ordinary(args.len(), Box::new([]));
-        let view = ArgumentView::from_layout(
-            receiver_idx,
-            layout,
-            self.current_access_class(),
-            self.current_has_internal_privilege(),
-        );
+        let view = ArgumentView::from_layout(receiver_idx, layout, self.current_access_class(), self.current_has_internal_privilege());
         self.activate_function(callable, view, source_range)
     }
 
@@ -402,14 +393,22 @@ impl VM {
                             self.stack.push(error_val);
                             self.stack.push(class_val);
                             let layout = self.invocation_layout_for_selector(isa_sym, 1)?;
-                            self.dispatch_selector_window_as(
+                            let outcome = self.dispatch_selector_window_as(
                                 receiver_idx,
                                 isa_sym,
                                 layout,
                                 source_range,
                                 (self.current_access_class(), self.current_has_internal_privilege()),
                             )?;
-                            return Ok(ControlStepOutcome::Continued);
+                            match outcome {
+                                CallOutcome::Returned(matched) => {
+                                    transfer = Transfer::Returned(matched);
+                                    continue;
+                                }
+                                CallOutcome::EnteredFrame | CallOutcome::EnteredControl | CallOutcome::SwitchedFiber => {
+                                    return Ok(ControlStepOutcome::Continued);
+                                }
+                            }
                         }
                         Transfer::NonLocalReturn { .. } => {
                             // Non-local return unwinds through `on` without catching.
@@ -503,102 +502,86 @@ impl VM {
                         }
                     }
                 }
-                ControlPhase::WhileCondition { condition, body } => {
-                    match transfer {
-                        Transfer::Returned(cond_val) => {
-                            let Some(cond_bool) = cond_val.as_bool() else {
-                                transfer = Transfer::Raise(
-                                    RuntimeError::Type {
-                                        expected: "Bool",
-                                        found: cond_val.type_name(),
-                                    }
-                                    .into(),
-                                );
-                                continue;
-                            };
-                            if !cond_bool {
-                                let none_val = self.none_value();
-                                self.deliver_control_value(control.destination, none_val)?;
-                                return Ok(ControlStepOutcome::Completed(none_val));
-                            }
-                            let cond_block = *condition;
-                            let body_block = *body;
-                            control.phase = ControlPhase::WhileBody {
-                                condition: cond_block,
-                                body: body_block,
-                            };
-                            self.control_stack.records.push(control);
-
-                            self.enter_callable_activation(body_block, &[], source_range)?;
-                            return Ok(ControlStepOutcome::Continued);
-                        }
-                        Transfer::Raise(_) | Transfer::NonLocalReturn { .. } => {
-                            continue;
-                        }
-                    }
-                }
-                ControlPhase::WhileBody { condition, body } => {
-                    match transfer {
-                        Transfer::Returned(_) => {
-                            let cond_block = *condition;
-                            let body_block = *body;
-                            control.phase = ControlPhase::WhileCondition {
-                                condition: cond_block,
-                                body: body_block,
-                            };
-                            self.control_stack.records.push(control);
-
-                            self.enter_callable_activation(cond_block, &[], source_range)?;
-                            return Ok(ControlStepOutcome::Continued);
-                        }
-                        Transfer::Raise(_) | Transfer::NonLocalReturn { .. } => {
-                            continue;
-                        }
-                    }
-                }
-                ControlPhase::BoolBranch { kind, branch: _ } => {
-                    match transfer {
-                        Transfer::Returned(branch_val) => {
-                            let delivered = match kind {
-                                BoolBranchKind::IfTrue | BoolBranchKind::IfFalse | BoolBranchKind::IfTrueIfFalse => branch_val,
-                                BoolBranchKind::IfTrueOption | BoolBranchKind::IfFalseOption => {
-                                    let some_class = self.universe.classes.some_class;
-                                    let field_count = self.heap.class(some_class).field_count;
-                                    let mut inst = InstanceObject::new(some_class, field_count);
-                                    inst.slots[0] = branch_val;
-                                    Value::obj(self.heap.alloc(Object::Instance(inst)))
+                ControlPhase::WhileCondition { condition, body } => match transfer {
+                    Transfer::Returned(cond_val) => {
+                        let Some(cond_bool) = cond_val.as_bool() else {
+                            transfer = Transfer::Raise(
+                                RuntimeError::Type {
+                                    expected: "Bool",
+                                    found: cond_val.type_name(),
                                 }
-                            };
-                            self.deliver_control_value(control.destination, delivered)?;
-                            return Ok(ControlStepOutcome::Completed(delivered));
-                        }
-                        Transfer::Raise(_) | Transfer::NonLocalReturn { .. } => {
+                                .into(),
+                            );
                             continue;
+                        };
+                        if !cond_bool {
+                            let none_val = self.none_value();
+                            self.deliver_control_value(control.destination, none_val)?;
+                            return Ok(ControlStepOutcome::Completed(none_val));
                         }
+                        let cond_block = *condition;
+                        let body_block = *body;
+                        control.phase = ControlPhase::WhileBody {
+                            condition: cond_block,
+                            body: body_block,
+                        };
+                        self.control_stack.records.push(control);
+
+                        self.enter_callable_activation(body_block, &[], source_range)?;
+                        return Ok(ControlStepOutcome::Continued);
                     }
-                }
-                ControlPhase::OptionBranch { .. } => {
-                    match transfer {
-                        Transfer::Returned(val) => {
-                            self.deliver_control_value(control.destination, val)?;
-                            return Ok(ControlStepOutcome::Completed(val));
-                        }
-                        Transfer::Raise(_) | Transfer::NonLocalReturn { .. } => {
-                            continue;
-                        }
+                    Transfer::Raise(_) | Transfer::NonLocalReturn { .. } => {
+                        continue;
                     }
-                }
-                ControlPhase::OrderingReverse { .. } => {
-                    match transfer {
-                        Transfer::Returned(val) => {
-                            self.deliver_control_value(control.destination, val)?;
-                            return Ok(ControlStepOutcome::Completed(val));
-                        }
-                        Transfer::Raise(_) | Transfer::NonLocalReturn { .. } => {
-                            continue;
-                        }
+                },
+                ControlPhase::WhileBody { condition, body } => match transfer {
+                    Transfer::Returned(_) => {
+                        let cond_block = *condition;
+                        let body_block = *body;
+                        control.phase = ControlPhase::WhileCondition {
+                            condition: cond_block,
+                            body: body_block,
+                        };
+                        self.control_stack.records.push(control);
+
+                        self.enter_callable_activation(cond_block, &[], source_range)?;
+                        return Ok(ControlStepOutcome::Continued);
                     }
-                }
+                    Transfer::Raise(_) | Transfer::NonLocalReturn { .. } => {
+                        continue;
+                    }
+                },
+                ControlPhase::BoolBranch { kind, branch: _ } => match transfer {
+                    Transfer::Returned(branch_val) => {
+                        let delivered = match kind {
+                            BoolBranchKind::IfTrue | BoolBranchKind::IfFalse | BoolBranchKind::IfTrueIfFalse => branch_val,
+                            BoolBranchKind::IfTrueOption | BoolBranchKind::IfFalseOption => branch_val.wrap_some()?,
+                        };
+                        self.deliver_control_value(control.destination, delivered)?;
+                        return Ok(ControlStepOutcome::Completed(delivered));
+                    }
+                    Transfer::Raise(_) | Transfer::NonLocalReturn { .. } => {
+                        continue;
+                    }
+                },
+                ControlPhase::OptionBranch { .. } => match transfer {
+                    Transfer::Returned(val) => {
+                        self.deliver_control_value(control.destination, val)?;
+                        return Ok(ControlStepOutcome::Completed(val));
+                    }
+                    Transfer::Raise(_) | Transfer::NonLocalReturn { .. } => {
+                        continue;
+                    }
+                },
+                ControlPhase::OrderingReverse { .. } => match transfer {
+                    Transfer::Returned(val) => {
+                        self.deliver_control_value(control.destination, val)?;
+                        return Ok(ControlStepOutcome::Completed(val));
+                    }
+                    Transfer::Raise(_) | Transfer::NonLocalReturn { .. } => {
+                        continue;
+                    }
+                },
             }
         }
 
@@ -656,9 +639,7 @@ mod tests {
             (None, false),
             SourceRange::default(),
             ControlDestination::ControlActivation { id: id1 },
-            ControlPhase::EnsureBody {
-                cleanup: Value::nil(),
-            },
+            ControlPhase::EnsureBody { cleanup: Value::nil() },
         );
 
         assert_eq!(cs.len(), 2);

@@ -66,7 +66,7 @@ Order is normative: **release before settle** (a waiter resumed by the settlemen
 not observe a still-armed registration), settle before flagging (nothing between them
 can run — single VM thread, no re-entry in this sequence). Natives never settle
 anything: `cancelRegistration_` only releases; the settlement above is `.ph` — the
-[`../../forge/units/U-REACTOR/implementation-spec.md`](../../forge/units/U-REACTOR/implementation-spec.md) §1 architecture holds with zero exceptions.
+[`../../../implementation/CONC002-concurrency-control-and-failure-observability/C3-reactor-and-external-completion/CONC002.C3.P1-reactor-core-workers-timers-and-executor-liveness.md`](../../../implementation/CONC002-concurrency-control-and-failure-observability/C3-reactor-and-external-completion/CONC002.C3.P1-reactor-core-workers-timers-and-executor-liveness.md) §1 architecture holds with zero exceptions.
 
 ## 4. Late settlement, and non-IO futures
 

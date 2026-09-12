@@ -12,7 +12,7 @@
   deferral is blocked on this),
   [ADR-0030](../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md)
   (`Future` is pure `.ph`; the C-FUT-3 settle-once contract this leans on),
-  [`impl/reactor.md`](../forge/units/U-REACTOR/implementation-spec.md) (the registry, tokens, and pump this
+  [`impl/reactor.md`](../implementation/CONC002-concurrency-control-and-failure-observability/C3-reactor-and-external-completion/CONC002.C3.P1-reactor-core-workers-timers-and-executor-liveness.md) (the registry, tokens, and pump this
   plugs into).
 
 ## Context
@@ -78,7 +78,7 @@ the symbol joins the §8.1 normative table with that plan's lane.
 ### 3. `cancel` is ordinary `.ph`; the one native is deregistration
 
 `cancel` runs in `.ph` and settles via the existing `settleError` — the
-natives-never-settle architecture ([`impl/reactor.md`](../forge/units/U-REACTOR/implementation-spec.md) §1)
+natives-never-settle architecture ([`impl/reactor.md`](../implementation/CONC002-concurrency-control-and-failure-observability/C3-reactor-and-external-completion/CONC002.C3.P1-reactor-core-workers-timers-and-executor-liveness.md) §1)
 is untouched, because `cancel` is not a native. The single new floor primitive is
 
 ```

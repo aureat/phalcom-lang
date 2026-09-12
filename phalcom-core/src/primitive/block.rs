@@ -15,8 +15,8 @@ use crate::heap::Object;
 use crate::method::{ArgumentView, CallOutcome, InvocationLayout};
 use crate::parameters::{ArgumentShape, RestKind};
 use crate::value::Value;
-use crate::vm::control::{ControlDestination, ControlPhase};
 use crate::vm::VM;
+use crate::vm::control::{ControlDestination, ControlPhase};
 use phalcom_common::range::SourceRange;
 
 /// Resolves `receiver` to the [`crate::heap::ClosureObject`] handle it calls

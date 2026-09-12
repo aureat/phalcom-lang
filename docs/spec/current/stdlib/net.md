@@ -16,7 +16,7 @@
 > ruling 21's rebase discipline. Selector spellings follow ADR-0012 and ADR-0043
 > (no default arguments, no flags, no options bags — every variant its own selector).
 > **Build order:** requires reactor phase 2 (the poller — [`../../forge/units/U-NET/implementation-spec.md`](../../forge/units/U-NET/implementation-spec.md));
-> phase 1 ([`../../forge/units/U-REACTOR/implementation-spec.md`](../../forge/units/U-REACTOR/implementation-spec.md)) deliberately shipped without it.
+> phase 1 ([`../../../implementation/CONC002-concurrency-control-and-failure-observability/C3-reactor-and-external-completion/CONC002.C3.P1-reactor-core-workers-timers-and-executor-liveness.md`](../../../implementation/CONC002-concurrency-control-and-failure-observability/C3-reactor-and-external-completion/CONC002.C3.P1-reactor-core-workers-timers-and-executor-liveness.md)) deliberately shipped without it.
 >
 > **Owner:** unassigned.
 
@@ -136,7 +136,7 @@ each pending `Future` settles `Err(#closed)` at the next drain:
 1. **Never a hang** — a fiber parked on a closed stream's `read` resumes with the `Err`.
 2. **Never a leak report** — deregistered is not leaked (reactor.md §7.2's posture).
 3. **Never a native settlement** — the `Err` rides a synthetic completion through the
-   ordinary pump ([`../../forge/units/U-REACTOR/implementation-spec.md`](../../forge/units/U-REACTOR/implementation-spec.md) §1 architecture untouched).
+   ordinary pump ([`../../../implementation/CONC002-concurrency-control-and-failure-observability/C3-reactor-and-external-completion/CONC002.C3.P1-reactor-core-workers-timers-and-executor-liveness.md`](../../../implementation/CONC002-concurrency-control-and-failure-observability/C3-reactor-and-external-completion/CONC002.C3.P1-reactor-core-workers-timers-and-executor-liveness.md) §1 architecture untouched).
 4. **Not in tension with reactor.md §8** ("pending futures never settle at shutdown"):
    that rule is VM exit, where no observer remains; explicit `close` has a live caller.
 

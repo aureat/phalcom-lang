@@ -3,12 +3,14 @@ id: CONC002.C3.P1
 program: CONC002
 checkpoint: CONC002.C3
 kind: implementation-plan
-status: PROPOSED
-completion: NOT_STARTED
+status: SUPERSEDED
+completion: PARTIAL
 verification: UNVERIFIED
 ---
 
 # Existing concurrency library: typing and behavior polish
+
+> **Superseded execution ownership.** Retained as source material only. Fiber typing moved to C2.P2; Future state/registration/CompletionSource and pure Backoff policy moved to C4.P1; timed Backoff moved to C4.P2; Tracer/OffBehavior belong to their decorator/observability owners. Do not execute this plan directly.
 
 Polish the entire existing concurrency package: Fiber, Future, scheduler helpers,
 Tracer, OffBehavior and Backoff. Establish truthful types, explicit internal state,
@@ -34,7 +36,7 @@ for this documentation revision. Reproduce affected evidence when implementing.
 [current concurrency chapter](../../../spec/current/concurrency.md) govern public
 semantics. [C1.P3](../C1-concurrency-control-and-failure-observability/CONC002.C1.P3-concurrency-architecture-and-continuation-semantics.md)
 records the existing repair. [C1.P4](../C1-concurrency-control-and-failure-observability/CONC002.C1.P4-remaining-fiber-and-native-activation-work.md)
-owns generic Fiber/compiler prerequisites; [C2.P1](../C2-native-suspension-and-reactor-groundwork/CONC002.C2.P1-native-suspension-and-reactor-groundwork.md)
+owns generic Fiber/compiler prerequisites; [C2.P1-R1](../C2-vm-suspension-and-coroutine-semantics/CONC002.C2.P1-R1-native-suspension-and-vm-control-continuations.md)
 owns native continuation migration. Consume their results rather than independently
 implementing incompatible runtime models. A dependency marked incomplete remains
 an explicit gate, not a reason to erase types or weaken a baseline.

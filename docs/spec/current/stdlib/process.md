@@ -181,7 +181,7 @@ Phase-A rows run with `/bin/echo`-class fixtures; loopback-free, network-free.
 
 - **Signals** (Q-P1), **process groups, sessions, detached daemons** — no design.
 - **The worker pool and completion pipeline** — [`reactor.md`](reactor.md) /
-  [`../../forge/units/U-REACTOR/implementation-spec.md`](../../forge/units/U-REACTOR/implementation-spec.md).
+  [`../../../implementation/CONC002-concurrency-control-and-failure-observability/C3-reactor-and-external-completion/CONC002.C3.P1-reactor-core-workers-timers-and-executor-liveness.md`](../../../implementation/CONC002-concurrency-control-and-failure-observability/C3-reactor-and-external-completion/CONC002.C3.P1-reactor-core-workers-timers-and-executor-liveness.md).
 - **Pipe stream mechanics** — U-NET's poller machinery ([`net.md`](net.md) /
   [PDR-0016](../../../pdr/0016-poller-backend-is-mio.md)), reused unchanged in
   phase B.
