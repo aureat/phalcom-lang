@@ -15,18 +15,17 @@ jobs:
           components: clippy,rustc-codegen-cranelift-preview
       - uses: Swatinem/rust-cache@v2
       - name: Capture Clippy diagnostics
+        id: clippy
+        continue-on-error: true
         shell: bash
-        run: |
-          set +e
-          cargo +nightly-2026-07-10 clippy --workspace --all-targets -- -D warnings > /tmp/c1-clippy.log 2>&1
-          status=$?
-          {
-            echo '### Clippy diagnostic tail'
-            echo '```text'
-            tail -n 160 /tmp/c1-clippy.log
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          exit $status
+        run: cargo +nightly-2026-07-10 clippy --workspace --all-targets -- -D warnings > c1-clippy.log 2>&1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: c1-clippy-log
+          path: c1-clippy.log
+      - name: Preserve Clippy status
+        if: steps.clippy.outcome == 'failure'
+        run: exit 1
 
   test-diagnostic:
     runs-on: ubuntu-latest
@@ -40,15 +39,14 @@ jobs:
       - name: Build workspace
         run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' build --workspace --all-targets
       - name: Capture workspace test diagnostics
+        id: tests
+        continue-on-error: true
         shell: bash
-        run: |
-          set +e
-          cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test --workspace --all-targets > /tmp/c1-test.log 2>&1
-          status=$?
-          {
-            echo '### Workspace test diagnostic tail'
-            echo '```text'
-            tail -n 240 /tmp/c1-test.log
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          exit $status
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test --workspace --all-targets > c1-test.log 2>&1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: c1-test-log
+          path: c1-test.log
+      - name: Preserve test status
+        if: steps.tests.outcome == 'failure'
+        run: exit 1
