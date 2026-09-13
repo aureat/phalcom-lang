@@ -78,7 +78,7 @@ impl VM {
     ) -> PhResult<ObjRef> {
         self.unit_kind = kind;
         let bindings = self.attach_prelude_bindings(module, bindings.unwrap_or_default());
-        let compiler = Compiler::new_with_bindings(self, module, source_id, kind, Some(bindings));
+        let compiler = Compiler::new_with_bindings_and_mode(self, module, source_id, kind, Some(bindings), self.product_optimization_mode);
         let closure = compiler.compile(program)?;
         Ok(closure)
     }

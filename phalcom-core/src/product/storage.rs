@@ -7,11 +7,26 @@ use crate::value::Value;
 /// Word-packed storage buffer for one product instance.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ProductStorage {
-    pub layout: ProductLayoutId,
-    pub words: Box<[u64]>,
+    layout: ProductLayoutId,
+    words: Box<[u64]>,
 }
 
 impl ProductStorage {
+    /// Returns the layout ID of this storage.
+    pub fn layout_id(&self) -> ProductLayoutId {
+        self.layout
+    }
+
+    /// Returns the raw word slice.
+    pub fn words(&self) -> &[u64] {
+        &self.words
+    }
+
+    /// Returns the number of 64-bit words in this storage buffer.
+    pub fn word_len(&self) -> usize {
+        self.words.len()
+    }
+
     /// Encodes exactly one complete product before publication to the heap.
     pub fn from_values(layout_id: ProductLayoutId, layout: &ProductLayout, values: &[Value]) -> Result<Self, &'static str> {
         if values.len() != layout.components.len() {
@@ -34,6 +49,9 @@ impl ProductStorage {
 
     /// Stores a component into the storage buffer according to its physical layout.
     pub fn store_component(&mut self, layout: &ProductLayout, logical_index: u32, value: Value) -> Result<(), &'static str> {
+        if layout.word_len as usize != self.words.len() {
+            return Err("storage size does not match layout word count");
+        }
         let comp = layout.component(logical_index).ok_or("component index out of bounds")?;
         let offset = comp.word_offset as usize;
 
@@ -65,6 +83,9 @@ impl ProductStorage {
 
     /// Loads a component from the storage buffer as a uniform `Value`.
     pub fn load_component(&self, layout: &ProductLayout, logical_index: u32) -> Result<Value, &'static str> {
+        if layout.word_len as usize != self.words.len() {
+            return Err("storage size does not match layout word count");
+        }
         let comp = layout.component(logical_index).ok_or("component index out of bounds")?;
         let offset = comp.word_offset as usize;
 

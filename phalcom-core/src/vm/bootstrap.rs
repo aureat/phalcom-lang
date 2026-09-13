@@ -98,6 +98,7 @@ impl VM {
             compile_mode: crate::compiler::attributes::CompileMode::Debug,
             strip_contract_metadata: false,
             unit_kind: crate::compiler::lib::UnitKind::File,
+            product_optimization_mode: crate::compiler::lib::product_opt::ProductOptimizationMode::Enabled,
             trace_core: false,
             trace_format_json: false,
             trace_fibers: false,

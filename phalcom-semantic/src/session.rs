@@ -2603,6 +2603,8 @@ impl SemanticWorkspaceSession {
 
                     if let Some(super_decl) = &edge.super_decl {
                         hierarchy.insert(class_decl.clone(), super_decl.clone());
+                    } else if !edge.diagnostics.is_empty() {
+                        diags_by_module.entry(module_id.clone()).or_default().extend(edge.diagnostics.iter().cloned());
                     } else if let Some(super_ref) = class_def.superclass_ref() {
                         diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
                             module_id.clone(),

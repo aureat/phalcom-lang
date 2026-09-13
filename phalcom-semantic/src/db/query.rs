@@ -149,6 +149,24 @@ fn enum_definition_for<'a>(unit: &'a ParsedModuleUnit, declaration: &Declaration
     })
 }
 
+fn data_definition_for<'a>(unit: &'a ParsedModuleUnit, declaration: &DeclarationId) -> Option<&'a phalcom_ast::ast::DataDef> {
+    if unit.id != declaration.module {
+        return None;
+    }
+    unit.program.statements.iter().find_map(|statement| match statement {
+        Statement::Data(data_def) if data_def.name == declaration.name.as_ref() => Some(data_def),
+        _ => None,
+    })
+}
+
+fn is_data_declaration(declaration: &DeclarationId, unit: &ParsedModuleUnit, _linked: &LinkedProgram) -> bool {
+    if unit.id == declaration.module {
+        data_definition_for(unit, declaration).is_some()
+    } else {
+        false
+    }
+}
+
 fn superclass_source<'a>(unit: &'a ParsedModuleUnit, class_def: &ClassDef) -> Option<&'a str> {
     let range = class_def.superclass.as_ref()?.range;
     unit.text.get(range.start..range.end)
@@ -676,7 +694,29 @@ pub fn query_hierarchy_edge(
         }
     }
 
-    let product = Arc::new(HierarchyEdgeProduct::new(class_decl.clone(), super_decl));
+    let is_rejected_data = if let Some(ref id) = super_decl {
+        is_data_declaration(id, &unit, linked)
+    } else {
+        false
+    };
+
+    let (effective_super_decl, diagnostics) = if is_rejected_data {
+        let id = super_decl.as_ref().unwrap();
+        let range = class_def
+            .and_then(|c| c.superclass.as_ref())
+            .map(|sc| sc.range)
+            .unwrap_or(SourceRange::new(0, 0));
+        let diag = SemanticDiagnostic::data_used_as_superclass(id.clone(), range);
+        (None, vec![diag])
+    } else {
+        (super_decl, Vec::new())
+    };
+
+    let product = Arc::new(if is_rejected_data {
+        HierarchyEdgeProduct::new_rejected(class_decl.clone(), diagnostics.into_iter().next().unwrap())
+    } else {
+        HierarchyEdgeProduct::new(class_decl.clone(), effective_super_decl)
+    });
     let product_fingerprint = crate::db::fingerprint::hierarchy_edge_product_fingerprint(&class_decl, &product.super_decl, superclass_syntax);
     let dependencies = recorder.finish();
     if let Err(error) = publish_current_product(

@@ -87,7 +87,7 @@ pub fn object_hash(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<V
         let layout = vm
             .heap
             .product_layouts
-            .get(data.storage.layout)
+            .get(data.storage.layout_id())
             .ok_or_else(|| RuntimeError::Internal("missing data layout".into()))?;
         let values = layout
             .components
@@ -168,7 +168,7 @@ fn data_eq(vm: &mut VM, lhs: Value, rhs: Value) -> PhResult<Option<bool>> {
             if da.descriptor != db.descriptor {
                 return Ok(Some(false));
             }
-            let layout_id = da.storage.layout;
+            let layout_id = da.storage.layout_id();
             let layout = vm
                 .heap
                 .product_layouts

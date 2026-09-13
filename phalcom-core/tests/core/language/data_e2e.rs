@@ -358,3 +358,51 @@ fun <T> make_it(x: T) {
     let res = run_inline(src);
     assert!(res.is_err(), "open generic data construction must fail closed during compilation");
 }
+
+#[test]
+fn data_source_order_with_exception_proves_evaluation_semantics() {
+    let src = r#"
+data User {
+  id: Int,
+  name: String
+}
+
+let order = 0
+
+let get_id = || {
+  order = order + 1
+  42
+}
+
+let fail_name = || {
+  order = order + 10
+  throw Error.new("fail")
+}
+
+let threw = false
+try {
+  let u = User { name: fail_name(), id: get_id() }
+} catch e {
+  threw = true
+}
+"#;
+    let (vm, main_mod) = run_inline(src).expect("should run successfully");
+    let order_sym = vm.interner.find("order").unwrap();
+    let threw_sym = vm.interner.find("threw").unwrap();
+    assert_eq!(vm.heap.module(main_mod).get(threw_sym), Some(Value::bool(true)));
+    assert_eq!(vm.heap.module(main_mod).get(order_sym), Some(Value::int(10)));
+}
+
+#[test]
+fn data_nullary_phantom_specialization_source_level() {
+    let src = r#"
+data Tag()
+
+let t1 = Tag()
+let t2 = Tag()
+let same = t1 === t2
+"#;
+    let (vm, main_mod) = run_inline(src).expect("should run successfully");
+    let same_sym = vm.interner.find("same").unwrap();
+    assert_eq!(vm.heap.module(main_mod).get(same_sym), Some(Value::bool(true)));
+}

@@ -64,6 +64,10 @@ pub(crate) struct FunctionState {
     pub(super) has_self: bool,
     /// All local variable names declared inside this function.
     pub(super) local_names: Vec<Symbol>,
+    /// Active virtual products currently living across frame slots in this function body.
+    pub(super) active_virtual_products: std::collections::BTreeMap<u16, super::product_opt::ActiveVirtualProduct>,
+    /// The compiled product optimization plan for this function body.
+    pub(super) product_plan: super::product_opt::ProductFunctionPlan,
 }
 
 /// A single enclosing loop's control-flow context (ADR-0035 §3,
@@ -116,6 +120,8 @@ impl FunctionState {
             is_block,
             has_self,
             local_names: Vec::new(),
+            active_virtual_products: std::collections::BTreeMap::new(),
+            product_plan: super::product_opt::ProductFunctionPlan::default(),
         }
     }
 }

@@ -151,4 +151,39 @@ mod tests {
         assert_eq!(storage.load_component(&layout, 3).unwrap(), Value::symbol(Symbol(7)));
         assert_eq!(storage.load_component(&layout, 4).unwrap(), Value::int(-100));
     }
+
+    #[test]
+    fn product_storage_layout_mismatch_is_caught() {
+        let comp1 = vec![ProductComponentLayout {
+            logical_index: 0,
+            word_offset: 0,
+            repr: ProductSlotRepr::Int64,
+        }];
+        let layout1 = ProductLayout::new(comp1).expect("layout1");
+
+        let comp2 = vec![
+            ProductComponentLayout {
+                logical_index: 0,
+                word_offset: 0,
+                repr: ProductSlotRepr::Int64,
+            },
+            ProductComponentLayout {
+                logical_index: 1,
+                word_offset: 1,
+                repr: ProductSlotRepr::Int64,
+            },
+        ];
+        let layout2 = ProductLayout::new(comp2).expect("layout2");
+
+        let mut registry = ProductLayoutRegistry::new();
+        let id1 = registry.register(layout1.clone());
+
+        let mut storage = ProductStorage::new(id1, &layout1);
+        assert_eq!(storage.word_len(), 1);
+        assert_eq!(storage.layout_id(), id1);
+
+        // Accessing storage with a layout of different word size must fail cleanly
+        assert!(storage.store_component(&layout2, 0, Value::int(1)).is_err());
+        assert!(storage.load_component(&layout2, 0).is_err());
+    }
 }

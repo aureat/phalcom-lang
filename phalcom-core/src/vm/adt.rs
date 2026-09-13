@@ -364,7 +364,7 @@ impl VM {
         }
         if let Some(obj_ref) = value.as_obj() {
             if let Object::AdtCase(case) = self.heap.get(obj_ref) {
-                return self.heap.product_layouts.get(case.storage.layout).map(|layout| layout.components.len());
+                return self.heap.product_layouts.get(case.storage.layout_id()).map(|layout| layout.components.len());
             }
         }
         if value.is_option() {
@@ -383,7 +383,7 @@ impl VM {
                 let layout = self
                     .heap
                     .product_layouts
-                    .get(case.storage.layout)
+                    .get(case.storage.layout_id())
                     .ok_or_else(|| RuntimeError::Internal("unknown variant layout".into()))?;
                 let invalid = || RuntimeError::InvalidVariantPayloadSlot {
                     slot: index,

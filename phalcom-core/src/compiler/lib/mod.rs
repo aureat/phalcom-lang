@@ -18,6 +18,8 @@ mod jumps;
 mod loops;
 mod match_expr;
 mod patterns;
+pub mod product_opt;
+pub use product_opt::ProductOptimizationMode;
 mod scope;
 mod state;
 
@@ -180,11 +182,26 @@ pub(crate) struct Compiler<'vm> {
     pub(crate) unit_kind: UnitKind,
     /// Optional semantic lowering projected from formal analysis.
     pub(crate) lowering: Option<std::sync::Arc<crate::modules::semantic_lowering::ModuleLoweringSemantics>>,
+    /// Optimization mode governing representation-aware product scalar replacement (PDR-0035 / LANG005.C1.P2).
+    pub(crate) product_optimization_mode: product_opt::ProductOptimizationMode,
 }
 
 impl<'vm> Compiler<'vm> {
-    /// Creates a compiler seeded from a linked module namespace.
+    #[allow(dead_code)]
+    /// Creates a compiler seeded from a linked module namespace with default product optimization mode (Enabled).
     pub(crate) fn new_with_bindings(vm: &'vm mut VM, module: ObjRef, source_id: u32, unit_kind: UnitKind, linked_bindings: Option<CompileBindings>) -> Self {
+        Self::new_with_bindings_and_mode(vm, module, source_id, unit_kind, linked_bindings, product_opt::ProductOptimizationMode::Enabled)
+    }
+
+    /// Creates a compiler with an explicit product optimization mode (seam for differential verification).
+    pub(crate) fn new_with_bindings_and_mode(
+        vm: &'vm mut VM,
+        module: ObjRef,
+        source_id: u32,
+        unit_kind: UnitKind,
+        linked_bindings: Option<CompileBindings>,
+        product_optimization_mode: product_opt::ProductOptimizationMode,
+    ) -> Self {
         let lowering = vm.heap.module(module).lowering.clone();
         Compiler {
             vm,
@@ -205,6 +222,7 @@ impl<'vm> Compiler<'vm> {
             source_id,
             unit_kind,
             lowering,
+            product_optimization_mode,
         }
     }
 
@@ -357,7 +375,13 @@ impl<'vm> Compiler<'vm> {
 
         // Push a fresh function-compilation state for this body.
         let has_self = is_method || self.functions.last().is_some_and(|function| function.has_self);
-        self.functions.push(FunctionState::new(is_constructor, !is_method, has_self, constructor_name));
+        let mut func_state = FunctionState::new(is_constructor, !is_method, has_self, constructor_name);
+
+        // Pre-compute product optimization plan for this body
+        let planner = product_opt::ProductPlanner::new(self.lowering(), self.product_optimization_mode);
+        func_state.product_plan = planner.plan_statements(&statements);
+
+        self.functions.push(func_state);
         self.begin_scope();
 
         if is_method {
@@ -446,6 +470,12 @@ impl<'vm> Compiler<'vm> {
 
     pub(crate) fn compile(mut self, program: Program) -> PhResult<ObjRef> {
         self.predeclare_known_globals(&program);
+
+        // Pre-compute product optimization plan for top-level module body
+        let planner = product_opt::ProductPlanner::new(self.lowering(), self.product_optimization_mode);
+        let plan = planner.plan_program(&program);
+        self.functions.last_mut().unwrap().product_plan = plan;
+
         let len = program.statements.len();
         let mut last_is_return = false;
         let mut leaves_value = false;
@@ -608,6 +638,45 @@ impl<'vm> Compiler<'vm> {
                 // (U14, open-questions.md Q7, ADR-0046 §2) — there is nothing
                 // to unpack from an absent value.
                 let mutable = matches!(binding.kind, BindingKind::Let);
+                let as_global = self.functions.last().unwrap().scope_depth == 0;
+
+                // Check if product optimizer decided to virtualize this binding
+                let virtual_candidate = if !as_global && !mutable {
+                    if let Pattern::Name { name, .. } = &binding.pattern {
+                        self.functions
+                            .last()
+                            .and_then(|f| f.product_plan.binding_decisions_by_range.get(&binding.range).cloned())
+                            .and_then(|(binding_id, decision)| {
+                                if let product_opt::ProductOptimizationDecision::Virtualize(shape) = decision {
+                                    Some((binding_id, name.clone(), shape))
+                                } else {
+                                    None
+                                }
+                            })
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                if let (Some((binding_id, name, shape)), Some(init_expr)) = (virtual_candidate, &binding.value) {
+                    let name_sym = self.vm.interner.intern(&name);
+                    let head_slot = self.reserve_virtual_binding_slots(name_sym, shape.leaf_count, range)?;
+                    self.compile_virtual_constructor_into_slots(init_expr, &shape, head_slot, range)?;
+                    let active = product_opt::ActiveVirtualProduct {
+                        binding: Some(binding_id),
+                        head_slot,
+                        leaf_count: shape.leaf_count,
+                        shape,
+                        materialization_spec: None,
+                    };
+                    self.functions.last_mut().unwrap().active_virtual_products.insert(head_slot, active);
+                    if let Some(facts) = facts {
+                        self.const_fact_scopes.last_mut().unwrap().insert(name, facts);
+                    }
+                    return Ok(());
+                }
 
                 match binding.value {
                     Some(expr) => self.compile_expr(expr)?,

@@ -404,7 +404,7 @@ impl Value {
                 if da.descriptor != db.descriptor {
                     return false;
                 }
-                if let Some(layout) = heap.product_layouts.get(da.storage.layout) {
+                if let Some(layout) = heap.product_layouts.get(da.storage.layout_id()) {
                     for comp in &layout.components {
                         match comp.repr {
                             crate::product::ProductSlotRepr::Value => {
@@ -419,14 +419,14 @@ impl Value {
                                 }
                             }
                             crate::product::ProductSlotRepr::Float64 => {
-                                let f1 = f64::from_bits(da.storage.words[comp.word_offset as usize]);
-                                let f2 = f64::from_bits(db.storage.words[comp.word_offset as usize]);
+                                let f1 = f64::from_bits(da.storage.words()[comp.word_offset as usize]);
+                                let f2 = f64::from_bits(db.storage.words()[comp.word_offset as usize]);
                                 if f1.is_nan() || f2.is_nan() || f1 != f2 {
                                     return false;
                                 }
                             }
                             _ => {
-                                if da.storage.words[comp.word_offset as usize] != db.storage.words[comp.word_offset as usize] {
+                                if da.storage.words()[comp.word_offset as usize] != db.storage.words()[comp.word_offset as usize] {
                                     return false;
                                 }
                             }

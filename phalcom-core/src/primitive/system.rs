@@ -87,7 +87,7 @@ pub fn system_schedule(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResu
 #[phalcom_native_macros::primitive(System, "_$sleep(_)", side = class, visibility = internal)]
 pub fn system_sleep(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let nanos = expect_int_big(
-        args.first().ok_or_else(|| RuntimeError::Type {
+        args.first().ok_or(RuntimeError::Type {
             expected: "Int",
             found: "missing",
         })?,
@@ -100,7 +100,7 @@ pub fn system_sleep(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<
         }
         .into());
     }
-    let nanos = nanos.to_u64().ok_or_else(|| RuntimeError::Type {
+    let nanos = nanos.to_u64().ok_or(RuntimeError::Type {
         expected: "Duration within runtime timer range",
         found: "out-of-range Duration",
     })?;

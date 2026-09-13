@@ -116,6 +116,7 @@ impl<'vm> Compiler<'vm> {
         for slot in to_close {
             self.emit(Bytecode::CloseUpvalue(slot), range);
         }
+        self.remove_virtual_products_outside_live_locals();
     }
 
     /// Declares a new local named `name` in the current function.

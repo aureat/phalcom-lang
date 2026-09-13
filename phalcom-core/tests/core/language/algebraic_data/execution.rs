@@ -179,8 +179,8 @@ let exact = big.value == 9223372036854775808
         let phalcom_core::heap::Object::AdtCase(case) = vm.heap.get(value.as_obj().unwrap()) else {
             panic!("case")
         };
-        assert_eq!(case.storage.words.len(), 4);
-        case.storage.layout
+        assert_eq!(case.storage.word_len(), 4);
+        case.storage.layout_id()
     };
     assert_eq!(layout_of(a), layout_of(b));
     let child = vm.case_payload_at(a, 2).unwrap();
@@ -189,4 +189,29 @@ let exact = big.value == 9223372036854775808
     assert_eq!(vm.case_payload_at(a, 0).unwrap(), Value::float(1.5));
     assert_eq!(vm.case_payload_at(a, 1).unwrap(), Value::bool(true));
     assert_eq!(get(&vm, "exact"), Value::bool(true));
+}
+
+#[test]
+fn enum_variants_sharing_layout_retain_distinct_case_identity() {
+    let (vm, module) = run_inline(
+        r#"
+enum Shapes {
+  @variant Rect(w: Int, h: Int)
+  @variant Bounds(w: Int, h: Int)
+}
+let r = Shapes::Rect(w: 10, h: 20)
+let b = Shapes::Bounds(w: 10, h: 20)
+let same = r === b
+let eq = r == b
+"#,
+    )
+    .expect("enum shapes should execute");
+    let get = |vm: &VM, name: &str| vm.heap.module(module).get(vm.interner.find(name).unwrap()).unwrap();
+    let same = get(&vm, "same");
+    let eq = get(&vm, "eq");
+    assert_eq!(same, Value::bool(false));
+    assert_eq!(eq, Value::bool(false));
+    let r = get(&vm, "r");
+    let b = get(&vm, "b");
+    assert_ne!(vm.runtime_variant_of(r), vm.runtime_variant_of(b));
 }

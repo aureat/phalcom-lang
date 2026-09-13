@@ -104,6 +104,7 @@ pub enum DiagnosticCode {
     MatchAnalysisBlocked,
     DataDuplicateComponent,
     DataComponentImmutable,
+    DataUsedAsSuperclass,
 }
 
 impl DiagnosticCode {
@@ -195,6 +196,7 @@ impl DiagnosticCode {
             Self::MatchAnalysisBlocked => "match.analysis.blocked",
             Self::DataDuplicateComponent => "data.duplicate_component",
             Self::DataComponentImmutable => "data.component_immutable",
+            Self::DataUsedAsSuperclass => "data.used_as_superclass",
         }
     }
 }
@@ -347,6 +349,15 @@ impl SemanticDiagnostic {
             fixes: Vec::new(),
             root_cause: None,
         }
+    }
+
+    pub fn data_used_as_superclass(data_decl: crate::identity::DeclarationId, range: SourceRange) -> Self {
+        Self::error_in(
+            data_decl.module.clone(),
+            DiagnosticCode::DataUsedAsSuperclass,
+            format!("data declaration `{}` cannot be used as a superclass", data_decl.name),
+            range,
+        )
     }
 
     pub fn info_in(module: ModuleId, code: DiagnosticCode, message: impl Into<String>, primary_range: SourceRange) -> Self {

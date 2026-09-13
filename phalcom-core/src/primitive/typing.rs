@@ -705,6 +705,7 @@ pub fn install(vm: &mut VM) {
 // ---------------------------------------------------------------------------
 
 fn empty_tuple(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    // LANG005.C1.P3 FIXME: empty Tuple allocation bypasses Unit normalization
     Ok(Value::obj(vm.heap.alloc(Object::Tuple(crate::heap::TupleObject::positional(Vec::new())))))
 }
 
@@ -921,6 +922,7 @@ fn kind_argument_count(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResu
 
 fn kind_arguments(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     if receiver.as_obj() == Some(class(vm, "Type")?) {
+        // LANG005.C1.P3 FIXME: empty Tuple allocation bypasses Unit normalization
         return Ok(Value::obj(vm.heap.alloc(Object::Tuple(crate::heap::TupleObject::positional(Vec::new())))));
     }
     let (context, handle) = context_kind_parts(receiver, vm)?;
@@ -1032,6 +1034,7 @@ fn descriptor_remaining_parameter_at(vm: &mut VM, _receiver: &Value, _args: &[Va
 }
 
 fn descriptor_remaining_parameters(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    // LANG005.C1.P3 FIXME: empty Tuple allocation bypasses Unit normalization
     Ok(Value::obj(vm.heap.alloc(Object::Tuple(crate::heap::TupleObject::positional(Vec::new())))))
 }
 
@@ -2592,6 +2595,7 @@ fn typing_context_type_uses_of(vm: &mut VM, receiver: &Value, _args: &[Value]) -
     if profile != MetadataProfile::ToolingDebug {
         return alloc_unavailable(vm, "omitted_in_current_profile");
     }
+    // LANG005.C1.P3 FIXME: empty Tuple allocation bypasses Unit normalization
     let tuple_obj = vm.heap.alloc(Object::Tuple(crate::heap::TupleObject::positional(Vec::new())));
     alloc_variant(vm, "TypingKnown", Some(Value::obj(tuple_obj)))
 }

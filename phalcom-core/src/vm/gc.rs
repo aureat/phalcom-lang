@@ -114,6 +114,7 @@ impl VM {
             numeric_policy: _,
             adt_registry,
             data_registry,
+            product_optimization_mode: _,
             typing_registry: _,
             prelude_bindings: _,
             prelude_variant_bindings: _,

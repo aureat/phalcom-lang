@@ -436,6 +436,8 @@ pub struct VM {
     pub adt_registry: crate::adt::RuntimeAdtRegistry,
     /// Runtime data registry for data descriptors.
     pub data_registry: crate::data::RuntimeDataRegistry,
+    /// Product optimization mode seam (LANG005.C1.P2).
+    pub product_optimization_mode: crate::compiler::lib::product_opt::ProductOptimizationMode,
     /// Bounded free-list for recycling fiber stacks/frames to avoid
     /// allocations (U-GC step 5, `fiber-pool` feature). Measured net
     /// negative in whole-process A/B benchmarking (perf-log, 2026-07-14);
@@ -467,7 +469,7 @@ impl VM {
                 if da.descriptor != db.descriptor {
                     return false;
                 }
-                let Some(layout) = self.heap.product_layouts.get(da.storage.layout) else {
+                let Some(layout) = self.heap.product_layouts.get(da.storage.layout_id()) else {
                     return false;
                 };
                 for comp in &layout.components {

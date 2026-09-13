@@ -3,11 +3,8 @@
 use crate::bytecode::Bytecode;
 use crate::compiler::lib::Compiler;
 use crate::compiler::lib::error::CompilerError;
-use crate::modules::semantic_lowering::{DataComponentLoweringSpec, DataDeclarationLoweringSpec};
 use crate::value::Value;
 use phalcom_ast::ast::DataDef;
-use phalcom_modules::DeclarationId;
-use phalcom_semantic::identity::DataComponentId;
 use std::sync::Arc;
 
 impl<'vm> Compiler<'vm> {
@@ -16,40 +13,18 @@ impl<'vm> Compiler<'vm> {
         let name_sym = self.vm.interner.intern(&data_def.name);
         self.known_globals.insert(name_sym);
 
-        // 1. Locate or synthesize DataDeclarationLoweringSpec
-        let spec = if let Some(lowering) = self.lowering() {
-            let module_id = self.vm.heap.module(self.module).id.clone();
-            lowering
-                .data_decls
-                .iter()
-                .find(|d| d.owner.module == module_id && d.owner.name.as_ref() == data_def.name)
-                .cloned()
-                .ok_or(CompilerError::MissingDataLoweringSemantics(data_def.range))?
-        } else {
-            // Synthesize lowering spec for standalone/unlinked compiles
-            let module_id = self.vm.heap.module(self.module).id.clone();
-            let owner = DeclarationId::new(module_id, data_def.name.clone().into_boxed_str());
-            let mut components = Vec::new();
-            let mut component_specs = Vec::new();
-            for (idx, comp) in data_def.shape.components().iter().enumerate() {
-                let logical_index = u32::try_from(idx).map_err(|_| CompilerError::Message(format!("data `{}` has too many components", data_def.name)))?;
-                components.push(DataComponentLoweringSpec {
-                    id: DataComponentId::new(owner.clone(), logical_index),
-                    local_name: comp.local_name.clone().into_boxed_str(),
-                    logical_index,
-                });
-                component_specs.push(crate::product::ProductComponentSpec {
-                    logical_index,
-                    repr: crate::product::ProductSlotRepr::Value,
-                });
-            }
-            let layout = crate::product::ProductLayoutSpec::new(component_specs);
-            DataDeclarationLoweringSpec {
-                owner,
-                layout,
-                components: components.into_boxed_slice(),
-            }
-        };
+        // 1. Locate DataDeclarationLoweringSpec from semantic lowering
+        let module_id = self.vm.heap.module(self.module).id.clone();
+        let spec = self
+            .lowering()
+            .and_then(|lowering| {
+                lowering
+                    .data_decls
+                    .iter()
+                    .find(|d| d.owner.module == module_id && d.owner.name.as_ref() == data_def.name)
+                    .cloned()
+            })
+            .ok_or(CompilerError::MissingDataLoweringSemantics(data_def.range))?;
 
         let spec_idx = self
             .functions

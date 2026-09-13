@@ -232,3 +232,107 @@ fn data_declaration_cold_incremental_equivalence() {
     assert!(incr_point.is_some());
     assert_eq!(cold_point.unwrap().components.len(), incr_point.unwrap().components.len());
 }
+
+#[test]
+fn class_cannot_inherit_from_data() {
+    let module = test_module();
+    let source: Arc<str> = Arc::from(
+        r#"
+data Point(x: Int, y: Int)
+class StrangePoint is Point {}
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
+    let diags = analysis.snapshot.diagnostics_for(&module).expect("diagnostics expected");
+    assert!(
+        diags.iter().any(|d| d.code == DiagnosticCode::DataUsedAsSuperclass),
+        "expected DataUsedAsSuperclass diagnostic, got: {:#?}",
+        diags
+    );
+}
+
+#[test]
+fn class_cannot_inherit_from_data_incremental() {
+    let module = test_module();
+    let mut session = phalcom_semantic::session::SemanticWorkspaceSession::new();
+    let source1 = "class Base {}\nclass Derived is Base {}\n";
+    let update1 = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), source1, 1));
+    let diags1 = update1.snapshot.diagnostics_for(&module);
+    assert!(diags1.is_none_or(|d| d.is_empty()));
+
+    let source2 = "data Base(x: Int)\nclass Derived is Base {}\n";
+    let update2 = session.update(crate::semantic::incremental::support::single_module_input(module.clone(), source2, 2));
+    let diags2 = update2.snapshot.diagnostics_for(&module).expect("diagnostics expected in update 2");
+    assert!(
+        diags2.iter().any(|d| d.code == DiagnosticCode::DataUsedAsSuperclass),
+        "expected DataUsedAsSuperclass diagnostic after Base became data, got: {:#?}",
+        diags2
+    );
+}
+
+#[test]
+fn data_cross_module_record_construction_order() {
+    let module_a = ModuleId::resolved(
+        ResolvedProjectId::from_raw(42),
+        ModulePath::from_components(vec![phalcom_modules::identity::ModuleComponent::from_identifier("schema").unwrap()]),
+    );
+    let module_b = ModuleId::resolved(
+        ResolvedProjectId::from_raw(42),
+        ModulePath::from_components(vec![phalcom_modules::identity::ModuleComponent::from_identifier("app").unwrap()]),
+    );
+
+    let source_a = "data User { name: String, age: Int }\nexport User\n";
+    let source_b = "import schema.User\nclass App { @class make() -> User { User(age: 30, name: \"Alice\") } }\n";
+
+    let mut session = phalcom_semantic::session::SemanticWorkspaceSession::new();
+    let update = session.update(crate::semantic::incremental::support::multi_module_input(
+        vec![(module_a.clone(), source_a.into()), (module_b.clone(), source_b.into())],
+        1,
+    ));
+
+    let user_decl = DeclarationId::new(module_a, "User".into());
+    let user_info = update.snapshot.data_semantics.data_info(&user_decl);
+    assert!(user_info.is_some(), "data product for User should exist");
+    let info = user_info.unwrap();
+    assert_eq!(info.components.len(), 2);
+    assert_eq!(info.components[0].local_name.as_ref(), "name");
+    assert_eq!(info.components[1].local_name.as_ref(), "age");
+}
+
+#[test]
+fn data_incremental_imported_component_type_mutation() {
+    let module_a = ModuleId::resolved(
+        ResolvedProjectId::from_raw(42),
+        ModulePath::from_components(vec![phalcom_modules::identity::ModuleComponent::from_identifier("model").unwrap()]),
+    );
+    let module_b = ModuleId::resolved(
+        ResolvedProjectId::from_raw(42),
+        ModulePath::from_components(vec![phalcom_modules::identity::ModuleComponent::from_identifier("client").unwrap()]),
+    );
+
+    let source_a_v1 = "data Container(x: Int)\n";
+    let source_b = "data Other(y: Int)\n";
+
+    let mut session = phalcom_semantic::session::SemanticWorkspaceSession::new();
+    let update1 = session.update(crate::semantic::incremental::support::multi_module_input(
+        vec![(module_a.clone(), source_a_v1.into()), (module_b.clone(), source_b.into())],
+        1,
+    ));
+    let container_decl = DeclarationId::new(module_a.clone(), "Container".into());
+    let info1 = update1.snapshot.data_semantics.data_info(&container_decl).unwrap();
+    assert_eq!(info1.components.len(), 1);
+
+    // Now change Container.x from Int to String in module A
+    let source_a_v2 = "data Container(x: String)\n";
+    let update2 = session.update(crate::semantic::incremental::support::multi_module_input(
+        vec![(module_a.clone(), source_a_v2.into()), (module_b.clone(), source_b.into())],
+        2,
+    ));
+
+    // Data declaration product in module A must reflect String
+    let container_info = update2.snapshot.data_semantics.data_info(&container_decl).unwrap();
+    assert_eq!(container_info.components.len(), 1);
+    assert_ne!(info1, container_info);
+}

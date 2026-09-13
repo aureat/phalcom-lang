@@ -693,6 +693,56 @@ impl<'vm> Compiler<'vm> {
                 self.compile_callable_reference(&expr)?;
             }
             Expr::GetProperty(get_prop) => {
+                // 1. Ephemeral direct projection from constructor
+                if let Some((shape, path)) = self
+                    .functions
+                    .last()
+                    .and_then(|f| f.product_plan.ephemeral_projections.get(&get_prop.range).cloned())
+                {
+                    let head_slot = self.reserve_ephemeral_virtual_slots(shape.leaf_count, get_prop.range)?;
+                    let mut curr: &Expr = &get_prop.object;
+                    while let Expr::GetProperty(gp) = curr {
+                        curr = &gp.object;
+                    }
+                    self.compile_virtual_constructor_into_slots(curr, &shape, head_slot, get_prop.range)?;
+                    let leaf_offset = shape.scalar_offset_for_path(&path).unwrap_or(0);
+                    self.emit(Bytecode::GetLocal(head_slot + leaf_offset), get_prop.range);
+                    self.release_pack_scratch_from(head_slot, shape.leaf_count as usize, get_prop.range);
+                    return Ok(());
+                }
+
+                // 2. Direct projection from active virtual product
+                let mut path = Vec::new();
+                let mut curr_expr: &Expr = &Expr::GetProperty(get_prop.clone());
+                while let Expr::GetProperty(gp) = curr_expr {
+                    if let Some(lowering) = self.lowering() {
+                        if let Some(AssociatedLoweringSpec::GetDataComponent { logical_index, .. }) = lowering
+                            .associated
+                            .iter()
+                            .find(|(site, _)| site.range == gp.range && site.kind == LoweringSiteKind::AssociatedLookup)
+                            .map(|(_, s)| s)
+                        {
+                            path.push(*logical_index);
+                            curr_expr = &gp.object;
+                            continue;
+                        }
+                    }
+                    break;
+                }
+
+                if !path.is_empty() {
+                    if let Expr::Var { value, .. } = curr_expr {
+                        let name_sym = self.vm.interner.intern(value);
+                        if let BareNameResolution::Local(slot) = self.resolve_bare_name(name_sym) {
+                            if let Some(virtual_product) = self.active_virtual_product(slot).cloned() {
+                                path.reverse();
+                                self.emit_virtual_projection(&virtual_product, &path, get_prop.range)?;
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+
                 if let Some(AssociatedLoweringSpec::GetDataComponent { logical_index, .. }) = self.lowering().and_then(|l| {
                     l.associated
                         .iter()
@@ -1173,7 +1223,17 @@ impl<'vm> Compiler<'vm> {
                     return Ok(());
                 }
                 match self.resolve_bare_name(name_sym) {
-                    BareNameResolution::Local(slot) => self.emit(Bytecode::GetLocal(slot as u16), range),
+                    BareNameResolution::Local(slot) => {
+                        if let Some(virtual_product) = self.active_virtual_product(slot).cloned() {
+                            if virtual_product.is_data() {
+                                self.emit_virtual_data_materialization(&virtual_product, range)?;
+                            } else {
+                                return Err(CompilerError::Message("Cannot read whole unmaterialized variant".into()));
+                            }
+                        } else {
+                            self.emit(Bytecode::GetLocal(slot as u16), range);
+                        }
+                    }
                     BareNameResolution::Upvalue(upvalue) => self.emit(Bytecode::GetUpvalue(upvalue as u16), range),
                     BareNameResolution::Linked(binding) => self.emit(Bytecode::GetLinked(binding.0 as u16), range),
                     BareNameResolution::Global => {

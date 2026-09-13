@@ -353,11 +353,11 @@ pub fn trace_object(obj: &Object, layouts: &crate::product::ProductLayoutRegistr
                 Object::Data(data) => &data.storage,
                 _ => unreachable!(),
             };
-            if let Some(layout) = layouts.get(storage.layout) {
+            if let Some(layout) = layouts.get(storage.layout_id()) {
                 for &offset in layout.value_slot_offsets() {
                     let off = offset as usize;
-                    let payload = storage.words[off];
-                    let meta = storage.words[off + 1];
+                    let payload = storage.words()[off];
+                    let meta = storage.words()[off + 1];
                     let val = Value::from_raw_words(payload, meta);
                     trace_value(val, push);
                 }
