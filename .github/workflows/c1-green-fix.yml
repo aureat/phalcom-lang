@@ -1,0 +1,271 @@
+name: C1 audited completion repair
+
+on:
+  push:
+    branches: [c1-completion-audit]
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: c1-completion-audit
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-10
+          components: rustfmt,clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Apply audited semantic and release fixes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one match, found {count}")
+              p.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              'phalcom-semantic/src/source_index/builder.rs',
+              '''        if let phalcom_ast::ast::DataShapeSyntax::Record { components, .. } = &data_def.shape {
+            for (index, component) in components.iter().enumerate() {
+                let component_id = DataComponentId::new(declaration.clone(), index as u32);
+                let site = self.allocate_site(
+                    SourceOwner::Module(self.index.module.clone()),
+                    component.name_range,
+                    SourceSiteKind::DataComponent(component_id.clone()),
+                );
+                self.index.register_target(site, SemanticTargetId::DataComponent(component_id));
+            }
+        }
+''',
+              '''        let components = match &data_def.shape {
+            phalcom_ast::ast::DataShapeSyntax::Tuple { components, .. } | phalcom_ast::ast::DataShapeSyntax::Record { components, .. } => components,
+        };
+        for (index, component) in components.iter().enumerate() {
+            let component_id = DataComponentId::new(declaration.clone(), index as u32);
+            let site = self.allocate_site(
+                SourceOwner::Module(self.index.module.clone()),
+                component.name_range,
+                SourceSiteKind::DataComponent(component_id.clone()),
+            );
+            self.index.register_target(site, SemanticTargetId::DataComponent(component_id));
+        }
+''')
+
+          replace_once(
+              'phalcom-semantic/src/source_index/mod.rs',
+              'use crate::checker::CallableAnalysis;\n',
+              'use crate::associated::AssociatedMemberId;\nuse crate::checker::CallableAnalysis;\nuse crate::checker::associated::AssociatedResolutionKind;\n')
+          replace_once(
+              'phalcom-semantic/src/source_index/mod.rs',
+              '''            if let Some(target) = &expression.callable {
+                exact_targets.insert(site.id.clone(), SemanticTargetId::Callable(target.clone()));
+            }
+            formal_expressions.insert(expression.id, site.id.clone());
+''',
+              '''            if let Some(target) = &expression.callable {
+                exact_targets.insert(site.id.clone(), SemanticTargetId::Callable(target.clone()));
+            }
+            if let Some(resolution) = analysis.associated_resolutions.get(&expression.id)
+                && let AssociatedResolutionKind::ExactValue {
+                    member: AssociatedMemberId::DataComponent(component),
+                    ..
+                } = &resolution.kind
+            {
+                exact_targets.insert(site.id.clone(), SemanticTargetId::DataComponent(component.clone()));
+            }
+            formal_expressions.insert(expression.id, site.id.clone());
+''')
+
+          p = Path('phalcom-semantic/src/checker/associated.rs')
+          text = p.read_text()
+          start = text.index('pub fn contains_any_type_parameter(store: &TypeStore, ty: TypeId) -> bool {')
+          end = text.index('\n/// Returns whether every unspecialized parameter', start)
+          replacement = '''pub fn contains_any_type_parameter(store: &TypeStore, ty: TypeId) -> bool {
+    fn scoped_contains_any_type_parameter(store: &TypeStore, scoped: crate::types::id::ScopedTypeId) -> bool {
+        match store.arena().get_scoped(scoped) {
+            crate::types::ScopedTypeData::Bound { .. } => false,
+            crate::types::ScopedTypeData::Free(ty) => contains_any_type_parameter(store, *ty),
+            crate::types::ScopedTypeData::Applied { origin, arguments } => {
+                scoped_contains_any_type_parameter(store, *origin)
+                    || arguments.iter().any(|&argument| scoped_contains_any_type_parameter(store, argument))
+            }
+            crate::types::ScopedTypeData::Union(members) => members.iter().any(|&member| scoped_contains_any_type_parameter(store, member)),
+            crate::types::ScopedTypeData::Tuple(elements) => elements.iter().any(|element| scoped_contains_any_type_parameter(store, element.ty)),
+            crate::types::ScopedTypeData::Record(fields) => fields.iter().any(|field| scoped_contains_any_type_parameter(store, field.ty)),
+            crate::types::ScopedTypeData::OpenRecord(record) => {
+                matches!(record.tail, crate::types::ScopedRecordTail::FreeParameter(_))
+                    || record.fields.iter().any(|field| scoped_contains_any_type_parameter(store, field.ty))
+            }
+            crate::types::ScopedTypeData::Callable(callable) => {
+                callable.parameters.iter().any(|parameter| scoped_contains_any_type_parameter(store, parameter.ty))
+                    || scoped_contains_any_type_parameter(store, callable.return_type)
+            }
+            crate::types::ScopedTypeData::Lambda(lambda_id) => {
+                let lambda = store.arena().get_lambda(*lambda_id);
+                scoped_contains_any_type_parameter(store, lambda.body)
+            }
+        }
+    }
+
+    match store.get(ty) {
+        TypeData::Parameter(_) => true,
+        TypeData::Applied { origin, arguments } => {
+            contains_any_type_parameter(store, *origin) || arguments.iter().any(|&a| contains_any_type_parameter(store, a))
+        }
+        TypeData::Union(members) => members.iter().any(|&m| contains_any_type_parameter(store, m)),
+        TypeData::Tuple(elems) => elems.iter().any(|e| contains_any_type_parameter(store, e.ty)),
+        TypeData::Record(row_id) => {
+            let row = store.record_row(*row_id);
+            matches!(row.tail, crate::types::row::RecordRowTail::Parameter(_))
+                || row.fields.iter().any(|f| contains_any_type_parameter(store, f.ty))
+        }
+        TypeData::Callable(call) => {
+            call.parameters.iter().any(|p| contains_any_type_parameter(store, p.ty)) || contains_any_type_parameter(store, call.return_type)
+        }
+        TypeData::Family(fam_id) => {
+            let fam = store.get_family(*fam_id);
+            fam.members.iter().any(|m| contains_any_type_parameter(store, m.ty))
+        }
+        TypeData::ExactCase { enum_type, .. } => contains_any_type_parameter(store, *enum_type),
+        TypeData::Lambda(lambda_id) => {
+            let lambda = store.arena().get_lambda(*lambda_id);
+            scoped_contains_any_type_parameter(store, lambda.body)
+        }
+        _ => false,
+    }
+}
+'''
+          text = text[:start] + replacement + text[end:]
+          if 'mod c1_runtime_open_type_tests {' not in text:
+              text += '''\n#[cfg(test)]\nmod c1_runtime_open_type_tests {\n    use super::contains_any_type_parameter;\n    use crate::identity::DeclarationId;\n    use crate::types::parameter::{TypeParameterData, TypeParameterOwner};\n    use crate::types::row::RecordRowTail;\n    use crate::types::{KindId, ScopedTypeData, TypeStore};\n    use phalcom_modules::{ModuleId, ModulePath, ResolvedProjectId};\n\n    fn owner(name: &str) -> DeclarationId {\n        DeclarationId::new(ModuleId::resolved(ResolvedProjectId::from_raw(9902), ModulePath::root()), name.into())\n    }\n\n    #[test]\n    fn open_type_detection_descends_into_type_lambda_free_types() {\n        let mut store = TypeStore::new();\n        let parameter = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(owner("Box")), 0, "T", KindId::TYPE));\n        let parameter_form = store.parameter_form(parameter);\n        let body = store.arena_mut().intern_scoped(ScopedTypeData::Free(parameter_form));\n        let lambda = store.lambda(Box::new([KindId::TYPE]), body, KindId::TYPE);\n        assert!(contains_any_type_parameter(&store, lambda));\n    }\n\n    #[test]\n    fn open_type_detection_observes_record_row_tail_parameters() {\n        let mut store = TypeStore::new();\n        let parameter = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(owner("RowBox")), 0, "R", KindId::RECORD_ROW));\n        let record = store.record_row_type_checked(Vec::new(), RecordRowTail::Parameter(parameter)).expect("valid open record row");\n        assert!(contains_any_type_parameter(&store, record));\n    }\n}\n'''
+          p.write_text(text)
+
+          p = Path('phalcom-core/src/modules/semantic_lowering.rs')
+          text = p.read_text()
+          start = text.index('fn contains_exact_case(store: &phalcom_semantic::types::TypeStore, ty: TypeId) -> bool {')
+          end = text.index('\nfn build_data_construction_spec(', start)
+          replacement = '''fn contains_exact_case(store: &phalcom_semantic::types::TypeStore, ty: TypeId) -> bool {
+    use phalcom_semantic::types::store::TypeData;
+    match store.get(ty) {
+        TypeData::ExactCase { .. } => true,
+        TypeData::Applied { origin, arguments } => contains_exact_case(store, *origin) || arguments.iter().any(|&a| contains_exact_case(store, a)),
+        TypeData::Union(members) => members.iter().any(|&m| contains_exact_case(store, m)),
+        TypeData::Tuple(elems) => elems.iter().any(|e| contains_exact_case(store, e.ty)),
+        TypeData::Record(row_id) => store.record_row(*row_id).fields.iter().any(|f| contains_exact_case(store, f.ty)),
+        TypeData::Callable(call) => call.parameters.iter().any(|p| contains_exact_case(store, p.ty)) || contains_exact_case(store, call.return_type),
+        TypeData::Family(family_id) => store.get_family(*family_id).members.iter().any(|member| contains_exact_case(store, member.ty)),
+        TypeData::Lambda(lambda_id) => {
+            let lambda = store.arena().get_lambda(*lambda_id);
+            let mut free_types = Vec::new();
+            store.arena().collect_free_types(lambda.body, &mut free_types);
+            free_types.into_iter().any(|free| contains_exact_case(store, free))
+        }
+        _ => false,
+    }
+}
+'''
+          text = text[:start] + replacement + text[end:]
+          old = '''        match snapshot.store.get(ty) {
+            TypeData::Nominal { declaration } => {
+                if declaration == &core_ids.int {
+                    // Int includes heap-backed arbitrary-precision values; only a range proof permits Int64.
+                    return crate::product::ProductSlotRepr::Value;
+                } else if declaration == &core_ids.float {
+                    return crate::product::ProductSlotRepr::Float64;
+                } else if declaration == &core_ids.bool_ {
+                    return crate::product::ProductSlotRepr::Bool;
+                } else if declaration == &core_ids.symbol {
+                    return crate::product::ProductSlotRepr::Symbol;
+                }
+            }
+            _ => {}
+        }
+'''
+          new = '''        if let TypeData::Nominal { declaration } = snapshot.store.get(ty) {
+            if declaration == &core_ids.int {
+                // Int includes heap-backed arbitrary-precision values; only a range proof permits Int64.
+                return crate::product::ProductSlotRepr::Value;
+            } else if declaration == &core_ids.float {
+                return crate::product::ProductSlotRepr::Float64;
+            } else if declaration == &core_ids.bool_ {
+                return crate::product::ProductSlotRepr::Bool;
+            } else if declaration == &core_ids.symbol {
+                return crate::product::ProductSlotRepr::Symbol;
+            }
+        }
+'''
+          if text.count(old) != 1:
+              raise SystemExit(f'semantic_lowering slot match count={text.count(old)}')
+          text = text.replace(old, new, 1)
+          if 'mod c1_reification_guard_tests {' not in text:
+              text += '''\n#[cfg(test)]\nmod c1_reification_guard_tests {\n    use super::contains_exact_case;\n    use phalcom_common::selector::Selector;\n    use phalcom_modules::{DeclarationId, ModuleId, ModulePath, ResolvedProjectId};\n    use phalcom_semantic::identity::VariantId;\n    use phalcom_semantic::types::{KindId, ScopedTypeData, TypeStore};\n\n    #[test]\n    fn exact_case_detection_descends_into_type_lambda_free_types() {\n        let mut store = TypeStore::new();\n        let module = ModuleId::resolved(ResolvedProjectId::from_raw(9901), ModulePath::root());\n        let owner = DeclarationId::new(module, "Choice".into());\n        let enum_ty = store.nominal_type(owner.clone());\n        let variant = VariantId::new(owner, Selector::getter("A").expect("selector"));\n        let exact = store.exact_case_type(&variant, enum_ty).expect("exact case");\n        let body = store.arena_mut().intern_scoped(ScopedTypeData::Free(exact));\n        let lambda = store.lambda(Box::new([KindId::TYPE]), body, KindId::TYPE);\n        assert!(contains_exact_case(&store, lambda));\n    }\n}\n'''
+          p.write_text(text)
+
+          p = Path('phalcom-core/src/compiler/lib/expr.rs')
+          text = p.read_text()
+          old = '''        if let Some(spec) = self.lowering().and_then(|lowering| lowering.associated.get(&site)) {
+            if let AssociatedLoweringSpec::GetDataComponent { logical_index, .. } = spec {
+'''
+          new = '''        if let Some(AssociatedLoweringSpec::GetDataComponent { logical_index, .. }) =
+            self.lowering().and_then(|lowering| lowering.associated.get(&site))
+        {
+'''
+          if text.count(old) != 1:
+              raise SystemExit(f'expr match count={text.count(old)}')
+          text = text.replace(old, new, 1)
+          old_close = '''                return Ok(());
+            }
+        }
+
+        self.compile_expr(object)?;'''
+          new_close = '''                return Ok(());
+        }
+
+        self.compile_expr(object)?;'''
+          if text.count(old_close) != 1:
+              raise SystemExit(f'expr close count={text.count(old_close)}')
+          p.write_text(text.replace(old_close, new_close, 1))
+
+          p = Path('phalcom-core/src/vm/dispatch.rs')
+          text = p.read_text()
+          for old, new in [
+              ('variant_by_semantic(&variant)', 'variant_by_semantic(variant)'),
+              ('bind_behavioral_associated_target(&target)', 'bind_behavioral_associated_target(target)'),
+              ('construct_data_from_spec(&construction, args)', 'construct_data_from_spec(construction, args)'),
+          ]:
+              if old not in text:
+                  raise SystemExit(f'dispatch missing {old}')
+              text = text.replace(old, new)
+          p.write_text(text)
+          PY
+          cargo +nightly-2026-07-10 fmt --all
+          git diff --check
+      - name: Verify focused C1 regressions
+        shell: bash
+        run: |
+          cargo +nightly-2026-07-10 test -p phalcom-semantic --test semantic integration::data_source_index -- --nocapture
+          cargo +nightly-2026-07-10 test -p phalcom-semantic c1_runtime_open_type_tests --lib -- --nocapture
+          cargo +nightly-2026-07-10 test -p phalcom-core exact_case_detection_descends_into_type_lambda_free_types --lib -- --nocapture
+          cargo +nightly-2026-07-10 test -p phalcom-modules --test builtin_catalog bcat_10_reflection_leaf_exports_preserve_canonical_identity -- --exact --nocapture
+          cargo +nightly-2026-07-10 test -p phalcom-repl --test repl_imports -- --nocapture
+      - name: Verify workspace Clippy
+        run: cargo +nightly-2026-07-10 clippy --workspace --all-targets -- -D warnings
+      - name: Commit verified repair
+        shell: bash
+        run: |
+          git rm .github/workflows/c1-green-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add phalcom-semantic/src/source_index/builder.rs phalcom-semantic/src/source_index/mod.rs phalcom-semantic/src/checker/associated.rs phalcom-core/src/modules/semantic_lowering.rs phalcom-core/src/compiler/lib/expr.rs phalcom-core/src/vm/dispatch.rs
+          git commit -m "fix(data): close C1 source identity and reification gaps"
+          git push origin HEAD:c1-completion-audit
