@@ -18,9 +18,9 @@ class Probe {
 "#,
     );
     let run = fixture.callable("Probe", "run", DispatchSide::Class);
-    assert_source_contract(&fixture.binding(run, "clock"), fixture.ty("Clock"));
-    assert_source_contract(&fixture.binding(run, "instant"), fixture.ty("Instant"));
-    assert_source_contract(&fixture.binding(run, "elapsed"), fixture.ty("Duration"));
+    assert_source_contract(fixture.binding(run, "clock"), fixture.ty("Clock"));
+    assert_source_contract(fixture.binding(run, "instant"), fixture.ty("Instant"));
+    assert_source_contract(fixture.binding(run, "elapsed"), fixture.ty("Duration"));
 }
 
 #[test]
