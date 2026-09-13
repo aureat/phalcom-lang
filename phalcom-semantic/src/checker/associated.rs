@@ -522,10 +522,7 @@ pub fn specialize_associated_member(
                     ctx.emit_diagnostic(SemanticDiagnostic::error_in(
                         ctx.current_module.clone(),
                         DiagnosticCode::AssociatedMemberMissing,
-                        format!(
-                            "data `{}` has unresolved constructor parameter `{}`",
-                            dc.owner.name, parameter.local_name
-                        ),
+                        format!("data `{}` has unresolved constructor parameter `{}`", dc.owner.name, parameter.local_name),
                         range,
                     ));
                     return Err(AssociatedResolutionError);

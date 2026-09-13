@@ -63,6 +63,7 @@ pub use checker::{
 pub use contracts::{ConditionKind, ContractCondition, ContractSpec};
 pub use control_summary::{ControlFacts, DivergenceKnowledge, DivergenceOpaqueReason, ExitSummary, RaiseKnowledge, RaiseOpaqueReason};
 pub use core_surface::*;
+pub use data_semantics::{DataComponentSemantic, DataConstructorParameter, DataConstructorSignature, DataInfo, DataSemanticTable, DataShape};
 pub use declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeState};
 pub use declarations::{
     DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, TypeDeclarationShell, bootstrap_universe_declarations, lower_kind_spec,
@@ -85,9 +86,6 @@ pub use effects::{
     EffectAtom, EffectKnowledge, EffectOpaqueReason, EffectSet, adapt_effect_atom, adapt_effect_spec, infer_interprocedural_effects_scc,
     infer_intraprocedural_effects,
 };
-pub use data_semantics::{
-    DataComponentSemantic, DataConstructorParameter, DataConstructorSignature, DataInfo, DataSemanticTable, DataShape,
-};
 pub use enum_requirements::{CaseRequirementResult, CaseRequirementStatus, EnumRequirement, EnumRequirementId, EnumRequirementTable};
 pub use enum_semantics::{
     EnumInfo, EnumSemanticTable, VariantConstructorParameter, VariantConstructorSignature, VariantFieldSemantic, VariantInfo, VariantShape, VariantVisibility,
@@ -99,8 +97,8 @@ pub use export::{
 };
 pub use identity::{
     AssociatedFamilyId, BindingId, CallableId, CallableOwnerId, CallableParameterId, DataComponentId, DataConstructorId, DeclarationId, FieldId,
-    InvocationTargetId, ModuleId, ProperTypeId, SemanticRevision, SemanticTargetId, SnapshotId, SnapshotTypeRef, SourceOwner, SourceSiteId,
-    SourceSiteLocalId, SourceSiteRef, TypeStoreId, VariantConstructorId, VariantFamilyId, VariantFieldId, VariantId, WorkspaceId,
+    InvocationTargetId, ModuleId, ProperTypeId, SemanticRevision, SemanticTargetId, SnapshotId, SnapshotTypeRef, SourceOwner, SourceSiteId, SourceSiteLocalId,
+    SourceSiteRef, TypeStoreId, VariantConstructorId, VariantFamilyId, VariantFieldId, VariantId, WorkspaceId,
 };
 pub use invalidation::{DeclarationFingerprint, InvalidationIndex};
 pub use match_semantics::*;

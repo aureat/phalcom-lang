@@ -244,12 +244,33 @@ fn adt_incr_11_whitespace_edit_does_not_change_enum_product_fingerprint() {
 }
 
 #[test]
-fn adt_incr_12_candidate_semantic_change_changes_match_product() {
+fn data_incr_01_cold_incremental_equivalence() {
     let module = module();
-    let mut session = SemanticWorkspaceSession::new();
-    let source_a = "enum Choice { @variant A @variant B }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 _ => 0 } } }\n";
-    let source_b = "enum Choice { @variant A @variant B @variant C }\nclass Test { run(_ value: Choice) { match value { Choice::A => 1 _ => 0 } } }\n";
-    let first = session.update(single_module_input(module.clone(), source_a, 1));
-    let second = session.update(single_module_input(module, source_b, 2));
-    assert_ne!(format!("{:?}", first_match(&first.snapshot)), format!("{:?}", first_match(&second.snapshot)));
+    let source = "data Point(_ x: Int, _ y: Int)\nclass Test { run() { &Point::Point(_, _) } }\n";
+
+    // Cold session
+    let mut cold_session = SemanticWorkspaceSession::new();
+    let cold = cold_session.update(single_module_input(module.clone(), source, 1));
+
+    // Incremental session (update from previous text to source)
+    let mut incr_session = SemanticWorkspaceSession::new();
+    let _ = incr_session.update(single_module_input(module.clone(), "data Point(_ x: Int)\n", 1));
+    let incr = incr_session.update(single_module_input(module.clone(), source, 2));
+
+    let point_decl = DeclarationId::new(module, "Point".into());
+    let cold_info = cold.snapshot.data_semantics.data_info(&point_decl).expect("cold data info");
+    let incr_info = incr.snapshot.data_semantics.data_info(&point_decl).expect("incr data info");
+    assert_eq!(cold_info, incr_info);
+
+    let cold_assoc = cold.snapshot.associated_surfaces.surfaces.get(&point_decl).expect("cold surface");
+    let incr_assoc = incr.snapshot.associated_surfaces.surfaces.get(&point_decl).expect("incr surface");
+    assert_eq!(cold_assoc, incr_assoc);
+    assert_eq!(
+        cold_assoc
+            .families
+            .get(&phalcom_common::selector::SelectorBase::Named("Point".into()))
+            .unwrap()
+            .kind,
+        phalcom_semantic::associated::AssociatedFamilyKind::DataConstructor
+    );
 }

@@ -319,7 +319,7 @@ impl<'vm> Compiler<'vm> {
                                 .unwrap()
                                 .chunk
                                 .executable_semantics
-                                .add_data_construction(construction.ok_or(CompilerError::MissingAssociatedResolution(call.range))?, call.range)?;
+                                .add_data_construction(construction, call.range)?;
                             if arity == 0 {
                                 self.emit(Bytecode::LoadDataSingleton(ctor_idx), call.range);
                             } else {
@@ -482,10 +482,13 @@ impl<'vm> Compiler<'vm> {
                             for arg in &method_call.args {
                                 self.compile_pack_item(arg.clone())?;
                             }
-                            let ctor_idx = self.functions.last_mut().unwrap().chunk.executable_semantics.add_data_construction(
-                                construction.ok_or(CompilerError::MissingAssociatedResolution(method_call.range))?,
-                                method_call.range,
-                            )?;
+                            let ctor_idx = self
+                                .functions
+                                .last_mut()
+                                .unwrap()
+                                .chunk
+                                .executable_semantics
+                                .add_data_construction(construction, method_call.range)?;
                             if arity == 0 {
                                 self.emit(Bytecode::LoadDataSingleton(ctor_idx), method_call.range);
                             } else {
@@ -1600,7 +1603,6 @@ impl<'vm> Compiler<'vm> {
                     construction,
                 }) = spec
                 {
-                    let construction = construction.ok_or(CompilerError::MissingAssociatedResolution(record_expr.range))?;
                     // Evaluate in source order; the executable product maps to logical component order.
                     for entry in &record_expr.entries {
                         self.compile_expr(entry.value.clone())?;

@@ -134,9 +134,7 @@ impl ProductLayoutSpec {
     }
 
     pub fn empty() -> Self {
-        Self {
-            components: Box::new([]),
-        }
+        Self { components: Box::new([]) }
     }
 
     /// Computes dense word offsets and builds the concrete [`ProductLayout`].
@@ -154,4 +152,3 @@ impl ProductLayoutSpec {
         ProductLayout::new(comp_layouts)
     }
 }
-

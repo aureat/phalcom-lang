@@ -60,6 +60,39 @@ impl DataInfo {
             .iter()
             .find(|c| c.local_name.as_ref() == name || c.external_label.as_deref() == Some(name))
     }
+
+    pub fn constructor_operation(&self) -> crate::types::family::FamilyOperationShape {
+        let slots = match self.shape {
+            DataShape::Tuple => self
+                .constructor
+                .parameters
+                .iter()
+                .map(|p| match &p.external_label {
+                    Some(label) => phalcom_common::selector::SelectorSlot::Label(label.to_string()),
+                    None => phalcom_common::selector::SelectorSlot::Positional,
+                })
+                .collect::<Box<[_]>>(),
+            DataShape::Record => self
+                .constructor
+                .parameters
+                .iter()
+                .map(|p| match &p.external_label {
+                    Some(label) => phalcom_common::selector::SelectorSlot::Label(label.to_string()),
+                    None => phalcom_common::selector::SelectorSlot::Label(p.local_name.to_string()),
+                })
+                .collect::<Box<[_]>>(),
+        };
+        crate::types::family::FamilyOperationShape::new(phalcom_common::selector::SelectorKind::Method, slots)
+    }
+
+    pub fn constructor_selector(&self) -> Result<phalcom_common::selector::Selector, phalcom_common::selector::SelectorError> {
+        let op = self.constructor_operation();
+        phalcom_common::selector::Selector::new(
+            phalcom_common::selector::SelectorBase::Named(self.owner.name.to_string()),
+            phalcom_common::selector::SelectorKind::Method,
+            op.slots,
+        )
+    }
 }
 
 /// Table of all published data declarations in a snapshot.

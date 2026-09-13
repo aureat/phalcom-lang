@@ -179,6 +179,50 @@ fn adt_assoc_16_family_value_does_not_escape_member_visibility() {
     assert!(!family.members.is_empty());
 }
 
+#[test]
+fn data_associated_exact_callable_reference_resolves_data_constructor() {
+    let case = analyze_adt("data Point(_ x: Int, _ y: Int)\nclass Test { run() { &Point::Point(_, _) } }\n");
+    let res = resolution(&case, "&Point::Point(_, _)");
+    assert!(matches!(
+        res.kind,
+        AssociatedResolutionKind::ExactCallable {
+            member: phalcom_semantic::associated::AssociatedMemberId::DataConstructor(_),
+            target: phalcom_semantic::identity::InvocationTargetId::DataConstructor(_),
+            ..
+        }
+    ));
+}
+
+#[test]
+fn data_associated_whole_family_capture_publishes_data_constructor() {
+    let case = analyze_adt("data Point(_ x: Int, _ y: Int)\nclass Test { run() { &Point::Point... } }\n");
+    let res = resolution(&case, "&Point::Point...");
+    let AssociatedResolutionKind::Family { members, .. } = &res.kind else {
+        panic!("expected family resolution");
+    };
+    assert_eq!(members.len(), 1);
+    assert!(matches!(
+        members[0].member,
+        phalcom_semantic::associated::AssociatedMemberId::DataConstructor(_)
+    ));
+    assert!(matches!(
+        members[0].target,
+        Some(phalcom_semantic::identity::InvocationTargetId::DataConstructor(_))
+    ));
+}
+
+#[test]
+fn data_associated_surface_kind_is_data_constructor() {
+    let case = analyze_adt("data Point(_ x: Int, _ y: Int)\n");
+    let family = case.associated_family("Point", "Point");
+    assert_eq!(family.kind, phalcom_semantic::associated::AssociatedFamilyKind::DataConstructor);
+    assert_eq!(family.members.len(), 1);
+    assert!(matches!(
+        family.members[0],
+        phalcom_semantic::associated::AssociatedMemberId::DataConstructor(_)
+    ));
+}
+
 #[allow(dead_code)]
 fn _canonical_ids() -> (DeclarationId, CallableId, Selector) {
     let owner = DeclarationId::new(phalcom_modules::identity::ModuleId::universe_root(), "Animal".into());

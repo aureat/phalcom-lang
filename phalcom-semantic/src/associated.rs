@@ -8,6 +8,7 @@ use std::sync::Arc;
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum AssociatedFamilyKind {
     Variant,
+    DataConstructor,
 }
 
 /// A member belonging to an associated family.
@@ -138,4 +139,20 @@ pub fn build_associated_surface(
     }
 
     (Arc::new(surface), Arc::from(diagnostics.into_boxed_slice()))
+}
+
+/// Builds an [`AssociatedSurface`] for a data declaration with its canonical constructor family.
+pub fn build_data_associated_surface(owner: &DeclarationId) -> Arc<AssociatedSurface> {
+    let mut surface = AssociatedSurface::new(owner.clone());
+    let base = SelectorBase::Named(owner.name.to_string());
+    let family_id = AssociatedFamilyId::new(owner.clone(), base.clone());
+    surface.families.insert(
+        base,
+        AssociatedFamilyInfo {
+            id: family_id,
+            kind: AssociatedFamilyKind::DataConstructor,
+            members: Box::new([AssociatedMemberId::DataConstructor(DataConstructorId::new(owner.clone()))]),
+        },
+    );
+    Arc::new(surface)
 }

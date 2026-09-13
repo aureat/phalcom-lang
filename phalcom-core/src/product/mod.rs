@@ -76,10 +76,10 @@ pub(crate) fn finish_record(vm: &mut VM, fields: Vec<(Symbol, Value)>) -> Result
 
 #[cfg(test)]
 mod tests {
-    use super::{finish_record, finish_tuple};
     use super::layout::{ProductComponentLayout, ProductLayout, ProductSlotRepr};
     use super::registry::ProductLayoutRegistry;
     use super::storage::ProductStorage;
+    use super::{finish_record, finish_tuple};
     use crate::interner::Symbol;
     use crate::value::Value;
     use crate::vm::VM;
@@ -105,11 +105,31 @@ mod tests {
     #[test]
     fn product_layout_storage_round_trip() {
         let components = vec![
-            ProductComponentLayout { logical_index: 0, word_offset: 0, repr: ProductSlotRepr::Int64 },
-            ProductComponentLayout { logical_index: 1, word_offset: 1, repr: ProductSlotRepr::Float64 },
-            ProductComponentLayout { logical_index: 2, word_offset: 2, repr: ProductSlotRepr::Bool },
-            ProductComponentLayout { logical_index: 3, word_offset: 3, repr: ProductSlotRepr::Symbol },
-            ProductComponentLayout { logical_index: 4, word_offset: 4, repr: ProductSlotRepr::Value },
+            ProductComponentLayout {
+                logical_index: 0,
+                word_offset: 0,
+                repr: ProductSlotRepr::Int64,
+            },
+            ProductComponentLayout {
+                logical_index: 1,
+                word_offset: 1,
+                repr: ProductSlotRepr::Float64,
+            },
+            ProductComponentLayout {
+                logical_index: 2,
+                word_offset: 2,
+                repr: ProductSlotRepr::Bool,
+            },
+            ProductComponentLayout {
+                logical_index: 3,
+                word_offset: 3,
+                repr: ProductSlotRepr::Symbol,
+            },
+            ProductComponentLayout {
+                logical_index: 4,
+                word_offset: 4,
+                repr: ProductSlotRepr::Value,
+            },
         ];
         let layout = ProductLayout::new(components).expect("valid layout");
         assert_eq!(layout.word_len, 6);

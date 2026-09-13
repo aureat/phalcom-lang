@@ -12,9 +12,6 @@ pub struct DataObject {
 
 impl DataObject {
     pub fn new(descriptor: RuntimeDataDescriptorId, storage: ProductStorage) -> Self {
-        Self {
-            descriptor,
-            storage,
-        }
+        Self { descriptor, storage }
     }
 }

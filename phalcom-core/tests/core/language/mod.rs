@@ -35,6 +35,10 @@ mod compiler_lowering;
 #[path = "compiler/lowering_scenarios.rs"]
 mod compiler_lowering_scenarios;
 
+#[path = "data_e2e.rs"]
+mod data_e2e;
+#[path = "data_runtime.rs"]
+mod data_runtime;
 #[path = "golden.rs"]
 mod golden;
 #[path = "numeric_diagnostics.rs"]
@@ -43,7 +47,3 @@ mod numeric_diagnostics;
 mod numeric_values;
 #[path = "option.rs"]
 mod option;
-#[path = "data_runtime.rs"]
-mod data_runtime;
-#[path = "data_e2e.rs"]
-mod data_e2e;

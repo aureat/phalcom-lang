@@ -2116,10 +2116,7 @@ impl VM {
                 }
                 Bytecode::MakeAssociatedFamily(desc_idx) => {
                     let descriptor = callable.chunk.executable_semantics.family_descriptor(desc_idx).clone();
-                    let family_obj = crate::heap::AssociatedFamilyObject {
-                        descriptor,
-                        bound_owner: None,
-                    };
+                    let family_obj = crate::heap::AssociatedFamilyObject { descriptor, bound_owner: None };
                     let family_ref = self.heap.alloc(Object::AssociatedFamily(Box::new(family_obj)));
                     self.stack.push(Value::obj(family_ref));
                 }
@@ -2168,18 +2165,10 @@ impl VM {
                                 self.frames.last_mut().unwrap().foreign_receiver_guard = foreign_guard;
                             }
                         }
-                        crate::modules::semantic_lowering::ExecutableFamilyTarget::DataConstructor { constructor, construction } => {
+                        crate::modules::semantic_lowering::ExecutableFamilyTarget::DataConstructor { constructor: _, construction } => {
                             let args: Vec<Value> = self.stack.drain(callee_idx + 1..).collect();
                             self.stack.pop();
-                            let val = if let Some(spec) = construction {
-                                self.construct_data_from_spec(&spec, args)?
-                            } else {
-                                let rdesc_id = self
-                                    .data_registry
-                                    .descriptor_by_declaration(&constructor.owner)
-                                    .ok_or_else(|| RuntimeError::Message("unregistered data descriptor".to_string()))?;
-                                self.construct_data_value(rdesc_id, args)?
-                            };
+                            let val = self.construct_data_from_spec(&construction, args)?;
                             self.stack.push(val);
                         }
                     }

@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
+use phalcom_common::selector::Selector;
 use phalcom_modules::identity::{ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_semantic::analyze_single_module;
 use phalcom_semantic::data_semantics::DataShape;
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
-use phalcom_common::selector::Selector;
 
 fn test_module() -> ModuleId {
     ModuleId::resolved(ResolvedProjectId::from_raw(42), ModulePath::root())
@@ -109,9 +109,7 @@ class Geometry {
     let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
     let diags = analysis.snapshot.diagnostics_for(&module).expect("diagnostics for module");
     assert!(
-        diags
-            .iter()
-            .any(|d| d.code == DiagnosticCode::DataComponentImmutable),
+        diags.iter().any(|d| d.code == DiagnosticCode::DataComponentImmutable),
         "should emit DataComponentImmutable diagnostic, got: {:#?}",
         diags
     );
@@ -130,9 +128,7 @@ data Duplicate(x: Int, x: String)
     let analysis = analyze_single_module(module.clone(), source, Arc::new(parsed.program));
     let diags = analysis.snapshot.diagnostics_for(&module).expect("diagnostics for module");
     assert!(
-        diags
-            .iter()
-            .any(|d| d.code == DiagnosticCode::DataDuplicateComponent),
+        diags.iter().any(|d| d.code == DiagnosticCode::DataDuplicateComponent),
         "should emit DataDuplicateComponent diagnostic, got: {:#?}",
         diags
     );
@@ -226,7 +222,10 @@ fn data_declaration_cold_incremental_equivalence() {
     let input = crate::semantic::incremental::support::single_module_input(module.clone(), source, 1);
     let update = session.update(input);
 
-    let cold_point = cold_analysis.snapshot.data_semantics.data_info(&DeclarationId::new(module.clone(), "Point".into()));
+    let cold_point = cold_analysis
+        .snapshot
+        .data_semantics
+        .data_info(&DeclarationId::new(module.clone(), "Point".into()));
     let incr_point = update.snapshot.data_semantics.data_info(&DeclarationId::new(module.clone(), "Point".into()));
 
     assert!(cold_point.is_some());

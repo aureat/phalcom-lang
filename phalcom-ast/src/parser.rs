@@ -4225,7 +4225,9 @@ impl<'source> Parser<'source> {
                 // spelling for `self.class` and must continue through small
                 // statement parsing below. `@` keeps its existing decorated
                 // class-declaration path.
-                Token::At | Token::Class | Token::Enum | Token::Data if matches!(self.peek(), Token::At) || matches!(self.peek_next(), Token::Identifier(_)) => {
+                Token::At | Token::Class | Token::Enum | Token::Data
+                    if matches!(self.peek(), Token::At) || matches!(self.peek_next(), Token::Identifier(_)) =>
+                {
                     let mut header_attrs = Vec::new();
                     while matches!(self.peek(), Token::At) {
                         header_attrs.push(self.parse_attribute()?);

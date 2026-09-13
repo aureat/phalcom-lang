@@ -70,19 +70,25 @@ pub enum ExecutableInvocationTarget {
     },
     DataConstructor {
         constructor: DataConstructorId,
-        construction: Option<Arc<DataConstructionLoweringSpec>>,
+        construction: Arc<DataConstructionLoweringSpec>,
     },
 }
 
 /// Target of a member entry in an executable family descriptor.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExecutableFamilyTarget {
-    Singleton { variant: VariantId },
-    Behavioral { target: ExecutableInvocationTarget },
-    VariantConstructor { variant: VariantId },
+    Singleton {
+        variant: VariantId,
+    },
+    Behavioral {
+        target: ExecutableInvocationTarget,
+    },
+    VariantConstructor {
+        variant: VariantId,
+    },
     DataConstructor {
         constructor: DataConstructorId,
-        construction: Option<Arc<DataConstructionLoweringSpec>>,
+        construction: Arc<DataConstructionLoweringSpec>,
     },
 }
 
@@ -124,7 +130,7 @@ pub enum AssociatedLoweringSpec {
     ConstructData {
         constructor: DataConstructorId,
         arity: u8,
-        construction: Option<Arc<DataConstructionLoweringSpec>>,
+        construction: Arc<DataConstructionLoweringSpec>,
     },
     /// Data component projection.
     GetDataComponent { component: DataComponentId, logical_index: u32 },
@@ -138,7 +144,7 @@ pub enum AssociatedLoweringSpec {
     MakeDataConstructorThunk {
         constructor: DataConstructorId,
         operation: FamilyOperationShape,
-        construction: Option<Arc<DataConstructionLoweringSpec>>,
+        construction: Arc<DataConstructionLoweringSpec>,
     },
     /// Frozen whole-family capture.
     MakeAssociatedFamily { descriptor: Arc<ExecutableFamilyDescriptor> },
@@ -169,7 +175,6 @@ pub struct DataConstructionLoweringSpec {
     pub exact_type: Arc<phalcom_type_meta::SemanticMetadataBundle>,
     pub layout: crate::product::ProductLayoutSpec,
     pub argument_to_component: Box<[u32]>,
-    pub component_names: Box<[Box<str>]>,
 }
 
 /// Lowering specification for a prefix-`&` callable reference.
@@ -186,7 +191,7 @@ pub enum CallableReferenceLoweringSpec {
     MakeDataConstructorThunk {
         constructor: DataConstructorId,
         operation: FamilyOperationShape,
-        construction: Option<Arc<DataConstructionLoweringSpec>>,
+        construction: Arc<DataConstructionLoweringSpec>,
     },
     /// Frozen associated family capture.
     MakeAssociatedFamily { descriptor: Arc<ExecutableFamilyDescriptor> },
@@ -360,6 +365,24 @@ pub enum ProjectionError {
     MissingConstructorMetadata(VariantId),
     #[error("missing data metadata for {0:?}")]
     MissingDataMetadata(DeclarationId),
+    #[error("open or unrepresentable data construction type {result_type:?} for {constructor:?}")]
+    OpenDataConstructionType { constructor: DataConstructorId, result_type: TypeId },
+}
+
+fn contains_exact_case(store: &phalcom_semantic::types::TypeStore, ty: TypeId) -> bool {
+    use phalcom_semantic::types::store::TypeData;
+    match store.get(ty) {
+        TypeData::ExactCase { .. } => true,
+        TypeData::Applied { origin, arguments } => contains_exact_case(store, *origin) || arguments.iter().any(|&a| contains_exact_case(store, a)),
+        TypeData::Union(members) => members.iter().any(|&m| contains_exact_case(store, m)),
+        TypeData::Tuple(elems) => elems.iter().any(|e| contains_exact_case(store, e.ty)),
+        TypeData::Record(row_id) => {
+            let row = store.record_row(*row_id);
+            row.fields.iter().any(|f| contains_exact_case(store, f.ty))
+        }
+        TypeData::Callable(call) => call.parameters.iter().any(|p| contains_exact_case(store, p.ty)) || contains_exact_case(store, call.return_type),
+        _ => false,
+    }
 }
 
 fn build_data_construction_spec(
@@ -370,18 +393,20 @@ fn build_data_construction_spec(
     arity: u8,
     argument_mapping: Option<Box<[u32]>>,
 ) -> Result<Arc<DataConstructionLoweringSpec>, ProjectionError> {
+    if phalcom_semantic::checker::associated::contains_any_type_parameter(&snapshot.store, result_type) || contains_exact_case(&snapshot.store, result_type) {
+        return Err(ProjectionError::OpenDataConstructionType {
+            constructor: constructor.clone(),
+            result_type,
+        });
+    }
+
     let info = snapshot
         .data_semantics
         .data_info(&constructor.owner)
         .ok_or_else(|| ProjectionError::MissingDataMetadata(constructor.owner.clone()))?;
-    let exporter = phalcom_semantic::metadata::MetadataExporter::new(
-        &snapshot.store,
-        None,
-        None,
-        None,
-        phalcom_type_meta::header::MetadataProfile::RuntimePublic,
-    )
-    .with_project_universe(projects);
+    let exporter =
+        phalcom_semantic::metadata::MetadataExporter::new(&snapshot.store, None, None, None, phalcom_type_meta::header::MetadataProfile::RuntimePublic)
+            .with_project_universe(projects);
     let metadata = exporter
         .build_bundle(&[(&constructor.owner.module, "data", result_type)])
         .map_err(|error| ProjectionError::DataTypeMetadata(error.to_string()))?;
@@ -400,8 +425,33 @@ fn build_data_construction_spec(
                 .collect(),
         ),
         argument_to_component,
-        component_names: info.components.iter().map(|component| component.local_name.clone()).collect(),
     }))
+}
+
+fn project_data_constructor_target(
+    snapshot: &SemanticSnapshot,
+    projects: &phalcom_modules::ProjectUniverse,
+    constructor: &DataConstructorId,
+    callable_type: TypeId,
+    argument_mapping: Option<Box<[u32]>>,
+) -> Result<ExecutableInvocationTarget, ProjectionError> {
+    use phalcom_semantic::types::store::TypeData;
+    let (result_type, arity) = match snapshot.store.get(callable_type) {
+        TypeData::Callable(call) => (call.return_type, call.parameters.len()),
+        _ => {
+            let info = snapshot
+                .data_semantics
+                .data_info(&constructor.owner)
+                .ok_or_else(|| ProjectionError::MissingDataMetadata(constructor.owner.clone()))?;
+            (info.constructor.result_type_template, info.components.len())
+        }
+    };
+    let arity_u8 = u8::try_from(arity).map_err(|_| ProjectionError::ArityOverflow(arity))?;
+    let construction = build_data_construction_spec(snapshot, projects, constructor, result_type, arity_u8, argument_mapping)?;
+    Ok(ExecutableInvocationTarget::DataConstructor {
+        constructor: constructor.clone(),
+        construction,
+    })
 }
 
 /// Projects formal snapshot products into an immutable `ModuleLoweringSemantics` bundle.
@@ -523,48 +573,7 @@ pub fn build_module_lowering_semantics(
                 None => return Err(ProjectionError::MissingSourceRange(*expr_id)),
             };
 
-            let (kind, mut spec) = project_associated_resolution(resolution, snapshot)?;
-            if let AssociatedLoweringSpec::ConstructData {
-                constructor,
-                arity,
-                construction,
-            } = &mut spec
-            {
-                let (result_type, argument_mapping) = match &resolution.kind {
-                    AssociatedResolutionKind::StaticInvoke { result_type, argument_mapping, .. } => (*result_type, argument_mapping.clone()),
-                    AssociatedResolutionKind::ExactValue { value_type, .. } => (*value_type, None),
-                    _ => unreachable!("data construction resolution"),
-                };
-                *construction = Some(build_data_construction_spec(snapshot, projects, constructor, result_type, *arity, argument_mapping)?);
-            }
-            if let AssociatedLoweringSpec::MakeDataConstructorThunk {
-                constructor,
-                operation: _,
-                construction,
-            } = &mut spec
-            {
-                let result_type = match &resolution.kind {
-                    AssociatedResolutionKind::ExactCallable { callable_type, .. } => {
-                        match snapshot.store.get(*callable_type) {
-                            TypeData::Callable(sig) => sig.return_type,
-                            _ => {
-                                let info = snapshot.data_semantics.data_info(&constructor.owner)
-                                    .ok_or_else(|| ProjectionError::MissingDataMetadata(constructor.owner.clone()))?;
-                                info.constructor.result_type_template
-                            }
-                        }
-                    }
-                    _ => {
-                        let info = snapshot.data_semantics.data_info(&constructor.owner)
-                            .ok_or_else(|| ProjectionError::MissingDataMetadata(constructor.owner.clone()))?;
-                        info.constructor.result_type_template
-                    }
-                };
-                let info = snapshot.data_semantics.data_info(&constructor.owner)
-                    .ok_or_else(|| ProjectionError::MissingDataMetadata(constructor.owner.clone()))?;
-                let arity = u8::try_from(info.components.len()).map_err(|_| ProjectionError::ArityOverflow(info.components.len()))?;
-                *construction = Some(build_data_construction_spec(snapshot, projects, constructor, result_type, arity, None)?);
-            }
+            let (kind, spec) = project_associated_resolution(resolution, snapshot, projects)?;
             let site = LoweringSite::new(source_id.clone(), range, kind);
 
             if associated.contains_key(&site) {
@@ -582,20 +591,7 @@ pub fn build_module_lowering_semantics(
                 Some(ea) => ea.range,
                 None => return Err(ProjectionError::MissingSourceRange(*expr_id)),
             };
-            let mut spec = project_callable_reference_resolution(resolution, snapshot)?;
-            if let CallableReferenceLoweringSpec::MakeDataConstructorThunk {
-                constructor,
-                operation: _,
-                construction,
-            } = &mut spec
-            {
-                if construction.is_none() {
-                    let info = snapshot.data_semantics.data_info(&constructor.owner)
-                        .ok_or_else(|| ProjectionError::MissingDataMetadata(constructor.owner.clone()))?;
-                    let arity = u8::try_from(info.components.len()).map_err(|_| ProjectionError::ArityOverflow(info.components.len()))?;
-                    *construction = Some(build_data_construction_spec(snapshot, projects, constructor, info.constructor.result_type_template, arity, None)?);
-                }
-            }
+            let spec = project_callable_reference_resolution(resolution, snapshot, projects)?;
             let site = LoweringSite::new(source_id.clone(), range, LoweringSiteKind::CallableReference);
             if callable_references.contains_key(&site) {
                 return Err(ProjectionError::AmbiguousLoweringSiteAttachment(site));
@@ -626,7 +622,7 @@ pub fn build_module_lowering_semantics(
                 None => return Err(ProjectionError::MissingSourceRange(*expr_id)),
             };
 
-            let spec = project_family_application(snapshot, fam_app)?;
+            let spec = project_family_application(snapshot, projects, fam_app)?;
             let site = LoweringSite::new(source_id.clone(), range, LoweringSiteKind::FamilyApplication);
             family_application_sites.insert(site.clone());
 
@@ -833,24 +829,33 @@ fn project_pattern_resolution(
 fn project_associated_resolution(
     resolution: &AssociatedResolution,
     snapshot: &SemanticSnapshot,
+    projects: &phalcom_modules::ProjectUniverse,
 ) -> Result<(LoweringSiteKind, AssociatedLoweringSpec), ProjectionError> {
     match &resolution.kind {
-        AssociatedResolutionKind::ExactValue { member, .. } => {
+        AssociatedResolutionKind::ExactValue { member, value_type } => {
             let spec = match member {
                 AssociatedMemberId::Variant(v) => AssociatedLoweringSpec::SingletonLoad { variant: v.clone() },
                 AssociatedMemberId::DataComponent(dc) => AssociatedLoweringSpec::GetDataComponent {
                     component: dc.clone(),
                     logical_index: dc.index,
                 },
-                AssociatedMemberId::DataConstructor(dc) => AssociatedLoweringSpec::ConstructData {
-                    constructor: dc.clone(),
-                    arity: 0,
-                    construction: None,
-                },
+                AssociatedMemberId::DataConstructor(dc) => {
+                    let dinfo = snapshot
+                        .data_semantics
+                        .data_info(&dc.owner)
+                        .ok_or_else(|| ProjectionError::MissingDataMetadata(dc.owner.clone()))?;
+                    let arity = u8::try_from(dinfo.components.len()).map_err(|_| ProjectionError::ArityOverflow(dinfo.components.len()))?;
+                    let construction = build_data_construction_spec(snapshot, projects, dc, *value_type, arity, None)?;
+                    AssociatedLoweringSpec::ConstructData {
+                        constructor: dc.clone(),
+                        arity,
+                        construction,
+                    }
+                }
             };
             Ok((LoweringSiteKind::AssociatedLookup, spec))
         }
-        AssociatedResolutionKind::ExactCallable { target, .. } => {
+        AssociatedResolutionKind::ExactCallable { target, callable_type, .. } => {
             let spec = match target {
                 InvocationTargetId::Behavioral(c) => AssociatedLoweringSpec::MakeResolvedBoundMethod {
                     target: ExecutableInvocationTarget::Behavioral {
@@ -864,11 +869,18 @@ fn project_associated_resolution(
                     variant: vc.variant.clone(),
                     operation: variant_constructor_operation(snapshot, &vc.variant)?,
                 },
-                InvocationTargetId::DataConstructor(dc) => AssociatedLoweringSpec::MakeDataConstructorThunk {
-                    constructor: dc.clone(),
-                    operation: data_constructor_operation(snapshot, dc)?,
-                    construction: None,
-                },
+                InvocationTargetId::DataConstructor(dc) => {
+                    let target = project_data_constructor_target(snapshot, projects, dc, *callable_type, None)?;
+                    let construction = match target {
+                        ExecutableInvocationTarget::DataConstructor { construction, .. } => construction,
+                        _ => unreachable!(),
+                    };
+                    AssociatedLoweringSpec::MakeDataConstructorThunk {
+                        constructor: dc.clone(),
+                        operation: data_constructor_operation(snapshot, dc)?,
+                        construction,
+                    }
+                }
             };
             Ok((LoweringSiteKind::AssociatedLookup, spec))
         }
@@ -879,29 +891,25 @@ fn project_associated_resolution(
                     (AssociatedMemberId::Variant(variant), None) => {
                         (ExecutableFamilyTarget::Singleton { variant: variant.clone() }, FamilyMemberTypeKind::Value)
                     }
-                    (AssociatedMemberId::DataConstructor(dc), None) => (
-                        ExecutableFamilyTarget::DataConstructor {
-                            constructor: dc.clone(),
-                            construction: None,
-                        },
-                        FamilyMemberTypeKind::Callable,
-                    ),
-                    (AssociatedMemberId::DataComponent(dc), None) => (
-                        ExecutableFamilyTarget::DataConstructor {
-                            constructor: DataConstructorId::new(dc.owner.clone()),
-                            construction: None,
-                        },
-                        FamilyMemberTypeKind::Value,
-                    ),
+                    (AssociatedMemberId::DataConstructor(dc), _) | (_, Some(InvocationTargetId::DataConstructor(dc))) => {
+                        let target = project_data_constructor_target(snapshot, projects, dc, member.value_type, None)?;
+                        let construction = match target {
+                            ExecutableInvocationTarget::DataConstructor { construction, .. } => construction,
+                            _ => unreachable!(),
+                        };
+                        (
+                            ExecutableFamilyTarget::DataConstructor {
+                                constructor: dc.clone(),
+                                construction,
+                            },
+                            FamilyMemberTypeKind::Callable,
+                        )
+                    }
+                    (AssociatedMemberId::DataComponent(_), None) => {
+                        continue;
+                    }
                     (_, Some(InvocationTargetId::VariantConstructor(vc))) => (
                         ExecutableFamilyTarget::VariantConstructor { variant: vc.variant.clone() },
-                        FamilyMemberTypeKind::Callable,
-                    ),
-                    (_, Some(InvocationTargetId::DataConstructor(dc))) => (
-                        ExecutableFamilyTarget::DataConstructor {
-                            constructor: dc.clone(),
-                            construction: None,
-                        },
                         FamilyMemberTypeKind::Callable,
                     ),
                     (_, Some(InvocationTargetId::Behavioral(c))) => (
@@ -930,7 +938,12 @@ fn project_associated_resolution(
                 AssociatedLoweringSpec::MakeAssociatedFamily { descriptor: Arc::new(desc) },
             ))
         }
-        AssociatedResolutionKind::StaticInvoke { target, .. } => {
+        AssociatedResolutionKind::StaticInvoke {
+            target,
+            result_type,
+            argument_mapping,
+            ..
+        } => {
             let spec = match target {
                 InvocationTargetId::VariantConstructor(vc) => {
                     let vinfo = snapshot
@@ -949,10 +962,11 @@ fn project_associated_resolution(
                         .data_info(&dc.owner)
                         .ok_or_else(|| ProjectionError::MissingDataMetadata(dc.owner.clone()))?;
                     let arity = u8::try_from(dinfo.components.len()).map_err(|_| ProjectionError::ArityOverflow(dinfo.components.len()))?;
+                    let construction = build_data_construction_spec(snapshot, projects, dc, *result_type, arity, argument_mapping.clone())?;
                     AssociatedLoweringSpec::ConstructData {
                         constructor: dc.clone(),
                         arity,
-                        construction: None,
+                        construction,
                     }
                 }
                 InvocationTargetId::Behavioral(c) => {
@@ -973,19 +987,17 @@ fn project_associated_resolution(
         AssociatedResolutionKind::DynamicInvoke { candidates, .. } => {
             let mut exec_candidates = Vec::new();
             for c in candidates.iter() {
-                let target = c.target.as_ref().map(|t| match t {
-                    InvocationTargetId::Behavioral(cid) => ExecutableInvocationTarget::Behavioral {
+                let target = match &c.target {
+                    Some(InvocationTargetId::Behavioral(cid)) => Some(ExecutableInvocationTarget::Behavioral {
                         lookup_owner: resolution.lookup_owner.clone(),
                         callable: cid.clone(),
                         operation: c.operation.clone(),
                         rest_mode: executable_rest_mode(snapshot, cid),
-                    },
-                    InvocationTargetId::VariantConstructor(vc) => ExecutableInvocationTarget::VariantConstructor { variant: vc.variant.clone() },
-                    InvocationTargetId::DataConstructor(dc) => ExecutableInvocationTarget::DataConstructor {
-                        constructor: dc.clone(),
-                        construction: None,
-                    },
-                });
+                    }),
+                    Some(InvocationTargetId::VariantConstructor(vc)) => Some(ExecutableInvocationTarget::VariantConstructor { variant: vc.variant.clone() }),
+                    Some(InvocationTargetId::DataConstructor(dc)) => Some(project_data_constructor_target(snapshot, projects, dc, c.value_type, None)?),
+                    None => None,
+                };
                 exec_candidates.push(ExecutableFamilyCandidate {
                     operation: c.operation.clone(),
                     target,
@@ -1002,19 +1014,26 @@ fn project_associated_resolution(
 fn project_callable_reference_resolution(
     resolution: &CallableReferenceResolution,
     snapshot: &SemanticSnapshot,
+    projects: &phalcom_modules::ProjectUniverse,
 ) -> Result<CallableReferenceLoweringSpec, ProjectionError> {
     match &resolution.kind {
         CallableReferenceResolutionKind::BoundFamily { spec, .. } => Ok(CallableReferenceLoweringSpec::MakeBoundFamily { spec: spec.clone() }),
         CallableReferenceResolutionKind::Associated(associated) => {
-            let (_, spec) = project_associated_resolution(associated, snapshot)?;
+            let (_, spec) = project_associated_resolution(associated, snapshot, projects)?;
             match spec {
                 AssociatedLoweringSpec::MakeResolvedBoundMethod { target } => Ok(CallableReferenceLoweringSpec::MakeResolvedBoundMethod { target }),
                 AssociatedLoweringSpec::MakeVariantConstructorThunk { variant, operation } => {
                     Ok(CallableReferenceLoweringSpec::MakeVariantConstructorThunk { variant, operation })
                 }
-                AssociatedLoweringSpec::MakeDataConstructorThunk { constructor, operation, construction } => {
-                    Ok(CallableReferenceLoweringSpec::MakeDataConstructorThunk { constructor, operation, construction })
-                }
+                AssociatedLoweringSpec::MakeDataConstructorThunk {
+                    constructor,
+                    operation,
+                    construction,
+                } => Ok(CallableReferenceLoweringSpec::MakeDataConstructorThunk {
+                    constructor,
+                    operation,
+                    construction,
+                }),
                 AssociatedLoweringSpec::MakeAssociatedFamily { descriptor } => Ok(CallableReferenceLoweringSpec::MakeAssociatedFamily { descriptor }),
                 _ => Err(ProjectionError::InvalidCallableReferenceSpec),
             }
@@ -1060,10 +1079,22 @@ fn executable_rest_mode(snapshot: &SemanticSnapshot, callable: &CallableId) -> E
         .unwrap_or(ExecutableRestMode::None)
 }
 
-fn project_family_application(snapshot: &SemanticSnapshot, fam_app: &FamilyApplicationResolution) -> Result<FamilyApplicationLoweringSpec, ProjectionError> {
+fn project_family_application(
+    snapshot: &SemanticSnapshot,
+    projects: &phalcom_modules::ProjectUniverse,
+    fam_app: &FamilyApplicationResolution,
+) -> Result<FamilyApplicationLoweringSpec, ProjectionError> {
     match &fam_app.selection {
-        FamilyApplicationSelection::Static { operation, target, .. } => {
-            let exec_target = target.as_ref().map(|target| executable_invocation_target(snapshot, target, operation));
+        FamilyApplicationSelection::Static {
+            operation,
+            target,
+            callable_type,
+            ..
+        } => {
+            let exec_target = match target {
+                Some(target) => Some(executable_invocation_target(snapshot, projects, target, operation, *callable_type)?),
+                None => None,
+            };
             let arity = u8::try_from(operation.slots.len()).map_err(|_| ProjectionError::ArityOverflow(operation.slots.len()))?;
             Ok(FamilyApplicationLoweringSpec::Static {
                 kind: fam_app.kind,
@@ -1075,14 +1106,23 @@ fn project_family_application(snapshot: &SemanticSnapshot, fam_app: &FamilyAppli
         FamilyApplicationSelection::Dynamic { candidates, .. } => {
             let exec_candidates = candidates
                 .iter()
-                .map(|candidate| ExecutableFamilyCandidate {
-                    operation: candidate.operation.clone(),
-                    target: candidate
-                        .target
-                        .as_ref()
-                        .map(|target| executable_invocation_target(snapshot, target, &candidate.operation)),
+                .map(|candidate| {
+                    let target = match &candidate.target {
+                        Some(target) => Some(executable_invocation_target(
+                            snapshot,
+                            projects,
+                            target,
+                            &candidate.operation,
+                            candidate.callable_type,
+                        )?),
+                        None => None,
+                    };
+                    Ok(ExecutableFamilyCandidate {
+                        operation: candidate.operation.clone(),
+                        target,
+                    })
                 })
-                .collect::<Vec<_>>()
+                .collect::<Result<Vec<_>, ProjectionError>>()?
                 .into_boxed_slice();
             Ok(FamilyApplicationLoweringSpec::DynamicPack {
                 kind: fam_app.kind,
@@ -1092,19 +1132,22 @@ fn project_family_application(snapshot: &SemanticSnapshot, fam_app: &FamilyAppli
     }
 }
 
-fn executable_invocation_target(snapshot: &SemanticSnapshot, target: &InvocationTargetId, operation: &FamilyOperationShape) -> ExecutableInvocationTarget {
+fn executable_invocation_target(
+    snapshot: &SemanticSnapshot,
+    projects: &phalcom_modules::ProjectUniverse,
+    target: &InvocationTargetId,
+    operation: &FamilyOperationShape,
+    callable_type: TypeId,
+) -> Result<ExecutableInvocationTarget, ProjectionError> {
     match target {
-        InvocationTargetId::Behavioral(c) => ExecutableInvocationTarget::Behavioral {
+        InvocationTargetId::Behavioral(c) => Ok(ExecutableInvocationTarget::Behavioral {
             lookup_owner: c.owner.declaration().clone(),
             callable: c.clone(),
             operation: operation.clone(),
             rest_mode: executable_rest_mode(snapshot, c),
-        },
-        InvocationTargetId::VariantConstructor(vc) => ExecutableInvocationTarget::VariantConstructor { variant: vc.variant.clone() },
-        InvocationTargetId::DataConstructor(dc) => ExecutableInvocationTarget::DataConstructor {
-            constructor: dc.clone(),
-            construction: None,
-        },
+        }),
+        InvocationTargetId::VariantConstructor(vc) => Ok(ExecutableInvocationTarget::VariantConstructor { variant: vc.variant.clone() }),
+        InvocationTargetId::DataConstructor(dc) => project_data_constructor_target(snapshot, projects, dc, callable_type, None),
     }
 }
 

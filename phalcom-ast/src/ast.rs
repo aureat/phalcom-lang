@@ -390,14 +390,8 @@ pub struct DataDef {
 
 #[derive(Debug, Clone)]
 pub enum DataShapeSyntax {
-    Tuple {
-        components: Vec<DataComponentSyntax>,
-        range: SourceRange,
-    },
-    Record {
-        components: Vec<DataComponentSyntax>,
-        range: SourceRange,
-    },
+    Tuple { components: Vec<DataComponentSyntax>, range: SourceRange },
+    Record { components: Vec<DataComponentSyntax>, range: SourceRange },
 }
 
 impl DataShapeSyntax {

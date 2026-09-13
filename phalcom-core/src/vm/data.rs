@@ -91,7 +91,7 @@ impl VM {
             .typing_registry
             .pools()
             .iter()
-            .find(|pool| pool.bundle == spec.exact_type)
+            .find(|pool| std::sync::Arc::ptr_eq(&pool.bundle, &spec.exact_type) || pool.bundle == spec.exact_type)
             .map(|pool| pool.id);
         let pool = match existing_pool {
             Some(id) => id,

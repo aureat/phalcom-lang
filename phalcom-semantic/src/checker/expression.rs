@@ -905,7 +905,8 @@ pub(crate) fn callable_target_for_data_info(data_info: &DataInfo) -> CallableApp
                     }
                 })
                 .collect::<Vec<_>>();
-            Selector::method(&*data_info.owner.name, slots).unwrap_or_else(|_| Selector::new(SelectorBase::Named(data_info.owner.name.to_string()), SelectorKind::Method, Box::new([])).unwrap())
+            Selector::method(&*data_info.owner.name, slots)
+                .unwrap_or_else(|_| Selector::new(SelectorBase::Named(data_info.owner.name.to_string()), SelectorKind::Method, Box::new([])).unwrap())
         }
         DataShape::Record => {
             let slots = data_info
@@ -920,7 +921,8 @@ pub(crate) fn callable_target_for_data_info(data_info: &DataInfo) -> CallableApp
                     }
                 })
                 .collect::<Vec<_>>();
-            Selector::method(&*data_info.owner.name, slots).unwrap_or_else(|_| Selector::new(SelectorBase::Named(data_info.owner.name.to_string()), SelectorKind::Method, Box::new([])).unwrap())
+            Selector::method(&*data_info.owner.name, slots)
+                .unwrap_or_else(|_| Selector::new(SelectorBase::Named(data_info.owner.name.to_string()), SelectorKind::Method, Box::new([])).unwrap())
         }
     };
     let mut signature = CallableSignature::new(
@@ -961,10 +963,11 @@ fn compute_data_argument_mapping_from_pack(data_info: &DataInfo, args: &[PackIte
                     PackLabel::Static { text, .. } => text.as_str(),
                     PackLabel::Computed { .. } => return None,
                 };
-                let param = data_info.constructor.parameters.iter().find(|p| {
-                    p.external_label.as_deref() == Some(label_text)
-                        || (p.external_label.is_none() && p.local_name.as_ref() == label_text)
-                })?;
+                let param = data_info
+                    .constructor
+                    .parameters
+                    .iter()
+                    .find(|p| p.external_label.as_deref() == Some(label_text) || (p.external_label.is_none() && p.local_name.as_ref() == label_text))?;
                 mapping.push(param.component.index);
             }
             PackItem::Expand { .. } => return None,
@@ -1271,31 +1274,16 @@ fn synthesize_associated_callable_reference(
                 Some(phalcom_ast::ast::NormalizedSelectorSpec::Exact(selector)) => variant.selector == *selector,
                 Some(phalcom_ast::ast::NormalizedSelectorSpec::Pattern(pattern)) => pattern.matches(&variant.selector),
             },
-            AssociatedMemberId::DataConstructor(dc) => {
-                ctx.data_info(&dc.owner).is_some_and(|info| {
-                    let slots: Vec<SelectorSlot> = info
-                        .constructor
-                        .parameters
-                        .iter()
-                        .map(|p| match &p.external_label {
-                            Some(label) => SelectorSlot::Label(label.to_string()),
-                            None => SelectorSlot::Positional,
-                        })
-                        .collect();
-                    let Ok(dc_selector) = Selector::new(
-                        SelectorBase::Named(dc.owner.name.to_string()),
-                        SelectorKind::Method,
-                        slots.into_boxed_slice(),
-                    ) else {
-                        return false;
-                    };
-                    match &normalized {
-                        None => true,
-                        Some(phalcom_ast::ast::NormalizedSelectorSpec::Exact(selector)) => dc_selector == *selector,
-                        Some(phalcom_ast::ast::NormalizedSelectorSpec::Pattern(pattern)) => pattern.matches(&dc_selector),
-                    }
-                })
-            }
+            AssociatedMemberId::DataConstructor(dc) => ctx.data_info(&dc.owner).is_some_and(|info| {
+                let Ok(dc_selector) = info.constructor_selector() else {
+                    return false;
+                };
+                match &normalized {
+                    None => true,
+                    Some(phalcom_ast::ast::NormalizedSelectorSpec::Exact(selector)) => dc_selector == *selector,
+                    Some(phalcom_ast::ast::NormalizedSelectorSpec::Pattern(pattern)) => pattern.matches(&dc_selector),
+                }
+            }),
             AssociatedMemberId::DataComponent(_) => false,
         })
         .cloned()
@@ -1523,45 +1511,7 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
         .iter()
         .find(|m| match m {
             AssociatedMemberId::Variant(v) => v.selector == selector,
-            AssociatedMemberId::DataConstructor(dc) => {
-                if let Some(dinfo) = ctx.data_info(&dc.owner) {
-                    let ctor_selector = match dinfo.shape {
-                        DataShape::Tuple => {
-                            let slots = dinfo
-                                .constructor
-                                .parameters
-                                .iter()
-                                .map(|p| {
-                                    if let Some(label) = &p.external_label {
-                                        SelectorSlot::Label(label.to_string())
-                                    } else {
-                                        SelectorSlot::Positional
-                                    }
-                                })
-                                .collect::<Vec<_>>();
-                            Selector::method(&*dinfo.owner.name, slots).ok()
-                        }
-                        DataShape::Record => {
-                            let slots = dinfo
-                                .constructor
-                                .parameters
-                                .iter()
-                                .map(|p| {
-                                    if let Some(label) = &p.external_label {
-                                        SelectorSlot::Label(label.to_string())
-                                    } else {
-                                        SelectorSlot::Label(p.local_name.to_string())
-                                    }
-                                })
-                                .collect::<Vec<_>>();
-                            Selector::method(&*dinfo.owner.name, slots).ok()
-                        }
-                    };
-                    ctor_selector.as_ref() == Some(&selector)
-                } else {
-                    false
-                }
-            }
+            AssociatedMemberId::DataConstructor(dc) => ctx.data_info(&dc.owner).and_then(|dinfo| dinfo.constructor_selector().ok()).as_ref() == Some(&selector),
             _ => false,
         })
         .cloned()
@@ -2436,9 +2386,12 @@ fn family_callable_application_target(
                 members,
                 ..
             } => {
-                let Some(InvocationTargetId::VariantConstructor(_)) = target.as_ref() else {
+                let Some(target_id) = target.as_ref() else {
                     return None;
                 };
+                if !matches!(target_id, InvocationTargetId::VariantConstructor(_) | InvocationTargetId::DataConstructor(_)) {
+                    return None;
+                }
                 let (actual_owner, supplied_arguments) = ctx.store.applied_nominal_parts(*owner_form)?;
                 if actual_owner != *lookup_owner {
                     return None;
@@ -2450,7 +2403,7 @@ fn family_callable_application_target(
                     supplied_arguments,
                     residual_kind: ctx.store.kind_of(*owner_form),
                 };
-                let recovered = associated_variant_constructor_target(ctx, &owner, &member.member, range)?;
+                let recovered = associated_constructor_application_target(ctx, &owner, &member.member, range)?;
                 if recovered.target.as_ref() != target.as_ref() {
                     return None;
                 }
@@ -2472,70 +2425,125 @@ fn family_callable_application_target(
     Some(application_target)
 }
 
-fn associated_variant_constructor_target(
+fn associated_constructor_application_target(
     ctx: &mut CheckingContext<'_>,
     owner: &AssociatedOwnerResolution,
     member_id: &AssociatedMemberId,
     range: SourceRange,
 ) -> Option<CallableApplicationTarget> {
-    let AssociatedMemberId::Variant(variant) = member_id else { return None; };
-    let variant_info = ctx.variant_info(variant).cloned()?;
-    let constructor = variant_info.constructor.clone()?;
+    match member_id {
+        AssociatedMemberId::Variant(variant) => {
+            let variant_info = ctx.variant_info(variant).cloned()?;
+            let constructor = variant_info.constructor.clone()?;
 
-    // Reuse associated specialization as the canonical validation path for
-    // GADT equalities and incomplete constructor payload declarations.
-    specialize_associated_member(ctx, owner, member_id, range).ok()?;
+            // Reuse associated specialization as the canonical validation path for
+            // GADT equalities and incomplete constructor payload declarations.
+            specialize_associated_member(ctx, owner, member_id, range).ok()?;
 
-    let environment =
-        crate::types::specialization::specialize_receiver_to_owner(ctx.store, &ctx.hierarchy, owner.owner_form, &owner.lookup_owner, &ctx.control)
-            .ok()?
-            .environment;
+            let environment =
+                crate::types::specialization::specialize_receiver_to_owner(ctx.store, &ctx.hierarchy, owner.owner_form, &owner.lookup_owner, &ctx.control)
+                    .ok()?
+                    .environment;
 
-    let mut fixed_generics = Vec::with_capacity(owner.supplied_arguments.len());
-    for (index, &argument) in owner.supplied_arguments.iter().enumerate() {
-        if let Some(parameter) = ctx.store.find_type_parameter_id(
-            &crate::types::parameter::TypeParameterOwner::Declaration(owner.lookup_owner.clone()),
-            index as u32,
-        ) {
-            fixed_generics.push((parameter, argument));
-        }
-    }
-
-    let parameters = constructor
-        .parameters
-        .iter()
-        .map(|parameter| {
-            let ty = TypeView::new(parameter.declared_type.canonical_type()?, environment.clone()).materialize(ctx.store);
-            let mut callable_parameter = crate::dispatch::CallableParameter::new(
-                parameter.local_name.to_string(),
-                TypeKnowledge::established(ty, EvidenceOrigin::ConstructorSemantics),
-            );
-            if let Some(label) = &parameter.external_label {
-                callable_parameter = callable_parameter.with_label(label.to_string());
+            let mut fixed_generics = Vec::with_capacity(owner.supplied_arguments.len());
+            for (index, &argument) in owner.supplied_arguments.iter().enumerate() {
+                if let Some(parameter) = ctx.store.find_type_parameter_id(
+                    &crate::types::parameter::TypeParameterOwner::Declaration(owner.lookup_owner.clone()),
+                    index as u32,
+                ) {
+                    fixed_generics.push((parameter, argument));
+                }
             }
-            Some(callable_parameter)
-        })
-        .collect::<Option<Vec<_>>>()?;
-    let result_type = TypeView::new(constructor.exact_case_template, environment).materialize(ctx.store);
-    let selector = variant.selector.clone();
-    let mut signature = CallableSignature::new(
-        selector,
-        parameters,
-        TypeKnowledge::established(result_type, EvidenceOrigin::ConstructorSemantics),
-    );
-    if let Some(local_signature) = constructor.generic_signature.clone() {
-        signature = signature.with_generics(local_signature);
-    }
-    let mut target = CallableApplicationTarget::variant_constructor(variant.clone(), signature);
-    if let Some(enum_signature) = ctx.enum_info(&owner.lookup_owner).and_then(|info| info.generic_signature.clone()) {
-        let mut enum_signature = enum_signature;
-        let mut constraints = enum_signature.constraints.to_vec();
-        constraints.extend(variant_info.case_environment.equalities.iter().cloned());
-        enum_signature.constraints = constraints.into_boxed_slice();
-        target = target.with_declaration_generics(enum_signature);
-    }
 
-    Some(target.with_fixed_generics(fixed_generics))
+            let parameters = constructor
+                .parameters
+                .iter()
+                .map(|parameter| {
+                    let ty = TypeView::new(parameter.declared_type.canonical_type()?, environment.clone()).materialize(ctx.store);
+                    let mut callable_parameter = crate::dispatch::CallableParameter::new(
+                        parameter.local_name.to_string(),
+                        TypeKnowledge::established(ty, EvidenceOrigin::ConstructorSemantics),
+                    );
+                    if let Some(label) = &parameter.external_label {
+                        callable_parameter = callable_parameter.with_label(label.to_string());
+                    }
+                    Some(callable_parameter)
+                })
+                .collect::<Option<Vec<_>>>()?;
+            let result_type = TypeView::new(constructor.exact_case_template, environment).materialize(ctx.store);
+            let selector = variant.selector.clone();
+            let mut signature = CallableSignature::new(
+                selector,
+                parameters,
+                TypeKnowledge::established(result_type, EvidenceOrigin::ConstructorSemantics),
+            );
+            if let Some(local_signature) = constructor.generic_signature.clone() {
+                signature = signature.with_generics(local_signature);
+            }
+            let mut target = CallableApplicationTarget::variant_constructor(variant.clone(), signature);
+            if let Some(enum_signature) = ctx.enum_info(&owner.lookup_owner).and_then(|info| info.generic_signature.clone()) {
+                let mut enum_signature = enum_signature;
+                let mut constraints = enum_signature.constraints.to_vec();
+                constraints.extend(variant_info.case_environment.equalities.iter().cloned());
+                enum_signature.constraints = constraints.into_boxed_slice();
+                target = target.with_declaration_generics(enum_signature);
+            }
+
+            Some(target.with_fixed_generics(fixed_generics))
+        }
+        AssociatedMemberId::DataConstructor(dc) => {
+            let data_info = ctx.data_info(&dc.owner).cloned()?;
+            let constructor = &data_info.constructor;
+
+            specialize_associated_member(ctx, owner, member_id, range).ok()?;
+
+            let environment =
+                crate::types::specialization::specialize_receiver_to_owner(ctx.store, &ctx.hierarchy, owner.owner_form, &owner.lookup_owner, &ctx.control)
+                    .ok()?
+                    .environment;
+
+            let mut fixed_generics = Vec::with_capacity(owner.supplied_arguments.len());
+            for (index, &argument) in owner.supplied_arguments.iter().enumerate() {
+                if let Some(parameter) = ctx.store.find_type_parameter_id(
+                    &crate::types::parameter::TypeParameterOwner::Declaration(owner.lookup_owner.clone()),
+                    index as u32,
+                ) {
+                    fixed_generics.push((parameter, argument));
+                }
+            }
+
+            let parameters = constructor
+                .parameters
+                .iter()
+                .map(|parameter| {
+                    let p_ty = parameter.declared_type.canonical_type()?;
+                    let ty = TypeView::new(p_ty, environment.clone()).materialize(ctx.store);
+                    let mut callable_parameter = crate::dispatch::CallableParameter::new(
+                        parameter.local_name.to_string(),
+                        TypeKnowledge::established(ty, EvidenceOrigin::ConstructorSemantics),
+                    );
+                    if let Some(label) = &parameter.external_label {
+                        callable_parameter = callable_parameter.with_label(label.to_string());
+                    }
+                    Some(callable_parameter)
+                })
+                .collect::<Option<Vec<_>>>()?;
+
+            let result_type = TypeView::new(constructor.result_type_template, environment).materialize(ctx.store);
+            let selector = data_info.constructor_selector().ok()?;
+            let signature = CallableSignature::new(
+                selector,
+                parameters,
+                TypeKnowledge::established(result_type, EvidenceOrigin::ConstructorSemantics),
+            );
+            let mut target = CallableApplicationTarget::data_constructor(dc.clone(), signature);
+            if let Some(generic_sig) = data_info.generic_signature.clone() {
+                target = target.with_declaration_generics(generic_sig);
+            }
+            Some(target.with_fixed_generics(fixed_generics))
+        }
+        AssociatedMemberId::DataComponent(_) => None,
+    }
 }
 
 fn independent_callable_return_type(ctx: &CheckingContext<'_>, callable_type: TypeId) -> Option<TypeId> {

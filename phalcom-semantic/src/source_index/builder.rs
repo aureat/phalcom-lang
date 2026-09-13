@@ -3,8 +3,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::identity::{
-    CallableId, CallableOwnerId, CallableParameterId, DataComponentId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId,
-    SourceSiteLocalId, VariantFieldId, VariantId,
+    CallableId, CallableOwnerId, CallableParameterId, DataComponentId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner,
+    SourceSiteId, SourceSiteLocalId, VariantFieldId, VariantId,
 };
 use crate::source_index::scope::{
     CallableSourceInfo, DeclarationSourceInfo, FieldSourceInfo, ImportBindingOrigin, SourceBindingInfo, SourceBindingKind, SourceCallableKind,
@@ -173,8 +173,7 @@ impl TypeReferenceTargetCollector<'_> {
                 data_bound.extend(data_def.generic_parameters.iter().map(|parameter| parameter.name.clone()));
                 self.where_clause(data_def.where_clause.as_ref(), &data_bound);
                 match &data_def.shape {
-                    phalcom_ast::ast::DataShapeSyntax::Tuple { components, .. }
-                    | phalcom_ast::ast::DataShapeSyntax::Record { components, .. } => {
+                    phalcom_ast::ast::DataShapeSyntax::Tuple { components, .. } | phalcom_ast::ast::DataShapeSyntax::Record { components, .. } => {
                         for comp in components {
                             self.annotation(&comp.annotation, &data_bound);
                         }

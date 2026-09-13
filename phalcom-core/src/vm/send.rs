@@ -1179,17 +1179,9 @@ impl VM {
                     view.caller_authority(),
                 )
             }
-            crate::modules::semantic_lowering::ExecutableFamilyTarget::DataConstructor { constructor, construction } => {
+            crate::modules::semantic_lowering::ExecutableFamilyTarget::DataConstructor { constructor: _, construction } => {
                 let args: Vec<Value> = self.stack.drain(receiver_idx + 1..).collect();
-                let value = if let Some(spec) = construction {
-                    self.construct_data_from_spec(&spec, args)?
-                } else {
-                    let rdesc_id = self
-                        .data_registry
-                        .descriptor_by_declaration(&constructor.owner)
-                        .ok_or_else(|| RuntimeError::Message("unregistered data descriptor".to_string()))?;
-                    self.construct_data_value(rdesc_id, args)?
-                };
+                let value = self.construct_data_from_spec(&construction, args)?;
                 self.stack.truncate(receiver_idx);
                 self.stack.push(value);
                 Ok(CallOutcome::Returned(value))

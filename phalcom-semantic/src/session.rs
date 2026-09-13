@@ -11,8 +11,8 @@ use crate::checker::analysis::normal_return_summary;
 use crate::checker::context::CheckingContext;
 use crate::checker::declaration::check_class_field_initializers;
 use crate::checker::statement::check_statement;
-use crate::db::SemanticDb;
 use crate::data_semantics::DataSemanticTable;
+use crate::db::SemanticDb;
 use crate::db::budget::{CancellationToken, QueryBudget};
 use crate::db::key::QueryKey;
 use crate::db::product::EnumRequirementsProduct;
@@ -672,20 +672,7 @@ impl SemanticWorkspaceSession {
                     base_data_semantics.insert_data(data_product.info.clone());
                     base_data_products.push(Arc::new(data_product));
 
-                    let mut assoc_surface = crate::associated::AssociatedSurface::new(decl_id.clone());
-                    let base = phalcom_common::selector::SelectorBase::Named(data_def.name.clone().into());
-                    let family_id = crate::identity::AssociatedFamilyId::new(decl_id.clone(), base.clone());
-                    assoc_surface.families.insert(
-                        base,
-                        crate::associated::AssociatedFamilyInfo {
-                            id: family_id,
-                            kind: crate::associated::AssociatedFamilyKind::Variant,
-                            members: Box::new([crate::associated::AssociatedMemberId::DataConstructor(
-                                crate::identity::DataConstructorId::new(decl_id.clone()),
-                            )]),
-                        },
-                    );
-                    let assoc_surface = Arc::new(assoc_surface);
+                    let assoc_surface = crate::associated::build_data_associated_surface(&decl_id);
                     base_associated_surfaces.insert(decl_id.clone(), assoc_surface.clone());
                     base_associated_surface_products.push(assoc_surface);
                 } else if let phalcom_ast::ast::Statement::Enum(enum_def) = stmt {
@@ -2899,170 +2886,170 @@ impl SemanticWorkspaceSession {
                     let arc_data_product = Arc::new(data_product);
                     let _ = query_data_declaration(&mut self.db, arc_data_product);
                 } else if let Statement::Enum(enum_def) = stmt {
-                let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
-                let Some(enum_product) = crate::checker::enum_declaration::build_enum_semantics(
-                    &decl_id,
-                    enum_def,
-                    Arc::make_mut(&mut self.store),
-                    &declarations,
-                    &resolver,
-                    module_id,
-                ) else {
-                    diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
-                        module_id.clone(),
-                        DiagnosticCode::AnnotationUnresolved,
-                        format!("enum `{}` has no published declaration type", enum_def.name),
-                        enum_def.range,
-                    ));
-                    continue;
-                };
+                    let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
+                    let Some(enum_product) = crate::checker::enum_declaration::build_enum_semantics(
+                        &decl_id,
+                        enum_def,
+                        Arc::make_mut(&mut self.store),
+                        &declarations,
+                        &resolver,
+                        module_id,
+                    ) else {
+                        diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
+                            module_id.clone(),
+                            DiagnosticCode::AnnotationUnresolved,
+                            format!("enum `{}` has no published declaration type", enum_def.name),
+                            enum_def.range,
+                        ));
+                        continue;
+                    };
 
-                diags_by_module
-                    .entry(module_id.clone())
-                    .or_default()
-                    .extend(enum_product.diagnostics.iter().cloned());
+                    diags_by_module
+                        .entry(module_id.clone())
+                        .or_default()
+                        .extend(enum_product.diagnostics.iter().cloned());
 
-                enum_semantics.insert_enum(enum_product.info.clone());
-                for v in enum_product.variants.iter() {
-                    enum_semantics.insert_variant(Arc::new(v.clone()));
-                }
-
-                let arc_enum_product = Arc::new(enum_product);
-                let _ = query_enum_declaration(&mut self.db, arc_enum_product);
-
-                let mut behavior_ctx = crate::checker::CheckingContext::new_with_dispatch_ref(
-                    Arc::make_mut(&mut self.store),
-                    &hierarchy,
-                    &resolver,
-                    &declarations,
-                    &dispatch,
-                    module_id.clone(),
-                );
-                behavior_ctx.attach_enum_semantics(&enum_semantics);
-                let behavior_product = crate::checker::enum_behavior::build_enum_behavior(&mut behavior_ctx, &decl_id, enum_def);
-                diags_by_module
-                    .entry(module_id.clone())
-                    .or_default()
-                    .extend(behavior_product.diagnostics.iter().cloned());
-
-                // Publish root defaults to callable_signatures and dispatch surface
-                let mut surface = dispatch.surface(&decl_id).cloned().unwrap_or_default();
-                for default_sig in behavior_product.root_defaults.iter() {
-                    callable_signatures.insert(default_sig.clone());
-                    let projection = crate::checker::declaration_signature::project_semantic_signature(default_sig);
-                    surface.add_callable(default_sig.side, projection);
-                }
-                dispatch.register_surface(decl_id.clone(), surface);
-                if let Some(ty) = declarations.form(&decl_id) {
-                    dispatch.register_type(ty, decl_id.clone());
-                }
-                let Some(linked_module) = input.linked.modules.get(module_id) else {
-                    return Err(QueryOutcome::Failed(format!("linked module prerequisite is missing for enum {decl_id:?}")));
-                };
-                match query_declaration_surface(
-                    &mut self.db,
-                    DeclarationSurfaceQuery {
-                        decl_id: decl_id.clone(),
-                        unit: parsed_unit.clone(),
-                        linked_interface: Arc::new(linked_module.interface.clone()),
-                        store: Arc::make_mut(&mut self.store),
-                        hierarchy: &hierarchy,
-                        resolver: &resolver,
-                        declarations: &declarations,
-                        type_aliases: Some(&type_aliases),
-                        linked: Some(input.linked.as_ref()),
-                        import_products: Some(&input.import_products),
-                    },
-                ) {
-                    QueryOutcome::Ready(_) => {}
-                    QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
-                    QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
-                    QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
-                    QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
-                }
-
-                // Publish case implementations to callable_signatures
-                for case_sigs in behavior_product.case_implementations.values() {
-                    for case_sig in case_sigs.iter() {
-                        callable_signatures.insert(case_sig.clone());
+                    enum_semantics.insert_enum(enum_product.info.clone());
+                    for v in enum_product.variants.iter() {
+                        enum_semantics.insert_variant(Arc::new(v.clone()));
                     }
-                }
 
-                let behavior_bases: std::collections::HashSet<phalcom_common::selector::SelectorBase> = enum_def
-                    .members
-                    .iter()
-                    .filter_map(|m| match m {
-                        phalcom_ast::ast::EnumMember::Behavior(b) => {
-                            let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(b);
-                            Some(syntax.selector_base())
+                    let arc_enum_product = Arc::new(enum_product);
+                    let _ = query_enum_declaration(&mut self.db, arc_enum_product);
+
+                    let mut behavior_ctx = crate::checker::CheckingContext::new_with_dispatch_ref(
+                        Arc::make_mut(&mut self.store),
+                        &hierarchy,
+                        &resolver,
+                        &declarations,
+                        &dispatch,
+                        module_id.clone(),
+                    );
+                    behavior_ctx.attach_enum_semantics(&enum_semantics);
+                    let behavior_product = crate::checker::enum_behavior::build_enum_behavior(&mut behavior_ctx, &decl_id, enum_def);
+                    diags_by_module
+                        .entry(module_id.clone())
+                        .or_default()
+                        .extend(behavior_product.diagnostics.iter().cloned());
+
+                    // Publish root defaults to callable_signatures and dispatch surface
+                    let mut surface = dispatch.surface(&decl_id).cloned().unwrap_or_default();
+                    for default_sig in behavior_product.root_defaults.iter() {
+                        callable_signatures.insert(default_sig.clone());
+                        let projection = crate::checker::declaration_signature::project_semantic_signature(default_sig);
+                        surface.add_callable(default_sig.side, projection);
+                    }
+                    dispatch.register_surface(decl_id.clone(), surface);
+                    if let Some(ty) = declarations.form(&decl_id) {
+                        dispatch.register_type(ty, decl_id.clone());
+                    }
+                    let Some(linked_module) = input.linked.modules.get(module_id) else {
+                        return Err(QueryOutcome::Failed(format!("linked module prerequisite is missing for enum {decl_id:?}")));
+                    };
+                    match query_declaration_surface(
+                        &mut self.db,
+                        DeclarationSurfaceQuery {
+                            decl_id: decl_id.clone(),
+                            unit: parsed_unit.clone(),
+                            linked_interface: Arc::new(linked_module.interface.clone()),
+                            store: Arc::make_mut(&mut self.store),
+                            hierarchy: &hierarchy,
+                            resolver: &resolver,
+                            declarations: &declarations,
+                            type_aliases: Some(&type_aliases),
+                            linked: Some(input.linked.as_ref()),
+                            import_products: Some(&input.import_products),
+                        },
+                    ) {
+                        QueryOutcome::Ready(_) => {}
+                        QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                        QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                        QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                        QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                    }
+
+                    // Publish case implementations to callable_signatures
+                    for case_sigs in behavior_product.case_implementations.values() {
+                        for case_sig in case_sigs.iter() {
+                            callable_signatures.insert(case_sig.clone());
                         }
-                        _ => None,
-                    })
-                    .collect();
+                    }
 
-                let (assoc_surface, assoc_diags) = build_associated_surface(
-                    &decl_id,
-                    Some(
-                        &enum_def
-                            .members
-                            .iter()
-                            .filter_map(|m| match m {
-                                phalcom_ast::ast::EnumMember::Variant(v) => {
-                                    let sel = phalcom_ast::selector::selector_from_variant(v);
-                                    Some(crate::identity::VariantId::new(decl_id.clone(), sel))
-                                }
-                                _ => None,
-                            })
-                            .collect::<Vec<_>>(),
-                    ),
-                    &behavior_bases,
-                    &std::collections::HashSet::new(),
-                    module_id,
-                    Some(crate::diagnostic::SemanticSourceSpan::new(module_id.clone(), enum_def.range)),
-                );
-                diags_by_module.entry(module_id.clone()).or_default().extend(assoc_diags.iter().cloned());
-                associated_surfaces_table.insert(decl_id.clone(), assoc_surface.clone());
-                let _ = query_associated_surface(&mut self.db, assoc_surface);
+                    let behavior_bases: std::collections::HashSet<phalcom_common::selector::SelectorBase> = enum_def
+                        .members
+                        .iter()
+                        .filter_map(|m| match m {
+                            phalcom_ast::ast::EnumMember::Behavior(b) => {
+                                let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(b);
+                                Some(syntax.selector_base())
+                            }
+                            _ => None,
+                        })
+                        .collect();
 
-                let variants_info: Vec<VariantInfo> = enum_def
-                    .members
-                    .iter()
-                    .filter_map(|m| match m {
-                        phalcom_ast::ast::EnumMember::Variant(v) => {
-                            let sel = phalcom_ast::selector::selector_from_variant(v);
-                            let vid = crate::identity::VariantId::new(decl_id.clone(), sel);
-                            enum_semantics.variant_info(&vid).cloned()
-                        }
-                        _ => None,
-                    })
-                    .collect();
+                    let (assoc_surface, assoc_diags) = build_associated_surface(
+                        &decl_id,
+                        Some(
+                            &enum_def
+                                .members
+                                .iter()
+                                .filter_map(|m| match m {
+                                    phalcom_ast::ast::EnumMember::Variant(v) => {
+                                        let sel = phalcom_ast::selector::selector_from_variant(v);
+                                        Some(crate::identity::VariantId::new(decl_id.clone(), sel))
+                                    }
+                                    _ => None,
+                                })
+                                .collect::<Vec<_>>(),
+                        ),
+                        &behavior_bases,
+                        &std::collections::HashSet::new(),
+                        module_id,
+                        Some(crate::diagnostic::SemanticSourceSpan::new(module_id.clone(), enum_def.range)),
+                    );
+                    diags_by_module.entry(module_id.clone()).or_default().extend(assoc_diags.iter().cloned());
+                    associated_surfaces_table.insert(decl_id.clone(), assoc_surface.clone());
+                    let _ = query_associated_surface(&mut self.db, assoc_surface);
 
-                let mut case_methods_map: HashMap<crate::identity::VariantId, Vec<crate::signature::CallableSemanticSignature>> = HashMap::new();
-                for (v_id, sigs) in &behavior_product.case_implementations {
-                    case_methods_map.insert(v_id.clone(), sigs.to_vec());
+                    let variants_info: Vec<VariantInfo> = enum_def
+                        .members
+                        .iter()
+                        .filter_map(|m| match m {
+                            phalcom_ast::ast::EnumMember::Variant(v) => {
+                                let sel = phalcom_ast::selector::selector_from_variant(v);
+                                let vid = crate::identity::VariantId::new(decl_id.clone(), sel);
+                                enum_semantics.variant_info(&vid).cloned()
+                            }
+                            _ => None,
+                        })
+                        .collect();
+
+                    let mut case_methods_map: HashMap<crate::identity::VariantId, Vec<crate::signature::CallableSemanticSignature>> = HashMap::new();
+                    for (v_id, sigs) in &behavior_product.case_implementations {
+                        case_methods_map.insert(v_id.clone(), sigs.to_vec());
+                    }
+
+                    let (case_statuses, req_diags) = check_enum_requirements(
+                        &decl_id,
+                        enum_semantics.enum_info(&decl_id).unwrap(),
+                        &variants_info,
+                        &behavior_product.root_requirements,
+                        &case_methods_map,
+                        Arc::make_mut(&mut self.store),
+                        &hierarchy,
+                        module_id,
+                    );
+                    diags_by_module.entry(module_id.clone()).or_default().extend(req_diags.iter().cloned());
+                    enum_requirements_table.insert(decl_id.clone(), Arc::from(behavior_product.root_requirements.clone()), case_statuses.clone());
+                    let req_product = Arc::new(EnumRequirementsProduct {
+                        requirements: Arc::from(behavior_product.root_requirements),
+                        case_statuses,
+                        diagnostics: req_diags,
+                    });
+                    let _ = query_enum_requirements(&mut self.db, decl_id.clone(), req_product);
                 }
-
-                let (case_statuses, req_diags) = check_enum_requirements(
-                    &decl_id,
-                    enum_semantics.enum_info(&decl_id).unwrap(),
-                    &variants_info,
-                    &behavior_product.root_requirements,
-                    &case_methods_map,
-                    Arc::make_mut(&mut self.store),
-                    &hierarchy,
-                    module_id,
-                );
-                diags_by_module.entry(module_id.clone()).or_default().extend(req_diags.iter().cloned());
-                enum_requirements_table.insert(decl_id.clone(), Arc::from(behavior_product.root_requirements.clone()), case_statuses.clone());
-                let req_product = Arc::new(EnumRequirementsProduct {
-                    requirements: Arc::from(behavior_product.root_requirements),
-                    case_statuses,
-                    diagnostics: req_diags,
-                });
-                let _ = query_enum_requirements(&mut self.db, decl_id.clone(), req_product);
             }
         }
-    }
 
         for module_id in &structural_work_modules {
             let Some(shard) = self.semantic_structure_shards.get(module_id) else {
@@ -3075,20 +3062,7 @@ impl SemanticWorkspaceSession {
                     Statement::Data(data_def) => {
                         let declaration = DeclarationId::new(module_id.clone(), data_def.name.clone().into());
                         if !associated_surfaces_table.surfaces.contains_key(&declaration) {
-                            let mut assoc_surface = crate::associated::AssociatedSurface::new(declaration.clone());
-                            let base = phalcom_common::selector::SelectorBase::Named(data_def.name.clone().into());
-                            let family_id = crate::identity::AssociatedFamilyId::new(declaration.clone(), base.clone());
-                            assoc_surface.families.insert(
-                                base,
-                                crate::associated::AssociatedFamilyInfo {
-                                    id: family_id,
-                                    kind: crate::associated::AssociatedFamilyKind::Variant,
-                                    members: Box::new([crate::associated::AssociatedMemberId::DataConstructor(
-                                        crate::identity::DataConstructorId::new(declaration.clone()),
-                                    )]),
-                                },
-                            );
-                            let assoc_surface = Arc::new(assoc_surface);
+                            let assoc_surface = crate::associated::build_data_associated_surface(&declaration);
                             associated_surfaces_table.insert(declaration, assoc_surface.clone());
                             let _ = query_associated_surface(&mut self.db, assoc_surface);
                         }

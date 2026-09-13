@@ -154,7 +154,7 @@ impl<'vm> Compiler<'vm> {
                 operation,
                 construction,
             } => {
-                self.compile_data_constructor_thunk(&constructor, &operation, construction.as_deref(), expr.range)?;
+                self.compile_data_constructor_thunk(&constructor, &operation, &construction, expr.range)?;
             }
             CallableReferenceLoweringSpec::MakeAssociatedFamily { descriptor } => {
                 let desc_idx = self
@@ -200,7 +200,7 @@ impl<'vm> Compiler<'vm> {
                     operation,
                     construction,
                 } => {
-                    return self.compile_data_constructor_thunk(&constructor, &operation, construction.as_deref(), expr.range);
+                    return self.compile_data_constructor_thunk(&constructor, &operation, &construction, expr.range);
                 }
                 AssociatedLoweringSpec::MakeResolvedBoundMethod { target } => {
                     let target_idx = self
@@ -306,7 +306,7 @@ impl<'vm> Compiler<'vm> {
                         .unwrap()
                         .chunk
                         .executable_semantics
-                        .add_data_construction(construction.ok_or(CompilerError::MissingAssociatedResolution(expr.range))?, expr.range)?;
+                        .add_data_construction(construction, expr.range)?;
                     if arity == 0 {
                         self.emit(Bytecode::LoadDataSingleton(ctor_idx), expr.range);
                     } else {
@@ -443,7 +443,7 @@ impl<'vm> Compiler<'vm> {
         &mut self,
         constructor: &DataConstructorId,
         operation: &FamilyOperationShape,
-        construction: Option<&DataConstructionLoweringSpec>,
+        construction: &DataConstructionLoweringSpec,
         range: SourceRange,
     ) -> Result<(), CompilerError> {
         let arity = checked_send_arity("data constructor thunk", operation.slots.len(), range)?;
@@ -464,8 +464,10 @@ impl<'vm> Compiler<'vm> {
         callable.chunk.spans.clear();
         callable.chunk.caches.clear();
         callable.chunk.gcaches.clear();
-        let construction = construction.ok_or(CompilerError::MissingAssociatedResolution(range))?;
-        let ctor_idx = callable.chunk.executable_semantics.add_data_construction(std::sync::Arc::new(construction.clone()), range)?;
+        let ctor_idx = callable
+            .chunk
+            .executable_semantics
+            .add_data_construction(std::sync::Arc::new(construction.clone()), range)?;
         // Reserve slot 0 for receiver, arguments in slots 1..=arity
         for slot in 1..=u16::from(arity) {
             callable.chunk.add_instruction(Bytecode::GetLocal(slot), range);

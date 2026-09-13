@@ -1,8 +1,6 @@
 //! Semantic analysis and product construction for data declarations.
 
-use crate::data_semantics::{
-    DataComponentSemantic, DataConstructorParameter, DataConstructorSignature, DataInfo, DataShape,
-};
+use crate::data_semantics::{DataComponentSemantic, DataConstructorParameter, DataConstructorSignature, DataInfo, DataShape};
 use crate::db::product::DataDeclarationProduct;
 use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeState};
 use crate::declarations::DeclarationTypeTable;

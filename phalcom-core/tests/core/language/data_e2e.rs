@@ -249,4 +249,112 @@ let same_class = t1.class === t2.class
     assert_eq!(vm.heap.module(module).get(equal_sym), Some(Value::bool(false)));
     assert_eq!(vm.heap.module(module).get(same_class_sym), Some(Value::bool(true)));
 }
+#[test]
+fn data_generic_callable_reference_specialization() {
+    let (vm, module) = run_inline(
+        r#"
+data Tagged<T>(_ id: Int)
+let make_int = &Tagged<Int>::Tagged(_)
+let make_str = &Tagged<String>::Tagged(_)
+let t1 = make_int(10)
+let t2 = make_str(10)
+let eq = t1 == t2
+let t1_id = t1.id
+let t2_id = t2.id
+"#,
+    )
+    .expect("generic data callable references should execute");
+    let eq_sym = vm.interner.find("eq").unwrap();
+    let t1_sym = vm.interner.find("t1_id").unwrap();
+    let t2_sym = vm.interner.find("t2_id").unwrap();
+    assert_eq!(vm.heap.module(module).get(eq_sym), Some(Value::bool(false)));
+    assert_eq!(vm.heap.module(module).get(t1_sym), Some(Value::int(10)));
+    assert_eq!(vm.heap.module(module).get(t2_sym), Some(Value::int(10)));
+}
 
+#[test]
+fn data_associated_family_dynamic_pack_invocation() {
+    let (vm, module) = run_inline(
+        r#"
+data Point(_ x: Int, _ y: Int)
+let fam = &Point::Point...
+let p = fam(10, 20)
+let px = p.x
+let py = p.y
+"#,
+    )
+    .expect("whole-family capture and dynamic pack invocation on data should execute");
+    let px_sym = vm.interner.find("px").unwrap();
+    let py_sym = vm.interner.find("py").unwrap();
+    assert_eq!(vm.heap.module(module).get(px_sym), Some(Value::int(10)));
+    assert_eq!(vm.heap.module(module).get(py_sym), Some(Value::int(20)));
+}
+
+#[test]
+fn data_component_custom_equality_protocol() {
+    let (vm, module) = run_inline(
+        r#"
+class CustomKey {
+  _id: Int
+
+  @constructor
+  new(_ id: Int) {
+    _id = id
+  }
+
+  id() -> Int { _id }
+
+  ==(_ other: Object) -> Bool {
+    if other.class === self.class {
+      _id === other.id()
+    } else {
+      false
+    }
+  }
+
+  hash -> Int {
+    _id.hash
+  }
+}
+
+data Wrapper(_ key: CustomKey, _ tag: String)
+
+let k1 = CustomKey.new(5)
+let k2 = CustomKey.new(5)
+let k3 = CustomKey.new(6)
+
+let w1 = Wrapper(k1, "alpha")
+let w2 = Wrapper(k2, "alpha")
+let w3 = Wrapper(k3, "alpha")
+
+let eq12 = w1 == w2
+let neq12 = w1 != w2
+let eq13 = w1 == w3
+let same12 = w1 === w2
+let hash_eq = w1.hash === w2.hash
+"#,
+    )
+    .expect("custom component equality protocol should execute");
+    let eq12_sym = vm.interner.find("eq12").unwrap();
+    let neq12_sym = vm.interner.find("neq12").unwrap();
+    let eq13_sym = vm.interner.find("eq13").unwrap();
+    let same12_sym = vm.interner.find("same12").unwrap();
+    let hash_eq_sym = vm.interner.find("hash_eq").unwrap();
+    assert_eq!(vm.heap.module(module).get(eq12_sym), Some(Value::bool(true)));
+    assert_eq!(vm.heap.module(module).get(neq12_sym), Some(Value::bool(false)));
+    assert_eq!(vm.heap.module(module).get(eq13_sym), Some(Value::bool(false)));
+    assert_eq!(vm.heap.module(module).get(same12_sym), Some(Value::bool(false)));
+    assert_eq!(vm.heap.module(module).get(hash_eq_sym), Some(Value::bool(true)));
+}
+
+#[test]
+fn open_generic_data_construction_fails_closed() {
+    let src = r#"
+data Container<T>(_ item: T)
+fun <T> make_it(x: T) {
+  Container(x)
+}
+"#;
+    let res = run_inline(src);
+    assert!(res.is_err(), "open generic data construction must fail closed during compilation");
+}

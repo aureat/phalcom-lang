@@ -129,6 +129,75 @@ pub fn object_set_class(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhR
     Err(RuntimeError::InvalidSetClass.into())
 }
 
+fn data_eq(vm: &mut VM, lhs: Value, rhs: Value) -> PhResult<Option<bool>> {
+    let lhs_singleton = lhs.as_data_singleton();
+    let rhs_singleton = rhs.as_data_singleton();
+    let lhs_obj = lhs.as_obj();
+    let rhs_obj = rhs.as_obj();
+
+    let lhs_is_data = lhs_singleton.is_some() || lhs_obj.map_or(false, |id| vm.heap.as_data(id).is_some());
+    let rhs_is_data = rhs_singleton.is_some() || rhs_obj.map_or(false, |id| vm.heap.as_data(id).is_some());
+
+    if !lhs_is_data && !rhs_is_data {
+        return Ok(None);
+    }
+    if !lhs_is_data || !rhs_is_data {
+        return Ok(Some(false));
+    }
+
+    if let (Some(da), Some(db)) = (lhs_singleton, rhs_singleton) {
+        return Ok(Some(da == db));
+    }
+
+    if let (Some(did), Some(ob)) = (lhs_singleton, rhs_obj) {
+        if let Some(db) = vm.heap.as_data(ob) {
+            return Ok(Some(did == db.descriptor));
+        }
+        return Ok(Some(false));
+    }
+
+    if let (Some(oa), Some(did)) = (lhs_obj, rhs_singleton) {
+        if let Some(da) = vm.heap.as_data(oa) {
+            return Ok(Some(did == da.descriptor));
+        }
+        return Ok(Some(false));
+    }
+
+    if let (Some(oa), Some(ob)) = (lhs_obj, rhs_obj) {
+        if let (Some(da), Some(db)) = (vm.heap.as_data(oa), vm.heap.as_data(ob)) {
+            if da.descriptor != db.descriptor {
+                return Ok(Some(false));
+            }
+            let layout_id = da.storage.layout;
+            let layout = vm
+                .heap
+                .product_layouts
+                .get(layout_id)
+                .ok_or_else(|| RuntimeError::Internal("missing data layout".into()))?;
+            let values_a = layout
+                .components
+                .iter()
+                .map(|component| da.storage.load_component(layout, component.logical_index))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| RuntimeError::Internal(e.into()))?;
+            let values_b = layout
+                .components
+                .iter()
+                .map(|component| db.storage.load_component(layout, component.logical_index))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| RuntimeError::Internal(e.into()))?;
+            for (va, vb) in values_a.into_iter().zip(values_b) {
+                if !crate::primitive::send_eq(vm, va, vb)? {
+                    return Ok(Some(false));
+                }
+            }
+            return Ok(Some(true));
+        }
+    }
+
+    Ok(Some(false))
+}
+
 /// Signature: `Object::==(_)` — the base equality send (U5, control-flow.md
 #[phalcom_native_macros::primitive(
     Object,
@@ -139,6 +208,9 @@ pub fn object_set_class(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhR
     effects = pure
 )]
 pub fn object_eq(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    if let Some(eq) = data_eq(vm, *receiver, args[0])? {
+        return Ok(Value::bool(eq));
+    }
     Ok(Value::bool(receiver.value_eq(&args[0], &vm.heap)))
 }
 
@@ -166,6 +238,9 @@ pub fn object_same(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Va
     effects = pure
 )]
 pub fn object_matches(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    if let Some(eq) = data_eq(vm, *receiver, args[0])? {
+        return Ok(Value::bool(eq));
+    }
     Ok(Value::bool(receiver.value_eq(&args[0], &vm.heap)))
 }
 
@@ -211,6 +286,9 @@ pub fn object_understands(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
     effects = pure
 )]
 pub fn object_neq(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    if let Some(eq) = data_eq(vm, *receiver, args[0])? {
+        return Ok(Value::bool(!eq));
+    }
     Ok(Value::bool(!receiver.value_eq(&args[0], &vm.heap)))
 }
 
