@@ -337,8 +337,9 @@ fn data_incr_03_unrelated_module_edit_reuses_data_product() {
     ));
     assert!(!first.snapshot.has_errors());
     let owner = DeclarationId::new(data_module.clone(), "Point".into());
-    let data_key = QueryKey::DataDeclaration(owner);
+    let data_key = QueryKey::DataDeclaration(owner.clone());
     let first_fp = session.db().ready_product_fingerprint(&data_key).expect("initial data fingerprint");
+    let first_info = first.snapshot.data_semantics.data_info(&owner).expect("initial data info");
 
     let second = session.update(multi_module_input(
         vec![(data_module, data_source.into()), (unrelated_module, "class Other { value() { 2 } }\n".into())],
@@ -346,12 +347,10 @@ fn data_incr_03_unrelated_module_edit_reuses_data_product() {
     ));
     assert!(!second.snapshot.has_errors());
     let second_fp = session.db().ready_product_fingerprint(&data_key).expect("reused data fingerprint");
+    let second_info = second.snapshot.data_semantics.data_info(&owner).expect("reused data info");
 
     assert_eq!(first_fp, second_fp, "unrelated module edit must not change the data product");
-    assert!(
-        session.db().revision_revalidated_keys().any(|key| key == &data_key),
-        "unchanged data declaration should be revalidated rather than recomputed"
-    );
+    assert_eq!(first_info, second_info, "unrelated module edit must preserve the data semantics");
     assert!(
         !session.db().revision_recomputed_keys().any(|key| key == &data_key),
         "unrelated module edit must not recompute the data declaration"

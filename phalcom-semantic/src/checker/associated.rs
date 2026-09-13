@@ -564,6 +564,36 @@ pub fn specialize_associated_member(
 
 /// Checks if a type contains any unspecialized declaration or local type parameters.
 pub fn contains_any_type_parameter(store: &TypeStore, ty: TypeId) -> bool {
+    fn scoped_contains_any_type_parameter(store: &TypeStore, scoped: crate::types::id::ScopedTypeId) -> bool {
+        use crate::types::type_lambda::{ScopedRecordTail, ScopedTypeData};
+
+        match store.arena().get_scoped(scoped) {
+            ScopedTypeData::Bound { .. } => false,
+            ScopedTypeData::Free(ty) => contains_any_type_parameter(store, *ty),
+            ScopedTypeData::Applied { origin, arguments } => {
+                scoped_contains_any_type_parameter(store, *origin) || arguments.iter().any(|&argument| scoped_contains_any_type_parameter(store, argument))
+            }
+            ScopedTypeData::Union(members) => members.iter().any(|&member| scoped_contains_any_type_parameter(store, member)),
+            ScopedTypeData::Tuple(elements) => elements.iter().any(|element| scoped_contains_any_type_parameter(store, element.ty)),
+            ScopedTypeData::Record(fields) => fields.iter().any(|field| scoped_contains_any_type_parameter(store, field.ty)),
+            ScopedTypeData::OpenRecord(record) => {
+                matches!(record.tail, ScopedRecordTail::FreeParameter(_))
+                    || record.fields.iter().any(|field| scoped_contains_any_type_parameter(store, field.ty))
+            }
+            ScopedTypeData::Callable(callable) => {
+                callable
+                    .parameters
+                    .iter()
+                    .any(|parameter| scoped_contains_any_type_parameter(store, parameter.ty))
+                    || scoped_contains_any_type_parameter(store, callable.return_type)
+            }
+            ScopedTypeData::Lambda(lambda_id) => {
+                let lambda = store.arena().get_lambda(*lambda_id);
+                scoped_contains_any_type_parameter(store, lambda.body)
+            }
+        }
+    }
+
     match store.get(ty) {
         TypeData::Parameter(_) => true,
         TypeData::Applied { origin, arguments } => {
@@ -573,7 +603,7 @@ pub fn contains_any_type_parameter(store: &TypeStore, ty: TypeId) -> bool {
         TypeData::Tuple(elems) => elems.iter().any(|e| contains_any_type_parameter(store, e.ty)),
         TypeData::Record(row_id) => {
             let row = store.record_row(*row_id);
-            row.fields.iter().any(|f| contains_any_type_parameter(store, f.ty))
+            row.fields.iter().any(|f| contains_any_type_parameter(store, f.ty)) || matches!(row.tail, crate::types::row::RecordRowTail::Parameter(_))
         }
         TypeData::Callable(call) => {
             call.parameters.iter().any(|p| contains_any_type_parameter(store, p.ty)) || contains_any_type_parameter(store, call.return_type)
@@ -583,6 +613,10 @@ pub fn contains_any_type_parameter(store: &TypeStore, ty: TypeId) -> bool {
             fam.members.iter().any(|m| contains_any_type_parameter(store, m.ty))
         }
         TypeData::ExactCase { enum_type, .. } => contains_any_type_parameter(store, *enum_type),
+        TypeData::Lambda(lambda_id) => {
+            let lambda = store.arena().get_lambda(*lambda_id);
+            scoped_contains_any_type_parameter(store, lambda.body)
+        }
         _ => false,
     }
 }
@@ -710,4 +744,58 @@ pub fn check_reification_underconstrained(
     }
 
     Ok(resolved_type)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::contains_any_type_parameter;
+    use crate::identity::{DeclarationId, ModuleId};
+    use crate::types::parameter::{TypeParameterData, TypeParameterOwner};
+    use crate::types::row::RecordRowTail;
+    use crate::types::type_lambda::ScopedTypeData;
+    use crate::types::{KindId, TypeStore};
+
+    fn owner(name: &str) -> DeclarationId {
+        DeclarationId::new(ModuleId::universe_root(), name.into())
+    }
+
+    #[test]
+    fn runtime_open_type_parameter_captured_by_type_lambda_is_detected() {
+        let mut store = TypeStore::new();
+        let parameter = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(owner("Holder")), 0, "T", KindId::TYPE));
+        let parameter_form = store.parameter_form(parameter);
+        let body = store.arena_mut().intern_scoped(ScopedTypeData::Free(parameter_form));
+        let lambda = store.arena_mut().intern_lambda(Box::new([KindId::TYPE]), body, KindId::TYPE, None);
+        let lambda = store.type_lambda(lambda);
+
+        assert!(contains_any_type_parameter(&store, lambda));
+    }
+
+    #[test]
+    fn lambda_bound_variable_is_not_runtime_open_by_itself() {
+        let mut store = TypeStore::new();
+        let body = store.arena_mut().intern_scoped(ScopedTypeData::Bound { depth: 0, index: 0 });
+        let lambda = store.arena_mut().intern_lambda(Box::new([KindId::TYPE]), body, KindId::TYPE, None);
+        let lambda = store.type_lambda(lambda);
+
+        assert!(!contains_any_type_parameter(&store, lambda));
+    }
+
+    #[test]
+    fn open_record_row_tail_is_runtime_open() {
+        let mut store = TypeStore::new();
+        let parameter = store.intern_type_parameter(TypeParameterData::new(
+            TypeParameterOwner::Declaration(owner("Record")),
+            0,
+            "R",
+            KindId::RECORD_ROW,
+        ));
+        let open = store
+            .record_row_type_checked(Vec::new(), RecordRowTail::Parameter(parameter))
+            .expect("valid open record row");
+        let closed = store.record(Box::new([]));
+
+        assert!(contains_any_type_parameter(&store, open));
+        assert!(!contains_any_type_parameter(&store, closed));
+    }
 }

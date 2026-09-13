@@ -403,7 +403,7 @@ fn reload_rebuilds_session_from_history() {
 fn test_repl_imports_persist_and_link_across_cells() {
     let mut session = ReplSession::start(PathBuf::from("."));
 
-    let out1 = session.eval("import std.json");
+    let out1 = session.eval("import universe.json");
     assert!(matches!(out1, CellOutcome::Unit));
 
     let out2 = session.eval("json");
@@ -428,7 +428,7 @@ fn test_repl_universe_exports_accessible_via_dynamic_send() {
 fn test_repl_reload_replays_imports_cleanly() {
     let mut session = ReplSession::start(PathBuf::from("."));
 
-    assert!(matches!(session.eval("import std.json"), CellOutcome::Unit));
+    assert!(matches!(session.eval("import universe.json"), CellOutcome::Unit));
     assert!(matches!(session.eval("let num = 42"), CellOutcome::Unit));
     assert!(matches!(session.eval("let res = num + 8"), CellOutcome::Unit));
 
