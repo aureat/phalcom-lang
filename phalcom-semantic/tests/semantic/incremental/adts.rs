@@ -154,8 +154,8 @@ fn adt_incr_05_payload_type_edit_invalidates_binding_product() {
 fn adt_incr_06_gadt_specialization_edit_changes_branch_product() {
     let module = module();
     let mut session = SemanticWorkspaceSession::new();
-    let source_a = "enum Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Test { run(_ value: Expr<Int>) { match value { Expr::Int(x) => x } }\n";
-    let source_b = "enum Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Test { run(_ value: Expr<Bool>) { match value { Expr::Bool(x) => x } }\n";
+    let source_a = "enum Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Test { run(_ value: Expr<Int>) { match value { Expr::Int(x) => x } } }\n";
+    let source_b = "enum Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Test { run(_ value: Expr<Bool>) { match value { Expr::Bool(x) => x } } }\n";
     let first = session.update(single_module_input(module.clone(), source_a, 1));
     let second = session.update(single_module_input(module, source_b, 2));
     assert_ne!(format!("{:?}", first_match(&first.snapshot)), format!("{:?}", first_match(&second.snapshot)));
@@ -304,11 +304,13 @@ fn data_incr_02_component_type_edit_invalidates_data_and_dependent_projection() 
 
     assert_ne!(first_data_fp, second_data_fp, "component type edit must change the data product");
     assert_ne!(
-        first_info.components[0].declared_type,
-        second_info.components[0].declared_type,
+        first_info.components[0].declared_type, second_info.components[0].declared_type,
         "component type edit must publish new component type knowledge"
     );
-    assert!(!Arc::ptr_eq(&first_analysis, second_analysis), "dependent projection analysis must be recomputed");
+    assert!(
+        !Arc::ptr_eq(&first_analysis, second_analysis),
+        "dependent projection analysis must be recomputed"
+    );
     assert!(session.db().revision_recomputed_keys().any(|key| key == &data_key));
     assert!(session.db().revision_recomputed_keys().any(|key| key == &body_key));
 }
@@ -339,10 +341,7 @@ fn data_incr_03_unrelated_module_edit_reuses_data_product() {
     let first_fp = session.db().ready_product_fingerprint(&data_key).expect("initial data fingerprint");
 
     let second = session.update(multi_module_input(
-        vec![
-            (data_module, data_source.into()),
-            (unrelated_module, "class Other { value() { 2 } }\n".into()),
-        ],
+        vec![(data_module, data_source.into()), (unrelated_module, "class Other { value() { 2 } }\n".into())],
         2,
     ));
     assert!(!second.snapshot.has_errors());
