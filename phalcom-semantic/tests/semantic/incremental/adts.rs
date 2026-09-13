@@ -1,8 +1,8 @@
 //! Incremental ADT declaration, candidate, and match-product scenarios.
 
-use super::support::single_module_input;
+use super::support::{multi_module_input, single_module_input};
 use phalcom_common::selector::Selector;
-use phalcom_modules::identity::{ModuleId, ModulePath, ResolvedProjectId};
+use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_semantic::db::QueryKey;
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
@@ -154,8 +154,8 @@ fn adt_incr_05_payload_type_edit_invalidates_binding_product() {
 fn adt_incr_06_gadt_specialization_edit_changes_branch_product() {
     let module = module();
     let mut session = SemanticWorkspaceSession::new();
-    let source_a = "enum Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Test { run(_ value: Expr<Int>) { match value { Expr::Int(x) => x } } }\n";
-    let source_b = "enum Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Test { run(_ value: Expr<Bool>) { match value { Expr::Bool(x) => x } } }\n";
+    let source_a = "enum Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Test { run(_ value: Expr<Int>) { match value { Expr::Int(x) => x } }\n";
+    let source_b = "enum Expr<T> { @variant Int(_ value: Int) -> Expr<Int> @variant Bool(_ value: Bool) -> Expr<Bool> }\nclass Test { run(_ value: Expr<Bool>) { match value { Expr::Bool(x) => x } }\n";
     let first = session.update(single_module_input(module.clone(), source_a, 1));
     let second = session.update(single_module_input(module, source_b, 2));
     assert_ne!(format!("{:?}", first_match(&first.snapshot)), format!("{:?}", first_match(&second.snapshot)));
@@ -169,7 +169,7 @@ fn adt_incr_07_alias_union_expansion_invalidates_exhaustiveness() {
     let source_a = "enum Choice { @variant A @variant B }\ntype ChoiceAlias = Choice\nclass Test { run(_ value: ChoiceAlias) { match value { Choice::A => 1 Choice::B => 2 } } }\n";
     let source_b = "enum Choice { @variant A @variant B @variant C }\ntype ChoiceAlias = Choice\nclass Test { run(_ value: ChoiceAlias) { match value { Choice::A => 1 Choice::B => 2 } } }\n";
     let _ = session.update(single_module_input(module.clone(), source_a, 1));
-    let update = session.update(single_module_input(module, source_b, 2));
+    let update = session.update(single_module_input(module.clone(), source_b, 2));
     assert!(
         update
             .snapshot
@@ -184,7 +184,7 @@ fn adt_incr_08_alias_union_contraction_updates_residual_witness() {
     let module = module();
     let mut session = SemanticWorkspaceSession::new();
     let source_a = "enum Choice { @variant A @variant B @variant C }\ntype ChoiceAlias = Choice\nclass Test { run(_ value: ChoiceAlias) { match value { Choice::A => 1 Choice::B => 2 } } }\n";
-    let source_b = "enum Choice { @variant A @variant B }\ntype ChoiceAlias = Choice\nclass Test { run(_ value: ChoiceAlias) { match value { Choice::A => 1 Choice::B => 2 } } }\n";
+    let source_b = "enum Choice { @variant A @variant B }\ntype ChoiceAlias = Choice\nclass Test { run(_ value: ChoiceAlias) { match value { Choice::A => 1 Choice::B => 2 } }\n";
     let _ = session.update(single_module_input(module.clone(), source_a, 1));
     let update = session.update(single_module_input(module, source_b, 2));
     assert!(matches!(
@@ -272,5 +272,89 @@ fn data_incr_01_cold_incremental_equivalence() {
             .unwrap()
             .kind,
         phalcom_semantic::associated::AssociatedFamilyKind::DataConstructor
+    );
+}
+
+#[test]
+fn data_incr_02_component_type_edit_invalidates_data_and_dependent_projection() {
+    let module = module();
+    let source_a = "data Boxed(_ value: Int)\nclass Test { run(_ boxed: Boxed) { boxed.value } }\n";
+    let source_b = "data Boxed(_ value: String)\nclass Test { run(_ boxed: Boxed) { boxed.value } }\n";
+    let mut session = SemanticWorkspaceSession::new();
+
+    let first = session.update(single_module_input(module.clone(), source_a, 1));
+    assert!(!first.snapshot.has_errors());
+    let owner = DeclarationId::new(module.clone(), "Boxed".into());
+    let data_key = QueryKey::DataDeclaration(owner.clone());
+    let callable = CallableId::new(
+        DeclarationId::new(module.clone(), "Test".into()),
+        Selector::method("run", [phalcom_common::selector::SelectorSlot::Positional]).expect("run"),
+        DispatchSide::Instance,
+    );
+    let body_key = QueryKey::CallableBody(callable.clone());
+    let first_data_fp = session.db().ready_product_fingerprint(&data_key).expect("initial data fingerprint");
+    let first_analysis = first.snapshot.callable_analyses.get(&callable).expect("initial dependent analysis").clone();
+    let first_info = first.snapshot.data_semantics.data_info(&owner).expect("initial data info");
+
+    let second = session.update(single_module_input(module, source_b, 2));
+    assert!(!second.snapshot.has_errors());
+    let second_data_fp = session.db().ready_product_fingerprint(&data_key).expect("updated data fingerprint");
+    let second_analysis = second.snapshot.callable_analyses.get(&callable).expect("updated dependent analysis");
+    let second_info = second.snapshot.data_semantics.data_info(&owner).expect("updated data info");
+
+    assert_ne!(first_data_fp, second_data_fp, "component type edit must change the data product");
+    assert_ne!(
+        first_info.components[0].declared_type,
+        second_info.components[0].declared_type,
+        "component type edit must publish new component type knowledge"
+    );
+    assert!(!Arc::ptr_eq(&first_analysis, second_analysis), "dependent projection analysis must be recomputed");
+    assert!(session.db().revision_recomputed_keys().any(|key| key == &data_key));
+    assert!(session.db().revision_recomputed_keys().any(|key| key == &body_key));
+}
+
+#[test]
+fn data_incr_03_unrelated_module_edit_reuses_data_product() {
+    let data_module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(506),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("model").unwrap()]),
+    );
+    let unrelated_module = ModuleId::resolved(
+        ResolvedProjectId::from_raw(506),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier("other").unwrap()]),
+    );
+    let data_source = "data Point(_ x: Int, _ y: Int)\n";
+    let mut session = SemanticWorkspaceSession::new();
+
+    let first = session.update(multi_module_input(
+        vec![
+            (data_module.clone(), data_source.into()),
+            (unrelated_module.clone(), "class Other { value() { 1 } }\n".into()),
+        ],
+        1,
+    ));
+    assert!(!first.snapshot.has_errors());
+    let owner = DeclarationId::new(data_module.clone(), "Point".into());
+    let data_key = QueryKey::DataDeclaration(owner);
+    let first_fp = session.db().ready_product_fingerprint(&data_key).expect("initial data fingerprint");
+
+    let second = session.update(multi_module_input(
+        vec![
+            (data_module, data_source.into()),
+            (unrelated_module, "class Other { value() { 2 } }\n".into()),
+        ],
+        2,
+    ));
+    assert!(!second.snapshot.has_errors());
+    let second_fp = session.db().ready_product_fingerprint(&data_key).expect("reused data fingerprint");
+
+    assert_eq!(first_fp, second_fp, "unrelated module edit must not change the data product");
+    assert!(
+        session.db().revision_revalidated_keys().any(|key| key == &data_key),
+        "unchanged data declaration should be revalidated rather than recomputed"
+    );
+    assert!(
+        !session.db().revision_recomputed_keys().any(|key| key == &data_key),
+        "unrelated module edit must not recompute the data declaration"
     );
 }
