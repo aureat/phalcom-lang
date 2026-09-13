@@ -26,4 +26,10 @@ jobs:
           git add .github/workflows/tmp-lang005-c1-source-index-fix.yml
           git rm .github/workflows/tmp-lang005-add-rustfmt.yml
           git commit -m "chore(ci): install rustfmt in LANG005 staging harness"
-          git push origin HEAD:audit/lang005-c1-completion
+          for attempt in 1 2 3; do
+            if git push origin HEAD:audit/lang005-c1-completion; then
+              exit 0
+            fi
+            sleep $((attempt * 2))
+          done
+          exit 1
