@@ -381,6 +381,12 @@ fn contains_exact_case(store: &phalcom_semantic::types::TypeStore, ty: TypeId) -
             row.fields.iter().any(|f| contains_exact_case(store, f.ty))
         }
         TypeData::Callable(call) => call.parameters.iter().any(|p| contains_exact_case(store, p.ty)) || contains_exact_case(store, call.return_type),
+        TypeData::Lambda(lambda_id) => {
+            let mut free_types = Vec::new();
+            let lambda = store.arena().get_lambda(*lambda_id);
+            store.arena().collect_free_types(lambda.body, &mut free_types);
+            free_types.into_iter().any(|free_type| contains_exact_case(store, free_type))
+        }
         _ => false,
     }
 }
@@ -666,20 +672,17 @@ pub fn build_module_lowering_semantics(
 fn project_slot_repr(declared_type: &phalcom_semantic::DeclaredTypeFact, snapshot: &SemanticSnapshot) -> crate::product::ProductSlotRepr {
     let core_ids = phalcom_semantic::core_surface::CoreDeclarationIds::default();
     if let Some(ty) = declared_type.canonical_type() {
-        match snapshot.store.get(ty) {
-            TypeData::Nominal { declaration } => {
-                if declaration == &core_ids.int {
-                    // Int includes heap-backed arbitrary-precision values; only a range proof permits Int64.
-                    return crate::product::ProductSlotRepr::Value;
-                } else if declaration == &core_ids.float {
-                    return crate::product::ProductSlotRepr::Float64;
-                } else if declaration == &core_ids.bool_ {
-                    return crate::product::ProductSlotRepr::Bool;
-                } else if declaration == &core_ids.symbol {
-                    return crate::product::ProductSlotRepr::Symbol;
-                }
+        if let TypeData::Nominal { declaration } = snapshot.store.get(ty) {
+            if declaration == &core_ids.int {
+                // Int includes heap-backed arbitrary-precision values; only a range proof permits Int64.
+                return crate::product::ProductSlotRepr::Value;
+            } else if declaration == &core_ids.float {
+                return crate::product::ProductSlotRepr::Float64;
+            } else if declaration == &core_ids.bool_ {
+                return crate::product::ProductSlotRepr::Bool;
+            } else if declaration == &core_ids.symbol {
+                return crate::product::ProductSlotRepr::Symbol;
             }
-            _ => {}
         }
     }
     crate::product::ProductSlotRepr::Value
@@ -1166,4 +1169,27 @@ fn data_constructor_operation(snapshot: &SemanticSnapshot, constructor: &DataCon
         })
         .collect::<Vec<_>>();
     Ok(FamilyOperationShape::method(slots.into_boxed_slice()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::contains_exact_case;
+    use phalcom_common::selector::Selector;
+    use phalcom_modules::identity::ModuleId;
+    use phalcom_semantic::identity::{DeclarationId, VariantId};
+    use phalcom_semantic::types::{KindId, ScopedTypeData, TypeStore};
+
+    #[test]
+    fn exact_case_detection_descends_into_type_lambda_free_types() {
+        let mut store = TypeStore::new();
+        let owner = DeclarationId::new(ModuleId::universe_root(), "Choice".into());
+        let choice = store.nominal_type(owner.clone());
+        let variant = VariantId::new(owner, Selector::method("A", []).expect("variant selector"));
+        let exact_case = store.exact_case_type(&variant, choice).expect("exact case");
+        let body = store.arena_mut().intern_scoped(ScopedTypeData::Free(exact_case));
+        let lambda = store.arena_mut().intern_lambda(Box::new([KindId::TYPE]), body, KindId::TYPE, None);
+        let lambda = store.type_lambda(lambda);
+
+        assert!(contains_exact_case(&store, lambda));
+    }
 }

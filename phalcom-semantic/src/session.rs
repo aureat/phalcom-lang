@@ -3253,9 +3253,7 @@ impl SemanticWorkspaceSession {
                                     continue;
                                 }
 
-                                if let Err(e) = refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store)) {
-                                    return Err(e);
-                                }
+                                refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))?;
                                 let previous_computation_revision = self.db.query_state(&query_key).and_then(|state| state.revision());
                                 let outcome = query_callable_body_with_formal_inputs(
                                     &mut self.db,

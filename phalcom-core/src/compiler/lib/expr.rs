@@ -693,17 +693,15 @@ impl<'vm> Compiler<'vm> {
                 self.compile_callable_reference(&expr)?;
             }
             Expr::GetProperty(get_prop) => {
-                if let Some(spec) = self.lowering().and_then(|l| {
+                if let Some(AssociatedLoweringSpec::GetDataComponent { logical_index, .. }) = self.lowering().and_then(|l| {
                     l.associated
                         .iter()
                         .find(|(site, _)| site.range == get_prop.range && site.kind == LoweringSiteKind::AssociatedLookup)
                         .map(|(_, spec)| spec.clone())
                 }) {
-                    if let AssociatedLoweringSpec::GetDataComponent { logical_index, .. } = spec {
-                        self.compile_expr(get_prop.object)?;
-                        self.emit(Bytecode::GetDataComponent(logical_index as u16), get_prop.range);
-                        return Ok(());
-                    }
+                    self.compile_expr(get_prop.object)?;
+                    self.emit(Bytecode::GetDataComponent(logical_index as u16), get_prop.range);
+                    return Ok(());
                 }
                 self.check_bounded_property(&get_prop.property, &get_prop.object, get_prop.range)?;
                 // `super.prop` is a zero-arg super send (U-INH §3.4); the

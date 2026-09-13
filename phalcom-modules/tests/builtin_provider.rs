@@ -59,3 +59,33 @@ fn builtin_universe_reflection_children_load() {
         assert!(!src.is_empty(), "source for {id} should not be empty");
     }
 }
+
+#[test]
+fn reflection_leaf_interfaces_export_their_public_native_declarations() {
+    let provider = UniverseSourceProvider::new();
+    let cases: &[(&[&str], &[&str])] = &[
+        (&["reflection", "selector"], &["Selector", "SelectorPattern"]),
+        (&["reflection", "message"], &["Message"]),
+    ];
+
+    for (components, expected_exports) in cases {
+        let path = ModulePath::from_components(
+            components
+                .iter()
+                .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).unwrap())
+                .collect::<Vec<_>>(),
+        );
+        let id = ModuleId::universe(path);
+        let interface = provider.load_interface(&id).unwrap_or_else(|_| panic!("interface for {id} should load"));
+
+        for expected in *expected_exports {
+            let export = interface
+                .exports
+                .get(*expected)
+                .unwrap_or_else(|| panic!("{id} must publicly export {expected}"));
+            assert_eq!(export.exported_name, *expected);
+            assert_eq!(export.internal_name, *expected);
+            assert_eq!(export.target, phalcom_modules::UnlinkedExportTarget::Local((*expected).to_owned()));
+        }
+    }
+}

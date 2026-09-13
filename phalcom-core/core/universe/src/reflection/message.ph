@@ -6,3 +6,5 @@ class Message is Object {
   @native labels -> Tuple
   @native args -> Tuple
 }
+
+export Message

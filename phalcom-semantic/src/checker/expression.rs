@@ -2386,9 +2386,7 @@ fn family_callable_application_target(
                 members,
                 ..
             } => {
-                let Some(target_id) = target.as_ref() else {
-                    return None;
-                };
+                let target_id = target.as_ref()?;
                 if !matches!(target_id, InvocationTargetId::VariantConstructor(_) | InvocationTargetId::DataConstructor(_)) {
                     return None;
                 }

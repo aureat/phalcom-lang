@@ -2143,20 +2143,20 @@ impl VM {
                     };
                     match &entry_target {
                         crate::modules::semantic_lowering::ExecutableFamilyTarget::Singleton { variant } => {
-                            let runtime_var_id = self.adt_registry.variant_by_semantic(&variant).ok_or("unregistered variant")?;
+                            let runtime_var_id = self.adt_registry.variant_by_semantic(variant).ok_or("unregistered variant")?;
                             self.stack.pop();
                             let value = self.construct_variant_value(runtime_var_id, Vec::new())?;
                             self.stack.push(value);
                         }
                         crate::modules::semantic_lowering::ExecutableFamilyTarget::VariantConstructor { variant } => {
-                            let runtime_var_id = self.adt_registry.variant_by_semantic(&variant).ok_or("unregistered variant")?;
+                            let runtime_var_id = self.adt_registry.variant_by_semantic(variant).ok_or("unregistered variant")?;
                             let payload: Vec<Value> = self.stack.drain(callee_idx + 1..).collect();
                             self.stack.pop();
                             let value = self.construct_variant_value(runtime_var_id, payload)?;
                             self.stack.push(value);
                         }
                         crate::modules::semantic_lowering::ExecutableFamilyTarget::Behavioral { target } => {
-                            let resolved = self.bind_behavioral_associated_target(&target)?;
+                            let resolved = self.bind_behavioral_associated_target(target)?;
                             self.stack[callee_idx] = resolved.receiver;
                             let foreign_guard = self.frames.last().and_then(|frame| frame.foreign_receiver_guard);
                             let frames_before = self.frames.len();
@@ -2168,7 +2168,7 @@ impl VM {
                         crate::modules::semantic_lowering::ExecutableFamilyTarget::DataConstructor { constructor: _, construction } => {
                             let args: Vec<Value> = self.stack.drain(callee_idx + 1..).collect();
                             self.stack.pop();
-                            let val = self.construct_data_from_spec(&construction, args)?;
+                            let val = self.construct_data_from_spec(construction, args)?;
                             self.stack.push(val);
                         }
                     }

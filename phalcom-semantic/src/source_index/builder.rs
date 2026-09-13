@@ -689,16 +689,17 @@ impl SourceScopeBuilder<'_> {
             },
         );
 
-        if let phalcom_ast::ast::DataShapeSyntax::Record { components, .. } = &data_def.shape {
-            for (index, component) in components.iter().enumerate() {
-                let component_id = DataComponentId::new(declaration.clone(), index as u32);
-                let site = self.allocate_site(
-                    SourceOwner::Module(self.index.module.clone()),
-                    component.name_range,
-                    SourceSiteKind::DataComponent(component_id.clone()),
-                );
-                self.index.register_target(site, SemanticTargetId::DataComponent(component_id));
-            }
+        let components = match &data_def.shape {
+            phalcom_ast::ast::DataShapeSyntax::Tuple { components, .. } | phalcom_ast::ast::DataShapeSyntax::Record { components, .. } => components,
+        };
+        for (index, component) in components.iter().enumerate() {
+            let component_id = DataComponentId::new(declaration.clone(), index as u32);
+            let site = self.allocate_site(
+                SourceOwner::Module(self.index.module.clone()),
+                component.name_range,
+                SourceSiteKind::DataComponent(component_id.clone()),
+            );
+            self.index.register_target(site, SemanticTargetId::DataComponent(component_id));
         }
     }
 

@@ -9,7 +9,9 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+use crate::associated::AssociatedMemberId;
 use crate::checker::CallableAnalysis;
+use crate::checker::associated::AssociatedResolutionKind;
 use crate::db::ProductFingerprint;
 use crate::identity::{BindingId, CallableId, DeclarationId, ExpressionId, FieldId, ModuleId, SemanticTargetId, SourceSiteId};
 use crate::source_index::interval::{RangeEntry, RangeIndex};
@@ -212,6 +214,14 @@ impl CallableSourceAttachment {
             if let Some(target) = &expression.callable {
                 exact_targets.insert(site.id.clone(), SemanticTargetId::Callable(target.clone()));
             }
+            if let Some(resolution) = analysis.associated_resolutions.get(&expression.id)
+                && let AssociatedResolutionKind::ExactValue {
+                    member: AssociatedMemberId::DataComponent(component),
+                    ..
+                } = &resolution.kind
+            {
+                exact_targets.insert(site.id.clone(), SemanticTargetId::DataComponent(component.clone()));
+            }
             formal_expressions.insert(expression.id, site.id.clone());
             expression_sites.push(site);
         }
@@ -330,12 +340,28 @@ impl ModuleSourceIndex {
             else {
                 continue;
             };
-            for occurrence in &all {
-                if occurrence.role == OccurrenceRole::Call
-                    && formal_source.range.start <= occurrence.range.start
-                    && occurrence.range.end <= formal_source.range.end
-                {
+            if matches!(target, SemanticTargetId::DataComponent(_)) {
+                let candidates = all
+                    .iter()
+                    .filter(|occurrence| {
+                        occurrence.kind == OccurrenceKind::Field
+                            && occurrence.role == OccurrenceRole::Read
+                            && formal_source.range.start <= occurrence.range.start
+                            && occurrence.range.end == formal_source.range.end
+                            && occurrence.range != formal_source.range
+                    })
+                    .collect::<Vec<_>>();
+                if let [occurrence] = candidates.as_slice() {
                     exact_targets.insert(occurrence.site.clone(), target.clone());
+                }
+            } else {
+                for occurrence in &all {
+                    if occurrence.role == OccurrenceRole::Call
+                        && formal_source.range.start <= occurrence.range.start
+                        && occurrence.range.end <= formal_source.range.end
+                    {
+                        exact_targets.insert(occurrence.site.clone(), target.clone());
+                    }
                 }
             }
         }

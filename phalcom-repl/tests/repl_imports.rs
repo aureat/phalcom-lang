@@ -136,9 +136,13 @@ fn repl_si_01_selective_import_selector_class_is_non_none() {
 fn repl_si_02_selective_import_alias_rebinds() {
     let mut s = repl();
     assert_cell_ok(&mut s, "from universe.reflection.message import Message as Msg");
+    assert!(s.context.bindings.entries.contains_key("Msg"));
+    assert!(
+        !s.context.bindings.entries.contains_key("Message"),
+        "selective import alias must not introduce the source name into REPL bindings"
+    );
     let val = assert_value_non_none(assert_cell_ok(&mut s, "Msg"));
     assert!(val.is_obj());
-    assert_cell_fails(&mut s, "Message");
 }
 
 /// REPL-SI-03 — Multiple selective imports from one module in one from statement all bind

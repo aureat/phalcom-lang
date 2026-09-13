@@ -140,13 +140,13 @@ mod tests {
 
         let mut storage = ProductStorage::new(layout_id, &layout);
         storage.store_component(&layout, 0, Value::int(42)).unwrap();
-        storage.store_component(&layout, 1, Value::float(3.14)).unwrap();
+        storage.store_component(&layout, 1, Value::float(3.125)).unwrap();
         storage.store_component(&layout, 2, Value::bool(true)).unwrap();
         storage.store_component(&layout, 3, Value::symbol(Symbol(7))).unwrap();
         storage.store_component(&layout, 4, Value::int(-100)).unwrap();
 
         assert_eq!(storage.load_component(&layout, 0).unwrap(), Value::int(42));
-        assert_eq!(storage.load_component(&layout, 1).unwrap(), Value::float(3.14));
+        assert_eq!(storage.load_component(&layout, 1).unwrap(), Value::float(3.125));
         assert_eq!(storage.load_component(&layout, 2).unwrap(), Value::bool(true));
         assert_eq!(storage.load_component(&layout, 3).unwrap(), Value::symbol(Symbol(7)));
         assert_eq!(storage.load_component(&layout, 4).unwrap(), Value::int(-100));
