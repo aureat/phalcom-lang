@@ -192,3 +192,38 @@ fn bcat_09_non_root_source_declarations_are_not_implicitly_exported() {
         "universe.scalar.number::Int is not public without an ordinary source export"
     );
 }
+
+/// BCAT-10 — Public reflection leaf declarations are explicit exports with canonical owner identity.
+#[test]
+fn bcat_10_reflection_leaf_exports_preserve_canonical_identity() {
+    let provider = UniverseSourceProvider::new();
+    let cases: &[(&[&str], &[&str])] = &[
+        (&["reflection", "selector"], &["Selector", "SelectorPattern"]),
+        (&["reflection", "message"], &["Message"]),
+    ];
+
+    for (path, names) in cases {
+        let module = make_universe_id(path);
+        let iface = provider.load_interface(&module).expect("canonical reflection leaf interface");
+
+        for name in *names {
+            assert!(iface.declarations.contains_key(*name), "{module} must declare {name}");
+            assert!(iface.exports.contains_key(*name), "{module} must explicitly export {name}");
+        }
+
+        let linked = ModuleLinker::new(Arc::new(ProjectUniverse::new()), BTreeMap::from([(module.clone(), iface)]))
+            .link(module.clone(), &BTreeMap::new())
+            .expect("reflection leaf interface should link");
+
+        for name in *names {
+            assert_eq!(
+                linked.modules[&module].interface.exports[*name].symbol(),
+                Some(&SymbolId {
+                    module: module.clone(),
+                    name: (*name).into(),
+                }),
+                "{module}::{name} must preserve its canonical source-owner identity"
+            );
+        }
+    }
+}
