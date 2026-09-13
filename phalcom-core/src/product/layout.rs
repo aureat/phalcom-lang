@@ -68,11 +68,9 @@ impl ProductLayout {
         }
 
         // Check for overlapping intervals
-        for i in 0..sorted.len() {
-            let a = &sorted[i];
+        for (i, a) in sorted.iter().enumerate() {
             let a_end = a.word_offset + a.repr.word_size();
-            for j in (i + 1)..sorted.len() {
-                let b = &sorted[j];
+            for b in sorted.iter().skip(i + 1) {
                 let b_end = b.word_offset + b.repr.word_size();
                 if a.word_offset < b_end && b.word_offset < a_end {
                     return Err("overlapping word offsets in product layout");
