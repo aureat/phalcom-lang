@@ -666,20 +666,17 @@ pub fn build_module_lowering_semantics(
 fn project_slot_repr(declared_type: &phalcom_semantic::DeclaredTypeFact, snapshot: &SemanticSnapshot) -> crate::product::ProductSlotRepr {
     let core_ids = phalcom_semantic::core_surface::CoreDeclarationIds::default();
     if let Some(ty) = declared_type.canonical_type() {
-        match snapshot.store.get(ty) {
-            TypeData::Nominal { declaration } => {
-                if declaration == &core_ids.int {
-                    // Int includes heap-backed arbitrary-precision values; only a range proof permits Int64.
-                    return crate::product::ProductSlotRepr::Value;
-                } else if declaration == &core_ids.float {
-                    return crate::product::ProductSlotRepr::Float64;
-                } else if declaration == &core_ids.bool_ {
-                    return crate::product::ProductSlotRepr::Bool;
-                } else if declaration == &core_ids.symbol {
-                    return crate::product::ProductSlotRepr::Symbol;
-                }
+        if let TypeData::Nominal { declaration } = snapshot.store.get(ty) {
+            if declaration == &core_ids.int {
+                // Int includes heap-backed arbitrary-precision values; only a range proof permits Int64.
+                return crate::product::ProductSlotRepr::Value;
+            } else if declaration == &core_ids.float {
+                return crate::product::ProductSlotRepr::Float64;
+            } else if declaration == &core_ids.bool_ {
+                return crate::product::ProductSlotRepr::Bool;
+            } else if declaration == &core_ids.symbol {
+                return crate::product::ProductSlotRepr::Symbol;
             }
-            _ => {}
         }
     }
     crate::product::ProductSlotRepr::Value
