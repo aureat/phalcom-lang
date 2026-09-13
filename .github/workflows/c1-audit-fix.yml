@@ -86,8 +86,8 @@ jobs:
           )
           replace(
               'phalcom-core/src/vm/dispatch.rs',
-              'self.bind_behavioral_associated_target(&target)?',
-              'self.bind_behavioral_associated_target(target)?',
+              '''                        crate::modules::semantic_lowering::ExecutableFamilyTarget::Behavioral { target } => {\n                            let resolved = self.bind_behavioral_associated_target(&target)?;''',
+              '''                        crate::modules::semantic_lowering::ExecutableFamilyTarget::Behavioral { target } => {\n                            let resolved = self.bind_behavioral_associated_target(target)?;''',
           )
           replace(
               'phalcom-core/src/vm/dispatch.rs',
