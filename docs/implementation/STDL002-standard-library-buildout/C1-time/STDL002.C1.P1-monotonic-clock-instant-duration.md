@@ -1,4 +1,19 @@
-# Implementation plan — monotonic `Clock`, `Instant`, and `Duration`
+---
+id: STDL002.C1.P1
+category: STDL
+program: STDL002
+checkpoint: STDL002.C1
+kind: implementation
+status: IN_PROGRESS
+completion: PARTIAL
+verification: BASELINE_BLOCKED
+depends_on: []
+follows: null
+supersedes: null
+deferred_reason: null
+---
+
+# STDL002.C1.P1 — monotonic `Clock`, `Instant`, and `Duration`
 
 The implementation should be deliberately small at the native floor. The current repository already has almost exactly the host-side primitive we need: `VM` owns a `start_time: std::time::Instant`, explicitly documented as being for future `System` timing primitives, and initializes it with `Instant::now()`.
 
@@ -1157,6 +1172,32 @@ System._$monotonicNanoseconds
 ```
 
 Everything above that should be ordinary Phalcom.
+
+---
+
+# 24. Implementation record — 2026-09-12
+
+The monotonic time foundation is implemented through the source-owned `time.clock`
+module. `Duration`, `Instant`, and `Clock` are ordinary Phalcom classes; the only
+new native floor is `System._$monotonicNanoseconds -> Int`. The implementation is
+registered in the built-in module graph and prelude, and the generated native
+surface and floor census include the new internal primitive.
+
+Implemented verification coverage:
+
+- positive `time` language corpus: 1 passed;
+- negative `time` language corpus: 1 passed;
+- semantic `capabilities::time`: 2 passed;
+- native reflection census: passed;
+- native surface generator freshness: passed;
+- monotonic floor census: passed.
+
+This plan remains partial because the already-landed CONC002 C3/C4 lane still
+uses `System.sleep(Int) -> Future<Unit>`. Migrating that public API and its
+timeout consumers to `Duration` is a follow-up at the concurrency ownership
+boundary; the current implementation preserves that active work. Full semantic
+verification also remains baseline-blocked by three unrelated generic/Future
+tests, and the broad core verifier was not completed in this shared checkout.
 
 ---
 

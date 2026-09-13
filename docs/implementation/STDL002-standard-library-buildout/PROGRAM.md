@@ -2,9 +2,9 @@
 id: STDL002
 category: STDL
 kind: standard-library-buildout
-status: PROPOSED
-completion: NOT_STARTED
-verification: UNVERIFIED
+status: IN_PROGRESS
+completion: PARTIAL
+verification: BASELINE_BLOCKED
 ---
 
 # STDL002 — standard library buildout
@@ -32,10 +32,12 @@ Know which tier you are reading — the four in
 | Normative spec | `docs/spec/` | The designed surface. Cites its decision record. |
 | As-built | `docs/forge/units/*/as-built.md` | What shipped, with `file:line`. |
 | Draft | `docs/spec/design/drafts/` | Exploration. No authority. |
-| **Program** ← *you are here* | `docs/implementation/stdl/STDL002-standard-library-buildout/` | **A selected, ordered work list.** Each item's spec file, once written, is a design document — it becomes normative only by growing an ADR. |
+| **Program** ← *you are here* | `docs/implementation/STDL002-standard-library-buildout/` | **A selected, ordered work list.** Each item's spec file, once written, is a design document — it becomes normative only by growing an ADR. |
 
-**Nothing here is built.** No item below has an owning unit. The per-item spec files are
-listed but **not yet written**.
+The program is being implemented incrementally. `STDL002.C1.P1` owns the first
+partial delivery: monotonic `Clock`, `Instant`, and `Duration` are implemented,
+while the later concurrency API migration and broad release verification remain
+open. Other program items remain planning-only.
 
 ---
 

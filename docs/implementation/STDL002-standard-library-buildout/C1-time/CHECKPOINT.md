@@ -1,13 +1,19 @@
 ---
 id: STDL002.C1
 program: STDL002
-kind: planning
-status: PROPOSED
-completion: NOT_STARTED
-verification: UNVERIFIED
+kind: implementation
+status: IN_PROGRESS
+completion: PARTIAL
+verification: BASELINE_BLOCKED
 ---
 
-# STDL002.C1 — standard library catalogue
+# STDL002.C1 — monotonic time
 
-Define and sequence the standard-library surface before implementation
-checkpoints are opened for individual library domains.
+Implement the monotonic `Clock`, `Instant`, and `Duration` library surface
+without committing the later date/time or timer domains.
+
+## Plans
+
+| Plan | Scope | State |
+|---|---|---|
+| [`STDL002.C1.P1`](STDL002.C1.P1-monotonic-clock-instant-duration.md) | Monotonic `Clock`, `Instant`, and `Duration` | In progress; focused gates verified, concurrency API migration and broad baseline remain |
