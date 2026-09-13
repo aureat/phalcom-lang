@@ -32,7 +32,7 @@ Design rule: effects are named, not ambient.
 
 | Signature | Meaning |
 |---|---|
-| `clock` | monotonic seconds as Float |
+| `clock` | the process-wide monotonic `Clock` |
 | `now` | wall-clock epoch seconds as Float |
 
 ### Process and environment
@@ -52,9 +52,11 @@ The full process contract is owned by `stdlib/process.md` subject to its PDR sta
 |---|---|
 | `schedule(_)` | admit fresh work for a later executor turn and return a Fiber handle |
 | `runScheduled` | synchronous library request to drive schedulable work according to executor semantics |
-| `sleep(_ milliseconds: Int)` | `Future<Unit>` completing no earlier than a monotonic deadline; reactor-owned; unbuilt until C3.P1 lands |
+| `sleep(_ milliseconds: Int)` | `Future<Unit>` completing no earlier than a monotonic deadline; reactor-owned |
 
-Current main has the ready queue/scheduling surface.
+Current main has the ready queue/scheduling surface and the reactor timer
+implementation. `Duration`-typed sleep migration remains part of the standard
+library/concurrency follow-up.
 
 CONC002.C2.P2 owns the implementation transition from scheduler-as-coroutine-resumer driving to a VM-owned executor. The selector-level scheduler surface remains.
 
@@ -86,3 +88,7 @@ The older proposal requiring source-visible `nextCompletion` / `parkForCompletio
 Potentially blocking filesystem/network/process operations consume the reactor through their own host-surface specifications rather than being implemented as System methods.
 
 See `concurrency.md` for Fiber/Future/executor semantics and `stdlib/reactor.md` for external completion machinery.
+
+Wall-clock epoch time remains separate from the monotonic clock. `Timestamp`,
+`Date`, `DateTime`, and `TimeZone` are deferred until a civil-time design is
+ratified.

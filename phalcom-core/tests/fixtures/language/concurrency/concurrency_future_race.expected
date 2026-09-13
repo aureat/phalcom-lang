@@ -1,0 +1,3 @@
+race ready: winner immediate
+race async: second resolved first
+race rejected: rejected winner

@@ -2,8 +2,9 @@
 
 use crate::error::{PhResult, RuntimeError};
 use crate::primitive::option::wrap_some;
-use crate::value::Value;
+use crate::value::{Value, normalize_bigint};
 use crate::vm::VM;
+use num_bigint::BigInt;
 
 /// Signature: `System.class::print(_)` — prints its arguments, then a newline,
 /// and returns the canonical `Unit` value.
@@ -37,6 +38,23 @@ pub fn system_class_print(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhR
 )]
 pub fn system_class_new(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     Err(RuntimeError::NotAllowed("System instances cannot be created".to_string()).into())
+}
+
+/// Signature: `System.class::_$monotonicNanoseconds` — exact monotonic
+/// nanoseconds elapsed since this VM was created.
+#[phalcom_native_macros::primitive(
+    System,
+    "_$monotonicNanoseconds",
+    params = [],
+    returns = Int,
+    types = "() -> Int",
+    side = class,
+    visibility = internal,
+    effects = pure
+)]
+pub fn system_monotonic_nanoseconds(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let nanos = BigInt::from(vm.start_time.elapsed().as_nanos());
+    Ok(normalize_bigint(nanos, &mut vm.heap))
 }
 
 /// Signature: `System::schedule(_)` — wraps `args[0]` (a `Function`) as a

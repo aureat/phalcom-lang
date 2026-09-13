@@ -1,0 +1,17 @@
+none
+0
+0
+fixed
+150
+150
+exponential
+10
+20
+40
+80
+80
+80
+caught negative fixed: Backoff.fixed: delay must be non-negative
+caught negative exponential base: Backoff.exponential: base must be non-negative
+caught invalid exponential max: Backoff.exponential: max must be greater than or equal to base
+caught negative attempt: Backoff.delayFor: attempt must be non-negative
