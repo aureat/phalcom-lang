@@ -23,3 +23,6 @@ class SelectorPattern is Object {
   @native ==(_ other: Dynamic) -> Bool
   @native hash -> Int
 }
+
+export Selector
+export SelectorPattern
