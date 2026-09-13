@@ -1,0 +1,54 @@
+name: C1 diagnostics
+
+on:
+  push:
+    branches: [c1-completion-audit]
+
+jobs:
+  clippy-diagnostic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-10
+          components: clippy,rustc-codegen-cranelift-preview
+      - uses: Swatinem/rust-cache@v2
+      - name: Capture Clippy diagnostics
+        shell: bash
+        run: |
+          set +e
+          cargo +nightly-2026-07-10 clippy --workspace --all-targets -- -D warnings > /tmp/c1-clippy.log 2>&1
+          status=$?
+          {
+            echo '### Clippy diagnostic tail'
+            echo '```text'
+            tail -n 160 /tmp/c1-clippy.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+
+  test-diagnostic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-10
+          components: rustc-codegen-cranelift-preview
+      - uses: Swatinem/rust-cache@v2
+      - name: Build workspace
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' build --workspace --all-targets
+      - name: Capture workspace test diagnostics
+        shell: bash
+        run: |
+          set +e
+          cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test --workspace --all-targets > /tmp/c1-test.log 2>&1
+          status=$?
+          {
+            echo '### Workspace test diagnostic tail'
+            echo '```text'
+            tail -n 240 /tmp/c1-test.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
