@@ -1,0 +1,240 @@
+name: LANG005 C1 source-index closure
+
+on:
+  push:
+    branches:
+      - audit/lang005-c1-completion
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: audit/lang005-c1-completion
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-10
+      - name: Apply narrow completion fixes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected exactly one replacement target, found {count}")
+              p.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              "phalcom-repl/tests/repl_imports.rs",
+              '''    assert_cell_ok(&mut s, "from universe.reflection.message import Message as Msg");
+    let val = assert_value_non_none(assert_cell_ok(&mut s, "Msg"));
+    assert!(val.is_obj());
+    assert_cell_fails(&mut s, "Message");
+''',
+              '''    assert_cell_ok(&mut s, "from universe.reflection.message import Message as Msg");
+    assert!(s.context.bindings.entries.contains_key("Msg"));
+    assert!(
+        !s.context.bindings.entries.contains_key("Message"),
+        "selective import alias must not introduce the source name into REPL bindings"
+    );
+    let val = assert_value_non_none(assert_cell_ok(&mut s, "Msg"));
+    assert!(val.is_obj());
+''',
+          )
+
+          replace_once(
+              "phalcom-semantic/src/source_index/mod.rs",
+              '''            if let Some(target) = &expression.callable {
+                exact_targets.insert(site.id.clone(), SemanticTargetId::Callable(target.clone()));
+            }
+            formal_expressions.insert(expression.id, site.id.clone());
+''',
+              '''            if let Some(target) = &expression.callable {
+                exact_targets.insert(site.id.clone(), SemanticTargetId::Callable(target.clone()));
+            }
+            if let Some(resolution) = analysis.associated_resolutions.get(&expression.id)
+                && let crate::checker::associated::AssociatedResolutionKind::ExactValue {
+                    member: crate::associated::AssociatedMemberId::DataComponent(component),
+                    ..
+                } = &resolution.kind
+            {
+                exact_targets.insert(site.id.clone(), SemanticTargetId::DataComponent(component.clone()));
+            }
+            formal_expressions.insert(expression.id, site.id.clone());
+''',
+          )
+
+          replace_once(
+              "phalcom-semantic/src/source_index/mod.rs",
+              '''            for occurrence in &all {
+                if occurrence.role == OccurrenceRole::Call
+                    && formal_source.range.start <= occurrence.range.start
+                    && occurrence.range.end <= formal_source.range.end
+                {
+                    exact_targets.insert(occurrence.site.clone(), target.clone());
+                }
+            }
+''',
+              '''            if matches!(target, SemanticTargetId::DataComponent(_)) {
+                let candidates = all
+                    .iter()
+                    .filter(|occurrence| {
+                        occurrence.kind == OccurrenceKind::Field
+                            && occurrence.role == OccurrenceRole::Read
+                            && formal_source.range.start <= occurrence.range.start
+                            && occurrence.range.end == formal_source.range.end
+                            && occurrence.range != formal_source.range
+                    })
+                    .collect::<Vec<_>>();
+                if candidates.len() == 1 {
+                    exact_targets.insert(candidates[0].site.clone(), target.clone());
+                }
+            } else {
+                for occurrence in &all {
+                    if occurrence.role == OccurrenceRole::Call
+                        && formal_source.range.start <= occurrence.range.start
+                        && occurrence.range.end <= formal_source.range.end
+                    {
+                        exact_targets.insert(occurrence.site.clone(), target.clone());
+                    }
+                }
+            }
+''',
+          )
+
+          test_path = Path("phalcom-semantic/tests/semantic/integration/source_index.rs")
+          text = test_path.read_text()
+          marker = "fn data_component_projection_uses_canonical_component_target()"
+          if marker in text:
+              raise SystemExit(f"{test_path}: regression test already exists")
+          text += r'''
+
+#[test]
+fn data_component_projection_uses_canonical_component_target() {
+    let source = "data Point {\n  x: Int\n}\nclass Reader {\n  read(point) { point.x }\n}\n";
+    let parsed = parse(source, 0);
+    assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
+
+    let module = ModuleId::universe_root();
+    let data_owner = DeclarationId::new(module.clone(), "Point".into());
+    let component = phalcom_semantic::DataComponentId::new(data_owner.clone(), 0);
+    let target = SemanticTargetId::DataComponent(component.clone());
+    let reader = DeclarationId::new(module.clone(), "Reader".into());
+    let callable = CallableId::new(
+        reader,
+        Selector::method(
+            "read",
+            vec![phalcom_common::selector::SelectorSlot::Label("point".into())],
+        )
+        .unwrap(),
+        DispatchSide::Instance,
+    );
+
+    let scopes = build_source_scope_index(module.clone(), &parsed.program, &SourceIndexContext::default());
+    let body_range = *scopes.callable_body_ranges.get(&callable).expect("Reader.read body range");
+    let component_site = scopes
+        .sites
+        .values()
+        .find_map(|site| match &site.kind {
+            phalcom_semantic::source_index::SourceSiteKind::DataComponent(id) if id == &component => Some(site.id.clone()),
+            _ => None,
+        })
+        .expect("data component declaration site");
+    assert_eq!(scopes.target_for(&component_site), Some(&target));
+
+    let expression_start = source.rfind("point.x").expect("component projection");
+    let expression_range = (expression_start..expression_start + "point.x".len()).into();
+    let component_use_start = source.rfind(".x").expect("component token") + 1;
+    let expression_id = phalcom_semantic::identity::ExpressionId::new(
+        phalcom_semantic::identity::BodyId(7),
+        phalcom_semantic::identity::LocalExpressionId(0),
+    );
+    let analysis = CallableAnalysis {
+        callable: callable.clone(),
+        body_range,
+        expressions: BTreeMap::from([(
+            expression_id,
+            ExpressionAnalysis {
+                id: expression_id,
+                range: expression_range,
+                knowledge: TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
+                callable: None,
+                denotation: None,
+                status: AnalysisStatus::Ready,
+                causal_invalidity: Default::default(),
+                explanation: None,
+                call: None,
+            },
+        )]),
+        bindings: BTreeMap::new(),
+        associated_resolutions: Arc::new(BTreeMap::from([(
+            expression_id,
+            phalcom_semantic::checker::associated::AssociatedResolution {
+                owner_form: phalcom_semantic::types::id::TypeId(1),
+                lookup_owner: data_owner,
+                family: None,
+                kind: phalcom_semantic::checker::associated::AssociatedResolutionKind::ExactValue {
+                    member: phalcom_semantic::AssociatedMemberId::DataComponent(component),
+                    value_type: phalcom_semantic::types::id::TypeId(2),
+                },
+            },
+        )])),
+        callable_reference_resolutions: Arc::new(BTreeMap::new()),
+        family_applications: Arc::new(BTreeMap::new()),
+        match_resolutions: Arc::new(BTreeMap::new()),
+        flow_graph: Arc::new(FlowGraph::default()),
+        entry_flow: FlowStateSummary::default(),
+        exits: Default::default(),
+        return_validation: phalcom_semantic::ReturnContractValidation::NotApplicable,
+        diagnostics: Arc::from([]),
+        internal_incidents: Arc::from([]),
+        explanations: Arc::new(ExplanationArena::default()),
+        return_explanation: None,
+        dependencies: Arc::from([]),
+        semantic_dependencies: Arc::from([]),
+        dependency_fingerprint: ProductFingerprint::new(1),
+        status: CallableAnalysisStatus::Complete,
+    };
+
+    let mut index = SourceSemanticIndex::from_scope_indices(BTreeMap::from([(module.clone(), scopes)]));
+    index.attach_formal_analysis(&module, &analysis).expect("data component formal attachment");
+
+    let occurrence = index.occurrence_at(&module, component_use_start).expect("component use occurrence");
+    assert_eq!(occurrence.occurrence.range, (component_use_start..component_use_start + 1).into());
+    assert_eq!(occurrence.target, Some(&target));
+    assert!(
+        index
+            .occurrences_for_target(&target)
+            .is_some_and(|sites| sites.contains(&occurrence.occurrence.site)),
+        "data component use must contribute a reference to its canonical component target"
+    );
+}
+'''
+          test_path.write_text(text)
+          PY
+      - name: Format
+        run: cargo +nightly-2026-07-10 fmt --all
+      - name: Verify focused semantic regression
+        run: cargo +nightly-2026-07-10 test -p phalcom-semantic --test semantic data_component_projection_uses_canonical_component_target -- --nocapture
+      - name: Verify REPL alias regression
+        run: cargo +nightly-2026-07-10 test -p phalcom-repl --test repl_imports repl_si_02_selective_import_alias_rebinds -- --nocapture
+      - name: Commit verified fixes and remove staging workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add phalcom-repl/tests/repl_imports.rs phalcom-semantic/src/source_index/mod.rs phalcom-semantic/tests/semantic/integration/source_index.rs
+          git commit -m "fix(semantic): project data component source identity"
+          git rm .github/workflows/tmp-lang005-c1-source-index-fix.yml
+          git commit -m "chore(ci): remove LANG005 C1 staging workflow"
+          git push origin HEAD:audit/lang005-c1-completion
