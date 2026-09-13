@@ -24,7 +24,7 @@
 3. **Plain-Data Completion Ingress**: Thread-safe channel (`crossbeam_channel` / `mpsc`) drained by the VM thread at safepoints / executor pump turns.
 4. **Monotonic Timers**: Priority-queue / wheel of timer registrations driven by a monotonic clock (`std::time::Instant`), integrated into executor idle-wait without dedicated timer threads.
 5. **Executor Liveness & Idle Wait**: When the ready queue is empty, the executor checks if reactor registrations or timers are active; if so, it sleeps until the next timer deadline or completion event, instead of declaring quiescence.
-6. **`System.sleep(Int) -> Future<Unit>`**: Public Universe surface for async delays.
+6. **`System.sleep(Duration) -> Future<Unit>`**: Public Universe surface for async delays.
 7. **Resource / Worker Shutdown & Leak Reporting**: Clean shutdown of background worker pools upon VM exit.
 
 ---

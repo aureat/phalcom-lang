@@ -1,10 +1,12 @@
 //! Native primitives on `System`.
 
 use crate::error::{PhResult, RuntimeError};
+use crate::primitive::int::expect_int_big;
 use crate::primitive::option::wrap_some;
 use crate::value::{Value, normalize_bigint};
 use crate::vm::VM;
 use num_bigint::BigInt;
+use num_traits::{Signed, ToPrimitive};
 
 /// Signature: `System.class::print(_)` — prints its arguments, then a newline,
 /// and returns the canonical `Unit` value.
@@ -80,22 +82,29 @@ pub fn system_schedule(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResu
     Ok(Value::obj(fiber_ref))
 }
 
-/// Signature: `System.class::sleep(_)` — registers a monotonic timer for `milliseconds`
-/// and returns a pending `Future<Unit>`.
-#[phalcom_native_macros::primitive(System, "sleep(_)", side = class)]
+/// Internal implementation for `System.sleep(Duration)`. The Phalcom wrapper
+/// passes the signed nanosecond payload after validating the public type.
+#[phalcom_native_macros::primitive(System, "_$sleep(_)", side = class, visibility = internal)]
 pub fn system_sleep(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    let millis = args.first().and_then(|v| v.as_int()).ok_or_else(|| RuntimeError::Type {
-        expected: "Int",
-        found: args.first().map_or("missing", Value::type_name),
-    })?;
-    if millis < 0 {
+    let nanos = expect_int_big(
+        args.first().ok_or_else(|| RuntimeError::Type {
+            expected: "Int",
+            found: "missing",
+        })?,
+        vm,
+    )?;
+    if nanos.is_negative() {
         return Err(RuntimeError::Type {
-            expected: "non-negative Int",
-            found: "negative Int",
+            expected: "non-negative Duration",
+            found: "negative Duration",
         }
         .into());
     }
-    let duration = std::time::Duration::from_millis(millis as u64);
+    let nanos = nanos.to_u64().ok_or_else(|| RuntimeError::Type {
+        expected: "Duration within runtime timer range",
+        found: "out-of-range Duration",
+    })?;
+    let duration = std::time::Duration::from_nanos(nanos);
     let future = vm.create_pending_future()?;
     let future_ref = future.as_obj().ok_or_else(|| RuntimeError::Internal("Future must be an object".to_string()))?;
     vm.reactor.register_timer(future_ref, duration);

@@ -9,7 +9,7 @@ This document records the architectural changes, implementation details, defect 
 - **Checkpoint**: `CONC002.C3` (*Reactor and External Completion Runtime*)
 - **Plan**: `CONC002.C3.P1` (*Reactor Core, Workers, Timers, and Executor Liveness*)
 - **Status**: **COMPLETE / IMPLEMENTED**
-- **Objective**: Implement the phase-1 reactor runtime integrated with the post-C2 VM-owned executor, introducing a thread-safe generational registration table, a plain-data background worker pool, a monotonic timer priority queue, safepoint ingress, executor idle wait/liveness, and the public `System.sleep(Int) -> Future<Unit>` primitive.
+- **Objective**: Implement the phase-1 reactor runtime integrated with the post-C2 VM-owned executor, introducing a thread-safe generational registration table, a plain-data background worker pool, a monotonic timer priority queue, safepoint ingress, executor idle wait/liveness, and the public `System.sleep(Duration) -> Future<Unit>` primitive.
 
 ---
 
@@ -46,7 +46,7 @@ Created the core data structures for generational reactor registrations:
 - **`VM::collect_roots`**: Exhaustively traces active reactor registration targets.
 
 ### 2.6 Public Async Delay Surface (`System.sleep`)
-- Declared `@class @native sleep(_ milliseconds: Int) -> Future<Unit>` in `core/universe/src/concurrency/fiber.ph`.
+- Declared source-level `System.sleep(_ duration: Duration) -> Future<Unit>` in `core/universe/src/concurrency/fiber.ph`; the reactor bridge is internal.
 - Implemented native `system_sleep` in `phalcom-core/src/primitive/system.rs`.
 - Validated non-negative duration checking, 0ms deferred next-turn completion, and root / child fiber awaiting.
 

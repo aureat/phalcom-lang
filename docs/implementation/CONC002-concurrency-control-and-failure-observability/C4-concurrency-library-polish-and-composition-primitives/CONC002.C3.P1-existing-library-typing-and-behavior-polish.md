@@ -229,7 +229,7 @@ constructors, Unit-returning Tracer methods, and existing decorator-independent 
   loop after saturation. Fixed and none remain constant-time.
 - [ ] Until P2.N3's real timer exists, timed waitBefore must retain its honest
   unsupported error; pure validation/calculation can ship independently. After
-  the gate, use `System.sleep(ms).await` and preserve the existing
+  the gate, use `System.sleep(Duration.milliseconds(ms)).await` and preserve the existing
   `waitBefore(Int) -> Option<Never>` result None. Unit-return migration would be a
   separate compatibility decision, not part of the `()` type alias change.
 - [ ] Use the fake timer seam from P2 to verify requested delays, overflow caps,

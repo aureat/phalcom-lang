@@ -2,4 +2,4 @@
 // spec: stdlib/reactor.md; concurrency.md
 // status: NEGATIVE
 
-System.sleep(-10)
+System.sleep(Duration.milliseconds(-10))

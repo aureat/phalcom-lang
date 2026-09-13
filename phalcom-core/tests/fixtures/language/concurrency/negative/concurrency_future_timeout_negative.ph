@@ -3,4 +3,4 @@
 // status: NEGATIVE
 
 const f = Future.new()
-f.timeout(-5)
+f.timeout(Duration.milliseconds(-5))

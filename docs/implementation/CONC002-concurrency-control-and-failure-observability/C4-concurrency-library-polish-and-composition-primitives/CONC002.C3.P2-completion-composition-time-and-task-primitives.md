@@ -153,7 +153,7 @@ when a wake races cancellation so the resumed code does not infer cause from Non
 
 ## N3 — Time, deadlines and honest root waiting
 
-Implement the ruled `System.sleep(milliseconds) -> Future` shape from
+Implement the ruled `System.sleep(Duration) -> Future` shape from
 [System](../../../spec/current/system.md) and the
 [reactor contract](../../../spec/current/stdlib/reactor.md), not the earlier draft's
 synchronous `sleep(Duration) -> Unit`. Accept a Number representing finite integral
@@ -164,7 +164,7 @@ next pump. The existing contract names None as success data: type it as
 ratified migration changes that payload. A rejected Future is the failure channel;
 do not wrap another Result inside its payload. Backoff explicitly awaits sleep.
 
-Add `Future<T>.timeout(milliseconds) -> Future<T>` with the same units and
+Add `Future<T>.timeout(duration: Duration) -> Future<T>` with the same units and
 validation. On zero, an already-settled source wins; otherwise return a rejected
 wrapper. Positive deadlines settle no earlier than the deadline. Timeout never
 implicitly cancels the source. One arbiter detaches the losing timer/source

@@ -1070,7 +1070,7 @@ fn floor_census_matches_installed_bindings() {
         (c.system_class, true, "_$takeUnhandledScheduledFailures(_)"),
         (c.system_class, true, "_$reportUnhandledScheduledFailures"),
         (c.system_class, true, "_$wake(_,_)"),
-        (c.system_class, true, "sleep(_)"),
+        (c.system_class, true, "_$sleep(_)"),
     ];
 
     // Resolve each binding to its owning class (metaclass for statics).

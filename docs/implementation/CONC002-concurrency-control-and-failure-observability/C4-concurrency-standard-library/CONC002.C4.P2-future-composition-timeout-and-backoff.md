@@ -139,7 +139,7 @@ Do not build a global dependency graph.
 Requires C3.P1 `System.sleep`.
 
 ```phalcom
-future.timeout(_ milliseconds: Int) -> Future<T>
+future.timeout(_ duration: Duration) -> Future<T>
 ```
 
 Semantics:
@@ -173,7 +173,7 @@ P2 implements actual waiting:
 delay = backoff.delayFor(attempt)
 if delay == 0:
     return ()
-System.sleep(delay).await
+System.sleep(Duration.milliseconds(delay)).await
 ()
 ```
 

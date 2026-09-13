@@ -3,5 +3,5 @@
 // status: PASS
 
 System.print("before sleep")
-System.sleep(20).await
+System.sleep(Duration.milliseconds(20)).await
 System.print("after sleep")

@@ -21,7 +21,7 @@
    - Conversion to/from Phalcom `Value`/`ObjRef` occurs exclusively on the main VM thread.
 3. **Monotonic Timers & Public Sleep**:
    - `TimerQueue` in `phalcom-core/src/reactor/timer.rs` manages monotonic deadlines (`std::time::Instant`) with sequence tie-breaking.
-   - `System.sleep(Int) -> Future<Unit>` is active, tested, and integrated with executor idle wait.
+   - `System.sleep(Duration) -> Future<Unit>` is active, tested, and integrated with executor idle wait.
 4. **VM-Thread Settlement & Safepoint Ingress**:
    - `VM::drain_and_deliver_reactor_completions` and `VM::settle_future` invoke canonical `Future#settleValue` / `Future#settleError` methods, waking ticketed waiters into `ready_queue` without inline execution.
    - Non-blocking safepoint ingress polls cross-thread completions into internal buffers.

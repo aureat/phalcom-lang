@@ -71,7 +71,7 @@ The existing machinery spec remains normative, but post-C2 implementation archit
 2. replace broken `forge/units/U-REACTOR/implementation-spec.md` references;
 3. completion delivery is integrated into the VM-owned executor rather than a guest `.ph` pump;
 4. remove the requirement that two pump seams be user/source-visible floor operations;
-5. define `System.sleep(Int) -> Future<Unit>`;
+5. define `System.sleep(Duration) -> Future<Unit>`;
 6. keep generation-tagged registrations, GC roots, stale drop, monotonic timer, liveness, worker plain-data and shutdown laws unchanged;
 7. PDR-0016 remains a hard gate for the poller phase.
 

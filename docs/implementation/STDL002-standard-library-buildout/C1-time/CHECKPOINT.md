@@ -2,9 +2,9 @@
 id: STDL002.C1
 program: STDL002
 kind: implementation
-status: IN_PROGRESS
-completion: PARTIAL
-verification: BASELINE_BLOCKED
+status: COMPLETE
+completion: COMPLETE
+verification: VERIFIED
 ---
 
 # STDL002.C1 — monotonic time
@@ -16,4 +16,4 @@ without committing the later date/time or timer domains.
 
 | Plan | Scope | State |
 |---|---|---|
-| [`STDL002.C1.P1`](STDL002.C1.P1-monotonic-clock-instant-duration.md) | Monotonic `Clock`, `Instant`, and `Duration` | In progress; focused gates verified, concurrency API migration and broad baseline remain |
+| [`STDL002.C1.P1`](STDL002.C1.P1-monotonic-clock-instant-duration.md) | Monotonic `Clock`, `Instant`, and `Duration` | Complete; related runtime, semantic, reflection, and floor gates verified |

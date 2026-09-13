@@ -7,7 +7,12 @@ class System is Object {
 
   @class @native schedule(_ fiber: Object) -> Fiber
 
-  @class @native sleep(_ milliseconds: Int) -> Future<Unit>
+  @class
+  sleep(_ duration: Duration) -> Future<Unit> {
+    System._$sleep(duration.nanoseconds)
+  }
+
+  @class @internal @native _$sleep(_ nanoseconds: Int) -> Future<Unit>
 
   @class
   clock -> Clock {
@@ -721,10 +726,10 @@ class Future<T> {
     result
   }
 
-  // Returns a future that rejects with TimeoutError if self does not settle within `milliseconds`.
-  timeout(_ milliseconds: Int) -> Future<T> {
-    if (milliseconds < 0) {
-      throw ArgumentError.new("Future#timeout: milliseconds must be non-negative")
+  // Returns a future that rejects with TimeoutError if self does not settle within `duration`.
+  timeout(_ duration: Duration) -> Future<T> {
+    if (duration.isNegative) {
+      throw ArgumentError.new("Future#timeout: duration must be non-negative")
     }
     if self.isReady {
       return self
@@ -734,7 +739,7 @@ class Future<T> {
     let sourceSub = None
     let timerSub = None
 
-    const timer = System.sleep(milliseconds)
+    const timer = System.sleep(duration)
 
     sourceSub = self.subscribeReady(|| {
       if (not settled) {
@@ -768,7 +773,7 @@ class Future<T> {
           if (sourceSub != None) {
             sourceSub.detach()
           }
-          result.settleError(TimeoutError.new("Future timed out after " + milliseconds.toString + "ms"))
+          result.settleError(TimeoutError.new("Future timed out after " + duration.toString))
         }
         ()
       })
@@ -849,7 +854,7 @@ class OffBehavior {
 // backoff strategy. `.none` is fully usable today — no suspension needed,
 // matching `@retry`'s own default. `.fixed(ms)`/`.exponential(base:,max:)`
 // compute pure delay policies with overflow-safe saturation. Suspending waits
-// between attempts via `waitBefore` require `System.sleep(_)`.
+// between attempts via `waitBefore` require `System.sleep(Duration)`.
 class Backoff {
   @class
   none -> Backoff { Backoff.new("none", 0, 0) }
@@ -928,7 +933,7 @@ class Backoff {
     if (delay == 0) {
       return ()
     }
-    System.sleep(delay).await
+    System.sleep(Duration.milliseconds(delay)).await
     ()
   }
 }

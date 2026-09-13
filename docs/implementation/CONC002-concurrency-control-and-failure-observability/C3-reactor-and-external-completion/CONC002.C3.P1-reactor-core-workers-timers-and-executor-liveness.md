@@ -25,7 +25,7 @@ registration registry
 + safepoint ingress
 + monotonic timers
 + executor idle wait
-+ System.sleep(Int) -> Future<Unit>
++ System.sleep(Duration) -> Future<Unit>
 + shutdown/leak integration
 ```
 
@@ -204,7 +204,7 @@ C4 may later change Future representation without requiring reactor rewrite.
 Canonical API:
 
 ```phalcom
-System.sleep(_ milliseconds: Int) -> Future<Unit>
+System.sleep(_ duration: Duration) -> Future<Unit>
 ```
 
 Rules:

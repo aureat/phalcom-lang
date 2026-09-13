@@ -1,1 +1,1 @@
-Future#timeout: milliseconds must be non-negative
+Future#timeout: duration must be non-negative

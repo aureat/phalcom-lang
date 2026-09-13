@@ -4,7 +4,7 @@
 
 const fiber = Fiber.new || {
   System.print("child: sleeping")
-  System.sleep(10).await
+  System.sleep(Duration.milliseconds(10)).await
   System.print("child: awake")
   "done"
 }

@@ -4,9 +4,9 @@ category: STDL
 program: STDL002
 checkpoint: STDL002.C1
 kind: implementation
-status: IN_PROGRESS
-completion: PARTIAL
-verification: BASELINE_BLOCKED
+status: COMPLETE
+completion: COMPLETE
+verification: VERIFIED
 depends_on: []
 follows: null
 supersedes: null
@@ -1192,12 +1192,24 @@ Implemented verification coverage:
 - native surface generator freshness: passed;
 - monotonic floor census: passed.
 
-This plan remains partial because the already-landed CONC002 C3/C4 lane still
-uses `System.sleep(Int) -> Future<Unit>`. Migrating that public API and its
-timeout consumers to `Duration` is a follow-up at the concurrency ownership
-boundary; the current implementation preserves that active work. Full semantic
-verification also remains baseline-blocked by three unrelated generic/Future
-tests, and the broad core verifier was not completed in this shared checkout.
+At this checkpoint, the already-landed CONC002 C3/C4 lane still used
+`System.sleep(Int) -> Future<Unit>`; that boundary was migrated in the follow-up
+implementation below.
+
+## 25. Implementation record — 2026-09-13
+
+The public timer and timeout consumers now use `Duration`:
+
+- `System.sleep(Duration) -> Future<Unit>` is a source-level wrapper over the
+  internal nanosecond reactor bridge;
+- `Future.timeout(Duration) -> Future<T>` validates signed duration semantics;
+- `Backoff.waitBefore` converts its policy milliseconds to `Duration` at the
+  suspension boundary;
+- related positive and negative concurrency fixtures and the Future semantic
+  probe use `Duration.milliseconds(...)`.
+
+The native catalog and floor census retain only the internal timer bridge, so
+the public timer selector is no longer a native floor surface.
 
 ---
 

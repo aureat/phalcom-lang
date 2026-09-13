@@ -439,7 +439,7 @@ class GenericFutureProbe {
     const allProbe = Future.all([created, fromValue])
     const allSettledProbe = Future.allSettled([created, fromValue])
     const raceProbe = Future.race([created, fromValue])
-    const timedProbe = created.timeout(100)
+    const timedProbe = created.timeout(Duration.milliseconds(100))
   }
 }
 "#

@@ -52,11 +52,11 @@ The full process contract is owned by `stdlib/process.md` subject to its PDR sta
 |---|---|
 | `schedule(_)` | admit fresh work for a later executor turn and return a Fiber handle |
 | `runScheduled` | synchronous library request to drive schedulable work according to executor semantics |
-| `sleep(_ milliseconds: Int)` | `Future<Unit>` completing no earlier than a monotonic deadline; reactor-owned |
+| `sleep(_ duration: Duration)` | `Future<Unit>` completing no earlier than a monotonic deadline; reactor-owned |
 
 Current main has the ready queue/scheduling surface and the reactor timer
-implementation. `Duration`-typed sleep migration remains part of the standard
-library/concurrency follow-up.
+implementation. Sleep and timeout APIs consume the standard library's signed
+monotonic `Duration` values.
 
 CONC002.C2.P2 owns the implementation transition from scheduler-as-coroutine-resumer driving to a VM-owned executor. The selector-level scheduler surface remains.
 
