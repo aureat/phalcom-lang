@@ -26,7 +26,13 @@ fn dummy_linked(entry: ModuleId) -> Arc<LinkedProgram> {
 fn prelude_map_contains_only_explicit_source_backed_type_names() {
     let prelude = PreludeTypeMap::canonical_universe();
 
-    for name in ["Object", "Int", "Bool", "String", "Option", "Result", "List", "Map", "Unit"] {
+    for name in [
+        "Object", "Int", "Bool", "String", "Option", "Result", "List", "Map", "Unit", "Clock", "Instant", "Duration",
+    ] {
+        if matches!(name, "Clock" | "Instant" | "Duration") {
+            assert!(prelude.contains_name(name), "{name} must be in the canonical prelude");
+            continue;
+        }
         let declaration = prelude.get(name).unwrap_or_else(|| panic!("{name} must be in the canonical prelude"));
         let key = phalcom_native_meta::UniverseKey::from_name(name).expect("canonical Universe key");
         assert_eq!(

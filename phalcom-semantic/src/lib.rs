@@ -7,6 +7,7 @@ pub mod checker;
 pub mod contracts;
 pub mod control_summary;
 pub mod core_surface;
+pub mod data_semantics;
 pub mod db;
 pub mod declaration_type;
 pub mod declarations;
@@ -84,6 +85,9 @@ pub use effects::{
     EffectAtom, EffectKnowledge, EffectOpaqueReason, EffectSet, adapt_effect_atom, adapt_effect_spec, infer_interprocedural_effects_scc,
     infer_intraprocedural_effects,
 };
+pub use data_semantics::{
+    DataComponentSemantic, DataConstructorParameter, DataConstructorSignature, DataInfo, DataSemanticTable, DataShape,
+};
 pub use enum_requirements::{CaseRequirementResult, CaseRequirementStatus, EnumRequirement, EnumRequirementId, EnumRequirementTable};
 pub use enum_semantics::{
     EnumInfo, EnumSemanticTable, VariantConstructorParameter, VariantConstructorSignature, VariantFieldSemantic, VariantInfo, VariantShape, VariantVisibility,
@@ -94,9 +98,9 @@ pub use export::{
     SemanticExportError, export_kind, export_type_form,
 };
 pub use identity::{
-    AssociatedFamilyId, BindingId, CallableId, CallableOwnerId, CallableParameterId, DeclarationId, FieldId, InvocationTargetId, ModuleId, ProperTypeId,
-    SemanticRevision, SemanticTargetId, SnapshotId, SnapshotTypeRef, SourceOwner, SourceSiteId, SourceSiteLocalId, SourceSiteRef, TypeStoreId,
-    VariantConstructorId, VariantFamilyId, VariantFieldId, VariantId, WorkspaceId,
+    AssociatedFamilyId, BindingId, CallableId, CallableOwnerId, CallableParameterId, DataComponentId, DataConstructorId, DeclarationId, FieldId,
+    InvocationTargetId, ModuleId, ProperTypeId, SemanticRevision, SemanticTargetId, SnapshotId, SnapshotTypeRef, SourceOwner, SourceSiteId,
+    SourceSiteLocalId, SourceSiteRef, TypeStoreId, VariantConstructorId, VariantFamilyId, VariantFieldId, VariantId, WorkspaceId,
 };
 pub use invalidation::{DeclarationFingerprint, InvalidationIndex};
 pub use match_semantics::*;

@@ -1,3 +1,4 @@
+pub(crate) mod data_declarations;
 pub(crate) mod declarations;
 pub(crate) mod exact_cases;
 pub(crate) mod existentials;

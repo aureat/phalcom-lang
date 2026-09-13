@@ -10,6 +10,7 @@
 
 mod associated;
 mod class_decl;
+mod data_decl;
 mod enum_decl;
 mod error;
 mod expr;
@@ -677,6 +678,9 @@ impl<'vm> Compiler<'vm> {
             }
             Statement::Enum(enum_def) => {
                 self.compile_enum(&enum_def)?;
+            }
+            Statement::Data(data_def) => {
+                self.compile_data(&data_def)?;
             }
             Statement::For(for_stmt) => {
                 // A `for` is a statement consumed for effect (U-ITER spec

@@ -55,8 +55,8 @@ use crate::primitive::set::{set_class_new, set_raw_add, set_raw_at, set_raw_has,
 use crate::primitive::string::{string_add, string_class_new, string_hash, string_raw_byte_at, string_raw_byte_count, string_raw_slice};
 use crate::primitive::symbol::{symbol_class_new, symbol_hash, symbol_is_selector, symbol_is_selector_pattern, symbol_tostring};
 use crate::primitive::system::{
-    system_class_new, system_class_print, system_gc, system_next_scheduled_internal, system_raw_write, system_report_unhandled_scheduled_failures,
-    system_schedule, system_scheduler_failure_cursor, system_take_unhandled_scheduled_failures, system_wake,
+    system_class_new, system_class_print, system_gc, system_monotonic_nanoseconds, system_next_scheduled_internal, system_raw_write,
+    system_report_unhandled_scheduled_failures, system_schedule, system_scheduler_failure_cursor, system_take_unhandled_scheduled_failures, system_wake,
 };
 use crate::primitive::tuple::{
     tuple_from_list_internal, tuple_raw_at, tuple_raw_label_at, tuple_raw_labeled, tuple_raw_positional_size, tuple_raw_positionals, tuple_raw_size,
@@ -398,6 +398,7 @@ impl Universe {
         // and scheduler resume remain internal so queued work cannot be stolen
         // by public `Fiber#call`/`#try`.
         primitive_static!(vm, system_cls, "schedule", SignatureKind::Method(1), system_schedule);
+        primitive_static_internal!(vm, system_cls, "_$monotonicNanoseconds", SignatureKind::Getter, system_monotonic_nanoseconds);
         primitive_static_internal!(vm, system_cls, "_$nextScheduled", SignatureKind::Getter, system_next_scheduled_internal);
         primitive_static_internal!(
             vm,

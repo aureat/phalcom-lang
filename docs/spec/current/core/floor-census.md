@@ -35,14 +35,14 @@ language is *self-hosting above a small, fixed native boundary*
 
 | Metric | Count |
 |---|---|
-| Installed `(class, selector)` bindings — **all audited** (§1.3) | **233** |
+| Installed `(class, selector)` bindings — **all audited** (§1.3) | **235** |
 | Distinct native Rust functions | not separately maintained |
 | Classes carrying floor primitives | **28** (of 37 audited kernel classes) |
 | Sacred selectors (§5) | **7** |
 
 **Installed = audited, as of the current source-of-record test.** Every native binding
 `VM::new()` installs is enumerated in §2 and guarded by R-INV-0.1. The test currently
-asserts 233 bindings, including the scheduler-ownership, terminal-observer,
+asserts 235 bindings, including the scheduler-ownership, terminal-observer,
 detached scheduler-failure reporting seams, and the four Family accessor/API
 bindings.
 
@@ -294,7 +294,7 @@ row, not the count, is what makes the freeze real.
 > bindings / distinct fns / floor-carrying classes / sacred selectors) describe the
 > 2026-07-15 audit point, not the current floor. Later runtime work added further
 > audited bindings, including the scheduler and completion-observer seams. The current
-> source-of-record test asserts **233** bindings; the remaining figures below explain
+> source-of-record test asserts **235** bindings; the remaining figures below explain
 > historical amendment chronology only (was **121 / 106 / 22 / 7** post-U-GC, **120 / 105 / 22 / 7**
 > post-M-ATTR-ROOT, **117 / 102 / 22 / 7** post-U-ANNOT-CONTRACTS,
 > **115 / 100 / 22 / 7** post-U-SCHED, **113 / 98 / 22 / 7** post-former Family amendment,
@@ -550,6 +550,7 @@ snapshot that BoundMethodFamily closes over.
 | `_$takeUnhandledScheduledFailures(_)` | static | `system_take_unhandled_scheduled_failures` | internal root-await consumption |
 | `_$reportUnhandledScheduledFailures` | static | `system_report_unhandled_scheduled_failures` | internal safe-boundary reporting |
 | `_$wake(_,_)` | static | `system_wake` | internal exact Future wake |
+| `_$monotonicNanoseconds` | static | `system_monotonic_nanoseconds` | internal VM-owned monotonic nanosecond source; the only STDL002.C1.P1 floor addition |
 
 > The public raw `nextScheduled` getter was removed in C5; the internal rows above
 > retain queue ownership and failure-reporting authority inside the runtime.
@@ -854,7 +855,7 @@ Because the floor is frozen (ADR-0019), this census is a **contract**:
    reconstructs the installed native-`(class, selector)` set from a live
    `VM::new()` (filtering out `core.ph`-defined closures) and asserts it equals
    the census here. **The test is the source of record for the count (§1.3).**
-   It currently asserts **233** bindings; read the test and its live set rather
+   It currently asserts **235** bindings; read the test and its live set rather
    than treating this prose as an independent checksum.
    This turns silent floor drift into a red test; §1.1 is no longer a manual
    checksum.

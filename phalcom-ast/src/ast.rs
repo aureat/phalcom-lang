@@ -26,6 +26,7 @@ pub struct Program {
 pub enum Statement {
     Class(ClassDef),
     Enum(EnumDef),
+    Data(DataDef),
     TypeAlias(TypeAliasDef),
     Let(LetBinding),
     Return(ReturnStatement),
@@ -372,6 +373,53 @@ pub struct VariantPayloadSyntax {
 #[derive(Debug, Clone)]
 pub struct VariantBody {
     pub members: Vec<EnumBehaviorMember>,
+    pub range: SourceRange,
+}
+
+/// A first-class nominal immutable data declaration (PDR-0035).
+#[derive(Debug, Clone)]
+pub struct DataDef {
+    pub name: String,
+    pub name_range: SourceRange,
+    pub generic_parameters: Vec<GenericParameterSyntax>,
+    pub where_clause: Option<WhereClauseSyntax>,
+    pub shape: DataShapeSyntax,
+    pub attributes: Vec<Attribute>,
+    pub range: SourceRange,
+}
+
+#[derive(Debug, Clone)]
+pub enum DataShapeSyntax {
+    Tuple {
+        components: Vec<DataComponentSyntax>,
+        range: SourceRange,
+    },
+    Record {
+        components: Vec<DataComponentSyntax>,
+        range: SourceRange,
+    },
+}
+
+impl DataShapeSyntax {
+    pub fn components(&self) -> &[DataComponentSyntax] {
+        match self {
+            Self::Tuple { components, .. } | Self::Record { components, .. } => components,
+        }
+    }
+
+    pub fn range(&self) -> SourceRange {
+        match self {
+            Self::Tuple { range, .. } | Self::Record { range, .. } => *range,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DataComponentSyntax {
+    pub local_name: String,
+    pub external_label: Option<String>,
+    pub annotation: TypeAnnotation,
+    pub name_range: SourceRange,
     pub range: SourceRange,
 }
 
@@ -1403,6 +1451,8 @@ pub enum Expr {
     TupleLiteral(Box<TupleLiteralExpr>),
     /// A record literal written with `#{` `}` product syntax.
     RecordLiteral(Box<RecordLiteralExpr>),
+    /// A nominal record construction expression `Name { label: value, ... }`.
+    RecordConstruction(Box<RecordConstructionExpr>),
     /// An association Map literal written with `{ key: value }` syntax.
     MapLiteral(Box<MapLiteralExpr>),
     /// A Set literal written with `{ value, ... }` syntax.
@@ -1458,6 +1508,7 @@ impl Expr {
             Expr::Symbol(e) => e.range,
             Expr::TupleLiteral(e) => e.range,
             Expr::RecordLiteral(e) => e.range,
+            Expr::RecordConstruction(e) => e.range,
             Expr::MapLiteral(e) => e.range,
             Expr::SetLiteral(e) => e.range,
             Expr::ListLiteral(e) => e.range,
@@ -1993,6 +2044,28 @@ pub struct RecordLiteralField {
     /// The field value.
     pub value: Expr,
     /// The source span covering the field.
+    pub range: SourceRange,
+}
+
+/// A nominal record construction expression `Name { label: value, ... }` or `Path.Name { ... }`.
+#[derive(Debug, Clone)]
+pub struct RecordConstructionExpr {
+    /// The target name or path of the constructed type.
+    pub target: StaticSymbolRef,
+    /// Generic type arguments applied to the type, if written (e.g. `Person<Int> { ... }`).
+    pub type_arguments: Vec<TypeAnnotation>,
+    /// The record entries in source order.
+    pub entries: Vec<RecordConstructionEntry>,
+    /// The source span covering the whole nominal record construction.
+    pub range: SourceRange,
+}
+
+/// A nominal record construction entry `label: value`.
+#[derive(Debug, Clone)]
+pub struct RecordConstructionEntry {
+    pub label: String,
+    pub label_range: SourceRange,
+    pub value: Expr,
     pub range: SourceRange,
 }
 

@@ -407,7 +407,7 @@ impl<'source> Parser<'source> {
     fn at_top_level_item_boundary(&self) -> bool {
         matches!(
             self.peek(),
-            Token::At | Token::Class | Token::Enum | Token::TypeKw | Token::Let | Token::Const | Token::Return
+            Token::At | Token::Class | Token::Enum | Token::Data | Token::TypeKw | Token::Let | Token::Const | Token::Return
         )
     }
 
@@ -1243,9 +1243,11 @@ impl<'source> Parser<'source> {
             header_attrs.push(self.parse_attribute()?);
             self.skip_newlines();
         }
-        if !header_attrs.is_empty() || (matches!(self.peek(), Token::Class | Token::Enum) && matches!(self.peek_next(), Token::Identifier(_))) {
+        if !header_attrs.is_empty() || (matches!(self.peek(), Token::Class | Token::Enum | Token::Data) && matches!(self.peek_next(), Token::Identifier(_))) {
             let stmt = if matches!(self.peek(), Token::Enum) {
                 self.parse_enum(header_attrs)?
+            } else if matches!(self.peek(), Token::Data) {
+                self.parse_data(header_attrs)?
             } else {
                 self.parse_class(header_attrs)?
             };
@@ -1290,7 +1292,7 @@ impl<'source> Parser<'source> {
                     self.advance();
                     return;
                 }
-                Token::Class | Token::Enum | Token::TypeKw | Token::Let | Token::Const | Token::Return | Token::Import | Token::Export => return,
+                Token::Class | Token::Enum | Token::Data | Token::TypeKw | Token::Let | Token::Const | Token::Return | Token::Import | Token::Export => return,
                 _ => {
                     self.advance();
                 }
@@ -2946,6 +2948,205 @@ impl<'source> Parser<'source> {
         Ok((members, class_attributes, class_invariants))
     }
 
+    fn parse_data(&mut self, mut header_attrs: Vec<Attribute>) -> ParserResult<Statement> {
+        while matches!(self.peek(), Token::At) {
+            header_attrs.push(self.parse_attribute()?);
+            self.skip_newlines();
+        }
+        let start = self.cur_start();
+        self.expect(&Token::Data, &["\"data\""])?;
+        let name_start = self.cur_start();
+        let name = self.expect_identifier(&["identifier"])?;
+        let name_range = (name_start..self.prev_end).into();
+
+        self.skip_newlines();
+        let generic_parameters = self.parse_optional_generic_parameters(GenericBinderContext::NominalDeclaration)?;
+
+        self.skip_newlines_if_followed_by(&Token::Where);
+        let mut where_clause = if matches!(self.peek(), Token::Where) {
+            Some(self.parse_where_clause()?)
+        } else {
+            None
+        };
+
+        self.skip_newlines_if_followed_by(&Token::LBrace);
+
+        let shape = if matches!(self.peek(), Token::LParen) {
+            let shape = self.parse_data_tuple_shape()?;
+            self.skip_newlines_if_followed_by(&Token::Where);
+            if where_clause.is_none() && matches!(self.peek(), Token::Where) {
+                where_clause = Some(self.parse_where_clause()?);
+            }
+            shape
+        } else if matches!(self.peek(), Token::LBrace) {
+            let shape = self.parse_data_record_shape()?;
+            self.skip_newlines_if_followed_by(&Token::Where);
+            if where_clause.is_none() && matches!(self.peek(), Token::Where) {
+                where_clause = Some(self.parse_where_clause()?);
+            }
+            shape
+        } else {
+            return Err(self.error_here(strs(&["\"(\"", "\"{\""])));
+        };
+
+        let range = (start..self.prev_end).into();
+
+        Ok(Statement::Data(DataDef {
+            name,
+            name_range,
+            generic_parameters,
+            where_clause,
+            shape,
+            attributes: header_attrs,
+            range,
+        }))
+    }
+
+    fn parse_data_tuple_shape(&mut self) -> ParserResult<DataShapeSyntax> {
+        let start = self.cur_start();
+        self.expect(&Token::LParen, &["\"(\""])?;
+        self.skip_newlines();
+        let mut components = Vec::new();
+        if self.eat(&Token::RParen) {
+            return Ok(DataShapeSyntax::Tuple {
+                components,
+                range: (start..self.prev_end).into(),
+            });
+        }
+        loop {
+            self.skip_newlines();
+            let comp_start = self.cur_start();
+            if matches!(self.peek(), Token::Asterisk | Token::DoubleAsterisk | Token::TripleAsterisk) {
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message("rest parameters are not permitted in data declarations".to_string()),
+                    range: comp_start..self.tokens[self.pos].end,
+                });
+            }
+
+            let (local_name, external_label, name_range) = if self.eat(&Token::Underscore) {
+                let name_start = self.cur_start();
+                let name = self.expect_identifier(&["component name"])?;
+                let name_range: SourceRange = (name_start..self.prev_end).into();
+                (name, None, name_range)
+            } else {
+                let first_ident = if let Some(name) = Self::label_name(self.peek()) {
+                    let name = name.to_string();
+                    let start_label = self.cur_start();
+                    self.advance();
+                    (name, (start_label..self.prev_end).into())
+                } else {
+                    return Err(self.error_here(strs(&["component name", "_"])));
+                };
+                if matches!(self.peek(), Token::Identifier(_)) {
+                    let name_start = self.cur_start();
+                    let local_ident = self.expect_identifier(&["component name"])?;
+                    let name_range: SourceRange = (name_start..self.prev_end).into();
+                    (local_ident, Some(first_ident.0), name_range)
+                } else {
+                    (first_ident.0.clone(), Some(first_ident.0), first_ident.1)
+                }
+            };
+
+            self.skip_newlines();
+            if !self.eat(&Token::Colon) {
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message(format!("component `{local_name}` requires an explicit type annotation")),
+                    range: comp_start..self.prev_end,
+                });
+            }
+            self.skip_newlines();
+            let annotation = self.parse_type_annotation()?;
+            let comp_range = (comp_start..self.prev_end).into();
+
+            components.push(DataComponentSyntax {
+                local_name,
+                external_label,
+                annotation,
+                name_range,
+                range: comp_range,
+            });
+
+            self.skip_newlines();
+            if self.eat(&Token::Comma) {
+                self.skip_newlines();
+                if self.eat(&Token::RParen) {
+                    break;
+                }
+            } else {
+                self.expect(&Token::RParen, &["\",\"", "\")\""])?;
+                break;
+            }
+        }
+        let range = (start..self.prev_end).into();
+        Ok(DataShapeSyntax::Tuple { components, range })
+    }
+
+    fn parse_data_record_shape(&mut self) -> ParserResult<DataShapeSyntax> {
+        let start = self.cur_start();
+        self.expect(&Token::LBrace, &["\"{\""])?;
+        self.skip_newlines();
+        let mut components = Vec::new();
+        let mut labels = std::collections::HashMap::<String, SourceRange>::new();
+        loop {
+            self.skip_newlines();
+            if self.eat(&Token::RBrace) {
+                break;
+            }
+            let comp_start = self.cur_start();
+
+            if matches!(self.peek(), Token::Fn | Token::Static | Token::Construct) {
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message("data declarations cannot contain methods or behavior members".to_string()),
+                    range: comp_start..self.tokens[self.pos].end,
+                });
+            }
+
+            let name_start = self.cur_start();
+            let name = self.expect_identifier(&["component name"])?;
+            let name_range: SourceRange = (name_start..self.prev_end).into();
+
+            if let Some(_prev) = labels.insert(name.clone(), name_range) {
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message(format!("duplicate component `{name}` in data declaration")),
+                    range: name_range.start..name_range.end,
+                });
+            }
+
+            self.skip_newlines();
+            if matches!(self.peek(), Token::LParen) {
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message("data declarations cannot contain methods".to_string()),
+                    range: comp_start..self.prev_end,
+                });
+            }
+
+            if !self.eat(&Token::Colon) {
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message(format!("component `{name}` requires an explicit type annotation")),
+                    range: comp_start..self.prev_end,
+                });
+            }
+            self.skip_newlines();
+            let annotation = self.parse_type_annotation()?;
+            let comp_range = (comp_start..self.prev_end).into();
+
+            components.push(DataComponentSyntax {
+                local_name: name.clone(),
+                external_label: Some(name),
+                annotation,
+                name_range,
+                range: comp_range,
+            });
+
+            self.skip_newlines();
+            if self.eat(&Token::Comma) || self.eat(&Token::Semicolon) {
+                self.skip_newlines();
+            }
+        }
+        let range = (start..self.prev_end).into();
+        Ok(DataShapeSyntax::Record { components, range })
+    }
+
     fn parse_enum(&mut self, mut header_attrs: Vec<Attribute>) -> ParserResult<Statement> {
         while matches!(self.peek(), Token::At) {
             header_attrs.push(self.parse_attribute()?);
@@ -3265,6 +3466,8 @@ impl<'source> Parser<'source> {
             // `class` is a declaration/expression keyword elsewhere, but is
             // also the canonical placement attribute in member position.
             "class".to_string()
+        } else if self.eat(&Token::Data) {
+            "data".to_string()
         } else {
             self.expect_identifier(&["attribute name"])?
         };
@@ -4022,21 +4225,25 @@ impl<'source> Parser<'source> {
                 // spelling for `self.class` and must continue through small
                 // statement parsing below. `@` keeps its existing decorated
                 // class-declaration path.
-                Token::At | Token::Class | Token::Enum if matches!(self.peek(), Token::At) || matches!(self.peek_next(), Token::Identifier(_)) => {
+                Token::At | Token::Class | Token::Enum | Token::Data if matches!(self.peek(), Token::At) || matches!(self.peek_next(), Token::Identifier(_)) => {
                     let mut header_attrs = Vec::new();
                     while matches!(self.peek(), Token::At) {
                         header_attrs.push(self.parse_attribute()?);
                         self.skip_newlines();
                     }
                     let is_enum = matches!(self.peek(), Token::Enum);
+                    let is_data = matches!(self.peek(), Token::Data);
                     let stmt = if is_enum {
                         self.parse_enum(header_attrs)?
+                    } else if is_data {
+                        self.parse_data(header_attrs)?
                     } else {
                         self.parse_class(header_attrs)?
                     };
                     let (keyword_start, kw_len, decl_kind) = match &stmt {
                         Statement::Class(class_def) => (class_def.range.start, "class".len(), "class"),
                         Statement::Enum(enum_def) => (enum_def.range.start, "enum".len(), "enum"),
+                        Statement::Data(data_def) => (data_def.range.start, "data".len(), "data"),
                         _ => unreachable!(),
                     };
                     return Err(SyntaxError {
@@ -4761,6 +4968,21 @@ impl<'source> Parser<'source> {
                 }
             }
 
+            if self.trailing_closures_enabled && matches!(self.peek(), Token::LBrace) && self.starts_record_construction() {
+                if let Some((target, type_arguments)) = Self::extract_record_construction_target(&expr) {
+                    let entries = self.parse_record_construction_entries()?;
+                    let range = (start..self.prev_end).into();
+                    expr = Expr::RecordConstruction(Box::new(RecordConstructionExpr {
+                        target,
+                        type_arguments,
+                        entries,
+                        range,
+                    }));
+                    trailing_target = TrailingTarget::None;
+                    continue;
+                }
+            }
+
             if !matches!(
                 self.peek(),
                 Token::Dot | Token::QuestionDot | Token::LParen | Token::ColonColon | Token::LBracket
@@ -4868,6 +5090,121 @@ impl<'source> Parser<'source> {
             }
         }
         Ok(expr)
+    }
+
+    fn extract_record_construction_target(expr: &Expr) -> Option<(StaticSymbolRef, Vec<TypeAnnotation>)> {
+        match expr {
+            Expr::Var { value, range } if value.chars().next().is_some_and(|c| c.is_uppercase()) => Some((
+                StaticSymbolRef {
+                    root: value.clone(),
+                    root_range: *range,
+                    members: Vec::new(),
+                    range: *range,
+                },
+                Vec::new(),
+            )),
+            Expr::TypeForm(ann) => match &ann.expr {
+                TypeAnnotationExpr::Reference(sym) => Some((sym.clone(), Vec::new())),
+                TypeAnnotationExpr::Application { origin, arguments, .. } => {
+                    if let TypeAnnotationExpr::Reference(sym) = &origin.expr {
+                        Some((sym.clone(), arguments.clone()))
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            },
+            Expr::GetProperty(gp) => {
+                let (mut sym, args) = Self::extract_record_construction_target(&gp.object)?;
+                if !args.is_empty() {
+                    return None;
+                }
+                sym.members.push(PathSegment {
+                    name: gp.property.clone(),
+                    range: gp.property_range.unwrap_or(gp.range),
+                });
+                sym.range = (sym.range.start..gp.range.end).into();
+                Some((sym, Vec::new()))
+            }
+            _ => None,
+        }
+    }
+
+    fn starts_record_construction(&self) -> bool {
+        if !matches!(self.peek(), Token::LBrace) {
+            return false;
+        }
+        let mut next = self.pos + 1;
+        while next < self.tokens.len() && matches!(self.tokens[next].token, Token::Newline) {
+            next += 1;
+        }
+        if next < self.tokens.len() {
+            match &self.tokens[next].token {
+                Token::RBrace => true,
+                _ if Self::label_name(&self.tokens[next].token).is_some() => {
+                    let mut after_ident = next + 1;
+                    while after_ident < self.tokens.len() && matches!(self.tokens[after_ident].token, Token::Newline) {
+                        after_ident += 1;
+                    }
+                    after_ident < self.tokens.len() && matches!(self.tokens[after_ident].token, Token::Colon)
+                }
+                _ => false,
+            }
+        } else {
+            false
+        }
+    }
+
+    fn parse_record_construction_entries(&mut self) -> ParserResult<Vec<RecordConstructionEntry>> {
+        self.expect(&Token::LBrace, &["\"{\""])?;
+        self.skip_newlines();
+        let mut entries = Vec::new();
+        let mut labels = std::collections::HashMap::<String, SourceRange>::new();
+        while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+            self.skip_newlines();
+            if matches!(self.peek(), Token::RBrace) {
+                break;
+            }
+            let entry_start = self.cur_start();
+            let label_start = self.cur_start();
+            let label = if let Some(name) = Self::label_name(self.peek()) {
+                let name = name.to_string();
+                self.advance();
+                name
+            } else {
+                return Err(self.error_here(strs(&["entry label"])));
+            };
+            let label_range: SourceRange = (label_start..self.prev_end).into();
+
+            if let Some(_prev) = labels.insert(label.clone(), label_range) {
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message(format!("duplicate entry label `{label}` in record construction")),
+                    range: label_range.start..label_range.end,
+                });
+            }
+
+            self.skip_newlines();
+            self.expect(&Token::Colon, &["\":\""])?;
+            self.skip_newlines();
+            let value = self.parse_expr()?;
+            let entry_range = (entry_start..self.prev_end).into();
+
+            entries.push(RecordConstructionEntry {
+                label,
+                label_range,
+                value,
+                range: entry_range,
+            });
+
+            self.skip_newlines();
+            if self.eat(&Token::Comma) {
+                self.skip_newlines();
+            } else if !matches!(self.peek(), Token::RBrace) {
+                break;
+            }
+        }
+        self.expect(&Token::RBrace, &["\"}\""])?;
+        Ok(entries)
     }
 
     /// Parses the prefix `&` callable-reference production. The receiver is

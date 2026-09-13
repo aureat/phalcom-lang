@@ -76,7 +76,30 @@ pub fn object_to_string(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
     types = "() -> Int",
     effects = pure
 )]
-pub fn object_hash(_vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+pub fn object_hash(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    if let Some(did) = receiver.as_data_singleton() {
+        return Ok(crate::primitive::hash_code(did.0 as u64));
+    }
+    if let Some(data) = receiver.as_obj().and_then(|id| vm.heap.as_data(id)) {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        data.descriptor.hash(&mut hasher);
+        let layout = vm
+            .heap
+            .product_layouts
+            .get(data.storage.layout)
+            .ok_or_else(|| RuntimeError::Internal("missing data layout".into()))?;
+        let values = layout
+            .components
+            .iter()
+            .map(|component| data.storage.load_component(layout, component.logical_index))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| RuntimeError::Internal(e.into()))?;
+        for value in values {
+            crate::primitive::send_hash(vm, value)?.hash(&mut hasher);
+        }
+        return Ok(crate::primitive::hash_code(hasher.finish()));
+    }
     let bits = if let Some(id) = receiver.as_obj() {
         id.to_opaque_u64()
     } else if let Some(b) = receiver.as_bool() {
@@ -128,8 +151,8 @@ pub fn object_eq(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Valu
     types = "(Object) -> Bool",
     effects = pure
 )]
-pub fn object_same(_vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
-    Ok(Value::bool(receiver.same_as(&args[0])))
+pub fn object_same(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
+    Ok(Value::bool(vm.semantic_same(*receiver, args[0])))
 }
 
 /// Default value-pattern relation. The RHS is the receiver at the lowered

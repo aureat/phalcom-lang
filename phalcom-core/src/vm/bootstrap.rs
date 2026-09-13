@@ -108,6 +108,7 @@ impl VM {
             reactor: crate::reactor::Reactor::default(),
             numeric_policy: crate::value::NumericPolicy::standard(),
             adt_registry: crate::adt::RuntimeAdtRegistry::new(),
+            data_registry: crate::data::RuntimeDataRegistry::new(),
 
             #[cfg(feature = "fiber-pool")]
             fiber_pool: Vec::new(),

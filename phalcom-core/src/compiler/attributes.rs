@@ -2655,6 +2655,7 @@ fn statement_range(stmt: &Statement) -> SourceRange {
         Statement::Throw { range, .. } => *range,
         Statement::Export(e) => e.range,
         Statement::TypeAlias(t) => t.range,
+        Statement::Data(d) => d.range,
     }
 }
 

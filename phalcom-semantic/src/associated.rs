@@ -1,5 +1,5 @@
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic, SemanticSourceSpan};
-use crate::identity::{AssociatedFamilyId, DeclarationId, VariantId};
+use crate::identity::{AssociatedFamilyId, DataComponentId, DataConstructorId, DeclarationId, VariantId};
 use phalcom_common::selector::SelectorBase;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
@@ -14,6 +14,8 @@ pub enum AssociatedFamilyKind {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum AssociatedMemberId {
     Variant(VariantId),
+    DataConstructor(DataConstructorId),
+    DataComponent(DataComponentId),
 }
 
 /// Metadata describing one associated family on a declaration.

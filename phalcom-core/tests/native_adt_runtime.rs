@@ -41,6 +41,7 @@ fn test_native_option_runtime_representation_seam() {
             VariantLoweringSpec {
                 id: some_var_id.clone(),
                 shape: VariantShape::Constructor,
+                layout: None,
                 payload_fields: Box::new([VariantFieldLoweringSpec {
                     id: some_field_id,
                     local_name: "value".into(),
@@ -50,6 +51,7 @@ fn test_native_option_runtime_representation_seam() {
             VariantLoweringSpec {
                 id: none_var_id.clone(),
                 shape: VariantShape::Singleton,
+                layout: Some(phalcom_core::product::ProductLayoutSpec::new(Vec::new())),
                 payload_fields: Box::new([]),
             },
         ]),
@@ -118,6 +120,7 @@ fn canonical_ordering_reuses_primordial_root_for_hidden_case_superclass() {
         variants: Box::new([VariantLoweringSpec {
             id: less.clone(),
             shape: VariantShape::Singleton,
+            layout: Some(phalcom_core::product::ProductLayoutSpec::new(Vec::new())),
             payload_fields: Box::new([]),
         }]),
     };

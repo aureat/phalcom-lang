@@ -156,14 +156,7 @@ fn is_query_owned_module(module: &ModuleId) -> bool {
 /// inputs across revisions, so source-owned body queries must not capture
 /// revision-local dependencies on their declaration surfaces or signatures.
 fn is_bootstrap_declaration(declaration: &DeclarationId) -> bool {
-    if !matches!(declaration.module.project, phalcom_modules::ProjectIdentity::Universe) {
-        return false;
-    }
-    let Some(key) = phalcom_native_meta::UniverseKey::from_name(declaration.name.as_ref()) else {
-        return false;
-    };
-    let components = declaration.module.path.components();
-    components.len() == key.source_path().len() && components.iter().zip(key.source_path()).all(|(actual, expected)| actual.as_str() == *expected)
+    matches!(declaration.module.project, phalcom_modules::ProjectIdentity::Universe)
 }
 
 /// Built-in type-test callables are represented by the standalone bootstrap
@@ -195,7 +188,7 @@ fn record_declaration_shell_dependency(dependencies: &SharedSemanticDependencies
 }
 
 fn record_hierarchy_dependency(dependencies: &SharedSemanticDependencies, declaration: &DeclarationId) {
-    if is_query_owned_module(&declaration.module) {
+    if is_query_owned_module(&declaration.module) && !is_bootstrap_declaration(declaration) {
         record_query_dependency(dependencies, SemanticDependency::HierarchyEdge(declaration.clone()));
     }
 }
@@ -416,6 +409,7 @@ pub struct CheckingContext<'a> {
     semantic_dependencies: SharedSemanticDependencies,
     field_signatures: Option<&'a FieldSignatureTable>,
     field_lifecycle: Option<&'a crate::checker::field_lifecycle::FieldLifecycleTable>,
+    pub data_table: Option<&'a crate::data_semantics::DataSemanticTable>,
     pub enum_table: Option<&'a crate::enum_semantics::EnumSemanticTable>,
     pub associated_table: Option<&'a crate::associated::AssociatedFamilyTable>,
     pub dispatch: DispatchAccess<'a>,
@@ -513,6 +507,7 @@ impl<'a> CheckingContext<'a> {
             semantic_dependencies,
             field_signatures: None,
             field_lifecycle: None,
+            data_table: None,
             enum_table: None,
             associated_table: None,
             dispatch: DispatchAccess::Owned(dispatch),
@@ -592,6 +587,7 @@ impl<'a> CheckingContext<'a> {
             semantic_dependencies,
             field_signatures: None,
             field_lifecycle: None,
+            data_table: None,
             enum_table: None,
             associated_table: None,
             dispatch: DispatchAccess::Borrowed(dispatch),
@@ -650,6 +646,7 @@ impl<'a> CheckingContext<'a> {
             semantic_dependencies: self.semantic_dependencies.clone(),
             field_signatures: self.field_signatures,
             field_lifecycle: self.field_lifecycle,
+            data_table: self.data_table,
             enum_table: self.enum_table,
             associated_table: self.associated_table,
             dispatch: DispatchAccess::Borrowed(self.dispatch.get()),
@@ -1787,6 +1784,20 @@ impl<'a> CheckingContext<'a> {
         self.field_lifecycle = Some(field_lifecycle);
     }
 
+    /// Attaches compiler-owned data semantics table.
+    pub fn attach_data_semantics(&mut self, data_table: &'a crate::data_semantics::DataSemanticTable) {
+        self.data_table = Some(data_table);
+    }
+
+    /// Reads data metadata while recording the data-declaration dependency.
+    pub fn data_info(&self, owner: &DeclarationId) -> Option<&crate::data_semantics::DataInfo> {
+        let info = self.data_table.and_then(|t| t.get(owner).map(|arc| &**arc));
+        if info.is_some() {
+            self.record_data_declaration_dependency(owner);
+        }
+        info
+    }
+
     /// Attaches compiler-owned enum semantics table.
     pub fn attach_enum_semantics(&mut self, enum_table: &'a crate::enum_semantics::EnumSemanticTable) {
         self.enum_table = Some(enum_table);
@@ -1799,20 +1810,29 @@ impl<'a> CheckingContext<'a> {
 
     /// Reads enum metadata while recording the enum-declaration dependency.
     pub fn enum_info(&self, owner: &DeclarationId) -> Option<&crate::enum_semantics::EnumInfo> {
-        self.record_enum_declaration_dependency(owner);
-        self.enum_table.and_then(|t| t.enums.get(owner).map(|arc| &**arc))
+        let info = self.enum_table.and_then(|t| t.enums.get(owner).map(|arc| &**arc));
+        if info.is_some() {
+            self.record_enum_declaration_dependency(owner);
+        }
+        info
     }
 
     /// Reads variant metadata while recording the enum-declaration dependency.
     pub fn variant_info(&self, variant: &crate::identity::VariantId) -> Option<&crate::enum_semantics::VariantInfo> {
-        self.record_enum_declaration_dependency(&variant.owner);
-        self.enum_table.and_then(|t| t.variants.get(variant).map(|arc| &**arc))
+        let info = self.enum_table.and_then(|t| t.variants.get(variant).map(|arc| &**arc));
+        if info.is_some() {
+            self.record_enum_declaration_dependency(&variant.owner);
+        }
+        info
     }
 
     /// Reads associated family surface while recording the associated-surface dependency.
     pub fn associated_surface(&self, owner: &DeclarationId) -> Option<&crate::associated::AssociatedSurface> {
-        self.record_associated_surface_dependency(owner);
-        self.associated_table.and_then(|t| t.surfaces.get(owner).map(|arc| &**arc))
+        let info = self.associated_table.and_then(|t| t.surfaces.get(owner).map(|arc| &**arc));
+        if info.is_some() {
+            self.record_associated_surface_dependency(owner);
+        }
+        info
     }
 
     /// Returns the dispatch resolver currently visible to this context.
@@ -2130,6 +2150,10 @@ impl<'a> CheckingContext<'a> {
         self.resolver.resolve_type_name(&self.current_module, name, &[])
     }
 
+    pub fn resolve_type_name_with_path(&self, root: &str, members: &[String]) -> Option<DeclarationId> {
+        self.resolver.resolve_type_name(&self.current_module, root, members)
+    }
+
     pub fn resolve_type_parameter(&self, name: &str) -> Option<TypeId> {
         self.resolver.resolve_type_parameter(name)
     }
@@ -2267,6 +2291,12 @@ impl<'a> CheckingContext<'a> {
 
     pub fn record_match_resolution(&mut self, expr_id: ExpressionId, resolution: crate::match_semantics::MatchResolution) {
         self.match_resolutions.insert(expr_id, resolution);
+    }
+
+    pub fn record_data_declaration_dependency(&self, decl: &DeclarationId) {
+        self.semantic_dependencies
+            .borrow_mut()
+            .insert(crate::checker::analysis::SemanticDependency::DataDeclaration(decl.clone()));
     }
 
     pub fn record_enum_declaration_dependency(&self, decl: &DeclarationId) {

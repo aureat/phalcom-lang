@@ -102,6 +102,8 @@ pub enum DiagnosticCode {
     MatchPatternImpossible,
     /// Match totality or reachability could not be proved because formal analysis was blocked.
     MatchAnalysisBlocked,
+    DataDuplicateComponent,
+    DataComponentImmutable,
 }
 
 impl DiagnosticCode {
@@ -191,6 +193,8 @@ impl DiagnosticCode {
             Self::MatchPatternOrRedundant => "match.pattern.or_redundant",
             Self::MatchPatternImpossible => "match.pattern.impossible",
             Self::MatchAnalysisBlocked => "match.analysis.blocked",
+            Self::DataDuplicateComponent => "data.duplicate_component",
+            Self::DataComponentImmutable => "data.component_immutable",
         }
     }
 }

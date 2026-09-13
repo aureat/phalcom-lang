@@ -5,6 +5,7 @@ pub mod adt;
 pub mod bytecode;
 pub mod callable;
 pub mod chunk;
+pub mod data;
 
 pub mod compiler;
 pub mod diagnostics;

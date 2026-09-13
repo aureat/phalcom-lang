@@ -5,6 +5,7 @@ expose .scalar
 expose .errors
 expose .callable
 expose .option
+expose .time
 expose .concurrency
 expose .collections
 expose .reflection
@@ -16,7 +17,6 @@ expose .regex
 expose .json
 expose .math
 expose .random
-expose .time
 expose .process
 expose .net
 expose .concurrent
@@ -27,6 +27,8 @@ import .scalar
 import .errors
 import .callable
 import .option
+import .time
+from .time.clock import Clock, Instant, Duration
 import .concurrency
 import .collections
 import .reflection
@@ -38,7 +40,6 @@ import .regex
 import .json
 import .math
 import .random
-import .time
 import .process
 import .net
 import .concurrent
@@ -49,6 +50,8 @@ export scalar
 export errors
 export callable
 export option
+export Clock, Instant, Duration
+export time
 export concurrency
 export collections
 export reflection
@@ -60,7 +63,6 @@ export regex
 export json
 export math
 export random
-export time
 export process
 export net
 export concurrent

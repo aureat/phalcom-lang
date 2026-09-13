@@ -1,3 +1,4 @@
+mod data_syntax;
 mod enum_syntax;
 mod family_selector_syntax;
 mod lexer;

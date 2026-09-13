@@ -858,11 +858,13 @@ impl Backend {
             let kind = match entry.kind {
                 phalcom_semantic::EditorSymbolKind::Class => SymbolKind::CLASS,
                 phalcom_semantic::EditorSymbolKind::Enum => SymbolKind::ENUM,
+                phalcom_semantic::EditorSymbolKind::Data => SymbolKind::STRUCT,
                 phalcom_semantic::EditorSymbolKind::TypeAlias => SymbolKind::TYPE_PARAMETER,
                 phalcom_semantic::EditorSymbolKind::Callable => SymbolKind::METHOD,
                 phalcom_semantic::EditorSymbolKind::Field => SymbolKind::FIELD,
                 phalcom_semantic::EditorSymbolKind::Variant => SymbolKind::ENUM_MEMBER,
                 phalcom_semantic::EditorSymbolKind::VariantField => SymbolKind::FIELD,
+                phalcom_semantic::EditorSymbolKind::DataComponent => SymbolKind::FIELD,
                 phalcom_semantic::EditorSymbolKind::Module => SymbolKind::MODULE,
                 phalcom_semantic::EditorSymbolKind::Binding => SymbolKind::VARIABLE,
             };

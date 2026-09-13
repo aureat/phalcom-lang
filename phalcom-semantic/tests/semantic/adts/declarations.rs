@@ -402,7 +402,7 @@ enum State {
     let resolution = callable.associated_resolutions.get(&expression.id).expect("associated invocation resolution");
     assert!(matches!(
         &resolution.kind,
-        AssociatedResolutionKind::StaticInvoke { member: phalcom_semantic::AssociatedMemberId::Variant(id), target, result_type }
+        AssociatedResolutionKind::StaticInvoke { member: phalcom_semantic::AssociatedMemberId::Variant(id), target, result_type, .. }
             if id == &value && matches!(target, phalcom_semantic::InvocationTargetId::VariantConstructor(_)) && *result_type == expected
     ));
 }

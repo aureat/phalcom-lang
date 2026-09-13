@@ -186,6 +186,31 @@ impl VariantConstructorId {
     }
 }
 
+/// Canonical data component identity.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DataComponentId {
+    pub owner: DeclarationId,
+    pub index: u32,
+}
+
+impl DataComponentId {
+    pub fn new(owner: DeclarationId, index: u32) -> Self {
+        Self { owner, index }
+    }
+}
+
+/// Canonical data constructor identity.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DataConstructorId {
+    pub owner: DeclarationId,
+}
+
+impl DataConstructorId {
+    pub fn new(owner: DeclarationId) -> Self {
+        Self { owner }
+    }
+}
+
 /// Owner identity of a callable member (class declaration or exact enum variant).
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CallableOwnerId {
@@ -295,11 +320,12 @@ impl CallableId {
     }
 }
 
-/// Canonical target of an invocation (behavioral callable or variant constructor).
+/// Canonical target of an invocation (behavioral callable, variant constructor, or data constructor).
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum InvocationTargetId {
     Behavioral(CallableId),
     VariantConstructor(VariantConstructorId),
+    DataConstructor(DataConstructorId),
 }
 
 impl InvocationTargetId {
@@ -311,10 +337,14 @@ impl InvocationTargetId {
         Self::VariantConstructor(VariantConstructorId::new(variant))
     }
 
+    pub fn data_constructor(owner: DeclarationId) -> Self {
+        Self::DataConstructor(DataConstructorId::new(owner))
+    }
+
     pub fn callable_id(&self) -> Option<&CallableId> {
         match self {
             Self::Behavioral(c) => Some(c),
-            Self::VariantConstructor(_) => None,
+            Self::VariantConstructor(_) | Self::DataConstructor(_) => None,
         }
     }
 }
@@ -328,6 +358,12 @@ impl From<CallableId> for InvocationTargetId {
 impl From<VariantConstructorId> for InvocationTargetId {
     fn from(ctor: VariantConstructorId) -> Self {
         Self::VariantConstructor(ctor)
+    }
+}
+
+impl From<DataConstructorId> for InvocationTargetId {
+    fn from(ctor: DataConstructorId) -> Self {
+        Self::DataConstructor(ctor)
     }
 }
 
@@ -441,6 +477,7 @@ pub enum SemanticTargetId {
     Variant(VariantId),
     VariantFamily(VariantFamilyId),
     VariantField(VariantFieldId),
+    DataComponent(DataComponentId),
 }
 
 /// Snapshot-local binding identity for local variables/parameters.

@@ -113,6 +113,7 @@ impl VM {
             reactor,
             numeric_policy: _,
             adt_registry,
+            data_registry,
             typing_registry: _,
             prelude_bindings: _,
             prelude_variant_bindings: _,
@@ -152,6 +153,7 @@ impl VM {
         out.extend(sealed_classes.values().copied());
         out.extend(checking.iter().copied());
         adt_registry.enumerate_class_roots(|id| out.push(id));
+        out.extend(data_registry.all_behavior_classes());
         reflection_cache.trace(&mut |id| out.push(id));
         if let Some(semantic_roots) = semantic_roots {
             for value in [semantic_roots.unsupported, semantic_roots.ellipsis] {

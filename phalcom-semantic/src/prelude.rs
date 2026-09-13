@@ -3,6 +3,7 @@
 use crate::identity::DeclarationId;
 use phalcom_modules::builtin::UniverseSourceProvider;
 use phalcom_modules::builtin_interface::UniverseSourceDeclarationCatalog;
+use phalcom_modules::{ModuleComponent, ModuleId, ModulePath};
 use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
 
@@ -37,6 +38,19 @@ impl PreludeTypeMap {
                 continue;
             };
             entries.insert(binding.name.into(), DeclarationId::new(module, name.into()));
+        }
+
+        // Public standard-library classes are source-owned rather than native
+        // bindings, but they are still part of the source-visible prelude.
+        // Keep this list explicit so internal Universe implementation classes
+        // do not become implicitly reachable merely because they are source
+        // declarations.
+        for name in ["Clock", "Instant", "Duration"] {
+            let module = ModuleId::universe(ModulePath::from_components(vec![
+                ModuleComponent::from_identifier("time").expect("canonical Universe component"),
+                ModuleComponent::from_identifier("clock").expect("canonical Universe component"),
+            ]));
+            entries.insert(name.into(), DeclarationId::new(module, name.into()));
         }
 
         Self { entries }

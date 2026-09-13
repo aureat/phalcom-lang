@@ -49,6 +49,8 @@ impl Value {
             "option"
         } else if self.is_adt_singleton() {
             "case"
+        } else if self.is_data_singleton() {
+            "data"
         } else if self.is_nil() {
             "nil"
         } else if self.is_unit() {
@@ -97,6 +99,12 @@ impl Value {
         if let Some(rid) = self.as_adt_singleton() {
             if let Some(vdesc) = vm.adt_registry.variant_descriptor(rid) {
                 return vdesc.behavior_class;
+            }
+            return vm.universe.classes.object_class;
+        }
+        if let Some(did) = self.as_data_singleton() {
+            if let Some(desc) = vm.data_registry.descriptor(did) {
+                return desc.behavior_class;
             }
             return vm.universe.classes.object_class;
         }
@@ -172,6 +180,13 @@ impl Value {
                         vm.universe.classes.object_class
                     }
                 }
+                Object::Data(data) => {
+                    if let Some(desc) = vm.data_registry.descriptor(data.descriptor) {
+                        desc.behavior_class
+                    } else {
+                        vm.universe.classes.object_class
+                    }
+                }
                 Object::AssociatedFamily(_) => vm.universe.classes.family_class,
                 Object::Upvalue(_) => panic!("upvalues are not surface values"),
                 Object::PackBuilder(_) => panic!("pack builders are not surface values"),
@@ -243,6 +258,7 @@ impl Value {
                 | Object::ProjectIdentity(_)
                 | Object::Typing(_)
                 | Object::AdtCase(_)
+                | Object::Data(_)
                 | Object::AssociatedFamily(_)
                 | Object::Uri(_) => CallContext::Instance { instance: id },
                 Object::PackBuilder(_) => panic!("pack builders are not surface receivers"),
@@ -294,6 +310,25 @@ impl Value {
             return a == b;
         }
         if self.is_adt_singleton() || other.is_adt_singleton() {
+            return false;
+        }
+
+        if let (Some(a), Some(b)) = (self.as_data_singleton(), other.as_data_singleton()) {
+            return a == b;
+        }
+        if let (Some(did), Some(obj)) = (self.as_data_singleton(), other.as_obj()) {
+            if let Some(da) = heap.as_data(obj) {
+                return did == da.descriptor;
+            }
+            return false;
+        }
+        if let (Some(obj), Some(did)) = (self.as_obj(), other.as_data_singleton()) {
+            if let Some(da) = heap.as_data(obj) {
+                return did == da.descriptor;
+            }
+            return false;
+        }
+        if self.is_data_singleton() || other.is_data_singleton() {
             return false;
         }
 
@@ -363,6 +398,46 @@ impl Value {
                 (Some(x), Some(y)) => return x == y,
                 (Some(_), None) | (None, Some(_)) => return false,
                 (None, None) => {}
+            }
+            // Data objects compare structurally by descriptor and components.
+            if let (Some(da), Some(db)) = (heap.as_data(a), heap.as_data(b)) {
+                if da.descriptor != db.descriptor {
+                    return false;
+                }
+                if let Some(layout) = heap.product_layouts.get(da.storage.layout) {
+                    for comp in &layout.components {
+                        match comp.repr {
+                            crate::product::ProductSlotRepr::Value => {
+                                let Ok(va) = da.storage.load_component(layout, comp.logical_index) else {
+                                    return false;
+                                };
+                                let Ok(vb) = db.storage.load_component(layout, comp.logical_index) else {
+                                    return false;
+                                };
+                                if !va.value_eq(&vb, heap) {
+                                    return false;
+                                }
+                            }
+                            crate::product::ProductSlotRepr::Float64 => {
+                                let f1 = f64::from_bits(da.storage.words[comp.word_offset as usize]);
+                                let f2 = f64::from_bits(db.storage.words[comp.word_offset as usize]);
+                                if f1.is_nan() || f2.is_nan() || f1 != f2 {
+                                    return false;
+                                }
+                            }
+                            _ => {
+                                if da.storage.words[comp.word_offset as usize] != db.storage.words[comp.word_offset as usize] {
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                    return true;
+                }
+                return false;
+            }
+            if heap.as_data(a).is_some() || heap.as_data(b).is_some() {
+                return false;
             }
             // Modules were never equal under the pre-heap `PartialEq`
             // (they fell through to `_ => false`); preserve that.

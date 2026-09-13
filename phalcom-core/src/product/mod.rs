@@ -1,4 +1,12 @@
-//! Internal product construction boundary.
+//! Internal product construction boundary and packed storage subsystem.
+
+pub mod layout;
+pub mod registry;
+pub mod storage;
+
+pub use layout::{ProductComponentLayout, ProductComponentSpec, ProductLayout, ProductLayoutId, ProductLayoutSpec, ProductSlotRepr};
+pub use registry::ProductLayoutRegistry;
+pub use storage::ProductStorage;
 
 use crate::error::RuntimeError;
 use crate::interner::Symbol;
@@ -69,6 +77,10 @@ pub(crate) fn finish_record(vm: &mut VM, fields: Vec<(Symbol, Value)>) -> Result
 #[cfg(test)]
 mod tests {
     use super::{finish_record, finish_tuple};
+    use super::layout::{ProductComponentLayout, ProductLayout, ProductSlotRepr};
+    use super::registry::ProductLayoutRegistry;
+    use super::storage::ProductStorage;
+    use crate::interner::Symbol;
     use crate::value::Value;
     use crate::vm::VM;
 
@@ -88,5 +100,35 @@ mod tests {
             .expect("spawn product test thread")
             .join()
             .expect("join product test thread");
+    }
+
+    #[test]
+    fn product_layout_storage_round_trip() {
+        let components = vec![
+            ProductComponentLayout { logical_index: 0, word_offset: 0, repr: ProductSlotRepr::Int64 },
+            ProductComponentLayout { logical_index: 1, word_offset: 1, repr: ProductSlotRepr::Float64 },
+            ProductComponentLayout { logical_index: 2, word_offset: 2, repr: ProductSlotRepr::Bool },
+            ProductComponentLayout { logical_index: 3, word_offset: 3, repr: ProductSlotRepr::Symbol },
+            ProductComponentLayout { logical_index: 4, word_offset: 4, repr: ProductSlotRepr::Value },
+        ];
+        let layout = ProductLayout::new(components).expect("valid layout");
+        assert_eq!(layout.word_len, 6);
+        assert_eq!(layout.value_slot_offsets(), &[4]);
+
+        let mut registry = ProductLayoutRegistry::new();
+        let layout_id = registry.register(layout.clone());
+
+        let mut storage = ProductStorage::new(layout_id, &layout);
+        storage.store_component(&layout, 0, Value::int(42)).unwrap();
+        storage.store_component(&layout, 1, Value::float(3.14)).unwrap();
+        storage.store_component(&layout, 2, Value::bool(true)).unwrap();
+        storage.store_component(&layout, 3, Value::symbol(Symbol(7))).unwrap();
+        storage.store_component(&layout, 4, Value::int(-100)).unwrap();
+
+        assert_eq!(storage.load_component(&layout, 0).unwrap(), Value::int(42));
+        assert_eq!(storage.load_component(&layout, 1).unwrap(), Value::float(3.14));
+        assert_eq!(storage.load_component(&layout, 2).unwrap(), Value::bool(true));
+        assert_eq!(storage.load_component(&layout, 3).unwrap(), Value::symbol(Symbol(7)));
+        assert_eq!(storage.load_component(&layout, 4).unwrap(), Value::int(-100));
     }
 }

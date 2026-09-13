@@ -187,6 +187,20 @@ impl VM {
                 .adt_registry
                 .register_variant(var_spec.id.clone(), enum_id, discriminant, shape, payload_arity, case_class_id, None);
 
+            if spec.representation == crate::adt::RuntimeAdtRepresentation::General {
+                let layout = var_spec
+                    .layout
+                    .as_ref()
+                    .ok_or_else(|| RuntimeError::Internal("missing general variant layout".into()))?
+                    .build_layout()
+                    .map_err(|e| RuntimeError::Internal(e.into()))?;
+                if layout.components.len() != usize::from(payload_arity) {
+                    return Err(RuntimeError::Internal("variant layout arity mismatch".into()));
+                }
+                let layout_id = self.heap.product_layouts.register(layout);
+                self.adt_registry.variant_descriptor_mut(runtime_var_id).unwrap().layout = Some(layout_id);
+            }
+
             if spec.representation == crate::adt::RuntimeAdtRepresentation::NativeOption {
                 if let phalcom_common::selector::SelectorBase::Named(name) = &var_spec.id.selector.base {
                     if name == "Some" {
@@ -297,11 +311,24 @@ impl VM {
                 Err(RuntimeError::Internal("non-Option variant registered under NativeOption representation".into()))
             }
             crate::adt::RuntimeAdtRepresentation::General => {
-                let case_obj = crate::heap::AdtCaseObject {
-                    variant,
-                    payload: payload.into_boxed_slice(),
-                };
-                let obj_ref = self.heap.alloc(Object::AdtCase(Box::new(case_obj)));
+                if payload.len() != usize::from(variant_desc.payload_arity) {
+                    return Err(RuntimeError::Message(format!(
+                        "variant expects {} arguments, got {}",
+                        variant_desc.payload_arity,
+                        payload.len()
+                    )));
+                }
+                if variant_desc.shape == RuntimeVariantShape::Singleton {
+                    return Ok(variant_desc.singleton.unwrap_or_else(|| Value::adt_singleton(variant)));
+                }
+                let layout_id = variant_desc.layout.ok_or_else(|| RuntimeError::Internal("missing variant layout".into()))?;
+                let layout = self
+                    .heap
+                    .product_layouts
+                    .get(layout_id)
+                    .ok_or_else(|| RuntimeError::Internal("unknown variant layout".into()))?;
+                let storage = crate::product::ProductStorage::from_values(layout_id, layout, &payload).map_err(|e| RuntimeError::Internal(e.into()))?;
+                let obj_ref = self.heap.alloc_adt_case(variant, storage);
                 Ok(Value::obj(obj_ref))
             }
         }
@@ -337,7 +364,7 @@ impl VM {
         }
         if let Some(obj_ref) = value.as_obj() {
             if let Object::AdtCase(case) = self.heap.get(obj_ref) {
-                return Some(case.payload.len());
+                return self.heap.product_layouts.get(case.storage.layout).map(|layout| layout.components.len());
             }
         }
         if value.is_option() {
@@ -353,10 +380,17 @@ impl VM {
         }
         if let Some(obj_ref) = value.as_obj() {
             if let Object::AdtCase(case) = self.heap.get(obj_ref) {
-                return case.payload.get(index).copied().ok_or(RuntimeError::InvalidVariantPayloadSlot {
+                let layout = self
+                    .heap
+                    .product_layouts
+                    .get(case.storage.layout)
+                    .ok_or_else(|| RuntimeError::Internal("unknown variant layout".into()))?;
+                let invalid = || RuntimeError::InvalidVariantPayloadSlot {
                     slot: index,
-                    len: case.payload.len(),
-                });
+                    len: layout.components.len(),
+                };
+                let index = u32::try_from(index).map_err(|_| invalid())?;
+                return case.storage.load_component(layout, index).map_err(|_| invalid());
             }
         }
         if value.is_option() {

@@ -745,4 +745,32 @@ impl Heap {
             _ => panic!("ObjRef {id:?} is not a TypingObject"),
         }
     }
+
+    pub fn as_data(&self, id: ObjRef) -> Option<&crate::heap::DataObject> {
+        match self.objects.get(id) {
+            Some(Object::Data(d)) => Some(d),
+            _ => None,
+        }
+    }
+
+    pub fn as_data_mut(&mut self, id: ObjRef) -> Option<&mut crate::heap::DataObject> {
+        match self.objects.get_mut(id) {
+            Some(Object::Data(d)) => Some(d),
+            _ => None,
+        }
+    }
+
+    pub fn data(&self, id: ObjRef) -> &crate::heap::DataObject {
+        match self.get(id) {
+            Object::Data(d) => d,
+            _ => panic!("ObjRef {id:?} is not a DataObject"),
+        }
+    }
+
+    pub fn data_mut(&mut self, id: ObjRef) -> &mut crate::heap::DataObject {
+        match self.get_mut(id) {
+            Object::Data(d) => d,
+            _ => panic!("ObjRef {id:?} is not a DataObject"),
+        }
+    }
 }

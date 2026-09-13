@@ -4,7 +4,8 @@ use crate::bytecode::Bytecode;
 use crate::compiler::lib::error::CompilerError;
 use crate::compiler::lib::{Compiler, checked_send_arity};
 use crate::modules::semantic_lowering::{
-    AssociatedLoweringSpec, CallableReferenceLoweringSpec, ExecutableFamilyCandidateSet, FamilyApplicationLoweringSpec, LoweringSiteKind,
+    AssociatedLoweringSpec, CallableReferenceLoweringSpec, DataConstructionLoweringSpec, ExecutableFamilyCandidateSet, FamilyApplicationLoweringSpec,
+    LoweringSiteKind,
 };
 use crate::value::Value;
 use phalcom_ast::ast::{AssociatedInvokeExpr, AssociatedLookupExpr, AssociatedMemberSyntax, CallableReferenceExpr, CallableReferenceTarget, Expr, PackItem};
@@ -12,7 +13,8 @@ use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
 use phalcom_modules::DeclarationId;
 use phalcom_semantic::checker::associated::{BehavioralFamilySpec, FamilyApplicationKind};
-use phalcom_semantic::identity::VariantId;
+use phalcom_semantic::identity::{DataConstructorId, VariantId};
+use phalcom_semantic::types::FamilyOperationShape;
 
 impl<'vm> Compiler<'vm> {
     fn family_application_spec(&self, range: SourceRange) -> Option<FamilyApplicationLoweringSpec> {
@@ -147,6 +149,13 @@ impl<'vm> Compiler<'vm> {
             CallableReferenceLoweringSpec::MakeVariantConstructorThunk { variant, .. } => {
                 self.compile_variant_constructor_thunk(&variant, expr.range)?;
             }
+            CallableReferenceLoweringSpec::MakeDataConstructorThunk {
+                constructor,
+                operation,
+                construction,
+            } => {
+                self.compile_data_constructor_thunk(&constructor, &operation, construction.as_deref(), expr.range)?;
+            }
             CallableReferenceLoweringSpec::MakeAssociatedFamily { descriptor } => {
                 let desc_idx = self
                     .functions
@@ -185,6 +194,13 @@ impl<'vm> Compiler<'vm> {
                 }
                 AssociatedLoweringSpec::MakeVariantConstructorThunk { variant, .. } => {
                     return self.compile_variant_constructor_thunk(&variant, expr.range);
+                }
+                AssociatedLoweringSpec::MakeDataConstructorThunk {
+                    constructor,
+                    operation,
+                    construction,
+                } => {
+                    return self.compile_data_constructor_thunk(&constructor, &operation, construction.as_deref(), expr.range);
                 }
                 AssociatedLoweringSpec::MakeResolvedBoundMethod { target } => {
                     let target_idx = self
@@ -274,6 +290,28 @@ impl<'vm> Compiler<'vm> {
                         .executable_semantics
                         .add_variant_target(&variant, expr.range)?;
                     self.emit(Bytecode::ConstructVariant { variant: var_idx, arity }, expr.range);
+                    return Ok(());
+                }
+                AssociatedLoweringSpec::ConstructData {
+                    constructor: _,
+                    arity,
+                    construction,
+                } => {
+                    for arg in &expr.args {
+                        self.compile_pack_item(arg.clone())?;
+                    }
+                    let ctor_idx = self
+                        .functions
+                        .last_mut()
+                        .unwrap()
+                        .chunk
+                        .executable_semantics
+                        .add_data_construction(construction.ok_or(CompilerError::MissingAssociatedResolution(expr.range))?, expr.range)?;
+                    if arity == 0 {
+                        self.emit(Bytecode::LoadDataSingleton(ctor_idx), expr.range);
+                    } else {
+                        self.emit(Bytecode::ConstructData { constructor: ctor_idx, arity }, expr.range);
+                    }
                     return Ok(());
                 }
                 AssociatedLoweringSpec::InvokeResolvedAssociated { target, .. } => {
@@ -390,6 +428,53 @@ impl<'vm> Compiler<'vm> {
             callable.chunk.add_instruction(Bytecode::GetLocal(slot), range);
         }
         callable.chunk.add_instruction(Bytecode::ConstructVariant { variant: var_idx, arity }, range);
+        callable.chunk.add_instruction(Bytecode::Return, range);
+        callable.max_slots = (arity as usize) + 2;
+        cls.callable = std::rc::Rc::new(callable);
+
+        let const_idx = self.add_constant(Value::obj(closure));
+        self.emit(Bytecode::Closure(const_idx), range);
+
+        Ok(())
+    }
+
+    /// Emits a callable thunk that constructs a data instance when called.
+    fn compile_data_constructor_thunk(
+        &mut self,
+        constructor: &DataConstructorId,
+        operation: &FamilyOperationShape,
+        construction: Option<&DataConstructionLoweringSpec>,
+        range: SourceRange,
+    ) -> Result<(), CompilerError> {
+        let arity = checked_send_arity("data constructor thunk", operation.slots.len(), range)?;
+        let name_sym = self.vm.interner.intern(&format!("thunk::{}", constructor.owner.name));
+        let param_names = (0..arity).map(|i| format!("_{i}")).collect();
+        let closure = self.compile_block(
+            Vec::new(),
+            name_sym,
+            phalcom_ast::ast::ClosureParameters::fixed(param_names),
+            false,
+            false,
+            None,
+        )?;
+
+        let cls = self.vm.heap.closure_mut(closure);
+        let mut callable = (*cls.callable).clone();
+        callable.chunk.code.clear();
+        callable.chunk.spans.clear();
+        callable.chunk.caches.clear();
+        callable.chunk.gcaches.clear();
+        let construction = construction.ok_or(CompilerError::MissingAssociatedResolution(range))?;
+        let ctor_idx = callable.chunk.executable_semantics.add_data_construction(std::sync::Arc::new(construction.clone()), range)?;
+        // Reserve slot 0 for receiver, arguments in slots 1..=arity
+        for slot in 1..=u16::from(arity) {
+            callable.chunk.add_instruction(Bytecode::GetLocal(slot), range);
+        }
+        if arity == 0 {
+            callable.chunk.add_instruction(Bytecode::LoadDataSingleton(ctor_idx), range);
+        } else {
+            callable.chunk.add_instruction(Bytecode::ConstructData { constructor: ctor_idx, arity }, range);
+        }
         callable.chunk.add_instruction(Bytecode::Return, range);
         callable.max_slots = (arity as usize) + 2;
         cls.callable = std::rc::Rc::new(callable);

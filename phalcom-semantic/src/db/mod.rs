@@ -482,6 +482,7 @@ fn query_key_module(key: &QueryKey) -> Option<&ModuleId> {
         QueryKey::DeclarationShell(declaration)
         | QueryKey::HierarchyEdge(declaration)
         | QueryKey::DeclarationSurface(declaration)
+        | QueryKey::DataDeclaration(declaration)
         | QueryKey::EnumDeclaration(declaration)
         | QueryKey::EnumRequirements(declaration)
         | QueryKey::AssociatedSurface(declaration) => Some(&declaration.module),

@@ -47,7 +47,7 @@
 | [RUNT001](runt/RUNT001-runtime-representation/PROGRAM.md) | RUNT | Runtime representation | PROPOSED |
 | [RUNT002](runt/RUNT002-core-runtime/PROGRAM.md) | RUNT | Core runtime records | COMPLETE |
 | [STDL001](stdl/STDL001-numeric-library/PROGRAM.md) | STDL | Numeric library | IN_PROGRESS |
-| [STDL002](stdl/STDL002-standard-library-buildout/PROGRAM.md) | STDL | Standard library buildout | PROPOSED |
+| [STDL002](STDL002-standard-library-buildout/PROGRAM.md) | STDL | Standard library buildout | PROPOSED |
 | [DIAG001](diag/DIAG001-result-error-surface/PROGRAM.md) | DIAG | Result, error, and traceback surfaces | IN_PROGRESS |
 | [UNIV001](univ/UNIV001-canonical-universe-surface/PROGRAM.md) | UNIV | Canonical universe surface and intrinsic integration | PROPOSED |
 

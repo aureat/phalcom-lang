@@ -18,6 +18,8 @@ pub enum EditorSymbolKind {
     Module,
     Class,
     Enum,
+    Data,
+    DataComponent,
     TypeAlias,
     Callable,
     Field,

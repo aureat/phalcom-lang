@@ -56,6 +56,7 @@ pub enum AssociatedResolutionKind {
         member: AssociatedMemberId,
         target: InvocationTargetId,
         result_type: TypeId,
+        argument_mapping: Option<Box<[u32]>>,
     },
     DynamicInvoke {
         candidates: Box<[SpecializedAssociatedMember]>,
@@ -490,6 +491,77 @@ pub fn specialize_associated_member(
                 Err(AssociatedResolutionError)
             }
         }
+        AssociatedMemberId::DataConstructor(dc) => {
+            let Some(dinfo) = ctx.data_info(&dc.owner).cloned() else {
+                ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    DiagnosticCode::AssociatedMemberMissing,
+                    format!("data declaration `{}` not found", dc.owner.name),
+                    range,
+                ));
+                return Err(AssociatedResolutionError);
+            };
+            let env =
+                crate::types::specialization::specialize_receiver_to_owner(ctx.store, &ctx.hierarchy, owner.owner_form, &owner.lookup_owner, &ctx.control)
+                    .map_err(|failure| {
+                        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                            ctx.current_module.clone(),
+                            DiagnosticCode::AssociatedOwnerUnresolved,
+                            format!("cannot specialize associated owner: {failure:?}"),
+                            range,
+                        ));
+                        AssociatedResolutionError
+                    })?
+                    .environment;
+
+            let constructor = &dinfo.constructor;
+            let constructor_result = TypeView::new(constructor.result_type_template, env.clone()).materialize(ctx.store);
+            let mut parameters = Vec::with_capacity(constructor.parameters.len());
+            for parameter in &constructor.parameters {
+                let Some(parameter_type) = parameter.declared_type.canonical_type() else {
+                    ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        DiagnosticCode::AssociatedMemberMissing,
+                        format!(
+                            "data `{}` has unresolved constructor parameter `{}`",
+                            dc.owner.name, parameter.local_name
+                        ),
+                        range,
+                    ));
+                    return Err(AssociatedResolutionError);
+                };
+                let ty = TypeView::new(parameter_type, env.clone()).materialize(ctx.store);
+                parameters.push(CallableParameterType {
+                    label: parameter.external_label.clone(),
+                    ty,
+                    rest: phalcom_ast::ast::RestMode::None,
+                });
+            }
+
+            let callable_ty = ctx.store.callable(CallableType {
+                parameters: parameters.into_boxed_slice(),
+                return_type: constructor_result,
+            });
+
+            let slots: Vec<SelectorSlot> = constructor
+                .parameters
+                .iter()
+                .map(|p| match &p.external_label {
+                    Some(label) => SelectorSlot::Label(label.to_string()),
+                    None => SelectorSlot::Positional,
+                })
+                .collect();
+
+            let operation = FamilyOperationShape::new(SelectorKind::Method, slots.into_boxed_slice());
+
+            Ok(SpecializedAssociatedMember {
+                member: member_id.clone(),
+                operation,
+                value_type: callable_ty,
+                target: Some(InvocationTargetId::DataConstructor(dc.clone())),
+            })
+        }
+        AssociatedMemberId::DataComponent(_) => Err(AssociatedResolutionError),
     }
 }
 

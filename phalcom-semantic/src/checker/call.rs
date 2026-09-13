@@ -89,6 +89,18 @@ impl CallableApplicationTarget {
         }
     }
 
+    pub(crate) fn data_constructor(data_constructor: crate::identity::DataConstructorId, signature: CallableSignature) -> Self {
+        Self {
+            signature,
+            callable: None,
+            target: Some(crate::identity::InvocationTargetId::DataConstructor(data_constructor)),
+            authority: CallTargetAuthority::ExactDispatch,
+            specialization: None,
+            fixed_generics: Vec::new(),
+            declaration_generics: None,
+        }
+    }
+
     pub(crate) fn with_fixed_generics(mut self, fixed_generics: Vec<(TypeParameterId, TypeId)>) -> Self {
         self.fixed_generics = fixed_generics;
         self

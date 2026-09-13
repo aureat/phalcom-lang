@@ -75,6 +75,18 @@ impl<'vm> Compiler<'vm> {
                     variants.push(VariantLoweringSpec {
                         id: vid,
                         shape,
+                        // Standalone compilation has no canonical type facts: keep universal slots.
+                        layout: (!phalcom_semantic::core_surface::CoreDeclarationIds::default().is_option(&owner)).then(|| {
+                            crate::product::ProductLayoutSpec::new(
+                                fields
+                                    .iter()
+                                    .map(|field| crate::product::ProductComponentSpec {
+                                        logical_index: u32::from(field.slot),
+                                        repr: crate::product::ProductSlotRepr::Value,
+                                    })
+                                    .collect(),
+                            )
+                        }),
                         payload_fields: fields.into_boxed_slice(),
                     });
                 }

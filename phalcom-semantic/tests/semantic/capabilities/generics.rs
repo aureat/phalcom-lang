@@ -433,11 +433,19 @@ class GenericFutureProbe {
     const chained = created.then(|value| { Future.async(|| { "chained" }) })
     const nested = created.map(|value| { Future.async(|| { 7 }) })
     const unit = Future.async(|| { () })
+    const cs: CompletionSource<Int> = CompletionSource.new()
+    const csFuture = cs.future
+    const resolved = cs.tryResolve(100)
+    const allProbe = Future.all([created, fromValue])
+    const allSettledProbe = Future.allSettled([created, fromValue])
+    const raceProbe = Future.race([created, fromValue])
+    const timedProbe = created.timeout(100)
   }
 }
-"#,
+"#
     );
     let f = Fixture::new(&source);
+    f.assert_no_internal_incidents();
     let run = f.callable("GenericFutureProbe", "run", DispatchSide::Class);
     use crate::semantic::support::{applied, nominal};
     for (name, expected) in [
@@ -447,6 +455,16 @@ class GenericFutureProbe {
         ("mapped", applied("Future", [nominal("String")])),
         ("chained", applied("Future", [nominal("String")])),
         ("nested", applied("Future", [applied("Future", [nominal("Int")])])),
+        ("cs", applied("CompletionSource", [nominal("Int")])),
+        ("csFuture", applied("Future", [nominal("Int")])),
+        ("resolved", nominal("Bool")),
+        ("allProbe", applied("Future", [applied("List", [nominal("Int")])])),
+        (
+            "allSettledProbe",
+            applied("Future", [applied("List", [applied("Result", [nominal("Int"), nominal("Error")])])]),
+        ),
+        ("raceProbe", applied("Future", [nominal("Int")])),
+        ("timedProbe", applied("Future", [nominal("Int")])),
     ] {
         let ty = f.binding(run, name).current.ty().unwrap_or_else(|| panic!("{name} must retain a formal type"));
         f.assert_type(ty, expected);
@@ -468,10 +486,11 @@ fn universe_future_rejects_incompatible_settlement_chaining_and_recovery() {
         r#"
 class InvalidFutureProbe {
   @class
-  run(_ input: Future<Int>) {
+  run(_ input: Future<Int>, _ cs: CompletionSource<Int>) {
     input.settleValue("wrong")
     input.then(|value| { 42 })
     input.catch(|error| { "wrong" })
+    cs.tryResolve("wrong")
   }
 }
 "#,
@@ -481,6 +500,7 @@ class InvalidFutureProbe {
         "input.settleValue(\"wrong\")",
         "input.then(|value| { 42 })",
         "input.catch(|error| { \"wrong\" })",
+        "cs.tryResolve(\"wrong\")",
     ] {
         let start = source.find(expression).expect("probe expression");
         let end = start + expression.len();

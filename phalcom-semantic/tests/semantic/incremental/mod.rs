@@ -12,5 +12,5 @@ mod plan_b_indexing;
 mod product_stability;
 mod query_ownership;
 mod record_rows;
-mod support;
+pub(crate) mod support;
 mod type_store_revisions;

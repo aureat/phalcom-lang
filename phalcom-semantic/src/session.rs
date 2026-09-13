@@ -12,15 +12,16 @@ use crate::checker::context::CheckingContext;
 use crate::checker::declaration::check_class_field_initializers;
 use crate::checker::statement::check_statement;
 use crate::db::SemanticDb;
+use crate::data_semantics::DataSemanticTable;
 use crate::db::budget::{CancellationToken, QueryBudget};
 use crate::db::key::QueryKey;
 use crate::db::product::EnumRequirementsProduct;
 use crate::db::query::{
     CallableBodyQuery, DeclarationSurfaceQuery, FormalQueryInputs, HierarchyEdgeQueryInputs, SignatureQueryInputs, bootstrap_advisory_callable,
     query_advisory_callable, query_advisory_module, query_associated_surface, query_bootstrap_callable_signature, query_bootstrap_declaration_surface,
-    query_bootstrap_hierarchy_edge, query_callable_body_with_formal_inputs, query_callable_signature_with_inputs, query_declaration_shell,
-    query_declaration_surface, query_enum_declaration, query_enum_requirements, query_field_signature_with_inputs, query_hierarchy_edge,
-    query_linked_interface, query_source_formal_attachment, query_source_structure, query_unlinked_interface,
+    query_bootstrap_hierarchy_edge, query_callable_body_with_formal_inputs, query_callable_signature_with_inputs, query_data_declaration,
+    query_declaration_shell, query_declaration_surface, query_enum_declaration, query_enum_requirements, query_field_signature_with_inputs,
+    query_hierarchy_edge, query_linked_interface, query_source_formal_attachment, query_source_structure, query_unlinked_interface,
 };
 use crate::db::state::QueryOutcome;
 use crate::declarations::{
@@ -426,6 +427,8 @@ pub struct SemanticWorkspaceSession {
     base_hierarchy: MapTypeHierarchy,
     base_dispatch: SurfaceDispatchResolver,
     base_callable_signatures: CallableSignatureTable,
+    base_data_semantics: DataSemanticTable,
+    base_data_products: Vec<Arc<crate::db::product::DataDeclarationProduct>>,
     base_enum_semantics: EnumSemanticTable,
     base_enum_products: Vec<Arc<crate::db::product::EnumDeclarationProduct>>,
     base_associated_surfaces: AssociatedFamilyTable,
@@ -526,6 +529,8 @@ impl SemanticWorkspaceSession {
             base_callable_signatures.insert(core_class_new);
         }
 
+        let mut base_data_semantics = DataSemanticTable::new();
+        let mut base_data_products = Vec::new();
         let mut base_enum_semantics = EnumSemanticTable::new();
         let mut base_enum_products = Vec::new();
         let mut base_associated_surfaces = AssociatedFamilyTable::new();
@@ -535,11 +540,10 @@ impl SemanticWorkspaceSession {
 
         let provider = phalcom_modules::UniverseSourceProvider::new();
 
-        // Canonical source enums are not native-meta classes. Add their
+        // Canonical source enums and data are not native-meta classes. Add their
         // declaration forms before constructing the linked resolver so
-        // source users can resolve `Result` and `Ordering` through the same
-        // core identity path as native declarations. `Option` already has a
-        // native declaration form and keeps that canonical generic identity.
+        // source users can resolve them through the same
+        // core identity path as native declarations.
         for node in provider.nodes() {
             let path = phalcom_modules::ModulePath::from_components(
                 node.path
@@ -552,53 +556,97 @@ impl SemanticWorkspaceSession {
                 .load_parsed(&module_id)
                 .unwrap_or_else(|e| panic!("failed to load universe module {module_id}: {e}"));
             for stmt in &parsed.program.statements {
-                let phalcom_ast::ast::Statement::Enum(enum_def) = stmt else {
-                    continue;
-                };
-                let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
-                if base_declarations.get(&decl_id).is_some() {
-                    continue;
-                }
+                if let phalcom_ast::ast::Statement::Enum(enum_def) = stmt {
+                    let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
+                    if base_declarations.get(&decl_id).is_some() {
+                        continue;
+                    }
 
-                let mut parameter_ids = Vec::new();
-                let mut parameter_kinds = Vec::new();
-                for (index, parameter) in enum_def.generic_parameters.iter().enumerate() {
-                    let Some(kind) = ready_kind_for_predeclaration(&mut store, parameter.kind.as_ref()) else {
-                        parameter_ids.clear();
-                        break;
+                    let mut parameter_ids = Vec::new();
+                    let mut parameter_kinds = Vec::new();
+                    for (index, parameter) in enum_def.generic_parameters.iter().enumerate() {
+                        let Some(kind) = ready_kind_for_predeclaration(&mut store, parameter.kind.as_ref()) else {
+                            parameter_ids.clear();
+                            break;
+                        };
+                        let parameter_id = store.intern_type_parameter(TypeParameterData::new(
+                            TypeParameterOwner::Declaration(decl_id.clone()),
+                            index as u32,
+                            parameter.name.clone(),
+                            kind,
+                        ));
+                        parameter_ids.push(parameter_id);
+                        parameter_kinds.push(kind);
+                    }
+
+                    if parameter_ids.len() != enum_def.generic_parameters.len() {
+                        continue;
+                    }
+
+                    let (form, kind, generic_signature) = if parameter_ids.is_empty() {
+                        (store.nominal_type(decl_id.clone()), KindId::TYPE, None)
+                    } else {
+                        let kind = store.arrow_kind(parameter_kinds.into_boxed_slice(), KindId::TYPE);
+                        let form = store.nominal_form(decl_id.clone(), kind);
+                        let signature =
+                            crate::types::parameter::GenericSignature::new(TypeParameterOwner::Declaration(decl_id.clone()), parameter_ids.into_boxed_slice());
+                        (form, kind, Some(signature))
                     };
-                    let parameter_id = store.intern_type_parameter(TypeParameterData::new(
-                        TypeParameterOwner::Declaration(decl_id.clone()),
-                        index as u32,
-                        parameter.name.clone(),
+
+                    base_declarations.insert(DeclarationTypeInfo {
+                        declaration: decl_id.clone(),
+                        form,
+                        class_object_type: store.class_object_type(decl_id),
                         kind,
-                    ));
-                    parameter_ids.push(parameter_id);
-                    parameter_kinds.push(kind);
+                        generic_signature,
+                        supertype_template: None,
+                    });
+                } else if let phalcom_ast::ast::Statement::Data(data_def) = stmt {
+                    let decl_id = DeclarationId::new(module_id.clone(), data_def.name.clone().into());
+                    if base_declarations.get(&decl_id).is_some() {
+                        continue;
+                    }
+
+                    let mut parameter_ids = Vec::new();
+                    let mut parameter_kinds = Vec::new();
+                    for (index, parameter) in data_def.generic_parameters.iter().enumerate() {
+                        let Some(kind) = ready_kind_for_predeclaration(&mut store, parameter.kind.as_ref()) else {
+                            parameter_ids.clear();
+                            break;
+                        };
+                        let parameter_id = store.intern_type_parameter(TypeParameterData::new(
+                            TypeParameterOwner::Declaration(decl_id.clone()),
+                            index as u32,
+                            parameter.name.clone(),
+                            kind,
+                        ));
+                        parameter_ids.push(parameter_id);
+                        parameter_kinds.push(kind);
+                    }
+
+                    if parameter_ids.len() != data_def.generic_parameters.len() {
+                        continue;
+                    }
+
+                    let (form, kind, generic_signature) = if parameter_ids.is_empty() {
+                        (store.nominal_type(decl_id.clone()), KindId::TYPE, None)
+                    } else {
+                        let kind = store.arrow_kind(parameter_kinds.into_boxed_slice(), KindId::TYPE);
+                        let form = store.nominal_form(decl_id.clone(), kind);
+                        let signature =
+                            crate::types::parameter::GenericSignature::new(TypeParameterOwner::Declaration(decl_id.clone()), parameter_ids.into_boxed_slice());
+                        (form, kind, Some(signature))
+                    };
+
+                    base_declarations.insert(DeclarationTypeInfo {
+                        declaration: decl_id.clone(),
+                        form,
+                        class_object_type: store.class_object_type(decl_id),
+                        kind,
+                        generic_signature,
+                        supertype_template: None,
+                    });
                 }
-
-                if parameter_ids.len() != enum_def.generic_parameters.len() {
-                    continue;
-                }
-
-                let (form, kind, generic_signature) = if parameter_ids.is_empty() {
-                    (store.nominal_type(decl_id.clone()), KindId::TYPE, None)
-                } else {
-                    let kind = store.arrow_kind(parameter_kinds.into_boxed_slice(), KindId::TYPE);
-                    let form = store.nominal_form(decl_id.clone(), kind);
-                    let signature =
-                        crate::types::parameter::GenericSignature::new(TypeParameterOwner::Declaration(decl_id.clone()), parameter_ids.into_boxed_slice());
-                    (form, kind, Some(signature))
-                };
-
-                base_declarations.insert(DeclarationTypeInfo {
-                    declaration: decl_id.clone(),
-                    form,
-                    class_object_type: store.class_object_type(decl_id),
-                    kind,
-                    generic_signature,
-                    supertype_template: None,
-                });
             }
         }
 
@@ -614,7 +662,33 @@ impl SemanticWorkspaceSession {
                 .load_parsed(&module_id)
                 .unwrap_or_else(|e| panic!("failed to load universe module {module_id}: {e}"));
             for stmt in &parsed.program.statements {
-                if let phalcom_ast::ast::Statement::Enum(enum_def) = stmt {
+                if let phalcom_ast::ast::Statement::Data(data_def) = stmt {
+                    let decl_id = DeclarationId::new(module_id.clone(), data_def.name.clone().into());
+                    let Some(data_product) =
+                        crate::checker::data_declaration::build_data_semantics(&decl_id, data_def, &mut store, &base_declarations, &resolver, &module_id)
+                    else {
+                        continue;
+                    };
+                    base_data_semantics.insert_data(data_product.info.clone());
+                    base_data_products.push(Arc::new(data_product));
+
+                    let mut assoc_surface = crate::associated::AssociatedSurface::new(decl_id.clone());
+                    let base = phalcom_common::selector::SelectorBase::Named(data_def.name.clone().into());
+                    let family_id = crate::identity::AssociatedFamilyId::new(decl_id.clone(), base.clone());
+                    assoc_surface.families.insert(
+                        base,
+                        crate::associated::AssociatedFamilyInfo {
+                            id: family_id,
+                            kind: crate::associated::AssociatedFamilyKind::Variant,
+                            members: Box::new([crate::associated::AssociatedMemberId::DataConstructor(
+                                crate::identity::DataConstructorId::new(decl_id.clone()),
+                            )]),
+                        },
+                    );
+                    let assoc_surface = Arc::new(assoc_surface);
+                    base_associated_surfaces.insert(decl_id.clone(), assoc_surface.clone());
+                    base_associated_surface_products.push(assoc_surface);
+                } else if let phalcom_ast::ast::Statement::Enum(enum_def) = stmt {
                     let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
                     let Some(enum_product) =
                         crate::checker::enum_declaration::build_enum_semantics(&decl_id, enum_def, &mut store, &base_declarations, &resolver, &module_id)
@@ -739,6 +813,8 @@ impl SemanticWorkspaceSession {
             base_hierarchy,
             base_dispatch,
             base_callable_signatures,
+            base_data_semantics,
+            base_data_products,
             base_enum_semantics,
             base_enum_products,
             base_associated_surfaces,
@@ -1744,6 +1820,45 @@ impl SemanticWorkspaceSession {
                         generic_signature: None,
                         supertype_template: None,
                     });
+                } else if let Statement::Data(data_def) = stmt {
+                    let decl_id = DeclarationId::new(module_id.clone(), data_def.name.clone().into());
+                    let retain_previous_header = previous_snapshot
+                        .as_ref()
+                        .is_some_and(|previous| !generic_header_work.contains(&decl_id) && previous.declarations.get(&decl_id).is_some());
+                    if retain_previous_header {
+                        continue;
+                    }
+                    let kind = if !data_def.generic_parameters.is_empty() {
+                        let mut param_kinds = Vec::with_capacity(data_def.generic_parameters.len());
+                        for parameter in &data_def.generic_parameters {
+                            let Some(kind) = ready_kind_for_predeclaration(Arc::make_mut(&mut self.store), parameter.kind.as_ref()) else {
+                                param_kinds.clear();
+                                break;
+                            };
+                            param_kinds.push(kind);
+                        }
+                        if param_kinds.len() != data_def.generic_parameters.len() {
+                            continue;
+                        }
+                        Arc::make_mut(&mut self.store).arrow_kind(param_kinds.into_boxed_slice(), KindId::TYPE)
+                    } else {
+                        KindId::TYPE
+                    };
+
+                    let form = if kind == KindId::TYPE {
+                        Arc::make_mut(&mut self.store).nominal_type(decl_id.clone())
+                    } else {
+                        Arc::make_mut(&mut self.store).nominal_form(decl_id.clone(), kind)
+                    };
+                    let class_object_type = Arc::make_mut(&mut self.store).class_object_type(decl_id.clone());
+                    declarations.insert(DeclarationTypeInfo {
+                        declaration: decl_id,
+                        form,
+                        class_object_type,
+                        kind,
+                        generic_signature: None,
+                        supertype_template: None,
+                    });
                 }
             }
         }
@@ -2255,6 +2370,61 @@ impl SemanticWorkspaceSession {
                     let header = NominalDeclarationHeader::from_signature(Arc::make_mut(&mut self.store), decl_id.clone(), generic_signature);
 
                     declarations.insert(header.into_type_info(None));
+                } else if let Statement::Data(data_def) = stmt {
+                    let decl_id = DeclarationId::new(module_id.clone(), data_def.name.clone().into());
+                    if previous_snapshot.is_some() && !generic_header_work.contains(&decl_id) {
+                        continue;
+                    }
+                    let mut header_dependencies = BTreeSet::new();
+                    if let Some(where_clause) = &data_def.where_clause {
+                        for constraint in &where_clause.constraints {
+                            match constraint {
+                                phalcom_ast::ast::GenericConstraintSyntax::Subtype { lower, upper, .. }
+                                | phalcom_ast::ast::GenericConstraintSyntax::Equivalent { left: lower, right: upper, .. } => {
+                                    collect_type_annotation_declarations(lower, &module_id, &resolver, &mut header_dependencies);
+                                    collect_type_annotation_declarations(upper, &module_id, &resolver, &mut header_dependencies);
+                                }
+                                phalcom_ast::ast::GenericConstraintSyntax::Invalid { .. } => {}
+                            }
+                        }
+                    }
+                    header_dependencies.remove(&decl_id);
+                    replace_reverse_dependencies(
+                        &mut next_generic_header_dependencies,
+                        &mut next_generic_header_reverse_dependencies,
+                        decl_id.clone(),
+                        header_dependencies,
+                    );
+                    let formation_site = TypeFormationSite::member(module_id.clone(), decl_id.clone(), DispatchSide::Instance);
+                    let generic_signature = if !data_def.generic_parameters.is_empty() {
+                        let outcome = resolve_generic_signature(
+                            Arc::make_mut(&mut self.store),
+                            &declarations,
+                            &resolver,
+                            &formation_site,
+                            TypeParameterOwner::Declaration(decl_id.clone()),
+                            GenericBinderSite::NominalDeclaration,
+                            &data_def.generic_parameters,
+                            data_def.where_clause.as_ref(),
+                            diags_by_module.entry(module_id.clone()).or_default(),
+                        );
+                        Some(retain_generic_signature(
+                            outcome,
+                            &module_id,
+                            data_def.range,
+                            diags_by_module.entry(module_id.clone()).or_default(),
+                        ))
+                        .flatten()
+                    } else {
+                        None
+                    };
+
+                    if !data_def.generic_parameters.is_empty() && generic_signature.is_none() {
+                        continue;
+                    }
+                    let header = NominalDeclarationHeader::from_signature(Arc::make_mut(&mut self.store), decl_id.clone(), generic_signature);
+
+                    declarations.insert(header.into_type_info(None));
                 }
             }
         }
@@ -2661,7 +2831,10 @@ impl SemanticWorkspaceSession {
                 }
             }
         }
-        // 6b. Compile and publish enum declarations, associated surfaces, and closed-enum requirements.
+        // 6b. Compile and publish data declarations, enum declarations, associated surfaces, and closed-enum requirements.
+        let mut data_semantics = previous_snapshot
+            .as_ref()
+            .map_or_else(|| self.base_data_semantics.clone(), |snapshot| (*snapshot.data_semantics).clone());
         let mut enum_semantics = previous_snapshot
             .as_ref()
             .map_or_else(|| self.base_enum_semantics.clone(), |snapshot| (*snapshot.enum_semantics).clone());
@@ -2672,11 +2845,15 @@ impl SemanticWorkspaceSession {
             .as_ref()
             .map_or_else(|| self.base_associated_surfaces.clone(), |snapshot| (*snapshot.associated_surfaces).clone());
         for module in structural_work_modules.iter().chain(removed_modules.iter()) {
+            data_semantics.remove_module(module);
             enum_semantics.remove_module(module);
             enum_requirements_table.remove_module(module);
             associated_surfaces_table.remove_module(module);
         }
 
+        for base_prod in &self.base_data_products {
+            let _ = query_data_declaration(&mut self.db, base_prod.clone());
+        }
         for base_prod in &self.base_enum_products {
             let _ = query_enum_declaration(&mut self.db, base_prod.clone());
         }
@@ -2693,9 +2870,35 @@ impl SemanticWorkspaceSession {
             };
             let parsed_unit = &shard.source;
             for stmt in &parsed_unit.program.statements {
-                let Statement::Enum(enum_def) = stmt else {
-                    continue;
-                };
+                if let Statement::Data(data_def) = stmt {
+                    let decl_id = DeclarationId::new(module_id.clone(), data_def.name.clone().into());
+                    let Some(data_product) = crate::checker::data_declaration::build_data_semantics(
+                        &decl_id,
+                        data_def,
+                        Arc::make_mut(&mut self.store),
+                        &declarations,
+                        &resolver,
+                        module_id,
+                    ) else {
+                        diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
+                            module_id.clone(),
+                            DiagnosticCode::AnnotationUnresolved,
+                            format!("data `{}` has no published declaration type", data_def.name),
+                            data_def.range,
+                        ));
+                        continue;
+                    };
+
+                    diags_by_module
+                        .entry(module_id.clone())
+                        .or_default()
+                        .extend(data_product.diagnostics.iter().cloned());
+
+                    data_semantics.insert_data(data_product.info.clone());
+
+                    let arc_data_product = Arc::new(data_product);
+                    let _ = query_data_declaration(&mut self.db, arc_data_product);
+                } else if let Statement::Enum(enum_def) = stmt {
                 let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
                 let Some(enum_product) = crate::checker::enum_declaration::build_enum_semantics(
                     &decl_id,
@@ -2859,6 +3062,7 @@ impl SemanticWorkspaceSession {
                 let _ = query_enum_requirements(&mut self.db, decl_id.clone(), req_product);
             }
         }
+    }
 
         for module_id in &structural_work_modules {
             let Some(shard) = self.semantic_structure_shards.get(module_id) else {
@@ -2868,6 +3072,28 @@ impl SemanticWorkspaceSession {
                 let declaration = match statement {
                     Statement::Class(class_def) => DeclarationId::new(module_id.clone(), class_def.name.clone().into()),
                     Statement::Enum(enum_def) => DeclarationId::new(module_id.clone(), enum_def.name.clone().into()),
+                    Statement::Data(data_def) => {
+                        let declaration = DeclarationId::new(module_id.clone(), data_def.name.clone().into());
+                        if !associated_surfaces_table.surfaces.contains_key(&declaration) {
+                            let mut assoc_surface = crate::associated::AssociatedSurface::new(declaration.clone());
+                            let base = phalcom_common::selector::SelectorBase::Named(data_def.name.clone().into());
+                            let family_id = crate::identity::AssociatedFamilyId::new(declaration.clone(), base.clone());
+                            assoc_surface.families.insert(
+                                base,
+                                crate::associated::AssociatedFamilyInfo {
+                                    id: family_id,
+                                    kind: crate::associated::AssociatedFamilyKind::Variant,
+                                    members: Box::new([crate::associated::AssociatedMemberId::DataConstructor(
+                                        crate::identity::DataConstructorId::new(declaration.clone()),
+                                    )]),
+                                },
+                            );
+                            let assoc_surface = Arc::new(assoc_surface);
+                            associated_surfaces_table.insert(declaration, assoc_surface.clone());
+                            let _ = query_associated_surface(&mut self.db, assoc_surface);
+                        }
+                        continue;
+                    }
                     _ => continue,
                 };
                 if !associated_surfaces_table.surfaces.contains_key(&declaration) {
@@ -2914,6 +3140,7 @@ impl SemanticWorkspaceSession {
                 );
                 ctx.attach_field_signatures(&field_signatures);
                 ctx.attach_enum_semantics(&enum_semantics);
+                ctx.attach_data_semantics(&data_semantics);
                 ctx.attach_associated_families(&associated_surfaces_table);
                 for stmt in &parsed_unit.program.statements {
                     if let Statement::Class(class_def) = stmt {
@@ -3038,6 +3265,7 @@ impl SemanticWorkspaceSession {
                                     field_signatures: Some(&field_signatures),
                                     field_lifecycle: Some(if is_constructor { &default_field_lifecycle } else { &field_lifecycle }),
                                     enum_semantics: Some(&enum_semantics),
+                                    data_semantics: Some(&data_semantics),
                                     associated_families: Some(&associated_surfaces_table),
                                 };
 
@@ -3051,7 +3279,9 @@ impl SemanticWorkspaceSession {
                                     continue;
                                 }
 
-                                refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))?;
+                                if let Err(e) = refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store)) {
+                                    return Err(e);
+                                }
                                 let previous_computation_revision = self.db.query_state(&query_key).and_then(|state| state.revision());
                                 let outcome = query_callable_body_with_formal_inputs(
                                     &mut self.db,
@@ -3223,6 +3453,7 @@ impl SemanticWorkspaceSession {
                                         field_signatures: Some(&field_signatures),
                                         field_lifecycle: Some(&field_lifecycle),
                                         enum_semantics: Some(&enum_semantics),
+                                        data_semantics: Some(&data_semantics),
                                         associated_families: Some(&associated_surfaces_table),
                                     };
 
@@ -3364,6 +3595,7 @@ impl SemanticWorkspaceSession {
                                                 field_signatures: Some(&field_signatures),
                                                 field_lifecycle: Some(&field_lifecycle),
                                                 enum_semantics: Some(&enum_semantics),
+                                                data_semantics: Some(&data_semantics),
                                                 associated_families: Some(&associated_surfaces_table),
                                             };
 
@@ -3483,6 +3715,7 @@ impl SemanticWorkspaceSession {
                 field_signatures: Some(&field_signatures),
                 field_lifecycle: Some(if is_constructor { &default_field_lifecycle } else { &field_lifecycle }),
                 enum_semantics: Some(&enum_semantics),
+                data_semantics: Some(&data_semantics),
                 associated_families: Some(&associated_surfaces_table),
             };
             let has_declared_return = callable_signatures
@@ -3544,6 +3777,7 @@ impl SemanticWorkspaceSession {
             field_signatures: &field_signatures,
             field_lifecycle: &field_lifecycle,
             enum_semantics: &enum_semantics,
+            data_semantics: &data_semantics,
             associated_surfaces: &associated_surfaces_table,
             callable_dispositions: &mut callable_dispositions,
             diagnostics: &mut diags_by_module,
@@ -3569,6 +3803,7 @@ impl SemanticWorkspaceSession {
             ctx.attach_field_signatures(&field_signatures);
             ctx.attach_field_lifecycle(&field_lifecycle);
             ctx.attach_enum_semantics(&enum_semantics);
+            ctx.attach_data_semantics(&data_semantics);
             ctx.attach_associated_families(&associated_surfaces_table);
 
             for stmt in &parsed_unit.program.statements {
@@ -3879,6 +4114,7 @@ impl SemanticWorkspaceSession {
         snapshot_obj = snapshot_obj.with_presentation_sources(Arc::new(presentation_sources));
         snapshot_obj = snapshot_obj.with_source_index(Arc::new(source_index));
         snapshot_obj = snapshot_obj.with_formal_projection(Arc::new(formal_projection));
+        snapshot_obj = snapshot_obj.with_data_semantics(Arc::new(data_semantics));
         snapshot_obj = snapshot_obj.with_enum_semantics(Arc::new(enum_semantics));
         snapshot_obj = snapshot_obj.with_enum_requirements(Arc::new(enum_requirements_table));
         snapshot_obj = snapshot_obj.with_associated_surfaces(Arc::new(associated_surfaces_table));
@@ -4320,6 +4556,7 @@ fn query_key_module_for_worklist(key: &QueryKey) -> Option<&ModuleId> {
         QueryKey::DeclarationShell(declaration)
         | QueryKey::DeclarationSurface(declaration)
         | QueryKey::HierarchyEdge(declaration)
+        | QueryKey::DataDeclaration(declaration)
         | QueryKey::EnumDeclaration(declaration)
         | QueryKey::EnumRequirements(declaration)
         | QueryKey::AssociatedSurface(declaration) => Some(&declaration.module),
@@ -5197,7 +5434,8 @@ fn advisory_target_resolution(site: &SourceSiteId, target: &SemanticTargetId) ->
         | SemanticTargetId::Module(_)
         | SemanticTargetId::Variant(_)
         | SemanticTargetId::VariantFamily(_)
-        | SemanticTargetId::VariantField(_) => AdvisoryOrigin::Constraint(site.clone()),
+        | SemanticTargetId::VariantField(_)
+        | SemanticTargetId::DataComponent(_) => AdvisoryOrigin::Constraint(site.clone()),
     };
     AdvisoryTargetResolution {
         target: target.clone(),
@@ -5507,6 +5745,7 @@ struct InferredCallableRefreshInputs<'a> {
     field_signatures: &'a FieldSignatureTable,
     field_lifecycle: &'a crate::checker::field_lifecycle::FieldLifecycleTable,
     enum_semantics: &'a EnumSemanticTable,
+    data_semantics: &'a DataSemanticTable,
     associated_surfaces: &'a AssociatedFamilyTable,
     callable_dispositions: &'a mut BTreeMap<CallableId, CallableRevisionDisposition>,
     diagnostics: &'a mut BTreeMap<ModuleId, Vec<SemanticDiagnostic>>,
@@ -5552,6 +5791,7 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
         field_signatures,
         field_lifecycle,
         enum_semantics,
+        data_semantics,
         associated_surfaces,
         callable_dispositions,
         diagnostics,
@@ -5722,6 +5962,7 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
                             field_signatures: Some(field_signatures),
                             field_lifecycle: Some(field_lifecycle),
                             enum_semantics: Some(enum_semantics),
+                            data_semantics: Some(data_semantics),
                             associated_families: Some(associated_surfaces),
                         },
                     );

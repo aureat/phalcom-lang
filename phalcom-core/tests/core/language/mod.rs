@@ -43,3 +43,7 @@ mod numeric_diagnostics;
 mod numeric_values;
 #[path = "option.rs"]
 mod option;
+#[path = "data_runtime.rs"]
+mod data_runtime;
+#[path = "data_e2e.rs"]
+mod data_e2e;

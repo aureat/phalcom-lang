@@ -32,6 +32,7 @@ pub enum DeclarationKind {
     Class,
     Protocol,
     Adt,
+    Data,
     Alias,
 }
 

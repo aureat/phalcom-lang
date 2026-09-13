@@ -275,6 +275,7 @@ pub enum SemanticDependency {
     DeclarationSurface(DeclarationId),
     HierarchyEdge(DeclarationId),
     LinkedInterface(ModuleId),
+    DataDeclaration(DeclarationId),
     EnumDeclaration(DeclarationId),
     AssociatedSurface(DeclarationId),
     ResolvedImport(phalcom_modules::identity::ImportSiteId),

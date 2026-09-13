@@ -1722,6 +1722,51 @@ pub fn advisory_module_product_fingerprint(product: &crate::advisory::AdvisoryMo
     product.fingerprint
 }
 
+pub fn data_declaration_input_fingerprint(product: &crate::db::product::DataDeclarationProduct) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    product.info.owner.hash(&mut hasher);
+    product.info.root_form.hash(&mut hasher);
+    product.info.shape.hash(&mut hasher);
+    match &product.info.generic_signature {
+        Some(signature) => {
+            1u8.hash(&mut hasher);
+            hash_generic_signature(signature, &mut hasher);
+        }
+        None => 0u8.hash(&mut hasher),
+    }
+    for c in product.info.components.iter() {
+        c.id.hash(&mut hasher);
+        c.external_label.hash(&mut hasher);
+        c.local_name.hash(&mut hasher);
+        c.declared_type.hash(&mut hasher);
+    }
+    product.info.constructor.constructor.hash(&mut hasher);
+    product.info.constructor.result_type_template.hash(&mut hasher);
+    finish_input(hasher)
+}
+
+pub fn data_declaration_product_fingerprint(product: &crate::db::product::DataDeclarationProduct) -> ProductFingerprint {
+    let mut hasher = DefaultHasher::new();
+    product.info.owner.hash(&mut hasher);
+    product.info.shape.hash(&mut hasher);
+    match &product.info.generic_signature {
+        Some(signature) => {
+            1u8.hash(&mut hasher);
+            hash_generic_signature(signature, &mut hasher);
+        }
+        None => 0u8.hash(&mut hasher),
+    }
+    for c in product.info.components.iter() {
+        c.id.hash(&mut hasher);
+        c.external_label.hash(&mut hasher);
+        c.local_name.hash(&mut hasher);
+        c.declared_type.hash(&mut hasher);
+    }
+    product.info.constructor.constructor.hash(&mut hasher);
+    product.info.constructor.result_type_template.hash(&mut hasher);
+    finish_product(hasher)
+}
+
 pub fn enum_declaration_input_fingerprint(product: &crate::db::product::EnumDeclarationProduct) -> InputFingerprint {
     let mut hasher = DefaultHasher::new();
     product.info.owner.hash(&mut hasher);

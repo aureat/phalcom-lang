@@ -18,6 +18,7 @@ use std::sync::Arc;
 /// Declaration-surface query payload.
 ///
 use crate::associated::AssociatedSurface;
+use crate::data_semantics::DataInfo;
 use crate::enum_requirements::{CaseRequirementResult, EnumRequirement};
 use crate::enum_semantics::{EnumInfo, VariantInfo};
 
@@ -37,6 +38,13 @@ impl DeclarationSurfaceProduct {
     pub fn new(surface: Arc<DeclarationSurface>, diagnostics: Arc<[SemanticDiagnostic]>) -> Self {
         Self { surface, diagnostics }
     }
+}
+
+/// Product of compiling a data declaration.
+#[derive(Clone, Debug)]
+pub struct DataDeclarationProduct {
+    pub info: Arc<DataInfo>,
+    pub diagnostics: Arc<[SemanticDiagnostic]>,
 }
 
 /// Product of compiling an enum declaration and its variants.
@@ -106,6 +114,7 @@ pub enum SemanticProduct {
     AdvisoryModule(Arc<AdvisoryModuleProduct>),
     ModuleDiagnostics(Arc<[SemanticDiagnostic]>),
     SemanticComponent(Arc<LinkedProgram>),
+    DataDeclaration(Arc<DataDeclarationProduct>),
     EnumDeclaration(Arc<EnumDeclarationProduct>),
     EnumRequirements(Arc<EnumRequirementsProduct>),
     AssociatedSurface(Arc<AssociatedSurface>),
@@ -236,6 +245,13 @@ impl SemanticProduct {
         }
     }
 
+    pub fn as_data_declaration(&self) -> Option<&Arc<DataDeclarationProduct>> {
+        match self {
+            Self::DataDeclaration(product) => Some(product),
+            _ => None,
+        }
+    }
+
     pub fn as_enum_declaration(&self) -> Option<&Arc<EnumDeclarationProduct>> {
         match self {
             Self::EnumDeclaration(product) => Some(product),
@@ -297,6 +313,7 @@ impl SemanticProduct {
             Self::AdvisoryModule(_) => b"advisory-module".as_slice(),
             Self::ModuleDiagnostics(_) => b"module-diagnostics".as_slice(),
             Self::SemanticComponent(_) => b"semantic-component".as_slice(),
+            Self::DataDeclaration(_) => b"data-declaration".as_slice(),
             Self::EnumDeclaration(_) => b"enum-declaration".as_slice(),
             Self::EnumRequirements(_) => b"enum-requirements".as_slice(),
             Self::AssociatedSurface(_) => b"associated-surface".as_slice(),

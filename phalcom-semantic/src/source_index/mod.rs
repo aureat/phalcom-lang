@@ -413,6 +413,7 @@ fn build_module_workspace_symbols(structure: &SourceScopeIndex) -> Arc<[Workspac
             kind: match decl.kind {
                 SourceDeclarationKind::Class => EditorSymbolKind::Class,
                 SourceDeclarationKind::Enum => EditorSymbolKind::Enum,
+                SourceDeclarationKind::Data => EditorSymbolKind::Data,
                 SourceDeclarationKind::TypeAlias => EditorSymbolKind::TypeAlias,
             },
             container_name: None,
@@ -478,6 +479,21 @@ fn build_module_workspace_symbols(structure: &SourceScopeIndex) -> Arc<[Workspac
                     declaration_site: site.id.clone(),
                     kind: EditorSymbolKind::VariantField,
                     container_name: Some(id.variant.owner.name.clone()),
+                });
+            }
+            SourceSiteKind::DataComponent(id) => {
+                let name = format!("{}:{}", id.owner.name, id.index).into_boxed_str();
+                symbols.push(WorkspaceSymbolEntry {
+                    id: WorkspaceSymbolId {
+                        target: SemanticTargetId::DataComponent(id.clone()),
+                        site: site.id.clone(),
+                    },
+                    name: name.clone(),
+                    normalized_name: name.to_lowercase().into_boxed_str(),
+                    target: SemanticTargetId::DataComponent(id.clone()),
+                    declaration_site: site.id.clone(),
+                    kind: EditorSymbolKind::DataComponent,
+                    container_name: Some(id.owner.name.clone()),
                 });
             }
             _ => {}

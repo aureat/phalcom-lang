@@ -54,7 +54,8 @@ impl ModuleSemanticStructureShard {
         for statement in &source.program.statements {
             let (name, kind) = match statement {
                 Statement::Class(class_def) => (&class_def.name, DeclarationKind::Class),
-                Statement::Enum(enum_def) => (&enum_def.name, DeclarationKind::Class),
+                Statement::Enum(enum_def) => (&enum_def.name, DeclarationKind::Adt),
+                Statement::Data(data_def) => (&data_def.name, DeclarationKind::Data),
                 Statement::TypeAlias(alias) => (&alias.name, DeclarationKind::Alias),
                 _ => continue,
             };
@@ -89,6 +90,10 @@ impl ModuleSemanticStructureShard {
                         &mut callable_signature_fingerprints,
                         &mut callable_body_fingerprints,
                     );
+                }
+                Statement::Data(data_def) => {
+                    declaration_header_fingerprints.insert(declaration.clone(), declaration_header_fingerprint(&source, data_def.range));
+                    hierarchy_edge_fingerprints.insert(declaration.clone(), hierarchy_fingerprint(&source, None));
                 }
                 Statement::TypeAlias(alias) => {
                     alias_sources.insert(declaration, alias.clone());

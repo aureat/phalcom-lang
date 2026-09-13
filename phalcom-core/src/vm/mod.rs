@@ -13,6 +13,7 @@ mod api;
 pub mod associated;
 mod bootstrap;
 pub mod control;
+pub mod data;
 mod dispatch;
 #[cfg(test)]
 mod f2_pack_authority_tests;
@@ -433,6 +434,8 @@ pub struct VM {
     pub numeric_policy: crate::value::NumericPolicy,
     /// Runtime ADT registry for enums and variants.
     pub adt_registry: crate::adt::RuntimeAdtRegistry,
+    /// Runtime data registry for data descriptors.
+    pub data_registry: crate::data::RuntimeDataRegistry,
     /// Bounded free-list for recycling fiber stacks/frames to avoid
     /// allocations (U-GC step 5, `fiber-pool` feature). Measured net
     /// negative in whole-process A/B benchmarking (perf-log, 2026-07-14);
@@ -442,6 +445,60 @@ pub struct VM {
 }
 
 impl VM {
+    /// Checks language-level exact sameness (`===`).
+    ///
+    /// For data values (both `DataSingleton` and heap `DataObject`), equality is
+    /// representation-independent: exact semantic descriptor match and recursive
+    /// component-wise `semantic_same`. For non-data values, falls back to
+    /// `lhs.same_as(&rhs)`.
+    pub fn semantic_same(&self, lhs: Value, rhs: Value) -> bool {
+        if lhs.same_as(&rhs) {
+            return true;
+        }
+
+        // DataSingleton vs DataSingleton
+        if let (Some(da), Some(db)) = (lhs.as_data_singleton(), rhs.as_data_singleton()) {
+            return da == db;
+        }
+
+        // DataObject vs DataObject
+        if let (Some(oa), Some(ob)) = (lhs.as_obj(), rhs.as_obj()) {
+            if let (Some(da), Some(db)) = (self.heap.as_data(oa), self.heap.as_data(ob)) {
+                if da.descriptor != db.descriptor {
+                    return false;
+                }
+                let Some(layout) = self.heap.product_layouts.get(da.storage.layout) else {
+                    return false;
+                };
+                for comp in &layout.components {
+                    let Ok(va) = da.storage.load_component(layout, comp.logical_index) else {
+                        return false;
+                    };
+                    let Ok(vb) = db.storage.load_component(layout, comp.logical_index) else {
+                        return false;
+                    };
+                    if !self.semantic_same(va, vb) {
+                        return false;
+                    }
+                }
+                return true;
+            }
+        }
+
+        // DataSingleton vs DataObject (nullary data)
+        if let (Some(did), Some(ob)) = (lhs.as_data_singleton(), rhs.as_obj()) {
+            if let Some(db) = self.heap.as_data(ob) {
+                return did == db.descriptor;
+            }
+        }
+        if let (Some(oa), Some(did)) = (lhs.as_obj(), rhs.as_data_singleton()) {
+            if let Some(da) = self.heap.as_data(oa) {
+                return did == da.descriptor;
+            }
+        }
+
+        false
+    }
     /// Atomically reserves an unowned runnable fiber for the scheduler.
     /// `FiberObject::status` is the admission source of truth; the queue is
     /// only the FIFO storage for already-reserved work.

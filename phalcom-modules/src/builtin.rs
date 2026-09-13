@@ -84,6 +84,11 @@ pub const UNIVERSE_NODES: &[UniverseNodeSpec] = &[
     UniverseNodeSpec {
         path: &["time"],
         kind: ModuleKind::Package,
+        children: &["clock"],
+    },
+    UniverseNodeSpec {
+        path: &["time", "clock"],
+        kind: ModuleKind::Module,
         children: &[],
     },
     UniverseNodeSpec {
@@ -549,6 +554,9 @@ impl UniverseSourceProvider {
             [c] if c.as_str() == "math" => include_str!("../../phalcom-core/core/universe/src/math/package.ph"),
             [c] if c.as_str() == "random" => include_str!("../../phalcom-core/core/universe/src/random/package.ph"),
             [c] if c.as_str() == "time" => include_str!("../../phalcom-core/core/universe/src/time/package.ph"),
+            [c, m] if c.as_str() == "time" && m.as_str() == "clock" => {
+                include_str!("../../phalcom-core/core/universe/src/time/clock.ph")
+            }
             [c] if c.as_str() == "process" => include_str!("../../phalcom-core/core/universe/src/process/package.ph"),
             [c] if c.as_str() == "net" => include_str!("../../phalcom-core/core/universe/src/net/package.ph"),
             [c] if c.as_str() == "concurrent" => include_str!("../../phalcom-core/core/universe/src/concurrent/package.ph"),

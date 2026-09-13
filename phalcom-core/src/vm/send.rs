@@ -1154,8 +1154,7 @@ impl VM {
             crate::modules::semantic_lowering::ExecutableFamilyTarget::VariantConstructor { variant } => {
                 let runtime_var_id = self.adt_registry.variant_by_semantic(&variant).ok_or("unregistered variant")?;
                 let payload: Vec<Value> = self.stack.drain(receiver_idx + 1..).collect();
-                let case_ref = self.heap.alloc_adt_case(runtime_var_id, payload.into_boxed_slice());
-                let value = Value::obj(case_ref);
+                let value = self.construct_variant_value(runtime_var_id, payload)?;
                 self.stack.truncate(receiver_idx);
                 self.stack.push(value);
                 Ok(CallOutcome::Returned(value))
@@ -1166,7 +1165,8 @@ impl VM {
                     crate::modules::semantic_lowering::ExecutableInvocationTarget::Behavioral { callable, .. } => {
                         self.get_or_intern(&callable.selector.to_string())
                     }
-                    crate::modules::semantic_lowering::ExecutableInvocationTarget::VariantConstructor { .. } => unreachable!(),
+                    crate::modules::semantic_lowering::ExecutableInvocationTarget::VariantConstructor { .. }
+                    | crate::modules::semantic_lowering::ExecutableInvocationTarget::DataConstructor { .. } => unreachable!(),
                 };
                 self.stack[receiver_idx] = resolved.receiver;
                 self.dispatch_selected_method_as(
@@ -1178,6 +1178,21 @@ impl VM {
                     source_range,
                     view.caller_authority(),
                 )
+            }
+            crate::modules::semantic_lowering::ExecutableFamilyTarget::DataConstructor { constructor, construction } => {
+                let args: Vec<Value> = self.stack.drain(receiver_idx + 1..).collect();
+                let value = if let Some(spec) = construction {
+                    self.construct_data_from_spec(&spec, args)?
+                } else {
+                    let rdesc_id = self
+                        .data_registry
+                        .descriptor_by_declaration(&constructor.owner)
+                        .ok_or_else(|| RuntimeError::Message("unregistered data descriptor".to_string()))?;
+                    self.construct_data_value(rdesc_id, args)?
+                };
+                self.stack.truncate(receiver_idx);
+                self.stack.push(value);
+                Ok(CallOutcome::Returned(value))
             }
         }
     }

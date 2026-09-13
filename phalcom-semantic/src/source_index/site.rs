@@ -1,4 +1,4 @@
-use crate::identity::{CallableId, DeclarationId, FieldId, SourceOwner, SourceSiteId, VariantFamilyId, VariantFieldId, VariantId};
+use crate::identity::{CallableId, DataComponentId, DeclarationId, FieldId, SourceOwner, SourceSiteId, VariantFamilyId, VariantFieldId, VariantId};
 use phalcom_common::range::SourceRange;
 
 /// Kind of source location recorded in a compiler source index.
@@ -18,6 +18,8 @@ pub enum SourceSiteKind {
     VariantFamily(VariantFamilyId),
     /// Variant field declaration site with canonical field identity.
     VariantField(VariantFieldId),
+    /// Data component declaration site with canonical component identity.
+    DataComponent(DataComponentId),
     /// Binding declaration site; target attachment is published separately.
     BindingDeclaration,
     /// Expression site attached to a formal expression product.

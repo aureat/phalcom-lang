@@ -19,8 +19,9 @@ use crate::checker::associated::{
 use crate::checker::binding::{BindingConsistency, BindingWriteResult, reconcile_binding_relation};
 use crate::checker::causal::CausalInvalidity;
 use crate::checker::flow::FlowState;
+use crate::data_semantics::{DataInfo, DataShape};
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
-use crate::dispatch::{CallableSignature, ResolvedDispatch, ResolvedDispatchResult};
+use crate::dispatch::{CallableParameter, CallableSemanticKind, CallableSignature, ResolvedDispatch, ResolvedDispatchResult};
 use crate::identity::{DeclarationId, InvocationTargetId};
 use crate::types::annotation::TypeResolver;
 use crate::types::denotation::{AssociatedValueDenotation, BehavioralFamilyDenotation, CapturedBehavioralMember, SemanticDenotation, ValueSemanticFact};
@@ -873,7 +874,185 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
         // Reserved implementation selectors are compiler-internal sends. They
         // remain explicitly unavailable to ordinary source semantics.
         Expr::ImplementationSelector { .. } => TypedExpression::unknown(UnknownReason::UncheckedExpression),
+        Expr::RecordConstruction(record) => synthesize_record_construction(ctx, record, expected),
     }
+}
+
+pub(crate) fn callable_target_for_data_info(data_info: &DataInfo) -> CallableApplicationTarget {
+    let parameters = data_info
+        .constructor
+        .parameters
+        .iter()
+        .map(|p| {
+            let mut param = CallableParameter::new(p.local_name.to_string(), p.declared_type.to_knowledge());
+            if let Some(label) = &p.external_label {
+                param = param.with_label(label.to_string());
+            }
+            param
+        })
+        .collect::<Vec<_>>();
+    let selector = match data_info.shape {
+        DataShape::Tuple => {
+            let slots = data_info
+                .constructor
+                .parameters
+                .iter()
+                .map(|p| {
+                    if let Some(label) = &p.external_label {
+                        SelectorSlot::Label(label.to_string())
+                    } else {
+                        SelectorSlot::Positional
+                    }
+                })
+                .collect::<Vec<_>>();
+            Selector::method(&*data_info.owner.name, slots).unwrap_or_else(|_| Selector::new(SelectorBase::Named(data_info.owner.name.to_string()), SelectorKind::Method, Box::new([])).unwrap())
+        }
+        DataShape::Record => {
+            let slots = data_info
+                .constructor
+                .parameters
+                .iter()
+                .map(|p| {
+                    if let Some(label) = &p.external_label {
+                        SelectorSlot::Label(label.to_string())
+                    } else {
+                        SelectorSlot::Label(p.local_name.to_string())
+                    }
+                })
+                .collect::<Vec<_>>();
+            Selector::method(&*data_info.owner.name, slots).unwrap_or_else(|_| Selector::new(SelectorBase::Named(data_info.owner.name.to_string()), SelectorKind::Method, Box::new([])).unwrap())
+        }
+    };
+    let mut signature = CallableSignature::new(
+        selector,
+        parameters,
+        TypeKnowledge::established(data_info.constructor.result_type_template, EvidenceOrigin::DeclarationSemantics),
+    )
+    .with_kind(CallableSemanticKind::Constructor);
+    if let Some(generics) = &data_info.generic_signature {
+        signature = signature.with_generics(generics.clone());
+    }
+    CallableApplicationTarget::data_constructor(data_info.constructor.constructor.clone(), signature)
+}
+
+fn compute_data_argument_mapping_from_record(data_info: &DataInfo, entries: &[phalcom_ast::ast::RecordConstructionEntry]) -> Option<Box<[u32]>> {
+    let mut mapping = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let comp_idx = data_info.components.iter().position(|c| c.local_name.as_ref() == entry.label.as_str())?;
+        mapping.push(comp_idx as u32);
+    }
+    if mapping.len() == entries.len() {
+        Some(mapping.into_boxed_slice())
+    } else {
+        None
+    }
+}
+
+fn compute_data_argument_mapping_from_pack(data_info: &DataInfo, args: &[PackItem]) -> Option<Box<[u32]>> {
+    let mut mapping = Vec::with_capacity(args.len());
+    for (i, item) in args.iter().enumerate() {
+        match item {
+            PackItem::Positional { .. } => {
+                let comp_idx = data_info.constructor.parameters.get(i)?.component.index;
+                mapping.push(comp_idx);
+            }
+            PackItem::Labeled { label, .. } => {
+                let label_text = match label {
+                    PackLabel::Static { text, .. } => text.as_str(),
+                    PackLabel::Computed { .. } => return None,
+                };
+                let param = data_info.constructor.parameters.iter().find(|p| {
+                    p.external_label.as_deref() == Some(label_text)
+                        || (p.external_label.is_none() && p.local_name.as_ref() == label_text)
+                })?;
+                mapping.push(param.component.index);
+            }
+            PackItem::Expand { .. } => return None,
+        }
+    }
+    if mapping.len() == args.len() {
+        Some(mapping.into_boxed_slice())
+    } else {
+        None
+    }
+}
+
+fn synthesize_record_construction(
+    ctx: &mut CheckingContext<'_>,
+    record: &phalcom_ast::ast::RecordConstructionExpr,
+    expected: &ExpectedType,
+) -> TypedExpression {
+    let members: Vec<String> = record.target.members.iter().map(|m| m.name.clone()).collect();
+    let decl_opt = ctx.resolve_type_name_with_path(&record.target.root, &members);
+    let Some(decl_id) = decl_opt else {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::AnnotationUnresolved,
+            format!("unresolved type `{}`", record.target.root),
+            record.target.range,
+        ));
+        return TypedExpression::unknown(UnknownReason::UnresolvedName(record.target.root.clone().into()));
+    };
+
+    let Some(data_info) = ctx.data_info(&decl_id).cloned() else {
+        ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::AnnotationUnresolved,
+            format!("type `{}` is not a data declaration", record.target.leaf_name()),
+            record.range,
+        ));
+        return TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause);
+    };
+
+    let premise = CallPremise::established(TypeKnowledge::established(data_info.root_form, EvidenceOrigin::DeclarationSemantics));
+    let args: Vec<super::call::ApplicationArgument<'_>> = record
+        .entries
+        .iter()
+        .map(|entry| super::call::ApplicationArgument::Labeled {
+            label: &entry.label,
+            expression: &entry.value,
+            range: entry.range,
+        })
+        .collect();
+
+    let mut target = callable_target_for_data_info(&data_info);
+    if !record.type_arguments.is_empty() {
+        let formation_site = crate::types::annotation::TypeFormationSite::module(ctx.current_module.clone());
+        let mut fixed_generics = Vec::new();
+        if let Some(sig) = &data_info.generic_signature {
+            for (idx, type_annot) in record.type_arguments.iter().enumerate() {
+                if let Some(&param_id) = sig.parameters.get(idx) {
+                    let (res, _) = ctx.resolve_type_form(ctx.resolver.inner(), &formation_site, type_annot);
+                    if let crate::types::annotation::TypeFormResolution::Ready(ty) = res {
+                        fixed_generics.push((param_id, ty));
+                    }
+                }
+            }
+        }
+        if !fixed_generics.is_empty() {
+            target = target.with_fixed_generics(fixed_generics);
+        }
+    }
+    let argument_mapping = compute_data_argument_mapping_from_record(&data_info, &record.entries);
+    let result = apply_resolved_callable(ctx, &target, &premise, &args, expected, record.range);
+    let result_type = result.knowledge.ty().or_else(|| target.signature.return_type.ty());
+    if let (Some(result_type), Some(expression)) = (result_type, ctx.current_expression_id()) {
+        ctx.record_associated_resolution(
+            expression,
+            AssociatedResolution {
+                owner_form: data_info.root_form,
+                lookup_owner: data_info.owner.clone(),
+                family: None,
+                kind: AssociatedResolutionKind::StaticInvoke {
+                    member: AssociatedMemberId::DataConstructor(data_info.constructor.constructor.clone()),
+                    target: InvocationTargetId::DataConstructor(data_info.constructor.constructor.clone()),
+                    result_type,
+                    argument_mapping,
+                },
+            },
+        );
+    }
+    result.into()
 }
 
 /// Returns ordinary runtime value type for a type-form value, without
@@ -924,6 +1103,7 @@ fn synthesize_associated_lookup(ctx: &mut CheckingContext<'_>, lookup: &Associat
                         .iter()
                         .find(|m| match m {
                             AssociatedMemberId::Variant(v) => v.selector == selector,
+                            _ => false,
                         })
                         .cloned()
                     else {
@@ -1085,13 +1265,38 @@ fn synthesize_associated_callable_reference(
     let member_ids = family
         .members
         .iter()
-        .filter(|member| {
-            let AssociatedMemberId::Variant(variant) = member;
-            match &normalized {
+        .filter(|member| match member {
+            AssociatedMemberId::Variant(variant) => match &normalized {
                 None => true,
                 Some(phalcom_ast::ast::NormalizedSelectorSpec::Exact(selector)) => variant.selector == *selector,
                 Some(phalcom_ast::ast::NormalizedSelectorSpec::Pattern(pattern)) => pattern.matches(&variant.selector),
+            },
+            AssociatedMemberId::DataConstructor(dc) => {
+                ctx.data_info(&dc.owner).is_some_and(|info| {
+                    let slots: Vec<SelectorSlot> = info
+                        .constructor
+                        .parameters
+                        .iter()
+                        .map(|p| match &p.external_label {
+                            Some(label) => SelectorSlot::Label(label.to_string()),
+                            None => SelectorSlot::Positional,
+                        })
+                        .collect();
+                    let Ok(dc_selector) = Selector::new(
+                        SelectorBase::Named(dc.owner.name.to_string()),
+                        SelectorKind::Method,
+                        slots.into_boxed_slice(),
+                    ) else {
+                        return false;
+                    };
+                    match &normalized {
+                        None => true,
+                        Some(phalcom_ast::ast::NormalizedSelectorSpec::Exact(selector)) => dc_selector == *selector,
+                        Some(phalcom_ast::ast::NormalizedSelectorSpec::Pattern(pattern)) => pattern.matches(&dc_selector),
+                    }
+                })
             }
+            AssociatedMemberId::DataComponent(_) => false,
         })
         .cloned()
         .collect::<Vec<_>>();
@@ -1318,6 +1523,46 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
         .iter()
         .find(|m| match m {
             AssociatedMemberId::Variant(v) => v.selector == selector,
+            AssociatedMemberId::DataConstructor(dc) => {
+                if let Some(dinfo) = ctx.data_info(&dc.owner) {
+                    let ctor_selector = match dinfo.shape {
+                        DataShape::Tuple => {
+                            let slots = dinfo
+                                .constructor
+                                .parameters
+                                .iter()
+                                .map(|p| {
+                                    if let Some(label) = &p.external_label {
+                                        SelectorSlot::Label(label.to_string())
+                                    } else {
+                                        SelectorSlot::Positional
+                                    }
+                                })
+                                .collect::<Vec<_>>();
+                            Selector::method(&*dinfo.owner.name, slots).ok()
+                        }
+                        DataShape::Record => {
+                            let slots = dinfo
+                                .constructor
+                                .parameters
+                                .iter()
+                                .map(|p| {
+                                    if let Some(label) = &p.external_label {
+                                        SelectorSlot::Label(label.to_string())
+                                    } else {
+                                        SelectorSlot::Label(p.local_name.to_string())
+                                    }
+                                })
+                                .collect::<Vec<_>>();
+                            Selector::method(&*dinfo.owner.name, slots).ok()
+                        }
+                    };
+                    ctor_selector.as_ref() == Some(&selector)
+                } else {
+                    false
+                }
+            }
+            _ => false,
         })
         .cloned()
     else {
@@ -1416,6 +1661,60 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
             }
             target.with_fixed_generics(fixed_generics)
         }
+        AssociatedMemberId::DataConstructor(dc) => {
+            let Some(data_info) = ctx.data_info(&dc.owner).cloned() else {
+                return TypedExpression::unknown(UnknownReason::UncheckedExpression);
+            };
+            let constructor = &data_info.constructor;
+
+            let mut env = crate::types::environment::TypeEnvironment::new();
+            let mut fixed_generics = Vec::with_capacity(owner.supplied_arguments.len());
+            for (idx, &arg) in owner.supplied_arguments.iter().enumerate() {
+                if let Some(param_id) = ctx.store.find_type_parameter_id(
+                    &crate::types::parameter::TypeParameterOwner::Declaration(owner.lookup_owner.clone()),
+                    idx as u32,
+                ) {
+                    env.bind_param(param_id, arg);
+                    fixed_generics.push((param_id, arg));
+                }
+            }
+
+            let parameters = constructor
+                .parameters
+                .iter()
+                .map(|parameter| {
+                    let Some(p_ty) = parameter.declared_type.canonical_type() else {
+                        return Err(());
+                    };
+                    let ty = TypeView::new(p_ty, env.clone()).materialize(ctx.store);
+                    let mut callable_parameter = crate::dispatch::CallableParameter::new(
+                        parameter.local_name.to_string(),
+                        TypeKnowledge::established(ty, EvidenceOrigin::ConstructorSemantics),
+                    );
+                    if let Some(label) = &parameter.external_label {
+                        callable_parameter = callable_parameter.with_label(label.to_string());
+                    }
+                    Ok(callable_parameter)
+                })
+                .collect::<Result<Vec<_>, ()>>();
+            let Ok(parameters) = parameters else {
+                ctx.record_call_status(AnalysisStatus::Blocked(BlockReason::InvalidAnnotation(DiagnosticCode::AssociatedMemberMissing)));
+                return TypedExpression::unknown(UnknownReason::InferenceBlocked)
+                    .with_status(AnalysisStatus::Blocked(BlockReason::InvalidAnnotation(DiagnosticCode::AssociatedMemberMissing)));
+            };
+            let constructor_result_type = TypeView::new(constructor.result_type_template, env).materialize(ctx.store);
+            let signature = CallableSignature::new(
+                selector.clone(),
+                parameters,
+                TypeKnowledge::established(constructor_result_type, EvidenceOrigin::ConstructorSemantics),
+            );
+            let mut target = CallableApplicationTarget::data_constructor(dc.clone(), signature);
+            if let Some(decl_signature) = data_info.generic_signature.clone() {
+                target = target.with_declaration_generics(decl_signature);
+            }
+            target.with_fixed_generics(fixed_generics)
+        }
+        _ => return TypedExpression::unknown(UnknownReason::UncheckedExpression),
     };
 
     let Some(invocation_target) = target.target.clone() else {
@@ -1442,6 +1741,7 @@ fn synthesize_associated_invoke(ctx: &mut CheckingContext<'_>, invoke: &Associat
                     member: member_id,
                     target: invocation_target,
                     result_type,
+                    argument_mapping: None,
                 },
             },
         );
@@ -2166,7 +2466,7 @@ fn family_callable_application_target(
         application_target.authority = CallTargetAuthority::ExactDispatch;
         application_target.callable = match target {
             InvocationTargetId::Behavioral(callable) => Some(callable.clone()),
-            InvocationTargetId::VariantConstructor(_) => None,
+            InvocationTargetId::VariantConstructor(_) | InvocationTargetId::DataConstructor(_) => None,
         };
     }
     Some(application_target)
@@ -2178,7 +2478,7 @@ fn associated_variant_constructor_target(
     member_id: &AssociatedMemberId,
     range: SourceRange,
 ) -> Option<CallableApplicationTarget> {
-    let AssociatedMemberId::Variant(variant) = member_id;
+    let AssociatedMemberId::Variant(variant) = member_id else { return None; };
     let variant_info = ctx.variant_info(variant).cloned()?;
     let constructor = variant_info.constructor.clone()?;
 
@@ -2746,6 +3046,31 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
 
     // 3. Constructor or nominal reference
     if let Some(decl) = ctx.resolve_type_name(&call.name) {
+        if let Some(data_info) = ctx.data_info(&decl).cloned() {
+            let premise = CallPremise::established(TypeKnowledge::established(data_info.root_form, EvidenceOrigin::DeclarationSemantics));
+            let arguments = application_arguments(&call.args);
+            let target = callable_target_for_data_info(&data_info);
+            let result = apply_resolved_callable(ctx, &target, &premise, &arguments, expected, call.range);
+            let result_type = result.knowledge.ty().or_else(|| target.signature.return_type.ty());
+            let argument_mapping = compute_data_argument_mapping_from_pack(&data_info, &call.args);
+            if let (Some(result_type), Some(expression)) = (result_type, ctx.current_expression_id()) {
+                ctx.record_associated_resolution(
+                    expression,
+                    AssociatedResolution {
+                        owner_form: data_info.root_form,
+                        lookup_owner: data_info.owner.clone(),
+                        family: None,
+                        kind: AssociatedResolutionKind::StaticInvoke {
+                            member: AssociatedMemberId::DataConstructor(data_info.constructor.constructor.clone()),
+                            target: InvocationTargetId::DataConstructor(data_info.constructor.constructor.clone()),
+                            result_type,
+                            argument_mapping,
+                        },
+                    },
+                );
+            }
+            return result.into();
+        }
         let Some(ty) = ctx.nominal_type_of(&decl) else {
             return TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause);
         };
@@ -3183,6 +3508,54 @@ fn synthesize_get_property(ctx: &mut CheckingContext<'_>, get: &GetPropertyExpr,
     };
     let receiver_form = receiver_type_form(&recv_typed);
 
+    // 0. Check Data Component on nominal data instance
+    if let Some(decl_id) = ctx.store.nominal_origin_declaration(recv_ty).cloned() {
+        if let Some(data_info) = ctx.data_info(&decl_id).cloned() {
+            if let Some(component) = data_info.find_component(&get.property) {
+                let comp_decl_ty = component.declared_type.canonical_type().unwrap_or(recv_ty);
+                let specialized_ty = if let Some(sig) = data_info.generic_signature.as_ref() {
+                    let type_args = match ctx.store.get(recv_ty) {
+                        TypeData::Applied { arguments, .. } => arguments.as_ref(),
+                        _ => &[],
+                    };
+                    let mut instantiation = crate::types::instantiation::GenericInstantiation::default();
+                    for (idx, &arg) in type_args.iter().enumerate() {
+                        if let Some(&param_id) = sig.parameters.get(idx) {
+                            instantiation.bind_type(param_id, arg);
+                        }
+                    }
+                    crate::types::instantiation::materialize_type(
+                        ctx.store,
+                        comp_decl_ty,
+                        &instantiation,
+                        crate::types::instantiation::RowMaterializationMode::PreserveUnboundStableTail,
+                    )
+                    .unwrap_or(comp_decl_ty)
+                } else {
+                    comp_decl_ty
+                };
+                let knowledge = TypeKnowledge::established(specialized_ty, EvidenceOrigin::DeclarationSemantics);
+                let mut typed = TypedExpression::new(knowledge);
+                typed.causal_invalidity = recv_typed.causal_invalidity;
+                if let (Some(result_type), Some(expression)) = (Some(specialized_ty), ctx.current_expression_id()) {
+                    ctx.record_associated_resolution(
+                        expression,
+                        AssociatedResolution {
+                            owner_form: recv_ty,
+                            lookup_owner: decl_id.clone(),
+                            family: None,
+                            kind: AssociatedResolutionKind::ExactValue {
+                                member: AssociatedMemberId::DataComponent(component.id.clone()),
+                                value_type: result_type,
+                            },
+                        },
+                    );
+                }
+                return typed;
+            }
+        }
+    }
+
     // 1. Check Field on class surface
     let field_read = if let Some(form) = receiver_form {
         ctx.store
@@ -3255,6 +3628,27 @@ fn synthesize_set_property(ctx: &mut CheckingContext<'_>, set: &SetPropertyExpr)
         return super::call::assignment_result_from_call(ctx, operation, set.range);
     };
     let receiver_form = receiver_type_form(&recv_typed);
+
+    // 0. Check data component on nominal data instance (immutable)
+    if let Some(decl_id) = ctx.store.nominal_origin_declaration(recv_ty).cloned() {
+        if let Some(data_info) = ctx.data_info(&decl_id).cloned() {
+            if let Some(_component) = data_info.find_component(&set.property) {
+                let cause = ctx.emit_diagnostic(SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    DiagnosticCode::DataComponentImmutable,
+                    format!("cannot assign to immutable data component `{}` on `{}`", set.property, data_info.owner.name),
+                    set.range,
+                ));
+                let value_typed = analyze_expression(ctx, &set.value, &ExpectedType::None);
+                let mut typed = TypedExpression::new(TypeKnowledge::Dynamic(DynamicReason::RuntimeReflection));
+                if let Some(cause) = cause {
+                    typed.invalidate(cause);
+                }
+                typed.causal_invalidity = recv_typed.causal_invalidity.join(value_typed.causal_invalidity);
+                return typed;
+            }
+        }
+    }
 
     // 1. Check field
     let field_opt = if let Some(form) = receiver_form {

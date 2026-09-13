@@ -85,3 +85,5 @@ class UnwrapError is Error {
     }
 }
 
+class TimeoutError is Error {}
+

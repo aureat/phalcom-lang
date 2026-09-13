@@ -26,6 +26,7 @@ pub(crate) enum ValueTag {
     Obj = 6,
     None = 7,
     AdtSingleton = 8,
+    DataSingleton = 9,
 }
 
 impl ValueTag {
@@ -41,6 +42,7 @@ impl ValueTag {
             6 => Self::Obj,
             7 => Self::None,
             8 => Self::AdtSingleton,
+            9 => Self::DataSingleton,
             _ => panic!("invalid ValueTag"),
         }
     }
@@ -139,6 +141,39 @@ impl Value {
         } else {
             None
         }
+    }
+
+    #[inline]
+    pub const fn data_singleton(descriptor: crate::data::RuntimeDataDescriptorId) -> Self {
+        Self {
+            payload: descriptor.0 as u64,
+            meta: ValueTag::DataSingleton as u64,
+        }
+    }
+
+    #[inline]
+    pub fn is_data_singleton(self) -> bool {
+        self.tag() == ValueTag::DataSingleton && self.some_depth_raw() == 0
+    }
+
+    #[inline]
+    pub fn as_data_singleton(self) -> Option<crate::data::RuntimeDataDescriptorId> {
+        if self.is_data_singleton() {
+            Some(crate::data::RuntimeDataDescriptorId(self.payload as u32))
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub(crate) const fn from_raw_words(payload: u64, meta: u64) -> Self {
+        debug_assert!(meta & RESERVED_MASK == 0, "from_raw_words: reserved bits must be zero");
+        Self { payload, meta }
+    }
+
+    #[inline]
+    pub(crate) const fn raw_words(self) -> (u64, u64) {
+        (self.payload, self.meta)
     }
 
     #[inline]
@@ -264,7 +299,7 @@ impl PartialEq for Value {
             }
             ValueTag::Symbol => (self.payload as u32) == (other.payload as u32),
             ValueTag::Obj => self.payload == other.payload,
-            ValueTag::AdtSingleton => (self.payload as u32) == (other.payload as u32),
+            ValueTag::AdtSingleton | ValueTag::DataSingleton => (self.payload as u32) == (other.payload as u32),
         }
     }
 }
@@ -292,7 +327,7 @@ impl Hash for Value {
             }
             ValueTag::Symbol => (self.payload as u32).hash(state),
             ValueTag::Obj => self.payload.hash(state),
-            ValueTag::AdtSingleton => (self.payload as u32).hash(state),
+            ValueTag::AdtSingleton | ValueTag::DataSingleton => (self.payload as u32).hash(state),
         }
     }
 }

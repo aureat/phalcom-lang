@@ -1766,8 +1766,8 @@ impl VM {
                         } else if let Some(class) = self.heap.as_class(id) {
                             let val = class.static_slots.get(slot as usize).copied().unwrap_or(Value::nil());
                             self.stack.push(self.surface_absence(val));
-                        } else if let Object::AdtCase(case) = self.heap.get(id) {
-                            let val = case.payload.get(slot as usize).copied().unwrap_or(Value::nil());
+                        } else if let Object::AdtCase(_) = self.heap.get(id) {
+                            let val = self.case_payload_at(receiver, slot as usize)?;
                             self.stack.push(self.surface_absence(val));
                         } else {
                             let mut val_str = receiver.to_string(self);
@@ -1957,7 +1957,7 @@ impl VM {
                 Bytecode::Same => {
                     let rhs = self.pop()?;
                     let lhs = self.pop()?;
-                    self.stack.push(Value::bool(lhs.same_as(&rhs)));
+                    self.stack.push(Value::bool(self.semantic_same(lhs, rhs)));
                 }
                 Bytecode::RaiseUnsupported { operator, direct, reflected } => {
                     let rhs = self.pop()?;
@@ -2041,6 +2041,56 @@ impl VM {
                     let val = self.construct_variant_value(runtime_var_id, payload)?;
                     self.stack.push(val);
                 }
+                Bytecode::Data(spec_idx) => {
+                    let spec = callable.chunk.executable_semantics.data_spec(spec_idx).clone();
+                    let class_id = self.register_data_from_spec(&spec)?;
+                    self.stack.push(Value::obj(class_id));
+                }
+                Bytecode::FinalizeData(spec_idx) => {
+                    let spec = callable.chunk.executable_semantics.data_spec(spec_idx);
+                    if let Some(desc_id) = self.data_registry.descriptor_by_declaration(&spec.owner) {
+                        if let Some(behavior_class) = self.data_registry.descriptor(desc_id).map(|d| d.behavior_class) {
+                            self.finalize_class_base_names(behavior_class);
+                            let meta_id = self.heap.class(behavior_class).class;
+                            self.finalize_class_base_names(meta_id);
+                        }
+                    }
+                }
+                Bytecode::LoadDataSingleton(constructor_idx) => {
+                    let cache = callable.chunk.executable_semantics.data_construction_cache(constructor_idx);
+                    let desc_id = match cache.get() {
+                        Some(id) => id,
+                        None => {
+                            let spec = callable.chunk.executable_semantics.data_construction(constructor_idx);
+                            let id = self.get_or_bind_data_descriptor(spec)?;
+                            cache.set(Some(id));
+                            id
+                        }
+                    };
+                    self.stack.push(Value::data_singleton(desc_id));
+                }
+                Bytecode::ConstructData { constructor, arity } => {
+                    let cache = callable.chunk.executable_semantics.data_construction_cache(constructor);
+                    let desc_id = match cache.get() {
+                        Some(id) => id,
+                        None => {
+                            let spec = callable.chunk.executable_semantics.data_construction(constructor);
+                            let id = self.get_or_bind_data_descriptor(spec)?;
+                            cache.set(Some(id));
+                            id
+                        }
+                    };
+                    let spec = callable.chunk.executable_semantics.data_construction(constructor);
+                    let argc = arity as usize;
+                    let components: Vec<Value> = self.stack.drain(self.stack.len() - argc..).collect();
+                    let val = self.construct_data_value_with_mapping(desc_id, &spec.argument_to_component, components)?;
+                    self.stack.push(val);
+                }
+                Bytecode::GetDataComponent(logical_index) => {
+                    let receiver = self.pop()?;
+                    let component = self.get_data_component(receiver, logical_index as u32)?;
+                    self.stack.push(component);
+                }
                 Bytecode::MakeResolvedBoundMethod(target_idx) => {
                     let target = callable.chunk.executable_semantics.associated_target(target_idx).clone();
                     let resolved = self.bind_behavioral_associated_target(&target)?;
@@ -2066,103 +2116,101 @@ impl VM {
                 }
                 Bytecode::MakeAssociatedFamily(desc_idx) => {
                     let descriptor = callable.chunk.executable_semantics.family_descriptor(desc_idx).clone();
-                    let mut bound_owner = None;
-                    for entry in descriptor.entries.iter() {
-                        if let crate::modules::semantic_lowering::ExecutableFamilyTarget::Behavioral {
-                            target: crate::modules::semantic_lowering::ExecutableInvocationTarget::Behavioral { lookup_owner, .. },
-                        } = &entry.target
-                        {
-                            let class_id = self.resolve_declaration_class(lookup_owner)?;
-                            bound_owner = Some(Value::obj(class_id));
-                            break;
-                        }
-                    }
-                    let family_ref = self.heap.alloc_associated_family(descriptor, bound_owner);
+                    let family_obj = crate::heap::AssociatedFamilyObject {
+                        descriptor,
+                        bound_owner: None,
+                    };
+                    let family_ref = self.heap.alloc(Object::AssociatedFamily(Box::new(family_obj)));
                     self.stack.push(Value::obj(family_ref));
                 }
                 Bytecode::InvokeAssociatedFamilyStatic { operation, arity } => {
-                    let op = callable.chunk.executable_semantics.family_operation(operation).clone();
-                    let argc = arity as usize;
                     let source_range = callable.chunk.span_at(ip);
-                    let callee_idx = self.stack.len() - 1 - argc;
+                    let argc = arity as usize;
+                    let callee_idx = self.stack.len() - argc - 1;
                     let callee = self.stack[callee_idx];
-                    if let Some(callee_obj) = callee.as_obj() {
-                        if let Object::AssociatedFamily(fam) = self.heap.get(callee_obj) {
-                            let mut matching_entry = None;
-                            for entry in fam.descriptor.entries.iter() {
-                                if entry.operation == op {
-                                    matching_entry = Some(entry.clone());
-                                    break;
-                                }
-                            }
-                            let entry = matching_entry.ok_or(RuntimeError::AssociatedFamilyNoMatchingCandidate)?;
-                            match entry.target {
-                                crate::modules::semantic_lowering::ExecutableFamilyTarget::Singleton { variant } => {
-                                    let runtime_var_id = self.adt_registry.variant_by_semantic(&variant).ok_or("unregistered variant")?;
-                                    let vdesc = self.adt_registry.variant_descriptor(runtime_var_id).unwrap();
-                                    let val = vdesc.singleton.unwrap_or_else(|| Value::adt_singleton(runtime_var_id));
-                                    self.stack.truncate(callee_idx);
-                                    self.stack.push(val);
-                                }
-                                crate::modules::semantic_lowering::ExecutableFamilyTarget::VariantConstructor { variant } => {
-                                    let runtime_var_id = self.adt_registry.variant_by_semantic(&variant).ok_or("unregistered variant")?;
-                                    let payload: Vec<Value> = self.stack.drain(callee_idx + 1..).collect();
-                                    self.stack.pop();
-                                    let case_ref = self.heap.alloc_adt_case(runtime_var_id, payload.into_boxed_slice());
-                                    self.stack.push(Value::obj(case_ref));
-                                }
-                                crate::modules::semantic_lowering::ExecutableFamilyTarget::Behavioral { target } => {
-                                    let resolved = self.bind_behavioral_associated_target(&target)?;
-                                    self.stack[callee_idx] = resolved.receiver;
-                                    let foreign_guard = self.frames.last().and_then(|frame| frame.foreign_receiver_guard);
-                                    let frames_before = self.frames.len();
-                                    self.call_method(&resolved.receiver, resolved.method, argc, source_range)?;
-                                    if self.frames.len() > frames_before {
-                                        self.frames.last_mut().unwrap().foreign_receiver_guard = foreign_guard;
-                                    }
-                                }
-                            }
+                    let entry_target = if let Some(obj_ref) = callee.as_obj() {
+                        if let Object::AssociatedFamily(family) = self.heap.get(obj_ref) {
+                            let op_shape = callable.chunk.executable_semantics.family_operation(operation);
+                            let entry = family
+                                .descriptor
+                                .entries
+                                .iter()
+                                .find(|e| &e.operation == op_shape)
+                                .ok_or("no matching family operation")?;
+                            entry.target.clone()
                         } else {
                             return Err(RuntimeError::NotAnAssociatedFamily.into());
                         }
                     } else {
                         return Err(RuntimeError::NotAnAssociatedFamily.into());
+                    };
+                    match &entry_target {
+                        crate::modules::semantic_lowering::ExecutableFamilyTarget::Singleton { variant } => {
+                            let runtime_var_id = self.adt_registry.variant_by_semantic(&variant).ok_or("unregistered variant")?;
+                            self.stack.pop();
+                            let value = self.construct_variant_value(runtime_var_id, Vec::new())?;
+                            self.stack.push(value);
+                        }
+                        crate::modules::semantic_lowering::ExecutableFamilyTarget::VariantConstructor { variant } => {
+                            let runtime_var_id = self.adt_registry.variant_by_semantic(&variant).ok_or("unregistered variant")?;
+                            let payload: Vec<Value> = self.stack.drain(callee_idx + 1..).collect();
+                            self.stack.pop();
+                            let value = self.construct_variant_value(runtime_var_id, payload)?;
+                            self.stack.push(value);
+                        }
+                        crate::modules::semantic_lowering::ExecutableFamilyTarget::Behavioral { target } => {
+                            let resolved = self.bind_behavioral_associated_target(&target)?;
+                            self.stack[callee_idx] = resolved.receiver;
+                            let foreign_guard = self.frames.last().and_then(|frame| frame.foreign_receiver_guard);
+                            let frames_before = self.frames.len();
+                            self.call_method(&resolved.receiver, resolved.method, argc, source_range)?;
+                            if self.frames.len() > frames_before {
+                                self.frames.last_mut().unwrap().foreign_receiver_guard = foreign_guard;
+                            }
+                        }
+                        crate::modules::semantic_lowering::ExecutableFamilyTarget::DataConstructor { constructor, construction } => {
+                            let args: Vec<Value> = self.stack.drain(callee_idx + 1..).collect();
+                            self.stack.pop();
+                            let val = if let Some(spec) = construction {
+                                self.construct_data_from_spec(&spec, args)?
+                            } else {
+                                let rdesc_id = self
+                                    .data_registry
+                                    .descriptor_by_declaration(&constructor.owner)
+                                    .ok_or_else(|| RuntimeError::Message("unregistered data descriptor".to_string()))?;
+                                self.construct_data_value(rdesc_id, args)?
+                            };
+                            self.stack.push(val);
+                        }
                     }
                 }
                 Bytecode::InvokeAssociatedFamilyPack { candidates } => {
-                    let cand_set = callable.chunk.executable_semantics.family_candidate_set(candidates).clone();
-                    let source_range = callable.chunk.span_at(ip);
-                    let pack_val = self.pop()?;
-                    let callee = self.pop()?;
-                    if let Some(callee_obj) = callee.as_obj() {
-                        if let Object::AssociatedFamily(fam) = self.heap.get(callee_obj) {
-                            if let Some(cand) = cand_set.candidates.first() {
-                                if let Some(target) = &cand.target {
-                                    match target {
-                                        crate::modules::semantic_lowering::ExecutableInvocationTarget::VariantConstructor { variant } => {
-                                            let runtime_var_id = self.adt_registry.variant_by_semantic(variant).ok_or("unregistered variant")?;
-                                            let case_ref = self.heap.alloc_adt_case(runtime_var_id, Box::new([]));
-                                            self.stack.push(Value::obj(case_ref));
-                                        }
-                                        crate::modules::semantic_lowering::ExecutableInvocationTarget::Behavioral { .. } => {
-                                            let resolved = self.bind_behavioral_associated_target(target)?;
-                                            self.stack.push(resolved.receiver);
-                                            let foreign_guard = self.frames.last().and_then(|frame| frame.foreign_receiver_guard);
-                                            let frames_before = self.frames.len();
-                                            self.call_method(&resolved.receiver, resolved.method, 0, source_range)?;
-                                            if self.frames.len() > frames_before {
-                                                self.frames.last_mut().unwrap().foreign_receiver_guard = foreign_guard;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            return Err(RuntimeError::NotAnAssociatedFamily.into());
-                        }
-                    } else {
-                        return Err(RuntimeError::NotAnAssociatedFamily.into());
+                    let candidates = callable.chunk.executable_semantics.family_candidate_set(candidates).clone();
+                    let builder = self
+                        .pop()?
+                        .as_obj()
+                        .ok_or_else(|| RuntimeError::Internal("family pack is not an object".into()))?;
+                    if self.heap.pack_builder(builder).has_pending() {
+                        return Err(RuntimeError::Internal("unfinished family pack label".into()).into());
                     }
+                    let (positionals, labels, values) = self.heap.pack_builder_mut(builder).take_parts();
+                    let mut slots = vec![phalcom_common::selector::SelectorSlot::Positional; positionals.len()];
+                    slots.extend(
+                        labels
+                            .iter()
+                            .map(|label| phalcom_common::selector::SelectorSlot::Label(self.resolve_symbol(*label).to_owned())),
+                    );
+                    let operation = phalcom_semantic::types::family::FamilyOperationShape::method(slots.into_boxed_slice());
+                    if !candidates.candidates.iter().any(|candidate| candidate.operation == operation) {
+                        return Err(RuntimeError::AssociatedFamilyNoMatchingCandidate.into());
+                    }
+                    let receiver_idx = self.stack.len().checked_sub(1).ok_or(RuntimeError::NotAnAssociatedFamily)?;
+                    let arity = positionals.len() + values.len();
+                    let base = self.get_or_intern("call");
+                    let selector = self.dynamic_pack_selector(base, PackSendKind::Method, positionals.len(), &labels)?;
+                    self.stack.extend(positionals);
+                    self.stack.extend(values);
+                    self.invoke_dynamic_selector(receiver_idx, selector, arity, callable.chunk.span_at(ip))?;
                 }
                 Bytecode::IsVariant(variant_idx) => {
                     let variant_id = callable.chunk.executable_semantics.variant_target(variant_idx);

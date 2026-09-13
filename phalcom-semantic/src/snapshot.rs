@@ -139,6 +139,7 @@ impl SnapshotStatus {
 }
 
 use crate::associated::AssociatedFamilyTable;
+use crate::data_semantics::DataSemanticTable;
 use crate::enum_requirements::EnumRequirementTable;
 use crate::enum_semantics::EnumSemanticTable;
 
@@ -169,6 +170,7 @@ pub struct SemanticSnapshot {
     /// Immutable advisory runtime-shape products for this exact snapshot.
     pub advisory: Arc<AdvisoryWorkspace>,
     pub module_products: Arc<ModuleQueryProducts>,
+    pub data_semantics: Arc<DataSemanticTable>,
     pub enum_semantics: Arc<EnumSemanticTable>,
     pub enum_requirements: Arc<EnumRequirementTable>,
     pub associated_surfaces: Arc<AssociatedFamilyTable>,
@@ -217,6 +219,7 @@ impl SemanticSnapshot {
             source_index: Arc::new(SourceSemanticIndex::default()),
             advisory: Arc::new(AdvisoryWorkspace::default()),
             module_products: Arc::new(ModuleQueryProducts::empty()),
+            data_semantics: Arc::new(DataSemanticTable::new()),
             enum_semantics: Arc::new(EnumSemanticTable::new()),
             enum_requirements: Arc::new(EnumRequirementTable::new()),
             associated_surfaces: Arc::new(AssociatedFamilyTable::new()),
@@ -266,6 +269,7 @@ impl SemanticSnapshot {
             source_index: Arc::new(SourceSemanticIndex::default()),
             advisory: Arc::new(AdvisoryWorkspace::default()),
             module_products: Arc::new(ModuleQueryProducts::empty()),
+            data_semantics: Arc::new(DataSemanticTable::new()),
             enum_semantics: Arc::new(EnumSemanticTable::new()),
             enum_requirements: Arc::new(EnumRequirementTable::new()),
             associated_surfaces: Arc::new(AssociatedFamilyTable::new()),
@@ -276,6 +280,11 @@ impl SemanticSnapshot {
 
     pub fn with_status(mut self, status: SnapshotStatus) -> Self {
         self.status = status;
+        self
+    }
+
+    pub fn with_data_semantics(mut self, data_semantics: Arc<DataSemanticTable>) -> Self {
+        self.data_semantics = data_semantics;
         self
     }
 

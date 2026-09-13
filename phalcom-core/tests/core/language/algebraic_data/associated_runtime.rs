@@ -88,3 +88,28 @@ let same_value = direct === via_value
         .expect("capability binding");
     assert!(matches!(capability.as_obj(), Some(id) if matches!(vm.heap.get(id), Object::AssociatedFamily(_))));
 }
+
+#[test]
+fn associated_dynamic_pack_preserves_arguments_and_native_option() {
+    let (vm, module) = run_inline(
+        r#"
+enum PairBox { @variant Pair(_ x: Int, _ y: Int) }
+let pair_fn = &PairBox::Pair...
+let pair = pair_fn(*[7, 8])
+let some_fn = &Option<Int>::Some...
+let some = some_fn(*[9])
+let x = pair.x
+let y = pair.y
+"#,
+    )
+    .unwrap_or_else(|error| panic!("family packs should execute: {error}"));
+    for (name, value) in [("x", 7), ("y", 8)] {
+        assert_eq!(
+            vm.heap.module(module).get(vm.interner.find(name).unwrap()),
+            Some(phalcom_core::value::Value::int(value))
+        );
+    }
+    let some = vm.heap.module(module).get(vm.interner.find("some").unwrap()).unwrap();
+    assert!(some.is_some());
+    assert_eq!(vm.case_payload_at(some, 0).unwrap(), phalcom_core::value::Value::int(9));
+}

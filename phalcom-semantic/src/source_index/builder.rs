@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::identity::{
-    CallableId, CallableOwnerId, CallableParameterId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId,
+    CallableId, CallableOwnerId, CallableParameterId, DataComponentId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId,
     SourceSiteLocalId, VariantFieldId, VariantId,
 };
 use crate::source_index::scope::{
@@ -168,6 +168,19 @@ impl TypeReferenceTargetCollector<'_> {
                 }
             }
             Statement::Enum(enum_def) => self.enum_definition(enum_def, bound),
+            Statement::Data(data_def) => {
+                let mut data_bound = bound.clone();
+                data_bound.extend(data_def.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                self.where_clause(data_def.where_clause.as_ref(), &data_bound);
+                match &data_def.shape {
+                    phalcom_ast::ast::DataShapeSyntax::Tuple { components, .. }
+                    | phalcom_ast::ast::DataShapeSyntax::Record { components, .. } => {
+                        for comp in components {
+                            self.annotation(&comp.annotation, &data_bound);
+                        }
+                    }
+                }
+            }
             Statement::TypeAlias(alias) => {
                 let mut alias_bound = bound.clone();
                 alias_bound.extend(alias.generic_parameters.iter().map(|parameter| parameter.name.clone()));
@@ -520,6 +533,7 @@ impl SourceScopeBuilder<'_> {
                 Statement::Class(class) => self.visit_class(scope, class),
                 Statement::Enum(enum_def) => self.visit_enum(scope, enum_def),
                 Statement::TypeAlias(alias) => self.visit_type_alias(scope, alias),
+                Statement::Data(data_def) => self.visit_data(scope, data_def),
                 Statement::Let(binding) => self.visit_let(scope, binding, top_level),
                 Statement::Return(return_statement) => {
                     if let Some(value) = &return_statement.value {
@@ -651,6 +665,40 @@ impl SourceScopeBuilder<'_> {
                         if is_class_side { DispatchSide::Class } else { DispatchSide::Instance },
                     );
                 }
+            }
+        }
+    }
+
+    fn visit_data(&mut self, _parent: SourceScopeId, data_def: &phalcom_ast::ast::DataDef) {
+        let declaration = DeclarationId::new(self.index.module.clone(), data_def.name.clone().into());
+        let declaration_site = self.allocate_site(
+            SourceOwner::Module(self.index.module.clone()),
+            data_def.name_range,
+            SourceSiteKind::Declaration(declaration.clone()),
+        );
+        self.index
+            .register_target(declaration_site.clone(), SemanticTargetId::Declaration(declaration.clone()));
+        self.index.declaration_sources.insert(
+            declaration.clone(),
+            DeclarationSourceInfo {
+                id: declaration.clone(),
+                name: data_def.name.clone().into(),
+                kind: SourceDeclarationKind::Data,
+                declaration_site,
+                name_range: data_def.name_range,
+                declaration_range: data_def.range,
+            },
+        );
+
+        if let phalcom_ast::ast::DataShapeSyntax::Record { components, .. } = &data_def.shape {
+            for (index, component) in components.iter().enumerate() {
+                let component_id = DataComponentId::new(declaration.clone(), index as u32);
+                let site = self.allocate_site(
+                    SourceOwner::Module(self.index.module.clone()),
+                    component.name_range,
+                    SourceSiteKind::DataComponent(component_id.clone()),
+                );
+                self.index.register_target(site, SemanticTargetId::DataComponent(component_id));
             }
         }
     }
@@ -1164,6 +1212,11 @@ impl SourceScopeBuilder<'_> {
                     self.visit_expr(arm_scope, &arm.branch);
                 }
             }
+            Expr::RecordConstruction(record) => {
+                for entry in &record.entries {
+                    self.visit_expr(scope, &entry.value);
+                }
+            }
             Expr::Int { .. }
             | Expr::Float { .. }
             | Expr::String { .. }
@@ -1230,6 +1283,7 @@ fn statement_range(statement: &Statement) -> SourceRange {
     match statement {
         Statement::Class(class) => class.range,
         Statement::Enum(enum_def) => enum_def.range,
+        Statement::Data(data_def) => data_def.range,
         Statement::Let(binding) => binding.range,
         Statement::Return(return_statement) => return_statement.range,
         Statement::Expr { range, .. } => *range,

@@ -287,7 +287,7 @@ fn automatic_safepoint_fires() {
         r#"
         class Trash {}
         let i = 0
-        while (i < 10000) {
+        while (i < 15000) {
             Trash.new()
             i = i + 1
         }
@@ -295,7 +295,7 @@ fn automatic_safepoint_fires() {
     )
     .expect("interpret_source failed");
 
-    // At least one automatic collection must have run: 5,000 `Trash` instances
+    // At least one automatic collection must have run: `Trash` instances
     // were allocated and every one of them is garbage, so if the safepoint never
     // fired they would all still be live.
     //
@@ -309,8 +309,8 @@ fn automatic_safepoint_fires() {
     // green, which is the definition of a test measuring the wrong thing.
     let live = vm.heap.live_count();
     assert!(
-        live < before + 10000,
-        "no automatic collection ran: {live} live vs {before} baseline + 10000 allocated"
+        live < before + 15000,
+        "no automatic collection ran: {live} live vs {before} baseline + 15000 allocated"
     );
     assert!(live <= vm.heap.next_gc_for_test(), "live count should be bounded by the collector's threshold");
     assert!(!vm.heap.gc_pending(), "gc_pending should be reset after safepoint collection");

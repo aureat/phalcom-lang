@@ -142,6 +142,9 @@ impl Value {
         if let Some(rid) = self.as_adt_singleton() {
             return render_adt_singleton(vm, rid, true);
         }
+        if let Some(did) = self.as_data_singleton() {
+            return render_data_singleton(vm, did, true);
+        }
         if let Some(id) = self.as_obj() {
             return match vm.heap.get(id) {
                 Object::LargeInt(bigint) => bigint.to_string(),
@@ -186,6 +189,13 @@ impl Value {
                 Object::Typing(_) => "<typing>".to_string(),
                 Object::AdtCase(_) => "<case>".to_string(),
                 Object::AssociatedFamily(_) => "<associated family>".to_string(),
+                Object::Data(data) => {
+                    if let Some(desc) = vm.data_registry.descriptor(data.descriptor) {
+                        format!("<data {}>", desc.semantic_owner.name)
+                    } else {
+                        format!("<data {:?}>", data.descriptor)
+                    }
+                }
             };
         }
         "<invalid value>".to_string()
@@ -197,6 +207,14 @@ fn render_adt_singleton(vm: &VM, rid: crate::adt::RuntimeVariantId, debug: bool)
         return format!("<unknown ADT singleton {:?}>", rid);
     };
     let rendered = format!("{}::{}", descriptor.semantic_id.owner.name, descriptor.semantic_id.selector.encode());
+    if debug { format!("<{rendered}>") } else { rendered }
+}
+
+fn render_data_singleton(vm: &VM, did: crate::data::RuntimeDataDescriptorId, debug: bool) -> String {
+    let Some(descriptor) = vm.data_registry.descriptor(did) else {
+        return format!("<unknown data singleton {:?}>", did);
+    };
+    let rendered = descriptor.semantic_owner.name.to_string();
     if debug { format!("<{rendered}>") } else { rendered }
 }
 
@@ -222,6 +240,7 @@ fn fmt_base_value(f: &mut fmt::Formatter<'_>, base: Value) -> fmt::Result {
         }
         ValueTag::None => write!(f, "None"),
         ValueTag::AdtSingleton => write!(f, "<singleton {:?}>", base.as_adt_singleton()),
+        ValueTag::DataSingleton => write!(f, "<data singleton {:?}>", base.as_data_singleton()),
     }
 }
 

@@ -106,6 +106,10 @@ impl VM {
                 "bind_behavioral_associated_target called on variant constructor `{}`",
                 variant.selector
             ))),
+            ExecutableInvocationTarget::DataConstructor { constructor, .. } => Err(RuntimeError::Message(format!(
+                "bind_behavioral_associated_target called on data constructor `{}`",
+                constructor.owner.name
+            ))),
         }
     }
 }

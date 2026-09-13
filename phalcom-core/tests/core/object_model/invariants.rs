@@ -698,7 +698,7 @@ fn subclass_static_field_offset_stability() {
 fn floor_census_matches_installed_bindings() {
     // R-INV-0.1 — reconstruct the installed `(class, selector)` floor from a
     // live `VM::new()` and assert it equals the census in
-    // `docs/spec/current/core/floor-census.md` (the current assertion is 229;
+    // `docs/spec/current/core/floor-census.md` (the current assertion is 235;
     // the historical amendment progression below starts at count = 88 after ADR-0023's +7,
     // ADR-0028's +5, U-CORE-4's +1, and U-CORE-6's own +2). Turns silent
     // floor drift — an accidental extra primitive, or a dropped one — into a
@@ -956,6 +956,8 @@ fn floor_census_matches_installed_bindings() {
         (c.system_class, true, "gc"),
         // U-STRING raw I/O seam (ADR-0049 amendment)
         (c.system_class, true, "_$write(_)"), // NEW (ADR-0049)
+        // STDL002.C1.P1: the only native floor operation for monotonic time.
+        (c.system_class, true, "_$monotonicNanoseconds"),
         // §2.12 Module (U15, ADR-0045) — NEW_IMPORTS
         (c.module_class, true, "new()"),
         (c.module_class, false, "doesNotUnderstand(_)"),
@@ -1137,8 +1139,12 @@ fn floor_census_matches_installed_bindings() {
         describe(extra),
     );
 
-    assert_eq!(expected.len(), 234, "census must enumerate exactly 234 bindings after System.sleep(_) addition");
-    assert_eq!(live.len(), 234, "the live floor must be exactly 234 bindings");
+    assert_eq!(
+        expected.len(),
+        235,
+        "census must enumerate exactly 235 bindings after the monotonic time primitive"
+    );
+    assert_eq!(live.len(), 235, "the live floor must be exactly 235 bindings");
 }
 
 #[test]

@@ -139,8 +139,7 @@ class Probe {
     let result: List<Child> = child.value
   }
 }
-"#,
-    );
+"#);
     let run = fixture.callable("Probe", "run", DispatchSide::Class);
     let access = fixture.expression(run, "child.value");
     fixture.assert_type(access.knowledge.ty().expect("getter F<Self> result"), applied("List", [nominal("Child")]));

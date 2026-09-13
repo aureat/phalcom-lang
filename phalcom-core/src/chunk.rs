@@ -1,10 +1,13 @@
 use crate::bytecode::Bytecode;
 use crate::compiler::lib::CompilerError;
 use crate::heap::ClassId;
-use crate::modules::semantic_lowering::{EnumLoweringSpec, ExecutableFamilyCandidateSet, ExecutableFamilyDescriptor, ExecutableInvocationTarget};
+use crate::modules::semantic_lowering::{
+    DataConstructionLoweringSpec, DataDeclarationLoweringSpec, EnumLoweringSpec, ExecutableFamilyCandidateSet, ExecutableFamilyDescriptor,
+    ExecutableInvocationTarget,
+};
 use crate::value::Value;
 use phalcom_common::range::SourceRange;
-use phalcom_semantic::identity::VariantId;
+use phalcom_semantic::identity::{DataConstructorId, VariantId};
 use phalcom_semantic::types::family::FamilyOperationShape;
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
@@ -24,6 +27,11 @@ pub struct ExecutableSemanticPool {
     pub enum_specs: Vec<Arc<EnumLoweringSpec>>,
     pub variant_targets: Vec<VariantId>,
     pub variant_target_index: HashMap<VariantId, u16>,
+    pub data_specs: Vec<Arc<DataDeclarationLoweringSpec>>,
+    pub data_targets: Vec<DataConstructorId>,
+    pub data_target_index: HashMap<DataConstructorId, u16>,
+    pub data_constructions: Vec<Arc<DataConstructionLoweringSpec>>,
+    pub data_construction_caches: Vec<Cell<Option<crate::data::RuntimeDataDescriptorId>>>,
     pub associated_targets: Vec<ExecutableInvocationTarget>,
     pub associated_target_caches: Vec<Cell<Option<AssociatedTargetCache>>>,
     pub family_descriptors: Vec<Arc<ExecutableFamilyDescriptor>>,
@@ -58,6 +66,48 @@ impl ExecutableSemanticPool {
 
     pub fn variant_target(&self, index: u16) -> &VariantId {
         &self.variant_targets[index as usize]
+    }
+
+    pub fn add_data_spec(&mut self, spec: Arc<DataDeclarationLoweringSpec>, span: SourceRange) -> Result<u16, CompilerError> {
+        let index = u16::try_from(self.data_specs.len()).map_err(|_| CompilerError::ExecutableSemanticPoolOverflow { kind: "DataSpec", span })?;
+        self.data_specs.push(spec);
+        Ok(index)
+    }
+
+    pub fn data_spec(&self, index: u16) -> &DataDeclarationLoweringSpec {
+        &self.data_specs[index as usize]
+    }
+
+    pub fn add_data_target(&mut self, constructor: &DataConstructorId, span: SourceRange) -> Result<u16, CompilerError> {
+        if let Some(&index) = self.data_target_index.get(constructor) {
+            return Ok(index);
+        }
+        let index = u16::try_from(self.data_targets.len()).map_err(|_| CompilerError::ExecutableSemanticPoolOverflow { kind: "DataTarget", span })?;
+        self.data_targets.push(constructor.clone());
+        self.data_target_index.insert(constructor.clone(), index);
+        Ok(index)
+    }
+
+    pub fn data_target(&self, index: u16) -> &DataConstructorId {
+        &self.data_targets[index as usize]
+    }
+
+    pub fn add_data_construction(&mut self, construction: Arc<DataConstructionLoweringSpec>, span: SourceRange) -> Result<u16, CompilerError> {
+        let index = u16::try_from(self.data_constructions.len()).map_err(|_| CompilerError::ExecutableSemanticPoolOverflow {
+            kind: "DataConstruction",
+            span,
+        })?;
+        self.data_constructions.push(construction);
+        self.data_construction_caches.push(Cell::new(None));
+        Ok(index)
+    }
+
+    pub fn data_construction(&self, index: u16) -> &DataConstructionLoweringSpec {
+        &self.data_constructions[index as usize]
+    }
+
+    pub fn data_construction_cache(&self, index: u16) -> &Cell<Option<crate::data::RuntimeDataDescriptorId>> {
+        &self.data_construction_caches[index as usize]
     }
 
     pub fn add_associated_target(&mut self, target: ExecutableInvocationTarget, span: SourceRange) -> Result<u16, CompilerError> {

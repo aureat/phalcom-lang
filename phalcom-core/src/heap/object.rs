@@ -184,6 +184,8 @@ pub enum Object {
     Typing(Box<super::typing::TypingObject>),
     /// ADT case object with immutable payload values.
     AdtCase(Box<super::adt::AdtCaseObject>),
+    /// Materialized positive-arity data instance.
+    Data(Box<super::data::DataObject>),
     /// Reified first-class associated family capability object.
     AssociatedFamily(Box<super::associated::AssociatedFamilyObject>),
 }

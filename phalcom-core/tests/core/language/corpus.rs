@@ -152,6 +152,16 @@ fn system() {
 }
 
 #[test]
+fn time() {
+    support::check_pass("time");
+}
+
+#[test]
+fn time_negative() {
+    support::check_negative_at_phase("time/negative", support::ExpectedFailurePhase::Any);
+}
+
+#[test]
 fn concurrency() {
     // CONC002/C1: cooperative Fiber + scheduler/Future execution.
     // The active corpus covers manual call/try/yield/current/abort semantics,

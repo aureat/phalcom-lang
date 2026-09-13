@@ -124,6 +124,7 @@ impl OccurrenceIndex {
                     crate::source_index::site::SourceSiteKind::Variant(_) => (OccurrenceKind::Member, OccurrenceRole::Declaration),
                     crate::source_index::site::SourceSiteKind::VariantFamily(_) => (OccurrenceKind::Member, OccurrenceRole::Declaration),
                     crate::source_index::site::SourceSiteKind::VariantField(_) => (OccurrenceKind::Field, OccurrenceRole::Declaration),
+                    crate::source_index::site::SourceSiteKind::DataComponent(_) => (OccurrenceKind::Field, OccurrenceRole::Declaration),
                     crate::source_index::site::SourceSiteKind::Module
                     | crate::source_index::site::SourceSiteKind::Expression
                     | crate::source_index::site::SourceSiteKind::Occurrence => return None,
@@ -443,7 +444,7 @@ impl OccurrenceBuilder<'_> {
                 self.statements(&for_statement.body);
             }
             Statement::Export(export) => self.export_items(export),
-            Statement::Break { .. } | Statement::Continue { .. } | Statement::TypeAlias(_) => {}
+            Statement::Break { .. } | Statement::Continue { .. } | Statement::TypeAlias(_) | Statement::Data(_) => {}
             Statement::Enum(enum_def) => {
                 for member in &enum_def.members {
                     match member {
@@ -711,6 +712,20 @@ impl OccurrenceBuilder<'_> {
                 self.expr(&match_expr.value, OccurrenceRole::Read);
                 for arm in &match_expr.arms {
                     self.expr(&arm.branch, OccurrenceRole::Read);
+                }
+            }
+            Expr::RecordConstruction(rc) => {
+                if rc.target.is_bare() {
+                    self.record(
+                        rc.target.root_range,
+                        OccurrenceKind::Declaration,
+                        OccurrenceRole::Reference,
+                        Some(OccurrenceHint::Name(rc.target.root.clone().into())),
+                        Some(&rc.target.root),
+                    );
+                }
+                for entry in &rc.entries {
+                    self.expr(&entry.value, role);
                 }
             }
             Expr::Int { .. }

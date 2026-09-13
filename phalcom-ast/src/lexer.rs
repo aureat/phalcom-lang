@@ -442,6 +442,7 @@ impl<'input> Lexer<'input> {
                 "fn" => Token::Fn,
                 "class" => Token::Class,
                 "enum" => Token::Enum,
+                "data" => Token::Data,
                 "return" => Token::Return,
                 "true" => Token::True,
                 "false" => Token::False,

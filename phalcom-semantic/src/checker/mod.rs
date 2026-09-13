@@ -8,6 +8,7 @@ pub(crate) mod composition;
 pub mod context;
 pub(crate) mod control;
 pub(crate) mod coverage;
+pub mod data_declaration;
 pub mod declaration;
 pub(crate) mod declaration_signature;
 pub mod enum_behavior;

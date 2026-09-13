@@ -96,6 +96,11 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "GetVariantPayload",
     "MatchInvariantFailure",
     "InvokeSubscriptSetPack",
+    "Data",
+    "FinalizeData",
+    "LoadDataSingleton",
+    "ConstructData",
+    "GetDataComponent",
 ];
 
 /// Distinguishes exact selector identity from a structural selector pattern
@@ -620,12 +625,36 @@ pub enum Bytecode {
         base_name: u16,
         access: PackAccess,
     },
+
+    /// Declares a data type behavior class and registers its runtime descriptor.
+    /// 0: index of DataDeclarationLoweringSpec in chunk's executable_semantics pool.
+    Data(u16),
+
+    /// Finalizes the data behavior class.
+    /// 0: index of DataDeclarationLoweringSpec in chunk's executable_semantics pool.
+    FinalizeData(u16),
+
+    /// Pushes the immediate canonical singleton value for a nullary data type.
+    /// 0: index of DataDeclarationLoweringSpec in chunk's executable_semantics pool.
+    LoadDataSingleton(u16),
+
+    /// Allocates and pushes a fresh DataObject from top-N values.
+    /// constructor: index of DataDeclarationLoweringSpec / DataConstructionLoweringSpec in chunk's executable_semantics pool.
+    /// arity: number of component values to pop.
+    ConstructData {
+        constructor: u16,
+        arity: u8,
+    },
+
+    /// Extracts a component from a DataObject receiver on top of stack.
+    /// 0: logical component index.
+    GetDataComponent(u16),
 }
 
 impl Bytecode {
     /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
     /// histogram in `opcode_stats`.
-    pub const VARIANTS: usize = 92;
+    pub const VARIANTS: usize = 97;
 
     /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
     ///
@@ -728,6 +757,11 @@ impl Bytecode {
             Bytecode::GetVariantPayload(..) => 89,
             Bytecode::MatchInvariantFailure => 90,
             Bytecode::InvokeSubscriptSetPack { .. } => 91,
+            Bytecode::Data(..) => 92,
+            Bytecode::FinalizeData(..) => 93,
+            Bytecode::LoadDataSingleton(..) => 94,
+            Bytecode::ConstructData { .. } => 95,
+            Bytecode::GetDataComponent(..) => 96,
         }
     }
 

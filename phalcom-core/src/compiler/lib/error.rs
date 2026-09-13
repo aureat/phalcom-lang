@@ -334,6 +334,10 @@ pub enum CompilerError {
     #[error("internal: enum declaration has no formal lowering semantics")]
     MissingEnumLoweringSemantics(SourceRange),
 
+    /// No formal lowering semantics provided for data declaration.
+    #[error("internal: data declaration has no formal lowering semantics")]
+    MissingDataLoweringSemantics(SourceRange),
+
     /// No formal lowering record for this associated expression.
     #[error("internal: associated expression has no formal lowering record")]
     MissingAssociatedResolution(SourceRange),

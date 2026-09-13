@@ -186,6 +186,11 @@ impl InterfaceBuilder {
                     Self::validate_dunder(&enum_def.name, DunderRole::Binding, range)?;
                     Self::collect_declaration(&enum_def.name, true, range, &mut namespace, &mut declarations)?;
                 }
+                Statement::Data(data_def) => {
+                    let range = (data_def.range.start..data_def.name_range.end).into();
+                    Self::validate_dunder(&data_def.name, DunderRole::Binding, range)?;
+                    Self::collect_declaration(&data_def.name, true, range, &mut namespace, &mut declarations)?;
+                }
                 Statement::TypeAlias(alias) => {
                     let range = (alias.range.start..alias.name_range.end).into();
                     Self::validate_dunder(&alias.name, DunderRole::Binding, range)?;

@@ -1,6 +1,7 @@
 use crate::bytecode::{Bytecode, FamilySpecKind, PackAccess, PackSendKind};
 use crate::compiler::inliner;
 use crate::method::{SignatureKind, encode_selector, make_signature};
+use crate::modules::semantic_lowering::{AssociatedLoweringSpec, LoweringSiteKind};
 use crate::value::Value;
 use phalcom_ast::ast::{
     BinaryOp, BlockExpr, ClosureParameters, Expr, ListLiteralElement, MapLiteralEntry, MapLiteralKey, MethodCallExpr, NormalizedSelectorSpec, PackItem,
@@ -295,6 +296,79 @@ impl<'vm> Compiler<'vm> {
         match expr {
             Expr::UnqualifiedCall(call) => {
                 let call = *call;
+                if let Some(spec) = self.lowering().and_then(|l| {
+                    l.associated
+                        .iter()
+                        .find(|(site, _)| {
+                            site.range == call.range && (site.kind == LoweringSiteKind::AssociatedInvoke || site.kind == LoweringSiteKind::AssociatedLookup)
+                        })
+                        .map(|(_, spec)| spec.clone())
+                }) {
+                    match spec {
+                        AssociatedLoweringSpec::ConstructData {
+                            constructor: _,
+                            arity,
+                            construction,
+                        } => {
+                            for arg in &call.args {
+                                self.compile_pack_item(arg.clone())?;
+                            }
+                            let ctor_idx = self
+                                .functions
+                                .last_mut()
+                                .unwrap()
+                                .chunk
+                                .executable_semantics
+                                .add_data_construction(construction.ok_or(CompilerError::MissingAssociatedResolution(call.range))?, call.range)?;
+                            if arity == 0 {
+                                self.emit(Bytecode::LoadDataSingleton(ctor_idx), call.range);
+                            } else {
+                                self.emit(Bytecode::ConstructData { constructor: ctor_idx, arity }, call.range);
+                            }
+                            return Ok(());
+                        }
+                        AssociatedLoweringSpec::ConstructVariant { variant, arity } => {
+                            for arg in &call.args {
+                                self.compile_pack_item(arg.clone())?;
+                            }
+                            let var_idx = self
+                                .functions
+                                .last_mut()
+                                .unwrap()
+                                .chunk
+                                .executable_semantics
+                                .add_variant_target(&variant, call.range)?;
+                            self.emit(Bytecode::ConstructVariant { variant: var_idx, arity }, call.range);
+                            return Ok(());
+                        }
+                        AssociatedLoweringSpec::InvokeResolvedAssociated { target, arity } => {
+                            for arg in &call.args {
+                                self.compile_pack_item(arg.clone())?;
+                            }
+                            let target_idx = self
+                                .functions
+                                .last_mut()
+                                .unwrap()
+                                .chunk
+                                .executable_semantics
+                                .add_associated_target(target, call.range)?;
+                            self.emit(Bytecode::InvokeResolvedAssociated { target: target_idx, arity }, call.range);
+                            return Ok(());
+                        }
+                        AssociatedLoweringSpec::SingletonLoad { variant } => {
+                            let var_idx = self
+                                .functions
+                                .last_mut()
+                                .unwrap()
+                                .chunk
+                                .executable_semantics
+                                .add_variant_target(&variant, call.range)?;
+                            self.emit(Bytecode::LoadVariantSingleton(var_idx), call.range);
+                            return Ok(());
+                        }
+                        _ => {}
+                    }
+                }
                 if self.compile_canonical_variant_constructor(&call.name, &call.args, call.range)? {
                     return Ok(());
                 }
@@ -390,6 +464,77 @@ impl<'vm> Compiler<'vm> {
             }
             Expr::MethodCall(method_call) => {
                 self.check_bounded_method_call(&method_call)?;
+                if let Some(spec) = self.lowering().and_then(|l| {
+                    l.associated
+                        .iter()
+                        .find(|(site, _)| {
+                            site.range == method_call.range
+                                && (site.kind == LoweringSiteKind::AssociatedInvoke || site.kind == LoweringSiteKind::AssociatedLookup)
+                        })
+                        .map(|(_, spec)| spec.clone())
+                }) {
+                    match spec {
+                        AssociatedLoweringSpec::ConstructData {
+                            constructor: _,
+                            arity,
+                            construction,
+                        } => {
+                            for arg in &method_call.args {
+                                self.compile_pack_item(arg.clone())?;
+                            }
+                            let ctor_idx = self.functions.last_mut().unwrap().chunk.executable_semantics.add_data_construction(
+                                construction.ok_or(CompilerError::MissingAssociatedResolution(method_call.range))?,
+                                method_call.range,
+                            )?;
+                            if arity == 0 {
+                                self.emit(Bytecode::LoadDataSingleton(ctor_idx), method_call.range);
+                            } else {
+                                self.emit(Bytecode::ConstructData { constructor: ctor_idx, arity }, method_call.range);
+                            }
+                            return Ok(());
+                        }
+                        AssociatedLoweringSpec::ConstructVariant { variant, arity } => {
+                            for arg in &method_call.args {
+                                self.compile_pack_item(arg.clone())?;
+                            }
+                            let var_idx = self
+                                .functions
+                                .last_mut()
+                                .unwrap()
+                                .chunk
+                                .executable_semantics
+                                .add_variant_target(&variant, method_call.range)?;
+                            self.emit(Bytecode::ConstructVariant { variant: var_idx, arity }, method_call.range);
+                            return Ok(());
+                        }
+                        AssociatedLoweringSpec::InvokeResolvedAssociated { target, arity } => {
+                            for arg in &method_call.args {
+                                self.compile_pack_item(arg.clone())?;
+                            }
+                            let target_idx = self
+                                .functions
+                                .last_mut()
+                                .unwrap()
+                                .chunk
+                                .executable_semantics
+                                .add_associated_target(target, method_call.range)?;
+                            self.emit(Bytecode::InvokeResolvedAssociated { target: target_idx, arity }, method_call.range);
+                            return Ok(());
+                        }
+                        AssociatedLoweringSpec::SingletonLoad { variant } => {
+                            let var_idx = self
+                                .functions
+                                .last_mut()
+                                .unwrap()
+                                .chunk
+                                .executable_semantics
+                                .add_variant_target(&variant, method_call.range)?;
+                            self.emit(Bytecode::LoadVariantSingleton(var_idx), method_call.range);
+                            return Ok(());
+                        }
+                        _ => {}
+                    }
+                }
                 if matches!(method_call.method.as_str(), "call" | "new")
                     && let Expr::Var { value, .. } = &method_call.object
                     && self.compile_canonical_variant_constructor(value, &method_call.args, method_call.range)?
@@ -545,6 +690,18 @@ impl<'vm> Compiler<'vm> {
                 self.compile_callable_reference(&expr)?;
             }
             Expr::GetProperty(get_prop) => {
+                if let Some(spec) = self.lowering().and_then(|l| {
+                    l.associated
+                        .iter()
+                        .find(|(site, _)| site.range == get_prop.range && site.kind == LoweringSiteKind::AssociatedLookup)
+                        .map(|(_, spec)| spec.clone())
+                }) {
+                    if let AssociatedLoweringSpec::GetDataComponent { logical_index, .. } = spec {
+                        self.compile_expr(get_prop.object)?;
+                        self.emit(Bytecode::GetDataComponent(logical_index as u16), get_prop.range);
+                        return Ok(());
+                    }
+                }
                 self.check_bounded_property(&get_prop.property, &get_prop.object, get_prop.range)?;
                 // `super.prop` is a zero-arg super send (U-INH §3.4); the
                 // getter/no-arg selector is the bare property name, matching the
@@ -1429,6 +1586,42 @@ impl<'vm> Compiler<'vm> {
                     self.emit(Bytecode::Nil, type_annotation.range);
                 }
             },
+            Expr::RecordConstruction(record_expr) => {
+                let spec = self.lowering().and_then(|l| {
+                    l.associated
+                        .iter()
+                        .find(|(site, _)| site.range == record_expr.range && site.kind == LoweringSiteKind::AssociatedInvoke)
+                        .map(|(_, spec)| spec.clone())
+                });
+
+                if let Some(AssociatedLoweringSpec::ConstructData {
+                    constructor: _,
+                    arity,
+                    construction,
+                }) = spec
+                {
+                    let construction = construction.ok_or(CompilerError::MissingAssociatedResolution(record_expr.range))?;
+                    // Evaluate in source order; the executable product maps to logical component order.
+                    for entry in &record_expr.entries {
+                        self.compile_expr(entry.value.clone())?;
+                    }
+
+                    let ctor_idx = self
+                        .functions
+                        .last_mut()
+                        .unwrap()
+                        .chunk
+                        .executable_semantics
+                        .add_data_construction(construction, record_expr.range)?;
+                    if arity == 0 {
+                        self.emit(Bytecode::LoadDataSingleton(ctor_idx), record_expr.range);
+                    } else {
+                        self.emit(Bytecode::ConstructData { constructor: ctor_idx, arity }, record_expr.range);
+                    }
+                } else {
+                    return Err(CompilerError::MissingAssociatedResolution(record_expr.range));
+                }
+            }
         }
         Ok(())
     }

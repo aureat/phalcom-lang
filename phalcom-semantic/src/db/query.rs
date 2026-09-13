@@ -45,6 +45,7 @@ pub struct FormalQueryInputs<'a> {
     pub type_aliases: &'a crate::type_alias::TypeAliasTable,
     pub field_signatures: Option<&'a crate::signature::FieldSignatureTable>,
     pub field_lifecycle: Option<&'a crate::checker::field_lifecycle::FieldLifecycleTable>,
+    pub data_semantics: Option<&'a crate::data_semantics::DataSemanticTable>,
     pub enum_semantics: Option<&'a crate::enum_semantics::EnumSemanticTable>,
     pub associated_families: Option<&'a crate::associated::AssociatedFamilyTable>,
 }
@@ -75,6 +76,7 @@ fn semantic_dependency_query_key(dependency: &crate::checker::analysis::Semantic
         crate::checker::analysis::SemanticDependency::DeclarationSurface(declaration) => QueryKey::DeclarationSurface(declaration.clone()),
         crate::checker::analysis::SemanticDependency::HierarchyEdge(declaration) => QueryKey::HierarchyEdge(declaration.clone()),
         crate::checker::analysis::SemanticDependency::LinkedInterface(module) => QueryKey::LinkedInterface(module.clone()),
+        crate::checker::analysis::SemanticDependency::DataDeclaration(declaration) => QueryKey::DataDeclaration(declaration.clone()),
         crate::checker::analysis::SemanticDependency::EnumDeclaration(declaration) => QueryKey::EnumDeclaration(declaration.clone()),
         crate::checker::analysis::SemanticDependency::AssociatedSurface(declaration) => QueryKey::AssociatedSurface(declaration.clone()),
         crate::checker::analysis::SemanticDependency::ResolvedImport(site) => QueryKey::ResolvedImport(site.clone()),
@@ -91,6 +93,7 @@ fn semantic_dependency_from_query_key(key: &QueryKey) -> Option<crate::checker::
         QueryKey::DeclarationSurface(declaration) => Some(crate::checker::analysis::SemanticDependency::DeclarationSurface(declaration.clone())),
         QueryKey::HierarchyEdge(declaration) => Some(crate::checker::analysis::SemanticDependency::HierarchyEdge(declaration.clone())),
         QueryKey::LinkedInterface(module) => Some(crate::checker::analysis::SemanticDependency::LinkedInterface(module.clone())),
+        QueryKey::DataDeclaration(declaration) => Some(crate::checker::analysis::SemanticDependency::DataDeclaration(declaration.clone())),
         QueryKey::EnumDeclaration(declaration) => Some(crate::checker::analysis::SemanticDependency::EnumDeclaration(declaration.clone())),
         QueryKey::AssociatedSurface(declaration) => Some(crate::checker::analysis::SemanticDependency::AssociatedSurface(declaration.clone())),
         QueryKey::ResolvedImport(site) => Some(crate::checker::analysis::SemanticDependency::ResolvedImport(site.clone())),
@@ -807,6 +810,36 @@ pub fn query_bootstrap_declaration_surface(
     QueryOutcome::Ready(surface)
 }
 
+pub fn query_data_declaration(
+    db: &mut SemanticDb,
+    product: Arc<crate::db::product::DataDeclarationProduct>,
+) -> QueryOutcome<Arc<crate::db::product::DataDeclarationProduct>> {
+    let key = QueryKey::DataDeclaration(product.info.owner.clone());
+    let input_fingerprint = crate::db::fingerprint::data_declaration_input_fingerprint(&product);
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(cached) = db.product(&key).and_then(|p| p.as_data_declaration()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(cached.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    db.metrics().record_miss();
+    let product_fingerprint = crate::db::fingerprint::data_declaration_product_fingerprint(&product);
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        product_fingerprint,
+        SemanticProduct::DataDeclaration(product.clone()),
+        Vec::new(),
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(product)
+}
+
 pub fn query_enum_declaration(
     db: &mut SemanticDb,
     product: Arc<crate::db::product::EnumDeclarationProduct>,
@@ -1059,6 +1092,9 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
             Some(inputs.import_products),
         )),
         crate::checker::analysis::SemanticDependency::CallableSignature(callable) => {
+            if !inputs.sources.contains_key(callable.module()) && callable.module().project == phalcom_modules::ProjectIdentity::Universe {
+                return QueryOutcome::Ready(());
+            }
             let Some(unit) = inputs.sources.get(callable.module()).cloned() else {
                 return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
             };
@@ -1078,6 +1114,9 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
             ))
         }
         crate::checker::analysis::SemanticDependency::FieldSignature(field) => {
+            if !inputs.sources.contains_key(&field.owner.module) && field.owner.module.project == phalcom_modules::ProjectIdentity::Universe {
+                return QueryOutcome::Ready(());
+            }
             let Some(unit) = inputs.sources.get(&field.owner.module).cloned() else {
                 return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
             };
@@ -1097,6 +1136,9 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
             ))
         }
         crate::checker::analysis::SemanticDependency::DeclarationSurface(declaration) => {
+            if !inputs.sources.contains_key(&declaration.module) && declaration.module.project == phalcom_modules::ProjectIdentity::Universe {
+                return QueryOutcome::Ready(());
+            }
             let Some(unit) = inputs.sources.get(&declaration.module).cloned() else {
                 return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
             };
@@ -1120,6 +1162,9 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
             ))
         }
         crate::checker::analysis::SemanticDependency::HierarchyEdge(declaration) => {
+            if !inputs.sources.contains_key(&declaration.module) && declaration.module.project == phalcom_modules::ProjectIdentity::Universe {
+                return QueryOutcome::Ready(());
+            }
             let Some(unit) = inputs.sources.get(&declaration.module).cloned() else {
                 return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
             };
@@ -1150,6 +1195,21 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
             Some(inputs.type_aliases),
             Some(inputs.import_products),
         )),
+        crate::checker::analysis::SemanticDependency::DataDeclaration(declaration) => {
+            let Some(table) = inputs.data_semantics else {
+                return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+            };
+            let Some(info) = table.get(declaration).cloned() else {
+                return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+            };
+            unit_outcome(query_data_declaration(
+                db,
+                Arc::new(crate::db::product::DataDeclarationProduct {
+                    info,
+                    diagnostics: Arc::from(Vec::<SemanticDiagnostic>::new().into_boxed_slice()),
+                }),
+            ))
+        }
         crate::checker::analysis::SemanticDependency::EnumDeclaration(declaration) => {
             let Some(table) = inputs.enum_semantics else {
                 return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
@@ -2265,7 +2325,8 @@ fn query_callable_body_with_requirement(
             let Some(signature_id) = declaration_signature_id_for_body(&callable, &unit) else {
                 return query_failure(db, key.clone(), format!("missing declaration signature identity for body {callable:?}"));
             };
-            match ensure_callable_signature_with_inputs(db, &signature_id, inputs, store) {
+            let sig_res = ensure_callable_signature_with_inputs(db, &signature_id, inputs, store);
+            match sig_res {
                 QueryOutcome::Ready(signature) => Some((signature_id, signature)),
                 QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
                 QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
@@ -2340,6 +2401,7 @@ fn query_callable_body_with_requirement(
             field_signatures: formal_inputs.and_then(|inputs| inputs.field_signatures),
             field_lifecycle: formal_inputs.and_then(|inputs| inputs.field_lifecycle),
             enum_semantics: formal_inputs.and_then(|inputs| inputs.enum_semantics),
+            data_semantics: formal_inputs.and_then(|inputs| inputs.data_semantics),
             associated_families: formal_inputs.and_then(|inputs| inputs.associated_families),
         },
     );
@@ -2390,12 +2452,12 @@ fn query_callable_body_with_requirement(
                 } else {
                     ensure_semantic_dependency_current(db, sem_dep, None, declarations, None, None)
                 };
-                match outcome {
+                match &outcome {
                     QueryOutcome::Ready(()) => {}
                     QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
-                    QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
-                    QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
-                    QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
+                    QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report.clone()),
+                    QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason.clone()),
+                    QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure.clone()),
                 }
                 let dependency = semantic_dependency_query_key(sem_dep);
                 if let Err(error) = db.record_dependency(&mut recorder, dependency) {

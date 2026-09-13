@@ -154,3 +154,39 @@ let sum = MathUtils.add(a: 10, b: 20)
     let sum_sym = vm.interner.find("sum").unwrap();
     assert_eq!(vm.heap.module(main_mod).get(sum_sym), Some(Value::int(30)));
 }
+
+#[test]
+fn enum_product_storage_keeps_case_identity_and_traces_mixed_payloads() {
+    let (mut vm, module) = run_inline(
+        r#"
+enum Packed {
+  @variant First(_ f: Float, _ flag: Bool, _ text: String)
+  @variant Second(_ f: Float, _ flag: Bool, _ text: String)
+  @variant Big(_ value: Int)
+}
+let a = Packed::First(1.5, true, "child")
+let b = Packed::Second(1.5, true, "child")
+let big = Packed::Big(9223372036854775808)
+let exact = big.value == 9223372036854775808
+"#,
+    )
+    .expect("packed enum should execute");
+    let get = |vm: &VM, name: &str| vm.heap.module(module).get(vm.interner.find(name).unwrap()).unwrap();
+    let a = get(&vm, "a");
+    let b = get(&vm, "b");
+    assert_ne!(vm.runtime_variant_of(a), vm.runtime_variant_of(b));
+    let layout_of = |value: Value| {
+        let phalcom_core::heap::Object::AdtCase(case) = vm.heap.get(value.as_obj().unwrap()) else {
+            panic!("case")
+        };
+        assert_eq!(case.storage.words.len(), 4);
+        case.storage.layout
+    };
+    assert_eq!(layout_of(a), layout_of(b));
+    let child = vm.case_payload_at(a, 2).unwrap();
+    vm.force_gc();
+    assert!(vm.heap.try_get(child.as_obj().unwrap()).is_some());
+    assert_eq!(vm.case_payload_at(a, 0).unwrap(), Value::float(1.5));
+    assert_eq!(vm.case_payload_at(a, 1).unwrap(), Value::bool(true));
+    assert_eq!(get(&vm, "exact"), Value::bool(true));
+}

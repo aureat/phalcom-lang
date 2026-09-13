@@ -119,6 +119,7 @@ pub struct RuntimeVariantDescriptor {
     pub discriminant: CaseDiscriminant,
     pub shape: RuntimeVariantShape,
     pub payload_arity: u16,
+    pub layout: Option<crate::product::ProductLayoutId>,
     pub behavior_class: ClassId,
     pub singleton: Option<Value>,
 }
@@ -235,6 +236,7 @@ impl RuntimeAdtRegistry {
             discriminant,
             shape,
             payload_arity,
+            layout: None,
             behavior_class,
             singleton,
         };

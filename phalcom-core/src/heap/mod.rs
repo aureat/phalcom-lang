@@ -35,6 +35,7 @@ mod block;
 mod bytes;
 mod class;
 mod closure;
+pub mod data;
 mod fiber;
 mod instance;
 mod list;
@@ -60,6 +61,7 @@ pub use block::BlockObject;
 pub use bytes::BytesObject;
 pub use class::{ClassObject, is_strict_subclass, lookup_method_in_hierarchy, lookup_method_with_definer};
 pub use closure::ClosureObject;
+pub use data::DataObject;
 pub use fiber::{FiberConsumer, FiberConsumerMode, FiberObject, FiberStatus};
 pub use instance::InstanceObject;
 pub use list::ListObject;
@@ -133,6 +135,8 @@ pub struct Heap {
     gc_stress_interval: Option<usize>,
     /// Safepoints elapsed since the last stress-triggered collection.
     gc_stress_safepoints: usize,
+    /// Interned registry of physical product layouts.
+    pub product_layouts: crate::product::ProductLayoutRegistry,
 }
 
 const INITIAL_GC_THRESHOLD: usize = 4096;
@@ -185,6 +189,7 @@ impl Heap {
             gc_pending: false,
             gc_stress_interval: gc_stress_interval_from_env(),
             gc_stress_safepoints: 0,
+            product_layouts: crate::product::ProductLayoutRegistry::new(),
         }
     }
 
@@ -227,6 +232,11 @@ impl Heap {
     /// Allocates `object` and returns its fresh [`ObjRef`].
     pub fn alloc(&mut self, object: Object) -> ObjRef {
         self.insert(object)
+    }
+
+    /// Allocates a [`DataObject`] and returns its [`ObjRef`].
+    pub fn alloc_data(&mut self, descriptor: crate::data::RuntimeDataDescriptorId, storage: crate::product::ProductStorage) -> ObjRef {
+        self.insert(Object::Data(Box::new(DataObject::new(descriptor, storage))))
     }
 
     /// Allocates a [`ClassObject`] and returns its [`ClassId`].
@@ -293,8 +303,8 @@ impl Heap {
     }
 
     /// Allocates a fresh [`Object::AdtCase`] and returns its [`ObjRef`].
-    pub fn alloc_adt_case(&mut self, variant: crate::adt::RuntimeVariantId, payload: Box<[crate::value::Value]>) -> ObjRef {
-        self.insert(Object::AdtCase(Box::new(AdtCaseObject::new(variant, payload))))
+    pub fn alloc_adt_case(&mut self, variant: crate::adt::RuntimeVariantId, storage: crate::product::ProductStorage) -> ObjRef {
+        self.insert(Object::AdtCase(Box::new(AdtCaseObject::new(variant, storage))))
     }
 
     /// Allocates a fresh [`Object::AssociatedFamily`] and returns its [`ObjRef`].
@@ -388,6 +398,7 @@ impl Heap {
             Some(Object::Typing(_)) => "Typing",
             Some(Object::AdtCase(_)) => "AdtCase",
             Some(Object::AssociatedFamily(_)) => "AssociatedFamily",
+            Some(Object::Data(_)) => "Data",
             None => "<stale>",
         }
     }
@@ -464,7 +475,7 @@ impl Heap {
             // immutably inside the closure alongside `object`'s own borrow (both
             // shared, so they coexist); `marked`/`gray` are locals, disjoint from
             // the arena. This is what keeps marking allocation-free per object.
-            trace_object(object, &mut |child| {
+            trace_object(object, &self.product_layouts, &mut |child| {
                 if objects.contains_key(child) && marked.insert(child, ()).is_none() {
                     gray.push(child);
                 }

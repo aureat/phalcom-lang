@@ -89,6 +89,32 @@ fn test_cross_kind_duplicate_declaration_rejected() {
 }
 
 #[test]
+fn test_duplicate_data_declaration_rejected() {
+    let program = parse("data Point(x: Int, y: Int)\ndata Point(x: Int, y: Int)\n", 0).program;
+    let mut ids = SyntheticProjectIdAllocator;
+    let res = InterfaceBuilder::build(ModuleId::synthetic(ids.allocate(), ModulePath::root()), ModuleKind::Module, &program);
+    assert!(matches!(res, Err(InterfaceError::DuplicateDeclaration { ref name, .. }) if name == "Point"));
+}
+
+#[test]
+fn test_class_and_data_duplicate_declaration_rejected() {
+    let program = parse("class Point {}\ndata Point(x: Int, y: Int)\n", 0).program;
+    let mut ids = SyntheticProjectIdAllocator;
+    let res = InterfaceBuilder::build(ModuleId::synthetic(ids.allocate(), ModulePath::root()), ModuleKind::Module, &program);
+    assert!(matches!(res, Err(InterfaceError::DuplicateDeclaration { ref name, .. }) if name == "Point"));
+}
+
+#[test]
+fn test_data_declaration_publishes_interface() {
+    let program = parse("export Point\ndata Point(x: Int, y: Int)\n", 0).program;
+    let mut ids = SyntheticProjectIdAllocator;
+    let module_id = ModuleId::synthetic(ids.allocate(), ModulePath::root());
+    let interface = InterfaceBuilder::build(module_id, ModuleKind::Module, &program).expect("data export should succeed");
+    assert!(interface.exports.contains_key("Point"));
+    assert!(interface.declarations.contains_key("Point"));
+}
+
+#[test]
 fn test_project_display_name_remains_distinct_from_namespace() {
     let manifest = ProjectManifest::parse("[project]\nname = \"geometry-toolkit\"\nnamespace = \"geometry_toolkit\"\n").unwrap();
     let validated = manifest.validate().unwrap();

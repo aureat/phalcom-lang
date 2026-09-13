@@ -23,8 +23,8 @@ fn nested_adt_payload_edges_survive_then_collect_with_outer_case() {
     let mut vm = VM::new();
     vm.force_gc();
     let leaf = vm.alloc_string_value("leaf".to_owned());
-    let inner = vm.heap.alloc_adt_case(RuntimeVariantId::from_raw(10), Box::new([leaf]));
-    let outer = vm.heap.alloc_adt_case(RuntimeVariantId::from_raw(11), Box::new([Value::obj(inner)]));
+    let inner = alloc_case(&mut vm, RuntimeVariantId::from_raw(10), Box::new([leaf]));
+    let outer = alloc_case(&mut vm, RuntimeVariantId::from_raw(11), Box::new([Value::obj(inner)]));
 
     vm.push_root_for_test(Value::obj(outer));
     vm.force_gc();
@@ -60,4 +60,24 @@ let pair = Shape::Pair(1)
         let behavior = vm.adt_registry.variant_descriptor(variant_id).expect("variant descriptor").behavior_class;
         assert!(matches!(vm.heap.get(behavior), Object::Class(_)));
     }
+}
+
+// These heap-only tests intentionally use synthetic variant IDs.
+fn alloc_case(vm: &mut VM, variant: RuntimeVariantId, values: Box<[Value]>) -> phalcom_core::heap::ObjRef {
+    use phalcom_core::product::{ProductComponentSpec, ProductLayoutSpec, ProductSlotRepr, ProductStorage};
+    let layout = ProductLayoutSpec::new(
+        values
+            .iter()
+            .enumerate()
+            .map(|(i, _)| ProductComponentSpec {
+                logical_index: i as u32,
+                repr: ProductSlotRepr::Value,
+            })
+            .collect(),
+    )
+    .build_layout()
+    .unwrap();
+    let id = vm.heap.product_layouts.register(layout.clone());
+    let storage = ProductStorage::from_values(id, &layout, &values).unwrap();
+    vm.heap.alloc_adt_case(variant, storage)
 }

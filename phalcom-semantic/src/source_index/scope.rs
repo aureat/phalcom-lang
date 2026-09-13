@@ -22,6 +22,7 @@ pub enum SourceCallableKind {
 pub enum SourceDeclarationKind {
     Class,
     Enum,
+    Data,
     TypeAlias,
 }
 
