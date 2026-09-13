@@ -367,6 +367,8 @@ pub enum ProjectionError {
     MissingDataMetadata(DeclarationId),
     #[error("open or unrepresentable data construction type {result_type:?} for {constructor:?}")]
     OpenDataConstructionType { constructor: DataConstructorId, result_type: TypeId },
+    #[error("data constructor {constructor:?} carried non-callable semantic type {callable_type:?}")]
+    InvalidDataConstructorCallableType { constructor: DataConstructorId, callable_type: TypeId },
 }
 
 fn contains_exact_case(store: &phalcom_semantic::types::TypeStore, ty: TypeId) -> bool {
@@ -381,6 +383,7 @@ fn contains_exact_case(store: &phalcom_semantic::types::TypeStore, ty: TypeId) -
             row.fields.iter().any(|f| contains_exact_case(store, f.ty))
         }
         TypeData::Callable(call) => call.parameters.iter().any(|p| contains_exact_case(store, p.ty)) || contains_exact_case(store, call.return_type),
+        TypeData::Family(family_id) => store.get_family(*family_id).members.iter().any(|member| contains_exact_case(store, member.ty)),
         _ => false,
     }
 }
@@ -436,16 +439,13 @@ fn project_data_constructor_target(
     argument_mapping: Option<Box<[u32]>>,
 ) -> Result<ExecutableInvocationTarget, ProjectionError> {
     use phalcom_semantic::types::store::TypeData;
-    let (result_type, arity) = match snapshot.store.get(callable_type) {
-        TypeData::Callable(call) => (call.return_type, call.parameters.len()),
-        _ => {
-            let info = snapshot
-                .data_semantics
-                .data_info(&constructor.owner)
-                .ok_or_else(|| ProjectionError::MissingDataMetadata(constructor.owner.clone()))?;
-            (info.constructor.result_type_template, info.components.len())
-        }
+    let TypeData::Callable(call) = snapshot.store.get(callable_type) else {
+        return Err(ProjectionError::InvalidDataConstructorCallableType {
+            constructor: constructor.clone(),
+            callable_type,
+        });
     };
+    let (result_type, arity) = (call.return_type, call.parameters.len());
     let arity_u8 = u8::try_from(arity).map_err(|_| ProjectionError::ArityOverflow(arity))?;
     let construction = build_data_construction_spec(snapshot, projects, constructor, result_type, arity_u8, argument_mapping)?;
     Ok(ExecutableInvocationTarget::DataConstructor {

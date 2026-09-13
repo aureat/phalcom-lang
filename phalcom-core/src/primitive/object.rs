@@ -135,8 +135,8 @@ fn data_eq(vm: &mut VM, lhs: Value, rhs: Value) -> PhResult<Option<bool>> {
     let lhs_obj = lhs.as_obj();
     let rhs_obj = rhs.as_obj();
 
-    let lhs_is_data = lhs_singleton.is_some() || lhs_obj.map_or(false, |id| vm.heap.as_data(id).is_some());
-    let rhs_is_data = rhs_singleton.is_some() || rhs_obj.map_or(false, |id| vm.heap.as_data(id).is_some());
+    let lhs_is_data = lhs_singleton.is_some() || lhs_obj.is_some_and(|id| vm.heap.as_data(id).is_some());
+    let rhs_is_data = rhs_singleton.is_some() || rhs_obj.is_some_and(|id| vm.heap.as_data(id).is_some());
 
     if !lhs_is_data && !rhs_is_data {
         return Ok(None);
