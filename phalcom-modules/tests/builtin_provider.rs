@@ -73,7 +73,7 @@ fn reflection_leaf_interfaces_export_their_public_native_declarations() {
             components
                 .iter()
                 .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).unwrap())
-                .collect(),
+                .collect::<Vec<_>>(),
         );
         let id = ModuleId::universe(path);
         let interface = provider.load_interface(&id).unwrap_or_else(|_| panic!("interface for {id} should load"));
