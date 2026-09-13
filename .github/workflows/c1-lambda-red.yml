@@ -1,0 +1,52 @@
+name: C1 lambda exact-case red probe
+
+on:
+  push:
+    branches: [c1-completion-audit]
+
+jobs:
+  red-probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-10
+      - name: Inject focused regression and prove it is red
+        shell: bash
+        run: |
+          cat >> phalcom-core/src/modules/semantic_lowering.rs <<'RS'
+
+          #[cfg(test)]
+          mod c1_exact_case_tests {
+              use super::contains_exact_case;
+              use phalcom_common::selector::Selector;
+              use phalcom_modules::{DeclarationId, ModuleId, ModulePath, ResolvedProjectId};
+              use phalcom_semantic::identity::VariantId;
+              use phalcom_semantic::types::{KindId, ScopedTypeData, TypeStore};
+
+              #[test]
+              fn exact_case_detection_descends_into_type_lambda_free_types() {
+                  let mut store = TypeStore::new();
+                  let module = ModuleId::resolved(ResolvedProjectId::from_raw(9901), ModulePath::root());
+                  let owner = DeclarationId::new(module, "Choice".into());
+                  let enum_ty = store.nominal_type(owner.clone());
+                  let variant = VariantId::new(owner, Selector::getter("A").expect("selector"));
+                  let exact = store.exact_case_type(&variant, enum_ty).expect("exact case");
+                  let body = store.arena_mut().intern_scoped(ScopedTypeData::Free(exact));
+                  let lambda = store.lambda(Box::new([KindId::TYPE]), body, KindId::TYPE);
+
+                  assert!(contains_exact_case(&store, lambda));
+              }
+          }
+          RS
+          set +e
+          cargo +nightly-2026-07-10 test -p phalcom-core exact_case_detection_descends_into_type_lambda_free_types --lib -- --nocapture 2>&1 | tee /tmp/lambda-red.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "probe unexpectedly passed; the hypothesized gap is not present"
+            exit 1
+          fi
+          grep -q 'exact_case_detection_descends_into_type_lambda_free_types' /tmp/lambda-red.log
+          grep -q 'assertion failed: contains_exact_case' /tmp/lambda-red.log
