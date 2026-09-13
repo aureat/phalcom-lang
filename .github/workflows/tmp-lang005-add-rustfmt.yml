@@ -1,0 +1,29 @@
+name: LANG005 staging harness repair
+
+on:
+  push:
+    branches:
+      - audit/lang005-c1-completion
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: audit/lang005-c1-completion
+          fetch-depth: 0
+      - name: Add rustfmt component and remove repair workflow
+        shell: bash
+        run: |
+          python3 -c 'from pathlib import Path; p=Path(".github/workflows/tmp-lang005-c1-source-index-fix.yml"); s=p.read_text(); old="          toolchain: nightly-2026-07-10\n"; assert s.count(old)==1; p.write_text(s.replace(old, old+"          components: rustfmt\n", 1))'
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/tmp-lang005-c1-source-index-fix.yml
+          git rm .github/workflows/tmp-lang005-add-rustfmt.yml
+          git commit -m "chore(ci): install rustfmt in LANG005 staging harness"
+          git push origin HEAD:audit/lang005-c1-completion
