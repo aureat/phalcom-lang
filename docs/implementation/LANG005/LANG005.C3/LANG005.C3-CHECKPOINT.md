@@ -262,7 +262,7 @@ Plan/task: LANG005.C3.P1.T1 / G1 precondition
 Repository: aureat/phalcom-lang
 Branch: main
 Starting revision: 94aed5d6
-Current revision: 94aed5d6 plus uncommitted scoped changes
+Current revision: 3d3ebe0e
 Trigger: the planned compiler/runtime generic-reification contract is absent in the live call path
 Invariant: INV-02/INV-03; exact static products must publish canonical exact_type and missing template bindings must fail closed
 Expected architecture: semantic recipe -> shared generic call entry -> interned runtime environment -> frame/block propagation -> materialized exact_type
