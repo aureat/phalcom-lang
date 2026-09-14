@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   patch:
-    if: startsWith(github.event.head_commit.message, 'agent patch:')
+    if: ${{ startsWith(github.event.head_commit.message, 'agent patch:') }}
     runs-on: ubuntu-24.04
     env:
       CARGO_TERM_COLOR: always
@@ -33,65 +33,58 @@ jobs:
       - name: Apply data-component trait projection bridge
         shell: bash
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          path = Path('phalcom-core/src/vm/dispatch.rs')
-          text = path.read_text()
-
-          old_sig = '    fn trait_method_for_selection(&mut self, receiver: Value, selection: &phalcom_semantic::impls::RequirementSelectionTemplate) -> PhResult<ObjRef> {'
-          new_sig = '''    fn trait_method_for_selection(
-              &mut self,
-              receiver: Value,
-              selection: &phalcom_semantic::impls::RequirementSelectionTemplate,
-              requirement_selector: &phalcom_common::selector::Selector,
-          ) -> PhResult<ObjRef> {'''
-          if text.count(old_sig) != 1:
-              raise SystemExit(f'expected one trait_method_for_selection signature, found {text.count(old_sig)}')
-          text = text.replace(old_sig, new_sig, 1)
-
-          use_line = '        use phalcom_semantic::impls::RequirementSelectionTemplate;\n'
-          data_bridge = '''        use phalcom_semantic::impls::RequirementSelectionTemplate;
-          if let RequirementSelectionTemplate::DataComponent { component, .. } = selection {
-              // Semantic evidence has already selected this exact data component.
-              // Runtime getter lookup only materializes the representation-level
-              // projection handle installed by register_data_from_spec; it does
-              // not participate in conformance or witness selection.
-              let selector = self.interner.intern(&requirement_selector.encode());
-              return receiver
-                  .lookup_method(self, selector)
-                  .ok_or_else(|| {
-                      RuntimeError::Internal(format!(
-                          "trait-selected data component {component:?} has no runtime projection getter for `{}`",
-                          requirement_selector.encode()
-                      ))
-                  })
-                  .map_err(Into::into);
-          }
-'''
-          if text.count(use_line) != 1:
-              raise SystemExit(f'expected one local RequirementSelectionTemplate import, found {text.count(use_line)}')
-          text = text.replace(use_line, data_bridge, 1)
-
-          old_arm = '            RequirementSelectionTemplate::DataComponent { .. } => None,'
-          new_arm = '            RequirementSelectionTemplate::DataComponent { .. } => unreachable!("data component selection handled above"),'
-          if text.count(old_arm) != 1:
-              raise SystemExit(f'expected one data component trap arm, found {text.count(old_arm)}')
-          text = text.replace(old_arm, new_arm, 1)
-
-          old_slot = '                slots[*slot as usize] = Some(self.trait_method_for_selection(receiver, target)?);'
-          new_slot = '                slots[*slot as usize] = Some(self.trait_method_for_selection(receiver, target, &requirement.selector)?);'
-          if text.count(old_slot) != 1:
-              raise SystemExit(f'expected one conformance slot materialization call, found {text.count(old_slot)}')
-          text = text.replace(old_slot, new_slot, 1)
-
-          old_selected = '        let method = self.trait_method_for_selection(receiver, &spec.selection.selection)?;'
-          new_selected = '        let method = self.trait_method_for_selection(receiver, &spec.selection.selection, &spec.selection.signature.selector)?;'
-          if text.count(old_selected) != 1:
-              raise SystemExit(f'expected one selected trait target materialization call, found {text.count(old_selected)}')
-          text = text.replace(old_selected, new_selected, 1)
-
-          path.write_text(text)
-          PY
+          cat > /tmp/data-trait.patch <<'PATCH'
+          diff --git a/phalcom-core/src/vm/dispatch.rs b/phalcom-core/src/vm/dispatch.rs
+          --- a/phalcom-core/src/vm/dispatch.rs
+          +++ b/phalcom-core/src/vm/dispatch.rs
+          @@ -1128,8 +1128,27 @@ impl VM {
+               /// # Errors
+               ///
+               /// Propagates any [`RuntimeError`] the dispatched method raises.
+          -    fn trait_method_for_selection(&mut self, receiver: Value, selection: &phalcom_semantic::impls::RequirementSelectionTemplate) -> PhResult<ObjRef> {
+          +    fn trait_method_for_selection(
+          +        &mut self,
+          +        receiver: Value,
+          +        selection: &phalcom_semantic::impls::RequirementSelectionTemplate,
+          +        requirement_selector: &phalcom_common::selector::Selector,
+          +    ) -> PhResult<ObjRef> {
+                   use phalcom_semantic::impls::RequirementSelectionTemplate;
+          +        if let RequirementSelectionTemplate::DataComponent { component, .. } = selection {
+          +            // Semantic evidence has already selected this exact data component.
+          +            // Runtime lookup only materializes the representation-level getter
+          +            // installed by register_data_from_spec; it does not select a witness.
+          +            let selector = self.interner.intern(&requirement_selector.encode());
+          +            return receiver
+          +                .lookup_method(self, selector)
+          +                .ok_or_else(|| {
+          +                    RuntimeError::Internal(format!(
+          +                        "trait-selected data component {component:?} has no runtime projection getter for `{}`",
+          +                        requirement_selector.encode()
+          +                    ))
+          +                })
+          +                .map_err(Into::into);
+          +        }
+                   let callable = match selection {
+                       RequirementSelectionTemplate::ConformanceCallable { callable } | RequirementSelectionTemplate::TraitDefault { callable } => Some(callable),
+                       RequirementSelectionTemplate::InherentCallable { callable, .. } => Some(callable),
+          @@ -1158,13 +1177,13 @@ impl VM {
+               let mut slots = vec![None; spec.requirement_slots.iter().map(|(_, slot)| *slot as usize + 1).max().unwrap_or(0)];
+               for (requirement, slot) in spec.requirement_slots.iter() {
+                   if let Some(target) = spec.selection.requirement_targets.get(requirement) {
+          -            slots[*slot as usize] = Some(self.trait_method_for_selection(receiver, target)?);
+          +            slots[*slot as usize] = Some(self.trait_method_for_selection(receiver, target, &requirement.selector)?);
+                   }
+               }
+               let environment = self
+                   .runtime_conformance_environments
+                   .intern(crate::typing::RuntimeConformanceEnvironment::new(slots));
+          -    let method = self.trait_method_for_selection(receiver, &spec.selection.selection)?;
+          +    let method = self.trait_method_for_selection(receiver, &spec.selection.selection, &spec.selection.signature.selector)?;
+               Ok((environment, method))
+           }
+          PATCH
+          git apply --check /tmp/data-trait.patch
+          git apply /tmp/data-trait.patch
           git diff --check
           git diff -- phalcom-core/src/vm/dispatch.rs
 
