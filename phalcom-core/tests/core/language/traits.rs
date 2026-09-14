@@ -1,7 +1,7 @@
 //! C3 trait compiler/runtime boundary tests.
 
 use super::vm_support;
-use phalcom_core::modules::compile::{EntrySelection, ProgramCompiler};
+use phalcom_core::modules::compile::{EntrySelection, ProgramAnalyzer, ProgramCompiler};
 use phalcom_core::value::Value;
 use std::sync::Arc;
 
@@ -107,8 +107,15 @@ impl Named for Person {}
 class Caller { run(_ person: Person) -> String { person.label } }
 let result = Caller.new().run(Person(name: "data-user"))
 "#;
-    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source)))
-        .expect("data-component trait witness compiles");
+    let analyzed = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Inline(Arc::from(source)))
+        .expect("data-component trait source analyzes");
+    assert_eq!(analyzed.semantic.data_semantics.data_decls.len(), 1, "semantic snapshot must retain Person data semantics");
+    let program = ProgramCompiler::compile_analyzed(&analyzed).expect("data-component trait witness compiles");
+    assert_eq!(
+        program.modules[&program.entry].lowering.data_decls.len(),
+        1,
+        "formal module lowering must retain Person data semantics"
+    );
     let mut vm = vm_support::universe_vm();
     vm.run_compiled(&program).expect("data-component trait witness executes");
     let module = vm.module_registry.get(&program.entry).expect("entry module").object;
