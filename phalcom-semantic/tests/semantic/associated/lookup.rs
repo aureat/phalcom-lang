@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use phalcom_common::selector::Selector;
+use phalcom_common::selector::{Selector, SelectorSlot};
 use phalcom_modules::identity::ModuleId;
 use phalcom_semantic::analyze_single_module;
 use phalcom_semantic::checker::{AssociatedResolutionKind, CallableReferenceResolutionKind};
@@ -177,6 +177,56 @@ class Probe {
     assert!(cat_members.iter().any(|member| {
         matches!(&member.target, phalcom_semantic::identity::InvocationTargetId::Behavioral(target) if target.declaration_owner().name.as_ref() == "Animal")
     }));
+}
+
+#[test]
+fn bound_trait_reference_retains_conformance_selection_evidence() {
+    let module = ModuleId::universe_root();
+    let source: Arc<str> = Arc::from(
+        r#"
+trait Named { name -> String }
+class User {}
+impl Named for User { name -> String { "witness-user" } }
+class Caller { run(_ user: User) -> String { let f = &user.name; f() } }
+"#,
+    );
+    let parsed = phalcom_ast::parse(&source, 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:#?}", parsed.errors);
+    let analysis = analyze_single_module(module.clone(), source.clone(), Arc::new(parsed.program));
+    assert!(!analysis.snapshot.has_errors(), "semantic diagnostics: {:#?}", analysis.snapshot.diagnostics);
+
+    let caller = DeclarationId::new(module, "Caller".into());
+    let run = CallableId::new(
+        caller,
+        Selector::method("run", [SelectorSlot::Positional]).expect("run selector"),
+        DispatchSide::Instance,
+    );
+    let callable = analysis.snapshot.callable_analyses.get(&run).expect("Caller.run analysis");
+    let reference = callable
+        .expressions
+        .values()
+        .find(|expression| source.get(expression.range.start..expression.range.end) == Some("&user.name"))
+        .expect("bound trait reference expression");
+    let resolution = callable
+        .callable_reference_resolutions
+        .get(&reference.id)
+        .expect("bound trait reference resolution");
+    let CallableReferenceResolutionKind::BoundFamily { spec, members, .. } = &resolution.kind else {
+        panic!("expected bound family, got {:?}", resolution.kind);
+    };
+    assert!(matches!(spec, phalcom_semantic::checker::BehavioralFamilySpec::Exact(_)), "expected exact family, got {spec:?}");
+    assert_eq!(members.len(), 1, "exact trait reference should retain exactly one selected member: {members:#?}");
+    assert!(
+        members[0].trait_dispatch.is_some(),
+        "bound family member lost trait dispatch evidence: member={:#?}, expression_trait_dispatch={:#?}",
+        members[0],
+        reference.trait_dispatch
+    );
+    assert!(
+        reference.trait_dispatch.is_some(),
+        "callable-reference expression lost canonical trait dispatch evidence: member={:#?}",
+        members[0]
+    );
 }
 
 #[test]
