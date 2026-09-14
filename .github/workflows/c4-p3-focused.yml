@@ -28,3 +28,5 @@ jobs:
         run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::data_e2e::data_labeled_tuple_construction_and_access -- --nocapture
       - name: Trait data witness regression
         run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::trait_default_executes_abstract_getter_satisfied_by_data_component -- --nocapture
+      - name: Nested trait default environment regression
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::nested_trait_defaults_preserve_conformance_environment -- --nocapture
