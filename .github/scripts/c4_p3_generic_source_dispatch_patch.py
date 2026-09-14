@@ -120,7 +120,7 @@ fn trait_dispatch_specializes_generic_source_conformance_from_exact_target() {
         &output.snapshot.trait_surfaces,
         &output.snapshot.declarations,
         &mut store,
-        &output.snapshot.hierarchy,
+        output.snapshot.hierarchy.as_ref(),
         value_marker,
         &selector,
         DispatchSide::Instance,
