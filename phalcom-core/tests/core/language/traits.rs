@@ -109,7 +109,19 @@ let result = Caller.new().run(Person(name: "data-user"))
 "#;
     let analyzed = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Inline(Arc::from(source)))
         .expect("data-component trait source analyzes");
-    assert_eq!(analyzed.semantic.data_semantics.data_decls.len(), 1, "semantic snapshot must retain Person data semantics");
+    assert!(!analyzed.semantic.has_errors(), "semantic diagnostics: {:#?}", analyzed.semantic.diagnostics);
+    let person = phalcom_modules::DeclarationId::new(analyzed.entry.clone(), "Person".into());
+    assert!(
+        analyzed.semantic.declarations.form(&person).is_some(),
+        "Person must remain predeclared; declarations: {:#?}",
+        analyzed.semantic.declarations
+    );
+    assert_eq!(
+        analyzed.semantic.data_semantics.data_decls.len(),
+        1,
+        "semantic snapshot must retain Person data semantics; declarations: {:#?}",
+        analyzed.semantic.declarations
+    );
     let program = ProgramCompiler::compile_analyzed(&analyzed).expect("data-component trait witness compiles");
     assert_eq!(
         program.modules[&program.entry].lowering.data_decls.len(),
