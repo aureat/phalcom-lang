@@ -3,6 +3,7 @@ use std::sync::Arc;
 use phalcom_common::selector::{Selector, SelectorSlot};
 use phalcom_modules::identity::ModuleId;
 use phalcom_semantic::analyze_single_module;
+use phalcom_semantic::checker::associated::BehavioralFamilySpec;
 use phalcom_semantic::checker::{AssociatedResolutionKind, CallableReferenceResolutionKind};
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
@@ -214,7 +215,7 @@ class Caller { run(_ user: User) -> String { let f = &user.name; f() } }
     let CallableReferenceResolutionKind::BoundFamily { spec, members, .. } = &resolution.kind else {
         panic!("expected bound family, got {:?}", resolution.kind);
     };
-    assert!(matches!(spec, phalcom_semantic::checker::BehavioralFamilySpec::Exact(_)), "expected exact family, got {spec:?}");
+    assert!(matches!(spec, BehavioralFamilySpec::Exact(_)), "expected exact family, got {spec:?}");
     assert_eq!(members.len(), 1, "exact trait reference should retain exactly one selected member: {members:#?}");
     assert!(
         members[0].trait_dispatch.is_some(),
