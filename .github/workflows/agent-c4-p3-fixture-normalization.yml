@@ -1,4 +1,4 @@
-name: Agent C4 P3 fixture normalization
+name: Agent C4 P3 conditional witness bridge
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  normalize:
+  patch:
     runs-on: ubuntu-24.04
     env:
       CARGO_TERM_COLOR: always
@@ -43,26 +43,129 @@ jobs:
           new_conditional = "trait Tagged { tag -> String { \"default\" } }\nclass NumericBase {}\nclass Numeric is NumericBase {}\nclass Value<T> { @constructor new() {} }\nimpl<T> Value<T> where T <: NumericBase { tag -> String { \"number\" } }\nimpl<T> Tagged for Value<T> {}\nclass Caller { run(_ value: Value<Numeric>) -> String { value.tag } }\nlet value: Value<Numeric> = Value.new()\nlet result = Caller.new().run(value)"
           if text.count(old_conditional) != 1:
               raise SystemExit(f'conditional fixture match count: {text.count(old_conditional)}')
-          text = text.replace(old_conditional, new_conditional, 1)
-          path.write_text(text)
+          path.write_text(text.replace(old_conditional, new_conditional, 1))
+          PY
+
+      - name: Publish conditional witness method handles for trait execution
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          impl_path = Path('phalcom-core/src/compiler/lib/impl_decl.rs')
+          text = impl_path.read_text()
+          anchor = '''        Err(CompilerError::ImplCallableMismatch(SourceRange::new(0, 0)))
+    }
+
+    /// Installs all semantically accepted inherent `impl` members for nominal `target`'''
+          replacement = '''        Err(CompilerError::ImplCallableMismatch(SourceRange::new(0, 0)))
+    }
+
+    /// Ensures every conditional inherent callable retained by one trait
+    /// invocation has an executable method handle available to the VM. The
+    /// semantic proof has already selected these targets; this only publishes
+    /// the existing C2-compiled method object by canonical callable identity.
+    pub(crate) fn prepare_trait_invocation_methods(
+        &mut self,
+        spec: &crate::modules::semantic_lowering::TraitInvocationSpec,
+    ) -> Result<(), CompilerError> {
+        self.prepare_trait_selection_method(&spec.selection.selection)?;
+        for selection in spec.selection.requirement_targets.values() {
+            self.prepare_trait_selection_method(selection)?;
+        }
+        Ok(())
+    }
+
+    fn prepare_trait_selection_method(
+        &mut self,
+        selection: &phalcom_semantic::impls::RequirementSelectionTemplate,
+    ) -> Result<(), CompilerError> {
+        use phalcom_semantic::impls::RequirementSelectionTemplate;
+
+        let callable = match selection {
+            RequirementSelectionTemplate::ConditionalInherent { candidate, .. } => Some(candidate.callable.clone()),
+            RequirementSelectionTemplate::InherentCallable {
+                callable,
+                conditional_impl: Some(_),
+                ..
+            } => Some(callable.clone()),
+            RequirementSelectionTemplate::InherentCallable { .. }
+            | RequirementSelectionTemplate::ConformanceCallable { .. }
+            | RequirementSelectionTemplate::DataComponent { .. }
+            | RequirementSelectionTemplate::TraitDefault { .. } => None,
+        };
+        let Some(callable) = callable else {
+            return Ok(());
+        };
+        let method = self.get_or_compile_conditional_method(&callable)?;
+        self.vm.detached_method_objects.insert(callable, method);
+        Ok(())
+    }
+
+    /// Installs all semantically accepted inherent `impl` members for nominal `target`'''
+          if text.count(anchor) != 1:
+              raise SystemExit(f'impl helper anchor count: {text.count(anchor)}')
+          impl_path.write_text(text.replace(anchor, replacement, 1))
+
+          scope_path = Path('phalcom-core/src/compiler/lib/scope.rs')
+          text = scope_path.read_text()
+          old = '''        let spec = spec.clone();
+        let index = self'''
+          new = '''        let spec = spec.clone();
+        self.prepare_trait_invocation_methods(&spec)?;
+        let index = self'''
+          if text.count(old) != 1:
+              raise SystemExit(f'scope trait invoke anchor count: {text.count(old)}')
+          scope_path.write_text(text.replace(old, new, 1))
+
+          assoc_path = Path('phalcom-core/src/compiler/lib/associated.rs')
+          text = assoc_path.read_text()
+          old = '''            CallableReferenceLoweringSpec::MakeTraitBoundMethod { invocation } => {
+                let phalcom_ast::ast::CallableReferenceTarget::Bound { receiver, .. } = &expr.target else {'''
+          new = '''            CallableReferenceLoweringSpec::MakeTraitBoundMethod { invocation } => {
+                self.prepare_trait_invocation_methods(&invocation)?;
+                let phalcom_ast::ast::CallableReferenceTarget::Bound { receiver, .. } = &expr.target else {'''
+          if text.count(old) != 1:
+              raise SystemExit(f'associated trait bound anchor count: {text.count(old)}')
+          assoc_path.write_text(text.replace(old, new, 1))
+
+          vm_path = Path('phalcom-core/src/vm/mod.rs')
+          text = vm_path.read_text()
+          old = '''    /// Detached conformance witnesses and trait defaults, keyed by semantic
+    /// callable identity and never installed in target class dictionaries.
+    pub(crate) detached_method_objects: HashMap<CallableId, ObjRef>,'''
+          new = '''    /// Executable semantic methods that are intentionally absent from target
+    /// class dictionaries: conformance witnesses, trait defaults, and proven
+    /// conditional inherent members. Keyed by canonical callable identity and
+    /// rooted by the VM for the lifetime of the executable program.
+    pub(crate) detached_method_objects: HashMap<CallableId, ObjRef>,'''
+          if text.count(old) != 1:
+              raise SystemExit(f'vm registry comment anchor count: {text.count(old)}')
+          vm_path.write_text(text.replace(old, new, 1))
           PY
           cargo fmt --all
           git diff --check
-          git diff -- phalcom-core/tests/core/language/traits.rs
+          git diff -- phalcom-core/src/compiler/lib/impl_decl.rs phalcom-core/src/compiler/lib/scope.rs phalcom-core/src/compiler/lib/associated.rs phalcom-core/src/vm/mod.rs phalcom-core/tests/core/language/traits.rs
 
-      - name: Specialized exact-target runtime probe
-        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::specialized_generic_targets_keep_distinct_trait_execution -- --nocapture
+      - name: Verify core builds
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' check -p phalcom-core
 
       - name: Conditional inherent witness runtime probe
         run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::trait_default_uses_proven_conditional_inherent_witness -- --nocapture
 
-      - name: Commit normalized fixtures and remove workflow
+      - name: Trait-only conformance bound-reference control
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::trait_evidenced_bound_reference_executes_conformance_witness -- --nocapture
+
+      - name: Specialized exact-target control
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::specialized_generic_targets_keep_distinct_trait_execution -- --nocapture
+
+      - name: Commit patch and remove workflow
         shell: bash
         run: |
           git config user.name 'OpenAI Agent'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git rm .github/workflows/agent-c4-p3-fixture-normalization.yml
-          git add phalcom-core/tests/core/language/traits.rs
+          git add phalcom-core/src/compiler/lib/impl_decl.rs phalcom-core/src/compiler/lib/scope.rs phalcom-core/src/compiler/lib/associated.rs phalcom-core/src/vm/mod.rs phalcom-core/tests/core/language/traits.rs
           git diff --cached --check
-          git commit -m 'test: isolate C4 generic trait runtime fixtures'
+          git commit -m 'bridge conditional witnesses into trait execution'
           git push origin HEAD:agent/c4-p3-complex-closure-7
