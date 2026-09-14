@@ -4,9 +4,9 @@ category: LANG
 program: LANG005
 checkpoint: LANG005.C4
 kind: implementation-plan
-status: PROPOSED
-completion: NOT_STARTED
-verification: UNVERIFIED
+status: COMPLETE
+completion: IMPLEMENTED
+verification: FOCUSED_TESTED
 depends_on:
   - LANG005.C3
   - LANG005.C2 applicability-proof-state closure

@@ -702,6 +702,9 @@ impl SemanticWorkspaceSession {
                 let phalcom_ast::ast::Statement::Impl(impl_def) = stmt else {
                     continue;
                 };
+                if !matches!(impl_def.kind, phalcom_ast::ast::ImplKind::Inherent) {
+                    continue;
+                }
                 let impl_id = crate::identity::ImplId::new(module_id.clone(), crate::identity::ImplLocalId(statement_index as u32));
                 let mut impl_ctx = crate::checker::CheckingContext::new_with_dispatch_ref(
                     &mut store,
@@ -1926,6 +1929,13 @@ impl SemanticWorkspaceSession {
         // 3. Construct LinkedTypeResolver
         let mut known_declarations: HashSet<DeclarationId> = declarations.iter().map(|(decl_id, _)| decl_id.clone()).collect();
         known_declarations.extend(alias_declarations.iter().cloned());
+        for (module, shard) in &self.semantic_structure_shards {
+            for statement in &shard.source.program.statements {
+                if let Statement::Trait(trait_def) = statement {
+                    known_declarations.insert(DeclarationId::new(module.clone(), trait_def.name.clone().into()));
+                }
+            }
+        }
         let resolver = LinkedTypeResolver::with_retained_alias_forms(
             input.linked.clone(),
             known_declarations.clone(),
@@ -3082,6 +3092,13 @@ impl SemanticWorkspaceSession {
         }
 
         let mut inherent_contributions_by_module: BTreeMap<ModuleId, Vec<crate::impls::InherentImplContribution>> = BTreeMap::new();
+        let mut conformance_index = previous_snapshot
+            .as_ref()
+            .map(|snapshot| (*snapshot.conformance_index).clone())
+            .unwrap_or_default();
+        for module in structural_work_modules.iter().chain(removed_modules.iter()) {
+            conformance_index.remove_source(module);
+        }
         for module_id in &structural_work_modules {
             let Some(shard) = self.semantic_structure_shards.get(module_id) else {
                 continue;
@@ -3090,6 +3107,38 @@ impl SemanticWorkspaceSession {
             for (idx, statement) in parsed_unit.program.statements.iter().enumerate() {
                 if let Statement::Impl(impl_def) = statement {
                     let impl_id = crate::identity::ImplId::new(module_id.clone(), crate::identity::ImplLocalId(idx as u32));
+                    if matches!(impl_def.kind, phalcom_ast::ast::ImplKind::Conformance { .. }) {
+                        let mut context =
+                            crate::checker::CheckingContext::new(Arc::make_mut(&mut self.store), &hierarchy, &resolver, &declarations, module_id.clone());
+                        context.attach_data_semantics(&data_semantics);
+                        context.attach_enum_semantics(&enum_semantics);
+                        match crate::impls::resolve_conformance_head(&mut context, &trait_headers, &impl_id, impl_def) {
+                            Ok(head) => {
+                                let authorized = crate::impls::conformance_is_authorized(&head.source_module, &head.trait_ref, &head.target);
+                                let contribution = crate::impls::ConformanceContribution::from_resolved(head, authorized);
+                                if !contribution.authorized {
+                                    diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
+                                        module_id.clone(),
+                                        DiagnosticCode::ImplForeignTarget,
+                                        "conformance must be declared in the trait or target owner module",
+                                        impl_def.range,
+                                    ));
+                                }
+                                diags_by_module
+                                    .entry(module_id.clone())
+                                    .or_default()
+                                    .extend(contribution.diagnostics.iter().cloned());
+                                conformance_index.insert(contribution);
+                            }
+                            Err(diagnostics) => {
+                                diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics);
+                            }
+                        }
+                        continue;
+                    }
+                    if !matches!(impl_def.kind, phalcom_ast::ast::ImplKind::Inherent) {
+                        continue;
+                    }
                     let mut context =
                         crate::checker::CheckingContext::new(Arc::make_mut(&mut self.store), &hierarchy, &resolver, &declarations, module_id.clone());
                     context.attach_data_semantics(&data_semantics);
@@ -3104,6 +3153,25 @@ impl SemanticWorkspaceSession {
                     inherent_contributions_by_module.entry(module_id.clone()).or_default().push(contribution);
                 }
             }
+        }
+
+        for (first, second) in conformance_index.overlap_conflicts(Arc::make_mut(&mut self.store)) {
+            let Some(first_contribution) = conformance_index.get(&first) else { continue };
+            let Some(second_contribution) = conformance_index.get(&second) else {
+                continue;
+            };
+            diags_by_module.entry(first.module.clone()).or_default().push(SemanticDiagnostic::error_in(
+                first.module.clone(),
+                DiagnosticCode::ImplConformanceOverlap,
+                format!("conformance heads overlap with `{}`; no specialization precedence is defined", second.module),
+                first_contribution.source.range,
+            ));
+            diags_by_module.entry(second.module.clone()).or_default().push(SemanticDiagnostic::error_in(
+                second.module.clone(),
+                DiagnosticCode::ImplConformanceOverlap,
+                format!("conformance heads overlap with `{}`; no specialization precedence is defined", first.module),
+                second_contribution.source.range,
+            ));
         }
 
         for module_id in &structural_work_modules {
@@ -3759,6 +3827,9 @@ impl SemanticWorkspaceSession {
                         if constructors_only {
                             continue;
                         }
+                        if !matches!(impl_def.kind, phalcom_ast::ast::ImplKind::Inherent) {
+                            continue;
+                        }
                         let impl_id = crate::identity::ImplId::new(module_id.clone(), crate::identity::ImplLocalId(stmt_idx as u32));
                         let mut ctx =
                             crate::checker::CheckingContext::new(Arc::make_mut(&mut self.store), &hierarchy, &resolver, &declarations, module_id.clone());
@@ -4386,6 +4457,7 @@ impl SemanticWorkspaceSession {
 
         snapshot_obj = snapshot_obj.with_field_signatures(Arc::new(field_signatures));
         snapshot_obj = snapshot_obj.with_callable_definitions(Arc::new(callable_definitions));
+        snapshot_obj = snapshot_obj.with_conformance_index(Arc::new(conformance_index));
         snapshot_obj = snapshot_obj.with_presentation_sources(Arc::new(presentation_sources));
         snapshot_obj = snapshot_obj.with_source_index(Arc::new(source_index));
         snapshot_obj = snapshot_obj.with_formal_projection(Arc::new(formal_projection));

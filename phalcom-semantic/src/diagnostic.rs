@@ -115,6 +115,7 @@ pub enum DiagnosticCode {
     ImplBodylessMemberUnsupported,
     ImplUnusedTypeParameter,
     ImplEnumCaseTargetUnsupported,
+    ImplConformanceOverlap,
     TraitMemberConflict,
 }
 
@@ -218,6 +219,7 @@ impl DiagnosticCode {
             Self::ImplBodylessMemberUnsupported => "impl.member.bodyless_unsupported",
             Self::ImplUnusedTypeParameter => "impl.type_parameter.unused",
             Self::ImplEnumCaseTargetUnsupported => "impl.target.enum_case_unsupported",
+            Self::ImplConformanceOverlap => "impl.conformance.overlap",
             Self::TraitMemberConflict => "trait.member.conflict",
         }
     }

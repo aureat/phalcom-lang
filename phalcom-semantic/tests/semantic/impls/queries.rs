@@ -1,20 +1,29 @@
 use phalcom_common::selector::Selector;
-use phalcom_modules::identity::{ModuleId, ModulePath, ResolvedProjectId};
-use phalcom_modules::interface::LinkedModuleInterface;
-use phalcom_modules::linker::{LinkedModule, LinkedProgram, ModuleBindingLayout};
+use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
+use phalcom_modules::interface::{LinkedExport, LinkedExportTarget, LinkedModuleInterface};
+use phalcom_modules::linker::{GlobalBindingId, ImportBindingId, LinkedModule, LinkedProgram, LinkedReadSpec, ModuleBindingLayout, SymbolId};
 use phalcom_modules::metadata::ModuleMetadata;
+use phalcom_modules::project::ProjectUniverse;
 use phalcom_modules::source::ModuleKind;
 use phalcom_semantic::db::QueryKey;
 use phalcom_semantic::identity::{CallableId, CallableOwnerId, DeclarationId, DispatchSide};
-use phalcom_semantic::impls::CallableDefinitionOrigin;
+use phalcom_semantic::impls::{CallableDefinitionOrigin, ConformanceTarget};
 use phalcom_semantic::session::{SemanticWorkspaceSession, SemanticWorkspaceUpdate};
 use phalcom_semantic::source::ParsedModuleUnit;
+use phalcom_semantic::traits::TraitRef;
 use phalcom_semantic::workspace::SemanticWorkspaceInput;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
 fn test_module() -> ModuleId {
     ModuleId::resolved(ResolvedProjectId::from_raw(42), ModulePath::root())
+}
+
+fn named_module(name: &str) -> ModuleId {
+    ModuleId::resolved(
+        ResolvedProjectId::from_raw(42),
+        ModulePath::from_components(vec![ModuleComponent::from_identifier(name).expect("valid test module name")]),
+    )
 }
 
 fn single_module_input(module: ModuleId, source: &str) -> SemanticWorkspaceInput {
@@ -60,7 +69,7 @@ fn analyze_impl(source: &str, selector: Selector) -> (SemanticWorkspaceSession, 
     let module = test_module();
     let callable = CallableId::new(DeclarationId::new(module.clone(), "User".into()), selector, DispatchSide::Instance);
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module, source));
+    let output = session.update(single_module_input(module.clone(), source));
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
     (session, output, callable)
 }
@@ -75,6 +84,389 @@ fn impl_callable(owner_name: &str, selector: Selector) -> CallableId {
 
 fn surface_fingerprint(output: &SemanticWorkspaceUpdate, declaration: &DeclarationId) -> u64 {
     phalcom_semantic::db::fingerprint::declaration_surface_product_fingerprint(output.snapshot.surfaces().get(declaration).expect("declaration surface")).raw()
+}
+
+#[test]
+fn explicit_conformance_is_indexed_without_polluting_inherent_surface() {
+    let module = test_module();
+    let source = "trait Tagged { tag -> String }\nclass User {}\nimpl Tagged for User { tag -> String { \"tagged\" } }\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
+
+    let trait_ref = TraitRef::new(
+        DeclarationId::new(module.clone(), "Tagged".into()),
+        Vec::<phalcom_semantic::TypeId>::new().into_boxed_slice(),
+    );
+    let user = output
+        .snapshot
+        .declarations
+        .form(&DeclarationId::new(module.clone(), "User".into()))
+        .expect("User type");
+    let mut store = (*output.snapshot.store).clone();
+    let matches = output.snapshot.conformance_index.query_exact(&mut store, user, &trait_ref);
+    assert_eq!(matches.len(), 1, "expected one exact conformance head");
+    assert_eq!(matches[0].impl_id.module, module);
+    assert!(
+        !output
+            .snapshot
+            .surfaces()
+            .get(&DeclarationId::new(test_module(), "User".into()))
+            .unwrap()
+            .instance
+            .callable_signatures
+            .contains_key(&Selector::getter("tag").unwrap())
+    );
+}
+
+#[test]
+fn generic_conformance_head_matches_exact_target_specialization() {
+    let module = test_module();
+    let source = "trait Tagged {}\nclass Value<T> {}\nclass Marker {}\nimpl<T> Tagged for Value<T> {}\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
+
+    let value = DeclarationId::new(module.clone(), "Value".into());
+    let marker = DeclarationId::new(module.clone(), "Marker".into());
+    let value_form = output.snapshot.declarations.form(&value).expect("Value form");
+    let marker_form = output.snapshot.declarations.form(&marker).expect("Marker form");
+    let mut store = (*output.snapshot.store).clone();
+    let specialized = store.apply_type_form(value_form, &[marker_form]).expect("specialized Value form");
+    let trait_ref = TraitRef::new(
+        DeclarationId::new(module, "Tagged".into()),
+        Vec::<phalcom_semantic::TypeId>::new().into_boxed_slice(),
+    );
+    let matches = output.snapshot.conformance_index.query_exact(&mut store, specialized, &trait_ref);
+    assert_eq!(matches.len(), 1, "generic conformance should match one exact specialization");
+    assert_eq!(matches[0].impl_bindings.len(), 1, "impl generic parameter must be specialized");
+    assert_eq!(matches[0].exact_target, specialized);
+}
+
+#[test]
+fn overlapping_generic_and_specialized_conformances_are_rejected() {
+    let module = test_module();
+    let source = "trait Tagged {}\nclass Value<T> {}\nclass Marker {}\nimpl<T> Tagged for Value<T> {}\nimpl Tagged for Value<Marker> {}\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    let diagnostics = output.snapshot.diagnostics_for(&module).expect("module diagnostics");
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::ImplConformanceOverlap),
+        "expected overlap diagnostic: {diagnostics:?}"
+    );
+}
+
+#[test]
+fn incremental_conformance_add_edit_delete_updates_snapshot_index() {
+    let module = test_module();
+    let mut session = SemanticWorkspaceSession::new();
+    let source_v1 = "trait Tagged {}\nclass User {}\nimpl Tagged for User {}\n";
+    let first = session.update(single_module_input(module.clone(), source_v1));
+    assert!(!first.snapshot.has_errors(), "diagnostics: {:?}", first.snapshot.diagnostics);
+    assert_eq!(first.snapshot.conformance_index.iter().count(), 1);
+
+    let source_v2 = "trait Tagged {}\nclass User {}\n";
+    let second = session.update(single_module_input(module.clone(), source_v2));
+    assert!(!second.snapshot.has_errors(), "diagnostics: {:?}", second.snapshot.diagnostics);
+    assert_eq!(
+        second.snapshot.conformance_index.iter().count(),
+        0,
+        "deleted conformance must not remain published"
+    );
+
+    let source_v3 = "trait Tagged {}\nclass User {}\nimpl Tagged for User {}\n";
+    let third = session.update(single_module_input(module, source_v3));
+    assert!(!third.snapshot.has_errors(), "diagnostics: {:?}", third.snapshot.diagnostics);
+    assert_eq!(third.snapshot.conformance_index.iter().count(), 1, "re-added conformance must be published");
+}
+
+#[test]
+fn incremental_and_cold_conformance_publication_have_the_same_head_identity() {
+    let module = test_module();
+    let source_v1 = "trait Tagged {}\nclass User {}\n";
+    let source_v2 = "trait Tagged {}\nclass User {}\nimpl Tagged for User {}\n";
+    let mut incremental = SemanticWorkspaceSession::new();
+    let _ = incremental.update(single_module_input(module.clone(), source_v1));
+    let incremental_output = incremental.update(single_module_input(module.clone(), source_v2));
+    let mut cold = SemanticWorkspaceSession::new();
+    let cold_output = cold.update(single_module_input(module.clone(), source_v2));
+
+    let user = incremental_output
+        .snapshot
+        .declarations
+        .form(&DeclarationId::new(module.clone(), "User".into()))
+        .expect("User type");
+    let trait_ref = TraitRef::new(DeclarationId::new(module, "Tagged".into()), Vec::new().into_boxed_slice());
+    let mut incremental_store = (*incremental_output.snapshot.store).clone();
+    let mut cold_store = (*cold_output.snapshot.store).clone();
+    let incremental_matches = incremental_output
+        .snapshot
+        .conformance_index
+        .query_exact(&mut incremental_store, user, &trait_ref);
+    let cold_user = cold_output
+        .snapshot
+        .declarations
+        .form(&DeclarationId::new(test_module(), "User".into()))
+        .expect("cold User type");
+    let cold_matches = cold_output.snapshot.conformance_index.query_exact(&mut cold_store, cold_user, &trait_ref);
+    assert_eq!(incremental_matches.len(), 1);
+    assert_eq!(cold_matches.len(), 1);
+    assert_eq!(incremental_matches[0].impl_id, cold_matches[0].impl_id);
+}
+
+#[test]
+fn distinct_trait_reference_arguments_remain_distinct_conformance_domains() {
+    let module = test_module();
+    let source = "trait Converter<T> {}\nclass User {}\nclass Int {}\nclass Text {}\nimpl Converter<Int> for User {}\nimpl Converter<Text> for User {}\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
+    assert_eq!(output.snapshot.conformance_index.iter().count(), 2);
+
+    let mut store = (*output.snapshot.store).clone();
+    let user = output
+        .snapshot
+        .declarations
+        .form(&DeclarationId::new(module.clone(), "User".into()))
+        .expect("User form");
+    let int = output
+        .snapshot
+        .declarations
+        .form(&DeclarationId::new(module.clone(), "Int".into()))
+        .expect("Int form");
+    let text = output
+        .snapshot
+        .declarations
+        .form(&DeclarationId::new(module.clone(), "Text".into()))
+        .expect("Text form");
+    let trait_decl = DeclarationId::new(module, "Converter".into());
+    let int_matches = output
+        .snapshot
+        .conformance_index
+        .query_exact(&mut store, user, &TraitRef::new(trait_decl.clone(), vec![int].into_boxed_slice()));
+    let text_matches = output
+        .snapshot
+        .conformance_index
+        .query_exact(&mut store, user, &TraitRef::new(trait_decl, vec![text].into_boxed_slice()));
+    assert_eq!(int_matches.len(), 1);
+    assert_eq!(text_matches.len(), 1);
+    assert_ne!(int_matches[0].impl_id, text_matches[0].impl_id);
+}
+
+#[test]
+fn exact_enum_case_conformance_retains_variant_identity() {
+    let module = test_module();
+    let source = "trait Tagged {}\nenum Result { Ok }\nimpl Tagged for Result::Ok {}\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
+    let (_, contribution) = output.snapshot.conformance_index.iter().next().expect("conformance contribution");
+    let ConformanceTarget::ExactEnumCase(variant) = &contribution.target else {
+        panic!("expected exact enum-case target");
+    };
+    assert_eq!(variant.owner.name.as_ref(), "Result");
+    assert_eq!(variant.selector, Selector::getter("Ok").unwrap());
+    let variant_target = phalcom_semantic::identity::SemanticTargetId::Variant(variant.clone());
+    assert!(
+        output.snapshot.source_index.occurrences_for_target(&variant_target).is_some(),
+        "exact target source site must retain variant identity"
+    );
+}
+
+#[test]
+fn linked_modules_publish_canonical_ownership_through_reexports() {
+    let traits = named_module("traits");
+    let models = named_module("models");
+    let facade = named_module("facade");
+    let foreign = named_module("foreign");
+    let trait_symbol = SymbolId {
+        module: traits.clone(),
+        name: "Tagged".into(),
+    };
+    let user_symbol = SymbolId {
+        module: models.clone(),
+        name: "User".into(),
+    };
+    let module_specs = [
+        (
+            traits.clone(),
+            "trait Tagged {}\nexport Tagged\n",
+            LinkedModule {
+                interface: LinkedModuleInterface {
+                    module: traits.clone(),
+                    kind: ModuleKind::Module,
+                    exports: BTreeMap::from([(
+                        "Tagged".into(),
+                        LinkedExport {
+                            public_name: "Tagged".into(),
+                            target: LinkedExportTarget::Binding(trait_symbol.clone()),
+                            range: Default::default(),
+                        },
+                    )]),
+                    metadata: ModuleMetadata::default(),
+                },
+                bindings: ModuleBindingLayout {
+                    local_globals: BTreeMap::from([("Tagged".into(), GlobalBindingId(0))]),
+                    imports: BTreeMap::new(),
+                },
+                linked_reads: Vec::new(),
+                runtime_dependencies: Vec::new(),
+            },
+        ),
+        (
+            models.clone(),
+            "from facade import Tagged\nclass User {}\nimpl Tagged for User {}\nexport User\n",
+            LinkedModule {
+                interface: LinkedModuleInterface {
+                    module: models.clone(),
+                    kind: ModuleKind::Module,
+                    exports: BTreeMap::from([(
+                        "User".into(),
+                        LinkedExport {
+                            public_name: "User".into(),
+                            target: LinkedExportTarget::Binding(user_symbol.clone()),
+                            range: Default::default(),
+                        },
+                    )]),
+                    metadata: ModuleMetadata::default(),
+                },
+                bindings: ModuleBindingLayout {
+                    local_globals: BTreeMap::from([("User".into(), GlobalBindingId(0))]),
+                    imports: BTreeMap::from([("Tagged".into(), ImportBindingId(0))]),
+                },
+                linked_reads: vec![LinkedReadSpec::Binding(trait_symbol.clone())],
+                runtime_dependencies: vec![facade.clone()],
+            },
+        ),
+        (
+            facade.clone(),
+            "from traits import Tagged\nexport Tagged\n",
+            LinkedModule {
+                interface: LinkedModuleInterface {
+                    module: facade.clone(),
+                    kind: ModuleKind::Module,
+                    exports: BTreeMap::from([(
+                        "Tagged".into(),
+                        LinkedExport {
+                            public_name: "Tagged".into(),
+                            target: LinkedExportTarget::Binding(trait_symbol.clone()),
+                            range: Default::default(),
+                        },
+                    )]),
+                    metadata: ModuleMetadata::default(),
+                },
+                bindings: ModuleBindingLayout {
+                    local_globals: BTreeMap::new(),
+                    imports: BTreeMap::from([("Tagged".into(), ImportBindingId(0))]),
+                },
+                linked_reads: vec![LinkedReadSpec::Binding(trait_symbol.clone())],
+                runtime_dependencies: vec![traits.clone()],
+            },
+        ),
+        (
+            foreign.clone(),
+            "from facade import Tagged\nfrom models import User\nimpl Tagged for User {}\n",
+            LinkedModule {
+                interface: LinkedModuleInterface {
+                    module: foreign.clone(),
+                    kind: ModuleKind::Module,
+                    exports: BTreeMap::new(),
+                    metadata: ModuleMetadata::default(),
+                },
+                bindings: ModuleBindingLayout {
+                    local_globals: BTreeMap::new(),
+                    imports: BTreeMap::from([("Tagged".into(), ImportBindingId(0)), ("User".into(), ImportBindingId(1))]),
+                },
+                linked_reads: vec![LinkedReadSpec::Binding(trait_symbol), LinkedReadSpec::Binding(user_symbol)],
+                runtime_dependencies: vec![facade.clone(), models.clone()],
+            },
+        ),
+    ];
+    let mut sources = BTreeMap::new();
+    let mut linked_modules = BTreeMap::new();
+    for (module, source, linked_module) in module_specs {
+        let parsed = phalcom_ast::parse(source, 0);
+        assert!(parsed.errors.is_empty(), "parse errors in {module}: {:?}", parsed.errors);
+        sources.insert(
+            module.clone(),
+            Arc::new(ParsedModuleUnit::new(
+                module.clone(),
+                ModuleKind::Module,
+                None,
+                Arc::from(source),
+                Arc::new(parsed.program),
+            )),
+        );
+        linked_modules.insert(module, linked_module);
+    }
+    let linked = Arc::new(LinkedProgram {
+        universe: Arc::new(ProjectUniverse::new()),
+        modules: linked_modules,
+        graphs: Default::default(),
+        entry: models.clone(),
+        initialization_order: vec![traits.clone(), facade.clone(), models.clone(), foreign.clone()],
+    });
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(SemanticWorkspaceInput::new(linked, sources, 1));
+    let trait_decl = DeclarationId::new(traits, "Tagged".into());
+    let user_decl = DeclarationId::new(models.clone(), "User".into());
+    let user = output.snapshot.declarations.form(&user_decl).expect("User type");
+    let mut store = (*output.snapshot.store).clone();
+    let matches = output
+        .snapshot
+        .conformance_index
+        .query_exact(&mut store, user, &TraitRef::new(trait_decl, Vec::new().into_boxed_slice()));
+    assert_eq!(matches.len(), 1, "only the target-owner conformance is eligible");
+    assert_eq!(matches[0].impl_id.module, models);
+    assert!(
+        output.snapshot.diagnostics_for(&foreign).is_some_and(|diagnostics| diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::ImplForeignTarget)),
+        "third-party conformance must be rejected even when both names arrive through linked imports"
+    );
+}
+
+#[test]
+fn p1_generic_specialization_matrix_and_iterable_head_stay_at_head_level() {
+    let module = test_module();
+    let source = "trait Tagged { tag -> String }\ntrait Iterable<Item, Cursor> {\n  iterate(_ cursor: Cursor) -> Cursor\n  iteratorValue(_ cursor: Cursor) -> Item\n}\nclass Value<T> {}\nclass Text {}\nclass Number {}\nclass Boolish {}\nclass Countdown {}\nimpl Tagged for Value<Text> { tag -> String { \"text\" } }\nimpl Tagged for Value<Number> { tag -> String { \"number\" } }\nimpl Iterable<Countdown, Countdown> for Countdown {}\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
+
+    let value = DeclarationId::new(module.clone(), "Value".into());
+    let text = DeclarationId::new(module.clone(), "Text".into());
+    let number = DeclarationId::new(module.clone(), "Number".into());
+    let boolish = DeclarationId::new(module.clone(), "Boolish".into());
+    let countdown = DeclarationId::new(module.clone(), "Countdown".into());
+    let value_form = output.snapshot.declarations.form(&value).expect("Value form");
+    let text_form = output.snapshot.declarations.form(&text).expect("Text form");
+    let number_form = output.snapshot.declarations.form(&number).expect("Number form");
+    let boolish_form = output.snapshot.declarations.form(&boolish).expect("Boolish form");
+    let countdown_form = output.snapshot.declarations.form(&countdown).expect("Countdown form");
+    let mut store = (*output.snapshot.store).clone();
+    let value_text = store.apply_type_form(value_form, &[text_form]).expect("Value<Text>");
+    let value_number = store.apply_type_form(value_form, &[number_form]).expect("Value<Number>");
+    let value_boolish = store.apply_type_form(value_form, &[boolish_form]).expect("Value<Boolish>");
+    let tagged = TraitRef::new(DeclarationId::new(module.clone(), "Tagged".into()), Vec::new().into_boxed_slice());
+    let text_match = output.snapshot.conformance_index.query_exact(&mut store, value_text, &tagged);
+    let number_match = output.snapshot.conformance_index.query_exact(&mut store, value_number, &tagged);
+    let boolish_match = output.snapshot.conformance_index.query_exact(&mut store, value_boolish, &tagged);
+    assert_eq!(text_match.len(), 1);
+    assert_eq!(number_match.len(), 1);
+    assert!(boolish_match.is_empty(), "unlisted Value<Boolish> must have no P1 candidate");
+    assert_ne!(text_match[0].impl_id, number_match[0].impl_id);
+    assert_eq!(text_match[0].exact_target, value_text);
+    assert_eq!(number_match[0].exact_target, value_number);
+
+    let iterable = TraitRef::new(
+        DeclarationId::new(module, "Iterable".into()),
+        vec![countdown_form, countdown_form].into_boxed_slice(),
+    );
+    let iterable_match = output.snapshot.conformance_index.query_exact(&mut store, countdown_form, &iterable);
+    assert_eq!(iterable_match.len(), 1, "generic trait reference must remain an exact indexed domain");
 }
 
 #[test]

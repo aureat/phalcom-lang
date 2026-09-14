@@ -340,10 +340,29 @@ impl BehaviorMember {
     }
 }
 
-/// An inherent implementation fragment (`impl Type { ... }`) (PDR-0035).
+/// The semantic shape selected by the shared `impl` declaration syntax.
+///
+/// The parser preserves both type-like heads independently. Whether the
+/// conformance-side annotation resolves to a trait is a semantic concern.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ImplKind {
+    /// An inherent implementation fragment (`impl Type { ... }`).
+    Inherent,
+    /// An explicit conformance declaration (`impl TraitRef for Target { ... }`).
+    Conformance {
+        /// The trait reference as written on the left of `for`.
+        trait_ref: TypeAnnotation,
+        /// The source span of the `for` keyword.
+        for_range: SourceRange,
+    },
+}
+
+/// An implementation fragment sharing syntax between inherent behavior and
+/// explicit trait conformance (PDR-0035, LANG005.C4).
 #[derive(Debug, Clone)]
 pub struct ImplDef {
     pub generic_parameters: Vec<GenericParameterSyntax>,
+    pub kind: ImplKind,
     pub target: TypeAnnotation,
     pub where_clause: Option<WhereClauseSyntax>,
     pub members: Vec<BehaviorMember>,

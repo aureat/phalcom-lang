@@ -201,7 +201,13 @@ impl TypeReferenceTargetCollector<'_> {
                 let mut impl_bound = bound.clone();
                 impl_bound.extend(impl_def.generic_parameters.iter().map(|parameter| parameter.name.clone()));
                 self.where_clause(impl_def.where_clause.as_ref(), &impl_bound);
+                if let phalcom_ast::ast::ImplKind::Conformance { trait_ref, .. } = &impl_def.kind {
+                    self.annotation(trait_ref, &impl_bound);
+                }
                 self.annotation(&impl_def.target, &impl_bound);
+                if matches!(impl_def.kind, phalcom_ast::ast::ImplKind::Conformance { .. }) {
+                    return;
+                }
                 for member in &impl_def.members {
                     match member {
                         phalcom_ast::ast::BehaviorMember::Method(method) => {
@@ -470,6 +476,34 @@ impl SourceScopeBuilder<'_> {
         DeclarationId::new(self.index.module.clone(), class.name.clone().into())
     }
 
+    fn type_reference_target(&self, annotation: &TypeAnnotation) -> Option<DeclarationId> {
+        let range = match &annotation.expr {
+            TypeAnnotationExpr::Reference(symbol) => symbol.members.last().map_or(symbol.root_range, |member| member.range),
+            TypeAnnotationExpr::Application { origin, .. } => return self.type_reference_target(origin),
+            TypeAnnotationExpr::ExactEnumCase { enum_target, .. } => return self.type_reference_target(enum_target),
+            _ => return None,
+        };
+        self.context.type_reference_targets.get(&(self.index.module.clone(), range)).cloned()
+    }
+
+    fn type_reference_semantic_target(&self, annotation: &TypeAnnotation) -> Option<SemanticTargetId> {
+        match &annotation.expr {
+            TypeAnnotationExpr::ExactEnumCase {
+                enum_target,
+                variant_name,
+                payload_shape,
+                ..
+            } => {
+                let declaration = self.type_reference_target(enum_target)?;
+                Some(SemanticTargetId::Variant(VariantId::new(
+                    declaration,
+                    phalcom_ast::selector::selector_from_exact_case_target(variant_name, payload_shape.as_ref()),
+                )))
+            }
+            _ => self.type_reference_target(annotation).map(SemanticTargetId::Declaration),
+        }
+    }
+
     fn new_scope(&mut self, parent: SourceScopeId, range: SourceRange) -> SourceScopeId {
         let id = SourceScopeId(self.next_scope);
         self.next_scope += 1;
@@ -627,6 +661,22 @@ impl SourceScopeBuilder<'_> {
     }
 
     fn visit_impl(&mut self, parent: SourceScopeId, impl_def: &phalcom_ast::ast::ImplDef) {
+        if matches!(impl_def.kind, phalcom_ast::ast::ImplKind::Conformance { .. }) {
+            if let phalcom_ast::ast::ImplKind::Conformance { trait_ref, .. } = &impl_def.kind
+                && let Some(target) = self.type_reference_semantic_target(trait_ref)
+            {
+                let site = self.allocate_site(self.current_owner.clone(), trait_ref.range, SourceSiteKind::Occurrence);
+                self.index.register_target(site, target);
+            }
+            if let Some(target) = self.type_reference_semantic_target(&impl_def.target) {
+                let site = self.allocate_site(self.current_owner.clone(), impl_def.target.range, SourceSiteKind::Occurrence);
+                self.index.register_target(site, target);
+            }
+            // Conformance members do not receive target-owned callable
+            // identities in P1. P2 owns conformance-local witness identity;
+            // retain the declaration-side source work for later projection.
+            return;
+        }
         // The semantic session publishes the resolved target for the exact
         // target annotation range. Source indexing consumes that canonical
         // identity rather than resolving an impl target from a written name.

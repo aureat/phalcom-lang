@@ -250,7 +250,9 @@ fn callable_body_fingerprints_for_source(source: &ParsedModuleUnit) -> BTreeMap<
                 );
             }
             Statement::Impl(impl_def) => {
-                collect_impl_member_fingerprints(source, &impl_def.target, &impl_def.members, &mut callable_signatures, &mut callable_bodies);
+                if matches!(impl_def.kind, phalcom_ast::ast::ImplKind::Inherent) {
+                    collect_impl_member_fingerprints(source, &impl_def.target, &impl_def.members, &mut callable_signatures, &mut callable_bodies);
+                }
             }
             _ => {}
         }

@@ -3122,8 +3122,27 @@ impl<'source> Parser<'source> {
         let generic_parameters = self.parse_optional_generic_parameters(GenericBinderContext::NominalDeclaration)?;
         self.skip_newlines();
         let target_start = self.cur_start();
-        let target = self.parse_type_annotation()?;
-        let target_range = (target_start..self.prev_end).into();
+        let first_head = self.parse_type_annotation()?;
+        let (kind, target, target_range) = if self.peek() == &Token::For {
+            let for_start = self.cur_start();
+            self.advance();
+            let for_range = (for_start..self.prev_end).into();
+            self.skip_newlines();
+            let target_start = self.cur_start();
+            let target = self.parse_type_annotation()?;
+            let target_range = (target_start..self.prev_end).into();
+            (
+                ImplKind::Conformance {
+                    trait_ref: first_head,
+                    for_range,
+                },
+                target,
+                target_range,
+            )
+        } else {
+            let target_range = (target_start..self.prev_end).into();
+            (ImplKind::Inherent, first_head, target_range)
+        };
 
         self.skip_newlines_if_followed_by(&Token::Where);
         let where_clause = if matches!(self.peek(), Token::Where) {
@@ -3170,6 +3189,7 @@ impl<'source> Parser<'source> {
 
         Ok(Statement::Impl(ImplDef {
             generic_parameters,
+            kind,
             target,
             where_clause,
             members,

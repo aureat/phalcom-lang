@@ -4,7 +4,7 @@ use crate::declarations::DeclarationTypeTable;
 use crate::diagnostic::{DiagnosticSeverity, SemanticDiagnostic};
 use crate::dispatch::SurfaceDispatchResolver;
 use crate::identity::{DeclarationId, ModuleId, SemanticRevision, SnapshotId, SourceSiteId, SourceSiteRef, WorkspaceId};
-use crate::impls::EffectiveCallableDefinition;
+use crate::impls::{ConformanceIndex, EffectiveCallableDefinition};
 use crate::presentation::{FormalFactRef, FormalFactSite, FormalSemanticProjection, SemanticSiteView};
 use crate::semantic_shard::ModuleSemanticStructureShard;
 use crate::signature::{CallableSignatureTable, FieldSignatureTable};
@@ -162,6 +162,9 @@ pub struct SemanticSnapshot {
     /// target-owned callable identity. Backend lowering consumes this map
     /// directly and must not reconstruct acceptance from source locations.
     pub callable_definitions: Arc<BTreeMap<crate::identity::CallableId, EffectiveCallableDefinition>>,
+    /// Explicit conformance heads published for this exact semantic snapshot.
+    /// The index contains source-head matches only, never witness evidence.
+    pub conformance_index: Arc<ConformanceIndex>,
     pub field_signatures: Arc<FieldSignatureTable>,
     pub declarations: Arc<DeclarationTypeTable>,
     pub type_aliases: Arc<TypeAliasTable>,
@@ -219,6 +222,7 @@ impl SemanticSnapshot {
             dispatch,
             callable_signatures,
             callable_definitions: Arc::new(BTreeMap::new()),
+            conformance_index: Arc::new(ConformanceIndex::new()),
             field_signatures: Arc::new(FieldSignatureTable::new()),
             declarations,
             type_aliases: Arc::new(TypeAliasTable::new()),
@@ -272,6 +276,7 @@ impl SemanticSnapshot {
             dispatch,
             callable_signatures,
             callable_definitions: Arc::new(BTreeMap::new()),
+            conformance_index: Arc::new(ConformanceIndex::new()),
             field_signatures: Arc::new(FieldSignatureTable::new()),
             declarations,
             type_aliases: Arc::new(TypeAliasTable::new()),
@@ -349,6 +354,12 @@ impl SemanticSnapshot {
     /// Attaches the accepted callable definitions for this exact snapshot.
     pub fn with_callable_definitions(mut self, definitions: Arc<BTreeMap<crate::identity::CallableId, EffectiveCallableDefinition>>) -> Self {
         self.callable_definitions = definitions;
+        self
+    }
+
+    /// Attaches the immutable explicit-conformance head index for this snapshot.
+    pub fn with_conformance_index(mut self, conformance_index: Arc<ConformanceIndex>) -> Self {
+        self.conformance_index = conformance_index;
         self
     }
 

@@ -3,14 +3,21 @@ use phalcom_modules::identity::{ModuleId, ModulePath, ResolvedProjectId};
 use phalcom_semantic::CheckingContext;
 use phalcom_semantic::declarations::{DeclarationTypeTable, NominalDeclarationHeader};
 use phalcom_semantic::diagnostic::DiagnosticCode;
+use phalcom_semantic::diagnostic::SemanticSourceSpan;
 use phalcom_semantic::enum_semantics::{EnumInfo, EnumSemanticTable, VariantInfo, VariantShape};
 use phalcom_semantic::identity::{DeclarationId, ImplId, ImplLocalId, VariantId};
-use phalcom_semantic::impls::{InherentImplApplicability, InherentImplTarget, resolve_inherent_impl_target};
+use phalcom_semantic::impls::{
+    ConformanceTarget, ImplApplicabilityResult, InherentImplApplicability, InherentImplDomain, InherentImplTarget, check_impl_domain_applicability,
+    conformance_is_authorized, resolve_conformance_head, resolve_inherent_impl_target,
+};
+use phalcom_semantic::traits::{TraitHeader, TraitHeaderTable};
 use phalcom_semantic::types::annotation::{SimpleTypeResolver, TypeResolver};
+use phalcom_semantic::types::evidence::UnknownReason;
 use phalcom_semantic::types::id::{KindId, TypeId};
-use phalcom_semantic::types::parameter::{GenericSignature, TypeParameterData, TypeParameterOwner};
+use phalcom_semantic::types::parameter::{GenericConstraint, GenericSignature, TypeParameterData, TypeParameterOwner, TypeTerm};
 use phalcom_semantic::types::relation::MapTypeHierarchy;
 use phalcom_semantic::types::store::TypeStore;
+use std::sync::Arc;
 
 fn test_module() -> ModuleId {
     ModuleId::resolved(ResolvedProjectId::from_raw(42), ModulePath::root())
@@ -34,6 +41,110 @@ fn setup_resolver_and_decls(store: &mut TypeStore, declarations: &mut Declaratio
 fn register_nominal(store: &mut TypeStore, declarations: &mut DeclarationTypeTable, decl: DeclarationId, generic_signature: Option<GenericSignature>) {
     let header = NominalDeclarationHeader::from_signature(store, decl, generic_signature);
     declarations.insert(header.into_type_info(None));
+}
+
+fn register_trait_header(headers: &mut TraitHeaderTable, declaration: DeclarationId, generic_signature: Option<GenericSignature>) {
+    headers.insert(Arc::new(TraitHeader {
+        source: SemanticSourceSpan::new(declaration.module.clone(), (0..0).into()),
+        declaration,
+        generic_signature,
+    }));
+}
+
+#[test]
+fn test_explicit_conformance_head_resolves_trait_and_target_separately() {
+    let module = test_module();
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let mut declarations = DeclarationTypeTable::new();
+    let mut resolver = setup_resolver_and_decls(&mut store, &mut declarations);
+    let trait_decl = DeclarationId::new(module.clone(), "Converter".into());
+    let value_decl = DeclarationId::new(module.clone(), "Value".into());
+    let value_param = store.intern_type_parameter(TypeParameterData::new(
+        TypeParameterOwner::Declaration(value_decl.clone()),
+        0,
+        "T",
+        KindId::TYPE,
+    ));
+    let value_signature = GenericSignature::new(TypeParameterOwner::Declaration(value_decl.clone()), vec![value_param].into_boxed_slice());
+    register_nominal(&mut store, &mut declarations, value_decl.clone(), Some(value_signature));
+    resolver.insert("Converter", trait_decl.clone());
+    resolver.insert("Value", value_decl.clone());
+    let mut trait_headers = TraitHeaderTable::new();
+    let trait_param = store.intern_type_parameter(TypeParameterData::new(
+        TypeParameterOwner::Declaration(trait_decl.clone()),
+        0,
+        "T",
+        KindId::TYPE,
+    ));
+    register_trait_header(
+        &mut trait_headers,
+        trait_decl.clone(),
+        Some(GenericSignature::new(
+            TypeParameterOwner::Declaration(trait_decl.clone()),
+            vec![trait_param].into_boxed_slice(),
+        )),
+    );
+
+    let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module.clone());
+    let parsed = phalcom_ast::parse("impl<T> Converter<T> for Value<T> {}\n", 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+    let phalcom_ast::ast::Statement::Impl(impl_def) = &parsed.program.statements[0] else {
+        panic!("expected impl")
+    };
+    let impl_id = ImplId::new(module, ImplLocalId(0));
+    let head = resolve_conformance_head(&mut ctx, &trait_headers, &impl_id, impl_def).expect("head should resolve");
+    assert!(head.eligible);
+    assert_eq!(head.trait_ref.declaration, trait_decl);
+    assert!(matches!(head.target, ConformanceTarget::Declaration(declaration) if declaration == value_decl));
+    assert_eq!(head.trait_ref.arguments.len(), 1);
+    let trait_argument = head.trait_ref.arguments[0];
+    let target_argument = match ctx.store.get(head.target_head) {
+        phalcom_semantic::types::store::TypeData::Applied { arguments, .. } => arguments[0],
+        other => panic!("expected applied target, got {other:?}"),
+    };
+    assert_eq!(trait_argument, target_argument, "both heads must share the impl-owned parameter");
+    assert!(matches!(ctx.store.get(trait_argument), phalcom_semantic::types::store::TypeData::Parameter(_)));
+}
+
+#[test]
+fn test_explicit_conformance_rejects_non_trait_left_head() {
+    let module = test_module();
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let mut declarations = DeclarationTypeTable::new();
+    let mut resolver = setup_resolver_and_decls(&mut store, &mut declarations);
+    let user_decl = DeclarationId::new(module.clone(), "User".into());
+    let target_decl = DeclarationId::new(module.clone(), "Target".into());
+    register_nominal(&mut store, &mut declarations, user_decl.clone(), None);
+    register_nominal(&mut store, &mut declarations, target_decl.clone(), None);
+    resolver.insert("User", user_decl);
+    resolver.insert("Target", target_decl);
+    let trait_headers = TraitHeaderTable::new();
+    let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module.clone());
+    let parsed = phalcom_ast::parse("impl User for Target {}\n", 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+    let phalcom_ast::ast::Statement::Impl(impl_def) = &parsed.program.statements[0] else {
+        panic!("expected impl")
+    };
+    let error = resolve_conformance_head(&mut ctx, &trait_headers, &ImplId::new(module, ImplLocalId(0)), impl_def)
+        .expect_err("ordinary type cannot be a trait reference");
+    assert!(error.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::AnnotationUnresolved));
+}
+
+#[test]
+fn test_conformance_ownership_accepts_only_trait_or_target_owner() {
+    let trait_module = ModuleId::resolved(ResolvedProjectId::from_raw(43), ModulePath::root());
+    let target_module = ModuleId::resolved(ResolvedProjectId::from_raw(44), ModulePath::root());
+    let third_party = ModuleId::resolved(ResolvedProjectId::from_raw(45), ModulePath::root());
+    let trait_ref = phalcom_semantic::TraitRef::new(
+        DeclarationId::new(trait_module.clone(), "Tagged".into()),
+        Vec::<TypeId>::new().into_boxed_slice(),
+    );
+    let target = ConformanceTarget::Declaration(DeclarationId::new(target_module.clone(), "Value".into()));
+    assert!(conformance_is_authorized(&trait_module, &trait_ref, &target));
+    assert!(conformance_is_authorized(&target_module, &trait_ref, &target));
+    assert!(!conformance_is_authorized(&third_party, &trait_ref, &target));
 }
 
 struct AliasResolver {
@@ -328,6 +439,73 @@ fn test_where_clause_success() {
     let resolved = resolve_inherent_impl_target(&mut ctx, &impl_id, impl_stmt).expect("target resolves successfully");
     assert!(resolved.diagnostics.is_empty());
     assert!(matches!(resolved.applicability, InherentImplApplicability::Conditional(_)));
+}
+
+#[test]
+fn test_unknown_constraint_is_not_treated_as_disproven() {
+    let module = test_module();
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let mut declarations = DeclarationTypeTable::new();
+
+    let owner = DeclarationId::new(module.clone(), "Box".into());
+    register_nominal(&mut store, &mut declarations, owner.clone(), None);
+
+    let impl_id = ImplId::new(module.clone(), ImplLocalId(0));
+    let impl_parameter = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Impl(impl_id.clone()), 0, "T", KindId::TYPE));
+    let owner_parameter = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(owner.clone()), 0, "T", KindId::TYPE));
+    let impl_parameter_type = store.parameter_form(impl_parameter);
+    let owner_parameter_type = store.parameter_form(owner_parameter);
+    let int = store.nominal(DeclarationId::new(universe_module(), "Int".into()));
+
+    let domain = InherentImplDomain {
+        impl_id: impl_id.clone(),
+        target: InherentImplTarget::Declaration(owner),
+        head_type: impl_parameter_type,
+        generic_signature: None,
+        constraints: vec![GenericConstraint::Subtype {
+            lower: TypeTerm::Canonical(impl_parameter_type),
+            upper: TypeTerm::Canonical(int),
+        }]
+        .into_boxed_slice(),
+    };
+
+    let result = check_impl_domain_applicability(&mut store, &hierarchy, &domain, owner_parameter_type, owner_parameter_type, &[]);
+    assert!(matches!(result, ImplApplicabilityResult::Unknown(UnknownReason::UnderconstrainedTypeVariable)));
+}
+
+#[test]
+fn test_invalid_constraint_is_blocked_instead_of_disproven() {
+    let module = test_module();
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let mut declarations = DeclarationTypeTable::new();
+
+    let owner = DeclarationId::new(module.clone(), "Box".into());
+    register_nominal(&mut store, &mut declarations, owner.clone(), None);
+    let impl_id = ImplId::new(module.clone(), ImplLocalId(0));
+    let owner_type = store.nominal(owner.clone());
+    let int = store.nominal(DeclarationId::new(universe_module(), "Int".into()));
+
+    let domain = InherentImplDomain {
+        impl_id,
+        target: InherentImplTarget::Declaration(owner),
+        head_type: owner_type,
+        generic_signature: None,
+        constraints: vec![GenericConstraint::Equivalent {
+            left: TypeTerm::Infer(phalcom_semantic::types::id::InferVarId(0)),
+            right: TypeTerm::Canonical(int),
+        }]
+        .into_boxed_slice(),
+    };
+
+    let result = check_impl_domain_applicability(&mut store, &hierarchy, &domain, owner_type, owner_type, &[]);
+    assert!(matches!(
+        result,
+        ImplApplicabilityResult::Blocked(phalcom_semantic::types::outcome::BlockReason::InvalidAnnotation(
+            DiagnosticCode::AnnotationUnresolved
+        ))
+    ));
 }
 
 #[test]

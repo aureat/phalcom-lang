@@ -1,4 +1,4 @@
-use phalcom_ast::ast::{BehaviorMember, Statement};
+use phalcom_ast::ast::{BehaviorMember, ImplKind, Statement, TypeAnnotationExpr};
 use phalcom_ast::lexer::Lexer;
 use phalcom_ast::parse_source;
 use phalcom_ast::token::Token;
@@ -27,6 +27,52 @@ fn test_parse_basic_impl() {
         panic!("expected getter member");
     };
     assert_eq!(getter.name, "name");
+    assert!(matches!(impl_def.kind, ImplKind::Inherent));
+}
+
+#[test]
+fn test_parse_explicit_conformance_preserves_both_heads_and_ranges() {
+    let source = "impl Converter<Int> for Value<String> {\n  convert -> Int { 1 }\n}\n";
+    let program = parse_source(source, 0).expect("explicit conformance parses");
+    let Statement::Impl(impl_def) = &program.statements[0] else {
+        panic!("expected Statement::Impl");
+    };
+
+    let ImplKind::Conformance { trait_ref, for_range } = &impl_def.kind else {
+        panic!("expected conformance impl kind");
+    };
+    assert!(matches!(trait_ref.expr, TypeAnnotationExpr::Application { .. }));
+    assert_eq!(&source[trait_ref.range.start..trait_ref.range.end], "Converter<Int>");
+    assert_eq!(&source[for_range.start..for_range.end], "for");
+    assert_eq!(&source[impl_def.target.range.start..impl_def.target.range.end], "Value<String>");
+    assert_eq!(&source[impl_def.target_range.start..impl_def.target_range.end], "Value<String>");
+    assert_eq!(impl_def.members.len(), 1);
+}
+
+#[test]
+fn test_parse_conformance_generic_and_exact_case_targets() {
+    let source = r#"
+impl<T> Tagged for Value<T> {}
+impl Printable for Result<Int>::Ok(_) {
+  print() -> String { "ok" }
+}
+"#;
+    let program = parse_source(source, 0).expect("generic and exact-case conformances parse");
+    assert_eq!(program.statements.len(), 2);
+
+    let Statement::Impl(generic) = &program.statements[0] else { panic!() };
+    assert_eq!(generic.generic_parameters.len(), 1);
+    assert!(matches!(generic.kind, ImplKind::Conformance { .. }));
+
+    let Statement::Impl(exact_case) = &program.statements[1] else { panic!() };
+    assert!(matches!(exact_case.kind, ImplKind::Conformance { .. }));
+    assert!(matches!(exact_case.target.expr, TypeAnnotationExpr::ExactEnumCase { .. }));
+}
+
+#[test]
+fn test_parse_impl_requires_for_between_conformance_heads() {
+    let source = "impl Printable User {}\n";
+    assert!(parse_source(source, 0).is_err(), "missing `for` must be rejected");
 }
 
 #[test]

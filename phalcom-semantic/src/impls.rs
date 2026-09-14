@@ -7,16 +7,18 @@ use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic, SemanticSourceSpan};
 use crate::identity::{CallableId, CallableOwnerId, DeclarationId, DispatchSide, ImplId};
 use crate::signature::CallableSemanticSignature;
 use crate::surface::MemberVisibility;
+use crate::traits::{TraitHeaderTable, TraitRef};
 use crate::types::annotation::{
     ScopedTypeResolver, TypeFormationSite, TypeLevelBinding, TypeResolver, resolve_type_annotation, type_level_binding_for_parameter,
 };
-use crate::types::evidence::TypeKnowledge;
+use crate::types::evidence::{TypeKnowledge, UnknownReason};
 use crate::types::id::{KindId, TypeId, TypeParameterId};
+use crate::types::outcome::{BlockReason, BudgetReport, CancellationToken, DynamicBoundaryObligation, QueryBudget, RelationOutcome};
 use crate::types::parameter::{GenericSignature, TypeParameterData, TypeParameterOwner, TypeTerm};
 use crate::types::store::{TypeData, TypeStore};
 use crate::types::substitution::TypeSubstitution;
 use phalcom_ast::ast::{BehaviorMember, ImplDef, TypeAnnotationExpr};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// Computes the conditional inherent members selected for one canonical
 /// receiver form. This is the shared semantic query used by non-checker
@@ -183,10 +185,667 @@ pub struct ResolvedInherentImplTarget {
     pub diagnostics: Box<[SemanticDiagnostic]>,
 }
 
+/// Canonical target identity shared by explicit conformance products.
+///
+/// This is deliberately separate from the inherent-implementation target
+/// product. A conformance target identifies the declaration or exact enum case
+/// whose head participates in ownership, lookup, and coherence; it does not
+/// contribute ordinary behavior to that target.
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub enum ConformanceTarget {
+    Declaration(DeclarationId),
+    ExactEnumCase(crate::identity::VariantId),
+}
+
+impl ConformanceTarget {
+    pub fn declaration(&self) -> &DeclarationId {
+        match self {
+            Self::Declaration(declaration) => declaration,
+            Self::ExactEnumCase(variant) => &variant.owner,
+        }
+    }
+}
+
+/// Returns whether the source module is one of the two canonical owners that
+/// may declare an explicit conformance.
+pub fn conformance_is_authorized(source_module: &crate::identity::ModuleId, trait_ref: &TraitRef, target: &ConformanceTarget) -> bool {
+    source_module == &trait_ref.declaration.module || source_module == &target.declaration().module
+}
+
+/// Resolved source conformance header produced before workspace publication.
+///
+/// The product contains only declaration provenance and exact head identity.
+/// It intentionally contains no witness, default-selection, or completeness
+/// claim; those belong to C4.P2.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResolvedConformanceHead {
+    pub impl_id: ImplId,
+    pub source_module: crate::identity::ModuleId,
+    pub trait_ref: TraitRef,
+    pub target: ConformanceTarget,
+    pub target_head: TypeId,
+    pub generic_signature: Option<GenericSignature>,
+    pub source: SemanticSourceSpan,
+    pub eligible: bool,
+    pub diagnostics: Box<[SemanticDiagnostic]>,
+}
+
+/// Static source contribution for one explicit conformance declaration.
+///
+/// This product is deliberately body-independent. `authorized` controls
+/// eligibility for lookup; retaining an unauthorized contribution allows the
+/// diagnostic and source layers to explain why it was excluded.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConformanceContribution {
+    pub impl_id: ImplId,
+    pub source_module: crate::identity::ModuleId,
+    pub trait_ref: TraitRef,
+    pub target: ConformanceTarget,
+    pub target_head: TypeId,
+    pub generic_signature: Option<GenericSignature>,
+    pub authorized: bool,
+    pub eligible: bool,
+    pub source: SemanticSourceSpan,
+    pub diagnostics: Box<[SemanticDiagnostic]>,
+}
+
+impl ConformanceContribution {
+    pub fn from_resolved(head: ResolvedConformanceHead, authorized: bool) -> Self {
+        Self {
+            impl_id: head.impl_id,
+            source_module: head.source_module,
+            trait_ref: head.trait_ref,
+            target: head.target,
+            target_head: head.target_head,
+            generic_signature: head.generic_signature,
+            authorized,
+            eligible: head.eligible,
+            source: head.source,
+            diagnostics: head.diagnostics,
+        }
+    }
+
+    pub fn is_lookup_eligible(&self) -> bool {
+        self.authorized && self.eligible
+    }
+}
+
+/// Exact application of one source conformance head to a target/TraitRef pair.
+///
+/// A head match says only that the declaration domain applies. It is not
+/// conformance evidence and does not claim that any trait requirement is
+/// satisfied.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConformanceHeadMatch {
+    pub impl_id: ImplId,
+    pub exact_target: TypeId,
+    pub exact_trait_ref: TraitRef,
+    pub impl_bindings: HashMap<TypeParameterId, TypeId>,
+}
+
+/// Workspace-level source index for explicit conformance heads.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ConformanceIndex {
+    contributions: BTreeMap<ImplId, ConformanceContribution>,
+}
+
+impl ConformanceIndex {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn insert(&mut self, contribution: ConformanceContribution) {
+        self.contributions.insert(contribution.impl_id.clone(), contribution);
+    }
+
+    pub fn remove_source(&mut self, module: &crate::identity::ModuleId) {
+        self.contributions.retain(|impl_id, _| &impl_id.module != module);
+    }
+
+    pub fn get(&self, impl_id: &ImplId) -> Option<&ConformanceContribution> {
+        self.contributions.get(impl_id)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&ImplId, &ConformanceContribution)> {
+        self.contributions.iter()
+    }
+
+    /// Returns every eligible source head matching the exact target and trait
+    /// reference. Coherence is a separate query and must reject multiple
+    /// matches rather than choosing by insertion or source order.
+    pub fn query_exact(&self, store: &mut TypeStore, target: TypeId, trait_ref: &TraitRef) -> Vec<ConformanceHeadMatch> {
+        let mut matches = Vec::new();
+        for contribution in self.contributions.values().filter(|contribution| contribution.is_lookup_eligible()) {
+            if contribution.trait_ref.declaration != trait_ref.declaration || contribution.trait_ref.arguments.len() != trait_ref.arguments.len() {
+                continue;
+            }
+            let mut bindings = HashMap::new();
+            if !match_impl_domain_head(store, contribution.target_head, target, &contribution.impl_id, &mut bindings) {
+                continue;
+            }
+            if contribution
+                .trait_ref
+                .arguments
+                .iter()
+                .zip(trait_ref.arguments.iter())
+                .all(|(&head, &actual)| match_impl_domain_head(store, head, actual, &contribution.impl_id, &mut bindings))
+            {
+                let substitution = bindings.iter().fold(TypeSubstitution::new(), |mut substitution, (&parameter, &ty)| {
+                    substitution.bind(parameter, ty);
+                    substitution
+                });
+                let exact_trait_ref = TraitRef::new(
+                    trait_ref.declaration.clone(),
+                    contribution
+                        .trait_ref
+                        .arguments
+                        .iter()
+                        .map(|&argument| substitution.apply(store, argument))
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice(),
+                );
+                matches.push(ConformanceHeadMatch {
+                    impl_id: contribution.impl_id.clone(),
+                    exact_target: target,
+                    exact_trait_ref,
+                    impl_bindings: bindings,
+                });
+            }
+        }
+        matches
+    }
+
+    /// Returns pairs of eligible source heads whose joint target and trait
+    /// patterns overlap. No precedence or specialization rule is applied.
+    pub fn overlap_conflicts(&self, store: &TypeStore) -> Vec<(ImplId, ImplId)> {
+        let contributions = self
+            .contributions
+            .values()
+            .filter(|contribution| contribution.is_lookup_eligible())
+            .collect::<Vec<_>>();
+        let mut conflicts = Vec::new();
+        for (index, first) in contributions.iter().enumerate() {
+            for second in contributions.iter().skip(index + 1) {
+                if first.trait_ref.declaration != second.trait_ref.declaration || first.trait_ref.arguments.len() != second.trait_ref.arguments.len() {
+                    continue;
+                }
+                let mut bindings = HashMap::new();
+                if !unify_conformance_head(store, first.target_head, second.target_head, &mut bindings) {
+                    continue;
+                }
+                if first
+                    .trait_ref
+                    .arguments
+                    .iter()
+                    .zip(second.trait_ref.arguments.iter())
+                    .all(|(&left, &right)| unify_conformance_head(store, left, right, &mut bindings))
+                {
+                    conflicts.push((first.impl_id.clone(), second.impl_id.clone()));
+                }
+            }
+        }
+        conflicts
+    }
+}
+
+fn impl_parameter(store: &TypeStore, ty: TypeId) -> Option<TypeParameterId> {
+    let TypeData::Parameter(parameter) = store.get(ty) else { return None };
+    matches!(store.type_parameter(*parameter).owner, TypeParameterOwner::Impl(_)).then_some(*parameter)
+}
+
+fn occurs_in_conformance_binding(store: &TypeStore, parameter: TypeParameterId, ty: TypeId, bindings: &HashMap<TypeParameterId, TypeId>) -> bool {
+    match store.get(ty) {
+        TypeData::Parameter(candidate) => {
+            if *candidate == parameter {
+                true
+            } else if let Some(&replacement) = bindings.get(candidate) {
+                occurs_in_conformance_binding(store, parameter, replacement, bindings)
+            } else {
+                false
+            }
+        }
+        TypeData::Applied { origin, arguments } => {
+            occurs_in_conformance_binding(store, parameter, *origin, bindings)
+                || arguments
+                    .iter()
+                    .any(|&argument| occurs_in_conformance_binding(store, parameter, argument, bindings))
+        }
+        TypeData::ExactCase { enum_type, .. } => occurs_in_conformance_binding(store, parameter, *enum_type, bindings),
+        TypeData::Union(members) => members.iter().any(|&member| occurs_in_conformance_binding(store, parameter, member, bindings)),
+        TypeData::Tuple(elements) => elements
+            .iter()
+            .any(|element| occurs_in_conformance_binding(store, parameter, element.ty, bindings)),
+        TypeData::Record(row) => store
+            .record_row(*row)
+            .fields
+            .iter()
+            .any(|field| occurs_in_conformance_binding(store, parameter, field.ty, bindings)),
+        TypeData::Callable(callable) => {
+            callable
+                .parameters
+                .iter()
+                .any(|callable_parameter| occurs_in_conformance_binding(store, parameter, callable_parameter.ty, bindings))
+                || occurs_in_conformance_binding(store, parameter, callable.return_type, bindings)
+        }
+        _ => false,
+    }
+}
+
+fn bind_conformance_parameter(store: &TypeStore, parameter: TypeParameterId, ty: TypeId, bindings: &mut HashMap<TypeParameterId, TypeId>) -> bool {
+    if let Some(&existing) = bindings.get(&parameter) {
+        return unify_conformance_head(store, existing, ty, bindings);
+    }
+    if occurs_in_conformance_binding(store, parameter, ty, bindings) {
+        return false;
+    }
+    bindings.insert(parameter, ty);
+    true
+}
+
+fn unify_conformance_head(store: &TypeStore, left: TypeId, right: TypeId, bindings: &mut HashMap<TypeParameterId, TypeId>) -> bool {
+    if left == right {
+        return true;
+    }
+    if let Some(parameter) = impl_parameter(store, left) {
+        return bind_conformance_parameter(store, parameter, right, bindings);
+    }
+    if let Some(parameter) = impl_parameter(store, right) {
+        return bind_conformance_parameter(store, parameter, left, bindings);
+    }
+
+    match (store.get(left), store.get(right)) {
+        (TypeData::Nominal { declaration: left }, TypeData::Nominal { declaration: right }) => left == right,
+        (
+            TypeData::Applied {
+                origin: left_origin,
+                arguments: left_args,
+            },
+            TypeData::Applied {
+                origin: right_origin,
+                arguments: right_args,
+            },
+        ) => {
+            left_args.len() == right_args.len()
+                && unify_conformance_head(store, *left_origin, *right_origin, bindings)
+                && left_args
+                    .iter()
+                    .zip(right_args.iter())
+                    .all(|(&left, &right)| unify_conformance_head(store, left, right, bindings))
+        }
+        (
+            TypeData::ExactCase {
+                variant: left_variant,
+                enum_type: left_enum,
+            },
+            TypeData::ExactCase {
+                variant: right_variant,
+                enum_type: right_enum,
+            },
+        ) => left_variant == right_variant && unify_conformance_head(store, *left_enum, *right_enum, bindings),
+        (TypeData::Tuple(left), TypeData::Tuple(right)) => {
+            left.len() == right.len()
+                && left
+                    .iter()
+                    .zip(right.iter())
+                    .all(|(left, right)| left.label == right.label && unify_conformance_head(store, left.ty, right.ty, bindings))
+        }
+        (TypeData::Record(left), TypeData::Record(right)) => {
+            let left = store.record_row(*left);
+            let right = store.record_row(*right);
+            left.fields.len() == right.fields.len()
+                && left
+                    .fields
+                    .iter()
+                    .zip(right.fields.iter())
+                    .all(|(left, right)| left.name == right.name && unify_conformance_head(store, left.ty, right.ty, bindings))
+        }
+        _ => false,
+    }
+}
+
 impl ResolvedInherentImplTarget {
     pub fn declaration(&self) -> &DeclarationId {
         self.target.declaration()
     }
+}
+
+/// Resolves an explicit `impl TraitRef for Target` header under one
+/// impl-owned generic environment.
+pub fn resolve_conformance_head(
+    ctx: &mut CheckingContext<'_>,
+    trait_headers: &TraitHeaderTable,
+    impl_id: &ImplId,
+    impl_def: &ImplDef,
+) -> Result<ResolvedConformanceHead, Vec<SemanticDiagnostic>> {
+    let phalcom_ast::ast::ImplKind::Conformance { trait_ref: trait_syntax, .. } = &impl_def.kind else {
+        return Err(vec![SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::AnnotationUnresolved,
+            "expected an explicit conformance implementation",
+            impl_def.range,
+        )]);
+    };
+
+    let mut diagnostics = Vec::new();
+    let mut impl_type_parameter_ids = Vec::new();
+    let mut impl_type_parameter_map = HashMap::new();
+    for (index, parameter) in impl_def.generic_parameters.iter().enumerate() {
+        let data = TypeParameterData::new(TypeParameterOwner::Impl(impl_id.clone()), index as u32, parameter.name.clone(), KindId::TYPE);
+        let id = ctx.store.intern_type_parameter(data);
+        impl_type_parameter_ids.push(id);
+        impl_type_parameter_map.insert(parameter.name.clone(), type_level_binding_for_parameter(ctx.store, id));
+    }
+
+    let parent_resolver = ctx.resolver.clone();
+    let impl_resolver = ScopedTypeResolver {
+        parent: &parent_resolver,
+        type_parameters: impl_type_parameter_map,
+    };
+    let formation_site = TypeFormationSite::module(ctx.current_module.clone());
+
+    let mut constraints = Vec::new();
+    if let Some(where_clause) = &impl_def.where_clause {
+        diagnostics.push(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::ImplWhereClauseUnsupported,
+            "conformance where-clauses are deferred until generic trait constraints are implemented",
+            where_clause.range,
+        ));
+        for constraint in &where_clause.constraints {
+            match constraint {
+                phalcom_ast::ast::GenericConstraintSyntax::Subtype { lower, upper, .. } => {
+                    let lower = resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, lower, &mut diagnostics);
+                    let upper = resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, upper, &mut diagnostics);
+                    if let (TypeKnowledge::Known(lower), TypeKnowledge::Known(upper)) = (lower, upper) {
+                        constraints.push(GenericConstraint::Subtype {
+                            lower: TypeTerm::Canonical(lower.ty()),
+                            upper: TypeTerm::Canonical(upper.ty()),
+                        });
+                    }
+                }
+                phalcom_ast::ast::GenericConstraintSyntax::Equivalent { left, right, .. } => {
+                    let left = resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, left, &mut diagnostics);
+                    let right = resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, right, &mut diagnostics);
+                    if let (TypeKnowledge::Known(left), TypeKnowledge::Known(right)) = (left, right) {
+                        constraints.push(GenericConstraint::Equivalent {
+                            left: TypeTerm::Canonical(left.ty()),
+                            right: TypeTerm::Canonical(right.ty()),
+                        });
+                    }
+                }
+                phalcom_ast::ast::GenericConstraintSyntax::Invalid { message, range } => {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        DiagnosticCode::AnnotationUnresolved,
+                        message.clone(),
+                        *range,
+                    ));
+                }
+            }
+        }
+    }
+
+    let generic_signature = if impl_type_parameter_ids.is_empty() && constraints.is_empty() {
+        None
+    } else {
+        Some(GenericSignature::with_constraints(
+            TypeParameterOwner::Impl(impl_id.clone()),
+            impl_type_parameter_ids.clone().into_boxed_slice(),
+            constraints.into_boxed_slice(),
+        ))
+    };
+
+    let trait_declaration = trait_syntax.origin_symbol_ref().and_then(|reference| {
+        let members = reference.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
+        ctx.resolver.resolve_type_name(&ctx.current_module, &reference.root, &members).or_else(|| {
+            // Trait declarations intentionally do not enter the nominal
+            // declaration type table. Preserve canonical local trait
+            // identity through the C3 header table when the ordinary
+            // value-type resolver therefore has no result.
+            if members.is_empty() {
+                let local = DeclarationId::new(ctx.current_module.clone(), reference.root.clone().into());
+                trait_headers.contains(&local).then_some(local)
+            } else {
+                None
+            }
+        })
+    });
+    let Some(trait_declaration) = trait_declaration else {
+        diagnostics.push(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::AnnotationUnresolved,
+            "conformance trait reference could not be resolved",
+            trait_syntax.range,
+        ));
+        return Err(diagnostics);
+    };
+    let Some(trait_header) = trait_headers.get(&trait_declaration) else {
+        diagnostics.push(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::AnnotationUnresolved,
+            format!("declaration `{}` is not a trait", trait_declaration.name),
+            trait_syntax.range,
+        ));
+        return Err(diagnostics);
+    };
+
+    let trait_arguments = match &trait_syntax.expr {
+        TypeAnnotationExpr::Reference(_) => Vec::new(),
+        TypeAnnotationExpr::Application { arguments, .. } => {
+            let mut resolved = Vec::with_capacity(arguments.len());
+            for argument in arguments {
+                let TypeKnowledge::Known(evidence) =
+                    resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, argument, &mut diagnostics)
+                else {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        DiagnosticCode::AnnotationUnresolved,
+                        "conformance trait argument could not be resolved",
+                        argument.range,
+                    ));
+                    continue;
+                };
+                resolved.push(evidence.ty());
+            }
+            resolved
+        }
+        _ => {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::AnnotationUnresolved,
+                "conformance trait reference must be a trait name or application",
+                trait_syntax.range,
+            ));
+            return Err(diagnostics);
+        }
+    };
+    let expected_arguments = trait_header.generic_signature.as_ref().map_or(0, |signature| signature.parameters.len());
+    if trait_arguments.len() != expected_arguments {
+        diagnostics.push(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::AnnotationUnresolved,
+            format!(
+                "trait `{}` expects {expected_arguments} type arguments, got {}",
+                trait_declaration.name,
+                trait_arguments.len()
+            ),
+            trait_syntax.range,
+        ));
+        return Err(diagnostics);
+    }
+    if let Some(signature) = &trait_header.generic_signature {
+        for (&argument, &parameter) in trait_arguments.iter().zip(signature.parameters.iter()) {
+            let expected_kind = ctx.store.type_parameter(parameter).kind;
+            let actual_kind = ctx.store.kind_of(argument);
+            if expected_kind != actual_kind {
+                diagnostics.push(SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    DiagnosticCode::KindExpectedType,
+                    format!("trait argument has kind {actual_kind:?}, expected {expected_kind:?}"),
+                    trait_syntax.range,
+                ));
+                return Err(diagnostics);
+            }
+        }
+    }
+    let trait_ref = TraitRef::new(trait_declaration, trait_arguments.into_boxed_slice());
+
+    let (target_head, target) = if let TypeAnnotationExpr::ExactEnumCase {
+        enum_target,
+        variant_name,
+        payload_shape,
+        ..
+    } = &impl_def.target.expr
+    {
+        let TypeKnowledge::Known(enum_evidence) =
+            resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, enum_target, &mut diagnostics)
+        else {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::ImplTargetNotNominal,
+                "conformance exact-case enum target could not be resolved",
+                enum_target.range,
+            ));
+            return Err(diagnostics);
+        };
+        let enum_declaration = match ctx.store.get(enum_evidence.ty()).clone() {
+            TypeData::Nominal { declaration } => declaration,
+            TypeData::Applied { origin, .. } => match ctx.store.get(origin).clone() {
+                TypeData::Nominal { declaration } => declaration,
+                _ => {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        DiagnosticCode::ImplTargetNotNominal,
+                        "conformance exact-case enum target must be nominal",
+                        enum_target.range,
+                    ));
+                    return Err(diagnostics);
+                }
+            },
+            _ => {
+                diagnostics.push(SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    DiagnosticCode::ImplTargetNotNominal,
+                    "conformance exact-case enum target must be nominal",
+                    enum_target.range,
+                ));
+                return Err(diagnostics);
+            }
+        };
+        let variant = crate::identity::VariantId::new(
+            enum_declaration,
+            phalcom_ast::selector::selector_from_exact_case_target(variant_name, payload_shape.as_ref()),
+        );
+        let Some(variant_info) = ctx.variant_info(&variant).cloned() else {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::ImplTargetNotNominal,
+                "conformance exact enum case is not a declared variant",
+                impl_def.target.range,
+            ));
+            return Err(diagnostics);
+        };
+        (variant_info.exact_case_template, ConformanceTarget::ExactEnumCase(variant))
+    } else {
+        let TypeKnowledge::Known(target_evidence) =
+            resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, &impl_def.target, &mut diagnostics)
+        else {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::ImplTargetNotNominal,
+                "conformance target must be a nominal declaration or exact enum case",
+                impl_def.target.range,
+            ));
+            return Err(diagnostics);
+        };
+        let target_head = target_evidence.ty();
+        let target = match ctx.store.get(target_head).clone() {
+            TypeData::Nominal { declaration } => {
+                if trait_headers.contains(&declaration) || ctx.resolver.resolve_alias_form(&declaration).is_some() {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        DiagnosticCode::ImplTargetNotNominal,
+                        "conformance target must not be a trait or type alias",
+                        impl_def.target.range,
+                    ));
+                    return Err(diagnostics);
+                }
+                if ctx.declaration_generic_signature(&declaration).is_some() {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        DiagnosticCode::ImplSpecializedTargetUnsupported,
+                        format!(
+                            "generic declaration `{}` requires explicit type arguments in a conformance target",
+                            declaration.name
+                        ),
+                        impl_def.target.range,
+                    ));
+                    return Err(diagnostics);
+                }
+                ConformanceTarget::Declaration(declaration)
+            }
+            TypeData::Applied { origin, .. } => {
+                let TypeData::Nominal { declaration } = ctx.store.get(origin).clone() else {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        DiagnosticCode::ImplTargetNotNominal,
+                        "conformance target application must have a nominal declaration origin",
+                        impl_def.target.range,
+                    ));
+                    return Err(diagnostics);
+                };
+                if trait_headers.contains(&declaration) || ctx.resolver.resolve_alias_form(&declaration).is_some() {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        DiagnosticCode::ImplTargetNotNominal,
+                        "conformance target must not be a trait or type alias",
+                        impl_def.target.range,
+                    ));
+                    return Err(diagnostics);
+                }
+                ConformanceTarget::Declaration(declaration)
+            }
+            _ => {
+                diagnostics.push(SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    DiagnosticCode::ImplTargetNotNominal,
+                    "conformance target must be a nominal declaration or exact enum case",
+                    impl_def.target.range,
+                ));
+                return Err(diagnostics);
+            }
+        };
+        (target_head, target)
+    };
+
+    for parameter in impl_type_parameter_ids {
+        if !type_contains_impl_param(ctx.store, target_head, impl_id)
+            && !trait_ref
+                .arguments
+                .iter()
+                .any(|&argument| type_contains_impl_param(ctx.store, argument, impl_id))
+        {
+            let name = ctx.store.type_parameter(parameter).name.clone();
+            diagnostics.push(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::ImplUnusedTypeParameter,
+                format!("type parameter `{name}` is unused in conformance head"),
+                impl_def.range,
+            ));
+        }
+    }
+
+    Ok(ResolvedConformanceHead {
+        impl_id: impl_id.clone(),
+        source_module: ctx.current_module.clone(),
+        trait_ref,
+        target,
+        target_head,
+        generic_signature,
+        source: SemanticSourceSpan::new(ctx.current_module.clone(), impl_def.range),
+        eligible: diagnostics.is_empty(),
+        diagnostics: diagnostics.into_boxed_slice(),
+    })
 }
 
 /// A single behavior-only member contributed by an inherent impl block.
@@ -229,7 +888,7 @@ use crate::identity::{DataComponentId, FieldId, VariantId};
 use crate::surface::DeclarationSurface;
 use crate::types::environment::TypeEnvironment;
 use phalcom_common::selector::Selector;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 /// A conditional member contributed by a specialized or constrained inherent impl block.
@@ -299,7 +958,19 @@ pub struct InherentImplSpecialization {
 pub enum ImplApplicabilityResult {
     Applicable(InherentImplSpecialization),
     NotApplicable,
-    Blocked,
+    /// The domain may apply, but the available type information is not enough
+    /// to prove or refute it.
+    Unknown(UnknownReason),
+    /// The applicability query could not complete a sound judgment.
+    Blocked(BlockReason),
+    /// Applicability crosses an explicit dynamic boundary.
+    Dynamic(DynamicBoundaryObligation),
+    /// The query was cancelled before a judgment was available.
+    Cancelled,
+    /// The query exhausted one of its bounded resources.
+    BudgetExceeded(BudgetReport),
+    /// The semantic relation engine reported an internal failure.
+    InternalFailure(String),
 }
 
 /// Target-indexed set of inherent impl fragments within a module.
@@ -743,6 +1414,64 @@ pub fn match_impl_domain_head(
     }
 }
 
+/// Outcome of checking all constraints belonging to one inherent impl domain.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ImplConstraintResult {
+    /// Every domain constraint was proven.
+    Satisfied,
+    /// At least one domain constraint was refuted.
+    NotApplicable,
+    /// The available type information is insufficient for a judgment.
+    Unknown(UnknownReason),
+    /// The semantic relation query could not complete soundly.
+    Blocked(BlockReason),
+    /// The constraint crosses an explicit dynamic boundary.
+    Dynamic(DynamicBoundaryObligation),
+    /// The query was cancelled.
+    Cancelled,
+    /// The query exhausted a bounded resource.
+    BudgetExceeded(BudgetReport),
+    /// The semantic relation engine reported an internal failure.
+    InternalFailure(String),
+}
+
+fn contains_unresolved_applicability_type(store: &TypeStore, ty: TypeId) -> bool {
+    match store.get(ty) {
+        TypeData::Parameter(_) | TypeData::SelfType(_) | TypeData::Lambda(_) => true,
+        TypeData::Applied { origin, arguments } => {
+            contains_unresolved_applicability_type(store, *origin) || arguments.iter().any(|&argument| contains_unresolved_applicability_type(store, argument))
+        }
+        TypeData::ExactCase { enum_type, .. } => contains_unresolved_applicability_type(store, *enum_type),
+        TypeData::Union(members) => members.iter().any(|&member| contains_unresolved_applicability_type(store, member)),
+        TypeData::Tuple(elements) => elements.iter().any(|element| contains_unresolved_applicability_type(store, element.ty)),
+        TypeData::Record(row) => store
+            .record_row(*row)
+            .fields
+            .iter()
+            .any(|field| contains_unresolved_applicability_type(store, field.ty)),
+        TypeData::Callable(callable) => {
+            callable
+                .parameters
+                .iter()
+                .any(|parameter| contains_unresolved_applicability_type(store, parameter.ty))
+                || contains_unresolved_applicability_type(store, callable.return_type)
+        }
+        _ => false,
+    }
+}
+
+fn relation_to_impl_constraint_result(outcome: RelationOutcome) -> ImplConstraintResult {
+    match outcome {
+        RelationOutcome::Proven { .. } => ImplConstraintResult::Satisfied,
+        RelationOutcome::Refuted(_) => ImplConstraintResult::NotApplicable,
+        RelationOutcome::DynamicBoundary(obligation) => ImplConstraintResult::Dynamic(obligation),
+        RelationOutcome::Blocked(reason) => ImplConstraintResult::Blocked(reason),
+        RelationOutcome::Cancelled => ImplConstraintResult::Cancelled,
+        RelationOutcome::BudgetExceeded(report) => ImplConstraintResult::BudgetExceeded(report),
+        RelationOutcome::InternalFailure(message) => ImplConstraintResult::InternalFailure(message),
+    }
+}
+
 /// Checks whether an inherent impl domain's substituted generic constraints are satisfied.
 pub fn check_impl_domain_constraints(
     store: &mut TypeStore,
@@ -750,7 +1479,7 @@ pub fn check_impl_domain_constraints(
     domain: &InherentImplDomain,
     bindings: &HashMap<TypeParameterId, TypeId>,
     ambient_constraints: &[GenericConstraint],
-) -> bool {
+) -> ImplConstraintResult {
     let mut subst = TypeSubstitution::new();
     for (&p, &t) in bindings {
         subst.bind(p, t);
@@ -761,18 +1490,33 @@ pub fn check_impl_domain_constraints(
             GenericConstraint::Subtype { lower, upper } => {
                 let lower_ty = match lower {
                     TypeTerm::Canonical(ty) => subst.apply(store, *ty),
-                    _ => return false,
+                    _ => return ImplConstraintResult::Blocked(BlockReason::InvalidAnnotation(DiagnosticCode::AnnotationUnresolved)),
                 };
                 let upper_ty = match upper {
                     TypeTerm::Canonical(ty) => subst.apply(store, *ty),
-                    _ => return false,
+                    _ => return ImplConstraintResult::Blocked(BlockReason::InvalidAnnotation(DiagnosticCode::AnnotationUnresolved)),
                 };
 
                 if lower_ty == upper_ty {
                     continue;
                 }
-                if crate::types::relation::is_subtype(store, hierarchy, lower_ty, upper_ty) {
-                    continue;
+                let mut budget = QueryBudget::default();
+                let cancellation = CancellationToken::new();
+                match relation_to_impl_constraint_result(crate::types::relation::check_subtype_bounded(
+                    store,
+                    hierarchy,
+                    lower_ty,
+                    upper_ty,
+                    &mut budget,
+                    &cancellation,
+                )) {
+                    ImplConstraintResult::Satisfied => continue,
+                    terminal @ (ImplConstraintResult::Dynamic(_)
+                    | ImplConstraintResult::Blocked(_)
+                    | ImplConstraintResult::Cancelled
+                    | ImplConstraintResult::BudgetExceeded(_)
+                    | ImplConstraintResult::InternalFailure(_)) => return terminal,
+                    ImplConstraintResult::NotApplicable | ImplConstraintResult::Unknown(_) => {}
                 }
                 let mut proven = false;
                 if let TypeData::Parameter(_p) = store.get(lower_ty) {
@@ -808,17 +1552,21 @@ pub fn check_impl_domain_constraints(
                     }
                 }
                 if !proven {
-                    return false;
+                    return if contains_unresolved_applicability_type(store, lower_ty) || contains_unresolved_applicability_type(store, upper_ty) {
+                        ImplConstraintResult::Unknown(UnknownReason::UnderconstrainedTypeVariable)
+                    } else {
+                        ImplConstraintResult::NotApplicable
+                    };
                 }
             }
             GenericConstraint::Equivalent { left, right } => {
                 let left_ty = match left {
                     TypeTerm::Canonical(ty) => subst.apply(store, *ty),
-                    _ => return false,
+                    _ => return ImplConstraintResult::Blocked(BlockReason::InvalidAnnotation(DiagnosticCode::AnnotationUnresolved)),
                 };
                 let right_ty = match right {
                     TypeTerm::Canonical(ty) => subst.apply(store, *ty),
-                    _ => return false,
+                    _ => return ImplConstraintResult::Blocked(BlockReason::InvalidAnnotation(DiagnosticCode::AnnotationUnresolved)),
                 };
                 if left_ty == right_ty {
                     continue;
@@ -835,12 +1583,16 @@ pub fn check_impl_domain_constraints(
                     }
                 }
                 if !proven {
-                    return false;
+                    return if contains_unresolved_applicability_type(store, left_ty) || contains_unresolved_applicability_type(store, right_ty) {
+                        ImplConstraintResult::Unknown(UnknownReason::UnderconstrainedTypeVariable)
+                    } else {
+                        ImplConstraintResult::NotApplicable
+                    };
                 }
             }
         }
     }
-    true
+    ImplConstraintResult::Satisfied
 }
 
 /// Checks applicability of an inherent impl domain to a receiver and owner view.
@@ -857,8 +1609,15 @@ pub fn check_impl_domain_applicability(
         return ImplApplicabilityResult::NotApplicable;
     }
 
-    if !check_impl_domain_constraints(store, hierarchy, domain, &bindings, ambient_constraints) {
-        return ImplApplicabilityResult::NotApplicable;
+    match check_impl_domain_constraints(store, hierarchy, domain, &bindings, ambient_constraints) {
+        ImplConstraintResult::Satisfied => {}
+        ImplConstraintResult::NotApplicable => return ImplApplicabilityResult::NotApplicable,
+        ImplConstraintResult::Unknown(reason) => return ImplApplicabilityResult::Unknown(reason),
+        ImplConstraintResult::Blocked(reason) => return ImplApplicabilityResult::Blocked(reason),
+        ImplConstraintResult::Dynamic(obligation) => return ImplApplicabilityResult::Dynamic(obligation),
+        ImplConstraintResult::Cancelled => return ImplApplicabilityResult::Cancelled,
+        ImplConstraintResult::BudgetExceeded(report) => return ImplApplicabilityResult::BudgetExceeded(report),
+        ImplConstraintResult::InternalFailure(message) => return ImplApplicabilityResult::InternalFailure(message),
     }
 
     let mut env = TypeEnvironment::new();

@@ -4,9 +4,9 @@ category: LANG
 program: LANG005
 checkpoint: LANG005.C4
 kind: checkpoint-record
-status: PLANNED
-completion: NOT_STARTED
-verification: UNVERIFIED
+status: IN_PROGRESS
+completion: PARTIAL
+verification: FOCUSED_TESTED
 requires:
   - LANG005.C3
 entry_requirements:
@@ -15,7 +15,7 @@ entry_requirements:
   - C2_APPLICABILITY_PROOF_STATE_CLOSED
   - C3_COMPLETE
 active_plan: null
-next_plan: LANG005.C4.P1
+next_plan: LANG005.C4.P2
 planning_baseline_revision: 20ad3f31b39b0fe1b1fdf028df4ac9579fcfd9ad
 planning_baseline_commit: "docs: pin lang005 checkpoint revision"
 plan:
@@ -131,22 +131,22 @@ Planning state:
 
 ```yaml
 checkpoint: LANG005.C4
-status: PLANNED
-completion: NOT_STARTED
-verification: UNVERIFIED
+status: IN_PROGRESS
+completion: PARTIAL
+verification: FOCUSED_TESTED
 active_plan: null
-next_plan: LANG005.C4.P1
+next_plan: LANG005.C4.P2
 ```
 
-Execution state on the repository revision used for planning:
+Execution state on the live repository:
 
 ```text
-BLOCKED ON ENTRY CONDITIONS
+T0 ENTRY LOCK COMPLETE; P1 IN PROGRESS
 ```
 
-The current planning baseline is pre-C3. The user-directed requirements analysis intentionally assumed C1, C2, and C3 are complete so that C4 could be designed against the intended predecessor architecture. That assumption is valid for planning but is **not** permission to execute C4 against a repository where C3 has not actually landed.
+The planning baseline remains pre-C3, but T0 re-grounding verified the live post-C3 predecessor state before production edits began. P1 implementation is now in progress.
 
-Before production C4 edits begin, T0 of P1 must prove:
+T0 of P1 proved:
 
 ```text
 EC-01  C1 complete
@@ -156,7 +156,7 @@ EC-04  C3 complete
 EC-05  no hidden partial C4 implementation contradicts this checkpoint
 ```
 
-The pre-C4 proof-state closure is a hard entry condition. C4 must be able to distinguish at least:
+The pre-C4 proof-state closure is satisfied. C4 must be able to distinguish at least:
 
 ```text
 proved
@@ -236,7 +236,7 @@ Do not reorganize C1–C3 while landing C4 records.
 
 | Plan | Scope | Status | Completion | Verification | Exit product |
 |---|---|---|---|---|---|
-| `LANG005.C4.P1` | explicit conformance declaration, canonical head resolution, ownership, publication, exact query, coherence, incrementality/source projection | PROPOSED | NOT_STARTED | UNVERIFIED | coherence-safe `ConformanceContribution` + exact `ConformanceHeadMatch`; **no satisfaction proof** |
+| `LANG005.C4.P1` | explicit conformance declaration, canonical head resolution, ownership, publication, exact query, coherence, incrementality/source projection | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | coherence-safe `ConformanceContribution` + exact `ConformanceHeadMatch`; **no satisfaction proof** |
 | `LANG005.C4.P2` | witness sources, conformance-local callables, compatibility, defaults, completeness, structured evidence | PLANNED | NOT_STARTED | UNVERIFIED | complete `ConformanceEvidence` |
 | `LANG005.C4.P3` | trait-evidenced ordinary dispatch, ambiguity, callable refs, default/requirement lowering, compiler/runtime execution, integration certification | PLANNED | NOT_STARTED | UNVERIFIED | executable conformance semantics; C4 closure |
 
@@ -1045,13 +1045,104 @@ execution support
 
 ---
 
-## 10. Deferred / Cross-Checkpoint Ledger
+## 10. T0 Entry Lock — Post-C3 Re-grounding
+
+T0 was executed against the live post-C3 tree on 2026-09-14.
+
+```text
+starting revision: 9f6c9b8df8c06671eee51551495aca3a3aa92bdc
+starting working tree: clean
+active plan: LANG005.C4.P1
+```
+
+The predecessor takeover map is now grounded in live symbols:
+
+```text
+C3 trait declaration/surface authority:
+    phalcom-semantic/src/capabilities.rs
+    phalcom-semantic/src/checker/context.rs
+    phalcom-semantic/src/traits.rs
+C2 inherent-impl applicability authority:
+    phalcom-semantic/src/impls.rs
+    InherentImplDomain
+    check_impl_domain_applicability
+    ImplApplicabilityResult
+C3 source/incremental products:
+    phalcom-semantic/src/source_index.rs
+    phalcom-semantic/src/incremental.rs
+```
+
+The C2-F03 entry prerequisite is closed at the result boundary. Applicability
+now preserves distinct `Applicable`, `NotApplicable`, `Unknown`, `Blocked`,
+`Dynamic`, `Cancelled`, `BudgetExceeded`, and `InternalFailure` outcomes;
+only the proven `Applicable` outcome constructs an
+`InherentImplSpecialization`. Constraint evaluation delegates bounded subtype
+relations to the existing semantic relation authority and retains explicit
+uncertainty or analysis-boundary outcomes instead of treating them as
+disproof.
+
+Focused evidence for the entry lock:
+
+```text
+cargo test -p phalcom-ast --test integration impl_syntax
+    12 passed, 0 failed
+cargo test -p phalcom-semantic --test semantic impls
+    50 passed, 0 failed
+cargo check -p phalcom-semantic
+    passed
+cargo fmt --all
+    passed
+git diff --check
+    passed
+```
+
+No hidden C4 implementation was found in the targeted semantic, source-index,
+or core trait surfaces. The live C3 AST was declaration-only; P1 is the first
+conformance source-graph implementation. T1 and the initial T2–T7 semantic
+slices are now landed; cross-module ownership/publication and source/LSP
+projection are included in the completed P1 evidence below.
+
+## 11. Durable P1 Progress
+
+```text
+T1/G1  accepted: shared ImplDef now distinguishes Inherent and Conformance;
+        trait reference, `for`, target, generic parameters, body, and ranges
+        remain independently recoverable. Existing inherent syntax is green.
+T2     accepted at the current semantic boundary: ResolvedConformanceHead
+        retains ImplId, impl-owned generic signature, canonical TraitRef,
+        neutral ConformanceTarget, exact target head, eligibility, and source.
+T3     accepted: source module must canonically own the trait or target
+        declaration/variant. Unauthorized heads remain diagnostic-only and
+        are excluded from lookup.
+T4/T5  accepted locally: ConformanceContribution and snapshot-owned
+        ConformanceIndex publish exact head matches without inherent-surface
+        or callable-definition pollution; one impl substitution specializes
+        both target and TraitRef arguments.
+T6     accepted locally: pairwise joint target+TraitRef unification rejects
+        generic/specialized overlap without source-order precedence.
+T7     accepted: changed-module removal/replacement preserves index
+       add/edit/delete behavior; exact enum-case source projection retains
+       VariantId; cold and incremental head publication agree.
+T8     accepted: adversarial P1 matrix covers exact specialized targets,
+       absent specialization, generic trait references, joint overlap, and
+       the multi-module ownership/re-export topology without entering P2.
+T9     accepted: focused G1–G5 evidence is green; walkthrough and P2 handoff
+       are recorded below as separate durable plan records.
+```
+
+P1 is complete at `IMPLEMENTED` + `FOCUSED_TESTED`. The stable P2 inputs are
+the snapshot-owned `ConformanceIndex`, exact `ConformanceHeadMatch`, source
+`ImplId`, canonical target/TraitRef heads, and impl substitution environment.
+P1 intentionally produces no witness, default-selection, completeness, or
+`ConformanceEvidence` product.
+
+## 12. Deferred / Cross-Checkpoint Ledger
 
 ### PRE-C4-01 — applicability proof-state closure
 
-Hard entry condition.
-
-C4 must not begin witness/conformance proof work while applicability collapses semantically distinct states that later need to be diagnosed or propagated.
+Closed at T0 result-boundary implementation and focused verification above.
+The richer result is an applicability-analysis product only; it is not
+conformance evidence and does not authorize witness selection.
 
 ### C5 — associated types
 
@@ -1085,7 +1176,7 @@ C4 runtime support may use internal witness tables or specialization if useful, 
 
 ---
 
-## 11. C4.P1 Task / Gate Sequence
+## 13. C4.P1 Task / Gate Sequence
 
 The active P1 plan sequence is:
 
@@ -1115,7 +1206,7 @@ P1 closes only when P2 can consume stable identity/ownership/coherence APIs with
 
 ---
 
-## 12. Verification Expectations
+## 14. Verification Expectations
 
 ### BUILD mode
 
@@ -1151,7 +1242,7 @@ If P1 requires runtime trait registration or class-table mutation, STOP: the sem
 
 ---
 
-## 13. Completion Criteria
+## 15. Completion Criteria
 
 ### C4.P1 complete when
 
@@ -1213,34 +1304,23 @@ C4 walkthrough/handoff/checkpoint are final
 
 ---
 
-## 14. Active Plan and Next Action
+## 16. Active Plan and Next Action
 
 ### Active plan
 
 ```text
-none
+none; P1 complete
 ```
 
 ### Next plan
 
 ```text
-LANG005.C4.P1 — Explicit Conformance Declarations, Ownership, and Coherence
+LANG005.C4.P2 — Witness Resolution, Defaults, and Conformance Evidence
 ```
 
 ### Current next action
 
-Execution may begin only after the actual repository proves the C4 entry conditions.
-
-Then:
-
-```text
-run P1 T0
-capture post-C3 baseline
-map planned semantic roles to landed symbols
-prove applicability proof-state closure
-freeze the live C4 takeover map
-begin T1
-```
-
-Do not skip T0 because this checkpoint was planned prospectively.
-
+P1 is closed. P2 may now consume exact candidate heads and begin witness
+resolution, compatibility, defaults, and structured conformance evidence.
+Do not reopen P1 identity, ownership, or coherence unless new evidence
+invalidates the recorded invariants.
