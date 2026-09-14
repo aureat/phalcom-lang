@@ -35,21 +35,21 @@ jobs:
           from pathlib import Path
           path = Path('phalcom-core/src/modules/semantic_lowering.rs')
           text = path.read_text()
-          old = '''            let spec = project_callable_reference_resolution(resolution, snapshot, projects)?;
-              let site = LoweringSite::new(source_id.clone(), range, LoweringSiteKind::CallableReference);'''
+          old = '            let spec = project_callable_reference_resolution(resolution, snapshot, projects)?;'
           new = '''            let spec = match expr_analysis.and_then(|analysis| analysis.trait_dispatch.as_ref()) {
-                  Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::Evidenced(selection)) => {
-                      CallableReferenceLoweringSpec::MakeTraitBoundMethod {
-                          invocation: project_trait_invocation_spec(selection, snapshot)?,
-                      }
-                  }
-                  _ => project_callable_reference_resolution(resolution, snapshot, projects)?,
-              };
-              let site = LoweringSite::new(source_id.clone(), range, LoweringSiteKind::CallableReference);'''
-          if text.count(old) != 1:
-              raise SystemExit(f'expected one callable-reference projection site, found {text.count(old)}')
+                Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::Evidenced(selection)) => {
+                    CallableReferenceLoweringSpec::MakeTraitBoundMethod {
+                        invocation: project_trait_invocation_spec(selection, snapshot)?,
+                    }
+                }
+                _ => project_callable_reference_resolution(resolution, snapshot, projects)?,
+            };'''
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f'expected one callable-reference projection line, found {count}')
           path.write_text(text.replace(old, new, 1))
           PY
+          cargo fmt --all -- --check || cargo fmt --all
           git diff --check
           git diff -- phalcom-core/src/modules/semantic_lowering.rs
 
