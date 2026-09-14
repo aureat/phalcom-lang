@@ -34,3 +34,5 @@ jobs:
         run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::trait_default_executes_abstract_getter_satisfied_by_inherent_member -- --nocapture
       - name: Inherited trait witness regression
         run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::trait_default_executes_abstract_getter_satisfied_by_inherited_member -- --nocapture
+      - name: Generic trait default regression
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::generic_trait_default_dispatches_nested_abstract_method_calls -- --nocapture
