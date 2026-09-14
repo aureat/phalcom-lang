@@ -95,6 +95,27 @@ let result = Caller.new().run(User.new())
 }
 
 #[test]
+fn nested_trait_defaults_preserve_conformance_environment() {
+    let source = r#"
+trait Identified {
+  name -> String
+  label -> String { self.name }
+  decorated -> String { "[\(self.label)]" }
+}
+
+class User {}
+impl Identified for User { name -> String { "user" } }
+class Caller { run(_ user: User) -> String { user.decorated } }
+let result = Caller.new().run(User.new())
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("nested trait defaults compile");
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("nested trait defaults execute");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    assert_eq!(named(&vm, module, "result").expect("result binding").to_string(&vm), "[user]");
+}
+
+#[test]
 fn trait_default_executes_abstract_getter_satisfied_by_data_component() {
     let source = r#"
 trait Named {
