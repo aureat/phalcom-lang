@@ -1535,6 +1535,13 @@ pub fn build_inherent_impl_contribution(ctx: &mut CheckingContext<'_>, impl_id: 
 
     let domain = match &resolved_target.applicability {
         InherentImplApplicability::Conditional(d) => Some(d.clone()),
+        InherentImplApplicability::Unconditional | InherentImplApplicability::Covering(_) if is_exact_case => Some(Arc::new(InherentImplDomain {
+            impl_id: impl_id.clone(),
+            target: resolved_target.target.clone(),
+            head_type: resolved_target.target_type,
+            generic_signature: resolved_target.generic_signature.clone(),
+            constraints: Box::new([]),
+        })),
         _ => None,
     };
 

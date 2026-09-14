@@ -5,6 +5,7 @@
 //! across all instances rather than copied per value.
 
 use crate::interner::Symbol;
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
 /// Identifies an interned concrete product shape in [`ProductShapeRegistry`].
@@ -99,6 +100,30 @@ impl RecordProductShape {
         let len = labels.len() as u32;
         let mapping: Box<[u32]> = (0..len).collect();
         Self::new(labels.clone(), labels, mapping)
+    }
+
+    /// Constructs canonical logical/storage coordinates from presentation labels.
+    pub fn from_presentation_labels<F>(presentation_labels: Box<[Symbol]>, mut compare: F) -> Self
+    where
+        F: FnMut(Symbol, Symbol) -> Ordering,
+    {
+        let mut logical_with_source = presentation_labels
+            .iter()
+            .copied()
+            .enumerate()
+            .collect::<Vec<_>>();
+        logical_with_source.sort_by(|(_, left), (_, right)| compare(*left, *right));
+        let mut logical_labels = Vec::with_capacity(logical_with_source.len());
+        let mut presentation_to_logical = vec![0; presentation_labels.len()];
+        for (logical_index, (source_index, label)) in logical_with_source.into_iter().enumerate() {
+            logical_labels.push(label);
+            presentation_to_logical[source_index] = logical_index as u32;
+        }
+        Self::new(
+            presentation_labels,
+            logical_labels.into_boxed_slice(),
+            presentation_to_logical.into_boxed_slice(),
+        )
     }
 
     pub fn len(&self) -> usize {

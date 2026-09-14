@@ -372,12 +372,24 @@ fn incremental_case_only_member_leaves_root_surface_unchanged() {
     let first = session.update(single_module_input(module.clone(), source_v1));
     assert!(!first.snapshot.has_errors(), "diagnostics: {:?}", first.snapshot.diagnostics);
     let root_surface_v1 = surface_fingerprint(&first, &owner("Choice"));
+    let a_variant = phalcom_semantic::identity::VariantId::new(owner("Choice"), Selector::getter("A").unwrap());
+    let a_target = phalcom_semantic::impls::InherentImplTarget::ExactEnumCase(a_variant);
+    assert_eq!(first.snapshot.dispatch.get_conditional_members(&a_target).map(|set| set.members.len()), Some(1));
 
     // Add another case-only member to B
     let source_v2 = "enum Choice {\n  A\n  B\n}\nimpl Choice::A {\n  aOnly() -> Int { 42 }\n}\nimpl Choice::B {\n  bOnly() -> Int { 99 }\n}\n";
     let second = session.update(single_module_input(module.clone(), source_v2));
     assert!(!second.snapshot.has_errors(), "diagnostics: {:?}", second.snapshot.diagnostics);
     let root_surface_v2 = surface_fingerprint(&second, &owner("Choice"));
+    let b_variant = phalcom_semantic::identity::VariantId::new(owner("Choice"), Selector::getter("B").unwrap());
+    let b_target = phalcom_semantic::impls::InherentImplTarget::ExactEnumCase(b_variant);
+    assert_eq!(second.snapshot.dispatch.get_conditional_members(&a_target).map(|set| set.members.len()), Some(1));
+    assert_eq!(second.snapshot.dispatch.get_conditional_members(&b_target).map(|set| set.members.len()), Some(1));
 
     assert_eq!(root_surface_v1, root_surface_v2, "case-only members must not alter root enum declaration surface");
+
+    let third = session.update(single_module_input(module, "enum Choice {\n  A\n  B\n}\n"));
+    assert!(!third.snapshot.has_errors(), "removal must not leave diagnostics: {:?}", third.snapshot.diagnostics);
+    assert!(third.snapshot.dispatch.get_conditional_members(&a_target).is_none());
+    assert!(third.snapshot.dispatch.get_conditional_members(&b_target).is_none());
 }

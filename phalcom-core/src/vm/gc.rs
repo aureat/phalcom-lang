@@ -121,6 +121,8 @@ impl VM {
             anonymous_product_descriptors: _,
             product_optimization_mode: _,
             typing_registry: _,
+            runtime_type_environments: _,
+            runtime_typing_context: _,
             prelude_bindings: _,
             prelude_variant_bindings: _,
             #[cfg(feature = "fiber-pool")]

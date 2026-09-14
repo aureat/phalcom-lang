@@ -7,6 +7,8 @@ use phalcom_modules::{
     UniverseSourceProvider, classify_entry_ownership,
 };
 use phalcom_semantic::SemanticDiagnostic;
+use crate::typing::{MetadataPoolId, RuntimeTypeRef};
+use phalcom_common::range::SourceRange;
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -486,18 +488,18 @@ impl ProgramCompiler {
     }
 
     fn project_analyzed(analyzed: &AnalyzedProgram) -> Result<CompiledProgram, ProgramCompileError> {
-        let mut modules = BTreeMap::new();
-        for (id, linked_module) in &analyzed.linked.modules {
-            let (source, source_text) = if let Some(parsed_unit) = analyzed.sources.get(id) {
-                (parsed_unit.source.clone(), Some(parsed_unit.text.clone()))
-            } else {
-                (None, None)
-            };
-            let lowering = super::semantic_lowering::build_module_lowering_semantics(id, &analyzed.semantic, &analyzed.project_universe)
-                .map_err(|e| ProgramCompileError::Io(format!("lowering projection error in {id}: {e}")))?;
-            modules.insert(id.clone(), compile_module(id.clone(), linked_module, source, source_text, Arc::new(lowering)));
+        let mut runtime_root_specs = Vec::<(ModuleId, SourceRange, phalcom_semantic::types::id::TypeId, String)>::new();
+        for (id, _) in &analyzed.linked.modules {
+            if let Some(source) = analyzed.sources.get(id) {
+                for (range, ty) in super::semantic_lowering::anonymous_product_type_roots(id, &analyzed.semantic, &source.program) {
+                    runtime_root_specs.push((id.clone(), range, ty, format!("anonymous-product-{}-{}", range.start, range.end)));
+                }
+            }
         }
-
+        let runtime_root_refs = runtime_root_specs
+            .iter()
+            .map(|(module, _, ty, key)| (module, key.as_str(), *ty))
+            .collect::<Vec<_>>();
         let exporter = phalcom_semantic::metadata::MetadataExporter::new(
             analyzed.semantic.store(),
             Some(analyzed.semantic.declarations()),
@@ -507,7 +509,34 @@ impl ProgramCompiler {
         )
         .with_project_universe(&analyzed.project_universe)
         .with_aliases(analyzed.semantic.type_aliases.as_ref());
-        let metadata_bundle = exporter.build_bundle(&[]).ok().map(Arc::new);
+        let metadata_bundle = Arc::new(
+            exporter
+                .build_bundle(&runtime_root_refs)
+                .map_err(|e| ProgramCompileError::Io(format!("metadata export error: {e}")))?,
+        );
+        let mut runtime_type_roots = BTreeMap::<ModuleId, BTreeMap<SourceRange, RuntimeTypeRef>>::new();
+        for ((module, range, _, _), root) in runtime_root_specs.iter().zip(metadata_bundle.runtime_roots.iter()) {
+            runtime_type_roots
+                .entry(module.clone())
+                .or_default()
+                .insert(*range, RuntimeTypeRef::Base { pool: MetadataPoolId(0), node: root.form });
+        }
+        let mut modules = BTreeMap::new();
+        for (id, linked_module) in &analyzed.linked.modules {
+            let (source, source_text) = if let Some(parsed_unit) = analyzed.sources.get(id) {
+                (parsed_unit.source.clone(), Some(parsed_unit.text.clone()))
+            } else {
+                (None, None)
+            };
+            let lowering = super::semantic_lowering::build_module_lowering_semantics_with_runtime_types(
+                id,
+                &analyzed.semantic,
+                &analyzed.project_universe,
+                runtime_type_roots.get(id).unwrap_or(&BTreeMap::new()),
+            )
+                .map_err(|e| ProgramCompileError::Io(format!("lowering projection error in {id}: {e}")))?;
+            modules.insert(id.clone(), compile_module(id.clone(), linked_module, source, source_text, Arc::new(lowering)));
+        }
 
         Ok(CompiledProgram {
             project_universe: analyzed.project_universe.clone(),
@@ -515,7 +544,7 @@ impl ProgramCompiler {
             modules,
             entry: analyzed.entry.clone(),
             initialization_order: analyzed.linked.initialization_order.clone(),
-            semantic_metadata: metadata_bundle,
+            semantic_metadata: Some(metadata_bundle),
         })
     }
 

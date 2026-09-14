@@ -97,13 +97,7 @@ pub fn instantiate_type_recipe(
 ) -> Option<RuntimeTypeRef> {
     match recipe {
         RuntimeTypeRecipe::Closed(ty) => Some(ty),
-        RuntimeTypeRecipe::Template(ty) => {
-            if env.is_empty() {
-                Some(ty)
-            } else {
-                instantiate_type_ref(ty, env, context, registry, 0)
-            }
-        }
+        RuntimeTypeRecipe::Template(ty) => instantiate_type_ref(ty, env, context, registry, 0),
     }
 }
 
@@ -194,11 +188,7 @@ fn instantiate_type_ref(
             let entry = loaded.bundle.types.get(node.0 as usize)?;
             match &entry.form {
                 phalcom_type_meta::type_node::TypeNode::Parameter(param) => {
-                    if let Some(subst) = env.get(param) {
-                        Some(subst)
-                    } else {
-                        Some(ty)
-                    }
+                    env.get(param)
                 }
                 phalcom_type_meta::type_node::TypeNode::Nominal { .. }
                 | phalcom_type_meta::type_node::TypeNode::Never

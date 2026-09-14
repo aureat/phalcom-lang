@@ -19,6 +19,7 @@ use phalcom_semantic::types::denotation::{AssociatedValueDenotation, SemanticDen
 use phalcom_semantic::types::family::{FamilyMemberTypeKind, FamilyOperationShape};
 use phalcom_semantic::types::id::TypeId;
 use phalcom_semantic::types::store::TypeData;
+use crate::typing::{RuntimeTypeRecipe, RuntimeTypeRef};
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -238,6 +239,7 @@ pub enum AnonymousProductConstructionKind {
 pub struct AnonymousProductConstructionLoweringSpec {
     pub kind: AnonymousProductConstructionKind,
     pub layout: crate::product::ProductLayoutSpec,
+    pub type_recipe: RuntimeTypeRecipe,
 }
 
 /// Lowering specification for a prefix-`&` callable reference.
@@ -556,6 +558,15 @@ pub fn build_module_lowering_semantics(
     snapshot: &SemanticSnapshot,
     projects: &phalcom_modules::ProjectUniverse,
 ) -> Result<ModuleLoweringSemantics, ProjectionError> {
+    build_module_lowering_semantics_with_runtime_types(module, snapshot, projects, &BTreeMap::new())
+}
+
+pub fn build_module_lowering_semantics_with_runtime_types(
+    module: &ModuleId,
+    snapshot: &SemanticSnapshot,
+    projects: &phalcom_modules::ProjectUniverse,
+    runtime_type_roots: &BTreeMap<SourceRange, RuntimeTypeRef>,
+) -> Result<ModuleLoweringSemantics, ProjectionError> {
     let source_id = if let Some(parsed_unit) = snapshot.sources.get(module) {
         parsed_unit
             .source
@@ -847,7 +858,7 @@ pub fn build_module_lowering_semantics(
     let anonymous_products = snapshot
         .sources
         .get(module)
-        .map(|source| project_anonymous_products(module, snapshot, &source.program))
+        .map(|source| project_anonymous_products(module, snapshot, &source.program, runtime_type_roots))
         .unwrap_or_default();
 
     Ok(ModuleLoweringSemantics {
@@ -1236,6 +1247,7 @@ fn project_anonymous_products(
     module: &ModuleId,
     snapshot: &SemanticSnapshot,
     program: &phalcom_ast::ast::Program,
+    runtime_type_roots: &BTreeMap<SourceRange, RuntimeTypeRef>,
 ) -> BTreeMap<SourceRange, Arc<AnonymousProductConstructionLoweringSpec>> {
     let mut sources = Vec::new();
     collect_anonymous_product_statements(&program.statements, &mut sources);
@@ -1268,6 +1280,14 @@ fn project_anonymous_products(
                 (*range, component_ranges.clone(), 1u8, type_id)
             }
         };
+        let Some(runtime_type) = runtime_type_roots.get(&range).copied() else {
+            continue;
+        };
+        let type_recipe = if phalcom_semantic::checker::associated::contains_any_type_parameter(&snapshot.store, type_id) {
+            RuntimeTypeRecipe::Template(runtime_type)
+        } else {
+            RuntimeTypeRecipe::Closed(runtime_type)
+        };
         let spec = if kind == 0 {
             let AnonymousProductSource::Tuple { positional_len, labels, .. } = source else {
                 unreachable!()
@@ -1293,6 +1313,7 @@ fn project_anonymous_products(
                         })
                         .collect(),
                 ),
+                type_recipe,
             }
         } else {
             let AnonymousProductSource::Record { labels, .. } = source else {
@@ -1335,11 +1356,56 @@ fn project_anonymous_products(
                         })
                         .collect(),
                 ),
+                type_recipe,
             }
         };
         projected.insert(range, Arc::new(spec));
     }
     projected
+}
+
+/// Returns the semantic type roots needed by runtime product descriptors.
+/// The compiler uses these roots to build metadata-backed runtime references;
+/// it does not reconstruct product types from AST payloads.
+pub fn anonymous_product_type_roots(
+    module: &ModuleId,
+    snapshot: &SemanticSnapshot,
+    program: &phalcom_ast::ast::Program,
+) -> Vec<(SourceRange, TypeId)> {
+    let mut sources = Vec::new();
+    collect_anonymous_product_statements(&program.statements, &mut sources);
+    let mut expression_facts = BTreeMap::<SourceRange, Option<TypeId>>::new();
+    for (callable, analysis) in snapshot.callable_analyses.iter().filter(|(callable, _)| callable.owner.module() == module) {
+        let _ = callable;
+        for expression in analysis.expressions.values() {
+            expression_facts
+                .entry(expression.range)
+                .and_modify(|fact| *fact = (*fact).or_else(|| expression.knowledge.ty()))
+                .or_insert_with(|| expression.knowledge.ty());
+        }
+    }
+    sources
+        .into_iter()
+        .filter_map(|source| {
+            let (range, component_count) = match &source {
+                AnonymousProductSource::Tuple { range, component_ranges, .. }
+                | AnonymousProductSource::Record { range, component_ranges, .. } => (*range, component_ranges.len()),
+            };
+            let ty = expression_facts.get(&range).copied().flatten()?;
+            match snapshot.store.get(ty) {
+                TypeData::Tuple(elements) if elements.len() == component_count => Some((range, ty)),
+                TypeData::Record(row_id) => {
+                    let row = snapshot.store.record_row(*row_id);
+                    if matches!(row.tail, phalcom_semantic::types::row::RecordRowTail::Closed) && row.fields.len() == component_count {
+                        Some((range, ty))
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            }
+        })
+        .collect()
 }
 
 fn project_slot_repr_type(ty: TypeId, snapshot: &SemanticSnapshot) -> crate::product::ProductSlotRepr {

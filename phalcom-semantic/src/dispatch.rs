@@ -186,6 +186,7 @@ pub trait DispatchResolver {
 pub struct SurfaceDispatchResolver {
     surfaces: HashMap<DeclarationId, DeclarationSurface>,
     conditional_members: HashMap<InherentImplTarget, Arc<ConditionalInherentMemberSet>>,
+    conditional_targets_by_owner: HashMap<DeclarationId, BTreeSet<InherentImplTarget>>,
     type_declarations: HashMap<TypeId, DeclarationId>,
     module_surfaces: HashMap<ModuleId, BTreeSet<DeclarationId>>,
     declaration_types: HashMap<DeclarationId, BTreeSet<TypeId>>,
@@ -197,6 +198,7 @@ impl SurfaceDispatchResolver {
     }
 
     pub fn register_conditional_members(&mut self, target: InherentImplTarget, members: Arc<ConditionalInherentMemberSet>) {
+        self.conditional_targets_by_owner.entry(target.declaration().clone()).or_default().insert(target.clone());
         self.conditional_members.insert(target, members);
     }
 
@@ -229,7 +231,13 @@ impl SurfaceDispatchResolver {
     /// Removes one declaration surface and only the type registrations owned
     /// by that declaration.
     pub fn remove_surface(&mut self, declaration: &DeclarationId) {
-        self.conditional_members.remove(&InherentImplTarget::Declaration(declaration.clone()));
+        if let Some(targets) = self.conditional_targets_by_owner.remove(declaration) {
+            for target in targets {
+                self.conditional_members.remove(&target);
+            }
+        } else {
+            self.conditional_members.remove(&InherentImplTarget::Declaration(declaration.clone()));
+        }
         let Some(_) = self.surfaces.remove(declaration) else {
             return;
         };

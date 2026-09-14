@@ -3081,6 +3081,33 @@ impl SemanticWorkspaceSession {
                         }
                     }
 
+                    let mut exact_case_sets = BTreeMap::<crate::impls::InherentImplTarget, crate::impls::ConditionalInherentMemberSet>::new();
+                    for contrib in &enum_contribs {
+                        let crate::impls::InherentImplTarget::ExactEnumCase(variant) = &contrib.target else {
+                            continue;
+                        };
+                        let set = exact_case_sets
+                            .entry(crate::impls::InherentImplTarget::ExactEnumCase(variant.clone()))
+                            .or_insert_with(|| crate::impls::ConditionalInherentMemberSet::new(Some(contrib.target.clone())));
+                        for member in contrib.members.iter() {
+                            let Some(domain) = contrib.domain.clone() else {
+                                continue;
+                            };
+                            set.add_member(crate::impls::ConditionalInherentMember {
+                                impl_id: contrib.id.clone(),
+                                domain,
+                                callable: member.callable.clone(),
+                                signature_template: member.signature.clone(),
+                                visibility: member.visibility,
+                                source_member: member.source_member,
+                                is_requirement: member.is_requirement,
+                            });
+                        }
+                    }
+                    for (target, set) in exact_case_sets {
+                        dispatch.register_conditional_members(target, Arc::new(set));
+                    }
+
                     let mut behavior_bases: std::collections::HashSet<phalcom_common::selector::SelectorBase> = std::collections::HashSet::new();
                     for c in &enum_contribs {
                         for m in &c.members {

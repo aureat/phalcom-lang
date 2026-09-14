@@ -259,6 +259,10 @@ pub struct VM {
     pub module_registry: crate::modules::ModuleRegistry,
     /// Runtime typing registry for loaded metadata pools and descriptors.
     pub typing_registry: crate::typing::RuntimeTypingRegistry,
+    /// Interned generic substitutions used to instantiate runtime type recipes.
+    pub runtime_type_environments: crate::typing::RuntimeTypeEnvironmentRegistry,
+    /// VM-owned overlay arena used for instantiated runtime type products.
+    pub runtime_typing_context: crate::typing::TypingContextData,
     /// Direct runtime roots for Universe and entry modules.
     pub runtime_roots: Option<RuntimeRoots>,
     /// Source/bootstrap census captured during VM construction.
