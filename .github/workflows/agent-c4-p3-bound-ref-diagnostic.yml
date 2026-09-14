@@ -1,0 +1,28 @@
+name: Agent C4 P3 bound-ref diagnostic
+
+on:
+  push:
+    branches:
+      - agent/c4-p3-complex-closure-7
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    if: ${{ startsWith(github.event.head_commit.message, 'diag:') }}
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: 1
+      RUSTFLAGS: ""
+      RUSTC_WRAPPER: ""
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-10
+          components: rustc-codegen-cranelift-preview
+      - uses: Swatinem/rust-cache@v2
+      - name: Bound trait-reference semantic evidence probe
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --test semantic associated::lookup::bound_trait_reference_retains_conformance_selection_evidence -- --nocapture
