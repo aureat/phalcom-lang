@@ -37,17 +37,13 @@ jobs:
           from pathlib import Path
           path = Path('phalcom-semantic/src/db/query.rs')
           text = path.read_text()
-          old = '''    if class_def.is_none() && enum_definition_for(&unit, &class_decl).is_none() {
-              return query_failure(db, key, format!("source declaration {class_decl:?} was not found in its parsed module"));
-          }'''
+          old = '    if class_def.is_none() && enum_definition_for(&unit, &class_decl).is_none() {'
           new = '''    if class_def.is_none()
               && enum_definition_for(&unit, &class_decl).is_none()
               && data_definition_for(&unit, &class_decl).is_none()
-          {
-              return query_failure(db, key, format!("source declaration {class_decl:?} was not found in its parsed module"));
-          }'''
+          {'''
           if text.count(old) != 1:
-              raise SystemExit(f'expected exactly one hierarchy admission site, found {text.count(old)}')
+              raise SystemExit(f'expected exactly one hierarchy admission condition, found {text.count(old)}')
           path.write_text(text.replace(old, new, 1))
           PY
           git diff --check
