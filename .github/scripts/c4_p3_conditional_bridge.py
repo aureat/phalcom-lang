@@ -81,9 +81,23 @@ replace_once(
 )
 replace_once(
     "phalcom-core/src/compiler/lib/scope.rs",
-    """        let spec = spec.clone();
+    """        let Some((_, spec)) = lowering
+            .trait_invocations
+            .iter()
+            .find(|(site, _)| site.range == range && site.kind == crate::modules::semantic_lowering::LoweringSiteKind::TraitInvoke)
+        else {
+            return Ok(false);
+        };
+        let spec = spec.clone();
         let index = self""",
-    """        let spec = spec.clone();
+    """        let Some((_, spec)) = lowering
+            .trait_invocations
+            .iter()
+            .find(|(site, _)| site.range == range && site.kind == crate::modules::semantic_lowering::LoweringSiteKind::TraitInvoke)
+        else {
+            return Ok(false);
+        };
+        let spec = spec.clone();
         self.prepare_trait_invocation_methods(&spec)?;
         let index = self""",
     "ordinary trait invoke preparation",
