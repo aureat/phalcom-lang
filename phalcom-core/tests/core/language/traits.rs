@@ -95,6 +95,22 @@ let result = Caller.new().run(User.new())
 }
 
 #[test]
+fn trait_evidenced_bound_reference_executes_conformance_witness() {
+    let source = r#"
+trait Named { name -> String }
+class User {}
+impl Named for User { name -> String { "witness-user" } }
+class Caller { run(_ user: User) -> String { let f = &user.name; f() } }
+let result = Caller.new().run(User.new())
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("trait witness bound reference compiles");
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("trait witness bound reference executes");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    assert_eq!(named(&vm, module, "result").expect("result binding").to_string(&vm), "witness-user");
+}
+
+#[test]
 fn nested_trait_defaults_preserve_conformance_environment() {
     let source = r#"
 trait Identified {
@@ -180,6 +196,47 @@ let result = Caller.new().run(Doubler.new())
     vm.run_compiled(&program).expect("generic trait default executes");
     let module = vm.module_registry.get(&program.entry).expect("entry module").object;
     assert_eq!(named(&vm, module, "result").expect("result binding").to_string(&vm), "12");
+}
+
+#[test]
+fn specialized_generic_targets_keep_distinct_trait_execution() {
+    let source = r#"
+trait Tagged { tag -> String }
+class Value<T> { @constructor new() {} }
+impl Tagged for Value<String> { tag -> String { "string" } }
+impl Tagged for Value<Int> { tag -> String { "int" } }
+class Caller {
+  stringTag(_ value: Value<String>) -> String { value.tag }
+  intTag(_ value: Value<Int>) -> String { value.tag }
+}
+let caller = Caller.new()
+let stringResult = caller.stringTag(Value<String>.new())
+let intResult = caller.intTag(Value<Int>.new())
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("specialized trait targets compile");
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("specialized trait targets execute");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    assert_eq!(named(&vm, module, "stringResult").expect("string result").to_string(&vm), "string");
+    assert_eq!(named(&vm, module, "intResult").expect("int result").to_string(&vm), "int");
+}
+
+#[test]
+fn trait_default_uses_proven_conditional_inherent_witness() {
+    let source = r#"
+trait Tagged { tag -> String { "default" } }
+class Number {}
+class Value<T> { @constructor new() {} }
+impl<T> Value<T> where T <: Number { tag -> String { "number" } }
+impl<T> Tagged for Value<T> {}
+class Caller { run(_ value: Value<Number>) -> String { value.tag } }
+let result = Caller.new().run(Value<Number>.new())
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("conditional inherent trait witness compiles");
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("conditional inherent trait witness executes");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    assert_eq!(named(&vm, module, "result").expect("result binding").to_string(&vm), "number");
 }
 
 #[test]
