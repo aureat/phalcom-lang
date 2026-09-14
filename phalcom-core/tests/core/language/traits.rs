@@ -93,3 +93,28 @@ let result = Caller.new().run(User.new())
     let module = vm.module_registry.get(&program.entry).expect("entry module").object;
     assert_eq!(named(&vm, module, "result").expect("result binding").to_string(&vm), "user");
 }
+
+#[test]
+fn trait_default_executes_abstract_getter_satisfied_by_data_component() {
+    let source = r#"
+trait Named {
+  name -> String
+  label -> String { self.name }
+}
+
+data Person(name: String)
+impl Named for Person {}
+class Caller { run(_ person: Person) -> String { person.label } }
+let result = Caller.new().run(Person(name: "data-user"))
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source)))
+        .expect("data-component trait witness compiles");
+    let mut vm = vm_support::universe_vm();
+    let error = vm
+        .run_compiled(&program)
+        .expect_err("data-component requirement execution is not implemented yet");
+    assert!(
+        error.to_string().contains("data component trait target requires projection lowering"),
+        "expected the current data-component trait execution gap, got: {error}"
+    );
+}
