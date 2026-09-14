@@ -32,7 +32,7 @@ jobs:
           cargo fmt --all
           git diff --check
       - name: Recursive default probe
-        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::recursive_trait_default_reuses_conformance_environment -- --nocapture
+        run: timeout 120s cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::recursive_trait_default_reuses_conformance_environment -- --nocapture
       - name: Forced GC probe
         run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::trait_default_conformance_environment_survives_forced_gc -- --nocapture
       - name: Trait runtime focused suite
