@@ -378,4 +378,41 @@ let result = family()
 
     let (vm, module) = vm_support::run_inline(source).expect("conditional bound family should execute");
     assert_eq!(named(&vm, module, "result"), Value::int(7));
+
+    let inapplicable = r#"
+data Box<T>(_ value: T)
+impl Box<Int> { intValue() -> Int { self.value } }
+let family = &Box("not an Int").intValue()
+let result = family()
+"#;
+    assert!(
+        vm_support::run_inline(inapplicable).is_err(),
+        "a bound conditional member must remain unavailable for an inapplicable receiver"
+    );
+}
+
+#[test]
+fn specialized_class_side_impl_requires_the_applied_receiver() {
+    let source = r#"
+data Box<T>(_ value: T)
+
+impl Box<Int> {
+  @class kind() -> String { "int" }
+}
+
+let result = Box<Int>.kind()
+"#;
+
+    let (vm, module) = vm_support::run_inline(source).expect("specialized class-side impl should execute");
+    assert_eq!(named(&vm, module, "result").to_string(&vm), "int");
+
+    let inapplicable = r#"
+data Box<T>(_ value: T)
+impl Box<Int> { @class kind() -> String { "int" } }
+let result = Box<String>.kind()
+"#;
+    assert!(
+        vm_support::run_inline(inapplicable).is_err(),
+        "a specialized class-side member must not leak across applied receivers"
+    );
 }

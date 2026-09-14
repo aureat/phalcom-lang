@@ -246,6 +246,7 @@ fn test_matrix_5_invariants_hold_across_boundaries() {
             range: RANGE,
             knowledge: TypeKnowledge::Dynamic(DynamicReason::ExplicitEscape),
             callable: None,
+            conditional_dispatch: None,
             denotation: None,
             status: AnalysisStatus::DynamicBoundary(DynamicReason::ExplicitEscape),
             causal_invalidity: phalcom_semantic::checker::CausalInvalidity::Clean,

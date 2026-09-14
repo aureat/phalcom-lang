@@ -7,9 +7,9 @@ category: LANG
 program: LANG005
 checkpoint: LANG005.C2
 kind: implementation-plan
-status: PROPOSED
-completion: NOT_STARTED
-verification: UNVERIFIED
+status: COMPLETE
+completion: IMPLEMENTED
+verification: FOCUSED_TESTED
 depends_on:
   - LANG005.C2.P1
   - LANG005.C2.P2

@@ -523,8 +523,9 @@ impl<'a> EditorSemanticQuery<'a> {
                 })
         });
         let mut alternatives = Vec::new();
+        let mode_hint = shape.as_ref().and_then(receiver_mode_for_shape);
         if let Some(receiver_type) = receiver_type {
-            collect_receiver_alternatives_from_type(&self.snapshot.store, receiver_type, &mut alternatives);
+            collect_receiver_alternatives_from_type(&self.snapshot.store, receiver_type, mode_hint, &mut alternatives);
         }
         if alternatives.is_empty()
             && let Some(ref shape) = shape
@@ -557,18 +558,27 @@ impl<'a> EditorSemanticQuery<'a> {
             crate::source_index::SourceReceiverKind::SelfValue => callable.declaration_owner().clone(),
             crate::source_index::SourceReceiverKind::SuperValue => self.snapshot.hierarchy.superclass(callable.declaration_owner()).cloned()?,
         };
-        Some(ResolvedReceiver {
-            alternatives: Arc::from([ReceiverAlternative {
+        let receiver_type = self.formal_type_for_site(site);
+        let mode_hint = self.formal_shape_for_site(site).and_then(|shape| receiver_mode_for_shape(&shape));
+        let mut alternatives = Vec::new();
+        if let Some(receiver_type) = receiver_type {
+            collect_receiver_alternatives_from_type(&self.snapshot.store, receiver_type, mode_hint, &mut alternatives);
+        }
+        if alternatives.is_empty() {
+            alternatives.push(ReceiverAlternative {
                 declaration,
-                mode: ReceiverMode::Instance,
+                mode: mode_hint.unwrap_or(ReceiverMode::Instance),
                 receiver_type: None,
-            }]),
+            });
+        }
+        Some(ResolvedReceiver {
+            alternatives: Arc::from(alternatives.into_boxed_slice()),
         })
     }
 
     fn receiver_for_source_range(&self, module: &ModuleId, range: SourceRange) -> Option<ResolvedReceiver> {
         let source = self.snapshot.source_index.module(module)?;
-        for (site, kind) in &source.structure.receiver_kinds {
+        for (site, _kind) in &source.structure.receiver_kinds {
             let receiver_site = source.structure.site(site)?;
             if receiver_site.range.start < range.start || receiver_site.range.end > range.end {
                 continue;
@@ -580,18 +590,8 @@ impl<'a> EditorSemanticQuery<'a> {
                 .filter(|(_, range)| range.contains(receiver_site.range.start))
                 .min_by_key(|(_, range)| range.len())
                 .map(|(callable, _)| callable.clone());
-            let Some(callable) = callable else { continue };
-            let declaration = match kind {
-                crate::source_index::SourceReceiverKind::SelfValue => callable.declaration_owner().clone(),
-                crate::source_index::SourceReceiverKind::SuperValue => self.snapshot.hierarchy.superclass(callable.declaration_owner()).cloned()?,
-            };
-            return Some(ResolvedReceiver {
-                alternatives: Arc::from([ReceiverAlternative {
-                    declaration,
-                    mode: ReceiverMode::Instance,
-                    receiver_type: None,
-                }]),
-            });
+            let Some(_callable) = callable else { continue };
+            return self.receiver_for_source_site(module, &Some(site.clone()));
         }
         source
             .occurrences
@@ -621,21 +621,37 @@ impl<'a> EditorSemanticQuery<'a> {
     }
 
     fn formal_type_for_site(&self, site: &SourceSiteId) -> Option<crate::types::id::TypeId> {
-        let knowledge = self
-            .snapshot
-            .formal_binding_at(site)
-            .map(|state| state.current.clone())
-            .or_else(|| self.snapshot.formal_expression_at(site).map(|expression| expression.knowledge.clone()))?;
-        knowledge.ty()
+        if let Some(state) = self.snapshot.formal_binding_at(site) {
+            if let Some(crate::types::denotation::SemanticDenotation::TypeForm(form)) = state.denotation.as_ref() {
+                return Some(*form);
+            }
+            return state.current.ty();
+        }
+        let expression = self.snapshot.formal_expression_at(site)?;
+        if let Some(crate::types::denotation::SemanticDenotation::TypeForm(form)) = expression.denotation.as_ref() {
+            Some(*form)
+        } else {
+            expression.knowledge.ty()
+        }
     }
 
     fn formal_type_for_fact(&self, fact: &crate::presentation::FormalFactRef) -> Option<crate::types::id::TypeId> {
         match fact {
             crate::presentation::FormalFactRef::Expression { callable, expression } => {
-                self.snapshot.formal_expression(callable, *expression)?.knowledge.ty()
+                let expression = self.snapshot.formal_expression(callable, *expression)?;
+                if let Some(crate::types::denotation::SemanticDenotation::TypeForm(form)) = expression.denotation.as_ref() {
+                    Some(*form)
+                } else {
+                    expression.knowledge.ty()
+                }
             }
             crate::presentation::FormalFactRef::Binding { callable, binding } => {
-                self.snapshot.formal_binding(callable, *binding)?.current.ty()
+                let binding = self.snapshot.formal_binding(callable, *binding)?;
+                if let Some(crate::types::denotation::SemanticDenotation::TypeForm(form)) = binding.denotation.as_ref() {
+                    Some(*form)
+                } else {
+                    binding.current.ty()
+                }
             }
             crate::presentation::FormalFactRef::Callable(_) => None,
         }
@@ -710,6 +726,9 @@ impl<'a> EditorSemanticQuery<'a> {
         let Some(receiver_type) = alternative.receiver_type else {
             return Vec::new();
         };
+        if side == crate::identity::DispatchSide::Class && !matches!(self.snapshot.store.get(receiver_type), TypeData::Applied { .. }) {
+            return Vec::new();
+        }
         let mut store = self.snapshot.store.as_ref().clone();
         let ambient_constraints = access
             .enclosing_callable
@@ -869,7 +888,12 @@ fn collect_receiver_alternatives(shape: &ValueShape, alternatives: &mut Vec<Rece
     }
 }
 
-fn collect_receiver_alternatives_from_type(store: &TypeStore, ty: crate::types::id::TypeId, alternatives: &mut Vec<ReceiverAlternative>) {
+fn collect_receiver_alternatives_from_type(
+    store: &TypeStore,
+    ty: crate::types::id::TypeId,
+    mode_hint: Option<ReceiverMode>,
+    alternatives: &mut Vec<ReceiverAlternative>,
+) {
     match store.get(ty) {
         TypeData::ClassObject { declaration } => alternatives.push(ReceiverAlternative {
             declaration: declaration.clone(),
@@ -878,11 +902,14 @@ fn collect_receiver_alternatives_from_type(store: &TypeStore, ty: crate::types::
         }),
         TypeData::Nominal { declaration } => alternatives.push(ReceiverAlternative {
             declaration: declaration.clone(),
-            mode: ReceiverMode::Instance,
+            mode: mode_hint.unwrap_or(ReceiverMode::Instance),
             receiver_type: Some(ty),
         }),
         TypeData::Applied { .. } | TypeData::ExactCase { .. } => {
-            if let (Some(declaration), Some(mode)) = (store.nominal_origin_declaration(ty), receiver_mode_for_type(store, ty)) {
+            if let (Some(declaration), Some(mode)) = (
+                store.nominal_origin_declaration(ty),
+                mode_hint.or_else(|| matches!(store.get(ty), TypeData::ExactCase { .. }).then_some(ReceiverMode::Instance)),
+            ) {
                 alternatives.push(ReceiverAlternative {
                     declaration: declaration.clone(),
                     mode,
@@ -890,16 +917,20 @@ fn collect_receiver_alternatives_from_type(store: &TypeStore, ty: crate::types::
                 });
             }
         }
-        TypeData::Union(types) => types.iter().for_each(|ty| collect_receiver_alternatives_from_type(store, *ty, alternatives)),
+        TypeData::Union(types) => types.iter().for_each(|ty| collect_receiver_alternatives_from_type(store, *ty, mode_hint, alternatives)),
         _ => {}
     }
 }
 
-fn receiver_mode_for_type(store: &TypeStore, ty: crate::types::id::TypeId) -> Option<ReceiverMode> {
-    match store.get(ty) {
-        TypeData::ClassObject { .. } => Some(ReceiverMode::Class),
-        TypeData::Applied { origin, .. } => receiver_mode_for_type(store, *origin),
-        TypeData::ExactCase { .. } | TypeData::Nominal { .. } => Some(ReceiverMode::Instance),
+fn receiver_mode_for_shape(shape: &ValueShape) -> Option<ReceiverMode> {
+    match shape {
+        ValueShape::Instance(_) => Some(ReceiverMode::Instance),
+        ValueShape::ClassObject(_) => Some(ReceiverMode::Class),
+        ValueShape::Union(shapes) => {
+            let mut modes = shapes.iter().filter_map(receiver_mode_for_shape);
+            let first = modes.next()?;
+            modes.all(|mode| mode == first).then_some(first)
+        }
         _ => None,
     }
 }

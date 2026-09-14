@@ -4,9 +4,9 @@
 
 ```yaml
 checkpoint: LANG005.C2
-status: IN_PROGRESS
-active_plan: LANG005.C2.P3
-completion: PARTIAL
+status: COMPLETE
+active_plan: null
+completion: COMPLETE
 verification: FOCUSED_TESTED
 ```
 
@@ -16,7 +16,7 @@ verification: FOCUSED_TESTED
 |---|---|---|---|---|
 | `LANG005.C2.P1` | First-Class Inherent `impl` and Effective Declaration Surfaces | COMPLETE | IMPLEMENTED | FOCUSED_TESTED |
 | `LANG005.C2.P2` | Variants-Only Enums and Impl Behavior Migration | COMPLETE | IMPLEMENTED | FOCUSED_TESTED |
-| `LANG005.C2.P3` | Constrained & Specialized Inherent Impl Applicability | IN_PROGRESS | PARTIAL | UNVERIFIED |
+| `LANG005.C2.P3` | Constrained & Specialized Inherent Impl Applicability | COMPLETE | IMPLEMENTED | FOCUSED_TESTED |
 
 ## Established Takeover Interfaces & Architecture from C1
 - `ProductStorage`, `ProductShapeRegistry`, `RuntimeAnonymousProductDescriptorRegistry` fully unified.
@@ -40,10 +40,27 @@ verification: FOCUSED_TESTED
 - `rg 'EnumMember|VariantBody|parse_enum_behavior_member' phalcom-*/src` — zero production hits.
 - Diagnostic baseline in `semantic-diagnostics-baseline.txt` updated to reflect exact source offset shifts from `Result` separation and confirmed `Option`/`Fiber` typing behavior.
 
+## P3 Completed State — 2026-09-14
+
+- `ConditionalDispatchSelection` is the canonical per-expression applicability product. It retains `ImplId`, callable identity, declaring owner, and dispatch side; compiler, runtime, source tooling, and LSP consume this product rather than re-solving constraints.
+- `BoundBehavioralMember.conditional` and `MakeConditionalFamily` preserve selected conditional behavior in rooted family descriptors. Runtime fallback resolution uses exact declaration identity and the shared strict-subclass override probe.
+- Conditional members remain outside unconditional declaration/runtime surfaces. Ordinary selector precedence is preserved, and class-side editor lookup fails closed without an applied receiver form.
+- Incremental callable-body fingerprints include conditional selection identity; receiver-effective conditional editor lookup retains the formal `TypeId` and dispatch mode.
+
+Focused P3 evidence:
+
+- `semantic::impls` — 40 passed, 0 failed.
+- `core language::inherent_impl` — 14 passed, 0 failed.
+- Exact bound-family specialized regression — 1 passed, 0 failed.
+- Exact specialized class-side regression — 1 passed, 0 failed.
+- Semantic editor, source-index, incremental, and callable-fingerprint filters — passed.
+- Three-crate check for `phalcom-semantic`, `phalcom-core`, and `phalcom-lsp` — passed.
+- Scoped negative searches for legacy enum behavior scans and compiler/LSP applicability re-solving — zero production hits.
+
 ## Active Plan & Next Action
-- **Latest Completed Plan:** `LANG005.C2.P2` (*Variants-Only Enums and Impl Behavior Migration*).
-- **Active Plan:** `LANG005.C2.P3` (*Constrained & Specialized Inherent Impl Applicability*).
-- **Next Action:** Apply the T6 advisory clarification: make conditional selection a first-class per-expression semantic product, retain rooted executable family projections, and move editor completion to a semantic receiver-effective lookup API. Do not resume implementation until this boundary is applied.
+- **Latest Completed Plan:** `LANG005.C2.P3` (*Constrained & Specialized Inherent Impl Applicability*).
+- **Active Plan:** None.
+- **Next Action:** Begin `LANG005.C3.P1` (*First-Class Trait Declarations and Abstract Trait Surfaces*).
 
 ## Consultation Ledger
 
@@ -55,6 +72,6 @@ Observed: Bound-family lowering had no executable conditional-selection represen
 Decision: PLAN SOUND — ARCHITECTURAL CLARIFICATION REQUIRED. Keep selected conditional proof plus rooted family descriptor; direct lowering must project per-expression selection; editor must consume a semantic receiver-effective lookup API and never call the matcher directly
 Architecture impact: No new plan architecture is required, but T6 implementation must replace lowering/editor rediscovery with canonical semantic products and preserve Class mode plus applied form independently
 Plan amendment: NO
-Verification required: Focused semantic, core GC/runtime, and incremental/editor lanes listed in the incident response; deliberately deferred in this turn
-Status: IMPLEMENTER STOPPED; LUNA MAY RESUME after correction
+Verification required: Focused semantic, core runtime, and incremental/editor lanes listed in the incident response
+Status: RESOLVED; P3 implementation resumed and completed
 ```

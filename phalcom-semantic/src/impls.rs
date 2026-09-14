@@ -16,7 +16,7 @@ use crate::types::parameter::{GenericSignature, TypeParameterData, TypeParameter
 use crate::types::store::{TypeData, TypeStore};
 use crate::types::substitution::TypeSubstitution;
 use phalcom_ast::ast::{BehaviorMember, ImplDef, TypeAnnotationExpr};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 /// Computes the conditional inherent members selected for one canonical
 /// receiver form. This is the shared semantic query used by non-checker
@@ -31,8 +31,14 @@ pub fn receiver_effective_conditional_members(
     side: DispatchSide,
     ambient_constraints: &[crate::types::parameter::GenericConstraint],
 ) -> Vec<(DeclarationId, ConditionalInherentMember)> {
-    let mut selected = std::collections::BTreeSet::new();
+    let mut selected = BTreeSet::new();
     let mut result = Vec::new();
+    let ordinary_selectors = dispatch
+        .dispatch_owners(hierarchy, lookup_owner, side)
+        .into_iter()
+        .filter_map(|owner| dispatch.surface(&owner.declaration).map(|surface| surface.surface(owner.side)))
+        .flat_map(|surface| surface.callable_signatures.keys().cloned())
+        .collect::<BTreeSet<_>>();
 
     let exact_variant = match store.get(receiver_type) {
         TypeData::ExactCase { variant, .. } => Some(store.variant_identity(*variant).clone()),
@@ -43,7 +49,7 @@ pub fn receiver_effective_conditional_members(
     {
         for member in set.members.iter().filter(|member| member.callable.side == side) {
             let selector = member.callable.selector.clone();
-            if selected.contains(&selector) {
+            if ordinary_selectors.contains(&selector) || selected.contains(&selector) {
                 continue;
             }
             if matches!(
@@ -84,7 +90,7 @@ pub fn receiver_effective_conditional_members(
         };
         for member in set.members.iter().filter(|member| member.callable.side == owner.side) {
             let selector = member.callable.selector.clone();
-            if selected.contains(&selector) {
+            if ordinary_selectors.contains(&selector) || selected.contains(&selector) {
                 continue;
             }
             if matches!(

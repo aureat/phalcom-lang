@@ -1346,6 +1346,7 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
         expression_id.hash(&mut hasher);
         hash_type_knowledge(&expression.knowledge, false, &mut hasher);
         expression.callable.hash(&mut hasher);
+        expression.conditional_dispatch.hash(&mut hasher);
         hash_denotation(&expression.denotation, &mut hasher);
         hash_analysis_status(&expression.status, &analysis.internal_incidents, &mut hasher);
         hash_causal_invalidity(expression.causal_invalidity, &mut hasher);
