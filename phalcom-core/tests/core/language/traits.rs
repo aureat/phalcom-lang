@@ -97,10 +97,10 @@ let result = Caller.new().run(User.new())
 #[test]
 fn trait_evidenced_bound_reference_executes_conformance_witness() {
     let source = r#"
-trait Named { name -> String }
+trait Marked { marker -> String }
 class User {}
-impl Named for User { name -> String { "witness-user" } }
-class Caller { run(_ user: User) -> String { let f = &user.name; f() } }
+impl Marked for User { marker -> String { "witness-user" } }
+class Caller { run(_ user: User) -> String { let f = &user.marker; f() } }
 let result = Caller.new().run(User.new())
 "#;
     let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("trait witness bound reference compiles");
