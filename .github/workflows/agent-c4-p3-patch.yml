@@ -1,0 +1,70 @@
+name: Agent C4 P3 one-shot patch
+
+on:
+  push:
+    branches:
+      - agent/c4-p3-complex-closure-7
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: startsWith(github.event.head_commit.message, 'agent patch:')
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: 1
+      RUSTFLAGS: ""
+      RUSTC_WRAPPER: ""
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/c4-p3-complex-closure-7
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-10
+          components: rustc-codegen-cranelift-preview
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Apply exact hierarchy patch
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('phalcom-semantic/src/db/query.rs')
+          text = path.read_text()
+          old = '''    if class_def.is_none() && enum_definition_for(&unit, &class_decl).is_none() {
+              return query_failure(db, key, format!("source declaration {class_decl:?} was not found in its parsed module"));
+          }'''
+          new = '''    if class_def.is_none()
+              && enum_definition_for(&unit, &class_decl).is_none()
+              && data_definition_for(&unit, &class_decl).is_none()
+          {
+              return query_failure(db, key, format!("source declaration {class_decl:?} was not found in its parsed module"));
+          }'''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected exactly one hierarchy admission site, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          git diff --check
+          git diff -- phalcom-semantic/src/db/query.rs
+
+      - name: Verify semantic crate builds
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' check -p phalcom-semantic
+
+      - name: Commit exact source patch
+        shell: bash
+        run: |
+          git config user.name 'OpenAI Agent'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add phalcom-semantic/src/db/query.rs
+          git commit -m 'fix semantic hierarchy replay for data declarations'
+          git push origin HEAD:agent/c4-p3-complex-closure-7
+          echo "PATCH_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Trait data witness regression after semantic repair
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::trait_default_executes_abstract_getter_satisfied_by_data_component -- --nocapture
