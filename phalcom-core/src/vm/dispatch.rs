@@ -1129,8 +1129,28 @@ impl VM {
     /// # Errors
     ///
     /// Propagates any [`RuntimeError`] the dispatched method raises.
-    fn trait_method_for_selection(&mut self, receiver: Value, selection: &phalcom_semantic::impls::RequirementSelectionTemplate) -> PhResult<ObjRef> {
+    fn trait_method_for_selection(
+        &mut self,
+        receiver: Value,
+        selection: &phalcom_semantic::impls::RequirementSelectionTemplate,
+        requirement_selector: &phalcom_common::selector::Selector,
+    ) -> PhResult<ObjRef> {
         use phalcom_semantic::impls::RequirementSelectionTemplate;
+        if let RequirementSelectionTemplate::DataComponent { component, .. } = selection {
+            // Semantic evidence has already selected this exact data component.
+            // Runtime lookup only materializes the representation-level getter
+            // installed by register_data_from_spec; it does not select a witness.
+            let selector = self.interner.intern(&requirement_selector.encode());
+            return receiver
+                .lookup_method(self, selector)
+                .ok_or_else(|| {
+                    RuntimeError::Internal(format!(
+                        "trait-selected data component {component:?} has no runtime projection getter for `{}`",
+                        requirement_selector.encode()
+                    ))
+                })
+                .map_err(Into::into);
+        }
         let callable = match selection {
             RequirementSelectionTemplate::ConformanceCallable { callable } | RequirementSelectionTemplate::TraitDefault { callable } => Some(callable),
             RequirementSelectionTemplate::InherentCallable { callable, .. } => Some(callable),
@@ -1158,13 +1178,13 @@ impl VM {
         let mut slots = vec![None; spec.requirement_slots.iter().map(|(_, slot)| *slot as usize + 1).max().unwrap_or(0)];
         for (requirement, slot) in spec.requirement_slots.iter() {
             if let Some(target) = spec.selection.requirement_targets.get(requirement) {
-                slots[*slot as usize] = Some(self.trait_method_for_selection(receiver, target)?);
+                slots[*slot as usize] = Some(self.trait_method_for_selection(receiver, target, &requirement.selector)?);
             }
         }
         let environment = self
             .runtime_conformance_environments
             .intern(crate::typing::RuntimeConformanceEnvironment::new(slots));
-        let method = self.trait_method_for_selection(receiver, &spec.selection.selection)?;
+        let method = self.trait_method_for_selection(receiver, &spec.selection.selection, &spec.selection.signature.selector)?;
         Ok((environment, method))
     }
 
