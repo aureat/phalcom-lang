@@ -30,3 +30,5 @@ jobs:
         run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::trait_default_executes_abstract_getter_satisfied_by_data_component -- --nocapture
       - name: Nested trait default environment regression
         run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::nested_trait_defaults_preserve_conformance_environment -- --nocapture
+      - name: Inherent trait witness regression
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::trait_default_executes_abstract_getter_satisfied_by_inherent_member -- --nocapture
