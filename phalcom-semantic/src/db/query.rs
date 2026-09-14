@@ -645,7 +645,10 @@ pub fn query_hierarchy_edge(
     }
 
     let class_def = class_definition_for(&unit, &class_decl);
-    if class_def.is_none() && enum_definition_for(&unit, &class_decl).is_none() {
+    if class_def.is_none()
+    && enum_definition_for(&unit, &class_decl).is_none()
+    && data_definition_for(&unit, &class_decl).is_none()
+{
         return query_failure(db, key, format!("source declaration {class_decl:?} was not found in its parsed module"));
     }
     let superclass_syntax = class_def.and_then(|class_def| superclass_source(&unit, class_def));
