@@ -1,0 +1,92 @@
+name: Agent C4 P3 fixture normalization
+
+on:
+  push:
+    branches:
+      - agent/c4-p3-complex-closure-7
+
+permissions:
+  contents: write
+
+jobs:
+  normalize:
+    if: ${{ startsWith(github.event.head_commit.message, 'fixture:') }}
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: 1
+      RUSTFLAGS: ""
+      RUSTC_WRAPPER: ""
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/c4-p3-complex-closure-7
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-10
+          components: rustc-codegen-cranelift-preview,rustfmt
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Normalize generic trait runtime fixtures
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('phalcom-core/tests/core/language/traits.rs')
+          text = path.read_text()
+
+          old_specialized = '''let caller = Caller.new()
+let stringResult = caller.stringTag(Value<String>.new())
+let intResult = caller.intTag(Value<Int>.new())'''
+          new_specialized = '''let caller = Caller.new()
+let stringValue: Value<String> = Value.new()
+let intValue: Value<Int> = Value.new()
+let stringResult = caller.stringTag(stringValue)
+let intResult = caller.intTag(intValue)'''
+          if text.count(old_specialized) != 1:
+              raise SystemExit(f'specialized fixture match count: {text.count(old_specialized)}')
+          text = text.replace(old_specialized, new_specialized, 1)
+
+          old_conditional = '''trait Tagged { tag -> String { "default" } }
+class Number {}
+class Value<T> { @constructor new() {} }
+impl<T> Value<T> where T <: Number { tag -> String { "number" } }
+impl<T> Tagged for Value<T> {}
+class Caller { run(_ value: Value<Number>) -> String { value.tag } }
+let result = Caller.new().run(Value<Number>.new())'''
+          new_conditional = '''trait Tagged { tag -> String { "default" } }
+class NumericBase {}
+class Numeric is NumericBase {}
+class Value<T> { @constructor new() {} }
+impl<T> Value<T> where T <: NumericBase { tag -> String { "number" } }
+impl<T> Tagged for Value<T> {}
+class Caller { run(_ value: Value<Numeric>) -> String { value.tag } }
+let value: Value<Numeric> = Value.new()
+let result = Caller.new().run(value)'''
+          if text.count(old_conditional) != 1:
+              raise SystemExit(f'conditional fixture match count: {text.count(old_conditional)}')
+          text = text.replace(old_conditional, new_conditional, 1)
+
+          path.write_text(text)
+          PY
+          cargo fmt --all
+          git diff --check
+          git diff -- phalcom-core/tests/core/language/traits.rs
+
+      - name: Specialized exact-target runtime probe
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::specialized_generic_targets_keep_distinct_trait_execution -- --nocapture
+
+      - name: Conditional inherent witness runtime probe
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::trait_default_uses_proven_conditional_inherent_witness -- --nocapture
+
+      - name: Commit normalized fixtures and remove workflow
+        shell: bash
+        run: |
+          git config user.name 'OpenAI Agent'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/agent-c4-p3-fixture-normalization.yml
+          git add phalcom-core/tests/core/language/traits.rs
+          git diff --cached --check
+          git commit -m 'test: isolate C4 generic trait runtime fixtures'
+          git push origin HEAD:agent/c4-p3-complex-closure-7
