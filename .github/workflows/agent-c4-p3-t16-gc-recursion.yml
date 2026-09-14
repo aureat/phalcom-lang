@@ -1,0 +1,49 @@
+name: Agent C4 P3 T16 recursion GC
+
+on:
+  push:
+    branches:
+      - agent/c4-p3-complex-closure-7
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: 1
+      RUSTFLAGS: ""
+      RUSTC_WRAPPER: ""
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/c4-p3-complex-closure-7
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-10
+          components: rustc-codegen-cranelift-preview,rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Apply T16 probes
+        run: |
+          python .github/scripts/c4_p3_t16_gc_recursion.py
+          cargo fmt --all
+          git diff --check
+      - name: Recursive default probe
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::recursive_trait_default_reuses_conformance_environment -- --nocapture
+      - name: Forced GC probe
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::trait_default_conformance_environment_survives_forced_gc -- --nocapture
+      - name: Trait runtime focused suite
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits -- --nocapture
+      - name: Commit tests and remove temporary files
+        shell: bash
+        run: |
+          git config user.name 'OpenAI Agent'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/scripts/c4_p3_t16_gc_recursion.py .github/workflows/agent-c4-p3-t16-gc-recursion.yml
+          git add phalcom-core/tests/core/language/traits.rs
+          git diff --cached --check
+          git commit -m 'test: cover C4 trait recursion and GC roots'
+          git push origin HEAD:agent/c4-p3-complex-closure-7
