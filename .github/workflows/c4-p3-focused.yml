@@ -24,9 +24,7 @@ jobs:
           toolchain: nightly-2026-07-10
           components: rustc-codegen-cranelift-preview
       - uses: Swatinem/rust-cache@v2
-      - name: Bound trait default regression
-        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::trait_evidenced_bound_reference_executes_detached_default -- --nocapture
-      - name: Core trait lane
-        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits -- --nocapture
-      - name: Semantic trait capability lane
-        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --test semantic capabilities::traits -- --nocapture
+      - name: Existing data lowering control
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::data_e2e::data_labeled_tuple_construction_and_access -- --nocapture
+      - name: Trait data witness regression
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::trait_default_executes_abstract_getter_satisfied_by_data_component -- --nocapture
