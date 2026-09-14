@@ -1250,11 +1250,108 @@ pub fn hierarchy_edge_product_fingerprint(
     finish_product(hasher)
 }
 
+/// Computes the source-contract input identity for a trait header. The
+/// header product deliberately excludes member bodies; member contract shape
+/// belongs to the separate TraitSurface product.
+pub fn trait_header_input_fingerprint(header: &crate::traits::TraitHeader) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    header.declaration.hash(&mut hasher);
+    header.source.module.hash(&mut hasher);
+    header.source.range.hash(&mut hasher);
+    match &header.generic_signature {
+        Some(signature) => {
+            1u8.hash(&mut hasher);
+            hash_generic_signature(signature, &mut hasher);
+        }
+        None => 0u8.hash(&mut hasher),
+    }
+    finish_input(hasher)
+}
+
+/// Computes semantic identity for a trait header without source coordinates.
+pub fn trait_header_product_fingerprint(header: &crate::traits::TraitHeader) -> ProductFingerprint {
+    let mut hasher = DefaultHasher::new();
+    header.declaration.hash(&mut hasher);
+    match &header.generic_signature {
+        Some(signature) => {
+            1u8.hash(&mut hasher);
+            hash_generic_signature(signature, &mut hasher);
+        }
+        None => 0u8.hash(&mut hasher),
+    }
+    finish_product(hasher)
+}
+
+/// Computes the source-sensitive input identity for a complete trait surface.
+/// Source spans and diagnostics may refresh the product, but default statement
+/// contents are absent by construction and therefore cannot enter this hash.
+pub fn trait_surface_input_fingerprint(surface: &crate::traits::TraitSurface) -> InputFingerprint {
+    let mut hasher = DefaultHasher::new();
+    hash_trait_surface(surface, true, &mut hasher);
+    surface.diagnostics.len().hash(&mut hasher);
+    for diagnostic in surface.diagnostics.iter() {
+        format!("{diagnostic:?}").hash(&mut hasher);
+    }
+    finish_input(hasher)
+}
+
+/// Computes semantic product identity for a complete trait surface. Full
+/// default bodies are intentionally not present in this product.
+pub fn trait_surface_product_fingerprint(surface: &crate::traits::TraitSurface) -> ProductFingerprint {
+    let mut hasher = DefaultHasher::new();
+    hash_trait_surface(surface, false, &mut hasher);
+    finish_product(hasher)
+}
+
+fn hash_trait_surface(surface: &crate::traits::TraitSurface, include_source: bool, hasher: &mut impl Hasher) {
+    surface.declaration.hash(hasher);
+    match &surface.generic_signature {
+        Some(signature) => {
+            1u8.hash(hasher);
+            hash_generic_signature(signature, hasher);
+        }
+        None => 0u8.hash(hasher),
+    }
+    surface.members.len().hash(hasher);
+    for (requirement, member) in &surface.members {
+        requirement.hash(hasher);
+        member.callable.hash(hasher);
+        callable_signature_product_fingerprint(&member.signature).raw().hash(hasher);
+        member.visibility.hash(hasher);
+        member.default_present.hash(hasher);
+        member.default_source.is_some().hash(hasher);
+        if include_source {
+            member.source.hash(hasher);
+            member.default_source.hash(hasher);
+        }
+    }
+}
+
 /// Computes input fingerprint for a callable body query.
 pub fn callable_body_input_fingerprint(callable: &CallableId, body: &[Statement], _body_range: SourceRange, store: &TypeStore) -> InputFingerprint {
+    callable_body_input_fingerprint_with_owner_generics(callable, body, _body_range, store, None)
+}
+
+/// Computes callable-body input identity while including an explicit owner
+/// generic signature when the callable owner is not represented by nominal
+/// declaration metadata.
+pub fn callable_body_input_fingerprint_with_owner_generics(
+    callable: &CallableId,
+    body: &[Statement],
+    _body_range: SourceRange,
+    store: &TypeStore,
+    owner_generic_signature: Option<&GenericSignature>,
+) -> InputFingerprint {
     let mut hasher = DefaultHasher::new();
     callable.hash(&mut hasher);
     store.id().hash(&mut hasher);
+    match owner_generic_signature {
+        Some(signature) => {
+            1u8.hash(&mut hasher);
+            hash_generic_signature(signature, &mut hasher);
+        }
+        None => 0u8.hash(&mut hasher),
+    }
     // Body input identity is syntax-sensitive but source-location agnostic.
     // Product hashing below never relies on Debug representation; a future
     // parser-owned syntax fingerprint can replace this without affecting
@@ -1291,6 +1388,9 @@ pub struct CallableBodyFormalInputFingerprint<'a> {
     pub source_resolution_input: InputFingerprint,
     pub linked_component_product: ProductFingerprint,
     pub lifecycle: Option<&'a crate::checker::field_lifecycle::FieldLifecycleTable>,
+    pub owner_generic_signature: Option<&'a GenericSignature>,
+    pub declared_signature: Option<&'a CallableSemanticSignature>,
+    pub trait_surface: Option<&'a crate::traits::TraitSurface>,
 }
 
 pub fn callable_body_input_fingerprint_with_formal_inputs(
@@ -1305,13 +1405,30 @@ pub fn callable_body_input_fingerprint_with_formal_inputs(
         source_resolution_input,
         linked_component_product: _linked_component_product,
         lifecycle,
+        owner_generic_signature,
+        declared_signature,
+        trait_surface,
     } = inputs;
     let mut hasher = DefaultHasher::new();
-    callable_body_input_fingerprint(callable, body, body_range, store).0.hash(&mut hasher);
+    callable_body_input_fingerprint_with_owner_generics(callable, body, body_range, store, owner_generic_signature)
+        .0
+        .hash(&mut hasher);
     if let Some(unit) = sources.get(callable.module()) {
         unit.text.get(body_range.start..body_range.end).map(str::as_bytes).hash(&mut hasher);
     }
     source_resolution_input.raw().hash(&mut hasher);
+    if let Some(signature) = declared_signature {
+        1u8.hash(&mut hasher);
+        callable_signature_product_fingerprint(signature).raw().hash(&mut hasher);
+    } else {
+        0u8.hash(&mut hasher);
+    }
+    if let Some(surface) = trait_surface {
+        1u8.hash(&mut hasher);
+        trait_surface_product_fingerprint(surface).raw().hash(&mut hasher);
+    } else {
+        0u8.hash(&mut hasher);
+    }
     if let Some(lifecycle) = lifecycle {
         for (field, fact) in lifecycle.fields.iter().filter(|(field, _)| &field.owner == callable.declaration_owner()) {
             field.hash(&mut hasher);

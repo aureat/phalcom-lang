@@ -1,8 +1,8 @@
 //! Runtime type recipe and compact environment registry (LANG005.C1.P3 Task 21).
 
 use crate::typing::handle::RuntimeTypeRef;
-use phalcom_type_meta::identity::StableCallableRef;
 use phalcom_type_meta::StableTypeParameterRef;
+use phalcom_type_meta::identity::StableCallableRef;
 use std::collections::HashMap;
 
 /// A runtime type recipe representing either a closed type or a generic template type.
@@ -46,10 +46,7 @@ impl RuntimeTypeEnvironment {
     }
 
     pub fn get(&self, param: &StableTypeParameterRef) -> Option<RuntimeTypeRef> {
-        self.bindings
-            .binary_search_by(|(p, _)| p.cmp(param))
-            .ok()
-            .map(|idx| self.bindings[idx].1)
+        self.bindings.binary_search_by(|(p, _)| p.cmp(param)).ok().map(|idx| self.bindings[idx].1)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -66,9 +63,7 @@ pub struct RuntimeTypeEnvironmentRegistry {
 
 impl Default for RuntimeTypeEnvironmentRegistry {
     fn default() -> Self {
-        let empty_env = RuntimeTypeEnvironment {
-            bindings: Box::new([]),
-        };
+        let empty_env = RuntimeTypeEnvironment { bindings: Box::new([]) };
         let mut interner = HashMap::new();
         interner.insert(empty_env.clone(), RuntimeTypeEnvironmentId::EMPTY);
         Self {
@@ -142,9 +137,11 @@ fn instantiate_type_ref(
                     for m in members.iter() {
                         new_members.push(instantiate_type_ref(*m, env, context, registry, depth + 1)?);
                     }
-                    Some(context.overlay.type_ref(crate::typing::overlay::RuntimeOverlayTypeNode::Union(
-                        new_members.into_boxed_slice(),
-                    )))
+                    Some(
+                        context
+                            .overlay
+                            .type_ref(crate::typing::overlay::RuntimeOverlayTypeNode::Union(new_members.into_boxed_slice())),
+                    )
                 }
                 crate::typing::overlay::RuntimeOverlayTypeNode::Tuple(elements) => {
                     let mut new_elements = Vec::with_capacity(elements.len());
@@ -155,9 +152,11 @@ fn instantiate_type_ref(
                             ty: new_ty,
                         });
                     }
-                    Some(context.overlay.type_ref(crate::typing::overlay::RuntimeOverlayTypeNode::Tuple(
-                        new_elements.into_boxed_slice(),
-                    )))
+                    Some(
+                        context
+                            .overlay
+                            .type_ref(crate::typing::overlay::RuntimeOverlayTypeNode::Tuple(new_elements.into_boxed_slice())),
+                    )
                 }
                 crate::typing::overlay::RuntimeOverlayTypeNode::Record(fields) => {
                     let mut new_fields = Vec::with_capacity(fields.len());
@@ -168,9 +167,11 @@ fn instantiate_type_ref(
                             ty: new_ty,
                         });
                     }
-                    Some(context.overlay.type_ref(crate::typing::overlay::RuntimeOverlayTypeNode::Record(
-                        new_fields.into_boxed_slice(),
-                    )))
+                    Some(
+                        context
+                            .overlay
+                            .type_ref(crate::typing::overlay::RuntimeOverlayTypeNode::Record(new_fields.into_boxed_slice())),
+                    )
                 }
                 crate::typing::overlay::RuntimeOverlayTypeNode::Callable { parameters, return_type } => {
                     let mut new_params = Vec::with_capacity(parameters.len());
@@ -197,9 +198,7 @@ fn instantiate_type_ref(
             let loaded = registry.get_pool(pool)?;
             let entry = loaded.bundle.types.get(node.0 as usize)?;
             match &entry.form {
-                phalcom_type_meta::type_node::TypeNode::Parameter(param) => {
-                    env.get(param)
-                }
+                phalcom_type_meta::type_node::TypeNode::Parameter(param) => env.get(param),
                 phalcom_type_meta::type_node::TypeNode::Nominal { .. }
                 | phalcom_type_meta::type_node::TypeNode::Never
                 | phalcom_type_meta::type_node::TypeNode::Unit => Some(ty),
@@ -207,7 +206,13 @@ fn instantiate_type_ref(
                     let new_origin = instantiate_type_ref(RuntimeTypeRef::Base { pool, node: *origin }, env, context, registry, depth + 1)?;
                     let mut new_args = Vec::with_capacity(arguments.len());
                     for arg in arguments.iter() {
-                        new_args.push(instantiate_type_ref(RuntimeTypeRef::Base { pool, node: *arg }, env, context, registry, depth + 1)?);
+                        new_args.push(instantiate_type_ref(
+                            RuntimeTypeRef::Base { pool, node: *arg },
+                            env,
+                            context,
+                            registry,
+                            depth + 1,
+                        )?);
                     }
                     Some(context.overlay.type_ref(crate::typing::overlay::RuntimeOverlayTypeNode::Applied {
                         origin: new_origin,
@@ -217,11 +222,19 @@ fn instantiate_type_ref(
                 phalcom_type_meta::type_node::TypeNode::Union(members) => {
                     let mut new_members = Vec::with_capacity(members.len());
                     for m in members.iter() {
-                        new_members.push(instantiate_type_ref(RuntimeTypeRef::Base { pool, node: *m }, env, context, registry, depth + 1)?);
+                        new_members.push(instantiate_type_ref(
+                            RuntimeTypeRef::Base { pool, node: *m },
+                            env,
+                            context,
+                            registry,
+                            depth + 1,
+                        )?);
                     }
-                    Some(context.overlay.type_ref(crate::typing::overlay::RuntimeOverlayTypeNode::Union(
-                        new_members.into_boxed_slice(),
-                    )))
+                    Some(
+                        context
+                            .overlay
+                            .type_ref(crate::typing::overlay::RuntimeOverlayTypeNode::Union(new_members.into_boxed_slice())),
+                    )
                 }
                 phalcom_type_meta::type_node::TypeNode::Tuple(elements) => {
                     let mut new_elements = Vec::with_capacity(elements.len());
@@ -232,9 +245,11 @@ fn instantiate_type_ref(
                             ty: new_ty,
                         });
                     }
-                    Some(context.overlay.type_ref(crate::typing::overlay::RuntimeOverlayTypeNode::Tuple(
-                        new_elements.into_boxed_slice(),
-                    )))
+                    Some(
+                        context
+                            .overlay
+                            .type_ref(crate::typing::overlay::RuntimeOverlayTypeNode::Tuple(new_elements.into_boxed_slice())),
+                    )
                 }
                 phalcom_type_meta::type_node::TypeNode::Record(fields) => {
                     let mut new_fields = Vec::with_capacity(fields.len());
@@ -245,9 +260,11 @@ fn instantiate_type_ref(
                             ty: new_ty,
                         });
                     }
-                    Some(context.overlay.type_ref(crate::typing::overlay::RuntimeOverlayTypeNode::Record(
-                        new_fields.into_boxed_slice(),
-                    )))
+                    Some(
+                        context
+                            .overlay
+                            .type_ref(crate::typing::overlay::RuntimeOverlayTypeNode::Record(new_fields.into_boxed_slice())),
+                    )
                 }
                 phalcom_type_meta::type_node::TypeNode::Callable(callable) => {
                     let mut new_params = Vec::with_capacity(callable.parameters.len());
@@ -259,7 +276,16 @@ fn instantiate_type_ref(
                             rest: p.rest,
                         });
                     }
-                    let new_return = instantiate_type_ref(RuntimeTypeRef::Base { pool, node: callable.return_type }, env, context, registry, depth + 1)?;
+                    let new_return = instantiate_type_ref(
+                        RuntimeTypeRef::Base {
+                            pool,
+                            node: callable.return_type,
+                        },
+                        env,
+                        context,
+                        registry,
+                        depth + 1,
+                    )?;
                     Some(context.overlay.type_ref(crate::typing::overlay::RuntimeOverlayTypeNode::Callable {
                         parameters: new_params.into_boxed_slice(),
                         return_type: new_return,
@@ -320,20 +346,14 @@ mod tests {
         let closed_recipe = RuntimeTypeRecipe::Closed(int_ty);
         let empty_env = RuntimeTypeEnvironment::new(vec![]);
 
-        assert_eq!(
-            instantiate_type_recipe(closed_recipe, &empty_env, &mut context, &registry),
-            Some(int_ty)
-        );
+        assert_eq!(instantiate_type_recipe(closed_recipe, &empty_env, &mut context, &registry), Some(int_ty));
 
         // Template with overlay tuple containing int_ty
-        let tuple_ty = context.overlay.type_ref(RuntimeOverlayTypeNode::Tuple(Box::new([
-            RuntimeTupleElement { label: None, ty: int_ty },
-        ])));
+        let tuple_ty = context
+            .overlay
+            .type_ref(RuntimeOverlayTypeNode::Tuple(Box::new([RuntimeTupleElement { label: None, ty: int_ty }])));
         let template_recipe = RuntimeTypeRecipe::Template(tuple_ty);
 
-        assert_eq!(
-            instantiate_type_recipe(template_recipe, &empty_env, &mut context, &registry),
-            Some(tuple_ty)
-        );
+        assert_eq!(instantiate_type_recipe(template_recipe, &empty_env, &mut context, &registry), Some(tuple_ty));
     }
 }

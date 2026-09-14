@@ -295,6 +295,7 @@ pub enum SemanticDependency {
     CallableSignature(CallableId),
     FieldSignature(FieldId),
     DeclarationSurface(DeclarationId),
+    TraitSurface(DeclarationId),
     HierarchyEdge(DeclarationId),
     LinkedInterface(ModuleId),
     DataDeclaration(DeclarationId),

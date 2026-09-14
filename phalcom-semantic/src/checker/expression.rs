@@ -290,6 +290,9 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             }
         }
         Expr::SuperVar { range } => {
+            if ctx.trait_surface.is_some() {
+                return TypedExpression::unknown(UnknownReason::SuppressedByInvalidCause);
+            }
             if let Some(class_decl) = ctx.current_class.clone() {
                 let side = ctx.current_side;
                 let lookup = crate::dispatch::DispatchLookup::Super {

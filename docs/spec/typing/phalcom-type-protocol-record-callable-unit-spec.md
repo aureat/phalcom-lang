@@ -1,5 +1,11 @@
 # Phalcom Type, Protocol, Record, Callable, and Unit Semantics
 
+> **Historical design ledger / non-effective.** This document preserves prior
+> decisions and open questions. It is not the current authority for behavioral
+> contracts. Use [`First-Class Traits`](../extensions/traits.md) for the
+> effective C3 trait model; protocol-instance, conformance, and related future
+> material remain deferred.
+
 **Status:** Consolidated design specification and decision ledger
 **Scope:** Decisions and unresolved questions developed in the associated design conversation
 **Audience:** Language designers, compiler implementers, runtime implementers, standard-library authors, tooling authors, and specification reviewers

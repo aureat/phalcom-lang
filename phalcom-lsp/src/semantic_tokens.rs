@@ -169,6 +169,7 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
         | Token::Class
         | Token::Enum
         | Token::Data
+        | Token::Trait
         | Token::Match
         | Token::Where
         | Token::TypeKw
@@ -659,6 +660,16 @@ fn collect_decl_names(statements: &[Statement], out: &mut Vec<DeclNameOverride>)
                     is_index: false,
                 });
             }
+            Statement::Trait(trait_def) => {
+                out.push(DeclNameOverride {
+                    range: trait_def.name_range,
+                    kind: SemanticTokenKind::Class,
+                    is_index: false,
+                });
+                for member in &trait_def.members {
+                    collect_behavior_decl_name(member, out);
+                }
+            }
             Statement::Impl(impl_def) => {
                 for member in &impl_def.members {
                     collect_behavior_decl_name(member, out);
@@ -708,7 +719,7 @@ fn collect_behavior_decl_name(member: &BehaviorMember, out: &mut Vec<DeclNameOve
                 kind: SemanticTokenKind::Method,
                 is_index: true,
             });
-            collect_decl_names(&index_def.body, out);
+            collect_decl_names(index_def.body.statements().unwrap_or_default(), out);
         }
     }
 }
@@ -756,7 +767,7 @@ fn collect_member_decl_name(member: &ClassMember, out: &mut Vec<DeclNameOverride
                 kind: SemanticTokenKind::Method,
                 is_index: true,
             });
-            collect_decl_names(&index_def.body, out);
+            collect_decl_names(index_def.body.statements().unwrap_or_default(), out);
         }
     }
 }

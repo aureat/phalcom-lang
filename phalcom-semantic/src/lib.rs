@@ -43,6 +43,7 @@ pub mod stable_identity;
 pub mod surface;
 pub mod termination;
 pub mod tooling;
+pub mod traits;
 pub mod type_alias;
 pub mod types;
 pub mod workspace;
@@ -129,6 +130,7 @@ pub use termination::{
     RankingMeasure, TerminationBlockedReason, TerminationCounterevidence, TerminationEvidence, TerminationKnowledge, TerminationRequirement,
     analyze_callable_termination, check_cfg_acyclicity,
 };
+pub use traits::{TraitHeader, TraitHeaderTable, TraitRef, TraitRefFormationError, TraitRequirementId, TraitSurface, TraitSurfaceMember, TraitSurfaceTable};
 pub use type_alias::{TypeAliasInfo, TypeAliasTable};
 pub use workspace_inputs::*;
 

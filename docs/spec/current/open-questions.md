@@ -136,14 +136,14 @@ before the work it blocks begins.
    (`throw`/`try`/`catch`/`on`/`ensure`, 1:1 sugar over the block protocol) is
    ratified by [ADR-0031](../../adr/0031-error-handling-surface-syntax.md).
 
-10. ~~**Traits / mixins / multiple inheritance.**~~ **RESOLVED** (ruling, no ADR):
-    **single inheritance only** for now — no traits, mixins, or multiple
-    inheritance. Revisit after the core is decided and implemented. State-bearing
-    mixins/MI stay foreclosed on purpose (they break the ADR-0011/0017 fixed slot
-    offsets); **stateless traits** — method-only bundles flattened into the
-    existing method table with explicit conflict resolution — are the cheap future
-    option if behavior-reuse pain appears, since they touch neither slot layout nor
-    the single-super lookup chain.
+10. ~~**Traits / mixins / multiple inheritance.**~~ **RESOLVED**: classes retain
+    **single inheritance only**. The effective C3 extension now admits
+    [first-class traits](../extensions/traits.md) as non-storage behavioral
+    contracts with declaration-local defaults; traits do not add a superclass,
+    alter class slot layout, or install runtime methods. Stateful mixins and
+    multiple inheritance remain foreclosed. Conformance, witness selection,
+    associated types, and trait-driven runtime dispatch remain deferred to later
+    checkpoints.
 
 11. ~~**`Behavior` in the kernel.**~~ **RESOLVED** → [ADR-0003](../../adr/0003-introduce-behavior-kernel-class.md):
    `Behavior` is the shared superclass of `Class`/`Metaclass`.
@@ -211,7 +211,7 @@ before the work it blocks begins.
 | Q7 | Irrefutable tuple AND list/`*rest` destructuring now, via `at(_)`; fuller pattern matching (map patterns, match arms) deferred | [ADR-0046](../../adr/0046-destructuring-bindings.md) |
 | Q8 | File = module; Draft 0.1: relative file-path resolution + whole-module binding only (`import "./x" as Name`), members via ordinary sends | [ADR-0027](../../adr/0027-modules-as-files-with-public-by-default-imports.md) + [ADR-0045](../../adr/0045-module-import-relative-path-whole-module-binding.md) |
 | Q9 | Layered exceptions + `Result`; terminating, not resumable; surface `throw`/`try`/`catch`/`on`/`ensure` | [ADR-0008](../../adr/0008-layered-exceptions-and-result.md) + [ADR-0031](../../adr/0031-error-handling-surface-syntax.md) |
-| Q10 | Single inheritance only; traits/mixins deferred (stateless traits the future option) | ruling (Q10 above) |
+| Q10 | Single class inheritance plus the ratified C3 non-storage trait extension; mixins/MI/conformance remain deferred | ruling (Q10 above) and [First-Class Traits](../extensions/traits.md) |
 | Q11 | `Behavior` is the shared superclass of `Class`/`Metaclass` | [ADR-0003](../../adr/0003-introduce-behavior-kernel-class.md) |
 | Q12 | No default arguments now; if added → definition-time overload desugar, trailing-only | ruling (Q12 above) |
 | Q13 | Keep as-built `None` singleton + private `Nil` sentinel; `Some` heap instance | ruling (Q13 above) |

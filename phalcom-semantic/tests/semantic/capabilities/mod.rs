@@ -25,5 +25,6 @@ mod self_types;
 mod setters;
 mod structural;
 mod time;
+mod traits;
 mod type_lambdas;
 mod variance;

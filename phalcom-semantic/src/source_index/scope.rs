@@ -23,6 +23,7 @@ pub enum SourceDeclarationKind {
     Class,
     Enum,
     Data,
+    Trait,
     TypeAlias,
 }
 

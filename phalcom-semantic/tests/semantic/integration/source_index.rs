@@ -415,6 +415,46 @@ fn source_index_covers_enum_variants_fields_and_behaviors() {
 }
 
 #[test]
+fn source_index_projects_trait_and_members_to_canonical_targets() {
+    let source = "trait Display { render(_ value: Int) -> Int { value } }\n";
+    let parsed = parse(source, 0);
+    assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
+    let module = ModuleId::universe_root();
+    let index = build_source_scope_index(module.clone(), &parsed.program, &SourceIndexContext::default());
+    let owner = DeclarationId::new(module.clone(), "Display".into());
+    let declaration = index.declaration_sources.get(&owner).expect("trait declaration source");
+    assert_eq!(declaration.kind, phalcom_semantic::source_index::SourceDeclarationKind::Trait);
+    assert!(matches!(
+        index.site(&declaration.declaration_site).map(|site| &site.kind),
+        Some(phalcom_semantic::SourceSiteKind::Declaration(target)) if target == &owner
+    ));
+    let callable = CallableId::new(
+        owner.clone(),
+        Selector::method("render", [phalcom_common::selector::SelectorSlot::Positional]).unwrap(),
+        DispatchSide::Instance,
+    );
+    let callable_source = index.callable_sources.get(&callable).expect("trait member source");
+    assert!(matches!(
+        index.site(&callable_source.declaration_site).map(|site| &site.kind),
+        Some(phalcom_semantic::SourceSiteKind::Callable(target)) if target == &callable
+    ));
+    let semantic_index = SourceSemanticIndex::from_scope_indices(BTreeMap::from([(module.clone(), index)]));
+    let module_index = semantic_index.module(&module).expect("module source index");
+    let symbol = module_index
+        .workspace_symbols()
+        .iter()
+        .find(|symbol| symbol.target == SemanticTargetId::Declaration(owner.clone()))
+        .expect("trait workspace symbol");
+    assert_eq!(symbol.kind, phalcom_semantic::EditorSymbolKind::Trait);
+    assert!(
+        module_index
+            .workspace_symbols()
+            .iter()
+            .any(|symbol| symbol.target == SemanticTargetId::Callable(callable.clone()))
+    );
+}
+
+#[test]
 fn type_reference_index_covers_enum_headers_variants_and_behaviors() {
     let source = r#"
 enum Choice<T> {
@@ -702,21 +742,20 @@ fn source_index_publishes_impl_target_and_member_with_canonical_identity() {
         Arc::new(parsed.program),
     ));
     let programs = BTreeMap::from([(module.clone(), program)]);
-    let source_index = SourceSemanticIndex::from_scope_indices_with_programs_and_context(
-        BTreeMap::from([(module.clone(), structure)]),
-        &programs,
-        Some(&context),
-    );
+    let source_index =
+        SourceSemanticIndex::from_scope_indices_with_programs_and_context(BTreeMap::from([(module.clone(), structure)]), &programs, Some(&context));
     let target_occurrence = source_index.occurrence_at(&module, target_range.start + 1).expect("impl target occurrence");
     assert!(matches!(
         target_occurrence.target,
         Some(SemanticTargetId::Declaration(declaration)) if declaration == &owner
     ));
-    assert!(source_index
-        .workspace_symbols()
-        .search("impl", usize::MAX)
-        .into_iter()
-        .all(|symbol| symbol.name.as_ref() != "impl"));
+    assert!(
+        source_index
+            .workspace_symbols()
+            .search("impl", usize::MAX)
+            .into_iter()
+            .all(|symbol| symbol.name.as_ref() != "impl")
+    );
 }
 
 #[test]

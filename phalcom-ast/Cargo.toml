@@ -14,3 +14,7 @@ insta = "1"
 [[test]]
 name = "integration"
 path = "tests/integration.rs"
+
+[[test]]
+name = "trait_syntax"
+path = "tests/trait_syntax.rs"

@@ -33,10 +33,7 @@ impl TupleProductShape {
         for (i, label) in labels.iter().enumerate() {
             assert!(!labels[..i].contains(label), "Tuple shape labels must be unique");
         }
-        Self {
-            positional_len,
-            labels,
-        }
+        Self { positional_len, labels }
     }
 
     pub fn total_len(&self) -> u32 {
@@ -56,11 +53,7 @@ pub struct RecordProductShape {
 }
 
 impl RecordProductShape {
-    pub fn new(
-        presentation_labels: Box<[Symbol]>,
-        logical_labels: Box<[Symbol]>,
-        presentation_to_logical: Box<[u32]>,
-    ) -> Self {
+    pub fn new(presentation_labels: Box<[Symbol]>, logical_labels: Box<[Symbol]>, presentation_to_logical: Box<[u32]>) -> Self {
         assert_eq!(
             presentation_labels.len(),
             logical_labels.len(),
@@ -72,10 +65,7 @@ impl RecordProductShape {
             "presentation label and mapping count must match"
         );
         for (i, label) in presentation_labels.iter().enumerate() {
-            assert!(
-                !presentation_labels[..i].contains(label),
-                "presentation labels must be unique"
-            );
+            assert!(!presentation_labels[..i].contains(label), "presentation labels must be unique");
         }
         for (i, label) in logical_labels.iter().enumerate() {
             assert!(!logical_labels[..i].contains(label), "logical labels must be unique");
@@ -107,11 +97,7 @@ impl RecordProductShape {
     where
         F: FnMut(Symbol, Symbol) -> Ordering,
     {
-        let mut logical_with_source = presentation_labels
-            .iter()
-            .copied()
-            .enumerate()
-            .collect::<Vec<_>>();
+        let mut logical_with_source = presentation_labels.iter().copied().enumerate().collect::<Vec<_>>();
         logical_with_source.sort_by(|(_, left), (_, right)| compare(*left, *right));
         let mut logical_labels = Vec::with_capacity(logical_with_source.len());
         let mut presentation_to_logical = vec![0; presentation_labels.len()];
@@ -195,8 +181,6 @@ impl ProductShapeRegistry {
 
     /// Fast logical index lookup by label for a registered Record shape.
     pub fn lookup_record_logical_index(&self, id: ProductShapeId, label: Symbol) -> Option<u32> {
-        self.record_lookup_cache
-            .get(id.0 as usize)
-            .and_then(|map| map.get(&label).copied())
+        self.record_lookup_cache.get(id.0 as usize).and_then(|map| map.get(&label).copied())
     }
 }

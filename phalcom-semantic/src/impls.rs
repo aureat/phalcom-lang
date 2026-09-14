@@ -49,18 +49,11 @@ pub fn receiver_effective_conditional_members(
     {
         for member in set.members.iter().filter(|member| member.callable.side == side) {
             let selector = member.callable.selector.clone();
-            if ordinary_selectors.contains(&selector) || selected.contains(&selector) {
+            if selected.contains(&selector) {
                 continue;
             }
             if matches!(
-                check_impl_domain_applicability(
-                    store,
-                    hierarchy,
-                    &member.domain,
-                    receiver_type,
-                    receiver_type,
-                    ambient_constraints,
-                ),
+                check_impl_domain_applicability(store, hierarchy, &member.domain, receiver_type, receiver_type, ambient_constraints,),
                 ImplApplicabilityResult::Applicable(_)
             ) {
                 selected.insert(selector);
@@ -71,20 +64,11 @@ pub fn receiver_effective_conditional_members(
 
     let control = crate::checker::context::CheckerControl::default();
     for owner in dispatch.dispatch_owners(hierarchy, lookup_owner, side) {
-        let Ok(receiver_spec) = crate::types::specialization::specialize_receiver_to_owner(
-            store,
-            hierarchy,
-            receiver_type,
-            &owner.declaration,
-            &control,
-        ) else {
+        let Ok(receiver_spec) = crate::types::specialization::specialize_receiver_to_owner(store, hierarchy, receiver_type, &owner.declaration, &control)
+        else {
             continue;
         };
-        let owner_view = receiver_spec
-            .path
-            .last()
-            .map(|step| step.specialized_form)
-            .unwrap_or(receiver_type);
+        let owner_view = receiver_spec.path.last().map(|step| step.specialized_form).unwrap_or(receiver_type);
         let Some(set) = dispatch.get_conditional_members(&InherentImplTarget::Declaration(owner.declaration.clone())) else {
             continue;
         };
@@ -94,14 +78,7 @@ pub fn receiver_effective_conditional_members(
                 continue;
             }
             if matches!(
-                check_impl_domain_applicability(
-                    store,
-                    hierarchy,
-                    &member.domain,
-                    receiver_type,
-                    owner_view,
-                    ambient_constraints,
-                ),
+                check_impl_domain_applicability(store, hierarchy, &member.domain, receiver_type, owner_view, ambient_constraints,),
                 ImplApplicabilityResult::Applicable(_)
             ) {
                 selected.insert(selector);
@@ -229,6 +206,11 @@ pub struct InherentImplContribution {
     pub target: InherentImplTarget,
     pub generic_signature: Option<GenericSignature>,
     pub covering: Option<CoveringImplSubstitution>,
+    /// Whether applicability depends on the receiver beyond the target's
+    /// canonical declaration/exact-case identity. Exact-case members retain a
+    /// domain for semantic lookup even when their implementation is
+    /// unconditional for that hidden case class.
+    pub is_conditionally_applicable: bool,
     pub domain: Option<Arc<InherentImplDomain>>,
     pub members: Box<[InherentMemberContribution]>,
     pub source: SemanticSourceSpan,
@@ -255,6 +237,11 @@ use std::sync::Arc;
 pub struct ConditionalInherentMember {
     pub impl_id: ImplId,
     pub domain: Arc<InherentImplDomain>,
+    /// Exact-case identity is represented through this index for semantic
+    /// lookup, but only receiver-dependent domains need conditional runtime
+    /// lowering. Unconditional/covering exact-case members may be installed
+    /// on their hidden variant class.
+    pub is_conditionally_applicable: bool,
     pub callable: CallableId,
     pub signature_template: CallableSemanticSignature,
     pub visibility: MemberVisibility,
@@ -567,6 +554,7 @@ pub fn build_effective_surface(
                 conditional_members.add_member(ConditionalInherentMember {
                     impl_id: contribution.id.clone(),
                     domain: domain.clone(),
+                    is_conditionally_applicable: contribution.is_conditionally_applicable,
                     callable: callable_id.clone(),
                     signature_template: member.signature.clone(),
                     visibility: member.visibility,
@@ -1497,6 +1485,7 @@ pub fn build_inherent_impl_contribution(ctx: &mut CheckingContext<'_>, impl_id: 
                 target: InherentImplTarget::Declaration(DeclarationId::new(ctx.current_module.clone(), "_".into())),
                 generic_signature: None,
                 covering: None,
+                is_conditionally_applicable: false,
                 domain: None,
                 members: Box::new([]),
                 source,
@@ -1506,6 +1495,7 @@ pub fn build_inherent_impl_contribution(ctx: &mut CheckingContext<'_>, impl_id: 
     };
 
     let target_owner = resolved_target.target.to_callable_owner();
+    let is_conditionally_applicable = matches!(&resolved_target.applicability, InherentImplApplicability::Conditional(_));
     let is_exact_case = matches!(resolved_target.target, InherentImplTarget::ExactEnumCase(_));
     let is_enum_root = match &resolved_target.target {
         InherentImplTarget::Declaration(decl_id) => ctx.enum_info(decl_id).is_some(),
@@ -1673,6 +1663,7 @@ pub fn build_inherent_impl_contribution(ctx: &mut CheckingContext<'_>, impl_id: 
             InherentImplApplicability::Covering(cov) => Some(cov),
             _ => None,
         },
+        is_conditionally_applicable,
         domain,
         members: members.into_boxed_slice(),
         source,

@@ -131,39 +131,72 @@ impl<T, U> Boxed<T>::Pack<U>(_) {
 
     // 1. Option::None
     let Statement::Impl(impl1) = &program.statements[0] else { panic!() };
-    let phalcom_ast::ast::TypeAnnotationExpr::ExactEnumCase { variant_name, payload_shape, .. } = &impl1.target.expr else { panic!() };
+    let phalcom_ast::ast::TypeAnnotationExpr::ExactEnumCase {
+        variant_name, payload_shape, ..
+    } = &impl1.target.expr
+    else {
+        panic!()
+    };
     assert_eq!(variant_name, "None");
     assert!(payload_shape.is_none());
 
     // 2. Example::Empty()
     let Statement::Impl(impl2) = &program.statements[1] else { panic!() };
-    let phalcom_ast::ast::TypeAnnotationExpr::ExactEnumCase { variant_name, payload_shape, .. } = &impl2.target.expr else { panic!() };
+    let phalcom_ast::ast::TypeAnnotationExpr::ExactEnumCase {
+        variant_name, payload_shape, ..
+    } = &impl2.target.expr
+    else {
+        panic!()
+    };
     assert_eq!(variant_name, "Empty");
     assert!(payload_shape.as_ref().unwrap().parameters.is_empty());
 
     // 3. Option<T>::Some(_)
     let Statement::Impl(impl3) = &program.statements[2] else { panic!() };
-    let phalcom_ast::ast::TypeAnnotationExpr::ExactEnumCase { variant_name, payload_shape, .. } = &impl3.target.expr else { panic!() };
+    let phalcom_ast::ast::TypeAnnotationExpr::ExactEnumCase {
+        variant_name, payload_shape, ..
+    } = &impl3.target.expr
+    else {
+        panic!()
+    };
     assert_eq!(variant_name, "Some");
     assert_eq!(payload_shape.as_ref().unwrap().parameters.len(), 1);
     assert!(payload_shape.as_ref().unwrap().parameters[0].label.is_none());
 
     // 4. Result::Error(reason: _)
     let Statement::Impl(impl4) = &program.statements[3] else { panic!() };
-    let phalcom_ast::ast::TypeAnnotationExpr::ExactEnumCase { variant_name, payload_shape, .. } = &impl4.target.expr else { panic!() };
+    let phalcom_ast::ast::TypeAnnotationExpr::ExactEnumCase {
+        variant_name, payload_shape, ..
+    } = &impl4.target.expr
+    else {
+        panic!()
+    };
     assert_eq!(variant_name, "Error");
     assert_eq!(payload_shape.as_ref().unwrap().parameters.len(), 1);
     assert_eq!(payload_shape.as_ref().unwrap().parameters[0].label.as_deref(), Some("reason"));
 
     // 5. Expression::Add(_, _)
     let Statement::Impl(impl5) = &program.statements[4] else { panic!() };
-    let phalcom_ast::ast::TypeAnnotationExpr::ExactEnumCase { variant_name, payload_shape, .. } = &impl5.target.expr else { panic!() };
+    let phalcom_ast::ast::TypeAnnotationExpr::ExactEnumCase {
+        variant_name, payload_shape, ..
+    } = &impl5.target.expr
+    else {
+        panic!()
+    };
     assert_eq!(variant_name, "Add");
     assert_eq!(payload_shape.as_ref().unwrap().parameters.len(), 2);
 
     // 6. Boxed<T>::Pack<U>(_)
     let Statement::Impl(impl6) = &program.statements[5] else { panic!() };
-    let phalcom_ast::ast::TypeAnnotationExpr::ExactEnumCase { variant_name, generic_arguments, payload_shape, .. } = &impl6.target.expr else { panic!() };
+    let phalcom_ast::ast::TypeAnnotationExpr::ExactEnumCase {
+        variant_name,
+        generic_arguments,
+        payload_shape,
+        ..
+    } = &impl6.target.expr
+    else {
+        panic!()
+    };
     assert_eq!(variant_name, "Pack");
     assert_eq!(generic_arguments.len(), 1);
     assert_eq!(payload_shape.as_ref().unwrap().parameters.len(), 1);

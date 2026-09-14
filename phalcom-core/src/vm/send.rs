@@ -590,8 +590,22 @@ impl VM {
             .into());
         };
         match self.heap.get(id) {
-            Object::Block(block) => self.activate_closure_call(receiver, block.closure, Some(block.home_frame_token), block.type_environment, view, source_range),
-            Object::Closure(_) => self.activate_closure_call(receiver, id, None, crate::typing::environment::RuntimeTypeEnvironmentId::EMPTY, view, source_range),
+            Object::Block(block) => self.activate_closure_call(
+                receiver,
+                block.closure,
+                Some(block.home_frame_token),
+                block.type_environment,
+                view,
+                source_range,
+            ),
+            Object::Closure(_) => self.activate_closure_call(
+                receiver,
+                id,
+                None,
+                crate::typing::environment::RuntimeTypeEnvironmentId::EMPTY,
+                view,
+                source_range,
+            ),
             Object::BoundMethod(bound) => self.activate_bound_method(*bound, view, source_range),
             Object::Family(_) | Object::AssociatedFamily(_) => self.activate_family_with_kind(view, FamilyInvocationKind::Method, source_range),
             Object::BoundMethodFamily(bound) => self.activate_bound_method_family(*bound, view, source_range),
@@ -817,13 +831,7 @@ impl VM {
     /// Applies the single runtime rule shared by direct and reified
     /// conditional dispatch: a strict-subclass ordinary override wins;
     /// otherwise execution uses the semantic layer's selected fallback.
-    pub(crate) fn select_conditional_method(
-        &self,
-        receiver: Value,
-        selector: Symbol,
-        declaring_class: ClassId,
-        fallback_method: ObjRef,
-    ) -> ObjRef {
+    pub(crate) fn select_conditional_method(&self, receiver: Value, selector: Symbol, declaring_class: ClassId, fallback_method: ObjRef) -> ObjRef {
         let actual_class = receiver.class(self);
         lookup_method_with_definer(&self.heap, actual_class, selector)
             .filter(|(_, defining)| is_strict_subclass(&self.heap, *defining, declaring_class))
@@ -1453,16 +1461,7 @@ impl VM {
             if let Some(recipe) = call_environment {
                 self.validate_specialized_call(recipe, method)?;
             }
-            self.call_method_with_selector_as_and_environment(
-                &target_val,
-                method,
-                arity,
-                call_sym,
-                None,
-                source_range,
-                caller_authority,
-                type_environment,
-            )?;
+            self.call_method_with_selector_as_and_environment(&target_val, method, arity, call_sym, None, source_range, caller_authority, type_environment)?;
         } else {
             let positional_count = slots.iter().filter(|slot| slot.is_none()).count();
             let labels = slots

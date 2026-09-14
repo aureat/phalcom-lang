@@ -182,7 +182,7 @@ pub fn check_class_bodies(ctx: &mut CheckingContext<'_>, class_def: &ClassDef, s
                 }
                 let callable = super::declaration_signature::callable_id_for_member(&decl_id, member);
                 if let Some(signature) = callable.as_ref().and_then(|id| signatures.get(id)) {
-                    check_callable_body(ctx, &params, signature, &i.body);
+                    check_callable_body(ctx, &params, signature, i.body.statements().unwrap_or(&[]));
                 }
             }
             _ => {}

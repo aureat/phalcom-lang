@@ -1,13 +1,20 @@
 # Type Parameters and Generic Signatures
 
-- **Status:** Proposed normative design; not a claim of current compiler or VM support
+> **Historical / superseded for behavioral-contract declarations.** This
+> document records the former protocol-oriented generic design. Trait generic
+> declarations and `TraitRef` follow [`First-Class Traits`](../extensions/traits.md)
+> and the implementation checkpoint; later conformance features are deferred.
+
+- **Status:** Historical design reference; not an active normative specification
 - **Date:** 2026-07-23
 - **Depends on:** Document 01 — Protocol Foundation; Document 02 — Type Expression Foundation; declaration identity; immutable collections; class, protocol, method, parameter, module, and source reflection; trusted bootstrap shells
 - **Supersedes:** the `Variance`, `TypeParameter`, `TypeParameterOwner`, and `GenericSignature` fragments in the Phase 1 reference package wherever they conflict with this document
 - **Superseded by:** none
 - **Related ADRs and specifications:** `docs/spec/design/typing/01-protocol-foundation.md`, `docs/spec/design/typing/02-type-expression-foundation.md`, the current selector, class declaration, method declaration, module, reflection, `@native`, `@protocol`, and immutable-value specifications, and Documents 04–12, 14–21 of this series
 
-This document is the third normative part of the Phalcom typing specification series. It defines generic declaration headers, first-class type parameters, declaration-site variance metadata, upper bounds, finite constraint sets, generic signatures, ownership, identity, lexical resolution, trusted construction, diagnostics, and the reflection surface shared by generic classes, protocols, and methods.
+This document was the third proposal in the historical Phalcom typing series.
+Its generic identity and constraint rationale is retained for reference; current
+trait generic declarations follow the effective C3 trait specification.
 
 The visible Phalcom source in Section 6 is normative. Native implementations may replace selected `@native` methods only when they preserve that source contract exactly.
 

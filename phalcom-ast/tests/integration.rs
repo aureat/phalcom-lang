@@ -8,3 +8,4 @@ mod match_syntax;
 mod parser;
 mod probe_continuation;
 mod rest_diagnostics;
+mod trait_syntax;

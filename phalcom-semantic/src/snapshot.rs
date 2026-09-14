@@ -11,6 +11,7 @@ use crate::signature::{CallableSignatureTable, FieldSignatureTable};
 use crate::source::ParsedModuleUnit;
 use crate::source_index::{OccurrenceView, SourceSemanticIndex, SourceSite};
 use crate::surface::DeclarationSurface;
+use crate::traits::{TraitHeaderTable, TraitSurfaceTable};
 use crate::type_alias::TypeAliasTable;
 use crate::types::relation::MapTypeHierarchy;
 use crate::types::store::TypeStore;
@@ -164,6 +165,11 @@ pub struct SemanticSnapshot {
     pub field_signatures: Arc<FieldSignatureTable>,
     pub declarations: Arc<DeclarationTypeTable>,
     pub type_aliases: Arc<TypeAliasTable>,
+    /// Generic contract headers for first-class traits. Traits deliberately
+    /// do not appear in `declarations` as nominal/class-object type entries.
+    pub trait_headers: Arc<TraitHeaderTable>,
+    /// Complete body-independent behavioral contract surfaces for traits.
+    pub trait_surfaces: Arc<TraitSurfaceTable>,
     pub hierarchy: Arc<MapTypeHierarchy>,
     pub diagnostics: Arc<BTreeMap<ModuleId, Arc<[SemanticDiagnostic]>>>,
     pub semantic_graph: Arc<SemanticGraph>,
@@ -216,6 +222,8 @@ impl SemanticSnapshot {
             field_signatures: Arc::new(FieldSignatureTable::new()),
             declarations,
             type_aliases: Arc::new(TypeAliasTable::new()),
+            trait_headers: Arc::new(TraitHeaderTable::new()),
+            trait_surfaces: Arc::new(TraitSurfaceTable::new()),
             hierarchy,
             diagnostics,
             semantic_graph,
@@ -267,6 +275,8 @@ impl SemanticSnapshot {
             field_signatures: Arc::new(FieldSignatureTable::new()),
             declarations,
             type_aliases: Arc::new(TypeAliasTable::new()),
+            trait_headers: Arc::new(TraitHeaderTable::new()),
+            trait_surfaces: Arc::new(TraitSurfaceTable::new()),
             hierarchy,
             diagnostics,
             semantic_graph,
@@ -321,16 +331,23 @@ impl SemanticSnapshot {
         self
     }
 
+    pub fn with_trait_headers(mut self, trait_headers: Arc<TraitHeaderTable>) -> Self {
+        self.trait_headers = trait_headers;
+        self
+    }
+
+    pub fn with_trait_surfaces(mut self, trait_surfaces: Arc<TraitSurfaceTable>) -> Self {
+        self.trait_surfaces = trait_surfaces;
+        self
+    }
+
     pub fn with_field_signatures(mut self, field_signatures: Arc<FieldSignatureTable>) -> Self {
         self.field_signatures = field_signatures;
         self
     }
 
     /// Attaches the accepted callable definitions for this exact snapshot.
-    pub fn with_callable_definitions(
-        mut self,
-        definitions: Arc<BTreeMap<crate::identity::CallableId, EffectiveCallableDefinition>>,
-    ) -> Self {
+    pub fn with_callable_definitions(mut self, definitions: Arc<BTreeMap<crate::identity::CallableId, EffectiveCallableDefinition>>) -> Self {
         self.callable_definitions = definitions;
         self
     }

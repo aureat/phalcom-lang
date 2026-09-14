@@ -407,7 +407,7 @@ impl<'source> Parser<'source> {
     fn at_top_level_item_boundary(&self) -> bool {
         matches!(
             self.peek(),
-            Token::At | Token::Class | Token::Enum | Token::Data | Token::Impl | Token::TypeKw | Token::Let | Token::Const | Token::Return
+            Token::At | Token::Class | Token::Enum | Token::Data | Token::Trait | Token::Impl | Token::TypeKw | Token::Let | Token::Const | Token::Return
         )
     }
 
@@ -1244,8 +1244,7 @@ impl<'source> Parser<'source> {
             self.skip_newlines();
         }
         if !header_attrs.is_empty()
-            || ((matches!(self.peek(), Token::Class | Token::Enum | Token::Data)
-                && matches!(self.peek_next(), Token::Identifier(_)))
+            || ((matches!(self.peek(), Token::Class | Token::Enum | Token::Data | Token::Trait) && matches!(self.peek_next(), Token::Identifier(_)))
                 || matches!(self.peek(), Token::Impl))
         {
             let stmt = if matches!(self.peek(), Token::Enum) {
@@ -1254,6 +1253,8 @@ impl<'source> Parser<'source> {
                 self.parse_data(header_attrs)?
             } else if matches!(self.peek(), Token::Impl) {
                 self.parse_impl(header_attrs)?
+            } else if matches!(self.peek(), Token::Trait) {
+                self.parse_trait(header_attrs)?
             } else {
                 self.parse_class(header_attrs)?
             };
@@ -1298,7 +1299,16 @@ impl<'source> Parser<'source> {
                     self.advance();
                     return;
                 }
-                Token::Class | Token::Enum | Token::Data | Token::Impl | Token::TypeKw | Token::Let | Token::Const | Token::Return | Token::Import | Token::Export => return,
+                Token::Class
+                | Token::Enum
+                | Token::Data
+                | Token::Impl
+                | Token::TypeKw
+                | Token::Let
+                | Token::Const
+                | Token::Return
+                | Token::Import
+                | Token::Export => return,
                 _ => {
                     self.advance();
                 }
@@ -1953,10 +1963,7 @@ impl<'source> Parser<'source> {
                 }
                 self.expect(&Token::RParen, &["\")\""])?;
                 let p_range = (p_start..self.prev_end).into();
-                Some(ExactCasePayloadSyntax {
-                    parameters,
-                    range: p_range,
-                })
+                Some(ExactCasePayloadSyntax { parameters, range: p_range })
             } else {
                 None
             };
@@ -2855,6 +2862,7 @@ impl<'source> Parser<'source> {
             Token::Class => "class",
             Token::Enum => "enum",
             Token::Data => "data",
+            Token::Trait => "trait",
             Token::Impl => "impl",
             Token::Match => "match",
             Token::Return => "return",
@@ -3137,7 +3145,10 @@ impl<'source> Parser<'source> {
                 self.skip_newlines();
                 continue;
             }
-            if matches!(self.peek(), Token::Const | Token::Let | Token::FieldIdentifier(_) | Token::ImplementationFieldIdentifier(_)) {
+            if matches!(
+                self.peek(),
+                Token::Const | Token::Let | Token::FieldIdentifier(_) | Token::ImplementationFieldIdentifier(_)
+            ) {
                 let start = self.tokens[self.pos].start;
                 let end = self.tokens[self.pos].end;
                 return Err(SyntaxError {
@@ -3145,7 +3156,7 @@ impl<'source> Parser<'source> {
                     range: start..end,
                 });
             }
-            let member = self.parse_behavior_member(std::mem::take(&mut pending_attrs))?;
+            let member = self.parse_behavior_member(std::mem::take(&mut pending_attrs), false)?;
             members.push(member);
             self.skip_newlines();
         }
@@ -3164,6 +3175,88 @@ impl<'source> Parser<'source> {
             members,
             range,
             target_range,
+        }))
+    }
+
+    /// Parses a first-class trait declaration. Trait members use the shared
+    /// behavior grammar, with declaration-only index bodies enabled by the
+    /// common `MemberBody` representation.
+    fn parse_trait(&mut self, mut header_attrs: Vec<Attribute>) -> ParserResult<Statement> {
+        while matches!(self.peek(), Token::At) {
+            header_attrs.push(self.parse_attribute()?);
+            self.skip_newlines();
+        }
+        if let Some(attribute) = header_attrs
+            .iter()
+            .find(|attribute| matches!(attribute.name.as_str(), "class" | "constructor" | "invariant"))
+        {
+            return Err(SyntaxError {
+                kind: SyntaxErrorKind::Message(format!("`@{}` is not allowed on trait declarations", attribute.name)),
+                range: attribute.range.start..attribute.range.end,
+            });
+        }
+        let start = self.cur_start();
+        self.expect(&Token::Trait, &["\"trait\""])?;
+        let name_start = self.cur_start();
+        let name = self.expect_identifier(&["identifier"])?;
+        let name_range = (name_start..self.prev_end).into();
+
+        self.skip_newlines();
+        let generic_parameters = self.parse_optional_generic_parameters(GenericBinderContext::NominalDeclaration)?;
+        self.skip_newlines_if_followed_by(&Token::Where);
+        let where_clause = if matches!(self.peek(), Token::Where) {
+            Some(self.parse_where_clause()?)
+        } else {
+            None
+        };
+
+        self.skip_newlines_if_followed_by(&Token::LBrace);
+        self.expect(&Token::LBrace, &["\"{\""])?;
+        self.skip_newlines();
+        let mut members = Vec::new();
+        let mut pending_attrs = Vec::new();
+        while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+            if matches!(self.peek(), Token::At) {
+                pending_attrs.push(self.parse_attribute()?);
+                self.skip_newlines();
+                continue;
+            }
+            if matches!(
+                self.peek(),
+                Token::Const | Token::Let | Token::FieldIdentifier(_) | Token::ImplementationFieldIdentifier(_)
+            ) {
+                let start = self.tokens[self.pos].start;
+                let end = self.tokens[self.pos].end;
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message("fields and storage are not allowed in `trait` declarations".to_string()),
+                    range: start..end,
+                });
+            }
+            if let Some(attribute) = pending_attrs
+                .iter()
+                .find(|attribute| matches!(attribute.name.as_str(), "class" | "constructor" | "invariant"))
+            {
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message(format!("`@{}` is not allowed on trait members", attribute.name)),
+                    range: attribute.range.start..attribute.range.end,
+                });
+            }
+            members.push(self.parse_behavior_member(std::mem::take(&mut pending_attrs), true)?);
+            self.skip_newlines();
+        }
+        if !pending_attrs.is_empty() {
+            return Err(self.dangling_attribute_error(&pending_attrs));
+        }
+        self.expect(&Token::RBrace, &["\"}\""])?;
+        let range = (start..self.prev_end).into();
+        Ok(Statement::Trait(TraitDef {
+            name,
+            name_range,
+            generic_parameters,
+            where_clause,
+            members,
+            attributes: header_attrs,
+            range,
         }))
     }
 
@@ -3388,10 +3481,7 @@ impl<'source> Parser<'source> {
     }
 
     fn parse_enum_variant(&mut self, pending_attrs: Vec<Attribute>) -> ParserResult<VariantDecl> {
-        let variant_attr = pending_attrs
-            .iter()
-            .find(|a| a.name == "variant")
-            .cloned();
+        let variant_attr = pending_attrs.iter().find(|a| a.name == "variant").cloned();
         let start = if let Some(ref attr) = variant_attr {
             attr.range.start
         } else {
@@ -3402,11 +3492,7 @@ impl<'source> Parser<'source> {
         let name_start = self.cur_start();
         let name = self.expect_identifier(&["variant name"])?;
         let name_range = (name_start..self.prev_end).into();
-        let variant_marker_range = if let Some(ref attr) = variant_attr {
-            attr.range
-        } else {
-            name_range
-        };
+        let variant_marker_range = if let Some(ref attr) = variant_attr { attr.range } else { name_range };
 
         let generic_parameters = self.parse_optional_generic_parameters(GenericBinderContext::Callable)?;
 
@@ -3473,10 +3559,13 @@ impl<'source> Parser<'source> {
         })
     }
 
-    fn parse_behavior_member(&mut self, pending_attrs: Vec<Attribute>) -> ParserResult<BehaviorMember> {
+    /// Parses one impl/trait behavior member. Index declaration-only bodies
+    /// are admitted only for trait-like abstract contexts; ordinary impl
+    /// parsing keeps the historical body-required rule.
+    fn parse_behavior_member(&mut self, pending_attrs: Vec<Attribute>, allow_index_declaration: bool) -> ParserResult<BehaviorMember> {
         let start = self.cur_start();
         if matches!(self.peek(), Token::LBracket) {
-            let class_member = self.parse_index_member(start)?;
+            let class_member = self.parse_index_member(start, allow_index_declaration)?;
             if let ClassMember::Index(mut idx) = class_member {
                 idx.attributes = pending_attrs;
                 return Ok(BehaviorMember::Index(idx));
@@ -3791,7 +3880,7 @@ impl<'source> Parser<'source> {
         // member's identity. Must be checked before the `Construct`/name
         // branches below, which never expect a leading `[`.
         if matches!(self.peek(), Token::LBracket) {
-            return self.parse_index_member(start);
+            return self.parse_index_member(start, false);
         }
         if matches!(self.peek(), Token::Construct) {
             let construct_start = self.cur_start();
@@ -3919,7 +4008,7 @@ impl<'source> Parser<'source> {
     /// Parses a bracket subscript method — `[_ idx] { ... }` /
     /// `[_ idx]=(_ value) { ... }` / `[] { ... }` / `[]=(_ value) { ... }` (U-INDEX,
     /// [ADR-0060](../../docs/adr/accepted/0060-index-operator-as-real-selector.md)).
-    fn parse_index_member(&mut self, start: usize) -> ParserResult<ClassMember> {
+    fn parse_index_member(&mut self, start: usize, allow_declaration: bool) -> ParserResult<ClassMember> {
         let name_start = self.cur_start();
         self.expect(&Token::LBracket, &["\"[\""])?;
         let params = self.parse_selector_params(Token::RBracket)?;
@@ -3966,7 +4055,11 @@ impl<'source> Parser<'source> {
             None
         };
         self.skip_newlines_if_followed_by(&Token::LBrace);
-        let body = self.parse_method_block()?;
+        let body = if allow_declaration {
+            self.parse_member_body()?
+        } else {
+            crate::ast::MemberBody::Block(self.parse_method_block()?)
+        };
         let range = (start..self.prev_end).into();
         Ok(ClassMember::Index(IndexMethodDef {
             params,
@@ -4376,10 +4469,8 @@ impl<'source> Parser<'source> {
                 // spelling for `self.class` and must continue through small
                 // statement parsing below. `@` keeps its existing decorated
                 // class-declaration path.
-                Token::At | Token::Class | Token::Enum | Token::Data | Token::Impl
-                    if matches!(self.peek(), Token::At)
-                        || matches!(self.peek_next(), Token::Identifier(_))
-                        || matches!(self.peek(), Token::Impl) =>
+                Token::At | Token::Class | Token::Enum | Token::Data | Token::Trait | Token::Impl
+                    if matches!(self.peek(), Token::At) || matches!(self.peek_next(), Token::Identifier(_)) || matches!(self.peek(), Token::Impl) =>
                 {
                     let mut header_attrs = Vec::new();
                     while matches!(self.peek(), Token::At) {
@@ -4388,6 +4479,7 @@ impl<'source> Parser<'source> {
                     }
                     let is_enum = matches!(self.peek(), Token::Enum);
                     let is_data = matches!(self.peek(), Token::Data);
+                    let is_trait = matches!(self.peek(), Token::Trait);
                     let is_impl = matches!(self.peek(), Token::Impl);
                     let stmt = if is_enum {
                         self.parse_enum(header_attrs)?
@@ -4395,6 +4487,8 @@ impl<'source> Parser<'source> {
                         self.parse_data(header_attrs)?
                     } else if is_impl {
                         self.parse_impl(header_attrs)?
+                    } else if is_trait {
+                        self.parse_trait(header_attrs)?
                     } else {
                         self.parse_class(header_attrs)?
                     };
@@ -4402,6 +4496,7 @@ impl<'source> Parser<'source> {
                         Statement::Class(class_def) => (class_def.range.start, "class".len(), "class"),
                         Statement::Enum(enum_def) => (enum_def.range.start, "enum".len(), "enum"),
                         Statement::Data(data_def) => (data_def.range.start, "data".len(), "data"),
+                        Statement::Trait(trait_def) => (trait_def.range.start, "trait".len(), "trait"),
                         Statement::Impl(impl_def) => (impl_def.range.start, "impl".len(), "impl"),
                         _ => unreachable!(),
                     };

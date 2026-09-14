@@ -19,6 +19,7 @@ pub enum EditorSymbolKind {
     Class,
     Enum,
     Data,
+    Trait,
     DataComponent,
     TypeAlias,
     Callable,

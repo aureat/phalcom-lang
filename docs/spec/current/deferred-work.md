@@ -46,7 +46,7 @@ with the door left open. Source is the decision record.
 
 | Decision | Ruling / future shape | Gate — why deferred | Source · owner |
 |---|---|---|---|
-| **Stateful mixins / multiple inheritance** | single inheritance only; **stateless method-only traits** are the cheap future option | state-bearing MI breaks the ADR-0011/0017 fixed slot offsets | [open-Q10](open-questions.md); ruling |
+| **Stateful mixins / multiple inheritance** | single class inheritance remains; **stateless method-only traits** are ratified by the C3 extension | state-bearing MI breaks the ADR-0011/0017 fixed slot offsets | [open-Q10](open-questions.md); [First-Class Traits](../extensions/traits.md) |
 | **Default arguments** | none now; if ever, **desugar to trailing-only arity-family overloads at definition time**; call-site resolution **permanently forbidden** | incompatible with selector-identity dispatch; mechanism fixed so a later add is non-breaking | [open-Q12](open-questions.md); [ADR-0043](../../adr/accepted/0043-no-default-arguments-keep-selector-identity-pristine.md); [drafts/default-arguments.md](drafts/default-arguments.md) |
 | **List/`*rest` destructuring + pattern matching** | irrefutable **tuple** destructuring ships; refutable `let [first, *rest]`, `match`/`if let`, map patterns deferred | refutable bind needs a failure branch (a pattern-matching unit); reuses U9 `*rest` | [open-Q7](open-questions.md); ruling |
 | **`Family` reflective mirror** | `Family` callable-only now; `.candidates`/`.arities`/`.respondsTo` mirror deferred | design it with the U8 `Message`/`perform` surface as one reflection API | [open-Q14](open-questions.md); [experimental/bound-callable-unification.md](experimental/bound-callable-unification.md) |

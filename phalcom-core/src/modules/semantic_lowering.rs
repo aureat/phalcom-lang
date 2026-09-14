@@ -3,6 +3,7 @@
 //! Bridges the formal `SemanticSnapshot` products to compact, immutable,
 //! backend-facing lowering specifications attached by `LoweringSite` keys.
 
+use crate::typing::{RuntimeCallEnvironmentRecipe, RuntimeTypeRecipe, RuntimeTypeRef};
 use phalcom_common::range::SourceRange;
 use phalcom_modules::{DeclarationId, ModuleId, SourceId};
 use phalcom_semantic::associated::AssociatedMemberId;
@@ -19,7 +20,6 @@ use phalcom_semantic::types::denotation::{AssociatedValueDenotation, SemanticDen
 use phalcom_semantic::types::family::{FamilyMemberTypeKind, FamilyOperationShape};
 use phalcom_semantic::types::id::TypeId;
 use phalcom_semantic::types::store::TypeData;
-use crate::typing::{RuntimeCallEnvironmentRecipe, RuntimeTypeRecipe, RuntimeTypeRef};
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -737,11 +737,11 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
                 InherentImplLoweringTarget::Declaration(decl) => snapshot
                     .dispatch
                     .get_conditional_members(&phalcom_semantic::impls::InherentImplTarget::Declaration(decl.clone()))
-                    .map_or(false, |set| set.members.iter().any(|m| m.impl_id == id)),
+                    .map_or(false, |set| set.members.iter().any(|m| m.impl_id == id && m.is_conditionally_applicable)),
                 InherentImplLoweringTarget::ExactEnumCase(var) => snapshot
                     .dispatch
                     .get_conditional_members(&phalcom_semantic::impls::InherentImplTarget::ExactEnumCase(var.clone()))
-                    .map_or(false, |set| set.members.iter().any(|m| m.impl_id == id)),
+                    .map_or(false, |set| set.members.iter().any(|m| m.impl_id == id && m.is_conditionally_applicable)),
             };
             InherentImplLoweringSpec {
                 id,
@@ -1153,7 +1153,11 @@ fn collect_anonymous_product_statements(statements: &[phalcom_ast::ast::Statemen
                                 collect_anonymous_product_statements(body, out);
                             }
                         }
-                        ClassMember::Index(index) => collect_anonymous_product_statements(&index.body, out),
+                        ClassMember::Index(index) => {
+                            if let MemberBody::Block(body) = &index.body {
+                                collect_anonymous_product_statements(body, out);
+                            }
+                        }
                         ClassMember::Field(field) => {
                             if let Some(default) = &field.default {
                                 collect_anonymous_product_expr(default, out);
@@ -1187,12 +1191,21 @@ fn collect_anonymous_product_statements(statements: &[phalcom_ast::ast::Statemen
                                 collect_anonymous_product_statements(body, out);
                             }
                         }
-                        phalcom_ast::ast::BehaviorMember::Index(index) => collect_anonymous_product_statements(&index.body, out),
+                        phalcom_ast::ast::BehaviorMember::Index(index) => {
+                            if let MemberBody::Block(body) = &index.body {
+                                collect_anonymous_product_statements(body, out);
+                            }
+                        }
                     }
                 }
             }
-            Statement::Enum(_) | Statement::TypeAlias(_) | Statement::Data(_) | Statement::Break { .. } | Statement::Continue { .. } | Statement::Export(_) => {
-            }
+            Statement::Enum(_)
+            | Statement::TypeAlias(_)
+            | Statement::Data(_)
+            | Statement::Trait(_)
+            | Statement::Break { .. }
+            | Statement::Continue { .. }
+            | Statement::Export(_) => {}
         }
     }
 }
@@ -1380,11 +1393,7 @@ fn project_anonymous_products(
 /// Returns the semantic type roots needed by runtime product descriptors.
 /// The compiler uses these roots to build metadata-backed runtime references;
 /// it does not reconstruct product types from AST payloads.
-pub fn anonymous_product_type_roots(
-    module: &ModuleId,
-    snapshot: &SemanticSnapshot,
-    program: &phalcom_ast::ast::Program,
-) -> Vec<(SourceRange, TypeId)> {
+pub fn anonymous_product_type_roots(module: &ModuleId, snapshot: &SemanticSnapshot, program: &phalcom_ast::ast::Program) -> Vec<(SourceRange, TypeId)> {
     let mut sources = Vec::new();
     collect_anonymous_product_statements(&program.statements, &mut sources);
     let mut expression_facts = BTreeMap::<SourceRange, Option<TypeId>>::new();
@@ -1401,8 +1410,9 @@ pub fn anonymous_product_type_roots(
         .into_iter()
         .filter_map(|source| {
             let (range, component_count) = match &source {
-                AnonymousProductSource::Tuple { range, component_ranges, .. }
-                | AnonymousProductSource::Record { range, component_ranges, .. } => (*range, component_ranges.len()),
+                AnonymousProductSource::Tuple { range, component_ranges, .. } | AnonymousProductSource::Record { range, component_ranges, .. } => {
+                    (*range, component_ranges.len())
+                }
             };
             let ty = expression_facts.get(&range).copied().flatten()?;
             match snapshot.store.get(ty) {

@@ -1,8 +1,8 @@
 use super::*;
 use crate::bytecode::Bytecode;
-use crate::product::ProductSlotRepr;
 use crate::error::PhError;
 use crate::modules::compile::{EntrySelection, ProgramCompiler};
+use crate::product::ProductSlotRepr;
 use crate::value::Value;
 use crate::vm::VM;
 use phalcom_modules::DeclarationId;
@@ -24,7 +24,10 @@ fn static_anonymous_product_lowering_is_projected_for_module_roots() {
     let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline("const t = (1, 2)\n".into())).expect("inline program compiles");
     let module = program.modules.get(&program.entry).expect("entry module");
     let spec = module.lowering.anonymous_products.values().next().expect("static tuple lowering spec");
-    assert!(matches!(spec.kind, crate::modules::semantic_lowering::AnonymousProductConstructionKind::Tuple { positional_len: 2, .. }));
+    assert!(matches!(
+        spec.kind,
+        crate::modules::semantic_lowering::AnonymousProductConstructionKind::Tuple { positional_len: 2, .. }
+    ));
 }
 
 #[test]
@@ -33,10 +36,12 @@ fn static_anonymous_products_compile_and_execute_through_program_path() {
     let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(source.into())).expect("inline program compiles");
     let lowering = &program.modules.get(&program.entry).expect("entry module").lowering;
     assert_eq!(lowering.anonymous_products.len(), 2);
-    assert!(lowering
-        .anonymous_products
-        .values()
-        .all(|spec| spec.layout.components.iter().all(|component| component.repr == ProductSlotRepr::Value)));
+    assert!(
+        lowering
+            .anonymous_products
+            .values()
+            .all(|spec| spec.layout.components.iter().all(|component| component.repr == ProductSlotRepr::Value))
+    );
     let mut vm = VM::new();
     vm.materialize_program(&program).expect("program materializes");
     let closure = vm
@@ -48,19 +53,34 @@ fn static_anonymous_products_compile_and_execute_through_program_path() {
 
     vm.run_compiled(&program).expect("static products execute");
     let module = vm.module_registry.get(&program.entry).expect("entry module").object;
-    let trace = vm.heap.module(module).get(vm.interner.find("trace").expect("trace symbol")).expect("trace global");
+    let trace = vm
+        .heap
+        .module(module)
+        .get(vm.interner.find("trace").expect("trace symbol"))
+        .expect("trace global");
     let trace_id = trace.as_obj().expect("trace object");
     assert_eq!(vm.heap.list(trace_id).elements(), &[Value::int(1), Value::int(2), Value::int(3), Value::int(4)]);
 
-    let tuple = vm.heap.module(module).get(vm.interner.find("tuple").expect("tuple symbol")).expect("tuple global");
+    let tuple = vm
+        .heap
+        .module(module)
+        .get(vm.interner.find("tuple").expect("tuple symbol"))
+        .expect("tuple global");
     let tuple_view = vm.tuple_view(tuple.as_obj().expect("tuple object")).expect("tuple view");
     assert_eq!(tuple_view.len(), 2);
     assert_eq!(tuple_view.get(0), Some(Value::int(1)));
     assert_eq!(tuple_view.get(1), Some(Value::int(2)));
 
-    let record = vm.heap.module(module).get(vm.interner.find("record").expect("record symbol")).expect("record global");
+    let record = vm
+        .heap
+        .module(module)
+        .get(vm.interner.find("record").expect("record symbol"))
+        .expect("record global");
     let record_view = vm.record_view(record.as_obj().expect("record object")).expect("record view");
-    assert_eq!(record_view.labels().iter().map(|label| vm.interner.lookup(*label)).collect::<Vec<_>>(), vec!["b", "a"]);
+    assert_eq!(
+        record_view.labels().iter().map(|label| vm.interner.lookup(*label)).collect::<Vec<_>>(),
+        vec!["b", "a"]
+    );
     assert_eq!(record_view.get(vm.interner.find("a").expect("a symbol")), Some(Value::int(4)));
     assert_eq!(record_view.get(vm.interner.find("b").expect("b symbol")), Some(Value::int(3)));
 }
@@ -89,25 +109,41 @@ fn specialized_generic_call_carries_environment_into_exact_product_construction(
     assert_eq!(tuple.get(1), Some(Value::int(1)));
     let tuple_id = result.as_obj().expect("tuple result object");
     let descriptor_id = vm.heap.tuple(tuple_id).descriptor();
-    assert!(vm
-        .anonymous_product_descriptors
-        .get(descriptor_id)
-        .expect("tuple descriptor")
-        .exact_type
-        .is_some());
+    assert!(
+        vm.anonymous_product_descriptors
+            .get(descriptor_id)
+            .expect("tuple descriptor")
+            .exact_type
+            .is_some()
+    );
 }
 
 #[test]
 fn generic_anonymous_products_materialize_distinct_exact_runtime_types() {
     let source = "class Probe {\n  @class\n  make<T>(_ value: T) -> (T, Int) { (value, 1) }\n}\nconst int_result: (Int, Int) = Probe.make(7)\nconst text_result: (String, Int) = Probe.make(\"seven\")\n";
     let (vm, module) = run_inline_with_mode(source, ProductOptimizationMode::Enabled).expect("generic products execute");
-    let get = |name: &str| vm.heap.module(module).get(vm.interner.find(name).expect("global symbol")).expect("global value");
+    let get = |name: &str| {
+        vm.heap
+            .module(module)
+            .get(vm.interner.find(name).expect("global symbol"))
+            .expect("global value")
+    };
     let int_result = get("int_result");
     let text_result = get("text_result");
     let int_descriptor = vm.heap.tuple(int_result.as_obj().expect("integer tuple")).descriptor();
     let text_descriptor = vm.heap.tuple(text_result.as_obj().expect("text tuple")).descriptor();
-    let int_exact = vm.anonymous_product_descriptors.get(int_descriptor).expect("integer descriptor").exact_type.as_ref();
-    let text_exact = vm.anonymous_product_descriptors.get(text_descriptor).expect("text descriptor").exact_type.as_ref();
+    let int_exact = vm
+        .anonymous_product_descriptors
+        .get(int_descriptor)
+        .expect("integer descriptor")
+        .exact_type
+        .as_ref();
+    let text_exact = vm
+        .anonymous_product_descriptors
+        .get(text_descriptor)
+        .expect("text descriptor")
+        .exact_type
+        .as_ref();
     assert!(int_exact.is_some());
     assert!(text_exact.is_some());
     assert_ne!(int_exact, text_exact);
@@ -123,7 +159,9 @@ fn nested_generic_product_recipe_instantiates_recursively() {
         .get(vm.interner.find("result").expect("result symbol"))
         .expect("result global");
     let outer = vm.tuple_view(result.as_obj().expect("outer tuple")).expect("outer tuple view");
-    let inner = vm.tuple_view(outer.get(0).expect("inner tuple").as_obj().expect("inner tuple object")).expect("inner tuple view");
+    let inner = vm
+        .tuple_view(outer.get(0).expect("inner tuple").as_obj().expect("inner tuple object"))
+        .expect("inner tuple view");
     assert_eq!(inner.get(0), Some(Value::int(7)));
     assert_eq!(inner.get(1), Some(Value::int(1)));
     assert_eq!(outer.get(1), Some(Value::int(2)));
@@ -176,7 +214,12 @@ fn unprovable_anonymous_product_uses_dynamic_pack_route() {
 fn tuple_and_record_exactness_ignores_representation_and_record_presentation_order() {
     let source = "const tupleA = (1, 2)\nconst tupleB = (*tupleA)\nconst recordA = #{a: 1, b: 2}\nconst recordB = #{b: 2, a: 1}\nconst nestedA = #{a: (1, 2), b: #{c: 3}}\nconst nestedB = #{b: #{c: 3}, a: (1, 2)}\nconst tupleSame = tupleA === tupleB\nconst recordSame = recordA === recordB\nconst recordHashSame = recordA.hash == recordB.hash\nconst nestedSame = nestedA === nestedB\nconst crossKind = tupleA === recordA\n";
     let (vm, module) = run_inline_with_mode(source, ProductOptimizationMode::Enabled).expect("products execute");
-    let get = |name: &str| vm.heap.module(module).get(vm.interner.find(name).expect("global symbol")).expect("global value");
+    let get = |name: &str| {
+        vm.heap
+            .module(module)
+            .get(vm.interner.find(name).expect("global symbol"))
+            .expect("global value")
+    };
     assert_eq!(get("tupleSame"), Value::bool(true));
     assert_eq!(get("recordSame"), Value::bool(true));
     assert_eq!(get("recordHashSame"), Value::bool(true));

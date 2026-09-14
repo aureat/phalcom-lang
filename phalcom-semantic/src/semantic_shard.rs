@@ -56,6 +56,7 @@ impl ModuleSemanticStructureShard {
                 Statement::Class(class_def) => (&class_def.name, DeclarationKind::Class),
                 Statement::Enum(enum_def) => (&enum_def.name, DeclarationKind::Adt),
                 Statement::Data(data_def) => (&data_def.name, DeclarationKind::Data),
+                Statement::Trait(trait_def) => (&trait_def.name, DeclarationKind::Trait),
                 Statement::TypeAlias(alias) => (&alias.name, DeclarationKind::Alias),
                 _ => continue,
             };
@@ -87,6 +88,16 @@ impl ModuleSemanticStructureShard {
                 Statement::Data(data_def) => {
                     declaration_header_fingerprints.insert(declaration.clone(), declaration_header_fingerprint(&source, data_def.range));
                     hierarchy_edge_fingerprints.insert(declaration.clone(), hierarchy_fingerprint(&source, None));
+                }
+                Statement::Trait(trait_def) => {
+                    declaration_header_fingerprints.insert(declaration.clone(), declaration_header_fingerprint(&source, trait_def.range));
+                    collect_behavior_member_fingerprints(
+                        &source,
+                        &CallableOwnerId::Declaration(declaration.clone()),
+                        &trait_def.members,
+                        &mut callable_signature_fingerprints,
+                        &mut callable_body_fingerprints,
+                    );
                 }
                 Statement::TypeAlias(alias) => {
                     alias_sources.insert(declaration, alias.clone());
@@ -141,6 +152,13 @@ impl ModuleSemanticStructureShard {
                 Statement::Enum(_) => {}
                 Statement::Impl(impl_def) => {
                     for member in &impl_def.members {
+                        if let Some(range) = behavior_body_range(member) {
+                            body_ranges.push(range);
+                        }
+                    }
+                }
+                Statement::Trait(trait_def) => {
+                    for member in &trait_def.members {
                         if let Some(range) = behavior_body_range(member) {
                             body_ranges.push(range);
                         }
@@ -210,7 +228,6 @@ fn collect_class_member_fingerprints(
     }
 }
 
-
 fn callable_body_fingerprints_for_source(source: &ParsedModuleUnit) -> BTreeMap<CallableId, u64> {
     let mut callable_signatures = BTreeMap::new();
     let mut fields = BTreeMap::new();
@@ -222,6 +239,16 @@ fn callable_body_fingerprints_for_source(source: &ParsedModuleUnit) -> BTreeMap<
                 collect_class_member_fingerprints(source, &owner, &class_def.members, &mut callable_signatures, &mut fields, &mut callable_bodies);
             }
             Statement::Enum(_) => {}
+            Statement::Trait(trait_def) => {
+                let owner = DeclarationId::new(source.id.clone(), trait_def.name.clone().into());
+                collect_behavior_member_fingerprints(
+                    source,
+                    &CallableOwnerId::Declaration(owner),
+                    &trait_def.members,
+                    &mut callable_signatures,
+                    &mut callable_bodies,
+                );
+            }
             Statement::Impl(impl_def) => {
                 collect_impl_member_fingerprints(source, &impl_def.target, &impl_def.members, &mut callable_signatures, &mut callable_bodies);
             }
@@ -267,10 +294,20 @@ fn collect_impl_member_fingerprints(
             CallableOwnerId::Declaration(owner)
         }
     };
+    collect_behavior_member_fingerprints(source, &callable_owner, members, callable_signatures, callable_bodies);
+}
+
+fn collect_behavior_member_fingerprints(
+    source: &ParsedModuleUnit,
+    callable_owner: &CallableOwnerId,
+    members: &[BehaviorMember],
+    callable_signatures: &mut BTreeMap<CallableId, u64>,
+    callable_bodies: &mut BTreeMap<CallableId, u64>,
+) {
     for member in members {
         let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(member);
         let side = behavior_side(member);
-        let Some(callable) = crate::checker::declaration_signature::callable_id_for_syntax(&callable_owner, syntax, side) else {
+        let Some(callable) = crate::checker::declaration_signature::callable_id_for_syntax(callable_owner, syntax, side) else {
             continue;
         };
         callable_signatures.insert(callable.clone(), behavior_signature_fingerprint(source, member));
@@ -288,7 +325,9 @@ fn declaration_header_fingerprint(source: &ParsedModuleUnit, range: phalcom_comm
                 body_ranges.extend(class_def.members.iter().filter_map(class_member_body_range));
                 true
             }
-            Statement::Enum(enum_def) if enum_def.range == range => {
+            Statement::Enum(enum_def) if enum_def.range == range => true,
+            Statement::Trait(trait_def) if trait_def.range == range => {
+                body_ranges.extend(trait_def.members.iter().filter_map(behavior_body_range));
                 true
             }
             _ => false,

@@ -230,7 +230,13 @@ impl<'vm> Compiler<'vm> {
                 }
 
                 self.is_static_context = false;
-                let closure = self.compile_block(index_def.body.clone(), selector_sym, ClosureParameters::fixed(param_names), true, false, None)?;
+                let body = match &index_def.body {
+                    MemberBody::Block(stmts) => stmts.clone(),
+                    MemberBody::Declaration => {
+                        return Err(CompilerError::DeclarationBodyRequiresImplementation("subscript".into(), index_def.range));
+                    }
+                };
+                let closure = self.compile_block(body, selector_sym, ClosureParameters::fixed(param_names), true, false, None)?;
 
                 let method_obj = self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
                     selector_sym,

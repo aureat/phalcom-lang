@@ -686,6 +686,12 @@ fn parse_subscript_getter_and_setter() {
 }
 
 #[test]
+fn bodyless_class_subscript_remains_rejected() {
+    let res = parse_source("class Foo {\n  [_ index]\n}\n", 0);
+    assert!(res.is_err(), "class/impl index members still require executable bodies");
+}
+
+#[test]
 fn parse_rejects_legacy_label_colon_syntax() {
     let res = parse_source("class Foo {\n  move(to: Point) {}\n}\n", 0);
     assert!(res.is_ok(), "to: Point should parse as typed parameter: {:?}", res.err());

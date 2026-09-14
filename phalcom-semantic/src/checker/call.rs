@@ -26,6 +26,7 @@ use phalcom_common::selector::{Selector, SelectorSlot};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CallTargetAuthority {
     ExactDispatch,
+    AbstractContract,
     CallableValue(EvidenceStatus),
     StructuralBuiltin,
 }
@@ -112,7 +113,11 @@ impl CallableApplicationTarget {
     }
 
     pub(crate) fn from_dispatch(resolved: Box<crate::dispatch::ResolvedDispatch>) -> Self {
-        let mut target = Self::exact(resolved.callable, resolved.signature);
+        let mut target = if resolved.abstract_contract {
+            Self::abstract_contract(resolved.callable, resolved.signature)
+        } else {
+            Self::exact(resolved.callable, resolved.signature)
+        };
         target.specialization = resolved.specialization;
         target
     }
@@ -123,6 +128,18 @@ impl CallableApplicationTarget {
             callable: None,
             target: None,
             authority: CallTargetAuthority::CallableValue(status),
+            specialization: None,
+            fixed_generics: Vec::new(),
+            declaration_generics: None,
+        }
+    }
+
+    pub(crate) fn abstract_contract(callable: CallableId, signature: CallableSignature) -> Self {
+        Self {
+            signature,
+            callable: Some(callable),
+            target: None,
+            authority: CallTargetAuthority::AbstractContract,
             specialization: None,
             fixed_generics: Vec::new(),
             declaration_generics: None,
@@ -452,14 +469,14 @@ pub(crate) fn bind_static_arguments(
 
 fn target_base_authority(target: &CallableApplicationTarget) -> EvidenceStatus {
     match target.authority {
-        CallTargetAuthority::ExactDispatch | CallTargetAuthority::StructuralBuiltin => EvidenceStatus::Established,
+        CallTargetAuthority::ExactDispatch | CallTargetAuthority::AbstractContract | CallTargetAuthority::StructuralBuiltin => EvidenceStatus::Established,
         CallTargetAuthority::CallableValue(status) => status,
     }
 }
 
 fn target_fixed_return_origin(target: &CallableApplicationTarget) -> EvidenceOrigin {
     match target.authority {
-        CallTargetAuthority::ExactDispatch => match target.signature.kind {
+        CallTargetAuthority::ExactDispatch | CallTargetAuthority::AbstractContract => match target.signature.kind {
             CallableSemanticKind::Ordinary => EvidenceOrigin::CallableSignature,
             CallableSemanticKind::Constructor => EvidenceOrigin::ConstructorSemantics,
             CallableSemanticKind::Native => EvidenceOrigin::NativeSignature,
@@ -487,7 +504,7 @@ fn derive_fixed_return(target: &CallableApplicationTarget, premise: &CallPremise
         return premise.knowledge.clone();
     };
     let authority = match target.authority {
-        CallTargetAuthority::ExactDispatch => {
+        CallTargetAuthority::ExactDispatch | CallTargetAuthority::AbstractContract => {
             let return_status = target.signature.return_type.status().unwrap_or(EvidenceStatus::Assumed);
             target_base_authority(target).meet(premise_status).meet(return_status)
         }
@@ -898,7 +915,18 @@ fn apply_generic_callable_inner(
         }
     };
     ctx.push_inference_frame(context, root_frame);
-    let result = apply_generic_callable_in_context(ctx, signature, callable, domains, fixed_generics, args, expected, call_range, context, root_frame);
+    let result = apply_generic_callable_in_context(
+        ctx,
+        signature,
+        callable,
+        domains,
+        fixed_generics,
+        args,
+        expected,
+        call_range,
+        context,
+        root_frame,
+    );
     ctx.pop_inference_frame(context, root_frame);
     if let Some(session) = ctx.inference_session(context) {
         session.borrow_mut().close_frame(root_frame);
@@ -2053,7 +2081,16 @@ fn apply_generic_callable(
         declaration: declaration_generics.as_ref(),
         callable: target.signature.generics.as_ref(),
     };
-    apply_generic_callable_inner(ctx, &target.signature, target.callable.clone(), domains, &target.fixed_generics, arguments, expected, call_range)
+    apply_generic_callable_inner(
+        ctx,
+        &target.signature,
+        target.callable.clone(),
+        domains,
+        &target.fixed_generics,
+        arguments,
+        expected,
+        call_range,
+    )
 }
 
 fn publish_call_specialization(
@@ -2088,10 +2125,7 @@ fn publish_call_specialization(
         bindings.insert(parameter, ty);
     }
     let bindings = bindings.into_iter().collect::<Vec<_>>().into_boxed_slice();
-    ctx.publish_call_specialization(
-        expression,
-        crate::checker::analysis::CallSpecialization { callable, bindings },
-    );
+    ctx.publish_call_specialization(expression, crate::checker::analysis::CallSpecialization { callable, bindings });
 }
 
 fn target_has_generic_domains(ctx: &CheckingContext<'_>, target: &CallableApplicationTarget) -> bool {

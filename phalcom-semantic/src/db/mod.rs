@@ -18,8 +18,9 @@ pub use metrics::QueryMetrics;
 pub use product::SemanticProduct;
 pub use query::{
     CallableBodyQuery, DeclarationSurfaceQuery, FormalQueryInputs, bootstrap_advisory_callable, query_advisory_callable, query_advisory_module,
-    query_callable_body, query_callable_body_with_formal_inputs, query_callable_signature, query_declaration_shell, query_declaration_surface,
-    query_hierarchy_edge, query_signatureless_callable_body, query_source_formal_attachment, query_source_structure,
+    query_bootstrap_trait_header, query_bootstrap_trait_surface, query_callable_body, query_callable_body_with_formal_inputs, query_callable_signature,
+    query_declaration_shell, query_declaration_surface, query_hierarchy_edge, query_signatureless_callable_body, query_source_formal_attachment,
+    query_source_structure,
 };
 pub use scheduler::QueryScheduler;
 pub use state::{PublishError, QueryOutcome, QueryState, QueryValue};
@@ -482,6 +483,8 @@ fn query_key_module(key: &QueryKey) -> Option<&ModuleId> {
         QueryKey::DeclarationShell(declaration)
         | QueryKey::HierarchyEdge(declaration)
         | QueryKey::DeclarationSurface(declaration)
+        | QueryKey::TraitHeader(declaration)
+        | QueryKey::TraitSurface(declaration)
         | QueryKey::DataDeclaration(declaration)
         | QueryKey::EnumDeclaration(declaration)
         | QueryKey::EnumRequirements(declaration)

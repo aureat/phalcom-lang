@@ -1,9 +1,4 @@
-use phalcom_ast::{
-    ast::Statement,
-    error::SyntaxErrorKind,
-    parse_source,
-    selector::selector_from_variant,
-};
+use phalcom_ast::{ast::Statement, error::SyntaxErrorKind, parse_source, selector::selector_from_variant};
 
 #[test]
 fn bare_singleton_vs_zero_arg_constructor_variant() {

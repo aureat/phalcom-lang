@@ -139,6 +139,9 @@ pub struct ResolvedDispatch {
     pub signature: CallableSignature,
     pub specialization: Option<DispatchSignatureSpecialization>,
     pub conditional: Option<ConditionalDispatchSelection>,
+    /// True when the result is a semantic trait-contract lookup rather than
+    /// executable nominal/conditional dispatch.
+    pub abstract_contract: bool,
     pub visited_owners: Box<[DeclarationId]>,
 }
 
@@ -198,7 +201,10 @@ impl SurfaceDispatchResolver {
     }
 
     pub fn register_conditional_members(&mut self, target: InherentImplTarget, members: Arc<ConditionalInherentMemberSet>) {
-        self.conditional_targets_by_owner.entry(target.declaration().clone()).or_default().insert(target.clone());
+        self.conditional_targets_by_owner
+            .entry(target.declaration().clone())
+            .or_default()
+            .insert(target.clone());
         self.conditional_members.insert(target, members);
     }
 
@@ -350,6 +356,7 @@ impl SurfaceDispatchResolver {
                         signature: sig.clone(),
                         specialization: None,
                         conditional: None,
+                        abstract_contract: false,
                         visited_owners: visited.into_boxed_slice(),
                     }));
                 }

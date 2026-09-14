@@ -9,7 +9,10 @@ use crate::vm::VM;
 #[phalcom_native_macros::primitive(Record, "_$size", visibility = internal)]
 pub fn record_raw_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = expect_record(vm, receiver)?;
-    let len = vm.record_view(id).ok_or_else(|| crate::error::RuntimeError::Internal("Record descriptor is unavailable".to_string()))?.len();
+    let len = vm
+        .record_view(id)
+        .ok_or_else(|| crate::error::RuntimeError::Internal("Record descriptor is unavailable".to_string()))?
+        .len();
     Ok(Value::int(len as i64))
 }
 

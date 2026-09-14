@@ -6,7 +6,7 @@
 checkpoint: LANG005.C2
 status: COMPLETE
 active_plan: null
-completion: COMPLETE
+completion: IMPLEMENTED
 verification: FOCUSED_TESTED
 ```
 
@@ -17,6 +17,7 @@ verification: FOCUSED_TESTED
 | `LANG005.C2.P1` | First-Class Inherent `impl` and Effective Declaration Surfaces | COMPLETE | IMPLEMENTED | FOCUSED_TESTED |
 | `LANG005.C2.P2` | Variants-Only Enums and Impl Behavior Migration | COMPLETE | IMPLEMENTED | FOCUSED_TESTED |
 | `LANG005.C2.P3` | Constrained & Specialized Inherent Impl Applicability | COMPLETE | IMPLEMENTED | FOCUSED_TESTED |
+| `LANG005.C2.P4` | Exact-Case Conditional Dispatch Precedence | COMPLETE | IMPLEMENTED | FOCUSED_TESTED |
 
 ## Established Takeover Interfaces & Architecture from C1
 - `ProductStorage`, `ProductShapeRegistry`, `RuntimeAnonymousProductDescriptorRegistry` fully unified.
@@ -57,12 +58,51 @@ Focused P3 evidence:
 - Three-crate check for `phalcom-semantic`, `phalcom-core`, and `phalcom-lsp` — passed.
 - Scoped negative searches for legacy enum behavior scans and compiler/LSP applicability re-solving — zero production hits.
 
+## P4 Completed State — 2026-09-14
+
+- Exact-case conditional dispatch is checked before ordinary enum-root
+  `Found`/`Ambiguous`/`Missing` handling, so an applicable case member
+  publishes the canonical conditional selection instead of being shadowed by
+  a root requirement/default.
+- Receiver-effective semantic/editor lookup applies the same exact-case
+  selector overlay and retains the case-owned callable identity.
+- Semantic lowering distinguishes receiver-dependent conditional domains from
+  unconditional/covering exact-case identity domains. The latter continue to
+  install `VariantMethod` on the hidden case class, allowing ordinary sends on
+  root-typed payloads to dispatch to the case override without leaking
+  specialized behavior to sibling/root receivers.
+
+Focused P4 evidence:
+
+- `semantic::impls` — 41 passed, 0 failed.
+- `core language::inherent_impl` — 15 passed, 0 failed.
+- C1 product/reification/Record/optimizer consolidation — all named focused
+  lanes passed, including 6 product tests, 2 type-environment tests, 1
+  compiler-lowering test, 1 data E2E test, 1 semantic generic-specialization
+  test, and 16 product-optimizer tests.
+
 ## Active Plan & Next Action
-- **Latest Completed Plan:** `LANG005.C2.P3` (*Constrained & Specialized Inherent Impl Applicability*).
-- **Active Plan:** None.
-- **Next Action:** Begin `LANG005.C3.P1` (*First-Class Trait Declarations and Abstract Trait Surfaces*).
+- **Latest Completed Plan:** `LANG005.C2.P4` (*Exact-Case Conditional Dispatch Precedence*).
+- **Active Plan:** none; C2 is complete at focused verification strength.
+- **Next Action:** Continue `LANG005.C3.P1` from the now-passed G1 predecessor gate.
 
 ## Consultation Ledger
+
+```text
+INC-002
+Plan/task: LANG005.C2.P4 exact-case runtime regressions / AR-07
+Trigger: G1 of LANG005.C3.P1 cannot certify because exact-case implementations
+         lose to same-selector enum-root requirements/defaults at dispatch
+Observed: semantic resolver returns ordinary root behavior before consulting
+          applicable exact-case conditional members; no conditional selection
+          reaches lowering, so exact-case bodies are not executable
+Decision: PLAN SOUND — ARCHITECTURAL CLARIFICATION REQUIRED. Repair semantic
+          exact-case precedence and the matching editor overlay; preserve the
+          existing lowering/runtime selection contract.
+Plan amendment: NO amendment to LANG005.C3.P1; create this separate C2.P4
+                corrective work unit.
+Status: RESOLVED; focused regressions and the consolidated predecessor gate pass.
+```
 
 ```text
 INC-001

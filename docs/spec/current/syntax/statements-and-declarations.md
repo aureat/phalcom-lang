@@ -64,7 +64,22 @@ Assignments (`x = v`, `obj.prop = v` — the latter desugaring to a send of
 `prop=(_)`) and message sends are both expression statements; neither needs
 extra statement-level syntax.
 
-## 5. Class declarations
+## 5. Trait declarations
+
+```
+trait_decl := "trait" IDENT [ generic_parameters ] [ where_clause ]
+              "{" { behavior_member } "}"
+
+behavior_member := method_decl | getter_decl | setter_decl | index_decl
+```
+
+`trait` introduces a first-class behavioral contract. A bodyless behavior member
+is a requirement; a member with a body is that requirement plus a declaration-
+local default. Traits cannot declare fields, stored components, constructors,
+class-side members, a superclass, or `super` expressions. Their complete
+contract and default-checking semantics are defined by [First-Class Traits](../../extensions/traits.md).
+
+## 6. Class declarations
 
 ```
 class_decl  := "class" IDENT [ "is" IDENT ] "{" { member } "}"
@@ -142,7 +157,7 @@ written `_ value`, and selector identity is always `name=(_)`.
 - `method_body := "=>" expr | block` — `=>` is general expression-body sugar,
   not limited to getters ([Classes §3](../classes.md#3-methods-accessors-operators)).
 
-## 6. Parameters ([ADR-0025])
+## 7. Parameters ([ADR-0025])
 
 ```
 param_list := "(" [ param { "," param } ] ")"
@@ -172,7 +187,7 @@ sum(_ initial, *values) { ... }           // rest collects trailing positionals
   oversight — see [Selectors, Symbols & References §7](../selectors.md#7)
   for the open design space.
 
-## 7. Control-flow statements (surface sugar)
+## 8. Control-flow statements (surface sugar)
 
 ```
 if_stmt    := "if" "(" expr ")" block [ "else" ( block | if_stmt ) ]
@@ -201,7 +216,7 @@ non-local exit from a block uses `return` instead
 being primitive operators — see
 [Control Flow §2](../control-flow.md#2-and--or--short-circuit).
 
-## 8. Error-handling statements ([ADR-0031])
+## 9. Error-handling statements ([ADR-0031])
 
 ```
 throw       := "throw" expr
@@ -235,7 +250,7 @@ only as clauses of a `try` statement:
 See [Error Handling](../error-handling.md) for the underlying handler-chain
 semantics.
 
-## 9. Modules & imports ([ADR-0027])
+## 10. Modules & imports ([ADR-0027])
 
 ```
 import_decl := "import" IDENT

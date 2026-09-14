@@ -55,7 +55,11 @@ impl<'a> TupleView<'a> {
     }
 
     pub fn get_label(&self, label: Symbol) -> Option<Value> {
-        self.shape.labels.iter().position(|candidate| *candidate == label).and_then(|index| self.get(self.positional_len() + index))
+        self.shape
+            .labels
+            .iter()
+            .position(|candidate| *candidate == label)
+            .and_then(|index| self.get(self.positional_len() + index))
     }
 
     pub fn labeled_entries(&self) -> Vec<(Symbol, Value)> {
@@ -92,11 +96,7 @@ impl<'a> RecordView<'a> {
     }
 
     pub fn get(&self, label: Symbol) -> Option<Value> {
-        let logical = self
-            .shape
-            .logical_labels
-            .iter()
-            .position(|candidate| *candidate == label)?;
+        let logical = self.shape.logical_labels.iter().position(|candidate| *candidate == label)?;
         self.object.storage().load_component(self.layout, logical as u32).ok()
     }
 

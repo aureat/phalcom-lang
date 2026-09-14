@@ -29,9 +29,8 @@ pub use reflection_cache::ReflectionCache;
 pub use registry::{ModuleFailure, ModuleFailureRef, ModulePlanFingerprint, ModuleRecord, ModuleRegistry, ModuleState, RuntimeProgramId};
 pub use semantic_lowering::{
     AnonymousProductConstructionKind, AnonymousProductConstructionLoweringSpec, AssociatedLoweringSpec, CallableReferenceLoweringSpec, EnumLoweringSpec,
-    ExecutableBindingSpec, ExecutableFamilyCandidate, ExecutableFamilyCandidateSet,
-    ExecutableFamilyDescriptor, ExecutableFamilyEntry, ExecutableFamilyTarget, ExecutableFieldProjection, ExecutableInvocationTarget, ExecutableMatchArm,
-    ExecutablePattern, ExecutableRestMode, ExecutableVariantCandidate, FamilyApplicationLoweringSpec, LoweringSite, LoweringSiteKind, MatchLoweringSpec,
-    ModuleLoweringSemantics, VariantFieldLoweringSpec, VariantLoweringSpec, anonymous_product_type_roots, build_module_lowering_semantics,
-    build_module_lowering_semantics_with_runtime_types,
+    ExecutableBindingSpec, ExecutableFamilyCandidate, ExecutableFamilyCandidateSet, ExecutableFamilyDescriptor, ExecutableFamilyEntry, ExecutableFamilyTarget,
+    ExecutableFieldProjection, ExecutableInvocationTarget, ExecutableMatchArm, ExecutablePattern, ExecutableRestMode, ExecutableVariantCandidate,
+    FamilyApplicationLoweringSpec, LoweringSite, LoweringSiteKind, MatchLoweringSpec, ModuleLoweringSemantics, VariantFieldLoweringSpec, VariantLoweringSpec,
+    anonymous_product_type_roots, build_module_lowering_semantics, build_module_lowering_semantics_with_runtime_types,
 };

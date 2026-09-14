@@ -255,8 +255,7 @@ pub fn module_dependencies(vm: &mut VM, receiver: &Value, _args: &[Value]) -> Ph
             })));
         dep_values.push(Value::obj(dep_obj));
     }
-    crate::product::finish_tuple(vm, dep_values, Vec::new())
-        .map_err(|error| crate::product::runtime_error(vm, "Module dependencies", error).into())
+    crate::product::finish_tuple(vm, dep_values, Vec::new()).map_err(|error| crate::product::runtime_error(vm, "Module dependencies", error).into())
 }
 
 #[phalcom_native_macros::primitive(Module, "__dependencies__")]

@@ -1,5 +1,6 @@
 use phalcom_common::selector::Selector;
 use phalcom_modules::identity::{ModuleId, ModulePath, ResolvedProjectId};
+use phalcom_semantic::CheckingContext;
 use phalcom_semantic::associated::build_associated_surface;
 use phalcom_semantic::checker::declaration::register_class_surface;
 use phalcom_semantic::data_semantics::{DataComponentSemantic, DataConstructorSignature, DataInfo, DataShape};
@@ -7,13 +8,12 @@ use phalcom_semantic::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact};
 use phalcom_semantic::declarations::{DeclarationTypeTable, NominalDeclarationHeader};
 use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::{CallableId, DataComponentId, DataConstructorId, DeclarationId, DispatchSide, ImplId, ImplLocalId, VariantId};
-use phalcom_semantic::impls::{build_effective_surface, build_inherent_impl_contribution, CallableDefinitionOrigin};
+use phalcom_semantic::impls::{CallableDefinitionOrigin, build_effective_surface, build_inherent_impl_contribution};
 use phalcom_semantic::surface::DeclarationSurface;
 use phalcom_semantic::types::annotation::SimpleTypeResolver;
 use phalcom_semantic::types::parameter::TypeTerm;
 use phalcom_semantic::types::relation::MapTypeHierarchy;
 use phalcom_semantic::types::store::TypeStore;
-use phalcom_semantic::CheckingContext;
 use std::collections::{HashMap, HashSet};
 
 fn test_module() -> ModuleId {
@@ -36,11 +36,7 @@ fn setup_resolver_and_decls(store: &mut TypeStore, declarations: &mut Declaratio
     resolver
 }
 
-fn register_nominal(
-    store: &mut TypeStore,
-    declarations: &mut DeclarationTypeTable,
-    decl: DeclarationId,
-) {
+fn register_nominal(store: &mut TypeStore, declarations: &mut DeclarationTypeTable, decl: DeclarationId) {
     let header = NominalDeclarationHeader::from_signature(store, decl, None);
     declarations.insert(header.into_type_info(None));
 }
@@ -80,16 +76,12 @@ fn test_primary_vs_impl_duplicate_rejected() {
     let impl_id = ImplId::new(module, ImplLocalId(0));
     let contribution = build_inherent_impl_contribution(&mut ctx, &impl_id, impl_def);
 
-    let effective = build_effective_surface(
-        &user_decl,
-        &primary_surface,
-        &primary_sigs,
-        &[contribution],
-        None,
-        None,
-    );
+    let effective = build_effective_surface(&user_decl, &primary_surface, &primary_sigs, &[contribution], None, None);
 
-    assert!(effective.diagnostics.iter().any(|d| d.code == DiagnosticCode::ImplMemberConflict), "expected conflict diagnostic");
+    assert!(
+        effective.diagnostics.iter().any(|d| d.code == DiagnosticCode::ImplMemberConflict),
+        "expected conflict diagnostic"
+    );
     let sel = Selector::method("name", []).unwrap();
     let callable_id = CallableId::new(user_decl.clone(), sel, DispatchSide::Instance);
     let def = effective.definitions.get(&callable_id).expect("primary definition should survive");
@@ -130,19 +122,18 @@ fn test_impl_vs_impl_duplicate_rejected() {
     let impl2_id = ImplId::new(module.clone(), ImplLocalId(1));
     let contrib2 = build_inherent_impl_contribution(&mut ctx, &impl2_id, impl2_def);
 
-    let effective = build_effective_surface(
-        &user_decl,
-        &primary_surface,
-        &primary_sigs,
-        &[contrib1, contrib2],
-        None,
-        None,
-    );
+    let effective = build_effective_surface(&user_decl, &primary_surface, &primary_sigs, &[contrib1, contrib2], None, None);
 
-    assert!(effective.diagnostics.iter().any(|d| d.code == DiagnosticCode::ImplMemberConflict), "expected conflict diagnostic");
+    assert!(
+        effective.diagnostics.iter().any(|d| d.code == DiagnosticCode::ImplMemberConflict),
+        "expected conflict diagnostic"
+    );
     let sel = Selector::method("compute", []).unwrap();
     let callable_id = CallableId::new(user_decl.clone(), sel, DispatchSide::Instance);
-    let def = effective.definitions.get(&callable_id).expect("first impl definition should survive for recovery");
+    let def = effective
+        .definitions
+        .get(&callable_id)
+        .expect("first impl definition should survive for recovery");
     assert_eq!(def.origin, CallableDefinitionOrigin::InherentImpl(impl1_id));
 }
 
@@ -172,23 +163,20 @@ fn test_getter_and_setter_distinct_selectors_success() {
     let impl_id = ImplId::new(module, ImplLocalId(0));
     let contrib = build_inherent_impl_contribution(&mut ctx, &impl_id, impl_def);
 
-    let effective = build_effective_surface(
-        &user_decl,
-        &primary_surface,
-        &primary_sigs,
-        &[contrib],
-        None,
-        None,
-    );
+    let effective = build_effective_surface(&user_decl, &primary_surface, &primary_sigs, &[contrib], None, None);
 
     assert!(effective.diagnostics.is_empty(), "unexpected diagnostics: {:?}", effective.diagnostics);
     assert_eq!(effective.definitions.len(), 2);
-    assert!(effective
-        .definitions
-        .contains_key(&CallableId::new(user_decl.clone(), Selector::getter("value").unwrap(), DispatchSide::Instance)));
-    assert!(effective
-        .definitions
-        .contains_key(&CallableId::new(user_decl, Selector::setter("value").unwrap(), DispatchSide::Instance)));
+    assert!(
+        effective
+            .definitions
+            .contains_key(&CallableId::new(user_decl.clone(), Selector::getter("value").unwrap(), DispatchSide::Instance))
+    );
+    assert!(
+        effective
+            .definitions
+            .contains_key(&CallableId::new(user_decl, Selector::setter("value").unwrap(), DispatchSide::Instance))
+    );
 }
 
 #[test]
@@ -213,10 +201,7 @@ fn test_data_component_collision_rejected() {
         id: comp_id.clone(),
         local_name: "x".into(),
         external_label: None,
-        declared_type: DeclaredTypeFact::known(
-            TypeTerm::Canonical(int_ty),
-            DeclaredTypeBasis::SourceAnnotation,
-        ),
+        declared_type: DeclaredTypeFact::known(TypeTerm::Canonical(int_ty), DeclaredTypeBasis::SourceAnnotation),
         source: None,
     };
 
@@ -245,19 +230,18 @@ fn test_data_component_collision_rejected() {
     let impl_id = ImplId::new(module, ImplLocalId(0));
     let contrib = build_inherent_impl_contribution(&mut ctx, &impl_id, impl_def);
 
-    let effective = build_effective_surface(
-        &point_decl,
-        &primary_surface,
-        &primary_sigs,
-        &[contrib],
-        Some(&data_info),
-        None,
-    );
+    let effective = build_effective_surface(&point_decl, &primary_surface, &primary_sigs, &[contrib], Some(&data_info), None);
 
-    assert!(effective.diagnostics.iter().any(|d| d.code == DiagnosticCode::ImplMemberConflict), "expected data component conflict diagnostic");
+    assert!(
+        effective.diagnostics.iter().any(|d| d.code == DiagnosticCode::ImplMemberConflict),
+        "expected data component conflict diagnostic"
+    );
     let sel = Selector::getter("x").unwrap();
     let callable_id = CallableId::new(point_decl.clone(), sel, DispatchSide::Instance);
-    assert!(!effective.definitions.contains_key(&callable_id), "rejected duplicate must be absent from definitions");
+    assert!(
+        !effective.definitions.contains_key(&callable_id),
+        "rejected duplicate must be absent from definitions"
+    );
 }
 
 #[test]
@@ -280,14 +264,7 @@ fn test_enum_class_side_variant_collision_rejected() {
 
     let ok_sel = Selector::method("Ok", []).unwrap();
     let variant_id = VariantId::new(status_decl.clone(), ok_sel.clone());
-    let (assoc_surface, _) = build_associated_surface(
-        &status_decl,
-        Some(&[variant_id]),
-        &HashSet::new(),
-        &HashSet::new(),
-        &module,
-        None,
-    );
+    let (assoc_surface, _) = build_associated_surface(&status_decl, Some(&[variant_id]), &HashSet::new(), &HashSet::new(), &module, None);
 
     let impl_src = phalcom_ast::parse("impl Status {\n  @class\n  Ok() -> Int { 0 }\n}\n", 0);
     let impl_def = match &impl_src.program.statements[0] {
@@ -297,16 +274,15 @@ fn test_enum_class_side_variant_collision_rejected() {
     let impl_id = ImplId::new(module, ImplLocalId(0));
     let contrib = build_inherent_impl_contribution(&mut ctx, &impl_id, impl_def);
 
-    let effective = build_effective_surface(
-        &status_decl,
-        &primary_surface,
-        &primary_sigs,
-        &[contrib],
-        None,
-        Some(&assoc_surface),
-    );
+    let effective = build_effective_surface(&status_decl, &primary_surface, &primary_sigs, &[contrib], None, Some(&assoc_surface));
 
-    assert!(effective.diagnostics.iter().any(|d| d.code == DiagnosticCode::ImplMemberConflict), "expected variant conflict diagnostic");
+    assert!(
+        effective.diagnostics.iter().any(|d| d.code == DiagnosticCode::ImplMemberConflict),
+        "expected variant conflict diagnostic"
+    );
     let callable_id = CallableId::new(status_decl.clone(), ok_sel, DispatchSide::Class);
-    assert!(!effective.definitions.contains_key(&callable_id), "rejected duplicate must be absent from definitions");
+    assert!(
+        !effective.definitions.contains_key(&callable_id),
+        "rejected duplicate must be absent from definitions"
+    );
 }

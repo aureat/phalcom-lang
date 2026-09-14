@@ -15,7 +15,8 @@
 ## 1. Why one class and three informal protocols
 
 `File` must be readable, writable, seekable **and** closeable — four axes against one `extends`
-slot, since Phalcom is single-inheritance with no traits or mixins
+slot, since Phalcom retains single class inheritance and does not provide
+stateful mixins or multiple inheritance
 ([ADR-0041](../../adr/accepted/0041-hierarchy-stability-policy.md) DEC-U13b).
 
 PDR-0005 §3 reifies exactly one axis, with a stated test: **an axis earns a class only when some
@@ -251,7 +252,9 @@ kernel `List` plays for the collection protocol — so the harness runs with no 
   [`reactor.md`](reactor.md).
 - **Reifying the other three axes.** Deferred to
   [`io-protocol-axes-need-stateless-interfaces.md`](../../../deferred/io-protocol-axes-need-stateless-interfaces.md).
-  Full mixins and traits are the heavier alternative and are **not** what that defers to.
+  Full mixins, conformance, and trait-driven runtime behavior are outside this
+  document; the effective C3 trait contract is defined separately by
+  [`First-Class Traits`](../../extensions/traits.md).
 - **`Bytes`.** Every selector here takes or fills a `Bytes`. Its spec is
   [`bytes.md`](bytes.md), normative —
   [PDR-0011](../../../pdr/0011-admit-bytes-native-octet-buffer.md) Accepted

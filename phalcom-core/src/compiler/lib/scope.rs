@@ -38,11 +38,7 @@ impl<'vm> Compiler<'vm> {
     pub(crate) fn emit_invoke(&mut self, arity: u8, selector_idx: u16, range: SourceRange, internal: bool) -> Result<(), CompilerError> {
         if internal {
             self.emit(Bytecode::InvokeCompilerInternal(arity, selector_idx), range);
-        } else if let Some(recipe) = self
-            .lowering()
-            .and_then(|lowering| lowering.call_environment_recipes.get(&range))
-            .cloned()
-        {
+        } else if let Some(recipe) = self.lowering().and_then(|lowering| lowering.call_environment_recipes.get(&range)).cloned() {
             let recipe_idx = self
                 .functions
                 .last_mut()

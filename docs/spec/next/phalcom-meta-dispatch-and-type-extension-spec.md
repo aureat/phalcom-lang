@@ -1,6 +1,12 @@
 # Phalcom Meta-Dispatch and Type-Driven Extension Specification
 
-**Status:** Proposed normative specification
+> **Deferred design / non-effective.** This document does not define current
+> language behavior. Its protocol instances, structural conformance, mixin,
+> reflection, and related facilities are future work. The effective C3
+> behavioral-contract rule is [`First-Class Traits`](../extensions/traits.md);
+> no conformance, witness, or runtime trait facility is implied here.
+
+**Status:** Deferred proposal; not an active normative specification
 **Audience:** Language implementers, standard-library authors, compiler and VM developers, tool authors
 **Scope:** Multimethods; predicate and value dispatch; protocol instances; reflective pattern matching; capability composition through richer mixins; units and dimensions as first-class types
 

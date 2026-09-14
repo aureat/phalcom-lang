@@ -13,8 +13,8 @@ use crate::source_index::scope::{
 use crate::source_index::site::{SourceSite, SourceSiteKind};
 use crate::types::annotation::TypeResolver;
 use phalcom_ast::ast::{
-    BehaviorMember, BindingKind, BlockExpr, ClassDef, ClassMember, EnumDef, Expr, ForStatement, GenericConstraintSyntax, LetBinding,
-    MemberBody, Pattern, Program, Statement, TypeAnnotation, TypeAnnotationExpr, WhereClauseSyntax,
+    BehaviorMember, BindingKind, BlockExpr, ClassDef, ClassMember, EnumDef, Expr, ForStatement, GenericConstraintSyntax, LetBinding, MemberBody, Pattern,
+    Program, Statement, TypeAnnotation, TypeAnnotationExpr, WhereClauseSyntax,
 };
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
@@ -180,6 +180,12 @@ impl TypeReferenceTargetCollector<'_> {
                     }
                 }
             }
+            Statement::Trait(trait_def) => {
+                let mut trait_bound = bound.clone();
+                trait_bound.extend(trait_def.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                self.where_clause(trait_def.where_clause.as_ref(), &trait_bound);
+                self.behavior_members(&trait_def.members, &trait_bound);
+            }
             Statement::TypeAlias(alias) => {
                 let mut alias_bound = bound.clone();
                 alias_bound.extend(alias.generic_parameters.iter().map(|parameter| parameter.name.clone()));
@@ -278,6 +284,63 @@ impl TypeReferenceTargetCollector<'_> {
         }
     }
 
+    fn behavior_members(&mut self, members: &[phalcom_ast::ast::BehaviorMember], bound: &BTreeSet<String>) {
+        for member in members {
+            match member {
+                phalcom_ast::ast::BehaviorMember::Method(method) => {
+                    let mut member_bound = bound.clone();
+                    member_bound.extend(method.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                    for parameter in &method.params {
+                        if let Some(annotation) = &parameter.annotation {
+                            self.annotation(annotation, &member_bound);
+                        }
+                    }
+                    if let Some(annotation) = &method.return_annotation {
+                        self.annotation(annotation, &member_bound);
+                    }
+                    self.where_clause(method.where_clause.as_ref(), &member_bound);
+                }
+                phalcom_ast::ast::BehaviorMember::Getter(getter) => {
+                    let mut member_bound = bound.clone();
+                    member_bound.extend(getter.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                    if let Some(annotation) = &getter.return_annotation {
+                        self.annotation(annotation, &member_bound);
+                    }
+                    self.where_clause(getter.where_clause.as_ref(), &member_bound);
+                }
+                phalcom_ast::ast::BehaviorMember::Setter(setter) => {
+                    let mut member_bound = bound.clone();
+                    member_bound.extend(setter.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                    if let Some(annotation) = &setter.param.annotation {
+                        self.annotation(annotation, &member_bound);
+                    }
+                    if let Some(annotation) = &setter.return_annotation {
+                        self.annotation(annotation, &member_bound);
+                    }
+                    self.where_clause(setter.where_clause.as_ref(), &member_bound);
+                }
+                phalcom_ast::ast::BehaviorMember::Index(index) => {
+                    let mut member_bound = bound.clone();
+                    member_bound.extend(index.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                    for parameter in &index.params {
+                        if let Some(annotation) = &parameter.annotation {
+                            self.annotation(annotation, &member_bound);
+                        }
+                    }
+                    if let phalcom_ast::ast::IndexAccessor::Set { value } = &index.accessor
+                        && let Some(annotation) = &value.annotation
+                    {
+                        self.annotation(annotation, &member_bound);
+                    }
+                    if let Some(annotation) = &index.return_annotation {
+                        self.annotation(annotation, &member_bound);
+                    }
+                    self.where_clause(index.where_clause.as_ref(), &member_bound);
+                }
+            }
+        }
+    }
+
     fn enum_definition(&mut self, enum_def: &EnumDef, bound: &BTreeSet<String>) {
         let mut enum_bound = bound.clone();
         enum_bound.extend(enum_def.generic_parameters.iter().map(|parameter| parameter.name.clone()));
@@ -344,7 +407,11 @@ impl TypeReferenceTargetCollector<'_> {
                 lambda_bound.extend(parameters.iter().map(|parameter| parameter.name.clone()));
                 self.annotation(body, &lambda_bound);
             }
-            TypeAnnotationExpr::ExactEnumCase { enum_target, generic_arguments, .. } => {
+            TypeAnnotationExpr::ExactEnumCase {
+                enum_target,
+                generic_arguments,
+                ..
+            } => {
                 self.annotation(enum_target, bound);
                 for argument in generic_arguments {
                     self.annotation(argument, bound);
@@ -379,6 +446,9 @@ pub fn build_source_scope_index(module: ModuleId, program: &Program, context: &S
         } else if let Statement::Enum(enum_def) = statement {
             let declaration = DeclarationId::new(module.clone(), enum_def.name.clone().into());
             builder.index.register_class(enum_def.name.clone(), declaration);
+        } else if let Statement::Trait(trait_def) = statement {
+            let declaration = DeclarationId::new(module.clone(), trait_def.name.clone().into());
+            builder.index.register_class(trait_def.name.clone(), declaration);
         }
     }
     builder.visit_imports(program);
@@ -540,6 +610,7 @@ impl SourceScopeBuilder<'_> {
                 Statement::Enum(enum_def) => self.visit_enum(scope, enum_def),
                 Statement::TypeAlias(alias) => self.visit_type_alias(scope, alias),
                 Statement::Data(data_def) => self.visit_data(scope, data_def),
+                Statement::Trait(trait_def) => self.visit_trait(scope, trait_def),
                 Statement::Let(binding) => self.visit_let(scope, binding, top_level),
                 Statement::Return(return_statement) => {
                     if let Some(value) = &return_statement.value {
@@ -575,9 +646,15 @@ impl SourceScopeBuilder<'_> {
                     .type_reference_targets
                     .get(&(self.index.module.clone(), enum_target.range))
                     .cloned()
-                    .or_else(|| enum_target.origin_symbol_ref().and_then(|reference| {
-                        reference.members.is_empty().then(|| self.index.declaration_for_name(&reference.root).cloned()).flatten()
-                    }));
+                    .or_else(|| {
+                        enum_target.origin_symbol_ref().and_then(|reference| {
+                            reference
+                                .members
+                                .is_empty()
+                                .then(|| self.index.declaration_for_name(&reference.root).cloned())
+                                .flatten()
+                        })
+                    });
                 if let Some(enum_decl) = enum_decl {
                     let selector = phalcom_ast::selector::selector_from_exact_case_target(variant_name, payload_shape.as_ref());
                     let variant_id = VariantId::new(enum_decl, selector);
@@ -598,9 +675,15 @@ impl SourceScopeBuilder<'_> {
                     .type_reference_targets
                     .get(&(self.index.module.clone(), impl_def.target_range))
                     .cloned()
-                    .or_else(|| impl_def.target.origin_symbol_ref().and_then(|reference| {
-                        reference.members.is_empty().then(|| self.index.declaration_for_name(&reference.root).cloned()).flatten()
-                    }));
+                    .or_else(|| {
+                        impl_def.target.origin_symbol_ref().and_then(|reference| {
+                            reference
+                                .members
+                                .is_empty()
+                                .then(|| self.index.declaration_for_name(&reference.root).cloned())
+                                .flatten()
+                        })
+                    });
                 let Some(target) = target else { return };
                 CallableOwnerId::Declaration(target)
             }
@@ -633,6 +716,31 @@ impl SourceScopeBuilder<'_> {
         );
         for member in &class.members {
             self.visit_member(parent, &declaration, member);
+        }
+    }
+
+    fn visit_trait(&mut self, parent: SourceScopeId, trait_def: &phalcom_ast::ast::TraitDef) {
+        let declaration = DeclarationId::new(self.index.module.clone(), trait_def.name.clone().into());
+        let site = self.allocate_site(
+            SourceOwner::Module(self.index.module.clone()),
+            trait_def.name_range,
+            SourceSiteKind::Declaration(declaration.clone()),
+        );
+        self.index.register_class(trait_def.name.clone(), declaration.clone());
+        self.index.register_target(site.clone(), SemanticTargetId::Declaration(declaration.clone()));
+        self.index.declaration_sources.insert(
+            declaration.clone(),
+            DeclarationSourceInfo {
+                id: declaration.clone(),
+                name: trait_def.name.clone().into(),
+                kind: SourceDeclarationKind::Trait,
+                declaration_site: site,
+                name_range: trait_def.name_range,
+                declaration_range: trait_def.range,
+            },
+        );
+        for member in &trait_def.members {
+            self.visit_behavior_member(parent, CallableOwnerId::Declaration(declaration.clone()), member, behavior_side(member));
         }
     }
 
@@ -798,7 +906,6 @@ impl SourceScopeBuilder<'_> {
                 if let phalcom_ast::ast::IndexAccessor::Set { value } = &index.accessor {
                     parameters.push((**value).clone());
                 }
-                let body = MemberBody::Block(index.body.clone());
                 self.visit_callable(CallableVisit {
                     parent,
                     callable,
@@ -806,7 +913,7 @@ impl SourceScopeBuilder<'_> {
                     declaration_range,
                     body_range: index.range,
                     parameters: &parameters,
-                    body: &body,
+                    body: &index.body,
                     parameter_kind: SourceBindingKind::IndexParameter,
                     kind: match &index.accessor {
                         phalcom_ast::ast::IndexAccessor::Get => SourceCallableKind::IndexGet,
@@ -907,7 +1014,7 @@ impl SourceScopeBuilder<'_> {
                     declaration_range,
                     body_range: index.range,
                     parameters: &parameters,
-                    body: &MemberBody::Block(index.body.clone()),
+                    body: &index.body,
                     parameter_kind: SourceBindingKind::IndexParameter,
                     kind: match &index.accessor {
                         phalcom_ast::ast::IndexAccessor::Get => SourceCallableKind::IndexGet,
@@ -1354,6 +1461,7 @@ fn statement_range(statement: &Statement) -> SourceRange {
         Statement::Class(class) => class.range,
         Statement::Enum(enum_def) => enum_def.range,
         Statement::Data(data_def) => data_def.range,
+        Statement::Trait(trait_def) => trait_def.range,
         Statement::Let(binding) => binding.range,
         Statement::Return(return_statement) => return_statement.range,
         Statement::Expr { range, .. } => *range,

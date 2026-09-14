@@ -48,12 +48,25 @@ async fn impl_target_and_member_navigation_use_canonical_definitions() {
         )
         .await;
     let reference_locations = references["result"].as_array().expect("impl member references");
-    assert!(reference_locations.iter().any(|location| location["range"]["start"] == json!({ "line": 1, "character": 12 })), "{references:#?}");
-    assert!(reference_locations.iter().any(|location| location["range"]["start"] == json!({ "line": 3, "character": 35 })), "{references:#?}");
+    assert!(
+        reference_locations
+            .iter()
+            .any(|location| location["range"]["start"] == json!({ "line": 1, "character": 12 })),
+        "{references:#?}"
+    );
+    assert!(
+        reference_locations
+            .iter()
+            .any(|location| location["range"]["start"] == json!({ "line": 3, "character": 35 })),
+        "{references:#?}"
+    );
 
     let symbols = lsp.request("workspace/symbol", json!({ "query": "impl" })).await;
     let symbols = symbols["result"].as_array().expect("workspace symbols");
-    assert!(symbols.iter().all(|symbol| symbol["name"] != json!("impl")), "impl blocks are not symbols: {symbols:#?}");
+    assert!(
+        symbols.iter().all(|symbol| symbol["name"] != json!("impl")),
+        "impl blocks are not symbols: {symbols:#?}"
+    );
 
     lsp.finish().await;
 }
@@ -91,7 +104,10 @@ async fn enum_exact_case_and_root_impl_navigation() {
         )
         .await;
     let case_locs = case_target["result"].as_array().expect("case target definition");
-    assert!(case_locs.iter().any(|loc| loc["range"]["start"] == json!({ "line": 1, "character": 2 })), "{case_target:#?}");
+    assert!(
+        case_locs.iter().any(|loc| loc["range"]["start"] == json!({ "line": 1, "character": 2 })),
+        "{case_target:#?}"
+    );
 
     lsp.finish().await;
 }

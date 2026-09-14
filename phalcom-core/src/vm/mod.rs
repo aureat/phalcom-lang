@@ -496,11 +496,9 @@ impl VM {
                     return false;
                 }
                 return lhs_view.labels().iter().all(|label| {
-                    rhs_view.get(*label).is_some_and(|right| {
-                        lhs_view
-                            .get(*label)
-                            .is_some_and(|left| self.semantic_same(left, right))
-                    })
+                    rhs_view
+                        .get(*label)
+                        .is_some_and(|right| lhs_view.get(*label).is_some_and(|left| self.semantic_same(left, right)))
                 });
             }
             (Some(_), None) | (None, Some(_)) => return false,

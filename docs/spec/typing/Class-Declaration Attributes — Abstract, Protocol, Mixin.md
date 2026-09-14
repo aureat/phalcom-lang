@@ -1,5 +1,10 @@
 # Phalcom Class-Declaration Attributes
 
+> **Historical / superseded.** This design reference is not an effective
+> declaration rule. The current behavioral-contract declaration is
+> [`trait`](../extensions/traits.md), not `@protocol class`; the remaining
+> attribute and mixin proposals belong to later design work.
+
 ## 1. Design decision
 
 Phalcom retains one deliberately small class grammar:

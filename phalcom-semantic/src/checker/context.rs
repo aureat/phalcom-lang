@@ -182,7 +182,7 @@ fn record_declaration_surface_dependency(dependencies: &SharedSemanticDependenci
 }
 
 fn record_declaration_shell_dependency(dependencies: &SharedSemanticDependencies, declaration: &DeclarationId) {
-    if is_query_owned_module(&declaration.module) {
+    if is_query_owned_module(&declaration.module) && !is_bootstrap_declaration(declaration) {
         record_query_dependency(dependencies, SemanticDependency::DeclarationShell(declaration.clone()));
     }
 }
@@ -413,6 +413,9 @@ pub struct CheckingContext<'a> {
     pub data_table: Option<&'a crate::data_semantics::DataSemanticTable>,
     pub enum_table: Option<&'a crate::enum_semantics::EnumSemanticTable>,
     pub associated_table: Option<&'a crate::associated::AssociatedFamilyTable>,
+    /// Trait contract visible while checking a trait default body. This is
+    /// deliberately separate from ordinary declaration dispatch surfaces.
+    pub trait_surface: Option<&'a crate::traits::TraitSurface>,
     pub dispatch: DispatchAccess<'a>,
     pub ambient_constraints: Vec<crate::types::parameter::GenericConstraint>,
     pub self_override_type: Option<TypeId>,
@@ -515,6 +518,7 @@ impl<'a> CheckingContext<'a> {
             data_table: None,
             enum_table: None,
             associated_table: None,
+            trait_surface: None,
             dispatch: DispatchAccess::Owned(dispatch),
             ambient_constraints: Vec::new(),
             self_override_type: None,
@@ -599,6 +603,7 @@ impl<'a> CheckingContext<'a> {
             data_table: None,
             enum_table: None,
             associated_table: None,
+            trait_surface: None,
             dispatch: DispatchAccess::Borrowed(dispatch),
             ambient_constraints: Vec::new(),
             self_override_type: None,
@@ -662,6 +667,7 @@ impl<'a> CheckingContext<'a> {
             data_table: self.data_table,
             enum_table: self.enum_table,
             associated_table: self.associated_table,
+            trait_surface: self.trait_surface,
             dispatch: DispatchAccess::Borrowed(self.dispatch.get()),
             ambient_constraints: self.ambient_constraints.clone(),
             self_override_type: self.self_override_type,
@@ -710,6 +716,7 @@ impl<'a> CheckingContext<'a> {
         probe.field_lifecycle = self.field_lifecycle;
         probe.enum_table = self.enum_table;
         probe.associated_table = self.associated_table;
+        probe.trait_surface = self.trait_surface;
         probe.binding_history = self.binding_history.clone();
         probe.next_binding_id = self.next_binding_id;
         probe.next_local_expr_id = self.next_local_expr_id;
@@ -1431,11 +1438,7 @@ impl<'a> CheckingContext<'a> {
         analysis.causal_invalidity = typed.causal_invalidity;
     }
 
-    pub(crate) fn publish_call_specialization(
-        &mut self,
-        id: ExpressionId,
-        specialization: crate::checker::analysis::CallSpecialization,
-    ) {
+    pub(crate) fn publish_call_specialization(&mut self, id: ExpressionId, specialization: crate::checker::analysis::CallSpecialization) {
         self.call_specializations.insert(id, specialization);
     }
 
@@ -1916,6 +1919,9 @@ impl<'a> CheckingContext<'a> {
     pub(crate) fn dispatch_owner_for_lookup(&self, receiver: TypeId, lookup: crate::dispatch::DispatchLookup) -> Option<(DeclarationId, DispatchSide)> {
         match lookup {
             crate::dispatch::DispatchLookup::Super { defining_class, side } => {
+                if self.trait_surface.is_some() {
+                    return None;
+                }
                 self.hierarchy.superclass(&defining_class).cloned().map(|super_decl| (super_decl, side))
             }
             crate::dispatch::DispatchLookup::Normal => match self.store.get(receiver) {
@@ -2000,8 +2006,123 @@ impl<'a> CheckingContext<'a> {
         Ok((signature, specialization))
     }
 
+    fn resolve_exact_case_conditional(
+        &mut self,
+        specialization_receiver: TypeId,
+        side: DispatchSide,
+        selector: &Selector,
+        visited_owners: Box<[DeclarationId]>,
+    ) -> Option<ResolvedDispatch> {
+        let variant = match self.store.get(specialization_receiver) {
+            TypeData::ExactCase { variant, .. } => self.store.variant_identity(*variant).clone(),
+            _ => return None,
+        };
+        let cond_set = self
+            .dispatch
+            .get()
+            .get_conditional_members(&crate::impls::InherentImplTarget::ExactEnumCase(variant.clone()))
+            .cloned()?;
+        let member = cond_set.get_member(side, selector)?;
+        let app = crate::impls::check_impl_domain_applicability(
+            self.store,
+            &self.hierarchy,
+            &member.domain,
+            specialization_receiver,
+            specialization_receiver,
+            &self.ambient_constraints,
+        );
+        let crate::impls::ImplApplicabilityResult::Applicable(spec) = app else {
+            return None;
+        };
+
+        let mut signature = crate::checker::declaration_signature::project_semantic_signature(&member.signature_template);
+        let unspecialized_return = signature.return_type.clone();
+        let environment = spec.environment.clone();
+        let specialize_type = |ctx: &mut Self, ty| {
+            let self_specialized = ctx.specialize_self_type(specialization_receiver, ty);
+            crate::types::environment::TypeView::new(self_specialized, environment.clone()).materialize(ctx.store)
+        };
+        for parameter in &mut signature.parameters {
+            parameter.ty = parameter.ty.map_type(|ty| specialize_type(self, ty));
+        }
+        signature.return_type = signature.return_type.map_type(|ty| specialize_type(self, ty));
+        self.dependencies.insert(member.callable.clone());
+        self.record_consumed_callable_signature(&member.callable, &signature);
+        if let Some(expression) = self.current_expression_id() {
+            self.resolved_callables.insert(expression, member.callable.clone());
+            self.resolved_conditional_dispatches.insert(
+                expression,
+                crate::dispatch::ConditionalDispatchSelection {
+                    impl_id: member.impl_id.clone(),
+                    callable: member.callable.clone(),
+                    declaring_owner: variant.owner.clone(),
+                    side,
+                },
+            );
+        }
+        Some(ResolvedDispatch {
+            callable: member.callable.clone(),
+            signature,
+            specialization: Some(crate::dispatch::DispatchSignatureSpecialization {
+                receiver: specialization_receiver,
+                declaring_owner: variant.owner.clone(),
+                environment: spec.environment,
+                path: Box::new([]),
+                unspecialized_return,
+            }),
+            conditional: Some(crate::dispatch::ConditionalDispatchSelection {
+                impl_id: member.impl_id.clone(),
+                callable: member.callable.clone(),
+                declaring_owner: variant.owner,
+                side,
+            }),
+            abstract_contract: false,
+            visited_owners,
+        })
+    }
+
     pub(crate) fn resolve_dispatch_target(&mut self, receiver: TypeId, selector: &Selector, lookup: crate::dispatch::DispatchLookup) -> ResolvedDispatchResult {
         self.resolve_dispatch_target_with_specialization(receiver, None, selector, lookup)
+    }
+
+    fn resolve_trait_contract_target(
+        &mut self,
+        receiver: TypeId,
+        selector: &Selector,
+        lookup: &crate::dispatch::DispatchLookup,
+    ) -> Option<ResolvedDispatchResult> {
+        if !matches!(lookup, crate::dispatch::DispatchLookup::Normal) {
+            return None;
+        }
+        let TypeData::SelfType(self_term) = self.store.get(receiver) else {
+            return None;
+        };
+        let surface = self.trait_surface?;
+        if self_term.owner != surface.declaration
+            || self_term.side != DispatchSide::Instance
+            || self_term.role != crate::types::parameter::SelfRole::InstanceType
+        {
+            return None;
+        }
+        let Some(member) = surface.get_by_selector(selector, DispatchSide::Instance) else {
+            return Some(ResolvedDispatchResult::Missing {
+                visited_owners: Box::new([surface.declaration.clone()]),
+            });
+        };
+        let signature = crate::checker::declaration_signature::project_semantic_signature(&member.signature);
+        self.dependencies.insert(member.callable.clone());
+        self.record_semantic_dependency(SemanticDependency::TraitSurface(surface.declaration.clone()));
+        if let Some(expression) = self.current_expression_id() {
+            self.resolved_callables.insert(expression, member.callable.clone());
+        }
+        Some(ResolvedDispatchResult::Found(Box::new(ResolvedDispatch {
+            callable: member.callable.clone(),
+            signature,
+            specialization: None,
+            conditional: None,
+            abstract_contract: true,
+            visited_owners: Box::new([surface.declaration.clone()]),
+        })))
     }
 
     /// Resolves dispatch against `dispatch_receiver` while optionally
@@ -2016,6 +2137,9 @@ impl<'a> CheckingContext<'a> {
         selector: &Selector,
         lookup: crate::dispatch::DispatchLookup,
     ) -> ResolvedDispatchResult {
+        if let Some(result) = self.resolve_trait_contract_target(dispatch_receiver, selector, &lookup) {
+            return result;
+        }
         let Some((decl, side)) = self.dispatch_owner_for_lookup(dispatch_receiver, lookup.clone()) else {
             return ResolvedDispatchResult::Missing { visited_owners: Box::new([]) };
         };
@@ -2027,6 +2151,15 @@ impl<'a> CheckingContext<'a> {
         let specialization_receiver = specialization_receiver
             .filter(|receiver| matches!(self.store.get(*receiver), TypeData::Applied { .. } | TypeData::ExactCase { .. }))
             .unwrap_or(dispatch_receiver);
+        let visited_owners = match &result {
+            ResolvedDispatchResult::Found(resolved) => resolved.visited_owners.clone(),
+            ResolvedDispatchResult::Ambiguous(resolved) => resolved.first().map(|resolved| resolved.visited_owners.clone()).unwrap_or_else(|| Box::new([])),
+            ResolvedDispatchResult::Missing { visited_owners } => visited_owners.clone(),
+            ResolvedDispatchResult::Dynamic => Box::new([]),
+        };
+        if let Some(resolved) = self.resolve_exact_case_conditional(specialization_receiver, side, selector, visited_owners) {
+            return ResolvedDispatchResult::Found(Box::new(resolved));
+        }
         match result {
             ResolvedDispatchResult::Found(mut resolved) => {
                 for owner in resolved.visited_owners.iter() {
@@ -2080,76 +2213,6 @@ impl<'a> CheckingContext<'a> {
             ResolvedDispatchResult::Missing { visited_owners } => {
                 for owner in visited_owners.iter() {
                     record_declaration_surface_dependency(&self.semantic_dependencies, owner);
-                }
-
-                let exact_variant = if let TypeData::ExactCase { variant, .. } = self.store.get(specialization_receiver) {
-                    Some(self.store.variant_identity(*variant).clone())
-                } else {
-                    None
-                };
-                if let Some(variant) = exact_variant {
-                    let cond_set = self
-                        .dispatch
-                        .get()
-                        .get_conditional_members(&crate::impls::InherentImplTarget::ExactEnumCase(variant.clone()))
-                        .cloned();
-                    if let Some(cond_set) = cond_set {
-                        if let Some(member) = cond_set.get_member(side, selector) {
-                            let app = crate::impls::check_impl_domain_applicability(
-                                self.store,
-                                &self.hierarchy,
-                                &member.domain,
-                                specialization_receiver,
-                                specialization_receiver,
-                                &self.ambient_constraints,
-                            );
-                            if let crate::impls::ImplApplicabilityResult::Applicable(spec) = app {
-                                let mut signature = crate::checker::declaration_signature::project_semantic_signature(&member.signature_template);
-                                let unspecialized_return = signature.return_type.clone();
-                                let environment = spec.environment.clone();
-                                let specialize_type = |ctx: &mut Self, ty| {
-                                    let self_specialized = ctx.specialize_self_type(specialization_receiver, ty);
-                                    crate::types::environment::TypeView::new(self_specialized, environment.clone()).materialize(ctx.store)
-                                };
-                                for parameter in &mut signature.parameters {
-                                    parameter.ty = parameter.ty.map_type(|ty| specialize_type(self, ty));
-                                }
-                                signature.return_type = signature.return_type.map_type(|ty| specialize_type(self, ty));
-                                self.dependencies.insert(member.callable.clone());
-                                self.record_consumed_callable_signature(&member.callable, &signature);
-                                if let Some(expression) = self.current_expression_id() {
-                                    self.resolved_callables.insert(expression, member.callable.clone());
-                                    self.resolved_conditional_dispatches.insert(
-                                        expression,
-                                        crate::dispatch::ConditionalDispatchSelection {
-                                            impl_id: member.impl_id.clone(),
-                                            callable: member.callable.clone(),
-                                            declaring_owner: variant.owner.clone(),
-                                            side,
-                                        },
-                                    );
-                                }
-                                return ResolvedDispatchResult::Found(Box::new(ResolvedDispatch {
-                                    callable: member.callable.clone(),
-                                    signature,
-                                    specialization: Some(crate::dispatch::DispatchSignatureSpecialization {
-                                        receiver: specialization_receiver,
-                                        declaring_owner: variant.owner.clone(),
-                                        environment: spec.environment,
-                                        path: Box::new([]),
-                                        unspecialized_return,
-                                    }),
-                                    conditional: Some(crate::dispatch::ConditionalDispatchSelection {
-                                        impl_id: member.impl_id.clone(),
-                                        callable: member.callable.clone(),
-                                        declaring_owner: variant.owner.clone(),
-                                        side,
-                                    }),
-                                    visited_owners,
-                                }));
-                            }
-                        }
-                    }
                 }
 
                 for owner in visited_owners.iter() {
@@ -2218,6 +2281,7 @@ impl<'a> CheckingContext<'a> {
                                             declaring_owner: owner.clone(),
                                             side,
                                         }),
+                                        abstract_contract: false,
                                         visited_owners,
                                     }));
                                 }
@@ -2403,6 +2467,7 @@ impl<'a> CheckingContext<'a> {
         normal_returns: Vec<crate::checker::analysis::NormalReturnFact>,
     ) -> crate::checker::analysis::CallableAnalysis {
         let return_validation = self.validate_return_contract(status, &normal_returns);
+        let semantic_dependencies = self.semantic_dependencies_snapshot();
         let entry_flow = self.current_flow_summary();
         let flow_graph = self
             .flow_graph
@@ -2447,7 +2512,7 @@ impl<'a> CheckingContext<'a> {
             explanations: std::sync::Arc::new(self.explanations),
             return_explanation,
             dependencies: std::sync::Arc::from(self.dependencies.into_iter().collect::<Vec<_>>().into_boxed_slice()),
-            semantic_dependencies: std::sync::Arc::from(self.semantic_dependencies.borrow().iter().cloned().collect::<Vec<_>>().into_boxed_slice()),
+            semantic_dependencies: std::sync::Arc::from(semantic_dependencies.into_iter().collect::<Vec<_>>().into_boxed_slice()),
             dependency_fingerprint: crate::db::ProductFingerprint::new(0),
             status,
         }

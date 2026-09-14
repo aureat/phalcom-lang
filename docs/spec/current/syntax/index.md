@@ -49,7 +49,7 @@ are given in ` ```phalcom ` fenced blocks with aligned `//` comments.
 | [`lexical.md`](lexical.md) | Tokens: whitespace/newline handling, comments, identifiers, keywords, string/boolean/symbol literals, operators and punctuation |
 | [Numeric literals](../../library/numbers/numeric-literals.md) | Normative numeric literal grammar: radices, separators, exponent floats, boundaries, diagnostics |
 | [`expressions.md`](expressions.md) | The expression grammar: primary/postfix/binary forms, message sends, operator precedence and associativity |
-| [`statements-and-declarations.md`](statements-and-declarations.md) | Statements, blocks, and declarations: `let`/`var`, `class`, `@construct`, `@constructor`, methods, modules, error-handling clauses |
+| [`statements-and-declarations.md`](statements-and-declarations.md) | Statements, blocks, and declarations: `let`/`var`, `class`, `trait`, methods, modules, error-handling clauses |
 | [`grammar.md`](grammar.md) | Consolidated appendix — every production from the three files above collected in one place |
 
 Read `lexical.md` first; `expressions.md` and `statements-and-declarations.md`
@@ -62,6 +62,7 @@ consult it once you already know which production you're looking for.
 |---|---|
 | [`../lexical-structure.md`](../lexical-structure.md) | Prose and rationale for tokens — *why* newlines are significant, *why* `nil` has no surface keyword. This directory gives the token productions themselves. |
 | [`../implementation-status.md`](../implementation-status.md) | Target-vs-built divergence for the whole spec, including syntax. Consult it before assuming a production here already parses. |
+| [`../../extensions/traits.md`](../../extensions/traits.md) | Effective semantics for first-class non-storage trait contracts and defaults |
 
 ### Governing ADRs
 

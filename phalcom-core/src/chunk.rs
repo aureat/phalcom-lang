@@ -3,8 +3,8 @@ use crate::compiler::lib::CompilerError;
 use crate::heap::ClassId;
 use crate::interner::Symbol;
 use crate::modules::semantic_lowering::{
-    AnonymousProductConstructionLoweringSpec, DataConstructionLoweringSpec, DataDeclarationLoweringSpec, EnumLoweringSpec,
-    ExecutableFamilyCandidateSet, ExecutableFamilyDescriptor, ExecutableInvocationTarget,
+    AnonymousProductConstructionLoweringSpec, DataConstructionLoweringSpec, DataDeclarationLoweringSpec, EnumLoweringSpec, ExecutableFamilyCandidateSet,
+    ExecutableFamilyDescriptor, ExecutableInvocationTarget,
 };
 use crate::typing::RuntimeCallEnvironmentRecipe;
 use crate::value::Value;
@@ -189,8 +189,10 @@ impl ExecutableSemanticPool {
     }
 
     pub fn add_conditional_family_descriptor(&mut self, descriptor: ConditionalFamilyDescriptor, span: SourceRange) -> Result<u16, CompilerError> {
-        let index = u16::try_from(self.conditional_family_descriptors.len())
-            .map_err(|_| CompilerError::ExecutableSemanticPoolOverflow { kind: "ConditionalFamilyDescriptor", span })?;
+        let index = u16::try_from(self.conditional_family_descriptors.len()).map_err(|_| CompilerError::ExecutableSemanticPoolOverflow {
+            kind: "ConditionalFamilyDescriptor",
+            span,
+        })?;
         self.conditional_family_descriptors.push(descriptor);
         Ok(index)
     }

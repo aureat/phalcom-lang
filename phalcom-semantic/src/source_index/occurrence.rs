@@ -416,7 +416,7 @@ impl OccurrenceBuilder<'_> {
                                 self.statements(body);
                             }
                         }
-                        phalcom_ast::ast::ClassMember::Index(index) => self.statements(&index.body),
+                        phalcom_ast::ast::ClassMember::Index(index) => self.statements(index.body.statements().unwrap_or(&[])),
                         phalcom_ast::ast::ClassMember::Field(field) => {
                             if let Some(default) = &field.default {
                                 self.expr(default, OccurrenceRole::Read);
@@ -444,7 +444,7 @@ impl OccurrenceBuilder<'_> {
                 self.statements(&for_statement.body);
             }
             Statement::Export(export) => self.export_items(export),
-            Statement::Break { .. } | Statement::Continue { .. } | Statement::TypeAlias(_) | Statement::Data(_) | Statement::Enum(_) => {}
+            Statement::Break { .. } | Statement::Continue { .. } | Statement::TypeAlias(_) | Statement::Data(_) | Statement::Enum(_) | Statement::Trait(_) => {}
             Statement::Impl(impl_def) => {
                 for member in &impl_def.members {
                     match member {
@@ -464,7 +464,7 @@ impl OccurrenceBuilder<'_> {
                             }
                         }
                         phalcom_ast::ast::BehaviorMember::Index(i) => {
-                            self.statements(&i.body);
+                            self.statements(i.body.statements().unwrap_or(&[]));
                         }
                     }
                 }

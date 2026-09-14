@@ -677,6 +677,7 @@ impl<'a> EditorSemanticQuery<'a> {
                 ReceiverMode::Instance => crate::identity::DispatchSide::Instance,
                 ReceiverMode::Class => crate::identity::DispatchSide::Class,
             };
+            let mut alternative_members = Vec::new();
             for dispatch_owner in self
                 .snapshot
                 .dispatch
@@ -688,7 +689,7 @@ impl<'a> EditorSemanticQuery<'a> {
                     for (selector, callable) in &member_surface.callables_by_selector {
                         let visibility = member_surface.callable_visibility.get(selector).copied().unwrap_or_default();
                         if is_visible(self.snapshot.hierarchy.as_ref(), &current, visibility, access) {
-                            members.push(EditorMember {
+                            alternative_members.push(EditorMember {
                                 target: EditorMemberTarget::Callable(callable.clone()),
                                 owner: current.clone(),
                                 visibility,
@@ -698,7 +699,7 @@ impl<'a> EditorSemanticQuery<'a> {
                     for (name, field) in &member_surface.fields_by_name {
                         let visibility = member_surface.field_visibility.get(name).copied().unwrap_or_default();
                         if is_visible(self.snapshot.hierarchy.as_ref(), &current, visibility, access) {
-                            members.push(EditorMember {
+                            alternative_members.push(EditorMember {
                                 target: EditorMemberTarget::Field(field.clone()),
                                 owner: current.clone(),
                                 visibility,
@@ -707,7 +708,24 @@ impl<'a> EditorSemanticQuery<'a> {
                     }
                 }
             }
-            members.extend(self.conditional_members_for_alternative(alternative, side, access));
+            let conditional_members = self.conditional_members_for_alternative(alternative, side, access);
+            let exact_case_selectors = conditional_members
+                .iter()
+                .filter_map(|member| {
+                    let EditorMemberTarget::Callable(callable) = &member.target else {
+                        return None;
+                    };
+                    matches!(callable.owner, crate::identity::CallableOwnerId::Variant(_)).then(|| (callable.side, callable.selector.clone()))
+                })
+                .collect::<BTreeSet<_>>();
+            if !exact_case_selectors.is_empty() {
+                alternative_members.retain(|member| match &member.target {
+                    EditorMemberTarget::Callable(callable) => !exact_case_selectors.contains(&(callable.side, callable.selector.clone())),
+                    EditorMemberTarget::Field(_) => true,
+                });
+            }
+            alternative_members.extend(conditional_members);
+            members.extend(alternative_members);
         }
         members.sort_by_key(member_sort_key);
         members.dedup_by(|left, right| left.target == right.target);
@@ -917,7 +935,9 @@ fn collect_receiver_alternatives_from_type(
                 });
             }
         }
-        TypeData::Union(types) => types.iter().for_each(|ty| collect_receiver_alternatives_from_type(store, *ty, mode_hint, alternatives)),
+        TypeData::Union(types) => types
+            .iter()
+            .for_each(|ty| collect_receiver_alternatives_from_type(store, *ty, mode_hint, alternatives)),
         _ => {}
     }
 }

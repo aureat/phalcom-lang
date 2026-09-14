@@ -1144,9 +1144,7 @@ impl VM {
         let selector_val = callable.chunk.constants[selector_idx as usize];
         let selector_sym = selector_val.as_symbol().unwrap();
         let layout = self.invocation_layout_for_selector(selector_sym, arity)?;
-        let type_environment = call_environment
-            .map(|recipe| self.materialize_call_environment(recipe))
-            .transpose()?;
+        let type_environment = call_environment.map(|recipe| self.materialize_call_environment(recipe)).transpose()?;
 
         // A Family owns the selector shape of a callable reference. Bracket
         // sends therefore activate the family directly instead of looking up
@@ -1181,14 +1179,7 @@ impl VM {
         };
 
         let type_environment = type_environment.unwrap_or(crate::typing::RuntimeTypeEnvironmentId::EMPTY);
-        if let Some(()) = self.try_module_export_send_with_environment(
-            receiver_idx,
-            selector_sym,
-            arity,
-            source_range,
-            type_environment,
-            call_environment,
-        )? {
+        if let Some(()) = self.try_module_export_send_with_environment(receiver_idx, selector_sym, arity, source_range, type_environment, call_environment)? {
             return Ok(());
         }
 
@@ -1315,13 +1306,8 @@ impl VM {
             .ok_or_else(|| RuntimeError::Internal(format!("missing caller runtime type environment {}", parent_id.0)))?;
         let mut bindings = Vec::with_capacity(recipe.bindings.len());
         for (parameter, type_recipe) in recipe.bindings.iter().cloned() {
-            let ty = crate::typing::instantiate_type_recipe(
-                type_recipe,
-                &parent,
-                &mut self.runtime_typing_context,
-                &self.typing_registry,
-            )
-            .ok_or_else(|| RuntimeError::Internal("generic call-entry type recipe could not be instantiated".into()))?;
+            let ty = crate::typing::instantiate_type_recipe(type_recipe, &parent, &mut self.runtime_typing_context, &self.typing_registry)
+                .ok_or_else(|| RuntimeError::Internal("generic call-entry type recipe could not be instantiated".into()))?;
             bindings.push((parameter, ty));
         }
         Ok(self.runtime_type_environments.intern(crate::typing::RuntimeTypeEnvironment::new(bindings)))

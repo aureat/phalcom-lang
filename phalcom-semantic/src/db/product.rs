@@ -11,6 +11,7 @@ use crate::signature::{CallableSemanticSignature, FieldSemanticSignature};
 use crate::source::ParsedModuleUnit;
 use crate::source_index::{CallableSourceAttachment, ModuleSourceIndex};
 use crate::surface::DeclarationSurface;
+use crate::traits::{TraitHeader, TraitSurface};
 use phalcom_modules::interface::{LinkedModuleInterface, UnlinkedModuleInterface};
 use phalcom_modules::linker::LinkedProgram;
 use std::sync::Arc;
@@ -104,6 +105,8 @@ pub enum SemanticProduct {
     LinkedInterface(Arc<LinkedModuleInterface>),
     DeclarationShell(Arc<TypeDeclarationShell>),
     DeclarationSurface(Arc<DeclarationSurfaceProduct>),
+    TraitHeader(Arc<TraitHeader>),
+    TraitSurface(Arc<TraitSurface>),
     CallableDefinition(Arc<crate::impls::EffectiveCallableDefinition>),
     HierarchyEdge(Arc<HierarchyEdgeProduct>),
     CallableSignature(Arc<CallableSemanticSignature>),
@@ -164,6 +167,20 @@ impl SemanticProduct {
     pub fn as_declaration_surface(&self) -> Option<&Arc<DeclarationSurface>> {
         match self {
             Self::DeclarationSurface(product) => Some(&product.surface),
+            _ => None,
+        }
+    }
+
+    pub fn as_trait_header(&self) -> Option<&Arc<TraitHeader>> {
+        match self {
+            Self::TraitHeader(header) => Some(header),
+            _ => None,
+        }
+    }
+
+    pub fn as_trait_surface(&self) -> Option<&Arc<TraitSurface>> {
+        match self {
+            Self::TraitSurface(surface) => Some(surface),
             _ => None,
         }
     }
@@ -312,6 +329,8 @@ impl SemanticProduct {
             Self::LinkedInterface(_) => b"linked-interface".as_slice(),
             Self::DeclarationShell(_) => b"declaration-shell".as_slice(),
             Self::DeclarationSurface(_) => b"declaration-surface".as_slice(),
+            Self::TraitHeader(_) => b"trait-header".as_slice(),
+            Self::TraitSurface(_) => b"trait-surface".as_slice(),
             Self::CallableDefinition(_) => b"callable-definition".as_slice(),
             Self::HierarchyEdge(_) => b"hierarchy-edge".as_slice(),
             Self::CallableSignature(_) => b"callable-signature".as_slice(),

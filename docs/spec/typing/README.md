@@ -1,14 +1,23 @@
-# Phalcom Typing Specification Series
+# Historical Phalcom Typing Design Series
 
-This workspace contains the normative incremental design of Phalcom's optional reflective typing system. The series defines visible Phalcom standard-library source, compiler and VM obligations, reflection, diagnostics, and conformance tests without making type metadata participate in ordinary dispatch.
+> **Historical / non-effective.** This directory preserves an earlier typing
+> design series for reference. It is not the active authority for behavioral
+> contract declarations. The effective C3 rule is [First-Class Traits](../extensions/traits.md).
+> In particular, `@protocol class` and signature-only protocol declarations
+> must not be treated as current Phalcom syntax or semantics.
+
+This workspace contains the historical incremental design of Phalcom's optional
+reflective typing system. The series is retained to preserve rationale and
+future-facing material; it does not override `docs/spec/` current chapters or
+ratified extensions.
 
 ## Series status
 
 | No. | Document | Status |
 |---:|---|---|
-| 01 | [Protocol Foundation](docs/spec/design/typing/01-protocol-foundation.md) | Complete draft |
-| 02 | [Type Expression Foundation](docs/spec/design/typing/02-type-expression-foundation.md) | Complete draft |
-| 03 | [Type Parameters and Generic Signatures](docs/spec/design/typing/03-type-parameters-and-generic-signatures.md) | Complete draft; checkpoint ready for review |
+| 01 | [Protocol Foundation](01-protocol-foundation.md) | Historical; superseded for behavioral contracts |
+| 02 | [Type Expression Foundation](02-type-expression-foundation.md) | Historical design reference |
+| 03 | [Type Parameters and Generic Signatures](03-type-parameters-and-generic-signatures.md) | Historical; trait generics follow the effective trait rule |
 | 04 | Type Application and Applied Types | Next |
 | 05 | Substitution and Applied Member Views | Planned |
 | 06 | Applied-Type Class-Side Forwarding | Planned |
@@ -28,9 +37,11 @@ This workspace contains the normative incremental design of Phalcom's optional r
 | 20 | Complete Typing Module Reference | Planned |
 | 21 | Typing Conformance Suite | Planned |
 
-## Normative policy
+## Historical policy
 
-The visible Phalcom source in each document is authoritative. Native Rust implementations may provide trusted construction, bootstrap support, GC integration, caching, and acceleration only when they preserve the source contract exactly.
+The visible Phalcom source in each document records the historical proposal. It
+is not an effective language rule. Native implementations and later plans must
+follow the current specification and checkpoint records instead.
 
 Type metadata is reflectively observable but never implicitly changes selector identity, method lookup, overload resolution, instance layout, allocation, inline-cache identity, or automatic value validation.
 

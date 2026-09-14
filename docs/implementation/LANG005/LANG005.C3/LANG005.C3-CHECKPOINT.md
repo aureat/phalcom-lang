@@ -4,16 +4,16 @@ category: LANG
 program: LANG005
 checkpoint: LANG005.C3
 kind: checkpoint-record
-status: IN_PROGRESS
-completion: PARTIAL
+status: COMPLETE
+completion: IMPLEMENTED
 verification: FOCUSED_TESTED
 requires:
   - LANG005.C2
 blocked_by: []
-next_plan: LANG005.C3.P1
+next_plan: LANG005.C4.P1
 baseline_revision: 94aed5d6
 requirements: LANG005.C3.P1-requirements-analysis.md
-active_plan: LANG005.C3.P1
+active_plan: null
 ---
 
 # Checkpoint Record — LANG005.C3 Trait Declarations and Abstract Trait Surfaces
@@ -93,14 +93,14 @@ Those remain C4–C8 work.
 
 ```yaml
 checkpoint: LANG005.C3
-status: IN_PROGRESS
-completion: PARTIAL
+status: COMPLETE
+completion: IMPLEMENTED
 verification: FOCUSED_TESTED
-next_plan: LANG005.C3.P1
+next_plan: LANG005.C4.P1
 external_blocker: none
-internal_first_gate: G1
-active_plan: LANG005.C3.P1
-next_action: LANG005.C3.P1.G1
+internal_first_gate: G1 (PASSED)
+active_plan: null
+next_action: close C2-F03 before LANG005.C4.P1
 ```
 
 The previous lifecycle state was stale. It recorded C3 as blocked on `LANG005.C2.P3` at revision `986568da050d1bbfa7f1d769c9e1f4d58eb81cf3`.
@@ -239,7 +239,7 @@ RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --lib typing::environme
 
 The T1 generic-entry requirement is now closed by the semantic callsite
 specialization product and explicit `InvokeSpecialized` transport described in
-§3.7. G1 remains pending only for consolidated AR-01..AR-09 evidence.
+§3.7. The consolidated G1 AR-01..AR-09 evidence is recorded as passed below.
 
 ### 3.5 P1.T2 implementation slice
 
@@ -335,7 +335,7 @@ Do not reorganize C1/C2 as part of C3.
 
 | Plan | Scope | Status | Completion | Verification | Outcome |
 |---|---|---|---|---|---|
-| `LANG005.C3.P1` | C1/C2 takeover remediation; shared index body normalization; first-class trait declarations; `TraitRef`; `TraitRequirementId`; `TraitSurface`; abstract `Self` defaults; incremental/tooling/compiler boundary; protocol-era spec migration | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | T0/T2 complete; T1 product/runtime slice complete; G1 consolidation is blocked by pre-existing C2 exact-case runtime failures |
+| `LANG005.C3.P1` | C1/C2 takeover remediation; shared index body normalization; first-class trait declarations; `TraitRef`; `TraitRequirementId`; `TraitSurface`; abstract `Self` defaults; incremental/tooling/compiler boundary; protocol-era spec migration | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | T0/T2 complete; T1 product/runtime slice complete; C2.P4 complete; G1 passed; trait production work is underway |
 
 P1 is intended to close C3 unless implementation discovers a genuinely separate corrective package required to make the checkpoint acceptance objective truthful.
 
@@ -912,24 +912,221 @@ SourceDeclarationKind::Trait or repository-equivalent
 
 ## 13. P1 Task Ledger
 
-| Task | Scope | State before implementation |
+| Task | Scope | Current state |
 |---|---|---|
 | `T0` | final takeover, local-state capture, audit disposition lock | COMPLETE |
 | `T1` | C1 exact runtime reification + Record logical identity closure | COMPLETE |
 | `T2` | C2 exact-case conditional product publication + owner-complete lifecycle | COMPLETE |
-| `T3` | shared index `MemberBody` normalization | NOT_STARTED |
-| `T4` | canonical trait syntax, module declaration kind, trait header | NOT_STARTED |
-| `T5` | `TraitRef` + requirement/source identity foundations | NOT_STARTED |
-| `T6` | complete `TraitSurface` + signature publication | NOT_STARTED |
-| `T7` | callable-body owner-generic input generalization | NOT_STARTED |
-| `T8` | abstract `Self`, semantic-only contract calls, default analysis | NOT_STARTED |
-| `T9` | incremental products, source index, LSP projection | NOT_STARTED |
-| `T10` | compiler/runtime trait non-class boundary | NOT_STARTED |
-| `T11` | protocol-era specification migration | NOT_STARTED |
-| `T12` | focused stabilization, checkpoint closure, walkthrough, C4 handoff | NOT_STARTED |
+| `T3` | shared index `MemberBody` normalization | COMPLETE — FOCUSED_TESTED |
+| `T4` | canonical trait syntax, module declaration kind, trait header | COMPLETE — FOCUSED_TESTED |
+| `T5` | `TraitRef` + requirement/source identity foundations | COMPLETE — FOCUSED_TESTED |
+| `T6` | complete `TraitSurface` + signature publication | COMPLETE — FOCUSED_TESTED |
+| `T7` | callable-body owner-generic input generalization | COMPLETE — FOCUSED_TESTED |
+| `T8` | abstract `Self`, semantic-only contract calls, default analysis | COMPLETE — FOCUSED_TESTED |
+| `T9` | incremental products, source index, LSP projection | COMPLETE — FOCUSED_TESTED |
+| `T10` | compiler/runtime trait non-class boundary | COMPLETE — FOCUSED_TESTED |
+| `T11` | protocol-era specification migration | COMPLETE — FOCUSED_TESTED |
+| `T12` | focused stabilization, checkpoint closure, walkthrough, C4 handoff | COMPLETE — FOCUSED_TESTED |
 
-T1/T2 production repairs are recorded above. Trait production work remains
-gated on G1.
+T1/T2 production repairs and the passed G1 predecessor gate are recorded
+above. T3 through T12 are complete; C3 is closed at focused verification
+strength.
+
+### T3 completed state — shared index body normalization
+
+`IndexMethodDef.body` now uses the shared `MemberBody` representation. Class and
+impl parser paths continue to require executable block bodies, while the
+behavior-member parser has an explicit declaration-body switch for the trait
+context introduced by T4. Semantic checking, source indexing, anonymous
+product discovery, optimizer traversal, and compiler lowering all distinguish
+`MemberBody::Declaration` from `MemberBody::Block`.
+
+Focused T3 evidence:
+
+- `phalcom-ast` subscript parser lane — 5 passed, 0 failed, including the
+  bodyless class-subscript rejection regression.
+- `phalcom-core` subscript declaration dispatch — 1 passed, 0 failed.
+- `phalcom-core` bound subscript family execution — 1 passed, 0 failed.
+- `cargo check` for `phalcom-ast`, `phalcom-semantic`, and `phalcom-core` —
+  passed.
+
+### T4 completed state — canonical trait syntax and header
+
+`trait` is a first-class AST/module declaration with precise name and whole
+declaration ranges. It uses the shared `BehaviorMember` grammar and shared
+`MemberBody`, admits bodyless method/getter/setter/index requirements, retains
+bodyful default source, and rejects storage, constructors, and class-side
+trait attributes at the declaration boundary.
+
+`DeclarationKind::Protocol` was verified to be an unused local migration seam:
+there are no live serialization, generated-metadata, persisted-cache, or
+plugin consumers. It is now `DeclarationKind::Trait`. Module interfaces,
+semantic shards, source indexing, workspace symbols, compiler exhaustiveness,
+and LSP presentation all preserve the canonical declaration identity.
+
+Trait generic headers are published in `SemanticSnapshot::trait_headers` as a
+separate `TraitHeaderTable`. Generic binders use
+`TypeParameterOwner::Declaration(DeclarationId)`, while traits deliberately
+do not enter `DeclarationTypeTable` and receive no nominal/class-object type.
+
+Focused T4 evidence:
+
+- `phalcom-ast` trait syntax lane — 3 passed, 0 failed.
+- `phalcom-modules` trait interface lane — 3 passed, 0 failed.
+- `phalcom-modules` trait declaration-shell lane — 1 passed, 0 failed.
+- `phalcom-semantic` generic trait header lane — 1 passed, 0 failed.
+- workspace crate checks — passed.
+
+### T5 completed state — TraitRef and requirement/source identity
+
+`TraitRef` is a canonical contract reference over a verified trait declaration
+and store-local canonical `TypeId` arguments. Formation validates the published
+trait header, argument arity and kinds, and the header's existing ordinary
+generic constraints through the canonical subtype relation. It does not create
+an inhabitable type form, a nominal declaration entry, or conformance evidence.
+
+`TraitRequirementId` is keyed only by trait owner, exact selector, and instance
+dispatch side. Its `source_callable()` helper constructs the distinct,
+declaration-owned `CallableId` used for trait member source/default products;
+default presence therefore cannot change either identity.
+
+Focused T5 evidence:
+
+- `phalcom-semantic` trait capability identity lane — 5 passed, 0 failed.
+- exact test registration verified with `cargo test -- --list`.
+- `phalcom-semantic` crate check — passed.
+- `git diff --check` — passed.
+
+### T6 completed state — complete trait surface and signature publication
+
+`TraitSurfaceTable` is now published as a separate immutable snapshot product.
+Each trait surface publishes method, getter, setter, bodyless-index, and
+bodyful-index members with canonical declaration-owned `CallableId`s, semantic
+signatures, visibility, source metadata, and default-presence metadata without
+running callable-body analysis or inserting ordinary declaration/dispatch
+surfaces. Trait and member generic binders reuse the existing declaration and
+callable ownership model. Duplicate selector/side requirements preserve the
+first member and emit the canonical trait-member conflict diagnostic.
+
+Focused T6 evidence:
+
+- `phalcom-semantic` trait capability lane — 8 passed, 0 failed.
+- `phalcom-semantic` crate check — passed.
+- `git diff --check` — passed.
+
+### T7 completed state — explicit owner-generic body input
+
+Callable-body requests now accept an optional explicit owner
+`GenericSignature`. When supplied, body lexical binding uses its canonical
+`TypeParameterId`s directly; when absent, nominal instance callables retain
+their existing `DeclarationTypeTable` lookup. Callable-body input fingerprints
+include the explicit signature, and callable-local generic binders continue to
+come from canonical callable signature metadata. The nominal declaration table
+remains unchanged.
+
+Focused T7 evidence:
+
+- generic nominal class-side and inherited/impl body regressions — 2 passed,
+  0 failed.
+- explicit generic trait-default body scaffolding, including trait-owner and
+  member-local binders — 1 passed, 0 failed.
+- full semantic trait capability lane — 9 passed, 0 failed.
+- `git diff --check` — passed.
+
+### T8 completed state — abstract Self and contract-relative defaults
+
+Trait default bodies are analyzed once against the complete published
+`TraitSurface`. The body context receives the trait header's explicit owner
+generic signature and an abstract `SelfTypeTerm`; lookup of `self` sends uses
+the trait surface directly and produces an `AbstractContract` application
+target with a callable identity but no runtime invocation target. Bodyless,
+later-declared, bodyful, generic, and `Self` requirements all use the canonical
+argument checker; unknown members, fields, and `super` do not acquire concrete
+dispatch dependencies. Traits remain outside nominal declaration metadata.
+
+Focused T8 evidence:
+
+- consolidated semantic trait/default lane — 12 passed, 0 failed.
+- `phalcom-semantic` crate check — passed.
+- `git diff --check` — passed.
+
+### T9 completed state — durable trait products and source projection
+
+`TraitHeader` and `TraitSurface` are DB-owned products with distinct query
+keys, input/product fingerprints, and dependency edges. Trait default body
+queries consume the published `TraitSurface` and canonical member signatures;
+body edits do not enter the surface product. Trait default contexts remain
+contract-relative: they have no nominal current class, active trait-`Self`
+lookup does not fall through to nominal dispatch, and trait `super` is rejected
+before hierarchy access. Bootstrap Universe declaration shells are excluded at
+capture time, while external nominal dependencies remain replayable. Source
+index declaration and member targets reuse canonical `DeclarationId` and
+`CallableId` identities, with interface-like trait presentation.
+
+Focused T9 evidence:
+
+- semantic trait capability/dependency lane — 13 passed, 0 failed.
+- incremental trait product/query lane — 3 passed, 0 failed.
+- canonical trait source-index target/workspace-symbol test — 1 passed, 0 failed.
+- `RUSTFLAGS='' RUSTC_WRAPPER='' cargo check -p phalcom-semantic` — passed.
+- scoped `git diff --check` — passed.
+
+Full semantic, LSP, workspace, and release gates remain deferred by plan.
+
+### T10 completed state — compiler/runtime non-class boundary
+
+`Statement::Trait` is handled as a compile-time/type-level declaration by the
+compiler and product visitors. It creates no ordinary runtime class, value
+binding, finalization, storage, method installation, or runtime trait scan.
+Trait defaults remain semantic-only until later conformance/witness work.
+
+Focused T10 evidence:
+
+- new trait compiler/runtime boundary tests — 2 passed, 0 failed.
+- adjacent inherent-implementation lane — 15 passed, 0 failed.
+- adjacent algebraic-data lane — 44 passed, 0 failed, 19 ignored as pre-existing gated/known cases.
+
+No runtime trait descriptor or conformance machinery was introduced.
+
+### T11 completed state — effective trait specification
+
+The effective specification now names `trait` as the single C3 behavioral-
+contract model. `docs/spec/extensions/traits.md` is the canonical extension;
+the current specification and syntax indexes link to it, and the current
+open-questions record no longer claims that traits are absent. The former
+protocol-oriented typing documents and deferred meta-dispatch proposal are
+explicitly marked historical or deferred, with their useful design history
+preserved. No C4 conformance, C5 associated-type, C6 constraint, runtime
+descriptor, or metatype rule was promoted.
+
+Focused T11 evidence:
+
+- targeted searches of `docs/spec/current` and `docs/spec/extensions` found no
+  active `@protocol class`, signature-only protocol, structural-conformance, or
+  protocol-default contract rule;
+- canonical extension/index links and migrated-document status markers were
+  reviewed;
+- scoped `git diff --check` passed.
+
+No compilation or code tests were run for this prose-only task, as required by
+the plan. All code tests remain covered by the T3–T10 gates and the final G6
+rerun recorded below.
+
+### T12 completed state — focused closure and C4 handoff
+
+G6 completed at focused verification strength. The final acceptance lanes
+selected nonzero tests and passed: AST trait syntax 3, module declaration kind
+1, semantic trait capabilities 13, incremental traits 3, source index 1, core
+trait runtime boundary 2, core inherent implementations 15, and adjacent
+algebraic-data behavior 44. The algebraic-data lane also reported 19 ignored
+pre-existing gated/RED cases; none is an active C3 failure. `cargo fmt --all -- --check`,
+tracked `git diff --check`, and the production negative-architecture
+searches passed.
+
+The C3 plan is complete as `IMPLEMENTED` + `FOCUSED_TESTED`. The worktree
+remains intentionally dirty with unrelated user/agent changes; no cleanup,
+commit, or push was performed. `C2-F03` remains the mandatory pre-C4
+applicability-proof-state closure and is not silently promoted into C3.
 
 ---
 
@@ -1045,9 +1242,9 @@ G6 is checkpoint certification, not LANG005 release certification.
 ## 15. Verification Ledger
 
 C3 implementation verification is `FOCUSED_TESTED` for the completed T1/T2
-repair slices. The plan remains incomplete. G1 evidence is currently
-`BASELINE_BLOCKED` by pre-existing core exact-case runtime failures described
-in the deferred/baseline ledger below; no trait production work has begun.
+repair slices and the complete T3–T12 trait plan. G1 evidence is `PASS`; the
+former exact-case runtime failures are closed by C2.P4. Full workspace/release
+certification remains outside this checkpoint.
 
 Planning/repository evidence:
 
@@ -1116,20 +1313,24 @@ state: deferred
 reason: coarse invalidation may be improved later without redesigning C3
 ```
 
-### DEF-006 — C2 exact-case runtime baseline failures
+### DEF-006 — C2 exact-case runtime failures
 
 ```text
 scope: phalcom-core/tests/core language::inherent_impl
-state: baseline-blocked
-observed: 2 of 15 focused tests fail because exact enum-case values do not
-          answer their specialized methods at runtime
-classification: D — reproduced unchanged at clean predecessor 94aed5d6
-impact: prevents G1 from being certified as a complete AR-01..AR-09 gate;
-        does not invalidate the T1/T2 implementation repairs
+state: closed by LANG005.C2.P4
+observed: 2 of 15 focused tests failed before the exact-case precedence and
+          lowering-classification repairs
+resolution: semantic exact-case selection now precedes ordinary enum-root
+           results; unconditional/covering exact-case members remain
+           installable as VariantMethod while receiver-dependent domains stay
+           conditional
+evidence: both regressions pass and the complete language::inherent_impl lane
+          passes 15/15
 ```
 
-The remaining 13 focused conditional tests pass. The failing baseline is
-preserved for the owning C2 follow-up and is not repaired as part of T1.
+The two failures reproduced at the clean predecessor, but advisory review
+classified them as a real G1-blocking C2 predecessor defect rather than
+optional baseline noise. C2.P4 now owns and closes that defect.
 
 ### PRE-C4-001 — Applicability proof-state distinction
 
@@ -1148,6 +1349,55 @@ Do not begin C4 proof/witness implementation while the semantic result model can
 with the explicit semantic-product / `InvokeSpecialized` / interned-environment
 transport described in §3.7. Verdict: plan sound, architectural clarification
 required, no plan amendment, Luna may resume.
+
+`LANG005.C3.P1.G1 consultation` — the advisory review confirmed that the two
+exact-enum-case runtime failures are a real predecessor defect in `AR-07`
+(direct/bound/runtime coherence), even though they reproduce at the clean
+predecessor and were not introduced by T1/T2. Verdict: plan sound, no plan
+amendment. C2.P4 repaired the semantic precedence and lowering
+classification seams; both regressions and the complete core
+inherent-impl lane now pass.
+
+`LANG005.C3.P1.T9 consultation` — durable trait-body query replay initially
+captured nominal shell and hierarchy probes for the synthetic trait owner and
+could not replay them. The advisory ruling kept generic dependency tracking,
+moved the correction to the trait semantic boundary, made trait defaults
+non-nominal (`current_class = None`), made active trait-`Self` lookup terminal,
+rejected trait `super` before hierarchy access, and filtered immutable Universe
+shells at capture time. Verdict: plan sound, no plan amendment.
+
+Required disposition:
+
+```text
+LANG005.C3.P1: COMPLETE — IMPLEMENTED — FOCUSED_TESTED
+T1: COMPLETE — FOCUSED_TESTED
+T2: COMPLETE — FOCUSED_TESTED
+G1: PASS — CONSOLIDATED_AR-01..AR-09
+T3: COMPLETE — FOCUSED_TESTED
+T4: COMPLETE — FOCUSED_TESTED
+T5: COMPLETE — FOCUSED_TESTED
+T6: COMPLETE — FOCUSED_TESTED
+T7: COMPLETE — FOCUSED_TESTED
+T8: COMPLETE — FOCUSED_TESTED
+T9: COMPLETE — FOCUSED_TESTED
+T10: COMPLETE — FOCUSED_TESTED
+T11: COMPLETE — FOCUSED_TESTED
+```
+
+G1 is passed. T3 through T12 are focused-tested. C3 is complete at focused
+verification strength; C2-F03 remains a hard pre-C4 condition.
+
+The advisory follow-up identified the concrete root cause and repair seam:
+`CheckingContext::resolve_dispatch_target_with_specialization` returns an
+ordinary enum-root result before consulting an applicable exact-case
+conditional member. A root requirement/default therefore shadowed the more
+specific case implementation, no conditional selection was published, and
+lowering emitted ordinary `Invoke`. The C2 follow-up gave exact-case
+conditional selection precedence over same-selector root behavior, preserved
+ordinary precedence for declaration-target conditional members, applied the
+same exact-case overlay to receiver-effective/editor lookup, and repaired
+lowering's distinction between receiver-dependent domains and exact-case
+identity domains. Runtime selection itself remained unchanged.
 
 ### Adopted planning amendments
 
@@ -1550,19 +1800,21 @@ C3 completion does **not** imply full LANG005 release certification.
 
 ### Active plan
 
-`LANG005.C3.P1`
+None; `LANG005.C3.P1` is complete.
 
 ### Next plan
 
 ```text
-LANG005.C3.P1
-    First-Class Trait Declarations and Abstract Trait Surfaces
+LANG005.C4.P1
+    Explicit Conformance Declarations, Ownership, and Coherence
 ```
 
 ### Current next action
 
 ```text
-Run the consolidated G1 focused evidence for AR-01..AR-09. If it passes, begin LANG005.C3.P1.T3 shared behavior-member/index normalization; do not start trait production source work before G1.
+Close `C2-F03` applicability-proof-state debt, then begin
+`LANG005.C4.P1` explicit conformance/coherence work.
 
-T1 and T2 must complete before G1. Do not add Statement::Trait, rename DeclarationKind::Protocol, or implement TraitRef/TraitSurface/default semantics before G1 passes.
+G1 and T3 through T12 have passed. C3 is complete at focused verification
+strength; broader certification remains deferred.
 ```

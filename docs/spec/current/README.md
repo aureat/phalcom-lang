@@ -32,6 +32,7 @@ silently invented.
 | [Numbers](../library/numbers/) | Numeric tower and floating-point protocol |
 | [Bitwise operators](../library/numbers/bitwise.md) | Integer bitwise semantics |
 | [Standard library](../library/README.md) | Public library surfaces extending the core |
+| [First-class traits](../extensions/traits.md) | Non-storage behavioral contracts and declaration-local defaults |
 | [Traceback](traceback/README.md) | Diagnostic rendering contract |
 | [Modules & Imports](modules.md) | `import "./path" as Name`, the `Module` namespace object, canonical-path memoization, cyclic imports |
 | [Implementation Status](../../forge/spec-status.md) | Divergence between this spec and the current tree |

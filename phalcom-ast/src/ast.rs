@@ -27,6 +27,7 @@ pub enum Statement {
     Class(ClassDef),
     Enum(EnumDef),
     Data(DataDef),
+    Trait(TraitDef),
     Impl(ImplDef),
     TypeAlias(TypeAliasDef),
     Let(LetBinding),
@@ -383,6 +384,23 @@ pub struct DataDef {
     pub generic_parameters: Vec<GenericParameterSyntax>,
     pub where_clause: Option<WhereClauseSyntax>,
     pub shape: DataShapeSyntax,
+    pub attributes: Vec<Attribute>,
+    pub range: SourceRange,
+}
+
+/// A first-class behavioral contract declaration.
+///
+/// Traits own no storage, superclass, variants, or runtime class identity.
+/// Their members reuse the shared behavior grammar; declaration-only bodies
+/// are retained for abstract requirements and block bodies for later default
+/// implementation analysis.
+#[derive(Debug, Clone)]
+pub struct TraitDef {
+    pub name: String,
+    pub name_range: SourceRange,
+    pub generic_parameters: Vec<GenericParameterSyntax>,
+    pub where_clause: Option<WhereClauseSyntax>,
+    pub members: Vec<BehaviorMember>,
     pub attributes: Vec<Attribute>,
     pub range: SourceRange,
 }
@@ -903,8 +921,9 @@ pub struct IndexMethodDef {
     pub return_annotation: Option<TypeAnnotation>,
     /// Generic `where` constraints attached to this index member.
     pub where_clause: Option<WhereClauseSyntax>,
-    /// The method body.
-    pub body: Vec<Statement>,
+    /// The method body, preserving declaration-only members for abstract
+    /// contract contexts.
+    pub body: MemberBody,
     /// `@name(args…)` attributes attached to this member, in declaration
     /// order. See [`MethodDef::attributes`].
     pub attributes: Vec<Attribute>,

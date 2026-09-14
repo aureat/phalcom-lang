@@ -5,8 +5,8 @@ use super::family::FamilyOperationShape;
 use super::id::{KindId, TypeId};
 use crate::associated::AssociatedMemberId;
 use crate::checker::associated::BehavioralFamilySpec;
-use crate::identity::{AssociatedFamilyId, DeclarationId, InvocationTargetId};
 use crate::dispatch::ConditionalDispatchSelection;
+use crate::identity::{AssociatedFamilyId, DeclarationId, InvocationTargetId};
 use std::sync::Arc;
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

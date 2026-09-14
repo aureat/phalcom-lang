@@ -1,17 +1,24 @@
 # Type Expression Foundation
 
+> **Historical / non-effective.** This document is retained as design history
+> and is not the current authority for behavioral contracts or protocol-shaped
+> declarations. Use [`First-Class Traits`](../extensions/traits.md) for the
+> effective C3 contract model.
+
 > **Superseded terminology:** current Phalcom typing ontology reserves `Type`
 > for the atomic kind and uses `TypeForm` for the common type-denoting role.
 > This document is retained as design history. See `ontology.md`.
 
-- **Status:** Proposed normative design; not a claim of current compiler or VM support
+- **Status:** Historical design reference; not an active normative specification
 - **Date:** 2026-07-23
 - **Depends on:** Document 01 — Protocol Foundation; class and protocol descriptor identity; immutable collections; method, class, module, and source reflection; trusted bootstrap shells
 - **Supersedes:** the `Type` and `TypeDescriptor` fragments in the Phase 1 reference package wherever they conflict with this document
 - **Superseded by:** none
 - **Related ADRs and specifications:** `docs/spec/design/typing/01-protocol-foundation.md`, the current object-model, selector, attribute, module, reflection, `@native`, and immutable-value specifications, and Documents 03–07, 10, 13, 16–21 of this series
 
-This document is the second normative part of the Phalcom typing specification series. It defines the common object protocol for type expressions, makes existing class and protocol descriptors type expressions directly, establishes the implementation base for synthetic descriptors, fixes normalization and equivalence rules, and reserves the public `Type.currentApplication` surface.
+This document was the second proposal in the historical Phalcom typing series.
+It is retained for its type-expression rationale and does not define current
+behavioral-contract declarations.
 
 The visible Phalcom source in Section 6 is normative. Native implementations may replace selected `@native` methods only when they preserve that source contract exactly.
 

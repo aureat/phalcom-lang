@@ -859,6 +859,7 @@ impl Backend {
                 phalcom_semantic::EditorSymbolKind::Class => SymbolKind::CLASS,
                 phalcom_semantic::EditorSymbolKind::Enum => SymbolKind::ENUM,
                 phalcom_semantic::EditorSymbolKind::Data => SymbolKind::STRUCT,
+                phalcom_semantic::EditorSymbolKind::Trait => SymbolKind::INTERFACE,
                 phalcom_semantic::EditorSymbolKind::TypeAlias => SymbolKind::TYPE_PARAMETER,
                 phalcom_semantic::EditorSymbolKind::Callable => SymbolKind::METHOD,
                 phalcom_semantic::EditorSymbolKind::Field => SymbolKind::FIELD,

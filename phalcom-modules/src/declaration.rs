@@ -30,7 +30,7 @@ impl DeclarationId {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DeclarationKind {
     Class,
-    Protocol,
+    Trait,
     Adt,
     Data,
     Alias,

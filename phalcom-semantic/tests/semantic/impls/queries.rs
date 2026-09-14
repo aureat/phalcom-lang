@@ -5,7 +5,7 @@ use phalcom_modules::linker::{LinkedModule, LinkedProgram, ModuleBindingLayout};
 use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::source::ModuleKind;
 use phalcom_semantic::db::QueryKey;
-use phalcom_semantic::identity::{CallableId, DeclarationId, DispatchSide};
+use phalcom_semantic::identity::{CallableId, CallableOwnerId, DeclarationId, DispatchSide};
 use phalcom_semantic::impls::CallableDefinitionOrigin;
 use phalcom_semantic::session::{SemanticWorkspaceSession, SemanticWorkspaceUpdate};
 use phalcom_semantic::source::ParsedModuleUnit;
@@ -189,9 +189,19 @@ fn impl_body_only_edit_preserves_surface_and_reuses_unaffected_callable() {
         "class User {}\nimpl User { greet() -> String { \"second\" } }\nclass Other { keep() -> Bool { false } }\n",
     ));
     assert!(!second.snapshot.has_errors(), "diagnostics: {:?}", second.snapshot.diagnostics);
-    assert_eq!(first_surface, surface_fingerprint(&second, &owner("User")), "impl body bytes must not enter effective surface identity");
-    assert_eq!(first_signature, *second.snapshot.callable_signatures.get(&callable).expect("reused impl signature"));
-    assert!(!Arc::ptr_eq(&first_analysis, second.snapshot.callable_analyses.get(&callable).expect("refreshed impl body")));
+    assert_eq!(
+        first_surface,
+        surface_fingerprint(&second, &owner("User")),
+        "impl body bytes must not enter effective surface identity"
+    );
+    assert_eq!(
+        first_signature,
+        *second.snapshot.callable_signatures.get(&callable).expect("reused impl signature")
+    );
+    assert!(!Arc::ptr_eq(
+        &first_analysis,
+        second.snapshot.callable_analyses.get(&callable).expect("refreshed impl body")
+    ));
     assert!(second.stats.callable_signatures_reused > 0, "signature product should remain reusable");
 }
 
@@ -214,7 +224,10 @@ fn unrelated_class_body_edit_reuses_impl_callable_and_surface() {
     ));
     assert!(!second.snapshot.has_errors(), "diagnostics: {:?}", second.snapshot.diagnostics);
     assert_eq!(first_surface, surface_fingerprint(&second, &owner("User")));
-    assert!(Arc::ptr_eq(&first_analysis, second.snapshot.callable_analyses.get(&callable).expect("unrelated edit must retain impl body")));
+    assert!(Arc::ptr_eq(
+        &first_analysis,
+        second.snapshot.callable_analyses.get(&callable).expect("unrelated edit must retain impl body")
+    ));
 }
 
 #[test]
@@ -227,7 +240,10 @@ fn impl_return_annotation_and_member_addition_change_only_affected_surfaces() {
         "class Alpha {}\nclass Beta {}\nclass Caller { run(value: Alpha) { value.ping() } }\nimpl Alpha { ping() -> String { \"a\" } }\nimpl Beta { keep() -> Bool { true } }\n",
     ));
     assert!(!first.snapshot.has_errors(), "diagnostics: {:?}", first.snapshot.diagnostics);
-    let caller = impl_callable("Caller", Selector::method("run", [phalcom_common::selector::SelectorSlot::Label("value".into())]).unwrap());
+    let caller = impl_callable(
+        "Caller",
+        Selector::method("run", [phalcom_common::selector::SelectorSlot::Label("value".into())]).unwrap(),
+    );
     let first_caller = first.snapshot.callable_analyses.get(&caller).cloned().expect("caller body");
 
     let second = session.update(single_module_input(
@@ -242,15 +258,25 @@ fn impl_return_annotation_and_member_addition_change_only_affected_surfaces() {
     );
     assert_ne!(surface_fingerprint(&first, &owner("Alpha")), surface_fingerprint(&second, &owner("Alpha")));
     assert!(second.snapshot.surfaces().get(&owner("Alpha")).is_some_and(|surface| {
-        surface.instance.callable_signatures.keys().any(|selector| selector.encode().starts_with("extra"))
+        surface
+            .instance
+            .callable_signatures
+            .keys()
+            .any(|selector| selector.encode().starts_with("extra"))
     }));
-    assert!(!Arc::ptr_eq(&first_caller, second.snapshot.callable_analyses.get(&caller).expect("caller body")), "target signature change invalidates dependent caller");
+    assert!(
+        !Arc::ptr_eq(&first_caller, second.snapshot.callable_analyses.get(&caller).expect("caller body")),
+        "target signature change invalidates dependent caller"
+    );
 }
 
 #[test]
 fn adding_impl_member_does_not_invalidate_another_target_or_its_caller() {
     let module = test_module();
-    let caller = impl_callable("Caller", Selector::method("run", [phalcom_common::selector::SelectorSlot::Label("value".into())]).unwrap());
+    let caller = impl_callable(
+        "Caller",
+        Selector::method("run", [phalcom_common::selector::SelectorSlot::Label("value".into())]).unwrap(),
+    );
     let mut session = SemanticWorkspaceSession::new();
     let first = session.update(single_module_input(
         module.clone(),
@@ -266,7 +292,10 @@ fn adding_impl_member_does_not_invalidate_another_target_or_its_caller() {
     ));
     assert!(!second.snapshot.has_errors(), "diagnostics: {:?}", second.snapshot.diagnostics);
     assert_eq!(alpha_surface, surface_fingerprint(&second, &owner("Alpha")));
-    assert!(Arc::ptr_eq(&caller_v1, second.snapshot.callable_analyses.get(&caller).expect("unchanged caller body")));
+    assert!(Arc::ptr_eq(
+        &caller_v1,
+        second.snapshot.callable_analyses.get(&caller).expect("unchanged caller body")
+    ));
     assert_ne!(surface_fingerprint(&first, &owner("Beta")), surface_fingerprint(&second, &owner("Beta")));
 }
 
@@ -275,12 +304,14 @@ fn impl_whitespace_and_range_edit_preserves_semantic_surface_fingerprint() {
     let module = test_module();
     let callable = impl_callable("User", Selector::method("greet", []).unwrap());
     let mut session = SemanticWorkspaceSession::new();
-    let first = session.update(single_module_input(module.clone(), "class User {}\nimpl User { greet() -> String { \"hi\" } }\n"));
+    let first = session.update(single_module_input(
+        module.clone(),
+        "class User {}\nimpl User { greet() -> String { \"hi\" } }\n",
+    ));
     assert!(!first.snapshot.has_errors(), "diagnostics: {:?}", first.snapshot.diagnostics);
     let first_surface = surface_fingerprint(&first, &owner("User"));
-    let first_signature = phalcom_semantic::db::fingerprint::callable_signature_product_fingerprint(
-        first.snapshot.callable_signatures.get(&callable).expect("impl signature"),
-    );
+    let first_signature =
+        phalcom_semantic::db::fingerprint::callable_signature_product_fingerprint(first.snapshot.callable_signatures.get(&callable).expect("impl signature"));
 
     let second = session.update(single_module_input(
         module,
@@ -301,15 +332,47 @@ fn moving_impl_target_retires_old_callable_and_publishes_new_target() {
     let alpha_ping = impl_callable("Alpha", Selector::method("ping", []).unwrap());
     let beta_ping = impl_callable("Beta", Selector::method("ping", []).unwrap());
     let mut session = SemanticWorkspaceSession::new();
-    let first = session.update(single_module_input(module.clone(), "class Alpha {}\nclass Beta {}\nimpl Alpha { ping() -> Int { 1 } }\n"));
+    let first = session.update(single_module_input(
+        module.clone(),
+        "class Alpha {}\nclass Beta {}\nimpl Alpha { ping() -> Int { 1 } }\n",
+    ));
     assert!(!first.snapshot.has_errors(), "diagnostics: {:?}", first.snapshot.diagnostics);
     assert!(first.snapshot.callable_definitions.contains_key(&alpha_ping));
 
-    let second = session.update(single_module_input(module, "class Alpha {}\nclass Beta {}\nimpl Beta { ping() -> Int { 1 } }\n"));
-    assert!(!second.snapshot.callable_definitions.contains_key(&alpha_ping), "old target must lose the moved definition");
-    assert!(second.snapshot.callable_definitions.contains_key(&beta_ping), "new target must publish the moved definition");
-    assert!(!second.snapshot.surfaces().get(&owner("Alpha")).expect("Alpha surface").instance.callable_signatures.keys().any(|selector| selector.encode().starts_with("ping")));
-    assert!(second.snapshot.surfaces().get(&owner("Beta")).expect("Beta surface").instance.callable_signatures.keys().any(|selector| selector.encode().starts_with("ping")));
+    let second = session.update(single_module_input(
+        module,
+        "class Alpha {}\nclass Beta {}\nimpl Beta { ping() -> Int { 1 } }\n",
+    ));
+    assert!(
+        !second.snapshot.callable_definitions.contains_key(&alpha_ping),
+        "old target must lose the moved definition"
+    );
+    assert!(
+        second.snapshot.callable_definitions.contains_key(&beta_ping),
+        "new target must publish the moved definition"
+    );
+    assert!(
+        !second
+            .snapshot
+            .surfaces()
+            .get(&owner("Alpha"))
+            .expect("Alpha surface")
+            .instance
+            .callable_signatures
+            .keys()
+            .any(|selector| selector.encode().starts_with("ping"))
+    );
+    assert!(
+        second
+            .snapshot
+            .surfaces()
+            .get(&owner("Beta"))
+            .expect("Beta surface")
+            .instance
+            .callable_signatures
+            .keys()
+            .any(|selector| selector.encode().starts_with("ping"))
+    );
 }
 
 #[test]
@@ -383,13 +446,48 @@ fn incremental_case_only_member_leaves_root_surface_unchanged() {
     let root_surface_v2 = surface_fingerprint(&second, &owner("Choice"));
     let b_variant = phalcom_semantic::identity::VariantId::new(owner("Choice"), Selector::getter("B").unwrap());
     let b_target = phalcom_semantic::impls::InherentImplTarget::ExactEnumCase(b_variant);
-    assert_eq!(second.snapshot.dispatch.get_conditional_members(&a_target).map(|set| set.members.len()), Some(1));
-    assert_eq!(second.snapshot.dispatch.get_conditional_members(&b_target).map(|set| set.members.len()), Some(1));
+    assert_eq!(
+        second.snapshot.dispatch.get_conditional_members(&a_target).map(|set| set.members.len()),
+        Some(1)
+    );
+    assert_eq!(
+        second.snapshot.dispatch.get_conditional_members(&b_target).map(|set| set.members.len()),
+        Some(1)
+    );
 
-    assert_eq!(root_surface_v1, root_surface_v2, "case-only members must not alter root enum declaration surface");
+    assert_eq!(
+        root_surface_v1, root_surface_v2,
+        "case-only members must not alter root enum declaration surface"
+    );
 
     let third = session.update(single_module_input(module, "enum Choice {\n  A\n  B\n}\n"));
-    assert!(!third.snapshot.has_errors(), "removal must not leave diagnostics: {:?}", third.snapshot.diagnostics);
+    assert!(
+        !third.snapshot.has_errors(),
+        "removal must not leave diagnostics: {:?}",
+        third.snapshot.diagnostics
+    );
     assert!(third.snapshot.dispatch.get_conditional_members(&a_target).is_none());
     assert!(third.snapshot.dispatch.get_conditional_members(&b_target).is_none());
+}
+
+#[test]
+fn exact_case_conditional_precedence_shadows_root_requirement() {
+    let module = test_module();
+    let source = "enum Status { Ready Done }\nimpl Status { code() -> Int }\nimpl Status::Ready { code() -> Int { 1 } }\nimpl Status::Done { code() -> Int { 2 } }\nclass Probe { run() -> Int { Status::Ready.code() } }\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
+
+    let selection = output
+        .snapshot
+        .callable_analyses
+        .values()
+        .flat_map(|analysis| analysis.expressions.values())
+        .find_map(|expression| expression.conditional_dispatch.as_ref())
+        .expect("exact-case call must publish conditional dispatch selection");
+    assert!(matches!(
+        &selection.callable.owner,
+        CallableOwnerId::Variant(variant) if variant.owner == DeclarationId::new(module, "Status".into())
+    ));
+    assert_eq!(selection.callable.selector, Selector::method("code", []).unwrap());
 }

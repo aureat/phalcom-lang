@@ -1,4 +1,10 @@
-# Typing Specification Status
+# Historical Typing Specification Status
+
+> **Superseded as language-feature authority.** The entries below record the
+> former protocol-oriented design. For current behavioral-contract semantics,
+> use [First-Class Traits](../extensions/traits.md). The historical entries are
+> retained for rationale and future work; they do not ratify `@protocol class`,
+> signature-only protocols, or protocol defaults in the current language.
 
 - **Checkpoint date:** 2026-07-23
 - **Completed:** Documents 01–03

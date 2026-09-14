@@ -219,7 +219,10 @@ pub fn trace_object(obj: &Object, layouts: &crate::product::ProductLayoutRegistr
             if let Some(layout) = layouts.get(tuple.storage().layout_id()) {
                 for &offset in layout.value_slot_offsets() {
                     let offset = offset as usize;
-                    trace_value(Value::from_raw_words(tuple.storage().words()[offset], tuple.storage().words()[offset + 1]), push);
+                    trace_value(
+                        Value::from_raw_words(tuple.storage().words()[offset], tuple.storage().words()[offset + 1]),
+                        push,
+                    );
                 }
             }
         }
@@ -227,7 +230,10 @@ pub fn trace_object(obj: &Object, layouts: &crate::product::ProductLayoutRegistr
             if let Some(layout) = layouts.get(record.storage().layout_id()) {
                 for &offset in layout.value_slot_offsets() {
                     let offset = offset as usize;
-                    trace_value(Value::from_raw_words(record.storage().words()[offset], record.storage().words()[offset + 1]), push);
+                    trace_value(
+                        Value::from_raw_words(record.storage().words()[offset], record.storage().words()[offset + 1]),
+                        push,
+                    );
                 }
             }
         }

@@ -440,6 +440,7 @@ fn build_module_workspace_symbols(structure: &SourceScopeIndex) -> Arc<[Workspac
                 SourceDeclarationKind::Class => EditorSymbolKind::Class,
                 SourceDeclarationKind::Enum => EditorSymbolKind::Enum,
                 SourceDeclarationKind::Data => EditorSymbolKind::Data,
+                SourceDeclarationKind::Trait => EditorSymbolKind::Trait,
                 SourceDeclarationKind::TypeAlias => EditorSymbolKind::TypeAlias,
             },
             container_name: None,

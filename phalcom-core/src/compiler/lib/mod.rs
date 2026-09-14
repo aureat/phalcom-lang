@@ -821,6 +821,10 @@ impl<'vm> Compiler<'vm> {
             Statement::Data(data_def) => {
                 self.compile_data(&data_def)?;
             }
+            // Traits are compile-time contract declarations in C3. Their
+            // members are not runtime class members and default lowering is
+            // introduced by later trait-surface tasks.
+            Statement::Trait(_) => {}
             // An inherent impl is a declarative source fragment. Its accepted
             // members are installed while compiling the canonical target;
             // visiting the fragment itself must never mutate runtime state.

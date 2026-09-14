@@ -40,6 +40,7 @@ use crate::signature::{CallableSemanticSignature, CallableSignatureTable, FieldS
 use crate::snapshot::SemanticSnapshot;
 use crate::source::ParsedModuleUnit;
 use crate::source_index::{SourceIndexContext, SourceSemanticIndex, build_source_scope_index, resolve_type_reference_targets};
+use crate::traits::{TraitHeader, TraitHeaderTable, TraitSurfaceTable, build_trait_surface};
 use crate::type_alias::{TypeAliasInfo, TypeAliasTable};
 use crate::types::annotation::{
     GenericBinderSite, TypeFormationOutcome, TypeFormationSite, TypeResolver, lower_scoped_type_alias_form, resolve_generic_signature, resolve_kind_syntax,
@@ -1183,6 +1184,8 @@ impl SemanticWorkspaceSession {
         for declaration in &contribution_delta.declarations_removed {
             removed_query_roots.insert(QueryKey::DeclarationShell(declaration.clone()));
             removed_query_roots.insert(QueryKey::DeclarationSurface(declaration.clone()));
+            removed_query_roots.insert(QueryKey::TraitHeader(declaration.clone()));
+            removed_query_roots.insert(QueryKey::TraitSurface(declaration.clone()));
             removed_query_roots.insert(QueryKey::HierarchyEdge(declaration.clone()));
             removed_query_roots.insert(QueryKey::LinkedName(declaration.module.clone(), declaration.name.to_string()));
             removed_query_roots.insert(QueryKey::PublicExport(declaration.module.clone(), declaration.name.to_string()));
@@ -1216,6 +1219,8 @@ impl SemanticWorkspaceSession {
         for declaration in &contribution_delta.declarations_removed {
             self.db.retire_query(&QueryKey::DeclarationShell(declaration.clone()));
             self.db.retire_query(&QueryKey::DeclarationSurface(declaration.clone()));
+            self.db.retire_query(&QueryKey::TraitHeader(declaration.clone()));
+            self.db.retire_query(&QueryKey::TraitSurface(declaration.clone()));
             self.db.retire_query(&QueryKey::HierarchyEdge(declaration.clone()));
         }
         for callable in &contribution_delta.callable_signatures_removed {
@@ -1383,6 +1388,41 @@ impl SemanticWorkspaceSession {
         let mut callable_signature_work = BTreeSet::new();
         let mut callable_body_work = contribution_delta.callable_bodies.clone();
         callable_body_work.extend(retired_body_dependents);
+        // Trait header/surface changes invalidate every default owned by the
+        // trait, even when the default statements themselves are unchanged.
+        // Trait defaults are contract-relative and therefore must be checked
+        // again against the new header/surface product.
+        for declaration in &contribution_delta.declarations {
+            let Some(shard) = self.semantic_structure_shards.get(&declaration.module) else {
+                continue;
+            };
+            let is_trait = shard.source.program.statements.iter().any(|statement| {
+                matches!(statement, Statement::Trait(trait_def) if DeclarationId::new(declaration.module.clone(), trait_def.name.clone().into()) == *declaration)
+            });
+            if is_trait {
+                callable_body_work.extend(
+                    shard
+                        .callable_body_fingerprints
+                        .keys()
+                        .filter(|callable| callable.declaration_owner() == declaration)
+                        .cloned(),
+                );
+            }
+        }
+        // A member signature edit changes the contract even when its default
+        // body text is unchanged. Seed only bodyful members owned by traits;
+        // ordinary class/impl body scheduling remains unchanged.
+        for callable in &contribution_delta.callable_signatures {
+            let Some(shard) = self.semantic_structure_shards.get(&callable.module()) else {
+                continue;
+            };
+            let is_trait = shard.source.program.statements.iter().any(|statement| {
+                matches!(statement, Statement::Trait(trait_def) if DeclarationId::new(callable.module().clone(), trait_def.name.clone().into()) == *callable.declaration_owner())
+            });
+            if is_trait && shard.callable_body_fingerprints.contains_key(callable) {
+                callable_body_work.insert(callable.clone());
+            }
+        }
         let mut field_signature_work = BTreeSet::new();
         let mut declaration_shell_work = BTreeSet::new();
         let requested_deep_modules = self.requested_deep_modules.take();
@@ -2448,6 +2488,83 @@ impl SemanticWorkspaceSession {
             }
         }
 
+        // Trait headers are contract metadata, not nominal declaration types.
+        // Resolve their stable declaration-owned generic binders through the
+        // same canonical generic-signature path, but publish them separately
+        // from `DeclarationTypeTable` so no fake form or class object exists.
+        let mut trait_headers = TraitHeaderTable::new();
+        for (module_id, shard) in &self.semantic_structure_shards {
+            for stmt in &shard.source.program.statements {
+                let Statement::Trait(trait_def) = stmt else { continue };
+                let decl_id = DeclarationId::new(module_id.clone(), trait_def.name.clone().into());
+                let generic_signature = if !trait_def.generic_parameters.is_empty() {
+                    let formation_site = TypeFormationSite::member(module_id.clone(), decl_id.clone(), DispatchSide::Instance);
+                    let outcome = resolve_generic_signature(
+                        Arc::make_mut(&mut self.store),
+                        &declarations,
+                        &resolver,
+                        &formation_site,
+                        TypeParameterOwner::Declaration(decl_id.clone()),
+                        GenericBinderSite::NominalDeclaration,
+                        &trait_def.generic_parameters,
+                        trait_def.where_clause.as_ref(),
+                        diags_by_module.entry(module_id.clone()).or_default(),
+                    );
+                    Some(retain_generic_signature(
+                        outcome,
+                        module_id,
+                        trait_def.range,
+                        diags_by_module.entry(module_id.clone()).or_default(),
+                    ))
+                    .flatten()
+                } else {
+                    None
+                };
+                if !trait_def.generic_parameters.is_empty() && generic_signature.is_none() {
+                    continue;
+                }
+                let header = Arc::new(TraitHeader {
+                    declaration: decl_id,
+                    generic_signature,
+                    source: crate::diagnostic::SemanticSourceSpan::new(module_id.clone(), trait_def.range),
+                });
+                let header = match crate::db::query::query_bootstrap_trait_header(&mut self.db, header) {
+                    QueryOutcome::Ready(header) => header,
+                    QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                    QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                    QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                    QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                };
+                trait_headers.insert(header);
+            }
+        }
+
+        // Trait surfaces are semantic contract products, not declaration
+        // surfaces. Publish every member signature before any body-analysis
+        // work so defaults cannot influence the contract shape they consume.
+        let mut trait_surfaces = TraitSurfaceTable::new();
+        for (module_id, shard) in &self.semantic_structure_shards {
+            for stmt in &shard.source.program.statements {
+                let Statement::Trait(trait_def) = stmt else { continue };
+                let declaration = DeclarationId::new(module_id.clone(), trait_def.name.clone().into());
+                let Some(header) = trait_headers.get(&declaration) else { continue };
+                let mut context = CheckingContext::new(Arc::make_mut(&mut self.store), &hierarchy, &resolver, &declarations, module_id.clone());
+                let surface = build_trait_surface(&mut context, header, trait_def);
+                diags_by_module
+                    .entry(module_id.clone())
+                    .or_default()
+                    .extend(surface.diagnostics.iter().cloned());
+                let surface = match crate::db::query::query_bootstrap_trait_surface(&mut self.db, Arc::new(surface)) {
+                    QueryOutcome::Ready(surface) => surface,
+                    QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                    QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                    QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                    QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                };
+                trait_surfaces.insert(surface);
+            }
+        }
+
         // Publish declaration type metadata as explicit DB products before any
         // formal surface, signature, or body query can consume it.
         let mut published_shells = BTreeSet::new();
@@ -3096,6 +3213,7 @@ impl SemanticWorkspaceSession {
                             set.add_member(crate::impls::ConditionalInherentMember {
                                 impl_id: contrib.id.clone(),
                                 domain,
+                                is_conditionally_applicable: contrib.is_conditionally_applicable,
                                 callable: member.callable.clone(),
                                 signature_template: member.signature.clone(),
                                 visibility: member.visibility,
@@ -3347,6 +3465,108 @@ impl SemanticWorkspaceSession {
                 .map(|(callable, analysis)| (callable.clone(), analysis.clone()))
                 .collect()
         });
+
+        // Trait defaults are checked once against the complete abstract
+        // contract. They receive the trait header directly instead of
+        // looking for a nominal declaration entry, and their `Self` receiver
+        // remains a semantic SelfType with no executable dispatch target.
+        for (module_id, shard) in &self.semantic_structure_shards {
+            let parsed_unit = &shard.source;
+            for stmt in &parsed_unit.program.statements {
+                let Statement::Trait(trait_def) = stmt else { continue };
+                let declaration = DeclarationId::new(module_id.clone(), trait_def.name.clone().into());
+                let (Some(header), Some(surface)) = (trait_headers.get(&declaration), trait_surfaces.get(&declaration)) else {
+                    continue;
+                };
+                for member in &trait_def.members {
+                    let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(member);
+                    let Some(callable) = crate::checker::declaration_signature::callable_id_for_syntax(
+                        &crate::identity::CallableOwnerId::Declaration(declaration.clone()),
+                        syntax,
+                        DispatchSide::Instance,
+                    ) else {
+                        continue;
+                    };
+                    let body = match member {
+                        phalcom_ast::ast::BehaviorMember::Method(method) => method.body.statements().map(|body| (body, method.range)),
+                        phalcom_ast::ast::BehaviorMember::Getter(getter) => getter.body.statements().map(|body| (body, getter.range)),
+                        phalcom_ast::ast::BehaviorMember::Setter(setter) => setter.body.statements().map(|body| (body, setter.range)),
+                        phalcom_ast::ast::BehaviorMember::Index(index) => index.body.statements().map(|body| (body, index.range)),
+                    };
+                    let Some((body, body_range)) = body else { continue };
+                    let Some(surface_member) = surface.get_by_selector(&callable.selector, DispatchSide::Instance) else {
+                        continue;
+                    };
+                    let query_key = QueryKey::CallableBody(callable.clone());
+                    let forced = callable_body_work.contains(&callable);
+                    if forced {
+                        self.db.discard_for_recompute(&query_key);
+                    }
+                    let previous_computation_revision = self.db.query_state(&query_key).and_then(|state| state.revision());
+                    let formal_inputs = FormalQueryInputs {
+                        sources: &retained_sources,
+                        source_resolution_input,
+                        linked_component_product,
+                        linked: &input.linked,
+                        import_products: &input.import_products,
+                        hierarchy: &hierarchy,
+                        base_resolver: &resolver,
+                        declarations: &declarations,
+                        type_aliases: &type_aliases,
+                        field_signatures: None,
+                        field_lifecycle: None,
+                        enum_semantics: Some(&enum_semantics),
+                        data_semantics: Some(&data_semantics),
+                        associated_families: Some(&associated_surfaces_table),
+                    };
+                    let outcome = query_callable_body_with_formal_inputs(
+                        &mut self.db,
+                        CallableBodyQuery {
+                            callable: callable.clone(),
+                            body,
+                            body_range,
+                            declared_signature: Some((&surface_member.callable, &surface_member.signature)),
+                            owner_generic_signature: header.generic_signature.as_ref(),
+                            trait_surface: Some(surface),
+                            store: Arc::make_mut(&mut self.store),
+                            hierarchy: &hierarchy,
+                            resolver: &resolver,
+                            declarations: &declarations,
+                            dispatch: &dispatch,
+                            module: module_id.clone(),
+                            budget,
+                            cancel,
+                            formal_inputs: Some(&formal_inputs),
+                        },
+                    );
+                    match outcome {
+                        QueryOutcome::Ready(analysis) => {
+                            if forced
+                                || previous_snapshot.is_none()
+                                || self.db.query_state(&query_key).is_some_and(|state| {
+                                    state.revision() == Some(self.db.revision()) && previous_computation_revision != Some(self.db.revision())
+                                })
+                            {
+                                callable_dispositions.insert(callable.clone(), CallableRevisionDisposition::Recomputed);
+                            } else {
+                                callable_dispositions.entry(callable.clone()).or_insert(CallableRevisionDisposition::Reused);
+                            }
+                            if !analysis.diagnostics.is_empty() {
+                                diags_by_module
+                                    .entry(module_id.clone())
+                                    .or_default()
+                                    .extend(analysis.diagnostics.iter().cloned());
+                            }
+                            callable_analyses.insert(callable, analysis);
+                        }
+                        QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                        QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                        QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                        QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                    }
+                }
+            }
+        }
         for constructors_only in [true, false] {
             for (module_id, shard) in &self.semantic_structure_shards {
                 if !semantic_work_modules.contains(module_id) {
@@ -3467,6 +3687,9 @@ impl SemanticWorkspaceSession {
                                         callable: callable_id.clone(),
                                         body,
                                         body_range: range,
+                                        declared_signature: None,
+                                        owner_generic_signature: None,
+                                        trait_surface: None,
                                         store: Arc::make_mut(&mut self.store),
                                         hierarchy: &hierarchy,
                                         resolver: &scoped_resolver,
@@ -3617,7 +3840,7 @@ impl SemanticWorkspaceSession {
                                         phalcom_ast::ast::IndexAccessor::Get => Selector::subscript_get(slots).ok(),
                                         phalcom_ast::ast::IndexAccessor::Set { .. } => Selector::subscript_set(slots).ok(),
                                     };
-                                    (sel, Some(i.body.as_slice()), Some(i.range))
+                                    (sel, i.body.statements(), Some(i.range))
                                 }
                             };
 
@@ -3670,6 +3893,9 @@ impl SemanticWorkspaceSession {
                                         callable: callable_id.clone(),
                                         body,
                                         body_range: range,
+                                        declared_signature: None,
+                                        owner_generic_signature: None,
+                                        trait_surface: None,
                                         store: Arc::make_mut(&mut self.store),
                                         hierarchy: &hierarchy,
                                         resolver: &scoped_resolver,
@@ -4168,6 +4394,8 @@ impl SemanticWorkspaceSession {
         snapshot_obj = snapshot_obj.with_enum_requirements(Arc::new(enum_requirements_table));
         snapshot_obj = snapshot_obj.with_associated_surfaces(Arc::new(associated_surfaces_table));
         snapshot_obj = snapshot_obj.with_type_aliases(Arc::new(type_aliases));
+        snapshot_obj = snapshot_obj.with_trait_headers(Arc::new(trait_headers));
+        snapshot_obj = snapshot_obj.with_trait_surfaces(Arc::new(trait_surfaces));
         snapshot_obj = snapshot_obj.with_semantic_structure_shards(Arc::new(self.semantic_structure_shards.clone()));
         snapshot_obj.advisory = Arc::new(advisory);
         snapshot_obj.module_products = module_products;
@@ -4624,6 +4852,8 @@ fn query_key_module_for_worklist(key: &QueryKey) -> Option<&ModuleId> {
         | QueryKey::PublicExport(module, _) => Some(module),
         QueryKey::DeclarationShell(declaration)
         | QueryKey::DeclarationSurface(declaration)
+        | QueryKey::TraitHeader(declaration)
+        | QueryKey::TraitSurface(declaration)
         | QueryKey::HierarchyEdge(declaration)
         | QueryKey::DataDeclaration(declaration)
         | QueryKey::EnumDeclaration(declaration)
@@ -5467,7 +5697,7 @@ fn advisory_callable_member<'a>(declaration: &DeclarationId, member: &'a ClassMe
             .ok()?;
             Some((
                 CallableId::new(declaration.clone(), selector, DispatchSide::Instance),
-                index.body.as_slice(),
+                index.body.statements()?,
                 index.range,
             ))
         }
@@ -5641,7 +5871,7 @@ fn source_body_for_callable<'a>(callable: &CallableId, unit: &'a ParsedModuleUni
                             phalcom_ast::ast::BehaviorMember::Method(method) => Some((method.body.statements()?, method.range)),
                             phalcom_ast::ast::BehaviorMember::Getter(getter) => Some((getter.body.statements()?, getter.range)),
                             phalcom_ast::ast::BehaviorMember::Setter(setter) => Some((setter.body.statements()?, setter.range)),
-                            phalcom_ast::ast::BehaviorMember::Index(index) => Some((index.body.as_slice(), index.range)),
+                            phalcom_ast::ast::BehaviorMember::Index(index) => Some((index.body.statements()?, index.range)),
                         };
                     }
                 }
@@ -5705,6 +5935,9 @@ fn revalidate_downstream_callable_body(
             callable: callable.clone(),
             body,
             body_range,
+            declared_signature: None,
+            owner_generic_signature: None,
+            trait_surface: None,
             store,
             hierarchy,
             resolver: &scoped_resolver,
@@ -5994,12 +6227,14 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
                             resolver: &scoped_resolver,
                             declarations,
                             dispatch,
+                            trait_surface: None,
                             module: module_id.clone(),
                         },
                         crate::checker::body::CallableBodyRequest {
                             callable: callable.clone(),
                             body,
                             body_range: range,
+                            owner_generic_signature: None,
                             declared_signature,
                             budget,
                             cancel,

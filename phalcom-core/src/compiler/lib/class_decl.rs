@@ -1143,7 +1143,13 @@ impl<'vm> Compiler<'vm> {
                     let selector_sym = self.vm.interner.intern(&selector);
 
                     self.is_static_context = false;
-                    let closure = self.compile_block(index_def.body, selector_sym, ClosureParameters::fixed(param_names), true, false, None)?;
+                    let body = match index_def.body {
+                        phalcom_ast::ast::MemberBody::Block(stmts) => stmts,
+                        phalcom_ast::ast::MemberBody::Declaration => {
+                            return Err(CompilerError::DeclarationBodyRequiresImplementation("subscript".into(), range));
+                        }
+                    };
+                    let closure = self.compile_block(body, selector_sym, ClosureParameters::fixed(param_names), true, false, None)?;
 
                     tracing::debug!("[Compiler] Compiling subscript method: {}", selector);
 

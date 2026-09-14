@@ -48,6 +48,19 @@ fn mutual_semantic_references_realize_after_all_shells_exist() {
 }
 
 #[test]
+fn trait_declaration_kind_is_a_distinct_shell_category() {
+    let trait_id = decl(module(3, "contracts"), "Display");
+    let mut table = DeclarationShellTable::default();
+    table.predeclare([DeclarationBlueprint {
+        id: trait_id.clone(),
+        kind: DeclarationKind::Trait,
+    }]);
+
+    let shell = table.get(&trait_id.semantic_node()).expect("trait shell");
+    assert_eq!(shell.blueprint.kind, DeclarationKind::Trait);
+}
+
+#[test]
 fn inheritance_cycle_is_rejected_even_inside_a_semantic_scc() {
     let a = decl(module(2, "a"), "A");
     let b = decl(module(2, "b"), "B");

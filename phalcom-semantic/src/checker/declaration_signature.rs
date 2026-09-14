@@ -51,7 +51,7 @@ impl<'a> CallableSyntaxRef<'a> {
             CallableSyntaxRef::Method(m) => m.body.statements().is_some(),
             CallableSyntaxRef::Getter(g) => g.body.statements().is_some(),
             CallableSyntaxRef::Setter(s) => s.body.statements().is_some(),
-            CallableSyntaxRef::Index(_) => true,
+            CallableSyntaxRef::Index(index) => index.body.statements().is_some(),
         }
     }
 
@@ -315,7 +315,11 @@ pub(crate) fn semantic_signature_for_syntax(
     let declaration_owner = owner.declaration();
     let is_constructor = matches!(syntax, CallableSyntaxRef::Method(method) if method.is_constructor || method.attributes.iter().any(|attribute| attribute.name == "constructor"));
     let is_class_side = declared_side == DispatchSide::Class;
-    let formation_side = if is_constructor || is_class_side { DispatchSide::Class } else { DispatchSide::Instance };
+    let formation_side = if is_constructor || is_class_side {
+        DispatchSide::Class
+    } else {
+        DispatchSide::Instance
+    };
     let declaration_type_parameters = if is_constructor {
         declaration_type_level_bindings(ctx, declaration_owner)
     } else {

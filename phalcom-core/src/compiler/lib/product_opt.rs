@@ -667,27 +667,37 @@ impl<'a> ProductPlanner<'a> {
                     match member {
                         phalcom_ast::ast::BehaviorMember::Method(method) => {
                             if let Some(body) = method.body.statements() {
-                                for statement in body { self.visit_statement(statement); }
+                                for statement in body {
+                                    self.visit_statement(statement);
+                                }
                             }
                         }
                         phalcom_ast::ast::BehaviorMember::Getter(getter) => {
                             if let Some(body) = getter.body.statements() {
-                                for statement in body { self.visit_statement(statement); }
+                                for statement in body {
+                                    self.visit_statement(statement);
+                                }
                             }
                         }
                         phalcom_ast::ast::BehaviorMember::Setter(setter) => {
                             if let Some(body) = setter.body.statements() {
-                                for statement in body { self.visit_statement(statement); }
+                                for statement in body {
+                                    self.visit_statement(statement);
+                                }
                             }
                         }
                         phalcom_ast::ast::BehaviorMember::Index(index) => {
-                            for statement in &index.body { self.visit_statement(statement); }
+                            if let phalcom_ast::ast::MemberBody::Block(body) = &index.body {
+                                for statement in body {
+                                    self.visit_statement(statement);
+                                }
+                            }
                         }
                     }
                     self.nested_block_depth -= 1;
                 }
             }
-            Statement::Enum(_) | Statement::Data(_) => {}
+            Statement::Enum(_) | Statement::Data(_) | Statement::Trait(_) => {}
         }
     }
 
@@ -1526,9 +1536,7 @@ impl<'vm> Compiler<'vm> {
                 self.emit(Bytecode::BuildStaticRecord { spec: spec_idx }, range);
                 Ok(())
             }
-            VirtualProductKind::Variant { .. } => {
-                Err(CompilerError::Message("cannot rematerialize unobserved variant payload".to_string()))
-            }
+            VirtualProductKind::Variant { .. } => Err(CompilerError::Message("cannot rematerialize unobserved variant payload".to_string())),
         }
     }
 

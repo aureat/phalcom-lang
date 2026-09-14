@@ -1,14 +1,14 @@
 //! Program-level compiler seam for closed linked module plans.
 
 use super::artifact::ModuleMaterializationPlan;
+use crate::typing::{MetadataPoolId, RuntimeCallEnvironmentRecipe, RuntimeTypeRecipe, RuntimeTypeRef};
+use phalcom_common::range::SourceRange;
 use phalcom_modules::{
     EntryOwnership, FilesystemSourceProvider, InterfaceBuilder, InterfaceError, LinkError, LinkedModule, LinkedProgram, ModuleComponent, ModuleId, ModuleKind,
     ModuleLinker, ModulePath, ModuleResolutionError, ModuleResolver, ProjectError, ProjectUniverse, SourceError, SourceId, SourceLocation,
     UniverseSourceProvider, classify_entry_ownership,
 };
 use phalcom_semantic::SemanticDiagnostic;
-use crate::typing::{MetadataPoolId, RuntimeCallEnvironmentRecipe, RuntimeTypeRecipe, RuntimeTypeRef};
-use phalcom_common::range::SourceRange;
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -503,12 +503,7 @@ impl ProgramCompiler {
                     runtime_root_specs.push((id.clone(), range, ty, format!("anonymous-product-{}-{}", range.start, range.end)));
                 }
             }
-            for (callable, analysis) in analyzed
-                .semantic
-                .callable_analyses
-                .iter()
-                .filter(|(callable, _)| callable.owner.module() == id)
-            {
+            for (callable, analysis) in analyzed.semantic.callable_analyses.iter().filter(|(callable, _)| callable.owner.module() == id) {
                 for expression in analysis.expressions.values() {
                     let Some(specialization) = expression.call_specialization.as_ref() else {
                         continue;
@@ -570,10 +565,13 @@ impl ProgramCompiler {
         );
         let mut runtime_type_roots = BTreeMap::<ModuleId, BTreeMap<SourceRange, RuntimeTypeRef>>::new();
         for ((module, range, _, _), root) in runtime_root_specs.iter().zip(metadata_bundle.runtime_roots.iter()) {
-            runtime_type_roots
-                .entry(module.clone())
-                .or_default()
-                .insert(*range, RuntimeTypeRef::Base { pool: MetadataPoolId(0), node: root.form });
+            runtime_type_roots.entry(module.clone()).or_default().insert(
+                *range,
+                RuntimeTypeRef::Base {
+                    pool: MetadataPoolId(0),
+                    node: root.form,
+                },
+            );
         }
         let mut runtime_call_environment_recipes = BTreeMap::<ModuleId, BTreeMap<SourceRange, Arc<RuntimeCallEnvironmentRecipe>>>::new();
         let mut call_bindings = BTreeMap::<
@@ -585,9 +583,15 @@ impl ProgramCompiler {
             .zip(metadata_bundle.runtime_roots.iter().skip(runtime_root_specs.len()))
         {
             let recipe = if phalcom_semantic::checker::associated::contains_any_type_parameter(&analyzed.semantic.store, *ty) {
-                RuntimeTypeRecipe::Template(RuntimeTypeRef::Base { pool: MetadataPoolId(0), node: root.form })
+                RuntimeTypeRecipe::Template(RuntimeTypeRef::Base {
+                    pool: MetadataPoolId(0),
+                    node: root.form,
+                })
             } else {
-                RuntimeTypeRecipe::Closed(RuntimeTypeRef::Base { pool: MetadataPoolId(0), node: root.form })
+                RuntimeTypeRecipe::Closed(RuntimeTypeRef::Base {
+                    pool: MetadataPoolId(0),
+                    node: root.form,
+                })
             };
             call_bindings
                 .entry((module.clone(), *range, callable.clone()))
@@ -606,16 +610,13 @@ impl ProgramCompiler {
             else {
                 continue;
             };
-            runtime_call_environment_recipes
-                .entry(module)
-                .or_default()
-                .insert(
-                    range,
-                    Arc::new(RuntimeCallEnvironmentRecipe {
-                        callable: stable_callable,
-                        bindings: bindings.into_boxed_slice(),
-                    }),
-                );
+            runtime_call_environment_recipes.entry(module).or_default().insert(
+                range,
+                Arc::new(RuntimeCallEnvironmentRecipe {
+                    callable: stable_callable,
+                    bindings: bindings.into_boxed_slice(),
+                }),
+            );
         }
         let mut modules = BTreeMap::new();
         for (id, linked_module) in &analyzed.linked.modules {
@@ -631,7 +632,7 @@ impl ProgramCompiler {
                 runtime_type_roots.get(id).unwrap_or(&BTreeMap::new()),
                 runtime_call_environment_recipes.get(id).unwrap_or(&BTreeMap::new()),
             )
-                .map_err(|e| ProgramCompileError::Io(format!("lowering projection error in {id}: {e}")))?;
+            .map_err(|e| ProgramCompileError::Io(format!("lowering projection error in {id}: {e}")))?;
             modules.insert(id.clone(), compile_module(id.clone(), linked_module, source, source_text, Arc::new(lowering)));
         }
 

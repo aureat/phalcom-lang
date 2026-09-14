@@ -1,6 +1,4 @@
-use crate::ast::{
-    BehaviorMember, ClassMember, FieldDef, GetterDef, IndexAccessor, IndexMethodDef, MethodDef, ParameterDef, RestMode, SetterDef, VariantDecl,
-};
+use crate::ast::{BehaviorMember, ClassMember, FieldDef, GetterDef, IndexAccessor, IndexMethodDef, MethodDef, ParameterDef, RestMode, SetterDef, VariantDecl};
 pub use phalcom_common::selector::{
     Selector, SelectorBase, SelectorError, SelectorKind, SelectorKindPattern, SelectorPattern, SelectorSlot, decode_label_component, encode_label_component,
 };
@@ -165,29 +163,19 @@ pub fn selector_from_exact_variant_pattern(pattern: &crate::ast::VariantPattern)
 }
 
 /// Constructs a [`phalcom_common::selector::SelectorPattern`] for a wildcard [`VariantPattern`] with `CallablePattern` mode.
-pub fn selector_pattern_from_variant_pattern(
-    pattern: &crate::ast::VariantPattern,
-) -> Result<phalcom_common::selector::SelectorPattern, SelectorError> {
+pub fn selector_pattern_from_variant_pattern(pattern: &crate::ast::VariantPattern) -> Result<phalcom_common::selector::SelectorPattern, SelectorError> {
     match &pattern.mode {
         crate::ast::VariantPatternMode::CallablePattern { prefix, suffix, .. } => {
             let prefix_slots = prefix.iter().map(slot_from_variant_pattern_arg).collect::<Vec<_>>();
             let suffix_slots = suffix.iter().map(slot_from_variant_pattern_arg).collect::<Vec<_>>();
-            phalcom_common::selector::SelectorPattern::named_method(
-                &pattern.base,
-                prefix_slots.into_boxed_slice(),
-                suffix_slots.into_boxed_slice(),
-                true,
-            )
+            phalcom_common::selector::SelectorPattern::named_method(&pattern.base, prefix_slots.into_boxed_slice(), suffix_slots.into_boxed_slice(), true)
         }
         _ => Err(SelectorError::InvalidPatternSlots),
     }
 }
 
 /// Constructs a structural exact [`Selector`] for an exact enum case impl target.
-pub fn selector_from_exact_case_target(
-    variant_name: &str,
-    payload_shape: Option<&crate::ast::ExactCasePayloadSyntax>,
-) -> Selector {
+pub fn selector_from_exact_case_target(variant_name: &str, payload_shape: Option<&crate::ast::ExactCasePayloadSyntax>) -> Selector {
     match payload_shape {
         None => Selector::getter(variant_name).unwrap_or_else(|_| Selector {
             base: SelectorBase::Named(variant_name.to_string()),

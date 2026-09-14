@@ -18,11 +18,7 @@ use phalcom_semantic::identity::{DataConstructorId, VariantId};
 use phalcom_semantic::types::FamilyOperationShape;
 
 impl<'vm> Compiler<'vm> {
-    fn compile_conditional_family_descriptor(
-        &mut self,
-        entries: &[ExecutableConditionalFamilyEntry],
-        range: SourceRange,
-    ) -> Result<u16, CompilerError> {
+    fn compile_conditional_family_descriptor(&mut self, entries: &[ExecutableConditionalFamilyEntry], range: SourceRange) -> Result<u16, CompilerError> {
         let mut compiled = Vec::with_capacity(entries.len());
         for entry in entries {
             let fallback_method = self.get_or_compile_conditional_method(&entry.callable)?;
@@ -36,14 +32,12 @@ impl<'vm> Compiler<'vm> {
                 fallback_method,
             });
         }
-        self.functions
-            .last_mut()
-            .unwrap()
-            .chunk
-            .executable_semantics
-            .add_conditional_family_descriptor(ConditionalFamilyDescriptor {
+        self.functions.last_mut().unwrap().chunk.executable_semantics.add_conditional_family_descriptor(
+            ConditionalFamilyDescriptor {
                 entries: compiled.into_boxed_slice(),
-            }, range)
+            },
+            range,
+        )
     }
 
     fn family_application_spec(&self, range: SourceRange) -> Option<FamilyApplicationLoweringSpec> {

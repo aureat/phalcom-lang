@@ -25,8 +25,8 @@ use phalcom_ast::ast::{ClassDef, Statement};
 use phalcom_common::range::SourceRange;
 use phalcom_modules::interface::{InterfaceBuilder, LinkedModuleInterface, UnlinkedModuleInterface};
 use phalcom_modules::linker::LinkedProgram;
-use std::collections::{BTreeMap, BTreeSet};
 use std::collections::hash_map::DefaultHasher;
+use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
@@ -76,6 +76,7 @@ fn semantic_dependency_query_key(dependency: &crate::checker::analysis::Semantic
         crate::checker::analysis::SemanticDependency::CallableSignature(callable) => QueryKey::CallableSignature(callable.clone()),
         crate::checker::analysis::SemanticDependency::FieldSignature(field) => QueryKey::FieldSignature(field.clone()),
         crate::checker::analysis::SemanticDependency::DeclarationSurface(declaration) => QueryKey::DeclarationSurface(declaration.clone()),
+        crate::checker::analysis::SemanticDependency::TraitSurface(declaration) => QueryKey::TraitSurface(declaration.clone()),
         crate::checker::analysis::SemanticDependency::HierarchyEdge(declaration) => QueryKey::HierarchyEdge(declaration.clone()),
         crate::checker::analysis::SemanticDependency::LinkedInterface(module) => QueryKey::LinkedInterface(module.clone()),
         crate::checker::analysis::SemanticDependency::DataDeclaration(declaration) => QueryKey::DataDeclaration(declaration.clone()),
@@ -93,6 +94,7 @@ fn semantic_dependency_from_query_key(key: &QueryKey) -> Option<crate::checker::
         QueryKey::CallableSignature(callable) => Some(crate::checker::analysis::SemanticDependency::CallableSignature(callable.clone())),
         QueryKey::FieldSignature(field) => Some(crate::checker::analysis::SemanticDependency::FieldSignature(field.clone())),
         QueryKey::DeclarationSurface(declaration) => Some(crate::checker::analysis::SemanticDependency::DeclarationSurface(declaration.clone())),
+        QueryKey::TraitSurface(declaration) => Some(crate::checker::analysis::SemanticDependency::TraitSurface(declaration.clone())),
         QueryKey::HierarchyEdge(declaration) => Some(crate::checker::analysis::SemanticDependency::HierarchyEdge(declaration.clone())),
         QueryKey::LinkedInterface(module) => Some(crate::checker::analysis::SemanticDependency::LinkedInterface(module.clone())),
         QueryKey::DataDeclaration(declaration) => Some(crate::checker::analysis::SemanticDependency::DataDeclaration(declaration.clone())),
@@ -852,6 +854,70 @@ pub fn query_bootstrap_declaration_surface(
     QueryOutcome::Ready(surface)
 }
 
+/// Publishes one canonical trait header product. Trait headers are semantic
+/// contract metadata and deliberately have no nominal declaration-shell edge.
+pub fn query_bootstrap_trait_header(db: &mut SemanticDb, header: Arc<crate::traits::TraitHeader>) -> QueryOutcome<Arc<crate::traits::TraitHeader>> {
+    let key = QueryKey::TraitHeader(header.declaration.clone());
+    let input_fingerprint = crate::db::fingerprint::trait_header_input_fingerprint(&header);
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(cached) = db.product(&key).and_then(|product| product.as_trait_header()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(cached.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    db.metrics().record_miss();
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        crate::db::fingerprint::trait_header_product_fingerprint(&header),
+        SemanticProduct::TraitHeader(header.clone()),
+        Vec::new(),
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(header)
+}
+
+/// Publishes one complete body-independent trait surface and records its
+/// header prerequisite. Default bodies are separate `CallableBody` products.
+pub fn query_bootstrap_trait_surface(db: &mut SemanticDb, surface: Arc<crate::traits::TraitSurface>) -> QueryOutcome<Arc<crate::traits::TraitSurface>> {
+    let key = QueryKey::TraitSurface(surface.declaration.clone());
+    let header_key = QueryKey::TraitHeader(surface.declaration.clone());
+    if db.query_state(&header_key).and_then(QueryState::validated_revision) != Some(db.revision()) {
+        return query_failure(db, key, format!("trait surface prerequisite {header_key:?} is not current"));
+    }
+    let input_fingerprint = crate::db::fingerprint::trait_surface_input_fingerprint(&surface);
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(cached) = db.product(&key).and_then(|product| product.as_trait_surface()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(cached.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    db.metrics().record_miss();
+    let mut recorder = crate::db::DependencyRecorder::new(key.clone());
+    if let Err(error) = db.record_dependency(&mut recorder, header_key) {
+        return query_failure(db, key, error);
+    }
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        crate::db::fingerprint::trait_surface_product_fingerprint(&surface),
+        SemanticProduct::TraitSurface(surface.clone()),
+        recorder.finish(),
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(surface)
+}
+
 pub fn query_data_declaration(
     db: &mut SemanticDb,
     product: Arc<crate::db::product::DataDeclarationProduct>,
@@ -1202,6 +1268,13 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
                     import_products: Some(inputs.import_products),
                 },
             ))
+        }
+        crate::checker::analysis::SemanticDependency::TraitSurface(_) => {
+            if db.product(&key).and_then(|product| product.as_trait_surface()).is_some() {
+                QueryOutcome::Ready(())
+            } else {
+                QueryOutcome::Blocked(BlockReason::SuppressedDependency)
+            }
         }
         crate::checker::analysis::SemanticDependency::HierarchyEdge(declaration) => {
             if !inputs.sources.contains_key(&declaration.module) && declaration.module.project == phalcom_modules::ProjectIdentity::Universe {
@@ -1628,7 +1701,8 @@ pub fn query_callable_signature_with_inputs(
             crate::checker::declaration_signature::callable_id_for_member(callable.declaration_owner(), member).is_some_and(|candidate| candidate == callable)
         }) {
             let mut context = crate::checker::CheckingContext::new(store, hierarchy, resolver, declarations, callable.module().clone());
-            let Some(signature) = crate::checker::declaration_signature::semantic_signature_for_member(&mut context, callable.declaration_owner(), member) else {
+            let Some(signature) = crate::checker::declaration_signature::semantic_signature_for_member(&mut context, callable.declaration_owner(), member)
+            else {
                 return query_failure(db, key, format!("source member cannot publish callable signature {callable:?}"));
             };
             (Arc::new(signature), context.semantic_dependencies_snapshot())
@@ -2214,6 +2288,13 @@ pub struct CallableBodyQuery<'a> {
     pub callable: CallableId,
     pub body: &'a [Statement],
     pub body_range: SourceRange,
+    /// Optional canonical signature supplied by a non-nominal owner such as
+    /// a trait surface. Nominal bodies resolve this from source products.
+    pub declared_signature: Option<(&'a CallableId, &'a CallableSemanticSignature)>,
+    /// Optional explicit owner generic metadata for non-nominal callables.
+    pub owner_generic_signature: Option<&'a crate::types::parameter::GenericSignature>,
+    /// Optional abstract trait contract used for trait default body analysis.
+    pub trait_surface: Option<&'a crate::traits::TraitSurface>,
     pub store: &'a mut TypeStore,
     pub hierarchy: &'a dyn TypeHierarchy,
     pub resolver: &'a dyn TypeResolver,
@@ -2255,6 +2336,9 @@ fn query_callable_body_with_requirement(
         callable,
         body,
         body_range,
+        declared_signature: explicit_declared_signature,
+        owner_generic_signature,
+        trait_surface,
         store,
         hierarchy,
         resolver,
@@ -2288,59 +2372,65 @@ fn query_callable_body_with_requirement(
                 source_resolution_input: inputs.source_resolution_input,
                 linked_component_product: inputs.linked_component_product,
                 lifecycle: inputs.field_lifecycle,
+                owner_generic_signature,
+                declared_signature: explicit_declared_signature.map(|(_, signature)| signature),
+                trait_surface,
             },
         ),
-        None => crate::db::fingerprint::callable_body_input_fingerprint(&callable, body, body_range, store),
+        None => crate::db::fingerprint::callable_body_input_fingerprint_with_owner_generics(&callable, body, body_range, store, owner_generic_signature),
     };
 
     // Every source callable declaration has a canonical signature product,
     // including partially-known signatures. Constructor body identities remain
     // instance-side while consuming their class-side constructor declaration.
-    let declared_signature = match formal_inputs {
-        Some(inputs) => {
-            let Some(unit) = inputs.sources.get(callable.module()).cloned() else {
-                return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
-            };
-            let Some(signature_id) = declaration_signature_id_for_body(db, &callable, &unit) else {
-                return query_failure(db, key.clone(), format!("missing declaration signature identity for body {callable:?}"));
-            };
-            let sig_res = ensure_callable_signature_with_inputs(db, &signature_id, inputs, store);
-            match sig_res {
-                QueryOutcome::Ready(signature) => Some((signature_id, signature)),
-                QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
-                QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
-                QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
-                QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
-            }
-        }
-        None => {
-            let current_signature = |db: &SemanticDb, signature_id: &CallableId| {
-                let signature_key = QueryKey::CallableSignature(signature_id.clone());
-                (db.query_state(&signature_key).and_then(QueryState::validated_revision) == Some(db.revision()))
-                    .then(|| db.product(&signature_key).and_then(|product| product.as_callable_signature()).cloned())
-                    .flatten()
-            };
-            let direct = current_signature(db, &callable).map(|signature| (callable.clone(), signature));
-            let found = direct.or_else(|| {
-                (callable.side == crate::identity::DispatchSide::Instance)
-                    .then(|| {
-                        let signature_id = CallableId::new(callable.owner.clone(), callable.selector.clone(), crate::identity::DispatchSide::Class);
-                        current_signature(db, &signature_id).map(|signature| (signature_id, signature))
-                    })
-                    .flatten()
-            });
-            match (found, signature_requirement) {
-                (Some(signature), _) => Some(signature),
-                (None, CallableBodySignatureRequirement::SignaturelessSynthetic) => None,
-                (None, CallableBodySignatureRequirement::Required) => {
-                    return query_failure(
-                        db,
-                        key.clone(),
-                        format!("missing current canonical CallableSignature prerequisite for body {callable:?}"),
-                    );
+    let declared_signature = match explicit_declared_signature {
+        Some((signature_id, signature)) => Some((signature_id.clone(), Arc::new(signature.clone()))),
+        None => match formal_inputs {
+            Some(inputs) => {
+                let Some(unit) = inputs.sources.get(callable.module()).cloned() else {
+                    return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
+                };
+                let Some(signature_id) = declaration_signature_id_for_body(db, &callable, &unit) else {
+                    return query_failure(db, key.clone(), format!("missing declaration signature identity for body {callable:?}"));
+                };
+                let sig_res = ensure_callable_signature_with_inputs(db, &signature_id, inputs, store);
+                match sig_res {
+                    QueryOutcome::Ready(signature) => Some((signature_id, signature)),
+                    QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
+                    QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
+                    QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+                    QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
                 }
             }
-        }
+            None => {
+                let current_signature = |db: &SemanticDb, signature_id: &CallableId| {
+                    let signature_key = QueryKey::CallableSignature(signature_id.clone());
+                    (db.query_state(&signature_key).and_then(QueryState::validated_revision) == Some(db.revision()))
+                        .then(|| db.product(&signature_key).and_then(|product| product.as_callable_signature()).cloned())
+                        .flatten()
+                };
+                let direct = current_signature(db, &callable).map(|signature| (callable.clone(), signature));
+                let found = direct.or_else(|| {
+                    (callable.side == crate::identity::DispatchSide::Instance)
+                        .then(|| {
+                            let signature_id = CallableId::new(callable.owner.clone(), callable.selector.clone(), crate::identity::DispatchSide::Class);
+                            current_signature(db, &signature_id).map(|signature| (signature_id, signature))
+                        })
+                        .flatten()
+                });
+                match (found, signature_requirement) {
+                    (Some(signature), _) => Some(signature),
+                    (None, CallableBodySignatureRequirement::SignaturelessSynthetic) => None,
+                    (None, CallableBodySignatureRequirement::Required) => {
+                        return query_failure(
+                            db,
+                            key.clone(),
+                            format!("missing current canonical CallableSignature prerequisite for body {callable:?}"),
+                        );
+                    }
+                }
+            }
+        },
     };
 
     // 1. Check if already computed and ready for the same callable input and dependency products.
@@ -2368,12 +2458,14 @@ fn query_callable_body_with_requirement(
             resolver,
             declarations,
             dispatch,
+            trait_surface,
             module,
         },
         crate::checker::body::CallableBodyRequest {
-            callable,
+            callable: callable.clone(),
             body,
             body_range,
+            owner_generic_signature,
             declared_signature: declared_signature.as_ref().map(|(signature_id, signature)| (signature_id, signature.as_ref())),
             budget,
             cancel,
@@ -2386,6 +2478,14 @@ fn query_callable_body_with_requirement(
     );
 
     let mut analysis = analysis;
+    if trait_surface.is_some() {
+        let dependency = crate::checker::analysis::SemanticDependency::TraitSurface(callable.declaration_owner().clone());
+        if !analysis.semantic_dependencies.iter().any(|existing| existing == &dependency) {
+            let mut dependencies = analysis.semantic_dependencies.to_vec();
+            dependencies.push(dependency);
+            analysis.semantic_dependencies = Arc::from(dependencies.into_boxed_slice());
+        }
+    }
     let product_fingerprint = crate::db::fingerprint::callable_body_product_fingerprint(&analysis);
     analysis.dependency_fingerprint = product_fingerprint;
     let arc_analysis = Arc::new(analysis);

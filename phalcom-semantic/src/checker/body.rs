@@ -11,6 +11,7 @@ use crate::identity::{CallableId, ModuleId};
 use crate::types::annotation::{ScopedTypeResolver, TypeResolver, type_level_binding_for_parameter};
 use crate::types::evidence::DynamicReason;
 use crate::types::outcome::RelationOutcome;
+use crate::types::parameter::GenericSignature;
 use crate::types::relation::TypeHierarchy;
 use crate::types::store::TypeStore;
 use phalcom_ast::ast::Statement;
@@ -22,6 +23,7 @@ fn stmt_range(stmt: &Statement) -> SourceRange {
         Statement::Class(c) => c.range,
         Statement::Enum(e) => e.range,
         Statement::Data(d) => d.range,
+        Statement::Trait(t) => t.range,
         Statement::TypeAlias(t) => t.range,
         Statement::Let(l) => l.range,
         Statement::Return(r) => r.range,
@@ -44,6 +46,7 @@ pub struct BodyAnalysisContext<'a> {
     pub resolver: &'a dyn TypeResolver,
     pub declarations: &'a DeclarationTypeTable,
     pub dispatch: &'a SurfaceDispatchResolver,
+    pub trait_surface: Option<&'a crate::traits::TraitSurface>,
     pub module: ModuleId,
 }
 
@@ -52,6 +55,12 @@ pub struct CallableBodyRequest<'a> {
     pub callable: CallableId,
     pub body: &'a [Statement],
     pub body_range: SourceRange,
+    /// Explicit owner generic metadata for non-nominal callable owners.
+    ///
+    /// When absent, nominal instance callables retain the historical lookup
+    /// through `DeclarationTypeTable`. When present, this is the sole source
+    /// for owner binders in the body lexical scope.
+    pub owner_generic_signature: Option<&'a GenericSignature>,
     pub declared_signature: Option<(&'a CallableId, &'a crate::signature::CallableSemanticSignature)>,
     pub budget: QueryBudget,
     pub cancel: &'a CancellationToken,
@@ -70,12 +79,14 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
         resolver,
         declarations,
         dispatch,
+        trait_surface,
         module,
     } = context;
     let CallableBodyRequest {
         callable,
         body,
         body_range,
+        owner_generic_signature,
         declared_signature,
         budget,
         cancel,
@@ -91,14 +102,16 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
     // identities through the same resolver overlay used while lowering the
     // signature itself. Declaration parameters form the outer scope and
     // callable parameters shadow them (notably for constructors).
-    let owner_parameters = if callable.side == crate::identity::DispatchSide::Instance {
-        declarations
-            .generic_signature(callable.declaration_owner())
-            .map(|signature| signature.parameters.to_vec())
-            .unwrap_or_default()
-    } else {
-        Vec::new()
-    };
+    let owner_parameters = owner_generic_signature.map(|signature| signature.parameters.to_vec()).unwrap_or_else(|| {
+        if callable.side == crate::identity::DispatchSide::Instance {
+            declarations
+                .generic_signature(callable.declaration_owner())
+                .map(|signature| signature.parameters.to_vec())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        }
+    });
     let callable_parameters = declared_signature
         .and_then(|(_, signature)| signature.generics.as_ref())
         .map(|signature| signature.parameters.to_vec())
@@ -130,6 +143,15 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
         type_parameters,
     };
     let mut ctx = CheckingContext::new_with_dispatch_ref_and_control(store, hierarchy, &scoped_resolver, declarations, dispatch, module, control);
+    ctx.trait_surface = trait_surface;
+    if let Some(surface) = trait_surface {
+        ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(surface.declaration.clone()));
+        ctx.self_override_type = Some(ctx.store.self_type(crate::types::parameter::SelfTypeTerm {
+            owner: surface.declaration.clone(),
+            side: crate::identity::DispatchSide::Instance,
+            role: crate::types::parameter::SelfRole::InstanceType,
+        }));
+    }
     if let Some(domain) = &impl_domain {
         ctx.self_override_type = Some(domain.head_type);
         ctx.ambient_constraints.extend(domain.constraints.iter().cloned());
@@ -150,7 +172,7 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
         ctx.attach_associated_families(associated_families);
     }
     ctx.current_callable = Some(callable.clone());
-    ctx.current_class = Some(callable.declaration_owner().clone());
+    ctx.current_class = trait_surface.is_none().then(|| callable.declaration_owner().clone());
     ctx.current_side = callable.side;
 
     // 1. Build flow graph for the body statements
@@ -172,7 +194,9 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
     }
 
     if let Some((signature_id, signature)) = declared_signature {
-        ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::CallableSignature(signature_id.clone()));
+        if trait_surface.is_none() {
+            ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::CallableSignature(signature_id.clone()));
+        }
         for parameter in signature.parameters.iter() {
             if let Some(ty) = parameter.declared_type.canonical_type() {
                 ctx.seed_stable_record_row_lacks(crate::checker::row_inference::collect_stable_record_row_lacks(ctx.store, ty));

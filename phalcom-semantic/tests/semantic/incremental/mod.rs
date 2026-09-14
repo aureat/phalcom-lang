@@ -13,4 +13,5 @@ mod product_stability;
 mod query_ownership;
 mod record_rows;
 pub(crate) mod support;
+mod traits;
 mod type_store_revisions;

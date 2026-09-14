@@ -14,14 +14,13 @@ pub use shape::{AnonymousProductKind, ProductShape, ProductShapeId, ProductShape
 pub use storage::ProductStorage;
 pub use view::{RecordView, TupleView};
 
-
-use crate::error::RuntimeError;
 use crate::error::PhResult;
+use crate::error::RuntimeError;
 use crate::interner::Symbol;
+use crate::modules::semantic_lowering::{AnonymousProductConstructionKind, AnonymousProductConstructionLoweringSpec};
+use crate::typing::{RuntimeTypeEnvironmentId, RuntimeTypeRecipe, RuntimeTypeRef, instantiate_type_recipe};
 use crate::value::Value;
 use crate::vm::VM;
-use crate::modules::semantic_lowering::{AnonymousProductConstructionKind, AnonymousProductConstructionLoweringSpec};
-use crate::typing::{instantiate_type_recipe, RuntimeTypeEnvironmentId, RuntimeTypeRecipe, RuntimeTypeRef};
 use std::collections::HashSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,7 +70,10 @@ pub(crate) fn finish_tuple(vm: &mut VM, mut positionals: Vec<Value>, labeled: Ve
         labels.push(label);
         positionals.push(value);
     }
-    let shape = ProductShape::Tuple(TupleProductShape::new(positionals.len() as u32 - labels.len() as u32, labels.into_boxed_slice()));
+    let shape = ProductShape::Tuple(TupleProductShape::new(
+        positionals.len() as u32 - labels.len() as u32,
+        labels.into_boxed_slice(),
+    ));
     let shape_id = vm.product_shapes.register(shape);
     let layout_spec = ProductLayoutSpec::new(
         (0..positionals.len())
@@ -83,7 +85,11 @@ pub(crate) fn finish_tuple(vm: &mut VM, mut positionals: Vec<Value>, labeled: Ve
     );
     let layout = layout_spec.build_layout().map_err(ProductBuildError::Storage)?;
     let layout_id = vm.heap.product_layouts.register(layout);
-    let layout = vm.heap.product_layouts.get(layout_id).ok_or(ProductBuildError::Storage("missing registered layout"))?;
+    let layout = vm
+        .heap
+        .product_layouts
+        .get(layout_id)
+        .ok_or(ProductBuildError::Storage("missing registered layout"))?;
     let storage = ProductStorage::from_values(layout_id, layout, &positionals).map_err(ProductBuildError::Storage)?;
     let descriptor = vm
         .anonymous_product_descriptors
@@ -111,9 +117,7 @@ pub(crate) fn finish_record(vm: &mut VM, fields: Vec<(Symbol, Value)>) -> Result
         return Ok(Value::unit());
     }
     let (labels, values): (Vec<_>, Vec<_>) = fields.into_iter().unzip();
-    let shape = RecordProductShape::from_presentation_labels(labels.into_boxed_slice(), |left, right| {
-        vm.resolve_symbol(left).cmp(vm.resolve_symbol(right))
-    });
+    let shape = RecordProductShape::from_presentation_labels(labels.into_boxed_slice(), |left, right| vm.resolve_symbol(left).cmp(vm.resolve_symbol(right)));
     let mut logical_values = vec![Value::unit(); values.len()];
     for (source_index, logical_index) in shape.presentation_to_logical.iter().copied().enumerate() {
         logical_values[logical_index as usize] = values[source_index];
@@ -129,7 +133,11 @@ pub(crate) fn finish_record(vm: &mut VM, fields: Vec<(Symbol, Value)>) -> Result
     );
     let layout = layout_spec.build_layout().map_err(ProductBuildError::Storage)?;
     let layout_id = vm.heap.product_layouts.register(layout);
-    let layout = vm.heap.product_layouts.get(layout_id).ok_or(ProductBuildError::Storage("missing registered layout"))?;
+    let layout = vm
+        .heap
+        .product_layouts
+        .get(layout_id)
+        .ok_or(ProductBuildError::Storage("missing registered layout"))?;
     let storage = ProductStorage::from_values(layout_id, layout, &logical_values).map_err(ProductBuildError::Storage)?;
     let descriptor = vm
         .anonymous_product_descriptors
@@ -144,8 +152,7 @@ fn materialize_exact_type(vm: &mut VM, recipe: RuntimeTypeRecipe) -> Result<Runt
         .get(env_id)
         .cloned()
         .ok_or(ProductBuildError::RuntimeTypeUnavailable)?;
-    instantiate_type_recipe(recipe, &env, &mut vm.runtime_typing_context, &vm.typing_registry)
-        .ok_or(ProductBuildError::RuntimeTypeUnavailable)
+    instantiate_type_recipe(recipe, &env, &mut vm.runtime_typing_context, &vm.typing_registry).ok_or(ProductBuildError::RuntimeTypeUnavailable)
 }
 
 /// Finalizes a statically-shaped Tuple from source-order component values.
@@ -157,7 +164,10 @@ pub(crate) fn finish_tuple_from_spec(
     let AnonymousProductConstructionKind::Tuple { positional_len, labels } = &spec.kind else {
         return Err(ProductBuildError::InvalidSpec);
     };
-    let total = usize::try_from(*positional_len).ok().and_then(|n| n.checked_add(labels.len())).ok_or(ProductBuildError::InvalidSpec)?;
+    let total = usize::try_from(*positional_len)
+        .ok()
+        .and_then(|n| n.checked_add(labels.len()))
+        .ok_or(ProductBuildError::InvalidSpec)?;
     if total == 0 || source_values.len() != total || spec.layout.components.len() != total {
         return if total == 0 && source_values.is_empty() {
             Ok(Value::unit())
@@ -169,10 +179,16 @@ pub(crate) fn finish_tuple_from_spec(
     let shape_id = vm.product_shapes.register(ProductShape::Tuple(TupleProductShape::new(*positional_len, labels)));
     let layout = spec.layout.build_layout().map_err(ProductBuildError::Storage)?;
     let layout_id = vm.heap.product_layouts.register(layout);
-    let layout = vm.heap.product_layouts.get(layout_id).ok_or(ProductBuildError::Storage("missing registered layout"))?;
+    let layout = vm
+        .heap
+        .product_layouts
+        .get(layout_id)
+        .ok_or(ProductBuildError::Storage("missing registered layout"))?;
     let storage = ProductStorage::from_values(layout_id, layout, &source_values).map_err(ProductBuildError::Storage)?;
     let exact_type = materialize_exact_type(vm, spec.type_recipe)?;
-    let descriptor = vm.anonymous_product_descriptors.register(AnonymousProductKind::Tuple, shape_id, layout_id, Some(exact_type));
+    let descriptor = vm
+        .anonymous_product_descriptors
+        .register(AnonymousProductKind::Tuple, shape_id, layout_id, Some(exact_type));
     Ok(Value::obj(vm.heap.alloc_tuple_nonempty(descriptor, storage)))
 }
 
@@ -191,23 +207,34 @@ pub(crate) fn finish_record_from_spec(
         return Err(ProductBuildError::InvalidSpec);
     };
     let total = presentation_labels.len();
-    if total == 0 || source_values.len() != total || logical_labels.len() != total || source_to_logical.len() != total || spec.layout.components.len() != total {
+    if total == 0 || source_values.len() != total || logical_labels.len() != total || source_to_logical.len() != total || spec.layout.components.len() != total
+    {
         return if total == 0 && source_values.is_empty() {
             Ok(Value::unit())
         } else {
             Err(ProductBuildError::InvalidSpec)
         };
     }
-    let presentation = presentation_labels.iter().map(|label| vm.interner.intern(label)).collect::<Vec<_>>().into_boxed_slice();
-    let logical = logical_labels.iter().map(|label| vm.interner.intern(label)).collect::<Vec<_>>().into_boxed_slice();
-    let shape_id = vm.product_shapes.register(ProductShape::Record(RecordProductShape::new(
-        presentation,
-        logical,
-        source_to_logical.clone(),
-    )));
+    let presentation = presentation_labels
+        .iter()
+        .map(|label| vm.interner.intern(label))
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    let logical = logical_labels
+        .iter()
+        .map(|label| vm.interner.intern(label))
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    let shape_id = vm
+        .product_shapes
+        .register(ProductShape::Record(RecordProductShape::new(presentation, logical, source_to_logical.clone())));
     let layout = spec.layout.build_layout().map_err(ProductBuildError::Storage)?;
     let layout_id = vm.heap.product_layouts.register(layout);
-    let layout = vm.heap.product_layouts.get(layout_id).ok_or(ProductBuildError::Storage("missing registered layout"))?;
+    let layout = vm
+        .heap
+        .product_layouts
+        .get(layout_id)
+        .ok_or(ProductBuildError::Storage("missing registered layout"))?;
     let mut logical_values = vec![Value::unit(); total];
     for (source_index, logical_index) in source_to_logical.iter().copied().enumerate() {
         let Some(slot) = logical_values.get_mut(logical_index as usize) else {
@@ -217,7 +244,9 @@ pub(crate) fn finish_record_from_spec(
     }
     let storage = ProductStorage::from_values(layout_id, layout, &logical_values).map_err(ProductBuildError::Storage)?;
     let exact_type = materialize_exact_type(vm, spec.type_recipe)?;
-    let descriptor = vm.anonymous_product_descriptors.register(AnonymousProductKind::Record, shape_id, layout_id, Some(exact_type));
+    let descriptor = vm
+        .anonymous_product_descriptors
+        .register(AnonymousProductKind::Record, shape_id, layout_id, Some(exact_type));
     Ok(Value::obj(vm.heap.alloc_record_nonempty(descriptor, storage)))
 }
 
@@ -227,8 +256,8 @@ mod tests {
     use super::registry::ProductLayoutRegistry;
     use super::storage::ProductStorage;
     use super::{finish_record, finish_record_from_spec, finish_tuple, finish_tuple_from_spec};
-    use crate::modules::semantic_lowering::{AnonymousProductConstructionKind, AnonymousProductConstructionLoweringSpec};
     use crate::interner::Symbol;
+    use crate::modules::semantic_lowering::{AnonymousProductConstructionKind, AnonymousProductConstructionLoweringSpec};
     use crate::value::Value;
     use crate::vm::VM;
 
@@ -344,14 +373,26 @@ mod tests {
                 labels: Box::new([]),
             },
             layout: super::layout::ProductLayoutSpec::new(vec![
-                super::layout::ProductComponentSpec { logical_index: 0, repr: ProductSlotRepr::Float64 },
-                super::layout::ProductComponentSpec { logical_index: 1, repr: ProductSlotRepr::Bool },
+                super::layout::ProductComponentSpec {
+                    logical_index: 0,
+                    repr: ProductSlotRepr::Float64,
+                },
+                super::layout::ProductComponentSpec {
+                    logical_index: 1,
+                    repr: ProductSlotRepr::Bool,
+                },
             ]),
             type_recipe: crate::typing::RuntimeTypeRecipe::Closed(crate::typing::RuntimeTypeRef::Overlay(crate::typing::RuntimeOverlayTypeId(0))),
         };
         let value = finish_tuple_from_spec(&mut vm, &spec, vec![Value::float(1.5), Value::bool(true)]).expect("static tuple");
         let id = value.as_obj().expect("tuple object");
-        assert!(vm.anonymous_product_descriptors.get(vm.heap.tuple(id).descriptor()).unwrap().exact_type.is_some());
+        assert!(
+            vm.anonymous_product_descriptors
+                .get(vm.heap.tuple(id).descriptor())
+                .unwrap()
+                .exact_type
+                .is_some()
+        );
         assert_eq!(vm.heap.tuple(id).storage().word_len(), 2);
         assert_eq!(vm.tuple_view(id).expect("tuple view").values(), vec![Value::float(1.5), Value::bool(true)]);
     }
@@ -366,14 +407,26 @@ mod tests {
                 source_to_logical: Box::new([1, 0]),
             },
             layout: super::layout::ProductLayoutSpec::new(vec![
-                super::layout::ProductComponentSpec { logical_index: 0, repr: ProductSlotRepr::Bool },
-                super::layout::ProductComponentSpec { logical_index: 1, repr: ProductSlotRepr::Float64 },
+                super::layout::ProductComponentSpec {
+                    logical_index: 0,
+                    repr: ProductSlotRepr::Bool,
+                },
+                super::layout::ProductComponentSpec {
+                    logical_index: 1,
+                    repr: ProductSlotRepr::Float64,
+                },
             ]),
             type_recipe: crate::typing::RuntimeTypeRecipe::Closed(crate::typing::RuntimeTypeRef::Overlay(crate::typing::RuntimeOverlayTypeId(0))),
         };
         let value = finish_record_from_spec(&mut vm, &spec, vec![Value::float(2.5), Value::bool(false)]).expect("static record");
         let id = value.as_obj().expect("record object");
-        assert!(vm.anonymous_product_descriptors.get(vm.heap.record(id).descriptor()).unwrap().exact_type.is_some());
+        assert!(
+            vm.anonymous_product_descriptors
+                .get(vm.heap.record(id).descriptor())
+                .unwrap()
+                .exact_type
+                .is_some()
+        );
         assert_eq!(vm.heap.record(id).storage().word_len(), 2);
         let z = vm.interner.intern("z");
         let a = vm.interner.intern("a");

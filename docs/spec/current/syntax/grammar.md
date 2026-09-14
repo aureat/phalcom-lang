@@ -18,7 +18,7 @@ token · `(* *)` comment.
 (* ================================================================ *)
 
 program        := { top_item } EOF
-top_item       := class_decl | import_decl | statement
+top_item       := class_decl | trait_decl | import_decl | statement
 
 (* ================================================================ *)
 (* Declarations                                                      *)
@@ -29,14 +29,22 @@ import_decl    := "import" IDENT
                  | "import" IDENT "as" IDENT
 
 class_decl     := "class" IDENT [ "is" IDENT ] "{" { member } "}"
+trait_decl     := "trait" IDENT [ generic_parameters ] [ where_clause ]
+                  "{" { behavior_member } "}"
 member         := { attribute } member_body
 attribute      := "@" IDENT [ "(" [ arg { "," arg } ] ")" ]
 member_body    := setter_def | method_def | getter_def | field_init
+
+behavior_member := { attribute } (setter_def | method_def | getter_def | index_def)
+(* A trait behavior member may end after its signature; a braced body is its
+   declaration-local default. Fields, constructors, and class-side members are
+   excluded. See ../../extensions/traits.md. *)
 
 setter_def     := IDENT "=" param_list method_body
 method_def     := method_name param_list method_body
 getter_def     := IDENT method_body
 field_init     := FIELD "=" expr
+index_def      := "[" [ param { "," param } ] "]" [ "->" type ] [ method_body ]
 
 method_name    := IDENT | operator
 operator       := "+" | "-" | "*" | "/" | "%" | "~/" | "**"
@@ -187,7 +195,7 @@ block_comment  := "/*" { any_char } "*/"
    property name (e.g. `.self`, `.and`); "try", "catch", "on",
    "ensure" are contextual keywords, only reserved in try position;
    "fn" is reserved-inactive, not currently a keyword *)
-keyword        := "let" | "const" | "class"
+keyword        := "let" | "const" | "class" | "trait"
                  | "self" | "super" | "if" | "else" | "while" | "for" | "in"
                  | "break" | "continue" | "return" | "and" | "or" | "not" | "is"
                  | "true" | "false" | "import" | "as" | "throw"

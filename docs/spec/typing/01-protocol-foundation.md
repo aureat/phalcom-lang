@@ -1,13 +1,21 @@
 # Protocol Foundation
 
+> **Historical / superseded.** This document is retained as design history and
+> is not the effective language rule. First-class behavioral contracts use
+> [`trait`](../extensions/traits.md); `@protocol class` and this document's
+> signature-only `Protocol` descriptor model are not current Phalcom syntax.
+
 - **Status:** Proposed normative design; not a claim of current compiler or VM support
 - **Date:** 2026-07-23
 - **Depends on:** class-shaped declarations, attributes/decorators, selector identity, modules and lexical bindings, immutable collections, basic method/parameter/source reflection
 - **Supersedes:** the protocol fragments in earlier experimental typing notes and the Phase 1 reference package wherever they conflict with this document
-- **Superseded by:** none
+- **Superseded by:** [`First-Class Traits`](../extensions/traits.md) for behavioral contracts
 - **Related ADRs and specifications:** `docs/spec/current/decorators/README.md`, `docs/spec/current/decorators/native.md`, `docs/spec/current/decorators/constructor.md`, `docs/spec/current/syntax/statements-and-declarations.md`, `docs/spec/current/selectors.md`, the current module and object-model specifications, and Documents 02, 03, 10, 17, 18, 19, 20, and 21 of this series
 
-This document is the first normative part of the Phalcom typing specification series. It establishes first-class protocol descriptors and the `@protocol` declaration product. Later documents add the common `Type` protocol, generic signatures, applied types, substitution, structural conformance, metadata encoding, bootstrap hardening, checker modes, and the complete conformance suite.
+This document was the first proposal in the historical Phalcom typing series. It
+describes a protocol descriptor model that was later superseded for behavioral
+contracts by the effective C3 trait extension. Its later-document references
+are retained as historical context only.
 
 The visible Phalcom source in Section 6 is normative. A native implementation may replace selected `@native` methods only when it preserves the source contract exactly.
 

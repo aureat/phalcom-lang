@@ -1,5 +1,6 @@
 use phalcom_common::selector::SelectorBase;
 use phalcom_modules::identity::{ModuleId, ModulePath, ResolvedProjectId};
+use phalcom_semantic::CheckingContext;
 use phalcom_semantic::declaration_type::DeclaredTypeState;
 use phalcom_semantic::declarations::{DeclarationTypeTable, NominalDeclarationHeader};
 use phalcom_semantic::diagnostic::DiagnosticCode;
@@ -10,7 +11,6 @@ use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::parameter::{GenericSignature, TypeParameterData, TypeParameterOwner, TypeTerm};
 use phalcom_semantic::types::relation::MapTypeHierarchy;
 use phalcom_semantic::types::store::{TypeData, TypeStore};
-use phalcom_semantic::CheckingContext;
 
 fn test_module() -> ModuleId {
     ModuleId::resolved(ResolvedProjectId::from_raw(42), ModulePath::root())
@@ -30,12 +30,7 @@ fn setup_resolver() -> SimpleTypeResolver {
     resolver
 }
 
-fn register_nominal(
-    store: &mut TypeStore,
-    declarations: &mut DeclarationTypeTable,
-    decl: DeclarationId,
-    generic_signature: Option<GenericSignature>,
-) {
+fn register_nominal(store: &mut TypeStore, declarations: &mut DeclarationTypeTable, decl: DeclarationId, generic_signature: Option<GenericSignature>) {
     let header = NominalDeclarationHeader::from_signature(store, decl, generic_signature);
     declarations.insert(header.into_type_info(None));
 }
@@ -50,10 +45,7 @@ fn test_permutation_signature_canonicalization() {
     let pair_decl = DeclarationId::new(module.clone(), "Pair".into());
     let param_x = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(pair_decl.clone()), 0, "X", KindId::TYPE));
     let param_y = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(pair_decl.clone()), 1, "Y", KindId::TYPE));
-    let pair_sig = GenericSignature::new(
-        TypeParameterOwner::Declaration(pair_decl.clone()),
-        vec![param_x, param_y].into_boxed_slice(),
-    );
+    let pair_sig = GenericSignature::new(TypeParameterOwner::Declaration(pair_decl.clone()), vec![param_x, param_y].into_boxed_slice());
     register_nominal(&mut store, &mut declarations, pair_decl.clone(), Some(pair_sig));
 
     let mut resolver = setup_resolver();
@@ -83,7 +75,10 @@ fn test_permutation_signature_canonicalization() {
             TypeData::Parameter(p_id) => {
                 assert_eq!(*p_id, param_y, "first_val return type should be declaration parameter Y");
                 let p_data = ctx.store.type_parameter(*p_id);
-                assert!(matches!(p_data.owner, TypeParameterOwner::Declaration(_)), "owner must be declaration, not impl");
+                assert!(
+                    matches!(p_data.owner, TypeParameterOwner::Declaration(_)),
+                    "owner must be declaration, not impl"
+                );
             }
             other => panic!("expected parameter type, got {:?}", other),
         }
@@ -100,7 +95,10 @@ fn test_permutation_signature_canonicalization() {
             TypeData::Parameter(p_id) => {
                 assert_eq!(*p_id, param_x, "second_val return type should be declaration parameter X");
                 let p_data = ctx.store.type_parameter(*p_id);
-                assert!(matches!(p_data.owner, TypeParameterOwner::Declaration(_)), "owner must be declaration, not impl");
+                assert!(
+                    matches!(p_data.owner, TypeParameterOwner::Declaration(_)),
+                    "owner must be declaration, not impl"
+                );
             }
             other => panic!("expected parameter type, got {:?}", other),
         }

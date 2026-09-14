@@ -168,6 +168,40 @@ fn iface_10_enum_and_class_duplicate_name_rejected() {
 }
 
 #[test]
+fn iface_trait_declaration_is_exportable() {
+    let id = make_test_id("trait_mod");
+    let parsed = parse("trait Display {\n  render() -> String\n}\nexport Display\n", 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+
+    let iface = InterfaceBuilder::build(id, ModuleKind::Module, &parsed.program).expect("build interface");
+    assert!(iface.declarations.contains_key("Display"));
+    assert_eq!(
+        iface.exports.get("Display").map(|export| &export.target),
+        Some(&UnlinkedExportTarget::Local("Display".to_string()))
+    );
+}
+
+#[test]
+fn iface_trait_can_be_named_by_a_selective_import() {
+    let id = make_test_id("trait_importer");
+    let parsed = parse("from contracts import Display\n", 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+
+    let iface = InterfaceBuilder::build(id, ModuleKind::Module, &parsed.program).expect("build interface");
+    assert!(matches!(iface.imports.first(), Some(ImportSurface::Selective(_))));
+}
+
+#[test]
+fn iface_trait_collides_with_other_named_declaration() {
+    let id = make_test_id("trait_collision");
+    let parsed = parse("trait Display {}\nclass Display {}\n", 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+
+    let result = InterfaceBuilder::build(id, ModuleKind::Module, &parsed.program);
+    assert!(matches!(result, Err(InterfaceError::DuplicateDeclaration { ref name, .. }) if name == "Display"));
+}
+
+#[test]
 fn iface_11_type_alias_is_declaration_and_exportable() {
     let id = make_test_id("test_mod");
     let src = "type UserId = Int\nexport UserId\n";
