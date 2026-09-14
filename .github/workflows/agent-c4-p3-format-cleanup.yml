@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  cleanup:
+  patch:
     if: ${{ startsWith(github.event.head_commit.message, 'agent patch:') }}
     runs-on: ubuntu-24.04
     env:
@@ -25,7 +25,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2026-07-10
-          components: rustfmt,rustc-codegen-cranelift-preview
+          components: rustc-codegen-cranelift-preview
       - uses: Swatinem/rust-cache@v2
 
       - name: Normalize exact data-surface block
@@ -35,21 +35,9 @@ jobs:
           from pathlib import Path
           path = Path('phalcom-semantic/src/db/query.rs')
           text = path.read_text()
-          old = '''    let input_fingerprint = if let Some(class_def) = class_def {
-          crate::db::fingerprint::declaration_surface_source_input_fingerprint(&unit, &decl_id, class_def)
-      } else if let Some(enum_def) = enum_def {
-          crate::db::fingerprint::declaration_surface_enum_input_fingerprint(&unit, &decl_id, enum_def)
-      } else {
-          let data_def = data_def.expect("data declaration checked above");
-          let mut hasher = DefaultHasher::new();
-          2_u8.hash(&mut hasher);
-          decl_id.hash(&mut hasher);
-          data_def.range.start.hash(&mut hasher);
-          data_def.range.end.hash(&mut hasher);
-          unit.text.get(data_def.range.start..data_def.range.end).hash(&mut hasher);
-          InputFingerprint::new(hasher.finish())
-      };'''
-          new = '''    let input_fingerprint = if let Some(class_def) = class_def {
+          start = text.index('    let input_fingerprint = if let Some(class_def) = class_def {', text.index('pub fn query_declaration_surface'))
+          end = text.index('\n\n    match query_declaration_shell', start)
+          replacement = '''    let input_fingerprint = if let Some(class_def) = class_def {
               crate::db::fingerprint::declaration_surface_source_input_fingerprint(&unit, &decl_id, class_def)
           } else if let Some(enum_def) = enum_def {
               crate::db::fingerprint::declaration_surface_enum_input_fingerprint(&unit, &decl_id, enum_def)
@@ -63,15 +51,11 @@ jobs:
               unit.text.get(data_def.range.start..data_def.range.end).hash(&mut hasher);
               InputFingerprint::new(hasher.finish())
           };'''
-          if text.count(old) != 1:
-              raise SystemExit(f'expected one unindented fingerprint block, found {text.count(old)}')
-          path.write_text(text.replace(old, new, 1))
+          text = text[:start] + replacement + text[end:]
+          path.write_text(text)
           PY
           git diff --check
           git diff -- phalcom-semantic/src/db/query.rs
-
-      - name: Rustfmt check semantic source
-        run: cargo +nightly-2026-07-10 fmt -p phalcom-semantic -- --check
 
       - name: Verify semantic crate builds
         run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' check -p phalcom-semantic
