@@ -429,7 +429,7 @@ impl<'a> EditorSemanticQuery<'a> {
         let owner = self.snapshot.source_site_at(module, offset).map(|site| &site.id.owner);
         match owner {
             Some(SourceOwner::Callable(callable)) => AccessContext {
-                enclosing_declaration: Some(callable.declaration_owner().clone()),
+                enclosing_declaration: callable.try_declaration_owner().cloned(),
                 enclosing_callable: Some(callable.clone()),
             },
             _ => AccessContext {
@@ -555,8 +555,8 @@ impl<'a> EditorSemanticQuery<'a> {
             return None;
         };
         let declaration = match kind {
-            crate::source_index::SourceReceiverKind::SelfValue => callable.declaration_owner().clone(),
-            crate::source_index::SourceReceiverKind::SuperValue => self.snapshot.hierarchy.superclass(callable.declaration_owner()).cloned()?,
+            crate::source_index::SourceReceiverKind::SelfValue => callable.try_declaration_owner().cloned()?,
+            crate::source_index::SourceReceiverKind::SuperValue => self.snapshot.hierarchy.superclass(callable.try_declaration_owner()?).cloned()?,
         };
         let receiver_type = self.formal_type_for_site(site);
         let mode_hint = self.formal_shape_for_site(site).and_then(|shape| receiver_mode_for_shape(&shape));

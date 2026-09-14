@@ -1,6 +1,6 @@
 //! Retained source-local semantic structure for incremental workspace updates.
 
-use crate::identity::{CallableId, CallableOwnerId, DeclarationId, DispatchSide, FieldId, ModuleId};
+use crate::identity::{CallableId, CallableOwnerId, DeclarationId, DispatchSide, FieldId, ImplId, ImplLocalId, ModuleId};
 use crate::source::ParsedModuleUnit;
 use phalcom_ast::ast::{BehaviorMember, ClassMember, MemberBody, Statement, TypeAliasDef};
 use phalcom_modules::declaration::{DeclarationBlueprint, DeclarationKind};
@@ -106,10 +106,13 @@ impl ModuleSemanticStructureShard {
             }
         }
 
-        for statement in &source.program.statements {
+        for (index, statement) in source.program.statements.iter().enumerate() {
             if let Statement::Impl(impl_def) = statement {
+                let impl_id = ImplId::new(source.id.clone(), ImplLocalId(index as u32));
                 collect_impl_member_fingerprints(
                     &source,
+                    &impl_id,
+                    &impl_def.kind,
                     &impl_def.target,
                     &impl_def.members,
                     &mut callable_signature_fingerprints,
@@ -250,9 +253,22 @@ fn callable_body_fingerprints_for_source(source: &ParsedModuleUnit) -> BTreeMap<
                 );
             }
             Statement::Impl(impl_def) => {
-                if matches!(impl_def.kind, phalcom_ast::ast::ImplKind::Inherent) {
-                    collect_impl_member_fingerprints(source, &impl_def.target, &impl_def.members, &mut callable_signatures, &mut callable_bodies);
-                }
+                let index = source
+                    .program
+                    .statements
+                    .iter()
+                    .position(|candidate| std::ptr::eq(candidate, statement))
+                    .expect("impl statement must belong to its source");
+                let impl_id = ImplId::new(source.id.clone(), ImplLocalId(index as u32));
+                collect_impl_member_fingerprints(
+                    source,
+                    &impl_id,
+                    &impl_def.kind,
+                    &impl_def.target,
+                    &impl_def.members,
+                    &mut callable_signatures,
+                    &mut callable_bodies,
+                );
             }
             _ => {}
         }
@@ -262,39 +278,44 @@ fn callable_body_fingerprints_for_source(source: &ParsedModuleUnit) -> BTreeMap<
 
 fn collect_impl_member_fingerprints(
     source: &ParsedModuleUnit,
+    impl_id: &ImplId,
+    kind: &phalcom_ast::ast::ImplKind,
     target: &phalcom_ast::ast::TypeAnnotation,
     members: &[BehaviorMember],
     callable_signatures: &mut BTreeMap<CallableId, u64>,
     callable_bodies: &mut BTreeMap<CallableId, u64>,
 ) {
-    let callable_owner = match &target.expr {
-        phalcom_ast::ast::TypeAnnotationExpr::ExactEnumCase {
-            enum_target,
-            variant_name,
-            payload_shape,
-            ..
-        } => {
-            let Some(origin) = enum_target.origin_symbol_ref() else {
-                return;
-            };
-            if !origin.members.is_empty() {
-                return;
+    let callable_owner = match kind {
+        phalcom_ast::ast::ImplKind::Conformance { .. } => CallableOwnerId::Conformance(impl_id.clone()),
+        phalcom_ast::ast::ImplKind::Inherent => match &target.expr {
+            phalcom_ast::ast::TypeAnnotationExpr::ExactEnumCase {
+                enum_target,
+                variant_name,
+                payload_shape,
+                ..
+            } => {
+                let Some(origin) = enum_target.origin_symbol_ref() else {
+                    return;
+                };
+                if !origin.members.is_empty() {
+                    return;
+                }
+                let decl = DeclarationId::new(source.id.clone(), origin.root.clone().into());
+                let selector = phalcom_ast::selector::selector_from_exact_case_target(variant_name, payload_shape.as_ref());
+                let variant_id = crate::identity::VariantId::new(decl, selector);
+                CallableOwnerId::Variant(variant_id)
             }
-            let decl = DeclarationId::new(source.id.clone(), origin.root.clone().into());
-            let selector = phalcom_ast::selector::selector_from_exact_case_target(variant_name, payload_shape.as_ref());
-            let variant_id = crate::identity::VariantId::new(decl, selector);
-            CallableOwnerId::Variant(variant_id)
-        }
-        _ => {
-            let Some(target) = target.origin_symbol_ref() else {
-                return;
-            };
-            if !target.members.is_empty() {
-                return;
+            _ => {
+                let Some(target) = target.origin_symbol_ref() else {
+                    return;
+                };
+                if !target.members.is_empty() {
+                    return;
+                }
+                let owner = DeclarationId::new(source.id.clone(), target.root.clone().into());
+                CallableOwnerId::Declaration(owner)
             }
-            let owner = DeclarationId::new(source.id.clone(), target.root.clone().into());
-            CallableOwnerId::Declaration(owner)
-        }
+        },
     };
     collect_behavior_member_fingerprints(source, &callable_owner, members, callable_signatures, callable_bodies);
 }
@@ -395,7 +416,7 @@ fn hash_range_without_bodies(
     hasher.finish()
 }
 
-fn behavior_side(member: &BehaviorMember) -> DispatchSide {
+pub(crate) fn behavior_side(member: &BehaviorMember) -> DispatchSide {
     match member {
         BehaviorMember::Method(method) if method.is_static || method.attributes.iter().any(|attribute| attribute.name == "class") => DispatchSide::Class,
         BehaviorMember::Getter(getter) if getter.is_static || getter.attributes.iter().any(|attribute| attribute.name == "class") => DispatchSide::Class,
@@ -474,4 +495,47 @@ fn matching_brace(text: &str, open: usize, end: usize) -> Option<usize> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ModuleSemanticStructureShard;
+    use crate::identity::{CallableOwnerId, ImplId, ImplLocalId, ModuleId};
+    use crate::source::ParsedModuleUnit;
+    use phalcom_modules::identity::{ModulePath, ResolvedProjectId};
+    use phalcom_modules::source::ModuleKind;
+    use std::sync::Arc;
+
+    fn source(text: &str) -> Arc<ParsedModuleUnit> {
+        let module = ModuleId::resolved(ResolvedProjectId::from_raw(8), ModulePath::root());
+        let parsed = phalcom_ast::parse(text, 0);
+        assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+        Arc::new(ParsedModuleUnit::new(
+            module,
+            ModuleKind::Module,
+            None,
+            Arc::from(text),
+            Arc::new(parsed.program),
+        ))
+    }
+
+    #[test]
+    fn conformance_member_fingerprints_use_impl_owner_in_cold_and_refresh_paths() {
+        let first = source("trait Tagged { tag -> String }\nclass User {}\nimpl Tagged for User { tag -> String { \"a\" } }\n");
+        let shard = ModuleSemanticStructureShard::from_source(first.clone());
+        let impl_id = ImplId::new(first.id.clone(), ImplLocalId(2));
+        let callable = shard
+            .callable_signature_fingerprints
+            .keys()
+            .find(|callable| callable.conformance_owner() == Some(&impl_id))
+            .expect("conformance witness signature fingerprint")
+            .clone();
+        assert!(matches!(callable.owner, CallableOwnerId::Conformance(_)));
+        assert!(shard.callable_body_fingerprints.contains_key(&callable));
+
+        let second = source("trait Tagged { tag -> String }\nclass User {}\nimpl Tagged for User { tag -> String { \"b\" } }\n");
+        let refreshed = ModuleSemanticStructureShard::with_source(&shard, second);
+        assert!(refreshed.callable_signature_fingerprints.contains_key(&callable));
+        assert!(refreshed.callable_body_fingerprints.contains_key(&callable));
+    }
 }

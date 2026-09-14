@@ -368,6 +368,7 @@ fn callable_body_accepts_explicit_trait_owner_generics_without_nominal_entry() {
             body,
             body_range,
             owner_generic_signature: header.generic_signature.as_ref(),
+            self_type_override: None,
             declared_signature: Some((&callable.callable, &callable.signature)),
             budget: QueryBudget::default(),
             cancel: &cancel,

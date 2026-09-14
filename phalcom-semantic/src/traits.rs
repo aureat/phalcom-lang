@@ -4,10 +4,12 @@
 //! therefore stores only the declaration identity, generic contract metadata,
 //! and source provenance needed by later C3 trait products.
 
+use crate::declaration_type::{DeclaredTypeFact, DeclaredTypeState};
 use crate::diagnostic::SemanticSourceSpan;
 use crate::identity::{CallableId, CallableOwnerId, DeclarationId, DispatchSide, ModuleId};
 use crate::signature::CallableSemanticSignature;
 use crate::surface::MemberVisibility;
+use crate::types::environment::{TypeEnvironment, TypeView};
 use crate::types::id::{KindId, TypeId};
 use crate::types::parameter::GenericSignature;
 use crate::types::parameter::{GenericConstraint, TypeTerm};
@@ -133,6 +135,59 @@ pub struct TraitSurfaceMember {
     pub default_source: Option<SemanticSourceSpan>,
 }
 
+/// Immutable trait requirement view after binding the trait parameters and
+/// abstract `Self` for one source or exact conformance environment.
+///
+/// This is a projection of the canonical trait surface. It does not create a
+/// new callable identity, alter the published trait surface, or re-run
+/// requirement selection. Callable-local generic parameters remain owned by
+/// their original callable because materialization only traverses canonical
+/// type terms.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InstantiatedTraitRequirement {
+    pub requirement: TraitRequirementId,
+    pub callable: CallableId,
+    pub signature: CallableSemanticSignature,
+    pub visibility: MemberVisibility,
+    pub default_callable: Option<CallableId>,
+}
+
+fn instantiate_declared_type_fact(store: &mut TypeStore, environment: &TypeEnvironment, fact: &DeclaredTypeFact) -> DeclaredTypeFact {
+    let Some(ty) = fact.canonical_type() else {
+        return fact.clone();
+    };
+    let specialized = TypeView::new(ty, environment.clone()).materialize(store);
+    match &fact.state {
+        DeclaredTypeState::Known(TypeTerm::Canonical(_)) => DeclaredTypeFact::known(TypeTerm::Canonical(specialized), fact.basis),
+        DeclaredTypeState::Known(TypeTerm::SelfType(_) | TypeTerm::Infer(_)) | DeclaredTypeState::Dynamic(_) | DeclaredTypeState::Unknown(_) => fact.clone(),
+    }
+}
+
+impl TraitSurfaceMember {
+    /// Materializes this requirement under a bounded canonical environment.
+    pub fn instantiate(&self, store: &mut TypeStore, environment: &TypeEnvironment) -> InstantiatedTraitRequirement {
+        let mut signature = self.signature.clone();
+        let parameters = signature
+            .parameters
+            .into_vec()
+            .into_iter()
+            .map(|mut parameter| {
+                parameter.declared_type = instantiate_declared_type_fact(store, environment, &parameter.declared_type);
+                parameter
+            })
+            .collect::<Vec<_>>();
+        signature.parameters = parameters.into_boxed_slice();
+        signature.declared_return = instantiate_declared_type_fact(store, environment, &signature.declared_return);
+        InstantiatedTraitRequirement {
+            requirement: self.requirement.clone(),
+            callable: self.callable.clone(),
+            signature,
+            visibility: self.visibility,
+            default_callable: self.default_present.then(|| self.callable.clone()),
+        }
+    }
+}
+
 /// Complete, body-independent behavioral surface for one trait declaration.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TraitSurface {
@@ -164,6 +219,14 @@ impl TraitSurface {
 
     pub fn iter(&self) -> impl Iterator<Item = (&TraitRequirementId, &TraitSurfaceMember)> {
         self.members.iter()
+    }
+
+    /// Materializes every requirement in stable requirement-id order.
+    pub fn instantiate(&self, store: &mut TypeStore, environment: &TypeEnvironment) -> BTreeMap<TraitRequirementId, InstantiatedTraitRequirement> {
+        self.members
+            .iter()
+            .map(|(requirement, member)| (requirement.clone(), member.instantiate(store, environment)))
+            .collect()
     }
 }
 
@@ -277,7 +340,7 @@ pub(crate) fn build_trait_surface(ctx: &mut crate::checker::CheckingContext<'_>,
     surface
 }
 
-fn behavior_member_visibility(member: &BehaviorMember) -> MemberVisibility {
+pub(crate) fn behavior_member_visibility(member: &BehaviorMember) -> MemberVisibility {
     let name = match member {
         BehaviorMember::Method(method) => Some(method.name.as_str()),
         BehaviorMember::Getter(getter) => Some(getter.name.as_str()),

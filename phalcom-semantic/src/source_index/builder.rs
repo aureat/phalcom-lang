@@ -638,7 +638,7 @@ impl SourceScopeBuilder<'_> {
     }
 
     fn visit_statements(&mut self, scope: SourceScopeId, statements: &[Statement], top_level: bool) {
-        for statement in statements {
+        for (statement_index, statement) in statements.iter().enumerate() {
             match statement {
                 Statement::Class(class) => self.visit_class(scope, class),
                 Statement::Enum(enum_def) => self.visit_enum(scope, enum_def),
@@ -654,13 +654,13 @@ impl SourceScopeBuilder<'_> {
                 Statement::Expr { expr, .. } => self.visit_expr(scope, expr),
                 Statement::For(for_statement) => self.visit_for(scope, for_statement),
                 Statement::Throw { expr, .. } => self.visit_expr(scope, expr),
-                Statement::Impl(impl_def) => self.visit_impl(scope, impl_def),
+                Statement::Impl(impl_def) => self.visit_impl(scope, statement_index, impl_def),
                 Statement::Export(_) | Statement::Break { .. } | Statement::Continue { .. } => {}
             }
         }
     }
 
-    fn visit_impl(&mut self, parent: SourceScopeId, impl_def: &phalcom_ast::ast::ImplDef) {
+    fn visit_impl(&mut self, parent: SourceScopeId, statement_index: usize, impl_def: &phalcom_ast::ast::ImplDef) {
         if matches!(impl_def.kind, phalcom_ast::ast::ImplKind::Conformance { .. }) {
             if let phalcom_ast::ast::ImplKind::Conformance { trait_ref, .. } = &impl_def.kind
                 && let Some(target) = self.type_reference_semantic_target(trait_ref)
@@ -672,9 +672,13 @@ impl SourceScopeBuilder<'_> {
                 let site = self.allocate_site(self.current_owner.clone(), impl_def.target.range, SourceSiteKind::Occurrence);
                 self.index.register_target(site, target);
             }
-            // Conformance members do not receive target-owned callable
-            // identities in P1. P2 owns conformance-local witness identity;
-            // retain the declaration-side source work for later projection.
+            let owner = CallableOwnerId::Conformance(crate::identity::ImplId::new(
+                self.index.module.clone(),
+                crate::identity::ImplLocalId(statement_index as u32),
+            ));
+            for member in &impl_def.members {
+                self.visit_behavior_member(parent, owner.clone(), member, behavior_side(member));
+            }
             return;
         }
         // The semantic session publishes the resolved target for the exact

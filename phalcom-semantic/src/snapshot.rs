@@ -3,15 +3,15 @@ use crate::checker::incident::InternalSemanticIncident;
 use crate::declarations::DeclarationTypeTable;
 use crate::diagnostic::{DiagnosticSeverity, SemanticDiagnostic};
 use crate::dispatch::SurfaceDispatchResolver;
-use crate::identity::{DeclarationId, ModuleId, SemanticRevision, SnapshotId, SourceSiteId, SourceSiteRef, WorkspaceId};
-use crate::impls::{ConformanceIndex, EffectiveCallableDefinition};
+use crate::identity::{DeclarationId, ModuleId, SemanticRevision, SnapshotId, SourceSiteId, SourceSiteRef, TypeId, WorkspaceId};
+use crate::impls::{ConformanceEvidence, ConformanceIndex, ConformanceResolution, ConformanceWitnessPlan, EffectiveCallableDefinition};
 use crate::presentation::{FormalFactRef, FormalFactSite, FormalSemanticProjection, SemanticSiteView};
 use crate::semantic_shard::ModuleSemanticStructureShard;
 use crate::signature::{CallableSignatureTable, FieldSignatureTable};
 use crate::source::ParsedModuleUnit;
 use crate::source_index::{OccurrenceView, SourceSemanticIndex, SourceSite};
 use crate::surface::DeclarationSurface;
-use crate::traits::{TraitHeaderTable, TraitSurfaceTable};
+use crate::traits::{TraitHeaderTable, TraitRef, TraitSurfaceTable};
 use crate::type_alias::TypeAliasTable;
 use crate::types::relation::MapTypeHierarchy;
 use crate::types::store::TypeStore;
@@ -165,6 +165,9 @@ pub struct SemanticSnapshot {
     /// Explicit conformance heads published for this exact semantic snapshot.
     /// The index contains source-head matches only, never witness evidence.
     pub conformance_index: Arc<ConformanceIndex>,
+    /// Source witness/default selections, keyed by the declaring conformance
+    /// identity. Exact evidence is derived only from this canonical plan.
+    pub conformance_witness_plans: Arc<BTreeMap<crate::identity::ImplId, Arc<ConformanceWitnessPlan>>>,
     pub field_signatures: Arc<FieldSignatureTable>,
     pub declarations: Arc<DeclarationTypeTable>,
     pub type_aliases: Arc<TypeAliasTable>,
@@ -223,6 +226,7 @@ impl SemanticSnapshot {
             callable_signatures,
             callable_definitions: Arc::new(BTreeMap::new()),
             conformance_index: Arc::new(ConformanceIndex::new()),
+            conformance_witness_plans: Arc::new(BTreeMap::new()),
             field_signatures: Arc::new(FieldSignatureTable::new()),
             declarations,
             type_aliases: Arc::new(TypeAliasTable::new()),
@@ -277,6 +281,7 @@ impl SemanticSnapshot {
             callable_signatures,
             callable_definitions: Arc::new(BTreeMap::new()),
             conformance_index: Arc::new(ConformanceIndex::new()),
+            conformance_witness_plans: Arc::new(BTreeMap::new()),
             field_signatures: Arc::new(FieldSignatureTable::new()),
             declarations,
             type_aliases: Arc::new(TypeAliasTable::new()),
@@ -361,6 +366,37 @@ impl SemanticSnapshot {
     pub fn with_conformance_index(mut self, conformance_index: Arc<ConformanceIndex>) -> Self {
         self.conformance_index = conformance_index;
         self
+    }
+
+    pub fn with_conformance_witness_plans(mut self, plans: Arc<BTreeMap<crate::identity::ImplId, Arc<ConformanceWitnessPlan>>>) -> Self {
+        self.conformance_witness_plans = plans;
+        self
+    }
+
+    /// Resolves exact conformance evidence from the immutable source plan.
+    /// This query is intentionally pure: it clones the persistent type store
+    /// view and cannot mutate the published snapshot or reselect witnesses.
+    pub fn resolve_conformance_evidence(&self, target: TypeId, trait_ref: &TraitRef) -> ConformanceResolution {
+        let mut store = (*self.store).clone();
+        let Some(trait_surface) = self.trait_surfaces.get(&trait_ref.declaration) else {
+            return ConformanceResolution::InternalFailure("trait surface is unavailable for conformance evidence".into());
+        };
+        crate::impls::resolve_conformance_evidence(
+            &self.conformance_index,
+            &self.conformance_witness_plans,
+            trait_surface,
+            &self.declarations,
+            &mut store,
+            target,
+            trait_ref,
+        )
+    }
+
+    pub fn conformance_evidence_for(&self, target: TypeId, trait_ref: &TraitRef) -> Option<Arc<ConformanceEvidence>> {
+        match self.resolve_conformance_evidence(target, trait_ref) {
+            ConformanceResolution::Proven(evidence) => Some(evidence),
+            _ => None,
+        }
     }
 
     pub fn with_callable_analyses(mut self, callable_analyses: Arc<HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>) -> Self {

@@ -61,6 +61,9 @@ pub struct CallableBodyRequest<'a> {
     /// through `DeclarationTypeTable`. When present, this is the sole source
     /// for owner binders in the body lexical scope.
     pub owner_generic_signature: Option<&'a GenericSignature>,
+    /// Explicit receiver type for non-nominal callable owners such as
+    /// conformance-local witnesses.
+    pub self_type_override: Option<crate::types::id::TypeId>,
     pub declared_signature: Option<(&'a CallableId, &'a crate::signature::CallableSemanticSignature)>,
     pub budget: QueryBudget,
     pub cancel: &'a CancellationToken,
@@ -87,6 +90,7 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
         body,
         body_range,
         owner_generic_signature,
+        self_type_override,
         declared_signature,
         budget,
         cancel,
@@ -104,8 +108,9 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
     // callable parameters shadow them (notably for constructors).
     let owner_parameters = owner_generic_signature.map(|signature| signature.parameters.to_vec()).unwrap_or_else(|| {
         if callable.side == crate::identity::DispatchSide::Instance {
-            declarations
-                .generic_signature(callable.declaration_owner())
+            callable
+                .try_declaration_owner()
+                .and_then(|owner| declarations.generic_signature(owner))
                 .map(|signature| signature.parameters.to_vec())
                 .unwrap_or_default()
         } else {
@@ -119,6 +124,7 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
     let impl_domain = match &callable.owner {
         crate::identity::CallableOwnerId::Declaration(decl) => dispatch.get_conditional_members(&crate::impls::InherentImplTarget::Declaration(decl.clone())),
         crate::identity::CallableOwnerId::Variant(var) => dispatch.get_conditional_members(&crate::impls::InherentImplTarget::ExactEnumCase(var.clone())),
+        crate::identity::CallableOwnerId::Conformance(_) => None,
     }
     .and_then(|members| members.get_member(callable.side, &callable.selector))
     .map(|member| member.domain.clone());
@@ -152,6 +158,9 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
             role: crate::types::parameter::SelfRole::InstanceType,
         }));
     }
+    if let Some(self_type) = self_type_override {
+        ctx.self_override_type = Some(self_type);
+    }
     if let Some(domain) = &impl_domain {
         ctx.self_override_type = Some(domain.head_type);
         ctx.ambient_constraints.extend(domain.constraints.iter().cloned());
@@ -172,7 +181,11 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
         ctx.attach_associated_families(associated_families);
     }
     ctx.current_callable = Some(callable.clone());
-    ctx.current_class = trait_surface.is_none().then(|| callable.declaration_owner().clone());
+    ctx.current_class = match callable.owner {
+        crate::identity::CallableOwnerId::Conformance(_) => None,
+        _ if trait_surface.is_none() => Some(callable.declaration_owner().clone()),
+        _ => None,
+    };
     ctx.current_side = callable.side;
 
     // 1. Build flow graph for the body statements
@@ -190,7 +203,9 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
     );
     if let Some(field_lifecycle) = field_lifecycle {
         ctx.attach_field_lifecycle(field_lifecycle);
-        field_lifecycle.seed_flow_for_owner(&mut ctx.flow, callable.declaration_owner(), constructor_body);
+        if let Some(owner) = callable.try_declaration_owner() {
+            field_lifecycle.seed_flow_for_owner(&mut ctx.flow, owner, constructor_body);
+        }
     }
 
     if let Some((signature_id, signature)) = declared_signature {

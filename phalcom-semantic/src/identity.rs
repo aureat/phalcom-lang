@@ -228,11 +228,16 @@ impl ImplId {
     }
 }
 
-/// Owner identity of a callable member (class declaration or exact enum variant).
+/// Owner identity of a callable member.
+///
+/// Conformance-local callables deliberately retain the source `ImplId` rather
+/// than borrowing the target declaration's identity.  This keeps a witness
+/// distinct from both target-owned inherent behavior and trait-owned defaults.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CallableOwnerId {
     Declaration(DeclarationId),
     Variant(VariantId),
+    Conformance(ImplId),
 }
 
 impl CallableOwnerId {
@@ -240,6 +245,25 @@ impl CallableOwnerId {
         match self {
             Self::Declaration(decl) => decl,
             Self::Variant(var) => &var.owner,
+            Self::Conformance(impl_id) => panic!("conformance callable has no declaration owner: {impl_id:?}"),
+        }
+    }
+
+    /// Returns the lexical declaration owner when this callable is owned by a
+    /// declaration or exact enum case. Conformance witnesses intentionally do
+    /// not have one; their lexical/source owner is the `ImplId` module.
+    pub fn try_declaration(&self) -> Option<&DeclarationId> {
+        match self {
+            Self::Declaration(decl) => Some(decl),
+            Self::Variant(var) => Some(&var.owner),
+            Self::Conformance(_) => None,
+        }
+    }
+
+    pub fn conformance(&self) -> Option<&ImplId> {
+        match self {
+            Self::Conformance(impl_id) => Some(impl_id),
+            Self::Declaration(_) | Self::Variant(_) => None,
         }
     }
 
@@ -247,6 +271,7 @@ impl CallableOwnerId {
         match self {
             Self::Declaration(decl) => &decl.module,
             Self::Variant(var) => &var.owner.module,
+            Self::Conformance(impl_id) => &impl_id.module,
         }
     }
 }
@@ -275,6 +300,7 @@ impl PartialEq<DeclarationId> for CallableOwnerId {
         match self {
             CallableOwnerId::Declaration(decl) => decl == other,
             CallableOwnerId::Variant(var) => &var.owner == other,
+            CallableOwnerId::Conformance(_) => false,
         }
     }
 }
@@ -291,6 +317,28 @@ pub struct CallableId {
     pub owner: CallableOwnerId,
     pub selector: Selector,
     pub side: DispatchSide,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CallableId, CallableOwnerId, DeclarationId, DispatchSide, ImplId, ImplLocalId, ModuleId};
+    use phalcom_common::selector::Selector;
+    use phalcom_modules::identity::{ModulePath, ResolvedProjectId};
+
+    #[test]
+    fn conformance_callable_is_source_owned_without_declaration_owner() {
+        let module = ModuleId::resolved(ResolvedProjectId::from_raw(7), ModulePath::root());
+        let impl_id = ImplId::new(module.clone(), ImplLocalId(3));
+        let owner = CallableOwnerId::Conformance(impl_id.clone());
+        let callable = CallableId::new(owner.clone(), Selector::getter("tag").unwrap(), DispatchSide::Instance);
+
+        assert_eq!(owner.module(), &module);
+        assert_eq!(owner.conformance(), Some(&impl_id));
+        assert!(owner.try_declaration().is_none());
+        assert!(callable.try_declaration_owner().is_none());
+        assert_eq!(callable.conformance_owner(), Some(&impl_id));
+        assert_ne!(owner, CallableOwnerId::Declaration(DeclarationId::new(module, "User".into())));
+    }
 }
 
 impl CallableId {
@@ -330,6 +378,15 @@ impl CallableId {
 
     pub fn declaration_owner(&self) -> &DeclarationId {
         self.owner.declaration()
+    }
+
+    /// Returns the lexical declaration owner, if this callable has one.
+    pub fn try_declaration_owner(&self) -> Option<&DeclarationId> {
+        self.owner.try_declaration()
+    }
+
+    pub fn conformance_owner(&self) -> Option<&ImplId> {
+        self.owner.conformance()
     }
 
     pub fn module(&self) -> &ModuleId {

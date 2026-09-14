@@ -14,8 +14,8 @@ entry_requirements:
   - C2_COMPLETE
   - C2_APPLICABILITY_PROOF_STATE_CLOSED
   - C3_COMPLETE
-active_plan: null
-next_plan: LANG005.C4.P2
+active_plan: none
+next_plan: LANG005.C4.P3
 planning_baseline_revision: 20ad3f31b39b0fe1b1fdf028df4ac9579fcfd9ad
 planning_baseline_commit: "docs: pin lang005 checkpoint revision"
 plan:
@@ -134,17 +134,27 @@ checkpoint: LANG005.C4
 status: IN_PROGRESS
 completion: PARTIAL
 verification: FOCUSED_TESTED
-active_plan: null
-next_plan: LANG005.C4.P2
+active_plan: none
+next_plan: LANG005.C4.P3
 ```
 
 Execution state on the live repository:
 
 ```text
-T0 ENTRY LOCK COMPLETE; P1 IN PROGRESS
+T0 ENTRY LOCK COMPLETE; P2 IN PROGRESS
 ```
 
-The planning baseline remains pre-C3, but T0 re-grounding verified the live post-C3 predecessor state before production edits began. P1 implementation is now in progress.
+The planning baseline remains pre-C3, but T0 re-grounding verified the live post-C3 predecessor state before production edits began. P1 is complete and P2 is the active implementation plan.
+
+The live implementation base for this P2 continuation is `a7861a5b148715179ef81e2dfe82986a7d0fc499` (`lang005: complete explicit conformance coherence`), with the scoped working-tree changes recorded by the P2 walkthrough and handoff.
+
+This continuation additionally established the canonical instantiated
+requirement view, proof-state-aware callable/data compatibility entry points,
+an inherent-only effective witness query, exact target/data specialization,
+source-plan/exact-evidence semantic fingerprints, proof-aware terminal
+applicability propagation, exact C2 applicability evidence retention, and
+incremental fingerprint/invalidation parity. P2 is complete at
+`IMPLEMENTED` + `FOCUSED_TESTED`; P3 remains the next checkpoint plan.
 
 T0 of P1 proved:
 
@@ -237,7 +247,7 @@ Do not reorganize C1–C3 while landing C4 records.
 | Plan | Scope | Status | Completion | Verification | Exit product |
 |---|---|---|---|---|---|
 | `LANG005.C4.P1` | explicit conformance declaration, canonical head resolution, ownership, publication, exact query, coherence, incrementality/source projection | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | coherence-safe `ConformanceContribution` + exact `ConformanceHeadMatch`; **no satisfaction proof** |
-| `LANG005.C4.P2` | witness sources, conformance-local callables, compatibility, defaults, completeness, structured evidence | PLANNED | NOT_STARTED | UNVERIFIED | complete `ConformanceEvidence` |
+| `LANG005.C4.P2` | witness sources, conformance-local callables, compatibility, defaults, completeness, structured evidence | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | source `ConformanceWitnessPlan` and exact `ConformanceEvidence` resolver with terminal applicability, C2 specialization evidence, and incremental parity |
 | `LANG005.C4.P3` | trait-evidenced ordinary dispatch, ambiguity, callable refs, default/requirement lowering, compiler/runtime execution, integration certification | PLANNED | NOT_STARTED | UNVERIFIED | executable conformance semantics; C4 closure |
 
 The planned checkpoint sequence is:
@@ -669,6 +679,16 @@ This rule must remain explicit in C4 tests and handoffs.
 ---
 
 ## 7. Established C4 Invariants
+
+P2 implementation state now establishes:
+
+- conformance-local witness callables use `CallableOwnerId::Conformance(ImplId)` and are published as semantic products without entering target-owned inherent surfaces;
+- witness bodies are checked with a target-relative `Self` override while retaining the conformance source module as their lexical context;
+- each eligible source conformance publishes one `ConformanceWitnessPlan`, and exact evidence resolution consumes the plan after unique P1 head matching rather than reselecting witnesses;
+- source selection precedence is explicit witness, effective inherent callable, readable data component, then trait default; invalid explicit members keep the plan incomplete and cannot fall through to defaults.
+- effective conditional-member lookup preserves `Unknown`, `Blocked`, `Dynamic`, `Cancelled`, `BudgetExceeded`, and `InternalFailure` outcomes; a proven data/default fallback may still satisfy the requirement;
+- conditional inherent selections retain canonical `InherentImplSpecialization` evidence and exact evidence materializes that product through the exact conformance environment;
+- generic callable witness constraints are checked directionally: candidate obligations must be implied by requirement obligations after alpha-renaming.
 
 1. Conformance is explicit; matching members alone do not establish it.
 2. Trait identity is nominal and declaration-based.
@@ -1309,18 +1329,17 @@ C4 walkthrough/handoff/checkpoint are final
 ### Active plan
 
 ```text
-none; P1 complete
+none; P2 complete
 ```
 
 ### Next plan
 
 ```text
-LANG005.C4.P2 — Witness Resolution, Defaults, and Conformance Evidence
+LANG005.C4.P3 — Trait-Evidenced Dispatch, Lowering, and Integration
 ```
 
 ### Current next action
 
-P1 is closed. P2 may now consume exact candidate heads and begin witness
-resolution, compatibility, defaults, and structured conformance evidence.
-Do not reopen P1 identity, ownership, or coherence unless new evidence
-invalidates the recorded invariants.
+Begin `LANG005.C4.P3` trait-evidenced dispatch, lowering, and runtime
+integration. P3 must consume `ConformanceEvidence` without re-running
+witness/default selection.

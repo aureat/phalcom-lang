@@ -340,8 +340,25 @@ pub(crate) fn semantic_signature_for_syntax_with_resolver(
     syntax: CallableSyntaxRef<'_>,
     declared_side: DispatchSide,
 ) -> Option<CallableSemanticSignature> {
+    let declaration_owner = owner.declaration().clone();
+    semantic_signature_for_syntax_with_owner(ctx, owner, &declaration_owner, declaration_resolver, syntax, declared_side)
+}
+
+/// Builds a callable signature with an explicit nominal/presentation owner.
+///
+/// Conformance witnesses use a conformance-owned [`CallableId`], but the
+/// existing signature product still carries a declaration owner for receiver
+/// and presentation projections. Keeping that input explicit prevents the
+/// conformance owner from being mistaken for a lexical declaration owner.
+pub(crate) fn semantic_signature_for_syntax_with_owner(
+    ctx: &mut CheckingContext<'_>,
+    owner: &CallableOwnerId,
+    declaration_owner: &DeclarationId,
+    declaration_resolver: &dyn crate::types::annotation::TypeResolver,
+    syntax: CallableSyntaxRef<'_>,
+    declared_side: DispatchSide,
+) -> Option<CallableSemanticSignature> {
     let callable = callable_id_for_syntax(owner, syntax, declared_side)?;
-    let declaration_owner = owner.declaration();
     let formation_side = callable.side;
     let formation_site = TypeFormationSite::member(ctx.current_module.clone(), declaration_owner.clone(), formation_side);
 
@@ -580,6 +597,34 @@ pub(crate) fn semantic_signature_for_syntax_with_resolver(
         flow: phalcom_native_meta::ReturnFlowSpec::Value,
         lifecycle: phalcom_native_meta::NativeLifecycleSpec::UNKNOWN,
     })
+}
+
+pub(crate) fn semantic_signature_for_conformance_syntax(
+    ctx: &mut CheckingContext<'_>,
+    owner: &CallableOwnerId,
+    target_owner: &DeclarationId,
+    impl_signature: Option<&crate::types::parameter::GenericSignature>,
+    syntax: CallableSyntaxRef<'_>,
+    declared_side: DispatchSide,
+) -> Option<CallableSemanticSignature> {
+    let type_parameters = impl_signature
+        .map(|signature| {
+            signature
+                .parameters
+                .iter()
+                .map(|&parameter| {
+                    let name = ctx.store.type_parameter(parameter).name.to_string();
+                    (name, type_level_binding_for_parameter(ctx.store, parameter))
+                })
+                .collect::<HashMap<_, _>>()
+        })
+        .unwrap_or_default();
+    let parent = ctx.resolver.clone();
+    let resolver = crate::types::annotation::ScopedTypeResolver {
+        parent: &parent,
+        type_parameters,
+    };
+    semantic_signature_for_syntax_with_owner(ctx, owner, target_owner, &resolver, syntax, declared_side)
 }
 
 #[allow(clippy::too_many_arguments)]

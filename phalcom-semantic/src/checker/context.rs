@@ -1802,10 +1802,14 @@ impl<'a> CheckingContext<'a> {
     /// every query-owned callable's type contract is represented by its
     /// canonical `CallableSignature` product, including partial declarations.
     pub(crate) fn record_consumed_callable_signature(&self, callable: &CallableId, _signature: &crate::dispatch::CallableSignature) {
-        if !is_query_owned_module(callable.module()) || is_bootstrap_declaration(callable.declaration_owner()) || is_builtin_type_test_callable(callable) {
+        let Some(owner) = callable.try_declaration_owner() else {
+            self.record_semantic_dependency(SemanticDependency::CallableSignature(callable.clone()));
+            return;
+        };
+        if !is_query_owned_module(callable.module()) || is_bootstrap_declaration(owner) || is_builtin_type_test_callable(callable) {
             return;
         }
-        record_declaration_surface_dependency(&self.semantic_dependencies, callable.declaration_owner());
+        record_declaration_surface_dependency(&self.semantic_dependencies, owner);
         self.record_semantic_dependency(SemanticDependency::CallableSignature(callable.clone()));
     }
 

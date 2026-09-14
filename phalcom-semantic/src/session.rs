@@ -1180,7 +1180,11 @@ impl SemanticWorkspaceSession {
             .as_ref()
             .into_iter()
             .flat_map(|snapshot| snapshot.callable_analyses.keys())
-            .filter(|callable| callable.declaration_owner().name.as_ref() != "<main>" && !current_declarations.contains(callable.declaration_owner()))
+            .filter(|callable| {
+                callable
+                    .try_declaration_owner()
+                    .is_some_and(|owner| owner.name.as_ref() != "<main>" && !current_declarations.contains(owner))
+            })
             .cloned()
             .collect::<BTreeSet<_>>();
         let mut removed_query_roots = BTreeSet::new();
@@ -1407,7 +1411,7 @@ impl SemanticWorkspaceSession {
                     shard
                         .callable_body_fingerprints
                         .keys()
-                        .filter(|callable| callable.declaration_owner() == declaration)
+                        .filter(|callable| callable.try_declaration_owner() == Some(declaration))
                         .cloned(),
                 );
             }
@@ -1420,7 +1424,7 @@ impl SemanticWorkspaceSession {
                 continue;
             };
             let is_trait = shard.source.program.statements.iter().any(|statement| {
-                matches!(statement, Statement::Trait(trait_def) if DeclarationId::new(callable.module().clone(), trait_def.name.clone().into()) == *callable.declaration_owner())
+                matches!(statement, Statement::Trait(trait_def) if callable.try_declaration_owner().is_some_and(|owner| DeclarationId::new(callable.module().clone(), trait_def.name.clone().into()) == *owner))
             });
             if is_trait && shard.callable_body_fingerprints.contains_key(callable) {
                 callable_body_work.insert(callable.clone());
@@ -1615,7 +1619,7 @@ impl SemanticWorkspaceSession {
             contribution_delta
                 .callable_signatures
                 .iter()
-                .map(|callable| callable.declaration_owner().clone()),
+                .filter_map(|callable| callable.try_declaration_owner().cloned()),
         );
         declaration_surface_work.extend(contribution_delta.field_signatures.iter().map(|field| field.owner.clone()));
         let changed_declarations = hierarchy_edge_work
@@ -1706,7 +1710,7 @@ impl SemanticWorkspaceSession {
         formal_declarations.extend(
             callable_signature_work
                 .iter()
-                .map(|callable| callable.declaration_owner().clone())
+                .filter_map(|callable| callable.try_declaration_owner().cloned())
                 .filter(|declaration| current_modules.contains(&declaration.module)),
         );
         formal_declarations.extend(
@@ -3096,8 +3100,17 @@ impl SemanticWorkspaceSession {
             .as_ref()
             .map(|snapshot| (*snapshot.conformance_index).clone())
             .unwrap_or_default();
+        let mut conformance_witness_plans = previous_snapshot
+            .as_ref()
+            .map(|snapshot| (*snapshot.conformance_witness_plans).clone())
+            .unwrap_or_default();
+        let mut conformance_witness_bodies = BTreeSet::new();
+        let mut conformance_witness_visibilities: BTreeMap<crate::identity::CallableId, crate::surface::MemberVisibility> = BTreeMap::new();
+        let mut conformance_invalid_witnesses: BTreeMap<crate::identity::ImplId, BTreeSet<crate::traits::TraitRequirementId>> = BTreeMap::new();
+        let mut conformance_invalid_members = BTreeSet::new();
         for module in structural_work_modules.iter().chain(removed_modules.iter()) {
             conformance_index.remove_source(module);
+            conformance_witness_plans.retain(|impl_id, _| &impl_id.module != module);
         }
         for module_id in &structural_work_modules {
             let Some(shard) = self.semantic_structure_shards.get(module_id) else {
@@ -3115,6 +3128,8 @@ impl SemanticWorkspaceSession {
                         match crate::impls::resolve_conformance_head(&mut context, &trait_headers, &impl_id, impl_def) {
                             Ok(head) => {
                                 let authorized = crate::impls::conformance_is_authorized(&head.source_module, &head.trait_ref, &head.target);
+                                let target_owner = head.target.declaration().clone();
+                                let impl_signature = head.generic_signature.clone();
                                 let contribution = crate::impls::ConformanceContribution::from_resolved(head, authorized);
                                 if !contribution.authorized {
                                     diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
@@ -3128,6 +3143,89 @@ impl SemanticWorkspaceSession {
                                     .entry(module_id.clone())
                                     .or_default()
                                     .extend(contribution.diagnostics.iter().cloned());
+                                if contribution.is_lookup_eligible() {
+                                    let callable_owner = crate::identity::CallableOwnerId::Conformance(contribution.impl_id.clone());
+                                    let mut seen_requirements = BTreeSet::new();
+                                    for (source_member_index, member) in impl_def.members.iter().enumerate() {
+                                        let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(member);
+                                        let side = crate::semantic_shard::behavior_side(member);
+                                        let Some(candidate_callable) =
+                                            crate::checker::declaration_signature::callable_id_for_syntax(&callable_owner, syntax, side)
+                                        else {
+                                            continue;
+                                        };
+                                        let requirement = trait_surfaces
+                                            .get(&contribution.trait_ref.declaration)
+                                            .and_then(|surface| surface.get_by_selector(&candidate_callable.selector, candidate_callable.side));
+                                        let Some(requirement) = requirement else {
+                                            conformance_invalid_members.insert(contribution.impl_id.clone());
+                                            diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
+                                                module_id.clone(),
+                                                DiagnosticCode::ImplMemberConflict,
+                                                "conformance member does not match a trait requirement",
+                                                syntax.range(),
+                                            ));
+                                            continue;
+                                        };
+                                        if !seen_requirements.insert(requirement.requirement.clone()) {
+                                            conformance_invalid_witnesses
+                                                .entry(contribution.impl_id.clone())
+                                                .or_default()
+                                                .insert(requirement.requirement.clone());
+                                            diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
+                                                module_id.clone(),
+                                                DiagnosticCode::ImplMemberConflict,
+                                                "multiple conformance members target the same trait requirement",
+                                                syntax.range(),
+                                            ));
+                                            continue;
+                                        }
+                                        let Some(signature) = crate::checker::declaration_signature::semantic_signature_for_conformance_syntax(
+                                            &mut context,
+                                            &callable_owner,
+                                            &target_owner,
+                                            impl_signature.as_ref(),
+                                            syntax,
+                                            side,
+                                        ) else {
+                                            continue;
+                                        };
+                                        let callable = signature.callable.clone();
+                                        conformance_witness_visibilities.insert(callable.clone(), crate::traits::behavior_member_visibility(member));
+                                        let has_body = match member {
+                                            phalcom_ast::ast::BehaviorMember::Method(method) => method.body.statements().is_some(),
+                                            phalcom_ast::ast::BehaviorMember::Getter(getter) => getter.body.statements().is_some(),
+                                            phalcom_ast::ast::BehaviorMember::Setter(setter) => setter.body.statements().is_some(),
+                                            phalcom_ast::ast::BehaviorMember::Index(index) => index.body.statements().is_some(),
+                                        };
+                                        if !has_body {
+                                            conformance_invalid_witnesses
+                                                .entry(contribution.impl_id.clone())
+                                                .or_default()
+                                                .insert(requirement.requirement.clone());
+                                            diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
+                                                module_id.clone(),
+                                                DiagnosticCode::ImplBodylessMemberUnsupported,
+                                                "explicit conformance witnesses require a body",
+                                                syntax.range(),
+                                            ));
+                                            continue;
+                                        }
+                                        if has_body {
+                                            conformance_witness_bodies.insert(callable.clone());
+                                        }
+                                        let definition = crate::impls::EffectiveCallableDefinition {
+                                            callable: callable.clone(),
+                                            origin: crate::impls::CallableDefinitionOrigin::ConformanceWitness(contribution.impl_id.clone()),
+                                            source_member_index,
+                                            signature: signature.clone(),
+                                        };
+                                        callable_definitions.insert(callable.clone(), definition.clone());
+                                        let _ = query_callable_definition(&mut self.db, Arc::new(definition));
+                                        callable_signatures.insert(signature.clone());
+                                        let _ = query_bootstrap_callable_signature(&mut self.db, Arc::new(signature));
+                                    }
+                                }
                                 conformance_index.insert(contribution);
                             }
                             Err(diagnostics) => {
@@ -3379,7 +3477,7 @@ impl SemanticWorkspaceSession {
                 };
                 let primary_signatures = callable_signatures
                     .iter()
-                    .filter(|(callable, _)| callable.declaration_owner() == &target)
+                    .filter(|(callable, _)| callable.try_declaration_owner() == Some(&target))
                     .map(|(callable, signature)| (callable.clone(), signature.clone()))
                     .collect::<HashMap<_, _>>();
                 let effective = crate::impls::build_effective_surface(
@@ -3595,6 +3693,7 @@ impl SemanticWorkspaceSession {
                             body_range,
                             declared_signature: Some((&surface_member.callable, &surface_member.signature)),
                             owner_generic_signature: header.generic_signature.as_ref(),
+                            self_type_override: None,
                             trait_surface: Some(surface),
                             store: Arc::make_mut(&mut self.store),
                             hierarchy: &hierarchy,
@@ -3757,6 +3856,7 @@ impl SemanticWorkspaceSession {
                                         body_range: range,
                                         declared_signature: None,
                                         owner_generic_signature: None,
+                                        self_type_override: None,
                                         trait_surface: None,
                                         store: Arc::make_mut(&mut self.store),
                                         hierarchy: &hierarchy,
@@ -3798,7 +3898,8 @@ impl SemanticWorkspaceSession {
                                                 callable_analyses
                                                     .values()
                                                     .filter(|analysis| {
-                                                        analysis.callable.declaration_owner() == &decl_id && analysis.callable.side == DispatchSide::Instance
+                                                        analysis.callable.try_declaration_owner() == Some(&decl_id)
+                                                            && analysis.callable.side == DispatchSide::Instance
                                                     })
                                                     .filter(|analysis| {
                                                         callable_signatures
@@ -3825,6 +3926,129 @@ impl SemanticWorkspaceSession {
                         // Enums are structural; their behavior is declared in Statement::Impl.
                     } else if let Statement::Impl(impl_def) = stmt {
                         if constructors_only {
+                            continue;
+                        }
+                        if matches!(impl_def.kind, phalcom_ast::ast::ImplKind::Conformance { .. }) {
+                            let impl_id = crate::identity::ImplId::new(module_id.clone(), crate::identity::ImplLocalId(stmt_idx as u32));
+                            let Some(contribution) = conformance_index.get(&impl_id).cloned() else {
+                                continue;
+                            };
+                            if !contribution.is_lookup_eligible() {
+                                continue;
+                            }
+                            let Some(trait_surface) = trait_surfaces.get(&contribution.trait_ref.declaration) else {
+                                continue;
+                            };
+                            let type_params_map = if let Some(sig) = contribution.generic_signature.as_ref() {
+                                let mut map = std::collections::HashMap::new();
+                                for &param_id in sig.parameters.iter() {
+                                    let name = self.store.type_parameter(param_id).name.to_string();
+                                    let binding = type_level_binding_for_parameter(Arc::make_mut(&mut self.store), param_id);
+                                    map.insert(name, binding);
+                                }
+                                map
+                            } else {
+                                std::collections::HashMap::new()
+                            };
+                            let scoped_resolver = crate::types::annotation::ScopedTypeResolver {
+                                parent: &resolver,
+                                type_parameters: type_params_map,
+                            };
+                            let callable_owner = crate::identity::CallableOwnerId::Conformance(impl_id.clone());
+                            for member in &impl_def.members {
+                                let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(member);
+                                let side = crate::semantic_shard::behavior_side(member);
+                                let Some(callable) = crate::checker::declaration_signature::callable_id_for_syntax(&callable_owner, syntax, side) else {
+                                    continue;
+                                };
+                                let Some(signature) = callable_signatures.get(&callable) else {
+                                    continue;
+                                };
+                                let Some((body, body_range)) = (match member {
+                                    phalcom_ast::ast::BehaviorMember::Method(method) => method.body.statements().map(|body| (body, method.range)),
+                                    phalcom_ast::ast::BehaviorMember::Getter(getter) => getter.body.statements().map(|body| (body, getter.range)),
+                                    phalcom_ast::ast::BehaviorMember::Setter(setter) => setter.body.statements().map(|body| (body, setter.range)),
+                                    phalcom_ast::ast::BehaviorMember::Index(index) => index.body.statements().map(|body| (body, index.range)),
+                                }) else {
+                                    continue;
+                                };
+                                let query_key = QueryKey::CallableBody(callable.clone());
+                                let formal_inputs = FormalQueryInputs {
+                                    sources: &retained_sources,
+                                    source_resolution_input,
+                                    linked_component_product,
+                                    linked: &input.linked,
+                                    import_products: &input.import_products,
+                                    hierarchy: &hierarchy,
+                                    base_resolver: &resolver,
+                                    declarations: &declarations,
+                                    type_aliases: &type_aliases,
+                                    field_signatures: Some(&field_signatures),
+                                    field_lifecycle: Some(&field_lifecycle),
+                                    enum_semantics: Some(&enum_semantics),
+                                    data_semantics: Some(&data_semantics),
+                                    associated_families: Some(&associated_surfaces_table),
+                                };
+                                if previous_snapshot.is_some()
+                                    && !callable_body_work.contains(&callable)
+                                    && callable_analyses.contains_key(&callable)
+                                    && refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store)).is_ok()
+                                    && self.db.validate_ready(&query_key)
+                                {
+                                    callable_dispositions.entry(callable).or_insert(CallableRevisionDisposition::Reused);
+                                    continue;
+                                }
+                                refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))?;
+                                let previous_computation_revision = self.db.query_state(&query_key).and_then(|state| state.revision());
+                                let outcome = query_callable_body_with_formal_inputs(
+                                    &mut self.db,
+                                    CallableBodyQuery {
+                                        callable: callable.clone(),
+                                        body,
+                                        body_range,
+                                        declared_signature: Some((&signature.callable, signature)),
+                                        owner_generic_signature: contribution.generic_signature.as_ref(),
+                                        self_type_override: Some(contribution.target_head),
+                                        trait_surface: Some(trait_surface),
+                                        store: Arc::make_mut(&mut self.store),
+                                        hierarchy: &hierarchy,
+                                        resolver: &scoped_resolver,
+                                        declarations: &declarations,
+                                        dispatch: &dispatch,
+                                        module: module_id.clone(),
+                                        budget,
+                                        cancel,
+                                        formal_inputs: Some(&formal_inputs),
+                                    },
+                                );
+                                match outcome {
+                                    QueryOutcome::Ready(analysis) => {
+                                        if self.db.query_state(&query_key).is_some_and(|state| {
+                                            state.revision() == Some(self.db.revision()) && previous_computation_revision != Some(self.db.revision())
+                                        }) {
+                                            callable_dispositions.insert(callable.clone(), CallableRevisionDisposition::Recomputed);
+                                        } else {
+                                            callable_dispositions.entry(callable.clone()).or_insert(CallableRevisionDisposition::Reused);
+                                        }
+                                        if !analysis.diagnostics.is_empty() {
+                                            diags_by_module
+                                                .entry(module_id.clone())
+                                                .or_default()
+                                                .extend(analysis.diagnostics.iter().cloned());
+                                        }
+                                        if let Some(sig) = callable_signatures.get_mut(&callable)
+                                            && sig.return_validation != analysis.return_validation
+                                        {
+                                            sig.return_validation = analysis.return_validation;
+                                        }
+                                        callable_analyses.insert(callable, analysis);
+                                    }
+                                    QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                                    QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                                    QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                                    QueryOutcome::Failed(err) => return Err(QueryOutcome::Failed(err)),
+                                }
+                            }
                             continue;
                         }
                         if !matches!(impl_def.kind, phalcom_ast::ast::ImplKind::Inherent) {
@@ -3966,6 +4190,7 @@ impl SemanticWorkspaceSession {
                                         body_range: range,
                                         declared_signature: None,
                                         owner_generic_signature: None,
+                                        self_type_override: None,
                                         trait_surface: None,
                                         store: Arc::make_mut(&mut self.store),
                                         hierarchy: &hierarchy,
@@ -4011,6 +4236,143 @@ impl SemanticWorkspaceSession {
                         }
                     }
                 }
+            }
+        }
+
+        // Witness/default selection is published only after source witness
+        // bodies have been exposed to the canonical body query. This keeps a
+        // bodyless explicit member incomplete instead of treating its
+        // signature alone as proof of conformance.
+        for (impl_id, contribution) in conformance_index.iter() {
+            if !contribution.is_lookup_eligible() {
+                continue;
+            }
+            if let Some(surface) = trait_surfaces.get(&contribution.trait_ref.declaration) {
+                let requirement_views = crate::impls::instantiate_conformance_requirements(
+                    Arc::make_mut(&mut self.store),
+                    Some(&declarations),
+                    surface,
+                    &contribution.trait_ref,
+                    contribution.target_head,
+                    &HashMap::new(),
+                );
+                let mut inherent_candidates: BTreeMap<crate::traits::TraitRequirementId, crate::impls::EffectiveInherentWitness> = BTreeMap::new();
+                let mut data_candidates = BTreeMap::new();
+                let mut terminal_candidates = BTreeMap::new();
+                for (requirement, _member) in surface.iter() {
+                    let ambient_constraints = contribution
+                        .generic_signature
+                        .as_ref()
+                        .map(|signature| signature.constraints.as_ref())
+                        .unwrap_or(&[]);
+                    let effective = crate::impls::resolve_effective_inherent_witness(
+                        Arc::make_mut(&mut self.store),
+                        &hierarchy,
+                        &dispatch,
+                        &callable_signatures,
+                        contribution.target_head,
+                        contribution.target.declaration(),
+                        &requirement.selector,
+                        requirement.side,
+                        ambient_constraints,
+                    );
+                    match effective {
+                        crate::impls::EffectiveInherentWitnessResolution::Candidate(effective) => {
+                            if let Some(required) = requirement_views.get(requirement) {
+                                let compatibility = crate::impls::check_witness_compatibility_with_visibility(
+                                    Arc::make_mut(&mut self.store),
+                                    &hierarchy,
+                                    required,
+                                    &effective.signature,
+                                    effective.visibility,
+                                );
+                                if matches!(compatibility, crate::impls::WitnessCompatibility::Compatible(_)) {
+                                    inherent_candidates.insert(requirement.clone(), effective);
+                                    continue;
+                                }
+                                if let Some(terminal) = crate::impls::witness_compatibility_terminal_state(&compatibility) {
+                                    terminal_candidates.entry(requirement.clone()).or_insert(terminal);
+                                }
+                            }
+                        }
+                        effective @ (crate::impls::EffectiveInherentWitnessResolution::Unknown(_)
+                        | crate::impls::EffectiveInherentWitnessResolution::Blocked(_)
+                        | crate::impls::EffectiveInherentWitnessResolution::Dynamic(_)
+                        | crate::impls::EffectiveInherentWitnessResolution::Cancelled
+                        | crate::impls::EffectiveInherentWitnessResolution::BudgetExceeded(_)
+                        | crate::impls::EffectiveInherentWitnessResolution::InternalFailure(_)) => {
+                            let terminal = match effective {
+                                crate::impls::EffectiveInherentWitnessResolution::Unknown(reason) => {
+                                    Some(crate::impls::ConformanceCompleteness::Unknown(reason))
+                                }
+                                crate::impls::EffectiveInherentWitnessResolution::Blocked(reason) => {
+                                    Some(crate::impls::ConformanceCompleteness::Blocked(reason))
+                                }
+                                crate::impls::EffectiveInherentWitnessResolution::Dynamic(obligation) => {
+                                    Some(crate::impls::ConformanceCompleteness::Dynamic(obligation))
+                                }
+                                crate::impls::EffectiveInherentWitnessResolution::Cancelled => Some(crate::impls::ConformanceCompleteness::Cancelled),
+                                crate::impls::EffectiveInherentWitnessResolution::BudgetExceeded(report) => {
+                                    Some(crate::impls::ConformanceCompleteness::BudgetExceeded(report))
+                                }
+                                crate::impls::EffectiveInherentWitnessResolution::InternalFailure(message) => {
+                                    Some(crate::impls::ConformanceCompleteness::InternalFailure(message))
+                                }
+                                crate::impls::EffectiveInherentWitnessResolution::NotFound | crate::impls::EffectiveInherentWitnessResolution::Candidate(_) => {
+                                    None
+                                }
+                            };
+                            if let Some(terminal) = terminal {
+                                terminal_candidates.entry(requirement.clone()).or_insert(terminal);
+                            }
+                        }
+                        crate::impls::EffectiveInherentWitnessResolution::NotFound => {}
+                    }
+                    if matches!(requirement.selector.kind, phalcom_common::selector::SelectorKind::Getter)
+                        && let Some(info) = data_semantics.get(contribution.target.declaration())
+                        && let Some(component) = info.find_component(&requirement.selector.encode())
+                        && let Some(component_type) = component.declared_type.canonical_type()
+                        && let specialized_component_type = crate::impls::specialize_conformance_target_type(
+                            Arc::make_mut(&mut self.store),
+                            &declarations,
+                            contribution.target_head,
+                            &HashMap::new(),
+                            component_type,
+                        )
+                        && requirement_views.get(requirement).is_some_and(|required| {
+                            let compatibility = crate::impls::check_data_component_compatibility(
+                                Arc::make_mut(&mut self.store),
+                                &hierarchy,
+                                required,
+                                specialized_component_type,
+                            );
+                            if let Some(terminal) = crate::impls::witness_compatibility_terminal_state(&compatibility) {
+                                terminal_candidates.entry(requirement.clone()).or_insert(terminal);
+                                false
+                            } else {
+                                matches!(compatibility, crate::impls::WitnessCompatibility::Compatible(_))
+                            }
+                        })
+                    {
+                        data_candidates.insert(requirement.clone(), (component.id.clone(), specialized_component_type));
+                    }
+                }
+                let plan = crate::impls::build_conformance_witness_plan(
+                    contribution,
+                    Arc::make_mut(&mut self.store),
+                    &declarations,
+                    &hierarchy,
+                    surface,
+                    &callable_signatures,
+                    &conformance_witness_bodies,
+                    &conformance_witness_visibilities,
+                    conformance_invalid_witnesses.get(impl_id).unwrap_or(&BTreeSet::new()),
+                    conformance_invalid_members.contains(impl_id),
+                    &inherent_candidates,
+                    &data_candidates,
+                    &terminal_candidates,
+                );
+                conformance_witness_plans.insert(impl_id.clone(), Arc::new(plan));
             }
         }
 
@@ -4379,8 +4741,11 @@ impl SemanticWorkspaceSession {
         for declaration in &blocked_declarations {
             declarations.remove(declaration);
         }
-        callable_analyses
-            .retain(|callable, _| callable.declaration_owner().name.as_ref() == "<main>" || current_declarations.contains(callable.declaration_owner()));
+        callable_analyses.retain(|callable, _| {
+            callable
+                .try_declaration_owner()
+                .is_none_or(|owner| owner.name.as_ref() == "<main>" || current_declarations.contains(owner))
+        });
         let previous_formal = self.last_snapshot.as_ref().map(|s| s.formal_projection.as_ref());
         let mut formal_projection = previous_formal.cloned().unwrap_or_default();
         if previous_formal.is_none() {
@@ -4458,6 +4823,7 @@ impl SemanticWorkspaceSession {
         snapshot_obj = snapshot_obj.with_field_signatures(Arc::new(field_signatures));
         snapshot_obj = snapshot_obj.with_callable_definitions(Arc::new(callable_definitions));
         snapshot_obj = snapshot_obj.with_conformance_index(Arc::new(conformance_index));
+        snapshot_obj = snapshot_obj.with_conformance_witness_plans(Arc::new(conformance_witness_plans));
         snapshot_obj = snapshot_obj.with_presentation_sources(Arc::new(presentation_sources));
         snapshot_obj = snapshot_obj.with_source_index(Arc::new(source_index));
         snapshot_obj = snapshot_obj.with_formal_projection(Arc::new(formal_projection));
@@ -4626,7 +4992,7 @@ impl SemanticWorkspaceSession {
         stats.project_graph_rebuilt = effects.module_graph_changed;
         if previous_snapshot.is_some() {
             for callable in snapshot.callable_analyses.keys() {
-                if callable.declaration_owner().name.as_ref() != "<main>" {
+                if callable.try_declaration_owner().is_some_and(|owner| owner.name.as_ref() != "<main>") {
                     callable_dispositions.entry(callable.clone()).or_insert(CallableRevisionDisposition::Reused);
                 }
             }
@@ -5093,18 +5459,22 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
             }
             if let Some(previous_index) = previous.module(&module) {
                 for callable in previous_index.structure.callable_sources.values() {
-                    context
-                        .callable_targets
-                        .insert((callable.id.declaration_owner().clone(), callable.id.selector.clone()), callable.id.clone());
+                    if let Some(owner) = callable.id.try_declaration_owner() {
+                        context
+                            .callable_targets
+                            .insert((owner.clone(), callable.id.selector.clone()), callable.id.clone());
+                    }
                 }
             }
         }
     }
     for structure in scopes.values() {
         for callable in structure.callable_sources.values() {
-            context
-                .callable_targets
-                .insert((callable.id.declaration_owner().clone(), callable.id.selector.clone()), callable.id.clone());
+            if let Some(owner) = callable.id.try_declaration_owner() {
+                context
+                    .callable_targets
+                    .insert((owner.clone(), callable.id.selector.clone()), callable.id.clone());
+            }
         }
     }
     for (module, source) in &index_sources {
@@ -5150,7 +5520,8 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
                         crate::identity::DispatchSide::Instance => crate::identity::DispatchSide::Class,
                         crate::identity::DispatchSide::Class => crate::identity::DispatchSide::Instance,
                     };
-                    let alternate = crate::identity::CallableId::new(callable.declaration_owner().clone(), callable.selector.clone(), alternate_side);
+                    let Some(owner) = callable.try_declaration_owner() else { return None };
+                    let alternate = crate::identity::CallableId::new(owner.clone(), callable.selector.clone(), alternate_side);
                     callable_analyses.get(&alternate)
                 })
             })
@@ -5407,7 +5778,7 @@ fn build_advisory_workspace(inputs: AdvisoryWorkspaceInputs<'_>) -> AdvisoryWork
                 .filter(|analysis| analysis.callable.module() == module)
                 // The synthetic module entry is analyzed below with the entire
                 // top-level statement list, not as a class member body.
-                .filter(|analysis| analysis.callable.declaration_owner().name.as_ref() != "<main>")
+                .filter(|analysis| analysis.callable.try_declaration_owner().is_some_and(|owner| owner.name.as_ref() != "<main>"))
             {
                 let Some(body) = member_bodies.get(&analysis.callable).copied() else {
                     module_partial = true;
@@ -5451,7 +5822,7 @@ fn build_advisory_workspace(inputs: AdvisoryWorkspaceInputs<'_>) -> AdvisoryWork
                     fields: &fields,
                     callable_returns: &advisory_returns,
                     builtins: &builtins,
-                    current_owner: Some(analysis.callable.declaration_owner()),
+                    current_owner: analysis.callable.try_declaration_owner(),
                     dispatch_side: analysis.callable.side,
                     source_site_for_range: &site_for_range,
                     resolved_callable_for_range: &resolved_callable_for_range,
@@ -5853,6 +6224,9 @@ fn member_selector(member: &ClassMember) -> Option<Selector> {
 }
 
 fn source_body_for_callable<'a>(callable: &CallableId, unit: &'a ParsedModuleUnit) -> Option<(&'a [Statement], SourceRange)> {
+    if callable.try_declaration_owner().is_none() {
+        return None;
+    }
     let owner = callable.declaration_owner();
     for statement in &unit.program.statements {
         match statement {
@@ -6009,6 +6383,7 @@ fn revalidate_downstream_callable_body(
             body_range,
             declared_signature: None,
             owner_generic_signature: None,
+            self_type_override: None,
             trait_surface: None,
             store,
             hierarchy,
@@ -6177,6 +6552,11 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
                 continue;
             };
             let signature_id = signature.callable.clone();
+            if signature_id.try_declaration_owner().is_none() {
+                // Conformance witnesses have no inherent dispatch surface;
+                // their body proof must not update target-owned return data.
+                continue;
+            }
 
             let old_public = if iteration == 0 {
                 previous_callable_signatures
@@ -6307,6 +6687,7 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
                             body,
                             body_range: range,
                             owner_generic_signature: None,
+                            self_type_override: None,
                             declared_signature,
                             budget,
                             cancel,

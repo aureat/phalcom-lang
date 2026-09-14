@@ -336,6 +336,7 @@ class Owner {
             body_range: method.range,
             declared_signature: None,
             owner_generic_signature: None,
+            self_type_override: None,
             trait_surface: None,
             store: &mut store,
             hierarchy: &hierarchy,

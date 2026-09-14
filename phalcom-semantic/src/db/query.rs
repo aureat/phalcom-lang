@@ -11,7 +11,7 @@ use crate::declarations::{DeclarationTypeTable, TypeDeclarationShell};
 use crate::diagnostic::SemanticDiagnostic;
 use crate::dispatch::SurfaceDispatchResolver;
 use crate::hierarchy_product::HierarchyEdgeProduct;
-use crate::identity::{CallableId, DeclarationId, FieldId, ModuleId};
+use crate::identity::{CallableId, DeclarationId, FieldId, ModuleId, TypeId};
 use crate::module_product::ResolvedImportsProduct;
 use crate::signature::{CallableSemanticSignature, FieldSemanticSignature};
 use crate::source::ParsedModuleUnit;
@@ -1579,6 +1579,11 @@ pub fn query_callable_definition(
             impl_id.hash(&mut hasher);
             hasher.finish()
         }
+        crate::impls::CallableDefinitionOrigin::ConformanceWitness(impl_id) => {
+            let mut hasher = DefaultHasher::new();
+            impl_id.hash(&mut hasher);
+            hasher.finish().rotate_left(7)
+        }
     };
     let value = signature_fingerprint.raw() ^ origin_tag.rotate_left(17) ^ (definition.source_member_index as u64).rotate_left(33);
     let input_fingerprint = crate::db::InputFingerprint::new(value);
@@ -2293,6 +2298,8 @@ pub struct CallableBodyQuery<'a> {
     pub declared_signature: Option<(&'a CallableId, &'a CallableSemanticSignature)>,
     /// Optional explicit owner generic metadata for non-nominal callables.
     pub owner_generic_signature: Option<&'a crate::types::parameter::GenericSignature>,
+    /// Optional concrete receiver used by conformance witness body checking.
+    pub self_type_override: Option<TypeId>,
     /// Optional abstract trait contract used for trait default body analysis.
     pub trait_surface: Option<&'a crate::traits::TraitSurface>,
     pub store: &'a mut TypeStore,
@@ -2338,6 +2345,7 @@ fn query_callable_body_with_requirement(
         body_range,
         declared_signature: explicit_declared_signature,
         owner_generic_signature,
+        self_type_override,
         trait_surface,
         store,
         hierarchy,
@@ -2466,6 +2474,7 @@ fn query_callable_body_with_requirement(
             body,
             body_range,
             owner_generic_signature,
+            self_type_override,
             declared_signature: declared_signature.as_ref().map(|(signature_id, signature)| (signature_id, signature.as_ref())),
             budget,
             cancel,
@@ -2478,8 +2487,8 @@ fn query_callable_body_with_requirement(
     );
 
     let mut analysis = analysis;
-    if trait_surface.is_some() {
-        let dependency = crate::checker::analysis::SemanticDependency::TraitSurface(callable.declaration_owner().clone());
+    if let Some(surface) = trait_surface {
+        let dependency = crate::checker::analysis::SemanticDependency::TraitSurface(surface.declaration.clone());
         if !analysis.semantic_dependencies.iter().any(|existing| existing == &dependency) {
             let mut dependencies = analysis.semantic_dependencies.to_vec();
             dependencies.push(dependency);

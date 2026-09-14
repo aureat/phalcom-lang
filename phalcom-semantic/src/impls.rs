@@ -2,15 +2,18 @@
 
 use crate::checker::context::CheckingContext;
 use crate::checker::declaration_signature::{CallableSyntaxRef, semantic_signature_for_syntax_with_resolver};
+use crate::db::ProductFingerprint;
 use crate::declaration_type::DeclaredTypeState;
+use crate::declarations::DeclarationTypeTable;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic, SemanticSourceSpan};
 use crate::identity::{CallableId, CallableOwnerId, DeclarationId, DispatchSide, ImplId};
 use crate::signature::CallableSemanticSignature;
 use crate::surface::MemberVisibility;
-use crate::traits::{TraitHeaderTable, TraitRef};
+use crate::traits::{InstantiatedTraitRequirement, TraitHeaderTable, TraitRef, TraitRefFormationError, TraitSurface};
 use crate::types::annotation::{
     ScopedTypeResolver, TypeFormationSite, TypeLevelBinding, TypeResolver, resolve_type_annotation, type_level_binding_for_parameter,
 };
+use crate::types::environment::TypeEnvironment;
 use crate::types::evidence::{TypeKnowledge, UnknownReason};
 use crate::types::id::{KindId, TypeId, TypeParameterId};
 use crate::types::outcome::{BlockReason, BudgetReport, CancellationToken, DynamicBoundaryObligation, QueryBudget, RelationOutcome};
@@ -18,7 +21,9 @@ use crate::types::parameter::{GenericSignature, TypeParameterData, TypeParameter
 use crate::types::store::{TypeData, TypeStore};
 use crate::types::substitution::TypeSubstitution;
 use phalcom_ast::ast::{BehaviorMember, ImplDef, TypeAnnotationExpr};
+use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::hash::{Hash, Hasher};
 
 /// Computes the conditional inherent members selected for one canonical
 /// receiver form. This is the shared semantic query used by non-checker
@@ -33,6 +38,25 @@ pub fn receiver_effective_conditional_members(
     side: DispatchSide,
     ambient_constraints: &[crate::types::parameter::GenericConstraint],
 ) -> Vec<(DeclarationId, ConditionalInherentMember)> {
+    receiver_effective_conditional_members_with_outcomes(store, hierarchy, dispatch, receiver_type, lookup_owner, side, ambient_constraints)
+        .into_iter()
+        .filter_map(|(owner, member, applicability)| matches!(applicability, ImplApplicabilityResult::Applicable(_)).then_some((owner, member)))
+        .collect()
+}
+
+/// Conditional members together with the proof state that made them visible
+/// to the receiver query. `NotApplicable` candidates are omitted; terminal
+/// outcomes remain available to proof-producing callers instead of becoming
+/// indistinguishable from a missing member.
+fn receiver_effective_conditional_members_with_outcomes(
+    store: &mut TypeStore,
+    hierarchy: &dyn crate::types::relation::TypeHierarchy,
+    dispatch: &crate::dispatch::SurfaceDispatchResolver,
+    receiver_type: TypeId,
+    lookup_owner: &DeclarationId,
+    side: DispatchSide,
+    ambient_constraints: &[crate::types::parameter::GenericConstraint],
+) -> Vec<(DeclarationId, ConditionalInherentMember, ImplApplicabilityResult)> {
     let mut selected = BTreeSet::new();
     let mut result = Vec::new();
     let ordinary_selectors = dispatch
@@ -54,12 +78,12 @@ pub fn receiver_effective_conditional_members(
             if selected.contains(&selector) {
                 continue;
             }
-            if matches!(
-                check_impl_domain_applicability(store, hierarchy, &member.domain, receiver_type, receiver_type, ambient_constraints,),
-                ImplApplicabilityResult::Applicable(_)
-            ) {
-                selected.insert(selector);
-                result.push((variant.owner.clone(), member.clone()));
+            let applicability = check_impl_domain_applicability(store, hierarchy, &member.domain, receiver_type, receiver_type, ambient_constraints);
+            if !matches!(applicability, ImplApplicabilityResult::NotApplicable) {
+                if matches!(applicability, ImplApplicabilityResult::Applicable(_)) {
+                    selected.insert(selector);
+                }
+                result.push((variant.owner.clone(), member.clone(), applicability));
             }
         }
     }
@@ -79,17 +103,125 @@ pub fn receiver_effective_conditional_members(
             if ordinary_selectors.contains(&selector) || selected.contains(&selector) {
                 continue;
             }
-            if matches!(
-                check_impl_domain_applicability(store, hierarchy, &member.domain, receiver_type, owner_view, ambient_constraints,),
-                ImplApplicabilityResult::Applicable(_)
-            ) {
-                selected.insert(selector);
-                result.push((owner.declaration.clone(), member.clone()));
+            let applicability = check_impl_domain_applicability(store, hierarchy, &member.domain, receiver_type, owner_view, ambient_constraints);
+            if !matches!(applicability, ImplApplicabilityResult::NotApplicable) {
+                if matches!(applicability, ImplApplicabilityResult::Applicable(_)) {
+                    selected.insert(selector);
+                }
+                result.push((owner.declaration.clone(), member.clone(), applicability));
             }
         }
     }
 
     result
+}
+
+/// One canonical inherent witness candidate for a source conformance plan.
+/// The candidate may come from a direct/inherited dispatch surface or from a
+/// proven C2 conditional member; explicit conformance members and trait
+/// defaults are intentionally outside this query.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EffectiveInherentWitness {
+    pub callable: CallableId,
+    pub signature: CallableSemanticSignature,
+    pub visibility: MemberVisibility,
+    pub owner: DeclarationId,
+    pub conditional_impl: Option<ImplId>,
+    pub applicability: Option<InherentImplSpecialization>,
+}
+
+/// Proof-aware result of resolving one inherent witness candidate. A terminal
+/// applicability result is distinct from `NotFound`, because conformance
+/// completeness must not turn an unresolved C2 query into a false absence.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum EffectiveInherentWitnessResolution {
+    Candidate(EffectiveInherentWitness),
+    NotFound,
+    Unknown(UnknownReason),
+    Blocked(BlockReason),
+    Dynamic(DynamicBoundaryObligation),
+    Cancelled,
+    BudgetExceeded(BudgetReport),
+    InternalFailure(Box<str>),
+}
+
+/// Resolves one effective inherent member without scanning source syntax.
+/// Ordinary dispatch wins over conditional members, and the conditional query
+/// supplies exact-case, inherited, and constrained C2 applicability.
+pub fn resolve_effective_inherent_witness(
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    dispatch: &crate::dispatch::SurfaceDispatchResolver,
+    callable_signatures: &crate::signature::CallableSignatureTable,
+    receiver_type: TypeId,
+    lookup_owner: &DeclarationId,
+    selector: &phalcom_common::selector::Selector,
+    side: DispatchSide,
+    ambient_constraints: &[GenericConstraint],
+) -> EffectiveInherentWitnessResolution {
+    if let Some(callable) = dispatch.resolve_callable_id(hierarchy, lookup_owner, side, selector)
+        && let Some(signature) = callable_signatures.get(&callable)
+        && let Some(owner) = callable.try_declaration_owner().cloned()
+    {
+        let visibility = dispatch
+            .surface(&owner)
+            .and_then(|surface| surface.surface(side).callable_visibility.get(selector))
+            .copied()
+            .unwrap_or_default();
+        return EffectiveInherentWitnessResolution::Candidate(EffectiveInherentWitness {
+            callable,
+            signature: signature.clone(),
+            visibility,
+            owner,
+            conditional_impl: None,
+            applicability: None,
+        });
+    }
+
+    let mut terminal = None;
+    for (owner, member, applicability) in
+        receiver_effective_conditional_members_with_outcomes(store, hierarchy, dispatch, receiver_type, lookup_owner, side, ambient_constraints).into_iter()
+    {
+        if member.callable.selector != *selector || member.callable.side != side {
+            continue;
+        }
+        match applicability {
+            ImplApplicabilityResult::Applicable(applicability) => {
+                let signature = callable_signatures
+                    .get(&member.callable)
+                    .cloned()
+                    .unwrap_or_else(|| member.signature_template.clone());
+                return EffectiveInherentWitnessResolution::Candidate(EffectiveInherentWitness {
+                    callable: member.callable,
+                    signature,
+                    visibility: member.visibility,
+                    owner,
+                    conditional_impl: Some(member.impl_id),
+                    applicability: Some(applicability),
+                });
+            }
+            ImplApplicabilityResult::NotApplicable => {}
+            outcome @ (ImplApplicabilityResult::Unknown(_)
+            | ImplApplicabilityResult::Blocked(_)
+            | ImplApplicabilityResult::Dynamic(_)
+            | ImplApplicabilityResult::Cancelled
+            | ImplApplicabilityResult::BudgetExceeded(_)
+            | ImplApplicabilityResult::InternalFailure(_)) => {
+                if terminal.is_none() {
+                    terminal = Some(outcome);
+                }
+            }
+        }
+    }
+    match terminal {
+        Some(ImplApplicabilityResult::Unknown(reason)) => EffectiveInherentWitnessResolution::Unknown(reason),
+        Some(ImplApplicabilityResult::Blocked(reason)) => EffectiveInherentWitnessResolution::Blocked(reason),
+        Some(ImplApplicabilityResult::Dynamic(obligation)) => EffectiveInherentWitnessResolution::Dynamic(obligation),
+        Some(ImplApplicabilityResult::Cancelled) => EffectiveInherentWitnessResolution::Cancelled,
+        Some(ImplApplicabilityResult::BudgetExceeded(report)) => EffectiveInherentWitnessResolution::BudgetExceeded(report),
+        Some(ImplApplicabilityResult::InternalFailure(message)) => EffectiveInherentWitnessResolution::InternalFailure(message.into_boxed_str()),
+        _ => EffectiveInherentWitnessResolution::NotFound,
+    }
 }
 
 /// Explicit bijection mapping between impl type parameters and canonical target declaration parameters.
@@ -118,7 +250,7 @@ impl CoveringImplSubstitution {
 }
 
 use crate::types::parameter::GenericConstraint;
-use crate::types::relation::TypeHierarchy;
+use crate::types::relation::{TypeHierarchy, check_subtype_bounded};
 
 /// First-class domain representing the specialized or constrained applicability scope of an inherent `impl` block.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -281,6 +413,844 @@ pub struct ConformanceHeadMatch {
     pub exact_target: TypeId,
     pub exact_trait_ref: TraitRef,
     pub impl_bindings: HashMap<TypeParameterId, TypeId>,
+}
+
+/// Source-level selection of one trait requirement. These templates retain
+/// source identities and are specialized only when an exact head is queried.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RequirementSelectionTemplate {
+    ConformanceCallable {
+        callable: CallableId,
+    },
+    InherentCallable {
+        callable: CallableId,
+        conditional_impl: Option<ImplId>,
+        applicability: Option<InherentImplSpecialization>,
+    },
+    DataComponent {
+        component: crate::identity::DataComponentId,
+        specialized_type: TypeId,
+    },
+    TraitDefault {
+        callable: CallableId,
+    },
+}
+
+/// Proof returned when a candidate satisfies one instantiated requirement.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WitnessCompatibilityProof {
+    pub requirement: crate::traits::TraitRequirementId,
+    pub candidate: CallableId,
+}
+
+/// Refutation returned when a candidate cannot satisfy one requirement.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WitnessMismatch {
+    pub reason: Box<str>,
+}
+
+/// Bounded semantic result for witness compatibility. Terminal analysis
+/// states remain visible to conformance completeness instead of being
+/// silently treated as a source mismatch.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum WitnessCompatibility {
+    Compatible(WitnessCompatibilityProof),
+    Incompatible(WitnessMismatch),
+    Unknown(UnknownReason),
+    Blocked(BlockReason),
+    Dynamic(DynamicBoundaryObligation),
+    Cancelled,
+    BudgetExceeded(BudgetReport),
+    InternalFailure(Box<str>),
+}
+
+pub(crate) fn witness_compatibility_terminal_state(result: &WitnessCompatibility) -> Option<ConformanceCompleteness> {
+    match result {
+        WitnessCompatibility::Unknown(reason) => Some(ConformanceCompleteness::Unknown(reason.clone())),
+        WitnessCompatibility::Blocked(reason) => Some(ConformanceCompleteness::Blocked(reason.clone())),
+        WitnessCompatibility::Dynamic(obligation) => Some(ConformanceCompleteness::Dynamic(obligation.clone())),
+        WitnessCompatibility::Cancelled => Some(ConformanceCompleteness::Cancelled),
+        WitnessCompatibility::BudgetExceeded(report) => Some(ConformanceCompleteness::BudgetExceeded(report.clone())),
+        WitnessCompatibility::InternalFailure(message) => Some(ConformanceCompleteness::InternalFailure(message.clone())),
+        WitnessCompatibility::Compatible(_) | WitnessCompatibility::Incompatible(_) => None,
+    }
+}
+
+fn witness_fact_type(fact: &crate::declaration_type::DeclaredTypeFact) -> Result<TypeId, WitnessCompatibility> {
+    match &fact.state {
+        DeclaredTypeState::Known(TypeTerm::Canonical(ty)) => Ok(*ty),
+        DeclaredTypeState::Known(TypeTerm::SelfType(_) | TypeTerm::Infer(_)) => Err(WitnessCompatibility::Blocked(BlockReason::RecursiveFixpoint)),
+        DeclaredTypeState::Unknown(reason) => Err(WitnessCompatibility::Unknown(reason.clone())),
+        DeclaredTypeState::Dynamic(reason) => Err(WitnessCompatibility::Dynamic(DynamicBoundaryObligation {
+            reason: format!("dynamic declaration fact: {reason:?}"),
+        })),
+    }
+}
+
+fn witness_relation_result(outcome: RelationOutcome) -> Result<(), WitnessCompatibility> {
+    match outcome {
+        RelationOutcome::Proven { .. } => Ok(()),
+        RelationOutcome::Refuted(failure) => Err(WitnessCompatibility::Incompatible(WitnessMismatch {
+            reason: format!("type relation refuted: {failure:?}").into_boxed_str(),
+        })),
+        RelationOutcome::DynamicBoundary(obligation) => Err(WitnessCompatibility::Dynamic(obligation)),
+        RelationOutcome::Blocked(reason) => Err(WitnessCompatibility::Blocked(reason)),
+        RelationOutcome::Cancelled => Err(WitnessCompatibility::Cancelled),
+        RelationOutcome::BudgetExceeded(report) => Err(WitnessCompatibility::BudgetExceeded(report)),
+        RelationOutcome::InternalFailure(message) => Err(WitnessCompatibility::InternalFailure(message.into_boxed_str())),
+    }
+}
+
+fn witness_visibility_covers(required: MemberVisibility, candidate: MemberVisibility) -> bool {
+    match (required, candidate) {
+        (MemberVisibility::Public, MemberVisibility::Public)
+        | (MemberVisibility::Protected, MemberVisibility::Public | MemberVisibility::Protected)
+        | (MemberVisibility::Private, MemberVisibility::Public | MemberVisibility::Protected | MemberVisibility::Private)
+        | (MemberVisibility::Internal, MemberVisibility::Internal) => true,
+        _ => false,
+    }
+}
+
+fn witness_generic_term(store: &mut TypeStore, substitution: &TypeSubstitution, term: &TypeTerm) -> Option<TypeTerm> {
+    match term {
+        TypeTerm::Canonical(ty) => Some(TypeTerm::Canonical(substitution.apply(store, *ty))),
+        TypeTerm::SelfType(term) => Some(TypeTerm::SelfType(term.clone())),
+        TypeTerm::Infer(_) => None,
+    }
+}
+
+fn generic_constraint_exact(left: &crate::types::parameter::GenericConstraint, right: &crate::types::parameter::GenericConstraint) -> bool {
+    match (left, right) {
+        (
+            crate::types::parameter::GenericConstraint::Subtype {
+                lower: left_lower,
+                upper: left_upper,
+            },
+            crate::types::parameter::GenericConstraint::Subtype {
+                lower: right_lower,
+                upper: right_upper,
+            },
+        ) => left_lower == right_lower && left_upper == right_upper,
+        (
+            crate::types::parameter::GenericConstraint::Equivalent {
+                left: left_left,
+                right: left_right,
+            },
+            crate::types::parameter::GenericConstraint::Equivalent {
+                left: right_left,
+                right: right_right,
+            },
+        ) => (left_left == right_left && left_right == right_right) || (left_left == right_right && left_right == right_left),
+        _ => false,
+    }
+}
+
+fn constraint_subtype_relation(store: &mut TypeStore, hierarchy: &dyn TypeHierarchy, lower: TypeId, upper: TypeId) -> Result<bool, WitnessCompatibility> {
+    match check_subtype_bounded(store, hierarchy, lower, upper, &mut QueryBudget::default(), &CancellationToken::default()) {
+        RelationOutcome::Proven { .. } => Ok(true),
+        RelationOutcome::Refuted(_) => Ok(false),
+        outcome => Err(witness_relation_result(outcome).expect_err("non-terminal relation outcome must be proven or refuted")),
+    }
+}
+
+fn generic_constraint_implied(
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    required_constraints: &[crate::types::parameter::GenericConstraint],
+    candidate_constraint: &crate::types::parameter::GenericConstraint,
+) -> Result<bool, WitnessCompatibility> {
+    if required_constraints
+        .iter()
+        .any(|required| generic_constraint_exact(required, candidate_constraint))
+    {
+        return Ok(true);
+    }
+    let crate::types::parameter::GenericConstraint::Subtype {
+        lower: candidate_lower,
+        upper: candidate_upper,
+    } = candidate_constraint
+    else {
+        return Ok(false);
+    };
+    let (TypeTerm::Canonical(candidate_lower), TypeTerm::Canonical(candidate_upper)) = (candidate_lower, candidate_upper) else {
+        return Ok(false);
+    };
+    for required in required_constraints {
+        match required {
+            crate::types::parameter::GenericConstraint::Subtype {
+                lower: required_lower,
+                upper: required_upper,
+            } => {
+                let (TypeTerm::Canonical(required_lower), TypeTerm::Canonical(required_upper)) = (required_lower, required_upper) else {
+                    continue;
+                };
+                if required_lower == candidate_lower && constraint_subtype_relation(store, hierarchy, *required_upper, *candidate_upper)? {
+                    return Ok(true);
+                }
+            }
+            crate::types::parameter::GenericConstraint::Equivalent {
+                left: required_left,
+                right: required_right,
+            } => {
+                let (TypeTerm::Canonical(required_left), TypeTerm::Canonical(required_right)) = (required_left, required_right) else {
+                    continue;
+                };
+                let implied_upper = if required_left == candidate_lower {
+                    Some(*required_right)
+                } else if required_right == candidate_lower {
+                    Some(*required_left)
+                } else {
+                    None
+                };
+                if let Some(implied_upper) = implied_upper
+                    && constraint_subtype_relation(store, hierarchy, implied_upper, *candidate_upper)?
+                {
+                    return Ok(true);
+                }
+            }
+        }
+    }
+    Ok(false)
+}
+
+fn witness_generic_contract(
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    required: &Option<GenericSignature>,
+    candidate: &Option<GenericSignature>,
+) -> Result<(), WitnessCompatibility> {
+    match (required, candidate) {
+        (None, None) => Ok(()),
+        (Some(_), None) | (None, Some(_)) => Err(WitnessCompatibility::Incompatible(WitnessMismatch {
+            reason: "witness generic arity does not match the requirement".into(),
+        })),
+        (Some(required), Some(candidate)) => {
+            if required.parameter_count() != candidate.parameter_count() {
+                return Err(WitnessCompatibility::Incompatible(WitnessMismatch {
+                    reason: "witness generic kind contract does not match the requirement".into(),
+                }));
+            }
+            for (&required_parameter, &candidate_parameter) in required.parameters.iter().zip(candidate.parameters.iter()) {
+                let required_kind = required
+                    .parameter_kinds
+                    .iter()
+                    .nth(required_parameter.index() as usize)
+                    .copied()
+                    .unwrap_or_else(|| store.type_parameter(required_parameter).kind);
+                let candidate_kind = candidate
+                    .parameter_kinds
+                    .iter()
+                    .nth(candidate_parameter.index() as usize)
+                    .copied()
+                    .unwrap_or_else(|| store.type_parameter(candidate_parameter).kind);
+                if required_kind != candidate_kind {
+                    return Err(WitnessCompatibility::Incompatible(WitnessMismatch {
+                        reason: "witness generic kind contract does not match the requirement".into(),
+                    }));
+                }
+            }
+            if candidate.constraints.is_empty() {
+                return Ok(());
+            }
+            if required.constraints.is_empty() || candidate.constraints.len() > required.constraints.len() {
+                return Err(WitnessCompatibility::Incompatible(WitnessMismatch {
+                    reason: "witness generic contract strengthens caller constraints".into(),
+                }));
+            }
+            let mut alpha = TypeSubstitution::new();
+            for (&required_parameter, &candidate_parameter) in required.parameters.iter().zip(candidate.parameters.iter()) {
+                alpha.bind(candidate_parameter, store.parameter_form(required_parameter));
+            }
+            let candidate_constraints = candidate
+                .constraints
+                .iter()
+                .map(|constraint| match constraint {
+                    crate::types::parameter::GenericConstraint::Subtype { lower, upper } => Ok(crate::types::parameter::GenericConstraint::Subtype {
+                        lower: witness_generic_term(store, &alpha, lower).ok_or(WitnessCompatibility::Blocked(BlockReason::RecursiveFixpoint))?,
+                        upper: witness_generic_term(store, &alpha, upper).ok_or(WitnessCompatibility::Blocked(BlockReason::RecursiveFixpoint))?,
+                    }),
+                    crate::types::parameter::GenericConstraint::Equivalent { left, right } => Ok(crate::types::parameter::GenericConstraint::Equivalent {
+                        left: witness_generic_term(store, &alpha, left).ok_or(WitnessCompatibility::Blocked(BlockReason::RecursiveFixpoint))?,
+                        right: witness_generic_term(store, &alpha, right).ok_or(WitnessCompatibility::Blocked(BlockReason::RecursiveFixpoint))?,
+                    }),
+                })
+                .collect::<Result<Vec<_>, WitnessCompatibility>>()?;
+            for candidate_constraint in &candidate_constraints {
+                if !generic_constraint_implied(store, hierarchy, &required.constraints, candidate_constraint)? {
+                    return Err(WitnessCompatibility::Incompatible(WitnessMismatch {
+                        reason: "witness generic contract strengthens caller constraints".into(),
+                    }));
+                }
+            }
+            Ok(())
+        }
+    }
+}
+
+fn callable_generic_alpha_substitution(store: &mut TypeStore, required: &Option<GenericSignature>, candidate: &Option<GenericSignature>) -> TypeSubstitution {
+    let mut substitution = TypeSubstitution::new();
+    if let (Some(required), Some(candidate)) = (required, candidate) {
+        for (&required_parameter, &candidate_parameter) in required.parameters.iter().zip(candidate.parameters.iter()) {
+            substitution.bind(candidate_parameter, store.parameter_form(required_parameter));
+        }
+    }
+    substitution
+}
+
+/// Checks the callable contract using the canonical bounded type relation.
+/// The caller remains responsible for selecting the source kind; this helper
+/// only answers whether one already-selected candidate is safe.
+pub fn check_witness_compatibility(
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    required: &crate::traits::InstantiatedTraitRequirement,
+    candidate: &CallableSemanticSignature,
+) -> WitnessCompatibility {
+    check_witness_compatibility_with_visibility(store, hierarchy, required, candidate, MemberVisibility::Public)
+}
+
+/// Visibility-aware witness compatibility entry point used by source-plan
+/// candidate selection.
+pub fn check_witness_compatibility_with_visibility(
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    required: &crate::traits::InstantiatedTraitRequirement,
+    candidate: &CallableSemanticSignature,
+    candidate_visibility: MemberVisibility,
+) -> WitnessCompatibility {
+    if required.signature.selector != candidate.selector
+        || required.signature.side != candidate.side
+        || required.signature.parameters.len() != candidate.parameters.len()
+    {
+        return WitnessCompatibility::Incompatible(WitnessMismatch {
+            reason: "selector, dispatch side, or parameter count differs".into(),
+        });
+    }
+    if !witness_visibility_covers(required.visibility, candidate_visibility) {
+        return WitnessCompatibility::Incompatible(WitnessMismatch {
+            reason: "witness visibility does not cover the trait requirement".into(),
+        });
+    }
+    if let Err(result) = witness_generic_contract(store, hierarchy, &required.signature.generics, &candidate.generics) {
+        return result;
+    }
+    let alpha = callable_generic_alpha_substitution(store, &required.signature.generics, &candidate.generics);
+    let mut budget = QueryBudget::default();
+    let cancel = CancellationToken::default();
+    for (required_parameter, candidate_parameter) in required.signature.parameters.iter().zip(candidate.parameters.iter()) {
+        if required_parameter.rest != candidate_parameter.rest {
+            return WitnessCompatibility::Incompatible(WitnessMismatch {
+                reason: "witness parameter rest role differs".into(),
+            });
+        }
+        let required_type = match witness_fact_type(&required_parameter.declared_type) {
+            Ok(ty) => ty,
+            Err(result) => return result,
+        };
+        let candidate_type = match witness_fact_type(&candidate_parameter.declared_type) {
+            Ok(ty) => ty,
+            Err(result) => return result,
+        };
+        let candidate_type = alpha.apply(store, candidate_type);
+        if let Err(result) = witness_relation_result(check_subtype_bounded(store, hierarchy, required_type, candidate_type, &mut budget, &cancel)) {
+            return result;
+        }
+    }
+    let candidate_return = match witness_fact_type(&candidate.declared_return) {
+        Ok(ty) => ty,
+        Err(result) => return result,
+    };
+    let candidate_return = alpha.apply(store, candidate_return);
+    let required_return = match witness_fact_type(&required.signature.declared_return) {
+        Ok(ty) => ty,
+        Err(result) => return result,
+    };
+    if let Err(result) = witness_relation_result(check_subtype_bounded(store, hierarchy, candidate_return, required_return, &mut budget, &cancel)) {
+        return result;
+    }
+    WitnessCompatibility::Compatible(WitnessCompatibilityProof {
+        requirement: required.requirement.clone(),
+        candidate: candidate.callable.clone(),
+    })
+}
+
+/// Checks a data component as a getter witness without manufacturing a
+/// callable identity or publishing a synthetic getter signature.
+pub fn check_data_component_compatibility(
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    required: &crate::traits::InstantiatedTraitRequirement,
+    component_type: TypeId,
+) -> WitnessCompatibility {
+    if !matches!(required.signature.selector.kind, phalcom_common::selector::SelectorKind::Getter) || !required.signature.parameters.is_empty() {
+        return WitnessCompatibility::Incompatible(WitnessMismatch {
+            reason: "data components can satisfy getter requirements only".into(),
+        });
+    }
+    let required_return = match witness_fact_type(&required.signature.declared_return) {
+        Ok(ty) => ty,
+        Err(result) => return result,
+    };
+    match witness_relation_result(check_subtype_bounded(
+        store,
+        hierarchy,
+        component_type,
+        required_return,
+        &mut QueryBudget::default(),
+        &CancellationToken::default(),
+    )) {
+        Ok(()) => WitnessCompatibility::Compatible(WitnessCompatibilityProof {
+            requirement: required.requirement.clone(),
+            candidate: required.callable.clone(),
+        }),
+        Err(result) => result,
+    }
+}
+
+/// Compatibility predicate retained for narrow callers that only need the
+/// positive branch. New proof-producing consumers should use
+/// [`check_witness_compatibility`].
+pub fn witness_callable_is_compatible(
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    required: &CallableSemanticSignature,
+    candidate: &CallableSemanticSignature,
+) -> bool {
+    let requirement = crate::traits::InstantiatedTraitRequirement {
+        requirement: crate::traits::TraitRequirementId::new(required.owner.clone(), required.selector.clone(), required.side),
+        callable: required.callable.clone(),
+        signature: required.clone(),
+        visibility: MemberVisibility::Public,
+        default_callable: None,
+    };
+    matches!(
+        check_witness_compatibility(store, hierarchy, &requirement, candidate),
+        WitnessCompatibility::Compatible(_)
+    )
+}
+
+/// A requirement which prevented a source conformance from becoming complete.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RequirementFailure {
+    pub requirement: crate::traits::TraitRequirementId,
+    pub reason: Box<str>,
+}
+
+/// Proof state of a source conformance witness plan.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ConformanceCompleteness {
+    Complete,
+    Incomplete { failures: Box<[RequirementFailure]> },
+    Unknown(UnknownReason),
+    Blocked(BlockReason),
+    Dynamic(DynamicBoundaryObligation),
+    Cancelled,
+    BudgetExceeded(BudgetReport),
+    InternalFailure(Box<str>),
+}
+
+/// One source conformance's generic witness/default selection proof.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConformanceWitnessPlan {
+    pub impl_id: ImplId,
+    pub source_module: crate::identity::ModuleId,
+    pub target_template: TypeId,
+    pub trait_ref_template: TraitRef,
+    pub generic_signature: Option<GenericSignature>,
+    /// Source-level trait requirements after binding the trait arguments and
+    /// symbolic `Self` to the conformance head template.
+    pub requirement_views: BTreeMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement>,
+    pub requirements: BTreeMap<crate::traits::TraitRequirementId, RequirementSelectionTemplate>,
+    pub fingerprint: ProductFingerprint,
+    pub invalid_explicit_members: bool,
+    pub completeness: ConformanceCompleteness,
+    pub diagnostics: Box<[SemanticDiagnostic]>,
+}
+
+/// Exact target/TraitRef proof instantiated from a source witness plan.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConformanceEvidence {
+    pub source_impl: ImplId,
+    pub exact_target: TypeId,
+    pub exact_trait_ref: TraitRef,
+    pub impl_environment: TypeEnvironment,
+    pub requirement_views: BTreeMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement>,
+    pub requirements: BTreeMap<crate::traits::TraitRequirementId, RequirementSelectionTemplate>,
+    pub fingerprint: ProductFingerprint,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ConformanceResolution {
+    Proven(Arc<ConformanceEvidence>),
+    NotDeclared,
+    InvalidSource(ImplId),
+    Incomplete(ImplId),
+    CoherenceConflict(Box<[ImplId]>),
+    Unknown(UnknownReason),
+    Blocked(BlockReason),
+    Dynamic(DynamicBoundaryObligation),
+    Cancelled,
+    BudgetExceeded(BudgetReport),
+    InternalFailure(Box<str>),
+}
+
+/// Builds the source witness/default plan. The caller supplies canonical
+/// signatures already published under the conformance owner; target surfaces
+/// are intentionally not mutated.
+pub fn build_conformance_witness_plan(
+    contribution: &ConformanceContribution,
+    store: &mut TypeStore,
+    declarations: &DeclarationTypeTable,
+    hierarchy: &dyn TypeHierarchy,
+    trait_surface: &crate::traits::TraitSurface,
+    callable_signatures: &crate::signature::CallableSignatureTable,
+    bodyful_callables: &BTreeSet<CallableId>,
+    witness_visibilities: &BTreeMap<CallableId, MemberVisibility>,
+    invalid_explicit_requirements: &BTreeSet<crate::traits::TraitRequirementId>,
+    invalid_explicit_members: bool,
+    inherent_candidates: &BTreeMap<crate::traits::TraitRequirementId, EffectiveInherentWitness>,
+    data_candidates: &BTreeMap<crate::traits::TraitRequirementId, (crate::identity::DataComponentId, TypeId)>,
+    terminal_candidates: &BTreeMap<crate::traits::TraitRequirementId, ConformanceCompleteness>,
+) -> ConformanceWitnessPlan {
+    let requirement_views = instantiate_conformance_requirements(
+        store,
+        Some(declarations),
+        trait_surface,
+        &contribution.trait_ref,
+        contribution.target_head,
+        &HashMap::new(),
+    );
+    let mut requirements = BTreeMap::new();
+    let mut failures = Vec::new();
+    let mut terminal_state = None;
+    for (requirement, member) in trait_surface.iter() {
+        if invalid_explicit_requirements.contains(requirement) {
+            failures.push(RequirementFailure {
+                requirement: requirement.clone(),
+                reason: "explicit witness declaration is invalid".into(),
+            });
+            continue;
+        }
+        let explicit = callable_signatures.iter().find_map(|(callable, _)| {
+            (callable.conformance_owner() == Some(&contribution.impl_id) && callable.selector == requirement.selector && callable.side == requirement.side)
+                .then_some(callable.clone())
+        });
+        if let Some(callable) = explicit {
+            if bodyful_callables.contains(&callable) {
+                let Some(candidate) = callable_signatures.get(&callable) else {
+                    failures.push(RequirementFailure {
+                        requirement: requirement.clone(),
+                        reason: "explicit witness signature is unavailable".into(),
+                    });
+                    continue;
+                };
+                let Some(required_view) = requirement_views.get(requirement) else {
+                    failures.push(RequirementFailure {
+                        requirement: requirement.clone(),
+                        reason: "instantiated trait requirement view is unavailable".into(),
+                    });
+                    continue;
+                };
+                match check_witness_compatibility_with_visibility(
+                    store,
+                    hierarchy,
+                    required_view,
+                    candidate,
+                    witness_visibilities.get(&callable).copied().unwrap_or_default(),
+                ) {
+                    WitnessCompatibility::Compatible(_) => {
+                        requirements.insert(requirement.clone(), RequirementSelectionTemplate::ConformanceCallable { callable });
+                    }
+                    WitnessCompatibility::Incompatible(mismatch) => failures.push(RequirementFailure {
+                        requirement: requirement.clone(),
+                        reason: mismatch.reason,
+                    }),
+                    WitnessCompatibility::Unknown(reason) => terminal_state = Some(ConformanceCompleteness::Unknown(reason)),
+                    WitnessCompatibility::Blocked(reason) => terminal_state = Some(ConformanceCompleteness::Blocked(reason)),
+                    WitnessCompatibility::Dynamic(obligation) => terminal_state = Some(ConformanceCompleteness::Dynamic(obligation)),
+                    WitnessCompatibility::Cancelled => terminal_state = Some(ConformanceCompleteness::Cancelled),
+                    WitnessCompatibility::BudgetExceeded(report) => terminal_state = Some(ConformanceCompleteness::BudgetExceeded(report)),
+                    WitnessCompatibility::InternalFailure(message) => terminal_state = Some(ConformanceCompleteness::InternalFailure(message)),
+                }
+            } else {
+                failures.push(RequirementFailure {
+                    requirement: requirement.clone(),
+                    reason: "explicit witness has no body".into(),
+                });
+            }
+        } else if let Some(callable) = inherent_candidates.get(requirement) {
+            requirements.insert(
+                requirement.clone(),
+                RequirementSelectionTemplate::InherentCallable {
+                    callable: callable.callable.clone(),
+                    conditional_impl: callable.conditional_impl.clone(),
+                    applicability: callable.applicability.clone(),
+                },
+            );
+        } else if let Some((component, specialized_type)) = data_candidates.get(requirement) {
+            requirements.insert(
+                requirement.clone(),
+                RequirementSelectionTemplate::DataComponent {
+                    component: component.clone(),
+                    specialized_type: *specialized_type,
+                },
+            );
+        } else if member.default_present {
+            requirements.insert(
+                requirement.clone(),
+                RequirementSelectionTemplate::TraitDefault {
+                    callable: requirement.source_callable(),
+                },
+            );
+        } else if let Some(terminal) = terminal_candidates.get(requirement) {
+            terminal_state = Some(terminal.clone());
+        } else {
+            failures.push(RequirementFailure {
+                requirement: requirement.clone(),
+                reason: "no explicit witness or trait default".into(),
+            });
+        }
+    }
+    let completeness = if let Some(terminal_state) = terminal_state {
+        terminal_state
+    } else if failures.is_empty() && !invalid_explicit_members {
+        ConformanceCompleteness::Complete
+    } else {
+        ConformanceCompleteness::Incomplete {
+            failures: failures.into_boxed_slice(),
+        }
+    };
+    let mut plan = ConformanceWitnessPlan {
+        impl_id: contribution.impl_id.clone(),
+        source_module: contribution.source_module.clone(),
+        target_template: contribution.target_head,
+        trait_ref_template: contribution.trait_ref.clone(),
+        generic_signature: contribution.generic_signature.clone(),
+        requirement_views,
+        requirements,
+        fingerprint: ProductFingerprint::default(),
+        invalid_explicit_members,
+        completeness,
+        diagnostics: contribution.diagnostics.clone(),
+    };
+    plan.fingerprint = conformance_witness_plan_fingerprint(&plan);
+    plan
+}
+
+/// Computes the semantic identity of a source witness plan. Diagnostics and
+/// source ranges are deliberately excluded; requirement views and selections
+/// already carry the canonical contract and source identities they depend on.
+pub fn conformance_witness_plan_fingerprint(plan: &ConformanceWitnessPlan) -> ProductFingerprint {
+    let mut hasher = DefaultHasher::new();
+    plan.impl_id.hash(&mut hasher);
+    plan.source_module.hash(&mut hasher);
+    plan.target_template.hash(&mut hasher);
+    plan.trait_ref_template.hash(&mut hasher);
+    format!("{:?}", plan.generic_signature).hash(&mut hasher);
+    format!("{:?}", plan.requirement_views).hash(&mut hasher);
+    format!("{:?}", plan.requirements).hash(&mut hasher);
+    plan.invalid_explicit_members.hash(&mut hasher);
+    format!("{:?}", plan.completeness).hash(&mut hasher);
+    ProductFingerprint::new(hasher.finish())
+}
+
+fn conformance_evidence_fingerprint(
+    source_plan: ProductFingerprint,
+    target: TypeId,
+    trait_ref: &TraitRef,
+    environment: &TypeEnvironment,
+    requirement_views: &BTreeMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement>,
+    requirements: &BTreeMap<crate::traits::TraitRequirementId, RequirementSelectionTemplate>,
+) -> ProductFingerprint {
+    let mut hasher = DefaultHasher::new();
+    source_plan.hash(&mut hasher);
+    target.hash(&mut hasher);
+    trait_ref.hash(&mut hasher);
+    let mut bindings = environment.bindings.iter().collect::<Vec<_>>();
+    bindings.sort_by_key(|(parameter, _)| **parameter);
+    bindings.hash(&mut hasher);
+    let mut row_bindings = environment.row_bindings.iter().collect::<Vec<_>>();
+    row_bindings.sort_by_key(|(parameter, _)| **parameter);
+    row_bindings.hash(&mut hasher);
+    environment.self_binding.hash(&mut hasher);
+    format!("{:?}", requirement_views).hash(&mut hasher);
+    format!("{:?}", requirements).hash(&mut hasher);
+    ProductFingerprint::new(hasher.finish())
+}
+
+/// Instantiates a complete source plan for one exact P1 head match without
+/// repeating witness/default selection.
+pub fn resolve_conformance_evidence(
+    index: &ConformanceIndex,
+    plans: &BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>,
+    trait_surface: &TraitSurface,
+    declarations: &DeclarationTypeTable,
+    store: &mut TypeStore,
+    target: TypeId,
+    trait_ref: &TraitRef,
+) -> ConformanceResolution {
+    let matches = index.query_exact(store, target, trait_ref);
+    match matches.len() {
+        0 => return ConformanceResolution::NotDeclared,
+        1 => {}
+        _ => {
+            return ConformanceResolution::CoherenceConflict(matches.into_iter().map(|item| item.impl_id).collect::<Vec<_>>().into_boxed_slice());
+        }
+    }
+    let head = &matches[0];
+    let Some(plan) = plans.get(&head.impl_id) else {
+        return ConformanceResolution::InvalidSource(head.impl_id.clone());
+    };
+    if !matches!(plan.completeness, ConformanceCompleteness::Complete) {
+        return ConformanceResolution::Incomplete(head.impl_id.clone());
+    }
+    let environment = conformance_environment(store, Some(declarations), trait_surface, &head.exact_trait_ref, target, &head.impl_bindings);
+    let requirement_views = trait_surface.instantiate(store, &environment);
+    let requirements = plan
+        .requirements
+        .iter()
+        .map(|(requirement, selection)| (requirement.clone(), specialize_requirement_selection(store, selection, &environment)))
+        .collect();
+    let fingerprint = conformance_evidence_fingerprint(plan.fingerprint, target, &head.exact_trait_ref, &environment, &requirement_views, &requirements);
+    ConformanceResolution::Proven(Arc::new(ConformanceEvidence {
+        source_impl: head.impl_id.clone(),
+        exact_target: target,
+        exact_trait_ref: head.exact_trait_ref.clone(),
+        impl_environment: environment,
+        requirement_views,
+        requirements,
+        fingerprint,
+    }))
+}
+
+pub(crate) fn instantiate_conformance_requirements(
+    store: &mut TypeStore,
+    declarations: Option<&DeclarationTypeTable>,
+    trait_surface: &TraitSurface,
+    trait_ref: &TraitRef,
+    target: TypeId,
+    impl_bindings: &HashMap<TypeParameterId, TypeId>,
+) -> BTreeMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement> {
+    let environment = conformance_environment(store, declarations, trait_surface, trait_ref, target, impl_bindings);
+    trait_surface.instantiate(store, &environment)
+}
+
+/// Specializes a target-owned type (such as a data component declaration
+/// type) through the source or exact conformance target environment.
+pub(crate) fn specialize_conformance_target_type(
+    store: &mut TypeStore,
+    declarations: &DeclarationTypeTable,
+    target: TypeId,
+    impl_bindings: &HashMap<TypeParameterId, TypeId>,
+    ty: TypeId,
+) -> TypeId {
+    let mut environment = TypeEnvironment::new();
+    for (&parameter, &binding) in impl_bindings {
+        environment.bind_param(parameter, binding);
+    }
+    bind_target_declaration_parameters(store, declarations, target, &mut environment);
+    crate::types::environment::TypeView::new(ty, environment).materialize(store)
+}
+
+fn conformance_environment(
+    store: &mut TypeStore,
+    declarations: Option<&DeclarationTypeTable>,
+    trait_surface: &TraitSurface,
+    trait_ref: &TraitRef,
+    target: TypeId,
+    impl_bindings: &HashMap<TypeParameterId, TypeId>,
+) -> TypeEnvironment {
+    let mut environment = TypeEnvironment::new();
+    for (&parameter, &binding) in impl_bindings {
+        environment.bind_param(parameter, binding);
+    }
+    if let Some(declarations) = declarations {
+        bind_target_declaration_parameters(store, declarations, target, &mut environment);
+    }
+    if let Some(signature) = &trait_surface.generic_signature {
+        for (&parameter, &argument) in signature.parameters.iter().zip(trait_ref.arguments.iter()) {
+            let argument = if impl_bindings.is_empty() {
+                argument
+            } else {
+                let substitution = environment.to_substitution();
+                substitution.apply(store, argument)
+            };
+            environment.bind_param(parameter, argument);
+        }
+    }
+    environment.bind_self(target);
+    environment
+}
+
+fn bind_target_declaration_parameters(store: &mut TypeStore, declarations: &DeclarationTypeTable, mut target: TypeId, environment: &mut TypeEnvironment) {
+    while let TypeData::ExactCase { enum_type, .. } = store.get(target) {
+        target = *enum_type;
+    }
+    let TypeData::Applied { origin, arguments } = store.get(target).clone() else {
+        return;
+    };
+    let TypeData::Nominal { declaration } = store.get(origin).clone() else {
+        return;
+    };
+    let Some(signature) = declarations.generic_signature(&declaration) else {
+        return;
+    };
+    let substitution = environment.to_substitution();
+    for (&parameter, &argument) in signature.parameters.iter().zip(arguments.iter()) {
+        environment.bind_param(parameter, substitution.apply(store, argument));
+    }
+}
+
+fn specialize_requirement_selection(
+    store: &mut TypeStore,
+    selection: &RequirementSelectionTemplate,
+    environment: &TypeEnvironment,
+) -> RequirementSelectionTemplate {
+    match selection {
+        RequirementSelectionTemplate::DataComponent { component, specialized_type } => RequirementSelectionTemplate::DataComponent {
+            component: component.clone(),
+            specialized_type: crate::types::environment::TypeView::new(*specialized_type, environment.clone()).materialize(store),
+        },
+        RequirementSelectionTemplate::ConformanceCallable { callable } => RequirementSelectionTemplate::ConformanceCallable { callable: callable.clone() },
+        RequirementSelectionTemplate::InherentCallable {
+            callable,
+            conditional_impl,
+            applicability,
+        } => RequirementSelectionTemplate::InherentCallable {
+            callable: callable.clone(),
+            conditional_impl: conditional_impl.clone(),
+            applicability: applicability
+                .as_ref()
+                .map(|applicability| specialize_inherent_applicability(store, applicability, environment)),
+        },
+        RequirementSelectionTemplate::TraitDefault { callable } => RequirementSelectionTemplate::TraitDefault { callable: callable.clone() },
+    }
+}
+
+fn specialize_inherent_applicability(
+    store: &mut TypeStore,
+    applicability: &InherentImplSpecialization,
+    environment: &TypeEnvironment,
+) -> InherentImplSpecialization {
+    let mut materialize = |ty| crate::types::environment::TypeView::new(ty, environment.clone()).materialize(store);
+    let bindings = applicability.bindings.iter().map(|(&parameter, &ty)| (parameter, materialize(ty))).collect();
+    let mut specialized_environment = TypeEnvironment::new();
+    for (&parameter, &ty) in &applicability.environment.bindings {
+        specialized_environment.bind_param(parameter, materialize(ty));
+    }
+    for (&parameter, &row) in &applicability.environment.row_bindings {
+        specialized_environment.bind_row(parameter, row);
+    }
+    if let Some(self_binding) = applicability.environment.self_binding {
+        specialized_environment.bind_self(materialize(self_binding));
+    }
+    InherentImplSpecialization {
+        impl_id: applicability.impl_id.clone(),
+        receiver: materialize(applicability.receiver),
+        owner_view: materialize(applicability.owner_view),
+        bindings,
+        environment: specialized_environment,
+    }
 }
 
 /// Workspace-level source index for explicit conformance heads.
@@ -688,7 +1658,23 @@ pub fn resolve_conformance_head(
             }
         }
     }
-    let trait_ref = TraitRef::new(trait_declaration, trait_arguments.into_boxed_slice());
+    let trait_ref = match TraitRef::form(ctx.store, trait_headers, &ctx.hierarchy, trait_declaration, &trait_arguments) {
+        Ok(trait_ref) => trait_ref,
+        Err(error) => {
+            let message = format!("invalid conformance trait reference: {error}");
+            let range = trait_syntax.range;
+            let code = match error {
+                TraitRefFormationError::Kind { .. } => DiagnosticCode::KindExpectedType,
+                TraitRefFormationError::NotTrait(_)
+                | TraitRefFormationError::Arity { .. }
+                | TraitRefFormationError::InvalidArgument { .. }
+                | TraitRefFormationError::ConstraintUnsatisfied { .. }
+                | TraitRefFormationError::ConstraintNotCanonical { .. } => DiagnosticCode::AnnotationUnresolved,
+            };
+            diagnostics.push(SemanticDiagnostic::error_in(ctx.current_module.clone(), code, message, range));
+            return Err(diagnostics);
+        }
+    };
 
     let (target_head, target) = if let TypeAnnotationExpr::ExactEnumCase {
         enum_target,
@@ -886,7 +1872,6 @@ use crate::associated::AssociatedSurface;
 use crate::data_semantics::DataInfo;
 use crate::identity::{DataComponentId, FieldId, VariantId};
 use crate::surface::DeclarationSurface;
-use crate::types::environment::TypeEnvironment;
 use phalcom_common::selector::Selector;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -987,6 +1972,10 @@ pub enum CallableDefinitionOrigin {
     PrimaryDeclaration,
     /// Defined in an inherent `impl` block fragment.
     InherentImpl(ImplId),
+    /// Defined inside an explicit conformance. This callable is semantic
+    /// witness provenance only and must not be projected into an inherent
+    /// target surface or runtime dispatch table by P2.
+    ConformanceWitness(ImplId),
 }
 
 /// Canonical definition provenance for an accepted callable.

@@ -458,7 +458,7 @@ fn build_module_workspace_symbols(structure: &SourceScopeIndex) -> Arc<[Workspac
             target: SemanticTargetId::Callable(callable.id.clone()),
             declaration_site: callable.declaration_site.clone(),
             kind: EditorSymbolKind::Callable,
-            container_name: Some(callable.id.owner.name.clone()),
+            container_name: callable.id.try_declaration_owner().map(|owner| owner.name.clone()),
         });
     }
     for field in structure.field_sources.values() {

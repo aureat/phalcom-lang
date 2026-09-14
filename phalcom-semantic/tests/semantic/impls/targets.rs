@@ -133,6 +133,61 @@ fn test_explicit_conformance_rejects_non_trait_left_head() {
 }
 
 #[test]
+fn test_explicit_conformance_rejects_violated_trait_argument_constraint() {
+    let module = test_module();
+    let mut store = TypeStore::new();
+    let hierarchy = MapTypeHierarchy::new();
+    let mut declarations = DeclarationTypeTable::new();
+    let mut resolver = setup_resolver_and_decls(&mut store, &mut declarations);
+
+    let number = DeclarationId::new(universe_module(), "Number".into());
+    register_nominal(&mut store, &mut declarations, number.clone(), None);
+    resolver.insert("Number", number.clone());
+    let item = DeclarationId::new(module.clone(), "Item".into());
+    register_nominal(&mut store, &mut declarations, item.clone(), None);
+    resolver.insert("Item", item);
+    let trait_decl = DeclarationId::new(module.clone(), "NumericTag".into());
+    resolver.insert("NumericTag", trait_decl.clone());
+
+    let mut headers = TraitHeaderTable::new();
+    let trait_param = store.intern_type_parameter(TypeParameterData::new(
+        TypeParameterOwner::Declaration(trait_decl.clone()),
+        0,
+        "T",
+        KindId::TYPE,
+    ));
+    let number_type = store.nominal(number);
+    headers.insert(Arc::new(TraitHeader {
+        source: SemanticSourceSpan::new(module.clone(), (0..0).into()),
+        declaration: trait_decl,
+        generic_signature: Some(GenericSignature::with_constraints(
+            TypeParameterOwner::Declaration(DeclarationId::new(module.clone(), "NumericTag".into())),
+            vec![trait_param].into_boxed_slice(),
+            vec![GenericConstraint::Subtype {
+                lower: TypeTerm::Canonical(store.parameter_form(trait_param)),
+                upper: TypeTerm::Canonical(number_type),
+            }]
+            .into_boxed_slice(),
+        )),
+    }));
+
+    let mut ctx = CheckingContext::new(&mut store, &hierarchy, &resolver, &declarations, module.clone());
+    let parsed = phalcom_ast::parse("impl NumericTag<String> for Item {}\n", 0);
+    assert!(parsed.errors.is_empty(), "parse errors: {:?}", parsed.errors);
+    let phalcom_ast::ast::Statement::Impl(impl_def) = &parsed.program.statements[0] else {
+        panic!("expected impl")
+    };
+    let result = resolve_conformance_head(&mut ctx, &headers, &ImplId::new(module, ImplLocalId(0)), impl_def);
+    assert!(result.is_err(), "violated trait argument constraint must reject conformance head");
+    assert!(
+        result
+            .expect_err("constraint violation")
+            .iter()
+            .any(|diagnostic| diagnostic.code == DiagnosticCode::AnnotationUnresolved)
+    );
+}
+
+#[test]
 fn test_conformance_ownership_accepts_only_trait_or_target_owner() {
     let trait_module = ModuleId::resolved(ResolvedProjectId::from_raw(43), ModulePath::root());
     let target_module = ModuleId::resolved(ResolvedProjectId::from_raw(44), ModulePath::root());

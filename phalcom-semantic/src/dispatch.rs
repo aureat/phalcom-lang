@@ -271,6 +271,11 @@ impl SurfaceDispatchResolver {
     /// Replaces an inferred return type on an existing source callable while
     /// retaining its parameters, selector, and declaration identity.
     pub fn update_callable_return_type(&mut self, callable: &CallableId, return_type: TypeKnowledge) -> bool {
+        if callable.try_declaration_owner().is_none() {
+            // Conformance-local witnesses are semantic proof products, not
+            // members of a target-owned inherent dispatch surface.
+            return false;
+        }
         let Some(surface) = self.surfaces.get_mut(callable.declaration_owner()) else {
             return false;
         };

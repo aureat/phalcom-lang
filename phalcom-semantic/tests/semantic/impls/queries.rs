@@ -11,6 +11,7 @@ use phalcom_semantic::impls::{CallableDefinitionOrigin, ConformanceTarget};
 use phalcom_semantic::session::{SemanticWorkspaceSession, SemanticWorkspaceUpdate};
 use phalcom_semantic::source::ParsedModuleUnit;
 use phalcom_semantic::traits::TraitRef;
+use phalcom_semantic::types::environment::TypeEnvironment;
 use phalcom_semantic::workspace::SemanticWorkspaceInput;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -120,6 +121,335 @@ fn explicit_conformance_is_indexed_without_polluting_inherent_surface() {
 }
 
 #[test]
+fn conformance_witness_plan_uses_conformance_owned_callable_identity() {
+    let module = test_module();
+    let source = "trait Tagged { tag -> String }\nclass User {}\nimpl Tagged for User { tag -> String { \"tagged\" } }\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
+
+    let (_, contribution) = output.snapshot.conformance_index.iter().next().expect("conformance");
+    let witness = output
+        .snapshot
+        .callable_signatures
+        .iter()
+        .find_map(|(callable, _)| (callable.conformance_owner() == Some(&contribution.impl_id)).then_some(callable.clone()))
+        .expect("published conformance witness signature");
+    assert!(matches!(witness.owner, CallableOwnerId::Conformance(_)));
+    assert!(output.snapshot.callable_definitions.contains_key(&witness));
+    assert!(
+        output.snapshot.callable_analyses.contains_key(&witness),
+        "conformance witness body must be analyzed"
+    );
+
+    let plan = output
+        .snapshot
+        .conformance_witness_plans
+        .get(&contribution.impl_id)
+        .expect("source witness plan");
+    assert_ne!(plan.fingerprint.raw(), 0, "source witness plan must publish a semantic fingerprint");
+    assert_eq!(plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Complete);
+    assert_eq!(
+        plan.requirement_views.len(),
+        1,
+        "source plan must retain the instantiated trait requirement view"
+    );
+    assert!(plan.requirements.values().any(|selection| {
+        matches!(selection, phalcom_semantic::impls::RequirementSelectionTemplate::ConformanceCallable { callable } if callable == &witness)
+    }));
+
+    let user = output
+        .snapshot
+        .declarations
+        .form(&DeclarationId::new(module.clone(), "User".into()))
+        .expect("User type");
+    let tagged = TraitRef::new(DeclarationId::new(module, "Tagged".into()), Vec::new().into_boxed_slice());
+    let evidence = output.snapshot.conformance_evidence_for(user, &tagged).expect("exact conformance evidence");
+    assert_eq!(evidence.source_impl, contribution.impl_id);
+    assert_ne!(evidence.fingerprint.raw(), 0, "exact evidence must publish a semantic fingerprint");
+    assert_eq!(
+        evidence.requirement_views.len(),
+        1,
+        "exact evidence must retain the instantiated requirement view"
+    );
+    assert!(evidence.requirements.values().any(|selection| {
+        matches!(selection, phalcom_semantic::impls::RequirementSelectionTemplate::ConformanceCallable { callable } if callable == &witness)
+    }));
+}
+
+#[test]
+fn trait_requirement_view_specializes_trait_parameter_without_rewriting_callable_generics() {
+    let module = test_module();
+    let source = "trait Tagged<T> { value -> T }\nclass User {}\nclass Marker {}\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
+
+    let trait_id = DeclarationId::new(module.clone(), "Tagged".into());
+    let marker_id = DeclarationId::new(module, "Marker".into());
+    let marker = output.snapshot.declarations.form(&marker_id).expect("Marker form");
+    let surface = output.snapshot.trait_surfaces.get(&trait_id).expect("trait surface");
+    let member = surface.members.values().next().expect("trait requirement");
+    let parameter = surface.generic_signature.as_ref().expect("generic trait signature").parameters[0];
+    let mut environment = TypeEnvironment::new();
+    environment.bind_param(parameter, marker);
+    let mut store = (*output.snapshot.store).clone();
+    let view = member.instantiate(&mut store, &environment);
+    assert_eq!(view.signature.declared_return.canonical_type(), Some(marker));
+    assert_eq!(view.callable, member.callable, "specialization must not mint a callable identity");
+}
+
+#[test]
+fn incompatible_explicit_conformance_witness_stays_incomplete() {
+    let module = test_module();
+    let source = "trait Tagged { tag -> String }\nclass User {}\nimpl Tagged for User { tag -> Int { 1 } }\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    let plan = output.snapshot.conformance_witness_plans.values().next().expect("source witness plan");
+    assert!(matches!(plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Incomplete { .. }));
+    let user = output
+        .snapshot
+        .declarations
+        .form(&DeclarationId::new(module.clone(), "User".into()))
+        .expect("User form");
+    let tagged = TraitRef::new(DeclarationId::new(module, "Tagged".into()), Vec::new().into_boxed_slice());
+    assert!(output.snapshot.conformance_evidence_for(user, &tagged).is_none());
+}
+
+#[test]
+fn alpha_renamed_member_generics_are_compared_by_contract() {
+    let module = test_module();
+    let source = "trait Mapper<T> { map<U>(_ value: U) -> U where U == Int, U <: Int }\nclass User {}\nimpl Mapper<Int> for User { map<V>(_ value: V) -> V where V <: Int { value } }\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    let plan = output.snapshot.conformance_witness_plans.values().next().expect("source witness plan");
+    assert_eq!(plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Complete);
+    assert!(
+        plan.requirements
+            .values()
+            .any(|selection| { matches!(selection, phalcom_semantic::impls::RequirementSelectionTemplate::ConformanceCallable { .. }) })
+    );
+}
+
+#[test]
+fn conformance_witness_plan_selects_trait_default_without_target_surface_pollution() {
+    let module = test_module();
+    let source = "trait Tagged { tag -> String { \"default\" } }\nclass User {}\nimpl Tagged for User {}\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
+
+    let (_, contribution) = output.snapshot.conformance_index.iter().next().expect("conformance");
+    let plan = output
+        .snapshot
+        .conformance_witness_plans
+        .get(&contribution.impl_id)
+        .expect("source witness plan");
+    assert_eq!(plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Complete);
+    assert!(
+        plan.requirements
+            .values()
+            .any(|selection| { matches!(selection, phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { .. }) })
+    );
+
+    let user = output
+        .snapshot
+        .declarations
+        .form(&DeclarationId::new(module.clone(), "User".into()))
+        .expect("User type");
+    let tagged = TraitRef::new(DeclarationId::new(module, "Tagged".into()), Vec::new().into_boxed_slice());
+    assert!(output.snapshot.conformance_evidence_for(user, &tagged).is_some());
+    assert!(
+        !output
+            .snapshot
+            .surfaces
+            .get(&DeclarationId::new(test_module(), "User".into()))
+            .unwrap()
+            .instance
+            .callable_signatures
+            .contains_key(&Selector::getter("tag").unwrap())
+    );
+}
+
+#[test]
+fn conformance_witness_plan_prefers_compatible_inherent_member_before_default() {
+    let module = test_module();
+    let source = "trait Tagged { tag -> String { \"default\" } }\nclass User { tag -> String { \"target\" } }\nimpl Tagged for User {}\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
+
+    let (_, contribution) = output.snapshot.conformance_index.iter().next().expect("conformance");
+    let plan = output
+        .snapshot
+        .conformance_witness_plans
+        .get(&contribution.impl_id)
+        .expect("source witness plan");
+    let selection = plan.requirements.values().next().expect("tag requirement");
+    assert!(matches!(
+        selection,
+        phalcom_semantic::impls::RequirementSelectionTemplate::InherentCallable { .. }
+    ));
+}
+
+#[test]
+fn conformance_plan_retains_exact_case_inherent_applicability_evidence() {
+    let module = test_module();
+    let source = "trait Tagged { code -> Int }\nenum Status { Ready }\nimpl Status::Ready { code -> Int { 1 } }\nimpl Tagged for Status::Ready {}\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
+    let plan = output.snapshot.conformance_witness_plans.values().next().expect("source witness plan");
+    let selection = plan.requirements.values().next().expect("inherent witness selection");
+    assert!(matches!(
+        selection,
+        phalcom_semantic::impls::RequirementSelectionTemplate::InherentCallable {
+            conditional_impl: Some(_),
+            applicability: Some(_),
+            ..
+        }
+    ));
+    let status = output
+        .snapshot
+        .declarations
+        .form(&DeclarationId::new(module.clone(), "Status".into()))
+        .expect("Status form");
+    let (_, contribution) = output.snapshot.conformance_index.iter().next().expect("conformance");
+    let ConformanceTarget::ExactEnumCase(variant) = &contribution.target else {
+        panic!("expected exact enum-case target");
+    };
+    let mut store = (*output.snapshot.store).clone();
+    let exact_target = store.exact_case_type(variant, status).expect("exact case type");
+    let trait_ref = TraitRef::new(DeclarationId::new(module, "Tagged".into()), Vec::new().into_boxed_slice());
+    let surface = output.snapshot.trait_surfaces.get(&trait_ref.declaration).expect("trait surface");
+    let evidence = match phalcom_semantic::impls::resolve_conformance_evidence(
+        &output.snapshot.conformance_index,
+        &output.snapshot.conformance_witness_plans,
+        surface,
+        &output.snapshot.declarations,
+        &mut store,
+        exact_target,
+        &trait_ref,
+    ) {
+        phalcom_semantic::impls::ConformanceResolution::Proven(evidence) => evidence,
+        other => panic!("expected exact evidence, got {other:?}"),
+    };
+    assert!(matches!(
+        evidence.requirements.values().next().expect("exact witness selection"),
+        phalcom_semantic::impls::RequirementSelectionTemplate::InherentCallable { applicability: Some(_), .. }
+    ));
+}
+
+#[test]
+fn conformance_plan_preserves_unknown_conditional_witness_applicability() {
+    let module = test_module();
+    let source = "trait Tagged { tag -> Int }\nclass Value<T> {}\nimpl<T> Value<T> where T <: Int { tag -> Int { 1 } }\nimpl<T> Tagged for Value<T> {}\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module, source));
+    let plan = output.snapshot.conformance_witness_plans.values().next().expect("source witness plan");
+    assert!(matches!(plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Unknown(_)));
+}
+
+#[test]
+fn bodyless_explicit_conformance_member_is_invalid_and_cannot_fall_back_to_default() {
+    let module = test_module();
+    let source = "trait Tagged { tag -> String { \"default\" } }\nclass User {}\nimpl Tagged for User { tag -> String }\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    let plan = output.snapshot.conformance_witness_plans.values().next().expect("source witness plan");
+    assert!(matches!(plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Incomplete { .. }));
+    assert!(output.snapshot.diagnostics_for(&module).is_some_and(|diagnostics| {
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::ImplBodylessMemberUnsupported)
+    }));
+}
+
+#[test]
+fn unmatched_explicit_conformance_member_invalidates_the_source_plan() {
+    let module = test_module();
+    let source = "trait Tagged { tag -> String { \"default\" } }\nclass User {}\nimpl Tagged for User { extra -> String { \"extra\" } }\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    let plan = output.snapshot.conformance_witness_plans.values().next().expect("source witness plan");
+    assert!(plan.invalid_explicit_members);
+    assert!(matches!(plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Incomplete { .. }));
+    assert!(output.snapshot.diagnostics_for(&module).is_some_and(|diagnostics| {
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::ImplMemberConflict)
+    }));
+}
+
+#[test]
+fn conformance_witness_plan_selects_data_component_without_fabricating_getter() {
+    let module = test_module();
+    let source = "trait Named { name -> String }\ndata Person(name: String)\nimpl Named for Person {}\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
+
+    let (_, contribution) = output.snapshot.conformance_index.iter().next().expect("conformance");
+    let plan = output
+        .snapshot
+        .conformance_witness_plans
+        .get(&contribution.impl_id)
+        .expect("source witness plan");
+    assert!(matches!(plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Complete));
+    assert!(
+        plan.requirements
+            .values()
+            .any(|selection| { matches!(selection, phalcom_semantic::impls::RequirementSelectionTemplate::DataComponent { .. }) })
+    );
+}
+
+#[test]
+fn exact_data_component_witness_specializes_target_and_trait_parameters() {
+    let module = test_module();
+    let source = "trait Named<T> { value -> T }\ndata Box<T>(_ value: T)\nclass Marker {}\nimpl<T> Named<T> for Box<T> {}\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
+
+    let box_id = DeclarationId::new(module.clone(), "Box".into());
+    let marker_id = DeclarationId::new(module.clone(), "Marker".into());
+    let box_form = output.snapshot.declarations.form(&box_id).expect("Box form");
+    let marker = output.snapshot.declarations.form(&marker_id).expect("Marker form");
+    let mut store = (*output.snapshot.store).clone();
+    let target = store.apply_type_form(box_form, &[marker]).expect("Box<Marker>");
+    let trait_ref = TraitRef::new(DeclarationId::new(module, "Named".into()), vec![marker].into_boxed_slice());
+    let surface = output.snapshot.trait_surfaces.get(&trait_ref.declaration).expect("trait surface");
+    let evidence = match phalcom_semantic::impls::resolve_conformance_evidence(
+        &output.snapshot.conformance_index,
+        &output.snapshot.conformance_witness_plans,
+        surface,
+        &output.snapshot.declarations,
+        &mut store,
+        target,
+        &trait_ref,
+    ) {
+        phalcom_semantic::impls::ConformanceResolution::Proven(evidence) => evidence,
+        other => panic!("expected exact conformance evidence, got {other:?}"),
+    };
+    let selection = evidence.requirements.values().next().expect("data witness selection");
+    let phalcom_semantic::impls::RequirementSelectionTemplate::DataComponent { specialized_type, .. } = selection else {
+        panic!("expected data component witness, got {selection:?}");
+    };
+    assert_eq!(*specialized_type, marker, "exact evidence must specialize the data component type");
+    assert_eq!(
+        evidence
+            .requirement_views
+            .values()
+            .next()
+            .expect("instantiated requirement")
+            .signature
+            .declared_return
+            .canonical_type(),
+        Some(marker),
+    );
+}
+
+#[test]
 fn generic_conformance_head_matches_exact_target_specialization() {
     let module = test_module();
     let source = "trait Tagged {}\nclass Value<T> {}\nclass Marker {}\nimpl<T> Tagged for Value<T> {}\n";
@@ -214,6 +544,145 @@ fn incremental_and_cold_conformance_publication_have_the_same_head_identity() {
     assert_eq!(incremental_matches.len(), 1);
     assert_eq!(cold_matches.len(), 1);
     assert_eq!(incremental_matches[0].impl_id, cold_matches[0].impl_id);
+    assert_eq!(
+        incremental_output.snapshot.conformance_witness_plans, cold_output.snapshot.conformance_witness_plans,
+        "incremental and cold witness plans must agree"
+    );
+}
+
+#[test]
+fn incremental_conformance_body_and_unrelated_edits_preserve_evidence_fingerprints() {
+    let module = test_module();
+    let source_v1 =
+        "trait Tagged { tag -> String }\nclass User {}\nclass Other { keep() -> Bool { true } }\nimpl Tagged for User { tag -> String { \"one\" } }\n";
+    let source_v2 =
+        "trait Tagged { tag -> String }\nclass User {}\nclass Other { keep() -> Bool { false } }\nimpl Tagged for User { tag -> String { \"two\" } }\n";
+    let mut incremental = SemanticWorkspaceSession::new();
+    let first = incremental.update(single_module_input(module.clone(), source_v1));
+    assert!(!first.snapshot.has_errors(), "v1 diagnostics: {:?}", first.snapshot.diagnostics);
+    let first_impl = first.snapshot.conformance_index.iter().next().expect("conformance").1.impl_id.clone();
+    let trait_ref = TraitRef::new(DeclarationId::new(module.clone(), "Tagged".into()), Vec::new().into_boxed_slice());
+    let first_user = first
+        .snapshot
+        .declarations
+        .form(&DeclarationId::new(module.clone(), "User".into()))
+        .expect("User form");
+    let first_evidence = first.snapshot.conformance_evidence_for(first_user, &trait_ref).expect("v1 evidence");
+    let first_plan_fingerprint = first.snapshot.conformance_witness_plans.get(&first_impl).expect("v1 plan").fingerprint;
+    let first_witness_analysis = first
+        .snapshot
+        .callable_analyses
+        .iter()
+        .find_map(|(callable, analysis)| (callable.conformance_owner() == Some(&first_impl)).then_some(analysis.clone()))
+        .expect("v1 witness body");
+
+    let second = incremental.update(single_module_input(module.clone(), source_v2));
+    assert!(!second.snapshot.has_errors(), "v2 diagnostics: {:?}", second.snapshot.diagnostics);
+    let second_user = second
+        .snapshot
+        .declarations
+        .form(&DeclarationId::new(module.clone(), "User".into()))
+        .expect("User form");
+    let second_evidence = second.snapshot.conformance_evidence_for(second_user, &trait_ref).expect("v2 evidence");
+    assert_eq!(
+        first_plan_fingerprint,
+        second.snapshot.conformance_witness_plans.get(&first_impl).expect("v2 plan").fingerprint,
+        "body-only and unrelated edits must preserve the source witness-plan contract"
+    );
+    assert_eq!(
+        first_evidence.fingerprint, second_evidence.fingerprint,
+        "body-only edits must preserve exact evidence identity"
+    );
+    let second_witness_analysis = second
+        .snapshot
+        .callable_analyses
+        .iter()
+        .find_map(|(callable, analysis)| (callable.conformance_owner() == Some(&first_impl)).then_some(analysis.clone()))
+        .expect("v2 witness body");
+    assert!(
+        !Arc::ptr_eq(&first_witness_analysis, &second_witness_analysis),
+        "body-only witness edit must refresh body analysis"
+    );
+
+    let mut cold = SemanticWorkspaceSession::new();
+    let cold_output = cold.update(single_module_input(module.clone(), source_v2));
+    assert!(!cold_output.snapshot.has_errors(), "cold diagnostics: {:?}", cold_output.snapshot.diagnostics);
+    let cold_user = cold_output
+        .snapshot
+        .declarations
+        .form(&DeclarationId::new(module, "User".into()))
+        .expect("cold User form");
+    let cold_evidence = cold_output.snapshot.conformance_evidence_for(cold_user, &trait_ref).expect("cold evidence");
+    assert_eq!(
+        second_evidence.fingerprint, cold_evidence.fingerprint,
+        "incremental and cold evidence fingerprints must agree"
+    );
+    assert_eq!(
+        second
+            .snapshot
+            .conformance_witness_plans
+            .get(&first_impl)
+            .expect("incremental plan")
+            .fingerprint,
+        cold_output.snapshot.conformance_witness_plans.values().next().expect("cold plan").fingerprint,
+        "incremental and cold source-plan fingerprints must agree"
+    );
+}
+
+#[test]
+fn conformance_evidence_fingerprint_tracks_target_trait_and_visibility_contract_edits() {
+    let module = test_module();
+    let variants = [
+        (
+            "target",
+            "trait Tagged { tag -> String }\nclass User { tag -> String { \"user\" } }\nimpl Tagged for User {}\n",
+            true,
+        ),
+        (
+            "target",
+            "trait Tagged { tag -> String }\nclass User { tag -> Int { 1 } }\nimpl Tagged for User {}\n",
+            false,
+        ),
+        (
+            "trait",
+            "trait Tagged { tag -> Int }\nclass User {}\nimpl Tagged for User { tag -> String { \"user\" } }\n",
+            false,
+        ),
+        (
+            "visibility",
+            "trait Tagged { tag -> String }\nclass User {}\nimpl Tagged for User { @private tag -> String { \"user\" } }\n",
+            false,
+        ),
+    ];
+    let mut previous_fingerprint = None;
+    for (label, source, complete) in variants {
+        let mut session = SemanticWorkspaceSession::new();
+        let output = session.update(single_module_input(module.clone(), source));
+        let plan = output.snapshot.conformance_witness_plans.values().next().expect("source plan");
+        assert_eq!(
+            matches!(plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Complete),
+            complete,
+            "{label} completeness"
+        );
+        let mut cold = SemanticWorkspaceSession::new();
+        let cold_output = cold.update(single_module_input(module.clone(), source));
+        let cold_plan = cold_output.snapshot.conformance_witness_plans.values().next().expect("cold source plan");
+        assert_eq!(
+            plan.fingerprint, cold_plan.fingerprint,
+            "{label} incremental and cold plan fingerprints must agree"
+        );
+        assert_eq!(
+            plan.completeness, cold_plan.completeness,
+            "{label} incremental and cold completeness must agree"
+        );
+        if let Some(previous_fingerprint) = previous_fingerprint {
+            assert_ne!(
+                plan.fingerprint, previous_fingerprint,
+                "{label} contract edit must change the source-plan fingerprint"
+            );
+        }
+        previous_fingerprint = Some(plan.fingerprint);
+    }
 }
 
 #[test]
