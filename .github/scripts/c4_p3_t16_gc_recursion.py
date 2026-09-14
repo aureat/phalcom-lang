@@ -33,7 +33,7 @@ fn trait_default_conformance_environment_survives_forced_gc() {
 trait Identified {
   name -> String
   label -> String {
-    System.gc()
+    System.gc
     self.name
   }
 }
