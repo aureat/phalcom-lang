@@ -4,7 +4,7 @@ use crate::heap::ClassId;
 use crate::interner::Symbol;
 use crate::modules::semantic_lowering::{
     AnonymousProductConstructionLoweringSpec, DataConstructionLoweringSpec, DataDeclarationLoweringSpec, EnumLoweringSpec, ExecutableFamilyCandidateSet,
-    ExecutableFamilyDescriptor, ExecutableInvocationTarget,
+    ExecutableFamilyDescriptor, ExecutableInvocationTarget, TraitInvocationSpec, TraitRequirementInvocationSpec,
 };
 use crate::typing::RuntimeCallEnvironmentRecipe;
 use crate::value::Value;
@@ -62,6 +62,8 @@ pub struct ExecutableSemanticPool {
     pub conditional_family_descriptors: Vec<ConditionalFamilyDescriptor>,
     pub family_operations: Vec<FamilyOperationShape>,
     pub family_candidate_sets: Vec<ExecutableFamilyCandidateSet>,
+    pub trait_invocations: Vec<TraitInvocationSpec>,
+    pub trait_requirement_invocations: Vec<TraitRequirementInvocationSpec>,
 }
 
 impl ExecutableSemanticPool {
@@ -222,6 +224,29 @@ impl ExecutableSemanticPool {
 
     pub fn family_candidate_set(&self, index: u16) -> &ExecutableFamilyCandidateSet {
         &self.family_candidate_sets[index as usize]
+    }
+
+    pub fn add_trait_invocation(&mut self, spec: TraitInvocationSpec, span: SourceRange) -> Result<u16, CompilerError> {
+        let index = u16::try_from(self.trait_invocations.len()).map_err(|_| CompilerError::ExecutableSemanticPoolOverflow { kind: "TraitInvocation", span })?;
+        self.trait_invocations.push(spec);
+        Ok(index)
+    }
+
+    pub fn trait_invocation(&self, index: u16) -> &TraitInvocationSpec {
+        &self.trait_invocations[index as usize]
+    }
+
+    pub fn add_trait_requirement_invocation(&mut self, spec: TraitRequirementInvocationSpec, span: SourceRange) -> Result<u16, CompilerError> {
+        let index = u16::try_from(self.trait_requirement_invocations.len()).map_err(|_| CompilerError::ExecutableSemanticPoolOverflow {
+            kind: "TraitRequirementInvocation",
+            span,
+        })?;
+        self.trait_requirement_invocations.push(spec);
+        Ok(index)
+    }
+
+    pub fn trait_requirement_invocation(&self, index: u16) -> &TraitRequirementInvocationSpec {
+        &self.trait_requirement_invocations[index as usize]
     }
 }
 

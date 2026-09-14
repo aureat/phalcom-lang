@@ -122,6 +122,8 @@ impl VM {
             product_optimization_mode: _,
             typing_registry: _,
             runtime_type_environments: _,
+            runtime_conformance_environments,
+            detached_method_objects: _,
             runtime_typing_context: _,
             prelude_bindings: _,
             prelude_variant_bindings: _,
@@ -151,6 +153,8 @@ impl VM {
             }
         }
         out.extend(temp_roots.iter().copied());
+        out.extend(runtime_conformance_environments.handles());
+        out.extend(self.detached_method_objects.values().copied());
         module_registry.each_handle(&mut |id| out.push(id));
         if let Some(roots) = runtime_roots {
             out.push(roots.universe);

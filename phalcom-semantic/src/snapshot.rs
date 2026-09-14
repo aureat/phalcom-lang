@@ -11,10 +11,12 @@ use crate::signature::{CallableSignatureTable, FieldSignatureTable};
 use crate::source::ParsedModuleUnit;
 use crate::source_index::{OccurrenceView, SourceSemanticIndex, SourceSite};
 use crate::surface::DeclarationSurface;
+use crate::trait_dispatch::{TraitDispatchIndex, TraitDispatchResolution};
 use crate::traits::{TraitHeaderTable, TraitRef, TraitSurfaceTable};
 use crate::type_alias::TypeAliasTable;
 use crate::types::relation::MapTypeHierarchy;
 use crate::types::store::TypeStore;
+use phalcom_common::selector::Selector;
 use phalcom_modules::graph::SemanticGraph;
 use phalcom_modules::identity::{SourceId, SourceLocation};
 use phalcom_modules::interface::{LinkedModuleInterface, UnlinkedModuleInterface};
@@ -168,6 +170,8 @@ pub struct SemanticSnapshot {
     /// Source witness/default selections, keyed by the declaring conformance
     /// identity. Exact evidence is derived only from this canonical plan.
     pub conformance_witness_plans: Arc<BTreeMap<crate::identity::ImplId, Arc<ConformanceWitnessPlan>>>,
+    /// Bounded ordinary receiver/selector discovery for trait evidence.
+    pub trait_dispatch_index: Arc<TraitDispatchIndex>,
     pub field_signatures: Arc<FieldSignatureTable>,
     pub declarations: Arc<DeclarationTypeTable>,
     pub type_aliases: Arc<TypeAliasTable>,
@@ -227,6 +231,7 @@ impl SemanticSnapshot {
             callable_definitions: Arc::new(BTreeMap::new()),
             conformance_index: Arc::new(ConformanceIndex::new()),
             conformance_witness_plans: Arc::new(BTreeMap::new()),
+            trait_dispatch_index: Arc::new(TraitDispatchIndex::default()),
             field_signatures: Arc::new(FieldSignatureTable::new()),
             declarations,
             type_aliases: Arc::new(TypeAliasTable::new()),
@@ -282,6 +287,7 @@ impl SemanticSnapshot {
             callable_definitions: Arc::new(BTreeMap::new()),
             conformance_index: Arc::new(ConformanceIndex::new()),
             conformance_witness_plans: Arc::new(BTreeMap::new()),
+            trait_dispatch_index: Arc::new(TraitDispatchIndex::default()),
             field_signatures: Arc::new(FieldSignatureTable::new()),
             declarations,
             type_aliases: Arc::new(TypeAliasTable::new()),
@@ -373,6 +379,29 @@ impl SemanticSnapshot {
         self
     }
 
+    pub fn with_trait_dispatch_index(mut self, index: Arc<TraitDispatchIndex>) -> Self {
+        self.trait_dispatch_index = index;
+        self
+    }
+
+    /// Resolves a receiver/selector lookup through exact P1/P2 trait evidence
+    /// after ordinary inherent lookup has missed.
+    pub fn resolve_trait_evidenced_candidates(&self, receiver: TypeId, selector: &Selector, side: crate::identity::DispatchSide) -> TraitDispatchResolution {
+        let mut store = (*self.store).clone();
+        crate::trait_dispatch::resolve_trait_evidenced_candidates(
+            &self.trait_dispatch_index,
+            &self.conformance_index,
+            &self.conformance_witness_plans,
+            &self.trait_surfaces,
+            &self.declarations,
+            &mut store,
+            self.hierarchy.as_ref(),
+            receiver,
+            selector,
+            side,
+        )
+    }
+
     /// Resolves exact conformance evidence from the immutable source plan.
     /// This query is intentionally pure: it clones the persistent type store
     /// view and cannot mutate the published snapshot or reselect witnesses.
@@ -387,6 +416,7 @@ impl SemanticSnapshot {
             trait_surface,
             &self.declarations,
             &mut store,
+            self.hierarchy.as_ref(),
             target,
             trait_ref,
         )

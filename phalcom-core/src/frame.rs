@@ -106,6 +106,8 @@ pub struct CallFrame {
     pub(crate) foreign_receiver_guard: Option<ForeignReceiverGuard>,
     /// Compact identifier for the active generic runtime type substitution environment.
     pub type_environment: crate::typing::environment::RuntimeTypeEnvironmentId,
+    /// Compact active conformance environment for trait-default calls.
+    pub conformance_environment: crate::typing::RuntimeConformanceEnvironmentId,
 }
 
 impl CallFrame {
@@ -122,6 +124,7 @@ impl CallFrame {
             home_frame_token: None,
             foreign_receiver_guard: None,
             type_environment: crate::typing::environment::RuntimeTypeEnvironmentId::EMPTY,
+            conformance_environment: crate::typing::RuntimeConformanceEnvironmentId::EMPTY,
         }
     }
 

@@ -312,6 +312,7 @@ class Owner {
         enum_semantics: None,
         data_semantics: None,
         associated_families: None,
+        conformance_semantics: None,
     };
     let class_def = unit
         .program

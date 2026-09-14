@@ -94,7 +94,7 @@ pub enum BehavioralFamilySpec {
 
 /// One statically known ordinary behavior candidate retained by a bound
 /// family. Runtime still dispatches on the captured receiver.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BoundBehavioralMember {
     pub operation: FamilyOperationShape,
     pub member_kind: crate::types::family::FamilyMemberTypeKind,
@@ -103,6 +103,10 @@ pub struct BoundBehavioralMember {
     /// Conditional selection evidence returned by canonical dispatch. Runtime
     /// lowering may carry this evidence, but never recomputes applicability.
     pub conditional: Option<crate::dispatch::ConditionalDispatchSelection>,
+    /// Exact trait evidence when this bound member is supplied only by a
+    /// proven conformance. Lowering freezes this selection instead of
+    /// turning the reference back into a live receiver lookup.
+    pub trait_dispatch: Option<crate::trait_dispatch::TraitDispatchSelection>,
 }
 
 /// Semantic resolution product for an ordinary invocation on a first-class family value.
@@ -285,6 +289,7 @@ pub fn resolve_bound_behavioral_family(
                         target: InvocationTargetId::Behavioral(resolved.callable),
                         callable_type,
                         conditional: resolved.conditional.clone(),
+                        trait_dispatch: resolved.trait_dispatch.clone(),
                     });
                 }
             }
@@ -336,15 +341,25 @@ pub fn resolve_bound_behavioral_family(
                     );
                 }
             }
+            if let Some(view) = ctx.conformance_semantics
+                && let Some(target_family) = crate::trait_dispatch::target_family_for_receiver(ctx.store, receiver_type)
+            {
+                selectors.extend(
+                    view.trait_dispatch
+                        .buckets()
+                        .keys()
+                        .filter(|key| key.target_family == target_family && key.side == side && key.selector.base == *base)
+                        .map(|key| key.selector.clone()),
+                );
+            }
             selectors.sort();
             selectors.dedup();
             for selector in selectors {
                 if !seen.insert(selector.clone()) {
                     continue;
                 }
-                let crate::dispatch::ResolvedDispatchResult::Found(resolved) =
-                    ctx.resolve_dispatch_target_with_specialization(receiver_type, receiver_form, &selector, lookup.clone())
-                else {
+                let resolution = ctx.resolve_dispatch_target_with_specialization(receiver_type, receiver_form, &selector, lookup.clone());
+                let crate::dispatch::ResolvedDispatchResult::Found(resolved) = resolution else {
                     continue;
                 };
                 let Some(callable_type) = callable_type_from_signature(ctx, &resolved.signature) else {
@@ -365,6 +380,7 @@ pub fn resolve_bound_behavioral_family(
                     target: InvocationTargetId::Behavioral(resolved.callable),
                     callable_type,
                     conditional: resolved.conditional.clone(),
+                    trait_dispatch: resolved.trait_dispatch.clone(),
                 });
             }
         }

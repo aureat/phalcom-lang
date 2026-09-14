@@ -1,6 +1,6 @@
 //! Canonical inherent implementation fragment analysis, target resolution, and contribution publication.
 
-use crate::checker::context::CheckingContext;
+use crate::checker::context::{CheckerControl, CheckingContext};
 use crate::checker::declaration_signature::{CallableSyntaxRef, semantic_signature_for_syntax_with_resolver};
 use crate::db::ProductFingerprint;
 use crate::declaration_type::DeclaredTypeState;
@@ -128,6 +128,7 @@ pub struct EffectiveInherentWitness {
     pub owner: DeclarationId,
     pub conditional_impl: Option<ImplId>,
     pub applicability: Option<InherentImplSpecialization>,
+    pub conditional_domain: Option<Arc<InherentImplDomain>>,
 }
 
 /// Proof-aware result of resolving one inherent witness candidate. A terminal
@@ -136,6 +137,10 @@ pub struct EffectiveInherentWitness {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EffectiveInherentWitnessResolution {
     Candidate(EffectiveInherentWitness),
+    Deferred {
+        candidate: EffectiveInherentWitness,
+        state: ConformanceCompleteness,
+    },
     NotFound,
     Unknown(UnknownReason),
     Blocked(BlockReason),
@@ -175,10 +180,11 @@ pub fn resolve_effective_inherent_witness(
             owner,
             conditional_impl: None,
             applicability: None,
+            conditional_domain: None,
         });
     }
 
-    let mut terminal = None;
+    let mut deferred = None;
     for (owner, member, applicability) in
         receiver_effective_conditional_members_with_outcomes(store, hierarchy, dispatch, receiver_type, lookup_owner, side, ambient_constraints).into_iter()
     {
@@ -198,6 +204,7 @@ pub fn resolve_effective_inherent_witness(
                     owner,
                     conditional_impl: Some(member.impl_id),
                     applicability: Some(applicability),
+                    conditional_domain: Some(member.domain.clone()),
                 });
             }
             ImplApplicabilityResult::NotApplicable => {}
@@ -207,21 +214,91 @@ pub fn resolve_effective_inherent_witness(
             | ImplApplicabilityResult::Cancelled
             | ImplApplicabilityResult::BudgetExceeded(_)
             | ImplApplicabilityResult::InternalFailure(_)) => {
-                if terminal.is_none() {
-                    terminal = Some(outcome);
+                let signature = callable_signatures
+                    .get(&member.callable)
+                    .cloned()
+                    .unwrap_or_else(|| member.signature_template.clone());
+                let candidate = EffectiveInherentWitness {
+                    callable: member.callable,
+                    signature,
+                    visibility: member.visibility,
+                    owner,
+                    conditional_impl: Some(member.impl_id),
+                    applicability: None,
+                    conditional_domain: Some(member.domain),
+                };
+                let state = applicability_to_completeness(outcome);
+                if let Some((_, current)) = deferred.as_ref() {
+                    if completeness_terminal_rank(&state) > completeness_terminal_rank(current) {
+                        deferred = Some((candidate, state));
+                    }
+                } else {
+                    deferred = Some((candidate, state));
                 }
             }
         }
     }
-    match terminal {
-        Some(ImplApplicabilityResult::Unknown(reason)) => EffectiveInherentWitnessResolution::Unknown(reason),
-        Some(ImplApplicabilityResult::Blocked(reason)) => EffectiveInherentWitnessResolution::Blocked(reason),
-        Some(ImplApplicabilityResult::Dynamic(obligation)) => EffectiveInherentWitnessResolution::Dynamic(obligation),
-        Some(ImplApplicabilityResult::Cancelled) => EffectiveInherentWitnessResolution::Cancelled,
-        Some(ImplApplicabilityResult::BudgetExceeded(report)) => EffectiveInherentWitnessResolution::BudgetExceeded(report),
-        Some(ImplApplicabilityResult::InternalFailure(message)) => EffectiveInherentWitnessResolution::InternalFailure(message.into_boxed_str()),
-        _ => EffectiveInherentWitnessResolution::NotFound,
+    match deferred {
+        Some((candidate, state)) => EffectiveInherentWitnessResolution::Deferred { candidate, state },
+        None => EffectiveInherentWitnessResolution::NotFound,
     }
+}
+
+fn applicability_to_completeness(outcome: ImplApplicabilityResult) -> ConformanceCompleteness {
+    match outcome {
+        ImplApplicabilityResult::Unknown(reason) => ConformanceCompleteness::Unknown(reason),
+        ImplApplicabilityResult::Blocked(reason) => ConformanceCompleteness::Blocked(reason),
+        ImplApplicabilityResult::Dynamic(obligation) => ConformanceCompleteness::Dynamic(obligation),
+        ImplApplicabilityResult::Cancelled => ConformanceCompleteness::Cancelled,
+        ImplApplicabilityResult::BudgetExceeded(report) => ConformanceCompleteness::BudgetExceeded(report),
+        ImplApplicabilityResult::InternalFailure(message) => ConformanceCompleteness::InternalFailure(message.into_boxed_str()),
+        ImplApplicabilityResult::Applicable(_) | ImplApplicabilityResult::NotApplicable => {
+            ConformanceCompleteness::InternalFailure("non-terminal applicability was converted to terminal state".into())
+        }
+    }
+}
+
+/// Specializes a declaration-owned inherent witness through the exact
+/// conformance target before comparing it with an instantiated requirement.
+/// The callable identity remains declaration-owned; only its type view is
+/// materialized in the conformance environment.
+pub(crate) fn specialize_witness_signature(
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    receiver: TypeId,
+    owner: &DeclarationId,
+    mut signature: CallableSemanticSignature,
+) -> Result<CallableSemanticSignature, crate::types::specialization::ReceiverSpecializationFailure> {
+    let specialization = crate::types::specialization::specialize_receiver_to_owner(store, hierarchy, receiver, owner, &CheckerControl::default())?;
+    let environment = specialization.environment;
+    let materialize_fact = |store: &mut TypeStore, fact: &mut crate::declaration_type::DeclaredTypeFact| {
+        if let DeclaredTypeState::Known(TypeTerm::Canonical(ty)) = fact.state {
+            fact.state = DeclaredTypeState::Known(TypeTerm::Canonical(
+                crate::types::environment::TypeView::new(ty, environment.clone()).materialize(store),
+            ));
+        }
+    };
+    for parameter in &mut signature.parameters {
+        materialize_fact(store, &mut parameter.declared_type);
+    }
+    materialize_fact(store, &mut signature.declared_return);
+    if let Some(generics) = &mut signature.generics {
+        for constraint in &mut generics.constraints {
+            let materialize_term = |store: &mut TypeStore, term: &mut TypeTerm| {
+                if let TypeTerm::Canonical(ty) = term {
+                    *ty = crate::types::environment::TypeView::new(*ty, environment.clone()).materialize(store);
+                }
+            };
+            match constraint {
+                crate::types::parameter::GenericConstraint::Subtype { lower, upper }
+                | crate::types::parameter::GenericConstraint::Equivalent { left: lower, right: upper } => {
+                    materialize_term(store, lower);
+                    materialize_term(store, upper);
+                }
+            }
+        }
+    }
+    Ok(signature)
 }
 
 /// Explicit bijection mapping between impl type parameters and canonical target declaration parameters.
@@ -426,6 +503,15 @@ pub enum RequirementSelectionTemplate {
         callable: CallableId,
         conditional_impl: Option<ImplId>,
         applicability: Option<InherentImplSpecialization>,
+    },
+    /// A conditional inherent candidate whose applicability is unresolved in
+    /// the generic source plan. The exact evidence query decides the branch
+    /// from the retained C2 domain and may use the independently valid
+    /// fallback only when that domain is proven inapplicable.
+    ConditionalInherent {
+        candidate: EffectiveInherentWitness,
+        pending: ConformanceCompleteness,
+        fallback: Option<Box<RequirementSelectionTemplate>>,
     },
     DataComponent {
         component: crate::identity::DataComponentId,
@@ -849,6 +935,53 @@ pub enum ConformanceCompleteness {
     InternalFailure(Box<str>),
 }
 
+impl ConformanceCompleteness {
+    /// Maps source-plan proof state to exact-resolution state without
+    /// collapsing analysis uncertainty into an ordinary incomplete proof.
+    fn into_resolution(self, impl_id: ImplId) -> Option<ConformanceResolution> {
+        match self {
+            Self::Complete => None,
+            Self::Incomplete { .. } => Some(ConformanceResolution::Incomplete(impl_id)),
+            Self::Unknown(reason) => Some(ConformanceResolution::Unknown(reason)),
+            Self::Blocked(reason) => Some(ConformanceResolution::Blocked(reason)),
+            Self::Dynamic(obligation) => Some(ConformanceResolution::Dynamic(obligation)),
+            Self::Cancelled => Some(ConformanceResolution::Cancelled),
+            Self::BudgetExceeded(report) => Some(ConformanceResolution::BudgetExceeded(report)),
+            Self::InternalFailure(message) => Some(ConformanceResolution::InternalFailure(message)),
+        }
+    }
+}
+
+fn completeness_terminal_rank(state: &ConformanceCompleteness) -> u8 {
+    match state {
+        // Match the repository's query propagation order: an internal
+        // failure is strongest, followed by budget/cancellation/blocking;
+        // semantic dynamic and unknown boundaries are least decisive.
+        ConformanceCompleteness::InternalFailure(_) => 6,
+        ConformanceCompleteness::BudgetExceeded(_) => 5,
+        ConformanceCompleteness::Cancelled => 4,
+        ConformanceCompleteness::Blocked(_) => 3,
+        ConformanceCompleteness::Dynamic(_) => 2,
+        ConformanceCompleteness::Unknown(_) => 1,
+        ConformanceCompleteness::Complete | ConformanceCompleteness::Incomplete { .. } => 0,
+    }
+}
+
+pub(crate) fn retain_stronger_terminal_state(slot: &mut Option<ConformanceCompleteness>, candidate: ConformanceCompleteness) {
+    if slot
+        .as_ref()
+        .is_none_or(|current| completeness_terminal_rank(&candidate) > completeness_terminal_rank(current))
+    {
+        *slot = Some(candidate);
+    }
+}
+
+pub(crate) fn replace_with_stronger_terminal_state(slot: &mut ConformanceCompleteness, candidate: ConformanceCompleteness) {
+    if completeness_terminal_rank(&candidate) > completeness_terminal_rank(slot) {
+        *slot = candidate;
+    }
+}
+
 /// One source conformance's generic witness/default selection proof.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConformanceWitnessPlan {
@@ -909,6 +1042,8 @@ pub fn build_conformance_witness_plan(
     invalid_explicit_requirements: &BTreeSet<crate::traits::TraitRequirementId>,
     invalid_explicit_members: bool,
     inherent_candidates: &BTreeMap<crate::traits::TraitRequirementId, EffectiveInherentWitness>,
+    inherent_mismatches: &BTreeMap<crate::traits::TraitRequirementId, Box<str>>,
+    deferred_inherent_candidates: &BTreeMap<crate::traits::TraitRequirementId, (EffectiveInherentWitness, ConformanceCompleteness)>,
     data_candidates: &BTreeMap<crate::traits::TraitRequirementId, (crate::identity::DataComponentId, TypeId)>,
     terminal_candidates: &BTreeMap<crate::traits::TraitRequirementId, ConformanceCompleteness>,
 ) -> ConformanceWitnessPlan {
@@ -924,6 +1059,13 @@ pub fn build_conformance_witness_plan(
     let mut failures = Vec::new();
     let mut terminal_state = None;
     for (requirement, member) in trait_surface.iter() {
+        if let Some(reason) = inherent_mismatches.get(requirement) {
+            failures.push(RequirementFailure {
+                requirement: requirement.clone(),
+                reason: format!("inherent selector conflicts with requirement: {reason}").into_boxed_str(),
+            });
+            continue;
+        }
         if invalid_explicit_requirements.contains(requirement) {
             failures.push(RequirementFailure {
                 requirement: requirement.clone(),
@@ -965,12 +1107,18 @@ pub fn build_conformance_witness_plan(
                         requirement: requirement.clone(),
                         reason: mismatch.reason,
                     }),
-                    WitnessCompatibility::Unknown(reason) => terminal_state = Some(ConformanceCompleteness::Unknown(reason)),
-                    WitnessCompatibility::Blocked(reason) => terminal_state = Some(ConformanceCompleteness::Blocked(reason)),
-                    WitnessCompatibility::Dynamic(obligation) => terminal_state = Some(ConformanceCompleteness::Dynamic(obligation)),
-                    WitnessCompatibility::Cancelled => terminal_state = Some(ConformanceCompleteness::Cancelled),
-                    WitnessCompatibility::BudgetExceeded(report) => terminal_state = Some(ConformanceCompleteness::BudgetExceeded(report)),
-                    WitnessCompatibility::InternalFailure(message) => terminal_state = Some(ConformanceCompleteness::InternalFailure(message)),
+                    WitnessCompatibility::Unknown(reason) => retain_stronger_terminal_state(&mut terminal_state, ConformanceCompleteness::Unknown(reason)),
+                    WitnessCompatibility::Blocked(reason) => retain_stronger_terminal_state(&mut terminal_state, ConformanceCompleteness::Blocked(reason)),
+                    WitnessCompatibility::Dynamic(obligation) => {
+                        retain_stronger_terminal_state(&mut terminal_state, ConformanceCompleteness::Dynamic(obligation))
+                    }
+                    WitnessCompatibility::Cancelled => retain_stronger_terminal_state(&mut terminal_state, ConformanceCompleteness::Cancelled),
+                    WitnessCompatibility::BudgetExceeded(report) => {
+                        retain_stronger_terminal_state(&mut terminal_state, ConformanceCompleteness::BudgetExceeded(report))
+                    }
+                    WitnessCompatibility::InternalFailure(message) => {
+                        retain_stronger_terminal_state(&mut terminal_state, ConformanceCompleteness::InternalFailure(message))
+                    }
                 }
             } else {
                 failures.push(RequirementFailure {
@@ -978,6 +1126,31 @@ pub fn build_conformance_witness_plan(
                     reason: "explicit witness has no body".into(),
                 });
             }
+        } else if let Some((candidate, pending)) = deferred_inherent_candidates.get(requirement) {
+            let fallback = data_candidates
+                .get(requirement)
+                .map(|(component, specialized_type)| {
+                    Box::new(RequirementSelectionTemplate::DataComponent {
+                        component: component.clone(),
+                        specialized_type: *specialized_type,
+                    })
+                })
+                .or_else(|| {
+                    member.default_present.then(|| {
+                        Box::new(RequirementSelectionTemplate::TraitDefault {
+                            callable: requirement.source_callable(),
+                        })
+                    })
+                });
+            requirements.insert(
+                requirement.clone(),
+                RequirementSelectionTemplate::ConditionalInherent {
+                    candidate: candidate.clone(),
+                    pending: pending.clone(),
+                    fallback,
+                },
+            );
+            retain_stronger_terminal_state(&mut terminal_state, pending.clone());
         } else if let Some(callable) = inherent_candidates.get(requirement) {
             requirements.insert(
                 requirement.clone(),
@@ -1011,14 +1184,14 @@ pub fn build_conformance_witness_plan(
             });
         }
     }
-    let completeness = if let Some(terminal_state) = terminal_state {
-        terminal_state
-    } else if failures.is_empty() && !invalid_explicit_members {
-        ConformanceCompleteness::Complete
-    } else {
+    let completeness = if !failures.is_empty() || invalid_explicit_members {
         ConformanceCompleteness::Incomplete {
             failures: failures.into_boxed_slice(),
         }
+    } else if let Some(terminal_state) = terminal_state {
+        terminal_state
+    } else {
+        ConformanceCompleteness::Complete
     };
     let mut plan = ConformanceWitnessPlan {
         impl_id: contribution.impl_id.clone(),
@@ -1086,6 +1259,7 @@ pub fn resolve_conformance_evidence(
     trait_surface: &TraitSurface,
     declarations: &DeclarationTypeTable,
     store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
     target: TypeId,
     trait_ref: &TraitRef,
 ) -> ConformanceResolution {
@@ -1101,16 +1275,71 @@ pub fn resolve_conformance_evidence(
     let Some(plan) = plans.get(&head.impl_id) else {
         return ConformanceResolution::InvalidSource(head.impl_id.clone());
     };
-    if !matches!(plan.completeness, ConformanceCompleteness::Complete) {
-        return ConformanceResolution::Incomplete(head.impl_id.clone());
+    let has_deferred_selection = plan
+        .requirements
+        .values()
+        .any(|selection| matches!(selection, RequirementSelectionTemplate::ConditionalInherent { .. }));
+    if let Some(resolution) = plan.completeness.clone().into_resolution(head.impl_id.clone())
+        && !has_deferred_selection
+    {
+        return resolution;
     }
     let environment = conformance_environment(store, Some(declarations), trait_surface, &head.exact_trait_ref, target, &head.impl_bindings);
     let requirement_views = trait_surface.instantiate(store, &environment);
-    let requirements = plan
-        .requirements
-        .iter()
-        .map(|(requirement, selection)| (requirement.clone(), specialize_requirement_selection(store, selection, &environment)))
-        .collect();
+    let mut requirements = BTreeMap::new();
+    for (requirement, selection) in &plan.requirements {
+        let selection = match selection {
+            RequirementSelectionTemplate::ConditionalInherent {
+                candidate,
+                pending: _pending,
+                fallback,
+            } => {
+                let owner_specialization =
+                    match crate::types::specialization::specialize_receiver_to_owner(store, hierarchy, target, &candidate.owner, &CheckerControl::default()) {
+                        Ok(specialization) => specialization,
+                        Err(error) => {
+                            let state = match error {
+                                crate::types::specialization::ReceiverSpecializationFailure::Blocked(reason) => ConformanceCompleteness::Blocked(reason),
+                                crate::types::specialization::ReceiverSpecializationFailure::Cancelled => ConformanceCompleteness::Cancelled,
+                                crate::types::specialization::ReceiverSpecializationFailure::BudgetExceeded(report) => {
+                                    ConformanceCompleteness::BudgetExceeded(report)
+                                }
+                                other => ConformanceCompleteness::InternalFailure(
+                                    format!("deferred inherent witness specialization failed: {other:?}").into_boxed_str(),
+                                ),
+                            };
+                            return state
+                                .into_resolution(head.impl_id.clone())
+                                .expect("terminal specialization state must produce a resolution");
+                        }
+                    };
+                let owner_view = owner_specialization.path.last().map(|step| step.specialized_form).unwrap_or(target);
+                let Some(domain) = candidate.conditional_domain.as_ref() else {
+                    return ConformanceResolution::InternalFailure("deferred inherent witness has no retained applicability domain".into());
+                };
+                match check_impl_domain_applicability(store, hierarchy, domain, target, owner_view, &[]) {
+                    ImplApplicabilityResult::Applicable(applicability) => RequirementSelectionTemplate::InherentCallable {
+                        callable: candidate.callable.clone(),
+                        conditional_impl: Some(candidate.conditional_impl.clone().expect("conditional candidate has impl provenance")),
+                        applicability: Some(applicability),
+                    },
+                    ImplApplicabilityResult::NotApplicable => {
+                        let Some(fallback) = fallback else {
+                            return ConformanceResolution::Incomplete(head.impl_id.clone());
+                        };
+                        specialize_requirement_selection(store, fallback, &environment)
+                    }
+                    other => {
+                        return applicability_to_completeness(other)
+                            .into_resolution(head.impl_id.clone())
+                            .expect("terminal applicability state must produce a resolution");
+                    }
+                }
+            }
+            _ => specialize_requirement_selection(store, selection, &environment),
+        };
+        requirements.insert(requirement.clone(), selection);
+    }
     let fingerprint = conformance_evidence_fingerprint(plan.fingerprint, target, &head.exact_trait_ref, &environment, &requirement_views, &requirements);
     ConformanceResolution::Proven(Arc::new(ConformanceEvidence {
         source_impl: head.impl_id.clone(),
@@ -1224,6 +1453,13 @@ fn specialize_requirement_selection(
                 .map(|applicability| specialize_inherent_applicability(store, applicability, environment)),
         },
         RequirementSelectionTemplate::TraitDefault { callable } => RequirementSelectionTemplate::TraitDefault { callable: callable.clone() },
+        RequirementSelectionTemplate::ConditionalInherent { candidate, pending, fallback } => RequirementSelectionTemplate::ConditionalInherent {
+            candidate: candidate.clone(),
+            pending: pending.clone(),
+            fallback: fallback
+                .as_ref()
+                .map(|fallback| Box::new(specialize_requirement_selection(store, fallback, environment))),
+        },
     }
 }
 
@@ -3416,5 +3652,66 @@ pub fn build_inherent_impl_contribution(ctx: &mut CheckingContext<'_>, impl_id: 
         members: members.into_boxed_slice(),
         source,
         diagnostics: diagnostics.into_boxed_slice(),
+    }
+}
+
+#[cfg(test)]
+mod completeness_tests {
+    use super::{ConformanceCompleteness, ConformanceResolution, RequirementFailure};
+    use crate::identity::{DeclarationId, ImplId, ImplLocalId, ModuleId};
+    use crate::types::evidence::UnknownReason;
+    use crate::types::outcome::{BlockReason, BudgetKind, BudgetReport, DynamicBoundaryObligation};
+    use phalcom_modules::identity::{ModulePath, ResolvedProjectId};
+
+    fn impl_id() -> ImplId {
+        ImplId::new(ModuleId::resolved(ResolvedProjectId::from_raw(9), ModulePath::root()), ImplLocalId(4))
+    }
+
+    #[test]
+    fn completeness_maps_each_non_proven_state_without_collapsing_it() {
+        let id = impl_id();
+        let failure = RequirementFailure {
+            requirement: crate::traits::TraitRequirementId::new(
+                DeclarationId::new(id.module.clone(), "Trait".into()),
+                phalcom_common::selector::Selector::getter("value").expect("selector"),
+                crate::identity::DispatchSide::Instance,
+            ),
+            reason: "missing witness".into(),
+        };
+        let cases: &[(ConformanceCompleteness, fn(ConformanceResolution) -> bool)] = &[
+            (
+                ConformanceCompleteness::Incomplete {
+                    failures: vec![failure].into_boxed_slice(),
+                },
+                |r| matches!(r, ConformanceResolution::Incomplete(_)),
+            ),
+            (ConformanceCompleteness::Unknown(UnknownReason::NoTypeEvidence), |r| {
+                matches!(r, ConformanceResolution::Unknown(_))
+            }),
+            (ConformanceCompleteness::Blocked(BlockReason::RecursiveFixpoint), |r| {
+                matches!(r, ConformanceResolution::Blocked(_))
+            }),
+            (ConformanceCompleteness::Dynamic(DynamicBoundaryObligation { reason: "dynamic".into() }), |r| {
+                matches!(r, ConformanceResolution::Dynamic(_))
+            }),
+            (ConformanceCompleteness::Cancelled, |r| matches!(r, ConformanceResolution::Cancelled)),
+            (ConformanceCompleteness::BudgetExceeded(BudgetReport::new(BudgetKind::Steps, 1, 2)), |r| {
+                matches!(r, ConformanceResolution::BudgetExceeded(_))
+            }),
+            (ConformanceCompleteness::InternalFailure("internal".into()), |r| {
+                matches!(r, ConformanceResolution::InternalFailure(_))
+            }),
+        ];
+        for (completeness, predicate) in cases {
+            assert!(predicate(completeness.clone().into_resolution(id.clone()).expect("non-complete resolution")));
+        }
+        assert!(ConformanceCompleteness::Complete.into_resolution(id).is_none());
+    }
+
+    #[test]
+    fn terminal_state_retains_the_stronger_query_outcome() {
+        let mut state = Some(ConformanceCompleteness::Unknown(UnknownReason::NoTypeEvidence));
+        super::retain_stronger_terminal_state(&mut state, ConformanceCompleteness::Blocked(BlockReason::RecursiveFixpoint));
+        assert!(matches!(state, Some(ConformanceCompleteness::Blocked(_))));
     }
 }

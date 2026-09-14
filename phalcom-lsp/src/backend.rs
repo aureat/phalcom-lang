@@ -677,7 +677,7 @@ impl Backend {
         }
         let module = match &binding.owner {
             phalcom_semantic::SourceOwner::Module(module) => module,
-            phalcom_semantic::SourceOwner::Callable(callable) => &callable.owner.module,
+            phalcom_semantic::SourceOwner::Callable(callable) => callable.owner.module(),
         };
         if let Some(uri) = compiler_uri_for_module(compiler, module)
             && let Some(doc) = self.with_source_snapshot(&uri, |text, program, line_index| {
@@ -757,7 +757,7 @@ impl<'a> SnapshotLocationMapper<'a> {
         let source = self.compiler.source_site(site)?;
         let module = match &site.owner {
             phalcom_semantic::SourceOwner::Module(module) => module,
-            phalcom_semantic::SourceOwner::Callable(callable) => &callable.owner.module,
+            phalcom_semantic::SourceOwner::Callable(callable) => callable.owner.module(),
         };
         let uri = self.uri_for_module(module)?.clone();
         if !self.line_indices.contains_key(module) {
@@ -939,14 +939,15 @@ impl Backend {
         member: &phalcom_semantic::source_index::CallableSourceInfo,
     ) -> Option<hover::PhaldocDoc> {
         let owner = &member.id.owner;
-        let definition_uri = compiler_uri_for_module(compiler, &owner.module)?;
+        let declaration = owner.try_declaration()?;
+        let definition_uri = compiler_uri_for_module(compiler, &declaration.module)?;
         self.with_source_snapshot(&definition_uri, |text, program, line_index| {
             let target = hover::DeclarationDocTarget::Member {
                 declaration: member.declaration_range,
                 name: member.name_range,
             };
             hover::harvest_doc_for_declaration(text, line_index, target)
-                .or_else(|| hover::harvest_pinned_doc_for_member(text, program, &owner.name, &member.id.selector.encode(), member.declaration_range))
+                .or_else(|| hover::harvest_pinned_doc_for_member(text, program, &declaration.name, &member.id.selector.encode(), member.declaration_range))
         })
         .flatten()
     }

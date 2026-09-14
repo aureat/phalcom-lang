@@ -308,7 +308,7 @@ fn advisory_disagreement_keeps_ready_formal_product_unchanged() {
         .snapshot
         .callable_analyses
         .keys()
-        .find(|callable| callable.owner.name.as_ref() == "Probe")
+        .find(|callable| callable.try_declaration_owner().is_some_and(|owner| owner.name.as_ref() == "Probe"))
         .cloned()
         .expect("Probe callable");
     let analysis = update.snapshot.callable_analyses.get(&callable).expect("formal analysis");

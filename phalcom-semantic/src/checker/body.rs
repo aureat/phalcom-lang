@@ -47,6 +47,7 @@ pub struct BodyAnalysisContext<'a> {
     pub declarations: &'a DeclarationTypeTable,
     pub dispatch: &'a SurfaceDispatchResolver,
     pub trait_surface: Option<&'a crate::traits::TraitSurface>,
+    pub conformance_semantics: Option<&'a crate::trait_dispatch::ConformanceSemanticView<'a>>,
     pub module: ModuleId,
 }
 
@@ -72,6 +73,7 @@ pub struct CallableBodyRequest<'a> {
     pub enum_semantics: Option<&'a crate::enum_semantics::EnumSemanticTable>,
     pub data_semantics: Option<&'a crate::data_semantics::DataSemanticTable>,
     pub associated_families: Option<&'a crate::associated::AssociatedFamilyTable>,
+    pub conformance_semantics: Option<&'a crate::trait_dispatch::ConformanceSemanticView<'a>>,
 }
 
 /// Analyzes a single callable body and returns a complete [`CallableAnalysis`].
@@ -83,6 +85,7 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
         declarations,
         dispatch,
         trait_surface,
+        conformance_semantics,
         module,
     } = context;
     let CallableBodyRequest {
@@ -99,6 +102,7 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
         enum_semantics,
         data_semantics,
         associated_families,
+        conformance_semantics: request_conformance_semantics,
     } = request;
     let control = CheckerControl::new(budget, cancel);
     // Body annotations are resolved in the callable's lexical type scope. The
@@ -149,6 +153,9 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
         type_parameters,
     };
     let mut ctx = CheckingContext::new_with_dispatch_ref_and_control(store, hierarchy, &scoped_resolver, declarations, dispatch, module, control);
+    if let Some(view) = conformance_semantics.or(request_conformance_semantics) {
+        ctx.attach_conformance_semantics(view);
+    }
     ctx.trait_surface = trait_surface;
     if let Some(surface) = trait_surface {
         ctx.record_semantic_dependency(crate::checker::analysis::SemanticDependency::TraitSurface(surface.declaration.clone()));

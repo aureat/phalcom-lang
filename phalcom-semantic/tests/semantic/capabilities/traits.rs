@@ -361,6 +361,7 @@ fn callable_body_accepts_explicit_trait_owner_generics_without_nominal_entry() {
             declarations: snapshot.declarations.as_ref(),
             dispatch: snapshot.dispatch.as_ref(),
             trait_surface: None,
+            conformance_semantics: None,
             module: fixture.module("main").clone(),
         },
         CallableBodyRequest {
@@ -377,6 +378,7 @@ fn callable_body_accepts_explicit_trait_owner_generics_without_nominal_entry() {
             enum_semantics: None,
             data_semantics: None,
             associated_families: None,
+            conformance_semantics: None,
         },
     );
 

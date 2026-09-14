@@ -512,13 +512,13 @@ export Client
             DispatchSide::Class,
         ))
     );
-    assert!(run.dependencies.iter().any(|dependency| dependency.owner.module == api_module));
+    assert!(run.dependencies.iter().any(|dependency| dependency.module() == &api_module));
     assert!(
         run.semantic_dependencies.iter().any(|dependency| {
             matches!(
                 dependency,
                 phalcom_semantic::checker::analysis::SemanticDependency::CallableSignature(callable)
-                    if callable.owner.module == api_module
+                    if callable.module() == &api_module
             )
         }),
         "client must record API callable-signature dependency: {run:#?}"

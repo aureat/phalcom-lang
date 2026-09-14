@@ -55,7 +55,7 @@ class Probe {
 
     match &root.step {
         ExplanationStep::MethodCall { callable, return_ty, .. } => {
-            assert_eq!(callable.owner.name.as_ref(), "CellNum");
+            assert_eq!(callable.try_declaration_owner().expect("CellNum owner").name.as_ref(), "CellNum");
             assert_eq!(*return_ty, expected_return_ty);
         }
 

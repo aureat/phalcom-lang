@@ -23,6 +23,53 @@ pub(crate) struct CompiledBehaviorMember {
 }
 
 impl<'vm> Compiler<'vm> {
+    /// Compiles accepted conformance witnesses and trait defaults into
+    /// detached method objects. These handles are VM-rooted and callable by
+    /// semantic identity; this path never emits a class-method installation.
+    pub(crate) fn compile_detached_methods(&mut self, program: &phalcom_ast::ast::Program) -> Result<(), CompilerError> {
+        let specs = self
+            .lowering()
+            .map(|lowering| lowering.detached_methods.values().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        for spec in specs {
+            if self.vm.detached_method_objects.contains_key(&spec.callable) {
+                continue;
+            }
+            let member = match &spec.source {
+                crate::modules::semantic_lowering::DetachedMethodSource::ConformanceWitness { impl_id, source_member_index } => {
+                    let Some(impl_def) = self.inherent_impl_defs.get(impl_id) else {
+                        return Err(CompilerError::MissingImplLoweringSemantics(SourceRange::new(0, 0)));
+                    };
+                    impl_def
+                        .members
+                        .get(*source_member_index)
+                        .cloned()
+                        .ok_or(CompilerError::ImplCallableMismatch(impl_def.range))?
+                }
+                crate::modules::semantic_lowering::DetachedMethodSource::TraitDefault {
+                    trait_declaration,
+                    source_member_index,
+                } => {
+                    let Some(member) = program.statements.iter().find_map(|statement| match statement {
+                        phalcom_ast::ast::Statement::Trait(trait_def)
+                            if phalcom_modules::DeclarationId::new(self.vm.heap.module(self.module).id.clone(), trait_def.name.clone().into())
+                                == *trait_declaration =>
+                        {
+                            trait_def.members.get(*source_member_index).cloned()
+                        }
+                        _ => None,
+                    }) else {
+                        return Err(CompilerError::ImplCallableMismatch(SourceRange::new(0, 0)));
+                    };
+                    member
+                }
+            };
+            let compiled = self.compile_behavior_member(&member, &spec.callable)?;
+            self.vm.detached_method_objects.insert(spec.callable, compiled.method_obj);
+        }
+        Ok(())
+    }
+
     /// Compiles a single [`BehaviorMember`] into a method object constant and selector constant.
     ///
     /// Validates that the generated selector and side strictly match the supplied

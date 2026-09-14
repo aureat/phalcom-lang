@@ -50,6 +50,7 @@ pub struct FormalQueryInputs<'a> {
     pub data_semantics: Option<&'a crate::data_semantics::DataSemanticTable>,
     pub enum_semantics: Option<&'a crate::enum_semantics::EnumSemanticTable>,
     pub associated_families: Option<&'a crate::associated::AssociatedFamilyTable>,
+    pub conformance_semantics: Option<&'a crate::trait_dispatch::ConformanceSemanticView<'a>>,
 }
 
 pub struct HierarchyEdgeQueryInputs<'a> {
@@ -77,6 +78,7 @@ fn semantic_dependency_query_key(dependency: &crate::checker::analysis::Semantic
         crate::checker::analysis::SemanticDependency::FieldSignature(field) => QueryKey::FieldSignature(field.clone()),
         crate::checker::analysis::SemanticDependency::DeclarationSurface(declaration) => QueryKey::DeclarationSurface(declaration.clone()),
         crate::checker::analysis::SemanticDependency::TraitSurface(declaration) => QueryKey::TraitSurface(declaration.clone()),
+        crate::checker::analysis::SemanticDependency::ConformanceDispatch(impl_id) => QueryKey::ConformanceDispatch(impl_id.clone()),
         crate::checker::analysis::SemanticDependency::HierarchyEdge(declaration) => QueryKey::HierarchyEdge(declaration.clone()),
         crate::checker::analysis::SemanticDependency::LinkedInterface(module) => QueryKey::LinkedInterface(module.clone()),
         crate::checker::analysis::SemanticDependency::DataDeclaration(declaration) => QueryKey::DataDeclaration(declaration.clone()),
@@ -95,6 +97,7 @@ fn semantic_dependency_from_query_key(key: &QueryKey) -> Option<crate::checker::
         QueryKey::FieldSignature(field) => Some(crate::checker::analysis::SemanticDependency::FieldSignature(field.clone())),
         QueryKey::DeclarationSurface(declaration) => Some(crate::checker::analysis::SemanticDependency::DeclarationSurface(declaration.clone())),
         QueryKey::TraitSurface(declaration) => Some(crate::checker::analysis::SemanticDependency::TraitSurface(declaration.clone())),
+        QueryKey::ConformanceDispatch(impl_id) => Some(crate::checker::analysis::SemanticDependency::ConformanceDispatch(impl_id.clone())),
         QueryKey::HierarchyEdge(declaration) => Some(crate::checker::analysis::SemanticDependency::HierarchyEdge(declaration.clone())),
         QueryKey::LinkedInterface(module) => Some(crate::checker::analysis::SemanticDependency::LinkedInterface(module.clone())),
         QueryKey::DataDeclaration(declaration) => Some(crate::checker::analysis::SemanticDependency::DataDeclaration(declaration.clone())),
@@ -1276,6 +1279,13 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
                 QueryOutcome::Blocked(BlockReason::SuppressedDependency)
             }
         }
+        crate::checker::analysis::SemanticDependency::ConformanceDispatch(impl_id) => {
+            if inputs.conformance_semantics.is_some_and(|view| view.conformance_index.get(impl_id).is_some()) {
+                QueryOutcome::Ready(())
+            } else {
+                QueryOutcome::Blocked(BlockReason::SuppressedDependency)
+            }
+        }
         crate::checker::analysis::SemanticDependency::HierarchyEdge(declaration) => {
             if !inputs.sources.contains_key(&declaration.module) && declaration.module.project == phalcom_modules::ProjectIdentity::Universe {
                 return QueryOutcome::Ready(());
@@ -1356,6 +1366,13 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
             unit_outcome(query_associated_surface(db, surface))
         }
     };
+
+    // ConformanceDispatch is a semantic view edge rather than an owned DB
+    // query. Its currentness is established from the rebuilt conformance view
+    // above, so there is deliberately no query-state row to validate here.
+    if matches!(dependency, crate::checker::analysis::SemanticDependency::ConformanceDispatch(_)) {
+        return outcome;
+    }
 
     match outcome {
         QueryOutcome::Ready(()) => ensure_dependency_state_current(db, &key),
@@ -2383,6 +2400,7 @@ fn query_callable_body_with_requirement(
                 owner_generic_signature,
                 declared_signature: explicit_declared_signature.map(|(_, signature)| signature),
                 trait_surface,
+                conformance_semantics: formal_inputs.and_then(|inputs| inputs.conformance_semantics),
             },
         ),
         None => crate::db::fingerprint::callable_body_input_fingerprint_with_owner_generics(&callable, body, body_range, store, owner_generic_signature),
@@ -2467,6 +2485,7 @@ fn query_callable_body_with_requirement(
             declarations,
             dispatch,
             trait_surface,
+            conformance_semantics: formal_inputs.and_then(|inputs| inputs.conformance_semantics),
             module,
         },
         crate::checker::body::CallableBodyRequest {
@@ -2483,6 +2502,7 @@ fn query_callable_body_with_requirement(
             enum_semantics: formal_inputs.and_then(|inputs| inputs.enum_semantics),
             data_semantics: formal_inputs.and_then(|inputs| inputs.data_semantics),
             associated_families: formal_inputs.and_then(|inputs| inputs.associated_families),
+            conformance_semantics: formal_inputs.and_then(|inputs| inputs.conformance_semantics),
         },
     );
 
@@ -2548,6 +2568,14 @@ fn query_callable_body_with_requirement(
                     QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure.clone()),
                 }
                 let dependency = semantic_dependency_query_key(sem_dep);
+                if matches!(sem_dep, crate::checker::analysis::SemanticDependency::ConformanceDispatch(_)) {
+                    if let Some(inputs) = formal_inputs {
+                        if let Some(view) = inputs.conformance_semantics {
+                            recorder.record(dependency, view.fingerprint());
+                            continue;
+                        }
+                    }
+                }
                 if let Err(error) = db.record_dependency(&mut recorder, dependency) {
                     return query_failure(db, key, error);
                 }

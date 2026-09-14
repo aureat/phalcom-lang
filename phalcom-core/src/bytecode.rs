@@ -106,6 +106,9 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "InvokeConditional",
     "MakeConditionalFamily",
     "InvokeSpecialized",
+    "InvokeTraitSelected",
+    "InvokeTraitRequirement",
+    "MakeTraitBoundMethod",
 ];
 
 /// Distinguishes exact selector identity from a structural selector pattern
@@ -201,6 +204,22 @@ pub enum Bytecode {
     /// 0: number of arguments; 1: selector constant; 2: executable semantic
     /// pool index of the immutable runtime environment recipe.
     InvokeSpecialized(u8, u16, u16),
+
+    /// Invokes the exact trait selection published by semantic analysis.
+    InvokeTraitSelected {
+        selection: u16,
+        arity: u8,
+    },
+
+    /// Invokes an abstract trait requirement through the active conformance
+    /// environment of the current trait default.
+    InvokeTraitRequirement {
+        slot: u16,
+        arity: u8,
+    },
+
+    /// Captures a semantically selected trait method and its receiver.
+    MakeTraitBoundMethod(u16),
 
     /// Sends `selector` starting the method walk **above** a statically-known
     /// class, with the original receiver (`self`) — the lowering of a
@@ -701,7 +720,7 @@ pub enum Bytecode {
 impl Bytecode {
     /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
     /// histogram in `opcode_stats`.
-    pub const VARIANTS: usize = 102;
+    pub const VARIANTS: usize = 105;
 
     /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
     ///
@@ -814,6 +833,9 @@ impl Bytecode {
             Bytecode::InvokeConditional { .. } => 99,
             Bytecode::MakeConditionalFamily { .. } => 100,
             Bytecode::InvokeSpecialized(..) => 101,
+            Bytecode::InvokeTraitSelected { .. } => 102,
+            Bytecode::InvokeTraitRequirement { .. } => 103,
+            Bytecode::MakeTraitBoundMethod(..) => 104,
         }
     }
 

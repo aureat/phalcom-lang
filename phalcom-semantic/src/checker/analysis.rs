@@ -4,7 +4,7 @@ use crate::checker::causal::CausalInvalidity;
 use crate::checker::incident::InternalSemanticIncident;
 use crate::diagnostic::SemanticDiagnostic;
 use crate::identity::{
-    AnalysisIncidentId, BindingId, CallResolutionId, CallableId, CallableParameterId, DiagnosticCauseId, ExplanationId, ExpressionId, FieldId,
+    AnalysisIncidentId, BindingId, CallResolutionId, CallableId, CallableParameterId, DiagnosticCauseId, ExplanationId, ExpressionId, FieldId, ImplId,
 };
 use crate::types::denotation::SemanticDenotation;
 use crate::types::evidence::{DynamicReason, TypeKnowledge};
@@ -51,6 +51,12 @@ pub struct ExpressionAnalysis {
     /// inherent implementation. Lowering consumes this directly and must not
     /// reconstruct the decision from target indexes.
     pub conditional_dispatch: Option<crate::dispatch::ConditionalDispatchSelection>,
+    /// Exact per-expression trait evidence used by semantic-to-core lowering.
+    pub trait_dispatch: Option<crate::trait_dispatch::TraitDispatchSite>,
+    /// Candidate provenance retained when trait dispatch is ambiguous. This
+    /// keeps requirement/evidence origins available to diagnostics and editor
+    /// consumers without pretending one candidate was selected.
+    pub trait_dispatch_candidates: Option<Box<[crate::trait_dispatch::TraitEvidencedMemberCandidate]>>,
     pub denotation: Option<SemanticDenotation>,
     pub status: AnalysisStatus,
     pub causal_invalidity: CausalInvalidity,
@@ -67,6 +73,8 @@ impl ExpressionAnalysis {
             callable: None,
             call_specialization: None,
             conditional_dispatch: None,
+            trait_dispatch: None,
+            trait_dispatch_candidates: None,
             denotation: None,
             status: AnalysisStatus::Ready,
             causal_invalidity: CausalInvalidity::Clean,
@@ -83,6 +91,8 @@ impl ExpressionAnalysis {
             callable: None,
             call_specialization: None,
             conditional_dispatch: None,
+            trait_dispatch: None,
+            trait_dispatch_candidates: None,
             denotation: None,
             status: AnalysisStatus::Invalid(cause),
             causal_invalidity: CausalInvalidity::One(cause),
@@ -296,6 +306,7 @@ pub enum SemanticDependency {
     FieldSignature(FieldId),
     DeclarationSurface(DeclarationId),
     TraitSurface(DeclarationId),
+    ConformanceDispatch(ImplId),
     HierarchyEdge(DeclarationId),
     LinkedInterface(ModuleId),
     DataDeclaration(DeclarationId),

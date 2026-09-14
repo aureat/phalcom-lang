@@ -276,4 +276,7 @@ pub struct BoundMethodObject {
     pub method: ObjRef,
     /// The receiver this method is closed over.
     pub receiver: Value,
+    /// Captured exact trait evidence for a trait-bound reference. Ordinary
+    /// method bindings use `EMPTY` and retain their existing behavior.
+    pub conformance_environment: crate::typing::RuntimeConformanceEnvironmentId,
 }

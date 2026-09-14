@@ -456,7 +456,8 @@ impl<'vm> Compiler<'vm> {
                                 })
                                 .map(|(_, spec)| spec.clone())
                         });
-                        if let Some(spec) = is_conditional {
+                        if self.emit_trait_requirement_if_present(arity, call.range)? || self.emit_trait_invoke_if_present(arity, call.range)? {
+                        } else if let Some(spec) = is_conditional {
                             let declaring_sym = self.vm.interner.intern(&spec.declaring_owner.name);
                             let declaring_module = self
                                 .vm
@@ -715,7 +716,8 @@ impl<'vm> Compiler<'vm> {
                                 })
                                 .map(|(_, spec)| spec.clone())
                         });
-                        if let Some(spec) = is_conditional {
+                        if self.emit_trait_requirement_if_present(arity, method_call.range)? || self.emit_trait_invoke_if_present(arity, method_call.range)? {
+                        } else if let Some(spec) = is_conditional {
                             let declaring_sym = self.vm.interner.intern(&spec.declaring_owner.name);
                             let declaring_module = self
                                 .vm
@@ -825,7 +827,9 @@ impl<'vm> Compiler<'vm> {
                 self.compile_expr(get_prop.object)?;
                 let selector_sym = self.vm.interner.intern(&get_prop.property);
                 let selector_idx = self.add_constant(Value::symbol(selector_sym));
-                self.emit(Bytecode::Invoke(0, selector_idx), get_prop.range);
+                if !self.emit_trait_requirement_if_present(0, get_prop.range)? && !self.emit_trait_invoke_if_present(0, get_prop.range)? {
+                    self.emit(Bytecode::Invoke(0, selector_idx), get_prop.range);
+                }
             }
             Expr::SetProperty(set_prop) => {
                 self.compile_expr(set_prop.object)?;

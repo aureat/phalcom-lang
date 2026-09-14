@@ -1129,6 +1129,111 @@ impl VM {
     /// # Errors
     ///
     /// Propagates any [`RuntimeError`] the dispatched method raises.
+    fn trait_method_for_selection(&mut self, receiver: Value, selection: &phalcom_semantic::impls::RequirementSelectionTemplate) -> PhResult<ObjRef> {
+        use phalcom_semantic::impls::RequirementSelectionTemplate;
+        let callable = match selection {
+            RequirementSelectionTemplate::ConformanceCallable { callable } | RequirementSelectionTemplate::TraitDefault { callable } => Some(callable),
+            RequirementSelectionTemplate::InherentCallable { callable, .. } => Some(callable),
+            RequirementSelectionTemplate::ConditionalInherent { candidate, .. } => Some(&candidate.callable),
+            RequirementSelectionTemplate::DataComponent { .. } => None,
+        };
+        let Some(callable) = callable else {
+            return Err(RuntimeError::Internal("data component trait target requires projection lowering".into()).into());
+        };
+        if let Some(&method) = self.detached_method_objects.get(callable) {
+            return Ok(method);
+        }
+        let selector = self.interner.intern(&callable.selector.encode());
+        receiver
+            .lookup_method(self, selector)
+            .ok_or_else(|| RuntimeError::Internal(format!("trait-selected callable {callable:?} has no executable method")))
+            .map_err(Into::into)
+    }
+
+    fn materialize_trait_environment(
+        &mut self,
+        receiver: Value,
+        spec: &crate::modules::semantic_lowering::TraitInvocationSpec,
+    ) -> PhResult<(crate::typing::RuntimeConformanceEnvironmentId, ObjRef)> {
+        let mut slots = vec![None; spec.requirement_slots.iter().map(|(_, slot)| *slot as usize + 1).max().unwrap_or(0)];
+        for (requirement, slot) in spec.requirement_slots.iter() {
+            if let Some(target) = spec.selection.requirement_targets.get(requirement) {
+                slots[*slot as usize] = Some(self.trait_method_for_selection(receiver, target)?);
+            }
+        }
+        let environment = self
+            .runtime_conformance_environments
+            .intern(crate::typing::RuntimeConformanceEnvironment::new(slots));
+        let method = self.trait_method_for_selection(receiver, &spec.selection.selection)?;
+        Ok((environment, method))
+    }
+
+    fn invoke_trait_selected(&mut self, callable: &Callable, selection_index: u16, arity: u8) -> PhResult<()> {
+        let spec = callable.chunk.executable_semantics.trait_invocation(selection_index).clone();
+        let receiver_idx = self
+            .stack
+            .len()
+            .checked_sub(arity as usize + 1)
+            .ok_or(RuntimeError::Internal("trait invocation stack underflow".into()))?;
+        let receiver = self.stack[receiver_idx];
+        let (conformance_environment, method) = self.materialize_trait_environment(receiver, &spec)?;
+        let selector = self.interner.intern(&spec.selection.signature.selector.encode());
+        let type_environment = self
+            .frames
+            .last()
+            .map(|frame| frame.type_environment)
+            .unwrap_or(crate::typing::environment::RuntimeTypeEnvironmentId::EMPTY);
+        let layout = self.invocation_layout_for_selector(selector, arity as usize)?;
+        self.call_method_with_selector_as_and_environments(
+            &receiver,
+            method,
+            arity as usize,
+            selector,
+            Some(layout),
+            callable.chunk.span_at(self.frames.last().map(|frame| frame.ip.saturating_sub(1)).unwrap_or(0)),
+            (self.current_access_class(), self.current_has_internal_privilege()),
+            type_environment,
+            conformance_environment,
+        )
+    }
+
+    fn invoke_trait_requirement(&mut self, callable: &Callable, spec_index: u16, arity: u8) -> PhResult<()> {
+        let spec = callable.chunk.executable_semantics.trait_requirement_invocation(spec_index).clone();
+        let conformance_environment = self
+            .frames
+            .last()
+            .map(|frame| frame.conformance_environment)
+            .unwrap_or(crate::typing::RuntimeConformanceEnvironmentId::EMPTY);
+        let method = self
+            .runtime_conformance_environments
+            .target(conformance_environment, spec.requirement_slot)
+            .ok_or_else(|| RuntimeError::Internal(format!("no active conformance target for requirement {:?}", spec.requirement)))?;
+        let receiver_idx = self
+            .stack
+            .len()
+            .checked_sub(arity as usize + 1)
+            .ok_or(RuntimeError::Internal("trait requirement stack underflow".into()))?;
+        let receiver = self.stack[receiver_idx];
+        let selector = self.interner.intern(&spec.requirement.selector.encode());
+        let layout = self.invocation_layout_for_selector(selector, arity as usize)?;
+        let type_environment = self
+            .frames
+            .last()
+            .map(|frame| frame.type_environment)
+            .unwrap_or(crate::typing::environment::RuntimeTypeEnvironmentId::EMPTY);
+        self.call_method_with_selector_as_and_environments(
+            &receiver,
+            method,
+            arity as usize,
+            selector,
+            Some(layout),
+            callable.chunk.span_at(self.frames.last().map(|frame| frame.ip.saturating_sub(1)).unwrap_or(0)),
+            (self.current_access_class(), self.current_has_internal_privilege()),
+            type_environment,
+            conformance_environment,
+        )
+    }
+
     fn invoke_at(
         &mut self,
         callable: &Callable,
@@ -2032,6 +2137,12 @@ impl VM {
                     let recipe = callable.chunk.executable_semantics.call_environment_recipe(recipe_idx).clone();
                     self.invoke_at(callable, ip, arity, selector_idx, Some(&recipe))?;
                 }
+                Bytecode::InvokeTraitSelected { selection, arity } => {
+                    self.invoke_trait_selected(callable, selection, arity)?;
+                }
+                Bytecode::InvokeTraitRequirement { slot, arity } => {
+                    self.invoke_trait_requirement(callable, slot, arity)?;
+                }
                 Bytecode::InvokeConditional {
                     arity,
                     selector,
@@ -2279,6 +2390,18 @@ impl VM {
                     let bound_ref = self.heap.alloc(Object::BoundMethod(crate::heap::BoundMethodObject {
                         method: resolved.method,
                         receiver: resolved.receiver,
+                        conformance_environment: crate::typing::RuntimeConformanceEnvironmentId::EMPTY,
+                    }));
+                    self.stack.push(Value::obj(bound_ref));
+                }
+                Bytecode::MakeTraitBoundMethod(target_idx) => {
+                    let invocation = callable.chunk.executable_semantics.trait_invocation(target_idx).clone();
+                    let receiver = self.pop()?;
+                    let (conformance_environment, method) = self.materialize_trait_environment(receiver, &invocation)?;
+                    let bound_ref = self.heap.alloc(Object::BoundMethod(crate::heap::BoundMethodObject {
+                        method,
+                        receiver,
+                        conformance_environment,
                     }));
                     self.stack.push(Value::obj(bound_ref));
                 }

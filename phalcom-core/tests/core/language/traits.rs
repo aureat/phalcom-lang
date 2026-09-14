@@ -47,3 +47,49 @@ let result = Other.new().render()
     let (vm, module) = vm_support::run_inline(source).expect("trait and unrelated class execute");
     assert_eq!(named(&vm, module, "result").expect("result binding").to_string(&vm), "other");
 }
+
+#[test]
+fn trait_evidenced_default_and_witness_execute_without_target_installation() {
+    let source = r#"
+trait Identified {
+  name -> String
+  label -> String { self.name }
+}
+
+class User {}
+impl Identified for User { name -> String { "user" } }
+class Caller { run(_ user: User) -> String { user.label } }
+let result = Caller.new().run(User.new())
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("trait evidence compiles");
+    let lowering = &program.modules[&program.entry].lowering;
+    assert!(!lowering.trait_invocations.is_empty(), "ordinary trait call has lowering evidence");
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("trait evidence executes");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    assert_eq!(named(&vm, module, "result").expect("result binding").to_string(&vm), "user");
+    let user = named(&vm, module, "User").expect("User binding");
+    let user_class = user.as_obj().expect("User class");
+    let label = vm.interner.find("label").expect("label symbol");
+    assert!(vm.heap.class(user_class).get_method(label).is_none(), "trait default stays detached");
+}
+
+#[test]
+fn trait_evidenced_bound_reference_executes_detached_default() {
+    let source = r#"
+trait Identified {
+  name -> String
+  label -> String { self.name }
+}
+
+class User {}
+impl Identified for User { name -> String { "user" } }
+class Caller { run(_ user: User) -> String { let f = &user.label; f() } }
+let result = Caller.new().run(User.new())
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("trait bound reference compiles");
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("trait bound reference executes");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    assert_eq!(named(&vm, module, "result").expect("result binding").to_string(&vm), "user");
+}

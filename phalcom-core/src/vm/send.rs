@@ -364,6 +364,32 @@ impl VM {
         caller_authority: (Option<ClassId>, bool),
         type_environment: crate::typing::environment::RuntimeTypeEnvironmentId,
     ) -> PhResult<()> {
+        self.call_method_with_selector_as_and_environments(
+            callee,
+            method,
+            arity,
+            selector,
+            layout,
+            source_range,
+            caller_authority,
+            type_environment,
+            crate::typing::RuntimeConformanceEnvironmentId::EMPTY,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn call_method_with_selector_as_and_environments(
+        &mut self,
+        callee: &Value,
+        method: ObjRef,
+        arity: usize,
+        selector: Symbol,
+        layout: Option<InvocationLayout>,
+        source_range: SourceRange,
+        caller_authority: (Option<ClassId>, bool),
+        type_environment: crate::typing::environment::RuntimeTypeEnvironmentId,
+        conformance_environment: crate::typing::RuntimeConformanceEnvironmentId,
+    ) -> PhResult<()> {
         if matches!(self.heap.method(method).kind, MethodKind::Primitive(PrimitiveFn::Legacy(_))) {
             return self.call_method_legacy(callee, method, arity, source_range, caller_authority);
         }
@@ -376,6 +402,7 @@ impl VM {
                 let context = callee.to_context(&self.heap);
                 let mut frame = self.new_call_frame(closure_id, context, 0, receiver_idx, Some(source_range));
                 frame.type_environment = type_environment;
+                frame.conformance_environment = conformance_environment;
                 self.push_frame(frame)?;
                 Ok(())
             }
@@ -461,8 +488,44 @@ impl VM {
         source_range: SourceRange,
         caller_authority: (Option<ClassId>, bool),
     ) -> PhResult<CallOutcome> {
+        self.dispatch_selected_method_as_with_environments(
+            callee,
+            method,
+            arity,
+            selector,
+            layout,
+            source_range,
+            caller_authority,
+            crate::typing::environment::RuntimeTypeEnvironmentId::EMPTY,
+            crate::typing::RuntimeConformanceEnvironmentId::EMPTY,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn dispatch_selected_method_as_with_environments(
+        &mut self,
+        callee: &Value,
+        method: ObjRef,
+        arity: usize,
+        selector: Symbol,
+        layout: Option<InvocationLayout>,
+        source_range: SourceRange,
+        caller_authority: (Option<ClassId>, bool),
+        type_environment: crate::typing::environment::RuntimeTypeEnvironmentId,
+        conformance_environment: crate::typing::RuntimeConformanceEnvironmentId,
+    ) -> PhResult<CallOutcome> {
         let before = self.frames.len();
-        self.call_method_with_selector_as(callee, method, arity, selector, layout, source_range, caller_authority)?;
+        self.call_method_with_selector_as_and_environments(
+            callee,
+            method,
+            arity,
+            selector,
+            layout,
+            source_range,
+            caller_authority,
+            type_environment,
+            conformance_environment,
+        )?;
         if self.frames.len() > before {
             Ok(CallOutcome::EnteredFrame)
         } else {
@@ -758,6 +821,25 @@ impl VM {
         view: ArgumentView,
         source_range: SourceRange,
     ) -> PhResult<CallOutcome> {
+        self.activate_captured_method_as_with_environment(
+            receiver,
+            method,
+            view,
+            source_range,
+            crate::typing::environment::RuntimeTypeEnvironmentId::EMPTY,
+            crate::typing::RuntimeConformanceEnvironmentId::EMPTY,
+        )
+    }
+
+    pub(crate) fn activate_captured_method_as_with_environment(
+        &mut self,
+        receiver: Value,
+        method: ObjRef,
+        view: ArgumentView,
+        source_range: SourceRange,
+        type_environment: crate::typing::environment::RuntimeTypeEnvironmentId,
+        conformance_environment: crate::typing::RuntimeConformanceEnvironmentId,
+    ) -> PhResult<CallOutcome> {
         self.authorize_method_access_as(method, view.caller_authority().0, view.caller_authority().1)?;
         let method_selector = self.heap.method(method).signature.selector;
         let actual_selector = self.validate_captured_method_shape(method, view.layout())?;
@@ -782,7 +864,7 @@ impl VM {
                     CallOutcome::Returned(self.stack.last().copied().unwrap_or_else(Value::nil))
                 }
             } else {
-                self.dispatch_selected_method_as(
+                self.dispatch_selected_method_as_with_environments(
                     &receiver,
                     method,
                     total,
@@ -790,6 +872,8 @@ impl VM {
                     Some(view.layout().clone()),
                     source_range,
                     view.caller_authority(),
+                    type_environment,
+                    conformance_environment,
                 )?
             };
 
@@ -808,7 +892,14 @@ impl VM {
     }
 
     fn activate_bound_method(&mut self, bound: crate::heap::BoundMethodObject, view: ArgumentView, source_range: SourceRange) -> PhResult<CallOutcome> {
-        self.activate_captured_method_as(bound.receiver, bound.method, view, source_range)
+        self.activate_captured_method_as_with_environment(
+            bound.receiver,
+            bound.method,
+            view,
+            source_range,
+            crate::typing::environment::RuntimeTypeEnvironmentId::EMPTY,
+            bound.conformance_environment,
+        )
     }
 
     /// Dispatches a semantically selected conditional member captured by a
@@ -1346,6 +1437,16 @@ impl VM {
     /// Runs exact method `method_id` against `receiver` with `args` for
     /// synchronous host/native callers.
     pub fn invoke_method_object(&mut self, method_id: ObjRef, receiver: Value, args: &[Value]) -> PhResult<Value> {
+        self.invoke_method_object_with_conformance_environment(method_id, receiver, args, crate::typing::RuntimeConformanceEnvironmentId::EMPTY)
+    }
+
+    pub(crate) fn invoke_method_object_with_conformance_environment(
+        &mut self,
+        method_id: ObjRef,
+        receiver: Value,
+        args: &[Value],
+        conformance_environment: crate::typing::RuntimeConformanceEnvironmentId,
+    ) -> PhResult<Value> {
         let positional = {
             let sig = &self.heap.method(method_id).signature;
             sig.positional_arity as usize
@@ -1370,7 +1471,14 @@ impl VM {
         let selector = self.heap.method(method_id).signature.selector;
         let layout = self.invocation_layout_for_selector(selector, args.len())?;
         let view = ArgumentView::from_layout(receiver_idx, layout, caller_authority.0, caller_authority.1);
-        self.activate_captured_method_as(receiver, method_id, view, SourceRange::default())?;
+        self.activate_captured_method_as_with_environment(
+            receiver,
+            method_id,
+            view,
+            SourceRange::default(),
+            crate::typing::environment::RuntimeTypeEnvironmentId::EMPTY,
+            conformance_environment,
+        )?;
         self.check_native_reentry()?;
         self.native_reentry_depth += 1;
         let result = self.run_until(base_frames);

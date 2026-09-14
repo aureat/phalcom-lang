@@ -90,6 +90,7 @@ pub fn method_bind(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Va
     let bound = BoundMethodObject {
         method: method_id,
         receiver: args[0],
+        conformance_environment: crate::typing::RuntimeConformanceEnvironmentId::EMPTY,
     };
     Ok(Value::obj(vm.heap.alloc(Object::BoundMethod(bound))))
 }

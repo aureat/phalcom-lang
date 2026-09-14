@@ -491,6 +491,7 @@ impl<'vm> Compiler<'vm> {
         let planner = product_opt::ProductPlanner::new(self.lowering(), self.product_optimization_mode);
         let plan = planner.plan_program(&program);
         self.functions.last_mut().unwrap().product_plan = plan;
+        self.compile_detached_methods(&program)?;
 
         let len = program.statements.len();
         let mut last_is_return = false;

@@ -14,8 +14,8 @@ entry_requirements:
   - C2_COMPLETE
   - C2_APPLICABILITY_PROOF_STATE_CLOSED
   - C3_COMPLETE
-active_plan: none
-next_plan: LANG005.C4.P3
+active_plan: LANG005.C4.P3
+next_plan: LANG005.C5
 planning_baseline_revision: 20ad3f31b39b0fe1b1fdf028df4ac9579fcfd9ad
 planning_baseline_commit: "docs: pin lang005 checkpoint revision"
 plan:
@@ -134,14 +134,14 @@ checkpoint: LANG005.C4
 status: IN_PROGRESS
 completion: PARTIAL
 verification: FOCUSED_TESTED
-active_plan: none
-next_plan: LANG005.C4.P3
+active_plan: LANG005.C4.P3
+next_plan: LANG005.C5
 ```
 
 Execution state on the live repository:
 
 ```text
-T0 ENTRY LOCK COMPLETE; P2 IN PROGRESS
+P2 COMPLETE; P3 T0 COMPLETE; P3 T1 ACTIVE
 ```
 
 The planning baseline remains pre-C3, but T0 re-grounding verified the live post-C3 predecessor state before production edits began. P1 is complete and P2 is the active implementation plan.
@@ -155,6 +155,17 @@ source-plan/exact-evidence semantic fingerprints, proof-aware terminal
 applicability propagation, exact C2 applicability evidence retention, and
 incremental fingerprint/invalidation parity. P2 is complete at
 `IMPLEMENTED` + `FOCUSED_TESTED`; P3 remains the next checkpoint plan.
+
+P3 T0 re-grounding captured the live post-P2 baseline at
+`1fc1e8449e6dd77fc533455bcb056fe9b00290b9`. The semantic crate checks
+cleanly, while the first core/workspace check exposed the expected F01
+owner-boundary defect in `phalcom-core/src/modules/semantic_lowering.rs`:
+inherent projection matched only declaration- and variant-owned callables.
+T1 now quarantines `CallableOwnerId::Conformance` from that projection,
+removes the owner `Deref<Target = DeclarationId>` coercion, and migrates the
+resulting module/LSP accessors to explicit safe APIs. Workspace compilation
+is clean after this closure. Conformance lowering and runtime projection
+remain unimplemented P3 work.
 
 T0 of P1 proved:
 

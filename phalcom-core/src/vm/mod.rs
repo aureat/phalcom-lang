@@ -34,6 +34,7 @@ use crate::universe::Universe;
 use crate::value::Value;
 use indexmap::IndexMap;
 use phalcom_common::range::SourceRange;
+use phalcom_semantic::identity::CallableId;
 use std::time::Instant;
 use std::{collections::BTreeMap, collections::HashMap, collections::VecDeque};
 
@@ -261,6 +262,11 @@ pub struct VM {
     pub typing_registry: crate::typing::RuntimeTypingRegistry,
     /// Interned generic substitutions used to instantiate runtime type recipes.
     pub runtime_type_environments: crate::typing::RuntimeTypeEnvironmentRegistry,
+    /// Interned executable conformance environments selected by semantics.
+    pub runtime_conformance_environments: crate::typing::RuntimeConformanceEnvironmentRegistry,
+    /// Detached conformance witnesses and trait defaults, keyed by semantic
+    /// callable identity and never installed in target class dictionaries.
+    pub(crate) detached_method_objects: HashMap<CallableId, ObjRef>,
     /// VM-owned overlay arena used for instantiated runtime type products.
     pub runtime_typing_context: crate::typing::TypingContextData,
     /// Direct runtime roots for Universe and entry modules.

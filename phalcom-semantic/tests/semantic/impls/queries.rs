@@ -5,7 +5,7 @@ use phalcom_modules::linker::{GlobalBindingId, ImportBindingId, LinkedModule, Li
 use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::project::ProjectUniverse;
 use phalcom_modules::source::ModuleKind;
-use phalcom_semantic::db::QueryKey;
+use phalcom_semantic::db::{CancellationToken, QueryBudget, QueryKey};
 use phalcom_semantic::identity::{CallableId, CallableOwnerId, DeclarationId, DispatchSide};
 use phalcom_semantic::impls::{CallableDefinitionOrigin, ConformanceTarget};
 use phalcom_semantic::session::{SemanticWorkspaceSession, SemanticWorkspaceUpdate};
@@ -92,7 +92,9 @@ fn explicit_conformance_is_indexed_without_polluting_inherent_surface() {
     let module = test_module();
     let source = "trait Tagged { tag -> String }\nclass User {}\nimpl Tagged for User { tag -> String { \"tagged\" } }\n";
     let mut session = SemanticWorkspaceSession::new();
-    let output = session.update(single_module_input(module.clone(), source));
+    let output = session
+        .update_with_budget_and_cancel(single_module_input(module.clone(), source), QueryBudget::default(), &CancellationToken::new())
+        .expect("semantic update should complete");
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
 
     let trait_ref = TraitRef::new(
@@ -117,6 +119,245 @@ fn explicit_conformance_is_indexed_without_polluting_inherent_surface() {
             .instance
             .callable_signatures
             .contains_key(&Selector::getter("tag").unwrap())
+    );
+}
+
+#[test]
+fn trait_dispatch_index_buckets_eligible_requirements_by_target_selector_and_side() {
+    let module = test_module();
+    let source = "trait Tagged { tag -> String }\nclass User {}\nimpl Tagged for User { tag -> String { \"tagged\" } }\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
+
+    let user = DeclarationId::new(module, "User".into());
+    let family = phalcom_semantic::TraitDispatchTargetFamily::Declaration(user);
+    let candidates = output
+        .snapshot
+        .trait_dispatch_index
+        .candidates_for(&family, &Selector::getter("tag").expect("tag selector"), DispatchSide::Instance);
+    assert_eq!(candidates.len(), 1);
+    assert_eq!(candidates[0].requirement.selector.encode(), "tag");
+    assert_eq!(output.snapshot.trait_dispatch_index.len(), 1);
+}
+
+#[test]
+fn trait_dispatch_query_returns_exact_proven_requirement_selection() {
+    let module = test_module();
+    let source = "trait Tagged { tag -> String }\nclass User {}\nimpl Tagged for User { tag -> String { \"tagged\" } }\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
+
+    let user = output
+        .snapshot
+        .declarations
+        .form(&DeclarationId::new(module.clone(), "User".into()))
+        .expect("User type");
+    let resolution = output
+        .snapshot
+        .resolve_trait_evidenced_candidates(user, &Selector::getter("tag").expect("tag selector"), DispatchSide::Instance);
+    let phalcom_semantic::TraitDispatchResolution::Found(selection) = resolution else {
+        panic!("expected proven trait dispatch selection, got {resolution:?}");
+    };
+    assert_eq!(selection.exact_target, user);
+    assert_eq!(selection.requirement.owner, DeclarationId::new(module, "Tagged".into()));
+    assert!(matches!(
+        selection.selection,
+        phalcom_semantic::impls::RequirementSelectionTemplate::ConformanceCallable { .. }
+    ));
+}
+
+#[test]
+fn trait_dispatch_query_matches_the_exact_generic_target_application() {
+    let module = test_module();
+    let source = "trait Tagged { tag -> String }\nclass Value<T> {}\nclass Text {}\nclass Number {}\nimpl Tagged for Value<Text> { tag -> String { \"text\" } }\nimpl Tagged for Value<Number> { tag -> String { \"number\" } }\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
+
+    let value = output
+        .snapshot
+        .declarations
+        .form(&DeclarationId::new(module.clone(), "Value".into()))
+        .expect("Value type");
+    let text = output
+        .snapshot
+        .declarations
+        .form(&DeclarationId::new(module.clone(), "Text".into()))
+        .expect("Text type");
+    let number = output
+        .snapshot
+        .declarations
+        .form(&DeclarationId::new(module.clone(), "Number".into()))
+        .expect("Number type");
+    let mut store = (*output.snapshot.store).clone();
+    let value_text = store.apply_type_form(value, &[text]).expect("Value<Text>");
+    let value_number = store.apply_type_form(value, &[number]).expect("Value<Number>");
+    let selector = Selector::getter("tag").expect("tag selector");
+    let text_result = phalcom_semantic::trait_dispatch::resolve_trait_evidenced_candidates(
+        &output.snapshot.trait_dispatch_index,
+        &output.snapshot.conformance_index,
+        &output.snapshot.conformance_witness_plans,
+        &output.snapshot.trait_surfaces,
+        &output.snapshot.declarations,
+        &mut store,
+        output.snapshot.hierarchy.as_ref(),
+        value_text,
+        &selector,
+        DispatchSide::Instance,
+    );
+    let number_result = phalcom_semantic::trait_dispatch::resolve_trait_evidenced_candidates(
+        &output.snapshot.trait_dispatch_index,
+        &output.snapshot.conformance_index,
+        &output.snapshot.conformance_witness_plans,
+        &output.snapshot.trait_surfaces,
+        &output.snapshot.declarations,
+        &mut store,
+        output.snapshot.hierarchy.as_ref(),
+        value_number,
+        &selector,
+        DispatchSide::Instance,
+    );
+    let phalcom_semantic::TraitDispatchResolution::Found(text_selection) = text_result else {
+        panic!("expected text conformance, got {text_result:?}");
+    };
+    let phalcom_semantic::TraitDispatchResolution::Found(number_selection) = number_result else {
+        panic!("expected number conformance, got {number_result:?}");
+    };
+    assert_ne!(text_selection.source_impl, number_selection.source_impl);
+    assert_eq!(text_selection.exact_target, value_text);
+    assert_eq!(number_selection.exact_target, value_number);
+}
+
+#[test]
+fn trait_dispatch_shared_inherent_witnesses_converge() {
+    let module = test_module();
+    let source = "trait Named { name -> String }\ntrait DisplayNamed { name -> String }\nclass User { name -> String { \"user\" } }\nimpl Named for User {}\nimpl DisplayNamed for User {}\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
+    let user = output
+        .snapshot
+        .declarations
+        .form(&DeclarationId::new(module, "User".into()))
+        .expect("User type");
+    let resolution = output
+        .snapshot
+        .resolve_trait_evidenced_candidates(user, &Selector::getter("name").expect("name selector"), DispatchSide::Instance);
+    assert!(
+        matches!(resolution, phalcom_semantic::TraitDispatchResolution::Found(_)),
+        "expected convergence: {resolution:?}"
+    );
+}
+
+#[test]
+fn trait_dispatch_competing_defaults_are_ambiguous() {
+    let module = test_module();
+    let source = "trait First { tag -> String { \"first\" } }\ntrait Second { tag -> String { \"second\" } }\nclass User {}\nimpl First for User {}\nimpl Second for User {}\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
+    let user = output
+        .snapshot
+        .declarations
+        .form(&DeclarationId::new(module, "User".into()))
+        .expect("User type");
+    let resolution = output
+        .snapshot
+        .resolve_trait_evidenced_candidates(user, &Selector::getter("tag").expect("tag selector"), DispatchSide::Instance);
+    assert!(
+        matches!(resolution, phalcom_semantic::TraitDispatchResolution::Ambiguous(ref candidates) if candidates.len() == 2),
+        "expected default ambiguity: {resolution:?}"
+    );
+}
+
+#[test]
+fn trait_dispatch_distinct_conformance_witnesses_are_ambiguous() {
+    let module = test_module();
+    let source = "trait First { tag -> String }\ntrait Second { tag -> String }\nclass User {}\nimpl First for User { tag -> String { \"first\" } }\nimpl Second for User { tag -> String { \"second\" } }\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
+    let user = output
+        .snapshot
+        .declarations
+        .form(&DeclarationId::new(module, "User".into()))
+        .expect("User type");
+    let resolution = output
+        .snapshot
+        .resolve_trait_evidenced_candidates(user, &Selector::getter("tag").expect("tag selector"), DispatchSide::Instance);
+    assert!(
+        matches!(resolution, phalcom_semantic::TraitDispatchResolution::Ambiguous(ref candidates) if candidates.len() == 2),
+        "expected witness ambiguity: {resolution:?}"
+    );
+}
+
+#[test]
+fn trait_dispatch_exact_enum_case_does_not_propagate_to_root_or_sibling() {
+    let module = test_module();
+    let source = "trait Tagged { code -> Int }\nenum Status { Ready Waiting }\nimpl Tagged for Status::Ready { code -> Int { 1 } }\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
+
+    let status_decl = DeclarationId::new(module.clone(), "Status".into());
+    let status = output.snapshot.declarations.form(&status_decl).expect("Status type");
+    let (_, contribution) = output.snapshot.conformance_index.iter().next().expect("case conformance");
+    let phalcom_semantic::impls::ConformanceTarget::ExactEnumCase(variant) = &contribution.target else {
+        panic!("expected exact enum-case conformance");
+    };
+    let mut store = (*output.snapshot.store).clone();
+    let ready = store.exact_case_type(variant, status).expect("Status::Ready type");
+    let selector = Selector::getter("code").expect("code selector");
+    let ready_result = phalcom_semantic::trait_dispatch::resolve_trait_evidenced_candidates(
+        &output.snapshot.trait_dispatch_index,
+        &output.snapshot.conformance_index,
+        &output.snapshot.conformance_witness_plans,
+        &output.snapshot.trait_surfaces,
+        &output.snapshot.declarations,
+        &mut store,
+        output.snapshot.hierarchy.as_ref(),
+        ready,
+        &selector,
+        DispatchSide::Instance,
+    );
+    assert!(
+        matches!(ready_result, phalcom_semantic::TraitDispatchResolution::Found(_)),
+        "ready case should resolve: {ready_result:?}"
+    );
+    let root_result = phalcom_semantic::trait_dispatch::resolve_trait_evidenced_candidates(
+        &output.snapshot.trait_dispatch_index,
+        &output.snapshot.conformance_index,
+        &output.snapshot.conformance_witness_plans,
+        &output.snapshot.trait_surfaces,
+        &output.snapshot.declarations,
+        &mut store,
+        output.snapshot.hierarchy.as_ref(),
+        status,
+        &selector,
+        DispatchSide::Instance,
+    );
+    assert!(
+        matches!(root_result, phalcom_semantic::TraitDispatchResolution::Missing),
+        "root must not inherit case conformance: {root_result:?}"
+    );
+}
+
+#[test]
+fn ordinary_body_dispatch_consumes_trait_evidence_after_inherent_miss() {
+    let module = test_module();
+    let source =
+        "trait Tagged { tag -> String { \"default\" } }\nclass User {}\nimpl Tagged for User {}\nclass Caller { read(_ user: User) -> String { user.tag } }\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
+    let caller = DeclarationId::new(module, "Caller".into());
+    assert!(
+        output.snapshot.callable_analyses.iter().any(|(callable, analysis)| {
+            callable.try_declaration_owner() == Some(&caller) && analysis.expressions.values().any(|expression| expression.trait_dispatch.is_some())
+        }),
+        "ordinary call must publish trait dispatch evidence"
     );
 }
 
@@ -207,6 +448,11 @@ fn incompatible_explicit_conformance_witness_stays_incomplete() {
     let output = session.update(single_module_input(module.clone(), source));
     let plan = output.snapshot.conformance_witness_plans.values().next().expect("source witness plan");
     assert!(matches!(plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Incomplete { .. }));
+    assert!(output.snapshot.diagnostics_for(&module).is_some_and(|diagnostics| {
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::ImplConformanceIncomplete)
+    }));
     let user = output
         .snapshot
         .declarations
@@ -214,6 +460,126 @@ fn incompatible_explicit_conformance_witness_stays_incomplete() {
         .expect("User form");
     let tagged = TraitRef::new(DeclarationId::new(module, "Tagged".into()), Vec::new().into_boxed_slice());
     assert!(output.snapshot.conformance_evidence_for(user, &tagged).is_none());
+}
+
+#[test]
+fn missing_conformance_witness_emits_requirement_diagnostic() {
+    let module = test_module();
+    let source = "trait Sized { size -> Int }\nclass Empty {}\nimpl Sized for Empty {}\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    let plan = output.snapshot.conformance_witness_plans.values().next().expect("source witness plan");
+    let phalcom_semantic::impls::ConformanceCompleteness::Incomplete { failures } = &plan.completeness else {
+        panic!("expected incomplete conformance, got {:?}", plan.completeness);
+    };
+    assert_eq!(failures.len(), 1);
+    assert!(failures[0].reason.contains("no explicit witness or trait default"));
+    assert!(output.snapshot.diagnostics_for(&module).is_some_and(|diagnostics| {
+        diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == phalcom_semantic::DiagnosticCode::ImplConformanceIncomplete
+                && diagnostic.message.contains("does not satisfy all requirements")
+                && diagnostic.labels.iter().any(|label| label.message.contains("size"))
+        })
+    }));
+}
+
+#[test]
+fn known_witness_failure_outranks_another_requirement_uncertainty() {
+    let module = test_module();
+    let source = "trait Tagged {\n  tag -> String\n  size -> Int\n}\nclass Value<T> {}\nimpl<T> Value<T> where T <: Int { size -> Int { 1 } }\nimpl<T> Tagged for Value<T> { tag -> Int { 1 } }\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    let plan = output.snapshot.conformance_witness_plans.values().next().expect("source witness plan");
+    let phalcom_semantic::impls::ConformanceCompleteness::Incomplete { failures } = &plan.completeness else {
+        panic!("known incompatibility must dominate uncertainty: {:?}", plan.completeness);
+    };
+    assert!(failures.iter().any(|failure| failure.reason.contains("type relation refuted")));
+}
+
+#[test]
+fn generic_inherent_witness_is_specialized_through_exact_conformance_target() {
+    let module = test_module();
+    let source = "trait Valued<T> { value -> T }\nclass Box<T> { value -> T { value } }\nimpl<U> Valued<U> for Box<U> {}\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);
+    let plan = output.snapshot.conformance_witness_plans.values().next().expect("source witness plan");
+    assert!(matches!(plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Complete));
+    assert!(matches!(
+        plan.requirements.values().next(),
+        Some(phalcom_semantic::impls::RequirementSelectionTemplate::InherentCallable { .. })
+    ));
+}
+
+#[test]
+fn incompatible_inherent_selector_invalidates_explicit_conformance_witness() {
+    let module = test_module();
+    let source = "trait Renderable { render -> String }\nclass Item { render -> Int { 1 } }\nimpl Renderable for Item { render -> String { \"x\" } }\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    let plan = output.snapshot.conformance_witness_plans.values().next().expect("source witness plan");
+    assert!(matches!(plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Incomplete { .. }));
+    assert!(output.snapshot.diagnostics_for(&module).is_some_and(|diagnostics| {
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::ImplConformanceIncomplete)
+    }));
+}
+
+#[test]
+fn exact_conditional_inherent_witness_can_outrank_trait_default() {
+    let module = test_module();
+    let source = "trait Tagged { tag -> String { \"default\" } }\nclass Value<T> {}\nclass Number {}\nclass Text {}\nimpl<T> Value<T> where T <: Number { tag -> String { \"number\" } }\nimpl<T> Tagged for Value<T> {}\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    let plan = output.snapshot.conformance_witness_plans.values().next().expect("source witness plan");
+    assert!(matches!(plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Unknown(_)));
+    let value = DeclarationId::new(module.clone(), "Value".into());
+    let int = DeclarationId::new(module.clone(), "Number".into());
+    let value_form = output.snapshot.declarations.form(&value).expect("Value form");
+    let int_form = output.snapshot.declarations.form(&int).expect("Int form");
+    let mut store = (*output.snapshot.store).clone();
+    let exact_target = store.apply_type_form(value_form, &[int_form]).expect("Value<Int>");
+    let tagged = TraitRef::new(DeclarationId::new(module.clone(), "Tagged".into()), Vec::new().into_boxed_slice());
+    let surface = output.snapshot.trait_surfaces.get(&tagged.declaration).expect("trait surface");
+    let evidence = match phalcom_semantic::impls::resolve_conformance_evidence(
+        &output.snapshot.conformance_index,
+        &output.snapshot.conformance_witness_plans,
+        surface,
+        &output.snapshot.declarations,
+        &mut store,
+        output.snapshot.hierarchy.as_ref(),
+        exact_target,
+        &tagged,
+    ) {
+        phalcom_semantic::impls::ConformanceResolution::Proven(evidence) => evidence,
+        other => panic!("expected exact conformance evidence, got {other:?}"),
+    };
+    assert!(matches!(
+        evidence.requirements.values().next(),
+        Some(phalcom_semantic::impls::RequirementSelectionTemplate::InherentCallable { .. })
+    ));
+
+    let text = DeclarationId::new(module.clone(), "Text".into());
+    let text_form = output.snapshot.declarations.form(&text).expect("Text form");
+    let text_target = store.apply_type_form(value_form, &[text_form]).expect("Value<Text>");
+    let text_evidence = match phalcom_semantic::impls::resolve_conformance_evidence(
+        &output.snapshot.conformance_index,
+        &output.snapshot.conformance_witness_plans,
+        surface,
+        &output.snapshot.declarations,
+        &mut store,
+        output.snapshot.hierarchy.as_ref(),
+        text_target,
+        &tagged,
+    ) {
+        phalcom_semantic::impls::ConformanceResolution::Proven(evidence) => evidence,
+        other => panic!("expected default-backed exact evidence, got {other:?}"),
+    };
+    assert!(matches!(
+        text_evidence.requirements.values().next(),
+        Some(phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { .. })
+    ));
 }
 
 #[test]
@@ -328,6 +694,7 @@ fn conformance_plan_retains_exact_case_inherent_applicability_evidence() {
         surface,
         &output.snapshot.declarations,
         &mut store,
+        output.snapshot.hierarchy.as_ref(),
         exact_target,
         &trait_ref,
     ) {
@@ -425,6 +792,7 @@ fn exact_data_component_witness_specializes_target_and_trait_parameters() {
         surface,
         &output.snapshot.declarations,
         &mut store,
+        output.snapshot.hierarchy.as_ref(),
         target,
         &trait_ref,
     ) {
@@ -900,7 +1268,7 @@ fn linked_modules_publish_canonical_ownership_through_reexports() {
 #[test]
 fn p1_generic_specialization_matrix_and_iterable_head_stay_at_head_level() {
     let module = test_module();
-    let source = "trait Tagged { tag -> String }\ntrait Iterable<Item, Cursor> {\n  iterate(_ cursor: Cursor) -> Cursor\n  iteratorValue(_ cursor: Cursor) -> Item\n}\nclass Value<T> {}\nclass Text {}\nclass Number {}\nclass Boolish {}\nclass Countdown {}\nimpl Tagged for Value<Text> { tag -> String { \"text\" } }\nimpl Tagged for Value<Number> { tag -> String { \"number\" } }\nimpl Iterable<Countdown, Countdown> for Countdown {}\n";
+    let source = "trait Tagged { tag -> String }\ntrait Iterable<Item, Cursor> {\n  iterate(_ cursor: Cursor) -> Cursor\n  iteratorValue(_ cursor: Cursor) -> Item\n}\nclass Value<T> {}\nclass Text {}\nclass Number {}\nclass Boolish {}\nclass Countdown {}\nimpl Tagged for Value<Text> { tag -> String { \"text\" } }\nimpl Tagged for Value<Number> { tag -> String { \"number\" } }\nimpl Iterable<Countdown, Countdown> for Countdown { iterate(_ cursor: Countdown) -> Countdown { cursor } iteratorValue(_ cursor: Countdown) -> Countdown { cursor } }\n";
     let mut session = SemanticWorkspaceSession::new();
     let output = session.update(single_module_input(module.clone(), source));
     assert!(!output.snapshot.has_errors(), "diagnostics: {:?}", output.snapshot.diagnostics);

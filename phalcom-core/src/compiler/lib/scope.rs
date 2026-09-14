@@ -53,6 +53,52 @@ impl<'vm> Compiler<'vm> {
         Ok(())
     }
 
+    /// Emits the explicit executable trait invocation selected by semantic
+    /// analysis, if this source range carries one. Returns whether a trait
+    /// opcode was emitted.
+    pub(crate) fn emit_trait_invoke_if_present(&mut self, arity: u8, range: SourceRange) -> Result<bool, CompilerError> {
+        let Some(lowering) = self.lowering() else { return Ok(false) };
+        let Some((_, spec)) = lowering
+            .trait_invocations
+            .iter()
+            .find(|(site, _)| site.range == range && site.kind == crate::modules::semantic_lowering::LoweringSiteKind::TraitInvoke)
+        else {
+            return Ok(false);
+        };
+        let spec = spec.clone();
+        let index = self
+            .functions
+            .last_mut()
+            .expect("compiler always has an active function")
+            .chunk
+            .executable_semantics
+            .add_trait_invocation(spec, range)?;
+        self.emit(Bytecode::InvokeTraitSelected { selection: index, arity }, range);
+        Ok(true)
+    }
+
+    /// Emits an abstract requirement invocation for a trait default.
+    pub(crate) fn emit_trait_requirement_if_present(&mut self, arity: u8, range: SourceRange) -> Result<bool, CompilerError> {
+        let Some(lowering) = self.lowering() else { return Ok(false) };
+        let Some((_, spec)) = lowering
+            .trait_requirement_invocations
+            .iter()
+            .find(|(site, _)| site.range == range && site.kind == crate::modules::semantic_lowering::LoweringSiteKind::TraitRequirementInvoke)
+        else {
+            return Ok(false);
+        };
+        let spec = spec.clone();
+        let index = self
+            .functions
+            .last_mut()
+            .expect("compiler always has an active function")
+            .chunk
+            .executable_semantics
+            .add_trait_requirement_invocation(spec, range)?;
+        self.emit(Bytecode::InvokeTraitRequirement { slot: index, arity }, range);
+        Ok(true)
+    }
+
     /// Emits a read of the receiver `self` for the current body.
     ///
     /// In a method/module body `self` is the frame receiver, emitted as

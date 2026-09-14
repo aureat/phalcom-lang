@@ -752,7 +752,7 @@ class Client {
             .snapshot
             .callable_analyses
             .keys()
-            .all(|callable| callable.owner.name.as_ref() != "Api"),
+            .all(|callable| callable.try_declaration_owner().is_none_or(|owner| owner.name.as_ref() != "Api")),
         "removed declarations must not leave stale callable products"
     );
 

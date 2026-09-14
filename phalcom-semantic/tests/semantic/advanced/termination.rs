@@ -70,6 +70,8 @@ fn test_interprocedural_effect_propagation() {
             callable: None,
             call_specialization: None,
             conditional_dispatch: None,
+            trait_dispatch: None,
+            trait_dispatch_candidates: None,
             denotation: None,
             status: AnalysisStatus::DynamicBoundary(DynamicReason::DynamicRestPack),
             causal_invalidity: phalcom_semantic::checker::CausalInvalidity::Clean,

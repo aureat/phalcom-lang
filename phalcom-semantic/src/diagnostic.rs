@@ -116,6 +116,7 @@ pub enum DiagnosticCode {
     ImplUnusedTypeParameter,
     ImplEnumCaseTargetUnsupported,
     ImplConformanceOverlap,
+    ImplConformanceIncomplete,
     TraitMemberConflict,
 }
 
@@ -220,6 +221,7 @@ impl DiagnosticCode {
             Self::ImplUnusedTypeParameter => "impl.type_parameter.unused",
             Self::ImplEnumCaseTargetUnsupported => "impl.target.enum_case_unsupported",
             Self::ImplConformanceOverlap => "impl.conformance.overlap",
+            Self::ImplConformanceIncomplete => "impl.conformance.incomplete",
             Self::TraitMemberConflict => "trait.member.conflict",
         }
     }

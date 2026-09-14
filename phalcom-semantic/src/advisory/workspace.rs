@@ -139,7 +139,7 @@ impl AdvisoryWorkspace {
     /// Returns parameter fact only when a product was published for `slot`.
     pub fn parameter(&self, slot: &AdvisoryParameterSlot) -> Option<&AdvisoryFact> {
         self.modules
-            .get(&slot.callable.owner.module)
+            .get(slot.callable.owner.module())
             .and_then(|module| module.parameters.get(slot))
             .or_else(|| {
                 self.callables
@@ -168,7 +168,7 @@ impl AdvisoryWorkspace {
     fn module_for_site(&self, site: &SourceSiteId) -> Option<&AdvisoryModuleProduct> {
         let module = match &site.owner {
             crate::identity::SourceOwner::Module(module) => module,
-            crate::identity::SourceOwner::Callable(callable) => &callable.owner.module,
+            crate::identity::SourceOwner::Callable(callable) => callable.owner.module(),
         };
         self.modules.get(module).map(AsRef::as_ref)
     }

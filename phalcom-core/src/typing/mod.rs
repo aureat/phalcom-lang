@@ -1,6 +1,7 @@
 //! Runtime typing registry, immutable metadata pools, typing contexts, descriptors, and reification.
 
 pub mod capability;
+pub mod conformance_environment;
 pub mod context;
 pub mod environment;
 pub mod handle;
@@ -12,6 +13,7 @@ pub mod reify;
 pub mod side_table;
 
 pub use capability::*;
+pub use conformance_environment::*;
 pub use context::*;
 pub use environment::*;
 pub use handle::*;

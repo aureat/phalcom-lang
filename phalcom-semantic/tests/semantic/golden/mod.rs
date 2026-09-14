@@ -72,10 +72,10 @@ fn golden_01_generic_self_chain() {
     let value = f.callable_id("Box", "value", DispatchSide::Instance);
 
     f.assert_subtype(cat, animal);
-    assert_eq!(wrap.owner.name.as_ref(), "Maker");
-    assert_eq!(echo.owner.name.as_ref(), "AnimalMaker");
-    assert_eq!(boxed.owner.name.as_ref(), "SelfNode");
-    assert_eq!(value.owner.name.as_ref(), "Box");
+    assert_eq!(wrap.try_declaration_owner().expect("Maker owner").name.as_ref(), "Maker");
+    assert_eq!(echo.try_declaration_owner().expect("AnimalMaker owner").name.as_ref(), "AnimalMaker");
+    assert_eq!(boxed.try_declaration_owner().expect("SelfNode owner").name.as_ref(), "SelfNode");
+    assert_eq!(value.try_declaration_owner().expect("Box owner").name.as_ref(), "Box");
     f.assert_binding_expectation(probe, "animals", binding().declared(box_animal).current(known(box_animal)));
     assert!(f.binding(probe, "nodeBox").current.ty().is_some());
     assert!(f.binding(probe, "node").current.ty().is_some());
@@ -110,7 +110,12 @@ fn golden_02_flow_pattern_publication() {
     assert_ne!(f.binding(service, "animal").binding, f.binding(service, "count").binding);
     assert!(f.binding(service, "result").current.status().is_some());
     f.assert_callable_dependency(service, &pair_callable);
-    assert!(service.dependencies.iter().any(|dependency| dependency.owner.name.as_ref() == "Factory"));
+    assert!(
+        service
+            .dependencies
+            .iter()
+            .any(|dependency| dependency.try_declaration_owner().is_some_and(|owner| owner.name.as_ref() == "Factory"))
+    );
     f.assert_no_error_diagnostics();
 }
 
@@ -166,7 +171,12 @@ fn golden_04_family_callable() {
     f.assert_expression_ready(f.expression(service, "pattern(value: \"x\")"));
     f.assert_expression_ready(f.expression(service, "pattern()"));
     assert!(router.dependencies.is_empty());
-    assert!(service.dependencies.iter().any(|dependency| dependency.owner.name.as_ref() == "Router"));
+    assert!(
+        service
+            .dependencies
+            .iter()
+            .any(|dependency| dependency.try_declaration_owner().is_some_and(|owner| owner.name.as_ref() == "Router"))
+    );
     f.assert_no_error_diagnostics();
 }
 
@@ -300,7 +310,12 @@ fn golden_09_closure_flow() {
     f.assert_expression_ready(f.expression(service, "Apply.apply(42, with: transform)"));
     assert_eq!(f.bindings_named(service, "base").len(), 1);
     assert_ne!(f.binding(service, "base").binding, f.binding(service, "transform").binding);
-    assert!(service.dependencies.iter().any(|dependency| dependency.owner.name.as_ref() == "Apply"));
+    assert!(
+        service
+            .dependencies
+            .iter()
+            .any(|dependency| dependency.try_declaration_owner().is_some_and(|owner| owner.name.as_ref() == "Apply"))
+    );
     f.assert_no_error_diagnostics();
 }
 
@@ -351,9 +366,9 @@ fn golden_11_recursive_fixed_point() {
     let walker_run = f.callable_id("IntWalker", "run", DispatchSide::Instance);
     let value = f.callable_id("Item", "value", DispatchSide::Instance);
 
-    assert_eq!(visit.callable.owner.name.as_ref(), "Walker");
-    assert_eq!(revisit.callable.owner.name.as_ref(), "Walker");
-    assert_eq!(run.callable.owner.name.as_ref(), "IntWalker");
+    assert_eq!(visit.callable.try_declaration_owner().expect("Walker owner").name.as_ref(), "Walker");
+    assert_eq!(revisit.callable.try_declaration_owner().expect("Walker owner").name.as_ref(), "Walker");
+    assert_eq!(run.callable.try_declaration_owner().expect("IntWalker owner").name.as_ref(), "IntWalker");
     f.assert_expression_call_target(f.expression(visit, "self.revisit(item.next(), fuel - 1)"), &revisit_id);
     f.assert_expression_call_target(f.expression(revisit, "self.visit(item.next(), fuel - 1)"), &visit_id);
     f.assert_expression_call_target(f.expression(run, "self.visit(item, fuel)"), &visit_id);

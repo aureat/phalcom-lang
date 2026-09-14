@@ -28,7 +28,7 @@ use crate::db::state::QueryOutcome;
 use crate::declarations::{
     DeclarationTypeInfo, DeclarationTypeTable, GenericSupertypeTemplate, NominalDeclarationHeader, TypeDeclarationShell, bootstrap_universe_declarations,
 };
-use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
+use crate::diagnostic::{DiagnosticCode, DiagnosticLabel, SemanticDiagnostic, SemanticSourceSpan};
 use crate::dispatch::SurfaceDispatchResolver;
 use crate::enum_requirements::{EnumRequirementTable, check_enum_requirements};
 use crate::enum_semantics::{EnumSemanticTable, VariantInfo};
@@ -3632,6 +3632,34 @@ impl SemanticWorkspaceSession {
                 .collect()
         });
 
+        // Conformance signatures and body presence are already canonical at
+        // this point. Publish witness/default plans before ordinary callable
+        // bodies are checked so the canonical dispatch resolver can consume
+        // exact P2 evidence during those bodies.
+        publish_conformance_witness_plans(
+            Arc::make_mut(&mut self.store),
+            &hierarchy,
+            &dispatch,
+            &declarations,
+            &conformance_index,
+            &callable_signatures,
+            &mut conformance_witness_plans,
+            &conformance_witness_bodies,
+            &conformance_witness_visibilities,
+            &conformance_invalid_witnesses,
+            &conformance_invalid_members,
+            &data_semantics,
+            &trait_surfaces,
+            &mut diags_by_module,
+        );
+        let trait_dispatch_index = crate::trait_dispatch::TraitDispatchIndex::build(&conformance_index, &trait_surfaces);
+        let conformance_semantics = crate::trait_dispatch::ConformanceSemanticView {
+            trait_dispatch: &trait_dispatch_index,
+            conformance_index: &conformance_index,
+            witness_plans: &conformance_witness_plans,
+            trait_surfaces: &trait_surfaces,
+        };
+
         // Trait defaults are checked once against the complete abstract
         // contract. They receive the trait header directly instead of
         // looking for a nominal declaration entry, and their `Self` receiver
@@ -3684,6 +3712,7 @@ impl SemanticWorkspaceSession {
                         enum_semantics: Some(&enum_semantics),
                         data_semantics: Some(&data_semantics),
                         associated_families: Some(&associated_surfaces_table),
+                        conformance_semantics: Some(&conformance_semantics),
                     };
                     let outcome = query_callable_body_with_formal_inputs(
                         &mut self.db,
@@ -3834,6 +3863,7 @@ impl SemanticWorkspaceSession {
                                     enum_semantics: Some(&enum_semantics),
                                     data_semantics: Some(&data_semantics),
                                     associated_families: Some(&associated_surfaces_table),
+                                    conformance_semantics: Some(&conformance_semantics),
                                 };
 
                                 if previous_snapshot.is_some()
@@ -3988,6 +4018,7 @@ impl SemanticWorkspaceSession {
                                     enum_semantics: Some(&enum_semantics),
                                     data_semantics: Some(&data_semantics),
                                     associated_families: Some(&associated_surfaces_table),
+                                    conformance_semantics: Some(&conformance_semantics),
                                 };
                                 if previous_snapshot.is_some()
                                     && !callable_body_work.contains(&callable)
@@ -4168,6 +4199,7 @@ impl SemanticWorkspaceSession {
                                     enum_semantics: Some(&enum_semantics),
                                     data_semantics: Some(&data_semantics),
                                     associated_families: Some(&associated_surfaces_table),
+                                    conformance_semantics: Some(&conformance_semantics),
                                 };
 
                                 if previous_snapshot.is_some()
@@ -4239,143 +4271,6 @@ impl SemanticWorkspaceSession {
             }
         }
 
-        // Witness/default selection is published only after source witness
-        // bodies have been exposed to the canonical body query. This keeps a
-        // bodyless explicit member incomplete instead of treating its
-        // signature alone as proof of conformance.
-        for (impl_id, contribution) in conformance_index.iter() {
-            if !contribution.is_lookup_eligible() {
-                continue;
-            }
-            if let Some(surface) = trait_surfaces.get(&contribution.trait_ref.declaration) {
-                let requirement_views = crate::impls::instantiate_conformance_requirements(
-                    Arc::make_mut(&mut self.store),
-                    Some(&declarations),
-                    surface,
-                    &contribution.trait_ref,
-                    contribution.target_head,
-                    &HashMap::new(),
-                );
-                let mut inherent_candidates: BTreeMap<crate::traits::TraitRequirementId, crate::impls::EffectiveInherentWitness> = BTreeMap::new();
-                let mut data_candidates = BTreeMap::new();
-                let mut terminal_candidates = BTreeMap::new();
-                for (requirement, _member) in surface.iter() {
-                    let ambient_constraints = contribution
-                        .generic_signature
-                        .as_ref()
-                        .map(|signature| signature.constraints.as_ref())
-                        .unwrap_or(&[]);
-                    let effective = crate::impls::resolve_effective_inherent_witness(
-                        Arc::make_mut(&mut self.store),
-                        &hierarchy,
-                        &dispatch,
-                        &callable_signatures,
-                        contribution.target_head,
-                        contribution.target.declaration(),
-                        &requirement.selector,
-                        requirement.side,
-                        ambient_constraints,
-                    );
-                    match effective {
-                        crate::impls::EffectiveInherentWitnessResolution::Candidate(effective) => {
-                            if let Some(required) = requirement_views.get(requirement) {
-                                let compatibility = crate::impls::check_witness_compatibility_with_visibility(
-                                    Arc::make_mut(&mut self.store),
-                                    &hierarchy,
-                                    required,
-                                    &effective.signature,
-                                    effective.visibility,
-                                );
-                                if matches!(compatibility, crate::impls::WitnessCompatibility::Compatible(_)) {
-                                    inherent_candidates.insert(requirement.clone(), effective);
-                                    continue;
-                                }
-                                if let Some(terminal) = crate::impls::witness_compatibility_terminal_state(&compatibility) {
-                                    terminal_candidates.entry(requirement.clone()).or_insert(terminal);
-                                }
-                            }
-                        }
-                        effective @ (crate::impls::EffectiveInherentWitnessResolution::Unknown(_)
-                        | crate::impls::EffectiveInherentWitnessResolution::Blocked(_)
-                        | crate::impls::EffectiveInherentWitnessResolution::Dynamic(_)
-                        | crate::impls::EffectiveInherentWitnessResolution::Cancelled
-                        | crate::impls::EffectiveInherentWitnessResolution::BudgetExceeded(_)
-                        | crate::impls::EffectiveInherentWitnessResolution::InternalFailure(_)) => {
-                            let terminal = match effective {
-                                crate::impls::EffectiveInherentWitnessResolution::Unknown(reason) => {
-                                    Some(crate::impls::ConformanceCompleteness::Unknown(reason))
-                                }
-                                crate::impls::EffectiveInherentWitnessResolution::Blocked(reason) => {
-                                    Some(crate::impls::ConformanceCompleteness::Blocked(reason))
-                                }
-                                crate::impls::EffectiveInherentWitnessResolution::Dynamic(obligation) => {
-                                    Some(crate::impls::ConformanceCompleteness::Dynamic(obligation))
-                                }
-                                crate::impls::EffectiveInherentWitnessResolution::Cancelled => Some(crate::impls::ConformanceCompleteness::Cancelled),
-                                crate::impls::EffectiveInherentWitnessResolution::BudgetExceeded(report) => {
-                                    Some(crate::impls::ConformanceCompleteness::BudgetExceeded(report))
-                                }
-                                crate::impls::EffectiveInherentWitnessResolution::InternalFailure(message) => {
-                                    Some(crate::impls::ConformanceCompleteness::InternalFailure(message))
-                                }
-                                crate::impls::EffectiveInherentWitnessResolution::NotFound | crate::impls::EffectiveInherentWitnessResolution::Candidate(_) => {
-                                    None
-                                }
-                            };
-                            if let Some(terminal) = terminal {
-                                terminal_candidates.entry(requirement.clone()).or_insert(terminal);
-                            }
-                        }
-                        crate::impls::EffectiveInherentWitnessResolution::NotFound => {}
-                    }
-                    if matches!(requirement.selector.kind, phalcom_common::selector::SelectorKind::Getter)
-                        && let Some(info) = data_semantics.get(contribution.target.declaration())
-                        && let Some(component) = info.find_component(&requirement.selector.encode())
-                        && let Some(component_type) = component.declared_type.canonical_type()
-                        && let specialized_component_type = crate::impls::specialize_conformance_target_type(
-                            Arc::make_mut(&mut self.store),
-                            &declarations,
-                            contribution.target_head,
-                            &HashMap::new(),
-                            component_type,
-                        )
-                        && requirement_views.get(requirement).is_some_and(|required| {
-                            let compatibility = crate::impls::check_data_component_compatibility(
-                                Arc::make_mut(&mut self.store),
-                                &hierarchy,
-                                required,
-                                specialized_component_type,
-                            );
-                            if let Some(terminal) = crate::impls::witness_compatibility_terminal_state(&compatibility) {
-                                terminal_candidates.entry(requirement.clone()).or_insert(terminal);
-                                false
-                            } else {
-                                matches!(compatibility, crate::impls::WitnessCompatibility::Compatible(_))
-                            }
-                        })
-                    {
-                        data_candidates.insert(requirement.clone(), (component.id.clone(), specialized_component_type));
-                    }
-                }
-                let plan = crate::impls::build_conformance_witness_plan(
-                    contribution,
-                    Arc::make_mut(&mut self.store),
-                    &declarations,
-                    &hierarchy,
-                    surface,
-                    &callable_signatures,
-                    &conformance_witness_bodies,
-                    &conformance_witness_visibilities,
-                    conformance_invalid_witnesses.get(impl_id).unwrap_or(&BTreeSet::new()),
-                    conformance_invalid_members.contains(impl_id),
-                    &inherent_candidates,
-                    &data_candidates,
-                    &terminal_candidates,
-                );
-                conformance_witness_plans.insert(impl_id.clone(), Arc::new(plan));
-            }
-        }
-
         // Only a recomputed callable signature can publish a changed contract
         // to callers. A body-only recomputation with an unchanged declared
         // signature must stop at the provider.
@@ -4424,6 +4319,7 @@ impl SemanticWorkspaceSession {
                 enum_semantics: Some(&enum_semantics),
                 data_semantics: Some(&data_semantics),
                 associated_families: Some(&associated_surfaces_table),
+                conformance_semantics: Some(&conformance_semantics),
             };
             let has_declared_return = callable_signatures
                 .get_for_body(&callable)
@@ -4804,6 +4700,7 @@ impl SemanticWorkspaceSession {
         }
         source_index.set_stats(source_index_stats);
 
+        let trait_dispatch_index = crate::trait_dispatch::TraitDispatchIndex::build(&conformance_index, &trait_surfaces);
         let mut snapshot_obj = SemanticSnapshot::new_with_callable_analyses(
             self.workspace,
             self.db.revision(),
@@ -4824,6 +4721,7 @@ impl SemanticWorkspaceSession {
         snapshot_obj = snapshot_obj.with_callable_definitions(Arc::new(callable_definitions));
         snapshot_obj = snapshot_obj.with_conformance_index(Arc::new(conformance_index));
         snapshot_obj = snapshot_obj.with_conformance_witness_plans(Arc::new(conformance_witness_plans));
+        snapshot_obj = snapshot_obj.with_trait_dispatch_index(Arc::new(trait_dispatch_index));
         snapshot_obj = snapshot_obj.with_presentation_sources(Arc::new(presentation_sources));
         snapshot_obj = snapshot_obj.with_source_index(Arc::new(source_index));
         snapshot_obj = snapshot_obj.with_formal_projection(Arc::new(formal_projection));
@@ -5309,6 +5207,7 @@ fn query_key_module_for_worklist(key: &QueryKey) -> Option<&ModuleId> {
         | QueryKey::VerificationConditions(callable)
         | QueryKey::SourceFormalAttachment(callable)
         | QueryKey::AdvisoryCallable(callable) => Some(callable.module()),
+        QueryKey::ConformanceDispatch(impl_id) => Some(&impl_id.module),
     }
 }
 
@@ -6680,6 +6579,7 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
                             declarations,
                             dispatch,
                             trait_surface: None,
+                            conformance_semantics: None,
                             module: module_id.clone(),
                         },
                         crate::checker::body::CallableBodyRequest {
@@ -6696,6 +6596,7 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
                             enum_semantics: Some(enum_semantics),
                             data_semantics: Some(data_semantics),
                             associated_families: Some(associated_surfaces),
+                            conformance_semantics: None,
                         },
                     );
                     analysis.dependency_fingerprint = crate::db::fingerprint::callable_body_product_fingerprint(&analysis);
@@ -6726,6 +6627,247 @@ fn refresh_inferred_callable_results(inputs: InferredCallableRefreshInputs<'_>) 
     }
 
     Ok(())
+}
+
+fn witness_specialization_terminal(error: crate::types::specialization::ReceiverSpecializationFailure, context: &str) -> crate::impls::ConformanceCompleteness {
+    match error {
+        crate::types::specialization::ReceiverSpecializationFailure::Blocked(reason) => crate::impls::ConformanceCompleteness::Blocked(reason),
+        crate::types::specialization::ReceiverSpecializationFailure::Cancelled => crate::impls::ConformanceCompleteness::Cancelled,
+        crate::types::specialization::ReceiverSpecializationFailure::BudgetExceeded(report) => crate::impls::ConformanceCompleteness::BudgetExceeded(report),
+        other => crate::impls::ConformanceCompleteness::InternalFailure(format!("{context}: {other:?}").into_boxed_str()),
+    }
+}
+
+fn publish_conformance_witness_plans(
+    store: &mut TypeStore,
+    hierarchy: &dyn crate::types::relation::TypeHierarchy,
+    dispatch: &SurfaceDispatchResolver,
+    declarations: &DeclarationTypeTable,
+    conformance_index: &crate::impls::ConformanceIndex,
+    callable_signatures: &crate::signature::CallableSignatureTable,
+    conformance_witness_plans: &mut BTreeMap<crate::identity::ImplId, Arc<crate::impls::ConformanceWitnessPlan>>,
+    conformance_witness_bodies: &BTreeSet<CallableId>,
+    conformance_witness_visibilities: &BTreeMap<CallableId, crate::surface::MemberVisibility>,
+    conformance_invalid_witnesses: &BTreeMap<crate::identity::ImplId, BTreeSet<crate::traits::TraitRequirementId>>,
+    conformance_invalid_members: &BTreeSet<crate::identity::ImplId>,
+    data_semantics: &DataSemanticTable,
+    trait_surfaces: &TraitSurfaceTable,
+    diags_by_module: &mut BTreeMap<ModuleId, Vec<SemanticDiagnostic>>,
+) {
+    for (impl_id, contribution) in conformance_index.iter() {
+        if !contribution.is_lookup_eligible() {
+            continue;
+        }
+        let Some(surface) = trait_surfaces.get(&contribution.trait_ref.declaration) else {
+            continue;
+        };
+        let requirement_views = crate::impls::instantiate_conformance_requirements(
+            store,
+            Some(declarations),
+            surface,
+            &contribution.trait_ref,
+            contribution.target_head,
+            &HashMap::new(),
+        );
+        let mut inherent_candidates = BTreeMap::new();
+        let mut inherent_mismatches = BTreeMap::new();
+        let mut deferred_inherent_candidates = BTreeMap::new();
+        let mut data_candidates = BTreeMap::new();
+        let mut terminal_candidates = BTreeMap::new();
+        for (requirement, _member) in surface.iter() {
+            let ambient_constraints = contribution
+                .generic_signature
+                .as_ref()
+                .map(|signature| signature.constraints.as_ref())
+                .unwrap_or(&[]);
+            let effective = crate::impls::resolve_effective_inherent_witness(
+                store,
+                hierarchy,
+                dispatch,
+                callable_signatures,
+                contribution.target_head,
+                contribution.target.declaration(),
+                &requirement.selector,
+                requirement.side,
+                ambient_constraints,
+            );
+            match effective {
+                crate::impls::EffectiveInherentWitnessResolution::Candidate(candidate) => {
+                    let Some(required) = requirement_views.get(requirement) else { continue };
+                    let candidate_signature = match crate::impls::specialize_witness_signature(
+                        store,
+                        hierarchy,
+                        contribution.target_head,
+                        &candidate.owner,
+                        candidate.signature.clone(),
+                    ) {
+                        Ok(signature) => signature,
+                        Err(error) => {
+                            let state = witness_specialization_terminal(error, "inherent witness specialization failed");
+                            terminal_candidates
+                                .entry(requirement.clone())
+                                .and_modify(|current| crate::impls::replace_with_stronger_terminal_state(current, state.clone()))
+                                .or_insert(state);
+                            continue;
+                        }
+                    };
+                    let compatibility =
+                        crate::impls::check_witness_compatibility_with_visibility(store, hierarchy, required, &candidate_signature, candidate.visibility);
+                    if matches!(compatibility, crate::impls::WitnessCompatibility::Compatible(_)) {
+                        inherent_candidates.insert(requirement.clone(), candidate);
+                    } else {
+                        if let crate::impls::WitnessCompatibility::Incompatible(mismatch) = &compatibility {
+                            inherent_mismatches.insert(requirement.clone(), mismatch.reason.clone());
+                        }
+                        if let Some(state) = crate::impls::witness_compatibility_terminal_state(&compatibility) {
+                            terminal_candidates
+                                .entry(requirement.clone())
+                                .and_modify(|current| crate::impls::replace_with_stronger_terminal_state(current, state.clone()))
+                                .or_insert(state);
+                        }
+                    }
+                }
+                crate::impls::EffectiveInherentWitnessResolution::Deferred { candidate, state } => {
+                    let Some(required) = requirement_views.get(requirement) else { continue };
+                    let candidate_signature = match crate::impls::specialize_witness_signature(
+                        store,
+                        hierarchy,
+                        contribution.target_head,
+                        &candidate.owner,
+                        candidate.signature.clone(),
+                    ) {
+                        Ok(signature) => signature,
+                        Err(error) => {
+                            let state = witness_specialization_terminal(error, "deferred inherent witness specialization failed");
+                            terminal_candidates
+                                .entry(requirement.clone())
+                                .and_modify(|current| crate::impls::replace_with_stronger_terminal_state(current, state.clone()))
+                                .or_insert(state);
+                            continue;
+                        }
+                    };
+                    let compatibility =
+                        crate::impls::check_witness_compatibility_with_visibility(store, hierarchy, required, &candidate_signature, candidate.visibility);
+                    match compatibility {
+                        crate::impls::WitnessCompatibility::Compatible(_) => {
+                            deferred_inherent_candidates.insert(requirement.clone(), (candidate, state));
+                        }
+                        crate::impls::WitnessCompatibility::Incompatible(mismatch) => {
+                            inherent_mismatches.insert(requirement.clone(), mismatch.reason);
+                        }
+                        other => {
+                            if let Some(state) = crate::impls::witness_compatibility_terminal_state(&other) {
+                                terminal_candidates
+                                    .entry(requirement.clone())
+                                    .and_modify(|current| crate::impls::replace_with_stronger_terminal_state(current, state.clone()))
+                                    .or_insert(state);
+                            }
+                        }
+                    }
+                }
+                crate::impls::EffectiveInherentWitnessResolution::Unknown(reason) => {
+                    let state = crate::impls::ConformanceCompleteness::Unknown(reason);
+                    terminal_candidates
+                        .entry(requirement.clone())
+                        .and_modify(|current| crate::impls::replace_with_stronger_terminal_state(current, state.clone()))
+                        .or_insert(state);
+                }
+                crate::impls::EffectiveInherentWitnessResolution::Blocked(reason) => {
+                    let state = crate::impls::ConformanceCompleteness::Blocked(reason);
+                    terminal_candidates
+                        .entry(requirement.clone())
+                        .and_modify(|current| crate::impls::replace_with_stronger_terminal_state(current, state.clone()))
+                        .or_insert(state);
+                }
+                crate::impls::EffectiveInherentWitnessResolution::Dynamic(obligation) => {
+                    let state = crate::impls::ConformanceCompleteness::Dynamic(obligation);
+                    terminal_candidates
+                        .entry(requirement.clone())
+                        .and_modify(|current| crate::impls::replace_with_stronger_terminal_state(current, state.clone()))
+                        .or_insert(state);
+                }
+                crate::impls::EffectiveInherentWitnessResolution::Cancelled => {
+                    terminal_candidates.insert(requirement.clone(), crate::impls::ConformanceCompleteness::Cancelled);
+                }
+                crate::impls::EffectiveInherentWitnessResolution::BudgetExceeded(report) => {
+                    terminal_candidates
+                        .entry(requirement.clone())
+                        .and_modify(|current| {
+                            crate::impls::replace_with_stronger_terminal_state(current, crate::impls::ConformanceCompleteness::BudgetExceeded(report.clone()))
+                        })
+                        .or_insert_with(|| crate::impls::ConformanceCompleteness::BudgetExceeded(report));
+                }
+                crate::impls::EffectiveInherentWitnessResolution::InternalFailure(message) => {
+                    terminal_candidates
+                        .entry(requirement.clone())
+                        .and_modify(|current| {
+                            crate::impls::replace_with_stronger_terminal_state(current, crate::impls::ConformanceCompleteness::InternalFailure(message.clone()))
+                        })
+                        .or_insert_with(|| crate::impls::ConformanceCompleteness::InternalFailure(message));
+                }
+                crate::impls::EffectiveInherentWitnessResolution::NotFound => {}
+            }
+            if matches!(requirement.selector.kind, phalcom_common::selector::SelectorKind::Getter)
+                && let Some(info) = data_semantics.get(contribution.target.declaration())
+                && let Some(component) = info.find_component(&requirement.selector.encode())
+                && let Some(component_type) = component.declared_type.canonical_type()
+            {
+                let specialized_component_type =
+                    crate::impls::specialize_conformance_target_type(store, declarations, contribution.target_head, &HashMap::new(), component_type);
+                if requirement_views.get(requirement).is_some_and(|required| {
+                    let compatibility = crate::impls::check_data_component_compatibility(store, hierarchy, required, specialized_component_type);
+                    if let Some(state) = crate::impls::witness_compatibility_terminal_state(&compatibility) {
+                        terminal_candidates
+                            .entry(requirement.clone())
+                            .and_modify(|current| crate::impls::replace_with_stronger_terminal_state(current, state.clone()))
+                            .or_insert(state);
+                        false
+                    } else {
+                        matches!(compatibility, crate::impls::WitnessCompatibility::Compatible(_))
+                    }
+                }) {
+                    data_candidates.insert(requirement.clone(), (component.id.clone(), specialized_component_type));
+                }
+            }
+        }
+        let invalid_requirements = conformance_invalid_witnesses.get(impl_id).cloned().unwrap_or_default();
+        let plan = crate::impls::build_conformance_witness_plan(
+            contribution,
+            store,
+            declarations,
+            hierarchy,
+            surface,
+            callable_signatures,
+            conformance_witness_bodies,
+            conformance_witness_visibilities,
+            &invalid_requirements,
+            conformance_invalid_members.contains(impl_id),
+            &inherent_candidates,
+            &inherent_mismatches,
+            &deferred_inherent_candidates,
+            &data_candidates,
+            &terminal_candidates,
+        );
+        if let crate::impls::ConformanceCompleteness::Incomplete { failures } = &plan.completeness {
+            let mut diagnostic = SemanticDiagnostic::error_in(
+                contribution.source.module.clone(),
+                DiagnosticCode::ImplConformanceIncomplete,
+                format!(
+                    "conformance for `{}` does not satisfy all requirements",
+                    contribution.trait_ref.declaration.name
+                ),
+                contribution.source.range,
+            );
+            for failure in failures {
+                diagnostic.labels.push(DiagnosticLabel::new(
+                    SemanticSourceSpan::new(contribution.source.module.clone(), contribution.source.range),
+                    format!("requirement `{}`: {}", failure.requirement.selector, failure.reason),
+                ));
+            }
+            diags_by_module.entry(contribution.source.module.clone()).or_default().push(diagnostic);
+        }
+        conformance_witness_plans.insert(impl_id.clone(), Arc::new(plan));
+    }
 }
 
 #[cfg(test)]

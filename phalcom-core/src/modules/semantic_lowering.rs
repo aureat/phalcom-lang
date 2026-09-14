@@ -34,6 +34,8 @@ pub enum LoweringSiteKind {
     FamilyApplication,
     Match,
     ConditionalInvoke,
+    TraitInvoke,
+    TraitRequirementInvoke,
 }
 
 /// Compiler-facing lowering attachment key.
@@ -251,6 +253,9 @@ pub enum CallableReferenceLoweringSpec {
         spec: BehavioralFamilySpec,
         conditional_members: Box<[ExecutableConditionalFamilyEntry]>,
     },
+    /// Exact receiver-bound trait selection. The runtime captures the
+    /// selected method and conformance environment at reference creation.
+    MakeTraitBoundMethod { invocation: TraitInvocationSpec },
     /// Exact associated behavioral member reification as a bound method.
     MakeResolvedBoundMethod { target: ExecutableInvocationTarget },
     /// Exact associated variant constructor reification as a closure thunk.
@@ -385,6 +390,41 @@ pub struct ConditionalInvocationSpec {
     pub side: phalcom_semantic::identity::DispatchSide,
 }
 
+/// Exact semantic trait selection attached to an ordinary call/reference site.
+/// The compiler projects this product; it never performs trait discovery.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TraitInvocationSpec {
+    pub selection: phalcom_semantic::trait_dispatch::TraitDispatchSelection,
+    pub requirement_slot: u16,
+    pub requirement_slots: Box<[(phalcom_semantic::traits::TraitRequirementId, u16)]>,
+}
+
+/// Abstract requirement call inside a trait default. The active runtime
+/// conformance environment supplies the selected target for this slot.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TraitRequirementInvocationSpec {
+    pub requirement: phalcom_semantic::traits::TraitRequirementId,
+    pub requirement_slot: u16,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DetachedMethodSource {
+    ConformanceWitness {
+        impl_id: ImplId,
+        source_member_index: usize,
+    },
+    TraitDefault {
+        trait_declaration: DeclarationId,
+        source_member_index: usize,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DetachedMethodSpec {
+    pub callable: CallableId,
+    pub source: DetachedMethodSource,
+}
+
 /// Complete compiled lowering semantics for a single module.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ModuleLoweringSemantics {
@@ -405,6 +445,9 @@ pub struct ModuleLoweringSemantics {
     pub family_applications: BTreeMap<LoweringSite, FamilyApplicationLoweringSpec>,
     pub matches: BTreeMap<LoweringSite, MatchLoweringSpec>,
     pub conditional_invocations: BTreeMap<LoweringSite, ConditionalInvocationSpec>,
+    pub trait_invocations: BTreeMap<LoweringSite, TraitInvocationSpec>,
+    pub trait_requirement_invocations: BTreeMap<LoweringSite, TraitRequirementInvocationSpec>,
+    pub detached_methods: BTreeMap<CallableId, DetachedMethodSpec>,
 }
 
 impl ModuleLoweringSemantics {
@@ -424,6 +467,9 @@ impl ModuleLoweringSemantics {
             family_applications: BTreeMap::new(),
             matches: BTreeMap::new(),
             conditional_invocations: BTreeMap::new(),
+            trait_invocations: BTreeMap::new(),
+            trait_requirement_invocations: BTreeMap::new(),
+            detached_methods: BTreeMap::new(),
         }
     }
 }
@@ -461,6 +507,8 @@ pub enum ProjectionError {
     InvalidAnonymousProductSpec,
     #[error("open or unrepresentable data construction type {result_type:?} for {constructor:?}")]
     OpenDataConstructionType { constructor: DataConstructorId, result_type: TypeId },
+    #[error("missing executable slot for trait requirement {0:?}")]
+    MissingTraitRequirementSlot(phalcom_semantic::traits::TraitRequirementId),
 }
 
 fn contains_exact_case(store: &phalcom_semantic::types::TypeStore, ty: TypeId) -> bool {
@@ -721,6 +769,10 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
         let target = match &definition.callable.owner {
             phalcom_semantic::identity::CallableOwnerId::Declaration(decl) => InherentImplLoweringTarget::Declaration(decl.clone()),
             phalcom_semantic::identity::CallableOwnerId::Variant(var) => InherentImplLoweringTarget::ExactEnumCase(var.clone()),
+            // Conformance-local witnesses are detached semantic behavior. They
+            // are projected by the trait-dispatch lane, never installed as
+            // target-owned inherent members.
+            phalcom_semantic::identity::CallableOwnerId::Conformance(_) => continue,
         };
         let entry = inherent_impls_by_id.entry(impl_id.clone()).or_insert_with(|| (target.clone(), Vec::new()));
         debug_assert_eq!(entry.0, target, "one inherent impl cannot contribute to multiple targets");
@@ -761,6 +813,73 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
     let mut family_applications = BTreeMap::new();
     let mut matches = BTreeMap::new();
     let mut conditional_invocations = BTreeMap::new();
+    let mut trait_invocations = BTreeMap::new();
+    let mut trait_requirement_invocations = BTreeMap::new();
+    let mut detached_methods = BTreeMap::new();
+
+    for definition in snapshot
+        .callable_definitions
+        .values()
+        .filter(|definition| definition.callable.module() == module)
+    {
+        if let phalcom_semantic::impls::CallableDefinitionOrigin::ConformanceWitness(impl_id) = &definition.origin {
+            detached_methods.insert(
+                definition.callable.clone(),
+                DetachedMethodSpec {
+                    callable: definition.callable.clone(),
+                    source: DetachedMethodSource::ConformanceWitness {
+                        impl_id: impl_id.clone(),
+                        source_member_index: definition.source_member_index,
+                    },
+                },
+            );
+        }
+    }
+    if let Some(source) = snapshot.sources.get(module) {
+        for statement in &source.program.statements {
+            let phalcom_ast::ast::Statement::Trait(trait_def) = statement else { continue };
+            let trait_declaration = DeclarationId::new(module.clone(), trait_def.name.clone().into());
+            let Some(surface) = snapshot.trait_surfaces.get(&trait_declaration) else {
+                continue;
+            };
+            for (source_member_index, member) in trait_def.members.iter().enumerate() {
+                let member_range = match member {
+                    phalcom_ast::ast::BehaviorMember::Method(member) => member.range,
+                    phalcom_ast::ast::BehaviorMember::Getter(member) => member.range,
+                    phalcom_ast::ast::BehaviorMember::Setter(member) => member.range,
+                    phalcom_ast::ast::BehaviorMember::Index(member) => member.range,
+                };
+                let Some((_, surface_member)) = surface.iter().find(|(_, member)| member.source.range == member_range) else {
+                    continue;
+                };
+                if surface_member.default_present {
+                    detached_methods.insert(
+                        surface_member.callable.clone(),
+                        DetachedMethodSpec {
+                            callable: surface_member.callable.clone(),
+                            source: DetachedMethodSource::TraitDefault {
+                                trait_declaration: trait_declaration.clone(),
+                                source_member_index,
+                            },
+                        },
+                    );
+                }
+            }
+        }
+    }
+
+    let mut requirement_slots = BTreeMap::new();
+    for (_, surface) in snapshot.trait_surfaces.iter() {
+        for (requirement, _) in surface.iter() {
+            requirement_slots.entry(requirement.clone()).or_insert(0u16);
+        }
+    }
+    let requirement_order = requirement_slots.keys().cloned().collect::<Vec<_>>();
+    for (slot, requirement) in requirement_order.into_iter().enumerate() {
+        if let Ok(slot) = u16::try_from(slot) {
+            requirement_slots.insert(requirement, slot);
+        }
+    }
 
     for (callable_id, analysis) in snapshot.callable_analyses.iter() {
         if callable_id.owner.module() != module {
@@ -813,6 +932,37 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
                 && matches!(snapshot.store.get(ty), TypeData::Family(_))
             {
                 family_values.insert(LoweringSite::new(source_id.clone(), expression.range, LoweringSiteKind::FamilyApplication));
+            }
+
+            match expression.trait_dispatch.as_ref() {
+                Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::Evidenced(selection)) => {
+                    let Some(&requirement_slot) = requirement_slots.get(&selection.requirement) else {
+                        return Err(ProjectionError::MissingTraitRequirementSlot(selection.requirement.clone()));
+                    };
+                    let site = LoweringSite::new(source_id.clone(), expression.range, LoweringSiteKind::TraitInvoke);
+                    trait_invocations.insert(
+                        site,
+                        TraitInvocationSpec {
+                            selection: selection.clone(),
+                            requirement_slot,
+                            requirement_slots: requirement_slots.iter().map(|(requirement, slot)| (requirement.clone(), *slot)).collect(),
+                        },
+                    );
+                }
+                Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::AbstractRequirement { requirement }) => {
+                    let Some(&requirement_slot) = requirement_slots.get(requirement) else {
+                        return Err(ProjectionError::MissingTraitRequirementSlot(requirement.clone()));
+                    };
+                    let site = LoweringSite::new(source_id.clone(), expression.range, LoweringSiteKind::TraitRequirementInvoke);
+                    trait_requirement_invocations.insert(
+                        site,
+                        TraitRequirementInvocationSpec {
+                            requirement: requirement.clone(),
+                            requirement_slot,
+                        },
+                    );
+                }
+                None => {}
             }
         }
 
@@ -888,6 +1038,9 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
         family_applications,
         matches,
         conditional_invocations,
+        trait_invocations,
+        trait_requirement_invocations,
+        detached_methods,
     })
 }
 
@@ -1774,6 +1927,14 @@ fn project_callable_reference_resolution(
 ) -> Result<CallableReferenceLoweringSpec, ProjectionError> {
     match &resolution.kind {
         CallableReferenceResolutionKind::BoundFamily { spec, members, .. } => {
+            if matches!(spec, BehavioralFamilySpec::Exact(_))
+                && members.len() == 1
+                && let Some(selection) = members[0].trait_dispatch.as_ref()
+            {
+                return Ok(CallableReferenceLoweringSpec::MakeTraitBoundMethod {
+                    invocation: project_trait_invocation_spec(selection, snapshot)?,
+                });
+            }
             let conditional_members = members
                 .iter()
                 .filter_map(|member| {
@@ -1814,6 +1975,32 @@ fn project_callable_reference_resolution(
             }
         }
     }
+}
+
+fn project_trait_invocation_spec(
+    selection: &phalcom_semantic::trait_dispatch::TraitDispatchSelection,
+    snapshot: &SemanticSnapshot,
+) -> Result<TraitInvocationSpec, ProjectionError> {
+    let mut requirement_slots = BTreeMap::new();
+    for (_, surface) in snapshot.trait_surfaces.iter() {
+        for (requirement, _) in surface.iter() {
+            requirement_slots.entry(requirement.clone()).or_insert(0u16);
+        }
+    }
+    let requirement_order = requirement_slots.keys().cloned().collect::<Vec<_>>();
+    for (slot, requirement) in requirement_order.into_iter().enumerate() {
+        let slot = u16::try_from(slot).map_err(|_| ProjectionError::SlotOverflow(slot))?;
+        requirement_slots.insert(requirement, slot);
+    }
+    let Some(&requirement_slot) = requirement_slots.get(&selection.requirement) else {
+        return Err(ProjectionError::MissingTraitRequirementSlot(selection.requirement.clone()));
+    };
+    let requirement_slots = requirement_slots.into_iter().map(|(requirement, slot)| (requirement, slot)).collect();
+    Ok(TraitInvocationSpec {
+        selection: selection.clone(),
+        requirement_slot,
+        requirement_slots,
+    })
 }
 
 fn behavioral_operation(callable: &CallableId) -> FamilyOperationShape {

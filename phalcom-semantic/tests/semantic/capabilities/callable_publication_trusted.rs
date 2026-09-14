@@ -20,7 +20,7 @@ fn demo_run(analyses: &std::collections::HashMap<phalcom_semantic::CallableId, A
     let selector = Selector::method("run", []).expect("run selector");
     analyses
         .iter()
-        .find(|(callable, _)| callable.owner.name.as_ref() == "Demo" && callable.selector == selector)
+        .find(|(callable, _)| callable.try_declaration_owner().is_some_and(|owner| owner.name.as_ref() == "Demo") && callable.selector == selector)
         .map(|(_, analysis)| analysis.as_ref())
         .expect("Demo.run analysis")
 }

@@ -502,5 +502,6 @@ fn query_key_module(key: &QueryKey) -> Option<&ModuleId> {
         | QueryKey::VerificationConditions(callable)
         | QueryKey::SourceFormalAttachment(callable)
         | QueryKey::AdvisoryCallable(callable) => Some(callable.module()),
+        QueryKey::ConformanceDispatch(impl_id) => Some(&impl_id.module),
     }
 }

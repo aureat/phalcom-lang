@@ -1391,6 +1391,7 @@ pub struct CallableBodyFormalInputFingerprint<'a> {
     pub owner_generic_signature: Option<&'a GenericSignature>,
     pub declared_signature: Option<&'a CallableSemanticSignature>,
     pub trait_surface: Option<&'a crate::traits::TraitSurface>,
+    pub conformance_semantics: Option<&'a crate::trait_dispatch::ConformanceSemanticView<'a>>,
 }
 
 pub fn callable_body_input_fingerprint_with_formal_inputs(
@@ -1408,6 +1409,7 @@ pub fn callable_body_input_fingerprint_with_formal_inputs(
         owner_generic_signature,
         declared_signature,
         trait_surface,
+        conformance_semantics,
     } = inputs;
     let mut hasher = DefaultHasher::new();
     callable_body_input_fingerprint_with_owner_generics(callable, body, body_range, store, owner_generic_signature)
@@ -1426,6 +1428,12 @@ pub fn callable_body_input_fingerprint_with_formal_inputs(
     if let Some(surface) = trait_surface {
         1u8.hash(&mut hasher);
         trait_surface_product_fingerprint(surface).raw().hash(&mut hasher);
+    } else {
+        0u8.hash(&mut hasher);
+    }
+    if let Some(view) = conformance_semantics {
+        1u8.hash(&mut hasher);
+        view.fingerprint().raw().hash(&mut hasher);
     } else {
         0u8.hash(&mut hasher);
     }
@@ -1464,6 +1472,25 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
         hash_type_knowledge(&expression.knowledge, false, &mut hasher);
         expression.callable.hash(&mut hasher);
         expression.conditional_dispatch.hash(&mut hasher);
+        hash_trait_dispatch_site(expression.trait_dispatch.as_ref(), &mut hasher);
+        expression
+            .trait_dispatch_candidates
+            .as_ref()
+            .map(|candidates| {
+                candidates
+                    .iter()
+                    .map(|candidate| {
+                        let mut candidate_hasher = DefaultHasher::new();
+                        candidate.exact_trait_ref.hash(&mut candidate_hasher);
+                        candidate.requirement.hash(&mut candidate_hasher);
+                        candidate.source_impl.hash(&mut candidate_hasher);
+                        candidate.evidence_fingerprint.raw().hash(&mut candidate_hasher);
+                        hash_requirement_selection(&candidate.selection, &mut candidate_hasher);
+                        candidate_hasher.finish()
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .hash(&mut hasher);
         hash_denotation(&expression.denotation, &mut hasher);
         hash_analysis_status(&expression.status, &analysis.internal_incidents, &mut hasher);
         hash_causal_invalidity(expression.causal_invalidity, &mut hasher);
@@ -1497,6 +1524,84 @@ pub fn callable_body_product_fingerprint(analysis: &CallableAnalysis) -> Product
     // `dependency_fingerprint` is assigned from this fingerprint after
     // computation. Hashing it would make the product definition recursive.
     finish_product(hasher)
+}
+
+fn hash_trait_dispatch_site(site: Option<&crate::trait_dispatch::TraitDispatchSite>, hasher: &mut impl Hasher) {
+    match site {
+        None => 0u8.hash(hasher),
+        Some(crate::trait_dispatch::TraitDispatchSite::AbstractRequirement { requirement }) => {
+            1u8.hash(hasher);
+            requirement.hash(hasher);
+        }
+        Some(crate::trait_dispatch::TraitDispatchSite::Evidenced(selection)) => {
+            2u8.hash(hasher);
+            selection.source_impl.hash(hasher);
+            selection.exact_target.hash(hasher);
+            selection.exact_trait_ref.hash(hasher);
+            selection.requirement.hash(hasher);
+            selection.evidence_fingerprint.raw().hash(hasher);
+            hash_requirement_selection(&selection.selection, hasher);
+            selection.requirement_targets.len().hash(hasher);
+            for (requirement, target) in &selection.requirement_targets {
+                requirement.hash(hasher);
+                hash_requirement_selection(target, hasher);
+            }
+        }
+    }
+}
+
+fn hash_requirement_selection(selection: &crate::impls::RequirementSelectionTemplate, hasher: &mut impl Hasher) {
+    match selection {
+        crate::impls::RequirementSelectionTemplate::ConformanceCallable { callable } => {
+            0u8.hash(hasher);
+            callable.hash(hasher);
+        }
+        crate::impls::RequirementSelectionTemplate::InherentCallable {
+            callable,
+            conditional_impl,
+            applicability,
+        } => {
+            1u8.hash(hasher);
+            callable.hash(hasher);
+            conditional_impl.hash(hasher);
+            applicability
+                .as_ref()
+                .map(crate::trait_dispatch::inherent_specialization_fingerprint)
+                .hash(hasher);
+        }
+        crate::impls::RequirementSelectionTemplate::ConditionalInherent { candidate, pending, fallback } => {
+            2u8.hash(hasher);
+            candidate.callable.hash(hasher);
+            candidate.owner.hash(hasher);
+            candidate.conditional_impl.hash(hasher);
+            candidate
+                .applicability
+                .as_ref()
+                .map(crate::trait_dispatch::inherent_specialization_fingerprint)
+                .hash(hasher);
+            // The retained terminal state is an intermediate proof carrier;
+            // the selected conditional specialization/fallback identities
+            // below are the published semantic meaning.
+            std::mem::discriminant(pending).hash(hasher);
+            fallback
+                .as_deref()
+                .map(|selection| {
+                    let mut nested = DefaultHasher::new();
+                    hash_requirement_selection(selection, &mut nested);
+                    nested.finish()
+                })
+                .hash(hasher);
+        }
+        crate::impls::RequirementSelectionTemplate::DataComponent { component, specialized_type } => {
+            3u8.hash(hasher);
+            component.hash(hasher);
+            specialized_type.hash(hasher);
+        }
+        crate::impls::RequirementSelectionTemplate::TraitDefault { callable } => {
+            4u8.hash(hasher);
+            callable.hash(hasher);
+        }
+    }
 }
 
 fn hash_match_resolutions(resolutions: &crate::match_semantics::MatchResolutionIndex, hasher: &mut impl Hasher) {

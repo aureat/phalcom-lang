@@ -276,13 +276,6 @@ impl CallableOwnerId {
     }
 }
 
-impl std::ops::Deref for CallableOwnerId {
-    type Target = DeclarationId;
-    fn deref(&self) -> &Self::Target {
-        self.declaration()
-    }
-}
-
 impl From<DeclarationId> for CallableOwnerId {
     fn from(decl: DeclarationId) -> Self {
         Self::Declaration(decl)

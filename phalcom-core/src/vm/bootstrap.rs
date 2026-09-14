@@ -72,6 +72,8 @@ impl VM {
             module_registry: crate::modules::ModuleRegistry::new(),
             typing_registry: crate::typing::RuntimeTypingRegistry::new(),
             runtime_type_environments: crate::typing::RuntimeTypeEnvironmentRegistry::new(),
+            runtime_conformance_environments: crate::typing::RuntimeConformanceEnvironmentRegistry::new(),
+            detached_method_objects: HashMap::new(),
             runtime_typing_context: crate::typing::TypingContextData::new(Box::new([])),
             runtime_roots: None,
             universe_bootstrap_measurement: crate::vm::UniverseBootstrapMeasurement::default(),

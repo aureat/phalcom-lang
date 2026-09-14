@@ -149,14 +149,13 @@ fn is_query_owned_module(module: &ModuleId) -> bool {
     true
 }
 
-/// Returns whether declaration belongs to immutable canonical Universe input.
+/// Returns whether declaration is the aggregate Universe-root bootstrap input.
 ///
-/// Native surfaces and Universe source classes are installed as bootstrap
-/// products, not recomputed source-query products. They remain valid semantic
-/// inputs across revisions, so source-owned body queries must not capture
-/// revision-local dependencies on their declaration surfaces or signatures.
+/// Canonical built-in declarations owned by concrete Universe source modules
+/// remain ordinary semantic identities and must retain their fine-grained
+/// dependency edges. Only the aggregate root is bootstrap-owned here.
 fn is_bootstrap_declaration(declaration: &DeclarationId) -> bool {
-    matches!(declaration.module.project, phalcom_modules::ProjectIdentity::Universe)
+    declaration.module == ModuleId::universe_root()
 }
 
 /// Built-in type-test callables are represented by the standalone bootstrap
@@ -404,6 +403,8 @@ pub struct CheckingContext<'a> {
     expression_owned_causes: BTreeMap<ExpressionId, crate::identity::DiagnosticCauseId>,
     resolved_callables: BTreeMap<ExpressionId, CallableId>,
     resolved_conditional_dispatches: BTreeMap<ExpressionId, crate::dispatch::ConditionalDispatchSelection>,
+    resolved_trait_dispatches: BTreeMap<ExpressionId, crate::trait_dispatch::TraitDispatchSite>,
+    resolved_trait_dispatch_candidates: BTreeMap<ExpressionId, Box<[crate::trait_dispatch::TraitEvidencedMemberCandidate]>>,
     call_dependency_frames: Vec<CallDependencyFrame>,
     pub flow_graph: Option<std::sync::Arc<crate::checker::flow::graph::FlowGraph>>,
     pub dependencies: BTreeSet<CallableId>,
@@ -416,6 +417,7 @@ pub struct CheckingContext<'a> {
     /// Trait contract visible while checking a trait default body. This is
     /// deliberately separate from ordinary declaration dispatch surfaces.
     pub trait_surface: Option<&'a crate::traits::TraitSurface>,
+    pub conformance_semantics: Option<&'a crate::trait_dispatch::ConformanceSemanticView<'a>>,
     pub dispatch: DispatchAccess<'a>,
     pub ambient_constraints: Vec<crate::types::parameter::GenericConstraint>,
     pub self_override_type: Option<TypeId>,
@@ -509,6 +511,8 @@ impl<'a> CheckingContext<'a> {
             expression_owned_causes: BTreeMap::new(),
             resolved_callables: BTreeMap::new(),
             resolved_conditional_dispatches: BTreeMap::new(),
+            resolved_trait_dispatches: BTreeMap::new(),
+            resolved_trait_dispatch_candidates: BTreeMap::new(),
             call_dependency_frames: Vec::new(),
             flow_graph: None,
             dependencies: BTreeSet::new(),
@@ -519,6 +523,7 @@ impl<'a> CheckingContext<'a> {
             enum_table: None,
             associated_table: None,
             trait_surface: None,
+            conformance_semantics: None,
             dispatch: DispatchAccess::Owned(dispatch),
             ambient_constraints: Vec::new(),
             self_override_type: None,
@@ -594,6 +599,8 @@ impl<'a> CheckingContext<'a> {
             expression_owned_causes: BTreeMap::new(),
             resolved_callables: BTreeMap::new(),
             resolved_conditional_dispatches: BTreeMap::new(),
+            resolved_trait_dispatches: BTreeMap::new(),
+            resolved_trait_dispatch_candidates: BTreeMap::new(),
             call_dependency_frames: Vec::new(),
             flow_graph: None,
             dependencies: BTreeSet::new(),
@@ -604,6 +611,7 @@ impl<'a> CheckingContext<'a> {
             enum_table: None,
             associated_table: None,
             trait_surface: None,
+            conformance_semantics: None,
             dispatch: DispatchAccess::Borrowed(dispatch),
             ambient_constraints: Vec::new(),
             self_override_type: None,
@@ -658,6 +666,8 @@ impl<'a> CheckingContext<'a> {
             expression_owned_causes: self.expression_owned_causes.clone(),
             resolved_callables: self.resolved_callables.clone(),
             resolved_conditional_dispatches: self.resolved_conditional_dispatches.clone(),
+            resolved_trait_dispatches: self.resolved_trait_dispatches.clone(),
+            resolved_trait_dispatch_candidates: self.resolved_trait_dispatch_candidates.clone(),
             call_dependency_frames: self.call_dependency_frames.clone(),
             flow_graph: self.flow_graph.clone(),
             dependencies: self.dependencies.clone(),
@@ -668,6 +678,7 @@ impl<'a> CheckingContext<'a> {
             enum_table: self.enum_table,
             associated_table: self.associated_table,
             trait_surface: self.trait_surface,
+            conformance_semantics: self.conformance_semantics,
             dispatch: DispatchAccess::Borrowed(self.dispatch.get()),
             ambient_constraints: self.ambient_constraints.clone(),
             self_override_type: self.self_override_type,
@@ -1408,6 +1419,8 @@ impl<'a> CheckingContext<'a> {
         // accidentally inherit a specialization from an older solution.
         analysis.call_specialization = self.call_specializations.remove(&id);
         analysis.conditional_dispatch = self.resolved_conditional_dispatches.get(&id).cloned();
+        analysis.trait_dispatch = self.resolved_trait_dispatches.get(&id).cloned();
+        analysis.trait_dispatch_candidates = self.resolved_trait_dispatch_candidates.get(&id).cloned();
         analysis.denotation = typed.denotation.clone();
         analysis.status = typed.status.clone();
         analysis.causal_invalidity = typed.causal_invalidity;
@@ -1433,6 +1446,8 @@ impl<'a> CheckingContext<'a> {
             analysis.call_specialization = Some(specialization);
         }
         analysis.conditional_dispatch = self.resolved_conditional_dispatches.get(&id).cloned();
+        analysis.trait_dispatch = self.resolved_trait_dispatches.get(&id).cloned();
+        analysis.trait_dispatch_candidates = self.resolved_trait_dispatch_candidates.get(&id).cloned();
         analysis.denotation = typed.denotation.clone();
         analysis.status = typed.status.clone();
         analysis.causal_invalidity = typed.causal_invalidity;
@@ -1828,6 +1843,10 @@ impl<'a> CheckingContext<'a> {
         self.data_table = Some(data_table);
     }
 
+    pub fn attach_conformance_semantics(&mut self, view: &'a crate::trait_dispatch::ConformanceSemanticView<'a>) {
+        self.conformance_semantics = Some(view);
+    }
+
     /// Reads data metadata while recording the data-declaration dependency.
     pub fn data_info(&self, owner: &DeclarationId) -> Option<&crate::data_semantics::DataInfo> {
         let info = self.data_table.and_then(|t| t.get(owner).map(|arc| &**arc));
@@ -2080,6 +2099,7 @@ impl<'a> CheckingContext<'a> {
                 declaring_owner: variant.owner,
                 side,
             }),
+            trait_dispatch: None,
             abstract_contract: false,
             visited_owners,
         })
@@ -2118,12 +2138,19 @@ impl<'a> CheckingContext<'a> {
         self.record_semantic_dependency(SemanticDependency::TraitSurface(surface.declaration.clone()));
         if let Some(expression) = self.current_expression_id() {
             self.resolved_callables.insert(expression, member.callable.clone());
+            self.resolved_trait_dispatches.insert(
+                expression,
+                crate::trait_dispatch::TraitDispatchSite::AbstractRequirement {
+                    requirement: member.requirement.clone(),
+                },
+            );
         }
         Some(ResolvedDispatchResult::Found(Box::new(ResolvedDispatch {
             callable: member.callable.clone(),
             signature,
             specialization: None,
             conditional: None,
+            trait_dispatch: None,
             abstract_contract: true,
             visited_owners: Box::new([surface.declaration.clone()]),
         })))
@@ -2285,11 +2312,78 @@ impl<'a> CheckingContext<'a> {
                                             declaring_owner: owner.clone(),
                                             side,
                                         }),
+                                        trait_dispatch: None,
                                         abstract_contract: false,
                                         visited_owners,
                                     }));
                                 }
                             }
+                        }
+                    }
+                }
+                if let Some(view) = self.conformance_semantics {
+                    let trait_resolution = crate::trait_dispatch::resolve_trait_evidenced_candidates(
+                        view.trait_dispatch,
+                        view.conformance_index,
+                        view.witness_plans,
+                        view.trait_surfaces,
+                        self.declarations,
+                        self.store,
+                        &self.hierarchy,
+                        specialization_receiver,
+                        selector,
+                        side,
+                    );
+                    match trait_resolution {
+                        crate::trait_dispatch::TraitDispatchResolution::Found(selection) => {
+                            let callable = selection.callable.clone().unwrap_or_else(|| selection.requirement.source_callable());
+                            let signature = crate::checker::declaration_signature::project_semantic_signature(&selection.signature);
+                            self.dependencies.insert(callable.clone());
+                            self.record_semantic_dependency(SemanticDependency::ConformanceDispatch(selection.source_impl.clone()));
+                            self.record_semantic_dependency(SemanticDependency::TraitSurface(selection.requirement.owner.clone()));
+                            if let Some(expression) = self.current_expression_id() {
+                                self.resolved_callables.insert(expression, callable.clone());
+                                self.resolved_trait_dispatches
+                                    .insert(expression, crate::trait_dispatch::TraitDispatchSite::Evidenced(selection.clone()));
+                            }
+                            return ResolvedDispatchResult::Found(Box::new(ResolvedDispatch {
+                                callable,
+                                signature,
+                                specialization: None,
+                                conditional: None,
+                                trait_dispatch: Some(selection),
+                                abstract_contract: false,
+                                visited_owners: vec![].into_boxed_slice(),
+                            }));
+                        }
+                        crate::trait_dispatch::TraitDispatchResolution::Ambiguous(candidates) => {
+                            if let Some(expression) = self.current_expression_id() {
+                                self.resolved_trait_dispatch_candidates.insert(expression, candidates.clone());
+                            }
+                            let ambiguous = candidates
+                                .into_iter()
+                                .map(|candidate| ResolvedDispatch {
+                                    callable: crate::trait_dispatch::selected_callable(&candidate.selection)
+                                        .unwrap_or_else(|| candidate.requirement.source_callable()),
+                                    signature: crate::checker::declaration_signature::project_semantic_signature(&candidate.signature),
+                                    specialization: None,
+                                    conditional: None,
+                                    trait_dispatch: None,
+                                    abstract_contract: false,
+                                    visited_owners: vec![].into_boxed_slice(),
+                                })
+                                .collect();
+                            return ResolvedDispatchResult::Ambiguous(ambiguous);
+                        }
+                        crate::trait_dispatch::TraitDispatchResolution::Missing => {}
+                        crate::trait_dispatch::TraitDispatchResolution::Incomplete(_)
+                        | crate::trait_dispatch::TraitDispatchResolution::Unknown(_)
+                        | crate::trait_dispatch::TraitDispatchResolution::Blocked(_)
+                        | crate::trait_dispatch::TraitDispatchResolution::Dynamic(_)
+                        | crate::trait_dispatch::TraitDispatchResolution::Cancelled
+                        | crate::trait_dispatch::TraitDispatchResolution::BudgetExceeded(_)
+                        | crate::trait_dispatch::TraitDispatchResolution::InternalFailure(_) => {
+                            return ResolvedDispatchResult::Dynamic;
                         }
                     }
                 }

@@ -139,6 +139,7 @@ pub struct ResolvedDispatch {
     pub signature: CallableSignature,
     pub specialization: Option<DispatchSignatureSpecialization>,
     pub conditional: Option<ConditionalDispatchSelection>,
+    pub trait_dispatch: Option<crate::trait_dispatch::TraitDispatchSelection>,
     /// True when the result is a semantic trait-contract lookup rather than
     /// executable nominal/conditional dispatch.
     pub abstract_contract: bool,
@@ -361,6 +362,7 @@ impl SurfaceDispatchResolver {
                         signature: sig.clone(),
                         specialization: None,
                         conditional: None,
+                        trait_dispatch: None,
                         abstract_contract: false,
                         visited_owners: visited.into_boxed_slice(),
                     }));

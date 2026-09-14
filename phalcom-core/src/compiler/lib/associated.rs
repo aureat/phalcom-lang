@@ -171,6 +171,20 @@ impl<'vm> Compiler<'vm> {
                     );
                 }
             }
+            CallableReferenceLoweringSpec::MakeTraitBoundMethod { invocation } => {
+                let phalcom_ast::ast::CallableReferenceTarget::Bound { receiver, .. } = &expr.target else {
+                    return Err(CompilerError::CallableReferenceNotLoweredYet(expr.range));
+                };
+                self.compile_expr((**receiver).clone())?;
+                let target_idx = self
+                    .functions
+                    .last_mut()
+                    .unwrap()
+                    .chunk
+                    .executable_semantics
+                    .add_trait_invocation(invocation, expr.range)?;
+                self.emit(Bytecode::MakeTraitBoundMethod(target_idx), expr.range);
+            }
             CallableReferenceLoweringSpec::MakeResolvedBoundMethod { target } => {
                 let target_idx = self
                     .functions

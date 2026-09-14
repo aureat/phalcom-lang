@@ -208,7 +208,7 @@ pub fn block_call(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Val
     if let Some(id) = receiver.as_obj() {
         if let Object::BoundMethod(bound) = vm.heap.get(id) {
             let (method_id, target) = (bound.method, bound.receiver);
-            return vm.invoke_method_object(method_id, target, args);
+            return vm.invoke_method_object_with_conformance_environment(method_id, target, args, bound.conformance_environment);
         }
     }
 
