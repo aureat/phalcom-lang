@@ -1,0 +1,74 @@
+name: Agent C4 P3 bound-ref patch
+
+on:
+  push:
+    branches:
+      - agent/c4-p3-complex-closure-7
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ startsWith(github.event.head_commit.message, 'agent patch:') }}
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: 1
+      RUSTFLAGS: ""
+      RUSTC_WRAPPER: ""
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/c4-p3-complex-closure-7
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-10
+          components: rustc-codegen-cranelift-preview
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Preserve callable-reference trait evidence at projection
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('phalcom-core/src/modules/semantic_lowering.rs')
+          text = path.read_text()
+          old = '''            let spec = project_callable_reference_resolution(resolution, snapshot, projects)?;
+              let site = LoweringSite::new(source_id.clone(), range, LoweringSiteKind::CallableReference);'''
+          new = '''            let spec = match expr_analysis.and_then(|analysis| analysis.trait_dispatch.as_ref()) {
+                  Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::Evidenced(selection)) => {
+                      CallableReferenceLoweringSpec::MakeTraitBoundMethod {
+                          invocation: project_trait_invocation_spec(selection, snapshot)?,
+                      }
+                  }
+                  _ => project_callable_reference_resolution(resolution, snapshot, projects)?,
+              };
+              let site = LoweringSite::new(source_id.clone(), range, LoweringSiteKind::CallableReference);'''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one callable-reference projection site, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          git diff --check
+          git diff -- phalcom-core/src/modules/semantic_lowering.rs
+
+      - name: Verify core builds
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' check -p phalcom-core
+
+      - name: Conformance-witness bound reference regression
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::trait_evidenced_bound_reference_executes_conformance_witness -- --nocapture
+
+      - name: Existing trait-default bound reference control
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::trait_evidenced_bound_reference_executes_detached_default -- --nocapture
+
+      - name: Commit patch and remove workflow
+        shell: bash
+        run: |
+          git config user.name 'OpenAI Agent'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/agent-c4-p3-bound-ref-patch.yml
+          git add phalcom-core/src/modules/semantic_lowering.rs
+          git diff --cached --check
+          git commit -m 'preserve trait evidence for bound callable references'
+          git push origin HEAD:agent/c4-p3-complex-closure-7
