@@ -417,8 +417,6 @@ pub fn query_unlinked_interface(
     let key = QueryKey::UnlinkedInterface(module.clone());
     let input_fingerprint = crate::db::fingerprint::parsed_module_input_fingerprint(&unit.id, unit.kind, &unit.text);
 
-    // A dependent may only validate after its prerequisite is current. This
-    // prevents an old Ready dependency from making transitive reuse appear safe.
     match query_parsed_module(db, module.clone(), unit.clone()) {
         QueryOutcome::Ready(_) => {}
         QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
@@ -1367,9 +1365,6 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
         }
     };
 
-    // ConformanceDispatch is a semantic view edge rather than an owned DB
-    // query. Its currentness is established from the rebuilt conformance view
-    // above, so there is deliberately no query-state row to validate here.
     if matches!(dependency, crate::checker::analysis::SemanticDependency::ConformanceDispatch(_)) {
         return outcome;
     }
@@ -1447,7 +1442,9 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
     }
 
     let class_def = class_definition_for(&unit, &decl_id);
-    if class_def.is_none() && enum_definition_for(&unit, &decl_id).is_none() {
+    let enum_def = enum_definition_for(&unit, &decl_id);
+    let data_def = data_definition_for(&unit, &decl_id);
+    if class_def.is_none() && enum_def.is_none() && data_def.is_none() {
         return query_failure(db, key, format!("source declaration {decl_id:?} was not found in its parsed module"));
     }
 
@@ -1456,8 +1453,17 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
     };
     let input_fingerprint = if let Some(class_def) = class_def {
         crate::db::fingerprint::declaration_surface_source_input_fingerprint(&unit, &decl_id, class_def)
+    } else if let Some(enum_def) = enum_def {
+        crate::db::fingerprint::declaration_surface_enum_input_fingerprint(&unit, &decl_id, enum_def)
     } else {
-        crate::db::fingerprint::declaration_surface_enum_input_fingerprint(&unit, &decl_id, enum_definition_for(&unit, &decl_id).unwrap())
+        let data_def = data_def.expect("data declaration checked above");
+        let mut hasher = DefaultHasher::new();
+        2_u8.hash(&mut hasher);
+        decl_id.hash(&mut hasher);
+        data_def.range.start.hash(&mut hasher);
+        data_def.range.end.hash(&mut hasher);
+        unit.text.get(data_def.range.start..data_def.range.end).hash(&mut hasher);
+        InputFingerprint::new(hasher.finish())
     };
 
     match query_declaration_shell(db, Arc::new(TypeDeclarationShell::Nominal(declaration_info))) {
@@ -1495,16 +1501,15 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
     }
     db.metrics().record_miss();
 
-    // Semantic resolution is query-owned and only runs after the source-contract
-    // cache lookup misses. Body-only source edits therefore avoid this branch.
     let (computed_surface, computed_diagnostics, captured_dependencies) = {
         let mut context = crate::checker::context::CheckingContext::new(store, hierarchy, resolver, declarations, decl_id.module.clone());
         if let Some(class_def) = class_def {
             crate::checker::declaration::register_class_surface(&mut context, class_def);
         } else {
-            // Enum root surfaces are assembled by the enum semantic pass. This
-            // product anchors dependency readiness; body queries consume the
-            // already-published dispatch surface from the workspace session.
+            // Enum and data roots own no class-style primary behavior surface
+            // here. Enum behavior and inherent impl behavior are composed by
+            // their dedicated semantic passes, while data components remain
+            // first-class data witnesses rather than fabricated getters.
             context.register_surface(decl_id.clone(), DeclarationSurface::new(Some(decl_id.clone())));
         }
         let computed_surface = context.dispatch_ref().get_surface(&decl_id).cloned();
@@ -2148,9 +2153,6 @@ pub fn query_linked_name(
 ) -> QueryOutcome<Arc<crate::db::product::LinkedNameProduct>> {
     let key = QueryKey::LinkedName(module.clone(), name.clone());
 
-    // Exact name facts are invalidated through the current linked interface.
-    // Materialize that prerequisite before attempting reuse; otherwise a
-    // cached name fact could validate against an older interface revision.
     let has_linked_interface = match linked.modules.get(&module) {
         Some(linked_mod) => match query_linked_interface(db, module.clone(), Arc::new(linked_mod.interface.clone())) {
             QueryOutcome::Ready(_) => true,
@@ -2210,9 +2212,6 @@ pub fn query_public_export(
 ) -> QueryOutcome<Arc<crate::db::product::PublicExportProduct>> {
     let key = QueryKey::PublicExport(module.clone(), name.clone());
 
-    // Public export facts are exact projections of one module's linked
-    // interface. Ensure that canonical input is current before validating the
-    // cached projection.
     let has_linked_interface = match linked.modules.get(&module) {
         Some(linked_mod) => match query_linked_interface(db, module.clone(), Arc::new(linked_mod.interface.clone())) {
             QueryOutcome::Ready(_) => true,
@@ -2310,14 +2309,9 @@ pub struct CallableBodyQuery<'a> {
     pub callable: CallableId,
     pub body: &'a [Statement],
     pub body_range: SourceRange,
-    /// Optional canonical signature supplied by a non-nominal owner such as
-    /// a trait surface. Nominal bodies resolve this from source products.
     pub declared_signature: Option<(&'a CallableId, &'a CallableSemanticSignature)>,
-    /// Optional explicit owner generic metadata for non-nominal callables.
     pub owner_generic_signature: Option<&'a crate::types::parameter::GenericSignature>,
-    /// Optional concrete receiver used by conformance witness body checking.
     pub self_type_override: Option<TypeId>,
-    /// Optional abstract trait contract used for trait default body analysis.
     pub trait_surface: Option<&'a crate::traits::TraitSurface>,
     pub store: &'a mut TypeStore,
     pub hierarchy: &'a dyn TypeHierarchy,
@@ -2330,23 +2324,14 @@ pub struct CallableBodyQuery<'a> {
     pub formal_inputs: Option<&'a FormalQueryInputs<'a>>,
 }
 
-/// Evaluates or retrieves the cached `CallableAnalysis` for a declared callable body.
-///
-/// Declared bodies fail closed unless their canonical `CallableSignature` product is
-/// current. Tests that intentionally exercise a body without a declaration must use
-/// [`query_signatureless_callable_body`] explicitly.
 pub fn query_callable_body(db: &mut SemanticDb, query: CallableBodyQuery<'_>) -> QueryOutcome<Arc<CallableAnalysis>> {
     query_callable_body_with_requirement(db, query, CallableBodySignatureRequirement::Required)
 }
 
-/// Low-level query entry for synthetic DB fixtures that deliberately have no
-/// source declaration and therefore no canonical callable-signature product.
 pub fn query_signatureless_callable_body(db: &mut SemanticDb, query: CallableBodyQuery<'_>) -> QueryOutcome<Arc<CallableAnalysis>> {
     query_callable_body_with_requirement(db, query, CallableBodySignatureRequirement::SignaturelessSynthetic)
 }
 
-/// Evaluates a declared callable body while allowing missing formal prerequisites
-/// to be evaluated from borrowed current workspace inputs.
 pub fn query_callable_body_with_formal_inputs(db: &mut SemanticDb, query: CallableBodyQuery<'_>) -> QueryOutcome<Arc<CallableAnalysis>> {
     query_callable_body_with_requirement(db, query, CallableBodySignatureRequirement::Required)
 }
@@ -2406,9 +2391,6 @@ fn query_callable_body_with_requirement(
         None => crate::db::fingerprint::callable_body_input_fingerprint_with_owner_generics(&callable, body, body_range, store, owner_generic_signature),
     };
 
-    // Every source callable declaration has a canonical signature product,
-    // including partially-known signatures. Constructor body identities remain
-    // instance-side while consuming their class-side constructor declaration.
     let declared_signature = match explicit_declared_signature {
         Some((signature_id, signature)) => Some((signature_id.clone(), Arc::new(signature.clone()))),
         None => match formal_inputs {
@@ -2459,7 +2441,6 @@ fn query_callable_body_with_requirement(
         },
     };
 
-    // 1. Check if already computed and ready for the same callable input and dependency products.
     if db.validate_reuse(&key, input_fingerprint) {
         if let Some(product) = db.product(&key).and_then(|product| product.as_callable_body()) {
             db.metrics().record_hit();
@@ -2467,16 +2448,11 @@ fn query_callable_body_with_requirement(
         }
     }
 
-    // A ready product with a different input, or a non-ready state from an
-    // earlier attempt, cannot remain current while this generation recomputes
-    // it. Preserve incoming dependents: their observed product fingerprints
-    // decide lazily whether they can revalidate after this body republishes.
     if db.query_state(&key).is_some() {
         db.discard_for_recompute(&key);
     }
     db.metrics().record_miss();
 
-    // 2. Perform analysis
     let analysis = crate::checker::body::analyze_callable_body(
         crate::checker::body::BodyAnalysisContext {
             store,
@@ -2548,10 +2524,6 @@ fn query_callable_body_with_requirement(
             );
             QueryOutcome::Blocked(reason)
         }
-        // Internal failures are already contained at callable scope. Publish
-        // the structured product so release/LSP queries remain operational;
-        // test fixtures enforce fail-fast policy by asserting the incident
-        // collection is empty.
         CallableAnalysisStatus::Complete | CallableAnalysisStatus::Partial | CallableAnalysisStatus::InternalFailure(_) => {
             let mut recorder = crate::db::DependencyRecorder::new(key.clone());
             for sem_dep in arc_analysis.semantic_dependencies.iter() {
