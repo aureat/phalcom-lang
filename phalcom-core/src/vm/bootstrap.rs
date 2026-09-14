@@ -110,6 +110,8 @@ impl VM {
             numeric_policy: crate::value::NumericPolicy::standard(),
             adt_registry: crate::adt::RuntimeAdtRegistry::new(),
             data_registry: crate::data::RuntimeDataRegistry::new(),
+            product_shapes: crate::product::ProductShapeRegistry::new(),
+            anonymous_product_descriptors: crate::product::RuntimeAnonymousProductDescriptorRegistry::new(),
 
             #[cfg(feature = "fiber-pool")]
             fiber_pool: Vec::new(),

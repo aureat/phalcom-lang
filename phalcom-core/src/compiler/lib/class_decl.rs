@@ -49,7 +49,7 @@ const COMPILER_ONLY_ATTRS: &[&str] = &[
     "ignore",
 ];
 
-fn member_visibility(name: Option<&str>, attributes: &[Attribute]) -> MemberVisibility {
+pub(crate) fn member_visibility(name: Option<&str>, attributes: &[Attribute]) -> MemberVisibility {
     if name.is_some_and(|name| name.starts_with("_$")) {
         MemberVisibility::Internal
     } else if attributes.iter().any(|attr| matches!(attr.kind, AttrKind::Builtin(BuiltinAttr::Private))) {
@@ -148,7 +148,7 @@ fn validate_rest_usage(member: &ClassMember) -> Result<(), CompilerError> {
     Ok(())
 }
 
-fn rest_layout(params: &[phalcom_ast::ast::ParameterDef], interner: &mut crate::interner::Interner) -> Option<RestLayout> {
+pub(crate) fn rest_layout(params: &[phalcom_ast::ast::ParameterDef], interner: &mut crate::interner::Interner) -> Option<RestLayout> {
     let positional = params.iter().position(|p| p.rest_mode == RestMode::Positional);
     let labeled = params.iter().position(|p| p.rest_mode == RestMode::Labeled);
     let complete = params.iter().position(|p| p.rest_mode == RestMode::Complete);
@@ -168,7 +168,7 @@ fn rest_layout(params: &[phalcom_ast::ast::ParameterDef], interner: &mut crate::
     Some(RestLayout::new(fixed_positionals, fixed_labels, mode))
 }
 
-fn rest_selector(name: &str, params: &[phalcom_ast::ast::ParameterDef]) -> String {
+pub(crate) fn rest_selector(name: &str, params: &[phalcom_ast::ast::ParameterDef]) -> String {
     let slots = params
         .iter()
         .map(|param| match param.rest_mode {
@@ -368,6 +368,7 @@ impl<'vm> Compiler<'vm> {
 
         let range = class_def.range;
         let name_sym = self.vm.interner.intern(&class_def.name);
+        let target_decl = phalcom_modules::DeclarationId::new(self.vm.heap.module(self.module).id.clone(), class_def.name.clone().into_boxed_str());
         let name_idx = self.add_constant(Value::symbol(name_sym));
 
         // Pass -1: duplicate-member scan (U-CTOR §3.2).
@@ -1171,6 +1172,11 @@ impl<'vm> Compiler<'vm> {
             }
         }
 
+        // Inherent impl members are declarative contributions authorized by
+        // semantic lowering. Install them while this target class remains on
+        // the stack, before base-name finalization and global definition.
+        self.install_accepted_inherent_impl_members(&target_decl)?;
+
         self.current_class = None;
 
         // Rebuild the class's (and its metaclass's) base-name index
@@ -1264,7 +1270,7 @@ impl<'vm> Compiler<'vm> {
     ///
     /// Propagates any error compiling a retained attribute's constructor
     /// arguments.
-    fn emit_member_attribute_attaches(&mut self, attrs: &[Attribute], method_obj_idx: u16, range: SourceRange) -> Result<(), CompilerError> {
+    pub(crate) fn emit_member_attribute_attaches(&mut self, attrs: &[Attribute], method_obj_idx: u16, range: SourceRange) -> Result<(), CompilerError> {
         let mut any = false;
         for attr in attrs {
             if COMPILER_ONLY_ATTRS.contains(&attr.name.as_str()) {
@@ -1342,7 +1348,7 @@ impl<'vm> Compiler<'vm> {
     /// # Errors
     ///
     /// Propagates any error compiling a predicate expression.
-    fn build_contracts_metadata(&mut self, attrs: &[Attribute]) -> Result<Vec<(Symbol, Value)>, CompilerError> {
+    pub(crate) fn build_contracts_metadata(&mut self, attrs: &[Attribute]) -> Result<Vec<(Symbol, Value)>, CompilerError> {
         let mut contracts = Vec::new();
         let mut requires_n = 0usize;
         let mut ensures_n = 0usize;

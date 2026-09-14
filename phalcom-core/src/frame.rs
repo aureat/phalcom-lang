@@ -104,6 +104,8 @@ pub struct CallFrame {
     pub home_frame_token: Option<FrameToken>,
     /// Optional layout check required by a transplanted bytecode Method.
     pub(crate) foreign_receiver_guard: Option<ForeignReceiverGuard>,
+    /// Compact identifier for the active generic runtime type substitution environment.
+    pub type_environment: crate::typing::environment::RuntimeTypeEnvironmentId,
 }
 
 impl CallFrame {
@@ -119,6 +121,7 @@ impl CallFrame {
             generation: 0,
             home_frame_token: None,
             foreign_receiver_guard: None,
+            type_environment: crate::typing::environment::RuntimeTypeEnvironmentId::EMPTY,
         }
     }
 

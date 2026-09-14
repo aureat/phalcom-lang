@@ -565,8 +565,8 @@ impl VM {
             .into());
         };
         match self.heap.get(id) {
-            Object::Block(block) => self.activate_closure_call(receiver, block.closure, Some(block.home_frame_token), view, source_range),
-            Object::Closure(_) => self.activate_closure_call(receiver, id, None, view, source_range),
+            Object::Block(block) => self.activate_closure_call(receiver, block.closure, Some(block.home_frame_token), block.type_environment, view, source_range),
+            Object::Closure(_) => self.activate_closure_call(receiver, id, None, crate::typing::environment::RuntimeTypeEnvironmentId::EMPTY, view, source_range),
             Object::BoundMethod(bound) => self.activate_bound_method(*bound, view, source_range),
             Object::Family(_) | Object::AssociatedFamily(_) => self.activate_family_with_kind(view, FamilyInvocationKind::Method, source_range),
             Object::BoundMethodFamily(bound) => self.activate_bound_method_family(*bound, view, source_range),
@@ -583,6 +583,7 @@ impl VM {
         receiver: Value,
         closure_id: ObjRef,
         home_frame_token: Option<crate::frame::FrameToken>,
+        type_environment: crate::typing::environment::RuntimeTypeEnvironmentId,
         view: ArgumentView,
         source_range: SourceRange,
     ) -> PhResult<CallOutcome> {
@@ -622,6 +623,7 @@ impl VM {
         let mut frame = self.new_call_frame(closure_id, context, 0, receiver_idx, Some(source_range));
         frame.home_frame_token = home_frame_token;
         frame.foreign_receiver_guard = self.heap.closure(closure_id).foreign_receiver_guard;
+        frame.type_environment = type_environment;
         self.push_frame(frame)?;
         Ok(CallOutcome::EnteredFrame)
     }

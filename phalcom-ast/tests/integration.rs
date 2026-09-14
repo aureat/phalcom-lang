@@ -1,6 +1,7 @@
 mod data_syntax;
 mod enum_syntax;
 mod family_selector_syntax;
+mod impl_syntax;
 mod lexer;
 mod match_patterns;
 mod match_syntax;

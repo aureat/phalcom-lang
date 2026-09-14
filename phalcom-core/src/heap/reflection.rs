@@ -11,7 +11,7 @@ pub struct ProjectObject {
     pub namespace: Symbol,
     pub manifest: ObjRef,
     pub root_package: ObjRef,
-    pub dependencies: ObjRef,
+    pub dependencies: crate::value::Value,
     pub development_entry: Option<ObjRef>,
     pub identity: ObjRef,
 }
@@ -22,7 +22,7 @@ pub struct ProjectManifestObject {
     pub name: String,
     pub namespace: Symbol,
     pub version: Option<String>,
-    pub authors: ObjRef,
+    pub authors: crate::value::Value,
     pub description: Option<String>,
     pub license: Option<String>,
     pub homepage: Option<ObjRef>,
@@ -30,7 +30,7 @@ pub struct ProjectManifestObject {
     pub source: String,
     pub entry: Option<String>,
     pub default_entry: Option<String>,
-    pub dependency_declarations: ObjRef,
+    pub dependency_declarations: crate::value::Value,
 }
 
 /// Durable descriptive metadata for a root package artifact (`PackageInfo`).
@@ -39,12 +39,12 @@ pub struct PackageInfoObject {
     pub name: String,
     pub namespace: Symbol,
     pub version: Option<String>,
-    pub authors: ObjRef,
+    pub authors: crate::value::Value,
     pub description: Option<String>,
     pub license: Option<String>,
     pub homepage: Option<ObjRef>,
     pub repository: Option<ObjRef>,
-    pub requirements: ObjRef,
+    pub requirements: crate::value::Value,
     pub default_entry: Option<String>,
     pub identity: ObjRef,
 }
@@ -89,7 +89,7 @@ pub struct ModuleDependencyObject {
 pub struct ExportTableObject {
     pub module: ObjRef,
     pub names: Vec<Symbol>,
-    pub names_tuple: ObjRef,
+    pub names_tuple: crate::value::Value,
     pub descriptors: HashMap<Symbol, ObjRef>,
 }
 
@@ -106,7 +106,7 @@ pub struct ExportObject {
 pub struct ChildModuleTableObject {
     pub package: ObjRef,
     pub names: Vec<Symbol>,
-    pub names_tuple: ObjRef,
+    pub names_tuple: crate::value::Value,
     pub children: HashMap<Symbol, ObjRef>,
 }
 

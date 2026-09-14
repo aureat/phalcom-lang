@@ -61,6 +61,13 @@ pub struct StableFieldRef {
     pub name: Box<str>,
 }
 
+/// Stable impl reference.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+pub struct StableImplRef {
+    pub module: StableModuleRef,
+    pub local_id: u32,
+}
+
 /// Stable source span reference.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
 pub struct SourceSpanRef {

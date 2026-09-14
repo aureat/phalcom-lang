@@ -39,6 +39,8 @@ mod compiler_lowering_scenarios;
 mod data_e2e;
 #[path = "data_runtime.rs"]
 mod data_runtime;
+#[path = "inherent_impl.rs"]
+mod inherent_impl;
 #[path = "golden.rs"]
 mod golden;
 #[path = "numeric_diagnostics.rs"]

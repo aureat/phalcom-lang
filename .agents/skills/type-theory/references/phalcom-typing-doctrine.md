@@ -314,7 +314,7 @@ without knowing what mutations/module changes can invalidate it.
 
 ## 20. Repository workflow for future agent
 
-1. Read `AGENTS.md`.
+1. Read `../../../../AGENTS-old.md`.
 2. For codebase questions, follow repository's graphify guidance when available.
 3. Read typing `README.md`, `STATUS.md`, `CHANGELOG.md`.
 4. Read relevant numbered spec entirely, including status header/out-of-scope.

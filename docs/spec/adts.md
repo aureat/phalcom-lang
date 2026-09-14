@@ -12,12 +12,12 @@
 
 Phalcom algebraic data types (ADTs) define **closed nominal sum types**.
 
-An ADT is declared with `enum`. Its alternatives are declared explicitly with `@variant`.
+An ADT is declared with `enum`. Canonical enum declarations contain structural variant declarations only.
 
 ```phalcom
 enum Option<T> {
-    @variant Some(_ value: T)
-    @variant None
+    Some(_ value: T)
+    None
 }
 ```
 
@@ -35,7 +35,7 @@ The basic form is:
 
 ```phalcom
 enum Name<GenericParameters...> {
-    members...
+    variants...
 }
 ```
 
@@ -43,20 +43,31 @@ Enums may use the ordinary generic declaration machinery.
 
 ```phalcom
 enum Result<T, E> {
-    @variant Ok(_ value: T)
-    @variant Error(_ error: E)
+    Ok(_ value: T)
+    Error(_ error: E)
 }
 ```
 
 An enum does not declare a source-level superclass. Its relationship to its variants is intrinsic to ADT semantics.
 
-Enum bodies may contain:
+Canonical enum declarations contain variants only:
 
-- variant declarations;
-- enum-root behavior;
-- signature-only enum requirements.
+- Bare singleton and constructor variants (`None`, `Empty()`, `Some(_ value: T)`);
+- GADT-specialized variants with explicit result annotations (`IntLit(_ value: Int) -> Expr<Int>`);
+- Optional legacy `@variant` compatibility attributes.
 
-Variants must be introduced explicitly with `@variant`. A bare identifier in an enum body is not implicitly a variant.
+All enum-root behavior, root requirements, default implementations, and exact-case implementations are authored in first-class `impl` blocks:
+
+```phalcom
+impl Result<T, E> {
+    isOk -> Bool {
+        match self {
+            Ok(_) => true
+            Error(_) => false
+        }
+    }
+}
+```
 
 ---
 
@@ -648,25 +659,30 @@ const payload = Example::State(1)
 The three declarations and the three expressions are semantically distinct.
 
 ### Shared behavior and closed requirement
-
+ 
 ```phalcom
 enum Shape {
+    Circle(_ radius: Float)
+    Rectangle(_ width: Float, _ height: Float)
+}
+
+impl Shape {
     area -> Float
 
     describe -> String {
         "shape"
     }
+}
 
-    @variant Circle(_ radius: Float) {
-        area -> Float {
-            3.14159 * radius * radius
-        }
+impl Shape::Circle(_) {
+    area -> Float {
+        3.14159 * radius * radius
     }
+}
 
-    @variant Rectangle(_ width: Float, _ height: Float) {
-        area -> Float {
-            width * height
-        }
+impl Shape::Rectangle(_, _) {
+    area -> Float {
+        width * height
     }
 }
 ```

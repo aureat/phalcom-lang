@@ -1,5 +1,5 @@
 use crate::ast::{
-    ClassMember, EnumBehaviorMember, EnumMember, FieldDef, GetterDef, IndexAccessor, IndexMethodDef, MethodDef, ParameterDef, RestMode, SetterDef, VariantDecl,
+    BehaviorMember, ClassMember, FieldDef, GetterDef, IndexAccessor, IndexMethodDef, MethodDef, ParameterDef, RestMode, SetterDef, VariantDecl,
 };
 pub use phalcom_common::selector::{
     Selector, SelectorBase, SelectorError, SelectorKind, SelectorKindPattern, SelectorPattern, SelectorSlot, decode_label_component, encode_label_component,
@@ -108,21 +108,13 @@ pub fn selector_from_variant(variant: &VariantDecl) -> Selector {
     }
 }
 
-/// Constructs a structural [`Selector`] for an [`EnumBehaviorMember`].
-pub fn selector_from_enum_behavior_member(member: &EnumBehaviorMember) -> Selector {
+/// Constructs a structural [`Selector`] for a [`BehaviorMember`].
+pub fn selector_from_behavior_member(member: &BehaviorMember) -> Selector {
     match member {
-        EnumBehaviorMember::Method(m) => selector_from_method(m),
-        EnumBehaviorMember::Getter(g) => selector_from_getter(g),
-        EnumBehaviorMember::Setter(s) => selector_from_setter(s),
-        EnumBehaviorMember::Index(ix) => selector_from_index(ix),
-    }
-}
-
-/// Constructs a structural [`Selector`] for an [`EnumMember`].
-pub fn selector_from_enum_member(member: &EnumMember) -> Selector {
-    match member {
-        EnumMember::Variant(v) => selector_from_variant(v),
-        EnumMember::Behavior(b) => selector_from_enum_behavior_member(b),
+        BehaviorMember::Method(m) => selector_from_method(m),
+        BehaviorMember::Getter(g) => selector_from_getter(g),
+        BehaviorMember::Setter(s) => selector_from_setter(s),
+        BehaviorMember::Index(ix) => selector_from_index(ix),
     }
 }
 
@@ -172,20 +164,50 @@ pub fn selector_from_exact_variant_pattern(pattern: &crate::ast::VariantPattern)
     }
 }
 
-/// Constructs a structural [`SelectorPattern`] for a [`VariantPattern`] with `CallablePattern` mode.
-pub fn selector_pattern_from_variant_pattern(pattern: &crate::ast::VariantPattern) -> Result<SelectorPattern, SelectorError> {
+/// Constructs a [`phalcom_common::selector::SelectorPattern`] for a wildcard [`VariantPattern`] with `CallablePattern` mode.
+pub fn selector_pattern_from_variant_pattern(
+    pattern: &crate::ast::VariantPattern,
+) -> Result<phalcom_common::selector::SelectorPattern, SelectorError> {
     match &pattern.mode {
         crate::ast::VariantPatternMode::CallablePattern { prefix, suffix, .. } => {
             let prefix_slots = prefix.iter().map(slot_from_variant_pattern_arg).collect::<Vec<_>>();
             let suffix_slots = suffix.iter().map(slot_from_variant_pattern_arg).collect::<Vec<_>>();
-            SelectorPattern::new(
-                SelectorBase::Named(pattern.base.clone()),
-                SelectorKindPattern::Exact(SelectorKind::Method),
+            phalcom_common::selector::SelectorPattern::named_method(
+                &pattern.base,
                 prefix_slots.into_boxed_slice(),
                 suffix_slots.into_boxed_slice(),
                 true,
             )
         }
-        _ => Err(SelectorError::MissingGap),
+        _ => Err(SelectorError::InvalidPatternSlots),
+    }
+}
+
+/// Constructs a structural exact [`Selector`] for an exact enum case impl target.
+pub fn selector_from_exact_case_target(
+    variant_name: &str,
+    payload_shape: Option<&crate::ast::ExactCasePayloadSyntax>,
+) -> Selector {
+    match payload_shape {
+        None => Selector::getter(variant_name).unwrap_or_else(|_| Selector {
+            base: SelectorBase::Named(variant_name.to_string()),
+            kind: SelectorKind::Getter,
+            slots: Box::new([]),
+        }),
+        Some(payload) => {
+            let slots = payload
+                .parameters
+                .iter()
+                .map(|p| match &p.label {
+                    Some(label) => SelectorSlot::Label(label.clone()),
+                    None => SelectorSlot::Positional,
+                })
+                .collect::<Vec<_>>();
+            Selector::method(variant_name, slots).unwrap_or_else(|_| Selector {
+                base: SelectorBase::Named(variant_name.to_string()),
+                kind: SelectorKind::Method,
+                slots: Box::new([]),
+            })
+        }
     }
 }

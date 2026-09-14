@@ -68,7 +68,7 @@ The relevant production-source audit was originally grounded while `main` was at
 
 The requested local checkout path was not available to the planning environment after repository handoff was declined, so local branch identity, uncommitted changes, and local-only graphify output could not be independently observed here. **Before implementation, the executor must re-run the preflight above in `/Users/altunhasanli/dev/phalcom/phalcom`; if local HEAD differs from the audited commit, re-ground every named symbol before editing.**
 
-`AGENTS.md` requires graphify-first navigation when the knowledge graph is present. The accessible repository snapshot did not expose `graphify-out/`. On the real checkout, run the repository's graphify query first if `graphify-out/` exists, then use the source paths in this amendment as targeted follow-up navigation.
+`../../../../AGENTS-old.md` requires graphify-first navigation when the knowledge graph is present. The accessible repository snapshot did not expose `graphify-out/`. On the real checkout, run the repository's graphify query first if `graphify-out/` exists, then use the source paths in this amendment as targeted follow-up navigation.
 
 The exact requested amendment filename was not present on the audited public `main`. If the local checkout already contains it, do **not** overwrite it; use a variant such as:
 
@@ -1612,7 +1612,7 @@ This is an implementation constraint, not permission to redesign `TypeStore` in 
 
 ## 9.1 Documents to read, in this order
 
-1. repository `AGENTS.md`;
+1. repository `../../../../AGENTS-old.md`;
 2. this amendment;
 3. `sc-blockers-1.md` and `sc-blockers-2.md` as historical evidence;
 4. `phalcom-pre-sc1-stabilization-patch-grade-implementation-plan.md`;

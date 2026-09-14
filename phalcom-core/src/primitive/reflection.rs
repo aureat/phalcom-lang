@@ -1,7 +1,7 @@
 //! Native primitives for reflection and modularity classes.
 
 use crate::error::{PhResult, RuntimeError};
-use crate::heap::{Object, RuntimeExportRef, TupleObject};
+use crate::heap::{Object, RuntimeExportRef};
 use crate::modules::reflection_cache::ReflectionCache;
 use crate::value::Value;
 use crate::vm::VM;
@@ -255,8 +255,8 @@ pub fn module_dependencies(vm: &mut VM, receiver: &Value, _args: &[Value]) -> Ph
             })));
         dep_values.push(Value::obj(dep_obj));
     }
-    let tuple_obj = vm.heap.alloc(Object::Tuple(TupleObject::positional(dep_values)));
-    Ok(Value::obj(tuple_obj))
+    crate::product::finish_tuple(vm, dep_values, Vec::new())
+        .map_err(|error| crate::product::runtime_error(vm, "Module dependencies", error).into())
 }
 
 #[phalcom_native_macros::primitive(Module, "__dependencies__")]
@@ -533,7 +533,7 @@ pub fn project_dependencies(vm: &mut VM, receiver: &Value, _args: &[Value]) -> P
         found: receiver.type_name(),
     })?;
     let deps = vm.heap.project(id).dependencies;
-    Ok(Value::obj(deps))
+    Ok(deps)
 }
 
 #[phalcom_native_macros::primitive(Project, "developmentEntry")]
@@ -616,7 +616,7 @@ pub fn project_manifest_authors(vm: &mut VM, receiver: &Value, _args: &[Value]) 
         found: receiver.type_name(),
     })?;
     let authors = vm.heap.project_manifest(id).authors;
-    Ok(Value::obj(authors))
+    Ok(authors)
 }
 
 #[phalcom_native_macros::primitive(ProjectManifest, "description")]
@@ -722,7 +722,7 @@ pub fn project_manifest_dependencies(vm: &mut VM, receiver: &Value, _args: &[Val
         found: receiver.type_name(),
     })?;
     let deps = vm.heap.project_manifest(id).dependency_declarations;
-    Ok(Value::obj(deps))
+    Ok(deps)
 }
 
 #[phalcom_native_macros::primitive(ProjectManifest, "dependencyDeclarations")]
@@ -787,7 +787,7 @@ pub fn package_info_authors(vm: &mut VM, receiver: &Value, _args: &[Value]) -> P
         found: receiver.type_name(),
     })?;
     let authors = vm.heap.package_info(id).authors;
-    Ok(Value::obj(authors))
+    Ok(authors)
 }
 
 #[phalcom_native_macros::primitive(PackageInfo, "description")]
@@ -853,7 +853,7 @@ pub fn package_info_requirements(vm: &mut VM, receiver: &Value, _args: &[Value])
         found: receiver.type_name(),
     })?;
     let reqs = vm.heap.package_info(id).requirements;
-    Ok(Value::obj(reqs))
+    Ok(reqs)
 }
 
 #[phalcom_native_macros::primitive(PackageInfo, "defaultEntry")]
@@ -903,7 +903,7 @@ pub fn export_table_names(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhR
         found: receiver.type_name(),
     })?;
     let tuple_ref = vm.heap.export_table(id).names_tuple;
-    Ok(Value::obj(tuple_ref))
+    Ok(tuple_ref)
 }
 
 #[phalcom_native_macros::primitive(ExportTable, "keys")]
@@ -1116,7 +1116,7 @@ pub fn child_module_table_names(vm: &mut VM, receiver: &Value, _args: &[Value]) 
         found: receiver.type_name(),
     })?;
     let tuple_ref = vm.heap.child_module_table(id).names_tuple;
-    Ok(Value::obj(tuple_ref))
+    Ok(tuple_ref)
 }
 
 #[phalcom_native_macros::primitive(ChildModuleTable, "size")]

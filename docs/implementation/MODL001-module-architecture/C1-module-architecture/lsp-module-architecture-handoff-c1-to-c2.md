@@ -20,7 +20,7 @@ Your immediate mission is to execute **Checkpoint C2 (Incremental Persistent Mod
    - `phalcom-core/tests/core/typing_integration/*`
    - `phalcom-ast/src/*`
    - `docs/agents/prompt--supervisor-implementer-workflow.md`
-3. **Communication Style**: Terse smart-caveman (`AGENTS.md`). Drop articles/fluff, keep exact technical terms: `[thing] [action] [reason]. [next step].`
+3. **Communication Style**: Terse smart-caveman (`../../../../AGENTS-old.md`). Drop articles/fluff, keep exact technical terms: `[thing] [action] [reason]. [next step].`
 4. **Semantics Rule**: Never weaken type assertions or bypass package semantics. Only `package.ph` establishes a package identity; plain sibling files remain standalone modules.
 
 ---

@@ -44,6 +44,9 @@ class Record is Object {
     let acc = 101 + self.size
     let i = 0
     while (i < self.size) {
+      // Record equality is key-set based, so the hash contribution must be
+      // commutative over presentation order as well. The native view keeps
+      // encounter order observable, but that order is not semantic identity.
       acc = (acc + ((self._$labelAt(i).hash * 31) + self._$valueAt(i).hash)) % 999999937
       i = i + 1
     }

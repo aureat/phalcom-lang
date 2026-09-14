@@ -2228,7 +2228,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-- [ ] If repository has additional generated/graph checks, run them according to `AGENTS.md`/CI.
+- [ ] If repository has additional generated/graph checks, run them according to `../../../../AGENTS-old.md`/CI.
 - [ ] Verify no ordinary string behavior changed.
 - [ ] Verify `#"...“` behavior unchanged.
 - [ ] Verify LSP tests produce no cross-line semantic token.

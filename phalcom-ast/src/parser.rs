@@ -407,7 +407,7 @@ impl<'source> Parser<'source> {
     fn at_top_level_item_boundary(&self) -> bool {
         matches!(
             self.peek(),
-            Token::At | Token::Class | Token::Enum | Token::Data | Token::TypeKw | Token::Let | Token::Const | Token::Return
+            Token::At | Token::Class | Token::Enum | Token::Data | Token::Impl | Token::TypeKw | Token::Let | Token::Const | Token::Return
         )
     }
 
@@ -1243,11 +1243,17 @@ impl<'source> Parser<'source> {
             header_attrs.push(self.parse_attribute()?);
             self.skip_newlines();
         }
-        if !header_attrs.is_empty() || (matches!(self.peek(), Token::Class | Token::Enum | Token::Data) && matches!(self.peek_next(), Token::Identifier(_))) {
+        if !header_attrs.is_empty()
+            || ((matches!(self.peek(), Token::Class | Token::Enum | Token::Data)
+                && matches!(self.peek_next(), Token::Identifier(_)))
+                || matches!(self.peek(), Token::Impl))
+        {
             let stmt = if matches!(self.peek(), Token::Enum) {
                 self.parse_enum(header_attrs)?
             } else if matches!(self.peek(), Token::Data) {
                 self.parse_data(header_attrs)?
+            } else if matches!(self.peek(), Token::Impl) {
+                self.parse_impl(header_attrs)?
             } else {
                 self.parse_class(header_attrs)?
             };
@@ -1292,7 +1298,7 @@ impl<'source> Parser<'source> {
                     self.advance();
                     return;
                 }
-                Token::Class | Token::Enum | Token::Data | Token::TypeKw | Token::Let | Token::Const | Token::Return | Token::Import | Token::Export => return,
+                Token::Class | Token::Enum | Token::Data | Token::Impl | Token::TypeKw | Token::Let | Token::Const | Token::Return | Token::Import | Token::Export => return,
                 _ => {
                     self.advance();
                 }
@@ -1870,6 +1876,99 @@ impl<'source> Parser<'source> {
                 expr: TypeAnnotationExpr::Application {
                     origin: Box::new(atom),
                     arguments,
+                    range,
+                },
+                range,
+            };
+        }
+
+        if self.eat(&Token::ColonColon) {
+            let start = atom.range.start;
+            let v_start = self.cur_start();
+            let variant_name = self.expect_identifier(&["variant name"])?;
+            let variant_name_range = (v_start..self.prev_end).into();
+
+            let mut generic_arguments = Vec::new();
+            if matches!(self.peek(), Token::Less | Token::ShiftLeft) {
+                self.eat_less();
+                self.skip_newlines();
+                while !matches!(self.peek(), Token::Greater | Token::ShiftRight | Token::Eof) {
+                    generic_arguments.push(self.parse_type_form()?);
+                    if self.eat(&Token::Comma) {
+                        self.skip_newlines();
+                    } else {
+                        break;
+                    }
+                }
+                self.skip_newlines();
+                self.expect_greater()?;
+            }
+
+            let payload_shape = if matches!(self.peek(), Token::LParen) {
+                let p_start = self.cur_start();
+                self.advance(); // '('
+                self.skip_newlines();
+                let mut parameters = Vec::new();
+                if !matches!(self.peek(), Token::RParen) {
+                    loop {
+                        self.skip_newlines();
+                        let param_start = self.cur_start();
+                        if self.eat(&Token::Underscore) {
+                            let range = (param_start..self.prev_end).into();
+                            parameters.push(ExactCaseParameterSyntax {
+                                label: None,
+                                label_range: None,
+                                range,
+                            });
+                        } else if matches!(self.peek(), Token::Identifier(_)) {
+                            let label_start = self.cur_start();
+                            let label_name = self.expect_identifier(&["parameter label or placeholder"])?;
+                            let label_range = (label_start..self.prev_end).into();
+                            if self.eat(&Token::Colon) {
+                                self.skip_newlines();
+                                self.eat(&Token::Underscore); // eat optional '_' after label:
+                                let range = (param_start..self.prev_end).into();
+                                parameters.push(ExactCaseParameterSyntax {
+                                    label: Some(label_name),
+                                    label_range: Some(label_range),
+                                    range,
+                                });
+                            } else {
+                                let range = (param_start..self.prev_end).into();
+                                parameters.push(ExactCaseParameterSyntax {
+                                    label: Some(label_name),
+                                    label_range: Some(label_range),
+                                    range,
+                                });
+                            }
+                        } else {
+                            break;
+                        }
+                        if self.eat(&Token::Comma) {
+                            self.skip_newlines();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                self.expect(&Token::RParen, &["\")\""])?;
+                let p_range = (p_start..self.prev_end).into();
+                Some(ExactCasePayloadSyntax {
+                    parameters,
+                    range: p_range,
+                })
+            } else {
+                None
+            };
+
+            let range = (start..self.prev_end).into();
+            atom = TypeAnnotation {
+                expr: TypeAnnotationExpr::ExactEnumCase {
+                    enum_target: Box::new(atom),
+                    variant_name,
+                    variant_name_range,
+                    generic_arguments,
+                    payload_shape,
                     range,
                 },
                 range,
@@ -2755,6 +2854,8 @@ impl<'source> Parser<'source> {
             Token::Fn => "fn",
             Token::Class => "class",
             Token::Enum => "enum",
+            Token::Data => "data",
+            Token::Impl => "impl",
             Token::Match => "match",
             Token::Return => "return",
             Token::True => "true",
@@ -3002,6 +3103,70 @@ impl<'source> Parser<'source> {
         }))
     }
 
+    fn parse_impl(&mut self, mut header_attrs: Vec<Attribute>) -> ParserResult<Statement> {
+        while matches!(self.peek(), Token::At) {
+            header_attrs.push(self.parse_attribute()?);
+            self.skip_newlines();
+        }
+        let start = self.cur_start();
+        self.expect(&Token::Impl, &["\"impl\""])?;
+        self.skip_newlines();
+        let generic_parameters = self.parse_optional_generic_parameters(GenericBinderContext::NominalDeclaration)?;
+        self.skip_newlines();
+        let target_start = self.cur_start();
+        let target = self.parse_type_annotation()?;
+        let target_range = (target_start..self.prev_end).into();
+
+        self.skip_newlines_if_followed_by(&Token::Where);
+        let where_clause = if matches!(self.peek(), Token::Where) {
+            Some(self.parse_where_clause()?)
+        } else {
+            None
+        };
+
+        self.skip_newlines_if_followed_by(&Token::LBrace);
+        self.expect(&Token::LBrace, &["\"{\""])?;
+        self.skip_newlines();
+
+        let mut members = Vec::new();
+        let mut pending_attrs = Vec::new();
+
+        while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+            if matches!(self.peek(), Token::At) {
+                pending_attrs.push(self.parse_attribute()?);
+                self.skip_newlines();
+                continue;
+            }
+            if matches!(self.peek(), Token::Const | Token::Let | Token::FieldIdentifier(_) | Token::ImplementationFieldIdentifier(_)) {
+                let start = self.tokens[self.pos].start;
+                let end = self.tokens[self.pos].end;
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::Message("fields and storage are not allowed in `impl` blocks".to_string()),
+                    range: start..end,
+                });
+            }
+            let member = self.parse_behavior_member(std::mem::take(&mut pending_attrs))?;
+            members.push(member);
+            self.skip_newlines();
+        }
+
+        if !pending_attrs.is_empty() {
+            return Err(self.dangling_attribute_error(&pending_attrs));
+        }
+
+        self.expect(&Token::RBrace, &["\"}\""])?;
+        let range = (start..self.prev_end).into();
+
+        Ok(Statement::Impl(ImplDef {
+            generic_parameters,
+            target,
+            where_clause,
+            members,
+            range,
+            target_range,
+        }))
+    }
+
     fn parse_data_tuple_shape(&mut self) -> ParserResult<DataShapeSyntax> {
         let start = self.cur_start();
         self.expect(&Token::LParen, &["\"(\""])?;
@@ -3174,7 +3339,7 @@ impl<'source> Parser<'source> {
         self.skip_newlines();
 
         self.expect(&Token::LBrace, &["\"{\""])?;
-        let members = self.parse_enum_body()?;
+        let variants = self.parse_enum_body()?;
         self.expect(&Token::RBrace, &["\"}\""])?;
         let range = (start..self.prev_end).into();
 
@@ -3183,14 +3348,14 @@ impl<'source> Parser<'source> {
             name_range,
             generic_parameters,
             where_clause,
-            members,
+            variants,
             attributes: header_attrs,
             range,
         }))
     }
 
-    fn parse_enum_body(&mut self) -> ParserResult<Vec<EnumMember>> {
-        let mut members = Vec::new();
+    fn parse_enum_body(&mut self) -> ParserResult<Vec<VariantDecl>> {
+        let mut variants = Vec::new();
         let mut pending_attrs: Vec<Attribute> = Vec::new();
         loop {
             self.skip_newlines();
@@ -3208,31 +3373,40 @@ impl<'source> Parser<'source> {
                 _ => {}
             }
 
-            let member = if pending_attrs.iter().any(|a| a.name == "variant") {
-                let variant = self.parse_enum_variant(std::mem::take(&mut pending_attrs))?;
-                EnumMember::Variant(variant)
-            } else {
-                let behavior = self.parse_enum_behavior_member(std::mem::take(&mut pending_attrs))?;
-                EnumMember::Behavior(behavior)
-            };
-            members.push(member);
+            if pending_attrs.iter().any(|a| a.name == "class" || a.name == "static") || matches!(self.peek(), Token::LBracket) {
+                let start = pending_attrs.first().map(|a| a.range.start).unwrap_or_else(|| self.cur_start());
+                return Err(SyntaxError {
+                    kind: SyntaxErrorKind::EnumBehaviorUnsupported,
+                    range: start..self.cur_start() + 1,
+                });
+            }
+
+            let variant = self.parse_enum_variant(std::mem::take(&mut pending_attrs))?;
+            variants.push(variant);
         }
-        Ok(members)
+        Ok(variants)
     }
 
     fn parse_enum_variant(&mut self, pending_attrs: Vec<Attribute>) -> ParserResult<VariantDecl> {
         let variant_attr = pending_attrs
             .iter()
             .find(|a| a.name == "variant")
-            .cloned()
-            .expect("parse_enum_variant called without variant attribute");
-        let start = variant_attr.range.start;
-        let variant_marker_range = variant_attr.range;
+            .cloned();
+        let start = if let Some(ref attr) = variant_attr {
+            attr.range.start
+        } else {
+            pending_attrs.first().map(|a| a.range.start).unwrap_or_else(|| self.cur_start())
+        };
         let non_variant_attrs: Vec<Attribute> = pending_attrs.into_iter().filter(|a| a.name != "variant").collect();
 
         let name_start = self.cur_start();
         let name = self.expect_identifier(&["variant name"])?;
         let name_range = (name_start..self.prev_end).into();
+        let variant_marker_range = if let Some(ref attr) = variant_attr {
+            attr.range
+        } else {
+            name_range
+        };
 
         let generic_parameters = self.parse_optional_generic_parameters(GenericBinderContext::Callable)?;
 
@@ -3277,35 +3451,13 @@ impl<'source> Parser<'source> {
         };
 
         self.skip_newlines_if_followed_by(&Token::LBrace);
-        let body = if matches!(self.peek(), Token::LBrace) {
+        if matches!(self.peek(), Token::LBrace) {
             let b_start = self.cur_start();
-            self.advance(); // '{'
-            let mut members = Vec::new();
-            let mut inner_pending_attrs: Vec<Attribute> = Vec::new();
-            loop {
-                self.skip_newlines();
-                match self.peek() {
-                    Token::RBrace if inner_pending_attrs.is_empty() => break,
-                    Token::RBrace => return Err(self.dangling_attribute_error(&inner_pending_attrs)),
-                    Token::Eof if !inner_pending_attrs.is_empty() => return Err(self.dangling_attribute_error(&inner_pending_attrs)),
-                    Token::At => {
-                        let attr = self.parse_attribute()?;
-                        self.skip_newlines();
-                        inner_pending_attrs.push(attr);
-                        continue;
-                    }
-                    Token::Eof => return Err(self.error_here(strs(&["\"}\""]))),
-                    _ => {}
-                }
-                let member = self.parse_enum_behavior_member(std::mem::take(&mut inner_pending_attrs))?;
-                members.push(member);
-            }
-            self.expect(&Token::RBrace, &["\"}\""])?;
-            let b_range = (b_start..self.prev_end).into();
-            Some(VariantBody { members, range: b_range })
-        } else {
-            None
-        };
+            return Err(SyntaxError {
+                kind: SyntaxErrorKind::EnumBehaviorUnsupported,
+                range: b_start..b_start + 1,
+            });
+        }
 
         let range = (start..self.prev_end).into();
         Ok(VariantDecl {
@@ -3316,19 +3468,18 @@ impl<'source> Parser<'source> {
             where_clause,
             payload,
             result_annotation,
-            body,
             attributes: non_variant_attrs,
             range,
         })
     }
 
-    fn parse_enum_behavior_member(&mut self, pending_attrs: Vec<Attribute>) -> ParserResult<EnumBehaviorMember> {
+    fn parse_behavior_member(&mut self, pending_attrs: Vec<Attribute>) -> ParserResult<BehaviorMember> {
         let start = self.cur_start();
         if matches!(self.peek(), Token::LBracket) {
             let class_member = self.parse_index_member(start)?;
             if let ClassMember::Index(mut idx) = class_member {
                 idx.attributes = pending_attrs;
-                return Ok(EnumBehaviorMember::Index(idx));
+                return Ok(BehaviorMember::Index(idx));
             } else {
                 unreachable!()
             }
@@ -3372,7 +3523,7 @@ impl<'source> Parser<'source> {
             self.skip_newlines_if_followed_by(&Token::LBrace);
             let body = self.parse_member_body()?;
             let range = (start..self.prev_end).into();
-            return Ok(EnumBehaviorMember::Setter(SetterDef {
+            return Ok(BehaviorMember::Setter(SetterDef {
                 name,
                 generic_parameters,
                 param,
@@ -3411,7 +3562,7 @@ impl<'source> Parser<'source> {
         let body = self.parse_member_body()?;
         let range = (start..self.prev_end).into();
         if let Some(params) = params {
-            Ok(EnumBehaviorMember::Method(MethodDef {
+            Ok(BehaviorMember::Method(MethodDef {
                 name,
                 generic_parameters,
                 params,
@@ -3425,7 +3576,7 @@ impl<'source> Parser<'source> {
                 name_range,
             }))
         } else {
-            Ok(EnumBehaviorMember::Getter(GetterDef {
+            Ok(BehaviorMember::Getter(GetterDef {
                 name,
                 generic_parameters,
                 return_annotation,
@@ -4225,8 +4376,10 @@ impl<'source> Parser<'source> {
                 // spelling for `self.class` and must continue through small
                 // statement parsing below. `@` keeps its existing decorated
                 // class-declaration path.
-                Token::At | Token::Class | Token::Enum | Token::Data
-                    if matches!(self.peek(), Token::At) || matches!(self.peek_next(), Token::Identifier(_)) =>
+                Token::At | Token::Class | Token::Enum | Token::Data | Token::Impl
+                    if matches!(self.peek(), Token::At)
+                        || matches!(self.peek_next(), Token::Identifier(_))
+                        || matches!(self.peek(), Token::Impl) =>
                 {
                     let mut header_attrs = Vec::new();
                     while matches!(self.peek(), Token::At) {
@@ -4235,10 +4388,13 @@ impl<'source> Parser<'source> {
                     }
                     let is_enum = matches!(self.peek(), Token::Enum);
                     let is_data = matches!(self.peek(), Token::Data);
+                    let is_impl = matches!(self.peek(), Token::Impl);
                     let stmt = if is_enum {
                         self.parse_enum(header_attrs)?
                     } else if is_data {
                         self.parse_data(header_attrs)?
+                    } else if is_impl {
+                        self.parse_impl(header_attrs)?
                     } else {
                         self.parse_class(header_attrs)?
                     };
@@ -4246,6 +4402,7 @@ impl<'source> Parser<'source> {
                         Statement::Class(class_def) => (class_def.range.start, "class".len(), "class"),
                         Statement::Enum(enum_def) => (enum_def.range.start, "enum".len(), "enum"),
                         Statement::Data(data_def) => (data_def.range.start, "data".len(), "data"),
+                        Statement::Impl(impl_def) => (impl_def.range.start, "impl".len(), "impl"),
                         _ => unreachable!(),
                     };
                     return Err(SyntaxError {

@@ -31,6 +31,12 @@ pub(crate) enum VirtualProductKind {
         constructor: DataConstructorId,
         construction: Arc<DataConstructionLoweringSpec>,
     },
+    Tuple {
+        spec: Arc<crate::modules::semantic_lowering::AnonymousProductConstructionLoweringSpec>,
+    },
+    Record {
+        spec: Arc<crate::modules::semantic_lowering::AnonymousProductConstructionLoweringSpec>,
+    },
     Variant {
         variant: VariantId,
     },
@@ -43,7 +49,7 @@ pub(crate) enum VirtualComponentPlan {
         logical_component: u32,
         leaf_offset: u16,
     },
-    NestedData {
+    NestedProduct {
         logical_component: u32,
         leaf_offset: u16,
         shape: Box<VirtualShapePlan>,
@@ -75,7 +81,7 @@ impl VirtualShapePlan {
                     }
                     return None;
                 }
-                VirtualComponentPlan::NestedData {
+                VirtualComponentPlan::NestedProduct {
                     logical_component,
                     leaf_offset,
                     shape,
@@ -97,7 +103,7 @@ impl VirtualShapePlan {
         }
         let first = path[0];
         for comp in self.components.iter() {
-            if let VirtualComponentPlan::NestedData { logical_component, shape, .. } = comp {
+            if let VirtualComponentPlan::NestedProduct { logical_component, shape, .. } = comp {
                 if *logical_component == first {
                     return shape.subshape_for_path(&path[1..]);
                 }
@@ -112,7 +118,7 @@ impl VirtualShapePlan {
         }
         let first = path[0];
         for comp in self.components.iter() {
-            if let VirtualComponentPlan::NestedData {
+            if let VirtualComponentPlan::NestedProduct {
                 logical_component,
                 leaf_offset,
                 shape,
@@ -197,8 +203,26 @@ pub(crate) struct ActiveVirtualProduct {
 }
 
 impl ActiveVirtualProduct {
+    #[allow(dead_code)]
     pub fn is_data(&self) -> bool {
         matches!(self.shape.kind, VirtualProductKind::Data { .. })
+    }
+
+    #[allow(dead_code)]
+    pub fn is_tuple(&self) -> bool {
+        matches!(self.shape.kind, VirtualProductKind::Tuple { .. })
+    }
+
+    #[allow(dead_code)]
+    pub fn is_record(&self) -> bool {
+        matches!(self.shape.kind, VirtualProductKind::Record { .. })
+    }
+
+    pub fn is_transparent_product(&self) -> bool {
+        matches!(
+            self.shape.kind,
+            VirtualProductKind::Data { .. } | VirtualProductKind::Tuple { .. } | VirtualProductKind::Record { .. }
+        )
     }
 
     #[allow(dead_code)]
@@ -236,8 +260,7 @@ pub(crate) struct ProductPlanner<'a> {
     lowering: Option<&'a ModuleLoweringSemantics>,
     mode: ProductOptimizationMode,
     candidates: BTreeMap<BindingId, CandidateBinding>,
-    name_stack: Vec<BTreeMap<String, BindingId>>,
-    next_binding_id: u32,
+    module_body: bool,
     current_loop_depth: u16,
     nested_block_depth: usize,
     ephemeral_projections: BTreeMap<SourceRange, (VirtualShapePlan, Box<[u32]>)>,
@@ -249,35 +272,15 @@ impl<'a> ProductPlanner<'a> {
             lowering,
             mode,
             candidates: BTreeMap::new(),
-            name_stack: vec![BTreeMap::new()],
-            next_binding_id: 1,
+            module_body: false,
             current_loop_depth: 0,
             nested_block_depth: 0,
             ephemeral_projections: BTreeMap::new(),
         }
     }
 
-    fn alloc_binding_id(&mut self) -> BindingId {
-        let id = BindingId(self.next_binding_id);
-        self.next_binding_id += 1;
-        id
-    }
-
-    pub fn enter_scope(&mut self) {
-        self.name_stack.push(BTreeMap::new());
-    }
-
-    pub fn exit_scope(&mut self) {
-        self.name_stack.pop();
-    }
-
-    pub fn resolve_visible_binding(&self, name: &str) -> Option<BindingId> {
-        for scope in self.name_stack.iter().rev() {
-            if let Some(&binding) = scope.get(name) {
-                return Some(binding);
-            }
-        }
-        None
+    fn binding_for_range(&self, range: SourceRange) -> Option<BindingId> {
+        self.lowering?.bindings.get(&range).copied()
     }
 
     /// Recursively builds a `VirtualShapePlan` for a data or variant construction expression.
@@ -330,10 +333,10 @@ impl<'a> ProductPlanner<'a> {
                             _ => return None,
                         };
 
-                        // Check if nested data construction
+                        // Check if nested product construction
                         if let Some(nested_shape) = self.build_virtual_shape(arg_expr, leaf_offset, depth + 1) {
                             let leaf_count = nested_shape.leaf_count;
-                            components.push(VirtualComponentPlan::NestedData {
+                            components.push(VirtualComponentPlan::NestedProduct {
                                 logical_component: *comp_idx,
                                 leaf_offset,
                                 shape: Box::new(nested_shape),
@@ -409,7 +412,7 @@ impl<'a> ProductPlanner<'a> {
                     let entry = &rec.entries[arg_idx];
                     if let Some(nested_shape) = self.build_virtual_shape(&entry.value, leaf_offset, depth + 1) {
                         let leaf_count = nested_shape.leaf_count;
-                        components.push(VirtualComponentPlan::NestedData {
+                        components.push(VirtualComponentPlan::NestedProduct {
                             logical_component: *comp_idx,
                             leaf_offset,
                             shape: Box::new(nested_shape),
@@ -438,10 +441,99 @@ impl<'a> ProductPlanner<'a> {
             }
         }
 
+        // 3. Check for Static Tuple Literal
+        if let Expr::TupleLiteral(t) = expr {
+            if let Some(spec) = lowering.anonymous_products.get(&t.range).cloned() {
+                if let crate::modules::semantic_lowering::AnonymousProductConstructionKind::Tuple { positional_len, labels } = &spec.kind {
+                    let total_len = *positional_len as usize + labels.len();
+                    if total_len == 0 {
+                        return None; // Zero arity is Unit
+                    }
+                    let mut components = Vec::new();
+                    let mut leaf_offset = current_leaf_offset;
+                    for (comp_idx, entry) in t.entries.iter().enumerate() {
+                        let comp_expr = match entry {
+                            phalcom_ast::ast::TupleLiteralEntry::Positional { expr, .. } => expr,
+                            phalcom_ast::ast::TupleLiteralEntry::Labeled { value, .. } => value,
+                            phalcom_ast::ast::TupleLiteralEntry::Expand { .. } => return None,
+                        };
+                        if let Some(nested_shape) = self.build_virtual_shape(comp_expr, leaf_offset, depth + 1) {
+                            let leaf_count = nested_shape.leaf_count;
+                            components.push(VirtualComponentPlan::NestedProduct {
+                                logical_component: comp_idx as u32,
+                                leaf_offset,
+                                shape: Box::new(nested_shape),
+                            });
+                            leaf_offset += leaf_count;
+                        } else {
+                            components.push(VirtualComponentPlan::Scalar {
+                                logical_component: comp_idx as u32,
+                                leaf_offset,
+                            });
+                            leaf_offset += 1;
+                        }
+                    }
+                    let leaf_count = leaf_offset - current_leaf_offset;
+                    if leaf_count as usize > MAX_VIRTUAL_PRODUCT_LEAVES {
+                        return None;
+                    }
+                    return Some(VirtualShapePlan {
+                        kind: VirtualProductKind::Tuple { spec },
+                        components: components.into_boxed_slice(),
+                        leaf_count,
+                    });
+                }
+            }
+        }
+
+        // 4. Check for Static Record Literal
+        if let Expr::RecordLiteral(r) = expr {
+            if let Some(spec) = lowering.anonymous_products.get(&r.range).cloned() {
+                if let crate::modules::semantic_lowering::AnonymousProductConstructionKind::Record { source_to_logical, .. } = &spec.kind {
+                    if source_to_logical.is_empty() {
+                        return None; // Zero arity is Unit
+                    }
+                    let mut components = Vec::new();
+                    let mut leaf_offset = current_leaf_offset;
+                    for (entry_idx, comp_idx) in source_to_logical.iter().enumerate() {
+                        let entry = match &r.entries[entry_idx] {
+                            phalcom_ast::ast::RecordLiteralEntry::Field(field) => field,
+                            phalcom_ast::ast::RecordLiteralEntry::Expansion { .. } => return None,
+                        };
+                        if let Some(nested_shape) = self.build_virtual_shape(&entry.value, leaf_offset, depth + 1) {
+                            let leaf_count = nested_shape.leaf_count;
+                            components.push(VirtualComponentPlan::NestedProduct {
+                                logical_component: *comp_idx,
+                                leaf_offset,
+                                shape: Box::new(nested_shape),
+                            });
+                            leaf_offset += leaf_count;
+                        } else {
+                            components.push(VirtualComponentPlan::Scalar {
+                                logical_component: *comp_idx,
+                                leaf_offset,
+                            });
+                            leaf_offset += 1;
+                        }
+                    }
+                    let leaf_count = leaf_offset - current_leaf_offset;
+                    if leaf_count as usize > MAX_VIRTUAL_PRODUCT_LEAVES {
+                        return None;
+                    }
+                    return Some(VirtualShapePlan {
+                        kind: VirtualProductKind::Record { spec },
+                        components: components.into_boxed_slice(),
+                        leaf_count,
+                    });
+                }
+            }
+        }
+
         None
     }
 
     pub fn plan_program(mut self, program: &Program) -> ProductFunctionPlan {
+        self.module_body = true;
         for stmt in &program.statements {
             self.visit_statement(stmt);
         }
@@ -449,6 +541,7 @@ impl<'a> ProductPlanner<'a> {
     }
 
     pub fn plan_statements(mut self, stmts: &[Statement]) -> ProductFunctionPlan {
+        self.module_body = false;
         for stmt in stmts {
             self.visit_statement(stmt);
         }
@@ -473,7 +566,7 @@ impl<'a> ProductPlanner<'a> {
     pub fn visit_statement(&mut self, stmt: &Statement) {
         match stmt {
             Statement::Let(binding) => {
-                let is_global = self.name_stack.len() == 1;
+                let is_global = self.module_body;
                 let mutable = matches!(binding.kind, BindingKind::Let);
 
                 // Analyze initializer BEFORE inserting into scope
@@ -485,30 +578,28 @@ impl<'a> ProductPlanner<'a> {
                 };
 
                 if let Pattern::Name { name, .. } = &binding.pattern {
-                    let binding_id = self.alloc_binding_id();
-                    let mut candidate = CandidateBinding {
-                        binding: binding_id,
-                        name: name.clone(),
-                        range: binding.range,
-                        mutable,
-                        is_global,
-                        shape: shape.clone(),
-                        rejection_reason: None,
-                        summary: ProductUseSummary {
-                            creation_loop_depth: self.current_loop_depth,
-                            ..Default::default()
-                        },
-                    };
-                    if is_global {
-                        candidate.rejection_reason = Some(MaterializationReason::ModuleOrGlobalBinding);
-                    } else if mutable {
-                        candidate.rejection_reason = Some(MaterializationReason::MutableBinding);
-                    } else if shape.is_none() {
-                        candidate.rejection_reason = Some(MaterializationReason::NoResolvedConstruction);
-                    }
-                    self.candidates.insert(binding_id, candidate);
-                    if let Some(scope) = self.name_stack.last_mut() {
-                        scope.insert(name.clone(), binding_id);
+                    if let Some(binding_id) = self.binding_for_range(binding.range) {
+                        let mut candidate = CandidateBinding {
+                            binding: binding_id,
+                            name: name.clone(),
+                            range: binding.range,
+                            mutable,
+                            is_global,
+                            shape: shape.clone(),
+                            rejection_reason: None,
+                            summary: ProductUseSummary {
+                                creation_loop_depth: self.current_loop_depth,
+                                ..Default::default()
+                            },
+                        };
+                        if is_global {
+                            candidate.rejection_reason = Some(MaterializationReason::ModuleOrGlobalBinding);
+                        } else if mutable {
+                            candidate.rejection_reason = Some(MaterializationReason::MutableBinding);
+                        } else if shape.is_none() {
+                            candidate.rejection_reason = Some(MaterializationReason::NoResolvedConstruction);
+                        }
+                        self.candidates.insert(binding_id, candidate);
                     }
                 } else {
                     // Refutable / destructuring patterns are ineligible for P2 product optimization
@@ -527,11 +618,9 @@ impl<'a> ProductPlanner<'a> {
                 for lane in &for_stmt.lanes {
                     self.visit_expression(&lane.iter, UseContext::Value);
                 }
-                self.enter_scope();
                 for s in &for_stmt.body {
                     self.visit_statement(s);
                 }
-                self.exit_scope();
                 self.current_loop_depth -= 1;
             }
             Statement::Break { .. } | Statement::Continue { .. } | Statement::TypeAlias(_) | Statement::Export(_) => {}
@@ -544,38 +633,58 @@ impl<'a> ProductPlanner<'a> {
                         phalcom_ast::ast::ClassMember::Method(m) => {
                             if let Some(stmts) = m.body.statements() {
                                 self.nested_block_depth += 1;
-                                self.enter_scope();
                                 for s in stmts {
                                     self.visit_statement(s);
                                 }
-                                self.exit_scope();
                                 self.nested_block_depth -= 1;
                             }
                         }
                         phalcom_ast::ast::ClassMember::Getter(g) => {
                             if let Some(stmts) = g.body.statements() {
                                 self.nested_block_depth += 1;
-                                self.enter_scope();
                                 for s in stmts {
                                     self.visit_statement(s);
                                 }
-                                self.exit_scope();
                                 self.nested_block_depth -= 1;
                             }
                         }
                         phalcom_ast::ast::ClassMember::Setter(s) => {
                             if let Some(stmts) = s.body.statements() {
                                 self.nested_block_depth += 1;
-                                self.enter_scope();
                                 for st in stmts {
                                     self.visit_statement(st);
                                 }
-                                self.exit_scope();
                                 self.nested_block_depth -= 1;
                             }
                         }
                         _ => {}
                     }
+                }
+            }
+            Statement::Impl(impl_def) => {
+                for member in &impl_def.members {
+                    self.nested_block_depth += 1;
+                    match member {
+                        phalcom_ast::ast::BehaviorMember::Method(method) => {
+                            if let Some(body) = method.body.statements() {
+                                for statement in body { self.visit_statement(statement); }
+                            }
+                        }
+                        phalcom_ast::ast::BehaviorMember::Getter(getter) => {
+                            if let Some(body) = getter.body.statements() {
+                                for statement in body { self.visit_statement(statement); }
+                            }
+                        }
+                        phalcom_ast::ast::BehaviorMember::Setter(setter) => {
+                            if let Some(body) = setter.body.statements() {
+                                for statement in body { self.visit_statement(statement); }
+                            }
+                        }
+                        phalcom_ast::ast::BehaviorMember::Index(index) => {
+                            for statement in &index.body { self.visit_statement(statement); }
+                        }
+                    }
+                    self.nested_block_depth -= 1;
                 }
             }
             Statement::Enum(_) | Statement::Data(_) => {}
@@ -584,8 +693,8 @@ impl<'a> ProductPlanner<'a> {
 
     pub fn visit_expression(&mut self, expr: &Expr, ctx: UseContext) {
         match expr {
-            Expr::Var { value: name, range: _ } => {
-                if let Some(binding_id) = self.resolve_visible_binding(name) {
+            Expr::Var { .. } => {
+                if let Some(binding_id) = self.binding_for_range(expr.range()) {
                     if let Some(candidate) = self.candidates.get_mut(&binding_id) {
                         if self.nested_block_depth > 0 {
                             candidate.summary.captured = true;
@@ -655,11 +764,9 @@ impl<'a> ProductPlanner<'a> {
             }
             Expr::Block(block) => {
                 self.nested_block_depth += 1;
-                self.enter_scope();
                 for stmt in &block.body {
                     self.visit_statement(stmt);
                 }
-                self.exit_scope();
                 self.nested_block_depth -= 1;
             }
             Expr::MethodCall(mc) => {
@@ -699,27 +806,21 @@ impl<'a> ProductPlanner<'a> {
             }
             Expr::IfLet(if_let) => {
                 self.visit_expression(&if_let.value, UseContext::Value);
-                self.enter_scope();
                 for stmt in &if_let.then_body.body {
                     self.visit_statement(stmt);
                 }
-                self.exit_scope();
                 if let Some(else_branch) = &if_let.else_body {
-                    self.enter_scope();
                     for stmt in &else_branch.body {
                         self.visit_statement(stmt);
                     }
-                    self.exit_scope();
                 }
             }
             Expr::WhileLet(while_let) => {
                 self.current_loop_depth += 1;
                 self.visit_expression(&while_let.value, UseContext::Value);
-                self.enter_scope();
                 for stmt in &while_let.body {
                     self.visit_statement(stmt);
                 }
-                self.exit_scope();
                 self.current_loop_depth -= 1;
             }
             Expr::TupleLiteral(t) => {
@@ -831,8 +932,8 @@ impl<'a> ProductPlanner<'a> {
 
     fn visit_match_expr(&mut self, match_expr: &MatchExpr) {
         // Scrutinee can be checked for match candidate
-        let is_candidate = if let Expr::Var { value: name, .. } = &*match_expr.value {
-            self.resolve_visible_binding(name)
+        let is_candidate = if matches!(&*match_expr.value, Expr::Var { .. }) {
+            self.binding_for_range(match_expr.value.range())
         } else {
             None
         };
@@ -840,7 +941,7 @@ impl<'a> ProductPlanner<'a> {
         // Check if any arm has a root whole-value binding pattern
         let has_root_whole_binding = match_expr.arms.iter().any(|arm| matches!(arm.pattern, Pattern::Name { .. }));
 
-        if let Some(binding_id) = is_candidate {
+        if is_candidate.is_some() {
             if has_root_whole_binding {
                 self.visit_expression(&match_expr.value, UseContext::Value);
             } else {
@@ -851,9 +952,7 @@ impl<'a> ProductPlanner<'a> {
         }
 
         for arm in &match_expr.arms {
-            self.enter_scope();
             self.visit_expression(&arm.branch, UseContext::Value);
-            self.exit_scope();
         }
     }
 }
@@ -898,7 +997,7 @@ pub(crate) fn decide_product_optimization(candidate: &CandidateBinding, mode: Pr
     }
 
     match &shape.kind {
-        VirtualProductKind::Data { .. } => {
+        VirtualProductKind::Data { .. } | VirtualProductKind::Tuple { .. } | VirtualProductKind::Record { .. } => {
             // Check loop-repeat allocation sinking restriction
             for &whole_loop_depth in &candidate.summary.whole_values {
                 if whole_loop_depth > candidate.summary.creation_loop_depth {
@@ -999,6 +1098,80 @@ impl<'vm> Compiler<'vm> {
         range: SourceRange,
     ) -> Result<(), CompilerError> {
         match expr {
+            Expr::TupleLiteral(t) => {
+                for (comp_idx, entry) in t.entries.iter().enumerate() {
+                    let arg_expr = match entry {
+                        phalcom_ast::ast::TupleLiteralEntry::Positional { expr, .. } => expr,
+                        phalcom_ast::ast::TupleLiteralEntry::Labeled { value, .. } => value,
+                        phalcom_ast::ast::TupleLiteralEntry::Expand { .. } => return Err(CompilerError::InvalidExecutablePattern(range)),
+                    };
+                    let comp_plan = shape
+                        .components
+                        .iter()
+                        .find(|c| match c {
+                            VirtualComponentPlan::Scalar { logical_component, .. } => *logical_component == comp_idx as u32,
+                            VirtualComponentPlan::NestedProduct { logical_component, .. } => *logical_component == comp_idx as u32,
+                        })
+                        .ok_or_else(|| CompilerError::Message(format!("missing component plan for tuple {comp_idx}")))?;
+
+                    match comp_plan {
+                        VirtualComponentPlan::Scalar { leaf_offset, .. } => {
+                            self.compile_expr(arg_expr.clone())?;
+                            let target_slot = head_slot + leaf_offset;
+                            self.emit(Bytecode::SetLocal(target_slot), range);
+                            self.emit(Bytecode::Pop, range);
+                        }
+                        VirtualComponentPlan::NestedProduct {
+                            leaf_offset,
+                            shape: nested_shape,
+                            ..
+                        } => {
+                            let nested_head = head_slot + leaf_offset;
+                            self.compile_virtual_constructor_into_slots(arg_expr, nested_shape, nested_head, range)?;
+                        }
+                    }
+                }
+            }
+            Expr::RecordLiteral(r) => {
+                let VirtualProductKind::Record { spec } = &shape.kind else {
+                    return Err(CompilerError::MissingAssociatedResolution(range));
+                };
+                let crate::modules::semantic_lowering::AnonymousProductConstructionKind::Record { source_to_logical, .. } = &spec.kind else {
+                    return Err(CompilerError::MissingAssociatedResolution(range));
+                };
+
+                for (entry_idx, comp_idx) in source_to_logical.iter().enumerate() {
+                    let entry = match &r.entries[entry_idx] {
+                        phalcom_ast::ast::RecordLiteralEntry::Field(field) => field,
+                        phalcom_ast::ast::RecordLiteralEntry::Expansion { .. } => return Err(CompilerError::InvalidExecutablePattern(range)),
+                    };
+                    let comp_plan = shape
+                        .components
+                        .iter()
+                        .find(|c| match c {
+                            VirtualComponentPlan::Scalar { logical_component, .. } => logical_component == comp_idx,
+                            VirtualComponentPlan::NestedProduct { logical_component, .. } => logical_component == comp_idx,
+                        })
+                        .ok_or_else(|| CompilerError::Message(format!("missing component plan for record {comp_idx}")))?;
+
+                    match comp_plan {
+                        VirtualComponentPlan::Scalar { leaf_offset, .. } => {
+                            self.compile_expr(entry.value.clone())?;
+                            let target_slot = head_slot + leaf_offset;
+                            self.emit(Bytecode::SetLocal(target_slot), range);
+                            self.emit(Bytecode::Pop, range);
+                        }
+                        VirtualComponentPlan::NestedProduct {
+                            leaf_offset,
+                            shape: nested_shape,
+                            ..
+                        } => {
+                            let nested_head = head_slot + leaf_offset;
+                            self.compile_virtual_constructor_into_slots(&entry.value, nested_shape, nested_head, range)?;
+                        }
+                    }
+                }
+            }
             Expr::AssociatedInvoke(inv) => {
                 let spec = {
                     let lowering = self.lowering().ok_or(CompilerError::MissingAssociatedResolution(range))?;
@@ -1027,7 +1200,7 @@ impl<'vm> Compiler<'vm> {
                                 .iter()
                                 .find(|c| match c {
                                     VirtualComponentPlan::Scalar { logical_component, .. } => logical_component == comp_idx,
-                                    VirtualComponentPlan::NestedData { logical_component, .. } => logical_component == comp_idx,
+                                    VirtualComponentPlan::NestedProduct { logical_component, .. } => logical_component == comp_idx,
                                 })
                                 .ok_or_else(|| CompilerError::Message(format!("missing component plan for {comp_idx}")))?;
 
@@ -1038,7 +1211,7 @@ impl<'vm> Compiler<'vm> {
                                     self.emit(Bytecode::SetLocal(target_slot), range);
                                     self.emit(Bytecode::Pop, range);
                                 }
-                                VirtualComponentPlan::NestedData {
+                                VirtualComponentPlan::NestedProduct {
                                     leaf_offset,
                                     shape: nested_shape,
                                     ..
@@ -1093,7 +1266,7 @@ impl<'vm> Compiler<'vm> {
                                 .iter()
                                 .find(|c| match c {
                                     VirtualComponentPlan::Scalar { logical_component, .. } => logical_component == comp_idx,
-                                    VirtualComponentPlan::NestedData { logical_component, .. } => logical_component == comp_idx,
+                                    VirtualComponentPlan::NestedProduct { logical_component, .. } => logical_component == comp_idx,
                                 })
                                 .ok_or_else(|| CompilerError::Message(format!("missing component plan for {comp_idx}")))?;
 
@@ -1104,7 +1277,7 @@ impl<'vm> Compiler<'vm> {
                                     self.emit(Bytecode::SetLocal(target_slot), range);
                                     self.emit(Bytecode::Pop, range);
                                 }
-                                VirtualComponentPlan::NestedData {
+                                VirtualComponentPlan::NestedProduct {
                                     leaf_offset,
                                     shape: nested_shape,
                                     ..
@@ -1153,7 +1326,7 @@ impl<'vm> Compiler<'vm> {
                         .iter()
                         .find(|c| match c {
                             VirtualComponentPlan::Scalar { logical_component, .. } => logical_component == comp_idx,
-                            VirtualComponentPlan::NestedData { logical_component, .. } => logical_component == comp_idx,
+                            VirtualComponentPlan::NestedProduct { logical_component, .. } => logical_component == comp_idx,
                         })
                         .ok_or_else(|| CompilerError::Message(format!("missing component plan for {comp_idx}")))?;
 
@@ -1164,7 +1337,7 @@ impl<'vm> Compiler<'vm> {
                             self.emit(Bytecode::SetLocal(target_slot), range);
                             self.emit(Bytecode::Pop, range);
                         }
-                        VirtualComponentPlan::NestedData {
+                        VirtualComponentPlan::NestedProduct {
                             leaf_offset,
                             shape: nested_shape,
                             ..
@@ -1188,7 +1361,7 @@ impl<'vm> Compiler<'vm> {
             return Ok(());
         }
 
-        // Check if path denotes a nested virtual data subshape
+        // Check if path denotes a nested virtual product subshape
         if let Some(subshape) = product.shape.subshape_for_path(component_path) {
             let offset = product.shape.subshape_offset_for_path(component_path).unwrap_or(0);
             let sub_product = ActiveVirtualProduct {
@@ -1198,68 +1371,170 @@ impl<'vm> Compiler<'vm> {
                 shape: subshape.clone(),
                 materialization_spec: None,
             };
-            return self.emit_virtual_data_materialization(&sub_product, range);
+            return self.emit_virtual_materialization(&sub_product, range);
         }
 
         Err(CompilerError::Message("invalid component projection path on virtual product".to_string()))
     }
 
-    /// Rematerializes a virtual data product using P1's canonical construction recipe.
-    pub(crate) fn emit_virtual_data_materialization(&mut self, product: &ActiveVirtualProduct, range: SourceRange) -> Result<(), CompilerError> {
-        let VirtualProductKind::Data { construction, .. } = &product.shape.kind else {
-            return Err(CompilerError::Message("cannot rematerialize non-data virtual product".to_string()));
-        };
+    /// Rematerializes a virtual transparent product (Data, Tuple, or Record).
+    pub(crate) fn emit_virtual_materialization(&mut self, product: &ActiveVirtualProduct, range: SourceRange) -> Result<(), CompilerError> {
+        match &product.shape.kind {
+            VirtualProductKind::Data { construction, .. } => {
+                // Load or recursively materialize components in logical argument order required by the recipe
+                for (arg_idx, comp_idx) in construction.argument_to_component.iter().enumerate() {
+                    let comp_plan = product
+                        .shape
+                        .components
+                        .iter()
+                        .find(|c| match c {
+                            VirtualComponentPlan::Scalar { logical_component, .. } => logical_component == comp_idx,
+                            VirtualComponentPlan::NestedProduct { logical_component, .. } => logical_component == comp_idx,
+                        })
+                        .ok_or_else(|| CompilerError::Message(format!("missing component {comp_idx} during materialization")))?;
 
-        // Load or recursively materialize components in logical argument order required by the recipe
-        for (arg_idx, comp_idx) in construction.argument_to_component.iter().enumerate() {
-            let comp_plan = product
-                .shape
-                .components
-                .iter()
-                .find(|c| match c {
-                    VirtualComponentPlan::Scalar { logical_component, .. } => logical_component == comp_idx,
-                    VirtualComponentPlan::NestedData { logical_component, .. } => logical_component == comp_idx,
-                })
-                .ok_or_else(|| CompilerError::Message(format!("missing component {comp_idx} during materialization")))?;
+                    match comp_plan {
+                        VirtualComponentPlan::Scalar { leaf_offset, .. } => {
+                            let slot = product.head_slot + leaf_offset;
+                            self.emit(Bytecode::GetLocal(slot), range);
+                        }
+                        VirtualComponentPlan::NestedProduct {
+                            leaf_offset,
+                            shape: nested_shape,
+                            ..
+                        } => {
+                            let nested_product = ActiveVirtualProduct {
+                                binding: None,
+                                head_slot: product.head_slot + leaf_offset,
+                                leaf_count: nested_shape.leaf_count,
+                                shape: (**nested_shape).clone(),
+                                materialization_spec: None,
+                            };
+                            self.emit_virtual_materialization(&nested_product, range)?;
+                        }
+                    }
+                }
 
-            match comp_plan {
-                VirtualComponentPlan::Scalar { leaf_offset, .. } => {
-                    let slot = product.head_slot + leaf_offset;
-                    self.emit(Bytecode::GetLocal(slot), range);
+                let ctor_idx = self
+                    .functions
+                    .last_mut()
+                    .unwrap()
+                    .chunk
+                    .executable_semantics
+                    .add_data_construction(construction.clone(), range)?;
+
+                let arity = construction.argument_to_component.len() as u8;
+                if arity == 0 {
+                    self.emit(Bytecode::LoadDataSingleton(ctor_idx), range);
+                } else {
+                    self.emit(Bytecode::ConstructData { constructor: ctor_idx, arity }, range);
                 }
-                VirtualComponentPlan::NestedData {
-                    leaf_offset,
-                    shape: nested_shape,
-                    ..
-                } => {
-                    let nested_product = ActiveVirtualProduct {
-                        binding: None,
-                        head_slot: product.head_slot + leaf_offset,
-                        leaf_count: nested_shape.leaf_count,
-                        shape: (**nested_shape).clone(),
-                        materialization_spec: None,
-                    };
-                    self.emit_virtual_data_materialization(&nested_product, range)?;
+                Ok(())
+            }
+            VirtualProductKind::Tuple { spec } => {
+                let spec_idx = self
+                    .functions
+                    .last_mut()
+                    .unwrap()
+                    .chunk
+                    .executable_semantics
+                    .add_anonymous_product_spec(spec.clone(), range)?;
+
+                let total_len = product.shape.components.len();
+                for comp_idx in 0..total_len {
+                    let comp_plan = product
+                        .shape
+                        .components
+                        .iter()
+                        .find(|c| match c {
+                            VirtualComponentPlan::Scalar { logical_component, .. } => *logical_component == comp_idx as u32,
+                            VirtualComponentPlan::NestedProduct { logical_component, .. } => *logical_component == comp_idx as u32,
+                        })
+                        .ok_or_else(|| CompilerError::Message(format!("missing component {comp_idx} during tuple materialization")))?;
+
+                    match comp_plan {
+                        VirtualComponentPlan::Scalar { leaf_offset, .. } => {
+                            let slot = product.head_slot + leaf_offset;
+                            self.emit(Bytecode::GetLocal(slot), range);
+                        }
+                        VirtualComponentPlan::NestedProduct {
+                            leaf_offset,
+                            shape: nested_shape,
+                            ..
+                        } => {
+                            let nested_product = ActiveVirtualProduct {
+                                binding: None,
+                                head_slot: product.head_slot + leaf_offset,
+                                leaf_count: nested_shape.leaf_count,
+                                shape: (**nested_shape).clone(),
+                                materialization_spec: None,
+                            };
+                            self.emit_virtual_materialization(&nested_product, range)?;
+                        }
+                    }
                 }
+
+                self.emit(Bytecode::BuildStaticTuple { spec: spec_idx }, range);
+                Ok(())
+            }
+            VirtualProductKind::Record { spec } => {
+                let spec_idx = self
+                    .functions
+                    .last_mut()
+                    .unwrap()
+                    .chunk
+                    .executable_semantics
+                    .add_anonymous_product_spec(spec.clone(), range)?;
+
+                let crate::modules::semantic_lowering::AnonymousProductConstructionKind::Record { source_to_logical, .. } = &spec.kind else {
+                    return Err(CompilerError::Message("invalid record lowering spec".into()));
+                };
+
+                for comp_idx in source_to_logical.iter() {
+                    let comp_plan = product
+                        .shape
+                        .components
+                        .iter()
+                        .find(|c| match c {
+                            VirtualComponentPlan::Scalar { logical_component, .. } => logical_component == comp_idx,
+                            VirtualComponentPlan::NestedProduct { logical_component, .. } => logical_component == comp_idx,
+                        })
+                        .ok_or_else(|| CompilerError::Message(format!("missing component {comp_idx} during record materialization")))?;
+
+                    match comp_plan {
+                        VirtualComponentPlan::Scalar { leaf_offset, .. } => {
+                            let slot = product.head_slot + leaf_offset;
+                            self.emit(Bytecode::GetLocal(slot), range);
+                        }
+                        VirtualComponentPlan::NestedProduct {
+                            leaf_offset,
+                            shape: nested_shape,
+                            ..
+                        } => {
+                            let nested_product = ActiveVirtualProduct {
+                                binding: None,
+                                head_slot: product.head_slot + leaf_offset,
+                                leaf_count: nested_shape.leaf_count,
+                                shape: (**nested_shape).clone(),
+                                materialization_spec: None,
+                            };
+                            self.emit_virtual_materialization(&nested_product, range)?;
+                        }
+                    }
+                }
+
+                self.emit(Bytecode::BuildStaticRecord { spec: spec_idx }, range);
+                Ok(())
+            }
+            VirtualProductKind::Variant { .. } => {
+                Err(CompilerError::Message("cannot rematerialize unobserved variant payload".to_string()))
             }
         }
+    }
 
-        let ctor_idx = self
-            .functions
-            .last_mut()
-            .unwrap()
-            .chunk
-            .executable_semantics
-            .add_data_construction(construction.clone(), range)?;
-
-        let arity = construction.argument_to_component.len() as u8;
-        if arity == 0 {
-            self.emit(Bytecode::LoadDataSingleton(ctor_idx), range);
-        } else {
-            self.emit(Bytecode::ConstructData { constructor: ctor_idx, arity }, range);
-        }
-
-        Ok(())
+    #[allow(dead_code)]
+    pub(crate) fn emit_virtual_data_materialization(&mut self, product: &ActiveVirtualProduct, range: SourceRange) -> Result<(), CompilerError> {
+        self.emit_virtual_materialization(product, range)
     }
 }
 

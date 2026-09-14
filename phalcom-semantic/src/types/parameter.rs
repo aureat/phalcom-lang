@@ -10,6 +10,7 @@ use crate::identity::{CallableId, DeclarationId, DispatchSide};
 pub enum TypeParameterOwner {
     Declaration(DeclarationId),
     Callable(CallableId),
+    Impl(crate::identity::ImplId),
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]

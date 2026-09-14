@@ -10,6 +10,7 @@ mod stage7_static_diagnostics;
 mod support;
 
 mod fixture_syntax;
+mod impl_navigation;
 mod inlay_hints;
 mod semantic_completion;
 mod semantic_consistency;

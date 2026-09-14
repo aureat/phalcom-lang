@@ -45,7 +45,7 @@
 //! plain-`variable` coloring is left untouched — this refinement only ever
 //! upgrades, never downgrades or removes, a flat-pass token.
 
-use phalcom_ast::ast::{ClassMember, Expr, Statement};
+use phalcom_ast::ast::{BehaviorMember, ClassMember, Expr, Statement};
 use phalcom_ast::lexer::Lexer;
 use phalcom_ast::token::{StringSegment, Token};
 use phalcom_common::range::SourceRange;
@@ -181,6 +181,7 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
         | Token::For
         | Token::Break
         | Token::Continue
+        | Token::Impl
         | Token::Import
         | Token::From
         | Token::Export
@@ -658,6 +659,11 @@ fn collect_decl_names(statements: &[Statement], out: &mut Vec<DeclNameOverride>)
                     is_index: false,
                 });
             }
+            Statement::Impl(impl_def) => {
+                for member in &impl_def.members {
+                    collect_behavior_decl_name(member, out);
+                }
+            }
             Statement::For(for_stmt) => collect_decl_names(&for_stmt.body, out),
             Statement::Expr { expr, .. } => collect_decl_names_in_expr(expr, out),
             Statement::Let(_)
@@ -666,6 +672,43 @@ fn collect_decl_names(statements: &[Statement], out: &mut Vec<DeclNameOverride>)
             | Statement::Continue { .. }
             | Statement::Throw { .. }
             | Statement::Export(_) => {}
+        }
+    }
+}
+
+fn collect_behavior_decl_name(member: &BehaviorMember, out: &mut Vec<DeclNameOverride>) {
+    match member {
+        BehaviorMember::Method(method_def) => {
+            out.push(DeclNameOverride {
+                range: method_def.name_range,
+                kind: SemanticTokenKind::Method,
+                is_index: false,
+            });
+            collect_decl_names(method_def.body.statements().unwrap_or_default(), out);
+        }
+        BehaviorMember::Getter(getter_def) => {
+            out.push(DeclNameOverride {
+                range: getter_def.name_range,
+                kind: SemanticTokenKind::Method,
+                is_index: false,
+            });
+            collect_decl_names(getter_def.body.statements().unwrap_or_default(), out);
+        }
+        BehaviorMember::Setter(setter_def) => {
+            out.push(DeclNameOverride {
+                range: setter_def.name_range,
+                kind: SemanticTokenKind::Method,
+                is_index: false,
+            });
+            collect_decl_names(setter_def.body.statements().unwrap_or_default(), out);
+        }
+        BehaviorMember::Index(index_def) => {
+            out.push(DeclNameOverride {
+                range: index_def.name_range,
+                kind: SemanticTokenKind::Method,
+                is_index: true,
+            });
+            collect_decl_names(&index_def.body, out);
         }
     }
 }

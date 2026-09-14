@@ -373,6 +373,14 @@ pub enum CompilerError {
     /// Static member on variant case is illegal.
     #[error("variant.static_member_illegal: static or @class member '{0}' is not permitted on enum variant case.")]
     IllegalStaticOnVariantMember(String, SourceRange),
+
+    /// No formal lowering semantics provided for inherent impl.
+    #[error("internal: inherent impl declaration has no formal lowering semantics")]
+    MissingImplLoweringSemantics(SourceRange),
+
+    /// Inherent impl callable mismatch between lowering specification and compiled AST member.
+    #[error("internal: inherent impl callable mismatch between lowering specification and compiled AST member")]
+    ImplCallableMismatch(SourceRange),
 }
 
 /// Converts an AST-sourced arity to the representation used by selectors and

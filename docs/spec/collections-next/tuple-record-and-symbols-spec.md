@@ -1447,4 +1447,16 @@ zero positional/labeled Tuple
 
 closed zero-field Record
     → Unit
+
+Tuple exactness (===)
+    = structural shape-sensitive (arity, lane boundary, ordered labels)
+      and recursive component ===
+
+Record exactness (===)
+    = key-set structural, encounter-order-insensitive,
+      and recursive per-key value ===
+
+Tuple/Record value semantics
+    = identity-free transparent values; backing allocation identity is unobservable
 ```
+

@@ -4,6 +4,7 @@ use crate::declarations::DeclarationTypeTable;
 use crate::diagnostic::{DiagnosticSeverity, SemanticDiagnostic};
 use crate::dispatch::SurfaceDispatchResolver;
 use crate::identity::{DeclarationId, ModuleId, SemanticRevision, SnapshotId, SourceSiteId, SourceSiteRef, WorkspaceId};
+use crate::impls::EffectiveCallableDefinition;
 use crate::presentation::{FormalFactRef, FormalFactSite, FormalSemanticProjection, SemanticSiteView};
 use crate::semantic_shard::ModuleSemanticStructureShard;
 use crate::signature::{CallableSignatureTable, FieldSignatureTable};
@@ -156,6 +157,10 @@ pub struct SemanticSnapshot {
     pub surfaces: Arc<HashMap<DeclarationId, DeclarationSurface>>,
     pub dispatch: Arc<SurfaceDispatchResolver>,
     pub callable_signatures: Arc<CallableSignatureTable>,
+    /// Canonical accepted callable-definition provenance, keyed by the
+    /// target-owned callable identity. Backend lowering consumes this map
+    /// directly and must not reconstruct acceptance from source locations.
+    pub callable_definitions: Arc<BTreeMap<crate::identity::CallableId, EffectiveCallableDefinition>>,
     pub field_signatures: Arc<FieldSignatureTable>,
     pub declarations: Arc<DeclarationTypeTable>,
     pub type_aliases: Arc<TypeAliasTable>,
@@ -207,6 +212,7 @@ impl SemanticSnapshot {
             surfaces,
             dispatch,
             callable_signatures,
+            callable_definitions: Arc::new(BTreeMap::new()),
             field_signatures: Arc::new(FieldSignatureTable::new()),
             declarations,
             type_aliases: Arc::new(TypeAliasTable::new()),
@@ -257,6 +263,7 @@ impl SemanticSnapshot {
             surfaces,
             dispatch,
             callable_signatures,
+            callable_definitions: Arc::new(BTreeMap::new()),
             field_signatures: Arc::new(FieldSignatureTable::new()),
             declarations,
             type_aliases: Arc::new(TypeAliasTable::new()),
@@ -316,6 +323,15 @@ impl SemanticSnapshot {
 
     pub fn with_field_signatures(mut self, field_signatures: Arc<FieldSignatureTable>) -> Self {
         self.field_signatures = field_signatures;
+        self
+    }
+
+    /// Attaches the accepted callable definitions for this exact snapshot.
+    pub fn with_callable_definitions(
+        mut self,
+        definitions: Arc<BTreeMap<crate::identity::CallableId, EffectiveCallableDefinition>>,
+    ) -> Self {
+        self.callable_definitions = definitions;
         self
     }
 

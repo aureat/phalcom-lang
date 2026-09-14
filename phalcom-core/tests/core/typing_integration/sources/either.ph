@@ -5,7 +5,9 @@ enum Either<L, R> {
 
     @variant
     Right(_ value: R)
+}
 
+impl<L, R> Either<L, R> {
     isLeft -> Bool {
         match self {
             Left(_) => true

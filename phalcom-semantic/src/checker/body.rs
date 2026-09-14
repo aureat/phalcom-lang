@@ -31,6 +31,7 @@ fn stmt_range(stmt: &Statement) -> SourceRange {
         Statement::Continue { range } => *range,
         Statement::Throw { range, .. } => *range,
         Statement::Export(e) => e.range,
+        Statement::Impl(i) => i.range,
     }
 }
 

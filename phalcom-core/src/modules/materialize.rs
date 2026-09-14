@@ -314,7 +314,8 @@ impl VM {
                                 )));
                                 dep_values.push(crate::value::Value::obj(dep_obj));
                             }
-                            let deps_tuple = self.heap.alloc(crate::heap::Object::Tuple(crate::heap::TupleObject::positional(dep_values)));
+                            let deps_tuple = crate::product::finish_tuple(self, dep_values, Vec::new())
+                                .map_err(|error| crate::product::runtime_error(self, "Project dependencies", error))?;
 
                             let proj_obj = crate::modules::reflection_cache::ReflectionCache::get_or_create_project(
                                 self,

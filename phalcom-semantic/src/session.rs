@@ -19,7 +19,7 @@ use crate::db::product::EnumRequirementsProduct;
 use crate::db::query::{
     CallableBodyQuery, DeclarationSurfaceQuery, FormalQueryInputs, HierarchyEdgeQueryInputs, SignatureQueryInputs, bootstrap_advisory_callable,
     query_advisory_callable, query_advisory_module, query_associated_surface, query_bootstrap_callable_signature, query_bootstrap_declaration_surface,
-    query_bootstrap_hierarchy_edge, query_callable_body_with_formal_inputs, query_callable_signature_with_inputs, query_data_declaration,
+    query_bootstrap_hierarchy_edge, query_callable_body_with_formal_inputs, query_callable_definition, query_callable_signature_with_inputs, query_data_declaration,
     query_declaration_shell, query_declaration_surface, query_enum_declaration, query_enum_requirements, query_field_signature_with_inputs,
     query_hierarchy_edge, query_linked_interface, query_source_formal_attachment, query_source_structure, query_unlinked_interface,
 };
@@ -555,6 +555,8 @@ impl SemanticWorkspaceSession {
             let parsed = provider
                 .load_parsed(&module_id)
                 .unwrap_or_else(|e| panic!("failed to load universe module {module_id}: {e}"));
+            // Phase 1: publish structural data/enum products for the complete
+            // module before resolving any inherent impl target in that module.
             for stmt in &parsed.program.statements {
                 if let phalcom_ast::ast::Statement::Enum(enum_def) = stmt {
                     let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
@@ -687,7 +689,46 @@ impl SemanticWorkspaceSession {
                         base_enum_semantics.insert_variant(Arc::new(v.clone()));
                     }
                     base_enum_products.push(Arc::new(enum_product));
+                }
+            }
 
+            // Phase 2: form canonical impl contributions only after exact-case
+            // target metadata exists. ImplId remains the source-statement ID;
+            // the contribution owns all target and callable identity decisions.
+            let mut base_inherent_contributions = Vec::new();
+            for (statement_index, stmt) in parsed.program.statements.iter().enumerate() {
+                let phalcom_ast::ast::Statement::Impl(impl_def) = stmt else {
+                    continue;
+                };
+                let impl_id = crate::identity::ImplId::new(module_id.clone(), crate::identity::ImplLocalId(statement_index as u32));
+                let mut impl_ctx = crate::checker::CheckingContext::new_with_dispatch_ref(
+                    &mut store,
+                    &base_hierarchy,
+                    &resolver,
+                    &base_declarations,
+                    &base_dispatch,
+                    module_id.clone(),
+                );
+                impl_ctx.attach_data_semantics(&base_data_semantics);
+                impl_ctx.attach_enum_semantics(&base_enum_semantics);
+                base_inherent_contributions.push(crate::impls::build_inherent_impl_contribution(
+                    &mut impl_ctx,
+                    &impl_id,
+                    impl_def,
+                ));
+            }
+
+            // Phase 3: derive enum behavior, requirements, and associated
+            // surfaces from those semantic contributions. Enum syntax is
+            // structural and supplies no callable fallback.
+            for stmt in &parsed.program.statements {
+                if let phalcom_ast::ast::Statement::Enum(enum_def) = stmt {
+                    let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
+                    let enum_contributions = base_inherent_contributions
+                        .iter()
+                        .filter(|contribution| contribution.target.declaration() == &decl_id)
+                        .cloned()
+                        .collect::<Vec<_>>();
                     let mut behavior_ctx = crate::checker::CheckingContext::new_with_dispatch_ref(
                         &mut store,
                         &base_hierarchy,
@@ -696,8 +737,10 @@ impl SemanticWorkspaceSession {
                         &base_dispatch,
                         module_id.clone(),
                     );
+                    behavior_ctx.attach_data_semantics(&base_data_semantics);
                     behavior_ctx.attach_enum_semantics(&base_enum_semantics);
-                    let behavior_product = crate::checker::enum_behavior::build_enum_behavior(&mut behavior_ctx, &decl_id, enum_def);
+                    let behavior_product =
+                        crate::checker::enum_behavior::build_enum_behavior(&mut behavior_ctx, &decl_id, Some(enum_def), &enum_contributions);
 
                     let mut surface = base_dispatch.surface(&decl_id).cloned().unwrap_or_default();
                     for default_sig in behavior_product.root_defaults.iter() {
@@ -716,30 +759,24 @@ impl SemanticWorkspaceSession {
                         }
                     }
 
-                    let behavior_bases: std::collections::HashSet<phalcom_common::selector::SelectorBase> = enum_def
-                        .members
-                        .iter()
-                        .filter_map(|m| match m {
-                            phalcom_ast::ast::EnumMember::Behavior(b) => {
-                                let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(b);
-                                Some(syntax.selector_base())
+                    let mut behavior_bases: std::collections::HashSet<phalcom_common::selector::SelectorBase> = std::collections::HashSet::new();
+                    for c in &enum_contributions {
+                        if c.target == crate::impls::InherentImplTarget::Declaration(decl_id.clone()) {
+                            for m in &c.members {
+                                behavior_bases.insert(m.signature.selector.base.clone());
                             }
-                            _ => None,
-                        })
-                        .collect();
+                        }
+                    }
 
                     let (assoc_surface, _assoc_diags) = build_associated_surface(
                         &decl_id,
                         Some(
                             &enum_def
-                                .members
+                                .variants
                                 .iter()
-                                .filter_map(|m| match m {
-                                    phalcom_ast::ast::EnumMember::Variant(v) => {
-                                        let sel = phalcom_ast::selector::selector_from_variant(v);
-                                        Some(crate::identity::VariantId::new(decl_id.clone(), sel))
-                                    }
-                                    _ => None,
+                                .map(|v| {
+                                    let sel = phalcom_ast::selector::selector_from_variant(v);
+                                    crate::identity::VariantId::new(decl_id.clone(), sel)
                                 })
                                 .collect::<Vec<_>>(),
                         ),
@@ -752,15 +789,12 @@ impl SemanticWorkspaceSession {
                     base_associated_surface_products.push(assoc_surface);
 
                     let variants_info: Vec<VariantInfo> = enum_def
-                        .members
+                        .variants
                         .iter()
-                        .filter_map(|m| match m {
-                            phalcom_ast::ast::EnumMember::Variant(v) => {
-                                let sel = phalcom_ast::selector::selector_from_variant(v);
-                                let vid = crate::identity::VariantId::new(decl_id.clone(), sel);
-                                base_enum_semantics.variant_info(&vid).cloned()
-                            }
-                            _ => None,
+                        .filter_map(|v| {
+                            let sel = phalcom_ast::selector::selector_from_variant(v);
+                            let vid = crate::identity::VariantId::new(decl_id.clone(), sel);
+                            base_enum_semantics.variant_info(&vid).cloned()
                         })
                         .collect();
 
@@ -1158,6 +1192,7 @@ impl SemanticWorkspaceSession {
             removed_query_roots.insert(QueryKey::PublicExport(declaration.module.clone(), declaration.name.to_string()));
         }
         for callable in &contribution_delta.callable_signatures_removed {
+            removed_query_roots.insert(QueryKey::CallableDefinition(callable.clone()));
             removed_query_roots.insert(QueryKey::CallableSignature(callable.clone()));
             removed_query_roots.insert(QueryKey::AdvisoryCallable(callable.clone()));
         }
@@ -1188,6 +1223,7 @@ impl SemanticWorkspaceSession {
             self.db.retire_query(&QueryKey::HierarchyEdge(declaration.clone()));
         }
         for callable in &contribution_delta.callable_signatures_removed {
+            self.db.retire_query(&QueryKey::CallableDefinition(callable.clone()));
             self.db.retire_query(&QueryKey::CallableSignature(callable.clone()));
             self.db.retire_query(&QueryKey::AdvisoryCallable(callable.clone()));
         }
@@ -2650,6 +2686,9 @@ impl SemanticWorkspaceSession {
         let mut callable_signatures = previous_snapshot
             .as_ref()
             .map_or_else(|| self.base_callable_signatures.clone(), |snapshot| (*snapshot.callable_signatures).clone());
+        let mut callable_definitions = previous_snapshot
+            .as_ref()
+            .map_or_else(BTreeMap::new, |snapshot| (*snapshot.callable_definitions).clone());
         let mut field_signatures = previous_snapshot
             .as_ref()
             .map_or_else(FieldSignatureTable::new, |snapshot| (*snapshot.field_signatures).clone());
@@ -2668,6 +2707,7 @@ impl SemanticWorkspaceSession {
         }
         for callable in &contribution_delta.callable_signatures_removed {
             callable_signatures.remove(callable);
+            callable_definitions.remove(callable);
         }
         for field in &field_signature_work {
             field_signatures.remove(field);
@@ -2887,6 +2927,12 @@ impl SemanticWorkspaceSession {
 
                     let arc_data_product = Arc::new(data_product);
                     let _ = query_data_declaration(&mut self.db, arc_data_product);
+
+                    let surface = dispatch.surface(&decl_id).cloned().unwrap_or_default();
+                    dispatch.register_surface(decl_id.clone(), surface);
+                    if let Some(ty) = declarations.form(&decl_id) {
+                        dispatch.register_type(ty, decl_id.clone());
+                    }
                 } else if let Statement::Enum(enum_def) = stmt {
                     let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
                     let Some(enum_product) = crate::checker::enum_declaration::build_enum_semantics(
@@ -2918,6 +2964,52 @@ impl SemanticWorkspaceSession {
 
                     let arc_enum_product = Arc::new(enum_product);
                     let _ = query_enum_declaration(&mut self.db, arc_enum_product);
+                }
+            }
+        }
+
+        let mut inherent_contributions_by_module: BTreeMap<ModuleId, Vec<crate::impls::InherentImplContribution>> = BTreeMap::new();
+        for module_id in &structural_work_modules {
+            let Some(shard) = self.semantic_structure_shards.get(module_id) else {
+                continue;
+            };
+            let parsed_unit = &shard.source;
+            for (idx, statement) in parsed_unit.program.statements.iter().enumerate() {
+                if let Statement::Impl(impl_def) = statement {
+                    let impl_id = crate::identity::ImplId::new(module_id.clone(), crate::identity::ImplLocalId(idx as u32));
+                    let mut context = crate::checker::CheckingContext::new(
+                        Arc::make_mut(&mut self.store),
+                        &hierarchy,
+                        &resolver,
+                        &declarations,
+                        module_id.clone(),
+                    );
+                    context.attach_data_semantics(&data_semantics);
+                    context.attach_enum_semantics(&enum_semantics);
+                    let contribution = crate::impls::build_inherent_impl_contribution(&mut context, &impl_id, impl_def);
+                    if !contribution.diagnostics.is_empty() {
+                        diags_by_module.entry(module_id.clone()).or_default().extend(contribution.diagnostics.iter().cloned());
+                    }
+                    inherent_contributions_by_module.entry(module_id.clone()).or_default().push(contribution);
+                }
+            }
+        }
+
+        for module_id in &structural_work_modules {
+            let Some(shard) = self.semantic_structure_shards.get(module_id) else {
+                continue;
+            };
+            let parsed_unit = &shard.source;
+            for stmt in &parsed_unit.program.statements {
+                if let Statement::Enum(enum_def) = stmt {
+                    let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
+                    let empty_contribs = Vec::new();
+                    let module_contribs = inherent_contributions_by_module.get(module_id).unwrap_or(&empty_contribs);
+                    let enum_contribs: Vec<crate::impls::InherentImplContribution> = module_contribs
+                        .iter()
+                        .filter(|c| c.target.declaration() == &decl_id)
+                        .cloned()
+                        .collect();
 
                     let mut behavior_ctx = crate::checker::CheckingContext::new_with_dispatch_ref(
                         Arc::make_mut(&mut self.store),
@@ -2928,7 +3020,7 @@ impl SemanticWorkspaceSession {
                         module_id.clone(),
                     );
                     behavior_ctx.attach_enum_semantics(&enum_semantics);
-                    let behavior_product = crate::checker::enum_behavior::build_enum_behavior(&mut behavior_ctx, &decl_id, enum_def);
+                    let behavior_product = crate::checker::enum_behavior::build_enum_behavior(&mut behavior_ctx, &decl_id, Some(enum_def), &enum_contribs);
                     diags_by_module
                         .entry(module_id.clone())
                         .or_default()
@@ -2939,7 +3031,9 @@ impl SemanticWorkspaceSession {
                     for default_sig in behavior_product.root_defaults.iter() {
                         callable_signatures.insert(default_sig.clone());
                         let projection = crate::checker::declaration_signature::project_semantic_signature(default_sig);
-                        surface.add_callable(default_sig.side, projection);
+                        if default_sig.source.as_ref().is_some_and(|s| s.range.start >= enum_def.range.start && s.range.end <= enum_def.range.end) {
+                            surface.add_callable(default_sig.side, projection);
+                        }
                     }
                     dispatch.register_surface(decl_id.clone(), surface);
                     if let Some(ty) = declarations.form(&decl_id) {
@@ -2977,30 +3071,37 @@ impl SemanticWorkspaceSession {
                         }
                     }
 
-                    let behavior_bases: std::collections::HashSet<phalcom_common::selector::SelectorBase> = enum_def
-                        .members
-                        .iter()
-                        .filter_map(|m| match m {
-                            phalcom_ast::ast::EnumMember::Behavior(b) => {
-                                let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(b);
-                                Some(syntax.selector_base())
+                    for contrib in &enum_contribs {
+                        if matches!(contrib.target, crate::impls::InherentImplTarget::ExactEnumCase(_)) {
+                            for member in contrib.members.iter() {
+                                let definition = crate::impls::EffectiveCallableDefinition {
+                                    callable: member.callable.clone(),
+                                    origin: crate::impls::CallableDefinitionOrigin::InherentImpl(contrib.id.clone()),
+                                    source_member_index: member.source_member,
+                                    signature: member.signature.clone(),
+                                };
+                                callable_definitions.insert(definition.callable.clone(), definition.clone());
+                                let _ = query_callable_definition(&mut self.db, Arc::new(definition.clone()));
                             }
-                            _ => None,
-                        })
-                        .collect();
+                        }
+                    }
+
+                    let mut behavior_bases: std::collections::HashSet<phalcom_common::selector::SelectorBase> = std::collections::HashSet::new();
+                    for c in &enum_contribs {
+                        for m in &c.members {
+                            behavior_bases.insert(m.signature.selector.base.clone());
+                        }
+                    }
 
                     let (assoc_surface, assoc_diags) = build_associated_surface(
                         &decl_id,
                         Some(
                             &enum_def
-                                .members
+                                .variants
                                 .iter()
-                                .filter_map(|m| match m {
-                                    phalcom_ast::ast::EnumMember::Variant(v) => {
-                                        let sel = phalcom_ast::selector::selector_from_variant(v);
-                                        Some(crate::identity::VariantId::new(decl_id.clone(), sel))
-                                    }
-                                    _ => None,
+                                .map(|v| {
+                                    let sel = phalcom_ast::selector::selector_from_variant(v);
+                                    crate::identity::VariantId::new(decl_id.clone(), sel)
                                 })
                                 .collect::<Vec<_>>(),
                         ),
@@ -3014,15 +3115,12 @@ impl SemanticWorkspaceSession {
                     let _ = query_associated_surface(&mut self.db, assoc_surface);
 
                     let variants_info: Vec<VariantInfo> = enum_def
-                        .members
+                        .variants
                         .iter()
-                        .filter_map(|m| match m {
-                            phalcom_ast::ast::EnumMember::Variant(v) => {
-                                let sel = phalcom_ast::selector::selector_from_variant(v);
-                                let vid = crate::identity::VariantId::new(decl_id.clone(), sel);
-                                enum_semantics.variant_info(&vid).cloned()
-                            }
-                            _ => None,
+                        .filter_map(|v| {
+                            let sel = phalcom_ast::selector::selector_from_variant(v);
+                            let vid = crate::identity::VariantId::new(decl_id.clone(), sel);
+                            enum_semantics.variant_info(&vid).cloned()
                         })
                         .collect();
 
@@ -3049,6 +3147,80 @@ impl SemanticWorkspaceSession {
                         diagnostics: req_diags,
                     });
                     let _ = query_enum_requirements(&mut self.db, decl_id.clone(), req_product);
+                }
+            }
+        }
+
+        for module_id in &structural_work_modules {
+            let Some(shard) = self.semantic_structure_shards.get(module_id) else {
+                continue;
+            };
+            let parsed_unit = &shard.source;
+            let empty_contribs = Vec::new();
+            let module_contribs = inherent_contributions_by_module.get(module_id).unwrap_or(&empty_contribs);
+            let mut contributions_by_target = BTreeMap::<DeclarationId, Vec<crate::impls::InherentImplContribution>>::new();
+            for contribution in module_contribs {
+                contributions_by_target.entry(contribution.target.declaration().clone()).or_default().push(contribution.clone());
+            }
+            for (target, contributions) in contributions_by_target {
+                let Some(primary_surface) = dispatch.get_surface(&target).cloned() else {
+                    continue;
+                };
+                let primary_signatures = callable_signatures
+                    .iter()
+                    .filter(|(callable, _)| callable.declaration_owner() == &target)
+                    .map(|(callable, signature)| (callable.clone(), signature.clone()))
+                    .collect::<HashMap<_, _>>();
+                let effective = crate::impls::build_effective_surface(
+                    &target,
+                    &primary_surface,
+                    &primary_signatures,
+                    &contributions,
+                    data_semantics.data_info(&target).map(AsRef::as_ref),
+                    associated_surfaces_table.surfaces.get(&target).map(AsRef::as_ref),
+                );
+                diags_by_module.entry(module_id.clone()).or_default().extend(effective.diagnostics.iter().cloned());
+                dispatch.register_surface(target.clone(), (*effective.surface).clone());
+                let _ = query_bootstrap_declaration_surface(&mut self.db, target.clone(), effective.surface.clone());
+
+                for definition in effective.definitions.values() {
+                    if matches!(definition.origin, crate::impls::CallableDefinitionOrigin::InherentImpl(_)) {
+                        callable_definitions.insert(definition.callable.clone(), definition.clone());
+                        let _ = query_callable_definition(&mut self.db, Arc::new(definition.clone()));
+                        let callable_id = definition.callable.clone();
+                        if previous_snapshot.is_some() && !callable_signature_work.contains(&callable_id) {
+                            continue;
+                        }
+                        match query_callable_signature_with_inputs(
+                            &mut self.db,
+                            callable_id.clone(),
+                            parsed_unit.clone(),
+                            SignatureQueryInputs {
+                                store: Arc::make_mut(&mut self.store),
+                                hierarchy: &hierarchy,
+                                resolver: &resolver,
+                                declarations: &declarations,
+                                linked: Some(input.linked.as_ref()),
+                                type_aliases: Some(&type_aliases),
+                                import_products: Some(&input.import_products),
+                            },
+                        ) {
+                            QueryOutcome::Ready(signature) => {
+                                let mut signature = (*signature).clone();
+                                if let Some(previous) = previous_callable_formal_states.get(&callable_id) {
+                                    if previous.parameters == signature.parameters && previous.declared_return == signature.declared_return {
+                                        signature.return_validation = previous.return_validation;
+                                        signature.inferred_return = previous.inferred_return.clone();
+                                    }
+                                }
+                                callable_signatures.insert(signature);
+                            }
+                            QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                            QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                            QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                            QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
+                        }
+                    }
                 }
             }
         }
@@ -3149,7 +3321,7 @@ impl SemanticWorkspaceSession {
                     continue;
                 }
                 let parsed_unit = &shard.source;
-                for stmt in &parsed_unit.program.statements {
+                for (stmt_idx, stmt) in parsed_unit.program.statements.iter().enumerate() {
                     if let Statement::Class(class_def) = stmt {
                         let decl_id = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
                         if blocked_declarations.contains(&decl_id) {
@@ -3326,12 +3498,26 @@ impl SemanticWorkspaceSession {
                                 }
                             }
                         }
-                    } else if let Statement::Enum(enum_def) = stmt {
+                    } else if let Statement::Enum(_enum_def) = stmt {
+                        // Enums are structural; their behavior is declared in Statement::Impl.
+                    } else if let Statement::Impl(impl_def) = stmt {
                         if constructors_only {
                             continue;
                         }
-                        let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
-                        let type_params_map = if let Some(sig) = declarations.generic_signature(&decl_id) {
+                        let impl_id = crate::identity::ImplId::new(module_id.clone(), crate::identity::ImplLocalId(stmt_idx as u32));
+                        let mut ctx = crate::checker::CheckingContext::new(
+                            Arc::make_mut(&mut self.store),
+                            &hierarchy,
+                            &resolver,
+                            &declarations,
+                            module_id.clone(),
+                        );
+                        ctx.attach_data_semantics(&data_semantics);
+                        ctx.attach_enum_semantics(&enum_semantics);
+                        let contribution = crate::impls::build_inherent_impl_contribution(&mut ctx, &impl_id, impl_def);
+                        let target_owner = contribution.target.to_callable_owner();
+
+                        let type_params_map = if let Some(sig) = contribution.generic_signature.as_ref() {
                             let mut map = std::collections::HashMap::new();
                             for &param_id in sig.parameters.iter() {
                                 let name = self.store.type_parameter(param_id).name.to_string();
@@ -3347,294 +3533,157 @@ impl SemanticWorkspaceSession {
                             type_parameters: type_params_map,
                         };
 
-                        // Check root bodyful behavior
-                        for member in &enum_def.members {
-                            if let phalcom_ast::ast::EnumMember::Behavior(b) = member {
-                                let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(b);
-                                let is_class_side = syntax.attributes().iter().any(|a| a.name == "class")
-                                    || match b {
-                                        phalcom_ast::ast::EnumBehaviorMember::Method(m) => m.is_static,
-                                        phalcom_ast::ast::EnumBehaviorMember::Getter(g) => g.is_static,
-                                        phalcom_ast::ast::EnumBehaviorMember::Setter(s) => s.is_static,
-                                        phalcom_ast::ast::EnumBehaviorMember::Index(_) => false,
-                                    };
-                                let side = if is_class_side {
-                                    crate::identity::DispatchSide::Class
-                                } else {
-                                    crate::identity::DispatchSide::Instance
+                        for (member_index, member) in impl_def.members.iter().enumerate() {
+                            let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(member);
+                            let is_class_side = syntax.attributes().iter().any(|a| a.name == "class")
+                                || match member {
+                                    phalcom_ast::ast::BehaviorMember::Method(m) => m.is_static,
+                                    phalcom_ast::ast::BehaviorMember::Getter(g) => g.is_static,
+                                    phalcom_ast::ast::BehaviorMember::Setter(s) => s.is_static,
+                                    phalcom_ast::ast::BehaviorMember::Index(_) => false,
                                 };
+                            let side = if is_class_side {
+                                crate::identity::DispatchSide::Class
+                            } else {
+                                crate::identity::DispatchSide::Instance
+                            };
 
-                                let (selector_opt, body_opt, range_opt) = match b {
-                                    phalcom_ast::ast::EnumBehaviorMember::Method(m) => {
-                                        let slots = m
-                                            .params
-                                            .iter()
-                                            .filter(|p| p.rest_mode == phalcom_ast::ast::RestMode::None)
-                                            .map(|p| {
-                                                if let Some(ref l) = p.label {
-                                                    if l == "_" {
-                                                        phalcom_common::selector::SelectorSlot::Positional
-                                                    } else {
-                                                        phalcom_common::selector::SelectorSlot::Label(l.clone())
-                                                    }
-                                                } else {
+                            let (selector_opt, body_opt, range_opt) = match member {
+                                phalcom_ast::ast::BehaviorMember::Method(m) => {
+                                    let slots = m
+                                        .params
+                                        .iter()
+                                        .filter(|p| p.rest_mode == phalcom_ast::ast::RestMode::None)
+                                        .map(|p| {
+                                            if let Some(ref l) = p.label {
+                                                if l == "_" {
                                                     phalcom_common::selector::SelectorSlot::Positional
-                                                }
-                                            })
-                                            .collect::<Vec<_>>();
-                                        (Selector::method(&m.name, slots).ok(), m.body.statements(), Some(m.range))
-                                    }
-                                    phalcom_ast::ast::EnumBehaviorMember::Getter(g) => (Selector::getter(&g.name).ok(), g.body.statements(), Some(g.range)),
-                                    phalcom_ast::ast::EnumBehaviorMember::Setter(s) => (Selector::setter(&s.name).ok(), s.body.statements(), Some(s.range)),
-                                    phalcom_ast::ast::EnumBehaviorMember::Index(i) => {
-                                        let slots = i
-                                            .params
-                                            .iter()
-                                            .map(|p| {
-                                                if let Some(ref l) = p.label {
-                                                    if l == "_" {
-                                                        phalcom_common::selector::SelectorSlot::Positional
-                                                    } else {
-                                                        phalcom_common::selector::SelectorSlot::Label(l.clone())
-                                                    }
                                                 } else {
-                                                    phalcom_common::selector::SelectorSlot::Positional
+                                                    phalcom_common::selector::SelectorSlot::Label(l.clone())
                                                 }
-                                            })
-                                            .collect::<Vec<_>>();
-                                        let sel = match &i.accessor {
-                                            phalcom_ast::ast::IndexAccessor::Get => Selector::subscript_get(slots).ok(),
-                                            phalcom_ast::ast::IndexAccessor::Set { .. } => Selector::subscript_set(slots).ok(),
-                                        };
-                                        (sel, Some(i.body.as_slice()), Some(i.range))
-                                    }
-                                };
-
-                                if let (Some(selector), Some(body), Some(range)) = (selector_opt, body_opt, range_opt) {
-                                    let callable_id = crate::identity::CallableId::new(decl_id.clone(), selector, side);
-                                    let query_key = QueryKey::CallableBody(callable_id.clone());
-
-                                    let formal_inputs = FormalQueryInputs {
-                                        sources: &retained_sources,
-                                        source_resolution_input,
-                                        linked_component_product,
-                                        linked: &input.linked,
-                                        import_products: &input.import_products,
-                                        hierarchy: &hierarchy,
-                                        base_resolver: &resolver,
-                                        declarations: &declarations,
-                                        type_aliases: &type_aliases,
-                                        field_signatures: Some(&field_signatures),
-                                        field_lifecycle: Some(&field_lifecycle),
-                                        enum_semantics: Some(&enum_semantics),
-                                        data_semantics: Some(&data_semantics),
-                                        associated_families: Some(&associated_surfaces_table),
-                                    };
-
-                                    if previous_snapshot.is_some()
-                                        && !callable_body_work.contains(&callable_id)
-                                        && callable_analyses.contains_key(&callable_id)
-                                        && refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store)).is_ok()
-                                        && self.db.validate_ready(&query_key)
-                                    {
-                                        callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
-                                        continue;
-                                    }
-
-                                    refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))?;
-                                    let previous_computation_revision = self.db.query_state(&query_key).and_then(|state| state.revision());
-                                    let outcome = query_callable_body_with_formal_inputs(
-                                        &mut self.db,
-                                        CallableBodyQuery {
-                                            callable: callable_id.clone(),
-                                            body,
-                                            body_range: range,
-                                            store: Arc::make_mut(&mut self.store),
-                                            hierarchy: &hierarchy,
-                                            resolver: &scoped_resolver,
-                                            declarations: &declarations,
-                                            dispatch: &dispatch,
-                                            module: module_id.clone(),
-                                            budget,
-                                            cancel,
-                                            formal_inputs: Some(&formal_inputs),
-                                        },
-                                    );
-
-                                    match outcome {
-                                        QueryOutcome::Ready(analysis) => {
-                                            if self.db.query_state(&query_key).is_some_and(|state| {
-                                                state.revision() == Some(self.db.revision()) && previous_computation_revision != Some(self.db.revision())
-                                            }) {
-                                                callable_dispositions.insert(callable_id.clone(), CallableRevisionDisposition::Recomputed);
                                             } else {
-                                                callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
+                                                phalcom_common::selector::SelectorSlot::Positional
                                             }
-                                            if !analysis.diagnostics.is_empty() {
-                                                diags_by_module
-                                                    .entry(module_id.clone())
-                                                    .or_default()
-                                                    .extend(analysis.diagnostics.iter().cloned());
-                                            }
-                                            if let Some(sig) = callable_signatures.get_mut(&callable_id) {
-                                                if sig.return_validation != analysis.return_validation {
-                                                    sig.return_validation = analysis.return_validation;
-                                                    dispatch.update_callable_return_type(&callable_id, sig.published_return_knowledge());
-                                                }
-                                            }
-                                            callable_analyses.insert(callable_id.clone(), analysis);
-                                        }
-                                        QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
-                                        QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
-                                        QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
-                                        QueryOutcome::Failed(err) => {
-                                            return Err(QueryOutcome::Failed(err));
-                                        }
-                                    }
+                                        })
+                                        .collect::<Vec<_>>();
+                                    (Selector::method(&m.name, slots).ok(), m.body.statements(), Some(m.range))
                                 }
-                            }
-                        }
-
-                        // Check case-local bodyful behavior
-                        for member in &enum_def.members {
-                            if let phalcom_ast::ast::EnumMember::Variant(v) = member {
-                                let sel = phalcom_ast::selector::selector_from_variant(v);
-                                let variant_id = crate::identity::VariantId::new(decl_id.clone(), sel);
-                                if let Some(ref variant_body) = v.body {
-                                    for case_member in &variant_body.members {
-                                        let (selector_opt, body_opt, range_opt) = match case_member {
-                                            phalcom_ast::ast::EnumBehaviorMember::Method(m) => {
-                                                let slots = m
-                                                    .params
-                                                    .iter()
-                                                    .filter(|p| p.rest_mode == phalcom_ast::ast::RestMode::None)
-                                                    .map(|p| {
-                                                        if let Some(ref l) = p.label {
-                                                            if l == "_" {
-                                                                phalcom_common::selector::SelectorSlot::Positional
-                                                            } else {
-                                                                phalcom_common::selector::SelectorSlot::Label(l.clone())
-                                                            }
-                                                        } else {
-                                                            phalcom_common::selector::SelectorSlot::Positional
-                                                        }
-                                                    })
-                                                    .collect::<Vec<_>>();
-                                                (Selector::method(&m.name, slots).ok(), m.body.statements(), Some(m.range))
-                                            }
-                                            phalcom_ast::ast::EnumBehaviorMember::Getter(g) => {
-                                                (Selector::getter(&g.name).ok(), g.body.statements(), Some(g.range))
-                                            }
-                                            phalcom_ast::ast::EnumBehaviorMember::Setter(s) => {
-                                                (Selector::setter(&s.name).ok(), s.body.statements(), Some(s.range))
-                                            }
-                                            phalcom_ast::ast::EnumBehaviorMember::Index(i) => {
-                                                let slots = i
-                                                    .params
-                                                    .iter()
-                                                    .map(|p| {
-                                                        if let Some(ref l) = p.label {
-                                                            if l == "_" {
-                                                                phalcom_common::selector::SelectorSlot::Positional
-                                                            } else {
-                                                                phalcom_common::selector::SelectorSlot::Label(l.clone())
-                                                            }
-                                                        } else {
-                                                            phalcom_common::selector::SelectorSlot::Positional
-                                                        }
-                                                    })
-                                                    .collect::<Vec<_>>();
-                                                let sel = match &i.accessor {
-                                                    phalcom_ast::ast::IndexAccessor::Get => Selector::subscript_get(slots).ok(),
-                                                    phalcom_ast::ast::IndexAccessor::Set { .. } => Selector::subscript_set(slots).ok(),
-                                                };
-                                                (sel, Some(i.body.as_slice()), Some(i.range))
-                                            }
-                                        };
-
-                                        if let (Some(selector), Some(body), Some(range)) = (selector_opt, body_opt, range_opt) {
-                                            let callable_id = crate::identity::CallableId::case_method(variant_id.clone(), selector);
-                                            let query_key = QueryKey::CallableBody(callable_id.clone());
-
-                                            let formal_inputs = FormalQueryInputs {
-                                                sources: &retained_sources,
-                                                source_resolution_input,
-                                                linked_component_product,
-                                                linked: &input.linked,
-                                                import_products: &input.import_products,
-                                                hierarchy: &hierarchy,
-                                                base_resolver: &resolver,
-                                                declarations: &declarations,
-                                                type_aliases: &type_aliases,
-                                                field_signatures: Some(&field_signatures),
-                                                field_lifecycle: Some(&field_lifecycle),
-                                                enum_semantics: Some(&enum_semantics),
-                                                data_semantics: Some(&data_semantics),
-                                                associated_families: Some(&associated_surfaces_table),
-                                            };
-
-                                            if previous_snapshot.is_some()
-                                                && !callable_body_work.contains(&callable_id)
-                                                && callable_analyses.contains_key(&callable_id)
-                                                && refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))
-                                                    .is_ok()
-                                                && self.db.validate_ready(&query_key)
-                                            {
-                                                callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
-                                                continue;
-                                            }
-
-                                            refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))?;
-                                            let previous_computation_revision = self.db.query_state(&query_key).and_then(|state| state.revision());
-                                            let outcome = query_callable_body_with_formal_inputs(
-                                                &mut self.db,
-                                                CallableBodyQuery {
-                                                    callable: callable_id.clone(),
-                                                    body,
-                                                    body_range: range,
-                                                    store: Arc::make_mut(&mut self.store),
-                                                    hierarchy: &hierarchy,
-                                                    resolver: &scoped_resolver,
-                                                    declarations: &declarations,
-                                                    dispatch: &dispatch,
-                                                    module: module_id.clone(),
-                                                    budget,
-                                                    cancel,
-                                                    formal_inputs: Some(&formal_inputs),
-                                                },
-                                            );
-
-                                            match outcome {
-                                                QueryOutcome::Ready(analysis) => {
-                                                    if self.db.query_state(&query_key).is_some_and(|state| {
-                                                        state.revision() == Some(self.db.revision())
-                                                            && previous_computation_revision != Some(self.db.revision())
-                                                    }) {
-                                                        callable_dispositions.insert(callable_id.clone(), CallableRevisionDisposition::Recomputed);
-                                                    } else {
-                                                        callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
-                                                    }
-                                                    if !analysis.diagnostics.is_empty() {
-                                                        diags_by_module
-                                                            .entry(module_id.clone())
-                                                            .or_default()
-                                                            .extend(analysis.diagnostics.iter().cloned());
-                                                    }
-                                                    if let Some(sig) = callable_signatures.get_mut(&callable_id) {
-                                                        if sig.return_validation != analysis.return_validation {
-                                                            sig.return_validation = analysis.return_validation;
-                                                            dispatch.update_callable_return_type(&callable_id, sig.published_return_knowledge());
-                                                        }
-                                                    }
-                                                    callable_analyses.insert(callable_id.clone(), analysis);
+                                phalcom_ast::ast::BehaviorMember::Getter(g) => (Selector::getter(&g.name).ok(), g.body.statements(), Some(g.range)),
+                                phalcom_ast::ast::BehaviorMember::Setter(s) => (Selector::setter(&s.name).ok(), s.body.statements(), Some(s.range)),
+                                phalcom_ast::ast::BehaviorMember::Index(i) => {
+                                    let slots = i
+                                        .params
+                                        .iter()
+                                        .map(|p| {
+                                            if let Some(ref l) = p.label {
+                                                if l == "_" {
+                                                    phalcom_common::selector::SelectorSlot::Positional
+                                                } else {
+                                                    phalcom_common::selector::SelectorSlot::Label(l.clone())
                                                 }
-                                                QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
-                                                QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
-                                                QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
-                                                QueryOutcome::Failed(err) => return Err(QueryOutcome::Failed(err)),
+                                            } else {
+                                                phalcom_common::selector::SelectorSlot::Positional
+                                            }
+                                        })
+                                        .collect::<Vec<_>>();
+                                    let sel = match &i.accessor {
+                                        phalcom_ast::ast::IndexAccessor::Get => Selector::subscript_get(slots).ok(),
+                                        phalcom_ast::ast::IndexAccessor::Set { .. } => Selector::subscript_set(slots).ok(),
+                                    };
+                                    (sel, Some(i.body.as_slice()), Some(i.range))
+                                }
+                            };
+
+                            if let (Some(selector), Some(body), Some(range)) = (selector_opt, body_opt, range_opt) {
+                                let callable_id = crate::identity::CallableId::new(target_owner.clone(), selector, side);
+                                let accepted_definition = self
+                                    .db
+                                    .product(&QueryKey::CallableDefinition(callable_id.clone()))
+                                    .and_then(|product| product.as_callable_definition());
+                                if !accepted_definition.is_some_and(|definition| {
+                                    definition.source_member_index == member_index
+                                        && definition.origin == crate::impls::CallableDefinitionOrigin::InherentImpl(impl_id.clone())
+                                }) {
+                                    continue;
+                                }
+                                let query_key = QueryKey::CallableBody(callable_id.clone());
+
+                                let formal_inputs = FormalQueryInputs {
+                                    sources: &retained_sources,
+                                    source_resolution_input,
+                                    linked_component_product,
+                                    linked: &input.linked,
+                                    import_products: &input.import_products,
+                                    hierarchy: &hierarchy,
+                                    base_resolver: &resolver,
+                                    declarations: &declarations,
+                                    type_aliases: &type_aliases,
+                                    field_signatures: Some(&field_signatures),
+                                    field_lifecycle: Some(&field_lifecycle),
+                                    enum_semantics: Some(&enum_semantics),
+                                    data_semantics: Some(&data_semantics),
+                                    associated_families: Some(&associated_surfaces_table),
+                                };
+
+                                if previous_snapshot.is_some()
+                                    && !callable_body_work.contains(&callable_id)
+                                    && callable_analyses.contains_key(&callable_id)
+                                    && refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))
+                                        .is_ok()
+                                    && self.db.validate_ready(&query_key)
+                                {
+                                    callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
+                                    continue;
+                                }
+
+                                refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))?;
+                                let previous_computation_revision = self.db.query_state(&query_key).and_then(|state| state.revision());
+                                let outcome = query_callable_body_with_formal_inputs(
+                                    &mut self.db,
+                                    CallableBodyQuery {
+                                        callable: callable_id.clone(),
+                                        body,
+                                        body_range: range,
+                                        store: Arc::make_mut(&mut self.store),
+                                        hierarchy: &hierarchy,
+                                        resolver: &scoped_resolver,
+                                        declarations: &declarations,
+                                        dispatch: &dispatch,
+                                        module: module_id.clone(),
+                                        budget,
+                                        cancel,
+                                        formal_inputs: Some(&formal_inputs),
+                                    },
+                                );
+
+                                match outcome {
+                                    QueryOutcome::Ready(analysis) => {
+                                        if self.db.query_state(&query_key).is_some_and(|state| {
+                                            state.revision() == Some(self.db.revision())
+                                                && previous_computation_revision != Some(self.db.revision())
+                                        }) {
+                                            callable_dispositions.insert(callable_id.clone(), CallableRevisionDisposition::Recomputed);
+                                        } else {
+                                            callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
+                                        }
+                                        if !analysis.diagnostics.is_empty() {
+                                            diags_by_module
+                                                .entry(module_id.clone())
+                                                .or_default()
+                                                .extend(analysis.diagnostics.iter().cloned());
+                                        }
+                                        if let Some(sig) = callable_signatures.get_mut(&callable_id) {
+                                            if sig.return_validation != analysis.return_validation {
+                                                sig.return_validation = analysis.return_validation;
+                                                dispatch.update_callable_return_type(&callable_id, sig.published_return_knowledge());
                                             }
                                         }
+                                        callable_analyses.insert(callable_id.clone(), analysis);
                                     }
+                                    QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
+                                    QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
+                                    QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                                    QueryOutcome::Failed(err) => return Err(QueryOutcome::Failed(err)),
                                 }
                             }
                         }
@@ -4085,6 +4134,7 @@ impl SemanticWorkspaceSession {
         );
 
         snapshot_obj = snapshot_obj.with_field_signatures(Arc::new(field_signatures));
+        snapshot_obj = snapshot_obj.with_callable_definitions(Arc::new(callable_definitions));
         snapshot_obj = snapshot_obj.with_presentation_sources(Arc::new(presentation_sources));
         snapshot_obj = snapshot_obj.with_source_index(Arc::new(source_index));
         snapshot_obj = snapshot_obj.with_formal_projection(Arc::new(formal_projection));
@@ -4374,6 +4424,12 @@ fn collect_alias_dependencies(
             }
         }
         TypeAnnotationExpr::TypeLambda { body, .. } => collect_alias_dependencies(body, module, resolver, aliases, dependencies),
+        TypeAnnotationExpr::ExactEnumCase { enum_target, generic_arguments, .. } => {
+            collect_alias_dependencies(enum_target, module, resolver, aliases, dependencies);
+            for argument in generic_arguments {
+                collect_alias_dependencies(argument, module, resolver, aliases, dependencies);
+            }
+        }
         TypeAnnotationExpr::Unit { .. }
         | TypeAnnotationExpr::Dynamic { .. }
         | TypeAnnotationExpr::Never { .. }
@@ -4423,6 +4479,12 @@ fn collect_type_annotation_declarations(
             }
         }
         TypeAnnotationExpr::TypeLambda { body, .. } => collect_type_annotation_declarations(body, module, resolver, dependencies),
+        TypeAnnotationExpr::ExactEnumCase { enum_target, generic_arguments, .. } => {
+            collect_type_annotation_declarations(enum_target, module, resolver, dependencies);
+            for argument in generic_arguments {
+                collect_type_annotation_declarations(argument, module, resolver, dependencies);
+            }
+        }
         TypeAnnotationExpr::Unit { .. }
         | TypeAnnotationExpr::Dynamic { .. }
         | TypeAnnotationExpr::Never { .. }
@@ -4536,7 +4598,8 @@ fn query_key_module_for_worklist(key: &QueryKey) -> Option<&ModuleId> {
         | QueryKey::AssociatedSurface(declaration) => Some(&declaration.module),
         QueryKey::ResolvedImport(site) => Some(&site.importer),
         QueryKey::FieldSignature(field) => Some(&field.owner.module),
-        QueryKey::CallableSignature(callable)
+        QueryKey::CallableDefinition(callable)
+        | QueryKey::CallableSignature(callable)
         | QueryKey::CallableBody(callable)
         | QueryKey::CallableEffects(callable)
         | QueryKey::CallableControl(callable)
@@ -5454,39 +5517,6 @@ fn member_selector(member: &ClassMember) -> Option<Selector> {
     }
 }
 
-fn enum_behavior_selector(behavior: &phalcom_ast::ast::EnumBehaviorMember) -> Option<Selector> {
-    match behavior {
-        phalcom_ast::ast::EnumBehaviorMember::Method(method) => {
-            let slots = method
-                .params
-                .iter()
-                .filter(|parameter| parameter.rest_mode == phalcom_ast::ast::RestMode::None)
-                .map(|parameter| match &parameter.label {
-                    Some(label) if label != "_" => phalcom_common::selector::SelectorSlot::Label(label.clone()),
-                    _ => phalcom_common::selector::SelectorSlot::Positional,
-                })
-                .collect::<Vec<_>>();
-            Selector::method(&method.name, slots).ok()
-        }
-        phalcom_ast::ast::EnumBehaviorMember::Getter(getter) => Selector::getter(&getter.name).ok(),
-        phalcom_ast::ast::EnumBehaviorMember::Setter(setter) => Selector::setter(&setter.name).ok(),
-        phalcom_ast::ast::EnumBehaviorMember::Index(index) => {
-            let slots = index
-                .params
-                .iter()
-                .map(|parameter| match &parameter.label {
-                    Some(label) if label != "_" => phalcom_common::selector::SelectorSlot::Label(label.clone()),
-                    _ => phalcom_common::selector::SelectorSlot::Positional,
-                })
-                .collect::<Vec<_>>();
-            match index.accessor {
-                phalcom_ast::ast::IndexAccessor::Get => Selector::subscript_get(slots).ok(),
-                phalcom_ast::ast::IndexAccessor::Set { .. } => Selector::subscript_set(slots).ok(),
-            }
-        }
-    }
-}
-
 fn source_body_for_callable<'a>(callable: &CallableId, unit: &'a ParsedModuleUnit) -> Option<(&'a [Statement], SourceRange)> {
     let owner = callable.declaration_owner();
     for statement in &unit.program.statements {
@@ -5514,64 +5544,79 @@ fn source_body_for_callable<'a>(callable: &CallableId, unit: &'a ParsedModuleUni
                     };
                 }
             }
-            Statement::Enum(enum_def) => {
-                let declaration = DeclarationId::new(unit.id.clone(), enum_def.name.clone().into());
-                if callable.owner == crate::identity::CallableOwnerId::Declaration(owner.clone()) {
-                    for member in &enum_def.members {
-                        let phalcom_ast::ast::EnumMember::Behavior(behavior) = member else {
-                            continue;
-                        };
-                        let Some(selector) = enum_behavior_selector(behavior) else {
-                            continue;
-                        };
-                        let side = if behavior.attributes().iter().any(|attribute| attribute.name == "class")
-                            || match behavior {
-                                phalcom_ast::ast::EnumBehaviorMember::Method(method) => method.is_static,
-                                phalcom_ast::ast::EnumBehaviorMember::Getter(getter) => getter.is_static,
-                                phalcom_ast::ast::EnumBehaviorMember::Setter(setter) => setter.is_static,
-                                phalcom_ast::ast::EnumBehaviorMember::Index(_) => false,
-                            } {
-                            DispatchSide::Class
-                        } else {
-                            DispatchSide::Instance
-                        };
-                        if CallableId::new(declaration.clone(), selector, side) != *callable {
-                            continue;
-                        }
-                        return match behavior {
-                            phalcom_ast::ast::EnumBehaviorMember::Method(method) => Some((method.body.statements()?, method.range)),
-                            phalcom_ast::ast::EnumBehaviorMember::Getter(getter) => Some((getter.body.statements()?, getter.range)),
-                            phalcom_ast::ast::EnumBehaviorMember::Setter(setter) => Some((setter.body.statements()?, setter.range)),
-                            phalcom_ast::ast::EnumBehaviorMember::Index(index) => Some((index.body.as_slice(), index.range)),
-                        };
-                    }
-                }
-                let crate::identity::CallableOwnerId::Variant(variant_id) = &callable.owner else {
-                    continue;
-                };
-                for member in &enum_def.members {
-                    let phalcom_ast::ast::EnumMember::Variant(variant) = member else {
-                        continue;
+            Statement::Enum(_) => {}
+            Statement::Impl(impl_def) => {
+                for member in &impl_def.members {
+                    let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(member);
+                    let side = if syntax.attributes().iter().any(|attr| attr.name == "class")
+                        || match member {
+                            phalcom_ast::ast::BehaviorMember::Method(m) => m.is_static,
+                            phalcom_ast::ast::BehaviorMember::Getter(g) => g.is_static,
+                            phalcom_ast::ast::BehaviorMember::Setter(s) => s.is_static,
+                            phalcom_ast::ast::BehaviorMember::Index(_) => false,
+                        } {
+                        DispatchSide::Class
+                    } else {
+                        DispatchSide::Instance
                     };
-                    let candidate_variant = crate::identity::VariantId::new(declaration.clone(), phalcom_ast::selector::selector_from_variant(variant));
-                    if &candidate_variant != variant_id {
-                        continue;
-                    }
-                    let Some(variant_body) = &variant.body else {
-                        continue;
-                    };
-                    for case_member in &variant_body.members {
-                        let Some(selector) = enum_behavior_selector(case_member) else {
-                            continue;
-                        };
-                        if CallableId::case_method(candidate_variant.clone(), selector) != *callable {
-                            continue;
+                    let matches_callable = match &impl_def.target.expr {
+                        phalcom_ast::ast::TypeAnnotationExpr::Reference(sym) => {
+                            let decl = DeclarationId::new(unit.id.clone(), sym.root.clone().into());
+                            let owner_id = crate::identity::CallableOwnerId::Declaration(decl);
+                            let cand_callable = crate::checker::declaration_signature::callable_id_for_syntax(&owner_id, syntax, side);
+                            cand_callable.as_ref() == Some(callable)
                         }
-                        return match case_member {
-                            phalcom_ast::ast::EnumBehaviorMember::Method(method) => Some((method.body.statements()?, method.range)),
-                            phalcom_ast::ast::EnumBehaviorMember::Getter(getter) => Some((getter.body.statements()?, getter.range)),
-                            phalcom_ast::ast::EnumBehaviorMember::Setter(setter) => Some((setter.body.statements()?, setter.range)),
-                            phalcom_ast::ast::EnumBehaviorMember::Index(index) => Some((index.body.as_slice(), index.range)),
+                        phalcom_ast::ast::TypeAnnotationExpr::Application { origin, .. } => {
+                            if let phalcom_ast::ast::TypeAnnotationExpr::Reference(sym) = &origin.expr {
+                                let decl = DeclarationId::new(unit.id.clone(), sym.root.clone().into());
+                                let owner_id = crate::identity::CallableOwnerId::Declaration(decl);
+                                let cand_callable = crate::checker::declaration_signature::callable_id_for_syntax(&owner_id, syntax, side);
+                                cand_callable.as_ref() == Some(callable)
+                            } else {
+                                false
+                            }
+                        }
+                        phalcom_ast::ast::TypeAnnotationExpr::ExactEnumCase {
+                            enum_target,
+                            variant_name,
+                            payload_shape,
+                            ..
+                        } => {
+                            let enum_name_opt = match &enum_target.expr {
+                                phalcom_ast::ast::TypeAnnotationExpr::Reference(sym) => Some(&sym.root),
+                                phalcom_ast::ast::TypeAnnotationExpr::Application { origin, .. } => match &origin.expr {
+                                    phalcom_ast::ast::TypeAnnotationExpr::Reference(sym) => Some(&sym.root),
+                                    _ => None,
+                                },
+                                _ => None,
+                            };
+                            if let Some(enum_name) = enum_name_opt {
+                                let decl = DeclarationId::new(unit.id.clone(), enum_name.clone().into());
+                                let var_sel = phalcom_ast::selector::selector_from_exact_case_target(variant_name, payload_shape.as_ref());
+                                let variant_id = crate::identity::VariantId::new(decl, var_sel);
+                                let owner_id = crate::identity::CallableOwnerId::Variant(variant_id);
+                                let cand_callable = crate::checker::declaration_signature::callable_id_for_syntax(&owner_id, syntax, side);
+                                cand_callable.as_ref() == Some(callable)
+                            } else {
+                                false
+                            }
+                        }
+                        _ => false,
+                    };
+                    if matches_callable {
+                        return match member {
+                            phalcom_ast::ast::BehaviorMember::Method(method) => {
+                                Some((method.body.statements()?, method.range))
+                            }
+                            phalcom_ast::ast::BehaviorMember::Getter(getter) => {
+                                Some((getter.body.statements()?, getter.range))
+                            }
+                            phalcom_ast::ast::BehaviorMember::Setter(setter) => {
+                                Some((setter.body.statements()?, setter.range))
+                            }
+                            phalcom_ast::ast::BehaviorMember::Index(index) => {
+                                Some((index.body.as_slice(), index.range))
+                            }
                         };
                     }
                 }

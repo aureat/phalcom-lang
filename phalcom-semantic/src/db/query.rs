@@ -26,6 +26,8 @@ use phalcom_common::range::SourceRange;
 use phalcom_modules::interface::{InterfaceBuilder, LinkedModuleInterface, UnlinkedModuleInterface};
 use phalcom_modules::linker::LinkedProgram;
 use std::collections::{BTreeMap, BTreeSet};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 /// Borrowed formal inputs used when a query must evaluate a missing prerequisite.
@@ -1490,6 +1492,46 @@ pub fn query_bootstrap_callable_signature(db: &mut SemanticDb, signature: Arc<Ca
     QueryOutcome::Ready(signature)
 }
 
+/// Publishes the single conflict-admitted source definition for a callable.
+pub fn query_callable_definition(
+    db: &mut SemanticDb,
+    definition: Arc<crate::impls::EffectiveCallableDefinition>,
+) -> QueryOutcome<Arc<crate::impls::EffectiveCallableDefinition>> {
+    let key = QueryKey::CallableDefinition(definition.callable.clone());
+    let signature_fingerprint = crate::db::fingerprint::callable_signature_product_fingerprint(&definition.signature);
+    let origin_tag = match &definition.origin {
+        crate::impls::CallableDefinitionOrigin::PrimaryDeclaration => 0_u64,
+        crate::impls::CallableDefinitionOrigin::InherentImpl(impl_id) => {
+            let mut hasher = DefaultHasher::new();
+            impl_id.hash(&mut hasher);
+            hasher.finish()
+        }
+    };
+    let value = signature_fingerprint.raw() ^ origin_tag.rotate_left(17) ^ (definition.source_member_index as u64).rotate_left(33);
+    let input_fingerprint = crate::db::InputFingerprint::new(value);
+    if db.validate_reuse(&key, input_fingerprint) {
+        if let Some(product) = db.product(&key).and_then(|product| product.as_callable_definition()) {
+            db.metrics().record_hit();
+            return QueryOutcome::Ready(product.clone());
+        }
+    }
+    if db.query_state(&key).is_some() {
+        db.discard_for_recompute(&key);
+    }
+    db.metrics().record_miss();
+    if let Err(error) = publish_current_product(
+        db,
+        key.clone(),
+        input_fingerprint,
+        crate::db::ProductFingerprint::new(value),
+        SemanticProduct::CallableDefinition(definition.clone()),
+        Vec::new(),
+    ) {
+        return query_failure(db, key, error);
+    }
+    QueryOutcome::Ready(definition)
+}
+
 /// Evaluates or retrieves the canonical semantic signature for one source callable.
 ///
 /// Declaration syntax and declaration/type-resolution prerequisites are the
@@ -1573,90 +1615,28 @@ pub fn query_callable_signature_with_inputs(
         QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
     }
 
-    let (signature, captured_dependencies) = if let Some(class_def) = class_definition_for(&unit, callable.declaration_owner()) {
-        let Some(member) = class_def.members.iter().find(|member| {
-            crate::checker::declaration_signature::callable_id_for_member(callable.declaration_owner(), member).is_some_and(|candidate| candidate == callable)
-        }) else {
-            return query_failure(db, key, format!("missing source declaration for callable {callable:?}"));
-        };
+    let effective_definition = db
+        .product(&QueryKey::CallableDefinition(callable.clone()))
+        .and_then(|product| product.as_callable_definition())
+        .cloned();
+    let uses_effective_definition = effective_definition.is_some();
 
-        let mut context = crate::checker::CheckingContext::new(store, hierarchy, resolver, declarations, callable.module().clone());
-        let Some(signature) = crate::checker::declaration_signature::semantic_signature_for_member(&mut context, callable.declaration_owner(), member) else {
-            return query_failure(db, key, format!("source member cannot publish callable signature {callable:?}"));
-        };
-        (Arc::new(signature), context.semantic_dependencies_snapshot())
-    } else if let Some(enum_def) = enum_definition_for(&unit, callable.declaration_owner()) {
-        let mut context = crate::checker::CheckingContext::new(store, hierarchy, resolver, declarations, callable.module().clone());
-        let signature = match &callable.owner {
-            crate::identity::CallableOwnerId::Declaration(_) => {
-                let Some(sig) = enum_def.members.iter().find_map(|m| match m {
-                    phalcom_ast::ast::EnumMember::Behavior(b) => {
-                        let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(b);
-                        let is_class_side = syntax.attributes().iter().any(|attr| attr.name == "class")
-                            || match b {
-                                phalcom_ast::ast::EnumBehaviorMember::Method(m) => m.is_static,
-                                phalcom_ast::ast::EnumBehaviorMember::Getter(g) => g.is_static,
-                                phalcom_ast::ast::EnumBehaviorMember::Setter(s) => s.is_static,
-                                phalcom_ast::ast::EnumBehaviorMember::Index(_) => false,
-                            };
-                        let side = if is_class_side {
-                            crate::identity::DispatchSide::Class
-                        } else {
-                            crate::identity::DispatchSide::Instance
-                        };
-                        if crate::checker::declaration_signature::callable_id_for_syntax(&callable.owner, syntax, side).as_ref() == Some(&callable) {
-                            crate::checker::declaration_signature::semantic_signature_for_syntax(&mut context, &callable.owner, syntax, side)
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
-                }) else {
-                    return query_failure(db, key, format!("missing root enum behavior for {callable:?}"));
-                };
-                sig
-            }
-            crate::identity::CallableOwnerId::Variant(var_id) => {
-                let Some(sig) = enum_def.members.iter().find_map(|m| match m {
-                    phalcom_ast::ast::EnumMember::Variant(v) => {
-                        let sel = phalcom_ast::selector::selector_from_variant(v);
-                        if sel == var_id.selector {
-                            v.body.as_ref().and_then(|body| {
-                                body.members.iter().find_map(|case_member| {
-                                    let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(case_member);
-                                    if crate::checker::declaration_signature::callable_id_for_syntax(
-                                        &callable.owner,
-                                        syntax,
-                                        crate::identity::DispatchSide::Instance,
-                                    )
-                                    .as_ref()
-                                        == Some(&callable)
-                                    {
-                                        crate::checker::declaration_signature::semantic_signature_for_syntax(
-                                            &mut context,
-                                            &callable.owner,
-                                            syntax,
-                                            crate::identity::DispatchSide::Instance,
-                                        )
-                                    } else {
-                                        None
-                                    }
-                                })
-                            })
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
-                }) else {
-                    return query_failure(db, key, format!("missing case enum behavior for {callable:?}"));
-                };
-                sig
-            }
-        };
-        (Arc::new(signature), context.semantic_dependencies_snapshot())
+    let (signature, captured_dependencies) = if let Some(definition) = effective_definition {
+        (Arc::new(definition.signature.clone()), BTreeSet::new())
+    } else if let Some(class_def) = class_definition_for(&unit, callable.declaration_owner()) {
+        if let Some(member) = class_def.members.iter().find(|member| {
+            crate::checker::declaration_signature::callable_id_for_member(callable.declaration_owner(), member).is_some_and(|candidate| candidate == callable)
+        }) {
+            let mut context = crate::checker::CheckingContext::new(store, hierarchy, resolver, declarations, callable.module().clone());
+            let Some(signature) = crate::checker::declaration_signature::semantic_signature_for_member(&mut context, callable.declaration_owner(), member) else {
+                return query_failure(db, key, format!("source member cannot publish callable signature {callable:?}"));
+            };
+            (Arc::new(signature), context.semantic_dependencies_snapshot())
+        } else {
+            return query_failure(db, key, format!("missing effective definition for callable {callable:?}"));
+        }
     } else {
-        return query_failure(db, key, format!("missing class/enum declaration for {:?}", callable.owner));
+        return query_failure(db, key, format!("missing effective definition for callable {callable:?}"));
     };
 
     let input_fingerprint = crate::db::fingerprint::callable_signature_input_fingerprint(&signature);
@@ -1682,6 +1662,9 @@ pub fn query_callable_signature_with_inputs(
     }
 
     let mut dependency_keys = BTreeSet::from([QueryKey::DeclarationShell(callable.declaration_owner().clone())]);
+    if uses_effective_definition {
+        dependency_keys.insert(QueryKey::CallableDefinition(callable.clone()));
+    }
     dependency_keys.extend(captured_dependencies.iter().map(semantic_dependency_query_key));
     dependency_keys.remove(&key);
 
@@ -1795,17 +1778,14 @@ pub fn query_field_signature_with_inputs(
     let Some(member) = class_def
         .members
         .iter()
-        .find(|member| crate::checker::declaration_signature::field_id_for_member(&field.owner, member).as_ref() == Some(&field))
+        .find(|member| crate::checker::declaration_signature::field_id_for_member(&field.owner, member).is_some_and(|candidate| candidate == field))
     else {
         return query_failure(db, key, format!("missing source declaration for field {field:?}"));
     };
 
-    let (signature, captured_dependencies) = {
-        let mut context = crate::checker::CheckingContext::new(store, hierarchy, resolver, declarations, field.owner.module.clone());
-        let Some(signature) = crate::checker::declaration_signature::semantic_field_signature_for_member(&mut context, &field.owner, member) else {
-            return query_failure(db, key, format!("source member cannot publish field signature {field:?}"));
-        };
-        (Arc::new(signature), context.semantic_dependencies_snapshot())
+    let mut context = crate::checker::CheckingContext::new(store, hierarchy, resolver, declarations, field.owner.module.clone());
+    let Some(signature) = crate::checker::declaration_signature::semantic_field_signature_for_member(&mut context, &field.owner, member) else {
+        return query_failure(db, key, format!("source member cannot publish field signature {field:?}"));
     };
 
     let input_fingerprint = crate::db::fingerprint::field_signature_input_fingerprint(&signature);
@@ -1820,6 +1800,7 @@ pub fn query_field_signature_with_inputs(
     }
     db.metrics().record_miss();
 
+    let captured_dependencies = context.semantic_dependencies_snapshot();
     for dependency in &captured_dependencies {
         match ensure_semantic_dependency_current(db, dependency, linked, declarations, type_aliases, import_products) {
             QueryOutcome::Ready(()) => {}
@@ -1842,6 +1823,7 @@ pub fn query_field_signature_with_inputs(
     }
 
     let product_fingerprint = crate::db::fingerprint::field_signature_product_fingerprint(&signature);
+    let signature = Arc::new(signature);
     if let Err(error) = publish_current_product(
         db,
         key.clone(),
@@ -1855,7 +1837,14 @@ pub fn query_field_signature_with_inputs(
     QueryOutcome::Ready(signature)
 }
 
-fn declaration_signature_id_for_body(callable: &CallableId, unit: &ParsedModuleUnit) -> Option<CallableId> {
+fn declaration_signature_id_for_body(db: &SemanticDb, callable: &CallableId, unit: &ParsedModuleUnit) -> Option<CallableId> {
+    if db
+        .product(&QueryKey::CallableDefinition(callable.clone()))
+        .and_then(|product| product.as_callable_definition())
+        .is_some()
+    {
+        return Some(callable.clone());
+    }
     if let Some(class_def) = class_definition_for(unit, callable.declaration_owner()) {
         if class_def
             .members
@@ -1878,56 +1867,6 @@ fn declaration_signature_id_for_body(callable: &CallableId, unit: &ParsedModuleU
         return None;
     }
 
-    if let Some(enum_def) = enum_definition_for(unit, callable.declaration_owner()) {
-        match &callable.owner {
-            crate::identity::CallableOwnerId::Declaration(_) => {
-                for member in &enum_def.members {
-                    if let phalcom_ast::ast::EnumMember::Behavior(b) = member {
-                        let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(b);
-                        let is_class_side = syntax.attributes().iter().any(|attr| attr.name == "class")
-                            || match b {
-                                phalcom_ast::ast::EnumBehaviorMember::Method(m) => m.is_static,
-                                phalcom_ast::ast::EnumBehaviorMember::Getter(g) => g.is_static,
-                                phalcom_ast::ast::EnumBehaviorMember::Setter(s) => s.is_static,
-                                phalcom_ast::ast::EnumBehaviorMember::Index(_) => false,
-                            };
-                        let side = if is_class_side {
-                            crate::identity::DispatchSide::Class
-                        } else {
-                            crate::identity::DispatchSide::Instance
-                        };
-                        if crate::checker::declaration_signature::callable_id_for_syntax(&callable.owner, syntax, side).as_ref() == Some(callable) {
-                            return Some(callable.clone());
-                        }
-                    }
-                }
-            }
-            crate::identity::CallableOwnerId::Variant(var_id) => {
-                for member in &enum_def.members {
-                    if let phalcom_ast::ast::EnumMember::Variant(v) = member {
-                        let sel = phalcom_ast::selector::selector_from_variant(v);
-                        if sel == var_id.selector {
-                            if let Some(ref body) = v.body {
-                                for case_member in &body.members {
-                                    let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(case_member);
-                                    if crate::checker::declaration_signature::callable_id_for_syntax(
-                                        &callable.owner,
-                                        syntax,
-                                        crate::identity::DispatchSide::Instance,
-                                    )
-                                    .as_ref()
-                                        == Some(callable)
-                                    {
-                                        return Some(callable.clone());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
     None
 }
 
@@ -2362,7 +2301,7 @@ fn query_callable_body_with_requirement(
             let Some(unit) = inputs.sources.get(callable.module()).cloned() else {
                 return QueryOutcome::Blocked(BlockReason::SuppressedDependency);
             };
-            let Some(signature_id) = declaration_signature_id_for_body(&callable, &unit) else {
+            let Some(signature_id) = declaration_signature_id_for_body(db, &callable, &unit) else {
                 return query_failure(db, key.clone(), format!("missing declaration signature identity for body {callable:?}"));
             };
             let sig_res = ensure_callable_signature_with_inputs(db, &signature_id, inputs, store);

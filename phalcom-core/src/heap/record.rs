@@ -1,43 +1,23 @@
 //! Immutable positive-arity record storage.
 
-use crate::interner::Symbol;
-use crate::value::Value;
+use crate::product::{ProductStorage, RuntimeAnonymousProductDescriptorId};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecordObject {
-    labels: Box<[Symbol]>,
-    values: Box<[Value]>,
+    descriptor: RuntimeAnonymousProductDescriptorId,
+    storage: ProductStorage,
 }
 
 impl RecordObject {
-    pub(crate) fn new(labels: Box<[Symbol]>, values: Box<[Value]>) -> Self {
-        assert!(!labels.is_empty(), "RecordObject must be positive-arity");
-        assert_eq!(labels.len(), values.len(), "record labels and values must align");
-        assert!(
-            labels.iter().enumerate().all(|(i, label)| !labels[..i].contains(label)),
-            "record labels must be unique"
-        );
-        Self { labels, values }
+    pub(crate) fn new(descriptor: RuntimeAnonymousProductDescriptorId, storage: ProductStorage) -> Self {
+        Self { descriptor, storage }
     }
 
-    pub fn len(&self) -> usize {
-        self.values.len()
+    pub fn descriptor(&self) -> RuntimeAnonymousProductDescriptorId {
+        self.descriptor
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.values.is_empty()
-    }
-
-    pub fn labels(&self) -> &[Symbol] {
-        &self.labels
-    }
-    pub fn values(&self) -> &[Value] {
-        &self.values
-    }
-    pub fn get(&self, label: Symbol) -> Option<Value> {
-        self.labels.iter().position(|candidate| *candidate == label).map(|i| self.values[i])
-    }
-    pub fn entries(&self) -> impl Iterator<Item = (Symbol, Value)> + '_ {
-        self.labels.iter().copied().zip(self.values.iter().copied())
+    pub fn storage(&self) -> &ProductStorage {
+        &self.storage
     }
 }

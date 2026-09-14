@@ -2543,7 +2543,7 @@ Public new Rust items require professional rustdoc. Run `cargo doc` if not alrea
 
 ## 16.6 Graph maintenance
 
-Repository `AGENTS.md`/`CLAUDE.md` require graphify usage for codebase work.
+Repository `../../../../AGENTS-old.md`/`CLAUDE.md` require graphify usage for codebase work.
 
 Before implementation:
 

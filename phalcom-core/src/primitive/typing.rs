@@ -8,6 +8,7 @@ use crate::error::{PhResult, RuntimeError};
 use crate::heap::{InstanceObject, ObjRef, Object, TypingPayload};
 use crate::method::MethodObject;
 use crate::primitive::{expect_tuple, primitive, primitive_static};
+use crate::product::finish_tuple;
 use crate::typing::capability::{TypingCapabilities, TypingCapability};
 use crate::typing::context::TypingContextData;
 use crate::typing::handle::{
@@ -25,6 +26,10 @@ fn class(vm: &VM, name: &str) -> PhResult<crate::heap::ClassId> {
         .typing_classes
         .get(name)
         .ok_or_else(|| RuntimeError::Internal(format!("typing class `{name}` is not bootstrapped")).into())
+}
+
+fn finish_typing_tuple(vm: &mut VM, values: Vec<Value>) -> PhResult<Value> {
+    finish_tuple(vm, values, Vec::new()).map_err(|error| crate::product::runtime_error(vm, "Tuple", error).into())
 }
 
 fn context_ref(receiver: &Value, vm: &VM) -> PhResult<ObjRef> {
@@ -284,7 +289,10 @@ fn nominal_handle(vm: &mut VM, context: ObjRef, value: &Value) -> PhResult<Runti
 
 fn tuple_type_args(vm: &mut VM, context: ObjRef, value: &Value) -> PhResult<Box<[RuntimeTypeRef]>> {
     let tuple = expect_tuple(vm, value)?;
-    let values = vm.heap.tuple(tuple).values().to_vec();
+    let values = vm
+        .tuple_view(tuple)
+        .ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".to_string()))?
+        .values();
     values
         .iter()
         .map(|value| nominal_handle(vm, context, value))
@@ -704,9 +712,8 @@ pub fn install(vm: &mut VM) {
 // Helpers & getters
 // ---------------------------------------------------------------------------
 
-fn empty_tuple(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    // LANG005.C1.P3 FIXME: empty Tuple allocation bypasses Unit normalization
-    Ok(Value::obj(vm.heap.alloc(Object::Tuple(crate::heap::TupleObject::positional(Vec::new())))))
+fn empty_tuple(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    Ok(Value::unit())
 }
 
 fn zero_count(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
@@ -836,7 +843,7 @@ fn behavior_remaining_parameters(vm: &mut VM, receiver: &Value, _args: &[Value])
             values.push(reify_type_parameter_obj(vm, context, p)?);
         }
     }
-    Ok(Value::obj(vm.heap.alloc(Object::Tuple(crate::heap::TupleObject::positional(values)))))
+    finish_typing_tuple(vm, values)
 }
 
 fn behavior_generic_signature(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
@@ -922,8 +929,7 @@ fn kind_argument_count(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResu
 
 fn kind_arguments(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     if receiver.as_obj() == Some(class(vm, "Type")?) {
-        // LANG005.C1.P3 FIXME: empty Tuple allocation bypasses Unit normalization
-        return Ok(Value::obj(vm.heap.alloc(Object::Tuple(crate::heap::TupleObject::positional(Vec::new())))));
+        return Ok(Value::unit());
     }
     let (context, handle) = context_kind_parts(receiver, vm)?;
     let children = {
@@ -937,7 +943,7 @@ fn kind_arguments(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Va
     for child in children {
         values.push(reify_kind(vm, context, child)?);
     }
-    Ok(Value::obj(vm.heap.alloc(Object::Tuple(crate::heap::TupleObject::positional(values)))))
+    finish_typing_tuple(vm, values)
 }
 
 fn kind_result(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
@@ -1033,9 +1039,8 @@ fn descriptor_remaining_parameter_at(vm: &mut VM, _receiver: &Value, _args: &[Va
     Err(RuntimeError::Message("descriptor has no remaining parameters".into()).into())
 }
 
-fn descriptor_remaining_parameters(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
-    // LANG005.C1.P3 FIXME: empty Tuple allocation bypasses Unit normalization
-    Ok(Value::obj(vm.heap.alloc(Object::Tuple(crate::heap::TupleObject::positional(Vec::new())))))
+fn descriptor_remaining_parameters(_vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    Ok(Value::unit())
 }
 
 fn descriptor_argument_count(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
@@ -1069,7 +1074,7 @@ fn descriptor_arguments(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRes
             desc_class,
         )?);
     }
-    Ok(Value::obj(vm.heap.alloc(Object::Tuple(crate::heap::TupleObject::positional(values)))))
+    finish_typing_tuple(vm, values)
 }
 
 fn descriptor_argument_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
@@ -1246,7 +1251,7 @@ fn descriptor_parameters(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhRe
             desc_class,
         )?);
     }
-    Ok(Value::obj(vm.heap.alloc(Object::Tuple(crate::heap::TupleObject::positional(values)))))
+    finish_typing_tuple(vm, values)
 }
 
 fn descriptor_return_type(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
@@ -1438,12 +1443,9 @@ fn descriptor_fields(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
         let desc_class = descriptor_class_for_handle(vm, context, ty_handle)?;
         let ty_val = crate::typing::reify::reify_type_form(context, ty_handle, &vm.typing_registry, &mut vm.heap, desc_class)?;
         let name_sym = vm.get_or_intern(&name);
-        let pair = vm
-            .heap
-            .alloc(Object::Tuple(crate::heap::TupleObject::positional(vec![Value::symbol(name_sym), ty_val])));
-        values.push(Value::obj(pair));
+        values.push(finish_typing_tuple(vm, vec![Value::symbol(name_sym), ty_val])?);
     }
-    Ok(Value::obj(vm.heap.alloc(Object::Tuple(crate::heap::TupleObject::positional(values)))))
+    finish_typing_tuple(vm, values)
 }
 
 fn descriptor_body(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
@@ -1548,6 +1550,8 @@ fn type_param_owner(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<
                 Ok(Value::none())
             }
         }
+        // Inherent impls are semantic/source provenance, not runtime objects.
+        phalcom_type_meta::generic::StableTypeParameterOwnerRef::Impl(_) => Ok(Value::none()),
     }
 }
 
@@ -1607,7 +1611,7 @@ fn type_param_constraints(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhR
     for c in constraints {
         values.push(reify_generic_constraint_obj(vm, context, c)?);
     }
-    Ok(Value::obj(vm.heap.alloc(Object::Tuple(crate::heap::TupleObject::positional(values)))))
+    finish_typing_tuple(vm, values)
 }
 
 // ---------------------------------------------------------------------------
@@ -1651,6 +1655,8 @@ fn generic_sig_owner(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult
                 Ok(Value::none())
             }
         }
+        // Inherent impls are semantic/source provenance, not runtime objects.
+        phalcom_type_meta::generic::StableTypeParameterOwnerRef::Impl(_) => Ok(Value::none()),
     }
 }
 
@@ -1678,7 +1684,7 @@ fn generic_sig_parameters(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhR
     for p in params {
         values.push(reify_type_parameter_obj(vm, context, p)?);
     }
-    Ok(Value::obj(vm.heap.alloc(Object::Tuple(crate::heap::TupleObject::positional(values)))))
+    finish_typing_tuple(vm, values)
 }
 
 fn generic_sig_constraint_count(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
@@ -1707,7 +1713,7 @@ fn generic_sig_constraints(vm: &mut VM, receiver: &Value, _args: &[Value]) -> Ph
     for c in constraints {
         values.push(reify_generic_constraint_obj(vm, context, c)?);
     }
-    Ok(Value::obj(vm.heap.alloc(Object::Tuple(crate::heap::TupleObject::positional(values)))))
+    finish_typing_tuple(vm, values)
 }
 
 // ---------------------------------------------------------------------------
@@ -1833,7 +1839,7 @@ fn callable_sig_parameters(vm: &mut VM, receiver: &Value, _args: &[Value]) -> Ph
     for p in params {
         values.push(reify_callable_parameter_obj(vm, context, p)?);
     }
-    Ok(Value::obj(vm.heap.alloc(Object::Tuple(crate::heap::TupleObject::positional(values)))))
+    finish_typing_tuple(vm, values)
 }
 
 fn callable_sig_return_type(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
@@ -2050,7 +2056,10 @@ fn typing_context_for(vm: &mut VM, _receiver: &Value, args: &[Value]) -> PhResul
             let ctx = alloc_context_with_capabilities(vm, profile, caps)?;
             return alloc_variant(vm, "TypingKnown", Some(ctx));
         } else if let Some(tuple_id) = arg.as_obj().and_then(|obj| vm.heap.as_tuple(obj).map(|_| obj)) {
-            let values = vm.heap.tuple(tuple_id).values().to_vec();
+            let values = vm
+                .tuple_view(tuple_id)
+                .ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".to_string()))?
+                .values();
             let mut caps = TypingCapabilities::empty();
             for v in values {
                 if let Some(s) = v.symbol_value() {
@@ -2100,7 +2109,7 @@ fn typing_context_capabilities(vm: &mut VM, receiver: &Value, _args: &[Value]) -
     for name in names {
         symbols.push(Value::symbol(vm.get_or_intern(name)));
     }
-    Ok(Value::obj(vm.heap.alloc(Object::Tuple(crate::heap::TupleObject::positional(symbols)))))
+    finish_typing_tuple(vm, symbols)
 }
 
 fn typing_context_restrict(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
@@ -2114,7 +2123,11 @@ fn typing_context_restrict(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhR
         })?,
     )?;
     let mut requested_set = crate::typing::capability::TypingCapabilities::empty();
-    for value in vm.heap.tuple(requested).values() {
+    let requested_values = vm
+        .tuple_view(requested)
+        .ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".to_string()))?
+        .values();
+    for value in requested_values {
         let Some(symbol) = value.symbol_value() else { continue };
         let name = vm.resolve_symbol(symbol);
         if let Some(capability) = TypingCapability::ALL.into_iter().find(|capability| capability.display() == name) {
@@ -2335,10 +2348,16 @@ fn typing_context_record_of(vm: &mut VM, receiver: &Value, args: &[Value]) -> Ph
 
     let mut fields = Vec::new();
     if let Some(tuple_id) = fields_arg.as_obj().filter(|id| vm.heap.as_tuple(*id).is_some()) {
-        let items = vm.heap.tuple(tuple_id).values().to_vec();
+        let items = vm
+            .tuple_view(tuple_id)
+            .ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".to_string()))?
+            .values();
         for item in items {
             let pair_id = expect_tuple(vm, &item)?;
-            let pair = vm.heap.tuple(pair_id).values().to_vec();
+            let pair = vm
+                .tuple_view(pair_id)
+                .ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".to_string()))?
+                .values();
             if pair.len() == 2 {
                 let name = pair[0].symbol_value().map(|s| vm.resolve_symbol(s).to_string()).unwrap_or_default();
                 let ty = nominal_handle(vm, context, &pair[1])?;
@@ -2595,9 +2614,7 @@ fn typing_context_type_uses_of(vm: &mut VM, receiver: &Value, _args: &[Value]) -
     if profile != MetadataProfile::ToolingDebug {
         return alloc_unavailable(vm, "omitted_in_current_profile");
     }
-    // LANG005.C1.P3 FIXME: empty Tuple allocation bypasses Unit normalization
-    let tuple_obj = vm.heap.alloc(Object::Tuple(crate::heap::TupleObject::positional(Vec::new())));
-    alloc_variant(vm, "TypingKnown", Some(Value::obj(tuple_obj)))
+    alloc_variant(vm, "TypingKnown", Some(Value::unit()))
 }
 
 fn typing_context_matches(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
@@ -2769,7 +2786,10 @@ fn typing_context_construct(vm: &mut VM, receiver: &Value, args: &[Value]) -> Ph
     };
 
     let tuple_id = expect_tuple(vm, args_val)?;
-    let ctor_args = vm.heap.tuple(tuple_id).values().to_vec();
+    let ctor_args = vm
+        .tuple_view(tuple_id)
+        .ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".to_string()))?
+        .values();
     let new_selector = vm.get_or_intern(match ctor_args.len() {
         0 => "new()",
         1 => "new(_)",

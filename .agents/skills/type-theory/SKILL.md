@@ -26,7 +26,7 @@ diagnostics and conformance tests
 
 It is not a syntax catalog, a generic type-checker tutorial, or permission to replace Phalcom's dynamic object model with a textbook calculus. Phalcom typing must describe actual Phalcom execution and reflection.
 
-Before repository-specific work, inspect current repository guidance and the current typing specifications. In `phalcom-lang`, read `AGENTS.md`, then the relevant files under `docs/spec/typing/` and any newer design/decision documents. Repository status beats this skill when they disagree.
+Before repository-specific work, inspect current repository guidance and the current typing specifications. In `phalcom-lang`, read `../../../AGENTS-old.md`, then the relevant files under `docs/spec/typing/` and any newer design/decision documents. Repository status beats this skill when they disagree.
 
 ## Intellectual ownership
 

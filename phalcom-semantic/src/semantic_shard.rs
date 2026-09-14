@@ -2,7 +2,7 @@
 
 use crate::identity::{CallableId, CallableOwnerId, DeclarationId, DispatchSide, FieldId, ModuleId};
 use crate::source::ParsedModuleUnit;
-use phalcom_ast::ast::{ClassMember, EnumBehaviorMember, EnumMember, MemberBody, Statement, TypeAliasDef};
+use phalcom_ast::ast::{BehaviorMember, ClassMember, MemberBody, Statement, TypeAliasDef};
 use phalcom_modules::declaration::{DeclarationBlueprint, DeclarationKind};
 use std::collections::{BTreeMap, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
@@ -83,13 +83,6 @@ impl ModuleSemanticStructureShard {
                 Statement::Enum(enum_def) => {
                     declaration_header_fingerprints.insert(declaration.clone(), declaration_header_fingerprint(&source, enum_def.range));
                     hierarchy_edge_fingerprints.insert(declaration.clone(), hierarchy_fingerprint(&source, None));
-                    collect_enum_member_fingerprints(
-                        &source,
-                        &declaration,
-                        &enum_def.members,
-                        &mut callable_signature_fingerprints,
-                        &mut callable_body_fingerprints,
-                    );
                 }
                 Statement::Data(data_def) => {
                     declaration_header_fingerprints.insert(declaration.clone(), declaration_header_fingerprint(&source, data_def.range));
@@ -99,6 +92,18 @@ impl ModuleSemanticStructureShard {
                     alias_sources.insert(declaration, alias.clone());
                 }
                 _ => {}
+            }
+        }
+
+        for statement in &source.program.statements {
+            if let Statement::Impl(impl_def) = statement {
+                collect_impl_member_fingerprints(
+                    &source,
+                    &impl_def.target,
+                    &impl_def.members,
+                    &mut callable_signature_fingerprints,
+                    &mut callable_body_fingerprints,
+                );
             }
         }
 
@@ -133,12 +138,11 @@ impl ModuleSemanticStructureShard {
                         }
                     }
                 }
-                Statement::Enum(enum_def) => {
-                    for member in &enum_def.members {
-                        if let EnumMember::Behavior(behavior) = member {
-                            if let Some(range) = enum_behavior_body_range(behavior) {
-                                body_ranges.push(range);
-                            }
+                Statement::Enum(_) => {}
+                Statement::Impl(impl_def) => {
+                    for member in &impl_def.members {
+                        if let Some(range) = behavior_body_range(member) {
+                            body_ranges.push(range);
                         }
                     }
                 }
@@ -206,28 +210,6 @@ fn collect_class_member_fingerprints(
     }
 }
 
-fn collect_enum_member_fingerprints(
-    source: &ParsedModuleUnit,
-    owner: &DeclarationId,
-    members: &[EnumMember],
-    callable_signatures: &mut BTreeMap<CallableId, u64>,
-    callable_bodies: &mut BTreeMap<CallableId, u64>,
-) {
-    for member in members {
-        let EnumMember::Behavior(behavior) = member else {
-            continue;
-        };
-        let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(behavior);
-        let side = enum_behavior_side(behavior);
-        let Some(callable) = crate::checker::declaration_signature::callable_id_for_syntax(&CallableOwnerId::Declaration(owner.clone()), syntax, side) else {
-            continue;
-        };
-        callable_signatures.insert(callable.clone(), enum_behavior_signature_fingerprint(source, behavior));
-        if enum_behavior_body_range(behavior).is_some() {
-            callable_bodies.insert(callable, hash_range(source, behavior.range()));
-        }
-    }
-}
 
 fn callable_body_fingerprints_for_source(source: &ParsedModuleUnit) -> BTreeMap<CallableId, u64> {
     let mut callable_signatures = BTreeMap::new();
@@ -239,14 +221,63 @@ fn callable_body_fingerprints_for_source(source: &ParsedModuleUnit) -> BTreeMap<
                 let owner = DeclarationId::new(source.id.clone(), class_def.name.clone().into());
                 collect_class_member_fingerprints(source, &owner, &class_def.members, &mut callable_signatures, &mut fields, &mut callable_bodies);
             }
-            Statement::Enum(enum_def) => {
-                let owner = DeclarationId::new(source.id.clone(), enum_def.name.clone().into());
-                collect_enum_member_fingerprints(source, &owner, &enum_def.members, &mut callable_signatures, &mut callable_bodies);
+            Statement::Enum(_) => {}
+            Statement::Impl(impl_def) => {
+                collect_impl_member_fingerprints(source, &impl_def.target, &impl_def.members, &mut callable_signatures, &mut callable_bodies);
             }
             _ => {}
         }
     }
     callable_bodies
+}
+
+fn collect_impl_member_fingerprints(
+    source: &ParsedModuleUnit,
+    target: &phalcom_ast::ast::TypeAnnotation,
+    members: &[BehaviorMember],
+    callable_signatures: &mut BTreeMap<CallableId, u64>,
+    callable_bodies: &mut BTreeMap<CallableId, u64>,
+) {
+    let callable_owner = match &target.expr {
+        phalcom_ast::ast::TypeAnnotationExpr::ExactEnumCase {
+            enum_target,
+            variant_name,
+            payload_shape,
+            ..
+        } => {
+            let Some(origin) = enum_target.origin_symbol_ref() else {
+                return;
+            };
+            if !origin.members.is_empty() {
+                return;
+            }
+            let decl = DeclarationId::new(source.id.clone(), origin.root.clone().into());
+            let selector = phalcom_ast::selector::selector_from_exact_case_target(variant_name, payload_shape.as_ref());
+            let variant_id = crate::identity::VariantId::new(decl, selector);
+            CallableOwnerId::Variant(variant_id)
+        }
+        _ => {
+            let Some(target) = target.origin_symbol_ref() else {
+                return;
+            };
+            if !target.members.is_empty() {
+                return;
+            }
+            let owner = DeclarationId::new(source.id.clone(), target.root.clone().into());
+            CallableOwnerId::Declaration(owner)
+        }
+    };
+    for member in members {
+        let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(member);
+        let side = behavior_side(member);
+        let Some(callable) = crate::checker::declaration_signature::callable_id_for_syntax(&callable_owner, syntax, side) else {
+            continue;
+        };
+        callable_signatures.insert(callable.clone(), behavior_signature_fingerprint(source, member));
+        if behavior_body_range(member).is_some() {
+            callable_bodies.insert(callable, hash_range(source, member.range()));
+        }
+    }
 }
 
 fn declaration_header_fingerprint(source: &ParsedModuleUnit, range: phalcom_common::range::SourceRange) -> u64 {
@@ -258,10 +289,6 @@ fn declaration_header_fingerprint(source: &ParsedModuleUnit, range: phalcom_comm
                 true
             }
             Statement::Enum(enum_def) if enum_def.range == range => {
-                body_ranges.extend(enum_def.members.iter().filter_map(|member| match member {
-                    EnumMember::Behavior(behavior) => enum_behavior_body_range(behavior),
-                    EnumMember::Variant(_) => None,
-                }));
                 true
             }
             _ => false,
@@ -284,7 +311,7 @@ fn member_signature_fingerprint(source: &ParsedModuleUnit, range: phalcom_common
     hash_range_without_bodies(source, range, vec![range])
 }
 
-fn enum_behavior_signature_fingerprint(source: &ParsedModuleUnit, behavior: &EnumBehaviorMember) -> u64 {
+fn behavior_signature_fingerprint(source: &ParsedModuleUnit, behavior: &BehaviorMember) -> u64 {
     let range = behavior.range();
     hash_range_without_bodies(source, range, vec![range])
 }
@@ -327,11 +354,11 @@ fn hash_range_without_bodies(
     hasher.finish()
 }
 
-fn enum_behavior_side(member: &EnumBehaviorMember) -> DispatchSide {
+fn behavior_side(member: &BehaviorMember) -> DispatchSide {
     match member {
-        EnumBehaviorMember::Method(method) if method.is_static || method.attributes.iter().any(|attribute| attribute.name == "class") => DispatchSide::Class,
-        EnumBehaviorMember::Getter(getter) if getter.is_static || getter.attributes.iter().any(|attribute| attribute.name == "class") => DispatchSide::Class,
-        EnumBehaviorMember::Setter(setter) if setter.is_static || setter.attributes.iter().any(|attribute| attribute.name == "class") => DispatchSide::Class,
+        BehaviorMember::Method(method) if method.is_static || method.attributes.iter().any(|attribute| attribute.name == "class") => DispatchSide::Class,
+        BehaviorMember::Getter(getter) if getter.is_static || getter.attributes.iter().any(|attribute| attribute.name == "class") => DispatchSide::Class,
+        BehaviorMember::Setter(setter) if setter.is_static || setter.attributes.iter().any(|attribute| attribute.name == "class") => DispatchSide::Class,
         _ => DispatchSide::Instance,
     }
 }
@@ -346,12 +373,12 @@ fn class_member_body_range(member: &ClassMember) -> Option<phalcom_common::range
     }
 }
 
-fn enum_behavior_body_range(member: &EnumBehaviorMember) -> Option<phalcom_common::range::SourceRange> {
+fn behavior_body_range(member: &BehaviorMember) -> Option<phalcom_common::range::SourceRange> {
     match member {
-        EnumBehaviorMember::Method(method) if matches!(method.body, MemberBody::Block(_)) => Some(method.range),
-        EnumBehaviorMember::Getter(getter) if matches!(getter.body, MemberBody::Block(_)) => Some(getter.range),
-        EnumBehaviorMember::Setter(setter) if matches!(setter.body, MemberBody::Block(_)) => Some(setter.range),
-        EnumBehaviorMember::Index(index) => Some(index.range),
+        BehaviorMember::Method(method) if matches!(method.body, MemberBody::Block(_)) => Some(method.range),
+        BehaviorMember::Getter(getter) if matches!(getter.body, MemberBody::Block(_)) => Some(getter.range),
+        BehaviorMember::Setter(setter) if matches!(setter.body, MemberBody::Block(_)) => Some(setter.range),
+        BehaviorMember::Index(index) => Some(index.range),
         _ => None,
     }
 }

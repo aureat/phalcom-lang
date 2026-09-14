@@ -489,7 +489,8 @@ fn query_key_module(key: &QueryKey) -> Option<&ModuleId> {
         QueryKey::ResolvedImport(site) => Some(&site.importer),
         QueryKey::LinkedName(module, _) | QueryKey::PublicExport(module, _) => Some(module),
         QueryKey::FieldSignature(field) => Some(&field.owner.module),
-        QueryKey::CallableSignature(callable)
+        QueryKey::CallableDefinition(callable)
+        | QueryKey::CallableSignature(callable)
         | QueryKey::CallableBody(callable)
         | QueryKey::CallableEffects(callable)
         | QueryKey::CallableControl(callable)

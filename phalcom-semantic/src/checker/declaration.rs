@@ -19,12 +19,13 @@ pub(crate) fn member_side(member: &ClassMember) -> crate::identity::DispatchSide
     }
 }
 
-/// Pre-registers a class surface and its callable signatures in the context's dispatch table.
-pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) -> HashMap<crate::identity::CallableId, CallableSemanticSignature> {
+/// Computes the primary declared surface and signature table for a class.
+pub fn build_declared_class_surface(
+    ctx: &mut CheckingContext<'_>,
+    class_def: &ClassDef,
+) -> (DeclarationSurface, HashMap<crate::identity::CallableId, CallableSemanticSignature>) {
     let decl_id = DeclarationId::new(ctx.current_module.clone(), class_def.name.clone().into());
     let mut surface = DeclarationSurface::new(Some(decl_id.clone()));
-    let class_ty = ctx.nominal_type_of(&decl_id).unwrap_or_else(|| ctx.store.nominal(decl_id.clone()));
-    ctx.dispatch.make_mut().register_type(class_ty, decl_id.clone());
     let mut signatures = HashMap::new();
 
     for member in &class_def.members {
@@ -54,6 +55,16 @@ pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDe
         }
     }
 
+    (surface, signatures)
+}
+
+/// Pre-registers a class surface and its callable signatures in the context's dispatch table.
+pub fn register_class_surface(ctx: &mut CheckingContext<'_>, class_def: &ClassDef) -> HashMap<crate::identity::CallableId, CallableSemanticSignature> {
+    let decl_id = DeclarationId::new(ctx.current_module.clone(), class_def.name.clone().into());
+    let class_ty = ctx.nominal_type_of(&decl_id).unwrap_or_else(|| ctx.store.nominal(decl_id.clone()));
+    ctx.dispatch.make_mut().register_type(class_ty, decl_id.clone());
+
+    let (surface, signatures) = build_declared_class_surface(ctx, class_def);
     ctx.register_surface(decl_id, surface);
     signatures
 }

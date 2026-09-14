@@ -655,6 +655,15 @@ fn lower_scoped_type_form(
             ));
             TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::Lambda(lambda_id)))
         }
+        TypeAnnotationExpr::ExactEnumCase { range, .. } => {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                current_module.clone(),
+                DiagnosticCode::AnnotationUnresolved,
+                "exact enum case syntax is only valid as an inherent impl target",
+                *range,
+            ));
+            TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax)
+        }
         TypeAnnotationExpr::Invalid { message, range } => {
             diagnostics.push(SemanticDiagnostic::error_in(
                 current_module.clone(),
@@ -1174,6 +1183,15 @@ pub fn resolve_type_form(
                 diagnostics,
             )
             .map_ready(|lambda_id| store.type_lambda(lambda_id))
+        }
+        TypeAnnotationExpr::ExactEnumCase { range, .. } => {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                current_module.clone(),
+                DiagnosticCode::AnnotationUnresolved,
+                "exact enum case syntax is only valid as an inherent impl target",
+                *range,
+            ));
+            TypeFormResolution::Invalid(TypeFormationInvalid::Syntax)
         }
         TypeAnnotationExpr::Invalid { message, range } => {
             diagnostics.push(SemanticDiagnostic::error_in(

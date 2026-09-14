@@ -101,6 +101,8 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "LoadDataSingleton",
     "ConstructData",
     "GetDataComponent",
+    "BuildStaticTuple",
+    "BuildStaticRecord",
 ];
 
 /// Distinguishes exact selector identity from a structural selector pattern
@@ -439,6 +441,14 @@ pub enum Bytecode {
     BuildRecord {
         fields: u16,
     },
+
+    /// Finalizes source-order component values using a statically projected
+    /// anonymous Tuple construction specification.
+    BuildStaticTuple { spec: u16 },
+
+    /// Finalizes source-order component values using a statically projected
+    /// anonymous Record construction specification.
+    BuildStaticRecord { spec: u16 },
     BeginMapLiteral,
     MapLiteralInsertUnique,
     FinishMapLiteral,
@@ -654,7 +664,7 @@ pub enum Bytecode {
 impl Bytecode {
     /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
     /// histogram in `opcode_stats`.
-    pub const VARIANTS: usize = 97;
+    pub const VARIANTS: usize = 99;
 
     /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
     ///
@@ -705,6 +715,8 @@ impl Bytecode {
             Bytecode::GuardSymbol => 37,
             Bytecode::BuildTuple { .. } => 38,
             Bytecode::BuildRecord { .. } => 39,
+            Bytecode::BuildStaticTuple { .. } => 97,
+            Bytecode::BuildStaticRecord { .. } => 98,
             Bytecode::BeginMapLiteral => 40,
             Bytecode::MapLiteralInsertUnique => 41,
             Bytecode::FinishMapLiteral => 42,

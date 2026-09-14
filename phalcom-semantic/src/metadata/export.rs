@@ -105,6 +105,11 @@ fn write_stable_declaration_fingerprint(builder: &mut FingerprintBuilder, declar
     }
 }
 
+fn write_stable_impl_fingerprint(builder: &mut FingerprintBuilder, r#impl: &phalcom_type_meta::identity::StableImplRef) {
+    write_stable_module_fingerprint(builder, &r#impl.module);
+    builder.write_u32(r#impl.local_id);
+}
+
 /// Exporter context driving hash-consing and topological node indexing.
 pub struct MetadataExporter<'a> {
     store: &'a TypeStore,
@@ -158,6 +163,12 @@ impl<'a> MetadataExporter<'a> {
             .map_or_else(|| to_stable_field(field), |context| to_stable_field_with_context(field, context))
     }
 
+    fn stable_impl(&self, r#impl: &crate::identity::ImplId) -> phalcom_type_meta::identity::StableImplRef {
+        self.identity_context
+            .as_ref()
+            .map_or_else(|| to_stable_impl(r#impl), |context| to_stable_impl_with_context(r#impl, context))
+    }
+
     fn write_stable_parameter_fingerprint(&self, builder: &mut FingerprintBuilder, parameter: &StableTypeParameterRef) {
         match &parameter.owner {
             StableTypeParameterOwnerRef::Declaration(declaration) => {
@@ -172,6 +183,10 @@ impl<'a> MetadataExporter<'a> {
                     phalcom_type_meta::identity::StableDispatchSide::Class => 2,
                 });
                 builder.write_str(&callable.selector);
+            }
+            StableTypeParameterOwnerRef::Impl(r#impl) => {
+                builder.write_u8(3);
+                write_stable_impl_fingerprint(builder, r#impl);
             }
         }
         builder.write_u32(parameter.index);
@@ -265,6 +280,7 @@ impl<'a> MetadataExporter<'a> {
         let owner_ref = match &data.owner {
             TypeParameterOwner::Declaration(d) => StableTypeParameterOwnerRef::Declaration(self.stable_declaration(d)),
             TypeParameterOwner::Callable(c) => StableTypeParameterOwnerRef::Callable(self.stable_callable(c)),
+            TypeParameterOwner::Impl(i) => StableTypeParameterOwnerRef::Impl(self.stable_impl(i)),
         };
         let param_ref = StableTypeParameterRef {
             owner: owner_ref,
@@ -740,6 +756,7 @@ impl<'a> MetadataExporter<'a> {
         let owner_ref = match &sig.owner {
             TypeParameterOwner::Declaration(d) => StableTypeParameterOwnerRef::Declaration(self.stable_declaration(d)),
             TypeParameterOwner::Callable(c) => StableTypeParameterOwnerRef::Callable(self.stable_callable(c)),
+            TypeParameterOwner::Impl(i) => StableTypeParameterOwnerRef::Impl(self.stable_impl(i)),
         };
 
         let mut param_refs = Vec::new();

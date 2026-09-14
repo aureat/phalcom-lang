@@ -4,7 +4,9 @@ enum Ordering {
     @variant Equal
     @variant Greater
     @variant Unordered
+}
 
+impl Ordering {
     @class
     less { Ordering::Less }
 

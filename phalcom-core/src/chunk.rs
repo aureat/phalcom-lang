@@ -2,8 +2,8 @@ use crate::bytecode::Bytecode;
 use crate::compiler::lib::CompilerError;
 use crate::heap::ClassId;
 use crate::modules::semantic_lowering::{
-    DataConstructionLoweringSpec, DataDeclarationLoweringSpec, EnumLoweringSpec, ExecutableFamilyCandidateSet, ExecutableFamilyDescriptor,
-    ExecutableInvocationTarget,
+    AnonymousProductConstructionLoweringSpec, DataConstructionLoweringSpec, DataDeclarationLoweringSpec, EnumLoweringSpec,
+    ExecutableFamilyCandidateSet, ExecutableFamilyDescriptor, ExecutableInvocationTarget,
 };
 use crate::value::Value;
 use phalcom_common::range::SourceRange;
@@ -32,6 +32,7 @@ pub struct ExecutableSemanticPool {
     pub data_target_index: HashMap<DataConstructorId, u16>,
     pub data_constructions: Vec<Arc<DataConstructionLoweringSpec>>,
     pub data_construction_caches: Vec<Cell<Option<crate::data::RuntimeDataDescriptorId>>>,
+    pub anonymous_product_specs: Vec<Arc<AnonymousProductConstructionLoweringSpec>>,
     pub associated_targets: Vec<ExecutableInvocationTarget>,
     pub associated_target_caches: Vec<Cell<Option<AssociatedTargetCache>>>,
     pub family_descriptors: Vec<Arc<ExecutableFamilyDescriptor>>,
@@ -108,6 +109,19 @@ impl ExecutableSemanticPool {
 
     pub fn data_construction_cache(&self, index: u16) -> &Cell<Option<crate::data::RuntimeDataDescriptorId>> {
         &self.data_construction_caches[index as usize]
+    }
+
+    pub fn add_anonymous_product_spec(&mut self, spec: Arc<AnonymousProductConstructionLoweringSpec>, span: SourceRange) -> Result<u16, CompilerError> {
+        let index = u16::try_from(self.anonymous_product_specs.len()).map_err(|_| CompilerError::ExecutableSemanticPoolOverflow {
+            kind: "AnonymousProductSpec",
+            span,
+        })?;
+        self.anonymous_product_specs.push(spec);
+        Ok(index)
+    }
+
+    pub fn anonymous_product_spec(&self, index: u16) -> &AnonymousProductConstructionLoweringSpec {
+        &self.anonymous_product_specs[index as usize]
     }
 
     pub fn add_associated_target(&mut self, target: ExecutableInvocationTarget, span: SourceRange) -> Result<u16, CompilerError> {

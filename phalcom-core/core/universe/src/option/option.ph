@@ -22,7 +22,9 @@ enum Option<T> {
   /// An `Option` containing no value.
   @variant
   None
+}
 
+impl<T> Option<T> {
   /// Eliminates this option by invoking the callback corresponding to its
   /// current variant.
   ///

@@ -147,3 +147,35 @@ async fn semantic_tokens_full_classifies_a_representative_document() {
     drop(client_end);
     let _ = server_task.await;
 }
+
+#[tokio::test]
+async fn semantic_tokens_classify_impl_keyword_and_member_declaration() {
+    let mut lsp = crate::support::TestLsp::start().await;
+    let initialize = lsp.initialize(None).await;
+    assert!(initialize.get("result").is_some(), "server initializes before semantic token request");
+
+    let uri = "file:///impl-semantic-tokens.ph";
+    let source = "class User {}\nimpl User { greet() { 1 } }\n";
+    lsp.open_and_wait(uri, source).await;
+    let response = lsp.semantic_tokens_full(uri).await;
+    let data = response["result"]["data"].as_array().expect("semantic token data array");
+
+    let mut line = 0u64;
+    let mut character = 0u64;
+    let mut found_impl = false;
+    let mut found_greet = false;
+    for token in data.chunks_exact(5) {
+        let delta_line = token[0].as_u64().expect("delta line");
+        let delta_start = token[1].as_u64().expect("delta start");
+        line += delta_line;
+        character = if delta_line == 0 { character + delta_start } else { delta_start };
+        let length = token[2].as_u64().expect("token length");
+        let kind = token[3].as_u64().expect("token kind");
+        found_impl |= line == 1 && character == 0 && length == 4 && kind == 0;
+        found_greet |= line == 1 && character == 12 && length == 5 && kind == 7;
+    }
+    assert!(found_impl, "impl keyword must be a keyword token: {response:#?}");
+    assert!(found_greet, "impl member declaration must be a method token: {response:#?}");
+
+    lsp.finish().await;
+}

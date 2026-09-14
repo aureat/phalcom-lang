@@ -436,6 +436,10 @@ pub struct VM {
     pub adt_registry: crate::adt::RuntimeAdtRegistry,
     /// Runtime data registry for data descriptors.
     pub data_registry: crate::data::RuntimeDataRegistry,
+    /// Product shape registry for Tuple and Record shapes (LANG005.C1.P3).
+    pub product_shapes: crate::product::ProductShapeRegistry,
+    /// Anonymous product descriptor registry (LANG005.C1.P3).
+    pub anonymous_product_descriptors: crate::product::RuntimeAnonymousProductDescriptorRegistry,
     /// Product optimization mode seam (LANG005.C1.P2).
     pub product_optimization_mode: crate::compiler::lib::product_opt::ProductOptimizationMode,
     /// Bounded free-list for recycling fiber stacks/frames to avoid
@@ -451,11 +455,52 @@ impl VM {
     ///
     /// For data values (both `DataSingleton` and heap `DataObject`), equality is
     /// representation-independent: exact semantic descriptor match and recursive
-    /// component-wise `semantic_same`. For non-data values, falls back to
-    /// `lhs.same_as(&rhs)`.
+    /// component-wise `semantic_same`. Tuple and Record products likewise compare
+    /// through their VM-owned shape metadata and decoded logical values. All other
+    /// values retain representation identity semantics.
     pub fn semantic_same(&self, lhs: Value, rhs: Value) -> bool {
         if lhs.same_as(&rhs) {
             return true;
+        }
+
+        let lhs_tuple = lhs.as_obj().filter(|id| self.heap.as_tuple(*id).is_some());
+        let rhs_tuple = rhs.as_obj().filter(|id| self.heap.as_tuple(*id).is_some());
+        match (lhs_tuple, rhs_tuple) {
+            (Some(lhs_id), Some(rhs_id)) => {
+                let Some(lhs_view) = self.tuple_view(lhs_id) else { return false };
+                let Some(rhs_view) = self.tuple_view(rhs_id) else { return false };
+                if lhs_view.positional_len() != rhs_view.positional_len() || lhs_view.labels() != rhs_view.labels() {
+                    return false;
+                }
+                return lhs_view
+                    .values()
+                    .into_iter()
+                    .zip(rhs_view.values())
+                    .all(|(left, right)| self.semantic_same(left, right));
+            }
+            (Some(_), None) | (None, Some(_)) => return false,
+            (None, None) => {}
+        }
+
+        let lhs_record = lhs.as_obj().filter(|id| self.heap.as_record(*id).is_some());
+        let rhs_record = rhs.as_obj().filter(|id| self.heap.as_record(*id).is_some());
+        match (lhs_record, rhs_record) {
+            (Some(lhs_id), Some(rhs_id)) => {
+                let Some(lhs_view) = self.record_view(lhs_id) else { return false };
+                let Some(rhs_view) = self.record_view(rhs_id) else { return false };
+                if lhs_view.len() != rhs_view.len() {
+                    return false;
+                }
+                return lhs_view.labels().iter().all(|label| {
+                    rhs_view.get(*label).is_some_and(|right| {
+                        lhs_view
+                            .get(*label)
+                            .is_some_and(|left| self.semantic_same(left, right))
+                    })
+                });
+            }
+            (Some(_), None) | (None, Some(_)) => return false,
+            (None, None) => {}
         }
 
         // DataSingleton vs DataSingleton

@@ -23,7 +23,7 @@ The objective is not "make the LSP smarter" in isolation. The objective is:
 
 Before changing semantic analysis:
 
-1. Read repository instructions (`CLAUDE.md`, `AGENTS.md`).
+1. Read repository instructions (`CLAUDE.md`, `../../../AGENTS-old.md`).
 2. If `graphify-out/graph.json` exists, query graphify for the question and affected symbols.
 3. Read the relevant normative spec/ADR/PDR. Proposed typing docs are not current runtime behavior.
 4. Inspect `phalcom-lsp/src/semantic/` current implementation.

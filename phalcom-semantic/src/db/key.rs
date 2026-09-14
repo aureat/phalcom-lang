@@ -40,6 +40,8 @@ pub enum QueryKey {
     DeclarationShell(DeclarationId),
     SemanticComponent(ModuleId),
     DeclarationSurface(DeclarationId),
+    /// Canonical accepted source definition for one callable.
+    CallableDefinition(CallableId),
     HierarchyEdge(DeclarationId),
     FieldSignature(FieldId),
     CallableSignature(CallableId),

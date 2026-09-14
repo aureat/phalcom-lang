@@ -295,6 +295,10 @@ impl SourceScopeIndex {
         SourceNameResolution::Unresolved
     }
 
+    pub(crate) fn declaration_for_name(&self, name: &str) -> Option<&DeclarationId> {
+        self.classes.get(name)
+    }
+
     /// Returns the first binding recorded for an exact declaration range.
     pub fn binding_for_declaration(&self, range: SourceRange) -> Option<&SourceBindingInfo> {
         self.declarations.get(&(range.start, range.end)).and_then(|site| self.bindings.get(site))

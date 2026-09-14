@@ -37,10 +37,15 @@ impl<'vm> Compiler<'vm> {
         // 2. Emit Data class allocation (pushes data class on stack)
         self.emit(Bytecode::Data(spec_idx), data_def.range);
 
-        // 3. Finalize data class
+        // 3. Install accepted inherent behavior while the data behavior class
+        // remains on the stack. The helper uses target-owned semantic
+        // provenance and does not alter data layout or representation.
+        self.install_accepted_inherent_impl_members(&spec.owner)?;
+
+        // 4. Finalize data class
         self.emit(Bytecode::FinalizeData(spec_idx), data_def.range);
 
-        // 4. Define global slot for the data class
+        // 5. Define global slot for the data class
         self.declare_global(name_sym, false)?;
         let name_idx = self.add_constant(Value::symbol(name_sym));
         self.emit(Bytecode::DefineGlobal(name_idx), data_def.range);

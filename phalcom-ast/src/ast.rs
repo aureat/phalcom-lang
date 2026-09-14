@@ -27,6 +27,7 @@ pub enum Statement {
     Class(ClassDef),
     Enum(EnumDef),
     Data(DataDef),
+    Impl(ImplDef),
     TypeAlias(TypeAliasDef),
     Let(LetBinding),
     Return(ReturnStatement),
@@ -286,61 +287,67 @@ pub struct EnumDef {
     pub name_range: SourceRange,
     pub generic_parameters: Vec<GenericParameterSyntax>,
     pub where_clause: Option<WhereClauseSyntax>,
-    pub members: Vec<EnumMember>,
+    pub variants: Vec<VariantDecl>,
     pub attributes: Vec<Attribute>,
     pub range: SourceRange,
 }
 
+/// A behavior-only member definition (methods, getters, setters, index operators) (PDR-0035).
 #[derive(Debug, Clone)]
-pub enum EnumMember {
-    Variant(VariantDecl),
-    Behavior(EnumBehaviorMember),
-}
-
-#[derive(Debug, Clone)]
-pub enum EnumBehaviorMember {
+pub enum BehaviorMember {
     Method(MethodDef),
     Getter(GetterDef),
     Setter(SetterDef),
     Index(IndexMethodDef),
 }
 
-impl EnumBehaviorMember {
+impl BehaviorMember {
     pub fn attributes(&self) -> &[Attribute] {
         match self {
-            EnumBehaviorMember::Method(m) => &m.attributes,
-            EnumBehaviorMember::Getter(g) => &g.attributes,
-            EnumBehaviorMember::Setter(s) => &s.attributes,
-            EnumBehaviorMember::Index(i) => &i.attributes,
+            BehaviorMember::Method(m) => &m.attributes,
+            BehaviorMember::Getter(g) => &g.attributes,
+            BehaviorMember::Setter(s) => &s.attributes,
+            BehaviorMember::Index(i) => &i.attributes,
         }
     }
 
     pub fn attributes_mut(&mut self) -> &mut Vec<Attribute> {
         match self {
-            EnumBehaviorMember::Method(m) => &mut m.attributes,
-            EnumBehaviorMember::Getter(g) => &mut g.attributes,
-            EnumBehaviorMember::Setter(s) => &mut s.attributes,
-            EnumBehaviorMember::Index(i) => &mut i.attributes,
+            BehaviorMember::Method(m) => &mut m.attributes,
+            BehaviorMember::Getter(g) => &mut g.attributes,
+            BehaviorMember::Setter(s) => &mut s.attributes,
+            BehaviorMember::Index(i) => &mut i.attributes,
         }
     }
 
     pub fn range(&self) -> SourceRange {
         match self {
-            EnumBehaviorMember::Method(m) => m.range,
-            EnumBehaviorMember::Getter(g) => g.range,
-            EnumBehaviorMember::Setter(s) => s.range,
-            EnumBehaviorMember::Index(i) => i.range,
+            BehaviorMember::Method(m) => m.range,
+            BehaviorMember::Getter(g) => g.range,
+            BehaviorMember::Setter(s) => s.range,
+            BehaviorMember::Index(i) => i.range,
         }
     }
 
     pub fn name_range(&self) -> SourceRange {
         match self {
-            EnumBehaviorMember::Method(m) => m.name_range,
-            EnumBehaviorMember::Getter(g) => g.name_range,
-            EnumBehaviorMember::Setter(s) => s.name_range,
-            EnumBehaviorMember::Index(i) => i.name_range,
+            BehaviorMember::Method(m) => m.name_range,
+            BehaviorMember::Getter(g) => g.name_range,
+            BehaviorMember::Setter(s) => s.name_range,
+            BehaviorMember::Index(i) => i.name_range,
         }
     }
+}
+
+/// An inherent implementation fragment (`impl Type { ... }`) (PDR-0035).
+#[derive(Debug, Clone)]
+pub struct ImplDef {
+    pub generic_parameters: Vec<GenericParameterSyntax>,
+    pub target: TypeAnnotation,
+    pub where_clause: Option<WhereClauseSyntax>,
+    pub members: Vec<BehaviorMember>,
+    pub range: SourceRange,
+    pub target_range: SourceRange,
 }
 
 #[derive(Debug, Clone)]
@@ -357,8 +364,6 @@ pub struct VariantDecl {
     pub payload: Option<VariantPayloadSyntax>,
     /// GADT result specialization, if written.
     pub result_annotation: Option<TypeAnnotation>,
-    /// Case-specific behavior.
-    pub body: Option<VariantBody>,
     /// Non-marker attributes preserved for later visibility/metadata semantics.
     pub attributes: Vec<Attribute>,
     pub range: SourceRange,
@@ -367,12 +372,6 @@ pub struct VariantDecl {
 #[derive(Debug, Clone)]
 pub struct VariantPayloadSyntax {
     pub parameters: Vec<ParameterDef>,
-    pub range: SourceRange,
-}
-
-#[derive(Debug, Clone)]
-pub struct VariantBody {
-    pub members: Vec<EnumBehaviorMember>,
     pub range: SourceRange,
 }
 
@@ -587,11 +586,12 @@ pub struct TypeAnnotation {
 }
 
 impl TypeAnnotation {
-    /// Extracts the static symbol reference of the origin if this is a reference or applied reference.
+    /// Extracts the static symbol reference of the origin if this is a reference, applied reference, or exact enum case target.
     pub fn origin_symbol_ref(&self) -> Option<&StaticSymbolRef> {
         match &self.expr {
             TypeAnnotationExpr::Reference(sym) => Some(sym),
             TypeAnnotationExpr::Application { origin, .. } => origin.origin_symbol_ref(),
+            TypeAnnotationExpr::ExactEnumCase { enum_target, .. } => enum_target.origin_symbol_ref(),
             _ => None,
         }
     }
@@ -605,6 +605,15 @@ pub enum TypeAnnotationExpr {
     Application {
         origin: Box<TypeAnnotation>,
         arguments: Vec<TypeAnnotation>,
+        range: SourceRange,
+    },
+    /// Exact enum case target (e.g. `Option::None`, `Option<T>::Some(_)`, `Result::Error(reason: _)`).
+    ExactEnumCase {
+        enum_target: Box<TypeAnnotation>,
+        variant_name: String,
+        variant_name_range: SourceRange,
+        generic_arguments: Vec<TypeAnnotation>,
+        payload_shape: Option<ExactCasePayloadSyntax>,
         range: SourceRange,
     },
     /// Union type (e.g. `Int | String`).
@@ -639,6 +648,19 @@ pub enum TypeAnnotationExpr {
     },
     /// Recovered invalid type expression.
     Invalid { message: String, range: SourceRange },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExactCasePayloadSyntax {
+    pub parameters: Vec<ExactCaseParameterSyntax>,
+    pub range: SourceRange,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExactCaseParameterSyntax {
+    pub label: Option<String>,
+    pub label_range: Option<SourceRange>,
+    pub range: SourceRange,
 }
 
 #[derive(Debug, Clone, PartialEq)]

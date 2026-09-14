@@ -154,97 +154,26 @@ pub fn extract_source_declarations(module_id: &ModuleId, program: &Program) -> V
                 let enum_decl = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
                 let enum_binding_role = source_native_binding_role(&enum_def.attributes);
                 let mut variants = Vec::new();
-                let mut members = Vec::new();
 
-                for member in &enum_def.members {
-                    match member {
-                        phalcom_ast::ast::EnumMember::Variant(v) => {
-                            let sel = phalcom_ast::selector::selector_from_variant(v);
-                            let v_binding_role = match source_native_binding_role(&v.attributes) {
-                                SourceNativeBindingRole::None => enum_binding_role,
-                                role => role,
-                            };
-                            variants.push(SourceEnumVariantRecord {
-                                name: v.name.clone(),
-                                selector: sel,
-                                range: v.range,
-                                binding_role: v_binding_role,
-                            });
-                        }
-                        phalcom_ast::ast::EnumMember::Behavior(b) => match b {
-                            phalcom_ast::ast::EnumBehaviorMember::Method(m) => {
-                                let mut slots = Vec::new();
-                                for p in &m.params {
-                                    if p.rest_mode != phalcom_ast::ast::RestMode::None {
-                                        continue;
-                                    }
-                                    if let Some(ref l) = p.label {
-                                        slots.push(SelectorSlot::Label(l.clone()));
-                                    } else {
-                                        slots.push(SelectorSlot::Positional);
-                                    }
-                                }
-                                if let Ok(sel) = Selector::method(&m.name, slots) {
-                                    let encoded = sel.encode();
-                                    members.push(SourceMemberRecord {
-                                        selector: sel,
-                                        selector_raw: encoded,
-                                        side: if m.is_static { DispatchSide::Class } else { DispatchSide::Instance },
-                                        is_getter: false,
-                                        is_setter: false,
-                                        range: m.range,
-                                        doc_comment: None,
-                                        binding_role: match source_native_binding_role(&m.attributes) {
-                                            SourceNativeBindingRole::None => enum_binding_role,
-                                            role => role,
-                                        },
-                                    });
-                                }
-                            }
-                            phalcom_ast::ast::EnumBehaviorMember::Getter(g) => {
-                                if let Ok(sel) = Selector::getter(&g.name) {
-                                    members.push(SourceMemberRecord {
-                                        selector: sel,
-                                        selector_raw: g.name.clone(),
-                                        side: if g.is_static { DispatchSide::Class } else { DispatchSide::Instance },
-                                        is_getter: true,
-                                        is_setter: false,
-                                        range: g.range,
-                                        doc_comment: None,
-                                        binding_role: match source_native_binding_role(&g.attributes) {
-                                            SourceNativeBindingRole::None => enum_binding_role,
-                                            role => role,
-                                        },
-                                    });
-                                }
-                            }
-                            phalcom_ast::ast::EnumBehaviorMember::Setter(s) => {
-                                if let Ok(sel) = Selector::setter(&s.name) {
-                                    members.push(SourceMemberRecord {
-                                        selector: sel,
-                                        selector_raw: format!("{}=(_)", s.name),
-                                        side: if s.is_static { DispatchSide::Class } else { DispatchSide::Instance },
-                                        is_getter: false,
-                                        is_setter: true,
-                                        range: s.range,
-                                        doc_comment: None,
-                                        binding_role: match source_native_binding_role(&s.attributes) {
-                                            SourceNativeBindingRole::None => enum_binding_role,
-                                            role => role,
-                                        },
-                                    });
-                                }
-                            }
-                            _ => {}
-                        },
-                    }
+                for v in &enum_def.variants {
+                    let sel = phalcom_ast::selector::selector_from_variant(v);
+                    let v_binding_role = match source_native_binding_role(&v.attributes) {
+                        SourceNativeBindingRole::None => enum_binding_role,
+                        role => role,
+                    };
+                    variants.push(SourceEnumVariantRecord {
+                        name: v.name.clone(),
+                        selector: sel,
+                        range: v.range,
+                        binding_role: v_binding_role,
+                    });
                 }
 
                 declarations.push(SourceDeclarationRecord::Enum(SourceEnumRecord {
                     declaration_id: enum_decl,
                     name: enum_def.name.clone(),
                     variants,
-                    members,
+                    members: Vec::new(),
                     range: enum_def.range,
                     doc_comment: None,
                     binding_role: enum_binding_role,

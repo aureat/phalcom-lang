@@ -158,8 +158,10 @@ pub fn block_call_with_shape(vm: &mut VM, receiver: Value, args: ArgumentView) -
         (Vec::new(), Vec::new())
     } else if let Some(id) = packed.as_obj() {
         if matches!(vm.heap.get(id), Object::Tuple(_)) {
-            let tuple = vm.heap.tuple(id);
-            (tuple.positionals().to_vec(), tuple.labeled_entries().collect())
+            let tuple = vm
+                .tuple_view(id)
+                .ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".into()))?;
+            (tuple.positionals(), tuple.labeled_entries())
         } else {
             return Err(RuntimeError::Type {
                 expected: "Tuple",

@@ -1010,6 +1010,10 @@ fn apply_generic_callable_in_context(
         let generic_callable = match &generic_sig.owner {
             TypeParameterOwner::Callable(callable) => callable.clone(),
             TypeParameterOwner::Declaration(declaration) => crate::identity::CallableId::new(declaration.clone(), signature.selector.clone(), ctx.current_side),
+            TypeParameterOwner::Impl(impl_id) => {
+                let dummy_decl = crate::identity::DeclarationId::new(impl_id.module.clone(), "_".into());
+                crate::identity::CallableId::new(dummy_decl, signature.selector.clone(), ctx.current_side)
+            }
         };
         for (constraint_index, constraint) in generic_sig.constraints.iter().enumerate() {
             let relation = match constraint {

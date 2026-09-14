@@ -1,4 +1,5 @@
-use phalcom_core::heap::{ClassObject, ListObject, Object, TupleObject};
+use phalcom_core::heap::{ClassObject, ListObject, Object};
+use phalcom_core::product::finish_tuple_value;
 use phalcom_core::typing::handle::MetadataPoolId;
 use phalcom_core::typing::loader::LoadedSemanticMetadata;
 use phalcom_core::value::Value;
@@ -45,11 +46,11 @@ fn send4(vm: &mut VM, receiver: Value, selector: &str, a1: Value, a2: Value, a3:
 }
 
 fn tuple(vm: &mut VM, values: Vec<Value>) -> Value {
-    Value::obj(vm.heap.alloc(Object::Tuple(TupleObject::positional(values))))
+    finish_tuple_value(vm, values, Vec::new()).expect("tuple construction")
 }
 
 fn tuple_values(vm: &VM, value: Value) -> Vec<Value> {
-    vm.heap.tuple(value.as_obj().expect("tuple value")).values().to_vec()
+    vm.tuple_view(value.as_obj().expect("tuple value")).expect("tuple view").values()
 }
 
 fn test_module() -> StableModuleRef {

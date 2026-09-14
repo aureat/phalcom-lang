@@ -6,6 +6,7 @@ pub(crate) mod families;
 pub(crate) mod foundations;
 pub(crate) mod golden;
 pub(crate) mod incremental;
+pub(crate) mod impls;
 pub(crate) mod integration;
 pub(crate) mod source_semantics;
 pub(crate) mod support;

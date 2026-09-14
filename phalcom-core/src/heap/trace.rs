@@ -216,13 +216,19 @@ pub fn trace_object(obj: &Object, layouts: &crate::product::ProductLayoutRegistr
         // the next variant's author is forced to decide (impl/bytes.md §2.3).
         Object::Bytes(_) => {}
         Object::Tuple(tuple) => {
-            for element in tuple.values() {
-                trace_value(*element, push);
+            if let Some(layout) = layouts.get(tuple.storage().layout_id()) {
+                for &offset in layout.value_slot_offsets() {
+                    let offset = offset as usize;
+                    trace_value(Value::from_raw_words(tuple.storage().words()[offset], tuple.storage().words()[offset + 1]), push);
+                }
             }
         }
         Object::Record(record) => {
-            for value in record.values() {
-                trace_value(*value, push);
+            if let Some(layout) = layouts.get(record.storage().layout_id()) {
+                for &offset in layout.value_slot_offsets() {
+                    let offset = offset as usize;
+                    trace_value(Value::from_raw_words(record.storage().words()[offset], record.storage().words()[offset + 1]), push);
+                }
             }
         }
         Object::Range(range) => {
@@ -270,31 +276,31 @@ pub fn trace_object(obj: &Object, layouts: &crate::product::ProductLayoutRegistr
         Object::Project(proj) => {
             push(proj.manifest);
             push(proj.root_package);
-            push(proj.dependencies);
+            trace_value(proj.dependencies, push);
             if let Some(entry) = proj.development_entry {
                 push(entry);
             }
             push(proj.identity);
         }
         Object::ProjectManifest(manifest) => {
-            push(manifest.authors);
+            trace_value(manifest.authors, push);
             if let Some(hp) = manifest.homepage {
                 push(hp);
             }
             if let Some(repo) = manifest.repository {
                 push(repo);
             }
-            push(manifest.dependency_declarations);
+            trace_value(manifest.dependency_declarations, push);
         }
         Object::PackageInfo(info) => {
-            push(info.authors);
+            trace_value(info.authors, push);
             if let Some(hp) = info.homepage {
                 push(hp);
             }
             if let Some(repo) = info.repository {
                 push(repo);
             }
-            push(info.requirements);
+            trace_value(info.requirements, push);
             push(info.identity);
         }
         Object::PackageAuthor(author) => {
@@ -315,7 +321,7 @@ pub fn trace_object(obj: &Object, layouts: &crate::product::ProductLayoutRegistr
         }
         Object::ExportTable(table) => {
             push(table.module);
-            push(table.names_tuple);
+            trace_value(table.names_tuple, push);
             for desc in table.descriptors.values() {
                 push(*desc);
             }
@@ -325,7 +331,7 @@ pub fn trace_object(obj: &Object, layouts: &crate::product::ProductLayoutRegistr
         }
         Object::ChildModuleTable(table) => {
             push(table.package);
-            push(table.names_tuple);
+            trace_value(table.names_tuple, push);
             for child in table.children.values() {
                 push(*child);
             }

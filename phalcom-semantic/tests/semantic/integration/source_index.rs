@@ -379,14 +379,11 @@ fn production_import_indexing_fails_closed_without_canonical_product() {
 
 #[test]
 fn source_index_covers_enum_variants_fields_and_behaviors() {
-    let source = "enum Option { @variant Some(_ value: Int) run() { value } }\n";
+    let source = "enum Option { Some(_ value: Int) }\nimpl Option::Some(_) { run() { self.value } }\n";
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
     let variant = match &parsed.program.statements[0] {
-        phalcom_ast::ast::Statement::Enum(enum_def) => match &enum_def.members[0] {
-            phalcom_ast::ast::EnumMember::Variant(variant) => variant.clone(),
-            _ => panic!("expected variant"),
-        },
+        phalcom_ast::ast::Statement::Enum(enum_def) => enum_def.variants[0].clone(),
         _ => panic!("expected enum"),
     };
     let module = ModuleId::universe_root();
@@ -421,7 +418,9 @@ fn source_index_covers_enum_variants_fields_and_behaviors() {
 fn type_reference_index_covers_enum_headers_variants_and_behaviors() {
     let source = r#"
 enum Choice<T> {
-  @variant Item<U>(_ value: Box<U>) -> Choice<Box<U>> where U <: Base
+  Item<U>(_ value: Box<U>) -> Choice<Box<U>> where U <: Base
+}
+impl<T> Choice<T> {
   run(_ input: Input) -> Output { input }
 }
 "#;
@@ -663,4 +662,84 @@ fn formal_products_attach_by_callable_and_checker_ids() {
         projection.fact_at(&module, expression_start + 1),
         Some(site) if matches!(site.fact, FormalFactRef::Expression { .. })
     ));
+}
+
+#[test]
+fn source_index_publishes_impl_target_and_member_with_canonical_identity() {
+    let source = "class User {}\nimpl User { greet() -> String { \"hi\" } }\n";
+    let parsed = parse(source, 0);
+    assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
+    let module = ModuleId::universe_root();
+    let owner = DeclarationId::new(module.clone(), "User".into());
+    let impl_def = parsed
+        .program
+        .statements
+        .iter()
+        .find_map(|statement| match statement {
+            phalcom_ast::ast::Statement::Impl(impl_def) => Some(impl_def),
+            _ => None,
+        })
+        .expect("impl declaration");
+    let target_range = impl_def.target_range;
+    let mut context = SourceIndexContext::default();
+    context.type_reference_targets.insert((module.clone(), target_range), owner.clone());
+
+    let structure = build_source_scope_index(module.clone(), &parsed.program, &context);
+    let callable = CallableId::new(owner.clone(), Selector::method("greet", Vec::new()).unwrap(), DispatchSide::Instance);
+    let callable_source = structure.callable_sources.get(&callable).expect("impl member source");
+    let name_start = source.find("greet").expect("impl member name");
+    assert_eq!(callable_source.name_range, (name_start..name_start + 5).into());
+    assert_eq!(callable_source.id.owner.declaration(), &owner);
+    assert_eq!(structure.declaration_sources.len(), 1, "impl blocks are not declarations");
+
+    let program = Arc::new(phalcom_semantic::source::ParsedModuleUnit::new(
+        module.clone(),
+        phalcom_modules::source::ModuleKind::Module,
+        None,
+        Arc::from(source),
+        Arc::new(parsed.program),
+    ));
+    let programs = BTreeMap::from([(module.clone(), program)]);
+    let source_index = SourceSemanticIndex::from_scope_indices_with_programs_and_context(
+        BTreeMap::from([(module.clone(), structure)]),
+        &programs,
+        Some(&context),
+    );
+    let target_occurrence = source_index.occurrence_at(&module, target_range.start + 1).expect("impl target occurrence");
+    assert!(matches!(
+        target_occurrence.target,
+        Some(SemanticTargetId::Declaration(declaration)) if declaration == &owner
+    ));
+    assert!(source_index
+        .workspace_symbols()
+        .search("impl", usize::MAX)
+        .into_iter()
+        .all(|symbol| symbol.name.as_ref() != "impl"));
+}
+
+#[test]
+fn source_index_keeps_same_named_impl_callables_distinct_by_target() {
+    let source = "class Alpha {}\nclass Beta {}\nimpl Alpha { ping() { 1 } }\nimpl Beta { ping() { 2 } }\n";
+    let parsed = parse(source, 0);
+    assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
+    let module = ModuleId::universe_root();
+    let alpha = DeclarationId::new(module.clone(), "Alpha".into());
+    let beta = DeclarationId::new(module.clone(), "Beta".into());
+    let mut context = SourceIndexContext::default();
+    for statement in &parsed.program.statements {
+        if let phalcom_ast::ast::Statement::Impl(impl_def) = statement {
+            let target = if impl_def.target.origin_symbol_ref().is_some_and(|reference| reference.root == "Alpha") {
+                alpha.clone()
+            } else {
+                beta.clone()
+            };
+            context.type_reference_targets.insert((module.clone(), impl_def.target_range), target);
+        }
+    }
+    let structure = build_source_scope_index(module, &parsed.program, &context);
+    let alpha_ping = CallableId::new(alpha, Selector::method("ping", Vec::new()).unwrap(), DispatchSide::Instance);
+    let beta_ping = CallableId::new(beta, Selector::method("ping", Vec::new()).unwrap(), DispatchSide::Instance);
+    assert!(structure.callable_sources.contains_key(&alpha_ping));
+    assert!(structure.callable_sources.contains_key(&beta_ping));
+    assert_ne!(alpha_ping, beta_ping);
 }

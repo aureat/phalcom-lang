@@ -76,15 +76,16 @@ pub fn tuple_from_list_internal(vm: &mut VM, _receiver: &Value, args: &[Value]) 
 #[phalcom_native_macros::primitive(Tuple, "_$size", visibility = internal)]
 pub fn tuple_raw_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_tuple(vm, receiver)?;
-    Ok(Value::int(vm.heap.tuple(id).len() as i64))
+    let len = vm.tuple_view(id).ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".to_string()))?.len();
+    Ok(Value::int(len as i64))
 }
 
 #[phalcom_native_macros::primitive(Tuple, "_$at(_)", visibility = internal)]
 pub fn tuple_raw_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id: ObjRef = expect_tuple(vm, receiver)?;
-    let len = vm.heap.tuple(id).len();
+    let len = vm.tuple_view(id).ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".to_string()))?.len();
     match super::index::normalize_element_index(&vm.heap, &args[0], len)? {
-        super::index::NormalizedIndex::Valid(idx) => match vm.heap.tuple(id).get(idx) {
+        super::index::NormalizedIndex::Valid(idx) => match vm.tuple_view(id).and_then(|tuple| tuple.get(idx)) {
             Some(value) => Ok(value),
             None => Ok(vm.none_value()),
         },
@@ -95,20 +96,18 @@ pub fn tuple_raw_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<V
 #[phalcom_native_macros::primitive(Tuple, "_$positionalSize", visibility = internal)]
 pub fn tuple_raw_positional_size(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = expect_tuple(vm, receiver)?;
-    Ok(Value::int(vm.heap.tuple(id).positional_len() as i64))
+    let len = vm.tuple_view(id).ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".to_string()))?.positional_len();
+    Ok(Value::int(len as i64))
 }
 
 #[phalcom_native_macros::primitive(Tuple, "_$labelAt(_)", visibility = internal)]
 pub fn tuple_raw_label_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResult<Value> {
     let id = expect_tuple(vm, receiver)?;
-    let len = vm.heap.tuple(id).labels().len();
+    let len = vm.tuple_view(id).ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".to_string()))?.labels().len();
     match super::index::normalize_element_index(&vm.heap, &args[0], len)? {
         super::index::NormalizedIndex::Valid(idx) => Ok(vm
-            .heap
-            .tuple(id)
-            .labels()
-            .get(idx)
-            .copied()
+            .tuple_view(id)
+            .and_then(|tuple| tuple.labels().get(idx).copied())
             .map(Value::symbol)
             .unwrap_or_else(|| vm.none_value())),
         super::index::NormalizedIndex::OutOfRange => Ok(vm.none_value()),
@@ -118,14 +117,14 @@ pub fn tuple_raw_label_at(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhRe
 #[phalcom_native_macros::primitive(Tuple, "_$positionals", visibility = internal)]
 pub fn tuple_raw_positionals(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = expect_tuple(vm, receiver)?;
-    let values = vm.heap.tuple(id).positionals().to_vec();
+    let values = vm.tuple_view(id).ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".to_string()))?.positionals();
     finish_tuple(vm, values, Vec::new()).map_err(|error| crate::product::runtime_error(vm, "Tuple label", error).into())
 }
 
 #[phalcom_native_macros::primitive(Tuple, "_$labeled", visibility = internal)]
 pub fn tuple_raw_labeled(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let id = expect_tuple(vm, receiver)?;
-    let entries = vm.heap.tuple(id).labeled_entries().collect();
+    let entries = vm.tuple_view(id).ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".to_string()))?.labeled_entries();
     finish_tuple(vm, Vec::new(), entries).map_err(|error| crate::product::runtime_error(vm, "Tuple label", error).into())
 }
 
@@ -145,7 +144,7 @@ pub fn tuple_raw_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResul
     let id = expect_tuple(vm, receiver)?;
     let start = expect_index(&args[0])?;
     let end = expect_index(&args[1])?;
-    let tuple = vm.heap.tuple(id);
+    let tuple = vm.tuple_view(id).ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".to_string()))?;
     if start > end || end > tuple.len() {
         return Err(RuntimeError::Type {
             expected: "slice bounds satisfying 0 <= start <= end <= tuple size",
@@ -156,7 +155,7 @@ pub fn tuple_raw_slice(vm: &mut VM, receiver: &Value, args: &[Value]) -> PhResul
 
     let positional_len = tuple.positional_len();
     let values = tuple.values();
-    let labels = tuple.labels();
+    let labels = tuple.labels().to_vec();
     let mut positionals = Vec::with_capacity(end.saturating_sub(start).min(positional_len.saturating_sub(start)));
     let mut labeled = Vec::with_capacity(end.saturating_sub(positional_len).min(labels.len()));
     for index in start..end {

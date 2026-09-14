@@ -85,7 +85,7 @@ fn test_package_reflection_contract() {
 
     let info_authors_sym = vm.interner.intern("authors");
     let info_authors_val = vm.send_dynamic(pkg_info_val, info_authors_sym, &[]).expect("info.authors succeeds");
-    assert!(info_authors_val.is_obj());
+    assert!(info_authors_val.is_unit(), "empty authors tuple must normalize to Unit");
 
     let info_identity_sym = vm.interner.intern("identity");
     let info_identity_val = vm.send_dynamic(pkg_info_val, info_identity_sym, &[]).expect("info.identity succeeds");

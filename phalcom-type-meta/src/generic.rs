@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 pub enum StableTypeParameterOwnerRef {
     Declaration(StableDeclarationRef),
     Callable(StableCallableRef),
+    Impl(crate::identity::StableImplRef),
 }
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]

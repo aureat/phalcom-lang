@@ -21,7 +21,7 @@ Your immediate mission is to complete and verify **Checkpoint C3**, and then pro
 >   - `phalcom-core/tests/core/typing_integration/*`
 >   - `phalcom-ast/src/*`
 >   - `docs/agents/prompt--supervisor-implementer-workflow.md`
-> - **Communication style**: Terse smart-caveman (`AGENTS.md`). Drop articles/filler/pleasantries, retain exact technical terms: `[thing] [action] [reason]. [next step].`
+> - **Communication style**: Terse smart-caveman (`../../../../AGENTS-old.md`). Drop articles/filler/pleasantries, retain exact technical terms: `[thing] [action] [reason]. [next step].`
 > - **Semantics rule**: Never weaken type assertions or bypass package semantics. Only `package.ph` establishes standalone package ownership; plain sibling files remain standalone modules.
 
 ---

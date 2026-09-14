@@ -63,11 +63,7 @@ pub fn build_enum_semantics(
     let mut variant_families = Vec::new();
     let mut seen_families: HashSet<VariantFamilyId> = HashSet::new();
 
-    for member in &enum_def.members {
-        let phalcom_ast::ast::EnumMember::Variant(variant) = member else {
-            continue;
-        };
-
+    for variant in &enum_def.variants {
         let selector = phalcom_ast::selector::selector_from_variant(variant);
         let variant_id = VariantId::new(owner.clone(), selector.clone());
 

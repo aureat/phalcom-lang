@@ -55,6 +55,29 @@ fn test_export_before_class_declaration_succeeds_order_independent() {
 }
 
 #[test]
+fn test_impl_does_not_create_module_namespace_declaration() {
+    let source = "export User\nclass User {}\nimpl User {\n  name { \"a\" }\n}\n";
+    let program = parse(source, 0).program;
+    let mut ids = SyntheticProjectIdAllocator;
+    let module_id = ModuleId::synthetic(ids.allocate(), ModulePath::root());
+    let interface = InterfaceBuilder::build(module_id, ModuleKind::Module, &program).expect("build interface");
+    assert_eq!(interface.declarations.len(), 1);
+    assert!(interface.declarations.contains_key("User"));
+    assert_eq!(interface.exports.len(), 1);
+    assert!(interface.exports.contains_key("User"));
+}
+
+#[test]
+fn test_impl_cannot_be_exported_by_itself() {
+    let source = "export NonExistent\nimpl User {\n  name { \"a\" }\n}\n";
+    let program = parse(source, 0).program;
+    let mut ids = SyntheticProjectIdAllocator;
+    let module_id = ModuleId::synthetic(ids.allocate(), ModulePath::root());
+    let err = InterfaceBuilder::build(module_id, ModuleKind::Module, &program);
+    assert!(matches!(err, Err(InterfaceError::UnknownExport { .. })));
+}
+
+#[test]
 fn test_import_body_declaration_collision_rejected() {
     let source = "import .other\nclass other {}\n";
     let program = parse(source, 0).program;

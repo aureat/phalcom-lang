@@ -44,6 +44,8 @@ pub enum Token {
     Enum,
     /// The `data` keyword introducing a first-class nominal immutable data declaration (PDR-0035).
     Data,
+    /// The `impl` keyword introducing an inherent implementation block (PDR-0035).
+    Impl,
     /// The `return` keyword.
     Return,
     /// The `true` boolean literal keyword.

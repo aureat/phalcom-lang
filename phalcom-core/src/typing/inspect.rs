@@ -463,6 +463,7 @@ pub fn type_param_variance(registry: &RuntimeTypingRegistry, handle: crate::typi
             Some(Some(v))
         }
         phalcom_type_meta::generic::StableTypeParameterOwnerRef::Callable(_) => Some(None),
+        phalcom_type_meta::generic::StableTypeParameterOwnerRef::Impl(_) => Some(None),
     }
 }
 

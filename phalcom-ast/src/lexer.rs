@@ -443,6 +443,7 @@ impl<'input> Lexer<'input> {
                 "class" => Token::Class,
                 "enum" => Token::Enum,
                 "data" => Token::Data,
+                "impl" => Token::Impl,
                 "return" => Token::Return,
                 "true" => Token::True,
                 "false" => Token::False,

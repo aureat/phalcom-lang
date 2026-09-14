@@ -200,6 +200,9 @@ impl InterfaceBuilder {
                     let is_const = let_binding.kind == BindingKind::Const;
                     Self::collect_pattern_declarations(&let_binding.pattern, is_const, &mut namespace, &mut declarations)?;
                 }
+                // Inherent impls contribute behavior to their canonical
+                // target; they do not declare a module namespace binding.
+                Statement::Impl(_) => {}
                 _ => {}
             }
         }

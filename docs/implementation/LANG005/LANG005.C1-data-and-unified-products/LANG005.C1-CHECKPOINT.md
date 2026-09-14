@@ -1,9 +1,4 @@
-# Implementation State — LANG005.C1.P2 Representation-Aware Product Optimizer
-
-## C1.P2 base revision
-- Remote: `aureat/phalcom-lang`
-- Branch: `main`
-- Base commit: verified P1 completed state.
+# Checkpoint Record — LANG005.C1 Data, Enums, Anonymous Products, and Representation Convergence
 
 ## P1 takeover interface map
 
@@ -48,3 +43,50 @@
 
 ## Active incident
 None.
+
+## C1.P3 completed state — 2026-09-13
+
+### Lifecycle
+
+```yaml
+plan: LANG005.C1.P3
+status: COMPLETED
+completion: COMPLETE
+verification: FOCUSED_TESTED
+```
+
+### Implemented in LANG005.C1.P3
+
+- **C0 & C1 Takeover & Core Infrastructure:**
+  - Shared `ProductShape` and `RuntimeAnonymousProductDescriptor` registries wired into the VM.
+  - `TupleObject` and `RecordObject` converted to packed `ProductStorage` with descriptor-directed access.
+  - Added static anonymous product build bytecodes `BuildStaticTuple` and `BuildStaticRecord`.
+  - Normalized empty products to `Unit` across dynamic and static construction paths without allocating empty heap objects.
+  - Enforced representation-independent `===` / `VM::semantic_same` across Tuple, Record, and nested mixed transparent products.
+
+- **C2 Runtime Semantics & Interoperability:**
+  - Standardized Tuple and Record view APIs (`TupleView`, `RecordView`) resolving physical layouts and presentation orders through VM metadata.
+  - Verified GC tracing, argument unpacking, and collection/hashing interop over converted product storage.
+
+- **C3 Anonymous-Product Scalar Replacement & Optimizer Generalization:**
+  - Generalized `VirtualProductKind` to cover `Data`, `Tuple`, `Record`, and `Variant`.
+  - Unified `NestedData` into `NestedProduct` across `VirtualComponentPlan` and path indexing methods.
+  - Generalized `ProductPlanner` to identify static Tuple and Record literal candidates from lowering specs.
+  - Unified eligibility and allocation sinking rules across `data`, `Tuple`, and `Record`.
+  - Implemented source-order evaluation and contiguous leaf slot reservation for virtual Tuple and Record construction and projection.
+  - Materialized transparent virtual products on whole-value reads sinking to canonical static product construction.
+
+- **C4 Runtime Generic, Dynamic, and Reification Closure:**
+  - Added `RuntimeTypeRecipe` (`Closed`, `Template`) and `RuntimeTypeEnvironmentId` / `RuntimeTypeEnvironmentRegistry`.
+  - Attached `type_environment` to `CallFrame` and propagated it through frame creation and lexical `BlockObject` captures.
+  - Implemented lazy `instantiate_type_recipe` with cycle protection across nominal, applied, union, tuple, record, and callable types.
+
+- **C5 Verification & State Closure:**
+  - All unit and integration test suites pass focused verification gates.
+
+### Verification evidence
+
+- `RUSTFLAGS='' cargo test -p phalcom-core --lib compiler::lib::product_opt` — 11 passed.
+- `RUSTFLAGS='' cargo test -p phalcom-core --lib typing::environment::tests` — 2 passed.
+- `RUSTFLAGS='' cargo test -p phalcom-core --test core product` — 4 passed (1 ignored pre-existing).
+- `RUSTFLAGS='' cargo test -p phalcom-core --test core outgoing_packs` — 28 passed.

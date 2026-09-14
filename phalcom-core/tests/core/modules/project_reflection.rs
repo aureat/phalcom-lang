@@ -52,7 +52,7 @@ fn test_project_reflection_contract() {
     assert_eq!(root_pkg_val, Value::obj(root_obj));
 
     let deps_val = vm.send_dynamic(proj_inner, deps_sym, &[]).expect("proj.dependencies succeeds");
-    assert!(deps_val.is_obj());
+    assert!(deps_val.is_unit(), "empty dependencies tuple must normalize to Unit");
 
     let id_val = vm.send_dynamic(proj_inner, id_sym, &[]).expect("proj.identity succeeds");
     assert!(id_val.is_obj());
@@ -63,7 +63,7 @@ fn test_project_reflection_contract() {
 
     let authors_sym = vm.interner.intern("authors");
     let authors_val = vm.send_dynamic(manifest_val, authors_sym, &[]).expect("manifest.authors succeeds");
-    assert!(authors_val.is_obj());
+    assert!(authors_val.is_unit(), "empty authors tuple must normalize to Unit");
 
     let source_sym = vm.interner.intern("source");
     let source_val = vm.send_dynamic(manifest_val, source_sym, &[]).expect("manifest.source succeeds");
@@ -73,7 +73,7 @@ fn test_project_reflection_contract() {
     let dep_decls_val = vm
         .send_dynamic(manifest_val, dep_decls_sym, &[])
         .expect("manifest.dependencyDeclarations succeeds");
-    assert!(dep_decls_val.is_obj());
+    assert!(dep_decls_val.is_unit(), "empty dependency declarations tuple must normalize to Unit");
 }
 
 #[test]

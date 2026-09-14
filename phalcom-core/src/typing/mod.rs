@@ -2,6 +2,7 @@
 
 pub mod capability;
 pub mod context;
+pub mod environment;
 pub mod handle;
 pub mod inspect;
 pub mod loader;
@@ -12,9 +13,11 @@ pub mod side_table;
 
 pub use capability::*;
 pub use context::*;
+pub use environment::*;
 pub use handle::*;
 pub use loader::*;
 pub use overlay::*;
 pub use registry::*;
 pub use reify::*;
 pub use side_table::*;
+

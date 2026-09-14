@@ -22,6 +22,7 @@ pub mod explain;
 pub mod export;
 pub mod hierarchy_product;
 pub mod identity;
+pub mod impls;
 pub mod invalidation;
 pub mod match_semantics;
 pub mod metadata;

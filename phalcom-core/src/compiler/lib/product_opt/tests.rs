@@ -1,4 +1,6 @@
 use super::*;
+use crate::bytecode::Bytecode;
+use crate::product::ProductSlotRepr;
 use crate::error::PhError;
 use crate::modules::compile::{EntrySelection, ProgramCompiler};
 use crate::value::Value;
@@ -15,6 +17,77 @@ fn run_inline_with_mode(source: &str, mode: ProductOptimizationMode) -> Result<(
     let entry_id = program.initialization_order.last().expect("entry module");
     let mod_obj = vm.module_registry.get(entry_id).unwrap().object;
     Ok((vm, mod_obj))
+}
+
+#[test]
+fn static_anonymous_product_lowering_is_projected_for_module_roots() {
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline("const t = (1, 2)\n".into())).expect("inline program compiles");
+    let module = program.modules.get(&program.entry).expect("entry module");
+    let spec = module.lowering.anonymous_products.values().next().expect("static tuple lowering spec");
+    assert!(matches!(spec.kind, crate::modules::semantic_lowering::AnonymousProductConstructionKind::Tuple { positional_len: 2, .. }));
+}
+
+#[test]
+fn static_anonymous_products_compile_and_execute_through_program_path() {
+    let source = "let trace = []\nclass Probe {\n  @class\n  mark(_ value: Int) -> Int { trace.append(value); value }\n}\nconst tuple: (Int, Int) = (Probe.mark(1), Probe.mark(2))\nconst record: #{a: Int, b: Int} = #{b: Probe.mark(3), a: Probe.mark(4)}\n";
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(source.into())).expect("inline program compiles");
+    let lowering = &program.modules.get(&program.entry).expect("entry module").lowering;
+    assert_eq!(lowering.anonymous_products.len(), 2);
+    assert!(lowering
+        .anonymous_products
+        .values()
+        .all(|spec| spec.layout.components.iter().all(|component| component.repr == ProductSlotRepr::Value)));
+    let mut vm = VM::new();
+    vm.materialize_program(&program).expect("program materializes");
+    let closure = vm
+        .compile_program_module_closure(&program.entry, source, &program)
+        .expect("entry closure compiles");
+    let code = &vm.heap.closure(closure).callable.chunk.code;
+    assert!(code.iter().any(|instruction| matches!(instruction, Bytecode::BuildStaticTuple { .. })));
+    assert!(code.iter().any(|instruction| matches!(instruction, Bytecode::BuildStaticRecord { .. })));
+
+    vm.run_compiled(&program).expect("static products execute");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    let trace = vm.heap.module(module).get(vm.interner.find("trace").expect("trace symbol")).expect("trace global");
+    let trace_id = trace.as_obj().expect("trace object");
+    assert_eq!(vm.heap.list(trace_id).elements(), &[Value::int(1), Value::int(2), Value::int(3), Value::int(4)]);
+
+    let tuple = vm.heap.module(module).get(vm.interner.find("tuple").expect("tuple symbol")).expect("tuple global");
+    let tuple_view = vm.tuple_view(tuple.as_obj().expect("tuple object")).expect("tuple view");
+    assert_eq!(tuple_view.len(), 2);
+    assert_eq!(tuple_view.get(0), Some(Value::int(1)));
+    assert_eq!(tuple_view.get(1), Some(Value::int(2)));
+
+    let record = vm.heap.module(module).get(vm.interner.find("record").expect("record symbol")).expect("record global");
+    let record_view = vm.record_view(record.as_obj().expect("record object")).expect("record view");
+    assert_eq!(record_view.labels().iter().map(|label| vm.interner.lookup(*label)).collect::<Vec<_>>(), vec!["b", "a"]);
+    assert_eq!(record_view.get(vm.interner.find("a").expect("a symbol")), Some(Value::int(4)));
+    assert_eq!(record_view.get(vm.interner.find("b").expect("b symbol")), Some(Value::int(3)));
+}
+
+#[test]
+fn unprovable_anonymous_product_uses_dynamic_pack_route() {
+    let source = "const values = (1, 2)\nconst tuple = (0, *values)\n";
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(source.into())).expect("inline program compiles");
+    let mut vm = VM::new();
+    vm.materialize_program(&program).expect("program materializes");
+    let closure = vm
+        .compile_program_module_closure(&program.entry, source, &program)
+        .expect("entry closure compiles");
+    let code = &vm.heap.closure(closure).callable.chunk.code;
+    assert!(code.iter().any(|instruction| matches!(instruction, Bytecode::FinishTuplePack)));
+}
+
+#[test]
+fn tuple_and_record_exactness_ignores_representation_and_record_presentation_order() {
+    let source = "const tupleA = (1, 2)\nconst tupleB = (*tupleA)\nconst recordA = #{a: 1, b: 2}\nconst recordB = #{b: 2, a: 1}\nconst nestedA = #{a: (1, 2), b: #{c: 3}}\nconst nestedB = #{b: #{c: 3}, a: (1, 2)}\nconst tupleSame = tupleA === tupleB\nconst recordSame = recordA === recordB\nconst recordHashSame = recordA.hash == recordB.hash\nconst nestedSame = nestedA === nestedB\nconst crossKind = tupleA === recordA\n";
+    let (vm, module) = run_inline_with_mode(source, ProductOptimizationMode::Enabled).expect("products execute");
+    let get = |name: &str| vm.heap.module(module).get(vm.interner.find(name).expect("global symbol")).expect("global value");
+    assert_eq!(get("tupleSame"), Value::bool(true));
+    assert_eq!(get("recordSame"), Value::bool(true));
+    assert_eq!(get("recordHashSame"), Value::bool(true));
+    assert_eq!(get("nestedSame"), Value::bool(true));
+    assert_eq!(get("crossKind"), Value::bool(false));
 }
 
 #[test]
@@ -191,24 +264,51 @@ let res = Compute.run()
 }
 
 #[test]
-fn test_exact_differential_parity_enabled_vs_disabled() {
+fn test_tuple_and_record_scalar_replacement_and_sinking() {
     let src = r#"
-data Point(_ x: Int, _ y: Int)
-data Line(_ start: Point, _ end: Point)
+class Compute {
+  @class
+  identity(_ x) { return x }
 
-class TestClass {
   @class
   run() {
-    let p1 = Point(5, 10)
-    let p2 = Point(15, 20)
-    let line = Line(p1, p2)
-    let dx = line.end.x - line.start.x
-    let dy = line.end.y - line.start.y
-    return dx * dx + dy * dy
+    let t = (10, 20)
+    let r = #{ a: 30, b: 40 }
+    let t_sink = Compute.identity(t)
+    let r_sink = Compute.identity(r)
+    return 100
   }
 }
 
-let res = TestClass.run()
+let res = Compute.run()
+"#;
+    let (vm_opt, mod_opt) = run_inline_with_mode(src, ProductOptimizationMode::Enabled).expect("opt mode should succeed");
+    let (vm_can, mod_can) = run_inline_with_mode(src, ProductOptimizationMode::Disabled).expect("disabled mode should succeed");
+
+    let res_sym = vm_opt.interner.find("res").unwrap();
+    let val_opt = vm_opt.heap.module(mod_opt).get(res_sym);
+    let val_can = vm_can.heap.module(mod_can).get(res_sym);
+
+    assert_eq!(val_opt, Some(Value::int(100)));
+    assert_eq!(val_opt, val_can);
+}
+
+#[test]
+fn test_nested_mixed_product_scalar_replacement() {
+    let src = r#"
+data Point(_ x: Int, _ y: Int)
+
+class Compute {
+  @class
+  run() {
+    let pt = Point(1, 2)
+    let t = (pt, 3)
+    let r = #{ nested: t, flag: true }
+    return 200
+  }
+}
+
+let res = Compute.run()
 "#;
     let (vm_opt, mod_opt) = run_inline_with_mode(src, ProductOptimizationMode::Enabled).expect("opt mode should succeed");
     let (vm_can, mod_can) = run_inline_with_mode(src, ProductOptimizationMode::Disabled).expect("disabled mode should succeed");
@@ -220,3 +320,4 @@ let res = TestClass.run()
     assert_eq!(val_opt, Some(Value::int(200)));
     assert_eq!(val_opt, val_can);
 }
+

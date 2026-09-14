@@ -1,8 +1,9 @@
 //! Centralized reflection object materialization, caching, and lifecycle management.
 
 use crate::heap::reflection::*;
-use crate::heap::{ObjRef, Object, RuntimeExportRef, TupleObject};
+use crate::heap::{ObjRef, Object, RuntimeExportRef};
 use crate::interner::Symbol;
+use crate::product::finish_tuple;
 use crate::value::Value;
 use crate::vm::VM;
 use phalcom_modules::identity::ModuleId;
@@ -24,6 +25,10 @@ pub struct ReflectionCache {
 }
 
 impl ReflectionCache {
+    fn tuple_value(vm: &mut VM, values: Vec<Value>) -> Value {
+        finish_tuple(vm, values, Vec::new()).expect("reflection tuple storage construction")
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -138,7 +143,7 @@ impl ReflectionCache {
 
         let namespace = vm.interner.intern(&desc.namespace);
         let author_refs: Vec<Value> = desc.authors.iter().map(|a| Value::obj(Self::get_or_create_package_author(vm, a))).collect();
-        let authors = vm.heap.alloc(Object::Tuple(TupleObject::positional(author_refs)));
+        let authors = Self::tuple_value(vm, author_refs);
 
         let homepage = desc.homepage.as_ref().map(|u| Self::get_or_create_uri(vm, u));
         let repository = desc.repository.as_ref().map(|u| Self::get_or_create_uri(vm, u));
@@ -148,7 +153,7 @@ impl ReflectionCache {
             .iter()
             .map(|r| Value::obj(Self::get_or_create_package_requirement(vm, r)))
             .collect();
-        let requirements = vm.heap.alloc(Object::Tuple(TupleObject::positional(req_refs)));
+        let requirements = Self::tuple_value(vm, req_refs);
 
         let identity_obj = Self::get_or_create_package_identity(vm, &desc.identity);
 
@@ -187,7 +192,7 @@ impl ReflectionCache {
             let author_obj = Self::get_or_create_package_author(vm, &author_desc);
             author_refs.push(Value::obj(author_obj));
         }
-        let authors = vm.heap.alloc(Object::Tuple(TupleObject::positional(author_refs)));
+        let authors = Self::tuple_value(vm, author_refs);
 
         let mut dep_decl_refs: Vec<Value> = Vec::new();
         for (comp, (alias, spec)) in &manifest.dependencies {
@@ -208,7 +213,7 @@ impl ReflectionCache {
             let req_obj = Self::get_or_create_package_requirement(vm, &req_desc);
             dep_decl_refs.push(Value::obj(req_obj));
         }
-        let dependency_declarations = vm.heap.alloc(Object::Tuple(TupleObject::positional(dep_decl_refs)));
+        let dependency_declarations = Self::tuple_value(vm, dep_decl_refs);
 
         let manifest_obj = vm.heap.alloc(Object::ProjectManifest(Box::new(ProjectManifestObject {
             name: manifest.name.to_string(),
@@ -264,7 +269,7 @@ impl ReflectionCache {
         }
 
         let names_values: Vec<Value> = names.iter().map(|s| Value::symbol(*s)).collect();
-        let names_tuple = vm.heap.alloc(Object::Tuple(TupleObject::positional(names_values)));
+        let names_tuple = Self::tuple_value(vm, names_values);
 
         let table_obj = vm.heap.alloc(Object::ExportTable(Box::new(ExportTableObject {
             module: module_ref,
@@ -310,7 +315,7 @@ impl ReflectionCache {
         }
 
         let names_values: Vec<Value> = names.iter().map(|s| Value::symbol(*s)).collect();
-        let names_tuple = vm.heap.alloc(Object::Tuple(TupleObject::positional(names_values)));
+        let names_tuple = Self::tuple_value(vm, names_values);
 
         let table_obj = vm.heap.alloc(Object::ChildModuleTable(Box::new(ChildModuleTableObject {
             package: package_ref,
@@ -331,7 +336,7 @@ impl ReflectionCache {
         namespace_sym: Symbol,
         manifest_ref: ObjRef,
         root_package_ref: ObjRef,
-        dependencies_tuple_ref: ObjRef,
+        dependencies_tuple: Value,
         development_entry: Option<ObjRef>,
         identity_ref: ObjRef,
     ) -> ObjRef {
@@ -344,7 +349,7 @@ impl ReflectionCache {
             namespace: namespace_sym,
             manifest: manifest_ref,
             root_package: root_package_ref,
-            dependencies: dependencies_tuple_ref,
+            dependencies: dependencies_tuple,
             development_entry,
             identity: identity_ref,
         })));

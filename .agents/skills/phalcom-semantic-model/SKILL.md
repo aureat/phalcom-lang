@@ -76,7 +76,7 @@ Use it before work involving any of the following:
 For repository work, orient from the current tree rather than assuming paths or
 structures are unchanged:
 
-1. `CLAUDE.md` / `AGENTS.md` for repository layout and graphify rules.
+1. `CLAUDE.md` / `../../../AGENTS-old.md` for repository layout and graphify rules.
 2. `docs/spec/current/` and relevant ADR/PDR/spec documents for normative behavior.
 3. `phalcom-lsp/src/semantic/` for the current live semantic implementation.
 4. `phalcom-core/src/` for runtime/compiler behavior that semantics must describe.

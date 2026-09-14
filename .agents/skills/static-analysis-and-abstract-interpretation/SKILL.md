@@ -242,7 +242,7 @@ Consumers choose a minimum acceptable trust level. Never let an optimizer or pro
 
 ### Phase 1 — establish reality
 
-1. Read repository guidance (`AGENTS.md`, top-level project map, relevant specs/ADRs/PDRs).
+1. Read repository guidance (`../../../AGENTS-old.md`, top-level project map, relevant specs/ADRs/PDRs).
 2. Inspect current source and tests for the subsystem.
 3. Identify current semantic IDs, facts, snapshots, effects, worklists, and invalidation rules.
 4. Separate CURRENT from RATIFIED/PROPOSED/FUTURE material.

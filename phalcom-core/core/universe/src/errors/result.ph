@@ -24,7 +24,9 @@ enum Result<T, E> {
     /// @param error The failure value.
     @variant
     Error(_ error: E)
+}
 
+impl<T, E> Result<T, E> {
     /// Eliminates this result by invoking the callback corresponding to its
     /// current variant.
     ///

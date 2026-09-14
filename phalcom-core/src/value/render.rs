@@ -65,8 +65,11 @@ impl Value {
                     let parts: Vec<String> = set.entries().map(|(k, _)| k.to_string(vm)).collect();
                     format!("Set({})", parts.join(", "))
                 }
-                Object::Tuple(tuple) => {
-                    let parts: Vec<String> = tuple.values().iter().map(|v| v.to_string(vm)).collect();
+                Object::Tuple(_) => {
+                    let parts: Vec<String> = vm
+                        .tuple_view(id)
+                        .map(|tuple| tuple.values().into_iter().map(|v| v.to_string(vm)).collect())
+                        .unwrap_or_default();
                     format!("({})", parts.join(", "))
                 }
                 Object::Range(range) => {

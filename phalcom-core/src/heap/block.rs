@@ -8,6 +8,7 @@
 
 use crate::frame::FrameToken;
 use crate::heap::ObjRef;
+use crate::typing::environment::RuntimeTypeEnvironmentId;
 
 /// A first-class block (lexical closure) object.
 ///
@@ -20,11 +21,26 @@ pub struct BlockObject {
     pub closure: ObjRef,
     /// The frame token of the activation in which this block was created.
     pub home_frame_token: FrameToken,
+    /// The runtime type environment of the activation in which this block was created.
+    pub type_environment: RuntimeTypeEnvironmentId,
 }
 
 impl BlockObject {
     /// Creates a new `BlockObject` wrapping `closure` and stamped with `home_frame_token`.
     pub fn new(closure: ObjRef, home_frame_token: FrameToken) -> Self {
-        BlockObject { closure, home_frame_token }
+        BlockObject {
+            closure,
+            home_frame_token,
+            type_environment: RuntimeTypeEnvironmentId::EMPTY,
+        }
+    }
+
+    /// Creates a new `BlockObject` wrapping `closure`, `home_frame_token`, and lexical `type_environment`.
+    pub fn with_type_environment(closure: ObjRef, home_frame_token: FrameToken, type_environment: RuntimeTypeEnvironmentId) -> Self {
+        BlockObject {
+            closure,
+            home_frame_token,
+            type_environment,
+        }
     }
 }

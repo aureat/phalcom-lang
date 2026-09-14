@@ -973,6 +973,23 @@ impl<'vm> Compiler<'vm> {
                     self.emit(Bytecode::Constant(idx), tuple_expr.range);
                     return Ok(());
                 }
+                if let Some(spec) = self.lowering().and_then(|lowering| lowering.anonymous_products.get(&tuple_expr.range)).cloned() {
+                    let spec_idx = self
+                        .functions
+                        .last_mut()
+                        .unwrap()
+                        .chunk
+                        .executable_semantics
+                        .add_anonymous_product_spec(spec, tuple_expr.range)?;
+                    for entry in &tuple_expr.entries {
+                        match entry {
+                            TupleLiteralEntry::Positional { expr, .. } | TupleLiteralEntry::Labeled { value: expr, .. } => self.compile_expr(expr.clone())?,
+                            TupleLiteralEntry::Expand { .. } => unreachable!("static tuple spec cannot contain expansion"),
+                        }
+                    }
+                    self.emit(Bytecode::BuildStaticTuple { spec: spec_idx }, tuple_expr.range);
+                    return Ok(());
+                }
                 let dynamic = tuple_expr.entries.iter().any(|entry| {
                     matches!(
                         entry,
@@ -1062,6 +1079,23 @@ impl<'vm> Compiler<'vm> {
                 if record_expr.entries.is_empty() {
                     let idx = self.add_constant(Value::unit());
                     self.emit(Bytecode::Constant(idx), record_expr.range);
+                    return Ok(());
+                }
+                if let Some(spec) = self.lowering().and_then(|lowering| lowering.anonymous_products.get(&record_expr.range)).cloned() {
+                    let spec_idx = self
+                        .functions
+                        .last_mut()
+                        .unwrap()
+                        .chunk
+                        .executable_semantics
+                        .add_anonymous_product_spec(spec, record_expr.range)?;
+                    for entry in &record_expr.entries {
+                        match entry {
+                            RecordLiteralEntry::Field(field) => self.compile_expr(field.value.clone())?,
+                            RecordLiteralEntry::Expansion { .. } => unreachable!("static record spec cannot contain expansion"),
+                        }
+                    }
+                    self.emit(Bytecode::BuildStaticRecord { spec: spec_idx }, record_expr.range);
                     return Ok(());
                 }
 
@@ -1225,8 +1259,8 @@ impl<'vm> Compiler<'vm> {
                 match self.resolve_bare_name(name_sym) {
                     BareNameResolution::Local(slot) => {
                         if let Some(virtual_product) = self.active_virtual_product(slot).cloned() {
-                            if virtual_product.is_data() {
-                                self.emit_virtual_data_materialization(&virtual_product, range)?;
+                            if virtual_product.is_transparent_product() {
+                                self.emit_virtual_materialization(&virtual_product, range)?;
                             } else {
                                 return Err(CompilerError::Message("Cannot read whole unmaterialized variant".into()));
                             }

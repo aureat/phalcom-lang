@@ -211,6 +211,23 @@ impl DataConstructorId {
     }
 }
 
+/// Monotonic source-order index of an `impl` statement within its module.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ImplLocalId(pub u32);
+
+/// Stable provenance identity for an inherent implementation fragment (`impl Type { ... }`).
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ImplId {
+    pub module: ModuleId,
+    pub local: ImplLocalId,
+}
+
+impl ImplId {
+    pub fn new(module: ModuleId, local: ImplLocalId) -> Self {
+        Self { module, local }
+    }
+}
+
 /// Owner identity of a callable member (class declaration or exact enum variant).
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CallableOwnerId {

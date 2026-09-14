@@ -19,7 +19,7 @@
 
 use phalcom_ast::{
     ast::{
-        AssociatedMemberSyntax, ClassMember, EnumMember, Expr, GenericConstraintSyntax, KindSyntax, MemberBody, RecordLiteralEntry, ReturnStatement, Statement,
+        AssociatedMemberSyntax, ClassMember, Expr, GenericConstraintSyntax, KindSyntax, MemberBody, RecordLiteralEntry, ReturnStatement, Statement,
         SymbolLiteralKind, TypeAnnotationExpr, VarianceSyntax,
     },
     error::SyntaxErrorKind,
@@ -240,9 +240,7 @@ fn parser_retains_exact_written_declaration_and_method_reference_ranges() {
     let Statement::Enum(enum_def) = &program.statements[0] else {
         panic!("expected enum");
     };
-    let EnumMember::Variant(variant) = &enum_def.members[0] else {
-        panic!("expected variant");
-    };
+    let variant = &enum_def.variants[0];
     assert_eq!(source_slice(source, variant.name_range), "Circle");
 }
 
@@ -1191,9 +1189,9 @@ fn parse_type_syntax_diagnostics_and_recovery() {
 }
 
 #[test]
-fn enum_generic_method_accepts_where_on_line_after_nested_return_type() {
+fn impl_generic_method_accepts_where_on_line_after_nested_return_type() {
     let source = r#"
-enum Result<T, E> {
+impl<T, E> Result<T, E> {
     transpose<U>() -> Option<Result<U, E>>
         where T == Option<U>
     {
@@ -1201,17 +1199,16 @@ enum Result<T, E> {
 }
 "#;
 
-    let program = parse_source(source, 0).expect("generic enum method with multiline where clause should parse");
+    let program = parse_source(source, 0).expect("generic impl method with multiline where clause should parse");
 
-    let Statement::Enum(result) = &program.statements[0] else {
-        panic!("expected enum");
+    let Statement::Impl(result) = &program.statements[0] else {
+        panic!("expected impl");
     };
 
-    assert_eq!(result.name, "Result");
     assert_eq!(result.members.len(), 1);
 
-    let EnumMember::Behavior(phalcom_ast::ast::EnumBehaviorMember::Method(method)) = &result.members[0] else {
-        panic!("expected enum behavior method");
+    let phalcom_ast::ast::BehaviorMember::Method(method) = &result.members[0] else {
+        panic!("expected impl method");
     };
 
     assert_eq!(method.name, "transpose");
@@ -1307,14 +1304,14 @@ class Box {
 }
 
 #[test]
-fn generic_enum_getter_accepts_callable_local_binder() {
-    let source = "enum Box { value<T> -> T {} }\n";
-    let program = parse_source(source, 0).expect("generic enum getter should parse");
-    let Statement::Enum(enumeration) = &program.statements[0] else {
-        panic!("expected enum");
+fn generic_impl_getter_accepts_callable_local_binder() {
+    let source = "impl Box { value<T> -> T {} }\n";
+    let program = parse_source(source, 0).expect("generic impl getter should parse");
+    let Statement::Impl(impl_def) = &program.statements[0] else {
+        panic!("expected impl");
     };
-    let EnumMember::Behavior(phalcom_ast::ast::EnumBehaviorMember::Getter(getter)) = &enumeration.members[0] else {
-        panic!("expected enum getter");
+    let phalcom_ast::ast::BehaviorMember::Getter(getter) = &impl_def.members[0] else {
+        panic!("expected impl getter");
     };
     assert_eq!(getter.generic_parameters.len(), 1);
     assert!(getter.where_clause.is_none());

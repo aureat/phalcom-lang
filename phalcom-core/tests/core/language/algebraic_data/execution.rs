@@ -117,15 +117,19 @@ a.code = 99
 fn enum_case_methods_dispatch_through_nested_payloads() {
     let src = r#"
 enum Expr {
-  @variant Lit(val: Int) {
-    eval() -> Int {
-      self.val
-    }
+  Lit(val: Int)
+  Add(left: Expr, right: Expr)
+}
+
+impl Expr::Lit(val: _) {
+  eval() -> Int {
+    self.val
   }
-  @variant Add(left: Expr, right: Expr) {
-    eval() -> Int {
-      self.left.eval() + self.right.eval()
-    }
+}
+
+impl Expr::Add(left: _, right: _) {
+  eval() -> Int {
+    self.left.eval() + self.right.eval()
   }
 }
 

@@ -114,6 +114,11 @@ impl VM {
             numeric_policy: _,
             adt_registry,
             data_registry,
+            // Product shape/descriptor registries contain Rust-side metadata
+            // and no heap handles; their product values are traced through
+            // the heap object's ProductStorage below.
+            product_shapes: _,
+            anonymous_product_descriptors: _,
             product_optimization_mode: _,
             typing_registry: _,
             prelude_bindings: _,

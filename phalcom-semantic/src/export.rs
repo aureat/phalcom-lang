@@ -22,6 +22,7 @@ pub enum CompiledKindRef {
 pub enum CompiledTypeParameterOwner {
     Declaration(DeclarationId),
     Callable(crate::identity::CallableId),
+    Impl(crate::identity::ImplId),
 }
 
 /// Element in an exported tuple type.
@@ -148,6 +149,7 @@ pub fn export_type_form(store: &TypeStore, form: TypeId) -> Result<CompiledTypeR
             let owner = match &p_data.owner {
                 TypeParameterOwner::Declaration(decl) => CompiledTypeParameterOwner::Declaration(decl.clone()),
                 TypeParameterOwner::Callable(c_id) => CompiledTypeParameterOwner::Callable(c_id.clone()),
+                TypeParameterOwner::Impl(i_id) => CompiledTypeParameterOwner::Impl(i_id.clone()),
             };
             Ok(CompiledTypeRef::Parameter {
                 owner,

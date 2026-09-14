@@ -14,6 +14,7 @@ mod data_decl;
 mod enum_decl;
 mod error;
 mod expr;
+mod impl_decl;
 mod jumps;
 mod loops;
 mod match_expr;
@@ -53,9 +54,11 @@ use crate::value::Value;
 use crate::vm::{ClassKey, VM};
 use phalcom_ast::ast::{BindingKind, ClosureParameters, Expr, MethodCallExpr, Pattern, Program, Statement};
 use phalcom_common::range::{EmptySourceRange, SourceRange};
+use phalcom_modules::DeclarationId;
+use phalcom_semantic::identity::{ImplId, ImplLocalId, VariantId};
 use state::FunctionState;
 use state::LoopContext;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 
 pub(crate) struct Compiler<'vm> {
@@ -182,6 +185,13 @@ pub(crate) struct Compiler<'vm> {
     pub(crate) unit_kind: UnitKind,
     /// Optional semantic lowering projected from formal analysis.
     pub(crate) lowering: Option<std::sync::Arc<crate::modules::semantic_lowering::ModuleLoweringSemantics>>,
+    /// Accepted inherent impl fragments indexed by their canonical target.
+    /// This is compiler-transient staging data: semantic lowering remains the
+    /// authorization source, while AST definitions provide the bodies to
+    /// compile when the target behavior object is emitted.
+    pub(crate) inherent_impl_specs: BTreeMap<DeclarationId, Vec<crate::modules::semantic_lowering::InherentImplLoweringSpec>>,
+    pub(crate) inherent_impl_specs_by_variant: BTreeMap<VariantId, Vec<crate::modules::semantic_lowering::InherentImplLoweringSpec>>,
+    pub(crate) inherent_impl_defs: BTreeMap<ImplId, phalcom_ast::ast::ImplDef>,
     /// Optimization mode governing representation-aware product scalar replacement (PDR-0035 / LANG005.C1.P2).
     pub(crate) product_optimization_mode: product_opt::ProductOptimizationMode,
 }
@@ -222,6 +232,9 @@ impl<'vm> Compiler<'vm> {
             source_id,
             unit_kind,
             lowering,
+            inherent_impl_specs: BTreeMap::new(),
+            inherent_impl_specs_by_variant: BTreeMap::new(),
+            inherent_impl_defs: BTreeMap::new(),
             product_optimization_mode,
         }
     }
@@ -352,7 +365,7 @@ impl<'vm> Compiler<'vm> {
     /// # Errors
     ///
     /// Propagates any error compiling the body's statements.
-    fn compile_block(
+    pub(crate) fn compile_block(
         &mut self,
         statements: Vec<Statement>,
         name_sym: Symbol,
@@ -469,6 +482,7 @@ impl<'vm> Compiler<'vm> {
     }
 
     pub(crate) fn compile(mut self, program: Program) -> PhResult<ObjRef> {
+        self.index_inherent_impls(&program)?;
         self.predeclare_known_globals(&program);
 
         // Pre-compute product optimization plan for top-level module body
@@ -525,6 +539,60 @@ impl<'vm> Compiler<'vm> {
         module_obj.merge_global_bindings(&self.global_bindings);
 
         Ok(closure)
+    }
+
+    /// Stages accepted inherent impl definitions before ordinary statement
+    /// emission. The semantic lowering product is the only authorization
+    /// source; the AST map only locates the member bodies named by that
+    /// product's stable `ImplId` and source-member indices.
+    fn index_inherent_impls(&mut self, program: &Program) -> Result<(), CompilerError> {
+        let module_id = self.vm.heap.module(self.module).id.clone();
+        let has_impl = program.statements.iter().any(|statement| matches!(statement, Statement::Impl(_)));
+        if !has_impl {
+            return Ok(());
+        }
+
+        let lowering_specs = self
+            .lowering()
+            .ok_or_else(|| {
+                let range = program
+                    .statements
+                    .iter()
+                    .find_map(|statement| match statement {
+                        Statement::Impl(impl_def) => Some(impl_def.range),
+                        _ => None,
+                    })
+                    .unwrap_or(EmptySourceRange);
+                CompilerError::MissingImplLoweringSemantics(range)
+            })?
+            .inherent_impls
+            .iter()
+            .filter(|spec| spec.id.module == module_id)
+            .cloned()
+            .collect::<Vec<_>>();
+
+        for spec in lowering_specs {
+            match &spec.target {
+                crate::modules::semantic_lowering::InherentImplLoweringTarget::Declaration(decl) => {
+                    self.inherent_impl_specs.entry(decl.clone()).or_default().push(spec);
+                }
+                crate::modules::semantic_lowering::InherentImplLoweringTarget::ExactEnumCase(variant) => {
+                    self.inherent_impl_specs_by_variant.entry(variant.clone()).or_default().push(spec);
+                }
+            }
+        }
+
+        // The semantic layer currently derives ImplLocalId from the source
+        // statement index. Mirror that deterministic identity assignment
+        // exactly so lowering provenance and AST lookup cannot drift.
+        for (statement_index, statement) in program.statements.iter().enumerate() {
+            if let Statement::Impl(impl_def) = statement {
+                let id = ImplId::new(module_id.clone(), ImplLocalId(statement_index as u32));
+                self.inherent_impl_defs.insert(id, impl_def.clone());
+            }
+        }
+
+        Ok(())
     }
 
     /// Predeclare known globals in the compilation unit before member lowering.
@@ -751,6 +819,10 @@ impl<'vm> Compiler<'vm> {
             Statement::Data(data_def) => {
                 self.compile_data(&data_def)?;
             }
+            // An inherent impl is a declarative source fragment. Its accepted
+            // members are installed while compiling the canonical target;
+            // visiting the fragment itself must never mutate runtime state.
+            Statement::Impl(_) => {}
             Statement::For(for_stmt) => {
                 // A `for` is a statement consumed for effect (U-ITER spec
                 // §1.2): it leaves no value, so `emit_pop` is irrelevant.

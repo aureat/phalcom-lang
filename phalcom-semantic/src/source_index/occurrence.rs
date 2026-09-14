@@ -444,56 +444,28 @@ impl OccurrenceBuilder<'_> {
                 self.statements(&for_statement.body);
             }
             Statement::Export(export) => self.export_items(export),
-            Statement::Break { .. } | Statement::Continue { .. } | Statement::TypeAlias(_) | Statement::Data(_) => {}
-            Statement::Enum(enum_def) => {
-                for member in &enum_def.members {
+            Statement::Break { .. } | Statement::Continue { .. } | Statement::TypeAlias(_) | Statement::Data(_) | Statement::Enum(_) => {}
+            Statement::Impl(impl_def) => {
+                for member in &impl_def.members {
                     match member {
-                        phalcom_ast::ast::EnumMember::Variant(v) => {
-                            if let Some(body) = &v.body {
-                                for b_member in &body.members {
-                                    match b_member {
-                                        phalcom_ast::ast::EnumBehaviorMember::Method(m) => {
-                                            if let Some(body) = m.body.statements() {
-                                                self.statements(body);
-                                            }
-                                        }
-                                        phalcom_ast::ast::EnumBehaviorMember::Getter(g) => {
-                                            if let Some(body) = g.body.statements() {
-                                                self.statements(body);
-                                            }
-                                        }
-                                        phalcom_ast::ast::EnumBehaviorMember::Setter(s) => {
-                                            if let Some(body) = s.body.statements() {
-                                                self.statements(body);
-                                            }
-                                        }
-                                        phalcom_ast::ast::EnumBehaviorMember::Index(i) => {
-                                            self.statements(&i.body);
-                                        }
-                                    }
-                                }
+                        phalcom_ast::ast::BehaviorMember::Method(m) => {
+                            if let Some(body) = m.body.statements() {
+                                self.statements(body);
                             }
                         }
-                        phalcom_ast::ast::EnumMember::Behavior(b) => match b {
-                            phalcom_ast::ast::EnumBehaviorMember::Method(m) => {
-                                if let Some(body) = m.body.statements() {
-                                    self.statements(body);
-                                }
+                        phalcom_ast::ast::BehaviorMember::Getter(g) => {
+                            if let Some(body) = g.body.statements() {
+                                self.statements(body);
                             }
-                            phalcom_ast::ast::EnumBehaviorMember::Getter(g) => {
-                                if let Some(body) = g.body.statements() {
-                                    self.statements(body);
-                                }
+                        }
+                        phalcom_ast::ast::BehaviorMember::Setter(s) => {
+                            if let Some(body) = s.body.statements() {
+                                self.statements(body);
                             }
-                            phalcom_ast::ast::EnumBehaviorMember::Setter(s) => {
-                                if let Some(body) = s.body.statements() {
-                                    self.statements(body);
-                                }
-                            }
-                            phalcom_ast::ast::EnumBehaviorMember::Index(i) => {
-                                self.statements(&i.body);
-                            }
-                        },
+                        }
+                        phalcom_ast::ast::BehaviorMember::Index(i) => {
+                            self.statements(&i.body);
+                        }
                     }
                 }
             }

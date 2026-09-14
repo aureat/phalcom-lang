@@ -38,7 +38,7 @@ impl VM {
             Some(Vec::new())
         } else if let Some(id) = value.as_obj() {
             if matches!(self.heap.get(id), Object::Tuple(_)) {
-                Some(self.heap.tuple(id).positionals().to_vec())
+                Some(self.tuple_view(id)?.positionals())
             } else {
                 None
             }
@@ -91,8 +91,14 @@ impl VM {
             Ok(Vec::new())
         } else if let Some(id) = source.as_obj() {
             match self.heap.get(id) {
-                Object::Tuple(_) => Ok(self.heap.tuple(id).labeled_entries().collect()),
-                Object::Record(_) => Ok(self.heap.record(id).entries().collect()),
+                Object::Tuple(_) => self
+                    .tuple_view(id)
+                    .map(|tuple| tuple.labeled_entries())
+                    .ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".into())),
+                Object::Record(_) => self
+                    .record_view(id)
+                    .map(|record| record.entries())
+                    .ok_or_else(|| RuntimeError::Internal("Record descriptor is unavailable".into())),
                 Object::Map(_) => self
                     .heap
                     .map(id)
@@ -1398,7 +1404,8 @@ impl VM {
                         foreign_receiver_guard,
                     })));
                     let token = self.current_frame_token().expect("closure created inside a frame");
-                    let block = self.heap.alloc(Object::Block(BlockObject::new(new_closure, token)));
+                    let type_env = self.frames.last().map(|f| f.type_environment).unwrap_or(crate::typing::environment::RuntimeTypeEnvironmentId::EMPTY);
+                    let block = self.heap.alloc(Object::Block(BlockObject::with_type_environment(new_closure, token, type_env)));
                     self.stack.push(Value::obj(block));
                 }
                 // `Bytecode::Nil` pushes immediate `None` (the surface
@@ -2539,7 +2546,10 @@ impl VM {
                         && let Some(id) = operand.as_obj()
                         && matches!(self.heap.get(id), Object::Tuple(_))
                     {
-                        let values = self.heap.tuple(id).positionals().to_vec();
+                        let values = self
+                            .tuple_view(id)
+                            .ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".into()))?
+                            .positionals();
                         for value in values {
                             self.heap.pack_builder_mut(builder).push_positional(value);
                         }
@@ -2748,6 +2758,38 @@ impl VM {
                     }
                     entries.reverse();
                     let product = crate::product::finish_record(self, entries).map_err(|error| crate::product::runtime_error(self, "Record field", error))?;
+                    self.stack.push(product);
+                }
+                Bytecode::BuildStaticTuple { spec } => {
+                    let spec = callable.chunk.executable_semantics.anonymous_product_spec(spec);
+                    let count = match &spec.kind {
+                        crate::modules::semantic_lowering::AnonymousProductConstructionKind::Tuple { positional_len, labels } => {
+                            usize::try_from(*positional_len).unwrap_or(usize::MAX).saturating_add(labels.len())
+                        }
+                        _ => return Err(RuntimeError::Internal("Tuple bytecode carried a Record construction spec".into()).into()),
+                    };
+                    let mut values = Vec::with_capacity(count);
+                    for _ in 0..count {
+                        values.push(self.pop()?);
+                    }
+                    values.reverse();
+                    let product = crate::product::finish_tuple_from_spec(self, spec, values)
+                        .map_err(|error| crate::product::runtime_error(self, "Tuple", error))?;
+                    self.stack.push(product);
+                }
+                Bytecode::BuildStaticRecord { spec } => {
+                    let spec = callable.chunk.executable_semantics.anonymous_product_spec(spec);
+                    let count = match &spec.kind {
+                        crate::modules::semantic_lowering::AnonymousProductConstructionKind::Record { presentation_labels, .. } => presentation_labels.len(),
+                        _ => return Err(RuntimeError::Internal("Record bytecode carried a Tuple construction spec".into()).into()),
+                    };
+                    let mut values = Vec::with_capacity(count);
+                    for _ in 0..count {
+                        values.push(self.pop()?);
+                    }
+                    values.reverse();
+                    let product = crate::product::finish_record_from_spec(self, spec, values)
+                        .map_err(|error| crate::product::runtime_error(self, "Record", error))?;
                     self.stack.push(product);
                 }
                 Bytecode::NewRecordLiteralBuilder => {

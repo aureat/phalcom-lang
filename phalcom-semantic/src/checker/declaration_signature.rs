@@ -13,7 +13,7 @@ use crate::signature::{CallableParameterSemantic, CallableSemanticSignature, Fie
 use crate::types::annotation::{TypeFormationOutcome, TypeFormationSite, type_level_binding_for_parameter};
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
 use crate::types::parameter::TypeParameterOwner;
-use phalcom_ast::ast::{ClassMember, EnumBehaviorMember, GetterDef, IndexMethodDef, MethodDef, ParameterDef, SetterDef};
+use phalcom_ast::ast::{BehaviorMember, ClassMember, GetterDef, IndexMethodDef, MethodDef, ParameterDef, SetterDef};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
 use std::collections::HashMap;
@@ -55,15 +55,6 @@ impl<'a> CallableSyntaxRef<'a> {
         }
     }
 
-    pub(crate) fn selector_base(&self) -> phalcom_common::selector::SelectorBase {
-        match self {
-            CallableSyntaxRef::Method(m) => phalcom_common::selector::SelectorBase::Named(m.name.clone()),
-            CallableSyntaxRef::Getter(g) => phalcom_common::selector::SelectorBase::Named(g.name.clone()),
-            CallableSyntaxRef::Setter(s) => phalcom_common::selector::SelectorBase::Named(s.name.clone()),
-            CallableSyntaxRef::Index(_) => phalcom_common::selector::SelectorBase::Subscript,
-        }
-    }
-
     pub(crate) fn attributes(&self) -> &[phalcom_ast::ast::Attribute] {
         match self {
             CallableSyntaxRef::Method(m) => &m.attributes,
@@ -74,13 +65,13 @@ impl<'a> CallableSyntaxRef<'a> {
     }
 }
 
-impl<'a> From<&'a EnumBehaviorMember> for CallableSyntaxRef<'a> {
-    fn from(member: &'a EnumBehaviorMember) -> Self {
+impl<'a> From<&'a BehaviorMember> for CallableSyntaxRef<'a> {
+    fn from(member: &'a BehaviorMember) -> Self {
         match member {
-            EnumBehaviorMember::Method(m) => CallableSyntaxRef::Method(m),
-            EnumBehaviorMember::Getter(g) => CallableSyntaxRef::Getter(g),
-            EnumBehaviorMember::Setter(s) => CallableSyntaxRef::Setter(s),
-            EnumBehaviorMember::Index(i) => CallableSyntaxRef::Index(i),
+            BehaviorMember::Method(m) => CallableSyntaxRef::Method(m),
+            BehaviorMember::Getter(g) => CallableSyntaxRef::Getter(g),
+            BehaviorMember::Setter(s) => CallableSyntaxRef::Setter(s),
+            BehaviorMember::Index(i) => CallableSyntaxRef::Index(i),
         }
     }
 }
@@ -321,11 +312,10 @@ pub(crate) fn semantic_signature_for_syntax(
     syntax: CallableSyntaxRef<'_>,
     declared_side: DispatchSide,
 ) -> Option<CallableSemanticSignature> {
-    let callable = callable_id_for_syntax(owner, syntax, declared_side)?;
     let declaration_owner = owner.declaration();
-
-    let formation_side = callable.side;
     let is_constructor = matches!(syntax, CallableSyntaxRef::Method(method) if method.is_constructor || method.attributes.iter().any(|attribute| attribute.name == "constructor"));
+    let is_class_side = declared_side == DispatchSide::Class;
+    let formation_side = if is_constructor || is_class_side { DispatchSide::Class } else { DispatchSide::Instance };
     let declaration_type_parameters = if is_constructor {
         declaration_type_level_bindings(ctx, declaration_owner)
     } else {
@@ -336,13 +326,26 @@ pub(crate) fn semantic_signature_for_syntax(
         parent: &parent_resolver,
         type_parameters: declaration_type_parameters,
     };
+    semantic_signature_for_syntax_with_resolver(ctx, owner, &declaration_resolver, syntax, declared_side)
+}
+
+pub(crate) fn semantic_signature_for_syntax_with_resolver(
+    ctx: &mut CheckingContext<'_>,
+    owner: &CallableOwnerId,
+    declaration_resolver: &dyn crate::types::annotation::TypeResolver,
+    syntax: CallableSyntaxRef<'_>,
+    declared_side: DispatchSide,
+) -> Option<CallableSemanticSignature> {
+    let callable = callable_id_for_syntax(owner, syntax, declared_side)?;
+    let declaration_owner = owner.declaration();
+    let formation_side = callable.side;
     let formation_site = TypeFormationSite::member(ctx.current_module.clone(), declaration_owner.clone(), formation_side);
 
     let (generics, parameters, declared_return) = match syntax {
         CallableSyntaxRef::Method(method) => {
             let generic_signature = resolve_callable_local_generics(
                 ctx,
-                &declaration_resolver,
+                declaration_resolver,
                 &formation_site,
                 &callable,
                 &method.generic_parameters,
@@ -364,7 +367,7 @@ pub(crate) fn semantic_signature_for_syntax(
                 .map(|(name, parameter_id)| (name, type_level_binding_for_parameter(ctx.store, parameter_id)))
                 .collect();
             let method_resolver = crate::types::annotation::ScopedTypeResolver {
-                parent: &declaration_resolver,
+                parent: declaration_resolver,
                 type_parameters: method_type_parameters,
             };
             let parameters = method
@@ -407,7 +410,7 @@ pub(crate) fn semantic_signature_for_syntax(
         CallableSyntaxRef::Getter(getter) => {
             let generic_signature = resolve_callable_local_generics(
                 ctx,
-                &declaration_resolver,
+                declaration_resolver,
                 &formation_site,
                 &callable,
                 &getter.generic_parameters,
@@ -429,7 +432,7 @@ pub(crate) fn semantic_signature_for_syntax(
                 .map(|(name, parameter_id)| (name, type_level_binding_for_parameter(ctx.store, parameter_id)))
                 .collect();
             let getter_resolver = crate::types::annotation::ScopedTypeResolver {
-                parent: &declaration_resolver,
+                parent: declaration_resolver,
                 type_parameters: getter_type_parameters,
             };
             (
@@ -447,7 +450,7 @@ pub(crate) fn semantic_signature_for_syntax(
         CallableSyntaxRef::Setter(setter) => {
             let generic_signature = resolve_callable_local_generics(
                 ctx,
-                &declaration_resolver,
+                declaration_resolver,
                 &formation_site,
                 &callable,
                 &setter.generic_parameters,
@@ -466,7 +469,7 @@ pub(crate) fn semantic_signature_for_syntax(
                 })
                 .collect();
             let setter_resolver = crate::types::annotation::ScopedTypeResolver {
-                parent: &declaration_resolver,
+                parent: declaration_resolver,
                 type_parameters: setter_type_parameters,
             };
             let parameter = parameter_fact(
@@ -488,7 +491,7 @@ pub(crate) fn semantic_signature_for_syntax(
         CallableSyntaxRef::Index(index) => {
             let generic_signature = resolve_callable_local_generics(
                 ctx,
-                &declaration_resolver,
+                declaration_resolver,
                 &formation_site,
                 &callable,
                 &index.generic_parameters,
@@ -507,7 +510,7 @@ pub(crate) fn semantic_signature_for_syntax(
                 })
                 .collect();
             let index_resolver = crate::types::annotation::ScopedTypeResolver {
-                parent: &declaration_resolver,
+                parent: declaration_resolver,
                 type_parameters: index_type_parameters,
             };
             let mut parameters = index

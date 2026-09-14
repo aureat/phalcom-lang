@@ -288,13 +288,21 @@ impl Heap {
 
     /// Allocates a positive-arity [`Object::Tuple`]. Product finalization owns
     /// zero normalization and duplicate rejection before this boundary.
-    pub(crate) fn alloc_tuple_nonempty(&mut self, values: Box<[crate::value::Value]>, labels: Box<[crate::interner::Symbol]>) -> ObjRef {
-        self.insert(Object::Tuple(TupleObject::new(values, labels)))
+    pub(crate) fn alloc_tuple_nonempty(
+        &mut self,
+        descriptor: crate::product::RuntimeAnonymousProductDescriptorId,
+        storage: crate::product::ProductStorage,
+    ) -> ObjRef {
+        self.insert(Object::Tuple(TupleObject::new(descriptor, storage)))
     }
 
     /// Allocates a positive-arity [`Object::Record`].
-    pub(crate) fn alloc_record_nonempty(&mut self, labels: Box<[crate::interner::Symbol]>, values: Box<[crate::value::Value]>) -> ObjRef {
-        self.insert(Object::Record(Box::new(RecordObject::new(labels, values))))
+    pub(crate) fn alloc_record_nonempty(
+        &mut self,
+        descriptor: crate::product::RuntimeAnonymousProductDescriptorId,
+        storage: crate::product::ProductStorage,
+    ) -> ObjRef {
+        self.insert(Object::Record(Box::new(RecordObject::new(descriptor, storage))))
     }
 
     /// Allocates an [`Object::Range`] from optional endpoint values.

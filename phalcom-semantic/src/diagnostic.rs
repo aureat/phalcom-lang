@@ -105,6 +105,16 @@ pub enum DiagnosticCode {
     DataDuplicateComponent,
     DataComponentImmutable,
     DataUsedAsSuperclass,
+    ImplForeignTarget,
+    ImplTargetNotNominal,
+    ImplTargetTypeAlias,
+    ImplSpecializedTargetUnsupported,
+    ImplWhereClauseUnsupported,
+    ImplMemberConflict,
+    ImplConstructorUnsupported,
+    ImplBodylessMemberUnsupported,
+    ImplUnusedTypeParameter,
+    ImplEnumCaseTargetUnsupported,
 }
 
 impl DiagnosticCode {
@@ -197,6 +207,16 @@ impl DiagnosticCode {
             Self::DataDuplicateComponent => "data.duplicate_component",
             Self::DataComponentImmutable => "data.component_immutable",
             Self::DataUsedAsSuperclass => "data.used_as_superclass",
+            Self::ImplForeignTarget => "impl.target.foreign",
+            Self::ImplTargetNotNominal => "impl.target.not_nominal",
+            Self::ImplTargetTypeAlias => "impl.target.type_alias",
+            Self::ImplSpecializedTargetUnsupported => "impl.target.specialized_unsupported",
+            Self::ImplWhereClauseUnsupported => "impl.where_clause_unsupported",
+            Self::ImplMemberConflict => "impl.member.conflict",
+            Self::ImplConstructorUnsupported => "impl.member.constructor_unsupported",
+            Self::ImplBodylessMemberUnsupported => "impl.member.bodyless_unsupported",
+            Self::ImplUnusedTypeParameter => "impl.type_parameter.unused",
+            Self::ImplEnumCaseTargetUnsupported => "impl.target.enum_case_unsupported",
         }
     }
 }

@@ -95,9 +95,11 @@ pub fn family_get_shape(vm: &mut VM, _receiver: Value, args: ArgumentView) -> Ph
         found: args.positional_count(),
     })?;
     let shape_id = crate::primitive::expect_tuple(vm, &shape)?;
-    let tuple = vm.heap.tuple(shape_id);
-    let positionals = tuple.positionals().to_vec();
-    let labeled_values = tuple.labeled_values().to_vec();
+    let tuple = vm
+        .tuple_view(shape_id)
+        .ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".into()))?;
+    let positionals = tuple.positionals();
+    let labeled_values = tuple.labeled_values();
     let labels = tuple.labels().to_vec().into_boxed_slice();
     let receiver_idx = args.receiver_index();
     vm.stack.truncate(receiver_idx + 1);
@@ -124,9 +126,11 @@ pub fn family_set_shape(vm: &mut VM, _receiver: Value, args: ArgumentView) -> Ph
         found: args.positional_count(),
     })?;
     let shape_id = crate::primitive::expect_tuple(vm, &shape)?;
-    let tuple = vm.heap.tuple(shape_id);
-    let positionals = tuple.positionals().to_vec();
-    let labeled_values = tuple.labeled_values().to_vec();
+    let tuple = vm
+        .tuple_view(shape_id)
+        .ok_or_else(|| RuntimeError::Internal("Tuple descriptor is unavailable".into()))?;
+    let positionals = tuple.positionals();
+    let labeled_values = tuple.labeled_values();
     let labels = tuple.labels().to_vec().into_boxed_slice();
     let receiver_idx = args.receiver_index();
     vm.stack.truncate(receiver_idx + 1);

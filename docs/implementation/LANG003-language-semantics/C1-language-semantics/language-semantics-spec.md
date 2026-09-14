@@ -132,13 +132,14 @@ Required semantics:
 - `Float` immediates: exact IEEE representation (`to_bits`) => true; therefore `0.0 === -0.0` is false and identical NaN bit-patterns may be same even though `==` is false;
 - Bool/Unit/None/Symbol immediates: exact payload/interned identity;
 - nested immediate `Some` representation: same wrapper representation and recursively same payload;
-- heap objects: exact `ObjRef` identity only;
+- heap objects: exact `ObjRef` identity only (except transparent value products — `data`, `Tuple`, `Record`, `Unit` — which use VM-aware structural/nominal exact value sameness per PDR-0035 / PDR-0036);
 - equal-content strings stored at different handles are **not** same;
 - equal-content heap `LargeInt` values stored at different handles are **not** same;
 - no numeric cross-kind coercion (`1 === 1.0` is false);
 - private `NIL` handling remains internal and must not surface.
 
 Do not modify `Value::value_eq`; `==` and `===` are intentionally different.
+
 
 ## A.3 Method-shaped interface and override prohibition
 

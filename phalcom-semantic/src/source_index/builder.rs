@@ -13,7 +13,7 @@ use crate::source_index::scope::{
 use crate::source_index::site::{SourceSite, SourceSiteKind};
 use crate::types::annotation::TypeResolver;
 use phalcom_ast::ast::{
-    BindingKind, BlockExpr, ClassDef, ClassMember, EnumBehaviorMember, EnumDef, EnumMember, Expr, ForStatement, GenericConstraintSyntax, LetBinding,
+    BehaviorMember, BindingKind, BlockExpr, ClassDef, ClassMember, EnumDef, Expr, ForStatement, GenericConstraintSyntax, LetBinding,
     MemberBody, Pattern, Program, Statement, TypeAnnotation, TypeAnnotationExpr, WhereClauseSyntax,
 };
 use phalcom_common::range::SourceRange;
@@ -191,6 +191,66 @@ impl TypeReferenceTargetCollector<'_> {
                     self.annotation(annotation, bound);
                 }
             }
+            Statement::Impl(impl_def) => {
+                let mut impl_bound = bound.clone();
+                impl_bound.extend(impl_def.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                self.where_clause(impl_def.where_clause.as_ref(), &impl_bound);
+                self.annotation(&impl_def.target, &impl_bound);
+                for member in &impl_def.members {
+                    match member {
+                        phalcom_ast::ast::BehaviorMember::Method(method) => {
+                            let mut method_bound = impl_bound.clone();
+                            method_bound.extend(method.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                            for parameter in &method.params {
+                                if let Some(annotation) = &parameter.annotation {
+                                    self.annotation(annotation, &method_bound);
+                                }
+                            }
+                            if let Some(annotation) = &method.return_annotation {
+                                self.annotation(annotation, &method_bound);
+                            }
+                            self.where_clause(method.where_clause.as_ref(), &method_bound);
+                        }
+                        phalcom_ast::ast::BehaviorMember::Getter(getter) => {
+                            let mut getter_bound = impl_bound.clone();
+                            getter_bound.extend(getter.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                            if let Some(annotation) = &getter.return_annotation {
+                                self.annotation(annotation, &getter_bound);
+                            }
+                            self.where_clause(getter.where_clause.as_ref(), &getter_bound);
+                        }
+                        phalcom_ast::ast::BehaviorMember::Setter(setter) => {
+                            let mut setter_bound = impl_bound.clone();
+                            setter_bound.extend(setter.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                            if let Some(annotation) = &setter.param.annotation {
+                                self.annotation(annotation, &setter_bound);
+                            }
+                            if let Some(annotation) = &setter.return_annotation {
+                                self.annotation(annotation, &setter_bound);
+                            }
+                            self.where_clause(setter.where_clause.as_ref(), &setter_bound);
+                        }
+                        phalcom_ast::ast::BehaviorMember::Index(index) => {
+                            let mut index_bound = impl_bound.clone();
+                            index_bound.extend(index.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+                            for parameter in &index.params {
+                                if let Some(annotation) = &parameter.annotation {
+                                    self.annotation(annotation, &index_bound);
+                                }
+                            }
+                            if let phalcom_ast::ast::IndexAccessor::Set { value } = &index.accessor
+                                && let Some(annotation) = &value.annotation
+                            {
+                                self.annotation(annotation, &index_bound);
+                            }
+                            if let Some(annotation) = &index.return_annotation {
+                                self.annotation(annotation, &index_bound);
+                            }
+                            self.where_clause(index.where_clause.as_ref(), &index_bound);
+                        }
+                    }
+                }
+            }
             Statement::Return(_)
             | Statement::Expr { .. }
             | Statement::For(_)
@@ -223,78 +283,19 @@ impl TypeReferenceTargetCollector<'_> {
         enum_bound.extend(enum_def.generic_parameters.iter().map(|parameter| parameter.name.clone()));
         self.where_clause(enum_def.where_clause.as_ref(), &enum_bound);
 
-        for member in &enum_def.members {
-            match member {
-                EnumMember::Variant(variant) => {
-                    let mut variant_bound = enum_bound.clone();
-                    variant_bound.extend(variant.generic_parameters.iter().map(|parameter| parameter.name.clone()));
-                    self.where_clause(variant.where_clause.as_ref(), &variant_bound);
-                    if let Some(payload) = &variant.payload {
-                        for parameter in &payload.parameters {
-                            if let Some(annotation) = &parameter.annotation {
-                                self.annotation(annotation, &variant_bound);
-                            }
-                        }
-                    }
-                    if let Some(annotation) = &variant.result_annotation {
+        for variant in &enum_def.variants {
+            let mut variant_bound = enum_bound.clone();
+            variant_bound.extend(variant.generic_parameters.iter().map(|parameter| parameter.name.clone()));
+            self.where_clause(variant.where_clause.as_ref(), &variant_bound);
+            if let Some(payload) = &variant.payload {
+                for parameter in &payload.parameters {
+                    if let Some(annotation) = &parameter.annotation {
                         self.annotation(annotation, &variant_bound);
                     }
-                    if let Some(body) = &variant.body {
-                        for behavior in &body.members {
-                            self.enum_behavior(behavior, &variant_bound);
-                        }
-                    }
-                }
-                EnumMember::Behavior(behavior) => self.enum_behavior(behavior, &enum_bound),
-            }
-        }
-    }
-
-    fn enum_behavior(&mut self, behavior: &EnumBehaviorMember, parent_bound: &BTreeSet<String>) {
-        match behavior {
-            EnumBehaviorMember::Method(method) => {
-                let mut method_bound = parent_bound.clone();
-                method_bound.extend(method.generic_parameters.iter().map(|parameter| parameter.name.clone()));
-                for parameter in &method.params {
-                    if let Some(annotation) = &parameter.annotation {
-                        self.annotation(annotation, &method_bound);
-                    }
-                }
-                if let Some(annotation) = &method.return_annotation {
-                    self.annotation(annotation, &method_bound);
-                }
-                self.where_clause(method.where_clause.as_ref(), &method_bound);
-            }
-            EnumBehaviorMember::Getter(getter) => {
-                if let Some(annotation) = &getter.return_annotation {
-                    self.annotation(annotation, parent_bound);
                 }
             }
-            EnumBehaviorMember::Setter(setter) => {
-                if let Some(annotation) = &setter.param.annotation {
-                    self.annotation(annotation, parent_bound);
-                }
-                if let Some(annotation) = &setter.return_annotation {
-                    self.annotation(annotation, parent_bound);
-                }
-            }
-            EnumBehaviorMember::Index(index) => {
-                let mut index_bound = parent_bound.clone();
-                index_bound.extend(index.generic_parameters.iter().map(|parameter| parameter.name.clone()));
-                for parameter in &index.params {
-                    if let Some(annotation) = &parameter.annotation {
-                        self.annotation(annotation, &index_bound);
-                    }
-                }
-                if let phalcom_ast::ast::IndexAccessor::Set { value } = &index.accessor
-                    && let Some(annotation) = &value.annotation
-                {
-                    self.annotation(annotation, &index_bound);
-                }
-                if let Some(annotation) = &index.return_annotation {
-                    self.annotation(annotation, &index_bound);
-                }
-                self.where_clause(index.where_clause.as_ref(), &index_bound);
+            if let Some(annotation) = &variant.result_annotation {
+                self.annotation(annotation, &variant_bound);
             }
         }
     }
@@ -342,6 +343,12 @@ impl TypeReferenceTargetCollector<'_> {
                 let mut lambda_bound = bound.clone();
                 lambda_bound.extend(parameters.iter().map(|parameter| parameter.name.clone()));
                 self.annotation(body, &lambda_bound);
+            }
+            TypeAnnotationExpr::ExactEnumCase { enum_target, generic_arguments, .. } => {
+                self.annotation(enum_target, bound);
+                for argument in generic_arguments {
+                    self.annotation(argument, bound);
+                }
             }
             TypeAnnotationExpr::Unit { .. }
             | TypeAnnotationExpr::Dynamic { .. }
@@ -542,8 +549,65 @@ impl SourceScopeBuilder<'_> {
                 Statement::Expr { expr, .. } => self.visit_expr(scope, expr),
                 Statement::For(for_statement) => self.visit_for(scope, for_statement),
                 Statement::Throw { expr, .. } => self.visit_expr(scope, expr),
+                Statement::Impl(impl_def) => self.visit_impl(scope, impl_def),
                 Statement::Export(_) | Statement::Break { .. } | Statement::Continue { .. } => {}
             }
+        }
+    }
+
+    fn visit_impl(&mut self, parent: SourceScopeId, impl_def: &phalcom_ast::ast::ImplDef) {
+        // The semantic session publishes the resolved target for the exact
+        // target annotation range. Source indexing consumes that canonical
+        // identity rather than resolving an impl target from a written name.
+        // The local-class fallback keeps the low-level source-index builder
+        // useful in isolated tests that intentionally provide no semantic
+        // context.
+        let owner = match &impl_def.target.expr {
+            phalcom_ast::ast::TypeAnnotationExpr::ExactEnumCase {
+                enum_target,
+                variant_name,
+                variant_name_range,
+                payload_shape,
+                ..
+            } => {
+                let enum_decl = self
+                    .context
+                    .type_reference_targets
+                    .get(&(self.index.module.clone(), enum_target.range))
+                    .cloned()
+                    .or_else(|| enum_target.origin_symbol_ref().and_then(|reference| {
+                        reference.members.is_empty().then(|| self.index.declaration_for_name(&reference.root).cloned()).flatten()
+                    }));
+                if let Some(enum_decl) = enum_decl {
+                    let selector = phalcom_ast::selector::selector_from_exact_case_target(variant_name, payload_shape.as_ref());
+                    let variant_id = VariantId::new(enum_decl, selector);
+                    let variant_site = self.allocate_site(
+                        SourceOwner::Module(self.index.module.clone()),
+                        *variant_name_range,
+                        SourceSiteKind::Variant(variant_id.clone()),
+                    );
+                    self.index.register_target(variant_site, SemanticTargetId::Variant(variant_id.clone()));
+                    CallableOwnerId::Variant(variant_id)
+                } else {
+                    return;
+                }
+            }
+            _ => {
+                let target = self
+                    .context
+                    .type_reference_targets
+                    .get(&(self.index.module.clone(), impl_def.target_range))
+                    .cloned()
+                    .or_else(|| impl_def.target.origin_symbol_ref().and_then(|reference| {
+                        reference.members.is_empty().then(|| self.index.declaration_for_name(&reference.root).cloned()).flatten()
+                    }));
+                let Some(target) = target else { return };
+                CallableOwnerId::Declaration(target)
+            }
+        };
+        for member in &impl_def.members {
+            let side = behavior_side(member);
+            self.visit_behavior_member(parent, owner.clone(), member, side);
         }
     }
 
@@ -593,7 +657,7 @@ impl SourceScopeBuilder<'_> {
         );
     }
 
-    fn visit_enum(&mut self, parent: SourceScopeId, enum_def: &EnumDef) {
+    fn visit_enum(&mut self, _parent: SourceScopeId, enum_def: &EnumDef) {
         let declaration = DeclarationId::new(self.index.module.clone(), enum_def.name.clone().into());
         let declaration_site = self.allocate_site(
             SourceOwner::Module(self.index.module.clone()),
@@ -614,55 +678,31 @@ impl SourceScopeBuilder<'_> {
             },
         );
 
-        for member in &enum_def.members {
-            match member {
-                EnumMember::Variant(variant) => {
-                    let variant_id = VariantId::new(declaration.clone(), phalcom_ast::selector::selector_from_variant(variant));
-                    let variant_site = self.allocate_site(
+        for variant in &enum_def.variants {
+            let variant_id = VariantId::new(declaration.clone(), phalcom_ast::selector::selector_from_variant(variant));
+            let variant_site = self.allocate_site(
+                SourceOwner::Module(self.index.module.clone()),
+                variant.name_range,
+                SourceSiteKind::Variant(variant_id.clone()),
+            );
+            self.index.register_target(variant_site, SemanticTargetId::Variant(variant_id.clone()));
+            if let Some(family) = variant_id.family() {
+                let family_site = self.allocate_site(
+                    SourceOwner::Module(self.index.module.clone()),
+                    variant.name_range,
+                    SourceSiteKind::VariantFamily(family.clone()),
+                );
+                self.index.register_target(family_site, SemanticTargetId::VariantFamily(family));
+            }
+            if let Some(payload) = &variant.payload {
+                for (index, parameter) in payload.parameters.iter().enumerate() {
+                    let field = VariantFieldId::new(variant_id.clone(), index as u32);
+                    let site = self.allocate_site(
                         SourceOwner::Module(self.index.module.clone()),
-                        variant.name_range,
-                        SourceSiteKind::Variant(variant_id.clone()),
+                        parameter.name_range,
+                        SourceSiteKind::VariantField(field.clone()),
                     );
-                    self.index.register_target(variant_site, SemanticTargetId::Variant(variant_id.clone()));
-                    if let Some(family) = variant_id.family() {
-                        let family_site = self.allocate_site(
-                            SourceOwner::Module(self.index.module.clone()),
-                            variant.name_range,
-                            SourceSiteKind::VariantFamily(family.clone()),
-                        );
-                        self.index.register_target(family_site, SemanticTargetId::VariantFamily(family));
-                    }
-                    if let Some(payload) = &variant.payload {
-                        for (index, parameter) in payload.parameters.iter().enumerate() {
-                            let field = VariantFieldId::new(variant_id.clone(), index as u32);
-                            let site = self.allocate_site(
-                                SourceOwner::Module(self.index.module.clone()),
-                                parameter.name_range,
-                                SourceSiteKind::VariantField(field.clone()),
-                            );
-                            self.index.register_target(site, SemanticTargetId::VariantField(field));
-                        }
-                    }
-                    if let Some(body) = &variant.body {
-                        for behavior in &body.members {
-                            self.visit_enum_behavior(parent, CallableOwnerId::Variant(variant_id.clone()), behavior, DispatchSide::Instance);
-                        }
-                    }
-                }
-                EnumMember::Behavior(behavior) => {
-                    let is_class_side = behavior.attributes().iter().any(|attribute| attribute.name == "class")
-                        || match behavior {
-                            EnumBehaviorMember::Method(method) => method.is_static,
-                            EnumBehaviorMember::Getter(getter) => getter.is_static,
-                            EnumBehaviorMember::Setter(setter) => setter.is_static,
-                            EnumBehaviorMember::Index(_) => false,
-                        };
-                    self.visit_enum_behavior(
-                        parent,
-                        CallableOwnerId::Declaration(declaration.clone()),
-                        behavior,
-                        if is_class_side { DispatchSide::Class } else { DispatchSide::Instance },
-                    );
+                    self.index.register_target(site, SemanticTargetId::VariantField(field));
                 }
             }
         }
@@ -703,7 +743,7 @@ impl SourceScopeBuilder<'_> {
         }
     }
 
-    fn visit_enum_behavior(&mut self, parent: SourceScopeId, owner: CallableOwnerId, behavior: &EnumBehaviorMember, side: DispatchSide) {
+    fn visit_behavior_member(&mut self, parent: SourceScopeId, owner: CallableOwnerId, behavior: &phalcom_ast::ast::BehaviorMember, side: DispatchSide) {
         let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(behavior);
         let Some(callable) = crate::checker::declaration_signature::callable_id_for_syntax(&owner, syntax, side) else {
             return;
@@ -713,7 +753,7 @@ impl SourceScopeBuilder<'_> {
             .first()
             .map_or(behavior.range(), |attribute| SourceRange::new(attribute.range.start, behavior.range().end));
         match behavior {
-            EnumBehaviorMember::Method(method) => self.visit_callable(CallableVisit {
+            BehaviorMember::Method(method) => self.visit_callable(CallableVisit {
                 parent,
                 callable,
                 name_range: method.name_range,
@@ -729,7 +769,7 @@ impl SourceScopeBuilder<'_> {
                 },
                 has_explicit_return_annotation: method.return_annotation.is_some(),
             }),
-            EnumBehaviorMember::Getter(getter) => self.visit_callable(CallableVisit {
+            BehaviorMember::Getter(getter) => self.visit_callable(CallableVisit {
                 parent,
                 callable,
                 name_range: getter.name_range,
@@ -741,7 +781,7 @@ impl SourceScopeBuilder<'_> {
                 kind: SourceCallableKind::Getter,
                 has_explicit_return_annotation: getter.return_annotation.is_some(),
             }),
-            EnumBehaviorMember::Setter(setter) => self.visit_callable(CallableVisit {
+            BehaviorMember::Setter(setter) => self.visit_callable(CallableVisit {
                 parent,
                 callable,
                 name_range: setter.name_range,
@@ -753,7 +793,7 @@ impl SourceScopeBuilder<'_> {
                 kind: SourceCallableKind::Setter,
                 has_explicit_return_annotation: setter.return_annotation.is_some(),
             }),
-            EnumBehaviorMember::Index(index) => {
+            BehaviorMember::Index(index) => {
                 let mut parameters = index.params.clone();
                 if let phalcom_ast::ast::IndexAccessor::Set { value } = &index.accessor {
                     parameters.push((**value).clone());
@@ -1271,6 +1311,36 @@ fn parameter_slot(parameter: &phalcom_ast::ast::ParameterDef) -> SelectorSlot {
         .map_or(SelectorSlot::Positional, |label| SelectorSlot::Label(label.clone()))
 }
 
+fn behavior_side(member: &phalcom_ast::ast::BehaviorMember) -> DispatchSide {
+    if member.attributes().iter().any(|attribute| attribute.name == "class") {
+        return DispatchSide::Class;
+    }
+    match member {
+        phalcom_ast::ast::BehaviorMember::Method(method) => {
+            if method.is_static {
+                DispatchSide::Class
+            } else {
+                DispatchSide::Instance
+            }
+        }
+        phalcom_ast::ast::BehaviorMember::Getter(getter) => {
+            if getter.is_static {
+                DispatchSide::Class
+            } else {
+                DispatchSide::Instance
+            }
+        }
+        phalcom_ast::ast::BehaviorMember::Setter(setter) => {
+            if setter.is_static {
+                DispatchSide::Class
+            } else {
+                DispatchSide::Instance
+            }
+        }
+        phalcom_ast::ast::BehaviorMember::Index(_) => DispatchSide::Instance,
+    }
+}
+
 fn statements_range(statements: &[Statement]) -> SourceRange {
     statements
         .iter()
@@ -1292,5 +1362,6 @@ fn statement_range(statement: &Statement) -> SourceRange {
         Statement::Throw { range, .. } => *range,
         Statement::Export(export_decl) => export_decl.range,
         Statement::TypeAlias(type_alias) => type_alias.range,
+        Statement::Impl(impl_def) => impl_def.range,
     }
 }

@@ -104,6 +104,7 @@ pub enum SemanticProduct {
     LinkedInterface(Arc<LinkedModuleInterface>),
     DeclarationShell(Arc<TypeDeclarationShell>),
     DeclarationSurface(Arc<DeclarationSurfaceProduct>),
+    CallableDefinition(Arc<crate::impls::EffectiveCallableDefinition>),
     HierarchyEdge(Arc<HierarchyEdgeProduct>),
     CallableSignature(Arc<CallableSemanticSignature>),
     FieldSignature(Arc<FieldSemanticSignature>),
@@ -163,6 +164,14 @@ impl SemanticProduct {
     pub fn as_declaration_surface(&self) -> Option<&Arc<DeclarationSurface>> {
         match self {
             Self::DeclarationSurface(product) => Some(&product.surface),
+            _ => None,
+        }
+    }
+
+    /// Returns the conflict-admitted source definition for a callable.
+    pub fn as_callable_definition(&self) -> Option<&Arc<crate::impls::EffectiveCallableDefinition>> {
+        match self {
+            Self::CallableDefinition(definition) => Some(definition),
             _ => None,
         }
     }
@@ -303,6 +312,7 @@ impl SemanticProduct {
             Self::LinkedInterface(_) => b"linked-interface".as_slice(),
             Self::DeclarationShell(_) => b"declaration-shell".as_slice(),
             Self::DeclarationSurface(_) => b"declaration-surface".as_slice(),
+            Self::CallableDefinition(_) => b"callable-definition".as_slice(),
             Self::HierarchyEdge(_) => b"hierarchy-edge".as_slice(),
             Self::CallableSignature(_) => b"callable-signature".as_slice(),
             Self::FieldSignature(_) => b"field-signature".as_slice(),
