@@ -185,10 +185,10 @@ fn bound_trait_reference_retains_conformance_selection_evidence() {
     let module = ModuleId::universe_root();
     let source: Arc<str> = Arc::from(
         r#"
-trait Named { name -> String }
+trait Marked { marker -> String }
 class User {}
-impl Named for User { name -> String { "witness-user" } }
-class Caller { run(_ user: User) -> String { let f = &user.name; f() } }
+impl Marked for User { marker -> String { "witness-user" } }
+class Caller { run(_ user: User) -> String { let f = &user.marker; f() } }
 "#,
     );
     let parsed = phalcom_ast::parse(&source, 0);
@@ -206,7 +206,7 @@ class Caller { run(_ user: User) -> String { let f = &user.name; f() } }
     let reference = callable
         .expressions
         .values()
-        .find(|expression| source.get(expression.range.start..expression.range.end) == Some("&user.name"))
+        .find(|expression| source.get(expression.range.start..expression.range.end) == Some("&user.marker"))
         .expect("bound trait reference expression");
     let resolution = callable
         .callable_reference_resolutions
