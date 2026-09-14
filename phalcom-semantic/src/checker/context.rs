@@ -434,6 +434,7 @@ pub struct CheckingContext<'a> {
     next_inference_context_id: u32,
     inference_frames: Vec<(crate::checker::inference::InferenceContextId, crate::checker::inference::InferenceFrameId)>,
     symbolic_inference_results: BTreeMap<ExpressionId, crate::checker::typed_expr::SymbolicInferenceResult>,
+    call_specializations: BTreeMap<ExpressionId, crate::checker::analysis::CallSpecialization>,
 }
 
 impl<'a> CheckingContext<'a> {
@@ -530,6 +531,7 @@ impl<'a> CheckingContext<'a> {
             next_inference_context_id: 0,
             inference_frames: Vec::new(),
             symbolic_inference_results: BTreeMap::new(),
+            call_specializations: BTreeMap::new(),
         }
     }
 
@@ -612,6 +614,7 @@ impl<'a> CheckingContext<'a> {
             next_inference_context_id: 0,
             inference_frames: Vec::new(),
             symbolic_inference_results: BTreeMap::new(),
+            call_specializations: BTreeMap::new(),
         }
     }
 
@@ -676,6 +679,7 @@ impl<'a> CheckingContext<'a> {
             next_inference_context_id: self.next_inference_context_id,
             inference_frames: self.inference_frames.clone(),
             symbolic_inference_results: self.symbolic_inference_results.clone(),
+            call_specializations: self.call_specializations.clone(),
         }
     }
 
@@ -1393,6 +1397,9 @@ impl<'a> CheckingContext<'a> {
 
         let mut analysis = ExpressionAnalysis::ready(id, range, typed.knowledge.clone());
         analysis.callable = typed.callable.clone();
+        // Consume the per-analysis publication so a later re-analysis cannot
+        // accidentally inherit a specialization from an older solution.
+        analysis.call_specialization = self.call_specializations.remove(&id);
         analysis.conditional_dispatch = self.resolved_conditional_dispatches.get(&id).cloned();
         analysis.denotation = typed.denotation.clone();
         analysis.status = typed.status.clone();
@@ -1415,10 +1422,21 @@ impl<'a> CheckingContext<'a> {
 
         analysis.knowledge = typed.knowledge.clone();
         analysis.callable = typed.callable.clone();
+        if let Some(specialization) = self.call_specializations.remove(&id) {
+            analysis.call_specialization = Some(specialization);
+        }
         analysis.conditional_dispatch = self.resolved_conditional_dispatches.get(&id).cloned();
         analysis.denotation = typed.denotation.clone();
         analysis.status = typed.status.clone();
         analysis.causal_invalidity = typed.causal_invalidity;
+    }
+
+    pub(crate) fn publish_call_specialization(
+        &mut self,
+        id: ExpressionId,
+        specialization: crate::checker::analysis::CallSpecialization,
+    ) {
+        self.call_specializations.insert(id, specialization);
     }
 
     pub fn push_scope(&mut self) {

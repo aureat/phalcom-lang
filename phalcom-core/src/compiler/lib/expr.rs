@@ -480,7 +480,7 @@ impl<'vm> Compiler<'vm> {
                                 call.range,
                             );
                         } else {
-                            self.emit(Bytecode::Invoke(arity, selector_idx), call.range);
+                            self.emit_invoke(arity, selector_idx, call.range, false)?;
                         }
                         return Ok(());
                     }
@@ -493,7 +493,7 @@ impl<'vm> Compiler<'vm> {
                 let selector = encode_selector("call", &labels, SignatureKind::Method(arity));
                 let selector_sym = self.vm.interner.intern(&selector);
                 let selector_idx = self.add_constant(Value::symbol(selector_sym));
-                self.emit(Bytecode::Invoke(arity, selector_idx), call.range);
+                self.emit_invoke(arity, selector_idx, call.range, false)?;
             }
             Expr::MethodCall(method_call) => {
                 self.check_bounded_method_call(&method_call)?;
@@ -739,12 +739,7 @@ impl<'vm> Compiler<'vm> {
                                 method_call.range,
                             );
                         } else {
-                            let opcode = if internal_call {
-                                Bytecode::InvokeCompilerInternal(arity, selector_idx)
-                            } else {
-                                Bytecode::Invoke(arity, selector_idx)
-                            };
-                            self.emit(opcode, method_call.range);
+                            self.emit_invoke(arity, selector_idx, method_call.range, internal_call)?;
                         }
                     }
                 }

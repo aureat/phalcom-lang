@@ -869,6 +869,7 @@ impl<'a> GenericApplicationDomains<'a> {
 fn apply_generic_callable_inner(
     ctx: &mut CheckingContext<'_>,
     signature: &CallableSignature,
+    callable: Option<CallableId>,
     domains: GenericApplicationDomains<'_>,
     fixed_generics: &[(TypeParameterId, TypeId)],
     args: &[ApplicationArgument<'_>],
@@ -897,7 +898,7 @@ fn apply_generic_callable_inner(
         }
     };
     ctx.push_inference_frame(context, root_frame);
-    let result = apply_generic_callable_in_context(ctx, signature, domains, fixed_generics, args, expected, call_range, context, root_frame);
+    let result = apply_generic_callable_in_context(ctx, signature, callable, domains, fixed_generics, args, expected, call_range, context, root_frame);
     ctx.pop_inference_frame(context, root_frame);
     if let Some(session) = ctx.inference_session(context) {
         session.borrow_mut().close_frame(root_frame);
@@ -912,6 +913,7 @@ fn apply_generic_callable_inner(
 fn apply_generic_callable_in_context(
     ctx: &mut CheckingContext<'_>,
     signature: &CallableSignature,
+    callable: Option<CallableId>,
     domains: GenericApplicationDomains<'_>,
     fixed_generics: &[(TypeParameterId, TypeId)],
     args: &[ApplicationArgument<'_>],
@@ -1408,6 +1410,9 @@ fn apply_generic_callable_in_context(
                 );
                 ctx.record_call_dependency(CausalInvalidity::Clean, Some(explanation));
             }
+        }
+        if !ctx.call_status_is_recorded() {
+            publish_call_specialization(ctx, callable, &domains, fixed_generics, &var_map, &session_handle);
         }
     }
 
@@ -2048,7 +2053,45 @@ fn apply_generic_callable(
         declaration: declaration_generics.as_ref(),
         callable: target.signature.generics.as_ref(),
     };
-    apply_generic_callable_inner(ctx, &target.signature, domains, &target.fixed_generics, arguments, expected, call_range)
+    apply_generic_callable_inner(ctx, &target.signature, target.callable.clone(), domains, &target.fixed_generics, arguments, expected, call_range)
+}
+
+fn publish_call_specialization(
+    ctx: &mut CheckingContext<'_>,
+    callable: Option<CallableId>,
+    domains: &GenericApplicationDomains<'_>,
+    fixed_generics: &[(TypeParameterId, TypeId)],
+    type_terms: &std::collections::HashMap<TypeParameterId, InferenceTerm>,
+    session_handle: &std::rc::Rc<std::cell::RefCell<InferenceSession>>,
+) {
+    let Some(callable) = callable else {
+        return;
+    };
+    let Some(expression) = ctx.current_expression_id() else {
+        return;
+    };
+    let mut bindings = std::collections::BTreeMap::new();
+    for &(parameter, ty) in fixed_generics {
+        bindings.insert(parameter, ty);
+    }
+    for parameter in domains.signatures().flat_map(|signature| signature.parameters.iter()).copied() {
+        if ctx.store.type_parameter(parameter).kind == crate::types::id::KindId::RECORD_ROW {
+            return;
+        }
+        let ty = {
+            let mut session = session_handle.borrow_mut();
+            session.projected_solution(parameter, type_terms, ctx.store)
+        };
+        let Some(ty) = ty else {
+            return;
+        };
+        bindings.insert(parameter, ty);
+    }
+    let bindings = bindings.into_iter().collect::<Vec<_>>().into_boxed_slice();
+    ctx.publish_call_specialization(
+        expression,
+        crate::checker::analysis::CallSpecialization { callable, bindings },
+    );
 }
 
 fn target_has_generic_domains(ctx: &CheckingContext<'_>, target: &CallableApplicationTarget) -> bool {

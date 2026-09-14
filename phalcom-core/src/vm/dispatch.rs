@@ -1129,7 +1129,14 @@ impl VM {
     /// # Errors
     ///
     /// Propagates any [`RuntimeError`] the dispatched method raises.
-    fn invoke_at(&mut self, callable: &Callable, cache_ip: usize, arity: u8, selector_idx: u16) -> PhResult<()> {
+    fn invoke_at(
+        &mut self,
+        callable: &Callable,
+        cache_ip: usize,
+        arity: u8,
+        selector_idx: u16,
+        call_environment: Option<&crate::typing::RuntimeCallEnvironmentRecipe>,
+    ) -> PhResult<()> {
         let arity = arity as usize;
         let receiver_idx = self.stack.len() - 1 - arity;
         let receiver = self.stack[receiver_idx];
@@ -1137,6 +1144,9 @@ impl VM {
         let selector_val = callable.chunk.constants[selector_idx as usize];
         let selector_sym = selector_val.as_symbol().unwrap();
         let layout = self.invocation_layout_for_selector(selector_sym, arity)?;
+        let type_environment = call_environment
+            .map(|recipe| self.materialize_call_environment(recipe))
+            .transpose()?;
 
         // A Family owns the selector shape of a callable reference. Bracket
         // sends therefore activate the family directly instead of looking up
@@ -1170,11 +1180,22 @@ impl VM {
             (cached, chunk.span_at(cache_ip))
         };
 
-        if let Some(()) = self.try_module_export_send(receiver_idx, selector_sym, arity, source_range)? {
+        let type_environment = type_environment.unwrap_or(crate::typing::RuntimeTypeEnvironmentId::EMPTY);
+        if let Some(()) = self.try_module_export_send_with_environment(
+            receiver_idx,
+            selector_sym,
+            arity,
+            source_range,
+            type_environment,
+            call_environment,
+        )? {
             return Ok(());
         }
 
         if let Some(method) = cached {
+            if let Some(recipe) = call_environment {
+                self.validate_specialized_call(recipe, method)?;
+            }
             if self.heap.method(method).signature.rest.is_some() {
                 let (name, slots, kind) = decode_selector(self.resolve_symbol(selector_sym));
                 let positional_count = slots.iter().filter(|slot| slot.is_none()).count();
@@ -1188,7 +1209,7 @@ impl VM {
                 }
                 self.activate_rest_method(&receiver, method, receiver_idx, positional_count, &labels, selector_sym, source_range)?;
             } else {
-                self.call_method_with_selector_as(
+                self.call_method_with_selector_as_and_environment(
                     &receiver,
                     method,
                     arity,
@@ -1196,6 +1217,7 @@ impl VM {
                     Some(layout.clone()),
                     source_range,
                     (self.current_access_class(), self.current_has_internal_privilege()),
+                    type_environment,
                 )?;
             }
         } else {
@@ -1208,7 +1230,10 @@ impl VM {
                     version: self.world_version,
                 };
                 callable.chunk.caches[cache_ip].set(Some(entry));
-                self.call_method_with_selector_as(
+                if let Some(recipe) = call_environment {
+                    self.validate_specialized_call(recipe, method)?;
+                }
+                self.call_method_with_selector_as_and_environment(
                     &receiver,
                     method,
                     arity,
@@ -1216,6 +1241,7 @@ impl VM {
                     Some(layout.clone()),
                     source_range,
                     (self.current_access_class(), self.current_has_internal_privilege()),
+                    type_environment,
                 )?;
             } else {
                 let (name, slots, kind) = decode_selector(self.resolve_symbol(selector_sym));
@@ -1244,6 +1270,63 @@ impl VM {
         Ok(())
     }
 
+    /// Confirms that a specialized callsite still dispatches to the canonical
+    /// callable identity published by semantic analysis. The selector check is
+    /// the fail-closed floor; loaded metadata supplies the owner/side identity
+    /// through the VM method semantic index.
+    pub(crate) fn validate_specialized_call(
+        &self,
+        recipe: &crate::typing::RuntimeCallEnvironmentRecipe,
+        method: crate::heap::ObjRef,
+    ) -> Result<(), RuntimeError> {
+        let selected_selector = self.resolve_symbol(self.heap.method(method).signature.selector);
+        if selected_selector != recipe.callable.selector.as_ref() {
+            return Err(RuntimeError::Internal(format!(
+                "specialized call selected `{selected_selector}` for `{}`",
+                recipe.callable.selector
+            )));
+        }
+        if let Some(call_ref) = self.typing_registry.method_semantics.get(method) {
+            let actual = self
+                .typing_registry
+                .get_pool(call_ref.pool)
+                .and_then(|pool| pool.bundle.callables.get(call_ref.record.0 as usize))
+                .ok_or_else(|| RuntimeError::Internal("specialized call metadata reference is unavailable".into()))?;
+            if actual.callable != recipe.callable {
+                return Err(RuntimeError::Internal("specialized call canonical callable identity mismatch".into()));
+            }
+        }
+        Ok(())
+    }
+
+    fn materialize_call_environment(
+        &mut self,
+        recipe: &crate::typing::RuntimeCallEnvironmentRecipe,
+    ) -> Result<crate::typing::RuntimeTypeEnvironmentId, RuntimeError> {
+        let parent_id = self
+            .frames
+            .last()
+            .map(|frame| frame.type_environment)
+            .unwrap_or(crate::typing::RuntimeTypeEnvironmentId::EMPTY);
+        let parent = self
+            .runtime_type_environments
+            .get(parent_id)
+            .cloned()
+            .ok_or_else(|| RuntimeError::Internal(format!("missing caller runtime type environment {}", parent_id.0)))?;
+        let mut bindings = Vec::with_capacity(recipe.bindings.len());
+        for (parameter, type_recipe) in recipe.bindings.iter().cloned() {
+            let ty = crate::typing::instantiate_type_recipe(
+                type_recipe,
+                &parent,
+                &mut self.runtime_typing_context,
+                &self.typing_registry,
+            )
+            .ok_or_else(|| RuntimeError::Internal("generic call-entry type recipe could not be instantiated".into()))?;
+            bindings.push((parameter, ty));
+        }
+        Ok(self.runtime_type_environments.intern(crate::typing::RuntimeTypeEnvironment::new(bindings)))
+    }
+
     /// Executes a compiler-emitted call to an internal runtime helper.
     ///
     /// The capability covers method authorization only. It is removed before
@@ -1251,7 +1334,7 @@ impl VM {
     /// internal authority to ordinary user code.
     fn invoke_compiler_internal_at(&mut self, callable: &Callable, cache_ip: usize, arity: u8, selector_idx: u16) -> PhResult<()> {
         self.compiler_internal_dispatch_depth += 1;
-        let result = self.invoke_at(callable, cache_ip, arity, selector_idx);
+        let result = self.invoke_at(callable, cache_ip, arity, selector_idx, None);
         self.compiler_internal_dispatch_depth -= 1;
         result
     }
@@ -1957,7 +2040,11 @@ impl VM {
                     self.stack.push(wrapped);
                 }
                 Bytecode::Invoke(arity, selector_idx) => {
-                    self.invoke_at(callable, ip, arity, selector_idx)?;
+                    self.invoke_at(callable, ip, arity, selector_idx, None)?;
+                }
+                Bytecode::InvokeSpecialized(arity, selector_idx, recipe_idx) => {
+                    let recipe = callable.chunk.executable_semantics.call_environment_recipe(recipe_idx).clone();
+                    self.invoke_at(callable, ip, arity, selector_idx, Some(&recipe))?;
                 }
                 Bytecode::InvokeConditional {
                     arity,
@@ -2345,13 +2432,13 @@ impl VM {
                     let value = self.surface_absence(self.stack[local_idx]);
                     self.stack.push(value);
                     self.frames.last_mut().unwrap().ip += 1;
-                    self.invoke_at(callable, ip + 1, arity, selector_idx)?;
+                    self.invoke_at(callable, ip + 1, arity, selector_idx, None)?;
                 }
                 Bytecode::InvokeConst(idx, arity, selector_idx) => {
                     let constant = callable.chunk.constants[idx as usize];
                     self.stack.push(constant);
                     self.frames.last_mut().unwrap().ip += 1;
-                    self.invoke_at(callable, ip + 1, arity, selector_idx)?;
+                    self.invoke_at(callable, ip + 1, arity, selector_idx, None)?;
                 }
                 Bytecode::GetUpvalue(idx) => {
                     let cell = self.heap.closure(closure_id).upvalues[idx as usize];

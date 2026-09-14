@@ -8,6 +8,7 @@ use crate::identity::{
 };
 use crate::types::denotation::SemanticDenotation;
 use crate::types::evidence::{DynamicReason, TypeKnowledge};
+use crate::types::id::{TypeId, TypeParameterId};
 use crate::types::outcome::{BlockReason, BudgetReport};
 use phalcom_common::range::SourceRange;
 use std::collections::BTreeMap;
@@ -43,6 +44,9 @@ pub struct ExpressionAnalysis {
     pub range: SourceRange,
     pub knowledge: TypeKnowledge,
     pub callable: Option<CallableId>,
+    /// Canonical generic arguments selected for this call site. Lowering may
+    /// project this product into a runtime recipe but must not redo inference.
+    pub call_specialization: Option<CallSpecialization>,
     /// Canonical per-expression evidence that dispatch selected a conditional
     /// inherent implementation. Lowering consumes this directly and must not
     /// reconstruct the decision from target indexes.
@@ -61,6 +65,7 @@ impl ExpressionAnalysis {
             range,
             knowledge,
             callable: None,
+            call_specialization: None,
             conditional_dispatch: None,
             denotation: None,
             status: AnalysisStatus::Ready,
@@ -76,6 +81,7 @@ impl ExpressionAnalysis {
             range,
             knowledge: TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::SyntaxError),
             callable: None,
+            call_specialization: None,
             conditional_dispatch: None,
             denotation: None,
             status: AnalysisStatus::Invalid(cause),
@@ -104,6 +110,16 @@ impl ExpressionAnalysis {
         self.status = status;
         self
     }
+}
+
+/// Solved generic arguments for one canonical callable application.
+///
+/// Bindings contain canonical `TypeId`s only. Inference-local variables never
+/// cross this publication boundary.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CallSpecialization {
+    pub callable: CallableId,
+    pub bindings: Box<[(TypeParameterId, TypeId)]>,
 }
 
 /// Binding flow state tracking persistent declared constraint vs. current path knowledge.

@@ -68,6 +68,7 @@ fn test_interprocedural_effect_propagation() {
             range: RANGE,
             knowledge: TypeKnowledge::Dynamic(DynamicReason::DynamicRestPack),
             callable: None,
+            call_specialization: None,
             conditional_dispatch: None,
             denotation: None,
             status: AnalysisStatus::DynamicBoundary(DynamicReason::DynamicRestPack),

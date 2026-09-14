@@ -11,7 +11,7 @@ requires:
   - LANG005.C2
 blocked_by: []
 next_plan: LANG005.C3.P1
-baseline_revision: 3d4d1a855337738eb86a056721e8c52f1cf3c18b
+baseline_revision: 94aed5d6
 requirements: LANG005.C3.P1-requirements-analysis.md
 active_plan: LANG005.C3.P1
 ---
@@ -100,7 +100,7 @@ next_plan: LANG005.C3.P1
 external_blocker: none
 internal_first_gate: G1
 active_plan: LANG005.C3.P1
-next_action: LANG005.C3.P1.T1
+next_action: LANG005.C3.P1.G1
 ```
 
 The previous lifecycle state was stale. It recorded C3 as blocked on `LANG005.C2.P3` at revision `986568da050d1bbfa7f1d769c9e1f4d58eb81cf3`.
@@ -112,8 +112,8 @@ The current planning baseline is:
 ```text
 repository: aureat/phalcom-lang
 branch: main
-revision: 3d4d1a855337738eb86a056721e8c52f1cf3c18b
-commit: lang005: complete C2 specialized impl applicability
+revision: 94aed5d6
+commit: lang005: wire product reification and exact-case lifecycle
 planning date: 2026-09-14
 ```
 
@@ -201,7 +201,7 @@ The four integrated findings were verified against the live tree:
 
 | Finding | Live evidence | Disposition |
 |---|---|---|
-| `C1-F01` | `AnonymousProductConstructionLoweringSpec` carried only `kind` and `layout`; static tuple/record materializers registered descriptors with `exact_type: None`. | T1 partial closure: metadata recipe and exact attachment are implemented; generic call-entry producer remains open and blocks G1. |
+| `C1-F01` | `AnonymousProductConstructionLoweringSpec` carried only `kind` and `layout`; static tuple/record materializers registered descriptors with `exact_type: None`. | T1 closed: semantic callsite specialization, explicit invocation transport, runtime environment interning, and exact attachment are implemented. |
 | `C1-F02` | Dynamic `finish_record` formed `RecordProductShape` through `from_ordered_labels`, coupling presentation order to logical order. | T1 closed for dynamic construction; focused regression passes. |
 | `C2-F01` | Exact-case conditional consumers and `InherentImplTarget::ExactEnumCase` existed, but session publication registered only `InherentImplTarget::Declaration`. | T2 closed: exact-case sets are published under the full target. |
 | `C2-F02` | `SurfaceDispatchResolver::remove_surface` removed only the declaration-target conditional key. | T2 closed: owner-indexed target removal is atomic and owner-complete. |
@@ -217,6 +217,11 @@ The following T1 changes are now present in the live tree:
 3. Static Tuple/Record materialization instantiates the recipe against the current frame environment and publishes `exact_type: Some(...)`; missing template bindings fail closed with a structured runtime error.
 4. Dynamic Record materialization preserves encounter order while storing values in canonical label order through a shared shape permutation primitive.
 5. VM ownership now includes the runtime environment registry and instantiation overlay context; GC classifies both as non-roots.
+6. Solved generic calls publish canonical semantic specializations; lowering
+   projects them into explicit executable call recipes, and VM activation
+   interns the caller-relative environment before entering the callee.
+7. Source metadata registration supplies canonical callable identity for the
+   specialized dispatch validation path.
 
 Focused evidence:
 
@@ -226,9 +231,15 @@ RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --lib product::tests   
 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --lib typing::environment::tests PASS (2)
 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core language::compiler_lowering::family_application_lowering_projects_static_and_dynamic_records PASS
 RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core language::data_e2e::data_record_construction_and_access PASS
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic foundations::generic_application::solved_generic_call_publishes_canonical_call_specialization PASS
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --lib compiler::lib::product_opt::tests PASS (16)
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --lib product::tests PASS (6)
+RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --lib typing::environment::tests PASS (2)
 ```
 
-The T1 generic-entry requirement remains open. The live call path copies an existing block/frame environment but has no generic callsite producer that derives and interns the actual semantic specialization. Adding one requires a compiler/bytecode/runtime contract decision; payload-type inference is forbidden. G1 therefore remains blocked until that producer is supplied and AR-01..AR-05 are added or satisfied.
+The T1 generic-entry requirement is now closed by the semantic callsite
+specialization product and explicit `InvokeSpecialized` transport described in
+§3.7. G1 remains pending only for consolidated AR-01..AR-09 evidence.
 
 ### 3.5 P1.T2 implementation slice
 
@@ -250,18 +261,55 @@ Checkpoint: LANG005.C3
 Plan/task: LANG005.C3.P1.T1 / G1 precondition
 Repository: aureat/phalcom-lang
 Branch: main
-Starting revision: 3d4d1a855337738eb86a056721e8c52f1cf3c18b
-Current revision: 3d4d1a855337738eb86a056721e8c52f1cf3c18b plus uncommitted scoped changes
+Starting revision: 94aed5d6
+Current revision: 94aed5d6 plus uncommitted scoped changes
 Trigger: the planned compiler/runtime generic-reification contract is absent in the live call path
 Invariant: INV-02/INV-03; exact static products must publish canonical exact_type and missing template bindings must fail closed
 Expected architecture: semantic recipe -> shared generic call entry -> interned runtime environment -> frame/block propagation -> materialized exact_type
 Observed: CallFrame and BlockObject carry RuntimeTypeEnvironmentId, but ordinary closure activation supplies EMPTY and no generic callsite producer derives actual semantic bindings.
 Relevant path: compiler Bytecode::Invoke -> VM dispatch/send -> activate_closure_call -> CallFrame::type_environment -> product materialization.
-Local attempts: implemented recipe projection, metadata roots, strict template instantiation, VM environment/context ownership, exact descriptor attachment, and canonical dynamic Record storage; all focused checks passed.
-Local authority insufficient because adding the producer changes compiler/bytecode/runtime ABI and generic reification ownership; payload-type inference is forbidden.
+Local attempts: implemented recipe projection, metadata roots, strict template instantiation, VM environment/context ownership, exact descriptor attachment, canonical dynamic Record storage, and the semantic callsite producer; focused checks passed.
+Local authority was insufficient because adding the producer changed compiler/bytecode/runtime ABI and generic reification ownership; payload-type inference remained forbidden.
 Decision requested: choose the canonical call-entry source and ABI for deriving/interning semantic generic bindings, including whether it is a new invocation metadata lane or an existing callable specialization product.
-Next action after decision: implement producer, add AR-01..AR-04, then run G1 and begin T3.
+Resolution: see the consultation decision below. The producer and explicit invocation transport are now implemented; G1 consolidation remains.
 ```
+
+### 3.7 Consultation decision — canonical generic call-entry transport
+
+The referenced `LANG005.C1.P3` consultation returned:
+
+```text
+verdict: PLAN SOUND — ARCHITECTURAL CLARIFICATION REQUIRED
+required plan amendment: NO
+resume authority: LUNA MAY RESUME
+```
+
+The adopted implementation contract is:
+
+```text
+semantic checker
+    -> ExpressionAnalysis.call_specialization
+       (CallableId + sorted TypeParameterId -> canonical TypeId bindings)
+    -> metadata/runtime recipe projection
+       (StableCallableRef + StableTypeParameterRef -> RuntimeTypeRecipe)
+    -> explicit Bytecode::InvokeSpecialized
+    -> executable semantic pool recipe
+    -> VM recipe instantiation against caller frame environment
+    -> interned callee-owned RuntimeTypeEnvironmentId
+    -> callee frame/block propagation
+```
+
+The ordinary `Invoke` path remains environment-free. Ambiguous, dynamic,
+row-generic, unresolved, or otherwise non-canonical solutions publish no
+specialization and therefore cannot manufacture a runtime environment.
+Runtime dispatch preserves module-export forwarding and validates the selected
+method's canonical callable metadata when available; selector identity remains
+the fail-closed floor for legacy/unannotated runtime methods.
+
+Focused regressions now cover inferred publication, specialized opcode
+projection, distinct concrete generic product types, nested recipes, escaped
+blocks, optimizer/canonical parity, exact product descriptors, and existing
+Record/C2 lifecycle behavior. The decision introduced no plan amendment.
 
 ---
 
@@ -287,7 +335,7 @@ Do not reorganize C1/C2 as part of C3.
 
 | Plan | Scope | Status | Completion | Verification | Outcome |
 |---|---|---|---|---|---|
-| `LANG005.C3.P1` | C1/C2 takeover remediation; shared index body normalization; first-class trait declarations; `TraitRef`; `TraitRequirementId`; `TraitSurface`; abstract `Self` defaults; incremental/tooling/compiler boundary; protocol-era spec migration | IN_PROGRESS | PARTIAL | FOCUSED_TESTED | T0/T2 complete; T1 product/metadata slice implemented; generic call-entry producer remains before G1 |
+| `LANG005.C3.P1` | C1/C2 takeover remediation; shared index body normalization; first-class trait declarations; `TraitRef`; `TraitRequirementId`; `TraitSurface`; abstract `Self` defaults; incremental/tooling/compiler boundary; protocol-era spec migration | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | T0/T2 complete; T1 product/runtime slice complete; G1 consolidation is blocked by pre-existing C2 exact-case runtime failures |
 
 P1 is intended to close C3 unless implementation discovers a genuinely separate corrective package required to make the checkpoint acceptance objective truthful.
 
@@ -867,7 +915,7 @@ SourceDeclarationKind::Trait or repository-equivalent
 | Task | Scope | State before implementation |
 |---|---|---|
 | `T0` | final takeover, local-state capture, audit disposition lock | COMPLETE |
-| `T1` | C1 exact runtime reification + Record logical identity closure | PARTIAL |
+| `T1` | C1 exact runtime reification + Record logical identity closure | COMPLETE |
 | `T2` | C2 exact-case conditional product publication + owner-complete lifecycle | COMPLETE |
 | `T3` | shared index `MemberBody` normalization | NOT_STARTED |
 | `T4` | canonical trait syntax, module declaration kind, trait header | NOT_STARTED |
@@ -880,7 +928,8 @@ SourceDeclarationKind::Trait or repository-equivalent
 | `T11` | protocol-era specification migration | NOT_STARTED |
 | `T12` | focused stabilization, checkpoint closure, walkthrough, C4 handoff | NOT_STARTED |
 
-No production implementation work has been recorded by this checkpoint update.
+T1/T2 production repairs are recorded above. Trait production work remains
+gated on G1.
 
 ---
 
@@ -995,23 +1044,26 @@ G6 is checkpoint certification, not LANG005 release certification.
 
 ## 15. Verification Ledger
 
-C3 implementation verification is `FOCUSED_TESTED` for the completed T1 product/metadata slice; the plan remains incomplete and G1 is blocked on generic entry plus T2.
+C3 implementation verification is `FOCUSED_TESTED` for the completed T1/T2
+repair slices. The plan remains incomplete. G1 evidence is currently
+`BASELINE_BLOCKED` by pre-existing core exact-case runtime failures described
+in the deferred/baseline ledger below; no trait production work has begun.
 
 Planning/repository evidence:
 
 | Evidence ID | Scope | Result | Meaning |
 |---|---|---|---|
-| `PLAN-01` | repository baseline | PASS | final C2 revision `3d4d1a8...` verified |
+| `PLAN-01` | repository baseline | PASS | final C2 revision `94aed5d6` and scoped descendant changes verified |
 | `PLAN-02` | C2 status | PASS | C2.P3 implemented; stale external blocker removed |
 | `PLAN-03` | shared behavior AST | PASS | `BehaviorMember` remains canonical |
 | `PLAN-04` | declaration kinds | PASS | `Protocol` seam still present; `Trait` not yet implemented |
 | `PLAN-05` | callable identity | PASS | declaration-owned `CallableId` remains canonical |
 | `PLAN-06` | source targets | PASS | declaration/callable targets already sufficient |
 | `PLAN-07` | index member body | PASS | declaration-only index still requires shared normalization |
-| `PLAN-08` | C1 reification audit | PARTIAL | static product recipes and exact descriptor attachment are implemented; generic call-entry specialization remains open |
+| `PLAN-08` | C1 reification audit | PASS | semantic callsite specialization, explicit invocation transport, runtime environment interning, exact descriptor attachment, and focused AR-01..AR-05 regressions are implemented |
 | `PLAN-09` | dynamic Record audit | PASS | dynamic records now preserve presentation order while using canonical logical/storage coordinates |
-| `PLAN-10` | C2 exact-case publication audit | OPEN | conditional exact-case product publication is incomplete |
-| `PLAN-11` | C2 exact-case invalidation audit | OPEN | owner-complete removal is incomplete |
+| `PLAN-10` | C2 exact-case publication audit | PASS | conditional exact-case product publication is complete and focused |
+| `PLAN-11` | C2 exact-case invalidation audit | PASS | owner-complete removal is complete and focused |
 | `PLAN-12` | C2 proof-state audit | DEFERRED-PRE-C4 | proof-state granularity must be upgraded before conformance work |
 
 These are planning/takeover facts, not feature test certification.
@@ -1064,6 +1116,21 @@ state: deferred
 reason: coarse invalidation may be improved later without redesigning C3
 ```
 
+### DEF-006 — C2 exact-case runtime baseline failures
+
+```text
+scope: phalcom-core/tests/core language::inherent_impl
+state: baseline-blocked
+observed: 2 of 15 focused tests fail because exact enum-case values do not
+          answer their specialized methods at runtime
+classification: D — reproduced unchanged at clean predecessor 94aed5d6
+impact: prevents G1 from being certified as a complete AR-01..AR-09 gate;
+        does not invalidate the T1/T2 implementation repairs
+```
+
+The remaining 13 focused conditional tests pass. The failing baseline is
+preserved for the owning C2 follow-up and is not repaired as part of T1.
+
 ### PRE-C4-001 — Applicability proof-state distinction
 
 ```text
@@ -1076,6 +1143,11 @@ Do not begin C4 proof/witness implementation while the semantic result model can
 ---
 
 ## 17. Consultation / Amendment Ledger
+
+`LANG005.C1.P3 consultation` — resolved the T1 generic call-entry incident
+with the explicit semantic-product / `InvokeSpecialized` / interned-environment
+transport described in §3.7. Verdict: plan sound, architectural clarification
+required, no plan amendment, Luna may resume.
 
 ### Adopted planning amendments
 
@@ -1490,7 +1562,7 @@ LANG005.C3.P1
 ### Current next action
 
 ```text
-Continue LANG005.C3.P1.T1 — complete the generic call-entry producer for C1 exact runtime reification, then execute T2's exact-case publication/removal repair.
+Run the consolidated G1 focused evidence for AR-01..AR-09. If it passes, begin LANG005.C3.P1.T3 shared behavior-member/index normalization; do not start trait production source work before G1.
 
 T1 and T2 must complete before G1. Do not add Statement::Trait, rename DeclarationKind::Protocol, or implement TraitRef/TraitSurface/default semantics before G1 passes.
 ```

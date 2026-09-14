@@ -105,6 +105,7 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "BuildStaticRecord",
     "InvokeConditional",
     "MakeConditionalFamily",
+    "InvokeSpecialized",
 ];
 
 /// Distinguishes exact selector identity from a structural selector pattern
@@ -195,6 +196,11 @@ pub enum Bytecode {
     /// 0: number of arguments
     /// 1: index of selector constant
     Invoke(u8, u16),
+
+    /// Calls a method with an explicit generic call-entry environment recipe.
+    /// 0: number of arguments; 1: selector constant; 2: executable semantic
+    /// pool index of the immutable runtime environment recipe.
+    InvokeSpecialized(u8, u16, u16),
 
     /// Sends `selector` starting the method walk **above** a statically-known
     /// class, with the original receiver (`self`) — the lowering of a
@@ -695,7 +701,7 @@ pub enum Bytecode {
 impl Bytecode {
     /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
     /// histogram in `opcode_stats`.
-    pub const VARIANTS: usize = 101;
+    pub const VARIANTS: usize = 102;
 
     /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
     ///
@@ -807,6 +813,7 @@ impl Bytecode {
             Bytecode::GetDataComponent(..) => 96,
             Bytecode::InvokeConditional { .. } => 99,
             Bytecode::MakeConditionalFamily { .. } => 100,
+            Bytecode::InvokeSpecialized(..) => 101,
         }
     }
 

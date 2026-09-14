@@ -66,6 +66,100 @@ fn static_anonymous_products_compile_and_execute_through_program_path() {
 }
 
 #[test]
+fn specialized_generic_call_carries_environment_into_exact_product_construction() {
+    let source = "class Probe {\n  @class\n  make<T>(_ value: T) -> (T, Int) { (value, 1) }\n}\nconst result: (Int, Int) = Probe.make(7)\n";
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(source.into())).expect("generic product program compiles");
+    let mut vm = VM::new();
+    vm.materialize_program(&program).expect("generic product program materializes");
+    let closure = vm
+        .compile_program_module_closure(&program.entry, source, &program)
+        .expect("entry closure compiles");
+    let code = &vm.heap.closure(closure).callable.chunk.code;
+    assert!(code.iter().any(|instruction| matches!(instruction, Bytecode::InvokeSpecialized(..))));
+
+    vm.run_compiled(&program).expect("specialized generic call executes");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    let result = vm
+        .heap
+        .module(module)
+        .get(vm.interner.find("result").expect("result symbol"))
+        .expect("result global");
+    let tuple = vm.tuple_view(result.as_obj().expect("tuple result")).expect("tuple view");
+    assert_eq!(tuple.get(0), Some(Value::int(7)));
+    assert_eq!(tuple.get(1), Some(Value::int(1)));
+    let tuple_id = result.as_obj().expect("tuple result object");
+    let descriptor_id = vm.heap.tuple(tuple_id).descriptor();
+    assert!(vm
+        .anonymous_product_descriptors
+        .get(descriptor_id)
+        .expect("tuple descriptor")
+        .exact_type
+        .is_some());
+}
+
+#[test]
+fn generic_anonymous_products_materialize_distinct_exact_runtime_types() {
+    let source = "class Probe {\n  @class\n  make<T>(_ value: T) -> (T, Int) { (value, 1) }\n}\nconst int_result: (Int, Int) = Probe.make(7)\nconst text_result: (String, Int) = Probe.make(\"seven\")\n";
+    let (vm, module) = run_inline_with_mode(source, ProductOptimizationMode::Enabled).expect("generic products execute");
+    let get = |name: &str| vm.heap.module(module).get(vm.interner.find(name).expect("global symbol")).expect("global value");
+    let int_result = get("int_result");
+    let text_result = get("text_result");
+    let int_descriptor = vm.heap.tuple(int_result.as_obj().expect("integer tuple")).descriptor();
+    let text_descriptor = vm.heap.tuple(text_result.as_obj().expect("text tuple")).descriptor();
+    let int_exact = vm.anonymous_product_descriptors.get(int_descriptor).expect("integer descriptor").exact_type.as_ref();
+    let text_exact = vm.anonymous_product_descriptors.get(text_descriptor).expect("text descriptor").exact_type.as_ref();
+    assert!(int_exact.is_some());
+    assert!(text_exact.is_some());
+    assert_ne!(int_exact, text_exact);
+}
+
+#[test]
+fn nested_generic_product_recipe_instantiates_recursively() {
+    let source = "class Probe {\n  @class\n  make<T>(_ value: T) -> ((T, Int), Int) { ((value, 1), 2) }\n}\nconst result: ((Int, Int), Int) = Probe.make(7)\n";
+    let (vm, module) = run_inline_with_mode(source, ProductOptimizationMode::Enabled).expect("nested generic product executes");
+    let result = vm
+        .heap
+        .module(module)
+        .get(vm.interner.find("result").expect("result symbol"))
+        .expect("result global");
+    let outer = vm.tuple_view(result.as_obj().expect("outer tuple")).expect("outer tuple view");
+    let inner = vm.tuple_view(outer.get(0).expect("inner tuple").as_obj().expect("inner tuple object")).expect("inner tuple view");
+    assert_eq!(inner.get(0), Some(Value::int(7)));
+    assert_eq!(inner.get(1), Some(Value::int(1)));
+    assert_eq!(outer.get(1), Some(Value::int(2)));
+}
+
+#[test]
+fn escaped_block_preserves_runtime_type_environment_for_product_materialization() {
+    let source = "class Probe {\n  @class\n  make<T>(_ value: T) -> () -> (T, Int) { || { (value, 1) } }\n}\nconst escaped = Probe.make(7)\nconst result: (Int, Int) = escaped()\n";
+    let (vm, module) = run_inline_with_mode(source, ProductOptimizationMode::Enabled).expect("escaped generic product executes");
+    let result = vm
+        .heap
+        .module(module)
+        .get(vm.interner.find("result").expect("result symbol"))
+        .expect("result global");
+    let tuple = vm.tuple_view(result.as_obj().expect("tuple result")).expect("tuple view");
+    assert_eq!(tuple.get(0), Some(Value::int(7)));
+    assert_eq!(tuple.get(1), Some(Value::int(1)));
+}
+
+#[test]
+fn product_optimizer_rematerialization_preserves_exact_runtime_type() {
+    let source = "class Probe {\n  @class\n  make<T>(_ value: T) -> (T, Int) { (value, 1) }\n  @class\n  project(_ value: (Int, Int)) -> Int { value.at(0) }\n}\nconst result = Probe.project(Probe.make(7))\n";
+    let (optimized, optimized_module) = run_inline_with_mode(source, ProductOptimizationMode::Enabled).expect("optimized generic product executes");
+    let (canonical, canonical_module) = run_inline_with_mode(source, ProductOptimizationMode::Disabled).expect("canonical generic product executes");
+    let optimized_result = optimized
+        .heap
+        .module(optimized_module)
+        .get(optimized.interner.find("result").expect("optimized result symbol"));
+    let canonical_result = canonical
+        .heap
+        .module(canonical_module)
+        .get(canonical.interner.find("result").expect("canonical result symbol"));
+    assert_eq!(optimized_result, canonical_result);
+}
+
+#[test]
 fn unprovable_anonymous_product_uses_dynamic_pack_route() {
     let source = "const values = (1, 2)\nconst tuple = (0, *values)\n";
     let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(source.into())).expect("inline program compiles");

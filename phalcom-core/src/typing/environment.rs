@@ -1,6 +1,7 @@
 //! Runtime type recipe and compact environment registry (LANG005.C1.P3 Task 21).
 
 use crate::typing::handle::RuntimeTypeRef;
+use phalcom_type_meta::identity::StableCallableRef;
 use phalcom_type_meta::StableTypeParameterRef;
 use std::collections::HashMap;
 
@@ -9,6 +10,15 @@ use std::collections::HashMap;
 pub enum RuntimeTypeRecipe {
     Closed(RuntimeTypeRef),
     Template(RuntimeTypeRef),
+}
+
+/// Immutable call-entry recipe projected from the semantic call
+/// specialization product. The callable identity is retained so the VM can
+/// verify that a recipe is used only for its intended callee.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct RuntimeCallEnvironmentRecipe {
+    pub callable: StableCallableRef,
+    pub bindings: Box<[(StableTypeParameterRef, RuntimeTypeRecipe)]>,
 }
 
 /// Compact identifier for an interned runtime type environment.

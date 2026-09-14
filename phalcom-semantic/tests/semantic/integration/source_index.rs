@@ -594,6 +594,7 @@ fn formal_products_attach_by_callable_and_checker_ids() {
                 range: (expression_start..expression_start + 5).into(),
                 knowledge: TypeKnowledge::Unknown(UnknownReason::NoTypeEvidence),
                 callable: None,
+                call_specialization: None,
                 conditional_dispatch: None,
                 denotation: None,
                 status: AnalysisStatus::Ready,

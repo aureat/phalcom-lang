@@ -394,13 +394,58 @@ impl VM {
             self.typing_registry.register_pool(pool);
 
             let identity_context = phalcom_semantic::metadata::stable_identity::StableIdentityContext::new(&program.project_universe);
+            let mut source_metadata_bindings = Vec::new();
             for module_id in program.modules.keys() {
                 let stable_module = phalcom_semantic::metadata::stable_identity::to_stable_module_with_context(module_id, &identity_context);
                 for declaration in metadata_bundle.declarations.iter().filter(|record| record.declaration.module == stable_module) {
                     if let Some(name) = declaration.declaration.path.last() {
                         self.typing_registry
                             .register_declaration_identity(module_id.clone(), name.clone(), declaration.declaration.clone());
+
+                        let Some(module_object) = self.module_registry.get(module_id).map(|record| record.object) else {
+                            continue;
+                        };
+                        let Some(slot) = self.heap.module(module_object).slot_of(self.interner.intern(name)) else {
+                            continue;
+                        };
+                        let Some(class_id) = self.heap.module(module_object).get_by_slot(slot).and_then(|value| value.as_obj()) else {
+                            continue;
+                        };
+                        if self.heap.as_class(class_id).is_none() {
+                            continue;
+                        }
+
+                        let instance_methods = self.heap.class(class_id).methods.clone();
+                        let metaclass_id = self.heap.class(class_id).class;
+                        let class_methods = self.heap.class(metaclass_id).methods.clone();
+                        let mut method_semantics = Vec::new();
+                        for (record, callable) in metadata_bundle.callables.iter().enumerate() {
+                            let target_methods = if declaration.instance_callables.iter().any(|candidate| candidate == &callable.callable) {
+                                &instance_methods
+                            } else if declaration.class_callables.iter().any(|candidate| candidate == &callable.callable) {
+                                &class_methods
+                            } else {
+                                continue;
+                            };
+                            let selector = self.interner.intern(&callable.callable.selector);
+                            if let Some(method) = target_methods.get(&selector) {
+                                method_semantics.push((
+                                    *method,
+                                    crate::typing::side_table::RuntimeCallableRef {
+                                        pool: crate::typing::handle::MetadataPoolId(0),
+                                        record: phalcom_type_meta::declaration::CallableRecordId(record as u32),
+                                    },
+                                ));
+                            }
+                        }
+                        source_metadata_bindings.push((declaration.declaration.clone(), class_id, method_semantics));
                     }
+                }
+            }
+            for (declaration, class_id, method_semantics) in source_metadata_bindings {
+                self.typing_registry.register_nominal_binding(declaration, class_id);
+                for (method, callable) in method_semantics {
+                    self.typing_registry.method_semantics.insert(method, callable);
                 }
             }
 

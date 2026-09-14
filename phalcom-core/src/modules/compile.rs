@@ -7,7 +7,7 @@ use phalcom_modules::{
     UniverseSourceProvider, classify_entry_ownership,
 };
 use phalcom_semantic::SemanticDiagnostic;
-use crate::typing::{MetadataPoolId, RuntimeTypeRef};
+use crate::typing::{MetadataPoolId, RuntimeCallEnvironmentRecipe, RuntimeTypeRecipe, RuntimeTypeRef};
 use phalcom_common::range::SourceRange;
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Component, Path, PathBuf};
@@ -489,16 +489,54 @@ impl ProgramCompiler {
 
     fn project_analyzed(analyzed: &AnalyzedProgram) -> Result<CompiledProgram, ProgramCompileError> {
         let mut runtime_root_specs = Vec::<(ModuleId, SourceRange, phalcom_semantic::types::id::TypeId, String)>::new();
+        let mut runtime_call_root_specs = Vec::<(
+            ModuleId,
+            SourceRange,
+            phalcom_semantic::identity::CallableId,
+            phalcom_semantic::types::id::TypeParameterId,
+            phalcom_semantic::types::id::TypeId,
+            String,
+        )>::new();
         for (id, _) in &analyzed.linked.modules {
             if let Some(source) = analyzed.sources.get(id) {
                 for (range, ty) in super::semantic_lowering::anonymous_product_type_roots(id, &analyzed.semantic, &source.program) {
                     runtime_root_specs.push((id.clone(), range, ty, format!("anonymous-product-{}-{}", range.start, range.end)));
                 }
             }
+            for (callable, analysis) in analyzed
+                .semantic
+                .callable_analyses
+                .iter()
+                .filter(|(callable, _)| callable.owner.module() == id)
+            {
+                for expression in analysis.expressions.values() {
+                    let Some(specialization) = expression.call_specialization.as_ref() else {
+                        continue;
+                    };
+                    for &(parameter, ty) in specialization.bindings.iter() {
+                        runtime_call_root_specs.push((
+                            id.clone(),
+                            expression.range,
+                            specialization.callable.clone(),
+                            parameter,
+                            ty,
+                            format!(
+                                "call-environment-{}-{}-{}-{}",
+                                expression.range.start,
+                                expression.range.end,
+                                specialization.callable.selector,
+                                parameter.index()
+                            ),
+                        ));
+                    }
+                    let _ = callable;
+                }
+            }
         }
         let runtime_root_refs = runtime_root_specs
             .iter()
             .map(|(module, _, ty, key)| (module, key.as_str(), *ty))
+            .chain(runtime_call_root_specs.iter().map(|(module, _, _, _, ty, key)| (module, key.as_str(), *ty)))
             .collect::<Vec<_>>();
         let exporter = phalcom_semantic::metadata::MetadataExporter::new(
             analyzed.semantic.store(),
@@ -509,6 +547,22 @@ impl ProgramCompiler {
         )
         .with_project_universe(&analyzed.project_universe)
         .with_aliases(analyzed.semantic.type_aliases.as_ref());
+        let mut stable_call_root_specs = Vec::with_capacity(runtime_call_root_specs.len());
+        let mut exporter = exporter;
+        for (module, range, callable, parameter, ty, key) in &runtime_call_root_specs {
+            stable_call_root_specs.push((
+                module.clone(),
+                *range,
+                callable.clone(),
+                phalcom_semantic::metadata::stable_identity::to_stable_callable_with_context(
+                    callable,
+                    &phalcom_semantic::metadata::stable_identity::StableIdentityContext::new(&analyzed.project_universe),
+                ),
+                exporter.export_type_parameter(*parameter),
+                *ty,
+                key.clone(),
+            ));
+        }
         let metadata_bundle = Arc::new(
             exporter
                 .build_bundle(&runtime_root_refs)
@@ -521,6 +575,48 @@ impl ProgramCompiler {
                 .or_default()
                 .insert(*range, RuntimeTypeRef::Base { pool: MetadataPoolId(0), node: root.form });
         }
+        let mut runtime_call_environment_recipes = BTreeMap::<ModuleId, BTreeMap<SourceRange, Arc<RuntimeCallEnvironmentRecipe>>>::new();
+        let mut call_bindings = BTreeMap::<
+            (ModuleId, SourceRange, phalcom_semantic::identity::CallableId),
+            Vec<(phalcom_type_meta::StableTypeParameterRef, RuntimeTypeRecipe)>,
+        >::new();
+        for ((module, range, callable, stable_callable, stable_parameter, ty, _), root) in stable_call_root_specs
+            .iter()
+            .zip(metadata_bundle.runtime_roots.iter().skip(runtime_root_specs.len()))
+        {
+            let recipe = if phalcom_semantic::checker::associated::contains_any_type_parameter(&analyzed.semantic.store, *ty) {
+                RuntimeTypeRecipe::Template(RuntimeTypeRef::Base { pool: MetadataPoolId(0), node: root.form })
+            } else {
+                RuntimeTypeRecipe::Closed(RuntimeTypeRef::Base { pool: MetadataPoolId(0), node: root.form })
+            };
+            call_bindings
+                .entry((module.clone(), *range, callable.clone()))
+                .or_default()
+                .push((stable_parameter.clone(), recipe));
+            let _ = stable_callable;
+        }
+        for ((module, range, _callable), mut bindings) in call_bindings {
+            bindings.sort_by(|(left, _), (right, _)| left.cmp(right));
+            let Some(stable_callable) = stable_call_root_specs
+                .iter()
+                .find(|(candidate_module, candidate_range, candidate_callable, _, _, _, _)| {
+                    candidate_module == &module && candidate_range == &range && candidate_callable == &_callable
+                })
+                .map(|(_, _, _, stable_callable, _, _, _)| stable_callable.clone())
+            else {
+                continue;
+            };
+            runtime_call_environment_recipes
+                .entry(module)
+                .or_default()
+                .insert(
+                    range,
+                    Arc::new(RuntimeCallEnvironmentRecipe {
+                        callable: stable_callable,
+                        bindings: bindings.into_boxed_slice(),
+                    }),
+                );
+        }
         let mut modules = BTreeMap::new();
         for (id, linked_module) in &analyzed.linked.modules {
             let (source, source_text) = if let Some(parsed_unit) = analyzed.sources.get(id) {
@@ -528,11 +624,12 @@ impl ProgramCompiler {
             } else {
                 (None, None)
             };
-            let lowering = super::semantic_lowering::build_module_lowering_semantics_with_runtime_types(
+            let lowering = super::semantic_lowering::build_module_lowering_semantics_with_runtime_types_and_calls(
                 id,
                 &analyzed.semantic,
                 &analyzed.project_universe,
                 runtime_type_roots.get(id).unwrap_or(&BTreeMap::new()),
+                runtime_call_environment_recipes.get(id).unwrap_or(&BTreeMap::new()),
             )
                 .map_err(|e| ProgramCompileError::Io(format!("lowering projection error in {id}: {e}")))?;
             modules.insert(id.clone(), compile_module(id.clone(), linked_module, source, source_text, Arc::new(lowering)));

@@ -340,6 +340,30 @@ impl VM {
         source_range: SourceRange,
         caller_authority: (Option<ClassId>, bool),
     ) -> PhResult<()> {
+        self.call_method_with_selector_as_and_environment(
+            callee,
+            method,
+            arity,
+            selector,
+            layout,
+            source_range,
+            caller_authority,
+            crate::typing::environment::RuntimeTypeEnvironmentId::EMPTY,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn call_method_with_selector_as_and_environment(
+        &mut self,
+        callee: &Value,
+        method: ObjRef,
+        arity: usize,
+        selector: Symbol,
+        layout: Option<InvocationLayout>,
+        source_range: SourceRange,
+        caller_authority: (Option<ClassId>, bool),
+        type_environment: crate::typing::environment::RuntimeTypeEnvironmentId,
+    ) -> PhResult<()> {
         if matches!(self.heap.method(method).kind, MethodKind::Primitive(PrimitiveFn::Legacy(_))) {
             return self.call_method_legacy(callee, method, arity, source_range, caller_authority);
         }
@@ -350,7 +374,8 @@ impl VM {
         match self.heap.method(method).kind {
             MethodKind::Closure(closure_id) => {
                 let context = callee.to_context(&self.heap);
-                let frame = self.new_call_frame(closure_id, context, 0, receiver_idx, Some(source_range));
+                let mut frame = self.new_call_frame(closure_id, context, 0, receiver_idx, Some(source_range));
+                frame.type_environment = type_environment;
                 self.push_frame(frame)?;
                 Ok(())
             }
@@ -1345,13 +1370,37 @@ impl VM {
         result
     }
 
-    /// Checks if the receiver on the stack is a `ModuleObject` and attempts export dispatch before class method lookup.
-    pub(crate) fn try_module_export_send(
+    /// Checks if the receiver on the stack is a `ModuleObject` and attempts
+    /// export dispatch before class method lookup, preserving a specialized
+    /// generic call environment while forwarding through a module binding.
+    ///
+    /// Export dispatch is part of the ordinary send route, so specialized
+    /// calls must carry the same environment through this forwarding seam.
+    ///
+    /// # Errors
+    ///
+    /// Propagates lookup, activation, and runtime failures.
+    ///
+    /// # Returns
+    ///
+    /// `Some(())` when the receiver was a module with a matching export;
+    /// `None` when ordinary method lookup should continue.
+    ///
+    /// # Panics
+    ///
+    /// None beyond the VM's existing heap access invariants.
+    ///
+    /// # Safety
+    ///
+    /// No unsafe code is used.
+    pub(crate) fn try_module_export_send_with_environment(
         &mut self,
         receiver_idx: usize,
         selector_sym: Symbol,
         arity: usize,
         source_range: SourceRange,
+        type_environment: crate::typing::RuntimeTypeEnvironmentId,
+        call_environment: Option<&crate::typing::RuntimeCallEnvironmentRecipe>,
     ) -> PhResult<Option<()>> {
         let receiver = self.stack[receiver_idx];
         let Some(obj_id) = receiver.as_obj() else {
@@ -1401,7 +1450,19 @@ impl VM {
         let caller_authority = (self.current_access_class(), self.current_has_internal_privilege());
 
         if let Some(method) = target_val.lookup_method(self, call_sym) {
-            self.call_method_with_selector_as(&target_val, method, arity, call_sym, None, source_range, caller_authority)?;
+            if let Some(recipe) = call_environment {
+                self.validate_specialized_call(recipe, method)?;
+            }
+            self.call_method_with_selector_as_and_environment(
+                &target_val,
+                method,
+                arity,
+                call_sym,
+                None,
+                source_range,
+                caller_authority,
+                type_environment,
+            )?;
         } else {
             let positional_count = slots.iter().filter(|slot| slot.is_none()).count();
             let labels = slots
@@ -1413,6 +1474,9 @@ impl VM {
                 .then(|| self.interner.intern("call"))
                 .and_then(|base| self.lookup_rest_method(target_val.class(self), base, positional_count, &labels));
             if let Some(method) = rest {
+                if let Some(recipe) = call_environment {
+                    self.validate_specialized_call(recipe, method)?;
+                }
                 self.activate_rest_method(&target_val, method, receiver_idx, positional_count, &labels, call_sym, source_range)?;
             } else {
                 self.forward_does_not_understand(receiver_idx, call_sym, source_range)?;

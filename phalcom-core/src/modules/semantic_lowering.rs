@@ -19,7 +19,7 @@ use phalcom_semantic::types::denotation::{AssociatedValueDenotation, SemanticDen
 use phalcom_semantic::types::family::{FamilyMemberTypeKind, FamilyOperationShape};
 use phalcom_semantic::types::id::TypeId;
 use phalcom_semantic::types::store::TypeData;
-use crate::typing::{RuntimeTypeRecipe, RuntimeTypeRef};
+use crate::typing::{RuntimeCallEnvironmentRecipe, RuntimeTypeRecipe, RuntimeTypeRef};
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -394,6 +394,7 @@ pub struct ModuleLoweringSemantics {
     /// never resolves names or scopes independently.
     pub bindings: BTreeMap<SourceRange, BindingId>,
     pub anonymous_products: BTreeMap<SourceRange, Arc<AnonymousProductConstructionLoweringSpec>>,
+    pub call_environment_recipes: BTreeMap<SourceRange, Arc<RuntimeCallEnvironmentRecipe>>,
     pub enums: Box<[EnumLoweringSpec]>,
     pub data_decls: Box<[DataDeclarationLoweringSpec]>,
     pub inherent_impls: Box<[InherentImplLoweringSpec]>,
@@ -412,6 +413,7 @@ impl ModuleLoweringSemantics {
             module,
             bindings: BTreeMap::new(),
             anonymous_products: BTreeMap::new(),
+            call_environment_recipes: BTreeMap::new(),
             enums: Box::new([]),
             data_decls: Box::new([]),
             inherent_impls: Box::new([]),
@@ -558,7 +560,7 @@ pub fn build_module_lowering_semantics(
     snapshot: &SemanticSnapshot,
     projects: &phalcom_modules::ProjectUniverse,
 ) -> Result<ModuleLoweringSemantics, ProjectionError> {
-    build_module_lowering_semantics_with_runtime_types(module, snapshot, projects, &BTreeMap::new())
+    build_module_lowering_semantics_with_runtime_types_and_calls(module, snapshot, projects, &BTreeMap::new(), &BTreeMap::new())
 }
 
 pub fn build_module_lowering_semantics_with_runtime_types(
@@ -566,6 +568,16 @@ pub fn build_module_lowering_semantics_with_runtime_types(
     snapshot: &SemanticSnapshot,
     projects: &phalcom_modules::ProjectUniverse,
     runtime_type_roots: &BTreeMap<SourceRange, RuntimeTypeRef>,
+) -> Result<ModuleLoweringSemantics, ProjectionError> {
+    build_module_lowering_semantics_with_runtime_types_and_calls(module, snapshot, projects, runtime_type_roots, &BTreeMap::new())
+}
+
+pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
+    module: &ModuleId,
+    snapshot: &SemanticSnapshot,
+    projects: &phalcom_modules::ProjectUniverse,
+    runtime_type_roots: &BTreeMap<SourceRange, RuntimeTypeRef>,
+    runtime_call_environment_recipes: &BTreeMap<SourceRange, Arc<RuntimeCallEnvironmentRecipe>>,
 ) -> Result<ModuleLoweringSemantics, ProjectionError> {
     let source_id = if let Some(parsed_unit) = snapshot.sources.get(module) {
         parsed_unit
@@ -865,6 +877,7 @@ pub fn build_module_lowering_semantics_with_runtime_types(
         module: module.clone(),
         bindings,
         anonymous_products,
+        call_environment_recipes: runtime_call_environment_recipes.clone(),
         enums: enums.into_boxed_slice(),
         data_decls: data_decls.into_boxed_slice(),
         inherent_impls: inherent_impls.into_boxed_slice(),

@@ -31,6 +31,29 @@ class Probe {
 }
 
 #[test]
+fn solved_generic_call_publishes_canonical_call_specialization() {
+    let fixture = Fixture::new(
+        r#"
+class Probe {
+  @class
+  make<T>() -> T { 42 }
+
+  @class
+  run() {
+    let value: Int = Probe.make()
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+    let call = fixture.expression(run, "Probe.make()");
+    let specialization = call.call_specialization.as_ref().expect("solved generic call product");
+    assert_eq!(specialization.callable, call.callable.clone().expect("callable identity"));
+    assert_eq!(specialization.bindings.len(), 1);
+    assert_eq!(specialization.bindings[0].1, fixture.ty("Int"));
+}
+
+#[test]
 fn result_only_generic_without_context_remains_underconstrained() {
     let fixture = Fixture::new(
         r#"

@@ -6,6 +6,7 @@ use crate::modules::semantic_lowering::{
     AnonymousProductConstructionLoweringSpec, DataConstructionLoweringSpec, DataDeclarationLoweringSpec, EnumLoweringSpec,
     ExecutableFamilyCandidateSet, ExecutableFamilyDescriptor, ExecutableInvocationTarget,
 };
+use crate::typing::RuntimeCallEnvironmentRecipe;
 use crate::value::Value;
 use phalcom_common::range::SourceRange;
 use phalcom_semantic::identity::{DataConstructorId, VariantId};
@@ -54,6 +55,7 @@ pub struct ExecutableSemanticPool {
     pub data_constructions: Vec<Arc<DataConstructionLoweringSpec>>,
     pub data_construction_caches: Vec<Cell<Option<crate::data::RuntimeDataDescriptorId>>>,
     pub anonymous_product_specs: Vec<Arc<AnonymousProductConstructionLoweringSpec>>,
+    pub call_environment_recipes: Vec<Arc<RuntimeCallEnvironmentRecipe>>,
     pub associated_targets: Vec<ExecutableInvocationTarget>,
     pub associated_target_caches: Vec<Cell<Option<AssociatedTargetCache>>>,
     pub family_descriptors: Vec<Arc<ExecutableFamilyDescriptor>>,
@@ -144,6 +146,19 @@ impl ExecutableSemanticPool {
 
     pub fn anonymous_product_spec(&self, index: u16) -> &AnonymousProductConstructionLoweringSpec {
         &self.anonymous_product_specs[index as usize]
+    }
+
+    pub fn add_call_environment_recipe(&mut self, recipe: Arc<RuntimeCallEnvironmentRecipe>, span: SourceRange) -> Result<u16, CompilerError> {
+        let index = u16::try_from(self.call_environment_recipes.len()).map_err(|_| CompilerError::ExecutableSemanticPoolOverflow {
+            kind: "CallEnvironmentRecipe",
+            span,
+        })?;
+        self.call_environment_recipes.push(recipe);
+        Ok(index)
+    }
+
+    pub fn call_environment_recipe(&self, index: u16) -> &RuntimeCallEnvironmentRecipe {
+        &self.call_environment_recipes[index as usize]
     }
 
     pub fn add_associated_target(&mut self, target: ExecutableInvocationTarget, span: SourceRange) -> Result<u16, CompilerError> {
