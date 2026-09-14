@@ -161,6 +161,28 @@ let result = Caller.new().run(User.new())
 }
 
 #[test]
+fn generic_trait_default_dispatches_nested_abstract_method_calls() {
+    let source = r#"
+trait Scalable<T> {
+  scale(_ value: T) -> T
+  twice(_ value: T) -> T { self.scale(self.scale(value)) }
+}
+
+class Doubler {}
+impl Scalable<Int> for Doubler {
+  scale(_ value: Int) -> Int { value * 2 }
+}
+class Caller { run(_ value: Doubler) -> Int { value.twice(3) } }
+let result = Caller.new().run(Doubler.new())
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("generic trait default compiles");
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("generic trait default executes");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    assert_eq!(named(&vm, module, "result").expect("result binding").to_string(&vm), "12");
+}
+
+#[test]
 fn trait_default_executes_abstract_getter_satisfied_by_data_component() {
     let source = r#"
 trait Named {
