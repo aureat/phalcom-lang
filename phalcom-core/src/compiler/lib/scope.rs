@@ -66,6 +66,7 @@ impl<'vm> Compiler<'vm> {
             return Ok(false);
         };
         let spec = spec.clone();
+        self.prepare_trait_invocation_methods(&spec)?;
         let index = self
             .functions
             .last_mut()

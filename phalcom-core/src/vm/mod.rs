@@ -264,8 +264,10 @@ pub struct VM {
     pub runtime_type_environments: crate::typing::RuntimeTypeEnvironmentRegistry,
     /// Interned executable conformance environments selected by semantics.
     pub runtime_conformance_environments: crate::typing::RuntimeConformanceEnvironmentRegistry,
-    /// Detached conformance witnesses and trait defaults, keyed by semantic
-    /// callable identity and never installed in target class dictionaries.
+    /// Executable semantic methods that are intentionally absent from target
+    /// class dictionaries: conformance witnesses, trait defaults, and proven
+    /// conditional inherent members. Keyed by canonical callable identity and
+    /// rooted by the VM for the lifetime of the executable program.
     pub(crate) detached_method_objects: HashMap<CallableId, ObjRef>,
     /// VM-owned overlay arena used for instantiated runtime type products.
     pub runtime_typing_context: crate::typing::TypingContextData,

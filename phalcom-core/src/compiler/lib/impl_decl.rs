@@ -352,6 +352,41 @@ impl<'vm> Compiler<'vm> {
         Err(CompilerError::ImplCallableMismatch(SourceRange::new(0, 0)))
     }
 
+    /// Ensures every conditional inherent callable retained by one trait
+    /// invocation has an executable method handle available to the VM. The
+    /// semantic proof has already selected these targets; this only publishes
+    /// the existing C2-compiled method object by canonical callable identity.
+    pub(crate) fn prepare_trait_invocation_methods(&mut self, spec: &crate::modules::semantic_lowering::TraitInvocationSpec) -> Result<(), CompilerError> {
+        self.prepare_trait_selection_method(&spec.selection.selection)?;
+        for selection in spec.selection.requirement_targets.values() {
+            self.prepare_trait_selection_method(selection)?;
+        }
+        Ok(())
+    }
+
+    fn prepare_trait_selection_method(&mut self, selection: &phalcom_semantic::impls::RequirementSelectionTemplate) -> Result<(), CompilerError> {
+        use phalcom_semantic::impls::RequirementSelectionTemplate;
+
+        let callable = match selection {
+            RequirementSelectionTemplate::ConditionalInherent { candidate, .. } => Some(candidate.callable.clone()),
+            RequirementSelectionTemplate::InherentCallable {
+                callable,
+                conditional_impl: Some(_),
+                ..
+            } => Some(callable.clone()),
+            RequirementSelectionTemplate::InherentCallable { .. }
+            | RequirementSelectionTemplate::ConformanceCallable { .. }
+            | RequirementSelectionTemplate::DataComponent { .. }
+            | RequirementSelectionTemplate::TraitDefault { .. } => None,
+        };
+        let Some(callable) = callable else {
+            return Ok(());
+        };
+        let method = self.get_or_compile_conditional_method(&callable)?;
+        self.vm.detached_method_objects.insert(callable, method);
+        Ok(())
+    }
+
     /// Installs all semantically accepted inherent `impl` members for nominal `target`
     /// onto the target behavior class currently sitting on top of the stack.
     pub(crate) fn install_accepted_inherent_impl_members(&mut self, target: &DeclarationId) -> Result<(), CompilerError> {

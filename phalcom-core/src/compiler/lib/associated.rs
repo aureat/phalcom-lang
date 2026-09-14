@@ -172,6 +172,7 @@ impl<'vm> Compiler<'vm> {
                 }
             }
             CallableReferenceLoweringSpec::MakeTraitBoundMethod { invocation } => {
+                self.prepare_trait_invocation_methods(&invocation)?;
                 let phalcom_ast::ast::CallableReferenceTarget::Bound { receiver, .. } = &expr.target else {
                     return Err(CompilerError::CallableReferenceNotLoweredYet(expr.range));
                 };

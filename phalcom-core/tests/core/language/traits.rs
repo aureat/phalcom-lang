@@ -210,8 +210,10 @@ class Caller {
   intTag(_ value: Value<Int>) -> String { value.tag }
 }
 let caller = Caller.new()
-let stringResult = caller.stringTag(Value<String>.new())
-let intResult = caller.intTag(Value<Int>.new())
+let stringValue: Value<String> = Value.new()
+let intValue: Value<Int> = Value.new()
+let stringResult = caller.stringTag(stringValue)
+let intResult = caller.intTag(intValue)
 "#;
     let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("specialized trait targets compile");
     let mut vm = vm_support::universe_vm();
@@ -224,13 +226,18 @@ let intResult = caller.intTag(Value<Int>.new())
 #[test]
 fn trait_default_uses_proven_conditional_inherent_witness() {
     let source = r#"
-trait Tagged { tag -> String { "default" } }
-class Number {}
+trait Tagged {
+  tag -> String { "default" }
+  label -> String { self.tag }
+}
+class NumericBase {}
+class Numeric is NumericBase {}
 class Value<T> { @constructor new() {} }
-impl<T> Value<T> where T <: Number { tag -> String { "number" } }
+impl<T> Value<T> where T <: NumericBase { tag -> String { "number" } }
 impl<T> Tagged for Value<T> {}
-class Caller { run(_ value: Value<Number>) -> String { value.tag } }
-let result = Caller.new().run(Value<Number>.new())
+class Caller { run(_ value: Value<Numeric>) -> String { value.label } }
+let value: Value<Numeric> = Value.new()
+let result = Caller.new().run(value)
 "#;
     let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("conditional inherent trait witness compiles");
     let mut vm = vm_support::universe_vm();
@@ -252,8 +259,7 @@ impl Named for Person {}
 class Caller { run(_ person: Person) -> String { person.label } }
 let result = Caller.new().run(Person(name: "data-user"))
 "#;
-    let analyzed = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Inline(Arc::from(source)))
-        .expect("data-component trait source analyzes");
+    let analyzed = ProgramAnalyzer::analyze_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("data-component trait source analyzes");
     assert!(!analyzed.semantic.has_errors(), "semantic diagnostics: {:#?}", analyzed.semantic.diagnostics);
     let person = phalcom_modules::DeclarationId::new(analyzed.entry.clone(), "Person".into());
     assert!(
