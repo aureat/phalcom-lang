@@ -111,11 +111,15 @@ let result = Caller.new().run(Person(name: "data-user"))
         .expect("data-component trait source analyzes");
     assert!(!analyzed.semantic.has_errors(), "semantic diagnostics: {:#?}", analyzed.semantic.diagnostics);
     let person = phalcom_modules::DeclarationId::new(analyzed.entry.clone(), "Person".into());
-    assert!(
-        analyzed.semantic.declarations.form(&person).is_some(),
-        "Person must remain predeclared; declarations: {:#?}",
-        analyzed.semantic.declarations
-    );
+    if analyzed.semantic.declarations.form(&person).is_none() {
+        let mut session = phalcom_semantic::SemanticWorkspaceSession::new();
+        let raw = session.update_with_budget_and_cancel(
+            phalcom_semantic::SemanticWorkspaceInput::new(analyzed.linked.clone(), analyzed.sources.clone(), 0),
+            phalcom_semantic::QueryBudget::default(),
+            &phalcom_semantic::CancellationToken::new(),
+        );
+        panic!("compatibility update hid raw semantic result: {raw:#?}");
+    }
     assert_eq!(
         analyzed.semantic.data_semantics.data_decls.len(),
         1,
