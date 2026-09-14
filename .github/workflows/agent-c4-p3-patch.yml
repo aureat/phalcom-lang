@@ -30,74 +30,123 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Apply data-component trait projection bridge
+      - name: Restore query comments and remove diagnostic probe
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
+          import subprocess
 
-          path = Path('phalcom-core/src/vm/dispatch.rs')
-          text = path.read_text()
+          # Rebuild query.rs from the clean parent of the first data-surface
+          # repair, then reapply only the two intended functional changes.
+          query = Path('phalcom-semantic/src/db/query.rs')
+          text = subprocess.check_output(
+              ['git', 'show', '903fffc32c42f1df37ffa17dd1ea55a04f4c220d:phalcom-semantic/src/db/query.rs'],
+              text=True,
+          )
 
-          old = "    fn trait_method_for_selection(&mut self, receiver: Value, selection: &phalcom_semantic::impls::RequirementSelectionTemplate) -> PhResult<ObjRef> {\n        use phalcom_semantic::impls::RequirementSelectionTemplate;\n"
-          new = "\n".join([
-              "    fn trait_method_for_selection(",
-              "        &mut self,",
-              "        receiver: Value,",
-              "        selection: &phalcom_semantic::impls::RequirementSelectionTemplate,",
-              "        requirement_selector: &phalcom_common::selector::Selector,",
-              "    ) -> PhResult<ObjRef> {",
-              "        use phalcom_semantic::impls::RequirementSelectionTemplate;",
-              "        if let RequirementSelectionTemplate::DataComponent { component, .. } = selection {",
-              "            // Semantic evidence has already selected this exact data component.",
-              "            // Runtime lookup only materializes the representation-level getter",
-              "            // installed by register_data_from_spec; it does not select a witness.",
-              "            let selector = self.interner.intern(&requirement_selector.encode());",
-              "            return receiver",
-              "                .lookup_method(self, selector)",
-              "                .ok_or_else(|| {",
-              "                    RuntimeError::Internal(format!(",
-              "                        \"trait-selected data component {component:?} has no runtime projection getter for `{}`\",",
-              "                        requirement_selector.encode()",
-              "                    ))",
-              "                })",
-              "                .map_err(Into::into);",
-              "        }",
-              "",
-          ])
+          old = '    if class_def.is_none() && enum_definition_for(&unit, &class_decl).is_none() {'
+          new = '''    if class_def.is_none()
+              && enum_definition_for(&unit, &class_decl).is_none()
+              && data_definition_for(&unit, &class_decl).is_none()
+          {'''
           if text.count(old) != 1:
-              raise SystemExit(f'expected one trait selection function prefix, found {text.count(old)}')
+              raise SystemExit(f'expected one hierarchy admission condition in clean base, found {text.count(old)}')
           text = text.replace(old, new, 1)
 
-          old = "                slots[*slot as usize] = Some(self.trait_method_for_selection(receiver, target)?);"
-          new = "                slots[*slot as usize] = Some(self.trait_method_for_selection(receiver, target, &requirement.selector)?);"
+          old = '''    let class_def = class_definition_for(&unit, &decl_id);
+              if class_def.is_none() && enum_definition_for(&unit, &decl_id).is_none() {'''
+          new = '''    let class_def = class_definition_for(&unit, &decl_id);
+              let enum_def = enum_definition_for(&unit, &decl_id);
+              let data_def = data_definition_for(&unit, &decl_id);
+              if class_def.is_none() && enum_def.is_none() && data_def.is_none() {'''
           if text.count(old) != 1:
-              raise SystemExit(f'expected one requirement slot materialization, found {text.count(old)}')
+              raise SystemExit(f'expected one declaration-surface admission block, found {text.count(old)}')
           text = text.replace(old, new, 1)
 
-          old = "        let method = self.trait_method_for_selection(receiver, &spec.selection.selection)?;"
-          new = "        let method = self.trait_method_for_selection(receiver, &spec.selection.selection, &spec.selection.signature.selector)?;"
+          old = '''    let input_fingerprint = if let Some(class_def) = class_def {
+              crate::db::fingerprint::declaration_surface_source_input_fingerprint(&unit, &decl_id, class_def)
+          } else {
+              crate::db::fingerprint::declaration_surface_enum_input_fingerprint(&unit, &decl_id, enum_definition_for(&unit, &decl_id).unwrap())
+          };'''
+          new = '''    let input_fingerprint = if let Some(class_def) = class_def {
+              crate::db::fingerprint::declaration_surface_source_input_fingerprint(&unit, &decl_id, class_def)
+          } else if let Some(enum_def) = enum_def {
+              crate::db::fingerprint::declaration_surface_enum_input_fingerprint(&unit, &decl_id, enum_def)
+          } else {
+              let data_def = data_def.expect("data declaration checked above");
+              let mut hasher = DefaultHasher::new();
+              2_u8.hash(&mut hasher);
+              decl_id.hash(&mut hasher);
+              data_def.range.start.hash(&mut hasher);
+              data_def.range.end.hash(&mut hasher);
+              unit.text.get(data_def.range.start..data_def.range.end).hash(&mut hasher);
+              InputFingerprint::new(hasher.finish())
+          };'''
           if text.count(old) != 1:
-              raise SystemExit(f'expected one selected target materialization, found {text.count(old)}')
+              raise SystemExit(f'expected one declaration-surface fingerprint block, found {text.count(old)}')
           text = text.replace(old, new, 1)
 
-          path.write_text(text)
+          old = '''        } else {
+                  // Enum root surfaces are assembled by the enum semantic pass. This
+                  // product anchors dependency readiness; body queries consume the
+                  // already-published dispatch surface from the workspace session.
+                  context.register_surface(decl_id.clone(), DeclarationSurface::new(Some(decl_id.clone())));
+              }'''
+          new = '''        } else {
+                  // Enum and data roots own no class-style primary behavior surface
+                  // here. Enum behavior and inherent impl behavior are composed by
+                  // their dedicated semantic passes, while data components remain
+                  // first-class data witnesses rather than fabricated getters.
+                  context.register_surface(decl_id.clone(), DeclarationSurface::new(Some(decl_id.clone())));
+              }'''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one non-class surface branch, found {text.count(old)}')
+          text = text.replace(old, new, 1)
+          query.write_text(text)
+
+          # Replace the temporary raw-session diagnostic escape hatch with a
+          # stable regression assertion on the canonical snapshot.
+          traits = Path('phalcom-core/tests/core/language/traits.rs')
+          text = traits.read_text()
+          old = '''    let person = phalcom_modules::DeclarationId::new(analyzed.entry.clone(), "Person".into());
+              if analyzed.semantic.declarations.form(&person).is_none() {
+                  let mut session = phalcom_semantic::SemanticWorkspaceSession::new();
+                  let raw = session.update_with_budget_and_cancel(
+                      phalcom_semantic::SemanticWorkspaceInput::new(analyzed.linked.clone(), analyzed.sources.clone(), 0),
+                      phalcom_semantic::QueryBudget::default(),
+                      &phalcom_semantic::CancellationToken::new(),
+                  );
+                  panic!("compatibility update hid raw semantic result: {raw:#?}");
+              }'''
+          new = '''    let person = phalcom_modules::DeclarationId::new(analyzed.entry.clone(), "Person".into());
+              assert!(
+                  analyzed.semantic.declarations.form(&person).is_some(),
+                  "semantic snapshot must retain the Person declaration"
+              );'''
+          if text.count(old) != 1:
+              raise SystemExit(f'expected one raw-session diagnostic probe, found {text.count(old)}')
+          traits.write_text(text.replace(old, new, 1))
           PY
           git diff --check
-          git diff -- phalcom-core/src/vm/dispatch.rs
+          git diff -- phalcom-semantic/src/db/query.rs phalcom-core/tests/core/language/traits.rs
 
-      - name: Verify core builds
-        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' check -p phalcom-core
+      - name: Verify semantic crate builds
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' check -p phalcom-semantic
 
-      - name: Commit exact runtime patch
+      - name: Existing data lowering control
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::data_e2e::data_labeled_tuple_construction_and_access -- --nocapture
+
+      - name: Trait data witness regression
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::trait_default_executes_abstract_getter_satisfied_by_data_component -- --nocapture
+
+      - name: Commit cleanup and remove one-shot workflow
         shell: bash
         run: |
           git config user.name 'OpenAI Agent'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add phalcom-core/src/vm/dispatch.rs
-          git commit -m 'execute data component trait witness projections'
+          git rm .github/workflows/agent-c4-p3-patch.yml
+          git add phalcom-semantic/src/db/query.rs phalcom-core/tests/core/language/traits.rs
+          git diff --cached --check
+          git commit -m 'clean up data component trait witness repair'
           git push origin HEAD:agent/c4-p3-complex-closure-7
-          echo "PATCH_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
-
-      - name: Trait data witness regression
-        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::trait_default_executes_abstract_getter_satisfied_by_data_component -- --nocapture
