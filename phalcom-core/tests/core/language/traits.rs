@@ -138,6 +138,29 @@ let result = Caller.new().run(User.new())
 }
 
 #[test]
+fn trait_default_executes_abstract_getter_satisfied_by_inherited_member() {
+    let source = r#"
+trait Named {
+  name -> String
+  label -> String { "<\(self.name)>" }
+}
+
+class Entity {
+  name -> String { "inherited-user" }
+}
+class User is Entity {}
+impl Named for User {}
+class Caller { run(_ user: User) -> String { user.label } }
+let result = Caller.new().run(User.new())
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("inherited trait witness compiles");
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("inherited trait witness executes");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    assert_eq!(named(&vm, module, "result").expect("result binding").to_string(&vm), "<inherited-user>");
+}
+
+#[test]
 fn trait_default_executes_abstract_getter_satisfied_by_data_component() {
     let source = r#"
 trait Named {
