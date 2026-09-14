@@ -1,0 +1,58 @@
+name: Agent C4 P3 generic source dispatch patch
+
+on:
+  push:
+    branches:
+      - agent/c4-p3-complex-closure-7
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: 1
+      RUSTFLAGS: ""
+      RUSTC_WRAPPER: ""
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/c4-p3-complex-closure-7
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-10
+          components: rustc-codegen-cranelift-preview,rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Apply generic-source semantic patch and T18 probes
+        run: |
+          python .github/scripts/c4_p3_generic_source_dispatch_patch.py
+          python .github/scripts/c4_p3_t18_integration.py
+          cargo fmt --all
+          git diff --check
+      - name: Semantic exact-TraitRef regression
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --test semantic trait_dispatch_specializes_generic_source_conformance_from_exact_target -- --nocapture
+      - name: Generic source conformance runtime
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::generic_source_conformance_executes_for_multiple_exact_targets -- --nocapture
+      - name: Type environment plus conformance environment
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::generic_trait_default_preserves_runtime_type_environment_with_conformance_environment -- --nocapture
+      - name: Exact enum case conformance
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::exact_enum_case_conformance_executes_only_for_exact_case -- --nocapture
+      - name: Exact generic bound reference
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits::exact_generic_trait_bound_reference_keeps_specialized_selection -- --nocapture
+      - name: Focused semantic and trait runtime suites
+        run: |
+          cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-semantic --test semantic impls -- --nocapture
+          cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' test -p phalcom-core --test core language::traits -- --nocapture
+      - name: Commit durable T18 closure and remove temporary files
+        shell: bash
+        run: |
+          git config user.name 'OpenAI Agent'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/scripts/c4_p3_generic_source_dispatch_patch.py .github/workflows/agent-c4-p3-generic-source-patch.yml .github/scripts/c4_p3_t18_integration.py .github/workflows/agent-c4-p3-t18-integration.yml
+          git add phalcom-semantic/src/impls.rs phalcom-semantic/src/trait_dispatch.rs phalcom-semantic/tests/semantic/impls/queries.rs phalcom-core/tests/core/language/traits.rs
+          git diff --cached --check
+          git commit -m 'lang005: close generic and exact trait runtime integration'
+          git push origin HEAD:agent/c4-p3-complex-closure-7
