@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   normalize:
-    if: ${{ startsWith(github.event.head_commit.message, 'fixture:') }}
     runs-on: ubuntu-24.04
     env:
       CARGO_TERM_COLOR: always
@@ -35,39 +34,16 @@ jobs:
           from pathlib import Path
           path = Path('phalcom-core/tests/core/language/traits.rs')
           text = path.read_text()
-
-          old_specialized = '''let caller = Caller.new()
-let stringResult = caller.stringTag(Value<String>.new())
-let intResult = caller.intTag(Value<Int>.new())'''
-          new_specialized = '''let caller = Caller.new()
-let stringValue: Value<String> = Value.new()
-let intValue: Value<Int> = Value.new()
-let stringResult = caller.stringTag(stringValue)
-let intResult = caller.intTag(intValue)'''
+          old_specialized = "let caller = Caller.new()\nlet stringResult = caller.stringTag(Value<String>.new())\nlet intResult = caller.intTag(Value<Int>.new())"
+          new_specialized = "let caller = Caller.new()\nlet stringValue: Value<String> = Value.new()\nlet intValue: Value<Int> = Value.new()\nlet stringResult = caller.stringTag(stringValue)\nlet intResult = caller.intTag(intValue)"
           if text.count(old_specialized) != 1:
               raise SystemExit(f'specialized fixture match count: {text.count(old_specialized)}')
           text = text.replace(old_specialized, new_specialized, 1)
-
-          old_conditional = '''trait Tagged { tag -> String { "default" } }
-class Number {}
-class Value<T> { @constructor new() {} }
-impl<T> Value<T> where T <: Number { tag -> String { "number" } }
-impl<T> Tagged for Value<T> {}
-class Caller { run(_ value: Value<Number>) -> String { value.tag } }
-let result = Caller.new().run(Value<Number>.new())'''
-          new_conditional = '''trait Tagged { tag -> String { "default" } }
-class NumericBase {}
-class Numeric is NumericBase {}
-class Value<T> { @constructor new() {} }
-impl<T> Value<T> where T <: NumericBase { tag -> String { "number" } }
-impl<T> Tagged for Value<T> {}
-class Caller { run(_ value: Value<Numeric>) -> String { value.tag } }
-let value: Value<Numeric> = Value.new()
-let result = Caller.new().run(value)'''
+          old_conditional = "trait Tagged { tag -> String { \"default\" } }\nclass Number {}\nclass Value<T> { @constructor new() {} }\nimpl<T> Value<T> where T <: Number { tag -> String { \"number\" } }\nimpl<T> Tagged for Value<T> {}\nclass Caller { run(_ value: Value<Number>) -> String { value.tag } }\nlet result = Caller.new().run(Value<Number>.new())"
+          new_conditional = "trait Tagged { tag -> String { \"default\" } }\nclass NumericBase {}\nclass Numeric is NumericBase {}\nclass Value<T> { @constructor new() {} }\nimpl<T> Value<T> where T <: NumericBase { tag -> String { \"number\" } }\nimpl<T> Tagged for Value<T> {}\nclass Caller { run(_ value: Value<Numeric>) -> String { value.tag } }\nlet value: Value<Numeric> = Value.new()\nlet result = Caller.new().run(value)"
           if text.count(old_conditional) != 1:
               raise SystemExit(f'conditional fixture match count: {text.count(old_conditional)}')
           text = text.replace(old_conditional, new_conditional, 1)
-
           path.write_text(text)
           PY
           cargo fmt --all
