@@ -20,6 +20,7 @@ fn editor_facade_returns_canonical_members_and_targets() {
         alternatives: Arc::from([ReceiverAlternative {
             declaration: owner.clone(),
             mode: ReceiverMode::Instance,
+            receiver_type: None,
         }]),
     };
 

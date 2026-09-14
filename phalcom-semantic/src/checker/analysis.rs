@@ -43,6 +43,10 @@ pub struct ExpressionAnalysis {
     pub range: SourceRange,
     pub knowledge: TypeKnowledge,
     pub callable: Option<CallableId>,
+    /// Canonical per-expression evidence that dispatch selected a conditional
+    /// inherent implementation. Lowering consumes this directly and must not
+    /// reconstruct the decision from target indexes.
+    pub conditional_dispatch: Option<crate::dispatch::ConditionalDispatchSelection>,
     pub denotation: Option<SemanticDenotation>,
     pub status: AnalysisStatus,
     pub causal_invalidity: CausalInvalidity,
@@ -57,6 +61,7 @@ impl ExpressionAnalysis {
             range,
             knowledge,
             callable: None,
+            conditional_dispatch: None,
             denotation: None,
             status: AnalysisStatus::Ready,
             causal_invalidity: CausalInvalidity::Clean,
@@ -71,6 +76,7 @@ impl ExpressionAnalysis {
             range,
             knowledge: TypeKnowledge::Unknown(crate::types::evidence::UnknownReason::SyntaxError),
             callable: None,
+            conditional_dispatch: None,
             denotation: None,
             status: AnalysisStatus::Invalid(cause),
             causal_invalidity: CausalInvalidity::One(cause),

@@ -124,10 +124,10 @@ pub fn to_stable_impl_with_context(r#impl: &crate::identity::ImplId, context: &S
     }
 }
 
+
 pub fn to_stable_impl(r#impl: &crate::identity::ImplId) -> phalcom_type_meta::identity::StableImplRef {
     phalcom_type_meta::identity::StableImplRef {
         module: to_stable_module(&r#impl.module),
         local_id: r#impl.local.0,
     }
 }
-

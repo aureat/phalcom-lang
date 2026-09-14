@@ -6,6 +6,7 @@ use super::id::{KindId, TypeId};
 use crate::associated::AssociatedMemberId;
 use crate::checker::associated::BehavioralFamilySpec;
 use crate::identity::{AssociatedFamilyId, DeclarationId, InvocationTargetId};
+use crate::dispatch::ConditionalDispatchSelection;
 use std::sync::Arc;
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -19,6 +20,7 @@ pub struct CapturedAssociatedMember {
 pub struct CapturedBehavioralMember {
     pub operation: FamilyOperationShape,
     pub target: InvocationTargetId,
+    pub conditional: Option<ConditionalDispatchSelection>,
 }
 
 /// Semantic denotation for a family bound to an ordinary receiver.

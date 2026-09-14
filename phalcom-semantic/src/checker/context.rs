@@ -8,7 +8,7 @@ use crate::core_surface::CoreDeclarationIds;
 use crate::db::budget::{BudgetReport, CancellationToken, QueryBudget};
 use crate::declarations::{DeclarationTypeInfo, DeclarationTypeTable};
 use crate::diagnostic::SemanticDiagnostic;
-use crate::dispatch::{CallableParameter, CallableSignature, DispatchResult, ResolvedDispatchResult, SurfaceDispatchResolver};
+use crate::dispatch::{CallableParameter, CallableSignature, DispatchResult, ResolvedDispatch, ResolvedDispatchResult, SurfaceDispatchResolver};
 use crate::identity::{
     AnalysisIncidentId, BindingId, BodyId, CallableId, DeclarationId, DiagnosticCauseId, DispatchSide, ExpressionId, LocalExpressionId, ModuleId,
 };
@@ -403,6 +403,7 @@ pub struct CheckingContext<'a> {
     expression_owners: Vec<ExpressionId>,
     expression_owned_causes: BTreeMap<ExpressionId, crate::identity::DiagnosticCauseId>,
     resolved_callables: BTreeMap<ExpressionId, CallableId>,
+    resolved_conditional_dispatches: BTreeMap<ExpressionId, crate::dispatch::ConditionalDispatchSelection>,
     call_dependency_frames: Vec<CallDependencyFrame>,
     pub flow_graph: Option<std::sync::Arc<crate::checker::flow::graph::FlowGraph>>,
     pub dependencies: BTreeSet<CallableId>,
@@ -413,6 +414,8 @@ pub struct CheckingContext<'a> {
     pub enum_table: Option<&'a crate::enum_semantics::EnumSemanticTable>,
     pub associated_table: Option<&'a crate::associated::AssociatedFamilyTable>,
     pub dispatch: DispatchAccess<'a>,
+    pub ambient_constraints: Vec<crate::types::parameter::GenericConstraint>,
+    pub self_override_type: Option<TypeId>,
     pub core_ids: CoreDeclarationIds,
     pub(crate) rigids: RigidArena,
     /// Active branch-local constraints used only while checking one branch.
@@ -501,6 +504,7 @@ impl<'a> CheckingContext<'a> {
             expression_owners: Vec::new(),
             expression_owned_causes: BTreeMap::new(),
             resolved_callables: BTreeMap::new(),
+            resolved_conditional_dispatches: BTreeMap::new(),
             call_dependency_frames: Vec::new(),
             flow_graph: None,
             dependencies: BTreeSet::new(),
@@ -511,6 +515,8 @@ impl<'a> CheckingContext<'a> {
             enum_table: None,
             associated_table: None,
             dispatch: DispatchAccess::Owned(dispatch),
+            ambient_constraints: Vec::new(),
+            self_override_type: None,
             core_ids: CoreDeclarationIds::default(),
             rigids: RigidArena::new(),
             active_local_constraints: Vec::new(),
@@ -581,6 +587,7 @@ impl<'a> CheckingContext<'a> {
             expression_owners: Vec::new(),
             expression_owned_causes: BTreeMap::new(),
             resolved_callables: BTreeMap::new(),
+            resolved_conditional_dispatches: BTreeMap::new(),
             call_dependency_frames: Vec::new(),
             flow_graph: None,
             dependencies: BTreeSet::new(),
@@ -591,6 +598,8 @@ impl<'a> CheckingContext<'a> {
             enum_table: None,
             associated_table: None,
             dispatch: DispatchAccess::Borrowed(dispatch),
+            ambient_constraints: Vec::new(),
+            self_override_type: None,
             core_ids: CoreDeclarationIds::default(),
             rigids: RigidArena::new(),
             active_local_constraints: Vec::new(),
@@ -640,6 +649,7 @@ impl<'a> CheckingContext<'a> {
             expression_owners: self.expression_owners.clone(),
             expression_owned_causes: self.expression_owned_causes.clone(),
             resolved_callables: self.resolved_callables.clone(),
+            resolved_conditional_dispatches: self.resolved_conditional_dispatches.clone(),
             call_dependency_frames: self.call_dependency_frames.clone(),
             flow_graph: self.flow_graph.clone(),
             dependencies: self.dependencies.clone(),
@@ -650,6 +660,8 @@ impl<'a> CheckingContext<'a> {
             enum_table: self.enum_table,
             associated_table: self.associated_table,
             dispatch: DispatchAccess::Borrowed(self.dispatch.get()),
+            ambient_constraints: self.ambient_constraints.clone(),
+            self_override_type: self.self_override_type,
             core_ids: self.core_ids.clone(),
             rigids: self.rigids.clone(),
             active_local_constraints: self.active_local_constraints.clone(),
@@ -1381,6 +1393,7 @@ impl<'a> CheckingContext<'a> {
 
         let mut analysis = ExpressionAnalysis::ready(id, range, typed.knowledge.clone());
         analysis.callable = typed.callable.clone();
+        analysis.conditional_dispatch = self.resolved_conditional_dispatches.get(&id).cloned();
         analysis.denotation = typed.denotation.clone();
         analysis.status = typed.status.clone();
         analysis.causal_invalidity = typed.causal_invalidity;
@@ -1402,6 +1415,7 @@ impl<'a> CheckingContext<'a> {
 
         analysis.knowledge = typed.knowledge.clone();
         analysis.callable = typed.callable.clone();
+        analysis.conditional_dispatch = self.resolved_conditional_dispatches.get(&id).cloned();
         analysis.denotation = typed.denotation.clone();
         analysis.status = typed.status.clone();
         analysis.causal_invalidity = typed.causal_invalidity;
@@ -2048,6 +2062,150 @@ impl<'a> CheckingContext<'a> {
             ResolvedDispatchResult::Missing { visited_owners } => {
                 for owner in visited_owners.iter() {
                     record_declaration_surface_dependency(&self.semantic_dependencies, owner);
+                }
+
+                let exact_variant = if let TypeData::ExactCase { variant, .. } = self.store.get(specialization_receiver) {
+                    Some(self.store.variant_identity(*variant).clone())
+                } else {
+                    None
+                };
+                if let Some(variant) = exact_variant {
+                    let cond_set = self
+                        .dispatch
+                        .get()
+                        .get_conditional_members(&crate::impls::InherentImplTarget::ExactEnumCase(variant.clone()))
+                        .cloned();
+                    if let Some(cond_set) = cond_set {
+                        if let Some(member) = cond_set.get_member(side, selector) {
+                            let app = crate::impls::check_impl_domain_applicability(
+                                self.store,
+                                &self.hierarchy,
+                                &member.domain,
+                                specialization_receiver,
+                                specialization_receiver,
+                                &self.ambient_constraints,
+                            );
+                            if let crate::impls::ImplApplicabilityResult::Applicable(spec) = app {
+                                let mut signature = crate::checker::declaration_signature::project_semantic_signature(&member.signature_template);
+                                let unspecialized_return = signature.return_type.clone();
+                                let environment = spec.environment.clone();
+                                let specialize_type = |ctx: &mut Self, ty| {
+                                    let self_specialized = ctx.specialize_self_type(specialization_receiver, ty);
+                                    crate::types::environment::TypeView::new(self_specialized, environment.clone()).materialize(ctx.store)
+                                };
+                                for parameter in &mut signature.parameters {
+                                    parameter.ty = parameter.ty.map_type(|ty| specialize_type(self, ty));
+                                }
+                                signature.return_type = signature.return_type.map_type(|ty| specialize_type(self, ty));
+                                self.dependencies.insert(member.callable.clone());
+                                self.record_consumed_callable_signature(&member.callable, &signature);
+                                if let Some(expression) = self.current_expression_id() {
+                                    self.resolved_callables.insert(expression, member.callable.clone());
+                                    self.resolved_conditional_dispatches.insert(
+                                        expression,
+                                        crate::dispatch::ConditionalDispatchSelection {
+                                            impl_id: member.impl_id.clone(),
+                                            callable: member.callable.clone(),
+                                            declaring_owner: variant.owner.clone(),
+                                            side,
+                                        },
+                                    );
+                                }
+                                return ResolvedDispatchResult::Found(Box::new(ResolvedDispatch {
+                                    callable: member.callable.clone(),
+                                    signature,
+                                    specialization: Some(crate::dispatch::DispatchSignatureSpecialization {
+                                        receiver: specialization_receiver,
+                                        declaring_owner: variant.owner.clone(),
+                                        environment: spec.environment,
+                                        path: Box::new([]),
+                                        unspecialized_return,
+                                    }),
+                                    conditional: Some(crate::dispatch::ConditionalDispatchSelection {
+                                        impl_id: member.impl_id.clone(),
+                                        callable: member.callable.clone(),
+                                        declaring_owner: variant.owner.clone(),
+                                        side,
+                                    }),
+                                    visited_owners,
+                                }));
+                            }
+                        }
+                    }
+                }
+
+                for owner in visited_owners.iter() {
+                    let cond_set = self
+                        .dispatch
+                        .get()
+                        .get_conditional_members(&crate::impls::InherentImplTarget::Declaration(owner.clone()))
+                        .cloned();
+                    if let Some(cond_set) = cond_set {
+                        if let Some(member) = cond_set.get_member(side, selector) {
+                            if let Ok(receiver_spec) =
+                                specialize_receiver_to_owner(&mut *self.store, &self.hierarchy, specialization_receiver, owner, &self.control)
+                            {
+                                let owner_type = receiver_spec.path.last().map(|s| s.specialized_form).unwrap_or(specialization_receiver);
+                                let app = crate::impls::check_impl_domain_applicability(
+                                    self.store,
+                                    &self.hierarchy,
+                                    &member.domain,
+                                    specialization_receiver,
+                                    owner_type,
+                                    &self.ambient_constraints,
+                                );
+                                if let crate::impls::ImplApplicabilityResult::Applicable(spec) = app {
+                                    let mut signature = crate::checker::declaration_signature::project_semantic_signature(&member.signature_template);
+                                    let unspecialized_return = signature.return_type.clone();
+                                    let mut environment = receiver_spec.environment;
+                                    for (p, t) in spec.bindings {
+                                        environment.bind_param(p, t);
+                                    }
+                                    let env = environment.clone();
+                                    let specialize_type = |ctx: &mut Self, ty| {
+                                        let self_specialized = ctx.specialize_self_type(specialization_receiver, ty);
+                                        crate::types::environment::TypeView::new(self_specialized, env.clone()).materialize(ctx.store)
+                                    };
+                                    for parameter in &mut signature.parameters {
+                                        parameter.ty = parameter.ty.map_type(|ty| specialize_type(self, ty));
+                                    }
+                                    signature.return_type = signature.return_type.map_type(|ty| specialize_type(self, ty));
+                                    self.dependencies.insert(member.callable.clone());
+                                    self.record_consumed_callable_signature(&member.callable, &signature);
+                                    if let Some(expression) = self.current_expression_id() {
+                                        self.resolved_callables.insert(expression, member.callable.clone());
+                                        self.resolved_conditional_dispatches.insert(
+                                            expression,
+                                            crate::dispatch::ConditionalDispatchSelection {
+                                                impl_id: member.impl_id.clone(),
+                                                callable: member.callable.clone(),
+                                                declaring_owner: owner.clone(),
+                                                side,
+                                            },
+                                        );
+                                    }
+                                    return ResolvedDispatchResult::Found(Box::new(ResolvedDispatch {
+                                        callable: member.callable.clone(),
+                                        signature,
+                                        specialization: Some(crate::dispatch::DispatchSignatureSpecialization {
+                                            receiver: specialization_receiver,
+                                            declaring_owner: owner.clone(),
+                                            environment,
+                                            path: receiver_spec.path,
+                                            unspecialized_return,
+                                        }),
+                                        conditional: Some(crate::dispatch::ConditionalDispatchSelection {
+                                            impl_id: member.impl_id.clone(),
+                                            callable: member.callable.clone(),
+                                            declaring_owner: owner.clone(),
+                                            side,
+                                        }),
+                                        visited_owners,
+                                    }));
+                                }
+                            }
+                        }
+                    }
                 }
                 ResolvedDispatchResult::Missing { visited_owners }
             }

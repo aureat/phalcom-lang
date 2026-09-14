@@ -15,6 +15,8 @@ use crate::interner::Symbol;
 use crate::method::MethodObject;
 use crate::value::Value;
 use indexmap::IndexMap;
+use phalcom_semantic::types::family::FamilyOperationShape;
+use std::sync::Arc;
 
 use super::ArgumentPackBuilderObject;
 use super::reflection::{
@@ -193,10 +195,10 @@ pub enum Object {
 /// A bound `&` callable reference (selectors.md §3).
 ///
 /// Reached through [`Value::obj`](crate::value::Value::obj) exactly as an [`Object::List`] is — there
-/// is no `Value::Family` arm (`Value` stays minimal, ADR-0010). All fields
-/// are `Copy`, so the object itself never needs mutable accessors: a
-/// `Family` is immutable once constructed.
-#[derive(Debug, Clone, Copy)]
+/// is no `Value::Family` arm (`Value` stays minimal, ADR-0010). The object is
+/// immutable once constructed, while its conditional dispatch table is shared
+/// through an atomically reference-counted slice.
+#[derive(Debug, Clone)]
 pub struct FamilyObject {
     /// The receiver this family is bound to — `obj` in `&obj.name`, or the
     /// class object itself in `&Type.name`.
@@ -204,12 +206,27 @@ pub struct FamilyObject {
     /// Exact selectors remain compact interned symbols; patterns are heap
     /// objects so their structural predicate can be shared by all calls.
     pub spec: FamilySpec,
+    /// Canonical conditional selections retained by semantic lowering. Each
+    /// entry carries only its selected fallback and declaring runtime owner;
+    /// it is not a generic-argument or impl-domain table.
+    pub conditional: Arc<[ConditionalFamilyDispatchEntry]>,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub enum FamilySpec {
     Exact(Symbol),
     Pattern(ObjRef),
+}
+
+/// Runtime execution payload for one semantically selected conditional family
+/// member. The VM uses the declaring class only to preserve ordinary subclass
+/// override behavior; applicability was already proven by semantic analysis.
+#[derive(Debug, Clone)]
+pub struct ConditionalFamilyDispatchEntry {
+    pub operation: FamilyOperationShape,
+    pub selector: Symbol,
+    pub declaring_class: ClassId,
+    pub fallback_method: ObjRef,
 }
 
 pub use super::selector::SelectorObject;

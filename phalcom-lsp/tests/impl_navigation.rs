@@ -95,4 +95,3 @@ async fn enum_exact_case_and_root_impl_navigation() {
 
     lsp.finish().await;
 }
-

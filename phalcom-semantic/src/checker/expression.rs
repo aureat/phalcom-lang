@@ -269,7 +269,9 @@ fn analyze_expression_inner(ctx: &mut CheckingContext<'_>, expr: &Expr, expected
             }
         }
         Expr::SelfVar { range } => {
-            if let Some(class_decl) = ctx.current_class.clone() {
+            if let Some(self_ty) = ctx.self_override_type {
+                TypedExpression::established(self_ty, EvidenceOrigin::Flow, *range)
+            } else if let Some(class_decl) = ctx.current_class.clone() {
                 if ctx.current_side == crate::identity::DispatchSide::Class {
                     if let Some(info) = ctx.declaration_info(&class_decl) {
                         TypedExpression::established(info.class_object_type, EvidenceOrigin::Flow, *range)
@@ -1207,6 +1209,7 @@ fn synthesize_callable_reference(ctx: &mut CheckingContext<'_>, reference: &Call
                 .map(|member| CapturedBehavioralMember {
                     operation: member.operation.clone(),
                     target: member.target.clone(),
+                    conditional: member.conditional.clone(),
                 })
                 .collect::<Vec<_>>();
             if let Some(expression) = ctx.current_expression_id() {

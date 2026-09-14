@@ -448,7 +448,40 @@ impl<'vm> Compiler<'vm> {
                             self.compile_pack_item(arg)?;
                         }
                         let selector_idx = self.add_constant(Value::symbol(selector_sym));
-                        self.emit(Bytecode::Invoke(arity, selector_idx), call.range);
+                        let is_conditional = self.lowering().and_then(|l| {
+                            l.conditional_invocations
+                                .iter()
+                                .find(|(site, _)| {
+                                    site.range == call.range && site.kind == crate::modules::semantic_lowering::LoweringSiteKind::ConditionalInvoke
+                                })
+                                .map(|(_, spec)| spec.clone())
+                        });
+                        if let Some(spec) = is_conditional {
+                            let declaring_sym = self.vm.interner.intern(&spec.declaring_owner.name);
+                            let declaring_module = self
+                                .vm
+                                .module_registry
+                                .get(&spec.declaring_owner.module)
+                                .map(|record| record.object)
+                                .ok_or(CompilerError::MissingImplLoweringSemantics(call.range))?;
+                            let declaring_module_idx = self.add_constant(Value::obj(declaring_module));
+                            let declaring_name_idx = self.add_constant(Value::symbol(declaring_sym));
+                            let fallback_method_obj = self.get_or_compile_conditional_method(&spec.callable)?;
+                            let fallback_method_idx = self.add_constant(Value::obj(fallback_method_obj));
+                            self.emit(
+                                Bytecode::InvokeConditional {
+                                    arity,
+                                    selector: selector_idx,
+                                    declaring_module: declaring_module_idx,
+                                    declaring_name: declaring_name_idx,
+                                    class_side: spec.side == phalcom_semantic::identity::DispatchSide::Class,
+                                    fallback_method: fallback_method_idx,
+                                },
+                                call.range,
+                            );
+                        } else {
+                            self.emit(Bytecode::Invoke(arity, selector_idx), call.range);
+                        }
                         return Ok(());
                     }
                 }
@@ -674,12 +707,45 @@ impl<'vm> Compiler<'vm> {
                             self.compile_pack_item(arg)?;
                         }
                         let selector_idx = self.add_constant(Value::symbol(selector_sym));
-                        let opcode = if internal_call {
-                            Bytecode::InvokeCompilerInternal(arity, selector_idx)
+                        let is_conditional = self.lowering().and_then(|l| {
+                            l.conditional_invocations
+                                .iter()
+                                .find(|(site, _)| {
+                                    site.range == method_call.range && site.kind == crate::modules::semantic_lowering::LoweringSiteKind::ConditionalInvoke
+                                })
+                                .map(|(_, spec)| spec.clone())
+                        });
+                        if let Some(spec) = is_conditional {
+                            let declaring_sym = self.vm.interner.intern(&spec.declaring_owner.name);
+                            let declaring_module = self
+                                .vm
+                                .module_registry
+                                .get(&spec.declaring_owner.module)
+                                .map(|record| record.object)
+                                .ok_or(CompilerError::MissingImplLoweringSemantics(method_call.range))?;
+                            let declaring_module_idx = self.add_constant(Value::obj(declaring_module));
+                            let declaring_name_idx = self.add_constant(Value::symbol(declaring_sym));
+                            let fallback_method_obj = self.get_or_compile_conditional_method(&spec.callable)?;
+                            let fallback_method_idx = self.add_constant(Value::obj(fallback_method_obj));
+                            self.emit(
+                                Bytecode::InvokeConditional {
+                                    arity,
+                                    selector: selector_idx,
+                                    declaring_module: declaring_module_idx,
+                                    declaring_name: declaring_name_idx,
+                                    class_side: spec.side == phalcom_semantic::identity::DispatchSide::Class,
+                                    fallback_method: fallback_method_idx,
+                                },
+                                method_call.range,
+                            );
                         } else {
-                            Bytecode::Invoke(arity, selector_idx)
-                        };
-                        self.emit(opcode, method_call.range);
+                            let opcode = if internal_call {
+                                Bytecode::InvokeCompilerInternal(arity, selector_idx)
+                            } else {
+                                Bytecode::Invoke(arity, selector_idx)
+                            };
+                            self.emit(opcode, method_call.range);
+                        }
                     }
                 }
             }
@@ -1081,7 +1147,11 @@ impl<'vm> Compiler<'vm> {
                     self.emit(Bytecode::Constant(idx), record_expr.range);
                     return Ok(());
                 }
-                if let Some(spec) = self.lowering().and_then(|lowering| lowering.anonymous_products.get(&record_expr.range)).cloned() {
+                if let Some(spec) = self
+                    .lowering()
+                    .and_then(|lowering| lowering.anonymous_products.get(&record_expr.range))
+                    .cloned()
+                {
                     let spec_idx = self
                         .functions
                         .last_mut()

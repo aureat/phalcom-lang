@@ -244,6 +244,10 @@ pub fn trace_object(obj: &Object, layouts: &crate::product::ProductLayoutRegistr
             if let super::object::FamilySpec::Pattern(pattern) = family.spec {
                 push(pattern);
             }
+            for entry in family.conditional.iter() {
+                push(entry.declaring_class);
+                push(entry.fallback_method);
+            }
         }
         Object::Selector(_) => {}
         Object::SelectorPattern(_) => {}

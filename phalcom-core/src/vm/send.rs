@@ -1,5 +1,5 @@
 use crate::error::{PhResult, RuntimeError};
-use crate::heap::{ClassId, ObjRef, Object};
+use crate::heap::{ClassId, ObjRef, Object, is_strict_subclass, lookup_method_with_definer};
 use crate::interner::Symbol;
 use crate::method::{ArgumentView, CallOutcome, InvocationLayout, MemberVisibility, MethodKind, PrimitiveFn, SignatureKind, decode_selector};
 use crate::value::Value;
@@ -772,6 +772,40 @@ impl VM {
         self.activate_captured_method_as(bound.receiver, bound.method, view, source_range)
     }
 
+    /// Dispatches a semantically selected conditional member captured by a
+    /// bound family. The semantic layer has already proved applicability and
+    /// supplied the fallback method; runtime only preserves ordinary subclass
+    /// override behavior for the captured receiver.
+    fn dispatch_conditional_family_entry(
+        &mut self,
+        receiver_idx: usize,
+        receiver: Value,
+        entry: &crate::heap::ConditionalFamilyDispatchEntry,
+        view: ArgumentView,
+        source_range: SourceRange,
+    ) -> PhResult<CallOutcome> {
+        let method = self.select_conditional_method(receiver, entry.selector, entry.declaring_class, entry.fallback_method);
+        self.stack[receiver_idx] = receiver;
+        self.activate_captured_method_as(receiver, method, view, source_range)
+    }
+
+    /// Applies the single runtime rule shared by direct and reified
+    /// conditional dispatch: a strict-subclass ordinary override wins;
+    /// otherwise execution uses the semantic layer's selected fallback.
+    pub(crate) fn select_conditional_method(
+        &self,
+        receiver: Value,
+        selector: Symbol,
+        declaring_class: ClassId,
+        fallback_method: ObjRef,
+    ) -> ObjRef {
+        let actual_class = receiver.class(self);
+        lookup_method_with_definer(&self.heap, actual_class, selector)
+            .filter(|(_, defining)| is_strict_subclass(&self.heap, *defining, declaring_class))
+            .map(|(method, _)| method)
+            .unwrap_or(fallback_method)
+    }
+
     fn selectors_for_bound_method_family(&mut self, pattern_id: ObjRef, view: ArgumentView) -> PhResult<Vec<(Symbol, InvocationLayout)>> {
         let pattern = match self.heap.get(pattern_id) {
             Object::SelectorPattern(pattern) => pattern.pattern.clone(),
@@ -952,7 +986,7 @@ impl VM {
         };
         let family = match self.heap.get(family_id) {
             Object::AssociatedFamily(_) => return self.activate_associated_family_with_kind(view, invocation, source_range),
-            Object::Family(family) => *family,
+            Object::Family(family) => family.clone(),
             _ => {
                 return Err(RuntimeError::Type {
                     expected: "Family",
@@ -1103,6 +1137,10 @@ impl VM {
                 }
             }
         };
+        let conditional = family.conditional.iter().find(|entry| entry.selector == selector).cloned();
+        if let Some(entry) = conditional {
+            return self.dispatch_conditional_family_entry(receiver_idx, family.receiver, &entry, view, source_range);
+        }
         self.stack[receiver_idx] = family.receiver;
         self.dispatch_shape_at_as(receiver_idx, selector, view.layout().clone(), source_range, view.caller_authority())
     }

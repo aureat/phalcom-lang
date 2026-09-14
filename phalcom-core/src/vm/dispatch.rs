@@ -14,6 +14,7 @@ use crate::value::{FALSE, TRUE};
 use crate::vm::control::{ControlStepOutcome, Transfer};
 use phalcom_common::range::SourceRange;
 use std::rc::Rc;
+use std::sync::Arc;
 #[cfg(feature = "vm-trace")]
 use tracing::{Level, debug, span};
 
@@ -1404,7 +1405,11 @@ impl VM {
                         foreign_receiver_guard,
                     })));
                     let token = self.current_frame_token().expect("closure created inside a frame");
-                    let type_env = self.frames.last().map(|f| f.type_environment).unwrap_or(crate::typing::environment::RuntimeTypeEnvironmentId::EMPTY);
+                    let type_env = self
+                        .frames
+                        .last()
+                        .map(|f| f.type_environment)
+                        .unwrap_or(crate::typing::environment::RuntimeTypeEnvironmentId::EMPTY);
                     let block = self.heap.alloc(Object::Block(BlockObject::with_type_environment(new_closure, token, type_env)));
                     self.stack.push(Value::obj(block));
                 }
@@ -1635,6 +1640,58 @@ impl VM {
                     let family = Object::Family(crate::heap::FamilyObject {
                         receiver: recv,
                         spec: family_spec,
+                        conditional: Arc::from([]),
+                    });
+                    let family_id = self.heap.alloc(family);
+                    self.stack.push(Value::obj(family_id));
+                }
+                Bytecode::MakeConditionalFamily { spec, kind, conditional } => {
+                    let spec_value = callable.chunk.constants[spec as usize];
+                    let family_spec = match kind {
+                        crate::bytecode::FamilySpecKind::Exact => {
+                            let Some(symbol) = spec_value.symbol_value() else {
+                                return Err(RuntimeError::Internal("exact MakeConditionalFamily constant is not a Symbol".into()).into());
+                            };
+                            crate::heap::FamilySpec::Exact(symbol)
+                        }
+                        crate::bytecode::FamilySpecKind::Pattern => {
+                            let Some(pattern) = spec_value.as_obj() else {
+                                return Err(RuntimeError::Internal("pattern MakeConditionalFamily constant is not an object".into()).into());
+                            };
+                            if !matches!(self.heap.get(pattern), Object::SelectorPattern(_)) {
+                                return Err(RuntimeError::Internal("pattern MakeConditionalFamily constant is not a selector pattern".into()).into());
+                            }
+                            crate::heap::FamilySpec::Pattern(pattern)
+                        }
+                    };
+                    let entries = callable
+                        .chunk
+                        .executable_semantics
+                        .conditional_family_descriptor(conditional)
+                        .entries
+                        .iter()
+                        .map(|entry| {
+                            let declaring_class = self.resolve_declaration_class(&entry.declaring_owner)?;
+                            let declaring_class = if entry.side == phalcom_semantic::identity::DispatchSide::Class {
+                                self.heap.class(declaring_class).class
+                            } else {
+                                declaring_class
+                            };
+                            Ok(crate::heap::ConditionalFamilyDispatchEntry {
+                                operation: entry.operation.clone(),
+                                selector: entry.selector,
+                                declaring_class,
+                                fallback_method: callable.chunk.constants[entry.fallback_method as usize]
+                                    .as_obj()
+                                    .ok_or_else(|| RuntimeError::Internal("conditional family fallback is not an object".into()))?,
+                            })
+                        })
+                        .collect::<Result<Vec<_>, RuntimeError>>()?;
+                    let recv = self.stack.pop().unwrap();
+                    let family = Object::Family(crate::heap::FamilyObject {
+                        receiver: recv,
+                        spec: family_spec,
+                        conditional: Arc::from(entries.into_boxed_slice()),
                     });
                     let family_id = self.heap.alloc(family);
                     self.stack.push(Value::obj(family_id));
@@ -1901,6 +1958,51 @@ impl VM {
                 }
                 Bytecode::Invoke(arity, selector_idx) => {
                     self.invoke_at(callable, ip, arity, selector_idx)?;
+                }
+                Bytecode::InvokeConditional {
+                    arity,
+                    selector,
+                    declaring_module,
+                    declaring_name,
+                    class_side,
+                    fallback_method,
+                } => {
+                    let arity = arity as usize;
+                    let receiver_idx = self
+                        .stack
+                        .len()
+                        .checked_sub(arity + 1)
+                        .ok_or(RuntimeError::Internal("stack underflow in InvokeConditional".into()))?;
+                    let receiver = self.stack[receiver_idx];
+                    let selector_sym = callable.chunk.constants[selector as usize].as_symbol().map_err(RuntimeError::Internal)?;
+                    let declaring_module = callable.chunk.constants[declaring_module as usize]
+                        .as_obj()
+                        .ok_or_else(|| RuntimeError::Internal("conditional declaring module is not an object".into()))?;
+                    let declaring_sym = callable.chunk.constants[declaring_name as usize].as_symbol().map_err(RuntimeError::Internal)?;
+                    let fallback_val = callable.chunk.constants[fallback_method as usize];
+                    let fallback_method_ref = fallback_val
+                        .as_obj()
+                        .ok_or_else(|| RuntimeError::Internal("fallback method is not an object".into()))?;
+
+                    let declaring_class_id = self
+                        .classes
+                        .get(&crate::vm::ClassKey {
+                            module: declaring_module,
+                            name: declaring_sym,
+                        })
+                        .copied()
+                        .map(|class| if class_side { self.heap.class(class).class } else { class });
+
+                    let method_to_call = declaring_class_id.map_or(fallback_method_ref, |declaring_class| {
+                        self.select_conditional_method(receiver, selector_sym, declaring_class, fallback_method_ref)
+                    });
+
+                    let foreign_guard = self.frames.last().and_then(|frame| frame.foreign_receiver_guard);
+                    let frames_before = self.frames.len();
+                    self.call_method(&receiver, method_to_call, arity, callable.chunk.span_at(ip))?;
+                    if self.frames.len() > frames_before {
+                        self.frames.last_mut().unwrap().foreign_receiver_guard = foreign_guard;
+                    }
                 }
                 Bytecode::BilateralPreferReflected(selector_idx) => {
                     let rhs = *self.stack.last().ok_or(RuntimeError::Internal("missing bilateral rhs".into()))?;
@@ -2773,8 +2875,8 @@ impl VM {
                         values.push(self.pop()?);
                     }
                     values.reverse();
-                    let product = crate::product::finish_tuple_from_spec(self, spec, values)
-                        .map_err(|error| crate::product::runtime_error(self, "Tuple", error))?;
+                    let product =
+                        crate::product::finish_tuple_from_spec(self, spec, values).map_err(|error| crate::product::runtime_error(self, "Tuple", error))?;
                     self.stack.push(product);
                 }
                 Bytecode::BuildStaticRecord { spec } => {
@@ -2788,8 +2890,8 @@ impl VM {
                         values.push(self.pop()?);
                     }
                     values.reverse();
-                    let product = crate::product::finish_record_from_spec(self, spec, values)
-                        .map_err(|error| crate::product::runtime_error(self, "Record", error))?;
+                    let product =
+                        crate::product::finish_record_from_spec(self, spec, values).map_err(|error| crate::product::runtime_error(self, "Record", error))?;
                     self.stack.push(product);
                 }
                 Bytecode::NewRecordLiteralBuilder => {

@@ -32,6 +32,7 @@ pub enum LoweringSiteKind {
     CallableReference,
     FamilyApplication,
     Match,
+    ConditionalInvoke,
 }
 
 /// Compiler-facing lowering attachment key.
@@ -121,6 +122,18 @@ pub struct ExecutableFamilyCandidateSet {
     pub candidates: Box<[ExecutableFamilyCandidate]>,
 }
 
+/// Semantic selection evidence for one conditional member retained by a
+/// receiver-bound behavior family. The compiler turns the canonical callable
+/// into a fallback method handle; it does not re-solve the impl domain.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExecutableConditionalFamilyEntry {
+    pub operation: FamilyOperationShape,
+    pub impl_id: ImplId,
+    pub callable: CallableId,
+    pub declaring_owner: DeclarationId,
+    pub side: phalcom_semantic::identity::DispatchSide,
+}
+
 /// Lowering specification for an associated expression site.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AssociatedLoweringSpec {
@@ -199,6 +212,7 @@ pub struct InherentImplLoweringSpec {
     pub id: ImplId,
     pub target: InherentImplLoweringTarget,
     pub members: Box<[InherentImplMemberLowering]>,
+    pub is_conditional: bool,
 }
 
 /// Kind of an anonymous product construction whose shape is statically known.
@@ -231,7 +245,10 @@ pub struct AnonymousProductConstructionLoweringSpec {
 pub enum CallableReferenceLoweringSpec {
     /// Ordinary receiver-bound family capture. Runtime retains the captured
     /// receiver and performs live behavioral dispatch on future invocation.
-    MakeBoundFamily { spec: BehavioralFamilySpec },
+    MakeBoundFamily {
+        spec: BehavioralFamilySpec,
+        conditional_members: Box<[ExecutableConditionalFamilyEntry]>,
+    },
     /// Exact associated behavioral member reification as a bound method.
     MakeResolvedBoundMethod { target: ExecutableInvocationTarget },
     /// Exact associated variant constructor reification as a closure thunk.
@@ -355,6 +372,17 @@ pub struct MatchLoweringSpec {
     pub arms: Box<[ExecutableMatchArm]>,
 }
 
+/// Conditional inherent method invocation lowering specification.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConditionalInvocationSpec {
+    pub callable: CallableId,
+    /// Canonical semantic owner whose runtime behavior participates in the
+    /// override check. Keep the complete declaration identity: a leaf name is
+    /// not sufficient in a module-scoped class namespace.
+    pub declaring_owner: DeclarationId,
+    pub side: phalcom_semantic::identity::DispatchSide,
+}
+
 /// Complete compiled lowering semantics for a single module.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ModuleLoweringSemantics {
@@ -373,6 +401,7 @@ pub struct ModuleLoweringSemantics {
     pub family_application_sites: BTreeSet<LoweringSite>,
     pub family_applications: BTreeMap<LoweringSite, FamilyApplicationLoweringSpec>,
     pub matches: BTreeMap<LoweringSite, MatchLoweringSpec>,
+    pub conditional_invocations: BTreeMap<LoweringSite, ConditionalInvocationSpec>,
 }
 
 impl ModuleLoweringSemantics {
@@ -390,6 +419,7 @@ impl ModuleLoweringSemantics {
             family_application_sites: BTreeSet::new(),
             family_applications: BTreeMap::new(),
             matches: BTreeMap::new(),
+            conditional_invocations: BTreeMap::new(),
         }
     }
 }
@@ -543,11 +573,7 @@ pub fn build_module_lowering_semantics(
     // not recreate lexical name resolution in the optimizer.
     let mut bindings = BTreeMap::new();
     if let Some(module_index) = snapshot.source_index().module(module) {
-        for callable_id in snapshot
-            .callable_analyses
-            .keys()
-            .filter(|callable| callable.owner.module() == module)
-        {
+        for callable_id in snapshot.callable_analyses.keys().filter(|callable| callable.owner.module() == module) {
             let Some(attachment) = snapshot.source_index().formal_attachment(callable_id) else {
                 continue;
             };
@@ -670,12 +696,8 @@ pub fn build_module_lowering_semantics(
             continue;
         }
         let target = match &definition.callable.owner {
-            phalcom_semantic::identity::CallableOwnerId::Declaration(decl) => {
-                InherentImplLoweringTarget::Declaration(decl.clone())
-            }
-            phalcom_semantic::identity::CallableOwnerId::Variant(var) => {
-                InherentImplLoweringTarget::ExactEnumCase(var.clone())
-            }
+            phalcom_semantic::identity::CallableOwnerId::Declaration(decl) => InherentImplLoweringTarget::Declaration(decl.clone()),
+            phalcom_semantic::identity::CallableOwnerId::Variant(var) => InherentImplLoweringTarget::ExactEnumCase(var.clone()),
         };
         let entry = inherent_impls_by_id.entry(impl_id.clone()).or_insert_with(|| (target.clone(), Vec::new()));
         debug_assert_eq!(entry.0, target, "one inherent impl cannot contribute to multiple targets");
@@ -688,10 +710,21 @@ pub fn build_module_lowering_semantics(
         .into_iter()
         .map(|(id, (target, mut members))| {
             members.sort_by_key(|member| member.source_member_index);
+            let is_conditional = match &target {
+                InherentImplLoweringTarget::Declaration(decl) => snapshot
+                    .dispatch
+                    .get_conditional_members(&phalcom_semantic::impls::InherentImplTarget::Declaration(decl.clone()))
+                    .map_or(false, |set| set.members.iter().any(|m| m.impl_id == id)),
+                InherentImplLoweringTarget::ExactEnumCase(var) => snapshot
+                    .dispatch
+                    .get_conditional_members(&phalcom_semantic::impls::InherentImplTarget::ExactEnumCase(var.clone()))
+                    .map_or(false, |set| set.members.iter().any(|m| m.impl_id == id)),
+            };
             InherentImplLoweringSpec {
                 id,
                 target,
                 members: members.into_boxed_slice(),
+                is_conditional,
             }
         })
         .collect::<Vec<_>>();
@@ -704,6 +737,7 @@ pub fn build_module_lowering_semantics(
     let mut family_application_sites = BTreeSet::new();
     let mut family_applications = BTreeMap::new();
     let mut matches = BTreeMap::new();
+    let mut conditional_invocations = BTreeMap::new();
 
     for (callable_id, analysis) in snapshot.callable_analyses.iter() {
         if callable_id.owner.module() != module {
@@ -793,6 +827,21 @@ pub fn build_module_lowering_semantics(
             }
             matches.insert(site, spec);
         }
+
+        // 4. Project Conditional Inherent Invocations
+        for expression in analysis.expressions.values() {
+            if let Some(selection) = &expression.conditional_dispatch {
+                let site = LoweringSite::new(source_id.clone(), expression.range, LoweringSiteKind::ConditionalInvoke);
+                conditional_invocations.insert(
+                    site,
+                    ConditionalInvocationSpec {
+                        callable: selection.callable.clone(),
+                        declaring_owner: selection.declaring_owner.clone(),
+                        side: selection.side,
+                    },
+                );
+            }
+        }
     }
 
     let anonymous_products = snapshot
@@ -814,6 +863,7 @@ pub fn build_module_lowering_semantics(
         family_application_sites,
         family_applications,
         matches,
+        conditional_invocations,
     })
 }
 
@@ -853,7 +903,10 @@ enum AnonymousProductSource {
 
 fn static_product_label(label: &phalcom_ast::ast::ProductLabel) -> Option<Box<str>> {
     match label {
-        phalcom_ast::ast::ProductLabel::Static { symbol: phalcom_ast::ast::SymbolLiteralKind::Name(name), .. } => Some(name.clone().into_boxed_str()),
+        phalcom_ast::ast::ProductLabel::Static {
+            symbol: phalcom_ast::ast::SymbolLiteralKind::Name(name),
+            ..
+        } => Some(name.clone().into_boxed_str()),
         _ => None,
     }
 }
@@ -875,7 +928,10 @@ fn collect_anonymous_product_expr(expr: &phalcom_ast::ast::Expr, out: &mut Vec<A
                         collect_anonymous_product_expr(expr, out);
                     }
                     TupleLiteralEntry::Labeled { label, value, range } => {
-                        let Some(label) = static_product_label(label) else { eligible = false; continue };
+                        let Some(label) = static_product_label(label) else {
+                            eligible = false;
+                            continue;
+                        };
                         labels.push(label);
                         let _ = range;
                         component_ranges.push(value.range());
@@ -903,7 +959,10 @@ fn collect_anonymous_product_expr(expr: &phalcom_ast::ast::Expr, out: &mut Vec<A
             for entry in &record.entries {
                 match entry {
                     RecordLiteralEntry::Field(field) => {
-                        let Some(label) = static_product_label(&field.label) else { eligible = false; continue };
+                        let Some(label) = static_product_label(&field.label) else {
+                            eligible = false;
+                            continue;
+                        };
                         labels.push(label);
                         component_ranges.push(field.value.range());
                         collect_anonymous_product_expr(&field.value, out);
@@ -927,8 +986,12 @@ fn collect_anonymous_product_expr(expr: &phalcom_ast::ast::Expr, out: &mut Vec<A
             collect_anonymous_product_expr(&e.value, out);
         }
         Expr::Range(e) => {
-            if let Some(lower) = &e.lower { collect_anonymous_product_expr(lower, out); }
-            if let Some(upper) = &e.upper { collect_anonymous_product_expr(upper, out); }
+            if let Some(lower) = &e.lower {
+                collect_anonymous_product_expr(lower, out);
+            }
+            if let Some(upper) = &e.upper {
+                collect_anonymous_product_expr(upper, out);
+            }
         }
         Expr::Unary(e) => collect_anonymous_product_expr(&e.expr, out),
         Expr::Binary(e) => {
@@ -939,7 +1002,9 @@ fn collect_anonymous_product_expr(expr: &phalcom_ast::ast::Expr, out: &mut Vec<A
         Expr::IfLet(e) => {
             collect_anonymous_product_expr(&e.value, out);
             collect_anonymous_product_statements(&e.then_body.body, out);
-            if let Some(body) = &e.else_body { collect_anonymous_product_statements(&body.body, out); }
+            if let Some(body) = &e.else_body {
+                collect_anonymous_product_statements(&body.body, out);
+            }
         }
         Expr::WhileLet(e) => {
             collect_anonymous_product_expr(&e.value, out);
@@ -971,13 +1036,16 @@ fn collect_anonymous_product_expr(expr: &phalcom_ast::ast::Expr, out: &mut Vec<A
             collect_anonymous_product_pack(&e.args, out);
         }
         Expr::CallableReference(e) => match &e.target {
-            phalcom_ast::ast::CallableReferenceTarget::Bound { receiver, .. }
-            | phalcom_ast::ast::CallableReferenceTarget::Associated { receiver, .. } => collect_anonymous_product_expr(receiver, out),
+            phalcom_ast::ast::CallableReferenceTarget::Bound { receiver, .. } | phalcom_ast::ast::CallableReferenceTarget::Associated { receiver, .. } => {
+                collect_anonymous_product_expr(receiver, out)
+            }
         },
         Expr::RecordConstruction(e) => e.entries.iter().for_each(|entry| collect_anonymous_product_expr(&entry.value, out)),
         Expr::MapLiteral(e) => e.entries.iter().for_each(|entry| match entry {
             MapLiteralEntry::Association { key, value, .. } => {
-                if let phalcom_ast::ast::MapLiteralKey::Computed { expr, .. } = key { collect_anonymous_product_expr(expr, out); }
+                if let phalcom_ast::ast::MapLiteralKey::Computed { expr, .. } = key {
+                    collect_anonymous_product_expr(expr, out);
+                }
                 collect_anonymous_product_expr(value, out);
             }
             MapLiteralEntry::Expansion { expr, .. } => collect_anonymous_product_expr(expr, out),
@@ -1024,28 +1092,54 @@ fn collect_anonymous_product_statements(statements: &[phalcom_ast::ast::Statemen
     for statement in statements {
         match statement {
             Statement::Let(binding) => {
-                if let Some(value) = &binding.value { collect_anonymous_product_expr(value, out); }
+                if let Some(value) = &binding.value {
+                    collect_anonymous_product_expr(value, out);
+                }
             }
             Statement::Return(return_statement) => {
-                if let Some(value) = &return_statement.value { collect_anonymous_product_expr(value, out); }
+                if let Some(value) = &return_statement.value {
+                    collect_anonymous_product_expr(value, out);
+                }
             }
             Statement::Expr { expr, .. } | Statement::Throw { expr, .. } => collect_anonymous_product_expr(expr, out),
             Statement::For(for_statement) => {
-                for lane in &for_statement.lanes { collect_anonymous_product_expr(&lane.iter, out); }
+                for lane in &for_statement.lanes {
+                    collect_anonymous_product_expr(&lane.iter, out);
+                }
                 collect_anonymous_product_statements(&for_statement.body, out);
             }
             Statement::Class(class) => {
-                for invariant in &class.invariants { collect_anonymous_product_expr(&invariant.0, out); }
+                for invariant in &class.invariants {
+                    collect_anonymous_product_expr(&invariant.0, out);
+                }
                 for member in &class.members {
                     match member {
-                        ClassMember::Method(method) => if let MemberBody::Block(body) = &method.body { collect_anonymous_product_statements(body, out); },
-                        ClassMember::Getter(getter) => if let MemberBody::Block(body) = &getter.body { collect_anonymous_product_statements(body, out); },
-                        ClassMember::Setter(setter) => if let MemberBody::Block(body) = &setter.body { collect_anonymous_product_statements(body, out); },
+                        ClassMember::Method(method) => {
+                            if let MemberBody::Block(body) = &method.body {
+                                collect_anonymous_product_statements(body, out);
+                            }
+                        }
+                        ClassMember::Getter(getter) => {
+                            if let MemberBody::Block(body) = &getter.body {
+                                collect_anonymous_product_statements(body, out);
+                            }
+                        }
+                        ClassMember::Setter(setter) => {
+                            if let MemberBody::Block(body) = &setter.body {
+                                collect_anonymous_product_statements(body, out);
+                            }
+                        }
                         ClassMember::Index(index) => collect_anonymous_product_statements(&index.body, out),
-                        ClassMember::Field(field) => if let Some(default) = &field.default { collect_anonymous_product_expr(default, out); },
+                        ClassMember::Field(field) => {
+                            if let Some(default) = &field.default {
+                                collect_anonymous_product_expr(default, out);
+                            }
+                        }
                         ClassMember::Variant(variant) => {
                             for attribute in &variant.attributes {
-                                for argument in &attribute.args { collect_anonymous_product_expr(argument, out); }
+                                for argument in &attribute.args {
+                                    collect_anonymous_product_expr(argument, out);
+                                }
                             }
                         }
                     }
@@ -1055,19 +1149,26 @@ fn collect_anonymous_product_statements(statements: &[phalcom_ast::ast::Statemen
                 for member in &impl_def.members {
                     match member {
                         phalcom_ast::ast::BehaviorMember::Method(method) => {
-                            if let MemberBody::Block(body) = &method.body { collect_anonymous_product_statements(body, out); }
+                            if let MemberBody::Block(body) = &method.body {
+                                collect_anonymous_product_statements(body, out);
+                            }
                         }
                         phalcom_ast::ast::BehaviorMember::Getter(getter) => {
-                            if let MemberBody::Block(body) = &getter.body { collect_anonymous_product_statements(body, out); }
+                            if let MemberBody::Block(body) = &getter.body {
+                                collect_anonymous_product_statements(body, out);
+                            }
                         }
                         phalcom_ast::ast::BehaviorMember::Setter(setter) => {
-                            if let MemberBody::Block(body) = &setter.body { collect_anonymous_product_statements(body, out); }
+                            if let MemberBody::Block(body) = &setter.body {
+                                collect_anonymous_product_statements(body, out);
+                            }
                         }
                         phalcom_ast::ast::BehaviorMember::Index(index) => collect_anonymous_product_statements(&index.body, out),
                     }
                 }
             }
-            Statement::Enum(_) | Statement::TypeAlias(_) | Statement::Data(_) | Statement::Break { .. } | Statement::Continue { .. } | Statement::Export(_) => {}
+            Statement::Enum(_) | Statement::TypeAlias(_) | Statement::Data(_) | Statement::Break { .. } | Statement::Continue { .. } | Statement::Export(_) => {
+            }
         }
     }
 }
@@ -1131,7 +1232,11 @@ fn collect_anonymous_product_module_roots(program: &phalcom_ast::ast::Program) -
     out
 }
 
-fn project_anonymous_products(module: &ModuleId, snapshot: &SemanticSnapshot, program: &phalcom_ast::ast::Program) -> BTreeMap<SourceRange, Arc<AnonymousProductConstructionLoweringSpec>> {
+fn project_anonymous_products(
+    module: &ModuleId,
+    snapshot: &SemanticSnapshot,
+    program: &phalcom_ast::ast::Program,
+) -> BTreeMap<SourceRange, Arc<AnonymousProductConstructionLoweringSpec>> {
     let mut sources = Vec::new();
     collect_anonymous_product_statements(&program.statements, &mut sources);
     let mut expression_facts = BTreeMap::<SourceRange, Option<TypeId>>::new();
@@ -1151,22 +1256,33 @@ fn project_anonymous_products(module: &ModuleId, snapshot: &SemanticSnapshot, pr
     for source in sources {
         let (range, component_ranges, kind, type_id) = match &source {
             AnonymousProductSource::Tuple { range, component_ranges, .. } => {
-                let Some(type_id) = expression_facts.get(range).copied().flatten() else { continue };
+                let Some(type_id) = expression_facts.get(range).copied().flatten() else {
+                    continue;
+                };
                 (*range, component_ranges.clone(), 0u8, type_id)
             }
             AnonymousProductSource::Record { range, component_ranges, .. } => {
-                let Some(type_id) = expression_facts.get(range).copied().flatten() else { continue };
+                let Some(type_id) = expression_facts.get(range).copied().flatten() else {
+                    continue;
+                };
                 (*range, component_ranges.clone(), 1u8, type_id)
             }
         };
         let spec = if kind == 0 {
-            let AnonymousProductSource::Tuple { positional_len, labels, .. } = source else { unreachable!() };
-            let phalcom_semantic::types::store::TypeData::Tuple(elements) = snapshot.store.get(type_id) else { continue };
+            let AnonymousProductSource::Tuple { positional_len, labels, .. } = source else {
+                unreachable!()
+            };
+            let phalcom_semantic::types::store::TypeData::Tuple(elements) = snapshot.store.get(type_id) else {
+                continue;
+            };
             if elements.len() != component_ranges.len() || elements.len() != (positional_len as usize + labels.len()) {
                 continue;
             }
             AnonymousProductConstructionLoweringSpec {
-                kind: AnonymousProductConstructionKind::Tuple { positional_len, labels: labels.into_boxed_slice() },
+                kind: AnonymousProductConstructionKind::Tuple {
+                    positional_len,
+                    labels: labels.into_boxed_slice(),
+                },
                 layout: crate::product::ProductLayoutSpec::new(
                     elements
                         .iter()
@@ -1179,15 +1295,22 @@ fn project_anonymous_products(module: &ModuleId, snapshot: &SemanticSnapshot, pr
                 ),
             }
         } else {
-            let AnonymousProductSource::Record { labels, .. } = source else { unreachable!() };
-            let phalcom_semantic::types::store::TypeData::Record(row_id) = snapshot.store.get(type_id) else { continue };
+            let AnonymousProductSource::Record { labels, .. } = source else {
+                unreachable!()
+            };
+            let phalcom_semantic::types::store::TypeData::Record(row_id) = snapshot.store.get(type_id) else {
+                continue;
+            };
             let row = snapshot.store.record_row(*row_id);
             if !matches!(row.tail, phalcom_semantic::types::row::RecordRowTail::Closed) || row.fields.len() != labels.len() {
                 continue;
             }
             let mut source_to_logical = Vec::with_capacity(labels.len());
             for label in &labels {
-                let Ok(index) = row.fields.binary_search_by(|field| field.name.as_ref().cmp(label.as_ref())) else { source_to_logical.clear(); break };
+                let Ok(index) = row.fields.binary_search_by(|field| field.name.as_ref().cmp(label.as_ref())) else {
+                    source_to_logical.clear();
+                    break;
+                };
                 source_to_logical.push(index as u32);
             }
             if source_to_logical.len() != labels.len() || {
@@ -1561,7 +1684,26 @@ fn project_callable_reference_resolution(
     projects: &phalcom_modules::ProjectUniverse,
 ) -> Result<CallableReferenceLoweringSpec, ProjectionError> {
     match &resolution.kind {
-        CallableReferenceResolutionKind::BoundFamily { spec, .. } => Ok(CallableReferenceLoweringSpec::MakeBoundFamily { spec: spec.clone() }),
+        CallableReferenceResolutionKind::BoundFamily { spec, members, .. } => {
+            let conditional_members = members
+                .iter()
+                .filter_map(|member| {
+                    let selection = member.conditional.as_ref()?;
+                    Some(ExecutableConditionalFamilyEntry {
+                        operation: member.operation.clone(),
+                        impl_id: selection.impl_id.clone(),
+                        callable: selection.callable.clone(),
+                        declaring_owner: selection.declaring_owner.clone(),
+                        side: selection.side,
+                    })
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
+            Ok(CallableReferenceLoweringSpec::MakeBoundFamily {
+                spec: spec.clone(),
+                conditional_members,
+            })
+        }
         CallableReferenceResolutionKind::Associated(associated) => {
             let (_, spec) = project_associated_resolution(associated, snapshot, projects)?;
             match spec {

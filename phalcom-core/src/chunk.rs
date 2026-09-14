@@ -1,6 +1,7 @@
 use crate::bytecode::Bytecode;
 use crate::compiler::lib::CompilerError;
 use crate::heap::ClassId;
+use crate::interner::Symbol;
 use crate::modules::semantic_lowering::{
     AnonymousProductConstructionLoweringSpec, DataConstructionLoweringSpec, DataDeclarationLoweringSpec, EnumLoweringSpec,
     ExecutableFamilyCandidateSet, ExecutableFamilyDescriptor, ExecutableInvocationTarget,
@@ -8,6 +9,7 @@ use crate::modules::semantic_lowering::{
 use crate::value::Value;
 use phalcom_common::range::SourceRange;
 use phalcom_semantic::identity::{DataConstructorId, VariantId};
+use phalcom_semantic::identity::{DeclarationId, DispatchSide};
 use phalcom_semantic::types::family::FamilyOperationShape;
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
@@ -19,6 +21,25 @@ pub struct AssociatedTargetCache {
     pub receiver: Value,
     pub method: crate::heap::ObjRef,
     pub world_version: u64,
+}
+
+/// Compiler-materialized conditional dispatch entry for a bound behavior
+/// family. The fallback method is compiled once per canonical callable; the
+/// declaring owner remains explicit for runtime hierarchy probing.
+#[derive(Debug, Clone)]
+pub struct ConditionalFamilyEntry {
+    pub operation: FamilyOperationShape,
+    pub selector: Symbol,
+    pub declaring_owner: DeclarationId,
+    pub side: DispatchSide,
+    /// Constant-pool index for the compiled fallback method. Keeping the
+    /// handle in the chunk constants preserves the ordinary closure GC root.
+    pub fallback_method: u16,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ConditionalFamilyDescriptor {
+    pub entries: Box<[ConditionalFamilyEntry]>,
 }
 
 /// Typed executable semantic side table stored directly on Chunk.
@@ -36,6 +57,7 @@ pub struct ExecutableSemanticPool {
     pub associated_targets: Vec<ExecutableInvocationTarget>,
     pub associated_target_caches: Vec<Cell<Option<AssociatedTargetCache>>>,
     pub family_descriptors: Vec<Arc<ExecutableFamilyDescriptor>>,
+    pub conditional_family_descriptors: Vec<ConditionalFamilyDescriptor>,
     pub family_operations: Vec<FamilyOperationShape>,
     pub family_candidate_sets: Vec<ExecutableFamilyCandidateSet>,
 }
@@ -149,6 +171,17 @@ impl ExecutableSemanticPool {
 
     pub fn family_descriptor(&self, index: u16) -> &Arc<ExecutableFamilyDescriptor> {
         &self.family_descriptors[index as usize]
+    }
+
+    pub fn add_conditional_family_descriptor(&mut self, descriptor: ConditionalFamilyDescriptor, span: SourceRange) -> Result<u16, CompilerError> {
+        let index = u16::try_from(self.conditional_family_descriptors.len())
+            .map_err(|_| CompilerError::ExecutableSemanticPoolOverflow { kind: "ConditionalFamilyDescriptor", span })?;
+        self.conditional_family_descriptors.push(descriptor);
+        Ok(index)
+    }
+
+    pub fn conditional_family_descriptor(&self, index: u16) -> &ConditionalFamilyDescriptor {
+        &self.conditional_family_descriptors[index as usize]
     }
 
     pub fn add_family_operation(&mut self, operation: FamilyOperationShape, span: SourceRange) -> Result<u16, CompilerError> {

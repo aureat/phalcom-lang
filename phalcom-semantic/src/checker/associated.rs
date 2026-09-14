@@ -100,6 +100,9 @@ pub struct BoundBehavioralMember {
     pub member_kind: crate::types::family::FamilyMemberTypeKind,
     pub target: InvocationTargetId,
     pub callable_type: TypeId,
+    /// Conditional selection evidence returned by canonical dispatch. Runtime
+    /// lowering may carry this evidence, but never recomputes applicability.
+    pub conditional: Option<crate::dispatch::ConditionalDispatchSelection>,
 }
 
 /// Semantic resolution product for an ordinary invocation on a first-class family value.
@@ -281,62 +284,88 @@ pub fn resolve_bound_behavioral_family(
                         member_kind,
                         target: InvocationTargetId::Behavioral(resolved.callable),
                         callable_type,
+                        conditional: resolved.conditional.clone(),
                     });
                 }
             }
         }
         BehavioralFamilySpec::Pattern(SelectorPattern { base, .. }) => {
+            let mut selectors = Vec::new();
+            if let TypeData::ExactCase { variant, .. } = ctx.store.get(receiver_form.unwrap_or(receiver_type)) {
+                let variant = ctx.store.variant_identity(*variant).clone();
+                if let Some(conditional) = ctx
+                    .dispatch_ref()
+                    .get_conditional_members(&crate::impls::InherentImplTarget::ExactEnumCase(variant))
+                {
+                    selectors.extend(
+                        conditional
+                            .members
+                            .iter()
+                            .filter(|member| member.callable.side == side)
+                            .map(|member| member.callable.selector.clone()),
+                    );
+                }
+            }
             for owner in ctx.dispatch_ref().dispatch_owners(ctx.hierarchy.inner(), &lookup_owner, side) {
-                let candidates = ctx.get_surface(&owner.declaration).map(|surface| {
-                    surface
-                        .surface(owner.side)
-                        .callable_signatures
-                        .iter()
-                        .filter_map(|(selector, signature)| {
-                            surface
-                                .get_callable_id(owner.side, selector)
-                                .cloned()
-                                .map(|callable| (selector.clone(), signature.clone(), callable))
-                        })
-                        .collect::<Vec<_>>()
-                });
-                let Some(candidates) = candidates else {
+                if let Some(surface) = ctx.get_surface(&owner.declaration) {
+                    selectors.extend(
+                        surface
+                            .surface(owner.side)
+                            .callable_signatures
+                            .keys()
+                            .filter(|selector| selector.base == *base)
+                            .filter(|selector| match base {
+                                SelectorBase::Named(_) => {
+                                    matches!(selector.kind, SelectorKind::Getter | SelectorKind::Setter | SelectorKind::Method)
+                                }
+                                SelectorBase::Subscript => matches!(selector.kind, SelectorKind::SubscriptGet | SelectorKind::SubscriptSet),
+                            })
+                            .cloned(),
+                    );
+                }
+                if let Some(conditional) = ctx
+                    .dispatch_ref()
+                    .get_conditional_members(&crate::impls::InherentImplTarget::Declaration(owner.declaration.clone()))
+                {
+                    selectors.extend(
+                        conditional
+                            .members
+                            .iter()
+                            .filter(|member| member.callable.side == owner.side && member.callable.selector.base == *base)
+                            .map(|member| member.callable.selector.clone()),
+                    );
+                }
+            }
+            selectors.sort();
+            selectors.dedup();
+            for selector in selectors {
+                if !seen.insert(selector.clone()) {
+                    continue;
+                }
+                let crate::dispatch::ResolvedDispatchResult::Found(resolved) =
+                    ctx.resolve_dispatch_target_with_specialization(receiver_type, receiver_form, &selector, lookup.clone())
+                else {
                     continue;
                 };
-                for (selector, signature, callable) in candidates {
-                    let kind_allowed = match base {
-                        SelectorBase::Named(_) => matches!(selector.kind, SelectorKind::Getter | SelectorKind::Setter | SelectorKind::Method),
-                        SelectorBase::Subscript => matches!(selector.kind, SelectorKind::SubscriptGet | SelectorKind::SubscriptSet),
-                    };
-                    if selector.base != *base || !kind_allowed {
-                        continue;
-                    }
-                    if !seen.insert(selector.clone()) {
-                        continue;
-                    }
-                    let signature = match ctx.resolve_dispatch_target_with_specialization(receiver_type, receiver_form, &selector, lookup.clone()) {
-                        crate::dispatch::ResolvedDispatchResult::Found(resolved) if resolved.callable == callable => resolved.signature,
-                        _ => signature,
-                    };
-                    let Some(callable_type) = callable_type_from_signature(ctx, &signature) else {
-                        // A family may still be constructed when declaration
-                        // type knowledge is incomplete. Omit only the static
-                        // candidate; runtime keeps the live receiver-bound
-                        // selector pattern authoritative.
-                        continue;
-                    };
-                    let member_kind = if selector.kind == SelectorKind::Getter {
-                        crate::types::family::FamilyMemberTypeKind::Value
-                    } else {
-                        crate::types::family::FamilyMemberTypeKind::Callable
-                    };
-                    members.push(BoundBehavioralMember {
-                        operation: FamilyOperationShape::new(selector.kind, selector.slots.clone()),
-                        member_kind,
-                        target: InvocationTargetId::Behavioral(callable),
-                        callable_type,
-                    });
-                }
+                let Some(callable_type) = callable_type_from_signature(ctx, &resolved.signature) else {
+                    // A family may still be constructed when declaration type
+                    // knowledge is incomplete. Omit only the static candidate;
+                    // runtime keeps the live receiver-bound selector pattern
+                    // authoritative.
+                    continue;
+                };
+                let member_kind = if selector.kind == SelectorKind::Getter {
+                    crate::types::family::FamilyMemberTypeKind::Value
+                } else {
+                    crate::types::family::FamilyMemberTypeKind::Callable
+                };
+                members.push(BoundBehavioralMember {
+                    operation: FamilyOperationShape::new(selector.kind, selector.slots.clone()),
+                    member_kind,
+                    target: InvocationTargetId::Behavioral(resolved.callable),
+                    callable_type,
+                    conditional: resolved.conditional.clone(),
+                });
             }
         }
     }

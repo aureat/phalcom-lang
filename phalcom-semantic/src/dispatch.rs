@@ -1,6 +1,6 @@
 //! Dispatch models, callable signatures, and selector resolution.
 
-use crate::identity::{CallableId, DeclarationId, ModuleId};
+use crate::identity::{CallableId, DeclarationId, ImplId, ModuleId};
 
 pub use crate::identity::DispatchSide;
 use crate::surface::DeclarationSurface;
@@ -122,11 +122,23 @@ pub struct DispatchSignatureSpecialization {
     pub unspecialized_return: TypeKnowledge,
 }
 
+/// Canonical evidence that a dispatch result came from a conditional
+/// inherent member.  Consumers may carry this selection through lowering,
+/// but must not re-run the domain matcher.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ConditionalDispatchSelection {
+    pub impl_id: ImplId,
+    pub callable: CallableId,
+    pub declaring_owner: DeclarationId,
+    pub side: DispatchSide,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolvedDispatch {
     pub callable: CallableId,
     pub signature: CallableSignature,
     pub specialization: Option<DispatchSignatureSpecialization>,
+    pub conditional: Option<ConditionalDispatchSelection>,
     pub visited_owners: Box<[DeclarationId]>,
 }
 
@@ -161,6 +173,9 @@ impl DispatchResult {
     }
 }
 
+use crate::impls::{ConditionalInherentMemberSet, InherentImplTarget};
+use std::sync::Arc;
+
 /// Trait for querying semantic dispatch targets.
 pub trait DispatchResolver {
     fn resolve_dispatch(&self, receiver: TypeId, selector: &Selector, lookup: DispatchLookup) -> DispatchResult;
@@ -170,6 +185,7 @@ pub trait DispatchResolver {
 #[derive(Clone, Debug, Default)]
 pub struct SurfaceDispatchResolver {
     surfaces: HashMap<DeclarationId, DeclarationSurface>,
+    conditional_members: HashMap<InherentImplTarget, Arc<ConditionalInherentMemberSet>>,
     type_declarations: HashMap<TypeId, DeclarationId>,
     module_surfaces: HashMap<ModuleId, BTreeSet<DeclarationId>>,
     declaration_types: HashMap<DeclarationId, BTreeSet<TypeId>>,
@@ -178,6 +194,18 @@ pub struct SurfaceDispatchResolver {
 impl SurfaceDispatchResolver {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn register_conditional_members(&mut self, target: InherentImplTarget, members: Arc<ConditionalInherentMemberSet>) {
+        self.conditional_members.insert(target, members);
+    }
+
+    pub fn get_conditional_members(&self, target: &InherentImplTarget) -> Option<&Arc<ConditionalInherentMemberSet>> {
+        self.conditional_members.get(target)
+    }
+
+    pub fn conditional_members(&self) -> &HashMap<InherentImplTarget, Arc<ConditionalInherentMemberSet>> {
+        &self.conditional_members
     }
 
     pub fn register_surface(&mut self, decl: DeclarationId, surface: DeclarationSurface) {
@@ -201,6 +229,7 @@ impl SurfaceDispatchResolver {
     /// Removes one declaration surface and only the type registrations owned
     /// by that declaration.
     pub fn remove_surface(&mut self, declaration: &DeclarationId) {
+        self.conditional_members.remove(&InherentImplTarget::Declaration(declaration.clone()));
         let Some(_) = self.surfaces.remove(declaration) else {
             return;
         };
@@ -312,6 +341,7 @@ impl SurfaceDispatchResolver {
                         callable: callable_id,
                         signature: sig.clone(),
                         specialization: None,
+                        conditional: None,
                         visited_owners: visited.into_boxed_slice(),
                     }));
                 }

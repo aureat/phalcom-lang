@@ -337,3 +337,45 @@ impl Choice::No {
     }
 }
 
+#[test]
+fn specialized_data_impl_executes_only_for_the_applicable_receiver() {
+    let source = r#"
+data Box<T>(_ value: T)
+
+impl Box<Int> {
+  intValue() -> Int { self.value }
+}
+
+let result = Box(7).intValue()
+"#;
+
+    let (vm, module) = vm_support::run_inline(source).expect("specialized data impl should execute");
+    assert_eq!(named(&vm, module, "result"), Value::int(7));
+
+    let inapplicable = r#"
+data Box<T>(_ value: T)
+impl Box<Int> { intValue() -> Int { self.value } }
+let result = Box("not an Int").intValue()
+"#;
+    assert!(
+        vm_support::run_inline(inapplicable).is_err(),
+        "a specialized member must not leak onto the shared generic behavior class"
+    );
+}
+
+#[test]
+fn bound_family_retains_the_selected_specialized_impl() {
+    let source = r#"
+data Box<T>(_ value: T)
+
+impl Box<Int> {
+  intValue() -> Int { self.value }
+}
+
+let family = &Box(7).intValue()
+let result = family()
+"#;
+
+    let (vm, module) = vm_support::run_inline(source).expect("conditional bound family should execute");
+    assert_eq!(named(&vm, module, "result"), Value::int(7));
+}

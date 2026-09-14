@@ -1,7 +1,8 @@
+use phalcom_common::selector::Selector;
 use phalcom_modules::identity::{ModuleId, ModulePath, ResolvedProjectId};
+use phalcom_semantic::CheckingContext;
 use phalcom_semantic::declarations::{DeclarationTypeTable, NominalDeclarationHeader};
 use phalcom_semantic::diagnostic::DiagnosticCode;
-use phalcom_common::selector::Selector;
 use phalcom_semantic::enum_semantics::{EnumInfo, EnumSemanticTable, VariantInfo, VariantShape};
 use phalcom_semantic::identity::{DeclarationId, ImplId, ImplLocalId, VariantId};
 use phalcom_semantic::impls::{InherentImplApplicability, InherentImplTarget, resolve_inherent_impl_target};
@@ -10,7 +11,6 @@ use phalcom_semantic::types::id::{KindId, TypeId};
 use phalcom_semantic::types::parameter::{GenericSignature, TypeParameterData, TypeParameterOwner};
 use phalcom_semantic::types::relation::MapTypeHierarchy;
 use phalcom_semantic::types::store::TypeStore;
-use phalcom_semantic::CheckingContext;
 
 fn test_module() -> ModuleId {
     ModuleId::resolved(ResolvedProjectId::from_raw(42), ModulePath::root())
@@ -31,12 +31,7 @@ fn setup_resolver_and_decls(store: &mut TypeStore, declarations: &mut Declaratio
     resolver
 }
 
-fn register_nominal(
-    store: &mut TypeStore,
-    declarations: &mut DeclarationTypeTable,
-    decl: DeclarationId,
-    generic_signature: Option<GenericSignature>,
-) {
+fn register_nominal(store: &mut TypeStore, declarations: &mut DeclarationTypeTable, decl: DeclarationId, generic_signature: Option<GenericSignature>) {
     let header = NominalDeclarationHeader::from_signature(store, decl, generic_signature);
     declarations.insert(header.into_type_info(None));
 }
@@ -151,10 +146,7 @@ fn test_generic_covering_target_success_and_bijection_permutation() {
     let pair_decl = DeclarationId::new(module.clone(), "Pair".into());
     let param_x = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(pair_decl.clone()), 0, "X", KindId::TYPE));
     let param_y = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(pair_decl.clone()), 1, "Y", KindId::TYPE));
-    let pair_sig = GenericSignature::new(
-        TypeParameterOwner::Declaration(pair_decl.clone()),
-        vec![param_x, param_y].into_boxed_slice(),
-    );
+    let pair_sig = GenericSignature::new(TypeParameterOwner::Declaration(pair_decl.clone()), vec![param_x, param_y].into_boxed_slice());
     register_nominal(&mut store, &mut declarations, pair_decl.clone(), Some(pair_sig));
 
     let mut resolver = setup_resolver_and_decls(&mut store, &mut declarations);
@@ -219,7 +211,7 @@ fn test_foreign_target_rejected() {
 }
 
 #[test]
-fn test_specialized_repeated_target_rejected() {
+fn test_specialized_repeated_target_success() {
     let module = test_module();
     let mut store = TypeStore::new();
     let hierarchy = MapTypeHierarchy::new();
@@ -228,10 +220,7 @@ fn test_specialized_repeated_target_rejected() {
     let pair_decl = DeclarationId::new(module.clone(), "Pair".into());
     let param_x = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(pair_decl.clone()), 0, "X", KindId::TYPE));
     let param_y = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(pair_decl.clone()), 1, "Y", KindId::TYPE));
-    let pair_sig = GenericSignature::new(
-        TypeParameterOwner::Declaration(pair_decl.clone()),
-        vec![param_x, param_y].into_boxed_slice(),
-    );
+    let pair_sig = GenericSignature::new(TypeParameterOwner::Declaration(pair_decl.clone()), vec![param_x, param_y].into_boxed_slice());
     register_nominal(&mut store, &mut declarations, pair_decl.clone(), Some(pair_sig));
 
     let mut resolver = setup_resolver_and_decls(&mut store, &mut declarations);
@@ -247,12 +236,13 @@ fn test_specialized_repeated_target_rejected() {
     };
 
     let impl_id = ImplId::new(module, ImplLocalId(0));
-    let err = resolve_inherent_impl_target(&mut ctx, &impl_id, impl_stmt).expect_err("should reject repeated parameter");
-    assert!(err.iter().any(|d| d.code == DiagnosticCode::ImplSpecializedTargetUnsupported));
+    let resolved = resolve_inherent_impl_target(&mut ctx, &impl_id, impl_stmt).expect("should resolve repeated parameter");
+    assert!(resolved.diagnostics.is_empty());
+    assert!(matches!(resolved.applicability, InherentImplApplicability::Conditional(_)));
 }
 
 #[test]
-fn test_concrete_specialized_target_rejected() {
+fn test_concrete_specialized_target_success() {
     let module = test_module();
     let mut store = TypeStore::new();
     let hierarchy = MapTypeHierarchy::new();
@@ -260,10 +250,7 @@ fn test_concrete_specialized_target_rejected() {
 
     let box_decl = DeclarationId::new(module.clone(), "Box".into());
     let param_t = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(box_decl.clone()), 0, "T", KindId::TYPE));
-    let box_sig = GenericSignature::new(
-        TypeParameterOwner::Declaration(box_decl.clone()),
-        vec![param_t].into_boxed_slice(),
-    );
+    let box_sig = GenericSignature::new(TypeParameterOwner::Declaration(box_decl.clone()), vec![param_t].into_boxed_slice());
     register_nominal(&mut store, &mut declarations, box_decl.clone(), Some(box_sig));
 
     let mut resolver = setup_resolver_and_decls(&mut store, &mut declarations);
@@ -279,8 +266,9 @@ fn test_concrete_specialized_target_rejected() {
     };
 
     let impl_id = ImplId::new(module, ImplLocalId(0));
-    let err = resolve_inherent_impl_target(&mut ctx, &impl_id, impl_stmt).expect_err("should reject concrete specialization");
-    assert!(err.iter().any(|d| d.code == DiagnosticCode::ImplSpecializedTargetUnsupported));
+    let resolved = resolve_inherent_impl_target(&mut ctx, &impl_id, impl_stmt).expect("should resolve concrete specialization");
+    assert!(resolved.diagnostics.is_empty());
+    assert!(matches!(resolved.applicability, InherentImplApplicability::Conditional(_)));
 }
 
 #[test]
@@ -292,10 +280,7 @@ fn test_unused_type_parameter_rejected() {
 
     let box_decl = DeclarationId::new(module.clone(), "Box".into());
     let param_t = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(box_decl.clone()), 0, "T", KindId::TYPE));
-    let box_sig = GenericSignature::new(
-        TypeParameterOwner::Declaration(box_decl.clone()),
-        vec![param_t].into_boxed_slice(),
-    );
+    let box_sig = GenericSignature::new(TypeParameterOwner::Declaration(box_decl.clone()), vec![param_t].into_boxed_slice());
     register_nominal(&mut store, &mut declarations, box_decl.clone(), Some(box_sig));
 
     let mut resolver = setup_resolver_and_decls(&mut store, &mut declarations);
@@ -312,11 +297,11 @@ fn test_unused_type_parameter_rejected() {
 
     let impl_id = ImplId::new(module, ImplLocalId(0));
     let err = resolve_inherent_impl_target(&mut ctx, &impl_id, impl_stmt).expect_err("should reject unused type parameter");
-    assert!(err.iter().any(|d| d.code == DiagnosticCode::ImplUnusedTypeParameter || d.code == DiagnosticCode::ImplSpecializedTargetUnsupported));
+    assert!(err.iter().any(|d| d.code == DiagnosticCode::ImplUnusedTypeParameter));
 }
 
 #[test]
-fn test_where_clause_unsupported() {
+fn test_where_clause_success() {
     let module = test_module();
     let mut store = TypeStore::new();
     let hierarchy = MapTypeHierarchy::new();
@@ -324,10 +309,7 @@ fn test_where_clause_unsupported() {
 
     let user_decl = DeclarationId::new(module.clone(), "User".into());
     let param_t = store.intern_type_parameter(TypeParameterData::new(TypeParameterOwner::Declaration(user_decl.clone()), 0, "T", KindId::TYPE));
-    let user_sig = GenericSignature::new(
-        TypeParameterOwner::Declaration(user_decl.clone()),
-        vec![param_t].into_boxed_slice(),
-    );
+    let user_sig = GenericSignature::new(TypeParameterOwner::Declaration(user_decl.clone()), vec![param_t].into_boxed_slice());
     register_nominal(&mut store, &mut declarations, user_decl.clone(), Some(user_sig));
 
     let mut resolver = setup_resolver_and_decls(&mut store, &mut declarations);
@@ -343,8 +325,9 @@ fn test_where_clause_unsupported() {
     };
 
     let impl_id = ImplId::new(module, ImplLocalId(0));
-    let resolved = resolve_inherent_impl_target(&mut ctx, &impl_id, impl_stmt).expect("target resolves with diagnostic");
-    assert!(resolved.diagnostics.iter().any(|d| d.code == DiagnosticCode::ImplWhereClauseUnsupported));
+    let resolved = resolve_inherent_impl_target(&mut ctx, &impl_id, impl_stmt).expect("target resolves successfully");
+    assert!(resolved.diagnostics.is_empty());
+    assert!(matches!(resolved.applicability, InherentImplApplicability::Conditional(_)));
 }
 
 #[test]
@@ -394,7 +377,8 @@ fn test_type_alias_target_is_rejected() {
         phalcom_ast::ast::Statement::Impl(def) => def,
         _ => panic!("expected impl"),
     };
-    let alias_error = resolve_inherent_impl_target(&mut ctx, &ImplId::new(module.clone(), ImplLocalId(0)), alias_impl).expect_err("alias target must be rejected");
+    let alias_error =
+        resolve_inherent_impl_target(&mut ctx, &ImplId::new(module.clone(), ImplLocalId(0)), alias_impl).expect_err("alias target must be rejected");
     assert!(alias_error.iter().any(|diagnostic| diagnostic.code == DiagnosticCode::ImplTargetTypeAlias));
 }
 

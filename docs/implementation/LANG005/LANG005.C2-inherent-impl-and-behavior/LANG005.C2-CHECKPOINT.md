@@ -16,7 +16,7 @@ verification: FOCUSED_TESTED
 |---|---|---|---|---|
 | `LANG005.C2.P1` | First-Class Inherent `impl` and Effective Declaration Surfaces | COMPLETE | IMPLEMENTED | FOCUSED_TESTED |
 | `LANG005.C2.P2` | Variants-Only Enums and Impl Behavior Migration | COMPLETE | IMPLEMENTED | FOCUSED_TESTED |
-| `LANG005.C2.P3` | Constrained & Specialized Inherent Impl Applicability | PLANNED | NOT_STARTED | UNVERIFIED |
+| `LANG005.C2.P3` | Constrained & Specialized Inherent Impl Applicability | IN_PROGRESS | PARTIAL | UNVERIFIED |
 
 ## Established Takeover Interfaces & Architecture from C1
 - `ProductStorage`, `ProductShapeRegistry`, `RuntimeAnonymousProductDescriptorRegistry` fully unified.
@@ -43,4 +43,18 @@ verification: FOCUSED_TESTED
 ## Active Plan & Next Action
 - **Latest Completed Plan:** `LANG005.C2.P2` (*Variants-Only Enums and Impl Behavior Migration*).
 - **Active Plan:** `LANG005.C2.P3` (*Constrained & Specialized Inherent Impl Applicability*).
-- **Next Action:** Review `LANG005.C2.P3` requirements and plan for constrained/specialized inherent `impl` applicability.
+- **Next Action:** Apply the T6 advisory clarification: make conditional selection a first-class per-expression semantic product, retain rooted executable family projections, and move editor completion to a semantic receiver-effective lookup API. Do not resume implementation until this boundary is applied.
+
+## Consultation Ledger
+
+```text
+INC-001
+Plan/task: LANG005.C2.P3 T6 bound references, class-side execution, source tooling, and incrementality
+Trigger: Runtime/semantic contract, GC rooting, duplicate applicability derivation, and nonlocal editor/incremental ownership uncertainty
+Observed: Bound-family lowering had no executable conditional-selection representation; editor receiver alternatives had no exact applied TypeId
+Decision: PLAN SOUND — ARCHITECTURAL CLARIFICATION REQUIRED. Keep selected conditional proof plus rooted family descriptor; direct lowering must project per-expression selection; editor must consume a semantic receiver-effective lookup API and never call the matcher directly
+Architecture impact: No new plan architecture is required, but T6 implementation must replace lowering/editor rediscovery with canonical semantic products and preserve Class mode plus applied form independently
+Plan amendment: NO
+Verification required: Focused semantic, core GC/runtime, and incremental/editor lanes listed in the incident response; deliberately deferred in this turn
+Status: IMPLEMENTER STOPPED; LUNA MAY RESUME after correction
+```

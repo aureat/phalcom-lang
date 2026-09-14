@@ -201,6 +201,7 @@ fn compiler_class_completions(
         alternatives: std::sync::Arc::from([phalcom_semantic::ReceiverAlternative {
             declaration: declaration.clone(),
             mode: receiver_mode,
+            receiver_type: None,
         }]),
     };
     let access = phalcom_semantic::AccessContext {

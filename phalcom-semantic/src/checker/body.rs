@@ -103,17 +103,37 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
         .and_then(|(_, signature)| signature.generics.as_ref())
         .map(|signature| signature.parameters.to_vec())
         .unwrap_or_default();
+    let impl_domain = match &callable.owner {
+        crate::identity::CallableOwnerId::Declaration(decl) => dispatch.get_conditional_members(&crate::impls::InherentImplTarget::Declaration(decl.clone())),
+        crate::identity::CallableOwnerId::Variant(var) => dispatch.get_conditional_members(&crate::impls::InherentImplTarget::ExactEnumCase(var.clone())),
+    }
+    .and_then(|members| members.get_member(callable.side, &callable.selector))
+    .map(|member| member.domain.clone());
+
     let mut type_parameters = std::collections::HashMap::new();
     for parameter in owner_parameters.into_iter().chain(callable_parameters) {
         let name = store.type_parameter(parameter).name.to_string();
         let binding = type_level_binding_for_parameter(store, parameter);
         type_parameters.insert(name, binding);
     }
+    if let Some(domain) = &impl_domain {
+        if let Some(generics) = &domain.generic_signature {
+            for &parameter in generics.parameters.iter() {
+                let name = store.type_parameter(parameter).name.to_string();
+                let binding = type_level_binding_for_parameter(store, parameter);
+                type_parameters.insert(name, binding);
+            }
+        }
+    }
     let scoped_resolver = ScopedTypeResolver {
         parent: resolver,
         type_parameters,
     };
     let mut ctx = CheckingContext::new_with_dispatch_ref_and_control(store, hierarchy, &scoped_resolver, declarations, dispatch, module, control);
+    if let Some(domain) = &impl_domain {
+        ctx.self_override_type = Some(domain.head_type);
+        ctx.ambient_constraints.extend(domain.constraints.iter().cloned());
+    }
     if let Some(field_signatures) = field_signatures {
         ctx.attach_field_signatures(field_signatures);
     }

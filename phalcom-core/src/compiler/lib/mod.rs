@@ -55,7 +55,7 @@ use crate::vm::{ClassKey, VM};
 use phalcom_ast::ast::{BindingKind, ClosureParameters, Expr, MethodCallExpr, Pattern, Program, Statement};
 use phalcom_common::range::{EmptySourceRange, SourceRange};
 use phalcom_modules::DeclarationId;
-use phalcom_semantic::identity::{ImplId, ImplLocalId, VariantId};
+use phalcom_semantic::identity::{CallableId, ImplId, ImplLocalId, VariantId};
 use state::FunctionState;
 use state::LoopContext;
 use std::collections::{BTreeMap, HashMap};
@@ -192,6 +192,7 @@ pub(crate) struct Compiler<'vm> {
     pub(crate) inherent_impl_specs: BTreeMap<DeclarationId, Vec<crate::modules::semantic_lowering::InherentImplLoweringSpec>>,
     pub(crate) inherent_impl_specs_by_variant: BTreeMap<VariantId, Vec<crate::modules::semantic_lowering::InherentImplLoweringSpec>>,
     pub(crate) inherent_impl_defs: BTreeMap<ImplId, phalcom_ast::ast::ImplDef>,
+    pub(crate) conditional_method_objects: std::collections::HashMap<CallableId, ObjRef>,
     /// Optimization mode governing representation-aware product scalar replacement (PDR-0035 / LANG005.C1.P2).
     pub(crate) product_optimization_mode: product_opt::ProductOptimizationMode,
 }
@@ -235,6 +236,7 @@ impl<'vm> Compiler<'vm> {
             inherent_impl_specs: BTreeMap::new(),
             inherent_impl_specs_by_variant: BTreeMap::new(),
             inherent_impl_defs: BTreeMap::new(),
+            conditional_method_objects: std::collections::HashMap::new(),
             product_optimization_mode,
         }
     }

@@ -1,11 +1,12 @@
 //! Associated expression lowering to direct bytecodes and family objects (Part 4).
 
 use crate::bytecode::Bytecode;
+use crate::chunk::{ConditionalFamilyDescriptor, ConditionalFamilyEntry};
 use crate::compiler::lib::error::CompilerError;
 use crate::compiler::lib::{Compiler, checked_send_arity};
 use crate::modules::semantic_lowering::{
-    AssociatedLoweringSpec, CallableReferenceLoweringSpec, DataConstructionLoweringSpec, ExecutableFamilyCandidateSet, FamilyApplicationLoweringSpec,
-    LoweringSiteKind,
+    AssociatedLoweringSpec, CallableReferenceLoweringSpec, DataConstructionLoweringSpec, ExecutableConditionalFamilyEntry, ExecutableFamilyCandidateSet,
+    FamilyApplicationLoweringSpec, LoweringSiteKind,
 };
 use crate::value::Value;
 use phalcom_ast::ast::{AssociatedInvokeExpr, AssociatedLookupExpr, AssociatedMemberSyntax, CallableReferenceExpr, CallableReferenceTarget, Expr, PackItem};
@@ -17,6 +18,34 @@ use phalcom_semantic::identity::{DataConstructorId, VariantId};
 use phalcom_semantic::types::FamilyOperationShape;
 
 impl<'vm> Compiler<'vm> {
+    fn compile_conditional_family_descriptor(
+        &mut self,
+        entries: &[ExecutableConditionalFamilyEntry],
+        range: SourceRange,
+    ) -> Result<u16, CompilerError> {
+        let mut compiled = Vec::with_capacity(entries.len());
+        for entry in entries {
+            let fallback_method = self.get_or_compile_conditional_method(&entry.callable)?;
+            let fallback_method = self.add_constant(Value::obj(fallback_method));
+            let selector = self.vm.interner.intern(&entry.callable.selector.to_string());
+            compiled.push(ConditionalFamilyEntry {
+                operation: entry.operation.clone(),
+                selector,
+                declaring_owner: entry.declaring_owner.clone(),
+                side: entry.side,
+                fallback_method,
+            });
+        }
+        self.functions
+            .last_mut()
+            .unwrap()
+            .chunk
+            .executable_semantics
+            .add_conditional_family_descriptor(ConditionalFamilyDescriptor {
+                entries: compiled.into_boxed_slice(),
+            }, range)
+    }
+
     fn family_application_spec(&self, range: SourceRange) -> Option<FamilyApplicationLoweringSpec> {
         self.lowering().and_then(|l| {
             l.family_applications
@@ -128,13 +157,25 @@ impl<'vm> Compiler<'vm> {
             .ok_or(CompilerError::CallableReferenceNotLoweredYet(expr.range))?;
 
         match spec {
-            CallableReferenceLoweringSpec::MakeBoundFamily { spec } => {
+            CallableReferenceLoweringSpec::MakeBoundFamily { spec, conditional_members } => {
                 let CallableReferenceTarget::Bound { receiver, .. } = &expr.target else {
                     return Err(CompilerError::CallableReferenceNotLoweredYet(expr.range));
                 };
                 self.compile_expr((**receiver).clone())?;
                 let (spec_idx, kind) = self.compile_behavioral_family_spec(&spec)?;
-                self.emit(Bytecode::MakeFamily { spec: spec_idx, kind }, expr.range);
+                if conditional_members.is_empty() {
+                    self.emit(Bytecode::MakeFamily { spec: spec_idx, kind }, expr.range);
+                } else {
+                    let conditional_idx = self.compile_conditional_family_descriptor(&conditional_members, expr.range)?;
+                    self.emit(
+                        Bytecode::MakeConditionalFamily {
+                            spec: spec_idx,
+                            kind,
+                            conditional: conditional_idx,
+                        },
+                        expr.range,
+                    );
+                }
             }
             CallableReferenceLoweringSpec::MakeResolvedBoundMethod { target } => {
                 let target_idx = self

@@ -458,7 +458,8 @@ impl Heap {
     /// Returns the [`FamilyObject`] behind `id`, or `None` if it is not one.
     ///
     /// There is deliberately no `family_mut` — a `Family` is immutable once
-    /// constructed (all fields are `Copy`, set once at [`crate::bytecode::Bytecode::MakeFamily`]).
+    /// constructed (all fields are immutable and set once at
+    /// [`crate::bytecode::Bytecode::MakeFamily`]).
     pub fn as_family(&self, id: ObjRef) -> Option<&FamilyObject> {
         match self.objects.get(id) {
             Some(Object::Family(family)) => Some(family),

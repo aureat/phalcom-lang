@@ -2,6 +2,7 @@
 
 use crate::advisory::{AdvisoryFact, ValueShape, advisory_shape_from_formal};
 use crate::identity::{CallableId, DeclarationId, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId};
+use crate::impls::receiver_effective_conditional_members;
 use crate::prelude::PreludeTypeMap;
 use crate::presentation::{CallablePresentation, FieldPresentation, FormalFactStatus, FormalPresentation, TypePresenter, present_declared_type};
 use crate::snapshot::SemanticSnapshot;
@@ -9,6 +10,7 @@ use crate::source_index::{OccurrenceHint, OccurrenceRole, SourceBindingInfo, Sou
 use crate::surface::MemberVisibility;
 use crate::types::evidence::TypeKnowledge;
 use crate::types::relation::TypeHierarchy;
+use crate::types::store::{TypeData, TypeStore};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorBase, SelectorKind, SelectorSlot};
 use std::collections::BTreeSet;
@@ -26,6 +28,10 @@ pub enum ReceiverMode {
 pub struct ReceiverAlternative {
     pub declaration: DeclarationId,
     pub mode: ReceiverMode,
+    /// The formal receiver type, when the semantic product retained one.
+    /// Declaration-only alternatives remain valid for syntax recovery and
+    /// cannot expose generic conditional members without this evidence.
+    pub receiver_type: Option<crate::types::id::TypeId>,
 }
 
 /// Conservative receiver result. Unknown or unsupported shapes produce no
@@ -496,6 +502,11 @@ impl<'a> EditorSemanticQuery<'a> {
                 .filter(|fact| !matches!(fact.shape, ValueShape::Unknown))
                 .map(|fact| fact.shape.clone())
         };
+        let receiver_type = expression_site
+            .as_ref()
+            .and_then(|site| self.formal_type_for_site(site))
+            .or_else(|| target_site.and_then(|site| self.formal_type_for_site(site)))
+            .or_else(|| self.formal_type_at(module, range.start));
         let shape = constructor_receiver.or_else(|| {
             expression_site
                 .as_ref()
@@ -512,7 +523,12 @@ impl<'a> EditorSemanticQuery<'a> {
                 })
         });
         let mut alternatives = Vec::new();
-        if let Some(ref shape) = shape {
+        if let Some(receiver_type) = receiver_type {
+            collect_receiver_alternatives_from_type(&self.snapshot.store, receiver_type, &mut alternatives);
+        }
+        if alternatives.is_empty()
+            && let Some(ref shape) = shape
+        {
             collect_receiver_alternatives(shape, &mut alternatives);
         }
         if alternatives.is_empty()
@@ -521,6 +537,7 @@ impl<'a> EditorSemanticQuery<'a> {
             alternatives.push(ReceiverAlternative {
                 declaration: declaration.clone(),
                 mode: ReceiverMode::Class,
+                receiver_type: None,
             });
         }
         alternatives.sort_by(|left, right| (&left.declaration, left.mode as u8).cmp(&(&right.declaration, right.mode as u8)));
@@ -544,6 +561,7 @@ impl<'a> EditorSemanticQuery<'a> {
             alternatives: Arc::from([ReceiverAlternative {
                 declaration,
                 mode: ReceiverMode::Instance,
+                receiver_type: None,
             }]),
         })
     }
@@ -571,6 +589,7 @@ impl<'a> EditorSemanticQuery<'a> {
                 alternatives: Arc::from([ReceiverAlternative {
                     declaration,
                     mode: ReceiverMode::Instance,
+                    receiver_type: None,
                 }]),
             });
         }
@@ -587,6 +606,11 @@ impl<'a> EditorSemanticQuery<'a> {
         self.formal_shape_for_fact(&fact.fact)
     }
 
+    fn formal_type_at(&self, module: &ModuleId, offset: usize) -> Option<crate::types::id::TypeId> {
+        let fact = self.snapshot.formal_fact_at(module, offset)?;
+        self.formal_type_for_fact(&fact.fact)
+    }
+
     fn formal_shape_for_site(&self, site: &SourceSiteId) -> Option<ValueShape> {
         let knowledge = self
             .snapshot
@@ -594,6 +618,27 @@ impl<'a> EditorSemanticQuery<'a> {
             .map(|state| state.current.clone())
             .or_else(|| self.snapshot.formal_expression_at(site).map(|expression| expression.knowledge.clone()))?;
         (!matches!(&knowledge, TypeKnowledge::Unknown(_) | TypeKnowledge::Dynamic(_))).then(|| advisory_shape_from_formal(&self.snapshot.store, &knowledge))
+    }
+
+    fn formal_type_for_site(&self, site: &SourceSiteId) -> Option<crate::types::id::TypeId> {
+        let knowledge = self
+            .snapshot
+            .formal_binding_at(site)
+            .map(|state| state.current.clone())
+            .or_else(|| self.snapshot.formal_expression_at(site).map(|expression| expression.knowledge.clone()))?;
+        knowledge.ty()
+    }
+
+    fn formal_type_for_fact(&self, fact: &crate::presentation::FormalFactRef) -> Option<crate::types::id::TypeId> {
+        match fact {
+            crate::presentation::FormalFactRef::Expression { callable, expression } => {
+                self.snapshot.formal_expression(callable, *expression)?.knowledge.ty()
+            }
+            crate::presentation::FormalFactRef::Binding { callable, binding } => {
+                self.snapshot.formal_binding(callable, *binding)?.current.ty()
+            }
+            crate::presentation::FormalFactRef::Callable(_) => None,
+        }
     }
 
     fn formal_shape_for_fact(&self, fact: &crate::presentation::FormalFactRef) -> Option<ValueShape> {
@@ -646,10 +691,49 @@ impl<'a> EditorSemanticQuery<'a> {
                     }
                 }
             }
+            members.extend(self.conditional_members_for_alternative(alternative, side, access));
         }
         members.sort_by_key(member_sort_key);
         members.dedup_by(|left, right| left.target == right.target);
         members
+    }
+
+    /// Adapts the canonical receiver-effective semantic query into editor
+    /// members. Applicability remains owned by the semantic impl/dispatch
+    /// layer; this facade applies only visibility and presentation policy.
+    fn conditional_members_for_alternative(
+        &self,
+        alternative: &ReceiverAlternative,
+        side: crate::identity::DispatchSide,
+        access: &AccessContext,
+    ) -> Vec<EditorMember> {
+        let Some(receiver_type) = alternative.receiver_type else {
+            return Vec::new();
+        };
+        let mut store = self.snapshot.store.as_ref().clone();
+        let ambient_constraints = access
+            .enclosing_callable
+            .as_ref()
+            .and_then(|callable| self.snapshot.callable_signatures.get(callable))
+            .and_then(|signature| signature.generics.as_ref())
+            .map_or(&[][..], |generics| generics.constraints.as_ref());
+        receiver_effective_conditional_members(
+            &mut store,
+            self.snapshot.hierarchy.as_ref(),
+            &self.snapshot.dispatch,
+            receiver_type,
+            &alternative.declaration,
+            side,
+            ambient_constraints,
+        )
+        .into_iter()
+        .filter(|(owner, member)| is_visible(self.snapshot.hierarchy.as_ref(), owner, member.visibility, access))
+        .map(|(owner, member)| EditorMember {
+            target: EditorMemberTarget::Callable(member.callable),
+            owner,
+            visibility: member.visibility,
+        })
+        .collect()
     }
 
     /// Returns canonical members matching one exact selector.
@@ -698,6 +782,10 @@ impl<'a> EditorSemanticQuery<'a> {
                         .resolve_callable_id(self.snapshot.hierarchy.as_ref(), &alternative.declaration, side, &callable.selector)
                         .as_ref()
                         == Some(callable)
+                        || self
+                            .conditional_members_for_alternative(alternative, side, access)
+                            .iter()
+                            .any(|member| member.target == EditorMemberTarget::Callable(callable.clone()))
                 })
             })
             .collect::<Vec<_>>();
@@ -769,13 +857,50 @@ fn collect_receiver_alternatives(shape: &ValueShape, alternatives: &mut Vec<Rece
         ValueShape::Instance(declaration) => alternatives.push(ReceiverAlternative {
             declaration: declaration.clone(),
             mode: ReceiverMode::Instance,
+            receiver_type: None,
         }),
         ValueShape::ClassObject(declaration) => alternatives.push(ReceiverAlternative {
             declaration: declaration.clone(),
             mode: ReceiverMode::Class,
+            receiver_type: None,
         }),
         ValueShape::Union(shapes) => shapes.iter().for_each(|shape| collect_receiver_alternatives(shape, alternatives)),
         _ => {}
+    }
+}
+
+fn collect_receiver_alternatives_from_type(store: &TypeStore, ty: crate::types::id::TypeId, alternatives: &mut Vec<ReceiverAlternative>) {
+    match store.get(ty) {
+        TypeData::ClassObject { declaration } => alternatives.push(ReceiverAlternative {
+            declaration: declaration.clone(),
+            mode: ReceiverMode::Class,
+            receiver_type: Some(ty),
+        }),
+        TypeData::Nominal { declaration } => alternatives.push(ReceiverAlternative {
+            declaration: declaration.clone(),
+            mode: ReceiverMode::Instance,
+            receiver_type: Some(ty),
+        }),
+        TypeData::Applied { .. } | TypeData::ExactCase { .. } => {
+            if let (Some(declaration), Some(mode)) = (store.nominal_origin_declaration(ty), receiver_mode_for_type(store, ty)) {
+                alternatives.push(ReceiverAlternative {
+                    declaration: declaration.clone(),
+                    mode,
+                    receiver_type: Some(ty),
+                });
+            }
+        }
+        TypeData::Union(types) => types.iter().for_each(|ty| collect_receiver_alternatives_from_type(store, *ty, alternatives)),
+        _ => {}
+    }
+}
+
+fn receiver_mode_for_type(store: &TypeStore, ty: crate::types::id::TypeId) -> Option<ReceiverMode> {
+    match store.get(ty) {
+        TypeData::ClassObject { .. } => Some(ReceiverMode::Class),
+        TypeData::Applied { origin, .. } => receiver_mode_for_type(store, *origin),
+        TypeData::ExactCase { .. } | TypeData::Nominal { .. } => Some(ReceiverMode::Instance),
+        _ => None,
     }
 }
 

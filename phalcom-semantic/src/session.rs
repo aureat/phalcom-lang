@@ -19,9 +19,10 @@ use crate::db::product::EnumRequirementsProduct;
 use crate::db::query::{
     CallableBodyQuery, DeclarationSurfaceQuery, FormalQueryInputs, HierarchyEdgeQueryInputs, SignatureQueryInputs, bootstrap_advisory_callable,
     query_advisory_callable, query_advisory_module, query_associated_surface, query_bootstrap_callable_signature, query_bootstrap_declaration_surface,
-    query_bootstrap_hierarchy_edge, query_callable_body_with_formal_inputs, query_callable_definition, query_callable_signature_with_inputs, query_data_declaration,
-    query_declaration_shell, query_declaration_surface, query_enum_declaration, query_enum_requirements, query_field_signature_with_inputs,
-    query_hierarchy_edge, query_linked_interface, query_source_formal_attachment, query_source_structure, query_unlinked_interface,
+    query_bootstrap_hierarchy_edge, query_callable_body_with_formal_inputs, query_callable_definition, query_callable_signature_with_inputs,
+    query_data_declaration, query_declaration_shell, query_declaration_surface, query_enum_declaration, query_enum_requirements,
+    query_field_signature_with_inputs, query_hierarchy_edge, query_linked_interface, query_source_formal_attachment, query_source_structure,
+    query_unlinked_interface,
 };
 use crate::db::state::QueryOutcome;
 use crate::declarations::{
@@ -711,11 +712,7 @@ impl SemanticWorkspaceSession {
                 );
                 impl_ctx.attach_data_semantics(&base_data_semantics);
                 impl_ctx.attach_enum_semantics(&base_enum_semantics);
-                base_inherent_contributions.push(crate::impls::build_inherent_impl_contribution(
-                    &mut impl_ctx,
-                    &impl_id,
-                    impl_def,
-                ));
+                base_inherent_contributions.push(crate::impls::build_inherent_impl_contribution(&mut impl_ctx, &impl_id, impl_def));
             }
 
             // Phase 3: derive enum behavior, requirements, and associated
@@ -739,8 +736,7 @@ impl SemanticWorkspaceSession {
                     );
                     behavior_ctx.attach_data_semantics(&base_data_semantics);
                     behavior_ctx.attach_enum_semantics(&base_enum_semantics);
-                    let behavior_product =
-                        crate::checker::enum_behavior::build_enum_behavior(&mut behavior_ctx, &decl_id, Some(enum_def), &enum_contributions);
+                    let behavior_product = crate::checker::enum_behavior::build_enum_behavior(&mut behavior_ctx, &decl_id, Some(enum_def), &enum_contributions);
 
                     let mut surface = base_dispatch.surface(&decl_id).cloned().unwrap_or_default();
                     for default_sig in behavior_product.root_defaults.iter() {
@@ -2977,18 +2973,16 @@ impl SemanticWorkspaceSession {
             for (idx, statement) in parsed_unit.program.statements.iter().enumerate() {
                 if let Statement::Impl(impl_def) = statement {
                     let impl_id = crate::identity::ImplId::new(module_id.clone(), crate::identity::ImplLocalId(idx as u32));
-                    let mut context = crate::checker::CheckingContext::new(
-                        Arc::make_mut(&mut self.store),
-                        &hierarchy,
-                        &resolver,
-                        &declarations,
-                        module_id.clone(),
-                    );
+                    let mut context =
+                        crate::checker::CheckingContext::new(Arc::make_mut(&mut self.store), &hierarchy, &resolver, &declarations, module_id.clone());
                     context.attach_data_semantics(&data_semantics);
                     context.attach_enum_semantics(&enum_semantics);
                     let contribution = crate::impls::build_inherent_impl_contribution(&mut context, &impl_id, impl_def);
                     if !contribution.diagnostics.is_empty() {
-                        diags_by_module.entry(module_id.clone()).or_default().extend(contribution.diagnostics.iter().cloned());
+                        diags_by_module
+                            .entry(module_id.clone())
+                            .or_default()
+                            .extend(contribution.diagnostics.iter().cloned());
                     }
                     inherent_contributions_by_module.entry(module_id.clone()).or_default().push(contribution);
                 }
@@ -3005,11 +2999,8 @@ impl SemanticWorkspaceSession {
                     let decl_id = DeclarationId::new(module_id.clone(), enum_def.name.clone().into());
                     let empty_contribs = Vec::new();
                     let module_contribs = inherent_contributions_by_module.get(module_id).unwrap_or(&empty_contribs);
-                    let enum_contribs: Vec<crate::impls::InherentImplContribution> = module_contribs
-                        .iter()
-                        .filter(|c| c.target.declaration() == &decl_id)
-                        .cloned()
-                        .collect();
+                    let enum_contribs: Vec<crate::impls::InherentImplContribution> =
+                        module_contribs.iter().filter(|c| c.target.declaration() == &decl_id).cloned().collect();
 
                     let mut behavior_ctx = crate::checker::CheckingContext::new_with_dispatch_ref(
                         Arc::make_mut(&mut self.store),
@@ -3031,7 +3022,11 @@ impl SemanticWorkspaceSession {
                     for default_sig in behavior_product.root_defaults.iter() {
                         callable_signatures.insert(default_sig.clone());
                         let projection = crate::checker::declaration_signature::project_semantic_signature(default_sig);
-                        if default_sig.source.as_ref().is_some_and(|s| s.range.start >= enum_def.range.start && s.range.end <= enum_def.range.end) {
+                        if default_sig
+                            .source
+                            .as_ref()
+                            .is_some_and(|s| s.range.start >= enum_def.range.start && s.range.end <= enum_def.range.end)
+                        {
                             surface.add_callable(default_sig.side, projection);
                         }
                     }
@@ -3160,7 +3155,10 @@ impl SemanticWorkspaceSession {
             let module_contribs = inherent_contributions_by_module.get(module_id).unwrap_or(&empty_contribs);
             let mut contributions_by_target = BTreeMap::<DeclarationId, Vec<crate::impls::InherentImplContribution>>::new();
             for contribution in module_contribs {
-                contributions_by_target.entry(contribution.target.declaration().clone()).or_default().push(contribution.clone());
+                contributions_by_target
+                    .entry(contribution.target.declaration().clone())
+                    .or_default()
+                    .push(contribution.clone());
             }
             for (target, contributions) in contributions_by_target {
                 let Some(primary_surface) = dispatch.get_surface(&target).cloned() else {
@@ -3179,8 +3177,15 @@ impl SemanticWorkspaceSession {
                     data_semantics.data_info(&target).map(AsRef::as_ref),
                     associated_surfaces_table.surfaces.get(&target).map(AsRef::as_ref),
                 );
-                diags_by_module.entry(module_id.clone()).or_default().extend(effective.diagnostics.iter().cloned());
+                diags_by_module
+                    .entry(module_id.clone())
+                    .or_default()
+                    .extend(effective.diagnostics.iter().cloned());
                 dispatch.register_surface(target.clone(), (*effective.surface).clone());
+                dispatch.register_conditional_members(
+                    crate::impls::InherentImplTarget::Declaration(target.clone()),
+                    effective.conditional_members.clone(),
+                );
                 let _ = query_bootstrap_declaration_surface(&mut self.db, target.clone(), effective.surface.clone());
 
                 for definition in effective.definitions.values() {
@@ -3505,13 +3510,8 @@ impl SemanticWorkspaceSession {
                             continue;
                         }
                         let impl_id = crate::identity::ImplId::new(module_id.clone(), crate::identity::ImplLocalId(stmt_idx as u32));
-                        let mut ctx = crate::checker::CheckingContext::new(
-                            Arc::make_mut(&mut self.store),
-                            &hierarchy,
-                            &resolver,
-                            &declarations,
-                            module_id.clone(),
-                        );
+                        let mut ctx =
+                            crate::checker::CheckingContext::new(Arc::make_mut(&mut self.store), &hierarchy, &resolver, &declarations, module_id.clone());
                         ctx.attach_data_semantics(&data_semantics);
                         ctx.attach_enum_semantics(&enum_semantics);
                         let contribution = crate::impls::build_inherent_impl_contribution(&mut ctx, &impl_id, impl_def);
@@ -3628,8 +3628,7 @@ impl SemanticWorkspaceSession {
                                 if previous_snapshot.is_some()
                                     && !callable_body_work.contains(&callable_id)
                                     && callable_analyses.contains_key(&callable_id)
-                                    && refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store))
-                                        .is_ok()
+                                    && refresh_cached_body_dependencies(&mut self.db, &query_key, &formal_inputs, Arc::make_mut(&mut self.store)).is_ok()
                                     && self.db.validate_ready(&query_key)
                                 {
                                     callable_dispositions.entry(callable_id.clone()).or_insert(CallableRevisionDisposition::Reused);
@@ -3659,8 +3658,7 @@ impl SemanticWorkspaceSession {
                                 match outcome {
                                     QueryOutcome::Ready(analysis) => {
                                         if self.db.query_state(&query_key).is_some_and(|state| {
-                                            state.revision() == Some(self.db.revision())
-                                                && previous_computation_revision != Some(self.db.revision())
+                                            state.revision() == Some(self.db.revision()) && previous_computation_revision != Some(self.db.revision())
                                         }) {
                                             callable_dispositions.insert(callable_id.clone(), CallableRevisionDisposition::Recomputed);
                                         } else {
@@ -4424,7 +4422,11 @@ fn collect_alias_dependencies(
             }
         }
         TypeAnnotationExpr::TypeLambda { body, .. } => collect_alias_dependencies(body, module, resolver, aliases, dependencies),
-        TypeAnnotationExpr::ExactEnumCase { enum_target, generic_arguments, .. } => {
+        TypeAnnotationExpr::ExactEnumCase {
+            enum_target,
+            generic_arguments,
+            ..
+        } => {
             collect_alias_dependencies(enum_target, module, resolver, aliases, dependencies);
             for argument in generic_arguments {
                 collect_alias_dependencies(argument, module, resolver, aliases, dependencies);
@@ -4479,7 +4481,11 @@ fn collect_type_annotation_declarations(
             }
         }
         TypeAnnotationExpr::TypeLambda { body, .. } => collect_type_annotation_declarations(body, module, resolver, dependencies),
-        TypeAnnotationExpr::ExactEnumCase { enum_target, generic_arguments, .. } => {
+        TypeAnnotationExpr::ExactEnumCase {
+            enum_target,
+            generic_arguments,
+            ..
+        } => {
             collect_type_annotation_declarations(enum_target, module, resolver, dependencies);
             for argument in generic_arguments {
                 collect_type_annotation_declarations(argument, module, resolver, dependencies);
@@ -5605,18 +5611,10 @@ fn source_body_for_callable<'a>(callable: &CallableId, unit: &'a ParsedModuleUni
                     };
                     if matches_callable {
                         return match member {
-                            phalcom_ast::ast::BehaviorMember::Method(method) => {
-                                Some((method.body.statements()?, method.range))
-                            }
-                            phalcom_ast::ast::BehaviorMember::Getter(getter) => {
-                                Some((getter.body.statements()?, getter.range))
-                            }
-                            phalcom_ast::ast::BehaviorMember::Setter(setter) => {
-                                Some((setter.body.statements()?, setter.range))
-                            }
-                            phalcom_ast::ast::BehaviorMember::Index(index) => {
-                                Some((index.body.as_slice(), index.range))
-                            }
+                            phalcom_ast::ast::BehaviorMember::Method(method) => Some((method.body.statements()?, method.range)),
+                            phalcom_ast::ast::BehaviorMember::Getter(getter) => Some((getter.body.statements()?, getter.range)),
+                            phalcom_ast::ast::BehaviorMember::Setter(setter) => Some((setter.body.statements()?, setter.range)),
+                            phalcom_ast::ast::BehaviorMember::Index(index) => Some((index.body.as_slice(), index.range)),
                         };
                     }
                 }

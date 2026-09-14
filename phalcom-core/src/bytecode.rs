@@ -103,6 +103,8 @@ pub const BYTECODE_NAMES: [&str; Bytecode::VARIANTS] = [
     "GetDataComponent",
     "BuildStaticTuple",
     "BuildStaticRecord",
+    "InvokeConditional",
+    "MakeConditionalFamily",
 ];
 
 /// Distinguishes exact selector identity from a structural selector pattern
@@ -444,11 +446,15 @@ pub enum Bytecode {
 
     /// Finalizes source-order component values using a statically projected
     /// anonymous Tuple construction specification.
-    BuildStaticTuple { spec: u16 },
+    BuildStaticTuple {
+        spec: u16,
+    },
 
     /// Finalizes source-order component values using a statically projected
     /// anonymous Record construction specification.
-    BuildStaticRecord { spec: u16 },
+    BuildStaticRecord {
+        spec: u16,
+    },
     BeginMapLiteral,
     MapLiteralInsertUnique,
     FinishMapLiteral,
@@ -659,12 +665,37 @@ pub enum Bytecode {
     /// Extracts a component from a DataObject receiver on top of stack.
     /// 0: logical component index.
     GetDataComponent(u16),
+
+    /// Invokes a conditional inherent method with runtime override preservation.
+    /// arity: number of arguments to pop (excluding receiver).
+    /// selector: constant index for selector Symbol.
+    /// declaring_module: constant index for the declaring ModuleObject.
+    /// declaring_name: constant index for the declaring class name Symbol.
+    /// class_side: whether override lookup uses the declaring metaclass.
+    /// fallback_method: constant index for the compiled MethodObject.
+    InvokeConditional {
+        arity: u8,
+        selector: u16,
+        declaring_module: u16,
+        declaring_name: u16,
+        class_side: bool,
+        fallback_method: u16,
+    },
+
+    /// Builds a receiver-bound behavior family with semantic conditional
+    /// selections. `conditional` indexes compiler-materialized fallback
+    /// entries; no domain matching is performed by the VM.
+    MakeConditionalFamily {
+        spec: u16,
+        kind: FamilySpecKind,
+        conditional: u16,
+    },
 }
 
 impl Bytecode {
     /// Number of distinct opcodes — the length of [`BYTECODE_NAMES`] and of the
     /// histogram in `opcode_stats`.
-    pub const VARIANTS: usize = 99;
+    pub const VARIANTS: usize = 101;
 
     /// This opcode's dense index in `0..VARIANTS`, for array-indexed bookkeeping.
     ///
@@ -774,6 +805,8 @@ impl Bytecode {
             Bytecode::LoadDataSingleton(..) => 94,
             Bytecode::ConstructData { .. } => 95,
             Bytecode::GetDataComponent(..) => 96,
+            Bytecode::InvokeConditional { .. } => 99,
+            Bytecode::MakeConditionalFamily { .. } => 100,
         }
     }
 

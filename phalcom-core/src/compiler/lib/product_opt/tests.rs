@@ -320,4 +320,3 @@ let res = Compute.run()
     assert_eq!(val_opt, Some(Value::int(200)));
     assert_eq!(val_opt, val_can);
 }
-

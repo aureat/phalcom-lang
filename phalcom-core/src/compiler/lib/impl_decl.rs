@@ -5,7 +5,7 @@ use crate::compiler::attributes::CompileMode;
 use crate::compiler::lib::class_decl::{member_visibility, rest_layout, rest_selector};
 use crate::compiler::lib::error::CompilerError;
 use crate::compiler::lib::{Compiler, checked_send_arity};
-use crate::heap::Object;
+use crate::heap::{ObjRef, Object};
 use crate::method::{MethodKind, MethodObject, SignatureKind, encode_selector, make_signature};
 use crate::value::Value;
 use phalcom_ast::ast::{AttrKind, Attribute, BehaviorMember, BuiltinAttr, ClosureParameters, IndexAccessor, MemberBody};
@@ -14,6 +14,7 @@ use phalcom_modules::DeclarationId;
 use phalcom_semantic::identity::{CallableId, CallableOwnerId, DispatchSide, VariantId};
 
 pub(crate) struct CompiledBehaviorMember {
+    pub method_obj: ObjRef,
     pub method_obj_idx: u16,
     pub selector_const: u16,
     pub is_class_side: bool,
@@ -97,6 +98,7 @@ impl<'vm> Compiler<'vm> {
                 let selector_const = self.add_constant(Value::symbol(selector_sym));
 
                 Ok(CompiledBehaviorMember {
+                    method_obj,
                     method_obj_idx,
                     selector_const,
                     is_class_side,
@@ -123,7 +125,7 @@ impl<'vm> Compiler<'vm> {
                         return Err(CompilerError::DeclarationBodyRequiresImplementation(getter_def.name.clone(), getter_def.range));
                     }
                 };
-                let closure = self.compile_block(body_stmts, selector_sym, ClosureParameters::default(), true, false, None)?;
+                let closure = self.compile_block(body_stmts, selector_sym, ClosureParameters::fixed(Vec::new()), true, false, None)?;
 
                 let method_obj = self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
                     selector_sym,
@@ -143,6 +145,7 @@ impl<'vm> Compiler<'vm> {
                 let selector_const = self.add_constant(Value::symbol(selector_sym));
 
                 Ok(CompiledBehaviorMember {
+                    method_obj,
                     method_obj_idx,
                     selector_const,
                     is_class_side,
@@ -196,6 +199,7 @@ impl<'vm> Compiler<'vm> {
                 let selector_const = self.add_constant(Value::symbol(selector_sym));
 
                 Ok(CompiledBehaviorMember {
+                    method_obj,
                     method_obj_idx,
                     selector_const,
                     is_class_side,
@@ -246,6 +250,7 @@ impl<'vm> Compiler<'vm> {
                 let selector_const = self.add_constant(Value::symbol(selector_sym));
 
                 Ok(CompiledBehaviorMember {
+                    method_obj,
                     method_obj_idx,
                     selector_const,
                     is_class_side: false,
@@ -254,6 +259,44 @@ impl<'vm> Compiler<'vm> {
                 })
             }
         }
+    }
+
+    /// Looks up or compiles the compiled method object for a conditional inherent callable.
+    pub(crate) fn get_or_compile_conditional_method(&mut self, callable: &CallableId) -> Result<ObjRef, CompilerError> {
+        if let Some(&obj_ref) = self.conditional_method_objects.get(callable) {
+            return Ok(obj_ref);
+        }
+        for specs in self.inherent_impl_specs.values() {
+            for spec in specs {
+                for member_lowering in spec.members.iter() {
+                    if &member_lowering.callable == callable {
+                        if let Some(impl_def) = self.inherent_impl_defs.get(&spec.id).cloned() {
+                            if let Some(member) = impl_def.members.get(member_lowering.source_member_index) {
+                                let compiled = self.compile_behavior_member(member, callable)?;
+                                self.conditional_method_objects.insert(callable.clone(), compiled.method_obj);
+                                return Ok(compiled.method_obj);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for specs in self.inherent_impl_specs_by_variant.values() {
+            for spec in specs {
+                for member_lowering in spec.members.iter() {
+                    if &member_lowering.callable == callable {
+                        if let Some(impl_def) = self.inherent_impl_defs.get(&spec.id).cloned() {
+                            if let Some(member) = impl_def.members.get(member_lowering.source_member_index) {
+                                let compiled = self.compile_behavior_member(member, callable)?;
+                                self.conditional_method_objects.insert(callable.clone(), compiled.method_obj);
+                                return Ok(compiled.method_obj);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Err(CompilerError::ImplCallableMismatch(SourceRange::new(0, 0)))
     }
 
     /// Installs all semantically accepted inherent `impl` members for nominal `target`
@@ -278,9 +321,12 @@ impl<'vm> Compiler<'vm> {
                 };
 
                 let compiled = self.compile_behavior_member(member, &member_lowering.callable)?;
-                self.emit(Bytecode::Constant(compiled.method_obj_idx), compiled.range);
-                self.emit(Bytecode::Method(compiled.selector_const, compiled.is_class_side), compiled.range);
-                self.emit_member_attribute_attaches(&compiled.attributes, compiled.method_obj_idx, compiled.range)?;
+                self.conditional_method_objects.insert(member_lowering.callable.clone(), compiled.method_obj);
+                if !spec.is_conditional {
+                    self.emit(Bytecode::Constant(compiled.method_obj_idx), compiled.range);
+                    self.emit(Bytecode::Method(compiled.selector_const, compiled.is_class_side), compiled.range);
+                    self.emit_member_attribute_attaches(&compiled.attributes, compiled.method_obj_idx, compiled.range)?;
+                }
             }
         }
 
@@ -300,9 +346,7 @@ impl<'vm> Compiler<'vm> {
             };
 
             for member_lowering in spec.members.iter() {
-                if member_lowering.callable.owner != CallableOwnerId::Variant(variant.clone())
-                    || member_lowering.callable.side != DispatchSide::Instance
-                {
+                if member_lowering.callable.owner != CallableOwnerId::Variant(variant.clone()) || member_lowering.callable.side != DispatchSide::Instance {
                     return Err(CompilerError::ImplCallableMismatch(impl_def.range));
                 }
 
@@ -323,15 +367,18 @@ impl<'vm> Compiler<'vm> {
                     .executable_semantics
                     .add_variant_target(variant, compiled.range)?;
 
-                self.emit(Bytecode::Constant(compiled.method_obj_idx), compiled.range);
-                self.emit(
-                    Bytecode::VariantMethod {
-                        variant: var_idx,
-                        selector: compiled.selector_const,
-                    },
-                    compiled.range,
-                );
-                self.emit_member_attribute_attaches(&compiled.attributes, compiled.method_obj_idx, compiled.range)?;
+                self.conditional_method_objects.insert(member_lowering.callable.clone(), compiled.method_obj);
+                if !spec.is_conditional {
+                    self.emit(Bytecode::Constant(compiled.method_obj_idx), compiled.range);
+                    self.emit(
+                        Bytecode::VariantMethod {
+                            variant: var_idx,
+                            selector: compiled.selector_const,
+                        },
+                        compiled.range,
+                    );
+                    self.emit_member_attribute_attaches(&compiled.attributes, compiled.method_obj_idx, compiled.range)?;
+                }
             }
         }
 
