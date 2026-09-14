@@ -20,7 +20,7 @@ replace_once(
 replace_once(
     "phalcom-core/tests/core/language/traits.rs",
     'trait Tagged { tag -> String { "default" } }\nclass Number {}\nclass Value<T> { @constructor new() {} }\nimpl<T> Value<T> where T <: Number { tag -> String { "number" } }\nimpl<T> Tagged for Value<T> {}\nclass Caller { run(_ value: Value<Number>) -> String { value.tag } }\nlet result = Caller.new().run(Value<Number>.new())',
-    'trait Tagged { tag -> String { "default" } }\nclass NumericBase {}\nclass Numeric is NumericBase {}\nclass Value<T> { @constructor new() {} }\nimpl<T> Value<T> where T <: NumericBase { tag -> String { "number" } }\nimpl<T> Tagged for Value<T> {}\nclass Caller { run(_ value: Value<Numeric>) -> String { value.tag } }\nlet value: Value<Numeric> = Value.new()\nlet result = Caller.new().run(value)',
+    'trait Tagged {\n  tag -> String { "default" }\n  label -> String { self.tag }\n}\nclass NumericBase {}\nclass Numeric is NumericBase {}\nclass Value<T> { @constructor new() {} }\nimpl<T> Value<T> where T <: NumericBase { tag -> String { "number" } }\nimpl<T> Tagged for Value<T> {}\nclass Caller { run(_ value: Value<Numeric>) -> String { value.label } }\nlet value: Value<Numeric> = Value.new()\nlet result = Caller.new().run(value)',
     "conditional fixture",
 )
 
