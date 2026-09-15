@@ -8,7 +8,7 @@ kind: implementation-walkthrough
 status: IN_PROGRESS
 completion: PARTIAL
 verification: BASELINE_BLOCKED
-revision: dd802182
+revision: c20a4ccd
 date: 2026-09-15
 ---
 
@@ -106,6 +106,42 @@ two traits sharing the target's concrete `render` member compile and execute
 the inherent result. These tests preserve the semantic/compiler boundary and
 confirm that convergence does not require runtime trait discovery.
 
+## T16 high-density valid stress vertical
+
+`high_density_c4_stress_program_preserves_exact_evidence_and_runtime_results`
+is a deterministic executable vertical combining inherited and data-component
+witnesses, conformance-local and inherent witnesses, conditional applicability,
+trait defaults including default-to-requirement and default-to-default calls,
+generic-source conformances at multiple exact applications, separate exact
+specializations, an exact enum-case conformance, bound references, and mutable
+receiver state. It asserts the composed result string, retained trait lowering
+sites, and absence of trait-only selectors from runtime class dictionaries.
+The focused `traits_p3_closure` suite passes 6/6.
+
+The stress program also exposed and closed a real fingerprint seam: field
+lifecycle inputs now resolve conformance-owned callable bodies through the
+canonical conformance target rather than assuming every callable has a
+declaration owner.
+
+## T17 invalid and adversarial corpus
+
+`c4_invalid_corpus_asserts_canonical_diagnostic_families` covers 11 isolated
+negative cases: duplicate and overlapping exact/generic heads, missing and
+incompatible witnesses, visibility mismatch, extra and duplicate explicit
+witnesses, bodyless witnesses, incompatible inherent candidates, and competing
+defaults. Each case asserts its canonical `DiagnosticCode`, including the new
+`TraitDispatchAmbiguous` family. Existing focused tests retain the third-party
+ownership, exact-case non-leakage, and terminal fail-closed regressions.
+The focused semantic `impls` surface passes 86/86.
+
+## T18 runtime anti-authority audit
+
+The stress and existing runtime tests inspect target class dictionaries after
+successful trait-evidenced calls. Trait defaults, conformance-local witnesses,
+and conditional trait-only selectors remain detached. A source audit of the VM
+dispatch paths found detached-method indexing and already-lowered invocation
+plans only; no runtime conformance scan or semantic witness search was added.
+
 ## Verification outcome
 
 Focused semantic, core, LSP, AST, and workspace-check gates passed. The
@@ -113,5 +149,6 @@ workspace test, workspace Clippy, format check, and existing Iterable stress
 surface remain baseline-blocked; exact results and classifications are owned
 by the checkpoint record and handoff. No release-complete claim is made.
 
-The remaining stress, invalid-corpus, anti-authority, and broad certification
-gates are still open, so this plan remains partial.
+T16, T17, and T18 are now focused-tested/audited. T20 broad certification is
+complete as a run but remains `BASELINE_BLOCKED` because of the pre-existing
+workspace failures; this plan remains `PARTIAL`.

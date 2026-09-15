@@ -83,9 +83,14 @@ do not weaken assertions or attribute them to C5/C6 without a clean comparison.
 The user-supplied plan file has a P4 filename but historical P3 internal id;
 preserve it as the authoritative input. The checkpoint is the single durable
 state source and currently remains `IN_PROGRESS` / `PARTIAL` /
-`BASELINE_BLOCKED`; T5 and the T15 ambiguity/convergence verticals are
-focused-tested, while the remaining stress, invalid-corpus, anti-authority,
-and broad certification gates are still open. The next implementer should
-continue with T16/T17/T20 and re-run the named baseline gates before any
-release claim. Do not mark C4 release-complete until the baseline gates are
-resolved or explicitly accepted by project policy.
+`BASELINE_BLOCKED`. T5, T15, T16, and T17 are focused-tested; T18's runtime
+anti-authority audit is complete. T20 was run: the C4-focused suites and
+workspace check pass, while the pre-existing workspace test, incremental
+parity, capability, formatting, Clippy, and Iterable stress failures remain
+classified as baseline blockers. Do not mark C4 release-complete until those
+gates are resolved or explicitly accepted by project policy.
+
+The next implementer should either resolve the recorded baseline blockers under
+their owning programs or obtain an explicit project-policy decision to accept
+them; no further C4 semantic implementation is indicated by the current
+focused evidence.

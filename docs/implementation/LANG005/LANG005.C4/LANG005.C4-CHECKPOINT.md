@@ -145,10 +145,11 @@ Execution state on the live repository:
 P1/P2 complete; P3 runtime and terminal closure landed on the takeover
 branch; P4 T0 complete; P4 editor/LSP projection, exact-case closure,
 terminal-state propagation, detached conformance-owner runtime lookup,
-anti-injection coverage, and temporary-probe cleanup are implemented.
-Focused C4 evidence is green. Broad certification is BASELINE_BLOCKED by
-pre-existing Universe, incremental, Iterable-stress, formatting, and Clippy
-failures recorded in the P4 completion records.
+anti-injection coverage, temporary-probe cleanup, T16 stress coverage, and
+T17 diagnostic-corpus coverage are implemented. Focused C4 evidence is green.
+Broad certification is BASELINE_BLOCKED by pre-existing Universe,
+incremental, Iterable-stress, formatting, and Clippy failures recorded in the
+P4 completion records.
 ```
 
 The P4 takeover baseline is `df2272d179e04eb18d50fd4e4bbb1ed7c80630c6`
@@ -168,10 +169,10 @@ exact target, exact `TraitRef`, selector, `TraitRequirementId`, source
 are retained as diagnostic labels. The expression product keeps the complete
 candidate set and does not publish a selected `TraitDispatchSite`.
 
-P4 remains in progress because the T5 dispatch interaction matrix and the
-remaining vertical/certification gates are not complete. The focused
-ambiguity regression is green; the existing broad baseline blockers remain
-unchanged.
+P4 remains in progress because broad certification is baseline-blocked. T5,
+T15, T16, and T17 are focused-tested; T18's runtime anti-authority audit is
+complete. The focused ambiguity and stress regressions are green; the existing
+broad baseline blockers remain unchanged.
 
 The T5 semantic interaction matrix is now green for inherent-only lookup,
 trait-default lookup, inherent precedence over defaults and conformance
@@ -185,6 +186,21 @@ program asserting `trait.dispatch.ambiguous`, and an executing convergence
 program proving two trait requirements use the target's single inherent
 `render` member. Both regressions pass through the compiler boundary; no
 runtime trait scan or class-dictionary injection is involved.
+
+T16 adds `high_density_c4_stress_program_preserves_exact_evidence_and_runtime_results`,
+which executes inherited, data-component, conformance-local, inherent,
+conditional, generic-source, exact-specialized, exact-case, default,
+bound-reference, and mutable-state paths in one deterministic result. It also
+checks trait lowering sites and detached runtime class dictionaries. T17 adds
+an 11-case negative corpus asserting canonical overlap,
+incomplete-conformance, member-conflict, bodyless, and ambiguity diagnostic
+families. The T16/T17 verticals pass through their semantic/core owners.
+
+T18's runtime audit found only already-lowered detached method indexing and
+invocation-plan consumption in the VM; runtime does not scan conformance
+records or class dictionaries to decide semantic dispatch. The conformance
+field-lifecycle fingerprint seam was corrected to resolve the canonical target
+owner for conformance-owned callable bodies.
 
 The planning baseline remains pre-C3, but T0 re-grounding verified the live
 post-C3 predecessor state before production edits began. P1 and P2 remain
@@ -306,7 +322,7 @@ Do not reorganize C1–C3 while landing C4 records.
 | `LANG005.C4.P1` | explicit conformance declaration, canonical head resolution, ownership, publication, exact query, coherence, incrementality/source projection | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | coherence-safe `ConformanceContribution` + exact `ConformanceHeadMatch`; **no satisfaction proof** |
 | `LANG005.C4.P2` | witness sources, conformance-local callables, compatibility, defaults, completeness, structured evidence | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | source `ConformanceWitnessPlan` and exact `ConformanceEvidence` resolver with terminal applicability, C2 specialization evidence, and incremental parity |
 | `LANG005.C4.P3` | trait-evidenced ordinary dispatch, ambiguity, callable refs, default/requirement lowering, compiler/runtime execution, integration certification | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | executable conformance semantics; runtime and terminal closure |
-| `LANG005.C4.P4` | completion, exact generic/enum closure, editor/LSP projection, terminal propagation, probe cleanup, and certification | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | focused C4 closure plus dedicated ambiguity diagnostic; T5 matrix and broad baseline blockers remain |
+| `LANG005.C4.P4` | completion, exact generic/enum closure, editor/LSP projection, terminal propagation, probe cleanup, and certification | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | T4/T5/T15/T16/T17 focused closure and T18 audit; T20 broad run baseline-blocked |
 
 The planned checkpoint sequence is:
 
@@ -1402,18 +1418,19 @@ P4 completion evidence on 2026-09-15:
 
 ```text
 focused semantic ambiguity diagnostic:                PASS (1)
-focused semantic impls query suite:                   PASS (52)
-focused semantic impls suite:                         PASS (83)
+focused semantic impls query suite:                   PASS (53)
+focused semantic impls suite:                         PASS (86)
 focused semantic editor suite:                        PASS (10)
 focused semantic incremental trait suite:              PASS (3)
-focused core C4 trait closure suite:                   PASS (5)
-focused core trait runtime suite:                      PASS (17)
+focused core C4 trait closure suite:                   PASS (6)
+focused core trait runtime suite:                      PASS (20)
 focused LSP completion suite:                          PASS (7)
 focused AST impl syntax suite:                         PASS (12)
 workspace check:                                       PASS
 workspace test:                                        BASELINE_BLOCKED
 workspace clippy -D warnings:                          BASELINE_BLOCKED
 workspace format check:                                BASELINE_BLOCKED
+git diff --check:                                      PASS
 ```
 
 The targeted implementation establishes exact generic-source specialization,
@@ -1434,8 +1451,9 @@ and `tests/semantic/associated/lookup.rs`; and pre-existing AST
 `large_enum_variant` Clippy violations. These remain outside the focused C4
 implementation boundary.
 
-The landed T4/T5 semantic slices are `IMPLEMENTED` + `FOCUSED_TESTED`. The
-overall P4 completion plan remains `PARTIAL` with checkpoint verification
-`BASELINE_BLOCKED`; C4 is not marked release-complete. The next actionable
-slice is T16/T17/T20 follow-through: certify the stress and invalid-corpus
-surfaces, then re-run broad release gates against the recorded baselines.
+The landed T4/T5/T16/T17 semantic slices are `IMPLEMENTED` +
+`FOCUSED_TESTED`; T18 is runtime-audited. The overall P4 completion plan
+remains `PARTIAL` with checkpoint verification `BASELINE_BLOCKED`; C4 is not
+marked release-complete. T20 broad certification was run and is blocked only
+by the recorded pre-existing workspace, incremental, capability, formatting,
+Clippy, and Iterable stress failures.
