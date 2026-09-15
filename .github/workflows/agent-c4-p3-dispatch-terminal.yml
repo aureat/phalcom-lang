@@ -1,0 +1,39 @@
+name: Agent C4 P3 dispatch terminal preservation
+
+on:
+  push:
+    branches:
+      - agent/c4-p3-complex-closure-7
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: 1
+      RUSTFLAGS: ""
+      RUSTC_WRAPPER: ""
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/c4-p3-complex-closure-7
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-07-10
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Apply dispatch terminal patch
+        run: |
+          python .github/scripts/c4_p3_dispatch_terminal.py
+          cargo fmt --all
+          git diff --check
+          git diff -- phalcom-semantic/src/trait_dispatch.rs phalcom-semantic/src/dispatch.rs phalcom-semantic/src/checker/context.rs
+
+      - name: Compile semantic crate
+        run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' check -p phalcom-semantic
