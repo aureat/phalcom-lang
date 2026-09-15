@@ -1,0 +1,22 @@
+name: C4 P3 final closure
+on:
+  push:
+    branches: [agent/c4-p3-final-closure]
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Exact/generic runtime probes
+        run: RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core language::traits_p3_closure -- --nocapture
+      - name: Existing trait runtime suite
+        run: RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core language::traits -- --nocapture
+      - name: Semantic trait suite
+        run: RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic capabilities::traits
+      - name: Semantic impl suite
+        run: RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-semantic --test semantic impls
+      - name: Format
+        run: cargo fmt --all -- --check
