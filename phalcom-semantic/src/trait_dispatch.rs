@@ -237,6 +237,20 @@ pub enum TraitDispatchResolution {
     InternalFailure(Box<str>),
 }
 
+/// Terminal proof state retained when ordinary member discovery found a trait
+/// candidate but could not produce executable conformance evidence. This is
+/// deliberately distinct from runtime-dynamic dispatch.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TraitDispatchTerminal {
+    Incomplete(ImplId),
+    Unknown(UnknownReason),
+    Blocked(BlockReason),
+    Dynamic(DynamicBoundaryObligation),
+    Cancelled,
+    BudgetExceeded(BudgetReport),
+    InternalFailure(Box<str>),
+}
+
 /// Computes the bounded target-family bucket for an ordinary receiver.
 pub fn target_family_for_receiver(store: &TypeStore, receiver: TypeId) -> Option<TraitDispatchTargetFamily> {
     match store.get(receiver) {

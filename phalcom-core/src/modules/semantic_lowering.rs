@@ -509,6 +509,8 @@ pub enum ProjectionError {
     OpenDataConstructionType { constructor: DataConstructorId, result_type: TypeId },
     #[error("missing executable slot for trait requirement {0:?}")]
     MissingTraitRequirementSlot(phalcom_semantic::traits::TraitRequirementId),
+    #[error("missing conformance metadata for callable owner {0:?}")]
+    MissingConformanceMetadata(ImplId),
 }
 
 fn contains_exact_case(store: &phalcom_semantic::types::TypeStore, ty: TypeId) -> bool {
@@ -2102,12 +2104,27 @@ fn executable_invocation_target(
     callable_type: TypeId,
 ) -> Result<ExecutableInvocationTarget, ProjectionError> {
     match target {
-        InvocationTargetId::Behavioral(c) => Ok(ExecutableInvocationTarget::Behavioral {
-            lookup_owner: c.owner.declaration().clone(),
-            callable: c.clone(),
-            operation: operation.clone(),
-            rest_mode: executable_rest_mode(snapshot, c),
-        }),
+        InvocationTargetId::Behavioral(c) => {
+            let lookup_owner = c
+                .try_declaration_owner()
+                .cloned()
+                .or_else(|| {
+                    c.conformance_owner()
+                        .and_then(|impl_id| snapshot.conformance_index.get(impl_id))
+                        .map(|contribution| contribution.target.declaration().clone())
+                })
+                .ok_or_else(|| {
+                    c.conformance_owner()
+                        .cloned()
+                        .map_or_else(|| ProjectionError::InvalidCallableReferenceSpec, ProjectionError::MissingConformanceMetadata)
+                })?;
+            Ok(ExecutableInvocationTarget::Behavioral {
+                lookup_owner,
+                callable: c.clone(),
+                operation: operation.clone(),
+                rest_mode: executable_rest_mode(snapshot, c),
+            })
+        }
         InvocationTargetId::VariantConstructor(vc) => Ok(ExecutableInvocationTarget::VariantConstructor { variant: vc.variant.clone() }),
         InvocationTargetId::DataConstructor(dc) => project_data_constructor_target(snapshot, projects, dc, callable_type, None),
     }

@@ -2186,7 +2186,7 @@ impl<'a> CheckingContext<'a> {
             ResolvedDispatchResult::Found(resolved) => resolved.visited_owners.clone(),
             ResolvedDispatchResult::Ambiguous(resolved) => resolved.first().map(|resolved| resolved.visited_owners.clone()).unwrap_or_else(|| Box::new([])),
             ResolvedDispatchResult::Missing { visited_owners } => visited_owners.clone(),
-            ResolvedDispatchResult::Dynamic => Box::new([]),
+            ResolvedDispatchResult::TraitTerminal(_) | ResolvedDispatchResult::Dynamic => Box::new([]),
         };
         if let Some(resolved) = self.resolve_exact_case_conditional(specialization_receiver, side, selector, visited_owners) {
             return ResolvedDispatchResult::Found(Box::new(resolved));
@@ -2376,19 +2376,32 @@ impl<'a> CheckingContext<'a> {
                             return ResolvedDispatchResult::Ambiguous(ambiguous);
                         }
                         crate::trait_dispatch::TraitDispatchResolution::Missing => {}
-                        crate::trait_dispatch::TraitDispatchResolution::Incomplete(_)
-                        | crate::trait_dispatch::TraitDispatchResolution::Unknown(_)
-                        | crate::trait_dispatch::TraitDispatchResolution::Blocked(_)
-                        | crate::trait_dispatch::TraitDispatchResolution::Dynamic(_)
-                        | crate::trait_dispatch::TraitDispatchResolution::Cancelled
-                        | crate::trait_dispatch::TraitDispatchResolution::BudgetExceeded(_)
-                        | crate::trait_dispatch::TraitDispatchResolution::InternalFailure(_) => {
-                            return ResolvedDispatchResult::Dynamic;
+                        crate::trait_dispatch::TraitDispatchResolution::Incomplete(impl_id) => {
+                            return ResolvedDispatchResult::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::Incomplete(impl_id));
+                        }
+                        crate::trait_dispatch::TraitDispatchResolution::Unknown(reason) => {
+                            return ResolvedDispatchResult::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::Unknown(reason));
+                        }
+                        crate::trait_dispatch::TraitDispatchResolution::Blocked(reason) => {
+                            return ResolvedDispatchResult::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::Blocked(reason));
+                        }
+                        crate::trait_dispatch::TraitDispatchResolution::Dynamic(obligation) => {
+                            return ResolvedDispatchResult::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::Dynamic(obligation));
+                        }
+                        crate::trait_dispatch::TraitDispatchResolution::Cancelled => {
+                            return ResolvedDispatchResult::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::Cancelled);
+                        }
+                        crate::trait_dispatch::TraitDispatchResolution::BudgetExceeded(report) => {
+                            return ResolvedDispatchResult::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::BudgetExceeded(report));
+                        }
+                        crate::trait_dispatch::TraitDispatchResolution::InternalFailure(message) => {
+                            return ResolvedDispatchResult::TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal::InternalFailure(message));
                         }
                     }
                 }
                 ResolvedDispatchResult::Missing { visited_owners }
             }
+            ResolvedDispatchResult::TraitTerminal(terminal) => ResolvedDispatchResult::TraitTerminal(terminal),
             ResolvedDispatchResult::Dynamic => ResolvedDispatchResult::Dynamic,
         }
     }
@@ -2398,7 +2411,7 @@ impl<'a> CheckingContext<'a> {
             ResolvedDispatchResult::Found(resolved) => DispatchResult::Found(Box::new(resolved.signature)),
             ResolvedDispatchResult::Ambiguous(ambiguous) => DispatchResult::Ambiguous(ambiguous.into_iter().map(|resolved| resolved.signature).collect()),
             ResolvedDispatchResult::Missing { .. } => DispatchResult::Missing,
-            ResolvedDispatchResult::Dynamic => DispatchResult::Dynamic,
+            ResolvedDispatchResult::TraitTerminal(_) | ResolvedDispatchResult::Dynamic => DispatchResult::Dynamic,
         }
     }
 

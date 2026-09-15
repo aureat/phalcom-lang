@@ -559,6 +559,9 @@ fn resolve_iteration_element_application(
             crate::dispatch::ResolvedDispatchResult::Found(_) | crate::dispatch::ResolvedDispatchResult::Ambiguous(_) => {
                 return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::IterationArgumentUnavailable);
             }
+            crate::dispatch::ResolvedDispatchResult::TraitTerminal(terminal) => {
+                return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::TraitTerminal(terminal));
+            }
             crate::dispatch::ResolvedDispatchResult::Dynamic => {
                 return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::PremiseDynamic(DynamicReason::RuntimeReflection));
             }
@@ -576,6 +579,9 @@ fn resolve_iteration_element_application(
             crate::dispatch::ResolvedDispatchResult::Ambiguous(_) => {
                 return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::DispatchAmbiguous);
             }
+            crate::dispatch::ResolvedDispatchResult::TraitTerminal(terminal) => {
+                return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::TraitTerminal(terminal));
+            }
             crate::dispatch::ResolvedDispatchResult::Dynamic => {
                 return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::PremiseDynamic(DynamicReason::RuntimeReflection));
             }
@@ -588,6 +594,9 @@ fn resolve_iteration_element_application(
         match ctx.resolve_dispatch_target(receiver_ty, &selector, crate::dispatch::DispatchLookup::Normal) {
             crate::dispatch::ResolvedDispatchResult::Found(_) | crate::dispatch::ResolvedDispatchResult::Ambiguous(_) => {
                 return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::IterationArgumentUnavailable);
+            }
+            crate::dispatch::ResolvedDispatchResult::TraitTerminal(terminal) => {
+                return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::TraitTerminal(terminal));
             }
             crate::dispatch::ResolvedDispatchResult::Dynamic => {
                 return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::PremiseDynamic(DynamicReason::RuntimeReflection));

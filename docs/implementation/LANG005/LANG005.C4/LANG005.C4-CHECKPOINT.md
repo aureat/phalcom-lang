@@ -6,7 +6,7 @@ checkpoint: LANG005.C4
 kind: checkpoint-record
 status: IN_PROGRESS
 completion: PARTIAL
-verification: FOCUSED_TESTED
+verification: BASELINE_BLOCKED
 requires:
   - LANG005.C3
 entry_requirements:
@@ -14,7 +14,7 @@ entry_requirements:
   - C2_COMPLETE
   - C2_APPLICABILITY_PROOF_STATE_CLOSED
   - C3_COMPLETE
-active_plan: LANG005.C4.P3
+active_plan: LANG005.C4.P4
 next_plan: LANG005.C5
 planning_baseline_revision: 20ad3f31b39b0fe1b1fdf028df4ac9579fcfd9ad
 planning_baseline_commit: "docs: pin lang005 checkpoint revision"
@@ -23,6 +23,7 @@ plan:
 planned_followups:
   - LANG005.C4.P2-witness-resolution-defaults-and-conformance-evidence
   - LANG005.C4.P3-trait-evidenced-dispatch-lowering-and-integration
+  - LANG005.C4.P4-completion-and-certification-plan.md
 ---
 
 # Checkpoint Record — LANG005.C4 Explicit Trait Conformance, Witness Evidence, and Trait-Evidenced Dispatch
@@ -134,17 +135,35 @@ checkpoint: LANG005.C4
 status: IN_PROGRESS
 completion: PARTIAL
 verification: FOCUSED_TESTED
-active_plan: LANG005.C4.P3
+active_plan: LANG005.C4.P4
 next_plan: LANG005.C5
 ```
 
 Execution state on the live repository:
 
 ```text
-P2 COMPLETE; P3 T0 COMPLETE; P3 T1 ACTIVE
+P1/P2 complete; P3 runtime and terminal closure landed on the takeover
+branch; P4 T0 complete; P4 editor/LSP projection, exact-case closure,
+terminal-state propagation, detached conformance-owner runtime lookup,
+anti-injection coverage, and temporary-probe cleanup are implemented.
+Focused C4 evidence is green. Broad certification is BASELINE_BLOCKED by
+pre-existing Universe, incremental, Iterable-stress, formatting, and Clippy
+failures recorded in the P4 completion records.
 ```
 
-The planning baseline remains pre-C3, but T0 re-grounding verified the live post-C3 predecessor state before production edits began. P1 is complete and P2 is the active implementation plan.
+The P4 takeover baseline is `df2272d179e04eb18d50fd4e4bbb1ed7c80630c6`
+(`ci: run C4 P3 final closure probes`). T0 re-grounding confirmed the
+generic-source semantic and runtime paths already pass at this revision. The
+editor facade now projects exact proven trait selections through the existing
+`TraitDispatchIndex`/`resolve_trait_evidenced_candidates` authority, including
+data-component witnesses; the LSP completion adapter preserves exact receiver
+types. Temporary C4 P3 source-rewriting scripts and branch-specific workflows
+were removed after their coverage was represented by normal tests.
+
+The planning baseline remains pre-C3, but T0 re-grounding verified the live
+post-C3 predecessor state before production edits began. P1 and P2 remain
+complete; the current completion plan is focused-tested but not
+release-certified.
 
 The live implementation base for this P2 continuation is `a7861a5b148715179ef81e2dfe82986a7d0fc499` (`lang005: complete explicit conformance coherence`), with the scoped working-tree changes recorded by the P2 walkthrough and handoff.
 
@@ -154,7 +173,8 @@ an inherent-only effective witness query, exact target/data specialization,
 source-plan/exact-evidence semantic fingerprints, proof-aware terminal
 applicability propagation, exact C2 applicability evidence retention, and
 incremental fingerprint/invalidation parity. P2 is complete at
-`IMPLEMENTED` + `FOCUSED_TESTED`; P3 remains the next checkpoint plan.
+`IMPLEMENTED` + `FOCUSED_TESTED`; P3 runtime/terminal closure is landed, and
+P4 owns the remaining certification state.
 
 P3 T0 re-grounding captured the live post-P2 baseline at
 `1fc1e8449e6dd77fc533455bcb056fe9b00290b9`. The semantic crate checks
@@ -259,7 +279,8 @@ Do not reorganize C1–C3 while landing C4 records.
 |---|---|---|---|---|---|
 | `LANG005.C4.P1` | explicit conformance declaration, canonical head resolution, ownership, publication, exact query, coherence, incrementality/source projection | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | coherence-safe `ConformanceContribution` + exact `ConformanceHeadMatch`; **no satisfaction proof** |
 | `LANG005.C4.P2` | witness sources, conformance-local callables, compatibility, defaults, completeness, structured evidence | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | source `ConformanceWitnessPlan` and exact `ConformanceEvidence` resolver with terminal applicability, C2 specialization evidence, and incremental parity |
-| `LANG005.C4.P3` | trait-evidenced ordinary dispatch, ambiguity, callable refs, default/requirement lowering, compiler/runtime execution, integration certification | PLANNED | NOT_STARTED | UNVERIFIED | executable conformance semantics; C4 closure |
+| `LANG005.C4.P3` | trait-evidenced ordinary dispatch, ambiguity, callable refs, default/requirement lowering, compiler/runtime execution, integration certification | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | executable conformance semantics; runtime and terminal closure |
+| `LANG005.C4.P4` | completion, exact generic/enum closure, editor/LSP projection, terminal propagation, probe cleanup, and certification | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | focused C4 closure with broad baseline blockers |
 
 The planned checkpoint sequence is:
 
@@ -1340,17 +1361,52 @@ C4 walkthrough/handoff/checkpoint are final
 ### Active plan
 
 ```text
-none; P2 complete
+LANG005.C4.P4 — completion and certification
 ```
 
 ### Next plan
 
 ```text
-LANG005.C4.P3 — Trait-Evidenced Dispatch, Lowering, and Integration
+LANG005.C5 — associated types and projection
 ```
 
 ### Current next action
 
-Begin `LANG005.C4.P3` trait-evidenced dispatch, lowering, and runtime
-integration. P3 must consume `ConformanceEvidence` without re-running
-witness/default selection.
+P4 completion evidence on 2026-09-15:
+
+```text
+focused semantic impls query:                         PASS (1)
+focused semantic impls suite:                         PASS (83)
+focused semantic editor suite:                        PASS (10)
+focused semantic incremental trait suite:              PASS (3)
+focused core C4 trait closure suite:                   PASS (3)
+focused core trait runtime suite:                      PASS (17)
+focused LSP completion suite:                          PASS (7)
+focused AST impl syntax suite:                         PASS (12)
+workspace check:                                       PASS
+workspace test:                                        BASELINE_BLOCKED
+workspace clippy -D warnings:                          BASELINE_BLOCKED
+workspace format check:                                BASELINE_BLOCKED
+```
+
+The targeted implementation establishes exact generic-source specialization,
+preserves terminal proof states through checker analysis, attaches conformance
+semantics to formal top-level checking, projects proven trait members through
+the editor/LSP facade, and keeps conformance-owned runtime methods detached.
+Exact enum-case dispatch now retains the complete applied target. The focused
+runtime witness test also asserts that a conformance-local member is absent
+from the target class dictionary.
+
+Known baseline blockers are: the existing Universe
+`kernel_option_match_override_reroutes_every_combinator` internal generic
+call-entry failure; the existing incremental A7 cold/incremental presentation
+parity divergence; the existing two Universe Bool declaration-shell failures
+in `capabilities::traits`; the existing Iterable/outgoing-pack generic
+call-entry failures; pre-existing formatting drift in `phalcom-semantic/src/db/query.rs`
+and `tests/semantic/associated/lookup.rs`; and pre-existing AST
+`large_enum_variant` Clippy violations. These remain outside the focused C4
+implementation boundary.
+
+The requested completion plan is therefore `IMPLEMENTED` + `FOCUSED_TESTED`
+for its landed semantic/runtime/editor closure, with checkpoint verification
+`BASELINE_BLOCKED`; C4 is not marked release-complete.

@@ -4408,6 +4408,7 @@ impl SemanticWorkspaceSession {
             ctx.attach_enum_semantics(&enum_semantics);
             ctx.attach_data_semantics(&data_semantics);
             ctx.attach_associated_families(&associated_surfaces_table);
+            ctx.attach_conformance_semantics(&conformance_semantics);
 
             for stmt in &parsed_unit.program.statements {
                 match stmt {

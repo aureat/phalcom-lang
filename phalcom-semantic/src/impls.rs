@@ -1958,7 +1958,7 @@ pub fn resolve_conformance_head(
             enum_declaration,
             phalcom_ast::selector::selector_from_exact_case_target(variant_name, payload_shape.as_ref()),
         );
-        let Some(variant_info) = ctx.variant_info(&variant).cloned() else {
+        if ctx.variant_info(&variant).is_none() {
             diagnostics.push(SemanticDiagnostic::error_in(
                 ctx.current_module.clone(),
                 DiagnosticCode::ImplTargetNotNominal,
@@ -1966,8 +1966,20 @@ pub fn resolve_conformance_head(
                 impl_def.target.range,
             ));
             return Err(diagnostics);
+        }
+        let target_head = match ctx.store.exact_case_type(&variant, enum_evidence.ty()) {
+            Ok(target_head) => target_head,
+            Err(error) => {
+                diagnostics.push(SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    DiagnosticCode::ImplTargetNotNominal,
+                    format!("conformance exact enum case could not be specialized: {error:?}"),
+                    impl_def.target.range,
+                ));
+                return Err(diagnostics);
+            }
         };
-        (variant_info.exact_case_template, ConformanceTarget::ExactEnumCase(variant))
+        (target_head, ConformanceTarget::ExactEnumCase(variant))
     } else {
         let TypeKnowledge::Known(target_evidence) =
             resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, &impl_def.target, &mut diagnostics)

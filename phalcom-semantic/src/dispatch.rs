@@ -151,7 +151,12 @@ pub struct ResolvedDispatch {
 pub enum ResolvedDispatchResult {
     Found(Box<ResolvedDispatch>),
     Ambiguous(Vec<ResolvedDispatch>),
-    Missing { visited_owners: Box<[DeclarationId]> },
+    Missing {
+        visited_owners: Box<[DeclarationId]>,
+    },
+    /// A trait candidate existed, but exact conformance proof terminated
+    /// without an executable selection. This is not runtime-dynamic dispatch.
+    TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal),
     Dynamic,
 }
 
@@ -385,7 +390,7 @@ impl SurfaceDispatchResolver {
             ResolvedDispatchResult::Found(rd) => DispatchResult::Found(Box::new(rd.signature)),
             ResolvedDispatchResult::Ambiguous(amb) => DispatchResult::Ambiguous(amb.into_iter().map(|rd| rd.signature).collect()),
             ResolvedDispatchResult::Missing { .. } => DispatchResult::Missing,
-            ResolvedDispatchResult::Dynamic => DispatchResult::Dynamic,
+            ResolvedDispatchResult::TraitTerminal(_) | ResolvedDispatchResult::Dynamic => DispatchResult::Dynamic,
         }
     }
 

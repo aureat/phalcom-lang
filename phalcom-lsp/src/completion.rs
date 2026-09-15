@@ -151,7 +151,7 @@ pub(crate) fn compiler_contextual_completions(db: &phalcom_semantic::SemanticSna
             Some(resolved) => resolved
                 .alternatives
                 .first()
-                .map(|alternative| compiler_class_completions(db, &alternative.declaration, alternative.mode, context.lexical_class, context.privileged))
+                .map(|alternative| compiler_class_completions(db, alternative, context.lexical_class, context.privileged))
                 .unwrap_or_default(),
             None => Vec::new(),
         }
@@ -171,7 +171,7 @@ fn compiler_union_completions(
 ) -> Vec<CompletionItem> {
     let mut by_label = std::collections::BTreeMap::<String, (CompletionItem, usize)>::new();
     for alternative in resolved.alternatives.iter() {
-        for item in compiler_class_completions(db, &alternative.declaration, alternative.mode, lexical_class, privileged) {
+        for item in compiler_class_completions(db, alternative, lexical_class, privileged) {
             by_label
                 .entry(item.label.clone())
                 .and_modify(|(_, coverage)| *coverage += 1)
@@ -192,16 +192,15 @@ fn compiler_union_completions(
 
 fn compiler_class_completions(
     db: &phalcom_semantic::SemanticSnapshot,
-    declaration: &phalcom_semantic::DeclarationId,
-    receiver_mode: phalcom_semantic::ReceiverMode,
+    alternative: &phalcom_semantic::ReceiverAlternative,
     lexical_class: Option<&phalcom_semantic::DeclarationId>,
     _privileged: bool,
 ) -> Vec<CompletionItem> {
     let receiver = phalcom_semantic::ResolvedReceiver {
         alternatives: std::sync::Arc::from([phalcom_semantic::ReceiverAlternative {
-            declaration: declaration.clone(),
-            mode: receiver_mode,
-            receiver_type: None,
+            declaration: alternative.declaration.clone(),
+            mode: alternative.mode,
+            receiver_type: alternative.receiver_type,
         }]),
     };
     let access = phalcom_semantic::AccessContext {
@@ -219,6 +218,23 @@ fn compiler_class_completions(
                 detail: Some(member.owner.name.to_string()),
                 ..CompletionItem::default()
             }),
+            phalcom_semantic::EditorMemberTarget::DataComponent(component) => {
+                let Some(info) = db.data_semantics.get(&component.owner) else {
+                    continue;
+                };
+                let Some(component) = info.components.iter().find(|candidate| candidate.id == component) else {
+                    continue;
+                };
+                let label = component.external_label.as_deref().unwrap_or(component.local_name.as_ref()).to_string();
+                items.push(CompletionItem {
+                    label: label.clone(),
+                    kind: Some(CompletionItemKind::FIELD),
+                    insert_text: Some(label),
+                    insert_text_format: Some(InsertTextFormat::PLAIN_TEXT),
+                    detail: Some(member.owner.name.to_string()),
+                    ..CompletionItem::default()
+                });
+            }
             phalcom_semantic::EditorMemberTarget::Callable(callable) => {
                 let label = callable.selector.encode();
                 let (kind, insert_text, insert_text_format) = match callable.selector.kind {

@@ -1,13 +1,14 @@
 //! Compiler-owned, protocol-neutral semantic queries for editor features.
 
 use crate::advisory::{AdvisoryFact, ValueShape, advisory_shape_from_formal};
-use crate::identity::{CallableId, DeclarationId, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId};
+use crate::identity::{CallableId, DataComponentId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner, SourceSiteId};
 use crate::impls::receiver_effective_conditional_members;
 use crate::prelude::PreludeTypeMap;
 use crate::presentation::{CallablePresentation, FieldPresentation, FormalFactStatus, FormalPresentation, TypePresenter, present_declared_type};
 use crate::snapshot::SemanticSnapshot;
 use crate::source_index::{OccurrenceHint, OccurrenceRole, SourceBindingInfo, SourceBindingKind};
 use crate::surface::MemberVisibility;
+use crate::trait_dispatch::{TraitDispatchResolution, selected_callable, target_family_for_receiver};
 use crate::types::evidence::TypeKnowledge;
 use crate::types::relation::TypeHierarchy;
 use crate::types::store::{TypeData, TypeStore};
@@ -52,6 +53,7 @@ pub struct AccessContext {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum EditorMemberTarget {
     Callable(CallableId),
+    DataComponent(DataComponentId),
     Field(FieldId),
 }
 
@@ -721,10 +723,25 @@ impl<'a> EditorSemanticQuery<'a> {
             if !exact_case_selectors.is_empty() {
                 alternative_members.retain(|member| match &member.target {
                     EditorMemberTarget::Callable(callable) => !exact_case_selectors.contains(&(callable.side, callable.selector.clone())),
-                    EditorMemberTarget::Field(_) => true,
+                    EditorMemberTarget::DataComponent(_) | EditorMemberTarget::Field(_) => true,
                 });
             }
             alternative_members.extend(conditional_members);
+            let inherent_selectors = alternative_members
+                .iter()
+                .filter_map(|member| match &member.target {
+                    EditorMemberTarget::Callable(callable) => Some((callable.side, callable.selector.clone())),
+                    EditorMemberTarget::DataComponent(_) | EditorMemberTarget::Field(_) => None,
+                })
+                .collect::<BTreeSet<_>>();
+            alternative_members.extend(
+                self.trait_members_for_alternative(alternative, side, access)
+                    .into_iter()
+                    .filter(|member| match &member.target {
+                        EditorMemberTarget::Callable(callable) => !inherent_selectors.contains(&(callable.side, callable.selector.clone())),
+                        EditorMemberTarget::DataComponent(_) | EditorMemberTarget::Field(_) => true,
+                    }),
+            );
             members.extend(alternative_members);
         }
         members.sort_by_key(member_sort_key);
@@ -773,12 +790,117 @@ impl<'a> EditorSemanticQuery<'a> {
         .collect()
     }
 
+    /// Projects already-proven ordinary trait dispatch into the editor member
+    /// surface. This query enumerates the compiler-owned dispatch buckets and
+    /// asks the canonical exact resolver for each selector; it never rebuilds
+    /// conformance heads, witness evidence, or trait requirements locally.
+    fn trait_members_for_alternative(&self, alternative: &ReceiverAlternative, side: DispatchSide, access: &AccessContext) -> Vec<EditorMember> {
+        let Some(receiver_type) = alternative.receiver_type else {
+            return Vec::new();
+        };
+        let store = self.snapshot.store.as_ref().clone();
+        let Some(target_family) = target_family_for_receiver(&store, receiver_type) else {
+            return Vec::new();
+        };
+        let selectors = self
+            .snapshot
+            .trait_dispatch_index
+            .buckets()
+            .keys()
+            .filter(|key| key.target_family == target_family && key.side == side)
+            .map(|key| key.selector.clone())
+            .collect::<BTreeSet<_>>();
+        let mut members = Vec::new();
+        for selector in selectors {
+            let resolution = self.snapshot.resolve_trait_evidenced_candidates(receiver_type, &selector, side);
+            let selections = match resolution {
+                TraitDispatchResolution::Found(selection) => vec![selection],
+                // Preserve every candidate for editor consumers. The LSP may
+                // collapse equal labels for display, but it must never make
+                // this semantic facade choose one ambiguous source target.
+                TraitDispatchResolution::Ambiguous(candidates) => candidates
+                    .into_vec()
+                    .into_iter()
+                    .filter_map(|candidate| {
+                        let callable = selected_callable(&candidate.selection);
+                        callable.map(|callable| crate::trait_dispatch::TraitDispatchSelection {
+                            source_impl: candidate.source_impl,
+                            exact_target: receiver_type,
+                            exact_trait_ref: candidate.exact_trait_ref,
+                            requirement: candidate.requirement,
+                            callable: Some(callable),
+                            signature: candidate.signature,
+                            evidence_fingerprint: candidate.evidence_fingerprint,
+                            selection: candidate.selection,
+                            requirement_targets: Default::default(),
+                        })
+                    })
+                    .collect(),
+                TraitDispatchResolution::Missing
+                | TraitDispatchResolution::Incomplete(_)
+                | TraitDispatchResolution::Unknown(_)
+                | TraitDispatchResolution::Blocked(_)
+                | TraitDispatchResolution::Dynamic(_)
+                | TraitDispatchResolution::Cancelled
+                | TraitDispatchResolution::BudgetExceeded(_)
+                | TraitDispatchResolution::InternalFailure(_) => Vec::new(),
+            };
+            for selection in selections {
+                let Some(surface) = self.snapshot.trait_surfaces.get(&selection.exact_trait_ref.declaration) else {
+                    continue;
+                };
+                let Some(requirement) = surface.get(&selection.requirement) else {
+                    continue;
+                };
+                if !is_visible(
+                    self.snapshot.hierarchy.as_ref(),
+                    &selection.exact_trait_ref.declaration,
+                    requirement.visibility,
+                    access,
+                ) {
+                    continue;
+                }
+                let target = match &selection.selection {
+                    crate::impls::RequirementSelectionTemplate::DataComponent { component, .. } => EditorMemberTarget::DataComponent(component.clone()),
+                    _ => {
+                        let Some(callable) = selected_callable(&selection.selection) else {
+                            continue;
+                        };
+                        EditorMemberTarget::Callable(callable)
+                    }
+                };
+                let owner = match &target {
+                    EditorMemberTarget::Callable(callable) => callable
+                        .try_declaration_owner()
+                        .cloned()
+                        .unwrap_or_else(|| selection.exact_trait_ref.declaration.clone()),
+                    EditorMemberTarget::DataComponent(component) => component.owner.clone(),
+                    EditorMemberTarget::Field(field) => field.owner.clone(),
+                };
+                members.push(EditorMember {
+                    target,
+                    owner,
+                    visibility: requirement.visibility,
+                });
+            }
+        }
+        members
+    }
+
     /// Returns canonical members matching one exact selector.
     pub fn resolve_member(&self, receiver: &ResolvedReceiver, selector: &Selector, access: &AccessContext) -> Vec<EditorMember> {
         self.members_for_receiver(receiver, access)
             .into_iter()
             .filter(|member| match &member.target {
                 EditorMemberTarget::Callable(callable) => &callable.selector == selector,
+                EditorMemberTarget::DataComponent(component) => self
+                    .snapshot
+                    .data_semantics
+                    .get(&component.owner)
+                    .and_then(|info| info.components.iter().find(|candidate| candidate.id == *component))
+                    .is_some_and(|component| {
+                        component.local_name.as_ref() == selector.encode().as_str() || component.external_label.as_deref() == Some(selector.encode().as_str())
+                    }),
                 EditorMemberTarget::Field(field) => field.name.as_ref() == selector.encode().as_str(),
             })
             .collect()
@@ -806,7 +928,8 @@ impl<'a> EditorSemanticQuery<'a> {
                 {
                     Some(callable)
                 }
-                _ => None,
+                EditorMemberTarget::Callable(_) => None,
+                EditorMemberTarget::DataComponent(_) | EditorMemberTarget::Field(_) => None,
             })
             .filter(|callable| {
                 receiver.alternatives.iter().any(|alternative| {
@@ -970,7 +1093,8 @@ fn is_visible(hierarchy: &dyn TypeHierarchy, owner: &DeclarationId, visibility: 
 fn member_sort_key(member: &EditorMember) -> (DeclarationId, String, u8) {
     match &member.target {
         EditorMemberTarget::Callable(callable) => (member.owner.clone(), callable.selector.encode(), 0),
-        EditorMemberTarget::Field(field) => (member.owner.clone(), field.name.to_string(), 1),
+        EditorMemberTarget::DataComponent(component) => (member.owner.clone(), format!("#{:08}", component.index), 1),
+        EditorMemberTarget::Field(field) => (member.owner.clone(), field.name.to_string(), 2),
     }
 }
 

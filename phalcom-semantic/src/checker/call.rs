@@ -63,6 +63,10 @@ pub(crate) enum UnionCallArm {
         receiver: TypeId,
         reason: DynamicReason,
     },
+    TraitTerminal {
+        receiver: TypeId,
+        terminal: crate::trait_dispatch::TraitDispatchTerminal,
+    },
 }
 
 impl CallableApplicationTarget {
@@ -2751,6 +2755,40 @@ pub(crate) fn apply_union_resolved_call(
                 publication_inputs.push(TypeKnowledge::Dynamic(reason.clone()));
                 all_found = false;
             }
+            UnionCallArm::TraitTerminal { receiver, terminal } => {
+                let knowledge = match terminal {
+                    crate::trait_dispatch::TraitDispatchTerminal::Unknown(reason) => TypeKnowledge::Unknown(reason.clone()),
+                    crate::trait_dispatch::TraitDispatchTerminal::Dynamic(_) => TypeKnowledge::Dynamic(DynamicReason::RuntimeReflection),
+                    crate::trait_dispatch::TraitDispatchTerminal::Cancelled => TypeKnowledge::Unknown(UnknownReason::InferenceCancelled),
+                    crate::trait_dispatch::TraitDispatchTerminal::BudgetExceeded(_) => TypeKnowledge::Unknown(UnknownReason::InferenceBudgetExceeded),
+                    crate::trait_dispatch::TraitDispatchTerminal::Blocked(_) => TypeKnowledge::Unknown(UnknownReason::InferenceBlocked),
+                    crate::trait_dispatch::TraitDispatchTerminal::Incomplete(_) | crate::trait_dispatch::TraitDispatchTerminal::InternalFailure(_) => {
+                        TypeKnowledge::Unknown(UnknownReason::UncheckedExpression)
+                    }
+                };
+                let arm_status = match terminal {
+                    crate::trait_dispatch::TraitDispatchTerminal::Blocked(reason) => Some(AnalysisStatus::Blocked(reason.clone())),
+                    crate::trait_dispatch::TraitDispatchTerminal::Dynamic(_) => Some(AnalysisStatus::DynamicBoundary(DynamicReason::RuntimeReflection)),
+                    crate::trait_dispatch::TraitDispatchTerminal::Cancelled => Some(AnalysisStatus::Cancelled),
+                    crate::trait_dispatch::TraitDispatchTerminal::BudgetExceeded(report) => Some(AnalysisStatus::BudgetExceeded(report.clone())),
+                    crate::trait_dispatch::TraitDispatchTerminal::InternalFailure(message) => {
+                        let incident = ctx.record_internal_incident(
+                            InternalSemanticIncidentKind::DatabaseInvariantViolation,
+                            InternalSemanticIncidentDetails::Message { message: message.clone() },
+                            Some(call_range),
+                        );
+                        Some(AnalysisStatus::InternalFailure(incident))
+                    }
+                    crate::trait_dispatch::TraitDispatchTerminal::Incomplete(_) | crate::trait_dispatch::TraitDispatchTerminal::Unknown(_) => None,
+                };
+                if let Some(arm_status) = arm_status {
+                    meet_union_status(&mut status, arm_status);
+                }
+                let arm_explanation = record_union_arm_explanation(ctx, *receiver, None, crate::explain::UnionArmOutcome::Invalid, Vec::new());
+                explanation_parents.push(arm_explanation);
+                publication_inputs.push(knowledge);
+                all_found = false;
+            }
         }
     }
 
@@ -2804,6 +2842,7 @@ fn analyze_unbound_arguments(ctx: &mut CheckingContext<'_>, arguments: &[Applica
 
 #[derive(Clone, Debug)]
 pub(crate) enum UnresolvedApplicationReason {
+    TraitTerminal(crate::trait_dispatch::TraitDispatchTerminal),
     PremiseUnknown,
     PremiseInvalidUnavailable,
     PremiseDynamic(DynamicReason),
@@ -2834,8 +2873,36 @@ pub(crate) fn analyze_unresolved_application(
             TypeKnowledge::Unknown(UnknownReason::DynamicMessageSend)
         }
         UnresolvedApplicationReason::IterationArgumentUnavailable => TypeKnowledge::Unknown(UnknownReason::UncheckedExpression),
+        UnresolvedApplicationReason::TraitTerminal(terminal) => match terminal {
+            crate::trait_dispatch::TraitDispatchTerminal::Unknown(reason) => TypeKnowledge::Unknown(reason.clone()),
+            crate::trait_dispatch::TraitDispatchTerminal::Dynamic(_) => TypeKnowledge::Dynamic(DynamicReason::RuntimeReflection),
+            crate::trait_dispatch::TraitDispatchTerminal::Cancelled => TypeKnowledge::Unknown(UnknownReason::InferenceCancelled),
+            crate::trait_dispatch::TraitDispatchTerminal::BudgetExceeded(_) => TypeKnowledge::Unknown(UnknownReason::InferenceBudgetExceeded),
+            crate::trait_dispatch::TraitDispatchTerminal::Blocked(_) => TypeKnowledge::Unknown(UnknownReason::InferenceBlocked),
+            crate::trait_dispatch::TraitDispatchTerminal::Incomplete(_) | crate::trait_dispatch::TraitDispatchTerminal::InternalFailure(_) => {
+                TypeKnowledge::Unknown(UnknownReason::UncheckedExpression)
+            }
+        },
     };
-    let status = argument_status.unwrap_or_else(|| match &reason {
+    let terminal_status = match &reason {
+        UnresolvedApplicationReason::TraitTerminal(terminal) => match terminal {
+            crate::trait_dispatch::TraitDispatchTerminal::Blocked(reason) => Some(AnalysisStatus::Blocked(reason.clone())),
+            crate::trait_dispatch::TraitDispatchTerminal::Dynamic(_) => Some(AnalysisStatus::DynamicBoundary(DynamicReason::RuntimeReflection)),
+            crate::trait_dispatch::TraitDispatchTerminal::Cancelled => Some(AnalysisStatus::Cancelled),
+            crate::trait_dispatch::TraitDispatchTerminal::BudgetExceeded(report) => Some(AnalysisStatus::BudgetExceeded(report.clone())),
+            crate::trait_dispatch::TraitDispatchTerminal::InternalFailure(message) => {
+                let incident = ctx.record_internal_incident(
+                    InternalSemanticIncidentKind::DatabaseInvariantViolation,
+                    InternalSemanticIncidentDetails::Message { message: message.clone() },
+                    None,
+                );
+                Some(AnalysisStatus::InternalFailure(incident))
+            }
+            crate::trait_dispatch::TraitDispatchTerminal::Incomplete(_) | crate::trait_dispatch::TraitDispatchTerminal::Unknown(_) => None,
+        },
+        _ => None,
+    };
+    let status = argument_status.or(terminal_status).unwrap_or_else(|| match &reason {
         UnresolvedApplicationReason::PremiseInvalidUnavailable => premise
             .causal_invalidity
             .suppression_cause()

@@ -70,6 +70,173 @@ fn editor_facade_fails_closed_for_unknown_receiver() {
 }
 
 #[test]
+fn editor_facade_projects_exact_trait_members_without_re_solving_them() {
+    let source = r#"
+trait Tagged { tag -> String }
+class Value<T> {}
+impl<T> Tagged for Value<T> { tag -> String { "generic" } }
+class Caller { run(_ value: Value<Int>) -> String { value.tag } }
+"#;
+    let parsed = parse(source, 0);
+    assert!(parsed.errors.is_empty(), "parser errors: {:?}", parsed.errors);
+    let module = ModuleId::universe_root();
+    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program));
+    assert!(!analysis.snapshot.has_errors(), "semantic diagnostics: {:#?}", analysis.snapshot.diagnostics);
+    let caller = DeclarationId::new(module.clone(), "Caller".into());
+    let run = CallableId::new(
+        caller,
+        Selector::method("run", [phalcom_common::selector::SelectorSlot::Positional]).unwrap(),
+        DispatchSide::Instance,
+    );
+    let receiver_type = analysis
+        .snapshot
+        .callable_signatures
+        .get(&run)
+        .and_then(|signature| signature.parameters.first())
+        .and_then(|parameter| parameter.declared_type.canonical_type())
+        .expect("exact Value<Int> receiver type");
+    let value = DeclarationId::new(module, "Value".into());
+    let members = analysis.snapshot.editor().members_for_receiver(
+        &ResolvedReceiver {
+            alternatives: Arc::from([ReceiverAlternative {
+                declaration: value,
+                mode: ReceiverMode::Instance,
+                receiver_type: Some(receiver_type),
+            }]),
+        },
+        &AccessContext {
+            enclosing_declaration: None,
+            enclosing_callable: None,
+        },
+    );
+    let tag = members
+        .iter()
+        .find_map(|member| match &member.target {
+            EditorMemberTarget::Callable(callable) if callable.selector == Selector::getter("tag").unwrap() => Some(callable),
+            _ => None,
+        })
+        .expect("trait-only tag member should be visible to editor queries");
+    assert!(
+        tag.conformance_owner().is_some(),
+        "editor must retain the selected conformance callable: {tag:?}"
+    );
+}
+
+#[test]
+fn editor_facade_projects_data_component_trait_witness() {
+    let source = r#"
+trait Named { name -> String }
+data Person(name: String)
+impl Named for Person {}
+class Caller { run(_ person: Person) -> String { person.name } }
+"#;
+    let parsed = parse(source, 0);
+    assert!(parsed.errors.is_empty(), "parser errors: {:?}", parsed.errors);
+    let module = ModuleId::universe_root();
+    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program));
+    assert!(!analysis.snapshot.has_errors(), "semantic diagnostics: {:#?}", analysis.snapshot.diagnostics);
+    let caller = DeclarationId::new(module.clone(), "Caller".into());
+    let run = CallableId::new(
+        caller,
+        Selector::method("run", [phalcom_common::selector::SelectorSlot::Positional]).unwrap(),
+        DispatchSide::Instance,
+    );
+    let receiver_type = analysis
+        .snapshot
+        .callable_signatures
+        .get(&run)
+        .and_then(|signature| signature.parameters.first())
+        .and_then(|parameter| parameter.declared_type.canonical_type())
+        .expect("exact Person receiver type");
+    let person = DeclarationId::new(module, "Person".into());
+    let members = analysis.snapshot.editor().members_for_receiver(
+        &ResolvedReceiver {
+            alternatives: Arc::from([ReceiverAlternative {
+                declaration: person.clone(),
+                mode: ReceiverMode::Instance,
+                receiver_type: Some(receiver_type),
+            }]),
+        },
+        &AccessContext {
+            enclosing_declaration: None,
+            enclosing_callable: None,
+        },
+    );
+    assert!(
+        members
+            .iter()
+            .any(|member| matches!(&member.target, EditorMemberTarget::DataComponent(component) if component.owner == person))
+    );
+}
+
+#[test]
+fn exact_case_trait_dispatch_expression_retains_selection() {
+    let source = r#"
+trait Tagged { tag -> String }
+enum Result<T> {
+  Ok(_ value: T)
+  Error(_ message: String)
+}
+impl Tagged for Result<Int>::Ok(_) { tag -> String { "ok" } }
+let result = Result<Int>::Ok(42).tag
+"#;
+    let location = SourceLocation {
+        source_id: SourceId("/tmp/phalcom-exact-case-trait.ph".into()),
+        display_path: "/tmp/phalcom-exact-case-trait.ph".into(),
+    };
+    let mut session = SemanticWorkspaceSession::new();
+    let publication = session
+        .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
+            source: location.clone(),
+            text: Arc::from(source),
+            revision: SourceRevision(1),
+            recovered_program: None,
+        }])
+        .expect("semantic publication");
+    let snapshot = publication.snapshot;
+    assert!(!snapshot.has_errors(), "semantic diagnostics: {:#?}", snapshot.diagnostics);
+    let selected = snapshot.callable_analyses.values().any(|callable| {
+        callable.expressions.values().any(|expression| {
+            source
+                .get(expression.range.start..expression.range.end)
+                .is_some_and(|text| text == "Result<Int>::Ok(42).tag")
+                && expression.trait_dispatch.is_some()
+        })
+    });
+    assert!(selected, "exact enum-case getter must retain semantic trait selection");
+}
+
+#[test]
+fn incomplete_trait_proof_does_not_become_runtime_dynamic() {
+    let source = "trait Tagged { tag -> String }\nclass User {}\nimpl Tagged for User { tag -> Int { 1 } }\nclass Caller { read(_ user: User) -> String { user.tag } }\n";
+    let location = SourceLocation {
+        source_id: SourceId("/tmp/phalcom-incomplete-trait.ph".into()),
+        display_path: "/tmp/phalcom-incomplete-trait.ph".into(),
+    };
+    let mut session = SemanticWorkspaceSession::new();
+    let publication = session
+        .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
+            source: location,
+            text: Arc::from(source),
+            revision: SourceRevision(1),
+            recovered_program: None,
+        }])
+        .expect("semantic publication");
+    let snapshot = publication.snapshot;
+    let expression = snapshot
+        .callable_analyses
+        .values()
+        .flat_map(|callable| callable.expressions.values())
+        .find(|expression| source.get(expression.range.start..expression.range.end) == Some("user.tag"))
+        .expect("incomplete trait getter expression");
+    assert!(matches!(
+        expression.knowledge,
+        phalcom_semantic::types::evidence::TypeKnowledge::Unknown(phalcom_semantic::types::evidence::UnknownReason::UncheckedExpression)
+    ));
+    assert!(!matches!(expression.knowledge, phalcom_semantic::types::evidence::TypeKnowledge::Dynamic(_)));
+}
+
+#[test]
 fn editor_visible_symbols_use_prelude_policy_and_preserve_local_shadowing() {
     let location = SourceLocation {
         source_id: SourceId("/tmp/phalcom-editor-prelude.ph".into()),

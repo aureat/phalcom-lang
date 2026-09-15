@@ -2707,6 +2707,7 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, 
                     },
                     ResolvedDispatchResult::Missing { visited_owners } => UnionCallArm::Missing { receiver, visited_owners },
                     ResolvedDispatchResult::Ambiguous(_) => UnionCallArm::Ambiguous { receiver },
+                    ResolvedDispatchResult::TraitTerminal(terminal) => UnionCallArm::TraitTerminal { receiver, terminal },
                     ResolvedDispatchResult::Dynamic => UnionCallArm::Dynamic {
                         receiver,
                         reason: DynamicReason::RuntimeReflection,
@@ -2727,6 +2728,9 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, 
         }
         ResolvedDispatchResult::Ambiguous(_) => {
             analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchAmbiguous).into()
+        }
+        ResolvedDispatchResult::TraitTerminal(terminal) => {
+            analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::TraitTerminal(terminal)).into()
         }
         ResolvedDispatchResult::Dynamic => analyze_unresolved_application(
             ctx,
@@ -2973,6 +2977,9 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
                     ResolvedDispatchResult::Ambiguous(_) => {
                         return analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchAmbiguous).into();
                     }
+                    ResolvedDispatchResult::TraitTerminal(terminal) => {
+                        return analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::TraitTerminal(terminal)).into();
+                    }
                     ResolvedDispatchResult::Dynamic => {
                         return analyze_unresolved_application(
                             ctx,
@@ -3042,6 +3049,9 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
                 ResolvedDispatchResult::Missing { .. } => {}
                 ResolvedDispatchResult::Ambiguous(_) => {
                     return analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchAmbiguous).into();
+                }
+                ResolvedDispatchResult::TraitTerminal(terminal) => {
+                    return analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::TraitTerminal(terminal)).into();
                 }
                 ResolvedDispatchResult::Dynamic => {
                     return analyze_unresolved_application(
@@ -3185,6 +3195,9 @@ pub(crate) fn apply_binary_operation_from_typed(
         ResolvedDispatchResult::Ambiguous(_) => {
             analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchAmbiguous).into()
         }
+        ResolvedDispatchResult::TraitTerminal(terminal) => {
+            analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::TraitTerminal(terminal)).into()
+        }
         ResolvedDispatchResult::Dynamic => analyze_unresolved_application(
             ctx,
             &premise,
@@ -3307,6 +3320,9 @@ fn synthesize_membership_expr(ctx: &mut CheckingContext<'_>, m: &MembershipExpr)
         ResolvedDispatchResult::Ambiguous(_) => {
             analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchAmbiguous).into()
         }
+        ResolvedDispatchResult::TraitTerminal(terminal) => {
+            analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::TraitTerminal(terminal)).into()
+        }
         ResolvedDispatchResult::Dynamic => analyze_unresolved_application(
             ctx,
             &premise,
@@ -3358,6 +3374,9 @@ fn apply_boolean_not(ctx: &mut CheckingContext<'_>, value: TypedExpression, expe
         }
         ResolvedDispatchResult::Missing { .. } => analyze_unresolved_application(ctx, &premise, &[], UnresolvedApplicationReason::DispatchMissing).into(),
         ResolvedDispatchResult::Ambiguous(_) => analyze_unresolved_application(ctx, &premise, &[], UnresolvedApplicationReason::DispatchAmbiguous).into(),
+        ResolvedDispatchResult::TraitTerminal(terminal) => {
+            analyze_unresolved_application(ctx, &premise, &[], UnresolvedApplicationReason::TraitTerminal(terminal)).into()
+        }
         ResolvedDispatchResult::Dynamic => analyze_unresolved_application(
             ctx,
             &premise,
@@ -3388,7 +3407,7 @@ fn should_use_reflected_binary_target(
         Some(ResolvedDispatchResult::Found(direct)) => {
             reflected_target_has_runtime_priority(ctx, left.ty(), right_ty, reflected) || binary_target_refutes(ctx, right, &direct.signature)
         }
-        Some(ResolvedDispatchResult::Ambiguous(_) | ResolvedDispatchResult::Dynamic) => false,
+        Some(ResolvedDispatchResult::Ambiguous(_) | ResolvedDispatchResult::TraitTerminal(_) | ResolvedDispatchResult::Dynamic) => false,
     }
 }
 
@@ -3491,6 +3510,9 @@ fn synthesize_unary_expr(ctx: &mut CheckingContext<'_>, unary: &UnaryExpr, expec
         }
         ResolvedDispatchResult::Missing { .. } => analyze_unresolved_application(ctx, &premise, &[], UnresolvedApplicationReason::DispatchMissing).into(),
         ResolvedDispatchResult::Ambiguous(_) => analyze_unresolved_application(ctx, &premise, &[], UnresolvedApplicationReason::DispatchAmbiguous).into(),
+        ResolvedDispatchResult::TraitTerminal(terminal) => {
+            analyze_unresolved_application(ctx, &premise, &[], UnresolvedApplicationReason::TraitTerminal(terminal)).into()
+        }
         ResolvedDispatchResult::Dynamic => analyze_unresolved_application(
             ctx,
             &premise,
@@ -3599,6 +3621,9 @@ fn synthesize_get_property(ctx: &mut CheckingContext<'_>, get: &GetPropertyExpr,
             ResolvedDispatchResult::Missing { .. } => {}
             ResolvedDispatchResult::Ambiguous(_) => {
                 return analyze_unresolved_application(ctx, &premise, &[], UnresolvedApplicationReason::DispatchAmbiguous).into();
+            }
+            ResolvedDispatchResult::TraitTerminal(terminal) => {
+                return analyze_unresolved_application(ctx, &premise, &[], UnresolvedApplicationReason::TraitTerminal(terminal)).into();
             }
             ResolvedDispatchResult::Dynamic => {
                 return analyze_unresolved_application(
@@ -3723,6 +3748,18 @@ fn synthesize_set_property(ctx: &mut CheckingContext<'_>, set: &SetPropertyExpr)
                 );
                 return super::call::assignment_result_from_call(ctx, operation, set.range);
             }
+            ResolvedDispatchResult::TraitTerminal(terminal) => {
+                let operation = analyze_unresolved_application(
+                    ctx,
+                    &premise,
+                    &[super::call::ApplicationArgument::Positional {
+                        expression: &set.value,
+                        range: set.value.range(),
+                    }],
+                    UnresolvedApplicationReason::TraitTerminal(terminal),
+                );
+                return super::call::assignment_result_from_call(ctx, operation, set.range);
+            }
             ResolvedDispatchResult::Dynamic => {
                 let operation = analyze_unresolved_application(
                     ctx,
@@ -3800,6 +3837,9 @@ fn synthesize_index_expr(ctx: &mut CheckingContext<'_>, idx: &IndexExpr, expecte
         ResolvedDispatchResult::Ambiguous(_) => {
             return analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchAmbiguous).into();
         }
+        ResolvedDispatchResult::TraitTerminal(terminal) => {
+            return analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::TraitTerminal(terminal)).into();
+        }
         ResolvedDispatchResult::Dynamic => {
             return analyze_unresolved_application(
                 ctx,
@@ -3876,6 +3916,10 @@ fn synthesize_set_index_expr(ctx: &mut CheckingContext<'_>, set_idx: &SetIndexEx
         ResolvedDispatchResult::Missing { .. } => {}
         ResolvedDispatchResult::Ambiguous(_) => {
             let operation = analyze_unresolved_application(ctx, &premise, &all_arguments, UnresolvedApplicationReason::DispatchAmbiguous);
+            return super::call::assignment_result_from_call(ctx, operation, set_idx.range);
+        }
+        ResolvedDispatchResult::TraitTerminal(terminal) => {
+            let operation = analyze_unresolved_application(ctx, &premise, &all_arguments, UnresolvedApplicationReason::TraitTerminal(terminal));
             return super::call::assignment_result_from_call(ctx, operation, set_idx.range);
         }
         ResolvedDispatchResult::Dynamic => {

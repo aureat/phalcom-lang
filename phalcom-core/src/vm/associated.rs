@@ -82,26 +82,36 @@ impl VM {
                 rest_mode,
             } => {
                 let receiver_class = self.resolve_declaration_class(lookup_owner)?;
-                let defining_class = self.resolve_declaration_class(callable.owner.declaration())?;
+                let method = if callable.conformance_owner().is_some() {
+                    // Conformance witnesses are detached methods, not class
+                    // dictionary entries. The semantic selection was already
+                    // frozen by lowering; runtime only retrieves that handle.
+                    self.detached_method_objects
+                        .get(callable)
+                        .copied()
+                        .ok_or_else(|| RuntimeError::Message(format!("detached conformance method `{}` is unavailable", callable.selector)))?
+                } else {
+                    let defining_class = self.resolve_declaration_class(callable.owner.declaration())?;
 
-                // Behavioral associated methods live on the defining class's metaclass (class-side)
-                let defining_metaclass = self.heap.class(defining_class).class;
+                    // Behavioral associated methods live on the defining class's metaclass (class-side)
+                    let defining_metaclass = self.heap.class(defining_class).class;
 
-                let selector_sym = self.get_or_intern(&callable.selector.to_string());
-                let method = match rest_mode {
-                    ExecutableRestMode::None => self.heap.class(defining_metaclass).methods.get(&selector_sym).copied(),
-                    ExecutableRestMode::Positional | ExecutableRestMode::Labeled | ExecutableRestMode::Complete => {
-                        self.heap.class(defining_metaclass).rest_methods.get(&selector_sym).copied()
-                    }
+                    let selector_sym = self.get_or_intern(&callable.selector.to_string());
+                    let method = match rest_mode {
+                        ExecutableRestMode::None => self.heap.class(defining_metaclass).methods.get(&selector_sym).copied(),
+                        ExecutableRestMode::Positional | ExecutableRestMode::Labeled | ExecutableRestMode::Complete => {
+                            self.heap.class(defining_metaclass).rest_methods.get(&selector_sym).copied()
+                        }
+                    };
+
+                    method.ok_or_else(|| {
+                        RuntimeError::Message(format!(
+                            "associated method `{}` not found on defining class `{}`",
+                            callable.selector,
+                            callable.owner.declaration().name
+                        ))
+                    })?
                 };
-
-                let method = method.ok_or_else(|| {
-                    RuntimeError::Message(format!(
-                        "associated method `{}` not found on defining class `{}`",
-                        callable.selector,
-                        callable.owner.declaration().name
-                    ))
-                })?;
 
                 Ok(ResolvedBehavioralAssociatedTarget {
                     receiver: Value::obj(receiver_class),

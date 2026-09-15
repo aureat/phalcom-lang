@@ -133,7 +133,7 @@ pub use termination::{
 };
 pub use trait_dispatch::{
     ConformanceSemanticView, TraitDispatchBucketKey, TraitDispatchContribution, TraitDispatchConvergenceKey, TraitDispatchIndex, TraitDispatchResolution,
-    TraitDispatchSelection, TraitDispatchSite, TraitDispatchTargetFamily, TraitEvidencedMemberCandidate, selected_callable,
+    TraitDispatchSelection, TraitDispatchSite, TraitDispatchTargetFamily, TraitDispatchTerminal, TraitEvidencedMemberCandidate, selected_callable,
 };
 pub use traits::{TraitHeader, TraitHeaderTable, TraitRef, TraitRefFormationError, TraitRequirementId, TraitSurface, TraitSurfaceMember, TraitSurfaceTable};
 pub use type_alias::{TypeAliasInfo, TypeAliasTable};
