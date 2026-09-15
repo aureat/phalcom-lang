@@ -637,6 +637,118 @@ fn missing_conformance_witness_emits_requirement_diagnostic() {
 }
 
 #[test]
+fn c4_invalid_corpus_asserts_canonical_diagnostic_families() {
+    let cases = [
+        (
+            "duplicate exact conformance",
+            "trait Tagged {}
+class User {}
+impl Tagged for User {}
+impl Tagged for User {}
+",
+            DiagnosticCode::ImplConformanceOverlap,
+        ),
+        (
+            "generic conformance overlap",
+            "trait Tagged {}
+class Value<T> {}
+impl<T> Tagged for Value<T> {}
+impl<U> Tagged for Value<U> {}
+",
+            DiagnosticCode::ImplConformanceOverlap,
+        ),
+        (
+            "generic and exact overlap",
+            "trait Tagged {}
+class Value<T> {}
+class Marker {}
+impl<T> Tagged for Value<T> {}
+impl Tagged for Value<Marker> {}
+",
+            DiagnosticCode::ImplConformanceOverlap,
+        ),
+        (
+            "missing requirement witness",
+            "trait Sized { size -> Int }
+class Empty {}
+impl Sized for Empty {}
+",
+            DiagnosticCode::ImplConformanceIncomplete,
+        ),
+        (
+            "incompatible explicit witness",
+            "trait Tagged { tag -> String }
+class User {}
+impl Tagged for User { tag -> Int { 1 } }
+",
+            DiagnosticCode::ImplConformanceIncomplete,
+        ),
+        (
+            "visibility mismatch",
+            "trait Tagged { tag -> String }
+class User {}
+impl Tagged for User { @private tag -> String { \"user\" } }
+",
+            DiagnosticCode::ImplConformanceIncomplete,
+        ),
+        (
+            "extra conformance-local member",
+            "trait Tagged { tag -> String { \"default\" } }
+class User {}
+impl Tagged for User { extra -> String { \"extra\" } }
+",
+            DiagnosticCode::ImplMemberConflict,
+        ),
+        (
+            "duplicate explicit witness",
+            "trait Tagged { tag -> String }
+class User {}
+impl Tagged for User {
+  tag -> String { \"one\" }
+  tag -> String { \"two\" }
+}
+",
+            DiagnosticCode::ImplMemberConflict,
+        ),
+        (
+            "bodyless explicit witness",
+            "trait Tagged { tag -> String { \"default\" } }
+class User {}
+impl Tagged for User { tag -> String }
+",
+            DiagnosticCode::ImplBodylessMemberUnsupported,
+        ),
+        (
+            "incompatible inherent candidate",
+            "trait Renderable { render -> String }
+class Item { render -> Int { 1 } }
+impl Renderable for Item { render -> String { \"x\" } }
+",
+            DiagnosticCode::ImplConformanceIncomplete,
+        ),
+        (
+            "competing trait defaults",
+            "trait First { tag -> String { \"first\" } }
+trait Second { tag -> String { \"second\" } }
+class User {}
+impl First for User {}
+impl Second for User {}
+class Caller { read(_ user: User) -> String { user.tag } }
+",
+            DiagnosticCode::TraitDispatchAmbiguous,
+        ),
+    ];
+
+    for (label, source, expected) in cases {
+        let module = test_module();
+        let mut session = SemanticWorkspaceSession::new();
+        let output = session.update(single_module_input(module, source));
+        let codes = output.snapshot.all_diagnostics().map(|diagnostic| diagnostic.code).collect::<Vec<_>>();
+        assert!(codes.contains(&expected), "{label}: expected {expected}, got {codes:?}");
+    }
+}
+
+#[test]
 fn known_witness_failure_outranks_another_requirement_uncertainty() {
     let module = test_module();
     let source = "trait Tagged {\n  tag -> String\n  size -> Int\n}\nclass Value<T> {}\nimpl<T> Value<T> where T <: Int { size -> Int { 1 } }\nimpl<T> Tagged for Value<T> { tag -> Int { 1 } }\n";

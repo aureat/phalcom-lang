@@ -1369,7 +1369,11 @@ pub fn callable_body_input_fingerprint_with_fields(
 ) -> InputFingerprint {
     let mut hasher = DefaultHasher::new();
     callable_body_input_fingerprint(callable, body, body_range, store).0.hash(&mut hasher);
-    for (field, fact) in lifecycle.fields.iter().filter(|(field, _)| &field.owner == callable.declaration_owner()) {
+    for (field, fact) in lifecycle
+        .fields
+        .iter()
+        .filter(|(field, _)| callable.try_declaration_owner().is_some_and(|owner| &field.owner == owner))
+    {
         field.hash(&mut hasher);
         hash_type_knowledge(&fact.contract, true, &mut hasher);
         hash_type_knowledge(&fact.read_knowledge, true, &mut hasher);
@@ -1438,7 +1442,16 @@ pub fn callable_body_input_fingerprint_with_formal_inputs(
         0u8.hash(&mut hasher);
     }
     if let Some(lifecycle) = lifecycle {
-        for (field, fact) in lifecycle.fields.iter().filter(|(field, _)| &field.owner == callable.declaration_owner()) {
+        let lifecycle_owner = callable.try_declaration_owner().cloned().or_else(|| {
+            conformance_semantics
+                .and_then(|view| callable.conformance_owner().and_then(|impl_id| view.conformance_index.get(impl_id)))
+                .map(|contribution| contribution.target.declaration().clone())
+        });
+        for (field, fact) in lifecycle
+            .fields
+            .iter()
+            .filter(|(field, _)| lifecycle_owner.as_ref().is_some_and(|owner| &field.owner == owner))
+        {
             field.hash(&mut hasher);
             hash_type_knowledge(&fact.contract, true, &mut hasher);
             hash_type_knowledge(&fact.read_knowledge, true, &mut hasher);
