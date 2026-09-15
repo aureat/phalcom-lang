@@ -105,12 +105,12 @@ docs/spec/current/object-model.md
 docs/spec/current/functions.md
 docs/spec/current/core/core-classes.md
 docs/spec/design/decorators/canonical/placement.md
-docs/pdr/0028-class-and-constructor-decorator-canon.md
-docs/adr/accepted/0060-index-operator-as-real-selector.md
-docs/adr/proposed/0061-underscore-prefix-reservation-fields-internals-reserved.md
+docs/decisions/0028-class-and-constructor-decorator-canon.md
+docs/decisions/accepted/0060-index-operator-as-real-selector.md
+docs/decisions/proposed/0061-underscore-prefix-reservation-fields-internals-reserved.md
 docs/spec/library/numbers/float-protocol.md
-docs/pdr/0027-float-protocol-and-explicit-narrowing.md
-docs/adr/STATUS.md
+docs/decisions/0027-float-protocol-and-explicit-narrowing.md
+docs/decisions/STATUS.md
 ```
 
 Do not update historical/retired documents to pretend they always used the new design. Mark them superseded/amended where appropriate.
@@ -548,7 +548,7 @@ _$name     implementation selector
 @protected class-family visibility
 ```
 
-Do not leave contradictory proposed documents appearing active in `docs/adr/STATUS.md`.
+Do not leave contradictory proposed documents appearing active in `docs/decisions/STATUS.md`.
 
 ---
 

@@ -40,7 +40,7 @@ Ruling out the other candidates, each against a quoted line:
   live copy at all times, never two.
 - **(d) index/base-offset into one shared VM-wide stack** — REFUTED as the
   general mechanism. Each fiber's stack is its own separately-owned `Vec`
-  starting at index 0 (ADR-0030 §3: *"`CallFrame.stack_offset` stays
+  starting at index 0 (TDR-0027 §3: *"`CallFrame.stack_offset` stays
   **frame-relative**, so per-fiber stacks starting at 0 need no rebasing"* —
   confirmed in `heap/fiber.rs` L64-66: *"`stack_offset`s are window-relative
   (frame.rs, D3), so a per-fiber stack always based at index 0 needs no
@@ -90,7 +90,7 @@ duplication per the "quote only load-bearing lines" rule — see §1).
 
 ```rust
 /// Moves `vm`'s live stacks (`frames`/`stack`/`open_upvalues`) into the
-/// parked [`FiberObject`] behind `fiber_ref` (ADR-0030 §3).
+/// parked [`FiberObject`] behind `fiber_ref` (TDR-0027 §3).
 ///
 /// Called on the fiber giving up the CPU, just before [`VM::current`] is
 /// repointed at the fiber taking over. `mem::take` leaves the VM's live
@@ -100,7 +100,7 @@ pub(crate) fn store_live_into(vm: &mut VM, fiber_ref: ObjRef) {
     let frames = std::mem::take(&mut vm.frames);
     let stack = std::mem::take(&mut vm.stack);
     let open_upvalues = std::mem::take(&mut vm.open_upvalues);
-    // `checking` (ADR-0052 Fix 1, U-ANNOT-CONTRACTS) swaps alongside the
+    // `checking` (TDR-0043 Fix 1, U-ANNOT-CONTRACTS) swaps alongside the
     // three fields above for the same reason: an `@invariant`-guarded call
     // can `yield` mid-body, so this fiber's in-flight guard bookkeeping must
     // park with it rather than leak into whichever fiber runs next.
@@ -147,15 +147,15 @@ without touching the summary line) — a small doc/code drift, not a behavior bu
 ```rust
 /// A cooperative, single-threaded fiber: its own value + call stacks, a
 /// lifecycle [`FiberStatus`], a dynamic resumer link, a result slot, and its
-/// entry closure ([ADR-0030] §2, `concurrency.md` §1).
+/// entry closure ([TDR-0027] §2, `concurrency.md` §1).
 ///
 /// A fiber owns its execution state so it can be parked and resumed by an O(1)
-/// pointer swap of `vm.current` (ADR-0030 §3): while a fiber is
+/// pointer swap of `vm.current` (TDR-0027 §3): while a fiber is
 /// [`FiberStatus::Running`] its stacks live in the VM's live mirror
 /// ([`VM::frames`]/`stack`/`open_upvalues`) and the fields here
 /// are empty; while parked they hold the fiber's state. Keeping the stacks
 /// **inside the arena object** (never in native Rust memory) is what lets a
-/// future tracing GC reach a parked fiber's roots (ADR-0030 §7, D1).
+/// future tracing GC reach a parked fiber's roots (TDR-0027 §7, D1).
 pub struct FiberObject {
     /// The fiber's private operand stack (empty while running — mirrored by
     /// [`VM::stack`]). `stack_offset`s are window-relative
@@ -179,7 +179,7 @@ pub struct FiberObject {
     /// caller chain, not a fixed parent (`None` for the root fiber).
     pub resumer: Option<ObjRef>,                          // (ii) resident, r/w in place
     /// The last yielded/returned value, or the captured `Error` when
-    /// [`FiberStatus::Failed`] (ADR-0030 §6).
+    /// [`FiberStatus::Failed`] (TDR-0027 §6).
     pub result: Value,                                    // (ii) resident, r/w in place
     /// The entry [`Object::Block`]/[`Object::Closure`] the fiber runs on first
     /// resume; `None` for the root fiber (which has no entry).
@@ -189,11 +189,11 @@ pub struct FiberObject {
     pub started: bool,                                    // (ii) resident, r/w in place
     /// The value-stack length to truncate to (then push the delivered value)
     /// when this fiber is next resumed — recorded at the `yield` send whose
-    /// window the resume value replaces (ADR-0030 §3).
+    /// window the resume value replaces (TDR-0027 §3).
     pub resume_slot: usize,                               // (ii) resident, r/w in place
     /// The `run_until` nesting depth captured when the fiber last began
     /// running — the fiber floor the restricted-yield guard compares against
-    /// (ADR-0030 §4).
+    /// (TDR-0027 §4).
     pub floor_depth: usize,                               // (ii) resident, r/w in place
     /// How this fiber was last resumed ([`FiberResumeMode`]) — read at the
     /// fiber-floor capture when this fiber later finishes/fails.
@@ -232,7 +232,7 @@ field — absent from the full field list quoted above). `vm/gc.rs::collect_root
 destructure explicitly classifies it a non-root, alongside the other flags:
 `next_frame_generation: _,` (`vm/gc.rs` L83).
 
-ADR-0030 §6's invariant, quoted:
+TDR-0027 §6's invariant, quoted:
 
 > **Invariant:** the VM-global monotonic `next_frame_generation` counter
 > **must not** be relocated into `FiberObject` — it is the only thing making a
@@ -488,7 +488,7 @@ paired `.expected`. Fixture, in full:
 
 ```phalcom
 // area: concurrency
-// spec: concurrency.md; ADR-0030 §3/§4
+// spec: concurrency.md; TDR-0027 §3/§4
 // status: PASS
 // Regression: `fiber_resume` (fiber.rs) used to steal the calling fiber's
 // live stacks (`store_live_into`) *before* validating a not-yet-started
@@ -623,7 +623,7 @@ same `f.call(x)` call.
 
 ```phalcom
 // area: concurrency
-// spec: concurrency.md; ADR-0030
+// spec: concurrency.md; TDR-0027
 // status: PASS
 // C-FIB-1: a Fiber yields successive counter values across resumes.
 
@@ -696,7 +696,7 @@ is stated here as a general perf claim beyond what each table says.
 
 ---
 
-## Bounded ADR read: ADR-0030 §2, §3, §6, §7, Alternatives considered
+## Bounded ADR read: TDR-0027 §2, §3, §6, §7, Alternatives considered
 
 (`docs/adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md`)
 
@@ -725,7 +725,7 @@ is stated here as a general perf claim beyond what each table says.
   tracing/compacting GC lands): a `FiberObject`'s value stack and frame stack
   are GC roots for as long as the fiber is reachable and not `done`/`failed`
   — not only the `current` fiber's."* At HEAD (a real mark-sweep now ships,
-  ADR-0050), this invariant is realized **not** by literally enumerating every
+  TDR-0048), this invariant is realized **not** by literally enumerating every
   live fiber as a VM-level root, but by the combination verified in §3 above:
   `current` is rooted directly, the resumer chain is traced as an edge of
   each reached `FiberObject`, `ready_queue` is rooted explicitly, and every
@@ -741,7 +741,7 @@ is stated here as a general perf claim beyond what each table says.
   multithreaded fibers:** rejected — would need a memory model and locks
   throughout the object model. **Resumable (Smalltalk) suspension for
   failures:** out of scope; error propagation stays terminating per
-  ADR-0008.
+  TDR-0007.
 
 ---
 

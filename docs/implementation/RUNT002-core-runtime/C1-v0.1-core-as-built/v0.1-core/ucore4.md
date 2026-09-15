@@ -602,9 +602,9 @@ of `forward-compat.md` (section numbers re-confirmed unchanged this pass).
 U-CORE-4 adds **one** native binding: `Number#toString`. Per ADR-0019 the floor
 is frozen; this is an amendment, not an ordinary commit. **Precedent since this
 doc's original draft:** ADR-0019 has already been amended twice —
-[ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)
+[TDR-0021](../../../../decisions/accepted/0021-amend-floor-admit-hash-and-kernel-reflection.md)
 (hash + kernel reflection, U-CORE-1, landed) and
-[ADR-0028](../../../adr/0028-amend-floor-admit-method-reflection.md) (Method
+[TDR-0024](../../../../decisions/accepted/0024-amend-floor-admit-method-reflection.md) (Method
 reflection, U-CORE-3, **landed** — commit `10ebd06`). The established mechanism
 is therefore **a new, separately-numbered ADR**, not an edit to 0019 itself;
 this unit's amendment should claim the next free number at dispatch time.
@@ -612,7 +612,7 @@ this unit's amendment should claim the next free number at dispatch time.
 (`0031-error-handling-surface-syntax.md`) — concurrent sessions have kept
 adding ADRs since this doc's prior draft (which saw only up through 0028/0029/
 0030), so the next free number is **likely `0032`, chosen at dispatch time**;
-check `docs/adr/` for the current max immediately before numbering rather than
+check `docs/decisions/` for the current max immediately before numbering rather than
 trusting this document.
 
 > *Amends ADR-0019.* Add to the frozen floor: **`Number#toString`** (the numeric
@@ -677,14 +677,14 @@ follow immediately after under whichever form is chosen.
 | Claim / requirement | Source |
 |---|---|
 | U-CORE-4 owns per-type `toString`; keep print-path separate but agreeing | [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) §4.4; [`catalog-delta.md`](../../../spec/current/core/catalog-delta.md) §4.4 |
-| Resolves DEFERRED F4 (`object_name`/instance-`toString` home) | decisions.md §4.4; [`DEFERRED.md`](../../DEFERRED.md) #4; [ADR-0015](../../../adr/0015-object-default-tostring.md) |
+| Resolves DEFERRED F4 (`object_name`/instance-`toString` home) | decisions.md §4.4; [`DEFERRED.md`](../../DEFERRED.md) #4; [TDR-0013](../../../../decisions/accepted/0013-object-default-tostring.md) |
 | Unblocks DEFERRED #30 (interpolation desugar's `String.new(_)` stand-in) — desugar-target switch is a `phalcom-ast` follow-up, out of this unit's write-set | [`DEFERRED.md`](../../DEFERRED.md) #30; ADR-0022 |
-| `"<ClassName>"` instance default; class `toString` = own name | [ADR-0015](../../../adr/0015-object-default-tostring.md) |
+| `"<ClassName>"` instance default; class `toString` = own name | [TDR-0013](../../../../decisions/accepted/0013-object-default-tostring.md) |
 | `Object#toString` aliases `object_name` today (the divergence) | `universe.rs` L250 (confirmed stable post-U-CORE-3); `primitive/object.rs` L23 |
 | Print path = native `Value::to_string`; renders `None`/`Some`/`List` via `to_debug` | `primitive/system.rs` L15; `value.rs` L153–164 (confirmed post-U-CORE-3) |
 | Symbol paths disagree (`Symbol("…")` vs bare) | `interner.rs` L20–23; `primitive/symbol.rs` L13 |
-| `Number#toString` must be native; not `.ph`-derivable | [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md) §1; DEFERRED #19; decisions.md Q1 |
-| ADR-0019 amendment precedent (already amended twice since this unit's draft) | [ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md); [ADR-0028](../../../adr/0028-amend-floor-admit-method-reflection.md) |
+| `Number#toString` must be native; not `.ph`-derivable | [TDR-0017](../../../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md) §1; DEFERRED #19; decisions.md Q1 |
+| ADR-0019 amendment precedent (already amended twice since this unit's draft) | [TDR-0021](../../../../decisions/accepted/0021-amend-floor-admit-hash-and-kernel-reflection.md); [TDR-0024](../../../../decisions/accepted/0024-amend-floor-admit-method-reflection.md) |
 | `Some`/`None` `toString` derivable over `match` | [`values-and-absence.md`](../../../spec/current/values-and-absence.md) §3.2; `primitive/nil.rs` `option_match` |
 | `Bool#toString` `.ph` syntax proven; non-sacred (no deopt) | `control-flow/control_flow_send_equivalence.ph` L9; floor-census §5 |
 | Direct flips + gated flips | [`pending-retirement.md`](../../../spec/current/core/pending-retirement.md) §4 |

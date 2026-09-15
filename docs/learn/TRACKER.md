@@ -54,12 +54,12 @@ Doc-kind gate: **knot** ⇒ Agent A skipped, B alone.
 **C2 was the first run of the experimental [`AUTHORING-LEAN.md`](AUTHORING-LEAN.md)** — three phases,
 one agent, scratch in [`parked-fiber/`](parked-fiber/) (`recon.md` + `source-map.md`, no
 `REQUIREMENTS.md`, no `draft-concept.md`). Outcome logged in `AUTHORING-LEAN.md` §8. It also
-**corrected two things it inherited**: C1/Doc 3/ADR-0030 all call the switch a "swap" when it is a
+**corrected two things it inherited**: C1/Doc 3/TDR-0027 all call the switch a "swap" when it is a
 `mem::take` move, and recon's own retention finding was cut down by the source map (see §4.1 there).
 
 **C1 corrected two things its own plan asserted**, both recorded in
 [`restricted-loop/recon.md`](restricted-loop/recon.md) and the doc:
-- The plan attributed the `each`-vs-`while` restriction to ADR-0018's inliner. Wrong as the general
+- The plan attributed the `each`-vs-`while` restriction to TDR-0016's inliner. Wrong as the general
   rule — `each` is **written in Phalcom** (`core.ph::Iterable#each`), and its `for` is the
   compiler's own frameless lowering, not the inliner. The line is drawn at **block invocation**
   (`Block#call` → `block_call`), not at native-vs-Phalcom code.
@@ -158,7 +158,7 @@ Raised and not owned:
   `super` fixtures all test cases where both rules agree. Four lines to close.
 - **`SuperSend` caching** — DEC-IC-B, open. The honest sequencing argument is that it needs the
   general hierarchy-invalidation machinery anyway; build that first, then piggyback.
-- **ADR-0040's option space is narrower than the real one** — its four alternatives debate *which
+- **TDR-0035's option space is narrower than the real one** — its four alternatives debate *which
   opcode* and *what walk*, never *what to bake*. A forward cell or an install-time `home_class`
   field on the method are unweighed.
 
@@ -185,14 +185,14 @@ which is why the recon is recorded here rather than assumed:
 
 Other load-bearing facts, verified: `Fiber` **is** native — nine primitives in `primitive/fiber.rs`
 (`new`, `current`, `isDone`, `error`, `abort`, `call`, `try`, `resume`, `yield`). `VM::ready_queue`
-exists (`vm/mod.rs` ~L134) and is drained in the dispatch loop (~L261). ADR-0030 is unusually rich —
+exists (`vm/mod.rs` ~L134) and is drained in the dispatch loop (~L261). TDR-0027 is unusually rich —
 seven numbered decisions **plus** an Alternatives section, so much of this track is a real fork
 rather than the pedagogical reconstruction the VM docs kept having to admit to.
 
 ### The shape
 
 **C1 — The restricted loop** *(fork)*. Cooperative vs preemptive, and then the interesting part:
-ADR-0030 §4's "restricted (Option A)" re-entrancy model, and §5's **typed** switch signal — the ADR
+TDR-0027 §4's "restricted (Option A)" re-entrancy model, and §5's **typed** switch signal — the ADR
 explicitly rejected inferring a switch from a frame-length delta, which is a genuine deliberated
 alternative with a named reason. Pays `message-send.md`'s Lie #2 (`switch_pending` firing inside a
 primitive). Candidate grip: *a fiber switch is not a jump — it is a swap of which buffers the one
@@ -239,7 +239,7 @@ reader's head.
   fiber-rooting trace arm, and the "second branch on the read path is the feature" line. C2 and C3
   both graze it. Same failure mode Doc 6 had to design around; handle it the same way — an explicit
   forbidden-list in REQUIREMENTS.
-- **How much of ADR-0030 is shipped.** The ADR covers Futures at length and Futures are a quarter
+- **How much of TDR-0027 is shipped.** The ADR covers Futures at length and Futures are a quarter
   built. Assume nothing; the ADR-vs-HEAD gap is likely to be this track's recurring honesty note,
   exactly as `U-IC`'s plan was Doc 5's.
 - **No live tracing.** `vm-trace` emits nothing (the CLI hardcodes `LevelFilter::OFF`) and `disasm`

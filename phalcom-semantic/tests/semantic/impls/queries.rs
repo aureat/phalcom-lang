@@ -626,7 +626,7 @@ fn missing_conformance_witness_emits_requirement_diagnostic() {
         panic!("expected incomplete conformance, got {:?}", plan.completeness);
     };
     assert_eq!(failures.len(), 1);
-    assert!(failures[0].reason.contains("no explicit witness or trait default"));
+    assert!(matches!(&failures[0], phalcom_semantic::impls::ConformanceFailure::Behavioral(failure) if failure.reason.contains("no explicit witness or trait default")));
     assert!(output.snapshot.diagnostics_for(&module).is_some_and(|diagnostics| {
         diagnostics.iter().any(|diagnostic| {
             diagnostic.code == phalcom_semantic::DiagnosticCode::ImplConformanceIncomplete
@@ -758,7 +758,7 @@ fn known_witness_failure_outranks_another_requirement_uncertainty() {
     let phalcom_semantic::impls::ConformanceCompleteness::Incomplete { failures } = &plan.completeness else {
         panic!("known incompatibility must dominate uncertainty: {:?}", plan.completeness);
     };
-    assert!(failures.iter().any(|failure| failure.reason.contains("type relation refuted")));
+    assert!(failures.iter().any(|failure| matches!(failure, phalcom_semantic::impls::ConformanceFailure::Behavioral(failure) if failure.reason.contains("type relation refuted"))));
 }
 
 #[test]

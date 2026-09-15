@@ -33,13 +33,13 @@ Each class entry gives:
 - **Superclass · Kind · Representation.** Kind — **A**bstract (defines protocol,
   never the direct class of a live value) · **I**mmediate (values live in a
   non-`Instance` VM representation) · **U** ordinary heap instance. Representation
-  is the `Value`/`Object` arm that backs it ([ADR-0010](../../../adr/0010-tagged-value-enum.md)).
+  is the `Value`/`Object` arm that backs it ([TDR-0009](../../../decisions/accepted/0009-tagged-value-enum.md)).
 - **Interface.** The selectors the class *carries* (own dictionary), split into
   **floor** (native Rust, [floor-census](./floor-census.md)) and **`.ph`**
   (self-hosted in [`core.ph`](../../../../phalcom-core/core/core.ph) over the floor).
   Inherited protocol is noted, not repeated.
 - **Architecture.** The governing ADR(s) and *why* the native/`.ph` line falls
-  where it does (the [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md)
+  where it does (the [TDR-0017](../../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md)
   derivability test).
 - **Status.** ✅ landed · ◐ partial · ❌ absent, plus the owning unit for any gap.
 
@@ -52,8 +52,8 @@ form is [U-CORE-4](../../../forge/units/U-CORE-4/ucore4.md) (BD-CORE4-2).
 **Two invariants frame every entry:** *everything is an object* (even `true`,
 `42`, a class, a method) and *message-send is the only computational primitive*
 ([object-model §1](../object-model.md)). Absence is **never** a surface `nil` — it
-is `Option` ([ADR-0007](../../../adr/0007-option-as-abstract-with-some-none.md),
-[ADR-0021](../../../adr/0021-no-truthiness-enforcement.md), Invariant 4).
+is `Option` ([TDR-0006](../../../decisions/accepted/0006-option-as-abstract-with-some-none.md),
+[TDR-0019](../../../decisions/accepted/0019-no-truthiness-enforcement.md), Invariant 4).
 
 ---
 
@@ -61,8 +61,8 @@ is `Option` ([ADR-0007](../../../adr/0007-option-as-abstract-with-some-none.md),
 
 Four classes form the self-describing spine; every other core class is an ordinary
 row hung off it. The shape is fixed by
-[ADR-0002](../../../adr/0002-metaclass-tower-parallel-rule.md) (parallel rule) and
-[ADR-0003](../../../adr/0003-introduce-behavior-kernel-class.md) (`Behavior`).
+[TDR-0002](../../../decisions/accepted/0002-metaclass-tower-parallel-rule.md) (parallel rule) and
+[TDR-0003](../../../decisions/accepted/0003-introduce-behavior-kernel-class.md) (`Behavior`).
 
 ```
 Object ──superclass──▶ (none, root)
@@ -107,9 +107,9 @@ asserts them is `Universe::verify_invariants` (`universe.rs`), extended by
 
 **Interface — floor** ([census §2.1](./floor-census.md)): `class` · `class=(_)` ·
 `==(_)` · `!=(_)` (identity by default; value types override) · `name` ·
-`toString` (aliases `name`, [ADR-0015](../../../adr/0015-object-default-tostring.md)) ·
+`toString` (aliases `name`, [TDR-0013](../../../decisions/accepted/0013-object-default-tostring.md)) ·
 `hash` (identity digest of the heap handle — **landed U-CORE-1**,
-[ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)) ·
+[TDR-0021](../../../decisions/accepted/0021-amend-floor-admit-hash-and-kernel-reflection.md)) ·
 `perform(_)` / `perform(_, _)` · `respondsTo(_)` (pure probe) ·
 `doesNotUnderstand(_)` (overridable miss hook — **U8**) · `new()` (class-side
 `object_class_new`, the default allocator — see §9.2).
@@ -134,7 +134,7 @@ Surface `MessageNotUnderstood` for dNU to raise — U-CORE-6.
 | | |
 |---|---|
 | Superclass · Kind | `Object` · A |
-| Role | the home of everything that *has instances*: method dictionary, `superclass`, `name`, allocation, reflection. Superclass of `Class` **and** `Metaclass`, so both inherit it ([ADR-0003](../../../adr/0003-introduce-behavior-kernel-class.md)). |
+| Role | the home of everything that *has instances*: method dictionary, `superclass`, `name`, allocation, reflection. Superclass of `Class` **and** `Metaclass`, so both inherit it ([TDR-0003](../../../decisions/accepted/0003-introduce-behavior-kernel-class.md)). |
 | Status | ◐ partial |
 
 **Interface — floor** ([census §2.2](./floor-census.md)): `superclass` ·
@@ -193,8 +193,8 @@ reflection — U-STD (derivable over `methods` + `superclass`). Full allocation 
 `True`/`False` carry **zero** own bindings — all behaviour is reached by
 inheritance; their `.ph` bodies are empty.
 
-**Architecture** ([ADR-0004](../../../adr/0004-boolean-as-abstract-bool-with-true-false.md),
-[ADR-0021](../../../adr/0021-no-truthiness-enforcement.md)). The six control
+**Architecture** ([TDR-0004](../../../decisions/accepted/0004-boolean-as-abstract-bool-with-true-false.md),
+[TDR-0019](../../../decisions/accepted/0019-no-truthiness-enforcement.md)). The six control
 selectors are **sacred** (§9.3): the compiler inlines their literal-block call
 sites and deopts to exactly these sends on override/mismatch. No implicit coercion —
 they dispatch on real `True`/`False` receivers only. **`ifTrue`/`ifFalse` return an
@@ -210,8 +210,8 @@ sacred inliner mirrors (elided in statement position). The paired
 
 | | |
 |---|---|
-| Target | `Number` (`Object`, **A**) with immediate subclasses `Int` (exact, unbounded) and `Float` (`f64`) — [ADR-0024](../../../adr/0024-numeric-surface-split-int-float-and-division.md) |
-| As-built | a single **flat `f64` `Number`** ([ADR-0005](../../../adr/0005-number-as-flat-f64.md)); the `Int`/`Float` split is **surface-normative, not yet built** (substrate is future work, [deferred-work.md §3](../deferred-work.md)) |
+| Target | `Number` (`Object`, **A**) with immediate subclasses `Int` (exact, unbounded) and `Float` (`f64`) — [TDR-0022](../../../decisions/accepted/0022-numeric-surface-split-int-float-and-division.md) |
+| As-built | a single **flat `f64` `Number`** ([TDR — Keep a single flat `Number` type backed by `f64`](../../../decisions/retired/number-as-flat-f64.md)); the `Int`/`Float` split is **surface-normative, not yet built** (substrate is future work, [deferred-work.md §3](../deferred-work.md)) |
 | Status | ◐ partial |
 
 **Interface — floor** ([census §2.4](./floor-census.md)): `+(_)` `-(_)` `*(_)`
@@ -241,18 +241,18 @@ substrate — U-CORE-4 / deferred.
 **Interface — floor** ([census §2.5](./floor-census.md)): `+(_)` (concatenation) ·
 `hash` (cached djb2 **content** hash — equal content ⇒ equal hash, **landed
 U-CORE-1**) · class-side `new()`/`new(_)` · internal `_$byteCount`/`_$byteAt(_)`/`_$slice(_,_)`
-(UTF-8 byte access, **landed U-STRING**, [ADR-0062](../../../adr/accepted/0062-amend-floor-admit-string-raw-byte-accessors-supersedes-0049-naming.md)).
+(UTF-8 byte access, **landed U-STRING**, [TDR — Amend floor — admit `String` raw byte accessors + `System.rawWrite(_)`](../../../decisions/retired/amend-floor-admit-string-raw-byte-accessors-supersedes-0049-naming.md)).
 
 **Interface — `.ph`-derived** (U-STRING, over the floor above):
 `size`/`isEmpty` · `slice(_,_)` · `codePointAt(_)`/private `leadByteLen(_)` (UTF-8
-decode via division/modulo, no bitwise ops per ADR-0024) · `indexOf(_)` ·
+decode via division/modulo, no bitwise ops per TDR-0022) · `indexOf(_)` ·
 `split(_)` · `replace(_,_)` · `trim()`/`trimStart()`/`trimEnd()` and their
 custom-charset forms `trim(_)`/`trimStart(_)`/`trimEnd(_)` · `*(count)` ·
 `bytes`/`codePoints` (`StringByteSequence`/`StringCodePointSequence` sub-accessors,
-ADR-0048-shaped). Argument-type/range violations raise `ArgumentError`.
+TDR-0042-shaped). Argument-type/range violations raise `ArgumentError`.
 
 **Surface syntax.** `\(expr)` interpolation landed with **U-LEX**
-([ADR-0022](../../../adr/0022-string-interpolation-backslash-paren-sigil.md)) — a
+([TDR-0020](../../../decisions/accepted/0020-string-interpolation-backslash-paren-sigil.md)) — a
 lexer feature, adds no class rows.
 
 **Planned.** Character indexing, comparison, `toSymbol`/`toNumber` — deferred
@@ -293,7 +293,7 @@ every one derived over `match`): `ifNone(_)` · `orElse(_)` · `isSome` · `isNo
 (**landed U-CORE-2**) · `map(_)` · `flatMap(_)` · `filter(_)` · `ifSome(_)` ·
 `unwrapOr(_)` (**landed U-STD**).
 
-**Architecture** ([ADR-0007](../../../adr/0007-option-as-abstract-with-some-none.md),
+**Architecture** ([TDR-0006](../../../decisions/accepted/0006-option-as-abstract-with-some-none.md),
 [values-and-absence.md](../values-and-absence.md) §3). The whole combinator suite is
 `.ph` over the single `match` floor capability — the template for "push protocol
 into `core.ph`, keep the floor minimal." `None` deliberately has **no** `core.ph`
@@ -311,7 +311,7 @@ comment). There is **no `nil` surface** — forbidden by Invariant 4.
 |---|---|
 | `Function` | `Object` · **A** · abstract root of everything callable |
 | `Block` | `Function` · U · first-class closure / block literal; adds non-local return + home frame |
-| `Method` | `Function` · U · a reified compiled method; **sibling of `Block`, not a subtype** — re-parent `Method < Function` **landed U-CORE-1** (was `Method < Object`, an ADR-0006 violation) |
+| `Method` | `Function` · U · a reified compiled method; **sibling of `Block`, not a subtype** — re-parent `Method < Function` **landed U-CORE-1** (was `Method < Object`, an TDR-0005 violation) |
 | Status | `Function`/`Block` ✅ call protocol; `Method` ◐ (reflection surface pending U-CORE-3) |
 
 **Interface — floor** ([census §2.9–§2.10](./floor-census.md)). Installed on **both**
@@ -321,8 +321,8 @@ comment). There is **no `nil` surface** — forbidden by Invariant 4.
 (**sacred** loop fallback). `Method` carries only class-side `new(_)` and **inherits**
 the call protocol from `Function` after the re-parent.
 
-**Architecture** ([ADR-0006](../../../adr/0006-function-as-abstract-callable-root.md),
-[ADR-0013](../../../adr/0013-closure-upvalues-and-frame-token-return.md)). The block
+**Architecture** ([TDR-0005](../../../decisions/accepted/0005-function-as-abstract-callable-root.md),
+[TDR-0012](../../../decisions/accepted/0012-closure-upvalues-and-frame-token-return.md)). The block
 *mechanism* (closures, upvalues, frame tokens, non-local `return`, `DeadFrameError`)
 landed in **U4 + U10**; the call protocol is complete. An **unbound** `Method` has no
 receiver, so raw `call` on it is an error — you must `bind` or `invokeOn`.
@@ -342,7 +342,7 @@ receiver, so raw `call` on it is an error — you must `bind` or `invokeOn`.
 
 | | |
 |---|---|
-| Superclass · Kind | `Object` · U · a native array-backed heap object (`ListObject`), **not** an `InstanceObject` ([ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md)) |
+| Superclass · Kind | `Object` · U · a native array-backed heap object (`ListObject`), **not** an `InstanceObject` ([TDR-0018](../../../decisions/accepted/0018-kernel-list-native-array-protocol.md)) |
 | Status | ◐ partial — combinator layer ✅ landed; only **literal syntax `[a,b,c]`** remains deferred |
 
 **Interface — floor** ([census §2.13](./floor-census.md)): class-side `new()` ·
@@ -361,7 +361,7 @@ hashable by value** ([decisions.md](./decisions.md) Q5); it inherits identity
 #6) — **not** part of U-STD's combinator scope.
 
 **Planned.** `Tuple`, `Map`, `Set`, `Range` — **absent** (names reserved in
-`ClassName`). Per ADR-0020 each is its own U-STD/deferred unit; `Map`/`Set` also
+`ClassName`). Per TDR-0018 each is its own U-STD/deferred unit; `Map`/`Set` also
 depend on `Object#hash` (now landed). **U-CORE-5's job is the shared
 collection-protocol *contract* + conformance harness, not these classes** — it adds
 zero floor primitives and makes `List` the reference implementation (`.ph`
@@ -377,7 +377,7 @@ zero floor primitives and makes `List` the reference implementation (`.ph`
 |---|---|
 | Superclass · Kind | `Object` · U · a compilation unit / namespace |
 | Interface — floor | class-side `new()` ([census §2.12](./floor-census.md)) |
-| Status · Planned | ◐ — namespace/import surface deferred ([ADR-0027](../../../adr/0027-modules-as-files-with-public-by-default-imports.md) rules modules-as-files, public-by-default) |
+| Status · Planned | ◐ — namespace/import surface deferred ([TDR — A module is a file; exports are public by default; imports are qualified, selective, or aliased](../../../decisions/retired/modules-as-files-with-public-by-default-imports.md) rules modules-as-files, public-by-default) |
 
 ### `System`
 
@@ -392,7 +392,7 @@ zero floor primitives and makes `List` the reference implementation (`.ph`
 
 ## 8. Errors & concurrency — greenfield
 
-### Errors — reification pending (U-CORE-6, [ADR-0008](../../../adr/0008-layered-exceptions-and-result.md))
+### Errors — reification pending (U-CORE-6, [TDR-0007](../../../decisions/accepted/0007-layered-exceptions-and-result.md))
 
 The *mechanism* exists natively as the `RuntimeError` enum (`error.rs`), but is
 **not reified** into a surface `Error` hierarchy — none of these are surface classes
@@ -405,11 +405,11 @@ yet.
 | `DeadFrameError` | `Error` | non-local `return` to a dead frame | ❌ surface (native `RuntimeError` exists, U10) |
 | `TypeError` / `ArgumentError` / `RangeError` | `Error` | typed error subclasses | ❌ → U-CORE-6 |
 
-**U-CORE-6 scope** is the *minimal reification slice* of ADR-0008: reify `Error` +
+**U-CORE-6 scope** is the *minimal reification slice* of TDR-0007: reify `Error` +
 `MessageNotUnderstood` with `message`/`raise`, and rewire U8's native miss path to
 **raise a surface `MessageNotUnderstood`** carrying the reified `Message` through the
 **unified unwind** (the sibling *Raise* payload to U10's *Return* payload). The
-exceptions-vs-`Result` layering is pre-decided by ADR-0008 — read against it, do not
+exceptions-vs-`Result` layering is pre-decided by TDR-0007 — read against it, do not
 redesign.
 
 ### Concurrency — out of core scope (forward-compat only)
@@ -424,7 +424,7 @@ open-`Value`-arm hashing already clear that gate.
 
 ## 9. Cross-cutting architecture
 
-### 9.1 The frozen floor ([ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md))
+### 9.1 The frozen floor ([TDR-0017](../../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md))
 
 A **floor primitive** is native Rust bound onto a kernel class at bootstrap because
 it *cannot* be expressed in `.ph` over lower-level `.ph` (it touches heap
@@ -448,9 +448,9 @@ selectors. The count is **machine-checked** — `floor_census_matches_installed_
 **first**, so `object_class_new` is the effective default allocator and `class_new`
 is a deeper fallback. Specialized class-side `new`s (`Number`, `String`, `Bool`,
 `Symbol`, `Method`, `List`, `System`, `Module`) override on their own metaclass. This
-ordering is **load-bearing for `@constructor`** (U7 / ADR-0011) — preserve it.
+ordering is **load-bearing for `@constructor`** (U7 / TDR-0010) — preserve it.
 
-### 9.3 Sacred selectors (R-SACRED, [census §5](./floor-census.md), [ADR-0018](../../../adr/0018-sacred-selector-inliner-and-override-guard.md))
+### 9.3 Sacred selectors (R-SACRED, [census §5](./floor-census.md), [TDR-0016](../../../decisions/accepted/0016-sacred-selector-inliner-and-override-guard.md))
 
 Seven floor selectors are compiler-coupled: the sacred inliner special-cases their
 literal-block call sites and emits a `GuardBool` deopt that falls back to *exactly

@@ -39,7 +39,7 @@ surface. Concretely:
   literal **incl. the whitespace-adjacency rule** (`#foo` symbol vs `#` used
   elsewhere), `::` method reference, `@` attribute token, `[]`/`[]=` index
   sugar (desugars to `.at(_)`/`.at(_,put:)` — see [U-INDEX](../U-INDEX/u28-index.md)).
-- [ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md) —
+- [TDR-0011](../../../decisions/accepted/0011-selector-signature-encoding-and-dispatch.md) —
   selectors are canonical comma-form symbols; `foo`, `foo(_)`,
   `move(_,to,duration)` are **distinct** selectors. Load-bearing for
   U-VSPHALCOM-2: any harvested selector table, completion entry, or hover key

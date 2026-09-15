@@ -31,7 +31,7 @@ docs/implementation/LANG005/LANG005.C1-/
 docs/implementation/LANG005/LANG005.C1-/
   LANG005.C1.P2-handoff.md
 
-docs/pdr/
+docs/decisions/
   PDR-0035 or the final landed filename for the `data` value-product ruling
 
 docs/internals/data-representation/

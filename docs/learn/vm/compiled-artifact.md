@@ -354,15 +354,15 @@ return from the block; it returns from the *method activation the block was crea
 calls deep the block is actually running when it fires. To find and unwind to that activation, the
 block must carry its identity — stamped at creation, in job 2 of the `Closure` opcode. This is the
 Smalltalk home-context mechanism (a block remembers its creating method activation so `^` can unwind
-to it), and Phalcom's realization of it is **ADR-0013**.
+to it), and Phalcom's realization of it is **TDR-0012**.
 
 > **Lie C.** A `FrameToken` is "just a number stamped on the block." It is not just a number — it is
 > a `(home-frame, generation-counter)` pair, and the generation counter is what turns "this block
-> outlived its home frame" from silent memory corruption into a clean `DeadFrameError`. ADR-0013
+> outlived its home frame" from silent memory corruption into a clean `DeadFrameError`. TDR-0012
 > rejected the naive alternative (a raw frame pointer, no generation) for exactly that reason. What a
 > `FrameToken` is, how it is generated, and how a stale one is caught is **[Doc 6 (frame identity)](frame-identity.md)**.
 
-The object-model framing behind all this is **ADR-0006**: `Function` is an abstract root, and `Block`
+The object-model framing behind all this is **TDR-0005**: `Function` is an abstract root, and `Block`
 and `Method` are **siblings** — neither a subtype of the other — precisely because a method carries a
 selector a block doesn't and a block carries a home frame a method doesn't. Forcing either to
 subclass the other would mean one carrying a field meaningless to it. They share the `ClosureObject`
@@ -449,7 +449,7 @@ Delete the type definitions. Given only these pressures, rebuild the stack:
    Skynet. This is Doc 1's hoisted `Rc<Callable>`.)
 3. *A `^`-return inside a block must reach the method it was written in.* → Stamp the instance with
    its home frame → `BlockObject`. Only blocks need it, so only blocks carry it, and `Block`/`Method`
-   are siblings (ADR-0006), not one atop the other.
+   are siblings (TDR-0005), not one atop the other.
 4. *A method can be Rust, not Phalcom.* → Don't pollute the recipe with a native variant; fork one
    layer up, at `MethodKind`. The bytecode stack stays pure.
 5. *Literals and names are too big and too GC-relevant to inline.* → A **constant pool** on the
@@ -473,8 +473,8 @@ Symbol-first; line numbers approximate and will drift, symbols will not.
 - `method/object.rs::MethodKind` (~L17) — the cap; `Closure(ObjRef)` vs `Primitive(PrimitiveFn)`.
 - `vm/dispatch.rs` `Bytecode::Closure` (~L577) — recipe→instance→block, in one arm.
 - `compiler/lib/class_decl.rs` (~L495) — a method's `ClosureObject`, built once at compile time.
-- perf-log **004-hotpath-rc-callable.md** — the `Rc` share and its numbers. ADR-0006 (Function root;
-  Block/Method siblings), ADR-0013 (frame-token non-local return).
+- perf-log **004-hotpath-rc-callable.md** — the `Rc` share and its numbers. TDR-0005 (Function root;
+  Block/Method siblings), TDR-0012 (frame-token non-local return).
 
 **Forward pointers (lies to be destroyed):** the `caches`/`gcaches` side tables and superinstruction
 fusion → Doc 5 (caches & fusion). `FrameToken` internals and `DeadFrameError` → Doc 6 (frame

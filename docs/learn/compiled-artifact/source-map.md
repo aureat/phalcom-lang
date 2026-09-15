@@ -20,7 +20,7 @@ closure becomes a first-class block.** Not "one fused closure object."
    (VERIFIED, L28: `pub callable: Rc<Callable>`) + `module: ObjRef` + `upvalues: Vec<ObjRef>`.
    This is the runtime instance: a `Callable` bound to a defining module and (for
    blocks) filled-in upvalue cells. A method body and a block literal both compile to
-   this same type (ADR-0006).
+   this same type (TDR-0005).
 4. `BlockObject` — `phalcom-core/src/heap/block.rs::BlockObject` (L18) — `closure: ObjRef`
    + `home_frame_token: FrameToken`. Only exists when a `ClosureObject` is being used
    as a first-class, non-local-returnable block value. A method's `ClosureObject` is
@@ -34,7 +34,7 @@ For a **block literal in use**: `Chunk` ⊂ `Callable` (Rc-shared) ← `ClosureO
 (per-materialization instance) ← `BlockObject` (adds home-frame identity) — four
 distinct types, three object boundaries. For a **method**: the stack stops one layer
 short — `MethodKind::Closure` points straight at the `ClosureObject`, never wrapped
-in a `BlockObject` (VERIFIED — see §1 below and ADR-0006's "Method wraps
+in a `BlockObject` (VERIFIED — see §1 below and TDR-0005's "Method wraps
 `ClosureObject` inside `MethodObject`... blocks wrap the same closure with a home
 frame token. Neither is a subtype of the other").
 
@@ -159,7 +159,7 @@ pub struct BlockObject {
 ```
 
 Two fields: a closure handle plus the home-frame token used for non-local return
-(ADR-0013). `BlockObject` is `Copy` (both fields are `Copy`: `ObjRef` and
+(TDR-0012). `BlockObject` is `Copy` (both fields are `Copy`: `ObjRef` and
 `FrameToken`) — unlike `ClosureObject`, minting a `BlockObject` is cheap.
 
 ### `MethodKind` — `phalcom-core/src/method/object.rs` L17
@@ -312,7 +312,7 @@ Bytecode::Closure(idx) => {
     // (empty upvalue list). Materialize a fresh instance whose
     // upvalue cells are captured from the current activation per
     // the callable's descriptors, then wrap it in a BlockObject
-    // stamped with the home frame token (ADR-0013, functions.md §2).
+    // stamped with the home frame token (TDR-0012, functions.md §2).
     let template = callable.chunk.constants[idx as usize];
     let Value::Obj(template_id) = template else {
         return Err(RuntimeError::Internal("Closure constant is not a closure".to_string()).into());
@@ -426,7 +426,7 @@ Output (loop portion):
 ```
 
 `0033: Closure(19)` sits inside the loop body, between the cursor-advance/test
-prologue (0018-0026, ADR-0048 cursor protocol — `JumpIfNone` is the end-sentinel
+prologue (0018-0026, TDR-0042 cursor protocol — `JumpIfNone` is the end-sentinel
 test) and the `Loop(-18)` back-edge at 0042 (targets `0042 + 1 - 18 = 0025`, i.e.
 back to the cursor re-test). Statically the chunk contains exactly **one**
 `Closure` instruction; at runtime `Loop` re-executes it once per element of
@@ -438,7 +438,7 @@ to confirm.
 
 ### 8. ADRs — Decision + Alternatives only
 
-**ADR-0006 — `Function` as the abstract root of the callable tower** (Accepted).
+**TDR-0005 — `Function` as the abstract root of the callable tower** (Accepted).
 Decision: introduce an abstract `Function` kernel class owning the call protocol
 (`call`, `call(_,…)`, `callWith(_)`, `arity`, `name`); `Block` and `Method` inherit
 from `Function` as **siblings**, neither a subtype of the other. Rationale given in
@@ -450,13 +450,13 @@ No "Alternatives" section in this ADR (it has a Context/Decision/Consequences/
 Status-note shape, not Context/Decision/Alternatives) — its Status note flags the
 ADR as still "open question pending a go/no-go decision," "recommended to accept."
 
-**ADR-0013 — Open/closed upvalues and frame-token non-local return** (Accepted).
+**TDR-0012 — Open/closed upvalues and frame-token non-local return** (Accepted).
 Decision: capture uses Lua-style open/closed upvalues (open = points at a live
 stack slot, shared mutation with the enclosing scope; closed = value copied into
 the cell when the frame exits, so escaping blocks keep working); non-local
 `return` uses a frame token (home frame pointer + generation counter), a mismatch
 raising `DeadFrameError` instead of touching a dead frame. One `ClosureObject` is
-shared by `Block` and `Method` (cross-references ADR-0006). **Alternatives
+shared by `Block` and `Method` (cross-references TDR-0005). **Alternatives
 considered**: (1) by-value snapshot capture at closure-creation time — rejected,
 breaks shared mutation between a block and its home scope and can't identify the
 live home frame for non-local return; (2) raw frame pointer with no generation
@@ -478,7 +478,7 @@ turns that into a detectable `DeadFrameError` instead of memory corruption.
 - Upvalue cells can be open, pointing at a specific fiber's stack slot:
   `phalcom-core/src/heap/upvalue.rs::Upvalue::Open { fiber: ObjRef, slot: usize }`
   (L32-37) — carries the owning fiber's handle because the VM's live stack is
-  swapped per fiber (ADR-0030), so a closure resumed on a different fiber must
+  swapped per fiber (TDR-0027), so a closure resumed on a different fiber must
   resolve `slot` against the *home* fiber's parked stack, not whichever fiber
   happens to be current.
 

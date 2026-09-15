@@ -3,7 +3,7 @@
 - Date: 2026-07-22
 - Specification: `docs/work/pending/string-interpolation-completion.md`
 - Normative Spec: `docs/spec/current/string-interpolation.md`
-- PDR: [PDR-0029](../../pdr/0029-string-literals-and-interpolation-completion.md)
+- PDR: [TDR-0073](../../decisions/accepted/0073-string-literals-and-interpolation-completion.md)
 
 ## 1. Summary
 

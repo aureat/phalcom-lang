@@ -1,7 +1,7 @@
 # LANG001.C3 — Control flow inliner runtime spec
 
 - **Status:** ✅ Landed — `83c908a` (`feat(u5): lower operators to sends + sacred-selector inliner with override guards`). In-tree on `main`, no worktree.
-- **Realizes:** [ADR-0018](../../../adr/0018-sacred-selector-inliner-and-override-guard.md) (sacred-selector inliner + override-epoch deopt guard); builds on [ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md) (label-encoded selectors + IC-ready dispatch — the inliner is a coarse inline cache over the sacred selectors), [ADR-0013](../../../adr/0013-closure-upvalues-and-frame-token-return.md) (blocks). Spec: [control-flow.md](../../../spec/current/control-flow.md) §1–3.
+- **Realizes:** [TDR-0016](../../../decisions/accepted/0016-sacred-selector-inliner-and-override-guard.md) (sacred-selector inliner + override-epoch deopt guard); builds on [TDR-0011](../../../decisions/accepted/0011-selector-signature-encoding-and-dispatch.md) (label-encoded selectors + IC-ready dispatch — the inliner is a coarse inline cache over the sacred selectors), [TDR-0012](../../../decisions/accepted/0012-closure-upvalues-and-frame-token-return.md) (blocks). Spec: [control-flow.md](../../../spec/current/control-flow.md) §1–3.
 - **Reviewer gate:** OFF per STATE.md review policy (U5 is not in the load-bearing hierarchy set U1/U2/U4/U6) — self-verified on the green gate + `cargo doc` + the §7 soundness tests.
 
 ## Mission
@@ -46,7 +46,7 @@ Non-local return through inlined blocks: inlined bodies are spliced into the hom
 - `verify.sh` green at both the Layer-0 gate and the Layer-1 gate; goldens otherwise byte-identical.
 
 ## Deviations & deferrals
-- **Paired selector spelled `ifTrue(_:)ifFalse(_:)`** (keyword-labelled), not the spec's illustrative comma-form `ifTrue(_)ifFalse(_)` — matches Phalcom's actual selector model ([ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md)).
+- **Paired selector spelled `ifTrue(_:)ifFalse(_:)`** (keyword-labelled), not the spec's illustrative comma-form `ifTrue(_)ifFalse(_)` — matches Phalcom's actual selector model ([TDR-0011](../../../decisions/accepted/0011-selector-signature-encoding-and-dispatch.md)).
 - **Jump offset width `i32`**, not `i16` (see above).
 - **Class reopening added** to `Statement::Class` (attach to an existing same-named global instead of shadowing) so a sacred override is testable from surface Phalcom; `install_core` now also registers kernel `Function`/`Block` as globals (they were silently shadowed — a real bug fixed this session).
 - **`if`/`else` desugars to `ifTrue(_:)ifFalse(_:)`**, not to an `Option`/`ifNone` chain — keeps U5 independent of U6.

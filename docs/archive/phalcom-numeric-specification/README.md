@@ -18,7 +18,7 @@ The set intentionally separates permanent language semantics from repository-spe
 |---|---|---|
 | [`numeric-tower.md`](numeric-tower.md) | Normative | Public numeric types, arithmetic, comparison, division, remainder, conversion, keys, and laws. |
 | [`float-protocol.md`](float-protocol.md) | Normative, with named open tables | Binary64 behavior, Float protocol, rounding, power architecture, NaN, signed zero, and total-order requirement. |
-| [`numeric-literals.md`](numeric-literals.md) | Normative | Source literal grammar, candidate boundaries, classification, oversized constants, and compiler diagnostics. |
+| [TDR-0070](../../decisions/accepted/0070-numeric-literals.md) | Normative | Source literal grammar, candidate boundaries, classification, oversized constants, and compiler diagnostics. |
 | [`text-and-errors.md`](text-and-errors.md) | Normative | Text constructors, canonical rendering, runtime error taxonomy, structured fields, and traceback rules. |
 | [`bitwise.md`](bitwise.md) | Normative | Infinite-two's-complement Int operations, precedence, huge-count behavior, laws, and errors. |
 | [`implementation.md`](implementation.md) | Implementation contract | Runtime representation, semantic kernel, constant pool, GC, hashing, resource controls, dispatch, primitive floor, and landing order. |

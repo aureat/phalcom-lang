@@ -1,33 +1,33 @@
 # Specification — `Bytes` (the native octet buffer)
 
 > **Status:** **Normative.** Encodes
-> [PDR-0011](../../../pdr/0011-admit-bytes-native-octet-buffer.md) (**Accepted**,
+> [TDR-0063](../../../decisions/accepted/0063-admit-bytes-native-octet-buffer.md) (**Accepted**,
 > ratified 2026-07-20); the exploration and precedent survey behind it is
 > [`drafts/bytes.md`](../drafts/bytes.md); the implementation spec is
 > [`../../forge/units/U-BYTES/implementation-spec.md`](../../forge/units/U-BYTES/implementation-spec.md).
-> [PDR-0013](../../../pdr/0013-path-is-bytes-backed-filesystem-surface.md) ruling 4
+> [TDR-0065](../../../decisions/accepted/0065-path-is-bytes-backed-filesystem-surface.md) ruling 4
 > (also Accepted) adds an eleventh primitive on this class, `utf8Lossy_`, censused with
 > that record.
-> **Floor delta: +10 primitives (audited floor 137 → 147; +1 more via PDR-0013)** — this is
+> **Floor delta: +10 primitives (audited floor 137 → 147; +1 more via TDR-0066)** — this is
 > *not* a zero-floor spec;
-> the amendment to [ADR-0019](../../adr/accepted/0019-freeze-vm-blessed-primitive-floor.md),
+> the amendment to [TDR-0017](../../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md),
 > and the amended admission posture for container bulk operations (§3.1), are carried by
-> PDR-0011. The 137 baseline is the tree's, not a record's: the source of record is
+> TDR-0064. The 137 baseline is the tree's, not a record's: the source of record is
 > `floor_census_matches_installed_bindings` (`phalcom-core/tests/invariants.rs:605`; last
 > delta `Fiber#isRoot`, 136 → 137, 2026-07-19). Never quote a floor number from a document.
 > Selector spellings follow
-> [ADR-0012](../../adr/accepted/0012-selector-signature-encoding-and-dispatch.md) and
-> [ADR-0043](../../adr/accepted/0043-no-default-arguments-keep-selector-identity-pristine.md);
+> [TDR-0011](../../../decisions/accepted/0011-selector-signature-encoding-and-dispatch.md) and
+> [TDR-0036](../../../decisions/accepted/0036-no-default-arguments-keep-selector-identity-pristine.md);
 > native primitives carry the trailing `_`
-> ([ADR-0049](../../adr/accepted/0049-amend-floor-admit-string-byte-and-raw-write-primitives.md)).
+> ([TDR-0050](../../../decisions/accepted/0050-amend-floor-admit-string-byte-and-raw-write-primitives.md)).
 >
 > **Owner:** unassigned. Hard prerequisite for any
 > [`stream-protocol.md`](stream-protocol.md) implementation (its §9).
 
 ## 1. What `Bytes` is
 
-A fixed-length, mutable buffer of octets — the ADR-0020 kernel pattern: storage is a native
-heap arm (`Object::Bytes`, backed by `Box<[u8]>`; PDR-0011 ruling 1), the protocol above the
+A fixed-length, mutable buffer of octets — the TDR-0018 kernel pattern: storage is a native
+heap arm (`Object::Bytes`, backed by `Box<[u8]>`; TDR-0064 ruling 1), the protocol above the
 floor primitives is authored in `.ph`. Length is fixed at construction and contents are
 mutable — `Tuple`'s backing shape with `List`'s mutability corner. Fixed length is a security
 property, not a convenience: it is what makes `zeroize` (§7) complete.
@@ -37,21 +37,21 @@ property, not a convenience: it is what makes `zeroize` (§7) complete.
 no `.ph` `extends`, no field layout). It supplies `size => self.size_` and
 `iteratorValue(cursor) => self.at_(cursor)` (`Tuple`'s exact shape, `core.ph:1011`) and
 inherits `Iterable#iterate` (`core.ph:645-651`) and the whole combinator suite unchanged.
-The cursor is a `Number` index in `0..size`, so ADR-0048's "a cursor is never `None`"
+The cursor is a `Number` index in `0..size`, so TDR-0042's "a cursor is never `None`"
 constraint holds vacuously.
 
 `Bytes` is **not** a `String` variant and never converts to one for free: `StringObject`
 enforces UTF-8 and caches a content hash (`heap/string.rs:11-16`), so decode is fallible
-(§4) and a `String` holding arbitrary octets is permanently foreclosed (PDR-0011
+(§4) and a `String` holding arbitrary octets is permanently foreclosed (TDR-0064
 consequences).
 
 ## 2. The element type
 
 **An element is a `Number` that is an integer in 0–255.** There is no `Byte` value type
-(PDR-0011 ruling 2). At ruling time ADR-0024 is verified unbuilt — no `Int` heap arm,
+(TDR-0064 ruling 2). At ruling time TDR-0022 is verified unbuilt — no `Int` heap arm,
 `class Number {}` flat at `core.ph:82` — so `Number` is IEEE f64, and every integer in 0–255
 is **exactly** representable; reads and writes lose nothing. The contract is worded
-representation-independently, so ADR-0024 landing later changes nothing at this surface.
+representation-independently, so TDR-0022 landing later changes nothing at this surface.
 
 Writes enforce the range: a `set`/`fill` argument that is not an integer in 0–255 **raises**
 (precondition violation, stream-protocol law 5's category — a programmer error must not
@@ -59,7 +59,7 @@ travel the same channel as data).
 
 ## 3. Floor primitives (+10)
 
-Admitted by PDR-0011 ruling 3. Return conventions mirror `List`'s floor exactly
+Admitted by TDR-0064 ruling 3. Return conventions mirror `List`'s floor exactly
 (`primitive/list.rs:72-103`): a fallible *read* returns the bare value or `None` (no `Some`
 wrapping — and unlike `List`, the union is unambiguous, because an octet is never `None`);
 a bad *write* is a native type error, not a `None`.
@@ -75,7 +75,7 @@ a bad *write* is a native type error, not a `None`.
 | `slice_(_,_)` | instance | `Bytes` | **copy** of `[start, end)` into a fresh buffer; type error on a bad range |
 | `copyInto_(_,_)` | instance | `None` | copy the whole receiver into the given `Bytes` at the given offset (one memmove); type error if it does not fit |
 | `utf8_` | instance | `String` \| `None` | fallible UTF-8 decode of the whole buffer; invalid → `None` |
-| `utf8Lossy_` | instance | `String` | total lossy decode (invalid sequences → U+FFFD, Rust `from_utf8_lossy`); admitted by PDR-0013 ruling 4 for `Path#toString`, censused with that record |
+| `utf8Lossy_` | instance | `String` | total lossy decode (invalid sequences → U+FFFD, Rust `from_utf8_lossy`); admitted by TDR-0066 ruling 4 for `Path#toString`, censused with that record |
 | `equalsConstantTime_(_)` | instance | `Bool` | §8; the one selector whose *timing* is part of its contract |
 
 Natives never build a `Result` — `Result`/`Ok`/`Err` are pure `.ph`; the `.ph` layer lifts
@@ -83,8 +83,8 @@ where it wants to.
 
 ### 3.1 The native/`.ph` boundary — where each operation lives, and why
 
-PDR-0011 ruling 3 amends the admission posture **for kernel container arms** beyond
-ADR-0019's inexpressibility-only rule, with a bright line:
+TDR-0064 ruling 3 amends the admission posture **for kernel container arms** beyond
+TDR-0017's inexpressibility-only rule, with a bright line:
 
 - **A bulk operation with no user code inside its loop is native.** The arm exists to
   eliminate per-element representation and dispatch cost; a `.ph` per-byte loop over
@@ -95,7 +95,7 @@ ADR-0019's inexpressibility-only rule, with a bright line:
 - **A selector that runs a user block per element stays `.ph`, unconditionally.** This is a
   functionality line, not an economy: `Fiber#yield` is only legal at
   `native_reentry_depth == 0` (the restricted-yield guard, `vm/dispatch.rs:259`,
-  ADR-0030 §4). A *native* `each` would put a native frame between the caller and the
+  TDR-0027 §4). A *native* `each` would put a native frame between the caller and the
   block, so any `yield` inside the block becomes a runtime error — Lua's
   "attempt to yield across a C-call boundary", the C-extension/generator wall Python hit,
   the lesson every coroutine language converged on the hard way. Keeping
@@ -120,13 +120,13 @@ All `.ph` over §3 plus what `Iterable` provides. Zero additional primitives.
 | `set(_,_)` | receiver | write octet; **raises** on out-of-bounds index or non-octet value (§2) |
 | `fill(_)` | receiver | `fill_` with the raise-lifting of `set` |
 | `zeroize` | receiver | `self.fill_(0)` — one native call; the name carries the §7 contract |
-| `isEmpty`, `each(_)`, `map(_)`, `filter(_)`, `fold(initial,using)`, `reduce(using)`, `includes(_)`, … | | inherited from `Iterable` (ADR-0048), deliberately `.ph` — §3.1 |
+| `isEmpty`, `each(_)`, `map(_)`, `filter(_)`, `fold(initial,using)`, `reduce(using)`, `includes(_)`, … | | inherited from `Iterable` (TDR-0042), deliberately `.ph` — §3.1 |
 | `==(_)` / `!=(_)` | `Bool` | structural equality, `List#==`'s exact shape (collection-protocol §4): `isA` guard, size check, pairwise loop. **Short-circuits — never use for secrets**; that is what §8 exists for |
 | `hash` | `Number` | **identity** (inherited `Object#hash`) — mutable ⇒ not value-hashable, not a valid `Map`/`Set` key (law 4) |
 | `toString` | `String` | total debug form (e.g. `Bytes(16)`); **not** the decoder |
-| `utf8` | `String` \| `None` | decode via `utf8_`; the fallibility is the point (PDR-0011 consequences) |
+| `utf8` | `String` \| `None` | decode via `utf8_`; the fallibility is the point (TDR-0064 consequences) |
 | `utf8Lossy` | `String` | total display decode via `utf8Lossy_` — for humans; never round-trip it into data |
-| `slice(_,_)` | `Bytes` | `slice_` — a copy, never a view (ruling 5; a view retains its parent under ADR-0050, Erlang's binary leak) |
+| `slice(_,_)` | `Bytes` | `slice_` — a copy, never a view (ruling 5; a view retains its parent under TDR-0048, Erlang's binary leak) |
 | `concat(_)` | `Bytes` | `.ph` over `new` + `copyInto_` ×2 — §3.1 |
 | `copyInto(_,_)` | receiver | `copyInto_` with raise-lifting |
 | `Bytes.fromString(_)` | `Bytes` | `fromString_` |
@@ -145,7 +145,7 @@ All `.ph` over §3 plus what `Iterable` provides. Zero additional primitives.
    every write outside that range raises. There is no path by which a non-octet enters a
    buffer.
 3. **Fixed length.** `size` never changes after construction. No grow/shrink selector exists
-   in this protocol, and none may be added without superseding PDR-0011 ruling 1 — length
+   in this protocol, and none may be added without superseding TDR-0064 ruling 1 — length
    mutability would strand secret copies on realloc and void §7.
 4. **Zero-filled birth.** `Bytes.new(n)` reads as `n` zeros; no constructor exposes
    uninitialized memory.
@@ -170,14 +170,14 @@ terminate correctly (`0 < 0` → `None`). Iteration visits octets in index order
 
 ## 7. Zeroization — an obligation, not a mechanism
 
-Phalcom **cannot guarantee secret erasure**: ADR-0050's tracing collector means no
+Phalcom **cannot guarantee secret erasure**: TDR-0048's tracing collector means no
 deterministic destruction and no drop hook, and that is not retrofittable. What this
-protocol offers, honestly (PDR-0011 ruling 7):
+protocol offers, honestly (TDR-0064 ruling 7):
 
 - `zeroize` is `self.fill_(0)` — **one native memset**, and, because of law 3, a
   **complete** one: a fixed-length `Box<[u8]>` never reallocates, so no octet that ever
   held the secret is outside the buffer being zeroed.
-- The scoping idiom is `ensure`, which fires on **any** unwind (ADR-0008 §4 — `throw`,
+- The scoping idiom is `ensure`, which fires on **any** unwind (TDR-0007 §4 — `throw`,
   non-local `return`, fiber `abort`):
 
   ```phalcom
@@ -189,15 +189,15 @@ protocol offers, honestly (PDR-0011 ruling 7):
   intermediates, OS swap/core dumps) are outside any `.ph` obligation. `zeroize` is a real
   and *partial* mitigation; anyone shipping crypto on Phalcom must know it is partial.
   Claiming more is how .NET `SecureString` earned its deprecation.
-- **Coupling, named:** this contract makes ADR-0050's *non-moving* choice security-relevant.
+- **Coupling, named:** this contract makes TDR-0048's *non-moving* choice security-relevant.
   A moving collector copies live objects and defeats `zeroize` silently. Any future record
-  reopening moving GC must address this (PDR-0011 ruling 7).
+  reopening moving GC must address this (TDR-0064 ruling 7).
 
-Enforcement posture is ADR-0052's: written contract, code review, golden tests. No static
+Enforcement posture is TDR-0043's: written contract, code review, golden tests. No static
 analysis exists to lean on.
 
 Related, binding on future numeric work: **secret material must never route through
-ADR-0024's auto-promoting `Int`** — promotion is value-dependent heap allocation, a timing
+TDR-0022's auto-promoting `Int`** — promotion is value-dependent heap allocation, a timing
 channel below the arithmetic (draft §9.1). Fixed-width `Bytes` is the secret carrier.
 
 ## 8. `equalsConstantTime(_)`
@@ -207,7 +207,7 @@ time independent of buffer contents — is not expressible above the floor: any 
 short-circuits, and so does `==` (§4). Node ships `crypto.timingSafeEqual` natively for
 exactly this reason.
 
-Contract (PDR-0011 ruling 6):
+Contract (TDR-0064 ruling 6):
 
 1. Compares full contents; time is constant with respect to **contents**.
 2. **Length mismatch returns `false`** — still without inspecting contents. Lengths are
@@ -248,9 +248,9 @@ Contract (PDR-0011 ruling 6):
 
 | # | Question | Notes |
 |---|---|---|
-| BY-1 | Literal syntax | PDR-0011 Q-1. Lexer question, no owner; `fromList`/`fromString` suffice meanwhile |
+| BY-1 | Literal syntax | TDR-0064 Q-1. Lexer question, no owner; `fromList`/`fromString` suffice meanwhile |
 
-Closed by PDR-0011 and recorded there: one-class (ruling 4, was draft B-1), slice copies
+Closed by TDR-0064 and recorded there: one-class (ruling 4, was draft B-1), slice copies
 (ruling 5, B-2), fixed length (ruling 1, B-3), length-mismatch behavior (ruling 6, B-4),
 native bulk ops incl. `fill_` — which dissolves B-6's native-`zeroize` question (ruling 3),
 moving-GC coupling (ruling 7, B-7), identity hash (ruling 4, B-8).

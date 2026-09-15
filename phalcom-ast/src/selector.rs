@@ -1,4 +1,4 @@
-use crate::ast::{BehaviorMember, ClassMember, FieldDef, GetterDef, IndexAccessor, IndexMethodDef, MethodDef, ParameterDef, RestMode, SetterDef, VariantDecl};
+use crate::ast::{BehaviorMember, ClassMember, DelegatedAccessorKind, FieldDef, GetterDef, IndexAccessor, IndexMethodDef, MethodDef, ParameterDef, RestMode, SetterDef, VariantDecl};
 pub use phalcom_common::selector::{
     Selector, SelectorBase, SelectorError, SelectorKind, SelectorKindPattern, SelectorPattern, SelectorSlot, decode_label_component, encode_label_component,
 };
@@ -77,6 +77,18 @@ pub fn selector_from_member(member: &ClassMember) -> Selector {
         ClassMember::Method(m) => selector_from_method(m),
         ClassMember::Getter(g) => selector_from_getter(g),
         ClassMember::Setter(s) => selector_from_setter(s),
+        ClassMember::Delegation(d) => match d.kind {
+            DelegatedAccessorKind::Setter => Selector::setter(&d.name).unwrap_or_else(|_| Selector {
+                base: SelectorBase::Named(d.name.clone()),
+                kind: SelectorKind::Setter,
+                slots: Box::new([]),
+            }),
+            DelegatedAccessorKind::Getter | DelegatedAccessorKind::ReadWrite => Selector::getter(&d.name).unwrap_or_else(|_| Selector {
+                base: SelectorBase::Named(d.name.clone()),
+                kind: SelectorKind::Getter,
+                slots: Box::new([]),
+            }),
+        },
         ClassMember::Field(f) => selector_from_field(f),
         ClassMember::Variant(v) => Selector::getter(&v.name).unwrap_or_else(|_| Selector {
             base: SelectorBase::Named(v.name.clone()),

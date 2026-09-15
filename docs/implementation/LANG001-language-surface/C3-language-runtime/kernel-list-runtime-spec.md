@@ -1,7 +1,7 @@
 # LANG001.C3 — Kernel list runtime spec
 
 - **Status:** ✅ Landed — `c7c63fb` (native variant + primitives), `6fdf0c7` (core.ph execution + `.ph` protocol), `b2f7aec` (acceptance corpus), `333823a` (forge docs)
-- **Realizes:** [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md) (frozen VM-blessed primitive floor), [ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md) (native `Vec<Value>` List behind the handle heap); spec [core/catalog-delta.md §2.4](../../../spec/current/core/catalog-delta.md), [core/floor-census.md](../../../spec/current/core/floor-census.md)
+- **Realizes:** [TDR-0017](../../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md) (frozen VM-blessed primitive floor), [TDR-0018](../../../decisions/accepted/0018-kernel-list-native-array-protocol.md) (native `Vec<Value>` List behind the handle heap); spec [core/catalog-delta.md §2.4](../../../spec/current/core/catalog-delta.md), [core/floor-census.md](../../../spec/current/core/floor-census.md)
 - **Reviewer gate:** OFF per the load-bearing-only review policy (STATE.md) — self-verified on the green gate (`cargo build`/`test`/`doc`/`clippy` all clean).
 
 ## Mission

@@ -101,14 +101,14 @@ this way and belongs in a different lane.
 | `closure_capture_release` | upvalues | `open_upvalues` entries not closed |
 | `dnu_forward_repeat` | reflective dispatch | `Message`/args allocation per forward |
 | `import_same_module_repeat` | module memo | should converge at `k=1` — a canary that the harness measures what it thinks |
-| `decorated_method_invoke` | ADR-0052 hazard | **per-receiver decorator state in a side table** |
+| `decorated_method_invoke` | TDR-0043 hazard | **per-receiver decorator state in a side table** |
 
-The last row is the one this lane exists for. ADR-0052 requires per-receiver
+The last row is the one this lane exists for. TDR-0043 requires per-receiver
 decorator state to live in a Layout-tier reserved slot, never an Install-tier
 receiver-keyed side table, because a side table is a mark-sweep leak — and it
 records that this is enforced as "written contract + golden-test snapshot, not
 static analysis." A golden snapshot cannot see a leak. **This lane is what makes
-ADR-0052's constraint actually enforced**, and the workload should cite the ADR
+TDR-0043's constraint actually enforced**, and the workload should cite the ADR
 in its doc comment so the connection survives.
 
 ## 5. Cost and gating

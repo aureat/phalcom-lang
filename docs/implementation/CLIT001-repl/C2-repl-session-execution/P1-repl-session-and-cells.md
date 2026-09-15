@@ -77,7 +77,7 @@ pub enum CellOutcome {
 
 ### 1.4 Class redefinition — settled, write against the post-CLASSCLOSE premise
 
-PDR-0001 ruling 6: **cells shadow; they do not reopen.** A later `class Foo` binds
+TDR-0054 ruling 6: **cells shadow; they do not reopen.** A later `class Foo` binds
 a new class; instances made under the old definition keep it (they hold a `ClassId`);
 the old class becomes unreachable by name. No live object is silently patched.
 
@@ -102,7 +102,7 @@ with retry — double-compiles and misreports spans on the retry path.
 > **This overrides the literal wording of P1-repl-architecture.md §D3.** The design is unchanged; the
 > name was already taken.
 
-`compiler::attributes::CompileMode` exists and means something else: ADR-0052's
+`compiler::attributes::CompileMode` exists and means something else: TDR-0043's
 contract-weaving axis, `Debug` / `Release` / `Unchecked`, deciding whether `@requires` /
 `@ensures` / `@invariant` guards are woven or stripped. It is a **global** setting, held
 once at `vm/mod.rs:232` and read by the attribute expanders through

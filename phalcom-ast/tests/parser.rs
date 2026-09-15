@@ -1213,7 +1213,7 @@ impl<T, E> Result<T, E> {
 
     assert_eq!(result.members.len(), 1);
 
-    let phalcom_ast::ast::BehaviorMember::Method(method) = &result.members[0] else {
+    let phalcom_ast::ast::ImplMember::Behavior(phalcom_ast::ast::BehaviorMember::Method(method)) = &result.members[0] else {
         panic!("expected impl method");
     };
 
@@ -1316,7 +1316,7 @@ fn generic_impl_getter_accepts_callable_local_binder() {
     let Statement::Impl(impl_def) = &program.statements[0] else {
         panic!("expected impl");
     };
-    let phalcom_ast::ast::BehaviorMember::Getter(getter) = &impl_def.members[0] else {
+    let phalcom_ast::ast::ImplMember::Behavior(phalcom_ast::ast::BehaviorMember::Getter(getter)) = &impl_def.members[0] else {
         panic!("expected impl getter");
     };
     assert_eq!(getter.generic_parameters.len(), 1);

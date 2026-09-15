@@ -21,7 +21,7 @@ addition to a landed unit — no new mechanism, no scheduler dependency. **Revie
 exits 0 + `cargo doc --workspace --no-deps` clean. Grounded in
 **[concurrency.md §1](../../../spec/current/concurrency.md)** (Interface table, already
 speced — `isDone`/`error` are documented, just unbuilt) and
-**[ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md)**
+**[TDR-0026](../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md)**
 (floor-amendment convention, §Consequences). No new ADR needed — same authorization
 U-FIBER's own primitives used._
 

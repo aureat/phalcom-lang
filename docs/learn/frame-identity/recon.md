@@ -53,7 +53,7 @@ intra-fiber one, with no fiber-specific code — verified live in §5.
 > half is never believed on its own.**
 
 Corollary the doc must earn: this is not a *frame* mechanism. It is Phalcom's one universal
-policy for naming something that can die (ADR-0009's `ObjRef` is the same pair with a different
+policy for naming something that can die (TDR-0008's `ObjRef` is the same pair with a different
 failure mode: `None` instead of `DeadFrameError`). `upvalues.md` already named this rhyme; Doc 6
 must go past it, not restate it (§6).
 

@@ -16,7 +16,7 @@ deferred_reason: null
 
 ## Outcome
 
-Implement exact PDR-0027 Float protocol, IEEE edge behavior, strict constructors, canonical
+Implement exact TDR-0072 Float protocol, IEEE edge behavior, strict constructors, canonical
 rendering, and coherent Int/Float Map/Set keys.
 
 ## Write set
@@ -33,7 +33,7 @@ rendering, and coherent Int/Float Map/Set keys.
 2. Implement IEEE binary64 arithmetic and comparisons. Keep public NaN unordered. Add a distinct
    internal numeric-key comparator/canonical hash so NaN lookup works in Map/Set without changing
    `==`.
-3. Require Int from `hash`; remove PDR-0012's temporary integral-Float return acceptance. Test
+3. Require Int from `hash`; remove TDR-0065's temporary integral-Float return acceptance. Test
    `equal => same hash` for integral Float values beyond `2^53`.
 4. Implement strict string grammar, byte-offset failures, canonical Int/Float render, special
    spelling, signed zero preservation, and Float overflow-to-infinity as the spec requires.

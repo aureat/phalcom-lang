@@ -84,6 +84,9 @@ impl ModuleReferenceContribution {
                 crate::source_index::SourceSiteKind::DataComponent(id) => {
                     defs.entry(SemanticTargetId::DataComponent(id.clone())).or_default().push(site.id.clone());
                 }
+                crate::source_index::SourceSiteKind::AssociatedType(id) => {
+                    defs.entry(SemanticTargetId::AssociatedType(id.clone())).or_default().push(site.id.clone());
+                }
                 crate::source_index::SourceSiteKind::Module => {
                     if let SourceOwner::Module(mod_id) = &site.id.owner {
                         defs.entry(SemanticTargetId::Module(mod_id.clone())).or_default().push(site.id.clone());

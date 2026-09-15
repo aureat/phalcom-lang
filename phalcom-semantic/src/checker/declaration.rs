@@ -51,7 +51,55 @@ pub fn build_declared_class_surface(
                 surface.add_callable_with_visibility(side, projection, visibility);
                 signatures.insert(signature.callable.clone(), signature);
             }
-            ClassMember::Variant(_) => {}
+            ClassMember::Variant(_) | ClassMember::Delegation(_) => {}
+        }
+    }
+
+    // A delegation is source shorthand for one or two ordinary accessors.
+    // Expand it after explicit members have been published so duplicate
+    // selectors are diagnosed regardless of source order.
+    for member in &class_def.members {
+        let ClassMember::Delegation(delegation) = member else {
+            continue;
+        };
+        let generated = match super::declaration_signature::delegated_accessor_signatures(ctx, &decl_id, delegation) {
+            Ok(signatures) => signatures,
+            Err(error) => {
+                let (code, message, range) = match error {
+                    super::declaration_signature::DelegationError::FieldNotFound(range) => (
+                        DiagnosticCode::DelegationFieldNotFound,
+                        format!("delegation field `{}` was not found on `{}`", delegation.target_field, decl_id.name),
+                        range,
+                    ),
+                    super::declaration_signature::DelegationError::FieldTypeRequired(range) => (
+                        DiagnosticCode::DelegationFieldTypeRequired,
+                        format!("delegation field `{}` requires an explicit usable type", delegation.target_field),
+                        range,
+                    ),
+                    super::declaration_signature::DelegationError::SetterRequiresMutableField(range) => (
+                        DiagnosticCode::DelegationSetterRequiresMutableField,
+                        format!("delegation field `{}` must be mutable for a setter", delegation.target_field),
+                        range,
+                    ),
+                };
+                ctx.diagnostics.push(crate::diagnostic::SemanticDiagnostic::error_in(ctx.current_module.clone(), code, message, range));
+                continue;
+            }
+        };
+        for signature in generated {
+            if surface.get_callable(signature.side, &signature.selector).is_some() || signatures.contains_key(&signature.callable) {
+                ctx.diagnostics.push(crate::diagnostic::SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    DiagnosticCode::ImplMemberConflict,
+                    format!("delegated accessor `{}` conflicts with an existing member", signature.selector.encode()),
+                    delegation.range,
+                ));
+                continue;
+            }
+            let side = signature.side;
+            let projection = super::declaration_signature::project_semantic_signature(&signature);
+            surface.add_callable_with_visibility(side, projection, member_visibility(member));
+            signatures.insert(signature.callable.clone(), signature);
         }
     }
 
@@ -74,6 +122,7 @@ fn member_visibility(member: &ClassMember) -> MemberVisibility {
         ClassMember::Method(item) => (Some(item.name.as_str()), item.attributes.as_slice(), false),
         ClassMember::Getter(item) => (Some(item.name.as_str()), item.attributes.as_slice(), false),
         ClassMember::Setter(item) => (Some(item.name.as_str()), item.attributes.as_slice(), false),
+        ClassMember::Delegation(item) => (Some(item.name.as_str()), item.attributes.as_slice(), false),
         ClassMember::Field(item) => (Some(item.name.as_str()), item.attributes.as_slice(), true),
         ClassMember::Variant(item) => (Some(item.name.as_str()), item.attributes.as_slice(), false),
         ClassMember::Index(item) => (None, item.attributes.as_slice(), false),

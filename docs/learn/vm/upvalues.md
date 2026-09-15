@@ -1,7 +1,7 @@
 # Upvalues: variables that outlive their frames
 
 > **Status.** Describes Phalcom at HEAD (`f874e6c`). The mechanism is complete and
-> ADR-backed ([ADR-0013](../../adr/accepted/0013-closure-upvalues-and-frame-token-return.md),
+> ADR-backed ([TDR-0012](../../decisions/accepted/0012-closure-upvalues-and-frame-token-return.md),
 > Accepted 2026-07-11). Every source claim below was read at HEAD; every behavioural claim
 > was produced by running the cited `.ph` fixture. Nothing here is aspirational.
 
@@ -812,7 +812,7 @@ What it precludes, which matters more than what it costs: the branchless read is
 **unreachable** without changing the representation. Any future fast path — inline-caching an
 upvalue access, unboxing a captured local, specializing `Closed` reads — has to work with a
 `match`, not around it. Conversely, the design *keeps* open a moving/compacting collector, which
-Lua's representation would tax on every stack relocation. Given [ADR-0050](../../adr/) ships
+Lua's representation would tax on every stack relocation. Given [TDR-0048](../../adr/) ships
 mark-sweep today and compaction is a live future option, that is the more valuable half of the
 trade to have kept.
 

@@ -4,7 +4,7 @@
 - Date: 2026-07-11
 - Depends on: [construct-derive.md](construct-derive.md)
 - Resolves: construct gaps — super-construct chaining, hand-written collision, `let` vs `var` fields, default timing
-- Related: classes.md §2 (private, non-inherited fields), ADR-0011 (fixed slots), ADR-0014 (`let`/`var`)
+- Related: classes.md §2 (private, non-inherited fields), TDR-0010 (fixed slots), ADR-0014 (`let`/`var`)
 
 ## Context
 
@@ -52,7 +52,7 @@ hierarchy depth without requiring uniform derivation at every level.
 
 A class carrying `@construct` **and** a hand-written `@constructor
 new(...)` of the
-same selector is a **compile error** (ADR-0012: selector is sole dispatch key, no
+same selector is a **compile error** (TDR-0011: selector is sole dispatch key, no
 last-wins) — identical policy to the `@get`/`@set` collision rule. `@construct`
 plus a *differently-selectored* hand-written constructor (e.g. `construct
 anonymous()`) is fine; they coexist.

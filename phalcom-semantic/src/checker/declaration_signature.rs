@@ -12,11 +12,103 @@ use crate::identity::{CallableId, CallableOwnerId, CallableParameterId, Declarat
 use crate::signature::{CallableParameterSemantic, CallableSemanticSignature, FieldSemanticSignature};
 use crate::types::annotation::{TypeFormationOutcome, TypeFormationSite, type_level_binding_for_parameter};
 use crate::types::evidence::{EvidenceOrigin, TypeKnowledge, UnknownReason};
-use crate::types::parameter::TypeParameterOwner;
-use phalcom_ast::ast::{BehaviorMember, ClassMember, GetterDef, IndexMethodDef, MethodDef, ParameterDef, SetterDef};
+use crate::types::parameter::{TypeParameterOwner, TypeTerm};
+use phalcom_ast::ast::{BehaviorMember, ClassMember, DelegatedAccessorDef, DelegatedAccessorKind, GetterDef, IndexMethodDef, MethodDef, ParameterDef, SetterDef};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::{Selector, SelectorSlot};
 use std::collections::HashMap;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum DelegationError {
+    FieldNotFound(SourceRange),
+    FieldTypeRequired(SourceRange),
+    SetterRequiresMutableField(SourceRange),
+}
+
+pub(crate) fn delegated_accessor_signatures(
+    ctx: &mut CheckingContext<'_>,
+    owner: &DeclarationId,
+    delegation: &DelegatedAccessorDef,
+) -> Result<Vec<CallableSemanticSignature>, DelegationError> {
+    let Some(field) = ctx.resolve_field_signature(owner, DispatchSide::Instance, &delegation.target_field) else {
+        return Err(DelegationError::FieldNotFound(delegation.target_range));
+    };
+    if !field.declared_type.is_known() {
+        return Err(DelegationError::FieldTypeRequired(delegation.target_range));
+    }
+    let field_type = field.declared_type.clone();
+    if matches!(delegation.kind, DelegatedAccessorKind::Setter | DelegatedAccessorKind::ReadWrite) && !field.mutable {
+        return Err(DelegationError::SetterRequiresMutableField(delegation.range));
+    }
+
+    let source = crate::diagnostic::SemanticSourceSpan::new(ctx.current_module.clone(), delegation.range);
+    let mut signatures = Vec::with_capacity(if delegation.kind == DelegatedAccessorKind::ReadWrite { 2 } else { 1 });
+
+    let make_signature = |ctx: &mut CheckingContext<'_>, setter: bool| {
+        let selector = if setter {
+            Selector::setter(&delegation.name).expect("parser guarantees a valid delegated setter selector")
+        } else {
+            Selector::getter(&delegation.name).expect("parser guarantees a valid delegated getter selector")
+        };
+        let callable = CallableId::new(CallableOwnerId::Declaration(owner.clone()), selector.clone(), DispatchSide::Instance);
+        let parameters = if setter {
+            vec![CallableParameterSemantic::new(
+                CallableParameterId::new(callable.clone(), 0),
+                "_",
+                field_type.clone(),
+            )
+            .with_source(source.clone())]
+            .into_boxed_slice()
+        } else {
+            Box::new([])
+        };
+        let declared_return = if setter {
+            DeclaredTypeFact::known(TypeTerm::Canonical(ctx.store.unit()), DeclaredTypeBasis::DeclarationSemantics)
+        } else {
+            field_type.clone()
+        };
+        CallableSemanticSignature {
+            callable,
+            owner: owner.clone(),
+            side: DispatchSide::Instance,
+            selector,
+            generics: None,
+            parameters,
+            declared_return,
+            return_validation: crate::signature::ReturnContractValidation::NotApplicable,
+            inferred_return: None,
+            source: Some(source.clone()),
+            implementation: phalcom_native_meta::ImplementationKind::Generated,
+            native_id: None,
+            effects: phalcom_native_meta::EffectSpec::Unknown,
+            raises: phalcom_native_meta::RaisesSpec::Unknown,
+            flow: phalcom_native_meta::ReturnFlowSpec::Value,
+            lifecycle: phalcom_native_meta::NativeLifecycleSpec::UNKNOWN,
+        }
+    };
+
+    match delegation.kind {
+        DelegatedAccessorKind::Getter => signatures.push(make_signature(ctx, false)),
+        DelegatedAccessorKind::Setter => signatures.push(make_signature(ctx, true)),
+        DelegatedAccessorKind::ReadWrite => {
+            signatures.push(make_signature(ctx, false));
+            signatures.push(make_signature(ctx, true));
+        }
+    }
+    Ok(signatures)
+}
+
+pub(crate) fn delegated_member_visibility(name: &str, attributes: &[phalcom_ast::ast::Attribute]) -> crate::surface::MemberVisibility {
+    if name.starts_with("_$") {
+        crate::surface::MemberVisibility::Internal
+    } else if attributes.iter().any(|attribute| attribute.name == "private") {
+        crate::surface::MemberVisibility::Private
+    } else if attributes.iter().any(|attribute| attribute.name == "protected") {
+        crate::surface::MemberVisibility::Protected
+    } else {
+        crate::surface::MemberVisibility::Public
+    }
+}
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum CallableSyntaxRef<'a> {
@@ -142,7 +234,7 @@ pub(crate) fn callable_id_for_member(owner: &DeclarationId, member: &ClassMember
         ClassMember::Getter(g) => CallableSyntaxRef::Getter(g),
         ClassMember::Setter(s) => CallableSyntaxRef::Setter(s),
         ClassMember::Index(i) => CallableSyntaxRef::Index(i),
-        ClassMember::Field(_) | ClassMember::Variant(_) => return None,
+        ClassMember::Field(_) | ClassMember::Variant(_) | ClassMember::Delegation(_) => return None,
     };
     callable_id_for_syntax(&CallableOwnerId::Declaration(owner.clone()), syntax, declared_side)
 }
@@ -723,7 +815,7 @@ pub(crate) fn semantic_signature_for_member(ctx: &mut CheckingContext<'_>, owner
         ClassMember::Getter(g) => CallableSyntaxRef::Getter(g),
         ClassMember::Setter(s) => CallableSyntaxRef::Setter(s),
         ClassMember::Index(i) => CallableSyntaxRef::Index(i),
-        ClassMember::Field(_) | ClassMember::Variant(_) => return None,
+        ClassMember::Field(_) | ClassMember::Variant(_) | ClassMember::Delegation(_) => return None,
     };
     semantic_signature_for_syntax(ctx, &CallableOwnerId::Declaration(owner.clone()), syntax, declared_side)
 }

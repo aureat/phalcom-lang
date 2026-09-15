@@ -22,7 +22,7 @@
   mechanism provisionally) ·
   [core/floor-census.md](../core/floor-census.md) (the native binding census this
   attribute's invariant test cross-checks) ·
-  [ADR-0019](../../../adr/accepted/0019-freeze-vm-blessed-primitive-floor.md)
+  [TDR-0017](../../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md)
   (the primitive floor)
 
 ## What it is
@@ -88,7 +88,7 @@ mechanism, standing in until `@native`'s own mechanics are decided (see N-2).
 `SignatureKind::Getter`, so the motivating case targets `Target::Getter`. A
 `legal_targets()` of `[Target::Method]` alone would reject the exact member this
 attribute exists for. (`toString` and `toString()` are *different selectors* — see
-ADR-0022's CB-1 amendment.)
+TDR-0020's CB-1 amendment.)
 
 **`Construct` is listed but unreachable, and this table would otherwise lie about
 it.** `ConstructDef` carries no `attributes` field at all (`phalcom-ast/src/ast.rs`

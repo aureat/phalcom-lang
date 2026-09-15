@@ -272,7 +272,7 @@ pub struct MemberSurface {
 
 This model subsumes the member information currently split across `WorkspaceIndex` and `CoreTable`.
 
-Selector identity MUST remain canonical ADR-0012 comma-form. No inference work is permission to introduce bare-selector aliases.
+Selector identity MUST remain canonical TDR-0011 comma-form. No inference work is permission to introduce bare-selector aliases.
 
 Visibility filtering already present in completion MUST be preserved.
 
@@ -948,7 +948,7 @@ Rules:
 2. An exact hint MUST have exact/flow/interprocedural provenance; heuristic structural matching is not exact.
 3. Dynamic/reflective operations widen knowledge rather than silently retaining stale precision.
 4. Class identity is module-qualified.
-5. Selector identity remains ADR-0012 canonical.
+5. Selector identity remains TDR-0011 canonical.
 6. Private/protected/internal visibility is applied after semantic candidate resolution.
 7. Open buffers dominate disk.
 8. Native return values without contracts are `Unknown`.

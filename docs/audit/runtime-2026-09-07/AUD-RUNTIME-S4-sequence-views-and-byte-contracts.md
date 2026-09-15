@@ -12,7 +12,7 @@ Read-only runtime/library inspection at HEAD `1e22b57ff8cd0c61b12aeca4128671c9fa
 
 A targeted search found no additional definitions or native bindings for these class names under `phalcom-core/src` or the Universe source tree. The Object library declaration has no iteration selectors. In contrast, `collections/bytes.ph:8` explicitly inherits Iterable and defines `iteratorValue`; `collections/iterable.ph` provides the generic cursor step. `compiler/lib/loops.rs::compile_for` sends `iterate(_)` and `iteratorValue(_)`; it does not translate a local `each` method or private `nextCursor` into the protocol.
 
-The current core-classes document describes the views as ADR-0048-shaped. The implementation supplies a traversal convenience but lacks those protocol methods. A historical design discussion also calls them sub-iterable views; that design wording is context, not independent normative authority.
+The current core-classes document describes the views as TDR-0042-shaped. The implementation supplies a traversal convenience but lacks those protocol methods. A historical design discussion also calls them sub-iterable views; that design wording is context, not independent normative authority.
 
 ### Why this matters
 

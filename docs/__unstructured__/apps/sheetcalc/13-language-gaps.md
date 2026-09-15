@@ -88,7 +88,7 @@ a concrete proposal, not a wish list.
 `System.sleep(_)` (needs a scheduler story), directory listing, process spawn.
 
 **None of this is exotic.** It is the set every scripting language ships on day
-one. The absence is not a design position — `system.md` and ADR-0019 clearly
+one. The absence is not a design position — `system.md` and TDR-0017 clearly
 anticipate these — it is simply unlanded work. But the effect on what can be
 *written* in Phalcom today is total: **no Phalcom program can interact with
 anything.**

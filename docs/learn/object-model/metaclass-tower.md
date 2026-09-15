@@ -132,11 +132,11 @@ the question:
 
 1. **This four-way menu is pedagogical scaffolding, not the decision as it happened.** Phalcom did
    not pick "the tower" off a menu. The record (below) is narrower: a *flat-chain bug* was fixed
-   into the parallel rule ([ADR-0002](../../../docs/adr/accepted/0002-metaclass-tower-parallel-rule.md)),
+   into the parallel rule ([TDR-0002](../../decisions/accepted/0002-metaclass-tower-parallel-rule.md)),
    a shared kernel class `Behavior` was factored out
-   ([ADR-0003](../../../docs/adr/accepted/0003-introduce-behavior-kernel-class.md)), and the
+   ([TDR-0003](../../decisions/accepted/0003-introduce-behavior-kernel-class.md)), and the
    representation was later changed from reference-counted cycles to handles
-   ([ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md)). The menu is here to make the
+   ([TDR-0008](../../decisions/accepted/0008-handle-arena-heap.md)). The menu is here to make the
    tower *tempting*, not to imply it was chosen against equals.
 2. Each branch was chosen by serious designers for real reasons. Grant them.
 
@@ -307,7 +307,7 @@ hierarchy's own superclass chain terminates in the ordinary root a few steps lat
 arrows between `Metaclass` and `Metaclass class` form a closed two-node loop. **The picture *is* the
 termination argument:** you cannot follow either arrow kind and land outside this drawing. (Note
 Phalcom's kernel is exactly `Object / Behavior / Class / Metaclass` — it has no `ClassDescription`
-row that Smalltalk-80 inserts; `Behavior` absorbs that role, per ADR-0003.)
+row that Smalltalk-80 inserts; `Behavior` absorbs that role, per TDR-0003.)
 
 ---
 
@@ -340,7 +340,7 @@ to break the cycle), or **replace the reference with an ownership-free index int
 so a "cycle" is just ordinary integer data that no aliasing rule can object to.
 
 Phalcom's history contains *both* escapes, in order. The tower was first built on
-`Rc<RefCell<T>>` + a deliberate `Weak`-guarded kernel cycle. ADR-0009 then replaced that with the
+`Rc<RefCell<T>>` + a deliberate `Weak`-guarded kernel cycle. TDR-0008 then replaced that with the
 slotmap heap and `Copy` `ClassId` handles — "the kernel cycle is expressed as handles that refer to
 each other with no ownership paradox." Same tower, second representation, and the second deletes an
 entire category of construction pain: patching a `ClassId` field is a plain integer write, where
@@ -348,7 +348,7 @@ patching an `Rc` cycle needed `new_cyclic`/`Weak` gymnastics. That is the scar t
 at — the design didn't get easier, its *representation* did.
 
 The collector rides on the same choice. Phalcom's GC is **non-moving mark-sweep**
-([ADR-0050](../../../docs/adr/accepted/0050-non-moving-mark-sweep-collector.md)): it *marks through*
+([TDR-0047](../../decisions/accepted/0047-non-moving-mark-sweep-collector.md)): it *marks through*
 both links and never relocates or patches them ([`heap/trace.rs::trace_object`](../../../phalcom-core/src/heap/trace.rs),
 the `Object::Class` arm pushes `class` and `superclass` onto the mark worklist), and the kernel's
 own cycle terminates the mark simply because an already-marked row is never re-pushed. A moving
@@ -474,7 +474,7 @@ difficulty concentrates into one construction phase, paid once at startup.
 Theory can take you to "there are two escapes for cyclic data — reference-counting with interior
 mutability, or ownership-free indices." It cannot tell you which a given system picks; that is a
 fact about representation. Phalcom's answer is on the record and dated: it took the second, via
-ADR-0009, after starting with the first. And it draws one more line theory leaves open — an object's
+TDR-0008, after starting with the first. And it draws one more line theory leaves open — an object's
 class is *fixed*: the `class=` selector exists but is a hard error by design
 ([`primitive/object.rs::object_set_class`](../../../phalcom-core/src/primitive/object.rs) —
 `InvalidSetClass`, *"an object's class is fixed"*), so the tower is wired once at boot and never
@@ -495,7 +495,7 @@ re-pointed at runtime.
 | Parallel-rule helper | `universe/core_classes.rs::make_core_class` — `meta.superclass = superclass.class` |
 | The bootstrap tie | `universe/core_classes.rs::create_core_classes` — allocate-bare then patch |
 | Closure check (phase 4) | `universe/invariants.rs::verify_invariants` — `.expect()`ed in `vm/bootstrap.rs::VM::new` |
-| GC marks through, non-moving | `heap/trace.rs::trace_object` (`Object::Class` arm); ADR-0050 |
+| GC marks through, non-moving | `heap/trace.rs::trace_object` (`Object::Class` arm); TDR-0048 |
 | Fixed class | `primitive/object.rs::object_set_class` — `InvalidSetClass` |
 | ADRs | 0002 (parallel rule), 0003 (`Behavior` kernel), 0009 (handle heap, supersedes `Rc` cycle) |
 | Spec | `docs/spec/current/core/core-classes.md` §3 "Kernel tower classes" |

@@ -21,20 +21,20 @@ lookup*. A send is **two decoupled moves**:
 
 The miss path is the Smalltalk hallmark: no method found ⇒ reify the send as a `Message` object
 and forward to `doesNotUnderstand(_)` (`VM::new_message` @ ~L138, `VM::forward_does_not_understand`
-@ ~L181; ADR-0012, method-lookup.md §2).
+@ ~L181; TDR-0011, method-lookup.md §2).
 
 **Representation (what the live state holds — the axis where consequences live).**
 
 - A **selector is an interned `Symbol`** encoding *name + argument labels* (`add(_,_)`,
   `move(to,duration)`, `+(_)`, `name=(_)`, variadic `sum(*)`). Labels are baked into the symbol, so
   `move(to,duration)` and `move(_,_)` are **different keys** — lookup stays one hashmap probe per
-  class (ADR-0012 Decision).
+  class (TDR-0011 Decision).
 - **The compiled call site names the *selector*, not the method.** `Bytecode::Invoke(arity,
   selector_idx)` (dispatch.rs @ ~L1024) carries an `arity: u8` and a `selector_idx: u16` into the
   chunk's constant pool — plus an inline-cache slot it owns. It does **not** hold a method handle,
   a vtable offset, or a resolved address. Which code runs is decided at runtime, by the receiver.
 - The method dictionary is `ClassObject.methods: MethodsMap` keyed by selector `Symbol`; the chain
-  is `superclass: Option<ClassId>` handles (ADR-0009 arena, no `Rc` cycle).
+  is `superclass: Option<ClassId>` handles (TDR-0008 arena, no `Rc` cycle).
 
 **The one-line representation fact that settles the doc:** *the call site holds a selector and an
 empty cache slot; the method — and whether a frame even appears — is resolved after the site, from
@@ -50,9 +50,9 @@ Corollary that ties to Doc 3: **not every send pushes a frame.** A primitive sen
 native Rust in place and pushes zero `CallFrame`s. The frame push is one arm of `call_method`, not a
 property of "calling."
 
-## 3. What was actually deliberated (ADR-0012, the one real ADR)
+## 3. What was actually deliberated (TDR-0011, the one real ADR)
 
-ADR-0012 *selector-signature-encoding-and-dispatch* is the deliberated core. Its **Alternatives
+TDR-0011 *selector-signature-encoding-and-dispatch* is the deliberated core. Its **Alternatives
 considered**:
 
 - **Arity-only dispatch** (`SignatureKind::Method(u8)`, the pre-ADR tree). Cannot tell
@@ -68,13 +68,13 @@ considered**:
 static/early binding vs vtable-offset vs dynamic-dictionary — was **not** deliberated. Phalcom is
 dictionary-dispatch by Smalltalk/Wren lineage, the same way Doc 1's stack-machine choice was
 lineage, not a bake-off. The **finer** fork *was* deliberated: *given* dictionary dispatch, key it
-on arity-only or on full label-encoded selectors? That is ADR-0012, and it carries the F1/F7/F8
+on arity-only or on full label-encoded selectors? That is TDR-0011, and it carries the F1/F7/F8
 scar. The doc must present the coarse fork as pedagogical scaffolding and land the real deliberated
 choice on the finer axis.
 
-Secondary ADRs (mention, defer mechanism): ADR-0040 (SuperSend is its own opcode — bypasses the
-receiver-class start, begins the walk above `self`'s class); ADR-0060 (index `[]` is a real
-selector, reinforces "everything is a selector"); ADR-0063 (constructors are ordinary class-side
+Secondary ADRs (mention, defer mechanism): TDR-0035 (SuperSend is its own opcode — bypasses the
+receiver-class start, begins the walk above `self`'s class); TDR-0050 (index `[]` is a real
+selector, reinforces "everything is a selector"); TDR-0052 (constructors are ordinary class-side
 methods, so `Foo.new()` resolves by the same walk — no constructor special-case in `lookup_method`,
 value/mod.rs @ ~L165 comment confirms).
 
@@ -109,7 +109,7 @@ confirm with lines:
   `doesNotUnderstand`. Flag the IC/variadic-cache parts as Doc-5 lies but quote the lookup+call
   spine.
 - `call_method` full body (send.rs @ ~L19): the `MethodKind::{Primitive,Closure}` fork; primitive
-  runs `native_fn` in place with the on-stack arg buffer (INLINE_ARGS, ADR-0051) and the **three**
+  runs `native_fn` in place with the on-stack arg buffer (INLINE_ARGS, TDR-0049) and the **three**
   post-return paths (ordinary / fiber-switch / non-local-return); closure builds+pushes the frame.
 - `lookup_method` (value/mod.rs @ ~L170) → `lookup_method_in_hierarchy` (class.rs @ ~L74): the
   chain walk; confirm single-inheritance simple loop, selector-keyed `methods.get`.
@@ -122,7 +122,7 @@ confirm with lines:
   frames); a `doesNotUnderstand` miss (does the default handler fire? what message?); a
   method defined/monkeypatched and then sent; if a `perform:`-style reflective send exists in
   `.ph`, run it. Report observed output verbatim.
-- Bounded ADR read: ADR-0012 Decision + Alternatives only (already summarized here — B verifies).
+- Bounded ADR read: TDR-0011 Decision + Alternatives only (already summarized here — B verifies).
 
 ## 5. Predict-then-check candidates (pick in synthesis)
 
@@ -139,7 +139,7 @@ confirm with lines:
    → **Doc 5 (caches-and-fusion)**.
 2. **Fusion** — `InvokeLocal`/`InvokeConst` superinstructions fold a preceding load into the send →
    **Doc 5**.
-3. **SuperSend** (ADR-0040) — starts the walk above the receiver's class; own opcode. Mention,
+3. **SuperSend** (TDR-0035) — starts the walk above the receiver's class; own opcode. Mention,
    defer mechanism.
 4. **Fiber-switch return path** — `switch_pending` branch after a primitive returns → **concurrency
    doc**. Mark.
@@ -150,7 +150,7 @@ confirm with lines:
 
 **Fork + mechanism.** Fork: how to bind selector→method (static / vtable / dictionary), with the
 honest note that Phalcom's coarse position is lineage and the *deliberated* fork is the finer
-arity-vs-label-encoded axis (ADR-0012). Mechanism spine: the two-move resolve-then-enter and the
+arity-vs-label-encoded axis (TDR-0011). Mechanism spine: the two-move resolve-then-enter and the
 miss order. Hard case to trace (§5.5): **the miss path** — a send that resolves to nothing, reified
 as a `Message` and forwarded to `doesNotUnderstand(_)` — not the textbook hit, which the reader's
 intuition already handles.

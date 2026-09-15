@@ -37,7 +37,7 @@ Two programs is the whole doc. Everything good and everything broken follows fro
 Most languages answer this question by not asking it. `if` is grammar, booleans are a primitive tag,
 the compiler emits a branch, and nothing is overridable because there is nothing to override.
 
-[ADR-0018](../../adr/accepted/0018-sacred-selector-inliner-and-override-guard.md) considered exactly
+[TDR-0016](../../decisions/accepted/0016-sacred-selector-inliner-and-override-guard.md) considered exactly
 that and rejected it. From its `## Alternatives considered`:
 
 > **Grammar-level control flow** (compile `if`/`while` straight to jumps, no selector). Fastest, but
@@ -159,7 +159,7 @@ always the right answer.
 `GuardBlock` asks only the second. It never peeks a receiver, because the receiver of an inlined
 `whileTrue` is a block literal the compiler materialized itself — its type is static.
 
-ADR-0018's Decision says otherwise:
+TDR-0016's Decision says otherwise:
 
 > **Receiver guard.** `GuardBool`/`GuardBlock` verify the receiver's type before the inline body runs.
 
@@ -341,7 +341,7 @@ unrelated decision lands.
 
 One more coarse edge, from the same family: **all six** sacred `Bool` selectors share a single flag
 (`universe/mod.rs:156`). Installing `and` deopts every `ifTrue` in the program — asserted directly by
-`kernel_bool_sacred_override_deopts_nested_iftrue`. ADR-0018 chose that deliberately and says so.
+`kernel_bool_sacred_override_deopts_nested_iftrue`. TDR-0016 chose that deliberately and says so.
 
 And a latent asymmetry worth recording: `bool_sacred_pristine`/`block_sacred_pristine` are seeded
 `true` in `Universe::new` with **no** post-bootstrap re-snapshot, unlike the leaf `toString` flags,
@@ -423,7 +423,7 @@ space, which is JIT-tier machinery and a different doc).
 | Both paths emitted into one chunk; guard is a forward jump | `inliner.rs:295-318`, `:298` | `disasm`, 17 instructions |
 | Recognition is purely syntactic | `inliner.rs:126-173` | two disassemblies, one `let` apart |
 | `GuardBool` = type ∧ pristine; `GuardBlock` = pristine only | `dispatch.rs:1190-1201` | quoted |
-| ADR overstates the guard symmetry | ADR-0018 §Decision vs `bytecode.rs:250` | quoted both |
+| ADR overstates the guard symmetry | TDR-0016 §Decision vs `bytecode.rs:250` | quoted both |
 | `whileTrue` guard runs once, not per iteration | `inliner.rs:418-426` | quoted |
 | Compile time was 2^depth; 70.9 s at depth 26; bootstrap 35×; suite 122 s → 2.8 s | SCOREBOARD §3c/§3d | quoted |
 | Linear at HEAD, 9 instrs/level, 0.026 s at depth 26 | — | measured, depths 1–26 |

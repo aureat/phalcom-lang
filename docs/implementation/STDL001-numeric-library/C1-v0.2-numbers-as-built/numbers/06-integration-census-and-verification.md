@@ -7,8 +7,8 @@ and behavior covered across parser, VM, GC, diagnostics, and keyed collections.
 
 ## Checklist
 
-1. Recompute ADR-0019 primitive delta from installed bindings. Account separately for the existing
-   split and PDR-0027's +10 Float protocol / +2 power bindings; update the floor amendment and
+1. Recompute TDR-0017 primitive delta from installed bindings. Account separately for the existing
+   split and TDR-0072's +10 Float protocol / +2 power bindings; update the floor amendment and
    invariant constants in the same commit. Never trust historical 137/153 prose as a live count.
 2. Update core-class census rows and all selector symbol/operator inventories. Verify `**` is a
    direct selector key, not a textual alias.

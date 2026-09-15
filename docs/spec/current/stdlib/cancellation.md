@@ -1,18 +1,18 @@
 # Specification — Cancellation (`Future#cancel`, `Future#isCancelled`, `CancelledError`)
 
 > **Status:** **Proposed — normative upon ratification of
-> [PDR-0017](../../../pdr/0017-future-cancel-is-renunciation.md)** (rule 5: no
+> [TDR — `Future#cancel` is renunciation: settle `#cancelled` now, suppress unstarted work best-effort, interrupt nothing](../../../decisions/proposed/future-cancel-is-renunciation.md)** (rule 5: no
 > unit builds this until it flips). Discharges [`reactor.md`](reactor.md) §11 **Q-R4**
 > on the substrate §7 already binds (token generations, deregistration-as-bump,
 > stale-drop at drain). Already-Accepted inputs:
-> [PDR-0004](../../../pdr/0004-io-is-future-shaped-reactor-owned.md)
+> [TDR-0056](../../../decisions/accepted/0056-io-is-future-shaped-reactor-owned.md)
 > (Consequences — cancellation named unavoidable),
-> [PDR-0005](../../../pdr/0005-resources-are-disposable-handles-not-finalized.md)
-> §5 (leak-report composition), ADR-0030 / C-FUT-3 (settle-once no-op, the load-bearing
+> [TDR-0057](../../../decisions/accepted/0057-resources-are-disposable-handles-not-finalized.md)
+> §5 (leak-report composition), TDR-0027 / C-FUT-3 (settle-once no-op, the load-bearing
 > shipped fact — `core.ph` `class Future`, `settleValue`'s settle-once comment).
 > **Floor delta: +1** (`System.cancelRegistration_(_)`, `NEW_CANCEL`) — the U-SCHED
 > seam-precedent shape; census at impl time under
-> [PDR-0012](../../../pdr/0012-numeric-tower-implementation-and-floor-amendment.md)
+> [TDR-0064](../../../decisions/accepted/0064-numeric-tower-implementation-and-floor-amendment.md)
 > ruling 21's rebase discipline.
 > **Build order:** needs U-REACTOR (phase 1) only — `System.sleep` is a sufficient test
 > substrate; independent of and parallel-safe with U-NET.
@@ -87,7 +87,7 @@ it is opt-in.
 ## 5. Composition laws
 
 1. **Cancelled ⇒ not a leak.** Release removes the registration from the pump's
-   pending set and the leak surface in one motion (PDR-0005 §5 posture; reactor.md
+   pending set and the leak surface in one motion (TDR-0058 §5 posture; reactor.md
    §7.2's parked-fiber condition is *remedied* by cancel — the fiber resumes with the
    raise — never triggered by it).
 2. **`#cancelled` ≠ `#closed`.** Same spine, different initiator: resource-went-away

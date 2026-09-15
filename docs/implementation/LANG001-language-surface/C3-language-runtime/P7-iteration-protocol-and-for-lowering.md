@@ -18,7 +18,7 @@ deferred_reason: null
 _Self-contained implementation plan for **one** implementer. Post-U5 (inliner) / post-U-LIST /
 post-U6 (Option) surface+compiler unit. **Reviewer ON** (touches a spine file, `compiler/lib.rs`) —
 hand the diff to `phalcom-reviewer`; do not self-approve. Green gate: `./scripts/verify.sh` exits 0 +
-`cargo doc --workspace --no-deps` clean. Grounded in **[ADR-0035](../../../adr/0035-iteration-protocol-cursor.md)**
+`cargo doc --workspace --no-deps` clean. Grounded in **[TDR-0029](../../../decisions/accepted/0029-iteration-protocol-cursor.md)**
 and normative **[iteration.md](../../../spec/current/iteration.md) §1–§6**. New governing ADR: none —
 ADR-0035 is ratified; this unit realises it._
 
@@ -38,7 +38,7 @@ as jump-based loop control (§3) — with **zero new floor primitives** and the 
 
 ## 2. Preconditions (verify on actual HEAD — do not assume)
 - **U5 landed** — the sacred-selector inliner + `Jump` / `JumpIfFalse` / `Loop` opcodes
-  ([ADR-0018](../../../adr/0018-sacred-selector-inliner-and-override-guard.md)). `for` reuses the
+  ([TDR-0016](../../../decisions/accepted/0016-sacred-selector-inliner-and-override-guard.md)). `for` reuses the
   **inlined `whileTrue` skeleton**; `break`/`continue` reuse the same jump opcodes. **Confirm `Jump`
   (forward) and `Loop` (backward) exist and are emittable outside the `whileTrue` path** — `graphify
   explain "Bytecode"` / read `bytecode.rs`. If a forward unconditional jump is missing, that is the only

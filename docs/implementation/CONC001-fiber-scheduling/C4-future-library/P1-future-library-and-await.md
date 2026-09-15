@@ -24,7 +24,7 @@ This plan is authored against **HEAD `0de7496`** (U-FIBER landed on `main`). **R
 (library layer over a deep VM primitive). Green gate: `./scripts/verify.sh` exits 0 +
 `cargo doc --workspace --no-deps` clean._
 
-> **Governing sources.** [ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md)
+> **Governing sources.** [TDR-0026](../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md)
 > §1 (`Future` = pure library layer, "no VM mechanism beyond `Fiber` + a queue"); §Consequences
 > (floor-amendment convention). [concurrency.md §2](../../../../spec/current/concurrency.md) (surface +
 > state machine + settle-once). [system.md §2](../../../../spec/current/system.md) (the reserved

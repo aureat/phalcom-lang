@@ -2,13 +2,13 @@
 
 > **Status:** **Normative contract.** The `Resource` class, the `close` contract, and the informal
 > Reader/Writer/Seekable protocols encode
-> [PDR-0005](../../../pdr/0005-resources-are-disposable-handles-not-finalized.md) §3/§3a/§3b/§3c
-> and [PDR-0004](../../../pdr/0004-io-is-future-shaped-reactor-owned.md) §1. **§5 is the
-> protocol-level statement of PDR-0005 §7a**, ruled in that record's third revision (2026-07-20);
+> [TDR-0057](../../../decisions/accepted/0057-resources-are-disposable-handles-not-finalized.md) §3/§3a/§3b/§3c
+> and [TDR-0056](../../../decisions/accepted/0056-io-is-future-shaped-reactor-owned.md) §1. **§5 is the
+> protocol-level statement of TDR-0058 §7a**, ruled in that record's third revision (2026-07-20);
 > this document holds the laws and the conformance harness, §7a holds the ruling and its rationale.
-> Adds **zero** floor primitives — no [ADR-0019](../../adr/accepted/0019-freeze-vm-blessed-primitive-floor.md)
-> amendment. Selector spellings follow [ADR-0012](../../adr/accepted/0012-selector-signature-encoding-and-dispatch.md)
-> and [ADR-0043](../../adr/accepted/0043-no-default-arguments-keep-selector-identity-pristine.md).
+> Adds **zero** floor primitives — no [TDR-0017](../../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md)
+> amendment. Selector spellings follow [TDR-0011](../../../decisions/accepted/0011-selector-signature-encoding-and-dispatch.md)
+> and [TDR-0036](../../../decisions/accepted/0036-no-default-arguments-keep-selector-identity-pristine.md).
 >
 > **Owner:** unassigned. Normative for any `BufferedWriter` implementation.
 
@@ -17,9 +17,9 @@
 `File` must be readable, writable, seekable **and** closeable — four axes against one `extends`
 slot, since Phalcom retains single class inheritance and does not provide
 stateful mixins or multiple inheritance
-([ADR-0041](../../adr/accepted/0041-hierarchy-stability-policy.md) DEC-U13b).
+([TDR-0035](../../../decisions/accepted/0035-hierarchy-stability-policy.md) DEC-U13b).
 
-PDR-0005 §3 reifies exactly one axis, with a stated test: **an axis earns a class only when some
+TDR-0058 §3 reifies exactly one axis, with a stated test: **an axis earns a class only when some
 mechanism needs to *ask the type*, rather than just send to it.** Two mechanisms need to ask about
 closeability — leak reporting (§7) and any generic cleanup path. Nothing ever needs to ask "is
 this a Reader?"; it just sends `read(_)`.
@@ -33,7 +33,7 @@ So:
 | Writable | informal protocol | callers only ever send `write(_)` |
 | Seekable | informal protocol | callers only ever send `seek(_)` |
 
-This mirrors [ADR-0048](../../adr/accepted/0048-amend-iteration-bare-cursor-sentinel-and-iterable-root.md)'s
+This mirrors [TDR-0041](../../../decisions/accepted/0041-amend-iteration-bare-cursor-sentinel-and-iterable-root.md)'s
 `Iterable`-as-kernel-root for the one axis that benefits, and declines it for the three that would
 collide with the single `extends` slot. Reifying all four needs stateless interface-style
 declarations, deferred to
@@ -44,7 +44,7 @@ Conformance to the three informal protocols is a **documented contract plus a ha
 
 ## 2. The informal protocols
 
-Every selector that can block returns a `Future`, per PDR-0004 §1. Selectors that cannot block
+Every selector that can block returns a `Future`, per TDR-0057 §1. Selectors that cannot block
 return their value directly.
 
 ### Reader
@@ -82,7 +82,7 @@ Resource#isClosed -> Bool
 
 ### 3.1 Laws
 
-1. **Synchronous.** `close` returns `Result`, never a `Future`. PDR-0005 §3b: with an unbuffered
+1. **Synchronous.** `close` returns `Result`, never a `Future`. TDR-0058 §3b: with an unbuffered
    `File` (§3c) there is nothing to flush, and `close(2)` on a local descriptor is not a blocking
    operation. This is a law about the *contract*, so §5 must not break it.
 2. **Never blocks.** No implementor of `close` may perform a write syscall. Residual blocking work
@@ -94,7 +94,7 @@ Resource#isClosed -> Bool
 4. **Idempotent.** Closing an already-closed resource is `Ok`, not an error.
 5. **Use-after-close raises.** A send to a closed resource is a contract violation, not an expected
    condition, so it raises rather than returning `Err` — an `Err` would hide a programmer bug in
-   the same channel as a genuine IO error, where it gets ignored (PDR-0005 §4). The diagnostic
+   the same channel as a genuine IO error, where it gets ignored (TDR-0058 §4). The diagnostic
    names the resource and the site that closed it. Carries `kind: #useAfterClose`.
 6. **Precondition violations raise; IO failures return `Err`.** The general form of law 5, and what
    §5 rests on.
@@ -112,20 +112,20 @@ mutates the stream in place and is the counterexample; Java's `BufferedOutputStr
 `FileOutputStream` and Rust's `BufWriter`-wraps-`File` are both the wrapper form, and both are
 considered correct.
 
-PDR-0005 §3c makes this load-bearing rather than stylistic: a synchronous `close` (§3.1 law 1) is
+TDR-0058 §3c makes this load-bearing rather than stylistic: a synchronous `close` (§3.1 law 1) is
 only honest if close has nothing to flush. A buffered `File` would force close to either block on a
 write syscall or become asynchronous again.
 
 ## 5. `BufferedWriter#close`
 
-> Ruled in [PDR-0005](../../../pdr/0005-resources-are-disposable-handles-not-finalized.md)
+> Ruled in [TDR-0057](../../../decisions/accepted/0057-resources-are-disposable-handles-not-finalized.md)
 > §7a, third revision, 2026-07-20. This section states the resulting contract; §7a states the
 > reasoning and the two shapes it forecloses.
 
 ### 5.1 The problem restated
 
 §3c relocates the data-loss hazard rather than removing it. `File` has nothing to flush;
-`BufferedWriter` does. PDR-0005 §7a names three shapes and rules none:
+`BufferedWriter` does. TDR-0058 §7a names three shapes and rules none:
 
 1. `BufferedWriter` is not a `Resource` — no `close`. Honest, and easy to forget the flush.
 2. `BufferedWriter#close -> Future` — flushes then closes. Breaks the uniform contract.
@@ -133,7 +133,7 @@ write syscall or become asynchronous again.
 
 ### 5.2 Two of the three are foreclosed by records already accepted
 
-**Shape 3 is unavailable.** PDR-0003 guarantees a single VM thread. A synchronous flush that blocks
+**Shape 3 is unavailable.** TDR-0056 guarantees a single VM thread. A synchronous flush that blocks
 on a write syscall blocks *every fiber*, not just the caller. It also contradicts §3.1 law 2
 directly.
 
@@ -159,7 +159,7 @@ BufferedWriter#pending -> Number     // buffered bytes not yet handed to the inn
 ```
 
 1. **`close` never flushes and never blocks.** §3.1 laws 1 and 2 hold unamended; no exception is
-   carved into PDR-0005 §3b.
+   carved into TDR-0058 §3b.
 2. **`close` on a non-empty buffer raises**, with `kind: #unflushed`. The diagnostic names the
    pending byte count and the site that opened the writer. This is §3.1 law 6: writing to a buffer
    and then closing without flushing is a programmer error, in the same category as use-after-close
@@ -171,7 +171,7 @@ BufferedWriter#pending -> Number     // buffered bytes not yet handed to the inn
    idempotent — and closes the inner writer.
 5. **`finish` is the recommended spelling** and the one documentation should teach:
    `w.finish.await` is flush-then-close as a single awaitable call. Two selectors rather than one
-   because ADR-0043 forbids default arguments, and because a caller who wants to inspect the flush
+   because TDR-0037 forbids default arguments, and because a caller who wants to inspect the flush
    result before closing must be able to.
 
 ### 5.4 Why this dissolves the trilemma rather than picking a corner
@@ -210,11 +210,11 @@ A conformant stream type satisfies:
 5. **Precondition violations raise, IO failures return `Err`** (§3.1 law 6). Use-after-close and
    dirty-close are the two instances in this document.
 6. **Blocking work is always visible in the selector's type.** If it can block, it returns a
-   `Future` (PDR-0004 §1). `File#path` is deliberately not a `Future` — it is cached at open.
+   `Future` (TDR-0057 §1). `File#path` is deliberately not a `Future` — it is cached at open.
 
 ## 7. Leak-reporting obligations
 
-PDR-0005 §5 reports resources open at exit. This document adds one obligation:
+TDR-0058 §5 reports resources open at exit. This document adds one obligation:
 
 - A `BufferedWriter` abandoned with a non-empty buffer is reported **as a distinct condition** from
   an unclosed resource, naming the pending byte count and the allocation site. Losing buffered
@@ -245,9 +245,9 @@ kernel `List` plays for the collection protocol — so the harness runs with no 
 
 ## 9. What this document does not cover
 
-- **`Path`, `Fs`, `File.open` modes.** PDR-0005 §7 ratifies the selector surface; the filesystem
+- **`Path`, `Fs`, `File.open` modes.** TDR-0058 §7 ratifies the selector surface; the filesystem
   spec is separate and unwritten.
-- **The reactor.** PDR-0004 rules IO reactor-owned and requires the reactor before the IO surface.
+- **The reactor.** TDR-0057 rules IO reactor-owned and requires the reactor before the IO surface.
   This document says what the surface *is*, not how a `Future` settles — that is
   [`reactor.md`](reactor.md).
 - **Reifying the other three axes.** Deferred to
@@ -257,5 +257,5 @@ kernel `List` plays for the collection protocol — so the harness runs with no 
   [`First-Class Traits`](../../extensions/traits.md).
 - **`Bytes`.** Every selector here takes or fills a `Bytes`. Its spec is
   [`bytes.md`](bytes.md), normative —
-  [PDR-0011](../../../pdr/0011-admit-bytes-native-octet-buffer.md) Accepted
+  [TDR-0063](../../../decisions/accepted/0063-admit-bytes-native-octet-buffer.md) Accepted
   2026-07-20, implementation unit U-BYTES.

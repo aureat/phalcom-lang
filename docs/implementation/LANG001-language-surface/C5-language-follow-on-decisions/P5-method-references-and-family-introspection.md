@@ -76,7 +76,7 @@ is a first-class object, not merely error-message plumbing.
 | `phalcom-core/src/primitive/*.rs` (new `family.rs`) | `Family` reflective + call protocol (Q14 surface). |
 | `phalcom-core/core/core.ph` | `class Family` skeleton (docs/protocol). **Contended (additive)** — serialize. |
 | `phalcom-core/tests/lang.rs` (+ fixtures) | `::`/Family corpus (§6). |
-| `docs/adr/00XX-method-references-and-family.md` | New ADR realizing selectors §3 + the Q14 surface — provisional number, grab next-free. |
+| `docs/decisions/00XX-method-references-and-family.md` | New ADR realizing selectors §3 + the Q14 surface — provisional number, grab next-free. |
 | `docs/spec/open-questions.md` Q14, `docs/spec/selectors.md §3` | Flip Q14 to RESOLVED; mark §3 implemented. |
 
 ## 4. Design decision

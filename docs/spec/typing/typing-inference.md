@@ -3,7 +3,7 @@
 - Status: **Proposed** (experimental; not ratified)
 - Axis: typing (inference)
 - Resolves: [typing.md](spec/design/experimental/typing.md) Tier-1 gap #4 (type-argument inference failure modes) and Tier-2 gap #7 (default return type / `Unit`)
-- Related: [ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md), [blocks.md](../blocks.md), [functions.md](../functions.md)
+- Related: [TDR-0011](../../decisions/accepted/0011-selector-signature-encoding-and-dispatch.md), [blocks.md](../blocks.md), [functions.md](../functions.md)
 
 ## Problem
 

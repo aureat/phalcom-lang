@@ -36,7 +36,7 @@ the 17-instruction disassembly in §4 F1, and SCOREBOARD §3d for the bill.
 
 ## 3. Deliberated vs reconstructed
 
-**Actually deliberated, in ADR-0018:**
+**Actually deliberated, in TDR-0016:**
 
 - The fork itself. `## Alternatives considered` rejects **grammar-level control flow** ("compile
   `if`/`while` straight to jumps, no selector") as making control flow non-overridable and splitting
@@ -46,7 +46,7 @@ the 17-instruction disassembly in §4 F1, and SCOREBOARD §3d for the bill.
   reconstruction.
 - The coarse-flag trade. `## Consequences` states it outright: one flag per class *family*, a
   redefinition of any sacred `Bool` method conservatively dirties all of them.
-- Non-local return through an inlined body (ADR-0013), called out as unchanged by inlining.
+- Non-local return through an inlined body (TDR-0012), called out as unchanged by inlining.
 - The `want_value`/`WrapSome` dual path and the whole one-armed-`Option` surface, argued at length in
   `inliner.rs`'s module doc §"v0.2 conditional-surface decision" with five rejected alternatives.
 
@@ -155,7 +155,7 @@ scheme itself, the guard opcodes' runtime semantics and their asymmetry, and the
 
 ## 7. Doc-kind gate
 
-**Fork.** ADR-0018 has a real `## Alternatives considered` with three branches and stated reasons,
+**Fork.** TDR-0016 has a real `## Alternatives considered` with three branches and stated reasons,
 and the rejected one — grammar-level control flow — is the branch nearly every other language takes.
 The doc's spine is: *why is `if` a message send here, what does keeping it one cost, and who pays.*
 Per AUTHORING-LEAN §3, **fork ⇒ Agent A runs.**

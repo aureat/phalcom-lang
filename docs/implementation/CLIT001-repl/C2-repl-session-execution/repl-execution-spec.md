@@ -47,7 +47,7 @@ and §S5-L2 are all unreachable until it changes. That is why [§01](../C1-repl-
 and why it is stage 0.
 
 **2. `CompileMode` already exists, and it does not mean what §D3 means.**
-`compiler::attributes::CompileMode` is ADR-0052's **contract-weaving** axis —
+`compiler::attributes::CompileMode` is TDR-0043's **contract-weaving** axis —
 `Debug` / `Release` / `Unchecked`, governing whether `@requires` / `@ensures` /
 `@invariant` guards are woven or stripped. It is stored once, globally, at
 `vm/mod.rs:232`.
@@ -93,7 +93,7 @@ stages 0–2, which are small.
 ## Decisions
 
 **Nothing is open.** DEC-REPL-A/B/C are all CLOSED (P1-repl-architecture.md §"Decisions to flag"), and
-PDR-0001 ruling 6 settles class redefinition. An implementer may not reopen them.
+TDR-0054 ruling 6 settles class redefinition. An implementer may not reopen them.
 
 Two new questions surfaced while grounding this spec. Both are **ruled here**, not
 deferred, because leaving them open would block stage 0:
@@ -107,7 +107,7 @@ deferred, because leaving them open would block stage 0:
 
 Three independent rulings key off `Compiler` being constructed **per cell**: §D4's
 two-set immutability, U-BINDINGS' same-scope redeclaration ban
-(`compiler/lib/scope.rs:118`, `:170`), and PDR-0002's registration of class
+(`compiler/lib/scope.rs:118`, `:170`), and TDR-0055's registration of class
 declarations in the same `global_bindings` map. One undocumented lifetime carries all
 three. The cross-cell regression test in [§03](P2-repl-cell-immutability.md) is the only guard.
 Do not weaken it, and do not make `Compiler` session-lived as an "optimization".

@@ -388,6 +388,7 @@ fn member_range(member: &ClassMember) -> phalcom_common::range::SourceRange {
         ClassMember::Getter(g) => g.range,
         ClassMember::Setter(s) => s.range,
         ClassMember::Field(f) => f.range,
+        ClassMember::Delegation(d) => d.range,
         // See `selectors::class_member_selector`'s doc for why a `@variant`
         // arm is handled uniformly alongside the other member kinds here.
         ClassMember::Variant(v) => v.range,
@@ -401,6 +402,7 @@ fn member_attributes(member: &ClassMember) -> &[phalcom_ast::ast::Attribute] {
         ClassMember::Getter(item) => &item.attributes,
         ClassMember::Setter(item) => &item.attributes,
         ClassMember::Field(item) => &item.attributes,
+        ClassMember::Delegation(item) => &item.attributes,
         ClassMember::Variant(item) => &item.attributes,
         ClassMember::Index(item) => &item.attributes,
     }

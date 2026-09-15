@@ -8,11 +8,11 @@ by example), [`color.md`](color.md) (roles + palette), [`err-plan.md`](plan.md) 
 write-sets, edges).
 
 **Governance:** §4 (capture) and §8 (kind/messages) are written against
-[PDR-0010](../../pdr/0010-errors-carry-structure-and-cheap-origin.md) §2–§5 —
+[TDR-0062](../../../../decisions/accepted/0062-errors-carry-structure-and-cheap-origin.md) §2–§5 —
 **ratified 2026-07-20**; the former gate is discharged. The ratification ruled that the
 normative `kind` table and the isA-vs-`kind` usage rule live in §8.1 of this document. The
 renderer ruling in §1 is recorded as
-[PDR-0014](../../pdr/0014-diagnostics-renderer-is-in-house.md) (Accepted).
+[TDR-0066](../../../../decisions/accepted/0066-diagnostics-renderer-is-in-house.md) (Accepted).
 
 ---
 
@@ -20,7 +20,7 @@ renderer ruling in §1 is recorded as
 
 **README §3.1 is hereby ruled: option (b), extended with a named style layer. miette is dropped
 from the workspace.** Recorded as
-[PDR-0014](../../pdr/0014-diagnostics-renderer-is-in-house.md) (Accepted 2026-07-20).
+[TDR-0066](../../../../decisions/accepted/0066-diagnostics-renderer-is-in-house.md) (Accepted 2026-07-20).
 
 Grounds, in decreasing weight:
 

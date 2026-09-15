@@ -35,8 +35,8 @@
 P2 completes the reactor for descriptor readiness without introducing a second executor or exposing poller internals to guest code.
 
 ### Key Architectural Invariants to Realize in P2:
-1. **Decision Gate (PDR-0016)**:
-   - Verify PDR-0016 status before introducing `mio` dependencies or backend-specific code.
+1. **Decision Gate (TDR-0080)**:
+   - Verify TDR-0080 status before introducing `mio` dependencies or backend-specific code.
    - If accepted unchanged, use `mio` (`features = ["os-poll", "net"]`) strictly confined to `phalcom-core/src/reactor/`.
 2. **Unified Wait**:
    - Replace phase-1 channel timeout wait with a unified descriptor/timer polling wait: `poll(timeout = min(next_timer_deadline, executor_cap))`.

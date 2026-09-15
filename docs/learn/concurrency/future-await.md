@@ -500,7 +500,7 @@ changes the answer.
 
 The neighbours are instructive, and each takes a different exit:
 
-- **Lua 5.1** — the ancestor named in ADR-0030, with the same restriction on yielding across a C call
+- **Lua 5.1** — the ancestor named in TDR-0027, with the same restriction on yielding across a C call
   boundary. It has no futures at all; `coroutine.resume` returns a `(status, value)` **pair** rather
   than raising. So the "may I?" question is answered by a return value, not by a thrown error that
   something else might have caused. Lua 5.2+ later lifted the restriction with continuation functions

@@ -15,7 +15,7 @@ Consequence, measured on the freshly generated table:
 This is PRE-EXISTING and independent of the regeneration. The generator does not flatten inherited members even when `core.ph` declares `extends` explicitly.
 
 WHAT THE REGENERATION CHANGED ABOUT IT:
-ADR-0048's Iterable rehome moved `each/iterate/map/filter/reduce/includes/isEmpty` off the concrete collections onto the `Iterable` root. Because the table is flat, `List`/`Map`/`Set`/`Range`/`Tuple` each lost ~7 user-facing selectors from completion. The stale table had them flattened in by accident of predating the rehome. So the regeneration did not create the defect — it moved the five most-used classes into it. This is the one real downside of `3e2f105` and the reason this file exists.
+TDR-0042's Iterable rehome moved `each/iterate/map/filter/reduce/includes/isEmpty` off the concrete collections onto the `Iterable` root. Because the table is flat, `List`/`Map`/`Set`/`Range`/`Tuple` each lost ~7 user-facing selectors from completion. The stale table had them flattened in by accident of predating the rehome. So the regeneration did not create the defect — it moved the five most-used classes into it. This is the one real downside of `3e2f105` and the reason this file exists.
 
 WHY A PARSE-ONLY GENERATOR CANNOT FIX IT:
   - phalcom-core/core/core.ph:779 — `class List {` declares NO `extends`. Same for Map (:866), Set (:975), Tuple (:1043), Range (:1117).
@@ -46,7 +46,7 @@ VERIFIED CLEAN — do not re-audit:
   - All 36 removals in `3e2f105` are legitimate, none a harvesting regression:
       * 21 `raw*` -> renamed to trailing-underscore (`at_(_)`, `length_`, `push_(_)`, `set_(_,_)`, ...).
         The only "raw" left in core.ph is prose inside comments (5 hits, all comments).
-      * 14 `each/iterate/map/filter/reduce/includes/isEmpty` -> rehomed to `Iterable` per ADR-0048.
+      * 14 `each/iterate/map/filter/reduce/includes/isEmpty` -> rehomed to `Iterable` per TDR-0042.
       * 1  `System.print()` -> retired; `print(_)` remains.
   - Absence of `init `-prefixed entries is CORRECT, not drift. A `construct` installs one method,
     class-side, under its ordinary selector (`new(_)`); `SignatureKind::Initializer` no longer picks
@@ -54,7 +54,7 @@ VERIFIED CLEAN — do not re-audit:
     (phalcom-core/src/compiler/lib/class_decl.rs:602). Verified: `B.methods -> [#x]`,
     `B.class.methods -> [#new(_)]`.
   - Bracket selectors are real and correctly harvested post-regen (`List[_]`, `List[_,put]`, `Map[_]`,
-    `Map[_,put]`, `Tuple[_]`) — ADR-0060 made `[]` a directly-sent selector; core classes opt in by
+    `Map[_,put]`, `Tuple[_]`) — TDR-0050 made `[]` a directly-sent selector; core classes opt in by
     forwarding (`[i] { return self.at(i) }`, core.ph:816).
 
 Open decisions:

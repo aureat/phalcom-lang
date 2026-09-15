@@ -1,6 +1,6 @@
 # Float protocol
 
-**Status:** Normative. Ratified by [PDR-0027](../../../pdr/0027-float-protocol-and-explicit-narrowing.md).
+**Status:** Normative. Ratified by [TDR-0071](../../decisions/accepted/0071-float-protocol-and-explicit-narrowing.md).
 This document completes the Float surface left open by PDR-0025. The tower rules remain in
 [numeric-tower.md](numeric-tower.md); parsing, rendering, and errors are in
 [text-and-errors.md](text-and-errors.md).

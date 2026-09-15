@@ -25,9 +25,9 @@ This plan implements, but does not reinterpret:
   promotion, floor-census, and GC-root gates.
 - [Float protocol](../../../spec/library/numbers/float-protocol.md) and
   [numeric text and errors](../../../spec/library/numbers/text-and-errors.md).
-- [PDR-0025](../../../pdr/0025-numeric-tower-residue-rulings.md),
-  [PDR-0026](../../../pdr/0026-numeric-literals.md), and
-  [PDR-0027](../../../pdr/0027-float-protocol-and-explicit-narrowing.md).
+- [TDR-0069](../../../decisions/accepted/0069-numeric-tower-residue-rulings.md),
+  [TDR-0070](../../../decisions/accepted/0070-numeric-literals.md), and
+  [TDR-0071](../../../decisions/accepted/0071-float-protocol-and-explicit-narrowing.md).
 
 The behavior is already ratified. This plan creates no new public numeric rule. When implementation
 evidence contradicts an anchor, stop and amend the design record; do not silently choose a new

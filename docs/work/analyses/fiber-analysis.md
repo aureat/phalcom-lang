@@ -14,7 +14,7 @@ There is also one major architectural finding that changes part of my previous r
 
 > **M:N shared-memory multi-core Fibers are incompatible with Phalcom's currently accepted architecture.**
 
-PDR-0003 deliberately commits each VM to one thread and one heap owner, with parallelism—if Phalcom gets it—going through isolates rather than shared-memory threads. That is not a minor scheduler choice; it protects the current heap, GC, `ObjRef`, `Value`, and primitive ABI.
+TDR-0056 deliberately commits each VM to one thread and one heap owner, with parallelism—if Phalcom gets it—going through isolates rather than shared-memory threads. That is not a minor scheduler choice; it protects the current heap, GC, `ObjRef`, `Value`, and primitive ABI.
 
 So I would now divide the future design into two layers:
 
@@ -171,7 +171,7 @@ That is the important semantic property.
 
 ## At the native-machine-stack level: deliberately no
 
-ADR-0030 calls the current implementation “Lua-5.1 style” and explicitly rejected the alternative of allocating/capturing real native stacks. The current Fiber does **not** save arbitrary Rust frames that happen to be active underneath the VM.
+TDR-0027 calls the current implementation “Lua-5.1 style” and explicitly rejected the alternative of allocating/capturing real native stacks. The current Fiber does **not** save arbitrary Rust frames that happen to be active underneath the VM.
 
 That causes the current restriction:
 
@@ -217,7 +217,7 @@ That is probably the most accurate terminology.
 
 # 4. It is indeed very Lua-coroutine-like
 
-ADR-0030 explicitly characterizes the design as a restricted Lua-5.1-style model.
+TDR-0027 explicitly characterizes the design as a restricted Lua-5.1-style model.
 
 The public mechanics are:
 
@@ -1758,7 +1758,7 @@ They exchange owned plain data only.
 
 Completion returns to the VM thread, and only that thread can settle a Future or modify the ready queue.
 
-This follows directly from PDR-0003's single-owner VM architecture.
+This follows directly from TDR-0056's single-owner VM architecture.
 
 I strongly agree with that.
 
@@ -1841,7 +1841,7 @@ shared Phalcom object graph
 
 That does **not** fit current Phalcom.
 
-PDR-0003 explicitly says:
+TDR-0056 explicitly says:
 
 - one VM owns one Heap;
 - `ObjRef` is meaningful only relative to that VM;

@@ -1,9 +1,9 @@
 # Implementation spec — `File`, `Fs`, and the snapshot types (U-FS)
 
 > **Status:** dispatch-ready, **last in the chain**. Governing records **Accepted**:
-> [PDR-0005](../../../pdr/0005-resources-are-disposable-handles-not-finalized.md) §7
+> [TDR-0057](../decisions/accepted/0057-resources-are-disposable-handles-not-finalized.md) §7
 > (the `File` surface, ratified there — encode, don't redesign),
-> [PDR-0013](../../../pdr/0013-path-is-bytes-backed-filesystem-surface.md); surface
+> [TDR-0065](../decisions/accepted/0065-path-is-bytes-backed-filesystem-surface.md); surface
 > contract [`../stdlib/filesystem.md`](../../spec/current/stdlib/filesystem.md) §4-§8.
 > **Needs shipped: U-BYTES ✅, U-RESOURCE, U-PATH, U-REACTOR** (U-STREAMS is not a hard
 > dependency but its harness is reused for `File`'s Reader/Writer conformance).

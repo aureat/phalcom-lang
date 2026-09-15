@@ -24,7 +24,7 @@ class _Helper { ... }   // leading underscore — module-private
 unless it starts with `_` — the same convention that already makes `_radius`
 a private field, reused one scope up. `Circle` is importable from elsewhere;
 `_Helper` is not. There is no `export` keyword and no separate export list —
-see [ADR-0027](../adr/0027-modules-as-files-with-public-by-default-imports.md)
+see [TDR — A module is a file; exports are public by default; imports are qualified, selective, or aliased](../decisions/retired/modules-as-files-with-public-by-default-imports.md)
 for why (mainly: it's one privacy rule instead of two, and it matches the
 rest of the surface's low ceremony).
 
@@ -89,7 +89,7 @@ A few pieces are deliberately undecided. Don't build on them yet:
 
 The full decision, including the rejected alternatives (a flat global image,
 first-class modules now, explicit `export`, filesystem-path imports), is
-[ADR-0027](../adr/0027-modules-as-files-with-public-by-default-imports.md).
+[TDR — A module is a file; exports are public by default; imports are qualified, selective, or aliased](../decisions/retired/modules-as-files-with-public-by-default-imports.md).
 
 ---
 

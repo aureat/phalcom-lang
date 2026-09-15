@@ -3,7 +3,7 @@
 > **Status: DEFERRED — post-v0.2. DO NOT DISPATCH until unblocked.** This is a
 > ready-to-activate work order, not a live one. `Future` derives entirely from
 > [Cooperative Fiber](../C1-fiber-execution/cooperative-fiber-architecture-spec.md) and adds **no new VM mechanism** beyond
-> `Fiber` + a ready-queue ([ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md)
+> `Fiber` + a ready-queue ([TDR-0026](../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md)
 > §1) — the library layer that ADR already sanctions. **No separate Future plan exists and no new ADR
 > is needed.** Realizes [future-library-spec.md](future-library-spec.md) (deepening
 > [`concurrency.md`](../../../../spec/current/concurrency.md) §2).
@@ -54,7 +54,7 @@ buildable slice** is the scheduler-free `Future.value`/`error`/`isReady`/`value`
 ### Will exist once the gates are green
 
 - **`Future` as a plain `InstanceObject`** — `value.rs` already has `Instance`
-  ([ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md) §1); **no
+  ([TDR-0026](../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) §1); **no
   new `Value` arm.**
 - **The `Fiber` seam** — `FiberObject.resumer` (dynamic caller chain) + the result slot,
   kept general by [Cooperative Fiber](../C1-fiber-execution/cooperative-fiber-architecture-spec.md) (its §2.1). `await`
@@ -207,10 +207,10 @@ pointer until activation.
 
 | Claim | Source |
 |---|---|
-| `Future` = pure library over `Fiber` + ready-queue; no new VM mechanism / `Value` arm | [ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md) §1; [concurrency.md](../../../../spec/current/concurrency.md) §2 |
+| `Future` = pure library over `Fiber` + ready-queue; no new VM mechanism / `Value` arm | [TDR-0026](../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) §1; [concurrency.md](../../../../spec/current/concurrency.md) §2 |
 | Surface (`value`/`error`/`async`/`await`/`then`/`map`/`catch`/`isReady`/`value`); state machine; settle-once | [concurrency.md](../../../../spec/current/concurrency.md) §2; [future-library-spec.md](future-library-spec.md) §2–§3 |
 | Scheduler = U-SCHED (ready-queue + timers + root fiber); blocking-await precluded; not retrofittable | [scheduler-unit.md](../../../design/experimental/v0.2/scheduler-unit.md) |
 | The `Fiber` seam (resumer + result slot; `await` = waiters + `Fiber.yield`) | [Cooperative Fiber §7.2](../C1-fiber-execution/cooperative-fiber-spec.md#72-fiber--future--the-resumerresult-slot-seam); [concurrency.md](../../../../spec/current/concurrency.md) §2 |
 | `ensure`-on-abandoned-fiber (no; opt-in `Fiber.finish`); caps (`StackOverflow`/`MemoryError`) | [fiber-ensure-and-limits.md](../../../design/experimental/v0.2/fiber-ensure-and-limits.md) |
 | Still-open: structured concurrency, `select`/`race`, fairness | [open-questions.md](../../../../spec/current/open-questions.md) §15 |
-| No new ADR needed (ADR-0030 already sanctions the library layer) | [ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md) §1/§Consequences |
+| No new ADR needed (ADR-0030 already sanctions the library layer) | [TDR-0026](../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) §1/§Consequences |

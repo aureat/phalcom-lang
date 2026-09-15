@@ -95,7 +95,7 @@ The existing `Hinter` is **miswired** and is rewritten, not extended: it returns
 > one.** A raising `toString` degrades to the class name. Never to a failed cell.
 
 **Signature hints are deferred.** Showing `at(index)` after `foo.at(` needs parameter
-*names*; selectors carry *labels*. `at(_)` has no name to show, and ADR-0012's encoding
+*names*; selectors carry *labels*. `at(_)` has no name to show, and TDR-0011's encoding
 never records one. Delivering it means threading parameter names from `MethodObject`
 through to the snapshot — a real dig, not a polish pass. Out of scope.
 

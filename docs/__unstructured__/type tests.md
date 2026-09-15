@@ -594,13 +594,13 @@ class List<T> is Iterable {
   }  
   
   // U-STD item 4 (U-ITER-FIX plan §"Not in this unit", DEC-ITER-A resolved):  
-  // drives the cursor protocol (`iterate(_)`/`iteratorValue(_)`, ADR-0035 §1)  
+  // drives the cursor protocol (`iterate(_)`/`iteratorValue(_)`, TDR-0030 §1)  
   // rather than a raw `size`/`at(_)` index walk. `for x in self` compiles  
   // to the same `Invoke`-only `iterate`/`iteratorValue`/`isSome` loop as any  
   // user iterable (spec §3.1) — no `block_call`, no index math — so `each`  
   // (and everything below built over it: `map`/`filter`/`reduce`/`includes`)  
   // is protocol-driven behavior-preservingly.  
-  // Given a live cursor, yields the element there (ADR-0035 §1,  
+  // Given a live cursor, yields the element there (TDR-0030 §1,  
   // iteration.md §1). Only ever called with an in-range index, so it defers to  
   // `at(_)` directly.  
   iteratorValue(_ cursor) { self.at(cursor) }  
@@ -641,7 +641,7 @@ class List<T> is Iterable {
     )  
   }  
   
-  // U-INDEX (ADR-0060): `[]` is its own dedicated, user-overridable  
+  // U-INDEX (TDR-0050): `[]` is its own dedicated, user-overridable  
   // selector — not `at`'s call-site sugar — so `List` must opt in  
   // explicitly with a thin delegation, same as any other collection  
   // author would. `xs[i]` sends `[_]`; `xs[i] = v` sends `[_]=(_)`.
@@ -657,7 +657,7 @@ class List<T> is Iterable {
   // element-wise, order-sensitive, via each element's own `==`. Guarded by  
   // `isA(List)` so a non-List `other` is simply unequal (E2), never a dNU.  
   // Derived entirely over the floor (`size`/`at`/`isA`/`while`/`and`/`not`) —  
-  // no new native primitive (ADR-0019 unchanged). `and`/`not` are the  
+  // no new native primitive (TDR-0017 unchanged). `and`/`not` are the  
   // language's infix/prefix operator forms (`Bool#and(_:)`/`Bool#not`  
   // dispatched by the compiler, not dotted-call syntax — `and`/`not` are  
   // reserved words and cannot follow `.` as a bare identifier).  
@@ -688,11 +688,11 @@ class List<T> is Iterable {
   }  
 }  
   
-// Kernel Map/Set (ADR-0032 §1, ADR-0039, U-COLLTYPES Phase 1): native  
+// Kernel Map/Set (TDR-0029 §1, TDR-0034, U-COLLTYPES Phase 1): native  
 // insertion-ordered hash collections — Object::Map/Object::Set, sharing the  
 // MapObject backing struct (DEC-CT-B) but with distinct native-primitive  
 // bindings and distinct classes. This skeleton reopens the bootstrapped rows  
-// to define the public protocol over the native floor (ADR-0019's "hybrid: native  
+// to define the public protocol over the native floor (TDR-0017's "hybrid: native  
 // primitives, self-defined control"). Both are MUTABLE, so neither installs a  
 // `hash` override — they inherit Object#hash (identity), so per Q5  
 // (decisions.md, collection-protocol.md law 4) neither is a valid Map/Set key;  

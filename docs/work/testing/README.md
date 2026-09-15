@@ -41,7 +41,7 @@ defines the oracles that make them loud.
    space. Hand-picked coverage of a state machine is always holey — see
    [13-future-conformance.md](13-future-conformance.md) for the precedent.
 4. **Determinism is an asset; spend it.** Phalcom is cooperative and
-   single-threaded (ADR-0030). There are no races to chase and no flaky
+   single-threaded (TDR-0027). There are no races to chase and no flaky
    interleavings. Every failure here is reproducible from the program text
    alone. This is what makes stress and fuzz lanes cheap.
 5. **Never assert unspecified behavior as contract.** Where the spec is silent
@@ -80,9 +80,9 @@ cost is in the lane's own doc.
 **Explicitly out of scope**, with reasons:
 
 - **ThreadSanitizer / race detection** — Phalcom is single-threaded by
-  construction (ADR-0030). There is no race to detect. Revisit only if
+  construction (TDR-0027). There is no race to detect. Revisit only if
   preemption or real threads are ever admitted.
-- **Miri beyond a token lane** — ADR-0009 puts the object graph behind a handle
+- **Miri beyond a token lane** — TDR-0008 puts the object graph behind a handle
   arena with no `unsafe`. A cheap Miri lane over the arena is worth wiring; a
   broad one has nothing to find.
 - **Differential testing against a reference model** — under determinism the
@@ -90,7 +90,7 @@ cost is in the lane's own doc.
   it costs to keep honest. Reconsider only if a fairness policy lands and the
   schedule stops being a pure function of the program.
 - **Cancellation, `select`/`race`, fairness policy** — all **OPEN** in the spec
-  (`docs/spec/current/concurrency.md` §3, ADR-0030). Unspecified behavior is not
+  (`docs/spec/current/concurrency.md` §3, TDR-0027). Unspecified behavior is not
   testable; testing it would only pin an accident. Blocked on an ADR, not on
   test engineering.
 - **Generators** — the feature does not exist. ADR-0033 (`CallBlock`
@@ -103,17 +103,17 @@ These lanes are sound only while the following hold. Each is an ADR commitment,
 not an implementation detail — if one is ever amended, the lane it supports must
 be re-derived, not merely re-run.
 
-1. **GC is behavior-invariant.** ADR-0050 selects a **non-moving** mark-sweep
+1. **GC is behavior-invariant.** TDR-0048 selects a **non-moving** mark-sweep
    collector. Object identity and hashing do not depend on address, so
    collection cannot be observed by a correct program. Lane A *is* this
    assumption. If the rejected moving alternative ever revives, Lane A silently
    becomes wrong rather than red — see [10-gc-stress.md](10-gc-stress.md) §6.
-2. **No native fiber stacks.** ADR-0030 keeps frames on the heap, which is what
+2. **No native fiber stacks.** TDR-0027 keeps frames on the heap, which is what
    makes the *stackful fibers ⊗ moving GC* hazard not arise, and what lets Lane
    A trace a suspended fiber's roots at all.
-3. **Cooperative, single-threaded, no preemption.** ADR-0030. Makes every lane
+3. **Cooperative, single-threaded, no preemption.** TDR-0027. Makes every lane
    deterministic and every failure reproducible.
-4. **Yielding across a native frame raises.** ADR-0030 §4's restricted
+4. **Yielding across a native frame raises.** TDR-0027 §4's restricted
    execution model. Lane C encodes this as a contract — while noting it is a
    snapshot of a *deferred* decision (ADR-0033), not an invariant.
 

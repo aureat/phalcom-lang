@@ -22,7 +22,7 @@ A `{` at statement-start is a parse error: it reads as a (no-op) block
 literal, not a compound statement opener, so `class`/`if`/`while`/`for` bodies
 always require their own keyword to introduce the block.
 
-## 2. Bindings — `let` / `const` ([ADR-0064], supersedes [ADR-0014])
+## 2. Bindings — `let` / `const` ([TDR-0053], supersedes [ADR-0014])
 
 ```
 binding := ("let" | "const") IDENT [ "=" expr ]
@@ -31,15 +31,15 @@ binding := ("let" | "const") IDENT [ "=" expr ]
 ```phalcom
 const name = "Ada"   // immutable — reassigning name is a compile error
 let count = 0        // mutable
-let seen             // None ([ADR-0007]) — no initializer required for let
+let seen             // None ([TDR-0006]) — no initializer required for let
 ```
 
 `const` bindings are immutable; reassignment is an error. `let` bindings are
-mutable. `let x` with no initializer reads as `None` ([ADR-0007]); `const x`
+mutable. `let x` with no initializer reads as `None` ([TDR-0006]); `const x`
 with no initializer is rejected — a `const` must be given its one value up
 front.
 
-`var` is **not** a keyword. ADR-0064 renamed ADR-0014's pair — old `var` → `let`,
+`var` is **not** a keyword. TDR-0053 renamed ADR-0014's pair — old `var` → `let`,
 old `let` → `const` — keeping every rule; only the spellings moved.
 
 ## 3. `return`
@@ -132,7 +132,7 @@ for the semantics.
   `@construct` is class-only; it derives ordinary `@constructor` methods from
   fields. `@class` is target-polymorphic for class-side fields and methods;
   `@constructor` marks method declarations. All three desugar before the rest of
-  compilation ([PDR-0028](../../../pdr/0028-class-and-constructor-decorator-canon.md)).
+  compilation ([TDR-0072](../../../decisions/accepted/0072-class-and-constructor-decorator-canon.md)).
 - `@class` puts the member on the metaclass rather than the instance side (methods) or on the class object (fields).
 - **Constructor**: `@constructor` on a `method_decl` allocates a fresh instance via
   internal `_$new`, runs the body with `self` bound to it, and returns the instance implicitly.
@@ -144,7 +144,7 @@ for the semantics.
 - **Getter**: no parameter list. `name` and `name()` are different selectors.
 - **Setter**: `IDENT "=" param_list method_body` — the single parameter is
 written `_ value`, and selector identity is always `name=(_)`.
-- **Field declaration**: `[ "const" ] FIELD [ "=" expr ]` ([ADR-0064]). A mutable
+- **Field declaration**: `[ "const" ] FIELD [ "=" expr ]` ([TDR-0053]). A mutable
   field takes **no keyword** (`_x`, or `_x = e` for a declaration default); `const _x = e`
   is immutable and defined at the declaration; `const _id` defers its one value to a
   constructor and is a compile error to write from anywhere else. `let _x` at field
@@ -157,7 +157,7 @@ written `_ value`, and selector identity is always `name=(_)`.
 - `method_body := "=>" expr | block` — `=>` is general expression-body sugar,
   not limited to getters ([Classes §3](../classes.md#3-methods-accessors-operators)).
 
-## 7. Parameters ([ADR-0025])
+## 7. Parameters ([TDR-0023])
 
 ```
 param_list := "(" [ param { "," param } ] ")"
@@ -205,7 +205,7 @@ for (item in items) { print(item) }
 desugared loops, not primitive control constructs — see
 [Control Flow](../control-flow.md) for what each compiles to.
 `for` specifically lowers to the **cursor iteration protocol**
-([ADR-0035], [Iteration](../iteration.md)), not a full-traversal combinator.
+([TDR-0030], [Iteration](../iteration.md)), not a full-traversal combinator.
 
 `break` and `continue` are loop-control keywords, valid only inside `for` or
 `while` bodies; they compile directly to jumps. Blocks have no `break` —
@@ -216,7 +216,7 @@ non-local exit from a block uses `return` instead
 being primitive operators — see
 [Control Flow §2](../control-flow.md#2-and--or--short-circuit).
 
-## 9. Error-handling statements ([ADR-0031])
+## 9. Error-handling statements ([TDR-0028])
 
 ```
 throw       := "throw" expr
@@ -250,7 +250,7 @@ only as clauses of a `try` statement:
 See [Error Handling](../error-handling.md) for the underlying handler-chain
 semantics.
 
-## 10. Modules & imports ([ADR-0027])
+## 10. Modules & imports ([TDR-0024])
 
 ```
 import_decl := "import" IDENT

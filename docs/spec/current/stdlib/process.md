@@ -1,17 +1,17 @@
 # Specification — Process & environment (`Command`, `Child`, `Output`, `Stdio`, `System` env rows)
 
 > **Status:** **Proposed — normative upon ratification of
-> [PDR-0019](../../../pdr/0019-process-and-environment-surface.md)** (rule 5).
+> [TDR — Process and environment: argument-vector spawning, a read-only environment, and `System` stays the one effect namespace](../../../decisions/proposed/process-and-environment-surface.md)** (rule 5).
 > Promotes [`../system.md`](../system.md) §2's specified-unbuilt process rows and the
 > [`../drafts/stdlib-catalog.md`](../drafts/stdlib-catalog.md) §3.5/§3.6 drafts —
 > ruling S-5 (no `Env` namespace) and S-13 (classes, not modules) on the way; the
 > catalog's no-shell security note is now a ruling, not a note. Already-Accepted
-> inputs: [PDR-0004](../../../pdr/0004-io-is-future-shaped-reactor-owned.md)
-> §1/§3, [PDR-0005](../../../pdr/0005-resources-are-disposable-handles-not-finalized.md)
-> §3-§5, [PDR-0013](../../../pdr/0013-path-is-bytes-backed-filesystem-surface.md)
-> ruling 4 (lossy/exact split), ADR-0012/ADR-0043.
+> inputs: [TDR-0056](../../../decisions/accepted/0056-io-is-future-shaped-reactor-owned.md)
+> §1/§3, [TDR-0057](../../../decisions/accepted/0057-resources-are-disposable-handles-not-finalized.md)
+> §3-§5, [TDR-0065](../../../decisions/accepted/0065-path-is-bytes-backed-filesystem-surface.md)
+> ruling 4 (lossy/exact split), TDR-0011/TDR-0037.
 > **Floor delta: nonzero — the native family is ruled in PDR-0019 ruling 11**, exact
-> census at impl time under PDR-0012 ruling 21.
+> census at impl time under TDR-0065 ruling 21.
 > **Build order:** phase A (everything except `Stdio.piped`) needs U-RESOURCE +
 > U-REACTOR; phase B (piped child streams) additionally needs U-NET's poller.
 >
@@ -35,7 +35,7 @@ shell string (ruling 5).
 
 ## 2. `System` — the environment rows
 
-Promoted from system.md §2 with the PDR-0013 ruling-4 lossy/exact split (ruling 4):
+Promoted from system.md §2 with the TDR-0066 ruling-4 lossy/exact split (ruling 4):
 
 | Selector | Returns | Meaning |
 |---|---|---|
@@ -51,12 +51,12 @@ Variable names are `String` (Q-P5 holds the exact-name case until a consumer exi
 
 ## 3. `Stdio`
 
-Three singletons, the `OpenMode` pattern (PDR-0013 ruling 5): `Stdio.inherit`,
+Three singletons, the `OpenMode` pattern (TDR-0066 ruling 5): `Stdio.inherit`,
 `Stdio.piped`, `Stdio.null`. A plain `.ph` class with three statics and `toString`.
 
 ## 4. `Command`
 
-A builder (ADR-0043's sanctioned shape — every setting its own selector, no options
+A builder (TDR-0037's sanctioned shape — every setting its own selector, no options
 bag). Builder sends return the receiver and touch nothing outside it.
 
 | Selector | Meaning |
@@ -113,7 +113,7 @@ U-RESOURCE's table row (`ResourceKind::Child`).
    reaping are explicit sends (Rust/Go detach precedent — PDR-0019 ruling 8).
 2. **An abandoned `Child` is reported distinctly.** Exited-unreaped is a zombie;
    `System.leakReport` names the pid and the spawn site as a condition distinct from
-   an fd leak (PDR-0005 §5 / stream-protocol §7 posture).
+   an fd leak (TDR-0058 §5 / stream-protocol §7 posture).
 3. **One pending `wait` per child** — a second concurrent `wait` raises
    `#concurrentOperation` (the PDR-0015 ruling-7 rule, same reason: two waiters, one
    reap, no defined answer for the second).
@@ -133,7 +133,7 @@ changes a phase-A signature.
 
 ## 8. Laws, consolidated
 
-1. **Blocking is visible in the type, both ways** (PDR-0004 §1; PDR-0015 ruling 2's
+1. **Blocking is visible in the type, both ways** (TDR-0057 §1; PDR-0015 ruling 2's
    honesty): spawn/run/wait are `Future`s; env reads, `tryWait`, `kill`, `cwd` are
    synchronous.
 2. **Display may be lossy; the pipeline never is** (ruling 4): every `String` form has
@@ -144,7 +144,7 @@ changes a phase-A signature.
    (`#notFound`, `#permissionDenied`) settles `Err`; bad status range, `piped` in
    phase A, double `wait`, use-after-close raise.
 6. **Nothing is implicit at the end of life**: no kill-on-close, no reap-on-collect
-   (PDR-0005 §1 — no finalizers), and `System.exit` drains and reports before leaving.
+   (TDR-0058 §1 — no finalizers), and `System.exit` drains and reports before leaving.
 
 ## 9. Conformance harness
 
@@ -183,6 +183,6 @@ Phase-A rows run with `/bin/echo`-class fixtures; loopback-free, network-free.
 - **The worker pool and completion pipeline** — [`reactor.md`](reactor.md) /
   [`../../../implementation/CONC002-concurrency-control-and-failure-observability/C3-reactor-and-external-completion/CONC002.C3.P1-reactor-core-workers-timers-and-executor-liveness.md`](../../../implementation/CONC002-concurrency-control-and-failure-observability/C3-reactor-and-external-completion/CONC002.C3.P1-reactor-core-workers-timers-and-executor-liveness.md).
 - **Pipe stream mechanics** — U-NET's poller machinery ([`net.md`](net.md) /
-  [PDR-0016](../../../pdr/0016-poller-backend-is-mio.md)), reused unchanged in
+  [TDR-0079](../../../decisions/accepted/0079-poller-backend-is-mio.md)), reused unchanged in
   phase B.
 - **A `Time` type, `Os` facts, resource limits** — elsewhere or nowhere yet.

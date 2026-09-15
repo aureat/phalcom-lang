@@ -389,7 +389,7 @@ architectural finding. A bare, unwrapped `f.call()` tells the truth.
 > propagated into four documents as a headline architectural claim before a
 > second party's contradicting probe caught it. The lesson is narrow and
 > generalizable: **when a probe harness wraps the thing under test, verify the
-> harness is not the thing being tested.** ADR-0030 §4's constraint is real; my
+> harness is not the thing being tested.** TDR-0027 §4's constraint is real; my
 > characterization of its blast radius was an artifact.
 >
 > It also vindicates the runtime's diagnostic. The error text —

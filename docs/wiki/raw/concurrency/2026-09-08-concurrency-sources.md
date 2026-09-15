@@ -9,7 +9,7 @@
 
 Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1. The
 surface and execution model are ratified by
-[ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md).
+[TDR-0026](../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md).
 
 Concurrency in Phalcom is **cooperative and single-threaded**, built on one
 primitive — the `Fiber` — with `Future` as the ergonomic layer over it. Both are
@@ -76,7 +76,7 @@ Control transfer is symmetric and explicit: `call` pushes onto the resumer chain
 
 ### Implementation
 
-**Landed** (U-FIBER, [ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md)).
+**Landed** (U-FIBER, [TDR-0026](../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md)).
 No `Value::Fiber` arm — `Object::Fiber(FiberObject)` is a heap arena variant
 reached through `Value::Obj(ObjRef)`, exactly as native `List` is
 ([`heap.rs`](../../../phalcom-core/src/heap.rs) `FiberObject`/`Object::Fiber`).
@@ -105,20 +105,20 @@ The four points below are realized:
 # Specification — The Reactor (completion machinery for `Future`-shaped IO)
 
 > **Status:** **Normative machinery contract.** Encodes
-> [PDR-0004](../../../pdr/0004-io-is-future-shaped-reactor-owned.md) §1–§5 and
-> [PDR-0003](../../../pdr/0003-no-user-visible-threads-fibers-and-isolates.md) §3 —
+> [TDR-0056](../../../decisions/accepted/0056-io-is-future-shaped-reactor-owned.md) §1–§5 and
+> [TDR-0055](../../../decisions/accepted/0055-no-user-visible-threads-fibers-and-isolates.md) §3 —
 > both **Accepted**, so rule 5 does not block this document. This is a *machinery* spec:
 > its consumer is the implementer, not the `.ph` programmer; the only user-visible selector
-> it adds is `System.sleep(_)` (§6, ruled in substance by PDR-0004 §5).
+> it adds is `System.sleep(_)` (§6, ruled in substance by TDR-0057 §5).
 > **Floor delta: +3** (`System.sleep_(_,_)` and the two pump seams
 > `System.nextCompletion_` / `System.parkForCompletion_(_)` — the U-SCHED
 > `schedule_`/`nextScheduled` seam precedent; amended from "+1" by
 > [`../../forge/units/U-REACTOR/implementation-spec.md`](../../forge/units/U-REACTOR/implementation-spec.md), which also rules phase 1 std-only:
 > worker pool + timers, no poller, no sockets, no new dependency); census arithmetic follows
-> [PDR-0012](../../../pdr/0012-numeric-tower-implementation-and-floor-amendment.md)
+> [TDR-0064](../../../decisions/accepted/0064-numeric-tower-implementation-and-floor-amendment.md)
 > ruling 21's rebase discipline alongside the other pending amendments.
 > **Build order is ruled:** this machinery lands **before** any `File`/`Fs`/socket surface
-> (PDR-0004 §2 — a stubbed always-settled `Future` keeps the types and breaks the
+> (TDR-0057 §2 — a stubbed always-settled `Future` keeps the types and breaks the
 > programs).
 >
 > **Owner:** unassigned. Precondition met: E004 fixed (`f479189`) — fibers genuinely park
@@ -128,7 +128,7 @@ The four points below are realized:
 
 The reactor is the thing that makes every `Future` in
 [`filesystem.md`](filesystem.md) / [`stream-protocol.md`](stream-protocol.md) settle.
-Split by what the kernel can actually poll (PDR-0004 §3):
+Split by what the kernel can actually poll (TDR-0057 §3):
 
 | Source | Mechanism | Why |
 |---|---|---|
@@ -139,7 +139,7 @@ Both are invisible from `.ph`: user code sees only `Future`s.
 
 ## 2. Thread discipline — the absolute law
 
-PDR-0003 §3 / PDR-0004 §4, restated as the invariant every line of this subsystem is
+TDR-0056 §3 / TDR-0057 §4, restated as the invariant every line of this subsystem is
 reviewed against:
 
 1. **Workers receive owned plain data** (`PathBuf` built from `Path` bytes, `Vec<u8>`,
@@ -150,7 +150,7 @@ reviewed against:
 3. **Only the VM thread mints handles, settles `Future`s, and touches
    `VM::ready_queue`** — which therefore stays the unsynchronized single-threaded
    `VecDeque<ObjRef>` it is today (`vm/mod.rs:221`), with no atomics added anywhere
-   (PDR-0003's single-VM-thread guarantee doing its work).
+   (TDR-0056's single-VM-thread guarantee doing its work).
 
 ## 3. Completion lifecycle
 
@@ -159,8 +159,8 @@ submit -> park -> complete -> drain (safepoint) -> settle -> ready
 ```
 
 - **Submit.** A native IO primitive builds the plain-data job, registers it (poller
-  interest or pool queue) under a fresh **generation-tagged token** (the ADR-0013
-  frame-token / PDR-0005 §4 resource-table idea, third use), creates the un-settled
+  interest or pool queue) under a fresh **generation-tagged token** (the TDR-0012
+  frame-token / TDR-0058 §4 resource-table idea, third use), creates the un-settled
   `Future`, and returns it. No syscall has happened on the VM thread.
 - **Park.** The caller `await`s; the fiber yields to its floor and is now owned by the
   pending token, reachable via the registration — **the registration is a GC root for its
@@ -172,10 +172,10 @@ submit -> park -> complete -> drain (safepoint) -> settle -> ready
   back-edge site that services the GC latch (`service_gc_safepoint`,
   `vm/dispatch.rs:540`) — not at arbitrary points. Draining there is what keeps handle
   minting single-threaded and composes with the `temp_roots` / Invariant L discipline
-  (PDR-0004 Consequences). A completion whose token generation is stale (cancelled,
+  (TDR-0057 Consequences). A completion whose token generation is stale (cancelled,
   §7) is dropped on the floor here, by design.
 - **Settle.** `Future` settles once, to `Ok(value)` or `Err(error)` — one settlement
-  channel, never `Future<Result>` nesting (PDR-0004 §1).
+  channel, never `Future<Result>` nesting (TDR-0057 §1).
 - **Ready.** The parked fiber is pushed onto `ready_queue` and runs when the scheduler
   reaches it — never immediately, never preempting the current fiber.
 
@@ -184,7 +184,7 @@ submit -> park -> complete -> drain (safepoint) -> settle -> ready
 The scheduler currently has one completion source: the ready queue, drained by
 `System.runScheduled` (`core.ph:1317`) over the `system_schedule`/`system_next_scheduled`
 seam (`primitive/system.rs:56`/`:70`), with the VM's root-drive pump behind it. This
-machinery adds a second source, and PDR-0004 names the resulting failure mode the
+machinery adds a second source, and TDR-0057 names the resulting failure mode the
 sharpest in the decision:
 
 > **Liveness law.** A program whose every fiber is parked on IO makes progress. The pump
@@ -202,18 +202,18 @@ This law is the **first test written** (§10), before any consumer exists.
 # Specification — Cancellation (`Future#cancel`, `Future#isCancelled`, `CancelledError`)
 
 > **Status:** **Proposed — normative upon ratification of
-> [PDR-0017](../../../pdr/0017-future-cancel-is-renunciation.md)** (rule 5: no
+> [TDR — `Future#cancel` is renunciation: settle `#cancelled` now, suppress unstarted work best-effort, interrupt nothing](../../../decisions/proposed/future-cancel-is-renunciation.md)** (rule 5: no
 > unit builds this until it flips). Discharges [`reactor.md`](reactor.md) §11 **Q-R4**
 > on the substrate §7 already binds (token generations, deregistration-as-bump,
 > stale-drop at drain). Already-Accepted inputs:
-> [PDR-0004](../../../pdr/0004-io-is-future-shaped-reactor-owned.md)
+> [TDR-0056](../../../decisions/accepted/0056-io-is-future-shaped-reactor-owned.md)
 > (Consequences — cancellation named unavoidable),
-> [PDR-0005](../../../pdr/0005-resources-are-disposable-handles-not-finalized.md)
-> §5 (leak-report composition), ADR-0030 / C-FUT-3 (settle-once no-op, the load-bearing
+> [TDR-0057](../../../decisions/accepted/0057-resources-are-disposable-handles-not-finalized.md)
+> §5 (leak-report composition), TDR-0027 / C-FUT-3 (settle-once no-op, the load-bearing
 > shipped fact — `core.ph` `class Future`, `settleValue`'s settle-once comment).
 > **Floor delta: +1** (`System.cancelRegistration_(_)`, `NEW_CANCEL`) — the U-SCHED
 > seam-precedent shape; census at impl time under
-> [PDR-0012](../../../pdr/0012-numeric-tower-implementation-and-floor-amendment.md)
+> [TDR-0064](../../../decisions/accepted/0064-numeric-tower-implementation-and-floor-amendment.md)
 > ruling 21's rebase discipline.
 > **Build order:** needs U-REACTOR (phase 1) only — `System.sleep` is a sufficient test
 > substrate; independent of and parallel-safe with U-NET.
@@ -288,7 +288,7 @@ it is opt-in.
 ## 5. Composition laws
 
 1. **Cancelled ⇒ not a leak.** Release removes the registration from the pump's
-   pending set and the leak surface in one motion (PDR-0005 §5 posture; reactor.md
+   pending set and the leak surface in one motion (TDR-0058 §5 posture; reactor.md
    §7.2's parked-fiber condition is *remedied* by cancel — the fiber resumes with the
    raise — never triggered by it).
 2. **`#cancelled` ≠ `#closed`.** Same spine, different initiator: resource-went-away

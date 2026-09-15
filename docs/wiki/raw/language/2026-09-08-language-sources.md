@@ -57,7 +57,7 @@ Set(1, 2, 3)                             // set — a send, not a literal
 
 ## 5. String interpolation
 
-Interpolation uses `\(expr)` ([ADR-0022](../../adr/0022-string-interpolation-backslash-paren-sigil.md)).
+Interpolation uses `\(expr)` ([TDR-0020](../../../decisions/accepted/0020-string-interpolation-backslash-paren-sigil.md)).
 The `\(` sequence is what triggers interpolation; a literal `\(` is written `\\(`.
 
 ```phalcom
@@ -108,7 +108,7 @@ Part of the [Phalcom Language Specification](../README.md). Status: Draft 0.1.
 
 ## 1. Precedence & associativity
 
-Every tier below desugars to a message send ([ADR-0012]); the productions just
+Every tier below desugars to a message send ([TDR-0011]); the productions just
 fix how the parser groups tokens. The compiler's inliner for `and`/`or`/`if` is
 a semantic concern, not a syntax one — see [Control Flow](../control-flow.md).
 
@@ -131,7 +131,7 @@ a semantic concern, not a syntax one — see [Control Flow](../control-flow.md).
 | 15 | postfix `.` `?.` call `(...)` trailing-block `::` | left |
 | 16 | primary | — |
 
-> Range (`.. ...`) is a reserved-inactive binary operator ([ADR-0032]); its
+> Range (`.. ...`) is a reserved-inactive binary operator ([TDR-0029]); its
 > precedence slot is not yet fixed — pending U-LEX. `is`/`as` beyond the
 > import-alias form (`import Foo as Bar`) are not fully specified; treated
 > here only as the tier-6 type-test spelling of `is`.
@@ -171,11 +171,11 @@ primary       := literal | grouping | tuple | list | map | block
 ```
 
 Every binary and unary operator here is sugar for a message send: `a + b` is
-`a.+(b)`, `a ** b` is `a.**(b)`, `a & b` is `a.&(b)`, and `~a` is `a.~()` — see §2 and [ADR-0012].
+`a.+(b)`, `a ** b` is `a.**(b)`, `a & b` is `a.&(b)`, and `~a` is `a.~()` — see §2 and [TDR-0011].
 
 Power's right operand is `unary`, rather than `postfix`, deliberately. Therefore `2 ** -2`
 groups as `2 ** (-2)`, while a prefix on the left binds outside power: `-2 ** 2` groups as
-`-(2 ** 2)`. This is the Python power rule ratified by PDR-0027.
+`-(2 ** 2)`. This is the Python power rule ratified by TDR-0072.
 
 ## 2. Message sends
 
@@ -207,7 +207,7 @@ Blocks are the keystone construct. A block, a lambda, a method body, and a gette
 body all **share one closure representation** — the same closure machinery, spelled
 at different levels of ceremony. `Block` is a real class
 ([Object Model](object-model.md)). A `Method` and a `Block` are **siblings** under
-the abstract `Function` root ([ADR-0006](../../adr/0006-function-as-abstract-callable-root.md));
+the abstract `Function` root ([TDR-0005](../../../decisions/accepted/0005-function-as-abstract-callable-root.md));
 a `Method` is **not** a `Block` — it carries a selector, holder, and receiver that a
 `Block` does not (see [Functions](functions.md)).
 
@@ -298,7 +298,7 @@ blk.call()      blk.call(1, 2)
 --- docs/spec/current/string-interpolation.md ---
 # Phalcom String Literals and Interpolation
 
-**Status:** Accepted by [PDR-0029](../../pdr/0029-string-literals-and-interpolation-completion.md)
+**Status:** Accepted by [TDR-0073](../../../decisions/accepted/0073-string-literals-and-interpolation-completion.md)
 **Target:** Phalcom language specification
 **Date:** 2026-07-22
 
@@ -333,7 +333,7 @@ A scanner MUST advance by complete UTF-8 scalar values when it is not consuming 
 
 ### 3.1 String literal
 
-A string literal is either a single-line double-quoted string or a triple-quoted multiline text block ([PDR-0034](../../pdr/0034-multiline-string-text-blocks.md)):
+A string literal is either a single-line double-quoted string or a triple-quoted multiline text block ([TDR-0078](../../../decisions/accepted/0078-multiline-string-text-blocks.md)):
 
 ```text
 string-literal ::= single-line-string | multiline-text-block

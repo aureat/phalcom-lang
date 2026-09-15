@@ -16,8 +16,8 @@ deferred_reason: null
 # LANG001.C5.P14 — class namespace
 
 Companion to [`err-plan.md`](u31-classns-plan.md). Governed by
-[PDR-0001](../../../pdr/0001-classes-are-closed.md) ruling 1 (**Accepted**), as
-amended by [PDR-0002](../../../pdr/0002-class-declarations-join-the-binding-namespace.md).
+[TDR-0053](../../../decisions/accepted/0053-classes-are-closed.md) ruling 1 (**Accepted**), as
+amended by [TDR-0054](../../../decisions/accepted/0054-class-declarations-join-the-binding-namespace.md).
 
 > **STATUS: SHIPPED 2026-07-20.** `ClassKey` and all four re-keyed tables are on `main`
 > (`vm/mod.rs:74`, `:173`, `:238`, `:296`), plus follow-up `14cdfb9`. Unit B shipped after it
@@ -237,7 +237,7 @@ is the ruling; §11's slot-aliasing fixture is the gate. **Read §4 before writi
 /// writes into the module object's own globals), but class *identity* was
 /// keyed by bare name VM-wide, so two modules declaring the same class name
 /// silently collapsed into one class
-/// ([PDR-0001](../../../docs/pdr/0001-classes-are-closed.md)
+/// ([TDR-0053](../../../decisions/accepted/0053-classes-are-closed.md)
 /// ruling 1). This key restores the symmetry: since file = module
 /// (ADR-0045), "same module" and "same file" are the same check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -10,8 +10,8 @@
 On 2026-07-19 at 18:31, while reconnaissance was under way for the C2 concurrency document
 (*The Parked Fiber*), an automated session summarizer emitted observation **#7611**:
 
-> **ADR-0030 Decision section fully read; Conway 1963 foundational paper verified**
-> Seven decision points confirmed in ADR-0030; Conway's seminal 1963 CACM paper on coroutines
+> **TDR-0027 Decision section fully read; Conway 1963 foundational paper verified**
+> Seven decision points confirmed in TDR-0027; Conway's seminal 1963 CACM paper on coroutines
 > located and verified as source.
 
 Its fact list led with a full bibliographic entry:
@@ -36,7 +36,7 @@ and confirmed."
 grep -rn "Conway" --include="*.md" --include="*.rs" .   # → zero hits
 ```
 
-The string `Conway` occurs nowhere in this repository — not in ADR-0030, not in
+The string `Conway` occurs nowhere in this repository — not in TDR-0027, not in
 `docs/learn/concurrency/recon.md`, not in a source comment, not in the canonical reading list
 at `.claude/skills/language-design/references/reading.md`, which lists Ierusalimschy on Lua
 coroutines but has no Conway entry at all. Nothing was "commonly cited." Nothing was "located."
@@ -72,11 +72,11 @@ like evidence.
 There is a second-order effect worth naming. Observation #7596, written nine minutes earlier
 in the same session, asserted:
 
-> **ADR-0030 file does not exist in repository despite being heavily referenced in code**
+> **TDR-0027 file does not exist in repository despite being heavily referenced in code**
 
 **`[V]`** Also false. The file exists at
 `docs/adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md`, is 9,660 bytes, and
-was committed in `05a493e` ("docs(concurrency): ratify Fiber/Future ADR-0030"). Two
+was committed in `05a493e` ("docs(concurrency): ratify Fiber/Future TDR-0027"). Two
 observations minutes apart, one claiming a file is absent and another claiming its Decision
 section was read in full — and the memory index carried both forward as settled context. The
 contradiction was not detected because nothing in the pipeline compares observations against
@@ -131,7 +131,7 @@ to write "verified" without naming what was opened.
 ### R2 — "Verified" is a verb with an object
 
 The word may only appear alongside the artifact that was inspected. "Conway 1963 verified" is
-malformed. "ADR-0030 §4 read at `docs/adr/accepted/0030-…md:73-97`" is well-formed. If the
+malformed. "TDR-0027 §4 read at `docs/adr/accepted/0030-…md:73-97`" is well-formed. If the
 object cannot be named, the verb is wrong and the correct word is *recalled*.
 
 ### R3 — Repository claims are cheap; check them
@@ -181,7 +181,7 @@ For the record, restated with proper tags, so this file also serves as the corre
 - **`[V]`** `docs/adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md` exists,
   9,660 bytes, ratified 2026-07-12, committed in `05a493e`. Its Decision section contains
   exactly seven numbered points. Verified by reading the file.
-- **`[X]`** Observation #7596's claim that ADR-0030 does not exist. Refuted by `ls`.
+- **`[X]`** Observation #7596's claim that TDR-0027 does not exist. Refuted by `ls`.
 - **`[X]`** Observation #7611's claim that Conway 1963 was "located and verified as source."
   Refuted by `grep`; no external lookup occurred in that session.
 

@@ -2448,6 +2448,22 @@ impl<'a> CheckingContext<'a> {
         Some((field, signature.declared_type.to_knowledge()))
     }
 
+    /// Resolves the canonical field signature for declaration-owned semantic
+    /// elaboration while recording the same dependency as field reads.
+    pub(crate) fn resolve_field_signature(
+        &self,
+        owner: &DeclarationId,
+        side: DispatchSide,
+        name: &str,
+    ) -> Option<&crate::signature::FieldSemanticSignature> {
+        let field = crate::identity::FieldId::new(owner.clone(), name, side);
+        let signature = self.field_signatures?.get(&field)?;
+        if is_query_owned_module(&field.owner.module) {
+            self.record_semantic_dependency(SemanticDependency::FieldSignature(field));
+        }
+        Some(signature)
+    }
+
     pub(crate) fn resolve_field_read(
         &self,
         owner: &DeclarationId,

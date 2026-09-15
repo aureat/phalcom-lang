@@ -425,6 +425,11 @@ impl<'source> Parser<'source> {
         }
     }
 
+    /// Returns a token at a relative lookahead position without consuming it.
+    fn peek_at(&self, lookahead: usize) -> &Token {
+        self.tokens.get(self.pos + lookahead).map_or(&Token::Eof, |lexeme| &lexeme.token)
+    }
+
     /// Returns the start byte offset of the current lookahead token.
     fn cur_start(&self) -> usize {
         self.tokens[self.pos].start
@@ -3175,7 +3180,7 @@ impl<'source> Parser<'source> {
                     range: start..end,
                 });
             }
-            let member = self.parse_behavior_member(std::mem::take(&mut pending_attrs), false)?;
+            let member = self.parse_impl_member(std::mem::take(&mut pending_attrs))?;
             members.push(member);
             self.skip_newlines();
         }
@@ -3261,7 +3266,7 @@ impl<'source> Parser<'source> {
                     range: attribute.range.start..attribute.range.end,
                 });
             }
-            members.push(self.parse_behavior_member(std::mem::take(&mut pending_attrs), true)?);
+            members.push(self.parse_trait_member(std::mem::take(&mut pending_attrs))?);
             self.skip_newlines();
         }
         if !pending_attrs.is_empty() {
@@ -3579,6 +3584,212 @@ impl<'source> Parser<'source> {
         })
     }
 
+    /// Returns whether the current token is the contextual word `word`.
+    fn at_contextual_word(&self, word: &str) -> bool {
+        matches!(self.peek(), Token::Identifier(name) if name == word)
+    }
+
+    /// Consumes a contextual word such as `mut` or `via`.
+    fn eat_contextual_word(&mut self, word: &str) -> bool {
+        if self.at_contextual_word(word) {
+            self.advance();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Finishes a declaration-only member and consumes its optional newline.
+    fn finish_member_declaration(&mut self, start: usize) -> ParserResult<SourceRange> {
+        let range = (start..self.prev_end).into();
+        match self.peek() {
+            Token::Newline => {
+                self.advance();
+            }
+            Token::RBrace | Token::Eof => {}
+            _ => return Err(self.error_here(strs(&["newline", "\"}\""]))),
+        }
+        Ok(range)
+    }
+
+    /// Parses a trait-owned associated type declaration (`type Item`).
+    fn parse_associated_type_declaration(&mut self, pending_attrs: Vec<Attribute>) -> ParserResult<TraitMember> {
+        let start = self.cur_start();
+        self.expect(&Token::TypeKw, &["\"type\""])?;
+        let name_start = self.cur_start();
+        let name = self.expect_identifier(&["associated type name"])?;
+        let name_range = (name_start..self.prev_end).into();
+        if self.eat(&Token::Equal) {
+            return Err(SyntaxError {
+                kind: SyntaxErrorKind::Message("associated type declarations cannot have defaults in P1".to_string()),
+                range: self.tokens[self.pos.saturating_sub(1)].start..self.prev_end,
+            });
+        }
+        let range = self.finish_member_declaration(start)?;
+        Ok(TraitMember::AssociatedType(crate::ast::AssociatedTypeDeclaration {
+            name,
+            name_range,
+            attributes: pending_attrs,
+            range,
+        }))
+    }
+
+    /// Parses an associated type binding (`type Item = T`) in an impl block.
+    fn parse_associated_type_binding(&mut self, pending_attrs: Vec<Attribute>) -> ParserResult<ImplMember> {
+        let start = self.cur_start();
+        self.expect(&Token::TypeKw, &["\"type\""])?;
+        let name_start = self.cur_start();
+        let name = self.expect_identifier(&["associated type name"])?;
+        let name_range = (name_start..self.prev_end).into();
+        self.expect(&Token::Equal, &["\"=\" in associated type binding"])?;
+        let value = self.parse_type_annotation()?;
+        let range = self.finish_member_declaration(start)?;
+        Ok(ImplMember::AssociatedTypeBinding(crate::ast::AssociatedTypeBinding {
+            name,
+            name_range,
+            value,
+            attributes: pending_attrs,
+            range,
+        }))
+    }
+
+    /// Parses a trait property requirement (`[mut] name: Type`).
+    fn parse_trait_property(&mut self, pending_attrs: Vec<Attribute>) -> ParserResult<TraitMember> {
+        let start = self.cur_start();
+        let mutable = self.eat_contextual_word("mut");
+        let name_start = self.cur_start();
+        let name = self.expect_identifier(&["property name"])?;
+        let name_range = (name_start..self.prev_end).into();
+        self.expect(&Token::Colon, &["\":\" after property name"])?;
+        let annotation = self.parse_type_annotation()?;
+        let range = self.finish_member_declaration(start)?;
+        Ok(TraitMember::Property(crate::ast::TraitPropertyRequirement {
+            name,
+            name_range,
+            annotation,
+            mutable,
+            attributes: pending_attrs,
+            range,
+        }))
+    }
+
+    /// Returns whether the current token sequence begins a contextual `mut`
+    /// field declaration or a read/write delegation.
+    fn starts_mut_member(&self) -> bool {
+        if !self.at_contextual_word("mut") {
+            return false;
+        }
+        match self.peek_at(1) {
+            Token::FieldIdentifier(_) | Token::ImplementationFieldIdentifier(_) => {
+                matches!(self.peek_at(2), Token::Newline | Token::RBrace | Token::Eof | Token::Equal | Token::Colon)
+            }
+            Token::Identifier(_) => self.at_contextual_word_at(2, "via"),
+            _ => false,
+        }
+    }
+
+    /// Returns whether a token at relative lookahead is a contextual word.
+    fn at_contextual_word_at(&self, lookahead: usize, word: &str) -> bool {
+        matches!(self.peek_at(lookahead), Token::Identifier(name) if name == word)
+    }
+
+    /// Returns whether the current member is a direct-field delegation.
+    fn starts_delegation(&self) -> bool {
+        let name_offset = if self.starts_mut_member() && matches!(self.peek_at(1), Token::Identifier(_)) { 1 } else { 0 };
+        if !matches!(self.peek_at(name_offset), Token::Identifier(_)) {
+            return false;
+        }
+        if self.at_contextual_word_at(name_offset + 1, "via") {
+            return true;
+        }
+        matches!(self.peek_at(name_offset + 1), Token::Equal)
+            && matches!(self.peek_at(name_offset + 2), Token::LParen)
+            && matches!(self.peek_at(name_offset + 3), Token::Underscore)
+            && matches!(self.peek_at(name_offset + 4), Token::RParen)
+            && self.at_contextual_word_at(name_offset + 5, "via")
+    }
+
+    /// Parses a direct-field delegation and rejects arbitrary place
+    /// expressions by requiring one field token as its target.
+    fn parse_delegation(&mut self, pending_attrs: Vec<Attribute>) -> ParserResult<crate::ast::DelegatedAccessorDef> {
+        let start = self.cur_start();
+        let read_write = self.eat_contextual_word("mut");
+        let name_start = self.cur_start();
+        let name = self.expect_identifier(&["delegated property name"])?;
+        let name_range = (name_start..self.prev_end).into();
+        let kind = if read_write {
+            self.expect_contextual_word("via")?;
+            crate::ast::DelegatedAccessorKind::ReadWrite
+        } else if self.eat(&Token::Equal) {
+            self.expect(&Token::LParen, &["\"(\" in delegated setter"])?;
+            self.expect(&Token::Underscore, &["\"_\" in delegated setter"])?;
+            self.expect(&Token::RParen, &["\")\" in delegated setter"])?;
+            self.expect_contextual_word("via")?;
+            crate::ast::DelegatedAccessorKind::Setter
+        } else {
+            self.expect_contextual_word("via")?;
+            crate::ast::DelegatedAccessorKind::Getter
+        };
+
+        let target_start = self.cur_start();
+        let target_field = match self.peek().clone() {
+            Token::FieldIdentifier(name) | Token::ImplementationFieldIdentifier(name) => {
+                self.advance();
+                name
+            }
+            _ => return Err(self.error_here(strs(&["direct field identifier after `via`"]))),
+        };
+        let target_range = (target_start..self.prev_end).into();
+        let range = self.finish_member_declaration(start)?;
+        Ok(crate::ast::DelegatedAccessorDef {
+            name,
+            name_range,
+            kind,
+            target_field,
+            target_range,
+            attributes: pending_attrs,
+            range,
+        })
+    }
+
+    /// Requires a contextual word and consumes it.
+    fn expect_contextual_word(&mut self, word: &str) -> ParserResult<()> {
+        if self.eat_contextual_word(word) {
+            Ok(())
+        } else {
+            Err(self.error_here(strs(&[&format!("`{word}`")])))
+        }
+    }
+
+    /// Parses an impl member, preserving non-behavior categories for later
+    /// semantic elaboration while retaining the existing behavior grammar.
+    fn parse_impl_member(&mut self, pending_attrs: Vec<Attribute>) -> ParserResult<ImplMember> {
+        if matches!(self.peek(), Token::TypeKw) {
+            return self.parse_associated_type_binding(pending_attrs);
+        }
+        if self.starts_delegation() {
+            return Ok(ImplMember::Delegation(self.parse_delegation(pending_attrs)?));
+        }
+        Ok(ImplMember::Behavior(self.parse_behavior_member(pending_attrs, false)?))
+    }
+
+    /// Parses a trait member, distinguishing behavior from property and
+    /// associated-type declarations without altering top-level aliases.
+    fn parse_trait_member(&mut self, pending_attrs: Vec<Attribute>) -> ParserResult<TraitMember> {
+        if matches!(self.peek(), Token::TypeKw) {
+            return self.parse_associated_type_declaration(pending_attrs);
+        }
+        if self.at_contextual_word("mut") && matches!(self.peek_at(1), Token::Identifier(_)) && self.at_contextual_word_at(2, "via") {
+            return Err(self.error_here(strs(&["trait property type annotation"])));
+        }
+        if (matches!(self.peek(), Token::Identifier(_)) && matches!(self.peek_next(), Token::Colon))
+            || (self.at_contextual_word("mut") && matches!(self.peek_at(1), Token::Identifier(_)) && matches!(self.peek_at(2), Token::Colon))
+        {
+            return self.parse_trait_property(pending_attrs);
+        }
+        Ok(TraitMember::Behavior(self.parse_behavior_member(pending_attrs, true)?))
+    }
+
     /// Parses one impl/trait behavior member. Index declaration-only bodies
     /// are admitted only for trait-like abstract contexts; ordinary impl
     /// parsing keeps the historical body-required rule.
@@ -3777,6 +3988,7 @@ impl<'source> Parser<'source> {
             ClassMember::Method(m) => m.attributes = attrs,
             ClassMember::Getter(g) => g.attributes = attrs,
             ClassMember::Setter(s) => s.attributes = attrs,
+            ClassMember::Delegation(d) => d.attributes = attrs,
             ClassMember::Field(f) => f.attributes = attrs,
             // Unreachable in practice — `parse_class_body` diverts a pending
             // `@variant` straight to `parse_variant_decl`, which consumes
@@ -3881,6 +4093,10 @@ impl<'source> Parser<'source> {
                 range,
             });
         }
+        if self.starts_mut_member() && matches!(self.peek_at(1), Token::FieldIdentifier(_) | Token::ImplementationFieldIdentifier(_)) {
+            self.advance();
+            return self.parse_field_decl(start, false);
+        }
         if matches!(self.peek(), Token::Class) && matches!(self.peek_next(), Token::Identifier(_)) {
             let range = start..self.cur_start() + 5;
             return Err(SyntaxError {
@@ -3901,6 +4117,9 @@ impl<'source> Parser<'source> {
         // branches below, which never expect a leading `[`.
         if matches!(self.peek(), Token::LBracket) {
             return self.parse_index_member(start, false);
+        }
+        if self.starts_delegation() {
+            return Ok(ClassMember::Delegation(self.parse_delegation(Vec::new())?));
         }
         if matches!(self.peek(), Token::Construct) {
             let construct_start = self.cur_start();

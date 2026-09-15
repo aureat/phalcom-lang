@@ -2,7 +2,7 @@
 
 **Status: FINDINGS.** Grounded in the U-TRACE cut (`1ef999b`, [perf-log 003](../forge/perf-log/003-vm-trace-feature-gate.md),
 finding [F9](../forge/perf-log/findings.md)) and the measurements taken around it. Governed by
-[performance.md](../spec/current/performance.md) + [ADR-0051](../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md)
+[performance.md](../spec/current/performance.md) + [TDR-0048](../../decisions/accepted/0048-performance-strategy-measure-first-tiered-optimization.md)
 (measure-first, tiered, behavior-invariant).
 
 Per-cut records live in `docs/forge/perf-log/`. **This file is the generalizable layer** — what the
@@ -108,7 +108,7 @@ fiber_spawn  time: [24.331 ms 27.151 ms 31.846 ms]
 That last bullet is exactly the shape of an O2 error — a tidy mechanism fitted to one noisy
 observation. **Recorded as an open question, not a finding.** Resolving it: build binaries at
 `94b6bbf^` and `94b6bbf`, interleaved whole-process A/B per O3. Worth doing before U-GC is closed,
-since "the collector costs fiber-heavy code ~37%" would be a material fact about ADR-0050 — and
+since "the collector costs fiber-heavy code ~37%" would be a material fact about TDR-0048 — and
 "it was noise" is equally worth knowing.
 
 ## O5 — OPEN: the attribution table that ranks the remaining tiers is now stale

@@ -40,7 +40,7 @@ Constraints keeping generated programs meaningful rather than merely legal:
 - **Bounded depth and length.** Nesting ≤ 6, ≤ 200 statements. Unbounded
   generation finds stack overflow, which is a known and boring answer.
 - **Deterministic from a seed**, printed on failure. Determinism is inherited
-  from ADR-0030 — a seed reproduces the failure exactly, with no interleaving
+  from TDR-0027 — a seed reproduces the failure exactly, with no interleaving
   luck involved. This is the property that makes fuzzing a cooperative runtime
   far more tractable than fuzzing a preemptive one.
 - **Allocation churn interleaved** so generated programs cross GC thresholds.
@@ -103,7 +103,7 @@ the standard split and it is the only part of the lane that gates merges.
   those land the grammar needs extending in the same change — or the lane
   silently stops covering the newest, least-tested surface, which is the worst
   possible failure mode for a residual lane.
-- **Seed-reproducibility depends on determinism.** ADR-0030's cooperative,
+- **Seed-reproducibility depends on determinism.** TDR-0027's cooperative,
   single-threaded model is what makes a seed a complete reproducer. If
   preemption is ever admitted, seeds stop reproducing, and this lane needs a
   recorded-schedule mechanism to stay useful at all.

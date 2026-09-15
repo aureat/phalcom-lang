@@ -74,7 +74,7 @@ existed, monotonically increasing, never reused, never reset.
 `docs/adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md` §6
 ("Non-local return and unwind stay fiber-local"), ~L107-117:
 
-> Once `self.frames` is the *current* fiber's vector, [ADR-0013]'s
+> Once `self.frames` is the *current* fiber's vector, [TDR-0012]'s
 > `ReturnNonLocal` searches only that fiber; a token whose home is on another
 > fiber fails the generation check → `DeadFrameError`. **Invariant:** the
 > VM-global monotonic `next_frame_generation` counter **must not** be
@@ -128,7 +128,7 @@ pub struct CallFrame {
     /// `BlockObject` that carried the token is not otherwise reachable from a
     /// live `CallFrame`, which only stores the `ClosureObject` handle).
     /// Ordinary method/closure calls leave this `None`; their `return`
-    /// compiles to [`Bytecode::Return`] and never reads it (ADR-0013,
+    /// compiles to [`Bytecode::Return`] and never reads it (TDR-0012,
     /// blocks.md §5). Because [`FrameToken`] is `Copy`, `Option<FrameToken>`
     /// keeps [`CallFrame`] `Copy`.
     pub home_frame_token: Option<FrameToken>,
@@ -339,7 +339,7 @@ editorializing further.
 
 ## 5. The ADR's forward claim — shipped, partial, or aspirational
 
-ADR-0013 Consequences: *"The frame token also unifies with `throw` and fiber
+TDR-0012 Consequences: *"The frame token also unifies with `throw` and fiber
 `abort` as one stack-unwinding primitive."*
 
 **Partial.** What exists at HEAD:
@@ -433,7 +433,7 @@ answer: YES, and this contradicts the source's own doc comment.**
 Wrote and ran (via `cargo run -p phalcom-core --bin phalcom --`) two `.ph`
 files in the scratchpad, using the real catch syntax confirmed from
 `phalcom-core/tests/lang/errors/errors_try_on_typed_and_catch_all.ph`
-(`try { } on Type e { } catch e { }`, per ADR-0031 — `catch` desugars to
+(`try { } on Type e { } catch e { }`, per TDR-0028 — `catch` desugars to
 `.on(Error)`):
 
 **Test 1** — `/private/tmp/.../scratchpad/dead_frame_catch_test.ph`:
@@ -722,7 +722,7 @@ are **INFERRED** from the source-level trace in §8, not captured live.
 
 ## 10. Spec/ADR — bounded
 
-ADR-0013 (`docs/adr/accepted/0013-closure-upvalues-and-frame-token-return.md`)
+TDR-0012 (`docs/adr/accepted/0013-closure-upvalues-and-frame-token-return.md`)
 **Alternatives considered** (~L57-66) — exactly two entries, confirmed:
 
 1. "By-value snapshot capture" — rejected: breaks shared mutation, fights
@@ -814,7 +814,7 @@ What it did **not** cover (all novel to this doc): the `frame_index` vs
 `generation` scope asymmetry and its fiber implications (the dominating
 question); the mint/stamp/carry lifecycle across `new_call_frame`,
 `Bytecode::Closure`, `block_call`, and the fiber-entry path; the duplicated
-stamp in `run_in_module`; the `wrapping_add` non-guard; the ADR-0013
+stamp in `run_in_module`; the `wrapping_add` non-guard; the TDR-0012
 "unifies with throw/abort" claim's actual (partial) shipped status; the
 `DeadFrameError`-is-actually-catchable discrepancy between `block_on`'s doc
 comment and its code; the concrete truncate-removes-the-home-frame mechanics

@@ -1,19 +1,19 @@
 # Specification — Network (`TcpStream`, `TcpListener`, `Dns`, `IpAddr`, `Shutdown`)
 
 > **Status:** **Proposed — normative upon ratification of
-> [PDR-0015](../../../pdr/0015-network-surface-tcp-dns-endpoints.md)** (rule 5:
+> [TDR — The network surface: TCP is poller-backed and `Future`-shaped, DNS rides the pool, endpoints are address-plus-port](../../../decisions/proposed/network-surface-tcp-dns-endpoints.md)** (rule 5:
 > never design on an unratified record; no unit builds this until that record is
 > Accepted). The already-Accepted inputs it composes:
-> [PDR-0004](../../../pdr/0004-io-is-future-shaped-reactor-owned.md) §1/§3
+> [TDR-0056](../../../decisions/accepted/0056-io-is-future-shaped-reactor-owned.md) §1/§3
 > (`Future` for can-block; poller-vs-pool split),
-> [PDR-0005](../../../pdr/0005-resources-are-disposable-handles-not-finalized.md)
+> [TDR-0057](../../../decisions/accepted/0057-resources-are-disposable-handles-not-finalized.md)
 > §3/§4/§7 (`TcpStream < Resource`; the resource table; `TlsStream#shutdown -> Future`),
 > [`stream-protocol.md`](stream-protocol.md) (Reader/Writer protocols, `close` laws),
 > [`reactor.md`](reactor.md) §3/§7 (completion lifecycle, cancellation substrate).
 > **Floor delta: nonzero, enumerated in [`../../forge/units/U-NET/implementation-spec.md`](../../forge/units/U-NET/implementation-spec.md)** (PDR-0015
 > ruling 13), censused at impl time under
-> [PDR-0012](../../../pdr/0012-numeric-tower-implementation-and-floor-amendment.md)
-> ruling 21's rebase discipline. Selector spellings follow ADR-0012 and ADR-0043
+> [TDR-0064](../../../decisions/accepted/0064-numeric-tower-implementation-and-floor-amendment.md)
+> ruling 21's rebase discipline. Selector spellings follow TDR-0011 and TDR-0037
 > (no default arguments, no flags, no options bags — every variant its own selector).
 > **Build order:** requires reactor phase 2 (the poller — [`../../forge/units/U-NET/implementation-spec.md`](../../forge/units/U-NET/implementation-spec.md));
 > phase 1 ([`../../../implementation/CONC002-concurrency-control-and-failure-observability/C3-reactor-and-external-completion/CONC002.C3.P1-reactor-core-workers-timers-and-executor-liveness.md`](../../../implementation/CONC002-concurrency-control-and-failure-observability/C3-reactor-and-external-completion/CONC002.C3.P1-reactor-core-workers-timers-and-executor-liveness.md)) deliberately shipped without it.
@@ -22,7 +22,7 @@
 
 ## 1. Scope and the shape of the surface
 
-Split by what can block (PDR-0004 §1), stated per kind exactly as
+Split by what can block (TDR-0057 §1), stated per kind exactly as
 [`filesystem.md`](filesystem.md) §1 does:
 
 | Kind | Blocks? | Returns |
@@ -40,7 +40,7 @@ Mechanism assignment (PDR-0015 ruling 3): sockets ride the **poller**; DNS rides
 ## 2. `IpAddr`
 
 An immutable `.ph` value class over the 4 (IPv4) or 16 (IPv6) octets, owned exclusively —
-the `Path` pattern, PDR-0013 rulings 1/2 applied verbatim: construction copies in,
+the `Path` pattern, TDR-0066 rulings 1/2 applied verbatim: construction copies in,
 `bytes` copies out, structural `==`, content `hash` cached at construction. Immutable +
 value-hashed ⇒ a valid `Map`/`Set` key (collection-protocol law 4).
 
@@ -57,20 +57,20 @@ value-hashed ⇒ a valid `Map`/`Set` key (collection-protocol law 4).
 
 **Laws:** no selector touches the network; parse/display are pure `.ph`; the octets are
 the wire form and the only thing that crosses a native boundary (PDR-0015 ruling 9 —
-the PDR-0013 ruling-4 posture). No aliasing in either direction.
+the TDR-0066 ruling-4 posture). No aliasing in either direction.
 
 ## 3. `Shutdown`
 
-Three singleton objects, the `OpenMode` pattern (PDR-0013 ruling 5; no numbers, no
+Three singleton objects, the `OpenMode` pattern (TDR-0066 ruling 5; no numbers, no
 flags): `Shutdown.read`, `Shutdown.write`, `Shutdown.both`. A plain `.ph` class with
 three static instances and `toString`.
 
 ## 4. `TcpStream`
 
-`TcpStream < Resource` (PDR-0005 §3). [`stream-protocol.md`](stream-protocol.md) §3 laws
+`TcpStream < Resource` (TDR-0058 §3). [`stream-protocol.md`](stream-protocol.md) §3 laws
 apply verbatim: synchronous idempotent fallible `close`, use-after-close raises
 `kind: #useAfterClose`. The descriptor lives in the VM-side generation-tagged resource
-table (PDR-0005 §4), never in the object. It is a conformant Reader and Writer (§2 of
+table (TDR-0058 §4), never in the object. It is a conformant Reader and Writer (§2 of
 that spec) and must pass its harness.
 
 | Selector | Returns | Meaning |
@@ -142,14 +142,14 @@ each pending `Future` settles `Err(#closed)` at the next drain:
 
 ## 8. TLS — deferred, obligations registered
 
-Binds nothing beyond PDR-0005 §7's ratified `TlsStream#shutdown -> Future`. Whichever
+Binds nothing beyond TDR-0058 §7's ratified `TlsStream#shutdown -> Future`. Whichever
 record specs TLS inherits three obligations (PDR-0015 ruling 11): `TlsStream < Resource`;
 conformant Reader/Writer; no-arg `shutdown -> Future` as §4's protocol selector. The TLS
 dependency decision is that record's own — not smuggled in with the poller's.
 
 ## 9. Laws, consolidated
 
-1. **Blocking is visible in the type, both ways** (PDR-0004 §1): can-block ⇒ `Future`;
+1. **Blocking is visible in the type, both ways** (TDR-0057 §1): can-block ⇒ `Future`;
    cannot-block ⇒ plain value or `Result` — which is why `bind` is synchronous and
    `peerAddr` is an `IpAddr`, and the *only* deliberate uniformity exception is the
    no-arg `shutdown`, grounded in the `flush`-totality precedent (stream law 3).
@@ -160,7 +160,7 @@ dependency decision is that record's own — not smuggled in with the poller's.
    octets, use-after-close, and concurrent pending operations raise.
 4. **Addresses are octets end to end** — text is display and input convenience; the wire
    form is `bytes`, and it is what crosses the native boundary.
-5. **One selector, one operation** (ADR-0043; filesystem law 5): resolve-then-connect is
+5. **One selector, one operation** (TDR-0037; filesystem law 5): resolve-then-connect is
    the *documented composition* of `connect`, available separately as
    `Dns.resolve` + `connectAddr`; no selector takes an options bag or a mode flag.
 6. **Close is prompt and observable**: §7's three-way contract; a closed handle never
@@ -188,16 +188,16 @@ phase 2 exists. Absorbs reactor.md §10's socket-echo row (its phase-1 plan move
 | `IpAddr` value semantics | parse/`toString` round-trips canonical forms; `==`/`hash` agree; keys a `Map`; `ofBytes` wrong length raises; `parse("bogus")` is `None` |
 | resolve | `Dns.resolve("localhost")` settles `Ok` containing a loopback; a guaranteed-NXDOMAIN name settles `Err(#dnsFailure)` |
 | buffered wrappers | `BufferedWriter.new(stream)` passes the stream-protocol §8 rows unchanged |
-| leak report | an unclosed `TcpStream` at exit appears in `System.leakReport` naming its open site (PDR-0005 §5) |
+| leak report | an unclosed `TcpStream` at exit appears in `System.leakReport` naming its open site (TDR-0058 §5) |
 
 ## 11. Open questions
 
 | # | Question | Notes |
 |---|---|---|
 | Q-N1 | UDP | datagrams break the Reader/Writer stream shape (message boundaries); own surface, own record; nothing here precludes it |
-| Q-N2 | Unix domain sockets | pollable, fit the reactor unchanged; surface question is path-vs-address spelling (`Path` from PDR-0013 is the obvious carrier) |
+| Q-N2 | Unix domain sockets | pollable, fit the reactor unchanged; surface question is path-vs-address spelling (`Path` from TDR-0066 is the obvious carrier) |
 | Q-N3 | IDNA / punycode hostnames | deliberately not performed (PDR-0015 ruling 9); doing it half-right is worse than a documented absence |
-| Q-N4 | Socket options (`TCP_NODELAY`, keepalive) | excluded from v0.2 (PDR-0015 ruling 12); each arrives as its own selector per ADR-0043 when evidence demands it — the Nagle cost is the named pressure |
+| Q-N4 | Socket options (`TCP_NODELAY`, keepalive) | excluded from v0.2 (PDR-0015 ruling 12); each arrives as its own selector per TDR-0037 when evidence demands it — the Nagle cost is the named pressure |
 | Q-N5 | Connect timeout + Happy Eyeballs | both need cancellation (Q-R4); sequential-with-system-timeouts until then, dependency named in PDR-0015 ruling 4 |
 | Q-N6 | `SocketAddr` / SRV-style endpoint resolution | the only sanctioned door for an endpoint type (PDR-0015 ruling 1 / Consequences); opens only if endpoint-returning resolution lands |
 

@@ -8,7 +8,7 @@ current as of this read; symbols are the stable anchor.
 
 Phalcom implements **Lua-style open/closed upvalues**, not flat-copy capture,
 not box-everything, not heap-allocated frames, and not capture-by-value-only.
-This is a deliberate, ADR-backed design (ADR-0013), not an accident of
+This is a deliberate, ADR-backed design (TDR-0012), not an accident of
 convenience, and it is live end-to-end: compiler resolution, bytecode,
 VM runtime, GC tracing, and fiber interaction all implement it consistently.
 It is also empirically verified below by running real `.ph` programs, not
@@ -48,7 +48,7 @@ pub enum Upvalue {
 ```
 
 - `Open.fiber` — not present in vanilla Lua; added because the VM stack is
-  swapped per-fiber (ADR-0030), so a slot index alone is ambiguous — it must
+  swapped per-fiber (TDR-0027), so a slot index alone is ambiguous — it must
   be resolved against the stack of whichever `FiberObject` actually owns the
   home frame, not whatever fiber happens to be currently running.
 - `Open.slot` — an **absolute index** into that fiber's `Vec<Value>` stack, not a pointer.
@@ -121,7 +121,7 @@ pointer into anything:
   slotmap key** (`phalcom-core/src/heap/mod.rs::ObjRef`, via
   `slotmap::new_key_type!`), not a pointer either.
 
-Quoted rationale, `heap/mod.rs` module doc (~L1-25), realizing ADR-0009:
+Quoted rationale, `heap/mod.rs` module doc (~L1-25), realizing TDR-0008:
 
 > "keys (`ObjRef`) are `Copy` and generational, so a stale handle resolves to
 > a clean `None` rather than undefined behavior (no use-after-free);
@@ -538,7 +538,7 @@ semantics.
 
 Unlike the "planned U-FIBER work" framing in the prompt, upvalue×fiber
 interaction is **already implemented and tested**, motivated directly by
-ADR-0030 (fibers/futures).
+TDR-0027 (fibers/futures).
 
 - `Upvalue::Open` carries `fiber: ObjRef` specifically so a closure resumed
   on a different fiber than the one whose stack holds its home slot still
@@ -726,9 +726,9 @@ explicitly rejects by-value snapshot capture for breaking shared mutation
 of captured `var`s.
 
 Grep of `docs/adr/accepted/` for closure/upvalue mentions also turned up
-peripheral references in ADR-0006 (function-as-abstract-callable-root, the
-`Block`/`Method` shared-representation decision this all sits on), ADR-0030
-(fibers, the reason `Open` carries a `fiber` field), ADR-0050 (mark-sweep GC,
+peripheral references in TDR-0005 (function-as-abstract-callable-root, the
+`Block`/`Method` shared-representation decision this all sits on), TDR-0027
+(fibers, the reason `Open` carries a `fiber` field), TDR-0048 (mark-sweep GC,
 root-set discipline for `open_upvalues`), and several `amend-floor-admit-*`
 ADRs with incidental mentions — not read in full; out of scope per the
 "bounded, do not sweep" instruction.

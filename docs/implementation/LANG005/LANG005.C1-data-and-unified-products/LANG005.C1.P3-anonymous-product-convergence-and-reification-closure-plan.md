@@ -439,7 +439,7 @@ Before representation convergence begins, C1 has one coherent language ruling, s
 ### Task 1 — Land anonymous structural products as identity-free transparent values
 
 **Files:**
-- Create: `docs/pdr/0036-tuple-and-record-are-transparent-structural-value-products.md`
+- Create: `docs/decisions/0036-tuple-and-record-are-transparent-structural-value-products.md`
 - Modify: `docs/spec/collections-next/tuple-record-and-symbols-spec.md`
 - Modify: `docs/spec/typing/phalcom-tuples-records-sets-maps-spec.md`
 - Modify: `docs/implementation/LANG003-language-semantics/C1-language-semantics/language-semantics-spec.md`

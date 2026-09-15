@@ -4,7 +4,7 @@
 about redesigning JavaScript from scratch, not from profiling Phalcom. Nothing here
 is a finding.
 
-Under [ADR-0051](../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md)
+Under [TDR-0048](../../decisions/accepted/0048-performance-strategy-measure-first-tiered-optimization.md)
 (measure-first, tiered, behavior-invariant) and perf-log law **P1** (no oral numbers),
 none of this may land as an optimization without a U-BENCH before/after. Deliberately
 kept out of [`../forge/perf-log/`](../forge/perf-log/README.md), which is a measured
@@ -147,13 +147,13 @@ survived: it fixes the **representation and format** axes and none of the mechan
 axes. It's an abstract machine sitting *below* this whole design space. Three things
 fall out that bear on Phalcom.
 
-### Cross-validation: one heap (confirms ADR-0009)
+### Cross-validation: one heap (confirms TDR-0008)
 
 WASM's worst structural failure in the browser is **two heaps** — linear memory on one
 side, JS/DOM objects on the other, and no cross-heap cycle collector. An `Rc` holding a
 JS closure holding the Rust struct leaks forever. There is no fix, only discipline.
 
-Phalcom's handle/arena `Heap` ([ADR-0009](../adr/0009-handle-arena-heap.md)) is one heap
+Phalcom's handle/arena `Heap` ([TDR-0008](../../decisions/accepted/0008-handle-arena-heap.md)) is one heap
 for the whole object graph. Not a lever — a hazard already dodged by construction.
 Recorded so that nobody later proposes a native side-table for some hot structure and
 reintroduces a second heap for a perf reason. That trade has a known, unbounded cost.
@@ -178,9 +178,9 @@ up steady-state sends, and U-BENCH (`benchmarks/vm/`, steady-state sends) is bli
 by construction.
 
 Second-order, and more interesting: **Phalcom is already AOT-shaped.** No JIT, no type
-feedback, every send walks the dict (ADR-0012). So the WASM comparison is the relevant
+feedback, every send walks the dict (TDR-0011). So the WASM comparison is the relevant
 one, not the Hermes one — the ceiling on a bytecode VM with no feedback is a real ceiling,
-and the sacred-selector inliner (control-flow §3) plus IC population (ADR-0012, deferred)
+and the sacred-selector inliner (control-flow §3) plus IC population (TDR-0011, deferred)
 are precisely the feedback mechanisms that would raise it. That reframes IC from
 "nice-to-have someday" to "the thing that buys back what AOT already gave up."
 
@@ -196,7 +196,7 @@ the speed of the fast side stops mattering.**
 
 Phalcom bearing, stated as a question because I did not read the string primitives:
 
-The native/library split (ADR-0006 — VM-native arithmetic, `Object`, `Bool`, block `call`,
+The native/library split (TDR-0005 — VM-native arithmetic, `Object`, `Bool`, block `call`,
 absence, dispatch; the rest self-defined in `core.ph`) is a boundary. The overlay already
 names its trade — "smaller native surface = more auditable, slower hot ops." What is
 *not* recorded anywhere is whether any **representation** changes across it. If a Rust
@@ -226,7 +226,7 @@ Two bearings:
    burdens of proof. Related: there's no external bytecode loader today, so no verifier is
    needed *yet* — but one becomes mandatory the moment anything loads a *compiled* unit
    rather than compiling from source. Modules landed as
-   [ADR-0027](../adr/0027-modules-as-files-with-public-by-default-imports.md)
+   [TDR — A module is a file; exports are public by default; imports are qualified, selective, or aliased](../../decisions/retired/modules-as-files-with-public-by-default-imports.md)
    (files + public-by-default imports); whether that ever admits precompiled units is a
    separate question I did not check. WASM's validate-before-run is the precedent for what
    the verifier has to look like if it does.
@@ -306,4 +306,4 @@ Actionable residue, ranked:
 4. **N3** — an open question, gated behind F4's preconditions.
 
 Cross-validations (no action, confidence only): allocation-is-the-mechanism confirms
-**F1**; niche absence confirms **F2**; one-heap confirms **ADR-0009**.
+**F1**; niche absence confirms **F2**; one-heap confirms **TDR-0008**.

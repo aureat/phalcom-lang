@@ -4,8 +4,8 @@
 > ship (user decision, 2026-07-12). **Every section of this document is gated on
 > [Cooperative Fiber](../C1-fiber-execution/cooperative-fiber-spec.md) landing** — `Future` derives entirely from
 > `Fiber` and adds **no new VM mechanism** beyond `Fiber` + a ready-queue
-> ([ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md) §1). This
-> is the library layer [ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md)
+> ([TDR-0026](../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) §1). This
+> is the library layer [TDR-0026](../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md)
 > already sanctions; **no new ADR is needed.**
 >
 > **This is authored fresh** from [`concurrency.md`](../../../../spec/current/concurrency.md) §2
@@ -15,7 +15,7 @@
 > (abandoned-fiber `ensure` + resource caps). It deepens `concurrency.md` §2 by reference;
 > that document stays the surface index.
 >
-> **Governing sources.** [ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md)
+> **Governing sources.** [TDR-0026](../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md)
 > §1 (`Future` = pure library layer); [`concurrency.md`](../../../../spec/current/concurrency.md)
 > §2 (surface + implementation notes); [`system.md`](../../../../spec/current/system.md)
 > (the scheduler's external-completion source); [`open-questions.md`](../../../../spec/current/open-questions.md)
@@ -41,7 +41,7 @@
 A `Future` represents a value that may not exist yet — a thin **state machine over
 `Fiber`**. It is a **library-level `InstanceObject`** — **no new `Value` arm** required
 ([`value.rs`](../../../../phalcom-core/src/value.rs) already has `Instance`;
-[ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md) §1). It needs
+[TDR-0026](../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) §1). It needs
 exactly three things, **all of which depend on [Cooperative Fiber](../C1-fiber-execution/cooperative-fiber-spec.md)**:
 
 1. **`Fiber`** (§6) as the substrate — `await` = "add `current` to the future's waiters,

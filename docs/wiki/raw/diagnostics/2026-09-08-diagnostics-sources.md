@@ -23,12 +23,12 @@ syntax diagnostics, execution tracing, and disassembly.
   unowned error-handling defects found alongside.
 
 **Status:** specified — implementation not started. §3.1 (renderer) is **ruled** —
-[PDR-0014](../../pdr/0014-diagnostics-renderer-is-in-house.md), Accepted. The capture row
+[TDR-0066](../../../decisions/accepted/0066-diagnostics-renderer-is-in-house.md), Accepted. The capture row
 in §2 below is **superseded by
-[PDR-0010](../../pdr/0010-errors-carry-structure-and-cheap-origin.md) §3, ratified
+[TDR-0062](../../../decisions/accepted/0062-errors-carry-structure-and-cheap-origin.md) §3, ratified
 2026-07-20**; the normative `kind` table is
 [`u22-seq-spec.md`](implementation-spec.md) §8.1. Parts of `tracing.md` went stale when
-PDR-0008 landed; trust [`verification-2026-07-20.md`](verification-2026-07-20.md) over it where
+TDR-0061 landed; trust [`verification-2026-07-20.md`](verification-2026-07-20.md) over it where
 they disagree.
 
 ---
@@ -65,7 +65,7 @@ Carried from the U-TRACE design session. Do not re-litigate.
 | Core frames | Elided by default with a count; `--trace-core` expands |
 | Fiber boundary | Traceback **chains** across the floor with a spawn-site link; does not stop |
 | Primitive shape | Walkable live stack object; formatter is a consumer |
-| Capture timing | ~~Compact record at **raise**~~ **Superseded by PDR-0010 §3 (ratified 2026-07-20)**: capture at the first `on` boundary / per-hop in the fiber cascade; record holds Symbols + line, never `ObjRef`s (PDR-0010 §4) |
+| Capture timing | ~~Compact record at **raise**~~ **Superseded by TDR-0063 §3 (ratified 2026-07-20)**: capture at the first `on` boundary / per-hop in the fiber cascade; record holds Symbols + line, never `ObjRef`s (TDR-0063 §4) |
 | Frame granularity | **Logical** frames, 1:many expansion from day one |
 | Trace stability | Golden fixtures assert fields via JSON stream; human layout explicitly unstable |
 | Fiber switch log | No `cfg` gate — cold path |
@@ -125,7 +125,7 @@ the hard ones in v1.
 
 ### 3.3 Remaining opens carried from `tracing.md`
 
-- Does U-TRACE get its own ADR, or ride an existing one? If new: flip `docs/adr/STATUS.md` the
+- Does U-TRACE get its own ADR, or ride an existing one? If new: flip `docs/decisions/README.md` the
   same pass.
 - Which paths leave `ModuleObject::source` as `None` (REPL? `-i` inline? core.ph bootstrap?) —
   determines where source echo degrades to bare `file:line`.

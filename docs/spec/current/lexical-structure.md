@@ -54,7 +54,7 @@ Set(1, 2, 3)                             // set — a send, not a literal
 
 ## 5. String interpolation
 
-Interpolation uses `\(expr)` ([ADR-0022](../../adr/0022-string-interpolation-backslash-paren-sigil.md)).
+Interpolation uses `\(expr)` ([TDR-0020](../../decisions/accepted/0020-string-interpolation-backslash-paren-sigil.md)).
 The `\(` sequence is what triggers interpolation; a literal `\(` is written `\\(`.
 
 ```phalcom
@@ -171,7 +171,7 @@ lookup).
 
 Member metadata lives here rather than in the keyword space. `@construct` derives
 constructors from classes, `@constructor` marks constructor methods, and `@class`
-places fields and methods on the class side ([PDR-0028](../../pdr/0028-class-and-constructor-decorator-canon.md)).
+places fields and methods on the class side ([TDR-0072](../../decisions/accepted/0072-class-and-constructor-decorator-canon.md)).
 The retired `construct` and `static` declaration forms are recognized only long
 enough for targeted parser errors naming `@constructor` and `@class`; they are
 never lowered as aliases. `construct` and
@@ -181,7 +181,7 @@ selector families, or attribute classes.
 ## 13. Error-handling keywords
 
 `throw`, `try`, `catch`, `on`, and `ensure` are the error-handling keywords
-([Error Handling](error-handling.md); [ADR-0031](../../adr/0031-error-handling-surface-syntax.md)).
+([Error Handling](error-handling.md); [TDR-0027](../../decisions/accepted/0027-error-handling-surface-syntax.md)).
 
 - `throw expr` is a prefix statement/expression; `expr` must evaluate to an
   [`Error`](values-and-absence.md). Sugar for `expr.raise()`.
@@ -196,8 +196,8 @@ selector families, or attribute classes.
 
 ## 14. Subscript indexing syntax: `[]` / `[]=`
 
-Full semantics in [ADR-0060](../../adr/accepted/0060-index-operator-as-real-selector.md)
-(supersedes the retired [ADR-0055](../../adr/retired/0055-index-syntax-sugar-over-at-selectors.md),
+Full semantics in [TDR — `[]` Is a Real, Overridable Selector — No `at` Lowering](../../decisions/accepted/0049-index-operator-as-real-selector.md)
+(supersedes the retired [TDR — Subscript Indexing Syntax Sugar over `at` Selectors](../../decisions/retired/index-syntax-sugar-over-at-selectors.md),
 which lowered `[]` straight to `at`/`at(_,put:)` — that lowering no longer
 occurs).
 

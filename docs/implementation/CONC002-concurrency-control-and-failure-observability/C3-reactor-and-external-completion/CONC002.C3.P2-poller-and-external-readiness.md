@@ -37,13 +37,13 @@ one unified blocking wait
 cross-source wake
 ```
 
-This plan is implementation-blocked while PDR-0016 remains Proposed. Do not treat its `mio` decision as accepted architecture merely because this plan describes the expected implementation if that PDR is ratified unchanged.
+This plan is implementation-blocked while TDR-0080 remains Proposed. Do not treat its `mio` decision as accepted architecture merely because this plan describes the expected implementation if that PDR is ratified unchanged.
 
 ## 1. Hard decision gate
 
 At execution start:
 
-1. read current PDR-0016 status;
+1. read current TDR-0080 status;
 2. if Accepted unchanged, use the `mio` design below;
 3. if superseded/changed, rebase backend-specific tasks;
 4. if still Proposed, stop before dependency/backend implementation.
@@ -66,7 +66,7 @@ Regardless of backend:
 - timer/worker/poller sources share one idle wait;
 - IO selector surfaces are not implemented here.
 
-## 3. Expected PDR-0016 design if accepted
+## 3. Expected TDR-0080 design if accepted
 
 Use `mio` with:
 

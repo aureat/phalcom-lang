@@ -67,7 +67,7 @@ Float:
 phalcom-core/src/primitive/float.rs
 phalcom-core/src/universe/primitives.rs
 docs/spec/library/numbers/float-protocol.md
-docs/pdr/0027-float-protocol-and-explicit-narrowing.md
+docs/decisions/0027-float-protocol-and-explicit-narrowing.md
 ```
 
 Tests/fixtures across workspace.

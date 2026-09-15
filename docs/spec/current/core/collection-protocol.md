@@ -4,7 +4,7 @@
 > [U-CORE-5](../../../forge/units/U-CORE-5/ucore5.md) (not yet landed). The
 > shared selectors + **laws** every collection must satisfy — with kernel `List`
 > as the reference implementation. Adds **zero** floor primitives (no
-> [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md) amendment).
+> [TDR-0017](../../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md) amendment).
 > Encodes [`decisions.md`](./decisions.md) **Q5** (mutability + equality +
 > hashability). Depends on **U-CORE-1** (`isA(_)`, `hash`). Inherits the baseline
 > pin from [`README.md`](./README.md).
@@ -13,7 +13,7 @@
 
 ## 1. Why a contract, not classes
 
-Per [ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md) each
+Per [TDR-0018](../../../decisions/accepted/0018-kernel-list-native-array-protocol.md) each
 collection (`Map`/`Set`/`Tuple`/`Range`) is its own unit. What makes them a
 *family* rather than four unrelated classes is a **shared protocol + laws**. This
 doc fixes that contract so a new collection is "correct" iff it passes the
@@ -39,7 +39,7 @@ contract, but a conformant collection gets them for free once the four hold.
 
 1. **Totality.** `size` and `each` are defined for every valid receiver; `at(_)`
    is total via `Option` (out-of-bounds → `None`, never a raise or `nil`,
-   [ADR-0021](../../../adr/0021-no-truthiness-enforcement.md)).
+   [TDR-0019](../../../decisions/accepted/0019-no-truthiness-enforcement.md)).
 2. **Deterministic iteration.** `each` visits elements in a fixed order; two
    traversals of an unmutated collection agree. (For unordered collections —
    `Set`/`Map` — "fixed order" means *stable within a run*, not sorted.)
@@ -88,7 +88,7 @@ the harness *is* the definition of "conformant."
 | Claim | Source |
 |---|---|
 | Contract, harness, `List#==`, Q5 | [U-CORE-5 as-built](../../../forge/units/U-CORE-5/ucore5.md); [`decisions.md`](./decisions.md) Q5 |
-| Each collection its own unit | [ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md) |
-| Family representation + literals ratified | [ADR-0032](../../../adr/0032-collections-representation-and-literals.md) |
-| `at(_)`→`Option`, no `nil` | [ADR-0021](../../../adr/0021-no-truthiness-enforcement.md); [values-and-absence.md](../values-and-absence.md) |
+| Each collection its own unit | [TDR-0018](../../../decisions/accepted/0018-kernel-list-native-array-protocol.md) |
+| Family representation + literals ratified | [TDR-0028](../../../decisions/accepted/0028-collections-representation-and-literals.md) |
+| `at(_)`→`Option`, no `nil` | [TDR-0019](../../../decisions/accepted/0019-no-truthiness-enforcement.md); [values-and-absence.md](../values-and-absence.md) |
 | `hash`/`isA` dependency | [U-CORE-1 as-built](../../../forge/units/U-CORE-1/ucore1.md) |

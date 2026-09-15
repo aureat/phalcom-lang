@@ -13,7 +13,7 @@ Every claim carries a warrant tag — **`[V]`** verified by opening the named ar
 Related: [`../spec/current/stdlib/map-and-set.md`](../spec/current/stdlib/map-and-set.md) §4 (which already
 ruled the adjacent question), [`../spec/current/stdlib/bytes.md`](../spec/current/stdlib/bytes.md),
 [`../../spec/library/numbers/numeric-tower.md`](../../spec/library/numbers/numeric-tower.md),
-[`../pdr/0012-numeric-tower-implementation-and-floor-amendment.md`](../pdr/0012-numeric-tower-implementation-and-floor-amendment.md),
+[TDR-0064](../../decisions/accepted/0064-numeric-tower-implementation-and-floor-amendment.md),
 [`../spec/current/memory-management.md`](../spec/current/memory-management.md),
 [`../forge/perf-log/SCOREBOARD.md`](../forge/perf-log/SCOREBOARD.md).
 
@@ -229,7 +229,7 @@ whether a Rust container ports to a dynamic language.
 **`[V]` R6 is satisfied, despite Phalcom having no destructors.** `ScopeGuard`
 (`src/scopeguard.rs`, used at `raw.rs:2999-3015`, `:3470`, `:1468`) is cleanup driven by
 *unwinding*. Phalcom's `ensure` is exactly that mechanism, and `memory-management.md` §4 says so
-explicitly: cleanup "is driven by unwinding (ADR-0008), never by collection." A GC'd language
+explicitly: cleanup "is driven by unwinding (TDR-0007), never by collection." A GC'd language
 with no `Drop` nevertheless has the precise primitive this algorithm needs, because the need was
 never about destruction — it was about unwinding.
 
@@ -258,7 +258,7 @@ A UTF-8 decoder written with `/` and `%` because the shifts do not exist. That i
 direct possible evidence, and it is in the core library.
 
 Also stated in the record: `docs/adr/accepted/0049-…md:17` ("no bitwise ops and no code-unit
-accessor"), `docs/adr/retired/0062-…md:75` ("no bitwise operators, per ADR-0024's deferral").
+accessor"), `docs/adr/retired/0062-…md:75` ("no bitwise operators, per TDR-0022's deferral").
 
 ### 4.2 R1/R2 — there is no integer type
 
@@ -296,7 +296,7 @@ primitives at [`universe/primitives.rs:312-322`](../../phalcom-core/src/universe
 overflows 2⁵³ at the seventh byte, and even below that you cannot mask or shift the result.
 `Bytes` gives you the *storage* for a ctrl array and none of the *access* the algorithm needs.
 
-`slice_` is always a copy, never a view — PDR-0011 ruling 5, to avoid retaining the parent under
+`slice_` is always a copy, never a view — TDR-0064 ruling 5, to avoid retaining the parent under
 a non-moving collector (Erlang's binary leak). So a group cannot be obtained as a borrowed
 window either.
 
@@ -329,7 +329,7 @@ Its own spec (`docs/spec/current/decorators/native.md`, "What it is not") says: 
 directive. `@native` does not tell the compiler which Rust function to install, and does not
 cause anything to be installed." It is an LSP anchor.
 
-Adding a primitive means editing `universe/primitives.rs` and rebuilding the host — an ADR-0019
+Adding a primitive means editing `universe/primitives.rs` and rebuilding the host — an TDR-0017
 floor amendment, i.e. a governance action, not a language feature.
 
 ---
@@ -339,8 +339,8 @@ floor amendment, i.e. a governance action, not a language feature.
 This is the finding most likely to be missed by anyone reading the roadmap and concluding "the
 numeric tower unblocks this."
 
-**`[V]`** [PDR-0012](../pdr/0012-numeric-tower-implementation-and-floor-amendment.md) is
-**Accepted, ratified 2026-07-20, unimplemented** ([`../pdr/STATUS.md:30`](../pdr/STATUS.md)).
+**`[V]`** [TDR-0064](../../decisions/accepted/0064-numeric-tower-implementation-and-floor-amendment.md) is
+**Accepted, ratified 2026-07-20, unimplemented** ([`../pdr/STATUS.md:30`](../../decisions/README.md)).
 It rules the `Int`/`Float` split, floor 137 → 153.
 
 **`[V]`** It contains **zero** occurrences of "bitwise", "shift", `bitAnd`, or `<<`. Verified by
@@ -350,7 +350,7 @@ grep over the record. Bitwise operations are not in it.
 `LargeInt` large path" — `Object::LargeInt(BigInt)`, with an invariant that a `LargeInt` value is
 never in `i64` range (`:93-94`).
 
-So even after PDR-0012 ships in full:
+So even after TDR-0065 ships in full:
 
 - R1 is still unmet — bitwise ops are ruled by nothing. They appear in
   `docs/spec/current/experimental/numeric-and-string-indexing.md` (status **Proposed**) and are
@@ -514,7 +514,7 @@ in `.ph` is awkward," recommending the native arm as "matches the 'native contai
 protocol' pattern."
 
 That ruling generalizes to this whole analysis. **The hashtable is not a `.ph`-writable object in
-this design, and that is a position, not a gap.** ADR-0020's kernel pattern — native storage,
+this design, and that is a position, not a gap.** TDR-0018's kernel pattern — native storage,
 `.ph` protocol — is the answer Phalcom already gave.
 
 ---
@@ -523,13 +523,13 @@ this design, and that is a position, not a gap.** ADR-0020's kernel pattern — 
 
 Dependency-ordered. Stated so the size is visible, not to endorse it.
 
-1. **Implement PDR-0012.** Ratified 2026-07-20, unimplemented. Floor 137 → 153 (163 composed with
-   PDR-0011). *Buys nothing on its own for this purpose* — see §5.
+1. **Implement TDR-0065.** Ratified 2026-07-20, unimplemented. Floor 137 → 153 (163 composed with
+   TDR-0064). *Buys nothing on its own for this purpose* — see §5.
 2. **Rule and implement fixed-width bitwise operations.** No record exists. Must resolve §5's
    tension between unbounded `Int` and wrapping semantics. Needs lexer + parser + AST + compiler
    work, since the tokens do not exist. **This is the expensive step and the one with an open
    design question in it.**
-3. **Admit multi-byte `Bytes` load/store primitives.** Not among PDR-0011's ten (nor PDR-0013's
+3. **Admit multi-byte `Bytes` load/store primitives.** Not among TDR-0064's ten (nor TDR-0066's
    eleventh). Floor amendment. Without it, §7.2's second row applies and the exercise is pointless.
 4. **A presized/fixed `Value` array.** Exists in no spec found. Either `List.new(n)` or a new
    kernel arm.
@@ -562,14 +562,14 @@ Per R2 of the citation discipline: the verb needs its object.
 `phalcom-core/src/compiler/attributes.rs:1790-1796`, `phalcom-core/core/core.ph:107`,
 `docs/spec/current/core/{bytes,map-and-set,numeric-tower}.md`,
 `docs/spec/current/drafts/stdlib-catalog.md:95-135`, `docs/spec/current/memory-management.md:1-60`,
-`docs/pdr/STATUS.md:30`, `docs/pdr/0012-…md` (grep),
+`docs/decisions/README.md:30`, `docs/pdr/0012-…md` (grep),
 `docs/forge/perf-log/SCOREBOARD.md:253-303`.
 
 **Delegated to subagents, then spot-checked against the tree before use:** the `phalcom-ast`
 bitwise-token sweep (re-run in the main thread, 0 hits), `attributes.rs:1793` (re-read),
 `primitive/mod.rs:154-157` (re-read), `core.ph:107` (re-read), `List.new` arity
 (`primitives.rs:297`, re-read), the `Bytes` primitive list (`primitives.rs:312-322`, re-read),
-the SCOREBOARD rows (re-read at `:255-258`, `:291-303`), PDR-0012's bitwise absence and A2
+the SCOREBOARD rows (re-read at `:255-258`, `:291-303`), TDR-0065's bitwise absence and A2
 (re-grepped). The `raw.rs` line citations in §1.5, §1.6 and §2 beyond the ranges above are
 **subagent-reported and not independently re-opened** — they are the least-load-bearing claims
 here (they describe hashbrown's internals, which §2 concludes are not portable anyway), but they
@@ -607,7 +607,7 @@ those, labelled as derived.
   GC'd heap makes unnecessary. The port would be *smaller* than the original, and R6/R7 —
   unwind-safe cleanup and caller-supplied hash/eq — are **already satisfied** by `ensure` and by
   blocks. Generics are not the blocker.
-- **`[V]`** PDR-0012, though ratified, does not close the gap: it contains no bitwise rulings, and
+- **`[V]`** TDR-0065, though ratified, does not close the gap: it contains no bitwise rulings, and
   its unbounded `Int` is in tension with the wrapping semantics `match_tag` requires. That tension
   is an open design question (§5).
 - **Derived from `[M]`** Even fully unblocked, the SWAR group scan costs ~1.6 µs of sends to
@@ -615,7 +615,7 @@ those, labelled as derived.
   optimization inverts, because a send (~144 ns) is three orders of magnitude above the machine
   ops SWAR eliminates.
 - **`[V]`** `map-and-set.md` §4 already ruled `.ph`-authored hash tables out on the same grounds.
-  Native storage + `.ph` protocol (ADR-0020) is the standing answer.
+  Native storage + `.ph` protocol (TDR-0018) is the standing answer.
 - **`[O]`** The actionable lever on `map_numeric` is not table layout. It is the re-entrant
   `send_dynamic("hash")` per lookup in `locate` (`primitive/map.rs:55`). Caching `hash` method
   resolution per key-class — the `InlineCache` machinery already exists at `chunk.rs:10-18` and is

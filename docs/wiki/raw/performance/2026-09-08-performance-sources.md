@@ -10,15 +10,15 @@
 > Normative specification of Phalcom's performance discipline: the laws that
 > govern optimization work, the tier model and its committed sequence, the
 > success target, and the standing invariants every optimization must preserve.
-> Realises [ADR-0051](../../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md).
+> Realises [TDR-0048](../../../decisions/accepted/0048-performance-strategy-measure-first-tiered-optimization.md).
 > This document governs *how* the runtime is made fast; it does not itself change
 > any observable semantics.
 
-Related: [ADR-0010](../../adr/0010-tagged-value-enum.md) (`Value` repr;
-NaN-boxing deferral), [ADR-0012](../../adr/0012-selector-signature-encoding-and-dispatch.md)
+Related: [TDR-0009](../../../decisions/accepted/0009-tagged-value-enum.md) (`Value` repr;
+NaN-boxing deferral), [TDR-0011](../../../decisions/accepted/0011-selector-signature-encoding-and-dispatch.md)
 (selector encoding; the inline-cache seam),
-[ADR-0018](../../adr/0018-sacred-selector-inliner-and-override-guard.md) (sacred-selector
-inliner + deopt guard), [ADR-0050](../../adr/0050-non-moving-mark-sweep-collector.md)
+[TDR-0016](../../../decisions/accepted/0016-sacred-selector-inliner-and-override-guard.md) (sacred-selector
+inliner + deopt guard), [TDR-0047](../../../decisions/accepted/0047-non-moving-mark-sweep-collector.md)
 + [memory-management.md](memory-management.md) (the collector),
 [method-lookup.md](method-lookup.md) (dispatch), `docs/forge/DEFERRED.md` (the
 deferred perf cluster), `docs/forge/units/U-HOTPATH`, `U-GC` (existing units).
@@ -48,7 +48,7 @@ bind implementers and reviewers alike; a unit that violates one is not mergeable
   runtime method override, a subclass, a side effect, a `doesNotUnderstand` — is
   a correctness defect, not an optimization. Each fast path carries a **guard that
   provably implies the slow path**, and a **deopt that reconstructs exact
-  interpreter state** (the discipline of [ADR-0018](../../adr/0018-sacred-selector-inliner-and-override-guard.md)).
+  interpreter state** (the discipline of [TDR-0016](../../../decisions/accepted/0016-sacred-selector-inliner-and-override-guard.md)).
 
 - **P4 — Name what it precludes.** Every optimization states, in its unit plan,
   what future optimization or invariant it forecloses. A local win must not create
@@ -57,10 +57,10 @@ bind implementers and reviewers alike; a unit that violates one is not mergeable
   exhaust the opcode budget a later one needs.
 
 - **P5 — Reconcile with the locked contract.** The 16-byte tagged `Value` API
-  ([ADR-0010](../../adr/0010-tagged-value-enum.md)), the `ClassId`-keyed
-  inline-cache seam ([ADR-0012](../../adr/0012-selector-signature-encoding-and-dispatch.md)),
+  ([TDR-0009](../../../decisions/accepted/0009-tagged-value-enum.md)), the `ClassId`-keyed
+  inline-cache seam ([TDR-0011](../../../decisions/accepted/0011-selector-signature-encoding-and-dispatch.md)),
   comma-canonical selector encoding, and the handle/arena heap
-  ([ADR-0009](../../adr/0009-handle-arena-heap.md)) are **locked**. Inline-cache
+  ([TDR-0008](../../../decisions/accepted/0008-handle-arena-heap.md)) are **locked**. Inline-cache
   *population* and NaN-boxing are **deferred-but-sanctioned**: implemented behind
   those surfaces, never redesigning them. No optimization reopens a locked
   question or builds atop an open one without flagging it.

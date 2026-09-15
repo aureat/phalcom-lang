@@ -16,7 +16,7 @@ deferred_reason: null
 
 Scope: **PLANNED** (dispatch-ready). Tier 2 of the performance strategy
 ([performance.md](../../../spec/current/performance.md) §4 Tier 2,
-[ADR-0051](../../../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md)).
+[TDR-0048](../../../decisions/accepted/0048-performance-strategy-measure-first-tiered-optimization.md)).
 Single-writer on `vm.rs` + `primitive/*` → **worktree-isolate**; serialize against
 `U-HOTPATH`, `U-IC`, `U-GC` (all single-write `vm.rs`)
 ([[phalcom-concurrent-session-hazards]]). **Requires U-BENCH first** (P1 — the win
@@ -66,7 +66,7 @@ Wren primitives read/write `args[0]` in place and return a status; a hit drops
   the exact generic send** on any miss — non-Number operand, overridden operator,
   subclass receiver. The fast path must produce byte-identical results to the slow
   send on every input, including edge cases (`0.0`/`-0.0`, `NaN`, overflow —
-  Phalcom is flat-`f64`, [ADR-0042](../../../adr/0042-flat-number-defer-integer-float-split.md)).
+  Phalcom is flat-`f64`, [TDR — Flat `Number` now; defer the `Integer` / `Float` split](../../../decisions/retired/flat-number-defer-integer-float-split.md)).
 
 ## Write-set (STOP-and-report if outside)
 - `phalcom-core/src/vm.rs` — `call_method` `Primitive` arm (window + status

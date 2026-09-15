@@ -4,7 +4,7 @@
 - Axis: values (numeric model)
 
 > **Partially superseded (2026-07-12).** The numeric-representation premises here are
-> superseded by [ADR-0024](../../../adr/0024-numeric-surface-split-int-float-and-division.md):
+> superseded by [TDR-0022](../../decisions/accepted/0022-numeric-surface-split-int-float-and-division.md):
 > `Int` is now exact and unbounded (auto-promoting bignum), `Float` is a distinct type,
 > and the surface split is **decided** — so this doc's "one flat f64 / safe-integer
 > boundary 2⁵³ / no bignum in Draft 0.1 / split stays open (open-Q2)" claims are now

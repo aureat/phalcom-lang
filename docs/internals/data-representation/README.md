@@ -109,9 +109,9 @@ These live in the arena; the `Value` holds an `ObjRef` with tag `Obj`.
 
 | ADR | Topic |
 |---|---|
-| ADR-0009 | Handle-arena heap, `ObjRef` model |
-| ADR-0010 | 16-byte explicit tagged `Value` |
-| ADR-0011 | Static slot layout |
-| ADR-0032 | Tuple, List, Map native representation |
-| ADR-0039 | Raw-primitive floor amendment |
-| ADR-0044 | Option bootstrap, deferred niche encoding |
+| TDR-0008 | Handle-arena heap, `ObjRef` model |
+| TDR-0009 | 16-byte explicit tagged `Value` |
+| TDR-0010 | Static slot layout |
+| TDR-0029 | Tuple, List, Map native representation |
+| TDR-0034 | Raw-primitive floor amendment |
+| TDR-0038 | Option bootstrap, deferred niche encoding |

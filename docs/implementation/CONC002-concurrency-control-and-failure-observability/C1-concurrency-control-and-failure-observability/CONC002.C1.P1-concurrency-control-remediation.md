@@ -113,7 +113,7 @@ The requested work is almost entirely owned by `phalcom-core/`.
 | `docs/spec/current/concurrency.md` | canonical concurrency semantics |
 | `docs/spec/current/system.md` | canonical `System` scheduler surface |
 | `docs/spec/current/core/floor-census.md` | native floor inventory |
-| `docs/adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md` | accepted architectural rationale that must be amended where its Future-forward-compat assumption is no longer true |
+| `docs/decisions/accepted/0030-fibers-and-futures-cooperative-concurrency.md` | accepted architectural rationale that must be amended where its Future-forward-compat assumption is no longer true |
 | `docs/work/errors/E007-async-await-missettle.md` | existing blocker for premature `Future.async` settlement |
 | `docs/work/errors/E008-double-schedule-kills-run.md` | existing high-severity duplicate queue failure |
 | `docs/work/errors/E010-scheduler-pump-swallows-task-errors.md` | adjacent open issue; compatibility constraint only, not part of this program |
@@ -2537,7 +2537,7 @@ Primary documents:
 - `docs/spec/current/concurrency.md`;
 - `docs/spec/current/system.md`;
 - `docs/spec/current/core/floor-census.md`;
-- `docs/adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md`.
+- `docs/decisions/accepted/0030-fibers-and-futures-cooperative-concurrency.md`.
 
 Required documentation changes:
 

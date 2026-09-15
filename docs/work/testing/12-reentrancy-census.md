@@ -126,7 +126,7 @@ assertion in the harness. **In the default green gate.**
 
 ## 5. Preclusion
 
-The fixtures encode "yielding across a native frame raises." That is ADR-0030
+The fixtures encode "yielding across a native frame raises." That is TDR-0027
 §4's restricted execution model — and it is a **snapshot of a deferred
 decision**, not an invariant.
 

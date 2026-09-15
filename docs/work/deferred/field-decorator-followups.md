@@ -19,7 +19,7 @@ Provenance is mixed and marked per claim: **[tree]** = verified against the work
 
 ### What the decorators attach to now
 
-Per [ADR-0064](../adr/accepted/0064-let-const-bindings-and-field-mutability.md) and
+Per [TDR-0052](../../decisions/accepted/0052-let-const-bindings-and-field-mutability.md) and
 `../../forge/units/U-BINDINGS/u30-bindings-spec.md` §4:
 
 ```

@@ -2,9 +2,9 @@
 
 > **Status:** Normative. This document is the authoritative enumeration of the
 > **VM-blessed primitive floor** frozen by
-> [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md). It is an
+> [TDR-0017](../../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md). It is an
 > *audit* of what `install_primitives` actually binds, not a wishlist. Any
-> change to the set below is an ADR-0019 amendment (see §7), not an ordinary
+> change to the set below is an TDR-0017 amendment (see §7), not an ordinary
 > commit.
 
 ## 1. What the floor is
@@ -12,7 +12,7 @@
 A **floor primitive** is a method implemented in native Rust and bound onto a
 kernel class at bootstrap, because it cannot be expressed in Phalcom over
 lower-level Phalcom (it touches the heap representation, an immediate value's
-bits, control flow, or I/O). ADR-0019's rule: the floor is *closed*. Every new
+bits, control flow, or I/O). TDR-0017's rule: the floor is *closed*. Every new
 core capability must be either
 
 1. **derivable** — written in `core.ph` in terms of the selectors below, or
@@ -76,7 +76,7 @@ For as long as fibers had shipped, `VM::new()` installed **136** native bindings
 census enumerated **125** and R-INV-0.1 audited those same 125. The missing 11 were
 `Fiber`'s — a real kernel class (`universe/core_classes.rs:152`) carrying real primitives
 (`universe/primitives.rs` L362-374), **absent from the test's `core_class_rows` and from
-this document entirely**. So ADR-0019's freeze did not bind `Fiber`: a primitive added to,
+this document entirely**. So TDR-0017's freeze did not bind `Fiber`: a primitive added to,
 or dropped from, it changed the floor and **no test went red**.
 
 **Why nothing caught it.** The census and the test agreed with each other perfectly
@@ -94,18 +94,18 @@ without a row there, this hole reopens silently and identically. **When adding a
 class that carries primitives, add its `core_class_rows` row in the same change** — that
 row, not the count, is what makes the freeze real.
 
-> **U-CORE-1 amendment ([ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)).**
+> **U-CORE-1 amendment ([TDR-0021](../../../decisions/accepted/0021-amend-floor-admit-hash-and-kernel-reflection.md)).**
 > Kernel reflection admits **+7** bindings (73 → 80) and **+7** distinct fns
 > (57 → 64): `Object#hash` (`object_hash`), per-immediate `hash` overrides on
 > `Number`/`String`/`Bool`/`Symbol` (`{number,string,bool,symbol}_hash`), and
 > `Behavior#name`/`Behavior#methods` (`behavior_name`/`behavior_methods`).
 > Floor-carrying classes stay at **16** — `Behavior` already carried
 > `superclass`. `Object#isA(_)` is **not** on this list: it is derived in
-> `core.ph` over `class`/`==`/`superclass` (ADR-0019 §1), not a native
+> `core.ph` over `class`/`==`/`superclass` (TDR-0017 §1), not a native
 > primitive. R-INV-0.1 (`tests/invariants.rs`) now audits this set from a live
 > `VM::new()` and fails on drift.
 
-> **U-CORE-3 amendment ([ADR-0028](../../../adr/0028-amend-floor-admit-method-reflection.md)).**
+> **U-CORE-3 amendment ([TDR-0024](../../../decisions/accepted/0024-amend-floor-admit-method-reflection.md)).**
 > The `Method` reflection surface admits **+5** bindings (80 → 85) and **+5**
 > distinct fns (64 → 69): `Object#methodFor(_)` (`object_method_for`),
 > `Method#invokeOn(_,***)` (`method_invoke_on_shape`), `Method#bind(_)`
@@ -125,13 +125,13 @@ row, not the count, is what makes the freeze real.
 > `Method#implementationKind` (`method_implementation_kind`).
 
 > **U-CORE-4 amendment (ADR-00NN, floor amendment; number claimed at dispatch
-> time — see `docs/adr/` for the current max).** Value-class `toString`
+> time — see `docs/decisions/` for the current max).** Value-class `toString`
 > (catalog-delta.md §4.4) admits **+1** binding (85 → 86) and **+2** distinct
 > fns (69 → 71): `Number#toString` (`number_to_string`) is the one new floor
 > primitive — rendering an `f64` as decimal text is unreachable from `.ph`, the
 > same derivability failure as `hash` (decisions.md Q1). `Object#toString` is
 > **re-homed** off `object_name` onto a new, distinct fn `object_to_string`
-> (ADR-0015's `"<ClassName>"` default + class-own-name fix, DEFERRED F4) — the
+> (TDR-0013's `"<ClassName>"` default + class-own-name fix, DEFERRED F4) — the
 > `(Object, toString)` binding itself is unchanged, so this contributes to the
 > distinct-fn count but not the binding count. `String#toString` (`=> self`),
 > `Bool#toString` (over `ifTrue(_, ifFalse)`), and `Option#toString` (over
@@ -140,9 +140,9 @@ row, not the count, is what makes the freeze real.
 > primitives. R-INV-0.1 (`tests/invariants.rs`) audits this set from a live
 > `VM::new()` and fails on drift.
 
-> **U-CORE-6 amendment ([ADR-0037](../../../adr/0037-amend-floor-admit-error-root.md)).**
+> **U-CORE-6 amendment ([TDR-0031](../../../decisions/accepted/0031-amend-floor-admit-error-root.md)).**
 > The minimal `Error` reification (object-model.md §4 "Errors",
-> [ADR-0008](../../../adr/0008-layered-exceptions-and-result.md)) admits **+2**
+> [TDR-0007](../../../decisions/accepted/0007-layered-exceptions-and-result.md)) admits **+2**
 > bindings (86 → 88) and **+2** distinct fns (71 → 73): `Error#message`
 > (`error_message`) and `Error#raise` (`error_raise`) — both new native
 > functions, no rehome subtlety. Floor-carrying classes move **16 → 17**: the
@@ -151,11 +151,11 @@ row, not the count, is what makes the freeze real.
 > `MessageNotUnderstood` carries none of its own (it inherits `message` from
 > `Error`), so it does not bump the count further. Producing the
 > `RuntimeError::Raise` payload the dNU miss now raises through is **plumbing,
-> not itself a bound selector** (ADR-0023 Decision §4) — it does not count
+> not itself a bound selector** (TDR-0021 Decision §4) — it does not count
 > toward either metric. R-INV-0.1/R-INV-6.5 (`tests/invariants.rs`) audit this
 > set from a live `VM::new()` and fail on drift.
 
-> **U-COLLTYPES Phase 1 amendment ([ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md)).**
+> **U-COLLTYPES Phase 1 amendment ([TDR-0033](../../../decisions/accepted/0033-amend-floor-admit-collection-container-primitives.md)).**
 > The `Map`/`Set` hash-collection floor admits **+14** bindings (88 → 102) and
 > **+14** distinct fns (73 → 87): `Map` — `new()`, `_$size`, `_$get(_)`,
 > `_$put(_,_)`, `_$has(_)`, `_$remove(_)`, `_$keyAt(_)`, `_$valueAt(_)`
@@ -170,7 +170,7 @@ row, not the count, is what makes the freeze real.
 > collection-protocol.md law 4). R-INV-0.1 (`tests/invariants.rs`) audits this
 > set from a live `VM::new()` and fails on drift.
 
-> **U-COLLTYPES Phase 2 amendment ([ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md)).**
+> **U-COLLTYPES Phase 2 amendment ([TDR-0033](../../../decisions/accepted/0033-amend-floor-admit-collection-container-primitives.md)).**
 > The `Tuple` floor admits **+3** bindings (102 → 105) and **+3** distinct fns
 > (87 → 90): `_$fromList(_)` (class-side, `tuple_from_list_internal`), `_$size`
 > (`tuple_raw_size`), `_$at(_)` (`tuple_raw_at`) — all in `primitive/tuple.rs`.
@@ -180,13 +180,13 @@ row, not the count, is what makes the freeze real.
 > stays `.ph` (DEC-CT-D: an order-sensitive fold over `_$at`+element `.hash`,
 > zero new floor) — it is **not** a binding here. R-INV-0.1 audits this set.
 
-> **U-COLLTYPES Phase 3 amendment ([ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md)).**
+> **U-COLLTYPES Phase 3 amendment ([TDR-0033](../../../decisions/accepted/0033-amend-floor-admit-collection-container-primitives.md)).**
 > **Superseded for Range by C.2.** Direct `BuildRange` bytecode constructs the
 > bounds descriptor; only `_$lower`, `_$upper`, and `_$upperInclusive` remain as
 > native observations. They surface omission as `Option`, preserving a present
 > `None` endpoint. Progression and Range equality/hash remain deferred.
 
-> **U-ERR amendment ([ADR-0038](../../../adr/0038-amend-floor-admit-block-on-ensure.md)).**
+> **U-ERR amendment ([TDR-0032](../../../decisions/accepted/0032-amend-floor-admit-block-on-ensure.md)).**
 > The error-handling catch protocol admits **+2** bindings (109 → 111) and
 > **+2** distinct fns (94 → 96): `Block#on(_,_)` (`block_on`) and
 > `Block#ensure(_)` (`block_ensure`), both `primitive/block.rs`. Installed on
@@ -194,13 +194,13 @@ row, not the count, is what makes the freeze real.
 > `callWith`) — every `on`/`ensure` receiver, whether at a `try` desugar site
 > or inside `Function#attempt`, is always a literal `{ }` block. This is the
 > **whole** floor for error *handling* (the *raising* half, `Error#message`/
-> `raise()`, already landed under ADR-0037): `throw`, the `try`/`on`/`catch`/
+> `raise()`, already landed under TDR-0032): `throw`, the `try`/`on`/`catch`/
 > `ensure` statement, `Result`/`Ok`/`Err`, and `Block#attempt` are all parser
 > sugar / pure `.ph` over these two plus `Error#raise` — **zero** further
 > bindings. Floor-carrying classes stay at **21** (`Block` already carried
 > `whileTrue`). R-INV-0.1 audits this set.
 >
-> **U15 amendment ([ADR-0045](../../../adr/0045-module-import-relative-path-whole-module-binding.md)).**
+> **U15 amendment ([TDR-0038](../../../decisions/accepted/0038-module-import-relative-path-whole-module-binding.md)).**
 > The `import` member-access miss path admits **+1** binding (111 → 112) and
 > **+1** distinct fn (96 → 97): `Module#doesNotUnderstand(_)`
 > (`module_does_not_understand`, `primitive/module.rs`) — overrides `Object`'s
@@ -208,7 +208,7 @@ row, not the count, is what makes the freeze real.
 > reaches the module's own `globals`/`name_to_slot` table before falling
 > through to the ordinary `MessageNotUnderstood` raise; this table has no
 > other `.ph`-reachable accessor, so it fails the §1 derivability test exactly
-> as ADR-0038 found for the error-handling catch protocol. Floor-carrying
+> as TDR-0033 found for the error-handling catch protocol. Floor-carrying
 > classes stay at **21** (`Module` already carried `new()`). The rest of
 > `import`'s surface — path resolution, the canonical-path registry, cyclic-
 > import termination, compile-once-run-once evaluation — is VM/compiler
@@ -228,7 +228,7 @@ row, not the count, is what makes the freeze real.
 > §1.1 stayed consistent with the chain, which is exactly why it never looked wrong. All
 > five are reconstructed from the test's constants and the install site — see §1.3._
 >
-> **U-SCHED ownership amendment ([ADR-0030](../../../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md) §Consequences).**
+> **U-SCHED ownership amendment ([TDR-0026](../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) §Consequences).**
 > Public scheduler admission is `System.schedule(_)` (`system_schedule`). The raw
 > dequeue (`System._$nextScheduled`), scheduler resume (`Fiber._$resumeScheduled`),
 > ticketed wake (`System._$wake`), and park/completion seams are internal runtime
@@ -236,7 +236,7 @@ row, not the count, is what makes the freeze real.
 > native because it outlives any one fiber and must be reachable from collector roots.
 > Floor-carrying classes stay **22** — `System` already carried `print(_)`/`new()`.
 >
-> **U-ANNOT-CONTRACTS amendment ([ADR-0052](../../../adr/accepted/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md) Fix 1).**
+> **U-ANNOT-CONTRACTS amendment ([TDR-0042](../../../decisions/accepted/0042-invariant-reentrancy-scope-and-layout-confined-decorator-state.md) Fix 1).**
 > The `@invariant` re-entrancy guard admits **+2** bindings (115 → 117) and **+2** distinct
 > fns (100 → 102), both instance-side on `Object` and both `primitive/object.rs`:
 > `Object#_$invariantEnter()` (`object_invariant_enter`) and `Object#_$invariantExit()`
@@ -260,14 +260,14 @@ row, not the count, is what makes the freeze real.
 > > `attribute-classes.md` as a doc that omits `@sealed`/`@variant`; it cannot omit
 > > anything, being absent.)
 >
-> **U-GC amendment ([ADR-0050](../../../adr/accepted/0050-non-moving-mark-sweep-collector.md), Step 3).**
+> **U-GC amendment ([TDR-0047](../../../decisions/accepted/0047-non-moving-mark-sweep-collector.md), Step 3).**
 > The collector's manual entry point admits **+1** binding (120 → 121) and **+1** distinct
 > fn (105 → 106): `System.gc` (`system_gc`, `primitive/system.rs`), class-side, a getter —
 > it forces a full mark-sweep cycle at a safepoint and answers the receiver. Native by
 > necessity: nothing expressible in `.ph` can trace the heap. Floor-carrying classes stay
 > **22**.
 >
-> **U-STRING amendment ([ADR-0049](../../../adr/accepted/0049-amend-floor-admit-string-byte-and-raw-write-primitives.md)).**
+> **U-STRING amendment ([TDR-0050](../../../decisions/accepted/0050-amend-floor-admit-string-byte-and-raw-write-primitives.md)).**
 > Raw byte-level string access plus raw stdout write admit **+4** bindings (121 → 125) and
 > **+4** distinct fns (106 → 110) — the amendment that takes the floor to its current
 > figure. Instance-side on `String`: `String#_$byteCount`,
@@ -280,9 +280,9 @@ row, not the count, is what makes the freeze real.
 > Floor-carrying classes stay **22** — `String` and `System` both already carried
 > bindings. See §2.5 / §2.11.
 >
-> **`Fiber` admission — NOT an amendment ([ADR-0030](../../../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md)).**
+> **`Fiber` admission — NOT an amendment ([TDR-0026](../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md)).**
 > **No primitive was added.** `Fiber`'s **11** bindings and **8** distinct fns have been
-> installed since the fiber work landed under ADR-0030; what changed on **2026-07-15** is
+> installed since the fiber work landed under TDR-0027; what changed on **2026-07-15** is
 > that they became *audited* (125 → **136**, fns 110 → **118**, floor-carrying classes
 > 22 → **23**, audited kernel classes 28 → **29**). Listed here for chain continuity, but it
 > is a **bookkeeping correction, not a floor widening** — the native boundary did not move;
@@ -311,16 +311,16 @@ row, not the count, is what makes the freeze real.
 > policy" (itself re-baselined 2026-07-15 — it had been frozen at U-ERR/111).
 >
 > One census-specific caution: of the post-U-CORE-0
-> landings, **U-CORE-1 added +7 (73 → 80, ADR-0023), U-CORE-3 added +5
-> (80 → 85, ADR-0028), U-CORE-4 added +1 (85 → 86, ADR-0036), U-CORE-6 added
-> +2 (86 → 88, ADR-0037), U-COLLTYPES Phase 1 added +14 (88 → 102, ADR-0039),
-> U-COLLTYPES Phase 2 added +3 (102 → 105, ADR-0039), U-COLLTYPES Phase 3
-> added +4 (105 → 109, ADR-0039), U-ERR added +2 (109 → 111, ADR-0038),
-> U15 added +1 (111 → 112, ADR-0045), the former Family amendment added +1 (112 → 113, ADR-0047),
-> U-SCHED added +2 (113 → 115, ADR-0030), U-ANNOT-CONTRACTS added +2
-> (115 → 117, ADR-0052), M-ATTR-ROOT added +3 (117 → 120, no ADR), U-GC added
-> +1 (120 → 121, ADR-0050), and U-STRING added +4 (121 → 125, ADR-0049)**. **U-FIBER
-> (ADR-0030) added 11 too** — but they went uncounted until 2026-07-15 (125 → **136**),
+> landings, **U-CORE-1 added +7 (73 → 80, TDR-0021), U-CORE-3 added +5
+> (80 → 85, TDR-0025), U-CORE-4 added +1 (85 → 86, TDR-0031), U-CORE-6 added
+> +2 (86 → 88, TDR-0032), U-COLLTYPES Phase 1 added +14 (88 → 102, TDR-0034),
+> U-COLLTYPES Phase 2 added +3 (102 → 105, TDR-0034), U-COLLTYPES Phase 3
+> added +4 (105 → 109, TDR-0034), U-ERR added +2 (109 → 111, TDR-0033),
+> U15 added +1 (111 → 112, TDR-0039), the former Family amendment added +1 (112 → 113, TDR-0041),
+> U-SCHED added +2 (113 → 115, TDR-0027), U-ANNOT-CONTRACTS added +2
+> (115 → 117, TDR-0043), M-ATTR-ROOT added +3 (117 → 120, no ADR), U-GC added
+> +1 (120 → 121, TDR-0048), and U-STRING added +4 (121 → 125, TDR-0051)**. **U-FIBER
+> (TDR-0027) added 11 too** — but they went uncounted until 2026-07-15 (125 → **136**),
 > which is why this list read as complete while it was not (§1.4). Every other unit either landed
 > `.ph`/compiler surface or added zero bindings. U8's reflective surface and
 > the `Message` class were already in the 73 (§2.1/§2.14); U-CORE-2/U-LEX/
@@ -332,7 +332,7 @@ row, not the count, is what makes the freeze real.
 > Phase 1 adds two more new classes (`Map`/`Set`, 23 → 25) that *both* carry
 > bindings; Phase 2 adds one more (`Tuple`, 25 → 26); Phase 3 adds the last
 > (`Range`, 26 → 27) — closing out the +21-binding, four-class amendment
-> ADR-0039 enumerated in full. U-ERR adds **no** new classes (`Result`/`Ok`/
+> TDR-0034 enumerated in full. U-ERR adds **no** new classes (`Result`/`Ok`/
 > `Err` are pure `.ph`, 27 → 27) — only two bindings on the pre-existing
 > `Block` row.
 
@@ -346,7 +346,7 @@ positional holes (`+(_)`, `new()`), and labeled arguments are named
 > **Notation vs the interned string.** This differs from the canonical selector
 > string that `make_signature`/`encode_selector`
 > ([`method.rs`](../../../../phalcom-core/src/method.rs),
-> [ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md))
+> [TDR-0011](../../../decisions/accepted/0011-selector-signature-encoding-and-dispatch.md))
 > actually intern, which writes each positional hole as `_:` and each label as
 > `label:`. So `+(_)` interns as `+(_:)`, `class=(_)` as `class=(_:)`, and
 > `match(some, none)` as `match(some:none:)` — the same selector, different
@@ -358,7 +358,7 @@ positional holes (`+(_)`, `new()`), and labeled arguments are named
 >
 > **Canonical vs. current interned form.** The **comma / no-space form**
 > (`+(_)`, `match(some,none)`, `move(_,to,duration)`) is the *canonical* spelling
-> per [ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md) —
+> per [TDR-0011](../../../decisions/accepted/0011-selector-signature-encoding-and-dispatch.md) —
 > use it in all normative prose. The colon `_:` form documented above is the
 > *current interned/heap encoding only*; it is transitional, and migrating the
 > interner to emit the comma form is owned by
@@ -378,17 +378,17 @@ Ordered as `install_primitives` installs them
 
 | Selector | Side | Native fn | Notes |
 |---|---|---|---|
-| `name` | instance | `object_name` | class-name string ([ADR-0015](../../../adr/0015-object-default-tostring.md)) |
+| `name` | instance | `object_name` | class-name string ([TDR-0013](../../../decisions/accepted/0013-object-default-tostring.md)) |
 | `class` | instance | `object_class` | |
 | `class=(_)` | instance | `object_set_class` | reflective class reassignment |
-| `toString` | instance | `object_to_string` | default display, `"<ClassName>"` for an instance / own name for a class receiver (ADR-0015; U-CORE-4 re-home off `object_name`, fixes DEFERRED F4) |
+| `toString` | instance | `object_to_string` | default display, `"<ClassName>"` for an instance / own name for a class receiver (TDR-0013; U-CORE-4 re-home off `object_name`, fixes DEFERRED F4) |
 | `==(_)` | instance | `object_eq` | ordinary send, **not** an opcode (control-flow.md §1) |
 | `!=(_)` | instance | `object_neq` | ordinary send |
 | `perform(_,***)` | instance | `object_perform_shape` | reflective send preserving complete argument shape (U8, messages-and-selectors.md §5) |
 | `respondsTo(_)` | instance | `object_responds_to` | pure probe; never triggers dNU |
 | `doesNotUnderstand(_)` | instance | `object_does_not_understand` | terminal miss handler; overridable so a proxy subclass can intercept |
-| `hash` | instance | `object_hash` | identity digest of the heap handle (ADR-0023); immediates override below |
-| `methodFor(_)` | instance | `object_method_for` | reifies the resolved `Method` for a selector; `None` on a miss; pure probe, never fires dNU (U-CORE-3, ADR-0028) |
+| `hash` | instance | `object_hash` | identity digest of the heap handle (TDR-0021); immediates override below |
+| `methodFor(_)` | instance | `object_method_for` | reifies the resolved `Method` for a selector; `None` on a miss; pure probe, never fires dNU (U-CORE-3, TDR-0025) |
 | `_$invariantEnter()` | instance | `object_invariant_enter` | internal `@invariant` re-entrancy guard entry |
 | `_$invariantExit()` | instance | `object_invariant_exit` | internal `@invariant` re-entrancy guard exit |
 | `_$attributes` | instance | `attribute_attributes` | internal attribute-retention read |
@@ -399,10 +399,10 @@ Ordered as `install_primitives` installs them
 
 | Selector | Side | Native fn | Notes |
 |---|---|---|---|
-| `superclass` | instance | `class_superclass` | on `Behavior` so `Class` and `Metaclass` both inherit it ([ADR-0003](../../../adr/0003-introduce-behavior-kernel-class.md)) |
+| `superclass` | instance | `class_superclass` | on `Behavior` so `Class` and `Metaclass` both inherit it ([TDR-0003](../../../decisions/accepted/0003-introduce-behavior-kernel-class.md)) |
 | `superclass=(_)` | instance | `class_set_superclass` | |
-| `name` | instance | `behavior_name` | the receiver class's OWN name; **shadows** `Object#name` for class receivers (ADR-0023) |
-| `methods` | instance | `behavior_methods` | own method-dictionary selector Symbols, as a fresh `List` (ADR-0023) |
+| `name` | instance | `behavior_name` | the receiver class's OWN name; **shadows** `Object#name` for class receivers (TDR-0021) |
+| `methods` | instance | `behavior_methods` | own method-dictionary selector Symbols, as a fresh `List` (TDR-0021) |
 
 ### 2.3 `Class` — instantiation apex
 
@@ -411,14 +411,14 @@ Ordered as `install_primitives` installs them
 | `+(_)` | instance | `class_add` | |
 | `_$new()` | instance | `class_new_` | internal generic bare allocator reachable through the metaclass chain apex |
 
-### 2.4 `Number` — flat `f64` ([ADR-0005](../../../adr/0005-number-as-flat-f64.md))
+### 2.4 `Number` — flat `f64` ([TDR — Keep a single flat `Number` type backed by `f64`](../../../decisions/retired/number-as-flat-f64.md))
 
 | Selector | Side | Native fn | Notes |
 |---|---|---|---|
 | `+(_)` `-(_)` `*(_)` `/(_)` `%(_)` | instance | `number_add` … `number_mod` | never inlined; ordinary sends (control-flow.md §1) |
 | `<(_)` `<=(_)` `>(_)` `>=(_)` | instance | `number_lt` … `number_ge` | |
 | `negated()` | instance | `number_negated` | |
-| `hash` | instance | `number_hash` | digest of the mathematical value, class-agnostically (ADR-0023; forward-compat §4) |
+| `hash` | instance | `number_hash` | digest of the mathematical value, class-agnostically (TDR-0021; forward-compat §4) |
 | `toString` | instance | `number_to_string` | decimal-string render of the `f64` value, delegates to `Value::to_string` (U-CORE-4, ADR-00NN amendment) |
 | `new()` , `new(_)` | static | `number_class_new` | coercion / zero |
 
@@ -427,7 +427,7 @@ Ordered as `install_primitives` installs them
 | Selector | Side | Native fn | Notes |
 |---|---|---|---|
 | `+(_)` | instance | `string_add` | concatenation |
-| `hash` | instance | `string_hash` | cached djb2 **content** hash — equal content ⇒ equal hash (ADR-0023) |
+| `hash` | instance | `string_hash` | cached djb2 **content** hash — equal content ⇒ equal hash (TDR-0021) |
 | `new()` , `new(_)` | static | `string_class_new` | |
 | `_$byteCount` | instance | `string_raw_byte_count` | internal UTF-8 byte length |
 | `_$byteAt(_)` | instance | `string_raw_byte_at` | internal raw byte read |
@@ -437,7 +437,7 @@ The rest of the `String` protocol (`split`, `replace`, `trim`/`trimStart`/`trimE
 `*(count)`, `indexOf`, `codePointAt`, `bytes`/`codePoints`) is `.ph`-derived over these
 three plus `Number` arithmetic — see `core.ph`'s `String` reopen.
 
-### 2.6 `Bool` — abstract, `True`/`False` by dispatch ([ADR-0004](../../../adr/0004-boolean-as-abstract-bool-with-true-false.md))
+### 2.6 `Bool` — abstract, `True`/`False` by dispatch ([TDR-0004](../../../decisions/accepted/0004-boolean-as-abstract-bool-with-true-false.md))
 
 | Selector | Side | Native fn | Sacred? |
 |---|---|---|---|
@@ -448,9 +448,9 @@ three plus `Number` arithmetic — see `core.ph`'s `String` reopen.
 | `ifTrue(_)` | instance | `bool_if_true` | ★ |
 | `ifFalse(_)` | instance | `bool_if_false` | ★ |
 | `ifTrue(_, ifFalse)` | instance | `bool_if_true_if_false` | ★ — encoded explicitly, not via `make_signature`; interns as `ifTrue(_:ifFalse:)` |
-| `hash` | instance | `bool_hash` | 1 for `true`, 0 for `false` — distinct, stable, **not** sacred (ADR-0023) |
+| `hash` | instance | `bool_hash` | 1 for `true`, 0 for `false` — distinct, stable, **not** sacred (TDR-0021) |
 
-★ = sacred selector (§5). No-truthiness ([ADR-0021](../../../adr/0021-no-truthiness-enforcement.md)):
+★ = sacred selector (§5). No-truthiness ([TDR-0019](../../../decisions/accepted/0019-no-truthiness-enforcement.md)):
 these dispatch on real `True`/`False` receivers; there is no implicit coercion.
 
 > **U11 landed** (`true_class`/`false_class`, [`universe/core_classes.rs`](../../../../phalcom-core/src/universe/core_classes.rs)
@@ -465,10 +465,10 @@ these dispatch on real `True`/`False` receivers; there is no implicit coercion.
 | Selector | Side | Native fn | Notes |
 |---|---|---|---|
 | `toString` | instance | `symbol_tostring` | |
-| `hash` | instance | `symbol_hash` | digest of the interned id — equal symbols agree (ADR-0023) |
+| `hash` | instance | `symbol_hash` | digest of the interned id — equal symbols agree (TDR-0021) |
 | `new(_)` | static | `symbol_class_new` | interning constructor |
 
-### 2.8 Absence — `Option` / `Some` / `None` ([ADR-0007](../../../adr/0007-option-as-abstract-with-some-none.md))
+### 2.8 Absence — `Option` / `Some` / `None` ([TDR-0006](../../../decisions/accepted/0006-option-as-abstract-with-some-none.md))
 
 | Selector | Side | Class | Native fn | Notes |
 |---|---|---|---|---|
@@ -488,7 +488,7 @@ value, not a constructed instance. The combinator suite (`map`, `flatMap`,
 inherit the Function call protocol and does not answer raw `call` while
 unbound. It carries its own `arity`/`name` reflection accessors, static
 `new(_)`, and the U-CORE-3 reflection surface
-([ADR-0028](../../../adr/0028-amend-floor-admit-method-reflection.md)):
+([TDR-0024](../../../decisions/accepted/0024-amend-floor-admit-method-reflection.md)):
 applying a reified method to an explicit receiver (`invokeOn`), closing one
 over a receiver (`bind`), and reading its selector/holder.
 
@@ -510,7 +510,7 @@ singleton on a miss. `bind(_)` returns a new heap representation,
 it must work for primitive methods too), whose surface class is `BoundMethod`;
 as a `Function` descendant it answers the shared call protocol in §2.10.
 
-### 2.10 `Function` / `Block` — callables ([ADR-0006](../../../adr/0006-function-as-abstract-callable-root.md), [ADR-0013](../../../adr/0013-closure-upvalues-and-frame-token-return.md))
+### 2.10 `Function` / `Block` — callables ([TDR-0005](../../../decisions/accepted/0005-function-as-abstract-callable-root.md), [TDR-0012](../../../decisions/accepted/0012-closure-upvalues-and-frame-token-return.md))
 
 `Closure` (the runtime value for a Block literal), `BoundMethod`, `Family`, and
 `BoundMethodFamily` are subclasses of `Function`; the shared callable protocol
@@ -524,8 +524,8 @@ is installed on `Function`, so every concrete Function reaches one gateway.
 | `callWith(_)` | instance | Function | `block_call_with_shape` | complete `Unit`/`Tuple` argument pack |
 | `call(***)` | instance | Function | `block_call_shape` | one complete positional/labeled argument shape |
 | `whileTrue(_)` | instance | Block | `block_while_true` | ★ sacred loop fallback |
-| `on(_,_)` | instance | Block | `block_on` | U-ERR, ADR-0038 — typed catch (`try`/`on`/`catch` desugar target) |
-| `ensure(_)` | instance | Block | `block_ensure` | U-ERR, ADR-0038 — always-runs cleanup (`try`/`ensure` desugar target) |
+| `on(_,_)` | instance | Block | `block_on` | U-ERR, TDR-0033 — typed catch (`try`/`on`/`catch` desugar target) |
+| `ensure(_)` | instance | Block | `block_ensure` | U-ERR, TDR-0033 — always-runs cleanup (`try`/`ensure` desugar target) |
 
 **U-CORE-3 behavior completions.** `block_arity`/`block_name` learn an
 `Object::Method` receiver (reading
@@ -555,14 +555,14 @@ snapshot that BoundMethodFamily closes over.
 > The public raw `nextScheduled` getter was removed in C5; the internal rows above
 > retain queue ownership and failure-reporting authority inside the runtime.
 
-### 2.12 `Module` — namespace object (U15, [ADR-0045](../../../adr/0045-module-import-relative-path-whole-module-binding.md))
+### 2.12 `Module` — namespace object (U15, [TDR-0038](../../../decisions/accepted/0038-module-import-relative-path-whole-module-binding.md))
 
 | Selector | Side | Native fn | Notes |
 |---|---|---|---|
 | `new()` | static | `module_class_new` | always rejects — a `Module` is only ever produced by `VM::import_module` |
 | `doesNotUnderstand(_)` | instance | `module_does_not_understand` | overrides `Object`'s default miss handler; member access as an ordinary send (U15) |
 
-### 2.13 `List` — native array-backed kernel collection ([ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md))
+### 2.13 `List` — native array-backed kernel collection ([TDR-0018](../../../decisions/accepted/0018-kernel-list-native-array-protocol.md))
 
 A dedicated `Object::List` heap variant (`crate::list::ListObject`), **not** an
 `InstanceObject`. The floor is five raw primitives + native `toString`; the
@@ -578,7 +578,7 @@ public protocol (`size`/`at`/`add`/`each`) is `core.ph` over them (§3).
 | `_$replaceSlice(_, _, _)` | instance | `list_replace_slice` | internal variable-length replacement |
 | `toString` | instance | `list_to_string` | native this unit (see U-LIST return contract) |
 
-### 2.13a `Map`/`Set` — native hash collections (U-COLLTYPES Phase 1, [ADR-0032](../../../adr/0032-collections-representation-and-literals.md) §1, [ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md))
+### 2.13a `Map`/`Set` — native hash collections (U-COLLTYPES Phase 1, [TDR-0028](../../../decisions/accepted/0028-collections-representation-and-literals.md) §1, [TDR-0033](../../../decisions/accepted/0033-amend-floor-admit-collection-container-primitives.md))
 
 Dedicated `Object::Map`/`Object::Set` heap variants over the shared
 `crate::map::MapObject` ordered-hash backing struct (DEC-CT-B: `Set` is a
@@ -609,7 +609,7 @@ protocol (`at(_)`/`at(_,put:)`/`size`/`includes(_)`/`remove(_)`/`keys`/
 | `_$remove(_)` | instance | `Set` | `set_raw_remove` | wrapped by `remove(_)` |
 | `_$at(_)` | instance | `Set` | `set_raw_at` | internal indexed read |
 
-### 2.13b `Tuple` — native fixed-arity immutable product (U-COLLTYPES Phase 2, [ADR-0032](../../../adr/0032-collections-representation-and-literals.md) §1, [ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md))
+### 2.13b `Tuple` — native fixed-arity immutable product (U-COLLTYPES Phase 2, [TDR-0028](../../../decisions/accepted/0028-collections-representation-and-literals.md) §1, [TDR-0033](../../../decisions/accepted/0033-amend-floor-admit-collection-container-primitives.md))
 
 A dedicated `Object::Tuple` heap variant (`crate::tuple::TupleObject`, a fixed
 `Box<[Value]>`), **not** an `InstanceObject`. The floor is three raw
@@ -630,7 +630,7 @@ a valid `Map`/`Set` key (Q5). The public protocol (`size`/`at(_)`/`each(_)`/
 | `_$labeled` | instance | `tuple_raw_labeled` | labeled projection |
 | `_$slice(_, _)` | instance | `tuple_raw_slice` | internal label-preserving slice |
 
-### 2.13c `Range` — native lazy numeric interval (U-COLLTYPES Phase 3, [ADR-0032](../../../adr/0032-collections-representation-and-literals.md) §1, [ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md))
+### 2.13c `Range` — native lazy numeric interval (U-COLLTYPES Phase 3, [TDR-0028](../../../decisions/accepted/0028-collections-representation-and-literals.md) §1, [TDR-0033](../../../decisions/accepted/0033-amend-floor-admit-collection-container-primitives.md))
 
 A dedicated `Object::Range` heap variant (`crate::range::RangeObject`) — three
 fields (`start`/`end`/`inclusive`), **no element storage** (RG-2 laziness).
@@ -659,7 +659,7 @@ yet part of the Range protocol.
 | `labels` | instance | `message_labels` | per-argument labels |
 | `args` | instance | `message_args` | argument values |
 
-### 2.15 `Error` — raisable root ([object-model.md](../../object-model.md) §4 "Errors", [ADR-0008](../../../adr/0008-layered-exceptions-and-result.md), U-CORE-6)
+### 2.15 `Error` — raisable root ([object-model.md](../../object-model.md) §4 "Errors", [TDR-0007](../../../decisions/accepted/0007-layered-exceptions-and-result.md), U-CORE-6)
 
 Root of the surface error hierarchy; `MessageNotUnderstood < Error` is the
 sole subclass this unit reifies (the retired native
@@ -674,7 +674,7 @@ inherits `message`/`raise` from `Error`.
 | Selector | Side | Native fn | Notes |
 |---|---|---|---|
 | `message` | instance | `error_message` | reads `_message` (slot 0); mirrors `Message`'s native accessors |
-| `raise()` | instance | `error_raise` | initiates the unified unwind's `Raise` payload (`RuntimeError::Raise`); `throw expr === expr.raise()` (ADR-0031 §1); installed on `Error` only (R-INV-6.3) |
+| `raise()` | instance | `error_raise` | initiates the unified unwind's `Raise` payload (`RuntimeError::Raise`); `throw expr === expr.raise()` (TDR-0028 §1); installed on `Error` only (R-INV-6.3) |
 
 ### 2.16 `Family` — `&` callable-reference Function value ([selectors.md §3](../selectors.md#3-callable-references-), [callables/family.md](../callables/family.md))
 
@@ -688,7 +688,7 @@ stored predicate against the current method table. Family installs no
 `set(_)`, `value`, `value=(_)`, `get(_)` for Tuple-shaped subscripts, and
 `set(_,_)` for Tuple-shaped subscript assignment.
 
-### 2.17 `Fiber` — cooperative coroutine (U-FIBER / U-FIBER-REFLECT, [ADR-0030](../../../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md))
+### 2.17 `Fiber` — cooperative coroutine (U-FIBER / U-FIBER-REFLECT, [TDR-0026](../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md))
 
 > **Audited only since 2026-07-15** (DEFERRED CB-5). These 11 bindings shipped with the
 > fiber work but were enumerated nowhere and audited by nothing; the class was missing from
@@ -717,7 +717,7 @@ native functions because the call/try/yield arities share implementations.
 | `try()` | instance | `fiber_try` | resume; uncaught failure is **captured at the fiber floor** and delivered as an `Error` |
 | `try(_)` | instance | `fiber_try` | as `try()`, passing one value |
 | `yield()` | static | `fiber_yield` | suspend the running fiber back to its resumer |
-| `yield(_)` | static | `fiber_yield` | suspend, yielding one value. Raises `CannotYieldAcrossNativeFrame` if `native_reentry_depth` has grown past the fiber's recorded `floor_depth` since it was last resumed (ADR-0030 §4); `RuntimeError::NotAllowed` from the root fiber, which has no resumer |
+| `yield(_)` | static | `fiber_yield` | suspend, yielding one value. Raises `CannotYieldAcrossNativeFrame` if `native_reentry_depth` has grown past the fiber's recorded `floor_depth` since it was last resumed (TDR-0027 §4); `RuntimeError::NotAllowed` from the root fiber, which has no resumer |
 | `current` | static | `fiber_current` | the running fiber (`VM::current`) |
 | `abort(_)` | static | `fiber_abort` | fails the running fiber with the given value (`RuntimeError::Raise`); `RuntimeError::NotAllowed` from the root fiber — it has nowhere to propagate a floor capture to (spec §2 rule 7, §6) |
 | `isDone` | instance | `fiber_is_done` | pure read over `FiberObject::status`; no scheduler dependency (U-FIBER-REFLECT) |
@@ -740,7 +740,7 @@ scheduler is written over.
 Two classes now carry `.ph` surface protocol self-hosted over the floor
 ([`core.ph`](../../../../phalcom-core/core/core.ph)):
 
-**`List`** (ADR-0020) —
+**`List`** (TDR-0018) —
 
 ```
 size       => self._$length
@@ -802,12 +802,12 @@ than `Class`, so `object_class_new` is the **effective default allocator**;
 `class_new` is a deeper fallback. Specialized static `new`s (`Number`, `String`,
 `Bool`, `Symbol`, `Method`, `List`, `System`, `Module`) override on their own
 metaclass. Any core-library change that touches instantiation must preserve this
-ordering — it is load-bearing for `construct` (U7 / [ADR-0011](../../../adr/0011-static-instance-slot-layout.md)).
+ordering — it is load-bearing for `construct` (U7 / [TDR-0010](../../../decisions/accepted/0010-static-instance-slot-layout.md)).
 
 ## 5. Sacred selectors (R-SACRED) — the compiler-coupled subset
 
 Seven floor selectors are **sacred**: the sacred-selector inliner
-([ADR-0018](../../../adr/0018-sacred-selector-inliner-and-override-guard.md))
+([TDR-0016](../../../decisions/accepted/0016-sacred-selector-inliner-and-override-guard.md))
 special-cases literal-block call sites for them and emits a `GuardBool`
 deopt that falls back to *exactly these* real sends on override or receiver
 mismatch. The core library treats this set as a **fixed interface** — a kernel
@@ -836,7 +836,7 @@ the interned `_:` form: `and(_:)`, `ifTrue(_:ifFalse:)`, `whileTrue(_:)`).
 | `Option` combinators (`map`/`flatMap`/`orElse`/`ifSome`/`unwrapOr`) | derivable over `match` | U-STD / U-CORE-2 |
 | `Block#repeat(_)` | receiver/semantics unpinned | deferred (U5-plan BD-U5-2) |
 | `callWith(_)` packed-arg semantics | bound; accepts complete `Unit`/`Tuple` packs | `block_call_with_shape` |
-| surface `Nil` / `nil` | **forbidden** — Invariant 4 ([ADR-0010](../../../adr/0010-tagged-value-enum.md), [ADR-0021](../../../adr/0021-no-truthiness-enforcement.md)) | never |
+| surface `Nil` / `nil` | **forbidden** — Invariant 4 ([TDR-0009](../../../decisions/accepted/0009-tagged-value-enum.md), [TDR-0019](../../../decisions/accepted/0019-no-truthiness-enforcement.md)) | never |
 
 The `Nil` class row exists in the tower (to back `Value::Nil.class`) but is
 bound to **no global** and carries **no primitives** — it is unreachable from
@@ -844,7 +844,7 @@ user code by construction.
 
 ## 7. Amendment protocol & audit
 
-Because the floor is frozen (ADR-0019), this census is a **contract**:
+Because the floor is frozen (TDR-0017), this census is a **contract**:
 
 1. **To add/remove a primitive** — create an ADR amending 0019, justify why the
    capability fails the §1 derivability test, then update this file in the same
@@ -862,7 +862,7 @@ Because the floor is frozen (ADR-0019), this census is a **contract**:
 
    **Coverage caveat.** The hook audits only the classes in the test's
    `core_class_rows`. That list is the audit's real boundary and **nothing audits
-   it** — a kernel class missing from it is unfrozen in fact, whatever ADR-0019
+   it** — a kernel class missing from it is unfrozen in fact, whatever TDR-0017
    says. This is not hypothetical: `Fiber` sat outside it, unlisted and unaudited,
    for the whole life of the fiber work (§1.4, closed 2026-07-15). **A new kernel
    class carrying primitives must gain its `core_class_rows` row in the same

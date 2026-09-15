@@ -1,7 +1,7 @@
 //! Canonical inherent implementation fragment analysis, target resolution, and contribution publication.
 
 use crate::checker::context::{CheckerControl, CheckingContext};
-use crate::checker::declaration_signature::{CallableSyntaxRef, semantic_signature_for_syntax_with_resolver};
+use crate::checker::declaration_signature::{CallableSyntaxRef, DelegationError, delegated_accessor_signatures, delegated_member_visibility, semantic_signature_for_syntax_with_resolver};
 use crate::db::ProductFingerprint;
 use crate::declaration_type::DeclaredTypeState;
 use crate::declarations::DeclarationTypeTable;
@@ -20,7 +20,7 @@ use crate::types::outcome::{BlockReason, BudgetReport, CancellationToken, Dynami
 use crate::types::parameter::{GenericSignature, TypeParameterData, TypeParameterOwner, TypeTerm};
 use crate::types::store::{TypeData, TypeStore};
 use crate::types::substitution::TypeSubstitution;
-use phalcom_ast::ast::{BehaviorMember, ImplDef, TypeAnnotationExpr};
+use phalcom_ast::ast::{BehaviorMember, ImplDef, ImplMember, TypeAnnotationExpr};
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::hash::{Hash, Hasher};
@@ -456,6 +456,183 @@ pub struct ConformanceContribution {
     pub eligible: bool,
     pub source: SemanticSourceSpan,
     pub diagnostics: Box<[SemanticDiagnostic]>,
+}
+
+/// A source conformance's associated-type binding before exact head
+/// specialization. The RHS is formed in the source impl's generic scope.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AssociatedTypeBindingTemplate {
+    pub requirement: crate::traits::AssociatedTypeRequirementId,
+    pub value_template: TypeId,
+    pub source_impl: ImplId,
+    pub source: SemanticSourceSpan,
+}
+
+/// A deterministic source binding failure retained for conformance
+/// completeness and diagnostics.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AssociatedTypeBindingFailure {
+    pub name: Box<str>,
+    pub reason: Box<str>,
+    pub source: SemanticSourceSpan,
+    pub requirement: Option<crate::traits::AssociatedTypeRequirementId>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ConformanceAssociatedTypePlan {
+    pub impl_id: ImplId,
+    pub bindings: BTreeMap<crate::traits::AssociatedTypeRequirementId, AssociatedTypeBindingTemplate>,
+    pub failures: Box<[AssociatedTypeBindingFailure]>,
+    pub diagnostics: Box<[SemanticDiagnostic]>,
+    pub fingerprint: ProductFingerprint,
+}
+
+impl ConformanceAssociatedTypePlan {
+    pub fn empty(impl_id: ImplId) -> Self {
+        let mut plan = Self {
+            impl_id,
+            bindings: BTreeMap::new(),
+            failures: Box::new([]),
+            diagnostics: Box::new([]),
+            fingerprint: ProductFingerprint::default(),
+        };
+        plan.fingerprint = associated_type_plan_fingerprint(&plan);
+        plan
+    }
+}
+
+/// Forms the source-owned associated binding product for one conformance.
+/// Binding names are resolved against the exact trait surface; RHS types use
+/// the impl-owned generic parameters and are not specialized here.
+pub fn build_conformance_associated_type_plan(
+    ctx: &mut CheckingContext<'_>,
+    impl_id: &ImplId,
+    impl_def: &ImplDef,
+    trait_surface: &TraitSurface,
+    generic_signature: Option<&GenericSignature>,
+) -> ConformanceAssociatedTypePlan {
+    let type_parameters = generic_signature
+        .map(|signature| {
+            signature
+                .parameters
+                .iter()
+                .map(|&parameter| {
+                    let name = ctx.store.type_parameter(parameter).name.to_string();
+                    (name, type_level_binding_for_parameter(ctx.store, parameter))
+                })
+                .collect::<HashMap<_, _>>()
+        })
+        .unwrap_or_default();
+    let parent = ctx.resolver.clone();
+    let resolver = ScopedTypeResolver { parent: &parent, type_parameters };
+    let formation_site = TypeFormationSite::module(ctx.current_module.clone());
+    let mut bindings = BTreeMap::new();
+    let mut failures = Vec::new();
+    let mut diagnostics = Vec::new();
+
+    for member in &impl_def.members {
+        let ImplMember::AssociatedTypeBinding(binding) = member else { continue };
+        let member_source = SemanticSourceSpan::new(ctx.current_module.clone(), binding.range);
+        let Some(requirement) = trait_surface.associated_type_by_name(&binding.name) else {
+            let reason = format!("associated type `{}` is not declared by the conformance trait", binding.name);
+            failures.push(AssociatedTypeBindingFailure {
+                name: binding.name.clone().into_boxed_str(),
+                reason: reason.clone().into_boxed_str(),
+                source: member_source.clone(),
+                requirement: None,
+            });
+            diagnostics.push(SemanticDiagnostic::error_in(ctx.current_module.clone(), DiagnosticCode::AssociatedTypeUnknown, reason, binding.name_range));
+            continue;
+        };
+        if bindings.contains_key(&requirement.requirement) {
+            let reason = format!("associated type `{}` is bound more than once", binding.name);
+            failures.push(AssociatedTypeBindingFailure {
+                name: binding.name.clone().into_boxed_str(),
+                reason: reason.clone().into_boxed_str(),
+                source: member_source.clone(),
+                requirement: Some(requirement.requirement.clone()),
+            });
+            diagnostics.push(SemanticDiagnostic::error_in(ctx.current_module.clone(), DiagnosticCode::AssociatedTypeDuplicate, reason, binding.name_range));
+            continue;
+        }
+        let knowledge = resolve_type_annotation(ctx.store, ctx.declarations, &resolver, &formation_site, &binding.value, &mut diagnostics);
+        let Some(value_template) = knowledge.ty() else {
+            let reason = format!("associated type `{}` binding has no usable type", binding.name);
+            failures.push(AssociatedTypeBindingFailure {
+                name: binding.name.clone().into_boxed_str(),
+                reason: reason.clone().into_boxed_str(),
+                source: member_source.clone(),
+                requirement: Some(requirement.requirement.clone()),
+            });
+            diagnostics.push(SemanticDiagnostic::error_in(ctx.current_module.clone(), DiagnosticCode::AssociatedTypeBindingInvalid, reason, binding.value.range));
+            continue;
+        };
+        if ctx.store.kind_of(value_template) != KindId::TYPE {
+            let reason = format!("associated type `{}` binding must have type kind", binding.name);
+            failures.push(AssociatedTypeBindingFailure {
+                name: binding.name.clone().into_boxed_str(),
+                reason: reason.clone().into_boxed_str(),
+                source: member_source.clone(),
+                requirement: Some(requirement.requirement.clone()),
+            });
+            diagnostics.push(SemanticDiagnostic::error_in(ctx.current_module.clone(), DiagnosticCode::AssociatedTypeBindingInvalid, reason, binding.value.range));
+            continue;
+        }
+        bindings.insert(
+            requirement.requirement.clone(),
+            AssociatedTypeBindingTemplate {
+                requirement: requirement.requirement.clone(),
+                value_template,
+                source_impl: impl_id.clone(),
+                source: member_source,
+            },
+        );
+    }
+
+    for requirement in trait_surface.associated_types.values() {
+        if bindings.contains_key(&requirement.requirement) {
+            continue;
+        }
+        let reason = format!("associated type `{}` has no conformance binding", requirement.name);
+        failures.push(AssociatedTypeBindingFailure {
+            name: requirement.name.clone(),
+            reason: reason.clone().into_boxed_str(),
+            source: requirement.source.clone(),
+            requirement: Some(requirement.requirement.clone()),
+        });
+        diagnostics.push(SemanticDiagnostic::error_in(
+            ctx.current_module.clone(),
+            DiagnosticCode::AssociatedTypeMissing,
+            reason,
+            requirement.source.range,
+        ));
+    }
+
+    let mut plan = ConformanceAssociatedTypePlan {
+        impl_id: impl_id.clone(),
+        bindings,
+        failures: failures.into_boxed_slice(),
+        diagnostics: diagnostics.into_boxed_slice(),
+        fingerprint: ProductFingerprint::default(),
+    };
+    plan.fingerprint = associated_type_plan_fingerprint(&plan);
+    plan
+}
+
+pub fn associated_type_plan_fingerprint(plan: &ConformanceAssociatedTypePlan) -> ProductFingerprint {
+    let mut hasher = DefaultHasher::new();
+    plan.impl_id.hash(&mut hasher);
+    for (requirement, binding) in &plan.bindings {
+        requirement.hash(&mut hasher);
+        binding.value_template.hash(&mut hasher);
+        binding.source_impl.hash(&mut hasher);
+    }
+    for failure in &plan.failures {
+        failure.name.hash(&mut hasher);
+        failure.reason.hash(&mut hasher);
+        failure.requirement.hash(&mut hasher);
+    }
+    ProductFingerprint::new(hasher.finish())
 }
 
 impl ConformanceContribution {
@@ -922,11 +1099,17 @@ pub struct RequirementFailure {
     pub reason: Box<str>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ConformanceFailure {
+    Behavioral(RequirementFailure),
+    AssociatedType(AssociatedTypeBindingFailure),
+}
+
 /// Proof state of a source conformance witness plan.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ConformanceCompleteness {
     Complete,
-    Incomplete { failures: Box<[RequirementFailure]> },
+    Incomplete { failures: Box<[ConformanceFailure]> },
     Unknown(UnknownReason),
     Blocked(BlockReason),
     Dynamic(DynamicBoundaryObligation),
@@ -994,6 +1177,7 @@ pub struct ConformanceWitnessPlan {
     /// symbolic `Self` to the conformance head template.
     pub requirement_views: BTreeMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement>,
     pub requirements: BTreeMap<crate::traits::TraitRequirementId, RequirementSelectionTemplate>,
+    pub associated_type_plan: ConformanceAssociatedTypePlan,
     pub fingerprint: ProductFingerprint,
     pub invalid_explicit_members: bool,
     pub completeness: ConformanceCompleteness,
@@ -1009,7 +1193,16 @@ pub struct ConformanceEvidence {
     pub impl_environment: TypeEnvironment,
     pub requirement_views: BTreeMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement>,
     pub requirements: BTreeMap<crate::traits::TraitRequirementId, RequirementSelectionTemplate>,
+    pub associated_types: BTreeMap<crate::traits::AssociatedTypeRequirementId, ExactAssociatedTypeBinding>,
     pub fingerprint: ProductFingerprint,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExactAssociatedTypeBinding {
+    pub requirement: crate::traits::AssociatedTypeRequirementId,
+    pub value: TypeId,
+    pub source_impl: ImplId,
+    pub source: SemanticSourceSpan,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1046,6 +1239,7 @@ pub fn build_conformance_witness_plan(
     deferred_inherent_candidates: &BTreeMap<crate::traits::TraitRequirementId, (EffectiveInherentWitness, ConformanceCompleteness)>,
     data_candidates: &BTreeMap<crate::traits::TraitRequirementId, (crate::identity::DataComponentId, TypeId)>,
     terminal_candidates: &BTreeMap<crate::traits::TraitRequirementId, ConformanceCompleteness>,
+    associated_type_plan: ConformanceAssociatedTypePlan,
 ) -> ConformanceWitnessPlan {
     let requirement_views = instantiate_conformance_requirements(
         store,
@@ -1060,17 +1254,17 @@ pub fn build_conformance_witness_plan(
     let mut terminal_state = None;
     for (requirement, member) in trait_surface.iter() {
         if let Some(reason) = inherent_mismatches.get(requirement) {
-            failures.push(RequirementFailure {
+            failures.push(ConformanceFailure::Behavioral(RequirementFailure {
                 requirement: requirement.clone(),
                 reason: format!("inherent selector conflicts with requirement: {reason}").into_boxed_str(),
-            });
+            }));
             continue;
         }
         if invalid_explicit_requirements.contains(requirement) {
-            failures.push(RequirementFailure {
+            failures.push(ConformanceFailure::Behavioral(RequirementFailure {
                 requirement: requirement.clone(),
                 reason: "explicit witness declaration is invalid".into(),
-            });
+            }));
             continue;
         }
         let explicit = callable_signatures.iter().find_map(|(callable, _)| {
@@ -1080,17 +1274,17 @@ pub fn build_conformance_witness_plan(
         if let Some(callable) = explicit {
             if bodyful_callables.contains(&callable) {
                 let Some(candidate) = callable_signatures.get(&callable) else {
-                    failures.push(RequirementFailure {
+                    failures.push(ConformanceFailure::Behavioral(RequirementFailure {
                         requirement: requirement.clone(),
                         reason: "explicit witness signature is unavailable".into(),
-                    });
+                    }));
                     continue;
                 };
                 let Some(required_view) = requirement_views.get(requirement) else {
-                    failures.push(RequirementFailure {
+                    failures.push(ConformanceFailure::Behavioral(RequirementFailure {
                         requirement: requirement.clone(),
                         reason: "instantiated trait requirement view is unavailable".into(),
-                    });
+                    }));
                     continue;
                 };
                 match check_witness_compatibility_with_visibility(
@@ -1103,10 +1297,10 @@ pub fn build_conformance_witness_plan(
                     WitnessCompatibility::Compatible(_) => {
                         requirements.insert(requirement.clone(), RequirementSelectionTemplate::ConformanceCallable { callable });
                     }
-                    WitnessCompatibility::Incompatible(mismatch) => failures.push(RequirementFailure {
+                    WitnessCompatibility::Incompatible(mismatch) => failures.push(ConformanceFailure::Behavioral(RequirementFailure {
                         requirement: requirement.clone(),
                         reason: mismatch.reason,
-                    }),
+                    })),
                     WitnessCompatibility::Unknown(reason) => retain_stronger_terminal_state(&mut terminal_state, ConformanceCompleteness::Unknown(reason)),
                     WitnessCompatibility::Blocked(reason) => retain_stronger_terminal_state(&mut terminal_state, ConformanceCompleteness::Blocked(reason)),
                     WitnessCompatibility::Dynamic(obligation) => {
@@ -1121,10 +1315,10 @@ pub fn build_conformance_witness_plan(
                     }
                 }
             } else {
-                failures.push(RequirementFailure {
+                failures.push(ConformanceFailure::Behavioral(RequirementFailure {
                     requirement: requirement.clone(),
                     reason: "explicit witness has no body".into(),
-                });
+                }));
             }
         } else if let Some((candidate, pending)) = deferred_inherent_candidates.get(requirement) {
             let fallback = data_candidates
@@ -1178,12 +1372,13 @@ pub fn build_conformance_witness_plan(
         } else if let Some(terminal) = terminal_candidates.get(requirement) {
             terminal_state = Some(terminal.clone());
         } else {
-            failures.push(RequirementFailure {
+            failures.push(ConformanceFailure::Behavioral(RequirementFailure {
                 requirement: requirement.clone(),
                 reason: "no explicit witness or trait default".into(),
-            });
+            }));
         }
     }
+    failures.extend(associated_type_plan.failures.iter().cloned().map(ConformanceFailure::AssociatedType));
     let completeness = if !failures.is_empty() || invalid_explicit_members {
         ConformanceCompleteness::Incomplete {
             failures: failures.into_boxed_slice(),
@@ -1201,6 +1396,7 @@ pub fn build_conformance_witness_plan(
         generic_signature: contribution.generic_signature.clone(),
         requirement_views,
         requirements,
+        associated_type_plan,
         fingerprint: ProductFingerprint::default(),
         invalid_explicit_members,
         completeness,
@@ -1222,6 +1418,7 @@ pub fn conformance_witness_plan_fingerprint(plan: &ConformanceWitnessPlan) -> Pr
     format!("{:?}", plan.generic_signature).hash(&mut hasher);
     format!("{:?}", plan.requirement_views).hash(&mut hasher);
     format!("{:?}", plan.requirements).hash(&mut hasher);
+    plan.associated_type_plan.fingerprint.hash(&mut hasher);
     plan.invalid_explicit_members.hash(&mut hasher);
     format!("{:?}", plan.completeness).hash(&mut hasher);
     ProductFingerprint::new(hasher.finish())
@@ -1234,6 +1431,7 @@ fn conformance_evidence_fingerprint(
     environment: &TypeEnvironment,
     requirement_views: &BTreeMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement>,
     requirements: &BTreeMap<crate::traits::TraitRequirementId, RequirementSelectionTemplate>,
+    associated_types: &BTreeMap<crate::traits::AssociatedTypeRequirementId, ExactAssociatedTypeBinding>,
 ) -> ProductFingerprint {
     let mut hasher = DefaultHasher::new();
     source_plan.hash(&mut hasher);
@@ -1248,6 +1446,11 @@ fn conformance_evidence_fingerprint(
     environment.self_binding.hash(&mut hasher);
     format!("{:?}", requirement_views).hash(&mut hasher);
     format!("{:?}", requirements).hash(&mut hasher);
+    for (requirement, binding) in associated_types {
+        requirement.hash(&mut hasher);
+        binding.value.hash(&mut hasher);
+        binding.source_impl.hash(&mut hasher);
+    }
     ProductFingerprint::new(hasher.finish())
 }
 
@@ -1340,7 +1543,31 @@ pub fn resolve_conformance_evidence(
         };
         requirements.insert(requirement.clone(), selection);
     }
-    let fingerprint = conformance_evidence_fingerprint(plan.fingerprint, target, &head.exact_trait_ref, &environment, &requirement_views, &requirements);
+    let associated_types = plan
+        .associated_type_plan
+        .bindings
+        .iter()
+        .map(|(requirement, binding)| {
+            (
+                requirement.clone(),
+                ExactAssociatedTypeBinding {
+                    requirement: requirement.clone(),
+                    value: crate::types::environment::TypeView::new(binding.value_template, environment.clone()).materialize(store),
+                    source_impl: binding.source_impl.clone(),
+                    source: binding.source.clone(),
+                },
+            )
+        })
+        .collect();
+    let fingerprint = conformance_evidence_fingerprint(
+        plan.fingerprint,
+        target,
+        &head.exact_trait_ref,
+        &environment,
+        &requirement_views,
+        &requirements,
+        &associated_types,
+    );
     ConformanceResolution::Proven(Arc::new(ConformanceEvidence {
         source_impl: head.impl_id.clone(),
         exact_target: target,
@@ -1348,6 +1575,7 @@ pub fn resolve_conformance_evidence(
         impl_environment: environment,
         requirement_views,
         requirements,
+        associated_types,
         fingerprint,
     }))
 }
@@ -3533,7 +3761,70 @@ pub fn build_inherent_impl_contribution(ctx: &mut CheckingContext<'_>, impl_id: 
 
     let mut members = Vec::new();
 
-    for (source_member_idx, member) in impl_def.members.iter().enumerate() {
+    for (source_member_idx, impl_member) in impl_def.members.iter().enumerate() {
+        if let ImplMember::AssociatedTypeBinding(binding) = impl_member {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::AssociatedTypeInherentUnsupported,
+                "associated type bindings are valid only in conformance implementations",
+                binding.range,
+            ));
+            continue;
+        }
+        if let ImplMember::Delegation(delegation) = impl_member {
+            if is_exact_case {
+                diagnostics.push(SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    DiagnosticCode::DelegationFieldNotFound,
+                    "delegation is not supported for exact enum-case targets",
+                    delegation.range,
+                ));
+                continue;
+            }
+            let target_declaration = target_owner.declaration().clone();
+            let generated = match delegated_accessor_signatures(ctx, &target_declaration, delegation) {
+                Ok(signatures) => signatures,
+                Err(error) => {
+                    let (code, message, range) = match error {
+                        DelegationError::FieldNotFound(range) => (
+                            DiagnosticCode::DelegationFieldNotFound,
+                            format!("delegation field `{}` was not found on `{}`", delegation.target_field, target_declaration.name),
+                            range,
+                        ),
+                        DelegationError::FieldTypeRequired(range) => (
+                            DiagnosticCode::DelegationFieldTypeRequired,
+                            format!("delegation field `{}` requires an explicit usable type", delegation.target_field),
+                            range,
+                        ),
+                        DelegationError::SetterRequiresMutableField(range) => (
+                            DiagnosticCode::DelegationSetterRequiresMutableField,
+                            format!("delegation field `{}` must be mutable for a setter", delegation.target_field),
+                            range,
+                        ),
+                    };
+                    diagnostics.push(SemanticDiagnostic::error_in(ctx.current_module.clone(), code, message, range));
+                    continue;
+                }
+            };
+            for signature in generated {
+                let final_sig = if let Some(ref subst) = covering_subst {
+                    apply_covering_to_signature(ctx.store, subst, signature)
+                } else {
+                    signature
+                };
+                members.push(InherentMemberContribution {
+                    callable: final_sig.callable.clone(),
+                    signature: final_sig,
+                    visibility: delegated_member_visibility(&delegation.name, &delegation.attributes),
+                    source_member: source_member_idx,
+                    is_requirement: false,
+                });
+            }
+            continue;
+        }
+        let Some(member) = impl_member.behavior() else {
+            continue;
+        };
         let syntax = CallableSyntaxRef::from(member);
         let visibility = behavior_member_visibility(member);
 

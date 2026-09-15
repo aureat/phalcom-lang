@@ -1,7 +1,7 @@
 # U-FIBER — Implementation Spec: bare cooperative `Fiber` on the restricted re-entrant loop
 
 > **Status:** Normative work order for a `phalcom-implementer`. Realizes
-> [ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md) §1–§7 and the
+> [TDR-0026](../../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) §1–§7 and the
 > deepened [specification.md](specification.md) (which extends
 > [`concurrency.md`](../../../spec/current/concurrency.md) §1). `file:line` anchors were
 > verified against source; **re-confirm at dispatch** (spine files shift under concurrent
@@ -369,15 +369,15 @@ non-`done`) fiber's stacks remain reachable arena roots (spec §7.3).
 
 | Claim / requirement | Source |
 |---|---|
-| Execution model (Option A), typed switch, O(1) swap, GC roots, fiber-local return, floor amendment | [ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md) §1–§7 |
+| Execution model (Option A), typed switch, O(1) swap, GC roots, fiber-local return, floor amendment | [TDR-0026](../../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) §1–§7 |
 | Surface (`new`/`call`/`try`/`yield`/`current`/`abort`), state machine | [concurrency.md](../../../spec/current/concurrency.md) §1; [specification.md](specification.md) §1–§2 |
 | D1–D7 audit; re-entrant-loop finding; pre-fiber invariants | [forward-compat.md](../../../spec/current/core/forward-compat.md) §7 |
-| DEC-FIB-A: U-CORE-6 unwind not floor-parameterised → U-FIBER owns capture | `error.rs:86-94`, `vm.rs:818-826`/`:1149-1151` (this pass); [ADR-0008](../../../adr/0008-layered-exceptions-and-result.md); [ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md) §6 |
-| No `Value::Fiber` (D2); `Object` enum | `value.rs:30-45`; `heap.rs:68`; [ADR-0009](../../../adr/0009-handle-arena-heap.md)/[ADR-0010](../../../adr/0010-tagged-value-enum.md) |
+| DEC-FIB-A: U-CORE-6 unwind not floor-parameterised → U-FIBER owns capture | `error.rs:86-94`, `vm.rs:818-826`/`:1149-1151` (this pass); [TDR-0007](../../../../decisions/accepted/0007-layered-exceptions-and-result.md); [TDR-0026](../../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) §6 |
+| No `Value::Fiber` (D2); `Object` enum | `value.rs:30-45`; `heap.rs:68`; [TDR-0008](../../../../decisions/accepted/0008-handle-arena-heap.md)/[TDR-0009](../../../../decisions/accepted/0009-tagged-value-enum.md) |
 | `next_frame_generation` VM-global (D4); `stack_offset` relative (D3) | `vm.rs:72`; `frame.rs:75` |
 | Primitive-arm heuristic to replace (D5) | `vm.rs:442-469` |
 | `block_call` re-entrant frame (the crown jewel) | `primitive/block.rs:117-154` |
 | `ReturnNonLocal` fiber-local unwind template | `vm.rs:1154-1205` |
-| ADR-0033 Deferred; U-FIBER builds only the switch | [ADR-0033](../../../adr/0033-amend-fiber-execution-trampolined-block-callsite.md) §Decision 4 |
-| `for`-generator seam | [[U-ITER]](../U-ITER/specification.md#fiber-generator-seam); [ADR-0035](../../../adr/0035-iteration-protocol-cursor.md) §5 |
+| ADR-0033 Deferred; U-FIBER builds only the switch | [TDR — Amend the fiber execution model — trampoline the bytecode block call-site](../../../../decisions/retired/amend-fiber-execution-trampolined-block-callsite.md) §Decision 4 |
+| `for`-generator seam | [[U-ITER]](../U-ITER/specification.md#fiber-generator-seam); [TDR-0029](../../../../decisions/accepted/0029-iteration-protocol-cursor.md) §5 |
 | disasm renders via `Debug` (no Yield arm) | `bin/phalcom/disasm.rs:18` |

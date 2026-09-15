@@ -60,7 +60,7 @@ Employee.species   // "Homo sapiens" — inherited, not redefined
 
 `Employee.species` resolves because `Employee class` (the metaclass doing the
 lookup) has `Person class` as its superclass — the same shape as the instance
-side, one tier up. That's [ADR-0002](../adr/0002-metaclass-tower-parallel-rule.md),
+side, one tier up. That's [TDR-0002](../decisions/accepted/0002-metaclass-tower-parallel-rule.md),
 the **parallel-hierarchy rule**:
 
 ```
@@ -84,7 +84,7 @@ Person                     Person class
 
 The two trees have the same shape, offset by one `.class`. `Behavior` is the
 shared abstract superclass of `Class` and `Metaclass` — the common home for
-"things that have instances" ([ADR-0003](../adr/0003-introduce-behavior-kernel-class.md)).
+"things that have instances" ([TDR-0003](../decisions/accepted/0003-introduce-behavior-kernel-class.md)).
 The tower closes at the top: `Metaclass` is an instance of `Metaclass class`,
 which is in turn an instance of `Metaclass` — the one deliberate cycle in an
 otherwise acyclic model.
@@ -153,9 +153,9 @@ which subclass got instantiated:
 
 | Abstract | Concrete subclasses | Governing ADR |
 |----------|---------------------|---------------|
-| `Bool` | `True`, `False` | [ADR-0004](../adr/0004-boolean-as-abstract-bool-with-true-false.md) |
-| `Option` | `Some`, `None` | [ADR-0007](../adr/0007-option-as-abstract-with-some-none.md) |
-| `Result` | `Ok`, `Err` | [ADR-0008](../adr/0008-layered-exceptions-and-result.md) |
+| `Bool` | `True`, `False` | [TDR-0004](../decisions/accepted/0004-boolean-as-abstract-bool-with-true-false.md) |
+| `Option` | `Some`, `None` | [TDR-0006](../decisions/accepted/0006-option-as-abstract-with-some-none.md) |
+| `Result` | `Ok`, `Err` | [TDR-0007](../decisions/accepted/0007-layered-exceptions-and-result.md) |
 
 `ifTrue`/`ifFalse` are two method definitions — `True>>ifTrue`, `False>>ifTrue`
 — not one method with an `if` inside it. `Option>>map` is `Some>>map` and

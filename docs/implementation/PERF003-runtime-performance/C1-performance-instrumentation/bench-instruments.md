@@ -2,7 +2,7 @@
 
 Status: **PLANNED** (dispatch-ready). Tier 0 of the performance strategy
 ([performance.md](../../../spec/current/performance.md) §4,
-[ADR-0051](../../../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md)).
+[TDR-0048](../../../decisions/accepted/0048-performance-strategy-measure-first-tiered-optimization.md)).
 **Blocks every other perf tier** — law P1 (measure before you touch) is
 unsatisfiable without it. Write-set is test/bench/doc infrastructure only; it
 touches no runtime hot path, so it can land in parallel with unrelated units

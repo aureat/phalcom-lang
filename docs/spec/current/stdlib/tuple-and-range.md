@@ -2,9 +2,9 @@
 
 > **Status:** **Accepted** (representation + `Tuple` literal + `Range` bound convention
 > ratified by the collections umbrella
-> [ADR-0032](../../../adr/0032-collections-representation-and-literals.md); `Range`
+> [TDR-0028](../../../decisions/accepted/0028-collections-representation-and-literals.md); `Range`
 > literal `a..b`/`a...b` reserved-inactive). Absent classes (names reserved); each its own unit per
-> [ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md), both
+> [TDR-0018](../../../decisions/accepted/0018-kernel-list-native-array-protocol.md), both
 > satisfying the [collection protocol](./collection-protocol.md). Inherits the
 > baseline pin from [`README.md`](./README.md).
 >
@@ -39,7 +39,7 @@ collection-protocol's **value-hashable** case (law 4), unlike `List`.
 | `toList` | materialize into a `List` |
 | `first` / `last` | endpoints |
 
-**Bound convention (RG-1 — ratified, [ADR-0032](../../../adr/0032-collections-representation-and-literals.md)):**
+**Bound convention (RG-1 — ratified, [TDR-0028](../../../decisions/accepted/0028-collections-representation-and-literals.md)):**
 `a..b` **inclusive** of `b`, `a...b` **exclusive** of `b` (the two-dot / three-dot
 split in `object-model.md` §3). The `..`/`...` operator literal is
 **reserved-inactive** with this committed meaning; construct a `Range` via its
@@ -58,13 +58,13 @@ Both are small native heap arms (like `List`/`Tuple` over the arena):
 - `Range` — three fields (`start`, `end`, `inclusive`); no element storage.
 
 Any raw floor primitives they need are a scoped
-[ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md) amendment,
+[TDR-0017](../../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md) amendment,
 justified when the unit lands; combinators stay `.ph`.
 
 ## 4. Non-goals
 
 - **Literal syntax.** The **`Tuple` literal `(a, b)` is ratified** and ships
-  ([ADR-0032](../../../adr/0032-collections-representation-and-literals.md) §3.2:
+  ([TDR-0028](../../../decisions/accepted/0028-collections-representation-and-literals.md) §3.2:
   disambiguated from grouping `(a)` by the comma; one-element `(a,)`; `()` empty).
   The **`Range` literal `1..5` / `1...5` is reserved-inactive** with the committed
   inclusive/exclusive convention (§3.3 / RG-1). Parser/compiler work is U-LEX.

@@ -5,7 +5,7 @@
   phalcom-core/src/value` (Win A boxing, `trace_object`, `Heap::collect`, `System.gc`, safepoint
   latch) plus `cdd2117` (`temp_roots` push/pop escape hatch, paired fix)
 - Reviewed against: [U-GC plan.md](../forge/units/U-GC/plan.md) §3/Rubric/§7/§10,
-  [ADR-0050](../adr/accepted/0050-non-moving-mark-sweep-collector.md),
+  [TDR-0047](../../decisions/accepted/0047-non-moving-mark-sweep-collector.md),
   [memory-management.md](../spec/current/memory-management.md) §1–§7
 - Reviewer: done in-conversation, no subagent — the collector was already landed and green on
   `main`; this is the missing independent adversarial pass the plan's own text required
@@ -26,7 +26,7 @@
 | 7 | **Deep-graph safety** — worklist-based mark, not native recursion | **PASS** | `let mut gray: Vec<ObjRef>` + `while let Some(id) = gray.pop()` in `Heap::collect` |
 | 8 | **`temp_roots` correctness** — depth/truncate balanced, no leak, no premature pop | **PASS** | Sole call site is `block_ensure` (`primitive/block.rs`): `let roots = vm.temp_root_depth()` before the re-entrant cleanup call, `vm.truncate_temp_roots(roots)` unconditionally right after — runs on every path (`Ok`/`Err` outcome, cleanup itself raising) since the truncate sits before the `match cleanup_outcome`. `push_temp_root` correctly no-ops on immediates (`Value::as_obj()` filter) |
 | 9 | **No `unsafe`** anywhere in the diff | **PASS** | `rg unsafe` on the changed files matches only doc-comment prose ("no `unsafe`-at-the-call-site guarantee") |
-| 10 | **Docs** — `///` on every new public item, citing ADR-0050/memory-management.md § | **PASS** | `Heap::collect`, `trace_object`, `trace_frame`, `Value::as_obj`, `VM::collect_roots`, `VM::force_gc`, `VM::push_temp_root`, `VM::service_gc_safepoint` all carry rustdoc with spec citations |
+| 10 | **Docs** — `///` on every new public item, citing TDR-0048/memory-management.md § | **PASS** | `Heap::collect`, `trace_object`, `trace_frame`, `Value::as_obj`, `VM::collect_roots`, `VM::force_gc`, `VM::push_temp_root`, `VM::service_gc_safepoint` all carry rustdoc with spec citations |
 
 ## 2. One thing worth double-checking (not a block)
 

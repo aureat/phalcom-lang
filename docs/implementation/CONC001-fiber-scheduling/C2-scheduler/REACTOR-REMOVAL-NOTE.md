@@ -19,8 +19,8 @@ The removed file is not a normative architectural authority. Its useful requirem
 
 Do not delete or rewrite:
 
-- PDR-0003;
-- PDR-0004;
+- TDR-0056;
+- TDR-0057;
 - `docs/spec/current/stdlib/reactor.md`;
 - historical wiki/raw snapshots.
 

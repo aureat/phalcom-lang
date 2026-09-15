@@ -2,10 +2,10 @@
 
 Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
 
-**Governing ADR:** [ADR-0046](../../adr/0046-destructuring-bindings.md)
+**Governing ADR:** [TDR-0039](../../decisions/accepted/0039-destructuring-bindings.md)
 (irrefutable tuple + list destructuring, the `at(_)` accessor protocol).
 
-`let`/`var` ([ADR-0014](../../adr/0014-let-and-var-bindings.md)) can bind more
+`let`/`var` ([TDR — Variable bindings are `let` (immutable) and `var` (mutable)](../../decisions/retired/let-and-var-bindings.md)) can bind more
 than a single bare name — its left-hand side is a **pattern**: a name, a
 tuple pattern, or a list pattern — open-question [Q7](open-questions.md).
 
@@ -41,7 +41,7 @@ Both forms are **irrefutable**: there is no partial bind and no boolean test.
 A shape mismatch — wrong arity, or (for a `*rest` pattern) too few elements —
 raises a clean `Error` at runtime rather than truncating silently. `List`'s
 `at(_)` is otherwise *total* (an out-of-range read answers `None`, per
-[ADR-0020](../../adr/0020-kernel-list-native-array-protocol.md)); the
+[TDR-0018](../../decisions/accepted/0018-kernel-list-native-array-protocol.md)); the
 destructuring lowering's own arity guard is what turns a shape mismatch into
 a visible error instead of a silently `None`-padded partial bind.
 
@@ -77,12 +77,12 @@ let a  = $t.at(0)
 let b  = $t.at(1)
 ```
 
-See [ADR-0046](../../adr/0046-destructuring-bindings.md) for the full
+See [TDR-0039](../../decisions/accepted/0039-destructuring-bindings.md) for the full
 desugaring, the arity-guard shape, and the rest-tail construction.
 
 ## 6. `var` vs `let`
 
-Unchanged from [ADR-0014](../../adr/0014-let-and-var-bindings.md): `let`
+Unchanged from [TDR — Variable bindings are `let` (immutable) and `var` (mutable)](../../decisions/retired/let-and-var-bindings.md): `let`
 produces immutable leaf bindings; `var` produces mutable ones, threaded
 through every leaf including nested and rest sub-patterns. A destructuring
 pattern always requires an initializer, for both `let` and `var` — unlike a

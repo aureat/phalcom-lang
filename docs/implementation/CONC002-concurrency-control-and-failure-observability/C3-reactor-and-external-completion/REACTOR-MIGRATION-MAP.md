@@ -15,8 +15,8 @@ This ledger moves **implementation ownership**, not architectural authority.
 
 The following remain where they are:
 
-- PDR-0003 — no user-visible shared-memory threads; worker plain-data boundary;
-- PDR-0004 — IO is Future-shaped and reactor-owned; reactor before IO surfaces;
+- TDR-0056 — no user-visible shared-memory threads; worker plain-data boundary;
+- TDR-0057 — IO is Future-shaped and reactor-owned; reactor before IO surfaces;
 - `docs/spec/current/stdlib/reactor.md` — normative reactor machinery contract.
 
 The historical CONC001 reactor implementation record is mined for requirements and then removed as an active implementation authority.
@@ -28,7 +28,7 @@ No old reactor requirement may disappear merely because its implementation owner
 Every requirement is classified as:
 
 - `C3.P1` — accepted-decision phase-1 reactor work;
-- `C3.P2` — poller-backed readiness work, gated by PDR-0016;
+- `C3.P2` — poller-backed readiness work, gated by TDR-0080;
 - `C5` — public cancellation/structured policy;
 - `HOST-SURFACE` — filesystem/network/process selector work;
 - `HISTORICAL` — provenance, not current implementation authority.
@@ -55,7 +55,7 @@ Every requirement is classified as:
 | timer ordering / zero timer | C3.P1 | retain |
 | shutdown | C3.P1 | retain |
 | leak reporting | C3.P1 | retain; public cancellation semantics deferred |
-| poller backend | C3.P2 | governed by PDR-0016 gate |
+| poller backend | C3.P2 | governed by TDR-0080 gate |
 | socket readiness | C3.P2 mechanism only | user network API remains host-surface program |
 | deregistration/generation invalidation | C3.P1 | mechanism lands now; public cancellation belongs C5 |
 | `Future.cancel` | C5 | not C3 |
@@ -73,7 +73,7 @@ The existing machinery spec remains normative, but post-C2 implementation archit
 4. remove the requirement that two pump seams be user/source-visible floor operations;
 5. define `System.sleep(Duration) -> Future<Unit>`;
 6. keep generation-tagged registrations, GC roots, stale drop, monotonic timer, liveness, worker plain-data and shutdown laws unchanged;
-7. PDR-0016 remains a hard gate for the poller phase.
+7. TDR-0080 remains a hard gate for the poller phase.
 
 ## 5. Identity discipline
 

@@ -72,7 +72,7 @@ Keep it a scout, not a survey.
    read that prevents the representation error.
 4. `graphify affected "<core symbol>"` — blast radius; which subsystems the doc must mention.
 5. Grep `docs/adr/` for the concept. Read **only** *Decision* + *Alternatives considered*.
-6. **Run the spec's own example programs.** Cheap, and on C1 this caught that ADR-0030's canonical
+6. **Run the spec's own example programs.** Cheap, and on C1 this caught that TDR-0027's canonical
    snippet does not compile at HEAD. Do not skip because it looks like transcription.
 
 ### `recon.md` — six sections, nothing else
@@ -281,7 +281,7 @@ number is the real comparison and it favours lean.
 
 | Signal | C1 baseline | C2 (lean) |
 |---|---|---|
-| Findings that contradicted the plan or priors | 2 | **4** — (i) C1 already owned most of C2's *planned* content, which the track plan did not know; (ii) the fourth swapped field is unexercisable at HEAD; (iii) "swap" is wrong in ADR-0030 §3, Doc 3, and C1 alike; (iv) recon's own retention finding was cut down by the source map |
+| Findings that contradicted the plan or priors | 2 | **4** — (i) C1 already owned most of C2's *planned* content, which the track plan did not know; (ii) the fourth swapped field is unexercisable at HEAD; (iii) "swap" is wrong in TDR-0027 §3, Doc 3, and C1 alike; (iv) recon's own retention finding was cut down by the source map |
 | Adversarial checks that changed a claim | 1 | **2** — both REFUTE-asks landed: the `checking` retention came back PARTIAL (traced *edge*, not root; unreachable in any program), and the GC-reachability claim came back REFINED (resumer chain is one path of several) |
 | ADR-vs-HEAD gaps found and stated | 3 | **2 new** — §3's "pointer swap" is a `mem::take` move; §7's "fibers are GC roots" is satisfied by transitive reachability, with no fiber registry. (§5's typed-signal gap is C1's, not re-counted) |
 | Claims labelled unverified rather than smuggled | 3 | **3** — the general GC invariant (INFERRED beyond the one tested shape); the regression golden's non-observability, from its own header; "no other writer of `checking`" as inferred-not-proven |
@@ -425,7 +425,7 @@ The promotion condition remains met and remains untaken, for the same reason as 
 
 | | |
 |---|---|
-| Doc kind | **fork** — ADR-0018 has a real `## Alternatives considered` rejecting grammar-level control flow, the branch nearly every other language takes |
+| Doc kind | **fork** — TDR-0016 has a real `## Alternatives considered` rejecting grammar-level control flow, the branch nearly every other language takes |
 | Agent A | 1, blind, redacted, **zero tool calls** — 62k tokens |
 | Agent B | 1, 6 questions, 3 REFUTE-asks — 146k tokens / 39 tool calls |
 | Wall clock | ~50 min |
@@ -438,7 +438,7 @@ The promotion condition remains met and remains untaken, for the same reason as 
 |---|---|---|---|---|---|
 | Findings that contradicted the plan or priors | 2 | 4 | 6 | 6 | **5, two of them mine** — the doc's own recon was wrong about fallback suppression (soundness vs size) and about which mechanism `bootstrap.rs:134` belongs to; the source's "correct, just not fast" is wrong two ways; the guard's threat model was closed by an unrelated decision; the runtime win is unmeasured |
 | Adversarial checks that changed a claim | 1 | 2 | 3 | 2 | **3** — all three REFUTE-asks landed, and one *refuted me*: the soundness hypothesis I would otherwise have shipped as the doc's explanation |
-| ADR-vs-HEAD gaps found and stated | 3 | 2 | 1 | 3 | **2** — ADR-0018's Decision claims both guards check receiver type; `GuardBlock` does not. And decision 0065 silently closed the threat ADR-0018 defends against |
+| ADR-vs-HEAD gaps found and stated | 3 | 2 | 1 | 3 | **2** — TDR-0016's Decision claims both guards check receiver type; `GuardBlock` does not. And decision 0065 silently closed the threat TDR-0016 defends against |
 | Claims labelled unverified rather than smuggled | 3 | 3 | 3 | 2 | **3** — `bool_and`/`bool_or` unaffected (by inspection, not repro); the un-audited blast radius of `block_call` post-processors; that dual-emission was *chosen* over recompilation (the ADR never names the alternative) |
 | Predict-then-check moments | 1 | 1 | 1 | 1 | **1** — "how many instructions does a two-line `if` compile to?" Natural guess four or five; answer seventeen, and the extra nine are the second program |
 | Gate items failed on first pass | 0 | 2 | 0 | 0 | **0** |
@@ -462,7 +462,7 @@ pattern-matching the implementation.
 
 | | |
 |---|---|
-| Doc kind | **fork** — ADR-0040 records four rejected branches with reasons |
+| Doc kind | **fork** — TDR-0035 records four rejected branches with reasons |
 | Agent A | 1, blind, redacted, zero tool calls — 60k tokens |
 | Agent B | 1, 6 questions, 2 REFUTE-asks — 113k tokens / 38 tool calls (over the stated 30-call budget; B said so, unprompted) |
 | Recon | 7 sections, 8 findings |

@@ -10,7 +10,7 @@ _Status: Phase 1 audit + 1b verification COMPLETE. Architect (Phase 2) pending. 
 | F9 | `SyntaxError`'s `Display::fmt` is `todo!()` → **any** parse error panics instead of a diagnostic (empirical: 4/6 examples + any trailing-newline file crash). | `phalcom-ast/src/error.rs:13` | **CONFIRMED** (stabilizer, empirical) | ✅ yes | **Bug-fix wave.** Implement Display. |
 | F10 | Parser rejects a trailing `\n` at EOF → almost every real `.ph` file panics (compounds F9). | parser grammar (EOF handling) | **CONFIRMED** (stabilizer, empirical) | ✅ yes | **Bug-fix wave.** Grammar fix. Pairs w/ F9. |
 | F4 | `object_name` returns `receiver.class(vm).name()` → `Number name`/`toString` ⇒ `"Number.class"`; instance `n.name` ⇒ class name. | `primitive/object.rs:10-12`, `universe.rs:105,108` | **CONFIRMED** (empirical) | ✅ yes | **Bug-fix wave** — but needs a **DECISION** on `name`/`toString` object semantics (see below). |
-| F2 | Metaclass tower **inconsistent**: core metaclasses → `Class` (`universe.rs:70`); user metaclasses → `Object.class` (`vm.rs:92`); neither builds the spec's parallel hierarchy (ADR-0002 rule 4). | `universe.rs:70`, `vm.rs:92` | wiring CONFIRMED; harmful-consequence **REFUTED** | ⚠️ inert (no subclass syntax; `compiler/lib.rs:269` TODO) | **Foundational unit** = spec step 4 (metaclass fix + `verify_invariants()`). Not a live bug. Fold F5/F6 here. |
+| F2 | Metaclass tower **inconsistent**: core metaclasses → `Class` (`universe.rs:70`); user metaclasses → `Object.class` (`vm.rs:92`); neither builds the spec's parallel hierarchy (TDR-0002 rule 4). | `universe.rs:70`, `vm.rs:92` | wiring CONFIRMED; harmful-consequence **REFUTED** | ⚠️ inert (no subclass syntax; `compiler/lib.rs:269` TODO) | **Foundational unit** = spec step 4 (metaclass fix + `verify_invariants()`). Not a live bug. Fold F5/F6 here. |
 | F5 | `MaybeWeak` cycle-breaker inert (every `set_class_owned` → `Strong`; `Metaclass.class` self-cycle) → kernel never freed, weak path dead. | `universe.rs:49,57,62` | CONFIRMED (object-model) | leak only | fold into **F2 unit** |
 | F6 | Apex collapsed: no distinct `Class class`/`Metaclass class`; `Metaclass class` apex absent. | `universe.rs:49,62` | CONFIRMED (med conf) | inert | fold into **F2 unit** |
 | F3 | `runtime_error` does `module_source.unwrap()` on an always-`None` field. | `vm.rs:233` | **REFUTED** on severity — `runtime_error` is **dead code** (live CLI uses `eprintln!`; `Interpreter::run_file` has 0 callers). | ❌ unreachable | **DEFERRED** (cleanup: wire pretty-printer or delete dead path). |
@@ -63,17 +63,17 @@ Smalltalk-style bytecode VM in Rust (avoid the `RefCell` double-borrow panic and
 
 | # | Decision | Best-practice choice | Spec / ADR | New ADR? |
 |---|----------|---------------------|-----------|----------|
-| TA-1 | **Object-graph / heap ownership** | The load-bearing fork. Current `Rc<RefCell<T>>` + `MaybeWeak` is inert (F5) and leaks the kernel; Smalltalk semantics (cycles, mutable `superclass=` per open-Q4, `System.gc` per `system.md`) ultimately need a real collector. Recommend a **handle/arena heap**: objects live in a central `Heap`, referenced by a `Copy` integer handle (`ObjRef`/`ClassId`). Kills Rc-cycles, removes `RefCell` borrow-panic surface, is cache- and inline-cache-friendly (handles are IC keys), and can host a tracing GC later. | object-model §6; `system.md` (gc); open-Q4 | **ADR-0008** — **BLOCKED-ON-DECISION BD-1** |
-| TA-2 | **Value representation** | Tagged `enum Value` (`Number(f64)`, `Bool(bool)`, `Obj(ObjRef)`, private `Nil` sentinel, interned `Symbol`). NaN-boxing is a *later* optimization behind the same API — **deferred register**, not the critical path. Clarity/safety first. | object-model §3; ADR-0005 (Number=f64) | **ADR-0009** (Value repr; ADR-0005 only covers Number) |
-| TA-3 | **Selector / Signature model** | Selector = interned symbol encoding **name + labels** (`move(to:duration:)` ≠ `move(_:_:)`); one hashmap probe. `Signature { selector: Symbol, kind, positional_arity, variadic }`. `Invoke` keeps its selector-constant operand. Dispatch built **inline-cache-ready** (monomorphic slot per call site) even if the IC itself is deferred. | messages-and-selectors §2–3; method-lookup §1 | **ADR-0012** (encoding + Invoke + IC-ready dispatch) |
-| TA-4 | **Instance layout** | **Static slot vector**: `InstanceObject { class, slots: Box<[Value]> }` indexed by a compile-time slot offset from a per-class field table. Replaces the dynamic `IndexMap<Symbol,Value>`. Fields private + non-inherited → offsets are stable → fragile-base-class problem gone. Unassigned slot reads `None`. | classes.md §2 | **ADR-0010** (static slot layout) |
-| TA-5 | **Block / closure model** | One `ClosureObject` shared by `Block` and `Method` (siblings under abstract `Function`). **Lua-style open/closed upvalues** for capture; **frame token** (frame ptr + generation counter) for non-local return, raising `DeadFrameError` on a dead frame. | blocks.md §1–7; ADR-0006 | **ADR-0011** (upvalue + frame-token) — **BD-3** |
+| TA-1 | **Object-graph / heap ownership** | The load-bearing fork. Current `Rc<RefCell<T>>` + `MaybeWeak` is inert (F5) and leaks the kernel; Smalltalk semantics (cycles, mutable `superclass=` per open-Q4, `System.gc` per `system.md`) ultimately need a real collector. Recommend a **handle/arena heap**: objects live in a central `Heap`, referenced by a `Copy` integer handle (`ObjRef`/`ClassId`). Kills Rc-cycles, removes `RefCell` borrow-panic surface, is cache- and inline-cache-friendly (handles are IC keys), and can host a tracing GC later. | object-model §6; `system.md` (gc); open-Q4 | **TDR-0007** — **BLOCKED-ON-DECISION BD-1** |
+| TA-2 | **Value representation** | Tagged `enum Value` (`Number(f64)`, `Bool(bool)`, `Obj(ObjRef)`, private `Nil` sentinel, interned `Symbol`). NaN-boxing is a *later* optimization behind the same API — **deferred register**, not the critical path. Clarity/safety first. | object-model §3; ADR-0005 (Number=f64) | **TDR-0008** (Value repr; ADR-0005 only covers Number) |
+| TA-3 | **Selector / Signature model** | Selector = interned symbol encoding **name + labels** (`move(to:duration:)` ≠ `move(_:_:)`); one hashmap probe. `Signature { selector: Symbol, kind, positional_arity, variadic }`. `Invoke` keeps its selector-constant operand. Dispatch built **inline-cache-ready** (monomorphic slot per call site) even if the IC itself is deferred. | messages-and-selectors §2–3; method-lookup §1 | **TDR-0011** (encoding + Invoke + IC-ready dispatch) |
+| TA-4 | **Instance layout** | **Static slot vector**: `InstanceObject { class, slots: Box<[Value]> }` indexed by a compile-time slot offset from a per-class field table. Replaces the dynamic `IndexMap<Symbol,Value>`. Fields private + non-inherited → offsets are stable → fragile-base-class problem gone. Unassigned slot reads `None`. | classes.md §2 | **TDR-0009** (static slot layout) |
+| TA-5 | **Block / closure model** | One `ClosureObject` shared by `Block` and `Method` (siblings under abstract `Function`). **Lua-style open/closed upvalues** for capture; **frame token** (frame ptr + generation counter) for non-local return, raising `DeadFrameError` on a dead frame. | blocks.md §1–7; TDR-0005 | **TDR-0010** (upvalue + frame-token) — **BD-3** |
 | TA-6 | **Control-flow-as-message + inliner** | `if`/`while`/`for`/`and`/`or`/operators desugar to sends; compiler inlines the *sacred selectors* on literal-block call sites to jump opcodes, guarded by a receiver-type check that **deopts to a real send**. Zero closure alloc on the hot path. | control-flow.md §1–3 | covered |
-| TA-7 | **Absence = Option** | No surface `nil`. Abstract `Option` + `Some`(`_value`) + singleton `None`; combinators are per-subclass methods (dispatch replaces branching). Private `Value::Nil` never leaks into a `Some`. `if (opt)` is a compile error (no truthiness). | values-and-absence.md; ADR-0007 | covered |
-| TA-8 | **Metaclass tower** | Parallel rule `(X class).superclass == (X.superclass) class`, anchored `(Object class).superclass == Class`; `Behavior` is the shared kernel superclass of `Class`/`Metaclass`; `verify_invariants()` runs after bootstrap. | object-model §5–6; ADR-0002/0003 | covered |
+| TA-7 | **Absence = Option** | No surface `nil`. Abstract `Option` + `Some`(`_value`) + singleton `None`; combinators are per-subclass methods (dispatch replaces branching). Private `Value::Nil` never leaks into a `Some`. `if (opt)` is a compile error (no truthiness). | values-and-absence.md; TDR-0006 | covered |
+| TA-8 | **Metaclass tower** | Parallel rule `(X class).superclass == (X.superclass) class`, anchored `(Object class).superclass == Class`; `Behavior` is the shared kernel superclass of `Class`/`Metaclass`; `verify_invariants()` runs after bootstrap. | object-model §5–6; TDR-0002/0003 | covered |
 
-> **ADR gate:** ADR-0008..0012 are load-bearing and not yet recorded. Draft them with the
-> `documentation-and-adrs` skill. BD-1 (ADR-0008) and BD-3 (ADR-0011) additionally need a
+> **ADR gate:** TDR-0007..0012 are load-bearing and not yet recorded. Draft them with the
+> `documentation-and-adrs` skill. BD-1 (TDR-0007) and BD-3 (TDR-0010) additionally need a
 > **user decision** before their units can start (see BLOCKED-ON-DECISION list).
 
 ## Wave breakdown
@@ -135,7 +135,7 @@ The spine U1→U7 is irreducibly serial (shared `vm.rs`/`compiler/`/`bytecode.rs
 ### U1 — Object-graph & Value representation  (TA-1, TA-2, TA-4 base)
 - **Goal.** Establish the heap-ownership model, `Value`, and the base `ClassObject` /
   `InstanceObject` types the whole VM builds on. Removes the inert `MaybeWeak` (F5 wiring).
-- **Spec/ADR.** object-model §3, §6; ADR-0005; **new ADR-0008/0009/0010**.
+- **Spec/ADR.** object-model §3, §6; ADR-0005; **new TDR-0007/0009/0010**.
 - **Write-set.** `phalcom-common/src/refs.rs`, `phalcom-core/src/value.rs`, `class.rs`,
   `instance.rs`, and the ownership plumbing in `universe.rs`/`vm.rs` (base types only — tower
   wiring is U2).
@@ -157,7 +157,7 @@ The spine U1→U7 is irreducibly serial (shared `vm.rs`/`compiler/`/`bytecode.rs
 ### U2 — Metaclass tower + `Behavior` + `verify_invariants()`  (⊇ F2, F5, F6; folds F4)
 - **Goal.** Wire the parallel metaclass tower correctly, introduce `Behavior`, and make the
   bootstrap self-checking. Install the corrected universal `Object` protocol.
-- **Spec/ADR.** object-model §5–6, §8; ADR-0002, ADR-0003.
+- **Spec/ADR.** object-model §5–6, §8; TDR-0002, TDR-0003.
 - **Write-set.** `phalcom-core/src/universe.rs`, `class.rs`, `vm.rs` (`create_class` metaclass
   wiring at ~:92), `primitive/object.rs`, `primitive/class.rs`, `tests/invariants.rs`
   (un-`#[ignore]` the parallel-rule cases).
@@ -183,7 +183,7 @@ The spine U1→U7 is irreducibly serial (shared `vm.rs`/`compiler/`/`bytecode.rs
 ### U3 — Selector / Signature model + Invoke dispatch  (⊇ F1, F7, F8)
 - **Goal.** Replace arity-only dispatch with label-encoded selectors; make failed/errored
   sends propagate correctly.
-- **Spec/ADR.** messages-and-selectors §2–3; method-lookup §1; **new ADR-0012**.
+- **Spec/ADR.** messages-and-selectors §2–3; method-lookup §1; **new TDR-0011**.
 - **Write-set.** `phalcom-ast/src/ast.rs` (labels on `MethodDef`/call args),
   `phalcom-ast/src/parser.lalrpop` (label `to:` syntax), `phalcom-core/src/signature.rs`,
   `method.rs`, `bytecode.rs` (Invoke operand semantics), `compiler/lib.rs` + `compiler/mod.rs`
@@ -210,13 +210,13 @@ The spine U1→U7 is irreducibly serial (shared `vm.rs`/`compiler/`/`bytecode.rs
 - **Goal.** First-class blocks as the shared method substrate: `Value::Block`, `ClosureObject`,
   upvalues, closure/call/jump opcodes, `=>` and trailing-block sugar, the `Function`/`Block`/
   `Method` tower.
-- **Spec/ADR.** blocks.md §1–7; ADR-0006; **new ADR-0011**.
+- **Spec/ADR.** blocks.md §1–7; TDR-0005; **new TDR-0010**.
 - **Write-set.** `phalcom-ast/src/ast.rs` (block node), `parser.lalrpop` (`=>`, braced/unbraced
   forms, trailing-block), `phalcom-core/src/closure.rs`, `callable.rs`, `bytecode.rs`
   (`MakeClosure`/`Call`/`GetUpvalue`/`SetUpvalue`/jumps), `frame.rs`, `vm.rs`, `compiler/*`,
   `value.rs` (Block arm), `universe.rs`/`class.rs` (`Function`/`Block`/`Method` classes).
 - **Depends on.** U3; **BD-3** (upvalue model).
-- **Design.** One `ClosureObject` for blocks and methods (ADR-0006 siblings under `Function`).
+- **Design.** One `ClosureObject` for blocks and methods (TDR-0005 siblings under `Function`).
   Lua-style open/closed upvalues (BD-3 rec.). Unbraced `n => e` is single-param expression-only
   (blocks §2–3); braced `{ a, b => … }` multi-param. Trailing block = final argument, selector
   unchanged (blocks §4). Non-local return **mechanism** deferred to U10 but the frame-token slot
@@ -254,13 +254,13 @@ The spine U1→U7 is irreducibly serial (shared `vm.rs`/`compiler/`/`bytecode.rs
 ### U6 — Absence → Option  (TA-7)
 - **Goal.** Remove surface `nil`; introduce `Option`/`Some`/`None`; wire `??`/`?.`; forbid
   truthiness.
-- **Spec/ADR.** values-and-absence.md §1–6; ADR-0007.
+- **Spec/ADR.** values-and-absence.md §1–6; TDR-0006.
 - **Write-set.** `phalcom-core/src/nil.rs` → `option.rs`, `value.rs` (keep private sentinel,
   no surface literal), `universe.rs` (`Option`/`Some`/`None` classes), `primitive/*`,
   `core/core.ph` (combinators), `compiler/*` (`?.`/`??` desugar, remove `Expr::Nil`/`Nil`
   literal, `if (opt)` compile error), `phalcom-ast` (`?.`/`??` tokens, drop `nil` keyword).
 - **Depends on.** U4 (combinators/`ifSome` take blocks; `ifTrue` returns `Option`).
-- **Design.** ADR-0007: abstract `Option` + `Some`(`_value`) + singleton `None`; per-subclass
+- **Design.** TDR-0006: abstract `Option` + `Some`(`_value`) + singleton `None`; per-subclass
   combinators (dispatch replaces tag tests). `a ?? b ≡ a.orElse { b }`, `opt?.foo ≡
   opt.map { x => x.foo }`. `if (opt)` → compile error (no truthiness, §3.5). Private
   `Value::Nil` must never enter a `Some`.
@@ -275,7 +275,7 @@ The spine U1→U7 is irreducibly serial (shared `vm.rs`/`compiler/`/`bytecode.rs
 ### U7 — Static fields + `construct`  (TA-4 full)
 - **Goal.** Static per-class slot layout with implicit field declaration, read-before-write
   compile error, and `construct` on the metaclass.
-- **Spec/ADR.** classes.md §1–2; object-model §5; **ADR-0010**.
+- **Spec/ADR.** classes.md §1–2; object-model §5; **TDR-0009**.
 - **Write-set.** `phalcom-core/src/instance.rs`, `class.rs` (per-class field table),
   `compiler/*` (field collection + slot assignment + read-before-write check + `construct`
   lowering), `phalcom-ast/src/ast.rs` + `parser.lalrpop` (`construct` keyword/node, `_field`
@@ -380,12 +380,12 @@ new(name:age:)`, getters/setters, unassigned
 ### U11 — Refinement: `Bool` as `True`/`False`
 - **Goal.** Split `Bool` into abstract `Bool` + singleton `True`/`False` so boolean control flow
   is pure dispatch.
-- **Spec/ADR.** ADR-0004.
+- **Spec/ADR.** TDR-0004.
 - **Write-set.** `phalcom-core/src/boolean.rs`, `universe.rs`, `value.rs` (class selection from
   the `bool` payload — no new variant), `core/core.ph`.
 - **Depends on.** U5 (inliner path must deopt to the right subclass method).
 - **Design.** `Value::Bool(true).class == True`; per-subclass `and`/`or`/`ifTrue`. No new
-  `Value` variant (ADR-0004).
+  `Value` variant (TDR-0004).
 - **Risk.** Must interact cleanly with U5's inliner deopt guard.
 - **Test.** `verify_invariants` extended; golden dispatch on `True`/`False`.
 - **Must-not-preclude.** Keep surface as one `Bool` class (users don't see `True`/`False` as a
@@ -415,7 +415,7 @@ new(name:age:)`, getters/setters, unassigned
   and a central `Heap` — no Rc-cycles, no borrow-panic, IC- and cache-friendly, GC-ready;
   **(C)** tracing GC (`Gc<T>`) — most Smalltalk-faithful (cycles, `System.gc`, mutable
   `superclass=`), heaviest lift. **Recommendation: B now, designed to host C later.** Record as
-  **ADR-0008**.
+  **TDR-0007**.
 - **BD-2 — `Object>>toString` default for a *plain instance*.** *Gates U2.* Spec pins `name`
   (Behavior-side, own name) but leaves the instance display string open ("display
   representation"). Options: **(A)** `"a {ClassName}"` / `"an …"` (Smalltalk `printString`;
@@ -425,7 +425,7 @@ new(name:age:)`, getters/setters, unassigned
 - **BD-3 — Closure upvalue capture model.** *Gates U4.* Options: **(A)** Lua-style open/closed
   upvalues — best-practice, supports escaping blocks (blocks §5) with shared-mutable capture
   (**recommended**); **(B)** by-value capture snapshots — simpler but breaks shared mutation and
-  fights non-local return. Record as **ADR-0011**.
+  fights non-local return. Record as **TDR-0010**.
 - **BD-4 — `let` vs `var` (open-Q1).** *Gates U6/bindings.* Recommendation (adopt the spec's own
   proposal): `let` = immutable, `var` = mutable, `var x` with no initializer = `None`. Needs
   ratification; the lexer currently has only `let`.
@@ -440,6 +440,6 @@ new(name:age:)`, getters/setters, unassigned
   `Result` surface open.
 
 ### New ADRs to draft (documentation-and-adrs skill)
-ADR-0008 (heap ownership, BD-1) · ADR-0009 (Value representation) · ADR-0010 (static slot
-layout) · ADR-0011 (closure/upvalue + frame-token, BD-3) · ADR-0012 (selector/Signature
+TDR-0007 (heap ownership, BD-1) · TDR-0008 (Value representation) · TDR-0009 (static slot
+layout) · TDR-0010 (closure/upvalue + frame-token, BD-3) · TDR-0011 (selector/Signature
 encoding + IC-ready dispatch).

@@ -2363,7 +2363,7 @@ LSP may expose the same graph through hover/detail/code action without re-runnin
 
 # Part XIX — Diagnostic presentation convergence
 
-## 19. Preserve PDR-0014
+## 19. Preserve TDR-0067
 
 Phalcom has already ratified an in-house diagnostic renderer.
 
@@ -4236,7 +4236,7 @@ remove overlapping formal claims after parity
 
 `phalcom-core/src/diagnostics/traceback.rs` uses that substrate for the runtime experience whose visual language 04.5 adopts.
 
-The accepted PDR-0014 requires the renderer to remain in-house and explicitly rejects reintroducing `miette` as a second presentation system.
+The accepted TDR-0067 requires the renderer to remain in-house and explicitly rejects reintroducing `miette` as a second presentation system.
 
 ---
 

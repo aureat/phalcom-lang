@@ -62,7 +62,7 @@ because the pseudocode's primitives do not exist on HEAD:
 
 Also: **every `with(...)` label is required at the call site**. Keyword-argument
 omission is an ordinary different-selector dispatch miss under
-[ADR-0012](../../../adr/accepted/0012-selector-signature-encoding-and-dispatch.md)'s
+[TDR-0011](../../../decisions/accepted/0011-selector-signature-encoding-and-dispatch.md)'s
 selector-identity model — there is no partial-application sugar. A caller passes
 `None` for every field left unchanged.
 

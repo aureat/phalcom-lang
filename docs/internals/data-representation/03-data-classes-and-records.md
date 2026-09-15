@@ -235,5 +235,5 @@ individual fields via their getters.
   shared storage engine
 - [04-adt-enum-variants.md](04-adt-enum-variants.md) — similar design for ADT
   constructor payloads
-- [ADR-0011](../../adr/accepted/0011-static-instance-slot-layout.md) — static
+- [TDR-0010](../../decisions/accepted/0010-static-instance-slot-layout.md) — static
   slot layout decisions

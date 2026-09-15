@@ -72,8 +72,8 @@ representation choice, and it was the *fallback* option in the plan, not the rec
 
 This is the doc's honesty spine (§5.2). Four distinct provenances, and they must not be blurred:
 
-- **The IC *seam* was deliberated — ADR-0012.** The `caches` slot on every `Invoke` was reserved at
-  ADR-0012 time as an "IC-ready shape at zero present cost," population explicitly deferred. Doc 4's
+- **The IC *seam* was deliberated — TDR-0011.** The `caches` slot on every `Invoke` was reserved at
+  TDR-0011 time as an "IC-ready shape at zero present cost," population explicitly deferred. Doc 4's
   Lie #1 is exactly this seam. That the seam exists is a real, documented decision.
 - **The IC *population* landed as an incremental cut, NOT via the `U-IC` plan.** The plan
   (`U-IC/plan.md`, `PLANNED`) proposes a selector-only interner (Change 1), a **per-class epoch**
@@ -94,7 +94,7 @@ This is the doc's honesty spine (§5.2). Four distinct provenances, and they mus
   −4.2% `bare_send`, −3.9% `fib`** — while `map_numeric` removed the *most* dispatches (18M) and
   moved **−0.2%**, because its instructions cost 27.6 ns each (F17). "A fusion buys dispatch, and
   only workloads whose time *is* dispatch can spend it." Real numbers, real scar. Quote them.
-- **Guard opcodes — ADR-0018 (sacred-selector inliner + override guard).** `GuardBool`/`GuardBlock`
+- **Guard opcodes — TDR-0016 (sacred-selector inliner + override guard).** `GuardBool`/`GuardBlock`
   are pristine-flag fast paths; `note_method_installed` (dispatch.rs @ L935) dirties the pristine
   flag when a sacred selector is redefined on kernel `Bool`/`Block`. Recon steer: **mention as a
   third fast-path family, keep brief** — the sacred-inliner mechanism is its own future topic, not
@@ -104,7 +104,7 @@ This is the doc's honesty spine (§5.2). Four distinct provenances, and they mus
 IC / polymorphic IC) was **not** bench-raced at HEAD — monomorphic-with-global-stamp is what the
 seam got populated with, and the plan keeps the slot layout "extensible to a small PIC without a
 bytecode change" (DEC-IC-D) rather than shipping one. Present the coarse fork as scaffolding; land
-the two genuinely-deliberated things: the *seam* (ADR-0012) and *fusion* (perf-log 008, measured).
+the two genuinely-deliberated things: the *seam* (TDR-0011) and *fusion* (perf-log 008, measured).
 
 ## 4. Brief-steering
 
@@ -158,15 +158,15 @@ operand?* Must confirm with lines:
 - `GetGlobal`/`SetGlobal` fast paths (dispatch.rs ~L632 / ~L685): the `gcaches` probe on
   `globals_version`; confirm `SetGlobal` has no core-module fallback (recon claim).
 - Guard opcodes `GuardBool`/`GuardBlock` (dispatch.rs ~L1184/~L1191) + `note_method_installed`
-  (dispatch.rs @ L935): confirm they are the sacred-selector pristine-flag fast path (ADR-0018);
+  (dispatch.rs @ L935): confirm they are the sacred-selector pristine-flag fast path (TDR-0016);
   **brief** — mark as adjacent, not this doc's core.
 - **Run fixtures live** (`phalcom -i '<src>'`): (a) a method sent in a loop — works (can't see cache
   from stdout, note that). (b) **the invalidation proof** — send `x.foo()` in a loop, redefine `foo`
   (reopen the class) partway, assert the *new* body runs (Doc 4's reopen fixture already shows v1→v2;
   frame it here as "the world_version bump the cache honors"). (c) a megamorphic site (many receiver
   classes through one call site) — correct results, no crash. Report observed output verbatim.
-- Bounded ADR read: ADR-0012 (the seam — already summarized in Doc 4's source-map), ADR-0051 (Tier-3
-  perf strategy), ADR-0018 (guards), ADR-0041 (hierarchy-stability — what mutations must invalidate).
+- Bounded ADR read: TDR-0011 (the seam — already summarized in Doc 4's source-map), TDR-0049 (Tier-3
+  perf strategy), TDR-0016 (guards), TDR-0036 (hierarchy-stability — what mutations must invalidate).
   Decision + Alternatives only. Perf-log 008 is the measured-fusion source — cite its numbers.
 
 ## 5. Predict-then-check candidates (pick in synthesis)
@@ -190,7 +190,7 @@ operand?* Must confirm with lines:
    ("slot layout must not preclude PIC"); mark as not-built.
 3. **Selector-only interner / design-B arrays** — U-IC Changes 1–2, not built. Mention only as the
    planned redesign; do not describe as current.
-4. **Sacred-selector inliner mechanism** (ADR-0018) — `GuardBool`/`GuardBlock` get a brief mention as
+4. **Sacred-selector inliner mechanism** (TDR-0016) — `GuardBool`/`GuardBlock` get a brief mention as
    a third fast-path family; the inliner's full mechanism (`compile_sacred_call`, override-epoch
    deopt) is **its own future topic**, deferred.
 5. **`SuperSend` is uncached** (DEC-IC-B, DEFERRED) — a statically-known target, left out of the IC
@@ -223,5 +223,5 @@ deliberated selector-encoding). Keep separate.
 - `docs/forge/units/U-IC/plan.md` (PLANNED — the grander unbuilt form; DEC-IC-A..D).
 - `docs/forge/perf-log/008-fuse-invoke-pairs.md` (measured fusion: ~3.3 ns/dispatch, the result
   table, the F16 verdict flip, the `map_numeric` non-result).
-- ADR-0012 (IC seam), ADR-0051 (tiered perf), ADR-0018 (sacred guards), ADR-0041 (hierarchy
+- TDR-0011 (IC seam), TDR-0049 (tiered perf), TDR-0016 (sacred guards), TDR-0036 (hierarchy
   stability / what must invalidate).

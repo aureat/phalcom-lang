@@ -5,7 +5,7 @@ Phalcom VM. One entry per landed cut; findings that reshape the plan live in
 [`findings.md`](findings.md).
 
 Governed by [`performance.md`](../../spec/current/performance.md) +
-[ADR-0051](../../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md)
+[TDR-0048](../decisions/accepted/0048-performance-strategy-measure-first-tiered-optimization.md)
 (measure-first, tiered, behavior-invariant). Every entry cites a **before/after
 number from the U-BENCH harness** (`benchmarks/vm/`, criterion target
 `phalcom-core/benches/vm_bench.rs`) — no oral numbers (law P1). A cut lands only on
@@ -251,7 +251,7 @@ Ranked by attributed cost on the arith micro-bench + Skynet, after cut 001:
    evenly with the loop's three `debug!`s, so the fix had to gate all four callsites, not the
    span alone.
 2. ~~**Tier 4 — U-GC collector (malloc 28.2% Skynet).**~~ **Landed** (non-moving
-   mark-sweep, ADR-0050), together with [cut 004](004-hotpath-rc-callable.md)'s
+   mark-sweep, TDR-0048), together with [cut 004](004-hotpath-rc-callable.md)'s
    `Rc<Callable>`. Skynet is now **2.4–2.5 s / 1.44 GB** against Wren's 0.7–0.8 s /
    0.67 GB — **~3.2× wall, ~2.2× RSS**, from F1's ~19–20× / ~7–9×.
 3. ~~**Tier 3 — U-IC.**~~ **Landed** (`f5e41f1`) — monomorphic IC on `Invoke`, guarded

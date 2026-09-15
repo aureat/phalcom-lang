@@ -3,14 +3,14 @@
 > **Status:** Normative machinery contract.
 >
 > Governing accepted decisions:
-> - PDR-0003 — worker/VM-thread discipline;
-> - PDR-0004 — Future-shaped blocking operations and reactor ownership.
+> - TDR-0056 — worker/VM-thread discipline;
+> - TDR-0057 — Future-shaped blocking operations and reactor ownership.
 >
 > **Implementation owner:** CONC002.C3.
 > - Phase 1: `CONC002.C3.P1-reactor-core-workers-timers-and-executor-liveness.md` (Complete)
 > - Poller phase: `CONC002.C3.P2-poller-and-external-readiness.md` (Complete)
 >
-> PDR-0016 is Accepted and implemented via `mio` confined to `phalcom-core::reactor`.
+> TDR-0080 is Accepted and implemented via `mio` confined to `phalcom-core::reactor`.
 >
 > **Implementation status:** built and verified across C3.P1 and C3.P2 gates.
 >
@@ -215,11 +215,11 @@ The reactor must prove worker liveness with a synthetic internal job before user
 
 ## 9. Poller phase
 
-PDR-0004 requires a real poller for pollable descriptors.
+TDR-0057 requires a real poller for pollable descriptors.
 
 Backend choice is not accepted yet.
 
-PDR-0016 currently proposes:
+TDR-0080 currently proposes:
 
 ```text
 mio
@@ -229,7 +229,7 @@ register only on WouldBlock
 generation remains reactor-owned
 ```
 
-C3.P2 may implement that backend only if PDR-0016 is accepted unchanged or a replacement ruling is ratified.
+C3.P2 may implement that backend only if TDR-0080 is accepted unchanged or a replacement ruling is ratified.
 
 Whatever backend is chosen:
 
@@ -303,7 +303,7 @@ Poller-specific conformance belongs to C3.P2.
 |---|---|
 | fairness policy | default only, not language-ratified |
 | worker-pool size | bounded internal constant; measure |
-| poller backend | PDR-0016 Accepted (`mio`) |
+| poller backend | TDR-0080 Accepted (`mio`) |
 | public cancellation | C5 |
 | exact internal timer selector spelling | C3.P1 implementation detail/native-census decision |
 

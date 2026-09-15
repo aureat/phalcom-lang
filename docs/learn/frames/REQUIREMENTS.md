@@ -3,7 +3,7 @@
 ## The one obligation
 
 > After reading, the reader can re-derive Phalcom's frame representation from the constraints
-> alone: given "objects are `Copy` handles into an arena" (ADR-0009) and "the VM must own its call
+> alone: given "objects are `Copy` handles into an arena" (TDR-0008) and "the VM must own its call
 > stack to support fibers and GC," the reader should land on **frame-as-`Copy`-value-in-a-`Vec`**
 > without being told, and see why that forecloses a caller pointer.
 
@@ -35,8 +35,8 @@ mechanism earns space only where it reveals the representation (truncate-not-unl
 | **Flat array of value-records / register windows** | Lua (`CallInfo`), Wren, **Phalcom** | No per-call alloc; caller chain is array order; unwind = truncate; cache-friendly | Frame is not a first-class object (no cheap `thisContext`); needs a side mechanism for identity across reuse (→ generation counter, Doc 6) |
 | **Native machine stack** | Tree-walkers, many JITs | Zero bookkeeping; fastest calls | Cannot reify frames; fights green threads / fibers (can't swap a native stack cheaply); no `System.gc` visibility into locals |
 
-Phalcom took the middle branch — **but as a consequence of ADR-0009, not a bake-off.** State that
-(honesty pass). The Copy-ness (not just "an array") is the ADR-0009 payoff that makes the middle
+Phalcom took the middle branch — **but as a consequence of TDR-0008, not a bake-off.** State that
+(honesty pass). The Copy-ness (not just "an array") is the TDR-0008 payoff that makes the middle
 branch borrow-clean in Rust.
 
 ## Comparison filter (a language enters only on bill / scar / names-something / ancestor)
@@ -82,17 +82,17 @@ branch borrow-clean in Rust.
 - [ ] No caller/parent pointer; Vec order is the chain; `frames[i-1]` is the caller.
 - [ ] Push = `new_call_frame` (+ generation bump, marked as Doc-6 machinery); pop = `frames.pop`;
       unwind = `frames.truncate`.
-- [ ] `CallContext`'s four variants; the `Immediate` scar (ADR-0018/U5).
+- [ ] `CallContext`'s four variants; the `Immediate` scar (TDR-0016/U5).
 - [ ] `stack_offset` = the frame's window into the shared value stack (fiber-relative — bounded).
 - [ ] Frames are GC roots (`collect_roots` walks `vm.frames`; `trace_frame`).
-- [ ] ADR-0009 is the deliberated decision; frame-as-value is its consequence, not its own ADR.
+- [ ] TDR-0008 is the deliberated decision; frame-as-value is its consequence, not its own ADR.
 - [ ] Lies marked: generation/`home_frame_token` → Doc 6; per-fiber mirror → concurrency.
 
 ## Agent B question list (verification targets)
 
 1. Quote `CallFrame` (L66) + `Copy` derive; confirm NO parent field. (load-bearing negative)
 2. Quote all four `CallContext` variants + the `Immediate` doc (L51–61).
-3. Confirm module-doc claim L1–6 (Copy → Vec, no Rc/RefCell) and tie to ADR-0009.
+3. Confirm module-doc claim L1–6 (Copy → Vec, no Rc/RefCell) and tie to TDR-0008.
 4. `new_call_frame` @ ~L29: construction + push + generation bump.
 5. Pop @ ~L1099, `unwind_to` truncate @ ~L110; caller resumes as `frames[len-1]`.
 6. `VM::frames` (live) vs `FiberObject::frames` (per-fiber backing); mirror + swap. Bounded.
@@ -112,7 +112,7 @@ branch borrow-clean in Rust.
 - **R3 — CPython 3.11 zero-cost frames may make the "heap alloc per call" bill look stale.** Must
   flag that modern CPython lazily materializes frame objects; keep the historical bill but date it.
 - **R4 — the design-space "bake-off" framing risks flattering the codebase** (recon §3). The middle
-  branch fell out of ADR-0009; the honesty pass must say Phalcom did not deliberate frame
+  branch fell out of TDR-0008; the honesty pass must say Phalcom did not deliberate frame
   representation as such.
 - **R5 — bleeding into Doc 6.** `generation`/token/`DeadFrameError`/non-local-return mechanics belong
   to frame-identity. Doc 3 may *name* them as fields and *show* a frame gets a fresh generation, but
@@ -134,10 +134,10 @@ branch borrow-clean in Rust.
 
 ### Honesty corrections (§5.2)
 
-1. **Frame-as-`Copy`-value is a *consequence* of ADR-0009, not a frame-representation bake-off.** ADR-0009 deliberated `Rc<RefCell>` vs handle-arena vs immediate `Gc`; "the frame is `Copy`" falls out of "every link is a `Copy` handle." The doc states the design-space walk is pedagogical scaffolding.
+1. **Frame-as-`Copy`-value is a *consequence* of TDR-0008, not a frame-representation bake-off.** TDR-0008 deliberated `Rc<RefCell>` vs handle-arena vs immediate `Gc`; "the frame is `Copy`" falls out of "every link is a `Copy` handle." The doc states the design-space walk is pedagogical scaffolding.
 2. **The LIFO-stack-of-records framing is textbook**, not a Phalcom decision. Label as such.
 3. **The missing CLI traceback is an absence at HEAD, not designed minimalism.** The machinery exists and looks correct; it is simply unwired from `cmd_run`. Present as current-state fact (Agent B verified the call chain), never as a principle.
-4. **`CallContext::Immediate` is real and deliberated (ADR-0018/U5) but narrow**: it exists so the sacred-selector inliner's override-epoch deopt guard is *exercisable* by a closure method on an immediate receiver. Present accurately, not as grand receiver-uniformity design.
+4. **`CallContext::Immediate` is real and deliberated (TDR-0016/U5) but narrow**: it exists so the sacred-selector inliner's override-epoch deopt guard is *exercisable* by a closure method on an immediate receiver. Present accurately, not as grand receiver-uniformity design.
 
 ### Claims ledger (§5.3)
 

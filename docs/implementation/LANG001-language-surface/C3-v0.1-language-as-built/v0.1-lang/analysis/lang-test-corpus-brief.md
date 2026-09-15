@@ -77,7 +77,7 @@ but your real references are the spec docs and **empirical CLI runs**.
 - Put **everything in a NEW directory `phalcom-core/tests/lang/`** (create it): the `.ph`
   programs, their `.expected` sidecars, and `MANIFEST.md`.
 - **Do NOT modify:** `phalcom-core/tests/golden.rs` or `tests/fixtures/golden/` (another agent
-  owns it), `phalcom-ast/**`, `phalcom-core/src/**`, `docs/adr/**`, `docs/spec/**` (read-only),
+  owns it), `phalcom-ast/**`, `phalcom-core/src/**`, `docs/decisions/**`, `docs/spec/**` (read-only),
   root `Cargo.toml`. Reading any of these is fine.
 - **Do NOT wire the corpus into a Rust test harness** — just produce the files + manifest;
   harness integration happens later.

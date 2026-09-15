@@ -11,7 +11,7 @@ schedule, and the projection has a kernel: a resumer-chain corruption, a
 ready-queue reordering, or a fiber resumed twice can all converge to the same
 prints.
 
-Cooperative determinism (ADR-0030) makes the schedule a pure function of the
+Cooperative determinism (TDR-0027) makes the schedule a pure function of the
 program text. So the schedule is not a race to be sampled — it is a *value* that
 can be observed and compared. Lane E observes it.
 
@@ -58,7 +58,7 @@ exercises nested drain today and asserts only its printed result.
 
 ## 4. Characterization, not contract — the load-bearing rule
 
-**Scheduler fairness policy is OPEN** (concurrency.md §3, ADR-0030). The
+**Scheduler fairness policy is OPEN** (concurrency.md §3, TDR-0027). The
 overlay is explicit: the ready-queue exists as *mechanism*; no fairness *policy*
 is specified.
 
@@ -73,7 +73,7 @@ The rule:
 >
 > ```
 > # CHARACTERIZATION — pins observed scheduler behavior, not specified behavior.
-> # Fairness policy is OPEN (concurrency.md §3, ADR-0030). A future fairness ADR
+> # Fairness policy is OPEN (concurrency.md §3, TDR-0027). A future fairness ADR
 > # may rewrite these traces wholesale; that is a graduation, not a regression.
 > ```
 
@@ -100,7 +100,7 @@ argument for keeping the traced set small.
 ## 6. Preclusion
 
 - **Traces make scheduler order a compat surface.** Every pinned trace is a
-  constraint on future scheduling. Work-stealing is precluded by ADR-0030
+  constraint on future scheduling. Work-stealing is precluded by TDR-0027
   already (single-threaded), but priority queues, fairness quanta, and
   starvation avoidance are all live options that traces would fight. The
   characterization header in §4 is the mitigation and it is mandatory, not

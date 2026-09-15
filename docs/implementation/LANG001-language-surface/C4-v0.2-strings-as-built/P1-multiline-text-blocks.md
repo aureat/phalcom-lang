@@ -36,10 +36,10 @@ Key current files and observed blob SHAs:
 | `phalcom-repl/src/highlighter.rs` | `7b9ad255bba21adca5aa78be81790e8836397ff3` | Reuses lexer token boundaries for string coloring |
 | `docs/spec/current/syntax/lexical.md` | current `main` | Canonical lexical grammar; explicitly defers multiline strings |
 | `docs/spec/current/string-interpolation.md` | current `main` | Accepted interpolation semantics and source-range contract |
-| `docs/pdr/0029-string-literals-and-interpolation-completion.md` | `2ed757b491b7d6573d250d08da0a78d9e1af3624` | Explicitly defers multiline literals |
+| `docs/decisions/0029-string-literals-and-interpolation-completion.md` | `2ed757b491b7d6573d250d08da0a78d9e1af3624` | Explicitly defers multiline literals |
 | `docs/work/deferred/multiline-string-literals.md` | `b1ff8ac5d4168a2bfca2430545a1c0144934c315` | Deferred-design marker |
 | `docs/work/analyses/multiline-string-literals.md` | `1c4bc66110769e3f654d36b5978cb2229d4d82a5` | Existing analysis containing the now-approved semantics |
-| `docs/pdr/STATUS.md` | `fce98eb6e567097331c824fe74f0ef9a620e5371` | PDR tracker; latest number is 0033 |
+| `docs/decisions/STATUS.md` | `fce98eb6e567097331c824fe74f0ef9a620e5371` | PDR tracker; latest number is 0033 |
 
 ### Scope lock
 
@@ -1709,7 +1709,7 @@ The repository explicitly says never implement against an unratified design reco
 Create:
 
 ```text
-docs/pdr/0034-multiline-string-text-blocks.md
+docs/decisions/0034-multiline-string-text-blocks.md
 ```
 
 Header:
@@ -1759,7 +1759,7 @@ Alternatives rejected should include:
 Edit:
 
 ```text
-docs/pdr/STATUS.md
+docs/decisions/STATUS.md
 ```
 
 Add row 0034.
@@ -1779,7 +1779,7 @@ Do not mark shipped before verification.
 Edit:
 
 ```text
-docs/pdr/0029-string-literals-and-interpolation-completion.md
+docs/decisions/0029-string-literals-and-interpolation-completion.md
 ```
 
 Do not retire or supersede the whole record. Its interpolation decisions remain authoritative.
@@ -1914,9 +1914,9 @@ Do not specify a formatter that independently normalizes “minimum indentation.
 ## Task 1 — Ratify the design in repository governance
 
 **Files**
-- Create: `docs/pdr/0034-multiline-string-text-blocks.md`
-- Modify: `docs/pdr/STATUS.md`
-- Modify: `docs/pdr/0029-string-literals-and-interpolation-completion.md`
+- Create: `docs/decisions/0034-multiline-string-text-blocks.md`
+- Modify: `docs/decisions/STATUS.md`
+- Modify: `docs/decisions/0029-string-literals-and-interpolation-completion.md`
 - Modify: `docs/work/deferred/multiline-string-literals.md`
 - Modify: `docs/work/analyses/multiline-string-literals.md`
 
@@ -2201,7 +2201,7 @@ Expected: REPL remains in continuation mode until closing delimiter appears.
 ## Task 10 — Full verification and shipped-state update
 
 **Files**
-- Modify: `docs/pdr/STATUS.md` only after all gates pass.
+- Modify: `docs/decisions/STATUS.md` only after all gates pass.
 - Optionally add implementation log following repository convention.
 
 - [ ] Format:
@@ -2237,7 +2237,7 @@ cargo test --workspace
 - [ ] Commit final evidence update:
 
 ```bash
-git add docs/pdr/STATUS.md
+git add docs/decisions/STATUS.md
 git commit -m "docs: mark multiline text blocks shipped"
 ```
 

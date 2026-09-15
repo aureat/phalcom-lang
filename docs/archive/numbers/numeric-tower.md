@@ -3,22 +3,22 @@
 > **Status:** **Normative + implementation-ready.** This is one document: the design
 > contract *and* the implementation detail. There is no companion unit plan.
 >
-> **Realizes:** [ADR-0024](../../../adr/accepted/0024-numeric-surface-split-int-float-and-division.md)
+> **Realizes:** [TDR-0022](../../decisions/accepted/0022-numeric-surface-split-int-float-and-division.md)
 > (Accepted 2026-07-12; **zero implementation** — verified, §1). ADR-0024 rules the tower,
 > representation, `==`/`hash` canonicalization, `/`, `~/`, and promotion. **This spec does not
 > redesign any of them**; it specifies how they land.
 >
-> **Supersedes in part:** [ADR-0005](../../../adr/retired/0005-number-as-flat-f64.md) — its
+> **Supersedes in part:** [TDR — Keep a single flat `Number` type backed by `f64`](../../decisions/retired/number-as-flat-f64.md) — its
 > `f64` survives as `Float`'s representation only.
 >
-> **Rulings:** [PDR-0012](../../../pdr/0012-numeric-tower-implementation-and-floor-amendment.md)
+> **Rulings:** [TDR-0064](../../decisions/accepted/0064-numeric-tower-implementation-and-floor-amendment.md)
 > — **Accepted** (ratified 2026-07-20). It carries this spec's 24 implementation rulings and the
-> ADR-0019 floor amendment. [PDR-0025](../../../pdr/0025-numeric-tower-residue-rulings.md)
-> resolves its former primitive blockers; [PDR-0027](../../../pdr/0027-float-protocol-and-explicit-narrowing.md)
+> ADR-0019 floor amendment. [TDR-0069](../../decisions/accepted/0069-numeric-tower-residue-rulings.md)
+> resolves its former primitive blockers; [TDR-0071](../../decisions/accepted/0071-float-protocol-and-explicit-narrowing.md)
 > ratifies Float edge behavior, power, construction enforcement, text, and diagnostics. This spec is implementation-ready.
 >
-> **Floor impact:** **REQUIRES an [ADR-0019](../../../adr/accepted/0019-freeze-vm-blessed-primitive-floor.md)
-> amendment**, carried and ratified by PDR-0012 ruling 20 (`docs/adr/` is frozen). The per-class
+> **Floor impact:** **REQUIRES an [TDR-0017](../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md)
+> amendment**, carried and ratified by PDR-0012 ruling 20 (`docs/decisions/` is frozen). The per-class
 > split's historical tally is `137 → 153`; PDR-0027 separately adds 12 frozen bindings (§6).
 > Recompute against the live census at implementation rather than trusting prose totals.
 >
@@ -102,8 +102,8 @@ Every row below was checked against the tree at `8b4465c` during authoring. Rows
 
 ### 2.2 Interaction with PDR-0001 (classes are closed)
 
-[PDR-0001](../../../pdr/0001-classes-are-closed.md) is Accepted and **unimplemented**
-(verified: `docs/pdr/STATUS.md` row 0065, `❌ ruled 2026-07-19, unimplemented`). Two of
+[TDR-0053](../../decisions/accepted/0053-classes-are-closed.md) is Accepted and **unimplemented**
+(verified: `docs/decisions/STATUS.md` row 0065, `❌ ruled 2026-07-19, unimplemented`). Two of
 its rulings touch this spec:
 
 - **0065 ruling 3 — kernel class names are reserved**, and the reserved set is "the name set
@@ -159,7 +159,7 @@ about (`U12/plan.md:95-98`).
 
 ### 3.2 The large path
 
-`LargeInt` is a heap object under [ADR-0009](../../../adr/accepted/0009-handle-arena-heap.md):
+`LargeInt` is a heap object under [TDR-0008](../../decisions/accepted/0008-handle-arena-heap.md):
 
 ```rust
 /// An arbitrary-precision integer — the large tier of `Int`
@@ -299,7 +299,7 @@ fn scan_number(&mut self) -> Result<Token, LexicalError> {
 - **(c)** reject oversized literals as a lex error.
 
 **Recommend (a).** It keeps `phalcom-ast` dependency-free, keeps the common path an `i64`, and
-puts the one `BigInt` parse where the heap already is. [PDR-0026](../../../pdr/0026-numeric-literals.md)
+puts the one `BigInt` parse where the heap already is. [TDR-0070](../../decisions/accepted/0070-numeric-literals.md)
 ratifies that choice and extends the payload to `{ digits, radix }` so binary, octal, and
 hexadecimal literals remain exact.
 
@@ -325,7 +325,7 @@ would mean deciding whether `1e5` is an `Int` or a `Float` — a real question (
 
 **Ruling: this spec adds neither.** The tower does not need them, and bundling them puts a
 new syntax decision inside a representation change. They are now specified separately by
-[PDR-0026](../../../pdr/0026-numeric-literals.md); implement them as the follow-on literal unit.
+[TDR-0070](../../decisions/accepted/0070-numeric-literals.md); implement them as the follow-on literal unit.
 
 ---
 
@@ -443,7 +443,7 @@ addition ahead of the subtraction so the `usize` expression never goes negative 
 ### 6.5 The ratified amendment
 
 ADR-0019 is a deliberate **one-way ratchet**
-([`0019…md:26`](../../../adr/accepted/0019-freeze-vm-blessed-primitive-floor.md)), and
+([TDR-0017](../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md)), and
 `floor-census.md` §7.1 fixes the protocol: *"open an ADR amending 0019, justify why the
 capability fails the §1 derivability test, then update this file in the same change."*
 
@@ -825,10 +825,10 @@ end-of-unit batch (memory: `commit-frequently`).
 | 4 | **Primitives** | `primitive/int.rs` + `primitive/float.rs`, the coercion helper, `Number` emptied, `Number.new` re-homed | census test green at the new count |
 | 5 | **`~/`** | token, lexer, precedence 6, `BinaryOp::IntegerDivide`, both selector-name sites | `-7 ~/ 2 == -4` |
 | 6 | **Equality & hash** | `value_eq` cross-arms, `Int#hash`/`Float#hash`, the `2^53` fix, `send_hash`, `impl Hash for Value` | `1 == 1.0`; `2.hash == 2.0.hash`; Map/Set coherence |
-| 7 | **Docs & status** | ADR-0019 amendment, `floor-census.md` (incl. the two stale counts, §6.1), `core-classes.md`, `README.md` baseline pin, `docs/adr/STATUS.md` row 0024 `❌ → ✅`, U-IC plan note (§11) | — |
+| 7 | **Docs & status** | ADR-0019 amendment, `floor-census.md` (incl. the two stale counts, §6.1), `core-classes.md`, `README.md` baseline pin, `docs/decisions/STATUS.md` row 0024 `❌ → ✅`, U-IC plan note (§11) | — |
 
 **Phase 7 is not optional and is not deferrable.** Flipping ADR-0024's shipped status means
-editing `docs/adr/STATUS.md` in the **same commit** (memory: `adr-status-two-way-sync`).
+editing `docs/decisions/STATUS.md` in the **same commit** (memory: `adr-status-two-way-sync`).
 STATUS.md's own rule 4 says the same thing, and names ADR-0024 as the cautionary example.
 
 ### 12.2 Write set
@@ -848,8 +848,8 @@ STATUS.md's own rule 4 says the same thing, and names ADR-0024 as the cautionary
 | `phalcom-core/core/core.ph` | `Number` abstract, `Int`/`Float` stubs | **additive only, never co-schedule** |
 | `phalcom-core/tests/invariants.rs` | census constants, `core_class_rows` | **in-flight (§12.0)** |
 | `Cargo.toml`, `phalcom-core/Cargo.toml` | `num-bigint` | |
-| `docs/adr/…/00XX-amend-0019-numeric-split.md` | **new** | |
-| `docs/adr/STATUS.md` | rows 0005, 0019, 0024 | |
+| `docs/decisions/…/00XX-amend-0019-numeric-split.md` | **new** | |
+| `docs/decisions/STATUS.md` | rows 0005, 0019, 0024 | |
 | `docs/spec/current/core/{floor-census,core-classes,README}.md` | census, class rows, baseline | |
 | `docs/forge/units/U-IC/plan.md` | the §11 constraint note | |
 

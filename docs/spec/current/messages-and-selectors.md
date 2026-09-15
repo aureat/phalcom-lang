@@ -3,7 +3,7 @@
 Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
 
 **Governing ADRs:**
-[ADR-0012](../../adr/0012-selector-signature-encoding-and-dispatch.md) (label-encoded selectors and inline-cache-ready dispatch)
+[TDR-0011](../../decisions/accepted/0011-selector-signature-encoding-and-dispatch.md) (label-encoded selectors and inline-cache-ready dispatch)
 
 ## 1. Send syntax
 
@@ -51,7 +51,7 @@ move(_ x, _ y) { ... }                  // selector: move(_,_)
 ```
 
 A labeled parameter may declare a **separate internal binding** — this is
-**decided** ([ADR-0025](../../adr/0025-external-internal-parameter-names.md)).
+**decided** ([TDR-0023](../../decisions/accepted/0023-external-internal-parameter-names.md)).
 `move(to target)` has external label `to` and internal binding `target`: callers
 pass `to: value`, and the body refers to it as `target`. The single-word form
 (`to`) is sugar for the label==binding case. Selector identity is unchanged — the

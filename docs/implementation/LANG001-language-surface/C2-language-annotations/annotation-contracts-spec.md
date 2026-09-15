@@ -4,8 +4,8 @@ _Self-contained implementation plan for **one** implementer. Compiler/AST unit �
 `phalcom-ast/src/ast.rs`, `phalcom-ast/src/parser.rs`, and `phalcom-core/src/compiler/` (new
 module). **Reviewer ON** (spine files `parser.rs`/`compiler/lib.rs`) — hand the diff to
 `phalcom-reviewer`; do not self-approve. Green gate: `./scripts/verify.sh` exits 0 +
-`cargo doc --workspace --no-deps` clean. Grounded in **[ADR-0054](../../../adr/0054-two-speed-ratification-annotation-decorator-tiers.md)**
-(ratifies this tier), **[ADR-0052](../../../adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)**
+`cargo doc --workspace --no-deps` clean. Grounded in **[TDR-0044](../../../decisions/accepted/0044-two-speed-ratification-annotation-decorator-tiers.md)**
+(ratifies this tier), **[TDR-0042](../../../decisions/accepted/0042-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)**
 (Fix 1 — receiver-scoped invariant guard, built in from the start here, not retrofitted), and
 normative **[annotations-core.md](../../../design/experimental/v0.2/annotations-core.md)**,
 **[annotations-legality-grammar.md](../../../design/experimental/v0.2/annotations-legality-grammar.md)**,

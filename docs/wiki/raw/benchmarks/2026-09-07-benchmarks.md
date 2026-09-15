@@ -142,7 +142,7 @@ don't fail the run until `--strict`.
 - **Tier 1.5** — adds the object model (instance fields, operator methods,
   static factories). Also U5-era; grouped separately only because exact rational
   arithmetic makes `==` assertions meaningful.
-- **Tier 2** — needs `var` (U6, [ADR-0014](../../docs/adr/accepted/0014-let-and-var-bindings.md)),
+- **Tier 2** — needs `var` (U6, [TDR — Variable bindings are `let` (immutable) and `var` (mutable)](../../../decisions/retired/let-and-var-bindings.md)),
   list/map literals ([lexical-structure.md §4/§6](../../docs/spec/lexical-structure.md)),
   the iteration protocol ([iteration-protocol.md](../../docs/spec/experimental/iteration-protocol.md)),
   and a standard-library collection surface that is **still deferred**
@@ -325,7 +325,7 @@ This directory contains durable performance history and baseline indexes for the
 # Tier 0 performance baseline (U-BENCH)
 
 Reproducible, attributed measurement backing the [performance strategy](../../docs/spec/current/performance.md)
-([ADR-0051](../../docs/adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md)).
+([TDR-0048](../../../decisions/accepted/0048-performance-strategy-measure-first-tiered-optimization.md)).
 This replaces the oral "~29× slower than Wren on Skynet" figure with a
 measured, in-repo number, and gives every later tier (`U-HOTPATH`,
 `U-PRIM-ABI`, `U-IC`, `U-GC`, `U-COMPILE`) a re-measurable baseline (law P1).
@@ -461,7 +461,7 @@ probe) → unbounded heap**. This profile:
   Skynet)** — larger than the tracing span and larger than dispatch lookup.
   Dispatch lookup itself is smaller than the oral hypothesis implied
   (13.9% arithmetic-loop, 7.8% Skynet) — the `IndexMap` hash probe is real
-  but not dominant. This **numerically confirms ADR-0051's explicit
+  but not dominant. This **numerically confirms TDR-0049's explicit
   rejection of "dispatch-first ordering"**: rewriting `lookup_method_in_hierarchy`
   before touching allocation would have targeted a ~8–14% mechanism while
   leaving a ~20–28% one untouched. The committed tier sequence — Tier 1
@@ -475,7 +475,7 @@ probe) → unbounded heap**. This profile:
   — not named in §2's suspect list at all. This is consistent with (but not
   proof of) the fiber operand/frame `Vec` churn `mem::take`s around every
   fiber switch (`fiber.rs:29-51`) copying/moving container contents;
-  ADR-0051 already rules out the *switch* itself as the target (it's O(1)),
+  TDR-0049 already rules out the *switch* itself as the target (it's O(1)),
   but this suggests the *containers moved during* switch-adjacent sends are
   a real, previously unattributed cost worth a closer look in Tier 2/4 —
   flagged here, not investigated further (out of this unit's scope).
@@ -571,7 +571,7 @@ against Wren, per-row slowdown), or run a single row by name.
 - **`is` → `extends`** for inheritance; bare `super(args)` constructor call
   → `super.new(args)` (Phalcom dispatches constructors by selector, so the
   super initializer needs naming).
-- **`%(expr)` → `\(expr)`** string interpolation (ADR-0022).
+- **`%(expr)` → `\(expr)`** string interpolation (TDR-0020).
 - **`System.clock` unimplemented** (pending fixture) — timing done via shell
   `time`, not in-language; every `elapsed:` print line is dropped.
 - **No `System.gc()`** — dropped from `binary_trees_gc.ph` (see caveat above).

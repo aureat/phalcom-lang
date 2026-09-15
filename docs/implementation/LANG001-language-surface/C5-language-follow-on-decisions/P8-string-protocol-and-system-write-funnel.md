@@ -26,11 +26,11 @@ never self-approve. **Worktree/serialization caution:** at plan time, `git statu
 attribute-classes work). **This unit's `universe.rs` edit (registering 4 new primitives) MUST
 be serialized after that session commits — do not dispatch concurrently.** Green gate:
 `./scripts/verify.sh` exits 0 + `cargo doc --workspace --no-deps` clean. Grounded in
-**[ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md)** (frozen floor — this
+**[TDR-0017](../../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md)** (frozen floor — this
 unit is explicitly the amendment ADR-0019 §"Consequences" predicted: *"It leaves `String`
 deliberately split... the exact cut line for `String` is the one genuinely fuzzy edge and is
-called out as the first place a future amendment is likely"*), **[ADR-0008](../../../adr/0008-layered-exceptions-and-result.md)**/
-**[ADR-0031](../../../adr/0031-error-handling-surface-syntax.md)** (the `throw`/`Error`
+called out as the first place a future amendment is likely"*), **[TDR-0007](../../../decisions/accepted/0007-layered-exceptions-and-result.md)**/
+**[TDR-0027](../../../decisions/accepted/0027-error-handling-surface-syntax.md)** (the `throw`/`Error`
 machinery this unit's argument guards ride on — **landed**, `7c901cf`), and the normative
 **[error-handling.md](../../../spec/current/error-handling.md)**, **[system.md](../../../spec/current/system.md)**,
 **[core/core-classes.md](../../../spec/current/core/core-classes.md)** §`String`/§`System`.
@@ -159,7 +159,7 @@ for future library code.
 
 **Net floor delta: +4 bindings** (`String::rawByteCount`, `String::rawByteAt(_)`,
 `String::rawSlice(_,_)`, `System::rawWrite(_)`). Census **113 → 117**. **ADR-0019 amendment
-required** — claim **ADR-0049** at dispatch (`ls docs/adr/` to reconfirm 0048 is still the
+required** — claim **ADR-0049** at dispatch (`ls docs/decisions/` to reconfirm 0048 is still the
 latest). `ArgumentError`/`StringByteSequence`/`StringCodePointSequence`/the `System` `.ph`
 funnel methods are **zero-cost** (pure `.ph`, no registration, no fields beyond what `Error`
 already carries).
@@ -391,7 +391,7 @@ exactly. `printErr(_)`/`readLine`/`clock`/`now`/`args`/`env`/`exit`/`gc`/`versio
 | `phalcom-core/src/primitive/system.rs` **(FROZEN FLOOR — reviewer ON)** | `rawWrite(_)` (§2.5) | floor |
 | `phalcom-core/src/universe.rs` **(SERIALIZE — see header)** | register the 4 new primitives; +4 floor census wiring | floor |
 | `phalcom-core/core/core.ph` **(never two editors — currently clean, re-verify before dispatch)** | `String` reopen (§2.1/§2.3/§2.4), `class ArgumentError is Error {}` (§2.2), `class StringByteSequence`/`StringCodePointSequence` (§2.4), `System` reopen (§2.5, incl. dropping the dead 0-arity `print()` stub) | protocol |
-| `docs/adr/accepted/0049-amend-floor-admit-string-raw-byte-accessors.md` (**new**, claim number at dispatch) | ADR-0019 amendment landing-record for the +4 (mirrors ADR-0037/ADR-0038's per-unit pattern) | ADR |
+| `docs/decisions/accepted/0049-amend-floor-admit-string-raw-byte-accessors.md` (**new**, claim number at dispatch) | ADR-0019 amendment landing-record for the +4 (mirrors ADR-0037/ADR-0038's per-unit pattern) | ADR |
 | `docs/spec/current/core/floor-census.md` | §2.5 `String` rows (+3), §2.11 `System` rows (+1), §7 audit count 113→117 | ADR-lockstep |
 | `docs/spec/current/core/core-classes.md` | `String` status row ("◐ partial" → the new interface list); note the `Iterable`-deferred `bytes`/`codePoints` shape | docs |
 | `docs/spec/current/deferred-work.md` | flip the "U-STRING" row from "code unbuilt" to landed-summary; **add** new deferred rows: (a) `print(_)`/`writeObject_` funnel unification (§2.5's follow-on), (b) `String#at(_)` character indexing + `RangeError` (§2.2's follow-on), (c) `contains`/`startsWith`/`endsWith` over `indexOf` (§2.0's named-but-unshipped derivations), (d) `codePoints`/`bytes` → `extends Iterable` migration once U-ITERABLE lands | docs |

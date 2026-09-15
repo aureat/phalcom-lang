@@ -364,12 +364,12 @@ All pointers below refer to the inspected `main` snapshot on 2026-08-11. Use sym
 | language harness | `phalcom-core/tests/lang.rs` | `absence`, `absence_negative`, `option`, `values` | Update comments and add fixtures |
 | primary semantics doc | `docs/spec/current/values-and-absence.md` | §3, especially §3.1 | Rewrite old heap layout |
 | object model | `docs/spec/current/object-model.md` | value table + primitive catalog | Mark `Some`/`None` immediate, exact `.class` |
-| historical ADR | `docs/adr/accepted/0007-option-as-abstract-with-some-none.md` | decision banner | Add PDR-0033 amendment notice; do not erase history |
-| `Value` ADR | `docs/adr/accepted/0010-tagged-value-enum.md` | decision/consequences | Add PDR-0033 amendment notice for bounded immediate Option substrate |
-| GC ADR | `docs/adr/accepted/0050-non-moving-mark-sweep-collector.md` | `Value` tracing seam | Add PDR-0033 amendment notice: wrapped Option may contain an `ObjRef` |
-| new design record | `docs/pdr/0033-immediate-bounded-option.md` | new PDR | Record this ratified redesign; PDR-0032 is the current highest record and 0033 is free in the inspected tree |
-| PDR tracker | `docs/pdr/STATUS.md` | status table | Add accepted PDR-0033 row; mark shipped only after implementation evidence exists |
-| ADR/PDR mapping | `docs/pdr/README.md` | ADR → PDR mapping | Add ADR-0007 / ADR-0010 / ADR-0050 amendment mapping to PDR-0033 as appropriate |
+| historical ADR | `docs/decisions/accepted/0007-option-as-abstract-with-some-none.md` | decision banner | Add PDR-0033 amendment notice; do not erase history |
+| `Value` ADR | `docs/decisions/accepted/0010-tagged-value-enum.md` | decision/consequences | Add PDR-0033 amendment notice for bounded immediate Option substrate |
+| GC ADR | `docs/decisions/accepted/0050-non-moving-mark-sweep-collector.md` | `Value` tracing seam | Add PDR-0033 amendment notice: wrapped Option may contain an `ObjRef` |
+| new design record | `docs/decisions/0033-immediate-bounded-option.md` | new PDR | Record this ratified redesign; PDR-0032 is the current highest record and 0033 is free in the inspected tree |
+| PDR tracker | `docs/decisions/STATUS.md` | status table | Add accepted PDR-0033 row; mark shipped only after implementation evidence exists |
+| ADR/PDR mapping | `docs/decisions/README.md` | ADR → PDR mapping | Add ADR-0007 / ADR-0010 / ADR-0050 amendment mapping to PDR-0033 as appropriate |
 | language corpus manifest | `phalcom-core/tests/lang/MANIFEST.md` | absence/Option notes | Rewrite singleton / allocation descriptions |
 
 ---
@@ -1879,10 +1879,10 @@ Replace with current semantics.
 
 # 22. Task 18 — Record the ruling as PDR-0033 and amend frozen ADRs
 
-The repository has moved new decisions to `docs/pdr/`. `docs/adr/` is frozen at ADR-0064. The inspected tree's highest PDR is PDR-0032 and no PDR-0033 exists, so this ruling should be recorded as:
+The repository has moved new decisions to `docs/decisions/`. `docs/decisions/` is frozen at ADR-0064. The inspected tree's highest PDR is PDR-0032 and no PDR-0033 exists, so this ruling should be recorded as:
 
 ```text
-docs/pdr/0033-immediate-bounded-option.md
+docs/decisions/0033-immediate-bounded-option.md
 ```
 
 ## Create PDR-0033
@@ -1930,7 +1930,7 @@ It must also state what the ruling precludes:
 - a fallback heap representation for overdeep Option;
 - treating `Value::Obj` as the only possible `Value` carrying a GC edge.
 
-## Update `docs/pdr/STATUS.md`
+## Update `docs/decisions/STATUS.md`
 
 Add an Accepted PDR-0033 row.
 
@@ -1941,7 +1941,7 @@ Before the code lands, `Shipped` is `❌` or `?` according to the tracker's conv
 File:
 
 ```text
-docs/adr/accepted/0007-option-as-abstract-with-some-none.md
+docs/decisions/accepted/0007-option-as-abstract-with-some-none.md
 ```
 
 Do not rewrite the historical decision body.
@@ -1955,14 +1955,14 @@ Add a dated amendment callout near the top:
 > `Some.call(v)`. Generic nesting is bounded to seven.
 ```
 
-Update `docs/adr/STATUS.md` with the same amendment relationship without falsely marking ADR-0007 retired; the semantic hierarchy remains authoritative where PDR-0033 does not replace it.
+Update `docs/decisions/STATUS.md` with the same amendment relationship without falsely marking ADR-0007 retired; the semantic hierarchy remains authoritative where PDR-0033 does not replace it.
 
 ## Amend ADR-0010
 
 File:
 
 ```text
-docs/adr/accepted/0010-tagged-value-enum.md
+docs/decisions/accepted/0010-tagged-value-enum.md
 ```
 
 Add a PDR-0033 callout stating that the tagged `Value` API now admits immediate bounded Option state and the final physical encoding / NaN boxing remains deferred.
@@ -1974,7 +1974,7 @@ Do not claim `Some1`…`Some7` is the permanent bit-level design; it is the corr
 File:
 
 ```text
-docs/adr/accepted/0050-non-moving-mark-sweep-collector.md
+docs/decisions/accepted/0050-non-moving-mark-sweep-collector.md
 ```
 
 Add a PDR-0033 callout clarifying:
@@ -1986,7 +1986,7 @@ because immediate SomeN may carry an ObjRef payload.
 
 The collector's normative seam becomes `Value::gc_obj_ref()`.
 
-## Update `docs/pdr/README.md`
+## Update `docs/decisions/README.md`
 
 Add the ADR → PDR amendment relationships for the revisited ADRs, following the existing mapping-table conventions. PDR-0033 amends rather than wholesale-supersedes ADR-0007/0010/0050.
 

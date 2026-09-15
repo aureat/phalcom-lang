@@ -3,7 +3,7 @@
 _Self-contained implementation plan for **one** implementer. **Reviewer ON** (deep VM change) — hand the
 diff to `phalcom-reviewer`; never self-approve. **Worktree isolation** (mutates `vm.rs`/`heap.rs`/
 `core.ph` while U-ITER and U-CORE units are live). Green gate: `./scripts/verify.sh` exits 0 +
-`cargo doc --workspace --no-deps` clean. Grounded in **[ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md)**
+`cargo doc --workspace --no-deps` clean. Grounded in **[TDR-0026](../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md)**
 (execution model) + **[concurrency.md §1](../../../spec/current/concurrency.md)** (surface) +
 **[forward-compat.md §7](../../../spec/current/core/forward-compat.md)** (the code-grounded foreclosure audit,
 D1–D7). Floor extension authorised by **ADR-0030 §Consequences** (the ADR-0019 amendment convention) — no
@@ -38,7 +38,7 @@ Give Phalcom its sole concurrency primitive — a **cooperative, single-threaded
 `Object::Fiber` arena variant owning its own value+frame stacks, switched by an **O(1) pointer swap**, with
 `Fiber.yield` integrating with the **top-level** `run_until` only and raising a catchable
 **`CannotYieldAcrossNativeFrame`** when a native frame sits between the fiber floor and the yield
-(**restricted Option A**, [ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md) §4).
+(**restricted Option A**, [TDR-0026](../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) §4).
 
 ## 2. Design (realise ADR-0030 §1–§7; do not re-litigate the model)
 

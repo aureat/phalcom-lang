@@ -50,9 +50,9 @@ different things** — see §3 for the full three-way arm:
 1. **The typed flag (`switch_pending`)** — detects a *fiber switch*.
 2. **The `frames.len()` delta** (`self.frames.len() >= frames_before`) —
    detects a *non-local return* that unwound frames inside the primitive
-   (pre-dates fibers entirely; U10/ADR-0013).
+   (pre-dates fibers entirely; U10/TDR-0012).
 
-**This is a confirmed divergence from ADR-0030 §4/§5.** The ADR's own text:
+**This is a confirmed divergence from TDR-0027 §4/§5.** The ADR's own text:
 
 > "the fiber-switch signal is typed, not a length delta... `call`/`yield`
 > reconcile with the dispatch loop through an explicit `ControlFlow`/switch
@@ -78,7 +78,7 @@ named deviation —
 > primitives) — explicitly sanctioned by the implementation spec as the
 > pragmatic choice."
 
-So: ADR-0030 §5 specifies (a); HEAD implements (b); the implementation spec
+So: TDR-0027 §5 specifies (a); HEAD implements (b); the implementation spec
 that bridged ADR → code recorded (a) as "recommended" and shipped (b) anyway
 as "pragmatic." Do not read the ADR's §5 prose as describing HEAD.
 
@@ -173,7 +173,7 @@ other direction, `fiber.* -> vm.*`).
 `open_upvalues`, `checking`. Nothing else — `current`, `native_reentry_depth`,
 `next_frame_generation`, `world_version`, `classes`, `modules`, `interner`,
 `universe` are untouched by either function; they are VM-global and shared
-across every fiber by design (ADR-0030 §6's invariant on
+across every fiber by design (TDR-0027 §6's invariant on
 `next_frame_generation` specifically).
 
 `switch_to_fiber_and_deliver` @ `dispatch.rs:352`, quoted in full:
@@ -549,7 +549,7 @@ each(f) {
 
 `for` here is the compiler's own direct-jump lowering (`compile_for`,
 `compiler/lib/loops.rs:120`, a `$cursor`/`Loop`/`JumpIfNone` sequence in the
-same chunk — a **separate** mechanism from ADR-0018's sacred-selector
+same chunk — a **separate** mechanism from TDR-0016's sacred-selector
 inliner, not one of its five selectors, but frameless for the same reason).
 The one native-reentrant frame per iteration is `f.call(x)` — an ordinary
 `Invoke` of `call(_)` on a `Block` value, which resolves to
@@ -802,7 +802,7 @@ completely unchanged, rather than extending or bypassing it.
 
 ---
 
-## 12. ADR-0030 — bounded read (§4, §5, Alternatives)
+## 12. TDR-0027 — bounded read (§4, §5, Alternatives)
 
 **§4 (Execution model, restricted Option A):** ratifies exactly what HEAD
 implements structurally — `yield` integrates only with the top-level

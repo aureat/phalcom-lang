@@ -222,6 +222,12 @@ pub fn declaration_surface_source_input_fingerprint(
             ClassMember::Variant(_) => {
                 5u8.hash(&mut hasher);
             }
+            ClassMember::Delegation(delegation) => {
+                6u8.hash(&mut hasher);
+                delegation.name.hash(&mut hasher);
+                delegation.target_field.hash(&mut hasher);
+                delegation.kind.hash(&mut hasher);
+            }
         }
     }
     finish_input(hasher)
@@ -1323,6 +1329,15 @@ fn hash_trait_surface(surface: &crate::traits::TraitSurface, include_source: boo
         if include_source {
             member.source.hash(hasher);
             member.default_source.hash(hasher);
+        }
+    }
+    surface.associated_types.len().hash(hasher);
+    for (requirement, associated_type) in &surface.associated_types {
+        requirement.hash(hasher);
+        associated_type.name.hash(hasher);
+        associated_type.kind.hash(hasher);
+        if include_source {
+            associated_type.source.hash(hasher);
         }
     }
 }

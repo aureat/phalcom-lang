@@ -129,7 +129,7 @@ chosen. But note what it costs beyond speed: the binding is *late*, so a `super`
 whatever class currently answers to that name in that module.
 
 **2. Bake the defining class, not its superclass** — DEC-INH-B, and this one *is* a choice.
-ADR-0040 rejects baking the superclass directly because it "would go stale under a runtime
+TDR-0035 rejects baking the superclass directly because it "would go stale under a runtime
 `superclass=` and does not match 'superclass of the defining class' literally." So the VM reads
 `defining.superclass` at dispatch rather than at compile time, and stays correct under a mutation
 feature — U13 — **that does not exist at HEAD**. A real per-dispatch indirection, paid on every
@@ -311,7 +311,7 @@ because Phalcom's choice comes third:
   grounds that install time, not authoring time, is the moment that actually determines which
   hierarchy a method's `super` should walk.
 
-ADR-0040's `## Alternatives considered` weighs four branches — amend `Invoke`, bake the superclass,
+TDR-0035's `## Alternatives considered` weighs four branches — amend `Invoke`, bake the superclass,
 dynamic-receiver-class super, implicit constructor chaining — and **none of them is about what to
 bake**. The name is treated as the obvious encoding rather than as a choice with alternatives. That
 is not a criticism of the decision, which is fine and cheap to change; it is an observation that the
@@ -350,7 +350,7 @@ comparing to them smuggles in a world where the problem is absent.
 | Dispatch: `ClassKey`, own module then core, then chain walk | `dispatch.rs:851-889` | quoted |
 | `ClassKey` is `{module, name}`; two modules get distinct `ClassId`s | `vm/mod.rs:36-42`, `vm/api.rs:69,79` | quoted |
 | Reference lookups take the core fallback; self-checks must not | `14cdfb9` | commit subject + spec §4.2 |
-| Defining class baked for a `superclass=` feature that does not exist | `bytecode.rs:125-127`, ADR-0040 | quoted |
+| Defining class baked for a `superclass=` feature that does not exist | `bytecode.rs:125-127`, TDR-0035 | quoted |
 | Uncached by DEC-INH-F; DEC-IC-B is the later open question | `bytecode.rs:136`, `U-IC/plan.md:109` | both read |
 | Lookup starts above the *defining* class, not the receiver's | — | program run: `A-greet-B-greet`, terminates |
 | No committed fixture covers super-from-an-inherited-method | `tests/lang/inheritance/` | corpus search; 4 fixtures, none does |
@@ -360,7 +360,7 @@ comparing to them smuggles in a world where the problem is absent.
 | Inherited-field read raises `ReadBeforeWrite`; no privacy error exists | `compiler/lib/error.rs:101` | quoted; zero `CompilerError` privacy variant |
 | Following that advice yields two slots | `classes.md:172` | program run: `7` / `999` |
 | `ReadBeforeWrite` has no test anywhere | `tests/` | corpus search: zero hits |
-| `super` at top level is a compile error; `disasm` cannot show `SuperSend` | ADR-0040 | both program runs |
+| `super` at top level is a compile error; `disasm` cannot show `SuperSend` | TDR-0035 | both program runs |
 | `size_of::<Bytecode>()` = 8; `SuperSend` ties `InvokeLocal`/`InvokeConst` | `bytecode.rs:352,362` | measured |
 
 Defect record: [E006](../../errors/E006-inherited-field-diagnostic-shadowing.md).

@@ -26,7 +26,7 @@ document says which it is in its own header:
   one document, for work that is ruled but unbuilt. These supersede the older
   `docs/forge/units/<UNIT>/plan.md` + `IMPL-SPEC-*.md` two-document convention for new
   work. Current: [numeric tower](../../library/numbers/numeric-tower.md) (the
-  `Int`/`Float` split, ADR-0024), [bitwise](../../library/numbers/bitwise.md)
+  `Int`/`Float` split, TDR-0022), [bitwise](../../library/numbers/bitwise.md)
   (accepted `Int` bitwise surface), and the [Float protocol](../../library/numbers/float-protocol.md).
 
 A forward spec's baseline pin is its own, stated in its header, and does **not** ride the
@@ -48,8 +48,8 @@ Every table here is derived from ground-truth source, not aspiration:
 | Bootstrap sequence | [`phalcom-core/src/vm.rs`](../../../../phalcom-core/src/vm.rs) → `VM::new` / `install_core` |
 | Tower construction | `universe.rs` → `create_core_classes` / `make_core_class` |
 | Surface protocol (`.ph`) | [`phalcom-core/core/core.ph`](../../../../phalcom-core/core/core.ph) |
-| Selector encoding | [`phalcom-core/src/primitive/mod.rs`](../../../../phalcom-core/src/primitive/mod.rs) (`make_signature`, `Sig`) + [ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md) |
-| Freeze policy | [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md) |
+| Selector encoding | [`phalcom-core/src/primitive/mod.rs`](../../../../phalcom-core/src/primitive/mod.rs) (`make_signature`, `Sig`) + [TDR-0011](../../../decisions/accepted/0011-selector-signature-encoding-and-dispatch.md) |
+| Freeze policy | [TDR-0017](../../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md) |
 
 ## Baseline & drift policy
 
@@ -74,9 +74,9 @@ audited 2026-07-15 — a bookkeeping correction, not an amendment).
 
 | Fact | Value |
 |---|---|
-| Last floor-affecting commit | **U-STRING** ([ADR-0049](../../../adr/accepted/0049-amend-floor-admit-string-byte-and-raw-write-primitives.md)) — `String#byteCount_`/`byteAt_(_)`/`slice_(_,_)` + `System.write_(_)`, floor **121 → 125**. Track total **73 → 125**: ADR-0023/0028/0036/0037 to 88, ADR-0039's three U-COLLTYPES phases to 109, ADR-0038 to 111, ADR-0045 to 112, ADR-0047 to 113, U-SCHED to 115, ADR-0052 to 117, M-ATTR-ROOT to 120, U-GC to 121, ADR-0049 to 125. _(This row was frozen at U-ERR/111 for five amendments — the same drift as DEFERRED CB-2. Re-derive from `invariants.rs`, never from this row.)_ **Floor-affecting ≠ count-changing:** the count then went 125 → **136** on 2026-07-15 with **no floor change at all** — `Fiber`'s 11 long-installed bindings were admitted to the census (CB-5). |
+| Last floor-affecting commit | **U-STRING** ([TDR-0050](../../../decisions/accepted/0050-amend-floor-admit-string-byte-and-raw-write-primitives.md)) — `String#byteCount_`/`byteAt_(_)`/`slice_(_,_)` + `System.write_(_)`, floor **121 → 125**. Track total **73 → 125**: TDR-0021/0028/0036/0037 to 88, TDR-0034's three U-COLLTYPES phases to 109, TDR-0033 to 111, TDR-0039 to 112, TDR-0041 to 113, U-SCHED to 115, TDR-0043 to 117, M-ATTR-ROOT to 120, U-GC to 121, TDR-0051 to 125. _(This row was frozen at U-ERR/111 for five amendments — the same drift as DEFERRED CB-2. Re-derive from `invariants.rs`, never from this row.)_ **Floor-affecting ≠ count-changing:** the count then went 125 → **136** on 2026-07-15 with **no floor change at all** — `Fiber`'s 11 long-installed bindings were admitted to the census (CB-5). |
 | Primitive floor | **136** `(class, selector)` bindings · **118** distinct native fns · **23** floor-carrying classes (of **29** audited kernel classes) · **7** sacred selectors — see [`floor-census.md`](./floor-census.md) for the full enumeration and amendment-by-amendment history. **Do not quote these numbers** — they are a dated rendering of `invariants.rs::floor_census_matches_installed_bindings`, which is the source of record ([floor-census.md §1.3](./floor-census.md)). Installed now equals audited: `Fiber`'s 11 were installed-but-unaudited until 2026-07-15 (DEFERRED CB-5) — **not** a floor widening, the census catching up to the code. |
-| Decisions closed by ADR | [ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md) (`hash` + kernel-reflection floor), [ADR-0024](../../../adr/0024-numeric-surface-split-int-float-and-division.md) (Int/Float split — exact bignum `Int` + `Float`, `/` true ÷, `~/` floor ÷), [ADR-0025](../../../adr/0025-external-internal-parameter-names.md) (external/internal param names), [ADR-0026](../../../adr/0026-class-hierarchy-mutability.md) (hierarchy mutability — methods open, reparent sealed), [ADR-0027](../../../adr/0027-modules-as-files-with-public-by-default-imports.md) (modules-as-files, public-by-default imports), [ADR-0037](../../../adr/0037-amend-floor-admit-error-root.md) (`Error#message`/`raise`), [ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md) (`Map`/`Set`/`Tuple`/`Range`, +21), [ADR-0038](../../../adr/0038-amend-floor-admit-block-on-ensure.md) (`Block#on`/`ensure`, +2 — this unit) |
+| Decisions closed by ADR | [TDR-0021](../../../decisions/accepted/0021-amend-floor-admit-hash-and-kernel-reflection.md) (`hash` + kernel-reflection floor), [TDR-0022](../../../decisions/accepted/0022-numeric-surface-split-int-float-and-division.md) (Int/Float split — exact bignum `Int` + `Float`, `/` true ÷, `~/` floor ÷), [TDR-0023](../../../decisions/accepted/0023-external-internal-parameter-names.md) (external/internal param names), [TDR — Methods are open; superclass reparenting is sealed](../../../decisions/retired/class-hierarchy-mutability.md) (hierarchy mutability — methods open, reparent sealed), [TDR — A module is a file; exports are public by default; imports are qualified, selective, or aliased](../../../decisions/retired/modules-as-files-with-public-by-default-imports.md) (modules-as-files, public-by-default imports), [TDR-0031](../../../decisions/accepted/0031-amend-floor-admit-error-root.md) (`Error#message`/`raise`), [TDR-0033](../../../decisions/accepted/0033-amend-floor-admit-collection-container-primitives.md) (`Map`/`Set`/`Tuple`/`Range`, +21), [TDR-0032](../../../decisions/accepted/0032-amend-floor-admit-block-on-ensure.md) (`Block#on`/`ensure`, +2 — this unit) |
 
 **Landing history** (chronological; only U-CORE-1 added a floor binding). U8
 (`Object` reflective surface + the `Message` class), U9 (variadics), **U-CORE-2
@@ -86,7 +86,7 @@ core bulk** (`0da64d6` — Bool `Some`-lift + core `Option` combinators), U10
 (`True`/`False` singleton subclasses of `Bool`), then **U-CORE-1** (`03764e3` —
 the sole floor bump, `hash`×5 + `Behavior#name`/`methods`, +7 → **80**).
 Kernel-class count moved 19 → 21 (U11's `True`/`False`) with no floor delta —
-"classes added" does **not** imply "bindings added". ADR-0024–0027 landed at
+"classes added" does **not** imply "bindings added". TDR-0022–0027 landed at
 `0b21e60`, so the core-library specs no longer treat Int/Float, param labels,
 hierarchy mutability, or modules as undecided.
 
@@ -113,7 +113,7 @@ analysis) all hang off it. Status of the planned set:
 
 | # | Deliverable | File | Status |
 |---|---|---|---|
-| 1 | **Primitive floor census** (ADR-0019 audit) | [`floor-census.md`](./floor-census.md) | ✅ landed |
+| 1 | **Primitive floor census** (TDR-0017 audit) | [`floor-census.md`](./floor-census.md) | ✅ landed |
 | 2 | **Bootstrap phase table** (phase-scoped invariant ledger) | [`bootstrap-phases.md`](./bootstrap-phases.md) | ✅ landed |
 | 3 | Sacred-selector set (R-SACRED) | folded into `floor-census.md` §5 | ✅ landed |
 | 4 | **Baseline delta table** (catalog × {native, `.ph`, pending}) | [`catalog-delta.md`](./catalog-delta.md) | ✅ landed |
@@ -158,14 +158,14 @@ base of 73**. An implementer must reconcile the following across units:
    Each remaining spec's "73 → N" was authored as a *delta from the old base of
    73*, not a running total. The floor-census audit (R-INV-0.1) must bump in
    lockstep with each unit's installs.
-2. **Four ADR-0019 amendments are folded into one omnibus
-   [ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)**
+2. **Four TDR-0017 amendments are folded into one omnibus
+   [TDR-0021](../../../decisions/accepted/0021-amend-floor-admit-hash-and-kernel-reflection.md)**
    (U-CORE-1 `hash`/`Behavior`, U-CORE-3 Method reflection, U-CORE-4
    `Number#toString`, U-CORE-6 `Error#message`/`raise`) — **ratified Accepted**
-   rather than four competing amendments to ADR-0019. Each named primitive is
-   *installed* by its owning unit when that unit lands; ADR-0023 only admits them
+   rather than four competing amendments to TDR-0017. Each named primitive is
+   *installed* by its owning unit when that unit lands; TDR-0021 only admits them
    to the floor in principle. (The individual specs were authored when 0021 was
-   the highest ADR and some say "ADR-0022"; 0022 was taken by U-LEX's
+   the highest ADR and some say "TDR-0020"; 0022 was taken by U-LEX's
    string-interpolation ADR, so **0023** is correct — fix any spec that still
    says 0022.)
 3. **U-CORE-1 lands first** — it stands up the invariant substrate (R-INV-0.1…0.4)
@@ -188,7 +188,7 @@ base of 73**. An implementer must reconcile the following across units:
 **U-CORE-0 is complete (7/7)** and the gating decisions are ruled
 ([`decisions.md`](./decisions.md)); all six U-CORE-1…6 implementation specs are
 authored (see the table above, now in
-[`../../../forge/units/`](../../../forge/units/)), and **ADR-0023 is ratified**
+[`../../../forge/units/`](../../../forge/units/)), and **TDR-0021 is ratified**
 (cross-spec note 2 above) — the floor gate is clear.
 
 **Implementation is underway.** **U-CORE-1 has landed** (`03764e3`/`b1109c2` —

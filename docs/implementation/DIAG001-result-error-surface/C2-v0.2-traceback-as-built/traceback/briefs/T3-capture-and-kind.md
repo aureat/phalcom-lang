@@ -2,7 +2,7 @@
 
 Implement traceback plan unit T3 — capture record + surface error structure (PDR-0010 §1-§4,
 ratified). Repo main directly.
-READ FIRST: docs/pdr/0010-errors-carry-structure-and-cheap-origin.md (whole thing —
+READ FIRST: docs/decisions/0010-errors-carry-structure-and-cheap-origin.md (whole thing —
 esp. §3 capture window, §3a per-hop cascade, §4 no-ObjRef rule);
 implementation-spec.md §4 + §8.1 (kind table); plan.md §T3. graphify first (project rule).
 

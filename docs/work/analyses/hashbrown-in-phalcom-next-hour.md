@@ -14,8 +14,8 @@ arguments — checkable, not yet demonstrated by running code.
 
 Related: [`../spec/current/stdlib/map-and-set.md`](../spec/current/stdlib/map-and-set.md) §4,
 [`../deferred/hashbrown-analysis-followups.md`](../deferred/hashbrown-analysis-followups.md),
-[`../adr/accepted/0019-freeze-vm-blessed-primitive-floor.md`](../adr/accepted/0019-freeze-vm-blessed-primitive-floor.md),
-[`../adr/accepted/0020-kernel-list-native-array-protocol.md`](../adr/accepted/0020-kernel-list-native-array-protocol.md).
+[TDR-0017](../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md),
+[TDR-0018](../../decisions/accepted/0018-kernel-list-native-array-protocol.md).
 
 ---
 
@@ -24,7 +24,7 @@ Related: [`../spec/current/stdlib/map-and-set.md`](../spec/current/stdlib/map-an
 The phrase "whatever that turns out to be" presumes the idiom is undiscovered. It is not — the tree
 ruled it:
 
-- **`[P]`** ADR-0020's kernel pattern — **native storage, `.ph` protocol** — is the committed shape
+- **`[P]`** TDR-0018's kernel pattern — **native storage, `.ph` protocol** — is the committed shape
   for collections, and `map-and-set.md` §4 *explicitly rejected* `.ph`-authored hash tables
   ("O(n) lookup defeats the point; hashing in `.ph` is awkward").
 - **`[P]`** `MapObject`'s bucket index is `std::collections::HashMap` — which **is** hashbrown.
@@ -72,7 +72,7 @@ Build §2's table as a `.ph` class in `examples/` (or as a docs/learn fixture), 
 
 - **Preclusion check (mandatory):** zero. No floor delta, no new tokens, no spec change; pure `.ph`
   over shipped primitives. It must *not* be proposed as a Map replacement — that would collide with
-  `map-and-set.md` §4 from one side and ADR-0019's "speed is never sufficient" admission rule from
+  `map-and-set.md` §4 from one side and TDR-0017's "speed is never sufficient" admission rule from
   the other.
 - **Hazard to document in-file:** no reentrancy guard. Native `Map` carries `#concurrentMutation`
   locking at the mutation site (the ruling recorded in the traceback spec cycle; see the
@@ -87,10 +87,10 @@ re-entrant `send_dynamic("hash")` per probe in `locate`
 ([`primitive/map.rs:55`](../../phalcom-core/src/primitive/map.rs)). **`[P]`** The `InlineCache`
 machinery exists ([`chunk.rs:10-18`](../../phalcom-core/src/chunk.rs)) and is probed/refilled on
 the send path (`vm/dispatch.rs:445`/`:461`). The hour: cache `hash`-method resolution per
-key-class, then measure `map_numeric` before/after under ADR-0051 discipline (in-repo benchmark,
+key-class, then measure `map_numeric` before/after under TDR-0049 discipline (in-repo benchmark,
 named mechanism, recorded number).
 
-- **Hazard:** methods are open. A per-class `hash` cache must respect redefinition — ADR-0018's
+- **Hazard:** methods are open. A per-class `hash` cache must respect redefinition — TDR-0016's
   pristine-flag shape, or an epoch. This is the *inline cache ⊗ mutable hierarchy* hazard on the
   method axis; the hierarchy axis is sealed (ADR-0026/0041) and needs nothing.
 - This targets the term that actually dominates. A SwissTable never would (parent §7.3).
@@ -99,7 +99,7 @@ named mechanism, recorded number).
 
 Parent §9 steps 2–4 (fixed-width bitwise ruling, multi-byte `Bytes` load, presized `Value` array)
 are each **decision records**, one of which (bitwise) carries the unresolved unbounded-`Int`-vs-
-wrapping tension reaching back into just-ratified PDR-0012. Governance actions, not hour work —
+wrapping tension reaching back into just-ratified TDR-0065. Governance actions, not hour work —
 and per the parent's standing caution, none of them should be picked up *because hashbrown wants
 them*. They are filed, unowned, in
 [`hashbrown-analysis-followups.md`](../deferred/hashbrown-analysis-followups.md).

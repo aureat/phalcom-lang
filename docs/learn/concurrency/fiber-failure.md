@@ -354,8 +354,8 @@ one-line symptom.
 
 ## The design space, and how much of it was argued
 
-**Argued, in the ADR.** [ADR-0030 §6](../../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md)
-deliberates *containment* explicitly: the ADR-0008 unwind "operates on `self.frames` only and stops at
+**Argued, in the ADR.** [TDR-0026](../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md)
+deliberates *containment* explicitly: the TDR-0007 unwind "operates on `self.frames` only and stops at
 the **fiber floor**, so a failing fiber captures its `Error` into its result slot instead of
 terminating the host." That is a real decision and it is what shipped.
 
@@ -427,7 +427,7 @@ Lua does not.
 | `Fiber.abort(_)` raises its argument unchecked | `primitive/fiber.rs:208-216` |
 | `raise` installed only on `Error` | `primitive/error.rs:44-46`, `:61-65` |
 | `push_temp_root` / `collect_roots` / `block_ensure` | `vm/gc.rs:148`, `:32-116`; `primitive/block.rs:318-319` |
-| Containment decision | [ADR-0030 §6](../../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md) |
+| Containment decision | [TDR-0026](../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) |
 | The two scars | [E001](../../errors/E001-gc-ensure-temp-root-uaf.md) (fixed), [E002](../../errors/E002-fiber-floor-upvalue-crash.md) (open) |
 
 Fixtures read: `concurrency_fiber_is_done_and_error_once_failed.ph`,

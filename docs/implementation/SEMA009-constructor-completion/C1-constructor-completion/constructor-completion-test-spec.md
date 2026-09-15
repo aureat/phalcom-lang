@@ -4,7 +4,7 @@
 - Date: 2026-07-11
 - Depends on: [annotations-core.md](../../../../spec/design/experimental/annotations-core.md), [legality-grammar.md](legality-grammar.md), [decorator model](../../../../spec/current/decorators/README.md) (five-tier model — adds Install/Dispatch/Runtime failure modes below), [@On](../../../../spec/current/decorators/on.md) (attribute-as-class — adds tier-inference and `@AttributeUsage` failure modes below)
 - Resolves: process gaps — no test plan, no diagnostics catalog (repo conventions)
-- Related: docs/forge/test-corpus-plan.md, `Universe::verify_invariants`, ADR-0016 (multi-error diagnostics), [ADR-0052](../../../adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md) (invariant re-entrancy fix — adds the `contracts_invariant_cross_receiver.ph` case below)
+- Related: docs/forge/test-corpus-plan.md, `Universe::verify_invariants`, ADR-0016 (multi-error diagnostics), [TDR-0042](../../../decisions/accepted/0042-invariant-reentrancy-scope-and-layout-confined-decorator-state.md) (invariant re-entrancy fix — adds the `contracts_invariant_cross_receiver.ph` case below)
 
 > **Catalog currency note.** This doc predates `decorators.md` and
 > `attribute-classes.md` by one day; the diagnostics catalog below has been
@@ -77,7 +77,7 @@ Each failure is a named diagnostic carrying the offending span (D3):
 | `attr.tier_ambiguous` | `Attribute` subclass implements more than one hook selector (`wrap`/`onMiss`/`aroundSend`/…) without an explicit `@tier` | the class name |
 | `attr.compile_tier_forbidden` | user `Attribute` subclass's only hook is `expand(_)`/`finalizeLayout(_)` — Compile/Layout are builtin-owned ([attribute-classes.md](../decorators/on.md) "What this precludes") | the class name |
 | `attr.usage_violation` | attribute applied to a target outside its declared `@AttributeUsage(...)` set | the `@name` at the use site |
-| `attr.receiver_keyed_install_state` | (lint, not a hard error — golden-test only, per [ADR-0052](../../../adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)) an Install-tier `wrap(_)` closes over a collection keyed by the receiver it decorates | the `wrap(_)` body |
+| `attr.receiver_keyed_install_state` | (lint, not a hard error — golden-test only, per [TDR-0042](../../../decisions/accepted/0042-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)) an Install-tier `wrap(_)` closes over a collection keyed by the receiver it decorates | the `wrap(_)` body |
 
 ### `verify_invariants()` extension
 
@@ -98,4 +98,4 @@ discipline (ADR-0002) applied to the annotation layer.
 ## What this precludes
 
 Nothing — this draft is additive process scaffolding. It is the gate the other
-annotation drafts must pass before promotion to `docs/adr/` + `docs/spec/`.
+annotation drafts must pass before promotion to `docs/decisions/` + `docs/spec/`.

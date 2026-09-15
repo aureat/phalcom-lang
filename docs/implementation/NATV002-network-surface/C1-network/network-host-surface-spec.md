@@ -1,12 +1,12 @@
 # NATV002.C1 — Network host surface spec
 
 > **Status:** **blocked on ratification** of
-> [PDR-0015](../../../pdr/0015-network-surface-tcp-dns-endpoints.md) (surface) and
-> [PDR-0016](../../../pdr/0016-poller-backend-is-mio.md) (poller backend) — both
+> [TDR — The network surface: TCP is poller-backed and `Future`-shaped, DNS rides the pool, endpoints are address-plus-port](../../../decisions/proposed/network-surface-tcp-dns-endpoints.md) (surface) and
+> [TDR-0079](../../../decisions/accepted/0079-poller-backend-is-mio.md) (poller backend) — both
 > **Proposed**; rule 5 forbids building until they flip. Dispatch-ready in every other
 > respect. Governing Accepted records:
-> [PDR-0004](../../../pdr/0004-io-is-future-shaped-reactor-owned.md) §3/§4,
-> [PDR-0005](../../../pdr/0005-resources-are-disposable-handles-not-finalized.md)
+> [TDR-0056](../../../decisions/accepted/0056-io-is-future-shaped-reactor-owned.md) §3/§4,
+> [TDR-0057](../../../decisions/accepted/0057-resources-are-disposable-handles-not-finalized.md)
 > §3/§4; surface contract [`../stdlib/net.md`](../../spec/current/stdlib/net.md); machinery contract
 > [`../stdlib/reactor.md`](../../spec/current/stdlib/reactor.md).
 > **Needs shipped: U-BYTES ✅, U-RESOURCE, U-REACTOR** (phase 1 — this unit is phase 2).
@@ -16,7 +16,7 @@
 > **Floor delta: 7** (`NEW_NET`) — enumerated §2.5; registering natives take the pending
 > future **last** ([`reactor.md`](reactor.md) §2.3's rule). Census arithmetic against the
 > live `floor_census_matches_installed_bindings` under
-> [PDR-0012](../../../pdr/0012-numeric-tower-implementation-and-floor-amendment.md)
+> [TDR-0064](../../../decisions/accepted/0064-numeric-tower-implementation-and-floor-amendment.md)
 > ruling 21's rebase discipline — never against a number quoted here.
 > Read [`bytes.md`](bytes.md) §7 first; obligation 1 (`add_class!`) applies to
 > `TcpStream` and `TcpListener`.

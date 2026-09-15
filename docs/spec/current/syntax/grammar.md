@@ -224,7 +224,7 @@ keyword        := "let" | "const" | "class" | "trait"
 - **Strings and interpolation** — the listed escapes are exhaustive; `\(` opens
   interpolation and every other escape is invalid. Raw LF/CRLF is not a
   `string_char`; multiline literal syntax is deferred by
-  [PDR-0029](../../../pdr/0029-string-literals-and-interpolation-completion.md).
+  [TDR-0073](../../../decisions/accepted/0073-string-literals-and-interpolation-completion.md).
 - **Default arguments** — `param` has no `= expr` default-value form yet; how
   defaults interact with selector arity encoding is unresolved. See
   `../selectors.md#7`.

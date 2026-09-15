@@ -60,7 +60,7 @@ declared order before dispatch, which is exactly what dispatch is for. See
 [Messages & Selectors](../spec/current/messages-and-selectors.md) and
 [Selectors, Symbols & References §1](../spec/current/selectors.md#1-selector-identity)
 for the full grammar and rules R1–R5; the governing decision is
-[ADR-0012](../adr/0012-selector-signature-encoding-and-dispatch.md).
+[TDR-0011](../decisions/accepted/0011-selector-signature-encoding-and-dispatch.md).
 
 This is also why dispatch is cheap: the selector is baked in at compile time as
 an interned symbol, so a call site is one hashmap probe on a known key — no
@@ -79,7 +79,7 @@ move(to:, duration:) {
 The single-word form is sugar for the common case where the word callers use
 and the word the body uses are the same. But they don't have to be — a labelled
 parameter can declare a **separate internal binding**
-([ADR-0025](../adr/0025-external-internal-parameter-names.md)):
+([TDR-0023](../decisions/accepted/0023-external-internal-parameter-names.md)):
 
 ```phalcom
 move(to target:, duration span:) {

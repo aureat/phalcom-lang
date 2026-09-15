@@ -1,7 +1,7 @@
 # U10 — Non-Local Return (as-built)
 
 - **Status:** ✅ Landed — `4e2ec73` (`U10: non-local return via `return` inside blocks`). In-tree on `main`, no worktree.
-- **Realizes:** [ADR-0013](../../../adr/0013-closure-upvalues-and-frame-token-return.md) (frame-token non-local return — consumes the infrastructure U4 stood up). Spec: [blocks.md](../../../spec/current/blocks.md) §5, [functions.md](../../../spec/current/functions.md) §2, [object-model.md](../../../spec/current/object-model.md) §4 (`DeadFrameError`).
+- **Realizes:** [TDR-0012](../../../../decisions/accepted/0012-closure-upvalues-and-frame-token-return.md) (frame-token non-local return — consumes the infrastructure U4 stood up). Spec: [blocks.md](../../../spec/current/blocks.md) §5, [functions.md](../../../spec/current/functions.md) §2, [object-model.md](../../../spec/current/object-model.md) §4 (`DeadFrameError`).
 - **Reviewer gate:** OFF per STATE.md review policy (U10 is not in the load-bearing set U1/U2/U4/U6) — self-verified on the green gate, including the dead-frame path and upvalue-across-unwind promotion.
 
 ## Mission

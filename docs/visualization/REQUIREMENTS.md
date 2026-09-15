@@ -67,7 +67,7 @@ Hard prohibitions. Violating one teaches a wrong model, which is worse than teac
 
 | | The picture must never imply | Because |
 |---|---|---|
-| **N1** | per-fiber *machine* stacks | ADR-0030 rejected stackful coroutines; guest `Vec` and host stack must never share a visual vocabulary |
+| **N1** | per-fiber *machine* stacks | TDR-0027 rejected stackful coroutines; guest `Vec` and host stack must never share a visual vocabulary |
 | **N2** | frames own separate stacks | one array, brackets over regions (`stack_offset` indexes the shared `Vec`) |
 | **N3** | a round-robin scheduler | `ready_queue` holds only never-started fibers; control transfer happens on the **resumer chain** |
 | **N4** | the switch is atomic | Lua/Wren swap a pointer and have no hole; Phalcom moves contents and has one |

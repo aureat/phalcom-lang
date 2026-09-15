@@ -302,6 +302,139 @@ pub enum BehaviorMember {
     Index(IndexMethodDef),
 }
 
+/// A trait member, including behavior and the declaration-only contract
+/// categories introduced by LANG005.C5.
+#[derive(Debug, Clone)]
+pub enum TraitMember {
+    /// A method, getter, setter, or index requirement/default.
+    Behavior(BehaviorMember),
+    /// A property-shaped behavioral requirement.
+    Property(TraitPropertyRequirement),
+    /// A trait-owned associated type declaration.
+    AssociatedType(AssociatedTypeDeclaration),
+}
+
+impl TraitMember {
+    /// Returns the behavior member when this is an ordinary callable member.
+    pub fn behavior(&self) -> Option<&BehaviorMember> {
+        match self {
+            Self::Behavior(member) => Some(member),
+            Self::Property(_) | Self::AssociatedType(_) => None,
+        }
+    }
+
+    /// Returns the source span of this member.
+    pub fn range(&self) -> SourceRange {
+        match self {
+            Self::Behavior(member) => member.range(),
+            Self::Property(property) => property.range,
+            Self::AssociatedType(declaration) => declaration.range,
+        }
+    }
+
+    /// Returns the source span of the member's declared name.
+    pub fn name_range(&self) -> SourceRange {
+        match self {
+            Self::Behavior(member) => member.name_range(),
+            Self::Property(property) => property.name_range,
+            Self::AssociatedType(declaration) => declaration.name_range,
+        }
+    }
+}
+
+/// A trait property requirement. It is elaborated semantically into ordinary
+/// getter/setter requirements and does not describe storage.
+#[derive(Debug, Clone)]
+pub struct TraitPropertyRequirement {
+    pub name: String,
+    pub name_range: SourceRange,
+    pub annotation: TypeAnnotation,
+    pub mutable: bool,
+    pub attributes: Vec<Attribute>,
+    pub range: SourceRange,
+}
+
+/// A trait-owned associated type declaration.
+#[derive(Debug, Clone)]
+pub struct AssociatedTypeDeclaration {
+    pub name: String,
+    pub name_range: SourceRange,
+    pub attributes: Vec<Attribute>,
+    pub range: SourceRange,
+}
+
+/// A conformance or inherent implementation's associated type binding.
+#[derive(Debug, Clone)]
+pub struct AssociatedTypeBinding {
+    pub name: String,
+    pub name_range: SourceRange,
+    pub value: TypeAnnotation,
+    pub attributes: Vec<Attribute>,
+    pub range: SourceRange,
+}
+
+/// The accessor surface represented by a direct-field delegation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DelegatedAccessorKind {
+    /// Generate a getter only.
+    Getter,
+    /// Generate a setter only.
+    Setter,
+    /// Generate both getter and setter accessors.
+    ReadWrite,
+}
+
+/// A direct-field accessor delegation preserved in source form.
+#[derive(Debug, Clone)]
+pub struct DelegatedAccessorDef {
+    pub name: String,
+    pub name_range: SourceRange,
+    pub kind: DelegatedAccessorKind,
+    pub target_field: String,
+    pub target_range: SourceRange,
+    pub attributes: Vec<Attribute>,
+    pub range: SourceRange,
+}
+
+/// An implementation member, including behavior and C5 declaration forms.
+#[derive(Debug, Clone)]
+pub enum ImplMember {
+    /// A method, getter, setter, or index implementation.
+    Behavior(BehaviorMember),
+    /// A direct-field accessor delegation.
+    Delegation(DelegatedAccessorDef),
+    /// An associated type binding.
+    AssociatedTypeBinding(AssociatedTypeBinding),
+}
+
+impl ImplMember {
+    /// Returns the behavior member when this is an ordinary implementation.
+    pub fn behavior(&self) -> Option<&BehaviorMember> {
+        match self {
+            Self::Behavior(member) => Some(member),
+            Self::Delegation(_) | Self::AssociatedTypeBinding(_) => None,
+        }
+    }
+
+    /// Returns the source span of this member.
+    pub fn range(&self) -> SourceRange {
+        match self {
+            Self::Behavior(member) => member.range(),
+            Self::Delegation(delegation) => delegation.range,
+            Self::AssociatedTypeBinding(binding) => binding.range,
+        }
+    }
+
+    /// Returns the source span of the member's declared name.
+    pub fn name_range(&self) -> SourceRange {
+        match self {
+            Self::Behavior(member) => member.name_range(),
+            Self::Delegation(delegation) => delegation.name_range,
+            Self::AssociatedTypeBinding(binding) => binding.name_range,
+        }
+    }
+}
+
 impl BehaviorMember {
     pub fn attributes(&self) -> &[Attribute] {
         match self {
@@ -365,7 +498,7 @@ pub struct ImplDef {
     pub kind: ImplKind,
     pub target: TypeAnnotation,
     pub where_clause: Option<WhereClauseSyntax>,
-    pub members: Vec<BehaviorMember>,
+    pub members: Vec<ImplMember>,
     pub range: SourceRange,
     pub target_range: SourceRange,
 }
@@ -419,7 +552,7 @@ pub struct TraitDef {
     pub name_range: SourceRange,
     pub generic_parameters: Vec<GenericParameterSyntax>,
     pub where_clause: Option<WhereClauseSyntax>,
-    pub members: Vec<BehaviorMember>,
+    pub members: Vec<TraitMember>,
     pub attributes: Vec<Attribute>,
     pub range: SourceRange,
 }
@@ -832,6 +965,8 @@ pub enum ClassMember {
     Method(MethodDef),
     Getter(GetterDef),
     Setter(SetterDef),
+    /// A direct-field accessor delegation.
+    Delegation(DelegatedAccessorDef),
     /// A declared source/implementation field at class-body position. See
     /// [`FieldDef`].
     Field(FieldDef),
@@ -854,6 +989,7 @@ impl ClassMember {
             ClassMember::Method(m) => m.is_static,
             ClassMember::Getter(g) => g.is_static,
             ClassMember::Setter(s) => s.is_static,
+            ClassMember::Delegation(_) => false,
             ClassMember::Index(_) => false,
             ClassMember::Variant(_) => false,
             ClassMember::Field(f) => f.is_static,
@@ -872,6 +1008,7 @@ impl ClassMember {
             ClassMember::Method(m) => &m.attributes,
             ClassMember::Getter(g) => &g.attributes,
             ClassMember::Setter(s) => &s.attributes,
+            ClassMember::Delegation(d) => &d.attributes,
             ClassMember::Index(i) => &i.attributes,
             ClassMember::Variant(v) => &v.attributes,
             ClassMember::Field(f) => &f.attributes,
@@ -883,6 +1020,7 @@ impl ClassMember {
             ClassMember::Method(m) => &mut m.attributes,
             ClassMember::Getter(g) => &mut g.attributes,
             ClassMember::Setter(s) => &mut s.attributes,
+            ClassMember::Delegation(d) => &mut d.attributes,
             ClassMember::Index(i) => &mut i.attributes,
             ClassMember::Variant(v) => &mut v.attributes,
             ClassMember::Field(f) => &mut f.attributes,
@@ -894,6 +1032,7 @@ impl ClassMember {
             ClassMember::Method(m) => m.range,
             ClassMember::Getter(g) => g.range,
             ClassMember::Setter(s) => s.range,
+            ClassMember::Delegation(d) => d.range,
             ClassMember::Index(i) => i.range,
             ClassMember::Variant(v) => v.range,
             ClassMember::Field(f) => f.range,
@@ -905,6 +1044,7 @@ impl ClassMember {
             ClassMember::Method(m) => m.name_range,
             ClassMember::Getter(g) => g.name_range,
             ClassMember::Setter(s) => s.name_range,
+            ClassMember::Delegation(d) => d.name_range,
             ClassMember::Index(i) => i.name_range,
             ClassMember::Variant(v) => v.name_range,
             ClassMember::Field(f) => f.name_range,

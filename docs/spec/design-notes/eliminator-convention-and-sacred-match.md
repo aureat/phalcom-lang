@@ -17,9 +17,9 @@ to three of the four:
 
 | Root cause | Cure | Phalcom status |
 |---|---|---|
-| Branch on type/tag | Dispatch — add a class | Committed: ADR-0007 (`Option`), ADR-0004 (`Bool` tower), `doesNotUnderstand` |
+| Branch on type/tag | Dispatch — add a class | Committed: TDR-0006 (`Option`), TDR-0004 (`Bool` tower), `doesNotUnderstand` |
 | Branch on a closed sum | **Eliminator method** `match(a:, b:, …)` | Exists in practice (`Option`, `Result`); not yet written down as a general convention |
-| Sequential validation / arrow code | Guard clause + non-local `return` from a block | Committed: ADR-0013 |
+| Sequential validation / arrow code | Guard clause + non-local `return` from a block | Committed: TDR-0012 |
 | Unrelated predicates chained | `else if` keyword sugar | Parser already supports it: `parser.rs:2211` |
 
 The gap is not missing language capability. It's an undocumented convention (row 2) and
@@ -29,7 +29,7 @@ one under-extended optimization (§3).
 
 This was evaluated and rejected, not just "not requested":
 
-- ADR-0011 makes instance fields **private and non-inherited**. So the payload-destructure
+- TDR-0010 makes instance fields **private and non-inherited**. So the payload-destructure
   half of ML/Rust-style structural matching (`Point(x, 0)`) is already precluded by the
   object model — there is no way to read another object's slots except through its
   accessor protocol. Any `match` syntax could only desugar to protocol sends, which is
@@ -42,7 +42,7 @@ This was evaluated and rejected, not just "not requested":
   shipped `caseOf:` as exactly this; Pharo dropped it. Buys ergonomics, not the safety
   that motivates `match` in ML-family languages.
 - Hazard: **view/active pattern ⊗ exhaustiveness** (`pattern-matching.md:29`) — the only
-  `match` shape ADR-0011 leaves open (a call into a protocol method) is precisely the
+  `match` shape TDR-0010 leaves open (a call into a protocol method) is precisely the
   shape a checker cannot see through.
 
 Conclusion: no new grammar. The eliminator convention below is the switch-replacement,
@@ -81,7 +81,7 @@ variants over time and should stay plain dispatch. "Nested `ifTrue` chain" is a 
 Both are individually sound, but an ADR needs to pick the one to document as *the*
 pattern other library authors copy. Recommend documenting **Result's per-subclass
 `.ph` shape** as the canonical form; `Option`'s native-primitive shape is a bootstrap-era
-concession (`Option`/`Some`/`None` are VM-blessed per ADR-0007), not the exemplar.
+concession (`Option`/`Some`/`None` are VM-blessed per TDR-0006), not the exemplar.
 
 ### User decision (2026-07-14, overrides the recommendation above on scope)
 
@@ -89,7 +89,7 @@ concession (`Option`/`Some`/`None` are VM-blessed per ADR-0007), not the exempla
 §5 below: the sacred-`match` inline cut is in scope for **both** hierarchies, not Option
 alone. Everywhere below that said "Result stays `.ph`-only, out of scope" is superseded
 by this decision. If `Result`/`Ok`/`Err` move to native/VM-blessed status, that is a
-change to ADR-0008 (error handling) and interacts with `Result`'s "deliberately not
+change to TDR-0007 (error handling) and interacts with `Result`'s "deliberately not
 reusing `Option`'s native eliminator, so a future `Option`→`.ph` migration stays
 symmetric" note at `core/core.ph:216` — that note's premise (Result stays pure `.ph`)
 no longer holds and the comment needs updating when this lands.
@@ -97,7 +97,7 @@ no longer holds and the comment needs updating when this lands.
 ## 4. Why the eliminator gets exhaustiveness for free, with no checker
 
 The strong claim, previously unstated: Phalcom's dispatch-key design
-(name+arity+kind selector identity, ADR-0012) gives eliminator totality **without** a
+(name+arity+kind selector identity, TDR-0011) gives eliminator totality **without** a
 Maranget-style usefulness algorithm. `match(ok:)` and `match(ok:, err:)` are different
 selectors — a caller who forgets an arm doesn't get silent fallthrough, they get a
 missed method lookup and `doesNotUnderstand`. This lands close to ML's compile-time
@@ -117,7 +117,7 @@ Precedent, with cost, for why this is worth stating explicitly:
 
 ## 5. The perf gap: sacred set doesn't cover the eliminator
 
-The sacred-selector inliner (`compiler/inliner.rs:140`, ADR-0018 — see doc-bug note
+The sacred-selector inliner (`compiler/inliner.rs:140`, TDR-0016 — see doc-bug note
 below) recognizes exactly six shapes: `ifTrue(_)`, `ifFalse(_)`, `ifTrue(_, ifFalse:_)`,
 `and(_)`, `or(_)`, `whileTrue(_)`. **`match(some:, none:)` / `match(ok:, err:)` are not
 on it.** So every `Option#orElse`/`isSome`/`map`/`okOr` and every `Result#isOk`/`map`/
@@ -125,12 +125,12 @@ on it.** So every `Option#orElse`/`isSome`/`map`/`okOr` and every `Result#isOk`/
 `Invoke` send — exactly the allocation-dominated cost the U-PRIM-ABI measurement
 (perf-log, `arith_send` −41.5%) already showed matters most.
 
-**Proposed cut:** extend the ADR-0018 sacred set with `match(some:, none:)` and, per the
+**Proposed cut:** extend the TDR-0016 sacred set with `match(some:, none:)` and, per the
 user decision in §3, `match(ok:, err:)` too — both hierarchies, once `Result` is
 VM-blessed. Mechanically this is the same recognizer shape as the existing
 `IfTrueIfFalse` arm (`inliner.rs:149`): two labeled literal-block arguments, receiver
 `ClassId` known at bootstrap, override-epoch deopt guard already exists and is reused
-unchanged (ADR-0018's guard mechanism, not a new one).
+unchanged (TDR-0016's guard mechanism, not a new one).
 
 ### Rubric self-score (per skill's mandatory step-5 check)
 
@@ -148,27 +148,27 @@ unchanged (ADR-0018's guard mechanism, not a new one).
    compiler, which requires both to be **VM-blessed / native**, not stdlib `.ph`
    classes. This is exactly what the user's decision in §3 grants for both hierarchies,
    so the preclusion is intentional and pre-authorized, not a hazard to flag later. Note
-   for whoever writes the `Result` ADR-0008 amendment: this inliner dependency should be
+   for whoever writes the `Result` TDR-0007 amendment: this inliner dependency should be
    cited as a *reason* Result moves native, not discovered as a side effect afterward.
 5. **Precedent** — Smalltalk's sacred set is exactly this kind of move (inline what you
    know can't be redefined out from under you); nobody else sacred-inlines a *library*
    eliminator because nobody else has one blessed at bootstrap the way Phalcom's
    `Option`/(pending) `Result` are.
-6. **Spec reconciliation** — requires an ADR-0018 amendment (not a new ADR), plus the
-   `Result`-native change requires an ADR-0008 amendment (error-handling model) since
-   ADR-0008 currently describes `Result`/`Ok`/`Err` as pure `.ph` with zero floor
+6. **Spec reconciliation** — requires an TDR-0016 amendment (not a new ADR), plus the
+   `Result`-native change requires an TDR-0007 amendment (error-handling model) since
+   TDR-0007 currently describes `Result`/`Ok`/`Err` as pure `.ph` with zero floor
    delta (`core/core.ph:216`'s "net floor delta for this whole file: 0" comment becomes
    false the moment `Result` goes native).
 
 ## 6. Doc bugs found while grounding this (fix before/alongside the ADR work)
 
 - **`.claude/skills/language-design/phalcom/overlay.md` lines 29 and 86** cite
-  `ADR-0017 (drafting, U5)` for the sacred-selector inliner. Wrong on two counts: the
-  inliner is **ADR-0018** (`docs/adr/accepted/0018-sacred-selector-inliner-and-override-guard.md`,
-  Status: Accepted), and ADR-0017 is a *different*, unrelated, already-shipped ADR
-  (class-side stored static fields — the overlay correctly cites ADR-0017 for that at
-  its own line 75). `compiler/inliner.rs:1` already cites ADR-0018 correctly; only the
-  overlay is stale. Fix: overlay lines 29/86 → `ADR-0018`, status `Accepted` not
+  `TDR-0015 (drafting, U5)` for the sacred-selector inliner. Wrong on two counts: the
+  inliner is **TDR-0016** (`docs/decisions/accepted/0016-sacred-selector-inliner-and-override-guard.md
+  Status: Accepted), and TDR-0015 is a *different*, unrelated, already-shipped ADR
+  (class-side stored static fields — the overlay correctly cites TDR-0015 for that at
+  its own line 75). `compiler/inliner.rs:1` already cites TDR-0016 correctly; only the
+  overlay is stale. Fix: overlay lines 29/86 → `TDR-0016`, status `Accepted` not
   `drafting`.
 - **`VM::sealed_classes` naming risk** (`vm/mod.rs:186`): this is a
   `HashMap<Symbol, ObjRef>` mapping class name → owning module, used only as a
@@ -180,15 +180,15 @@ unchanged (ADR-0018's guard mechanism, not a new one).
 
 ## 7. Concrete next actions (not yet done)
 
-1. Fix the two ADR-0017→0018 citations in the overlay (mechanical).
+1. Fix the two TDR-0015→0018 citations in the overlay (mechanical).
 2. Write the eliminator-convention ADR: closed-variants/open-operations rule (§3),
    naming `Result`'s per-subclass `.ph` shape as canonical, `Option`'s native shape as
    the bootstrap exception — updated per §3's user decision once `Result` also goes
    native.
-3. Draft the `Result`-goes-native change as an ADR-0008 amendment, citing the sacred-
+3. Draft the `Result`-goes-native change as an TDR-0007 amendment, citing the sacred-
    inline dependency (§5.4) as a motivating reason, and update `core/core.ph:216`'s
    stale "net floor delta: 0" comment when it lands.
-4. Amend ADR-0018 to add the `match(some:, none:)` / `match(ok:, err:)` recognizer arms
+4. Amend TDR-0016 to add the `match(some:, none:)` / `match(ok:, err:)` recognizer arms
    to the sacred set, reusing the existing override-epoch guard.
 
 None of 2–4 have been implemented yet — this file is the plan, grounded against the

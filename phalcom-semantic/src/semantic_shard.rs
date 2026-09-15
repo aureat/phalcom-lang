@@ -91,7 +91,7 @@ impl ModuleSemanticStructureShard {
                 }
                 Statement::Trait(trait_def) => {
                     declaration_header_fingerprints.insert(declaration.clone(), declaration_header_fingerprint(&source, trait_def.range));
-                    collect_behavior_member_fingerprints(
+                    collect_trait_member_fingerprints(
                         &source,
                         &CallableOwnerId::Declaration(declaration.clone()),
                         &trait_def.members,
@@ -155,14 +155,14 @@ impl ModuleSemanticStructureShard {
                 Statement::Enum(_) => {}
                 Statement::Impl(impl_def) => {
                     for member in &impl_def.members {
-                        if let Some(range) = behavior_body_range(member) {
+                        if let Some(range) = member.behavior().and_then(behavior_body_range) {
                             body_ranges.push(range);
                         }
                     }
                 }
                 Statement::Trait(trait_def) => {
                     for member in &trait_def.members {
-                        if let Some(range) = behavior_body_range(member) {
+                        if let Some(range) = member.behavior().and_then(behavior_body_range) {
                             body_ranges.push(range);
                         }
                     }
@@ -244,7 +244,7 @@ fn callable_body_fingerprints_for_source(source: &ParsedModuleUnit) -> BTreeMap<
             Statement::Enum(_) => {}
             Statement::Trait(trait_def) => {
                 let owner = DeclarationId::new(source.id.clone(), trait_def.name.clone().into());
-                collect_behavior_member_fingerprints(
+                collect_trait_member_fingerprints(
                     source,
                     &CallableOwnerId::Declaration(owner),
                     &trait_def.members,
@@ -281,7 +281,7 @@ fn collect_impl_member_fingerprints(
     impl_id: &ImplId,
     kind: &phalcom_ast::ast::ImplKind,
     target: &phalcom_ast::ast::TypeAnnotation,
-    members: &[BehaviorMember],
+    members: &[phalcom_ast::ast::ImplMember],
     callable_signatures: &mut BTreeMap<CallableId, u64>,
     callable_bodies: &mut BTreeMap<CallableId, u64>,
 ) {
@@ -317,7 +317,27 @@ fn collect_impl_member_fingerprints(
             }
         },
     };
-    collect_behavior_member_fingerprints(source, &callable_owner, members, callable_signatures, callable_bodies);
+    for member in members {
+        let Some(behavior) = member.behavior() else {
+            continue;
+        };
+        collect_behavior_member_fingerprints(source, &callable_owner, std::slice::from_ref(behavior), callable_signatures, callable_bodies);
+    }
+}
+
+fn collect_trait_member_fingerprints(
+    source: &ParsedModuleUnit,
+    callable_owner: &CallableOwnerId,
+    members: &[phalcom_ast::ast::TraitMember],
+    callable_signatures: &mut BTreeMap<CallableId, u64>,
+    callable_bodies: &mut BTreeMap<CallableId, u64>,
+) {
+    for member in members {
+        let Some(behavior) = member.behavior() else {
+            continue;
+        };
+        collect_behavior_member_fingerprints(source, callable_owner, std::slice::from_ref(behavior), callable_signatures, callable_bodies);
+    }
 }
 
 fn collect_behavior_member_fingerprints(
@@ -350,7 +370,7 @@ fn declaration_header_fingerprint(source: &ParsedModuleUnit, range: phalcom_comm
             }
             Statement::Enum(enum_def) if enum_def.range == range => true,
             Statement::Trait(trait_def) if trait_def.range == range => {
-                body_ranges.extend(trait_def.members.iter().filter_map(behavior_body_range));
+                body_ranges.extend(trait_def.members.iter().filter_map(|member| member.behavior().and_then(behavior_body_range)));
                 true
             }
             _ => false,

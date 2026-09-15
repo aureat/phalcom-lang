@@ -73,7 +73,7 @@ structure. Suspension becomes trivial: move the vectors somewhere and stop readi
 
 **`[V]`** This is Phalcom's baseline. Pure Phalcom→Phalcom sends are trampolined through one
 `run_until` loop with no native recursion, so a thousand-deep guest call chain leaves the Rust
-stack flat. The consequence is stated in ADR-0030 §3: a fiber switch relocates the VM's
+stack flat. The consequence is stated in TDR-0027 §3: a fiber switch relocates the VM's
 "current stack / current frames" into the `FiberObject` and never copies stacks.
 
 The cost is that *everything* must obey the rule, and the moment one primitive breaks it, the
@@ -87,7 +87,7 @@ collection combinator implemented in the host language calls a guest block and m
 result before it can continue. The natural implementation re-enters the interpreter loop
 recursively, and now host stack frames sit *between* the coroutine's entry and its yield point.
 
-**`[V]`** ADR-0030 §1 names this precisely and calls it the crown-jewel hazard
+**`[V]`** TDR-0027 §1 names this precisely and calls it the crown-jewel hazard
 **native-stack frames ⊗ suspendable control**:
 
 > When the running fiber is inside such a primitive, native Rust frames sit between the fiber's
@@ -100,14 +100,14 @@ are on the stack and raise instead of suspending. **`[V]`** Phalcom raises
 fiber's recorded `floor_depth` (`phalcom-core/src/primitive/fiber.rs:1-13`).
 
 The cost is an expressiveness hole with a sharp edge, because the hole is not where a user
-would predict it. **`[V]`** From ADR-0030 §4:
+would predict it. **`[V]`** From TDR-0027 §4:
 
 ```phalcom
 Fiber.new { let n = 0; while (true) { Fiber.yield(n); n = n + 1 } }   // ✅ legal
 Fiber.new { list.each { x => Fiber.yield(x) } }                       // ✗ raises
 ```
 
-The first works only because the sacred-selector inliner (ADR-0018) lowers `while` to `Jump`/`Loop`
+The first works only because the sacred-selector inliner (TDR-0016) lowers `while` to `Jump`/`Loop`
 opcodes inside a single chunk — no frame push, no native frame. The second fails because `each`
 is a native combinator. The user-visible rule is therefore not "don't yield in a loop" but
 "don't yield underneath a *native* callback," and which callbacks are native is an
@@ -120,7 +120,7 @@ Rewrite every callback-taking primitive so it pushes work onto the guest frame s
 of calling the interpreter recursively. Then case (b) never arises and yield is legal
 everywhere.
 
-**`[V]`** ADR-0030 lists this as Alternative B and defers it, with the decisive property being
+**`[V]`** TDR-0027 lists this as Alternative B and defers it, with the decisive property being
 not capability but *reachability*: "A → **B (full trampoline)** is purely *additive* —
 de-recursing the callback primitives later just removes the guard. Shipping A forecloses
 nothing."
@@ -135,7 +135,7 @@ mechanical workaround (index iteration).
 Allocate a native stack per coroutine and switch with assembly. Yield crosses host frames
 because the host frames go with the coroutine.
 
-**`[V]`** ADR-0030 rejects this as Alternative C, and the reason is worth quoting because it is
+**`[V]`** TDR-0027 rejects this as Alternative C, and the reason is worth quoting because it is
 a *different kind* of argument than the others:
 
 > it adds an `unsafe` stack-switch dependency and **permanently constrains the GC** — every
@@ -147,7 +147,7 @@ The others are capability trades. This one is a **reversibility** trade. Option 
 the same monotonic path; C leaves it permanently. A native stack is opaque memory containing
 interior pointers the collector cannot interpret, so a moving collector can neither relocate
 what it points to nor precisely identify what is live. Choosing C would silently retire
-ADR-0009's claim that a moving collector can drop in behind the handle heap.
+TDR-0008's claim that a moving collector can drop in behind the handle heap.
 
 **The generalizable rule:** when comparing designs, separate *what it can do* from *what it
 lets you do later*. An option that is strictly more capable but forecloses a future axis is
@@ -183,7 +183,7 @@ were not made with fibers in mind:
 touched. "O(1) switch" does not mean "a fast copy" — it means *no copy occurs*, at any size.
 A fiber suspended a million frames deep parks in the same time as one suspended at depth two.
 
-**`[V]` Frame offsets are frame-relative.** ADR-0030 §3: "`CallFrame.stack_offset` stays
+**`[V]` Frame offsets are frame-relative.** TDR-0027 §3: "`CallFrame.stack_offset` stays
 **frame-relative**, so per-fiber stacks starting at 0 need no rebasing." Had offsets been
 absolute into a single global stack, every switch would require walking the frame vector and
 fixing each offset — O(depth), and the whole design collapses into a copying scheme. This is a
@@ -196,7 +196,7 @@ feature cheap are usually established long before the feature is designed.*
 Three of the four moved fields are obvious: frames, values, open upvalues. The fourth,
 `checking`, is where the design gets educational. **`[V]`** From the source comment:
 
-> `checking` (ADR-0052 Fix 1, U-ANNOT-CONTRACTS) swaps alongside the three fields above for the
+> `checking` (TDR-0043 Fix 1, U-ANNOT-CONTRACTS) swaps alongside the three fields above for the
 > same reason: an `@invariant`-guarded call can `yield` mid-body, so this fiber's in-flight
 > guard bookkeeping must park with it rather than leak into whichever fiber runs next.
 
@@ -213,13 +213,13 @@ mysterious cross-task contamination.
 
 ### The one field that deliberately stays behind
 
-**`[V]`** ADR-0030 §6, stated as a hard constraint on all future work:
+**`[V]`** TDR-0027 §6, stated as a hard constraint on all future work:
 
 > **Invariant:** the VM-global monotonic `next_frame_generation` counter **must not** be
 > relocated into `FiberObject` — it is the only thing making a cross-fiber token globally
 > non-matching.
 
-The mechanism: non-local return (ADR-0013) targets its home frame through a token carrying a
+The mechanism: non-local return (TDR-0012) targets its home frame through a token carrying a
 pointer and a generation number. Validation compares the generation at the target against the
 generation in the token. Because the counter is global and monotonic, every frame ever created
 in the process has a unique generation, so a token minted on one fiber can never coincidentally
@@ -239,7 +239,7 @@ passes when it should fail. This is the same class of error as reusing IDs after
 
 ## 4. Move versus swap — terminology that is load-bearing
 
-**`[V]`** ADR-0030 §3 says "O(1) pointer **swap**." The implementation performs `std::mem::take`,
+**`[V]`** TDR-0027 §3 says "O(1) pointer **swap**." The implementation performs `std::mem::take`,
 which is a **move**. A reconnaissance pass flagged the mismatch across three documents plus the
 ADR itself.
 
@@ -295,7 +295,7 @@ whether a coroutine implementation is coherent or is three special cases in a tr
 
 ## 6. Parked coroutines and the collector
 
-**`[V]`** ADR-0030 §7 states the invariant, and it predates the collector it constrains:
+**`[V]`** TDR-0027 §7 states the invariant, and it predates the collector it constrains:
 
 > a `FiberObject`'s value stack and frame stack are GC roots for as long as the fiber is
 > reachable and not `done`/`failed` — **not only** the `current` fiber's. A collector that scans
@@ -316,11 +316,11 @@ are rare and worth cataloguing when you find them.
 **`[O]`** From the overlay's open register, all three still unresolved and all three genuinely
 hard:
 
-- **Structured concurrency / cancellation propagation.** ADR-0030 provides single-fiber `abort`,
+- **Structured concurrency / cancellation propagation.** TDR-0027 provides single-fiber `abort`,
   which terminates one fiber. It does not provide cascading cancellation of children. **`[R]`**
   The nursery/scope literature argues that spawn without a join point is the concurrency
   equivalent of `goto`; Phalcom currently has the `goto`.
-- **`select` / `race`.** Not mentioned anywhere in ADR-0030. Note that these are hard to retrofit
+- **`select` / `race`.** Not mentioned anywhere in TDR-0027. Note that these are hard to retrofit
   precisely because they require a coroutine to be blocked on *several* wake conditions at once,
   which touches the parked-state representation this whole file is about.
 - **Scheduler fairness.** The ready-queue exists as mechanism; no fairness policy is specified.

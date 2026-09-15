@@ -40,7 +40,7 @@ Cites: `core.ph:1424-1444` (`await`), `core.ph:627-629` (`attempt`),
 
 **Actually deliberated, in the record:**
 
-- The restricted-yield rule itself — ADR-0030 §4, and `block.rs:151-157` argues it in a comment
+- The restricted-yield rule itself — TDR-0027 §4, and `block.rs:151-157` argues it in a comment
   naming `.each { Fiber.yield(x) }` as the motivating case. The guard is designed, not incidental.
 - The Slice A / Slice B split — `docs/forge/units/U-FUTURE/plan.md` §9, DEC-FUT-SCHED, ruled
   "Option 1 (RECOMMENDED, ADOPTED): U-FUTURE v1 = Slice A only (pure `.ph`, zero native)"

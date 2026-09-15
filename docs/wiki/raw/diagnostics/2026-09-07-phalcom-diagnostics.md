@@ -723,7 +723,7 @@ mod tests {
 ~~~~rust
 //! Semantic-role styling substrate for Phalcom diagnostics.
 //!
-//! [PDR-0014] rules that the diagnostic renderer is built in-house.
+//! [TDR-0067] rules that the diagnostic renderer is built in-house.
 //! All SGR (ANSI escape) emission lives in [`Styler::paint`].
 
 use std::borrow::Cow;

@@ -62,7 +62,7 @@ Anything else is accepted (a field read, a getter call, arithmetic). Phalcom is
 dynamically typed with no flow analysis, so whether a given sub-expression's
 *runtime value* is itself a mutable heap reference cannot be checked here — only
 the unambiguous whole-receiver case is. Same floor-not-proof limit as the
-truthiness ban ([ADR-0021](../../../adr/accepted/0021-no-truthiness-enforcement.md)).
+truthiness ban ([TDR-0019](../../../decisions/accepted/0019-no-truthiness-enforcement.md)).
 
 ### Stripping
 

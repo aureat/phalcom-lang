@@ -1,6 +1,6 @@
 # Numeric follow-ups
 
-**Status:** deferred by PDR-0027. These are not permission to weaken its ratified contracts.
+**Status:** deferred by TDR-0072. These are not permission to weaken its ratified contracts.
 
 | Item | Why deferred | Re-entry condition |
 |---|---|---|

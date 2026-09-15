@@ -24,11 +24,11 @@ deferred_reason: null
 > floor census included).
 >
 > **Why String/System lagged:** U-STRING shipped them under `raw*` *after* the
-> 2026-07-13 ruling, and [ADR-0062](../../../adr/retired/0062-amend-floor-admit-string-raw-byte-accessors-supersedes-0049-naming.md)
+> 2026-07-13 ruling, and [TDR — Amend floor — admit `String` raw byte accessors + `System.rawWrite(_)`](../../../decisions/retired/amend-floor-admit-string-raw-byte-accessors-supersedes-0049-naming.md)
 > was then written to bless the deviation — making the record match the code rather
 > than the ruling. For a day the tree carried both conventions at once. The user
 > re-ruled trailing-`_` on 2026-07-15; **ADR-0062 is Retired** and
-> [ADR-0049](../../../adr/accepted/0049-amend-floor-admit-string-byte-and-raw-write-primitives.md)
+> [TDR-0050](../../../decisions/accepted/0050-amend-floor-admit-string-byte-and-raw-write-primitives.md)
 > — which specified these exact names all along — is authoritative again.
 >
 > Rust *fn* names (`string_raw_byte_count`, `list_raw_at`) keep their `raw_` infix by
@@ -96,7 +96,7 @@ suffix, so `at` (public) and `at_` (native) coexist cleanly.
 | `phalcom-core/src/universe.rs` | any bootstrap interning / installation of those selector symbols |
 | `phalcom-core/src/bin/phalcom/disasm.rs` | only if it string-matches any `raw*` selector (grep) |
 | `phalcom-core/tests/lang/**` | any golden `.ph` that calls a `raw*` primitive directly (likely none — they are internal) |
-| `docs/spec/current/**`, `docs/adr/**` | prose references to `raw*` primitive names (grep; update to the `_` form) |
+| `docs/spec/current/**`, `docs/decisions/**` | prose references to `raw*` primitive names (grep; update to the `_` form) |
 | `docs/spec/current/lexical-structure.md` | **add** a one-line convention note: trailing `_` marks a native/private primitive selector (Wren-style) |
 
 **Deliberately NOT in scope:** any logic, opcode, `Value`/`heap` change; the iteration protocol; the

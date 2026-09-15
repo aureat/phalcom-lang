@@ -69,7 +69,7 @@ does not have yet).
 | `phalcom-core/src/primitive/module.rs` | `Module` member-access / reflection primitives. |
 | `phalcom-core/bin/phalcom/*` | Only if import resolution needs the entry file's directory (base path for relative resolution). |
 | `phalcom-core/tests/lang.rs` (+ multi-file fixtures) | Import corpus (§6). |
-| `docs/adr/00XX-module-import-model.md` | New ADR — provisional number, grab next-free. |
+| `docs/decisions/00XX-module-import-model.md` | New ADR — provisional number, grab next-free. |
 | `docs/spec/open-questions.md` Q8 + a new `docs/spec/modules.md` | Flip Q8 to RESOLVED; write the module spec part. |
 
 ## 4. Design decision — **BLOCKED-ON-DECISION (DEC-U15)**

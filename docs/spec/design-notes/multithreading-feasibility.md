@@ -4,21 +4,21 @@ Status: exploratory, no ADR yet. Not in overlay's open/undecided table — fully
 
 ## Current committed position
 
-- ADR-0030 (Accepted): cooperative single-threaded; `Fiber` sole concurrency primitive
+- TDR-0027 (Accepted): cooperative single-threaded; `Fiber` sole concurrency primitive
   (heap object, O(1) pointer-swap switch). "No preemption ⇒ no data races **by
   construction**." This sentence is the entire safety argument — remove single-
   threading and nothing replaces it.
 - `VM` owns exactly one `Heap` (`phalcom-core/src/heap/mod.rs:89`), a single
-  `SlotMap<ObjRef, Object>`. Not `Sync`, no lock, no `Rc`/`RefCell` (ADR-0009).
+  `SlotMap<ObjRef, Object>`. Not `Sync`, no lock, no `Rc`/`RefCell` (TDR-0008).
 - `VM.current`/`frames`/`stack` = live mirror of the running fiber; switching
   fibers is a `Vec` swap, not a real context switch.
 - GC in flight (uncommitted at time of writing): non-moving mark-sweep,
   `SecondaryMap` mark table, stop-the-world, no write barrier
-  (`heap/trace.rs`, `vm/gc.rs`). ADR-0050 chose non-moving specifically
+  (`heap/trace.rs`, `vm/gc.rs`). TDR-0048 chose non-moving specifically
   because handles must survive collection for parked fiber `Value`s under a
   **single-mutator** assumption.
 - ADR-0026/0041: methods reopen at runtime under a coarse pristine-flag /
-  override-epoch guard; ADR-0012's inline-cache-ready dispatch slots are
+  override-epoch guard; TDR-0011's inline-cache-ready dispatch slots are
   still unpopulated. Both currently plain reads/bits — correct only because
   there is one mutator.
 
@@ -32,7 +32,7 @@ Status: exploratory, no ADR yet. Not in overlay's open/undecided table — fully
 - Sacred-inline pristine flags and future ICs need atomics/epochs instead of
   plain bit reads.
 - Cost: rewrite of heap, GC, and dispatch-guard layers simultaneously —
-  touches ADR-0009/0012/0018/0026/0050 at once. Multi-month.
+  touches TDR-0008/0012/0018/0026/0050 at once. Multi-month.
 
 **B. Isolates / Ractor-style (disjoint heaps, copy-on-send)**
 - Fits the existing Fiber-as-object shape: one `VM`+`Heap` per OS thread,
@@ -66,7 +66,7 @@ Isolates (B) over shared-memory-with-locks (A):
 - Isolates: no cheap shared-mutable-state API across threads — future
   concurrency must be message-passing shaped, not lock-shaped
   (`Arc<Mutex<T>>`-style primitives don't fit).
-- Shared-memory+locks: forecloses ADR-0030's "no data races by construction"
+- Shared-memory+locks: forecloses TDR-0027's "no data races by construction"
   claim outright — would need a superseding ADR that explicitly walks that
   back, not a perf patch slipped in underneath it.
 

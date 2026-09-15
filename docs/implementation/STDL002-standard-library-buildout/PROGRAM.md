@@ -28,7 +28,7 @@ Know which tier you are reading — the four in
 
 | Tier | Where | Means |
 |---|---|---|
-| Ratified decision | `docs/adr/accepted/` | Committed. Needs a superseding ADR to change. |
+| Ratified decision | `docs/decisions/accepted/` | Committed. Needs a superseding ADR to change. |
 | Normative spec | `docs/spec/` | The designed surface. Cites its decision record. |
 | As-built | `docs/forge/units/*/as-built.md` | What shipped, with `file:line`. |
 | Draft | `docs/spec/design/drafts/` | Exploration. No authority. |

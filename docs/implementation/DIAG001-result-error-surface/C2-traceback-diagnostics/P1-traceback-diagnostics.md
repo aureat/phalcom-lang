@@ -192,18 +192,18 @@ corruption).
   (if G1 ratifies quickly, annotate instead with the `e.kind` form). — followups §2.
 - `block_on` rustdoc contradiction (`block.rs:226-227`): rewrite to match wrap-and-catch
   behavior. — followups §3.
-- `docs/adr/README.md` still lists ADR-0014 as Accepted though the file says Superseded — fix
+- `docs/decisions/README.md` still lists ADR-0014 as Accepted though the file says Superseded — fix
   the row (two-way sync rule).
 
 ### Governance: resolved
 
-The ADR folder is frozen; design decisions live in `docs/pdr/`. Both records this track
+The ADR folder is frozen; design decisions live in `docs/decisions/`. Both records this track
 needed now exist and are Accepted:
-[PDR-0010](../../pdr/0010-errors-carry-structure-and-cheap-origin.md) (ratified
+[TDR-0062](../../../decisions/accepted/0062-errors-carry-structure-and-cheap-origin.md) (ratified
 2026-07-20; G1) and
-[PDR-0014](../../pdr/0014-diagnostics-renderer-is-in-house.md) (renderer is in-house,
+[TDR-0066](../../../decisions/accepted/0066-diagnostics-renderer-is-in-house.md) (renderer is in-house,
 miette leaves the workspace — written because the phantom-miette convention already produced
-one wrong decision, 0066/`bb4f365`). No new ADR. `docs/adr/README.md`'s stale ADR-0014 row is
+one wrong decision, 0066/`bb4f365`). No new ADR. `docs/decisions/README.md`'s stale ADR-0014 row is
 fixed in S1.
 
 ---

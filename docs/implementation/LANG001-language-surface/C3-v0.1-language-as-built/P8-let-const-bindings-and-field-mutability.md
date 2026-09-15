@@ -1,7 +1,7 @@
 # U-BINDINGS — `let`/`const` bindings; unkeyworded mutable fields; `const` fields writable only in constructors
 
 Status: **READY** (2026-07-15). Governed by
-[ADR-0064](../../../adr/accepted/0064-let-const-bindings-and-field-mutability.md)
+[TDR-0052](../../../decisions/accepted/0052-let-const-bindings-and-field-mutability.md)
 (**Accepted**, supersedes ADR-0014). **Lands before [U-CTOR](../U-CTOR/plan.md)** —
 U-CTOR's `@class`-on-field work sits on the field grammar this unit rewrites.
 
@@ -33,10 +33,10 @@ codemod to understand two grammars.
 
 ## Spec anchor
 
-- **[ADR-0064](../../../adr/accepted/0064-let-const-bindings-and-field-mutability.md)** — the whole unit.
-- [ADR-0014](../../../adr/accepted/0014-let-and-var-bindings.md) — **superseded**; flip its status + `STATUS.md` in this unit ([[adr-status-two-way-sync]]).
-- [ADR-0007](../../../adr/accepted/0007-option-as-abstract-with-some-none.md) — an uninitialized mutable binding reads `None`; carried over verbatim.
-- [ADR-0011](../../../adr/accepted/0011-static-instance-slot-layout.md) — read-before-write; **orthogonal**, must keep passing.
+- **[TDR-0052](../../../decisions/accepted/0052-let-const-bindings-and-field-mutability.md)** — the whole unit.
+- [TDR — Variable bindings are `let` (immutable) and `var` (mutable)](../../../decisions/retired/let-and-var-bindings.md) — **superseded**; flip its status + `STATUS.md` in this unit ([[adr-status-two-way-sync]]).
+- [TDR-0006](../../../decisions/accepted/0006-option-as-abstract-with-some-none.md) — an uninitialized mutable binding reads `None`; carried over verbatim.
+- [TDR-0010](../../../decisions/accepted/0010-static-instance-slot-layout.md) — read-before-write; **orthogonal**, must keep passing.
 - `docs/spec/current/syntax/statements-and-declarations.md` §2, §5 · `syntax/grammar.md` · `syntax/lexical.md` · `classes.md` §2.
 
 ---
@@ -135,7 +135,7 @@ and is **specified**, not a bug. Fixture it so it stays specified.
 | corpus `.ph` ×395 files | **the codemod, 1080 sites** |
 | `docs/spec/current/syntax/{grammar,lexical,statements-and-declarations}.md` | grammar + keyword lists |
 | `docs/spec/current/classes.md` §2 | field mutability + `const` |
-| `docs/adr/accepted/0014-*.md` + `docs/adr/STATUS.md` | flip to Superseded, both sides |
+| `docs/decisions/accepted/0014-*.md` + `docs/decisions/STATUS.md` | flip to Superseded, both sides |
 
 ---
 

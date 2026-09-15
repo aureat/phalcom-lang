@@ -3,7 +3,7 @@
 - Status: **Proposed** (experimental; not ratified) · **soundness teeth**
 - Axis: typing (subtype relation, variance, inheritance)
 - Resolves: [typing.md](spec/design/experimental/typing.md) Tier-1 gaps #2 (conformance termination) and #3 (override/Liskov)
-- Related: [ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md) (selector identity), [object-model.md](../object-model.md) (single inheritance), [method-lookup.md](../method-lookup.md)
+- Related: [TDR-0011](../../decisions/accepted/0011-selector-signature-encoding-and-dispatch.md) (selector identity), [object-model.md](../object-model.md) (single inheritance), [method-lookup.md](../method-lookup.md)
 
 ## Problem
 

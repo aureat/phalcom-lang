@@ -73,7 +73,7 @@ Three representation facts do all the downstream work:
    *every* opcode, lockstep with `code`, so any of them can be indexed by a raw `ip` with no
    bounds special-case. `Bytecode::Invoke(u8, u16)` is exactly what Doc 4 said — arity + selector-
    constant index — **unchanged**. The cache lives *beside* the instruction, at the same index. This
-   is the seam ADR-0012 reserved and Doc 4 pointed at: a `ClassId`-keyed slot per call site, shape
+   is the seam TDR-0011 reserved and Doc 4 pointed at: a `ClassId`-keyed slot per call site, shape
    fixed at zero cost, population deferred to here.
 2. **`Cell` buys interior mutability.** A refill has to write the slot while the VM holds only a
    shared `&Chunk` borrow (the running code it is reading from). `Cell<Option<InlineCache>>` makes
@@ -249,9 +249,9 @@ coarseness the word "chose" would smuggle in. What runs, against what is planned
 | Slot storage | side table (`caches`/`gcaches`) | side table — *already matches* (DEC-IC-C) |
 
 Three of those rows are `U-IC`'s scope items still un-landed; two (side table, monomorphic) are
-decisions the plan poses that shipped code already answered its way. ADR-0041, sealing the class
+decisions the plan poses that shipped code already answered its way. TDR-0036, sealing the class
 hierarchy, even *assumes* the epoch shape — it speaks of "invalidate every dependent inline cache
-(reusing the ADR-0018 override epoch)" for a future mutable-superclass feature. That language predates
+(reusing the TDR-0016 override epoch)" for a future mutable-superclass feature. That language predates
 the global counter; the invalidation it imagines is not the invalidation that runs. Read the plans as
 intent, HEAD as truth.
 
@@ -374,7 +374,7 @@ that reason *false*: the inliner's set is control-flow only (`ifTrue`, `and`, `w
 ## Where the fast paths end
 
 One more fast-path family, named and set down. `GuardBool`/`GuardBlock` are *not* method caches — they
-back the sacred-selector inliner (ADR-0018), where the compiler emits jump opcodes instead of a real
+back the sacred-selector inliner (TDR-0016), where the compiler emits jump opcodes instead of a real
 send for a handful of kernel selectors (`ifTrue(_)`, `whileTrue(_)`, `and(_)`, …). Each guard reads a
 `pristine` flag; `note_method_installed` flips the relevant one of five flags (`bool_sacred_pristine`,
 `block_sacred_pristine`, and the `toString` flags for `Number`/`Symbol`/`String`) to `false` the
@@ -414,9 +414,9 @@ no epoch — the coarse-but-correct floor that the planned machinery was going t
   — the `gcaches` stamp. `GetGlobal`/`SetGlobal` (`vm/dispatch.rs` @ ~L632/~L685); `SetGlobal` has no
   core fallback.
 - `phalcom-core/src/universe/mod.rs::note_method_installed` (@ ~L188) — flips five `*_pristine` flags;
-  `GuardBool`/`GuardBlock` (`vm/dispatch.rs` @ ~L1184/~L1195). ADR-0018.
-- ADR-0012 (the IC seam, population deferred — Doc 4's Lie #1). ADR-0051 (Tier-3 perf strategy names
-  `U-IC`). ADR-0041 (hierarchy stability; assumes an override-epoch invalidation the global counter
+  `GuardBool`/`GuardBlock` (`vm/dispatch.rs` @ ~L1184/~L1195). TDR-0016.
+- TDR-0011 (the IC seam, population deferred — Doc 4's Lie #1). TDR-0049 (Tier-3 perf strategy names
+  `U-IC`). TDR-0036 (hierarchy stability; assumes an override-epoch invalidation the global counter
   does not implement). `docs/forge/units/U-IC/plan.md` (**PLANNED** — the unbuilt fine-grained form).
   `docs/forge/perf-log/008-fuse-invoke-pairs.md` (measured fusion: ~3.3 ns/dispatch, the result table,
   the F16 flip, the `map_numeric` non-result).
@@ -427,7 +427,7 @@ no epoch — the coarse-but-correct floor that the planned machinery was going t
   non-local `return` is *detected* rather than corrupting memory.
 - **Per-class epoch, PIC, selector-only interner** — the `U-IC` plan's fine-grained cache: none built
   at HEAD (Lie #1's single slot and Lie #2's global counter are what run). Cited as intent, not truth.
-- **The sacred-selector inliner** (ADR-0018) — `GuardBool`/`GuardBlock` are named here; the
+- **The sacred-selector inliner** (TDR-0016) — `GuardBool`/`GuardBlock` are named here; the
   `compile_sacred_call` machinery and its override-epoch deopt are its own future topic.
-- **`SuperSend`** (ADR-0040) — its statically-known target is uncached; folding it into the IC is a
+- **`SuperSend`** (TDR-0035) — its statically-known target is uncached; folding it into the IC is a
   deferred follow-on (DEC-IC-B).

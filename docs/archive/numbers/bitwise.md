@@ -1,6 +1,6 @@
 # Bitwise operations on `Int` — surface specification
 
-**Status: Normative.** Ratified by [PDR-0020](../../../pdr/0020-bitwise-operations-on-int.md) on 2026-07-21. Implementation unit **U-BITWISE** is gated on the numeric tower landing.
+**Status: Normative.** Ratified by [TDR-0068](../../decisions/accepted/0068-bitwise-operations-on-int.md) on 2026-07-21. Implementation unit **U-BITWISE** is gated on the numeric tower landing.
 
 ## 1. Model
 

@@ -17,7 +17,7 @@ is structural. **The VM docs currently cannot explain their own guards:**
 - Doc 1 hoists a `Rc<Callable>` and keys the guard on `closure_id` rather than `ip`. Why that is
   sound depends on what a fiber switch can and cannot change mid-loop.
 - Doc 3 declared `VM::frames` a "live mirror" as **Lie #2** and deferred the whole notion.
-- Doc 6 quoted `store_live_into`'s four-field `mem::take` and ADR-0030 §6's invariant *as given* —
+- Doc 6 quoted `store_live_into`'s four-field `mem::take` and TDR-0027 §6's invariant *as given* —
   it borrowed the fact it needed and left an IOU in its forward pointers.
 - `upvalues.md` has an `Upvalue::Open { fiber, slot }` whose `fiber` field it explains only locally.
 - Doc 4 marked the primitive-return `switch_pending` branch as Lie #2's other half.
@@ -27,11 +27,11 @@ finishing it should be able to go back to Doc 1 and say why the hoist is safe.
 
 ## 2. What makes this track different from the VM track
 
-**ADR-0030 is genuinely deliberated, and richly so.** The VM docs kept having to confess that their
+**TDR-0027 is genuinely deliberated, and richly so.** The VM docs kept having to confess that their
 design-space walks were pedagogical reconstruction — no bake-off ever happened for stack-vs-register,
 for frame representation, for the dispatch fork. That confession was honest but repetitive.
 
-Here the opposite holds. ADR-0030 carries **seven numbered decisions** and **three named rejected
+Here the opposite holds. TDR-0027 carries **seven numbered decisions** and **three named rejected
 alternatives** (B: full trampoline; C: stackful coroutines; and a third, unread at plan time). It
 records a *foreclosed capability* with a concrete failing program. It names its own lineage
 ("audit Option A / **Lua-5.1 style**"). It states five pre-fiber invariants that bound other units.
@@ -47,7 +47,7 @@ show live, reproducible bugs in its own subject (§5, C3).
 
 ### C1 — The restricted loop *(fork)*
 
-**Subject.** Why cooperative, why single-threaded, and — the real content — ADR-0030 §4's
+**Subject.** Why cooperative, why single-threaded, and — the real content — TDR-0027 §4's
 **restricted (Option A)** execution model and §5's **typed** switch signal.
 
 **Candidate grip.** *A fiber switch is not a jump. It is a swap of which buffers the one loop is
@@ -59,7 +59,7 @@ de-recurse every callback primitive, yield anywhere; C = stackful coroutines wit
 stacks; plus preemption/OS threads as the outer boundary. The ADR argues A→B is *purely additive*
 and A→C is not — that asymmetry is the decision's spine and should be the doc's.
 
-**The teaching moment is a foreclosure, and it is unusually clean.** ADR-0030 §4 gives both sides:
+**The teaching moment is a foreclosure, and it is unusually clean.** TDR-0027 §4 gives both sides:
 
 ```phalcom
 Fiber.new { let n = 0; while (true) { Fiber.yield(n); n = n + 1 } }   // works
@@ -86,8 +86,8 @@ behind.
 
 **Content.** `store_live_into`/`load_live_from`; the four fields that move (`frames`, `stack`,
 `open_upvalues`, `checking`) and the ones that pointedly do not — `next_frame_generation` above all,
-which is ADR-0030 §6's named invariant and the fact Doc 6 had to borrow. Fiber-stack pooling.
-ADR-0030 §2 (heap object, no new `Value` arm) and §3 (`stack_offset` stays frame-relative so
+which is TDR-0027 §6's named invariant and the fact Doc 6 had to borrow. Fiber-stack pooling.
+TDR-0027 §2 (heap object, no new `Value` arm) and §3 (`stack_offset` stays frame-relative so
 per-fiber stacks starting at 0 need no rebasing — a small decision with large consequences). §7:
 parked fibers are GC roots, and a collector scanning only `current` would free live objects.
 
@@ -99,7 +99,7 @@ track; handle it as Doc 6 handled `upvalues.md` — an explicit forbidden-list i
 ### C3 — When a fiber fails *(tension — the strongest doc)*
 
 **Subject.** Fiber teardown colliding with upvalue closing, and error unwinding stopping at the
-**fiber floor** instead of terminating the host (ADR-0030 §6, second half).
+**fiber floor** instead of terminating the host (TDR-0027 §6, second half).
 
 **Candidate grip.** *A fiber's failure is contained by design — the unwind stops at its floor and the
 error lands in its result slot. The bugs are all in what the floor forgets to do on the way down.*
@@ -172,7 +172,7 @@ coloring point). Name the cuts in the docs, per the filter.
 
 - **Per-doc recon is still mandatory.** This plan decides the split, not the content. Every doc runs
   its own Phase 1 — the last three docs each found a wrong premise in their own plan.
-- **Settle the shipped-vs-specified question first.** ADR-0030 §5 says the typed switch signal
+- **Settle the shipped-vs-specified question first.** TDR-0027 §5 says the typed switch signal
   replaces "the `frames.len()` heuristic that the primitive arm **currently** uses." That "currently"
   was written pre-implementation. Whether the typed signal actually shipped, or the heuristic is
   still there, decides whether C1 is a fork doc or a landed-vs-planned doc. **This is the single
@@ -182,7 +182,7 @@ coloring point). Name the cuts in the docs, per the filter.
 
 | Risk | If wrong, the track… |
 |---|---|
-| **ADR-0030 covers Futures at length; Futures are a quarter built.** | …repeats spec text as if shipped. Expect the ADR-vs-HEAD gap to be this track's recurring honesty note, exactly as `U-IC`'s plan was Doc 5's. Assume nothing from §1's surface list. |
+| **TDR-0027 covers Futures at length; Futures are a quarter built.** | …repeats spec text as if shipped. Expect the ADR-vs-HEAD gap to be this track's recurring honesty note, exactly as `U-IC`'s plan was Doc 5's. Assume nothing from §1's surface list. |
 | **Overlap with `upvalues.md`** (open cells name a fiber; fiber rooting; teardown clearing parked state). | …C2 and C3 restate a shipped doc. Forbidden-list in each REQUIREMENTS, as Doc 6 did. |
 | **The CB-7/8/9 record is not at HEAD.** | …C3 cites a backlog that does not exist. Reproduce first; the doc's best material is also its least verified. |
 | **No live tracing.** `vm-trace` is hardcoded `LevelFilter::OFF`; `disasm` walks only the top-level chunk. | …a track whose subject is *switching* cannot show a switch. Recorded separately by the user, to be done later. Until then every dynamic claim needs the hoist-to-module-level disassembly workaround, and frame-level claims must be labelled INFERRED — as `frame-identity.md` §hard-trace already had to be. |

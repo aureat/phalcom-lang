@@ -9,8 +9,8 @@ use crate::value::Value;
 use crate::vm::ClassKey;
 use indexmap::IndexMap;
 use phalcom_ast::ast::{
-    AttrKind, Attribute, BuiltinAttr, ClassDef, ClassMember, ClosureParameters, Expr, IndexAccessor, ListLiteralElement, MapLiteralEntry, MapLiteralKey,
-    MethodCallExpr, PackItem, PackLabel, RestMode, SetLiteralEntry, Statement,
+    AttrKind, Attribute, BuiltinAttr, ClassDef, ClassMember, ClosureParameters, DelegatedAccessorKind, Expr, IndexAccessor, ListLiteralElement,
+    MapLiteralEntry, MapLiteralKey, MethodCallExpr, PackItem, PackLabel, RestMode, SetLiteralEntry, Statement,
 };
 use phalcom_common::range::SourceRange;
 
@@ -69,6 +69,7 @@ fn member_has_attr(member: &ClassMember, name: &str) -> bool {
         ClassMember::Field(f) => &f.attributes,
         ClassMember::Variant(v) => &v.attributes,
         ClassMember::Index(ix) => &ix.attributes,
+        ClassMember::Delegation(delegation) => &delegation.attributes,
     };
     attrs.iter().any(|a| a.name == name)
 }
@@ -81,6 +82,7 @@ fn member_range(member: &ClassMember) -> SourceRange {
         ClassMember::Field(f) => f.range,
         ClassMember::Variant(v) => v.range,
         ClassMember::Index(ix) => ix.range,
+        ClassMember::Delegation(delegation) => delegation.range,
     }
 }
 
@@ -143,7 +145,7 @@ fn validate_rest_usage(member: &ClassMember) -> Result<(), CompilerError> {
                 return Err(CompilerError::RestModeUnsupportedForMember(rest.range));
             }
         }
-        ClassMember::Getter(_) | ClassMember::Setter(_) | ClassMember::Field(_) | ClassMember::Variant(_) => {}
+        ClassMember::Getter(_) | ClassMember::Setter(_) | ClassMember::Delegation(_) | ClassMember::Field(_) | ClassMember::Variant(_) => {}
     }
     Ok(())
 }
@@ -358,7 +360,7 @@ impl<'vm> Compiler<'vm> {
             match member {
                 ClassMember::Method(method) => validate_declaration_labels(&method.params)?,
                 ClassMember::Index(index) => validate_declaration_labels(&index.params)?,
-                ClassMember::Getter(_) | ClassMember::Setter(_) | ClassMember::Field(_) | ClassMember::Variant(_) => {}
+                ClassMember::Getter(_) | ClassMember::Setter(_) | ClassMember::Delegation(_) | ClassMember::Field(_) | ClassMember::Variant(_) => {}
             }
         }
         // Retained class-level attributes (M-ATTR-ROOT): needed after
@@ -421,6 +423,7 @@ impl<'vm> Compiler<'vm> {
                         (MemberKey::Selector(false, sel.clone()), sel, idx.name_range)
                     }
                     ClassMember::Variant(_) => continue,
+                    ClassMember::Delegation(_) => continue,
                 };
                 if self.vm.universe_module() != Some(self.module)
                     && let MemberKey::Selector(_, selector) = &key
@@ -1117,6 +1120,19 @@ impl<'vm> Compiler<'vm> {
                 // every `Variant` member before returning; kept for match
                 // exhaustiveness over `ClassMember`'s full variant set.
                 ClassMember::Variant(_) => {}
+                ClassMember::Delegation(delegation) => {
+                    let setters = match delegation.kind {
+                        DelegatedAccessorKind::Getter => [false, false],
+                        DelegatedAccessorKind::Setter => [true, false],
+                        DelegatedAccessorKind::ReadWrite => [false, true],
+                    };
+                    for setter in setters.into_iter().take(if matches!(delegation.kind, DelegatedAccessorKind::ReadWrite) { 2 } else { 1 }) {
+                        let compiled = self.compile_delegated_accessor(&delegation, &delegation.target_field, setter, None)?;
+                        self.emit(Bytecode::Constant(compiled.method_obj_idx), compiled.range);
+                        self.emit(Bytecode::Method(compiled.selector_const, false), compiled.range);
+                        self.emit_member_attribute_attaches(&compiled.attributes, compiled.method_obj_idx, compiled.range)?;
+                    }
+                }
                 // A bracket subscript method (U-INDEX, ADR-0060: `[idx] {
                 // ... }` / `[idx, label:] { ... }`) — same codegen shape as an
                 // ordinary `Method`, just with no name token and a

@@ -30,7 +30,7 @@ C2 owns no reactor backend.
 ### C3 — Reactor and external completion runtime
 
 - P1 — registration registry, GC roots, worker pool, completions, timers, executor liveness, `System.sleep` — PROPOSED.
-- P2 — poller-backed external readiness — BLOCKED on PDR-0016 acceptance or replacement ruling.
+- P2 — poller-backed external readiness — BLOCKED on TDR-0080 acceptance or replacement ruling.
 
 ### C4 — Concurrency standard-library completion
 
@@ -64,6 +64,6 @@ C2.P2
                         C6
 ```
 
-PDR-0016 blocks C3.P2, not C3.P1 or C4.P1.
+TDR-0080 blocks C3.P2, not C3.P1 or C4.P1.
 
 Legacy monolithic C3 library plans are superseded.

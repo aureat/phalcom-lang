@@ -36,7 +36,7 @@ They appear in `docs/spec/current/drafts/stdlib-catalog.md` §0.2 as
 record. `stdlib-catalog.md` §0.2 lists the real demand: open-flags, permission modes, `Bytes`
 fixed-width codecs, hex/base64, "every hash function", socket options.
 
-**The trap.** [PDR-0012](../pdr/0012-numeric-tower-implementation-and-floor-amendment.md)
+**The trap.** [TDR-0064](../../decisions/accepted/0064-numeric-tower-implementation-and-floor-amendment.md)
 (Accepted 2026-07-20, unimplemented) is easy to read as unblocking this. It does not:
 
 - It contains **zero** occurrences of "bitwise", "shift", `bitAnd`, or `<<`. Verified by grep over
@@ -70,17 +70,17 @@ runtime change; this one adds surface syntax.
 `Bytes` is octet-at-a-time. Its eleven primitives (`phalcom-core/src/universe/primitives.rs`, grep
 `bytes_cls`) are `new/1`, `fromString_`, `size_`, `at_`, `set_`, `fill_`, `slice_`, `copyInto_`,
 `utf8_`, `utf8Lossy_`, `equalsConstantTime_`. There is no `loadU32_`/`loadU64_`/`storeU32_`, and
-none is among [PDR-0011](../pdr/0011-admit-bytes-native-octet-buffer.md)'s ten or
-PDR-0013's eleventh.
+none is among [TDR-0063](../../decisions/accepted/0063-admit-bytes-native-octet-buffer.md)'s ten or
+TDR-0066's eleventh.
 
 It cannot be synthesized in `.ph`: `*256 +` accumulation exceeds 2⁵³ at the seventh byte, and
 without item 1 there is no way to mask or shift the result anyway. `slice_` is always a copy,
-never a view (PDR-0011 ruling 5, to avoid retaining the parent under a non-moving collector), so
+never a view (TDR-0064 ruling 5, to avoid retaining the parent under a non-moving collector), so
 a borrowed window is not an alternative.
 
 **Blocked on item 1** for the same reason: a `loadU64_` returning a 53-bit-truncated `Number` is
 not useful. Real demand is binary codecs and the `stream-protocol.md` work, not SwissTable.
-Would be an ADR-0019 floor amendment.
+Would be an TDR-0017 floor amendment.
 
 ## 3. There is no fixed-size array of values
 

@@ -8,9 +8,9 @@ All line numbers are HEAD = `0ce6a9c`.
 ## 1. Architecture vs representation
 
 **Architecture.** Cooperative, single-threaded, one-shot-at-a-time fibers, switched at explicit
-`call`/`try`/`yield` sites; ADR-0030 §1/§4 (audit Option A, Lua-5.1 style). A `FiberObject` is one
+`call`/`try`/`yield` sites; TDR-0027 §1/§4 (audit Option A, Lua-5.1 style). A `FiberObject` is one
 more arena variant, `Object::Fiber(Box<FiberObject>)`, reached through `Value::Obj(ObjRef)` — no
-`Value::Fiber` arm (ADR-0030 §2).
+`Value::Fiber` arm (TDR-0027 §2).
 
 **Representation — the axis that matters.** The VM does **not** hold a pointer, handle, or index
 into the running fiber's stack. It holds *the buffers themselves*:
@@ -31,11 +31,11 @@ in exactly one of two places and is **never aliased**: either in `VM::{frames,st
 checking}` (it is running) or in its `FiberObject` (it is parked). `vm.current: ObjRef` names *who*
 is running; it does not reach the state.
 
-The consequence that decides the doc: **ADR-0030 §3 calls this "an O(1) pointer swap". It is not a
+The consequence that decides the doc: **TDR-0027 §3 calls this "an O(1) pointer swap". It is not a
 swap and there is no pointer.** It is a move, four times over, and a move abandoned halfway loses a
 stack — see finding 4.
 
-Why moving is legal at all: `CallFrame::stack_offset` is window-relative (ADR-0030 §3, D3), so a
+Why moving is legal at all: `CallFrame::stack_offset` is window-relative (TDR-0027 §3, D3), so a
 per-fiber stack always based at index 0 needs no rebasing when it becomes `vm.stack`.
 
 ## 2. The grip, grounded
@@ -51,16 +51,16 @@ Three-way partition, all grounded:
 |---|---|---|
 | **Moves** (the four `mem::take`s) | `stack`, `frames`, `open_upvalues`, `checking` | see finding 1 — *two different reasons wear one uniform* |
 | **Resident on the `FiberObject`, never mirrored** | `status`, `resumer`, `result`, `entry`, `started`, `resume_slot`, `floor_depth`, `resume_mode` | read/written *about* a fiber by whoever is running, so mirroring them would be wrong, not just wasteful |
-| **VM-global, deliberately not per-fiber** | `next_frame_generation` (`vm/mod.rs:109`) | ADR-0030 §6 names relocating it into `FiberObject` as a violated invariant: global monotonicity is the only thing making a cross-fiber return token non-matching |
+| **VM-global, deliberately not per-fiber** | `next_frame_generation` (`vm/mod.rs:109`) | TDR-0027 §6 names relocating it into `FiberObject` as a violated invariant: global monotonicity is the only thing making a cross-fiber return token non-matching |
 
 ## 3. What was actually deliberated
 
-ADR-0030 **did** deliberate, at the branch level, and says so in its own *Alternatives considered*
+TDR-0027 **did** deliberate, at the branch level, and says so in its own *Alternatives considered*
 (L152-175): **B — full trampoline** (de-recurse every callback primitive; "not now", additively
 reachable), **C — stackful coroutines** (rejected: `unsafe` stack switch, and every parked native
 stack becomes a root a future moving collector must scan/relocate — "crown-jewel *stackful-fiber ⊗
 moving-GC*"), **preemptive/multithreaded** (rejected: needs a memory model and locks), **resumable
-Smalltalk-style suspension** (out of scope per ADR-0008).
+Smalltalk-style suspension** (out of scope per TDR-0007).
 
 So the design-space walk in this doc is **not** a pedagogical reconstruction at the branch level —
 the branches were argued, and the GC argument in particular is the ADR's own. What *is*
@@ -73,7 +73,7 @@ asserts the swap; it never enumerates the set or defends its membership. Label t
 **representational** reason: they are stack-indexed, and an index is meaningless against another
 fiber's stack (`fiber.rs:73-78` — "kept per-fiber because it is stack-index-keyed"). `checking`
 moves for a **semantic** one: it is an identity set with no stack dependence at all, moved because
-an `@invariant`-guarded call can `yield` mid-body (`fiber.rs:107-117`, ADR-0052 Fix 1,
+an `@invariant`-guarded call can `yield` mid-body (`fiber.rs:107-117`, TDR-0043 Fix 1,
 U-ANNOT-CONTRACTS). It is also the newest of the four and arrived as a *bug fix*, not as part of
 §3's design. Two reasons, one `mem::take` block.
 
@@ -109,7 +109,7 @@ recycle in `dispatch.rs:277-286` are all `#[cfg(feature = "fiber-pool")]`, **not
 *disabled, measured-negative experiment*, never as a feature.
 
 **F7 — three shipped documents and the ADR all say "swap", and none of them is describing a swap.**
-ADR-0030 §3 heads its section *"Fiber switch is an O(1) pointer swap"*; [`vm/frames.md`](../vm/frames.md)
+TDR-0027 §3 heads its section *"Fiber switch is an O(1) pointer swap"*; [`vm/frames.md`](../vm/frames.md)
 Lie #2 (@ L270-277) says *"a fiber switch swaps the live and parked buffers as a unit"* and quotes a
 field doc reading *"an O(1) pointer-free copy (a `Vec` swap)"* — **that quoted wording is not at HEAD
 any more**; the field now reads *"empty while running — mirrored by `VM::stack`"*
@@ -158,7 +158,7 @@ means correcting its wording, not just expanding it.
 **Kind: mechanism. Agent A is skipped. Phase 3b only — one agent.**
 
 Answered from findings, not from the plan (which happens to agree). The tempting objection is that
-ADR-0030 has a real argued *Alternatives considered* — but **C1 already spent that space in full**
+TDR-0027 has a real argued *Alternatives considered* — but **C1 already spent that space in full**
 (§"The fork that was actually argued": restricted / trampoline / stackful, plus the GC argument,
 Lua, coloring, Go, Wren), and §5 of this file forbids C2 from re-walking it. A design space that a
 shipped sibling owns is not *this* doc's design space. What is left for C2 — which of a fiber's

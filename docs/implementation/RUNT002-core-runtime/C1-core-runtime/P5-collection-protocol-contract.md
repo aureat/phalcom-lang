@@ -18,11 +18,11 @@ deferred_reason: null
 > collection-protocol contract** (selectors + laws) that the kernel `List`
 > already satisfies as the reference implementation and that every *future*
 > collection (`Map`/`Set`/`Tuple`/`Range`) must satisfy — **not** new collection
-> classes (those are U-STD / deferred, per [ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md)).
+> classes (those are U-STD / deferred, per [TDR-0018](../../../decisions/accepted/0018-kernel-list-native-array-protocol.md)).
 > Its concrete artifacts are: (a) a **reusable conformance harness keyed by "the
 > collection under test,"** (b) the minimal `.ph` needed to make `List` a *fully*
 > conformant reference implementation, and (c) the golden corpus that pins the
-> laws. It adds **zero** floor primitives — no [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md)
+> laws. It adds **zero** floor primitives — no [TDR-0017](../../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md)
 > amendment.
 
 > **Baseline:** HEAD `8733afe`. Recommended-order position (per
@@ -656,7 +656,7 @@ and (b) a self-referential list (`l.add(l)`) recurses unboundedly.
 
 | Claim | Source |
 |---|---|
-| Contract = selectors + laws, not new classes | [ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md); [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) Q5; catalog-delta §2.4 |
+| Contract = selectors + laws, not new classes | [TDR-0018](../../../decisions/accepted/0018-kernel-list-native-array-protocol.md); [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) Q5; catalog-delta §2.4 |
 | Mutable by default; `==` structural; mutable⇒not-hashable | [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) Q5 |
 | `List` reference protocol (`size`/`at`/`add`/`each`) | `core.ph` **L143–160** (⚠ shifts with U-CORE-4, re-confirm at dispatch; was L75–94 pre-U-STD); floor-census §2.13/§3; `src/list.rs`; `src/primitive/list.rs` |
 | `List` combinators (`map`/`filter`/`reduce`/`includes`/`isEmpty`/`at(_,put)`) already landed, pre-dating this unit | commits `5e2b395`/`176d454`; `core.ph` L162–211; `catalog-delta.md` §2.4 ("combinators landed"); `pending-retirement.md` §2/L95 |
@@ -666,6 +666,6 @@ and (b) a self-referential list (`l.add(l)`) recurses unboundedly.
 | `isA(_)` / `hash` are U-CORE-1 — **landed** (`03764e3`) | catalog-delta §4.5; [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) Q1; invariant-requirements 1.2/1.3 |
 | R-INV-5.1…5.4 all corpus | [`invariant-requirements.md`](../../../spec/current/core/invariant-requirements.md) §4 U-CORE-5 |
 | Flips nothing directly; enables U-STD/U-LEX fixtures (2 of 3 rows turned out already resolved, see §4.3 re-grounding note) | [`pending-retirement.md`](../../../spec/current/core/pending-retirement.md) §4 |
-| No floor amendment; census stays wherever U-CORE-4 lands it (85 today → 86 expected) | [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md); floor-census §1.1/§7 |
+| No floor amendment; census stays wherever U-CORE-4 lands it (85 today → 86 expected) | [TDR-0017](../../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md); floor-census §1.1/§7 |
 | int/float-safe by element delegation; fiber-safe iteration | [`forward-compat.md`](../../../spec/current/core/forward-compat.md) §4, §1 |
 | Harness surfaces mirror in-process + golden precedent | `tests/invariants.rs`; `tests/support/mod.rs`; `tests/lang.rs` |

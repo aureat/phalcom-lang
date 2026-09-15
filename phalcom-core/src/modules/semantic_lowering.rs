@@ -200,6 +200,10 @@ pub struct DataConstructionLoweringSpec {
 pub struct InherentImplMemberLowering {
     pub callable: CallableId,
     pub source_member_index: usize,
+    /// Canonical target field for a generated direct-field accessor. This is
+    /// present only for accepted `via` members; the compiler uses it as the
+    /// authorization/projection fact rather than rebuilding it from source.
+    pub delegation_target_field: Option<Box<str>>,
 }
 
 /// Target entity of an inherent `impl` block.
@@ -765,7 +769,16 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
         if impl_id.module != *module {
             continue;
         }
-        if !snapshot.callable_analyses.contains_key(&definition.callable) {
+        let is_generated_delegation = snapshot
+            .sources
+            .get(&impl_id.module)
+            .and_then(|source| source.program.statements.get(impl_id.local.0 as usize))
+            .and_then(|statement| match statement {
+                phalcom_ast::ast::Statement::Impl(impl_def) => impl_def.members.get(definition.source_member_index),
+                _ => None,
+            })
+            .is_some_and(|member| matches!(member, phalcom_ast::ast::ImplMember::Delegation(_)));
+        if !snapshot.callable_analyses.contains_key(&definition.callable) && !is_generated_delegation {
             continue;
         }
         let target = match &definition.callable.owner {
@@ -781,6 +794,18 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
         entry.1.push(InherentImplMemberLowering {
             callable: definition.callable.clone(),
             source_member_index: definition.source_member_index,
+            delegation_target_field: snapshot
+                .sources
+                .get(&impl_id.module)
+                .and_then(|source| source.program.statements.get(impl_id.local.0 as usize))
+                .and_then(|statement| match statement {
+                    phalcom_ast::ast::Statement::Impl(impl_def) => impl_def.members.get(definition.source_member_index),
+                    _ => None,
+                })
+                .and_then(|member| match member {
+                    phalcom_ast::ast::ImplMember::Delegation(delegation) => Some(delegation.target_field.clone().into_boxed_str()),
+                    _ => None,
+                }),
         });
     }
     let mut inherent_impls = inherent_impls_by_id
@@ -844,7 +869,10 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
             let Some(surface) = snapshot.trait_surfaces.get(&trait_declaration) else {
                 continue;
             };
-            for (source_member_index, member) in trait_def.members.iter().enumerate() {
+            for (source_member_index, trait_member) in trait_def.members.iter().enumerate() {
+                let Some(member) = trait_member.behavior() else {
+                    continue;
+                };
                 let member_range = match member {
                     phalcom_ast::ast::BehaviorMember::Method(member) => member.range,
                     phalcom_ast::ast::BehaviorMember::Getter(member) => member.range,
@@ -1325,11 +1353,15 @@ fn collect_anonymous_product_statements(statements: &[phalcom_ast::ast::Statemen
                                 }
                             }
                         }
+                        ClassMember::Delegation(_) => {}
                     }
                 }
             }
             Statement::Impl(impl_def) => {
-                for member in &impl_def.members {
+                for impl_member in &impl_def.members {
+                    let Some(member) = impl_member.behavior() else {
+                        continue;
+                    };
                     match member {
                         phalcom_ast::ast::BehaviorMember::Method(method) => {
                             if let MemberBody::Block(body) = &method.body {

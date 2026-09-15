@@ -99,7 +99,7 @@ A block is a real object — `blk.call()`, `blk.arity`, `blk.on(TypeError) { ...
 are all ordinary message sends. Under the hood, a block, a method, and a
 getter body all share **one closure representation**; `Block` and `Method`
 are siblings under an abstract `Function` root
-([ADR-0006](../adr/0006-function-as-abstract-callable-root.md)). A `Method`
+([TDR-0005](../decisions/accepted/0005-function-as-abstract-callable-root.md)). A `Method`
 is not a `Block` — it additionally carries a selector, a holder class, and a
 receiver — but both answer the same call protocol, which is what makes
 `m.bind(receiver)` able to hand you back something block-shaped. The full

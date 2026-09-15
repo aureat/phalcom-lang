@@ -9,7 +9,7 @@ Claims tagged **[V]** were verified by opening the cited repository artifact in 
 
 Within a subsection, subsequent bullets and table rows inherit the immediately preceding warrant unless they declare a different one.
 
-Related: [Fibers & Futures](../../spec/current/concurrency.md), [ADR-0030](../../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md), [PDR-0017](../../pdr/0017-future-cancel-is-renunciation.md), and [Wren yield analysis](wren-vs-phalcom-fiber-yield.md).
+Related: [Fibers & Futures](../../spec/current/concurrency.md), [TDR-0026](../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md), [TDR — `Future#cancel` is renunciation: settle `#cancelled` now, suppress unstarted work best-effort, interrupt nothing](../../decisions/proposed/future-cancel-is-renunciation.md), and [Wren yield analysis](wren-vs-phalcom-fiber-yield.md).
 
 ---
 
@@ -22,7 +22,7 @@ Related: [Fibers & Futures](../../spec/current/concurrency.md), [ADR-0030](../..
     Future     = settle-once outcome plus waiters
     await      = register current Fiber, park it, later resume it on settlement
 
-**[V]** This extends, rather than contradicts, accepted design: cooperative single-threaded Fiber is sole concurrency primitive; future, async/await, generators, and scheduler derive from it. Future adds no VM mechanism beyond fibers and a ready queue. See [ADR-0030 §1](../../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md#1-fiber-is-the-sole-concurrency-primitive) and [Consequences](../../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md#consequences).
+**[V]** This extends, rather than contradicts, accepted design: cooperative single-threaded Fiber is sole concurrency primitive; future, async/await, generators, and scheduler derive from it. Future adds no VM mechanism beyond fibers and a ready queue. See [TDR-0026](../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md#1-fiber-is-the-sole-concurrency-primitive) and [TDR-0026](../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md#consequences).
 
 | Position | Status in this analysis | Consequence |
 |---|---|---|
@@ -31,7 +31,7 @@ Related: [Fibers & Futures](../../spec/current/concurrency.md), [ADR-0030](../..
 | @suspending | **[O]** recommendation | Documentation/API-contract attribute only; no dispatch, scheduler, type, or runtime effect. |
 | Future is outcome, not owner | **[O]** recommendation | Cancellation is renunciation; task lifetime belongs in a later scope abstraction. |
 | Common callback operations move to .ph | **[O]** direction | More paths may be suspension-transparent, but native-frame guard remains mandatory. |
-| CannotYieldAcrossNativeFrame remains | Locked by ADR-0030 | Unsafe control transfer remains a catchable error, never an implementation accident. |
+| CannotYieldAcrossNativeFrame remains | Locked by TDR-0027 | Unsafe control transfer remains a catchable error, never an implementation accident. |
 
 ---
 
@@ -103,7 +103,7 @@ This does not let engine discard work prematurely. Scheduler, reactor registrati
 | GC/liveness | Parked fiber stacks remain roots while reachable; future/reaction registration must not lose a waiter. |
 | Structured lifetime | Requires a separate owner such as future TaskGroup/nursery. It cannot be inferred from Future. |
 
-**[V]** ADR-0030 requires value and frame stacks of reachable parked fibers to be GC roots, not merely current fiber’s stack. [ADR-0030 §7](../../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md#7-fibers-are-gc-roots-even-when-parked)
+**[V]** TDR-0027 requires value and frame stacks of reachable parked fibers to be GC roots, not merely current fiber’s stack. [TDR-0026](../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md#7-fibers-are-gc-roots-even-when-parked)
 
 ### Future structured concurrency
 
@@ -170,7 +170,7 @@ Its contract:
 - queued, unstarted work may be suppressed best-effort;
 - already-started work is never forcibly interrupted and may still have effects.
 
-See [PDR-0017 §1–4](../../pdr/0017-future-cancel-is-renunciation.md#decision).
+See [TDR — `Future#cancel` is renunciation: settle `#cancelled` now, suppress unstarted work best-effort, interrupt nothing](../../decisions/proposed/future-cancel-is-renunciation.md#decision).
 
 **[O]** Adopt that meaning when PDR-0017 is ratified. It matches “future is outcome, not owner”: cancel means stop waiting for result, never undo world or kill named fiber.
 
@@ -181,7 +181,7 @@ See [PDR-0017 §1–4](../../pdr/0017-future-cancel-is-renunciation.md#decision)
 | Future TaskGroup.cancel | **[O]** Scope requests cooperative stop from owned children. | Retroactive promise to interrupt FFI or worker syscalls. |
 | Resource close | Resource disappeared; caller may choose recovery/retry. | Consumer renunciation. |
 
-**[V]** PDR-0017 separates cancelled from closed, keeps cancellation shallow, and defers propagation and fiber cancellation. [PDR-0017 §5–6](../../pdr/0017-future-cancel-is-renunciation.md#5-composition-with-leak-reporting-and-with-closed)
+**[V]** PDR-0017 separates cancelled from closed, keeps cancellation shallow, and defers propagation and fiber cancellation. [TDR — `Future#cancel` is renunciation: settle `#cancelled` now, suppress unstarted work best-effort, interrupt nothing](../../decisions/proposed/future-cancel-is-renunciation.md#5-composition-with-leak-reporting-and-with-closed)
 
 **[O]** Cancel returning Bool cannot later mean “interrupt pending.” Richer scope/token policy must layer above shallow cancel. Effectful APIs must say cancellation may arrive after effect occurred.
 
@@ -189,7 +189,7 @@ See [PDR-0017 §1–4](../../pdr/0017-future-cancel-is-renunciation.md#decision)
 
 ## 7. Native-frame guard and suspension-transparent libraries
 
-**[V]** Phalcom has restricted re-entrant loop. Yield and resume across live native re-entrant frame raise CannotYieldAcrossNativeFrame, avoiding corrupted suspended native stack. [ADR-0030 §4](../../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md#4-execution-model--restricted-option-a)
+**[V]** Phalcom has restricted re-entrant loop. Yield and resume across live native re-entrant frame raise CannotYieldAcrossNativeFrame, avoiding corrupted suspended native stack. [TDR-0026](../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md#4-execution-model--restricted-option-a)
 
 **[V]** This is not a missing Yield opcode. Wren and Phalcom both perform basic handoff in primitive; Phalcom’s stronger native re-entry guard is difference. Recorded Wren study shows that making each { Fiber.yield(_) } work requires flattening/trampolining callback path, not adding an opcode. [Wren comparison](wren-vs-phalcom-fiber-yield.md)
 
@@ -272,7 +272,7 @@ Until those rules exist, target-fiber kill is not harmless convenience API.
 
 ## 10. Representation, GC, performance
 
-**[V]** Fiber state is heap object with value stack and call frames; switch changes fiber VM reads rather than copying stack. [ADR-0030 §2–3](../../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md#2-fiber-is-a-heap-object-not-a-new-value-arm)
+**[V]** Fiber state is heap object with value stack and call frames; switch changes fiber VM reads rather than copying stack. [TDR-0026](../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md#2-fiber-is-a-heap-object-not-a-new-value-arm)
 
 | Choice | Benefit | Cost / constraint |
 |---|---|---|
@@ -282,7 +282,7 @@ Until those rules exist, target-fiber kill is not harmless convenience API.
 | FIFO cooperative scheduler | Deterministic, tiny, no locks. | Runaway fiber starves peers. |
 | No transfer | Stack/caller invariants stay simple. | No arbitrary symmetric coroutine graph. |
 
-**[V]** ADR-0030 rejects stackful native coroutines because native stacks constrain future collector and require unsafe stack switching. [ADR-0030 alternatives](../../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md#alternatives-considered)
+**[V]** TDR-0027 rejects stackful native coroutines because native stacks constrain future collector and require unsafe stack switching. [TDR-0026](../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md#alternatives-considered)
 
 ---
 
@@ -320,8 +320,8 @@ These are intentional exclusions, not implementation gaps. Model still admits la
 **Opened first-hand this session ([V]):**
 
 - [docs/spec/current/concurrency.md](../../spec/current/concurrency.md)
-- [ADR-0030](../../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md)
-- [PDR-0017](../../pdr/0017-future-cancel-is-renunciation.md)
+- [TDR-0026](../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md)
+- [TDR — `Future#cancel` is renunciation: settle `#cancelled` now, suppress unstarted work best-effort, interrupt nothing](../../decisions/proposed/future-cancel-is-renunciation.md)
 - [cancellation specification](../../spec/current/stdlib/cancellation.md)
 - [U-SCHED implementation spec](../pending/scheduling/queue/implementation-spec.md)
 - [Wren vs Phalcom analysis](wren-vs-phalcom-fiber-yield.md)

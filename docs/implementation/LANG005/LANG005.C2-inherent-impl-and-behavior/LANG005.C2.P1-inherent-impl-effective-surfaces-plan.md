@@ -8,7 +8,7 @@
 
 **Tech Stack:** Rust 2024 workspace; `phalcom-ast`; `phalcom-modules`; `phalcom-semantic` incremental DB, declaration surfaces, callable analysis, associated lookup, source index; `phalcom-core` direct AST-to-bytecode compiler and runtime class/enum/data behavior objects; `phalcom-lsp`; existing generic signature/type-parameter machinery.
 
-**Spec / governing decisions:** PDR-0035; LANG005 program decisions; LANG005.C1 completed product/value architecture; current semantic-authority specifications. This plan is the C2.P1 implementation contract. C2.P2 owns variants-only enum syntax and migration of closed enum root/case behavior into `impl`; C2.P3 owns constrained/specialized inherent impl applicability.
+**Spec / governing decisions:** TDR-0081; LANG005 program decisions; LANG005.C1 completed product/value architecture; current semantic-authority specifications. This plan is the C2.P1 implementation contract. C2.P2 owns variants-only enum syntax and migration of closed enum root/case behavior into `impl`; C2.P3 owns constrained/specialized inherent impl applicability.
 
 **Repository grounding:** Prepared against `aureat/phalcom-lang` `main` at `58f4828dbd9711432edca034afca1fbac72a1640` on 2026-09-13. Re-run the drift protocol before implementation; mechanical names may move, but the semantic boundaries below do not.
 

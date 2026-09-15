@@ -48,7 +48,7 @@ queue, no fixed resumer). Six defects filed/updated in `docs/errors/`:
 - **State-dependent coloring.** `try { fut.await }` succeeds if `fut` is already
   settled and raises `CannotYieldAcrossNativeFrame` if pending (verified live).
   Any suspension under a native block re-entry (`try`/`catch`/`ensure`/`.each`)
-  is illegal (ADR-0030 Option A), while `for` is compiler-inlined and
+  is illegal (TDR-0027 Option A), while `for` is compiler-inlined and
   yield-transparent (verified: `Fiber.yield` inside `for` works; inside `.each`
   refuses). The surface syntax gives no hint which constructs are which — the
   language *looks* colorless but has an invisible, dynamic color. `catch` can

@@ -483,6 +483,65 @@ impl<'vm> Compiler<'vm> {
         Ok(closure)
     }
 
+    /// Compiles the body of a compiler-generated direct-field accessor.
+    ///
+    /// Delegation has no source-language body and therefore must not be
+    /// represented by a fabricated AST declaration.  This small codegen-only
+    /// path creates the same ordinary closure shape as a user getter/setter,
+    /// emitting only the existing `GetField`/`SetField` instructions.
+    pub(crate) fn compile_generated_field_accessor(
+        &mut self,
+        name_sym: Symbol,
+        slot: u16,
+        setter: bool,
+        range: SourceRange,
+    ) -> Result<ObjRef, CompilerError> {
+        let self_sym = self.vm.interner.intern("self");
+        let value_sym = self.vm.interner.intern("_value");
+        let func_state = FunctionState::new(false, false, true, None);
+
+        self.functions.push(func_state);
+        self.begin_scope();
+        self.add_local(self_sym, false).expect("receiver slot is first");
+        if setter {
+            self.add_local(value_sym, false)?;
+        }
+
+        self.emit_self(range);
+        if setter {
+            self.emit(Bytecode::GetLocal(1), range);
+            self.emit(Bytecode::SetField(slot), range);
+        } else {
+            self.emit(Bytecode::GetField(slot), range);
+        }
+
+        let max_slots = self.functions.last().unwrap().max_slots;
+        self.end_scope(EmptySourceRange);
+        self.emit(Bytecode::Return, EmptySourceRange);
+
+        let mut func = self.functions.pop().unwrap();
+        func.chunk.fuse_superinstructions();
+        func.chunk.source_id = self.source_id;
+        let callable = Rc::new(Callable {
+            chunk: func.chunk,
+            max_slots,
+            num_upvalues: func.upvalues.len(),
+            upvalues: func.upvalues,
+            arity: usize::from(setter),
+            parameter_shape: crate::parameters::ParameterShape::closure(usize::from(setter), false),
+            name_sym,
+            local_names: func.local_names,
+        });
+
+        Ok(self.vm.heap.alloc(Object::Closure(Box::new(ClosureObject {
+            callable,
+            module: self.module,
+            upvalues: Vec::new(),
+            lexical_class: None,
+            foreign_receiver_guard: None,
+        }))))
+    }
+
     pub(crate) fn compile(mut self, program: Program) -> PhResult<ObjRef> {
         self.index_inherent_impls(&program)?;
         self.predeclare_known_globals(&program);

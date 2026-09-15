@@ -71,7 +71,7 @@ Phalcom does anonymously**, or (4) is an ancestor.
 - **Borrow checker vs cyclic data.** Two mutually-referential rows can't be constructed at once in
   safe Rust with references; handles turn the cycle into ordinary data you patch. This is why
   `ClassId`, not `&ClassObject`.
-- **`Rc`-cycle → handle (ADR-0009).** Same tower, two representations; the second deletes
+- **`Rc`-cycle → handle (TDR-0008).** Same tower, two representations; the second deletes
   `new_cyclic`/`Weak` construction pain. The scar.
 
 ## 7. Structural rules
@@ -118,7 +118,7 @@ this is a foundational knot; later docs (dispatch, value representation) will le
   live-run half of the two-agent split is exactly what caught it — the same failure family as the
   upvalue doc's contaminated grip, caught the same way. The doc turns this into the payoff
   predict-then-check and an honesty exemplar. **In-source defect noted for the user: the two
-  `heap/class.rs` doc-comments (L1–8, L28–29) and ADR-0002's prose ("instance of itself") describe
+  `heap/class.rs` doc-comments (L1–8, L28–29) and TDR-0002's prose ("instance of itself") describe
   a shape the bootstrap does not build.**
 - **R1 — reflection surface at HEAD.** The predict-then-check and any `X class class` examples
   depend on `.ph`-observable class reflection. If selectors like `class` on a class are absent at

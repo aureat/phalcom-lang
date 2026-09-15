@@ -25,7 +25,7 @@ deliberate — it is the difference between "I am counting" and "I am measuring.
 The two do not implicitly convert. `1 + 2.0` is a type decision, not a coercion
 you get for free — mixing them is a send whose behaviour is defined by the numeric
 protocol, not by C-style promotion rules. See
-[ADR-0024](../adr/0024-numeric-surface-split-int-float-and-division.md) for the
+[TDR-0022](../decisions/accepted/0022-numeric-surface-split-int-float-and-division.md) for the
 full rationale.
 
 ### Two division operators
@@ -62,7 +62,7 @@ let age  = 36
 
 Any expression fits inside the parentheses, including message sends. A literal
 `\(` is written `\\(`. The choice of `\(` over `${...}` or `%(...)` is
-[ADR-0022](../adr/0022-string-interpolation-backslash-paren-sigil.md); the short
+[TDR-0020](../decisions/accepted/0020-string-interpolation-backslash-paren-sigil.md); the short
 version is that a backslash already means "escape," so `\(` reads as "escape into
 code" with no new sigil to learn.
 

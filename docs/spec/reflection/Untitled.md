@@ -123,9 +123,12 @@ enum Option<T> {
 type UnitCircle {
 
 	private constructor(x: Int, y: Int)
+	
+	constructor of(_ x: Int, _ y: Int) -> UnitCircle {
+		UnitCircle(x, y)
+	}
 
-	@constructor 
-	of(_ x: Int, _ y: Int) -> Result<UnitCircle, Error> {
+	class.of(_ x: Int, _ y: Int) -> Result<UnitCircle, Error> {
 		if x**2 + y**2 == 1 
 			then UnitCircle(x, y)
 			else Error("x**2 and y**2 should add up to 1")
@@ -139,11 +142,7 @@ class for Option<T> {
 ```
 
 ```ph
-data Point(x: Int, y: Int) {
-	constructor(private)
-	
-	
-}
+data Point(x: Int, y: Int) construct private
 
 data Config(
 	_ name: String, 
@@ -151,15 +150,11 @@ data Config(
 		ip: String,
 		host: String,
 	}
-) class {
-	
-}
+)
 
 data ConfigOptions {
 	ip: String,
 	host: String
-} class {
-	
 }
 
 ```
@@ -186,19 +181,76 @@ impl Trait for Implementer {
 ```ph
 trait Counter {
 	private mut count: Int
+	
 	// translates to:
-	// count -> Int
-	// count=(_: Int) -> ()
+	count -> Int
+	count=(_: Int) -> ()
 	
 	increment { count++ }
 }
 
 class CounterImpl with Counter {
 	private mut count: Int = _count
+	
 	// translates to
-	// _count: Int
-	// private mut count = _count
+	_count: Int
+	private mut count = _count
+	
 	// which in turn means
-	// count
+	_count: Int
+	private count -> Int { _count }
+	private count=(_ value: Int) -> () { _count = value }
+}
+```
+
+```ph
+class ValueBox<T> {
+	_value: T
+	value -> T { _value }
+	value=(_ value: T) -> () { _value = value }
+}
+
+class AtomicValueBox<T> {
+	_value: Atomic<T>
+  value -> T { _value.load() }
+  value=(_ value: T) -> () { _value.store(value) }
+}
+
+trait Counter {
+	private mut count: Int
+	
+	increment { count++ }
+}
+
+class Delegated {
+	_property via ValueBox()
+	
+	mut count: Int = _count
+	mut count: Int = _count
+	mut count = ValueBox
+	count: Int <- _count
+	count=(_) -> _count
+}
+```
+
+```ph
+class Counter {
+	mut _count: Int
+	
+	count via _count
+	count=(_) via _count
+}
+```
+
+```ph
+trait Mover {
+	move(_ shape: Shape, from origin: Point, to destination: Point) -> ()
+	move(_ _: Shape, from _: Point, to _: Point) -> ()
+	move(_: Shape, from _: Point, to _: Point) -> ()
+	move(_: Shape, from: Point, to: Point) -> ()
+}
+
+impl Mover for MoverImpl {
+	move(_: Shape, from _: )
 }
 ```

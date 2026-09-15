@@ -9,7 +9,7 @@ Grounded in [scheduler-unit.md](../../../../design/experimental/v0.2/scheduler-u
 (the proposed decision this unit realizes),
 [concurrency.md §2](../../../../spec/current/concurrency.md) Slice B design intent,
 [system.md §2](../../../../spec/current/system.md) (`schedule(_)`/`sleep(_)`
-reserved seam), and [ADR-0030](../../../../adr/0030-fibers-and-futures-cooperative-concurrency.md)
+reserved seam), and [TDR-0026](../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md)
 (no second concurrency primitive — a queue, not a mechanism)._
 
 > **Provenance.** `scheduler-unit.md` names this unit but leaves it

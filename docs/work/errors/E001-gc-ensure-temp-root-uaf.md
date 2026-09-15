@@ -24,7 +24,7 @@ re-entrantly.
 
 `collect_roots` (`phalcom-core/src/vm/gc.rs:32-110`) enumerates stack / frames /
 fibers / universe only. **There is no `temp_roots`** — `push_temp_root` has zero
-occurrences in the tree, though [ADR-0050 §7](../adr/accepted/0050-non-moving-mark-sweep-collector.md)
+occurrences in the tree, though [TDR-0047](../../decisions/accepted/0047-non-moving-mark-sweep-collector.md)
 mandates one for exactly this window ("a primitive that holds a freshly allocated
 handle across a call that re-enters the interpreter … protects it with
 `vm.push_temp_root(h)`"). A collection during cleanup sweeps the pending result;
@@ -84,7 +84,7 @@ other chaining primitives (`.on(_)`, `whileTrue`) may share it.
 
 Root `outcome` (and the `Raise` error Value) for the cleanup call's duration —
 push onto `vm.stack` around the second `block_call` and pop after, **or** land
-the ADR-0050 §7 `temp_roots` mechanism and use it here. Then: re-derive from
+the TDR-0048 §7 `temp_roots` mechanism and use it here. Then: re-derive from
 code, re-run repros A/C + the full suite, add A/C as negative-lane fixtures
 (`tests/gc.rs` has **no** native-window-collection test — a standing coverage
 gap), correct the three docs above in the same change, commit narrow on `main`.

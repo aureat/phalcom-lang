@@ -93,7 +93,7 @@ to retrofit" cuts both ways). Present A/B to the user.
 | `phalcom-core/src/compiler/lib.rs` | Synthesize the k+1 selectors; compile the shared body; emit the default-supplying prologue per short-arity entry; enforce the compile-time rules. **Contended** — serialize. |
 | `phalcom-core/src/vm.rs` | Only if the default-supplying prologue needs a VM-side reshape (prefer to bake it into the compiled prologue like U9's rest collection). **Contended** — serialize. |
 | `phalcom-core/tests/lang.rs` (+ fixtures) | Default-arg corpus (§6). |
-| `docs/adr/00XX-default-arguments.md` | New ADR (extends ADR-0012) — provisional number, grab next-free. |
+| `docs/decisions/00XX-default-arguments.md` | New ADR (extends ADR-0012) — provisional number, grab next-free. |
 | `docs/spec/open-questions.md` Q12, `docs/spec/selectors.md §7`, `messages-and-selectors.md §3` | Flip Q12 to RESOLVED; document the expansion. |
 
 ## 5. Risk

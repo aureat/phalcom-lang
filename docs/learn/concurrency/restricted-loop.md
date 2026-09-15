@@ -174,7 +174,7 @@ One easily-missed line: `self.switch_pending = false` **before** the call. It cl
 from an earlier primitive in the same expression, so this call's branch cannot be misled by someone
 else's switch.
 
-> **Honest gap — the ADR specified a different mechanism.** ADR-0030 §5 calls for *"an explicit
+> **Honest gap — the ADR specified a different mechanism.** TDR-0027 §5 calls for *"an explicit
 > `ControlFlow`/switch value **out of the primitive**."* HEAD has no such return type; every
 > switching primitive returns a plain `PhResult<Value>`, and the signal is
 > `VM::switch_pending: bool` (`vm/mod.rs` @ ~L79) — a field the primitive sets as a side effect.
@@ -271,7 +271,7 @@ compiler that lowered block calls differently would silently move the line with 
 language spec at all.
 
 > **Correcting the track plan.** [CONCURRENCY-PLAN.md](../CONCURRENCY-PLAN.md) §3 attributed this
-> to ADR-0018's sacred-selector inliner. That is right for `while` and wrong as the general rule:
+> to TDR-0016's sacred-selector inliner. That is right for `while` and wrong as the general rule:
 > `for`'s lowering is a separate compiler mechanism, not one of the inliner's five sacred
 > selectors, and it is equally frameless. The rule is about block invocation, not about the
 > inliner. The corpus knows this — the fixture `each_generator_raises` names the distinction in its
@@ -332,7 +332,7 @@ violation of this rule. What happens to a fiber that fails is **C3**'s subject.
 
 Every VM-track doc had to confess that its design-space walk was pedagogical reconstruction — no
 bake-off was ever held for stack-vs-register or for frame representation. **That confession does not
-apply here, and this is the first doc in the course where it does not.** ADR-0030 records four
+apply here, and this is the first doc in the course where it does not.** TDR-0027 records four
 rejected branches with bills attached. What follows is the decision as it happened.
 
 ### A — restricted (taken)
@@ -390,7 +390,7 @@ forces one of two commitments:
 
 Either way the deciding subsystem is **the garbage collector**, not the fiber implementation. The
 ADR names this exactly — a crown-jewel conflict, *stackful-fiber ⊗ moving-GC*, directly weakening
-[ADR-0009](../../adr/accepted/0009-handle-arena-heap.md)'s handle-arena heap — and rejects C on
+[TDR-0008](../../decisions/accepted/0008-handle-arena-heap.md)'s handle-arena heap — and rejects C on
 those grounds: *"The power is not worth an irreversible GC commitment."*
 
 **That asymmetry is the decision's spine.** A→B is reversible in place: an unconverted primitive
@@ -403,13 +403,13 @@ Phalcom does not have a moving collector today. It rejected C to keep the option
 
 **Preemption / OS threads** was rejected as requiring a memory model and locks throughout the object
 model — "the singular cooperative primitive is the whole point." **Resumable (Smalltalk) suspension
-of failures** was ruled out of scope; ADR-0008 propagation is terminating.
+of failures** was ruled out of scope; TDR-0007 propagation is terminating.
 
 ---
 
 ## Lua: the same rule, and the escape route, in one language's history
 
-ADR-0030 names its lineage as *"audit Option A / Lua-5.1 style,"* and the resemblance goes further
+TDR-0027 names its lineage as *"audit Option A / Lua-5.1 style,"* and the resemblance goes further
 than the ADR claims.
 
 Lua represents Lua-to-Lua calls on its own data stack inside the `lua_State`, not the C stack —
@@ -614,7 +614,7 @@ to tell a suspended Rust frame that its index means something different now.**
 | `primitive/block.rs::block_call` | @ ~L117, depth increment @ ~L158 |
 | `compiler/lib/loops.rs::compile_for` | @ ~L120 — the frameless `for` lowering |
 | `core/core.ph::Iterable#each` | @ ~L654 — `each` is Phalcom, not Rust |
-| ADR-0030 §4/§5/Alternatives | [`docs/adr/accepted/0030-…`](../../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md) |
+| TDR-0027 §4/§5/Alternatives | [TDR-0026](../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) |
 | D-FIB-5 (typed return vs VM flag) | `docs/forge/units/U-FIBER/implementation-spec.md` @ ~L332 |
 
 Fixtures: `phalcom-core/tests/lang/concurrency/` — `concurrency_fiber_restricted_yield_guard.ph`,

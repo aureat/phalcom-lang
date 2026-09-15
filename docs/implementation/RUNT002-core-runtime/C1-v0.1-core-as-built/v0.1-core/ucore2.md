@@ -83,9 +83,9 @@ already-fully-specified fixture-authoring pass — not a re-verify-and-close.
 > `0da64d6`. **Floor delta: none** (no new native primitive — see §2).
 >
 > **Governing anchors:** [`values-and-absence.md`](../../../spec/current/values-and-absence.md) §3
-> (absence is `Option`), §3.3 (combinator groups); [ADR-0007](../../../adr/0007-option-as-abstract-with-some-none.md);
-> [ADR-0021](../../../adr/0021-no-truthiness-enforcement.md);
-> [ADR-0018](../../../adr/0018-sacred-selector-inliner-and-override-guard.md) + its
+> (absence is `Option`), §3.3 (combinator groups); [TDR-0006](../../../../decisions/accepted/0006-option-as-abstract-with-some-none.md);
+> [TDR-0019](../../../../decisions/accepted/0019-no-truthiness-enforcement.md);
+> [TDR-0016](../../../../decisions/accepted/0016-sacred-selector-inliner-and-override-guard.md) + its
 > **U-CORE-2 amendment**; [`catalog-delta.md`](../../../spec/current/core/catalog-delta.md) §2.2 / §4.2;
 > [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) Q2 / §4.4; [`floor-census.md`](../../../spec/current/core/floor-census.md)
 > §2.6 / §2.8; [`invariant-requirements.md`](../../../spec/current/core/invariant-requirements.md) R-INV-2.1–2.4,
@@ -158,8 +158,8 @@ and note it.
 | `None#toString` / `Some#toString` surface (the `toString` **message**) | **U-CORE-4** | [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) §4.4 |
 | `Option#ifSome(_)`, `map(_)`, `flatMap(_)`, `filter(_)`, `unwrapOr(_)`, `unwrapOrElse(_)`, `unwrap()`, `zip(_)`, `contains(_)` | **U-STD** | [`catalog-delta.md`](../../../spec/current/core/catalog-delta.md) §2.2 |
 | `??` / `?.` surface tokens + desugar | **U-LEX** | [`values-and-absence.md`](../../../spec/current/values-and-absence.md) §3.4 |
-| `Some(x)` bare-call sugar (only `Some.new(x)` exists today) | **U-LEX** | [ADR-0021](../../../adr/0021-no-truthiness-enforcement.md) |
-| Abstract `Bool` + `True`/`False` singleton *representation* | **U11** (separate forge unit) | [ADR-0004](../../../adr/0004-boolean-as-abstract-bool-with-true-false.md); see §5.3 |
+| `Some(x)` bare-call sugar (only `Some.new(x)` exists today) | **U-LEX** | [TDR-0019](../../../../decisions/accepted/0019-no-truthiness-enforcement.md) |
+| Abstract `Bool` + `True`/`False` singleton *representation* | **U11** (separate forge unit) | [TDR-0004](../../../../decisions/accepted/0004-boolean-as-abstract-bool-with-true-false.md); see §5.3 |
 | `Result`/`Ok`/`Err` (the `Option` sibling) | **U-CORE-6** (reserve) / later | [`forward-compat.md`](../../../spec/current/core/forward-compat.md) §2; §5.2 below |
 | Removing the `bool_class_new` debug `println!`s (`boolean.rs` L33/L35) | **DEFERRED** (pre-existing noise) | `docs/forge/DEFERRED.md` |
 
@@ -374,7 +374,7 @@ primitives.)*
 **Claim:** every `Option` combinator is defined over `match` (no combinator peeks
 at a variant tag), so overriding `match` reroutes `isSome`/`isNone`/`ifNone`/`orElse`
 ([`values-and-absence.md`](../../../spec/current/values-and-absence.md) §3.3;
-[ADR-0007](../../../adr/0007-option-as-abstract-with-some-none.md)'s "dispatch
+[TDR-0006](../../../../decisions/accepted/0006-option-as-abstract-with-some-none.md)'s "dispatch
 replaces branching").
 
 **Today-executable form (reopen `Option`, override `match`).** A genuine
@@ -489,7 +489,7 @@ reifies `Error` and **reserves** `Result`): U-CORE-2 must not sneak in
 
 ### 5.3 U11 relationship — surface vs representation (do NOT absorb)
 
-U11 (abstract `Bool` + `True`/`False` singletons, [ADR-0004](../../../adr/0004-boolean-as-abstract-bool-with-true-false.md))
+U11 (abstract `Bool` + `True`/`False` singletons, [TDR-0004](../../../../decisions/accepted/0004-boolean-as-abstract-bool-with-true-false.md))
 is a **separate** forge unit about Bool *representation* (today `Bool` is the
 immediate `Value::Bool(bool)`, and `GuardBool` matches `Value::Bool(_)`, `vm.rs`
 L1135). U-CORE-2 is about the `Option`-returning *surface* of `ifTrue`/`ifFalse`

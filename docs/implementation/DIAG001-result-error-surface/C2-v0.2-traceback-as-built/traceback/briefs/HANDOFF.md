@@ -9,7 +9,7 @@ unit**, in the order below. Each brief is self-contained; the normative specs ar
 
 | Unit | State | Evidence |
 |---|---|---|
-| G1/G2 gates | ✅ done | PDR-0010 ratified `27c4a1a`; E002 fixed `a265684` + `3306fdf` |
+| G1/G2 gates | ✅ done | TDR-0063 ratified `27c4a1a`; E002 fixed `a265684` + `3306fdf` |
 | G0 Map/Set | ✅ COMPLETE, worktree-verified green | `861e21a` (core: reentrant_depth lock, fallible accessors, `RuntimeError::ConcurrentMutation`), `f43c00c` (docs), `df9bf45` (5 fixtures, negative-controlled) |
 | T1 walk/accessor | ⚠️ ~95% — committed `e046696`, needs a short FINISHER pass | Done: walk API (oldest-first, expand seam, 3 tests), `span_at`/`line_at` + ALL `.spans[` sites migrated (invoke_at, SuperSend, runtime_error), `FiberObject::seq` (root=1). Finisher owes: (a) full `cargo test && cargo clippy --workspace` gate (agent wrapped before running it), (b) fix the order-dependent flaky `walk_orders_oldest_first_with_selector_shaped_names` test, (c) class-qualified frame names (`Cart.total` composition) — deliberately deferred, design note in walk.rs module doc; either finish it or explicitly hand to T4. `runtime_error` not swapped onto StackWalk (fine — T4 rewrites it anyway); `FrameName::Native` unconstructed (correct, T4/IS §5.5) |
 | T2 substrate | ✅ COMPLETE | `3ec895d` (deps), `523583c` (style.rs), `255d8b8` (caret.rs), `703c9e6` (mod.rs migration + flags + CLAUDE.md), `15ca990` (DEFERRED). 15 new tests green; miette gone. Known seams left FOR T4/T5 by design: `Snippet` not yet consumed by a real renderer; `print_*` read `RenderConfig` via a `RENDER_CONFIG` OnceLock (T4/T5 replace with explicit param); TTY width hardcoded 80 (DEFERRED.md) |

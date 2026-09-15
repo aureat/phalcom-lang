@@ -6,6 +6,7 @@ use crate::identity::{
     CallableId, CallableOwnerId, CallableParameterId, DataComponentId, DeclarationId, DispatchSide, FieldId, ModuleId, SemanticTargetId, SourceOwner,
     SourceSiteId, SourceSiteLocalId, VariantFieldId, VariantId,
 };
+use crate::traits::AssociatedTypeRequirementId;
 use crate::source_index::scope::{
     CallableSourceInfo, DeclarationSourceInfo, FieldSourceInfo, ImportBindingOrigin, SourceBindingInfo, SourceBindingKind, SourceCallableKind,
     SourceDeclarationKind, SourceScopeId, SourceScopeIndex,
@@ -46,6 +47,9 @@ pub struct SourceIndexContext {
     /// Resolution is performed by the compiler type resolver before occurrence
     /// construction; the source index only publishes the resulting identity.
     pub type_reference_targets: BTreeMap<(ModuleId, SourceRange), DeclarationId>,
+    /// Exact trait-owned associated declarations keyed by conformance binding
+    /// LHS range. The semantic session supplies this identity map.
+    pub associated_type_targets: BTreeMap<(ModuleId, SourceRange), AssociatedTypeRequirementId>,
 }
 
 struct CallableVisit<'a> {
@@ -163,7 +167,7 @@ impl TypeReferenceTargetCollector<'_> {
                             }
                             self.where_clause(index.where_clause.as_ref(), &index_bound);
                         }
-                        ClassMember::Variant(_) => {}
+                        ClassMember::Variant(_) | ClassMember::Delegation(_) => {}
                     }
                 }
             }
@@ -184,7 +188,11 @@ impl TypeReferenceTargetCollector<'_> {
                 let mut trait_bound = bound.clone();
                 trait_bound.extend(trait_def.generic_parameters.iter().map(|parameter| parameter.name.clone()));
                 self.where_clause(trait_def.where_clause.as_ref(), &trait_bound);
-                self.behavior_members(&trait_def.members, &trait_bound);
+                for trait_member in &trait_def.members {
+                    if let Some(member) = trait_member.behavior() {
+                        self.behavior_members(std::slice::from_ref(member), &trait_bound);
+                    }
+                }
             }
             Statement::TypeAlias(alias) => {
                 let mut alias_bound = bound.clone();
@@ -208,7 +216,10 @@ impl TypeReferenceTargetCollector<'_> {
                 if matches!(impl_def.kind, phalcom_ast::ast::ImplKind::Conformance { .. }) {
                     return;
                 }
-                for member in &impl_def.members {
+                for impl_member in &impl_def.members {
+                    let Some(member) = impl_member.behavior() else {
+                        continue;
+                    };
                     match member {
                         phalcom_ast::ast::BehaviorMember::Method(method) => {
                             let mut method_bound = impl_bound.clone();
@@ -676,7 +687,22 @@ impl SourceScopeBuilder<'_> {
                 self.index.module.clone(),
                 crate::identity::ImplLocalId(statement_index as u32),
             ));
-            for member in &impl_def.members {
+            for impl_member in &impl_def.members {
+                if let phalcom_ast::ast::ImplMember::AssociatedTypeBinding(binding) = impl_member {
+                    if let Some(requirement) = self
+                        .context
+                        .associated_type_targets
+                        .get(&(self.index.module.clone(), binding.name_range))
+                        .cloned()
+                    {
+                        let site = self.allocate_site(self.current_owner.clone(), binding.name_range, SourceSiteKind::Occurrence);
+                        self.index.register_target(site, SemanticTargetId::AssociatedType(requirement));
+                    }
+                    continue;
+                }
+                let Some(member) = impl_member.behavior() else {
+                    continue;
+                };
                 self.visit_behavior_member(parent, owner.clone(), member, behavior_side(member));
             }
             return;
@@ -742,7 +768,10 @@ impl SourceScopeBuilder<'_> {
                 CallableOwnerId::Declaration(target)
             }
         };
-        for member in &impl_def.members {
+        for impl_member in &impl_def.members {
+            let Some(member) = impl_member.behavior() else {
+                continue;
+            };
             let side = behavior_side(member);
             self.visit_behavior_member(parent, owner.clone(), member, side);
         }
@@ -793,7 +822,22 @@ impl SourceScopeBuilder<'_> {
                 declaration_range: trait_def.range,
             },
         );
-        for member in &trait_def.members {
+        let mut associated_type_index = 0u32;
+        for trait_member in &trait_def.members {
+            if let phalcom_ast::ast::TraitMember::AssociatedType(declaration_member) = trait_member {
+                let requirement = AssociatedTypeRequirementId::new(declaration.clone(), associated_type_index);
+                associated_type_index += 1;
+                let site = self.allocate_site(
+                    SourceOwner::Module(self.index.module.clone()),
+                    declaration_member.name_range,
+                    SourceSiteKind::AssociatedType(requirement.clone()),
+                );
+                self.index.register_target(site, SemanticTargetId::AssociatedType(requirement));
+                continue;
+            }
+            let Some(member) = trait_member.behavior() else {
+                continue;
+            };
             self.visit_behavior_member(parent, CallableOwnerId::Declaration(declaration.clone()), member, behavior_side(member));
         }
     }
@@ -1099,7 +1143,7 @@ impl SourceScopeBuilder<'_> {
                     self.visit_expr(parent, default);
                 }
             }
-            ClassMember::Variant(_) => {}
+            ClassMember::Variant(_) | ClassMember::Delegation(_) => {}
         }
     }
 

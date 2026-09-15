@@ -23,7 +23,7 @@ In Phalcom, `Fiber.yield` is also not an opcode, but the switch path is differen
 - Wren fiber state layout and caller semantics: [`wren_value.h:298-355`](../../../resources/wren/src/vm/wren_value.h#L298-L355)
 - Phalcom yield guard and handoff: [`fiber.rs:415-432`](../../../phalcom-core/src/primitive/fiber.rs#L415-L432) and [`fiber.rs:473-479`](../../../phalcom-core/src/primitive/fiber.rs#L473-L479)
 - Phalcom restricted-yield spec: [`concurrency.md:113-153`](../../../docs/spec/current/concurrency.md#L113-L153)
-- Phalcom fiber ADR: [`0030-fibers-and-futures-cooperative-concurrency.md:21-34`](../../../docs/adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md#L21-L34)
+- Phalcom fiber ADR: [TDR-0026](../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md#L21-L34)
 
 ## Interpretation
 

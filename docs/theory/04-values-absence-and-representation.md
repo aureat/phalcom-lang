@@ -48,7 +48,7 @@ means shrinking either the index space or the generation counter, and the genera
 what makes use-after-free *detectable*. So the sequence is: shrink the handle, audit the
 use-after-free detection that the shrink weakens, and only then box.
 
-**`[V]`** A second, independent blocker arrived from a different direction. ADR-0024 commits to a
+**`[V]`** A second, independent blocker arrived from a different direction. TDR-0022 commits to a
 split numeric tower — abstract `Number` over an auto-promoting bignum `Int` and an IEEE-754
 `Float`. NaN-boxing's premise is that *the* numeric type is a double. Under a split tower, the
 question is not "does NaN-boxing pay" but "which of the two numeric types does it pay for, and

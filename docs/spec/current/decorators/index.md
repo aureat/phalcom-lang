@@ -4,7 +4,7 @@
   `Attribute` retention layer are built and green; the Install/Dispatch/Runtime
   tiers are **specified but not built** (see "What is built, by tier" below).
 - Date: 2026-07-12 (five-tier model ratified 2026-07-14 under
-  [ADR-0054](../../../adr/accepted/0054-two-speed-ratification-annotation-decorator-tiers.md));
+  [TDR-0044](../../../decisions/accepted/0044-two-speed-ratification-annotation-decorator-tiers.md));
   split into per-decorator as-built files 2026-07-15
 - Evidence: `phalcom-core/src/compiler/attributes.rs` — `AttributeRegistry::new`
   registers twelve expander rows, including `NativeExpander`/`IgnoreExpander`;
@@ -35,7 +35,7 @@ description of HEAD.
 |---|---|---|---|
 | [requires.md](requires.md) | `@requires` | Compile / weave | **Implemented** (U-ANNOT-CONTRACTS) |
 | [ensures.md](ensures.md) | `@ensures` | Compile / weave | **Implemented** (U-ANNOT-CONTRACTS) |
-| [invariant.md](invariant.md) | `@invariant` | Compile / weave | **Implemented** (U-ANNOT-CONTRACTS, + [ADR-0052](../../../adr/accepted/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)) |
+| [invariant.md](invariant.md) | `@invariant` | Compile / weave | **Implemented** (U-ANNOT-CONTRACTS, + [TDR-0042](../../../decisions/accepted/0042-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)) |
 | [construct.md](construct.md) | `@construct` | Compile / generate | **Implemented** (U-ANNOT-LAYOUT) |
 | [accessors.md](accessors.md) | `@get`, `@set` | Compile / generate | **Implemented** (U-ANNOT-LAYOUT) |
 | [data.md](data.md) | `@data` | Compile / generate | **Implemented** (U-ANNOT-LAYOUT) |
@@ -69,7 +69,7 @@ Compile tier and the retention/reflection layer, and nothing else:
 | **Layout / slot** | ⚠️ **no distinct tier** | Nothing reserves a slot. `@construct` is classified Layout by the spec but is implemented as an ordinary generate-phase derive. No `finalizeLayout` hook, no `reserveSlot`/`slotAt`/`setSlotAt`. |
 | **Install / metaobject** | ❌ **not built** | The `wrap(_)` selector is *reserved and validated* (`RESERVED_HOOKS`, attributes.rs L1405-1406) but **never dispatched**. No `Method.fromBlock`, no `Method.invokeOn`, no `Behavior.defineMethod`. |
 | **Dispatch / DNU** | ❌ **not built** | `resolveMissing(_)` reserved and validated; never dispatched. |
-| **Runtime / per-send** | ❌ **not built** | `aroundSend(_)` reserved and validated; never dispatched. No `Invocation` object, no `has_runtime_interceptor` guard bit ([ADR-0053](../../../adr/accepted/0053-runtime-decorator-interception-reuses-override-epoch-guard.md) is ratified but unimplemented). |
+| **Runtime / per-send** | ❌ **not built** | `aroundSend(_)` reserved and validated; never dispatched. No `Invocation` object, no `has_runtime_interceptor` guard bit ([TDR-0043](../../../decisions/accepted/0043-runtime-decorator-interception-reuses-override-epoch-guard.md) is ratified but unimplemented). |
 
 **The load-bearing consequence.** A user `Attribute` subclass declaring
 `@On(Method, Install)` and implementing `wrap(m)` **compiles, and its instance is
@@ -105,14 +105,14 @@ tiers (method-table macro vs. layout derive) rather than one, and observing that
 reactive `@observable` state wants "the same `Map<Symbol,…>` shape a
 `doesNotUnderstand`-delegation prototype object uses."
 
-> **Superseded justification, per [ADR-0054](../../../adr/accepted/0054-two-speed-ratification-annotation-decorator-tiers.md).**
+> **Superseded justification, per [TDR-0044](../../../decisions/accepted/0044-two-speed-ratification-annotation-decorator-tiers.md).**
 > Earlier drafts justified reopening that foreclosure via
 > [typing.md §5.2](../experimental/typing.md)'s erasure invariant `E` — arguing
 > that under a dynamically-typed Phalcom `E` no longer holds for typed members
 > anyway, which removes the sole argument against runtime hooks. That is **no
 > longer the live justification**: it leaned on a third, unrelated, equally
 > unratified draft. The actual justification is
-> [ADR-0053](../../../adr/accepted/0053-runtime-decorator-interception-reuses-override-epoch-guard.md),
+> [TDR-0043](../../../decisions/accepted/0043-runtime-decorator-interception-reuses-override-epoch-guard.md),
 > which gives the Runtime tier's interception cost an explicit, implementable
 > guard. The erasure argument is kept as historical context for why this note was
 > originally written, not as a standing argument.
@@ -131,7 +131,7 @@ the decoration fires* — from pure static codegen to per-send interception:
 | Tier | Fires | What it touches | Runtime cost | `runtime` | Examples |
 |------|-------|-----------------|--------------|-----------|----------|
 | **Compile / derive** | compiler pass, once | AST → AST; emits static members | none | `false` | `@data`, `@variant`, `@get`/`@set`, `@requires`/`@ensures` |
-| **Layout / slot** | compiler *finalize*, once | grows/reserves the instance slot vector (ADR-0011) | none per-call; changes layout | `false` | `@construct`, `@observable` storage |
+| **Layout / slot** | compiler *finalize*, once | grows/reserves the instance slot vector (TDR-0010) | none per-call; changes layout | `false` | `@construct`, `@observable` storage |
 | **Install / metaobject** | class-definition time, once | wraps/installs a real `Method` object | one-time; wrapped `Method` stays inline-cacheable | `true` | `@memoize`, `@timed`, `@synchronized`, type checks, schema `defineMethod` |
 | **Dispatch / DNU** | on lookup **miss**, lazily | generates/installs `doesNotUnderstand` | slow-path only | `true` | `@delegate`, `@method_missing` |
 | **Runtime / per-send** | **every** invocation | an around-send wrapper consulted per call | per-call | `true` | `aroundSend`, `@traced`, `@featureFlag` |
@@ -329,7 +329,7 @@ work-hoisting (per-send cost moved to per-definition cost), not speculation:
   `Vec<Interceptor>` and looping it per send, build one fused closure
   (`traced.wrap(rateLimited.wrap(realMethod))`) exactly once when the class is
   defined, and cache *that*, not the list.
-- **Cache the composed chain behind [ADR-0053](../../../adr/accepted/0053-runtime-decorator-interception-reuses-override-epoch-guard.md)'s
+- **Cache the composed chain behind [TDR-0043](../../../decisions/accepted/0043-runtime-decorator-interception-reuses-override-epoch-guard.md)'s
   `has_runtime_interceptor` guard bit.** A monomorphic call site can hold a
   direct pointer to the pre-composed chain alongside the existing `ClassId`
   check — a warm decorated call site then costs one bit-check + one direct

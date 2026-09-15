@@ -198,6 +198,7 @@ fn trait_surface_publishes_all_behavior_shapes_before_default_body_analysis() {
   [_ index: Int] -> Int
   fallback() -> Int { 1 }
 }
+
 "#,
         )
         .analyze();
@@ -226,6 +227,394 @@ fn trait_surface_publishes_all_behavior_shapes_before_default_body_analysis() {
         fixture.analysis.snapshot.surfaces.get(&declaration).is_none(),
         "trait surface must not enter ordinary dispatch surfaces"
     );
+}
+
+#[test]
+fn associated_type_surface_uses_trait_owned_identity_and_exact_binding_evidence() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"trait Iterable {
+  type Item
+}
+
+class Box<T> {
+}
+
+class Use {
+  take(_ box: Box<Int>)
+  take_text(_ box: Box<String>)
+}
+
+impl<T> Iterable for Box<T> {
+  type Item = T
+}
+"#,
+        )
+        .analyze();
+    assert!(!fixture.analysis.snapshot.has_errors(), "associated binding diagnostics: {:?}", fixture.analysis.snapshot.diagnostics);
+
+    let trait_declaration = fixture.decl("main", "Iterable");
+    let surface = fixture.analysis.snapshot.trait_surfaces.get(&trait_declaration).expect("trait surface");
+    assert_eq!(surface.associated_types.len(), 1);
+    let requirement = surface.associated_type_by_name("Item").expect("Item requirement");
+    assert_eq!(requirement.requirement.owner, trait_declaration);
+    assert_eq!(requirement.requirement.index, 0);
+    assert_eq!(requirement.kind, phalcom_semantic::types::id::KindId::TYPE);
+    assert!(surface.members.is_empty(), "associated types are not callable requirements");
+
+    let plan = fixture.analysis.snapshot.conformance_witness_plans.values().next().expect("conformance plan");
+    assert!(plan.associated_type_plan.failures.is_empty());
+    assert_eq!(plan.associated_type_plan.bindings.len(), 1);
+
+    let int = fixture.analysis.snapshot.declarations.form(&CoreDeclarationIds::default().int).expect("Int form");
+    let string = fixture.analysis.snapshot.declarations.form(&CoreDeclarationIds::default().string).expect("String form");
+    let use_decl = fixture.decl("main", "Use");
+    let take = fixture
+        .analysis
+        .snapshot
+        .surfaces()
+        .get(&use_decl)
+        .expect("Use surface")
+        .instance
+        .get_callable(&Selector::method("take", [SelectorSlot::Positional]).expect("take selector"))
+        .expect("take signature");
+    let target = take.parameters[0].ty.ty().expect("Box<Int> type");
+    let take_text = fixture
+        .analysis
+        .snapshot
+        .surfaces()
+        .get(&use_decl)
+        .expect("Use surface")
+        .instance
+        .get_callable(&Selector::method("take_text", [SelectorSlot::Positional]).expect("take_text selector"))
+        .expect("take_text signature");
+    let text_target = take_text.parameters[0].ty.ty().expect("Box<String> type");
+    let trait_ref = TraitRef::new(trait_declaration, Vec::new().into_boxed_slice());
+    let evidence = fixture.analysis.snapshot.conformance_evidence_for(target, &trait_ref).expect("exact evidence");
+    let binding = evidence.associated_types.get(&requirement.requirement).expect("exact Item binding");
+    assert_eq!(binding.value, int);
+    let text_evidence = fixture.analysis.snapshot.conformance_evidence_for(text_target, &trait_ref).expect("exact String evidence");
+    assert_eq!(text_evidence.associated_types[&requirement.requirement].value, string);
+}
+
+#[test]
+fn associated_type_binding_validation_is_part_of_conformance_completeness() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"trait Iterable {
+  type Item
+}
+
+class Box {
+}
+
+impl Iterable for Box {
+}
+"#,
+        )
+        .analyze();
+    let plan = fixture.analysis.snapshot.conformance_witness_plans.values().next().expect("conformance plan");
+    let phalcom_semantic::impls::ConformanceCompleteness::Incomplete { failures } = &plan.completeness else {
+        panic!("missing associated binding must be incomplete: {:?}", plan.completeness);
+    };
+    assert!(failures.iter().any(|failure| {
+        matches!(failure, phalcom_semantic::impls::ConformanceFailure::AssociatedType(failure) if failure.reason.contains("no conformance binding"))
+    }));
+    assert!(fixture
+        .analysis
+        .snapshot
+        .all_diagnostics()
+        .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::AssociatedTypeMissing));
+    assert!(fixture.analysis.snapshot.conformance_evidence_for(
+        fixture.analysis.snapshot.declarations.form(&fixture.decl("main", "Box")).expect("Box form"),
+        &TraitRef::new(fixture.decl("main", "Iterable"), Vec::new().into_boxed_slice()),
+    ).is_none());
+}
+
+#[test]
+fn associated_type_binding_is_rejected_in_inherent_impls() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"class Box {
+}
+
+impl Box {
+  type Item = Int
+}
+"#,
+        )
+        .analyze();
+    assert!(fixture
+        .analysis
+        .snapshot
+        .all_diagnostics()
+        .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::AssociatedTypeInherentUnsupported));
+}
+
+#[test]
+fn associated_type_names_are_trait_local_and_duplicate_declarations_are_rejected() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"trait First {
+  type Item
+  type Item
+}
+
+trait Second {
+  type Item
+}
+"#,
+        )
+        .analyze();
+    let first = fixture.analysis.snapshot.trait_surfaces.get(&fixture.decl("main", "First")).expect("First surface");
+    let second = fixture.analysis.snapshot.trait_surfaces.get(&fixture.decl("main", "Second")).expect("Second surface");
+    assert_eq!(first.associated_types.len(), 1);
+    assert_eq!(second.associated_types.len(), 1);
+    assert_ne!(
+        first.associated_type_by_name("Item").expect("First Item").requirement,
+        second.associated_type_by_name("Item").expect("Second Item").requirement
+    );
+    assert!(fixture
+        .analysis
+        .snapshot
+        .all_diagnostics()
+        .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::AssociatedTypeDuplicate));
+}
+
+#[test]
+fn associated_type_binding_negative_matrix_is_deterministic() {
+    let duplicate = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"trait Iterable {
+  type Item
+}
+
+class Box {
+}
+
+impl Iterable for Box {
+  type Item = Int
+  type Item = String
+}
+"#,
+        )
+        .analyze();
+    assert!(duplicate
+        .analysis
+        .snapshot
+        .all_diagnostics()
+        .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::AssociatedTypeDuplicate));
+
+    let unknown = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"trait Iterable {
+  type Item
+}
+
+class Box {
+}
+
+impl Iterable for Box {
+  type Extra = Int
+}
+"#,
+        )
+        .analyze();
+    assert!(unknown
+        .analysis
+        .snapshot
+        .all_diagnostics()
+        .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::AssociatedTypeUnknown));
+
+    let invalid = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"trait Iterable {
+  type Item
+}
+
+class Box {
+}
+
+impl Iterable for Box {
+  type Item = Missing
+}
+"#,
+        )
+        .analyze();
+    assert!(invalid
+        .analysis
+        .snapshot
+        .all_diagnostics()
+        .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::AssociatedTypeBindingInvalid));
+}
+
+#[test]
+fn direct_field_delegation_negative_matrix_is_deterministic() {
+    let missing = WorkspaceFixture::new()
+        .module("main", "class Counter { count via _missing }\n")
+        .analyze();
+    assert!(missing
+        .analysis
+        .snapshot
+        .all_diagnostics()
+        .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::DelegationFieldNotFound));
+
+    let untyped = WorkspaceFixture::new()
+        .module("main", "class Counter { _count\n count via _count }\n")
+        .analyze();
+    assert!(untyped
+        .analysis
+        .snapshot
+        .all_diagnostics()
+        .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::DelegationFieldTypeRequired));
+
+    let immutable = WorkspaceFixture::new()
+        .module("main", "class Counter { const _count: Int\n count=(_) via _count }\n")
+        .analyze();
+    assert!(immutable
+        .analysis
+        .snapshot
+        .all_diagnostics()
+        .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::DelegationSetterRequiresMutableField));
+
+    let superclass = WorkspaceFixture::new()
+        .module(
+            "main",
+            "class Base { mut _count: Int }\nclass Child is Base { count via _count }\n",
+        )
+        .analyze();
+    assert!(superclass
+        .analysis
+        .snapshot
+        .all_diagnostics()
+        .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::DelegationFieldNotFound));
+}
+
+#[test]
+fn delegated_accessors_conflict_with_explicit_ordinary_accessors() {
+    let getter = WorkspaceFixture::new()
+        .module(
+            "main",
+            "class Counter { mut _count: Int\n count -> Int { _count }\n count via _count }\n",
+        )
+        .analyze();
+    assert!(getter
+        .analysis
+        .snapshot
+        .all_diagnostics()
+        .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::ImplMemberConflict));
+
+    let setter = WorkspaceFixture::new()
+        .module(
+            "main",
+            "class Counter { mut _count: Int\n count=(_ value: Int) { _count = value }\n mut count via _count }\n",
+        )
+        .analyze();
+    assert!(setter
+        .analysis
+        .snapshot
+        .all_diagnostics()
+        .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::ImplMemberConflict));
+}
+
+#[test]
+fn trait_property_and_class_via_publish_ordinary_accessor_surface() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"trait Counter {
+  count: Int
+  mut total: Int
+}
+
+class CounterImpl {
+  mut _count: Int
+  count via _count
+  mut total via _count
+}
+"#,
+        )
+        .analyze();
+    assert!(!fixture.analysis.snapshot.has_errors(), "class/property semantic update produced errors");
+
+    let class = fixture.decl("main", "CounterImpl");
+    let surface = fixture.analysis.snapshot.surfaces().get(&class).expect("class surface");
+    let count = Selector::getter("count").expect("count getter");
+    let total_getter = Selector::getter("total").expect("total getter");
+    let total_setter = Selector::setter("total").expect("total setter");
+    assert!(surface.instance.get_callable(&count).is_some());
+    assert!(surface.instance.get_callable(&total_getter).is_some());
+    assert!(surface.instance.get_callable(&total_setter).is_some());
+
+    let trait_surface = fixture.analysis.snapshot.trait_surfaces.get(&fixture.decl("main", "Counter")).expect("trait surface");
+    assert!(trait_surface.get_by_selector(&count, DispatchSide::Instance).is_some());
+    assert!(trait_surface.get_by_selector(&total_getter, DispatchSide::Instance).is_some());
+    assert!(trait_surface.get_by_selector(&total_setter, DispatchSide::Instance).is_some());
+}
+
+#[test]
+fn trait_property_accepts_explicit_ordinary_getter_and_setter_witnesses() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"trait Counter {
+  mut count: Int
+}
+
+class CounterImpl {
+  mut _count: Int
+  count -> Int { _count }
+  count=(_ value: Int) { _count = value }
+}
+
+impl Counter for CounterImpl {
+}
+"#,
+        )
+        .analyze();
+    assert!(!fixture.analysis.snapshot.has_errors(), "explicit property witnesses produced errors: {:?}", fixture.analysis.snapshot.diagnostics);
+    let target = fixture
+        .analysis
+        .snapshot
+        .declarations
+        .form(&fixture.decl("main", "CounterImpl"))
+        .expect("CounterImpl form");
+    let trait_ref = TraitRef::new(fixture.decl("main", "Counter"), Vec::new().into_boxed_slice());
+    let evidence = fixture.analysis.snapshot.conformance_evidence_for(target, &trait_ref).expect("complete property conformance");
+    assert_eq!(evidence.requirements.len(), 2, "getter and setter should be ordinary witness selections");
+}
+
+#[test]
+fn conformance_local_via_is_rejected_without_target_private_field_access() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"trait CounterTrait {
+  mut count: Int
+}
+
+class Counter {
+  mut _count: Int
+}
+
+impl CounterTrait for Counter {
+  mut count via _count
+}
+"#,
+        )
+        .analyze();
+    assert!(fixture
+        .analysis
+        .snapshot
+        .all_diagnostics()
+        .any(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::DelegationInConformanceUnsupported));
 }
 
 #[test]
@@ -345,7 +734,7 @@ fn callable_body_accepts_explicit_trait_owner_generics_without_nominal_entry() {
     let unit = snapshot.sources.get(fixture.module("main")).expect("source unit");
     let (body, body_range) = match &unit.program.statements[0] {
         Statement::Trait(trait_def) => match &trait_def.members[0] {
-            BehaviorMember::Method(method) => (method.body.statements().expect("default method body"), method.range),
+            phalcom_ast::ast::TraitMember::Behavior(BehaviorMember::Method(method)) => (method.body.statements().expect("default method body"), method.range),
             member => panic!("expected trait method, got {member:?}"),
         },
         statement => panic!("expected trait declaration, got {statement:?}"),

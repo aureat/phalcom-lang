@@ -1106,7 +1106,7 @@ fn member_selector(m: &ClassMember) -> Result<Option<String>, CompilerError> {
             };
             Some(encode_selector("", &labels, kind))
         }
-        ClassMember::Field(_) | ClassMember::Variant(_) => None,
+        ClassMember::Delegation(_) | ClassMember::Field(_) | ClassMember::Variant(_) => None,
     })
 }
 
@@ -2126,6 +2126,10 @@ fn member_target(member: &ClassMember) -> Target {
         ClassMember::Method(_) => Target::Method,
         ClassMember::Getter(_) => Target::Getter,
         ClassMember::Setter(_) => Target::Setter,
+        ClassMember::Delegation(delegation) => match delegation.kind {
+            phalcom_ast::ast::DelegatedAccessorKind::Setter => Target::Setter,
+            phalcom_ast::ast::DelegatedAccessorKind::Getter | phalcom_ast::ast::DelegatedAccessorKind::ReadWrite => Target::Getter,
+        },
         ClassMember::Field(_) => Target::Field,
         ClassMember::Variant(_) => Target::Variant,
         ClassMember::Index(_) => Target::Index,
@@ -2148,6 +2152,7 @@ fn member_has_attr(member: &ClassMember, name: &str) -> bool {
         ClassMember::Field(f) => &f.attributes,
         ClassMember::Variant(v) => &v.attributes,
         ClassMember::Index(ix) => &ix.attributes,
+        ClassMember::Delegation(delegation) => &delegation.attributes,
     };
     attrs.iter().any(|a| a.name == name)
 }
@@ -2352,6 +2357,7 @@ pub fn expand_class_attributes(
             ClassMember::Field(f) => std::mem::take(&mut f.attributes),
             ClassMember::Variant(v) => std::mem::take(&mut v.attributes),
             ClassMember::Index(ix) => std::mem::take(&mut ix.attributes),
+            ClassMember::Delegation(delegation) => std::mem::take(&mut delegation.attributes),
         };
 
         for attr in &attrs {
@@ -2408,6 +2414,7 @@ pub fn expand_class_attributes(
             ClassMember::Field(f) => f.attributes = attrs,
             ClassMember::Variant(v) => v.attributes = attrs,
             ClassMember::Index(ix) => ix.attributes = attrs,
+            ClassMember::Delegation(delegation) => delegation.attributes = attrs,
         }
     }
 

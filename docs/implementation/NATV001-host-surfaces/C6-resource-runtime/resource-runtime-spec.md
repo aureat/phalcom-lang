@@ -1,7 +1,7 @@
 # NATV001.C6 — Resource runtime spec
 
 > **Status:** dispatch-ready. Governing records **Accepted**:
-> [PDR-0005](../../../pdr/0005-resources-are-disposable-handles-not-finalized.md)
+> [TDR-0057](../../../decisions/accepted/0057-resources-are-disposable-handles-not-finalized.md)
 > §3/§3a/§3b/§4/§5; surface laws in
 > [`../stdlib/stream-protocol.md`](../../spec/current/stdlib/stream-protocol.md) §3. No dependency on the
 > reactor or on any IO surface — this unit is the substrate both need, and it ships

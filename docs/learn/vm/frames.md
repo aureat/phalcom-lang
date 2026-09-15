@@ -153,15 +153,15 @@ out. That is what makes "no caller pointer" *safe*: in branch (a), the reason yo
 parent link and the whole hazard evaporates.
 
 And here is the re-derivation the doc promised. The frame is `Copy` **because every link it holds is
-a `Copy` handle** — and *that* is not a frame decision at all. It is **ADR-0009 (the handle arena)**:
+a `Copy` handle** — and *that* is not a frame decision at all. It is **TDR-0008 (the handle arena)**:
 objects live in a central `Heap` referenced by `Copy` integer handles (`ObjRef`), explicitly to
 kill the `Rc<RefCell>` borrow-panic surface and the inert cycle-breaker the old model carried.
-ADR-0009's rejected alternatives were "keep `Rc<RefCell>`" and "a full tracing `Gc<T>` now." It says
+TDR-0008's rejected alternatives were "keep `Rc<RefCell>`" and "a full tracing `Gc<T>` now." It says
 nothing about frames. But once *every object reference is a `Copy` integer*, a frame built from those
 references is `Copy` too — for free — and branch (b) becomes not just available but the path of no
 resistance. **Two constraints — "references are `Copy` handles" and "the VM must own its call stack"
 — force the frame to be a value in an array.** You did not need `frame.rs` to predict its shape;
-you needed ADR-0009.
+you needed TDR-0008.
 
 ## The lifecycle: push, resume, and the payoff — truncate, don't unlink
 
@@ -247,7 +247,7 @@ unboxed, directly inside a `Value`. There is no arena object, so **there is no `
 at**. Normally that's fine: immediates are handled by primitives that never build a `CallContext` at
 all. But a user can *reopen* the kernel `Bool` class and add a closure-backed method — and a closure
 method, unlike a primitive, needs a real activation with a real receiver. With no handle to store,
-`Immediate` carries the `Value` itself. (Per ADR-0018/U5, this variant exists specifically so the
+`Immediate` carries the `Value` itself. (Per TDR-0016/U5, this variant exists specifically so the
 sacred-selector inliner's override-epoch deopt guard is *exercisable* by exactly this
 closure-on-an-immediate case — a narrow, deliberate reason, not a grand receiver-uniformity design.)
 The GC handles it honestly: when tracing a frame's context, an `Immediate`'s `Value` is rooted only
@@ -320,7 +320,7 @@ Doc 6. That it detects it is the proof that branch (b)'s owed identity mechanism
 
 Delete `frame.rs`. From two constraints —
 
-1. **object references are `Copy` integer handles** (ADR-0009, decided for entirely other reasons), and
+1. **object references are `Copy` integer handles** (TDR-0008, decided for entirely other reasons), and
 2. **the VM must own its call stack** (for fibers to swap it and the GC to root it) —
 
 you can rebuild the frame: it is `Copy` (constraint 1), so it lives by value in a `Vec` (constraint
@@ -337,7 +337,7 @@ frame decision — it fell out of the handle arena.
 - `phalcom-core/src/frame.rs::CallFrame` (~L66) — the `Copy` record; module doc (~L1) for the
   "every link is a `Copy` handle → plain `Vec`, no borrow-panic surface" claim.
 - `phalcom-core/src/frame.rs::CallContext` (~L34) — four receiver variants; `Immediate` (~L58) and
-  its ADR-0018/U5 rationale.
+  its TDR-0016/U5 rationale.
 - `phalcom-core/src/vm/dispatch.rs::VM::new_call_frame` (~L29) — build + generation bump (push is at
   the four call sites, not here).
 - `phalcom-core/src/vm/dispatch.rs` — `Bytecode::Return` pop (~L1099); `VM::unwind_to` truncate
@@ -348,7 +348,7 @@ frame decision — it fell out of the handle arena.
   frames are GC roots.
 - `phalcom-core/bin/phalcom/cli.rs::cmd_run` (~L137, `eprintln!` at ~L162) — the CLI error path that
   skips the traceback builder at HEAD.
-- ADR-0009 (handle-arena-heap) — the deliberated decision that makes `CallFrame` `Copy`. ADR-0013
+- TDR-0008 (handle-arena-heap) — the deliberated decision that makes `CallFrame` `Copy`. TDR-0012
   (closure-upvalues-and-frame-token-return) — owns `generation`/`FrameToken`/`DeadFrameError` (Doc 6).
 
 ## Forward pointers

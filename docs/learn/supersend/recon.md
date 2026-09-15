@@ -31,11 +31,11 @@ into a lookup the VM redoes forever — bake the name because the class does not
 *defining* class rather than its superclass so a mutation feature that does not exist stays correct;
 and do not cache, because the cache key shape differs from a receiver-polymorphic one.
 
-Cites: `bytecode.rs:119-137`, `dispatch.rs:851-885`, ADR-0040 §Decision.
+Cites: `bytecode.rs:119-137`, `dispatch.rs:851-885`, TDR-0035 §Decision.
 
 ## 3. Deliberated vs reconstructed
 
-**Deliberated, in ADR-0040 `## Alternatives considered`** — four branches, each with a reason:
+**Deliberated, in TDR-0035 `## Alternatives considered`** — four branches, each with a reason:
 amend `Invoke` instead (rejected: blurs two dispatch shapes, complicates a future IC); bake the
 superclass directly (rejected, DEC-INH-B: goes stale under `superclass=`); dynamic-receiver-class
 super (rejected: breaks the defining-class rule for multi-level chains); implicit constructor
@@ -54,7 +54,7 @@ miss retries against the **core module**. Two hash lookups worst case, per `supe
 
 **F2 — DEC-INH-B buys late binding for an unbuilt feature.** The defining class is baked and
 `.superclass` read at dispatch specifically so the send "stays correct under a future runtime
-`superclass=` mutation (U13)" (`bytecode.rs:125-127`, ADR-0040). U13 does not exist at HEAD. A real
+`superclass=` mutation (U13)" (`bytecode.rs:125-127`, TDR-0035). U13 does not exist at HEAD. A real
 per-dispatch indirection is being paid to keep a hypothetical honest.
 
 **F3 — uncached, and the decision IDs are *not* in conflict.** `bytecode.rs:136-137` cites
@@ -70,7 +70,7 @@ one, so it is not solely responsible for the enum's width. True within Doc 1's t
 worth stating precisely here rather than repeating.
 
 **F5 — this opcode cannot be shown with the tooling.** `disasm` walks only the top-level chunk, and
-`super` is a **compile error** outside a method (`ADR-0040`, verified: *"`super` cannot be used
+`super` is a **compile error** outside a method (`TDR-0035`, verified: *"`super` cannot be used
 outside a method: there is no defining class to start the lookup above."*). The hoist-to-module-level
 workaround that other docs in this course used to make bytecode visible is *structurally unavailable
 for exactly this construct*. Verified: a working `super` program disassembles with no `SuperSend`
@@ -88,7 +88,7 @@ System.print(Lonely.new().greet)
 <Lonely instance> does not understand 'greet'
 ```
 
-Correct per ADR-0040 (empty walk → dNU, never a panic) and technically true about receiver and
+Correct per TDR-0035 (empty walk → dNU, never a panic) and technically true about receiver and
 selector — while the class defines `greet` three lines up. The diagnostic reports the *receiver's*
 failure, not the *walk's*.
 
@@ -120,13 +120,13 @@ Derived sees: 999
 
 One object, one field name, two values. Spec-correct in every step; the path there is a diagnostic
 that misnames a privacy violation as a missing assignment and whose fix is the trap. It lands
-directly against super-construct, whose entire job (`super.new(x)`, ADR-0040 + ADR-0011 idempotent
+directly against super-construct, whose entire job (`super.new(x)`, TDR-0035 + TDR-0010 idempotent
 `NewInstance`) is filling the parent slot the subclass then cannot read.
 
 Verified working control: `super.new(x)` plus an accessor (`self.x`) prints `7` — the slot really is
 filled.
 
-**F8 — ADR-0040's "global lookup" language predates module scoping.** It says the name resolves via
+**F8 — TDR-0035's "global lookup" language predates module scoping.** It says the name resolves via
 "the same global lookup `GetGlobal` performs." The code uses a module-scoped `ClassKey` with a
 core-module fallback (`dispatch.rs:874-881`), which is U-CLASSNS work. Ask B what the fallback means
 for two modules that both define the same class name.
@@ -157,6 +157,6 @@ super/field-privacy interaction.
 
 ## 7. Doc-kind gate
 
-**Fork.** ADR-0040 records four rejected branches with reasons, and the doc's spine is what those
+**Fork.** TDR-0035 records four rejected branches with reasons, and the doc's spine is what those
 choices cost: *`super` looks static, and every decision made it dynamic anyway.*
 Per AUTHORING-LEAN §3, **fork ⇒ Agent A runs.**

@@ -4,7 +4,7 @@ Part of the [Phalcom Language Specification](../README.md). Status: Draft 0.1.
 
 ## 1. Precedence & associativity
 
-Every tier below desugars to a message send ([ADR-0012]); the productions just
+Every tier below desugars to a message send ([TDR-0011]); the productions just
 fix how the parser groups tokens. The compiler's inliner for `and`/`or`/`if` is
 a semantic concern, not a syntax one — see [Control Flow](../control-flow.md).
 
@@ -27,7 +27,7 @@ a semantic concern, not a syntax one — see [Control Flow](../control-flow.md).
 | 15 | postfix `.` `?.` call `(...)` trailing-block | left |
 | 16 | primary | — |
 
-> Range (`.. ...`) is a reserved-inactive binary operator ([ADR-0032]); its
+> Range (`.. ...`) is a reserved-inactive binary operator ([TDR-0029]); its
 > precedence slot is not yet fixed — pending U-LEX. `is`/`as` beyond the
 > import-alias form (`import Foo as Bar`) are not fully specified; treated
 > here only as the tier-6 type-test spelling of `is`.
@@ -67,11 +67,11 @@ primary       := literal | grouping | tuple | list | map | block
 ```
 
 Every binary and unary operator here is sugar for a message send: `a + b` is
-`a.+(b)`, `a ** b` is `a.**(b)`, `a & b` is `a.&(b)`, and `~a` is `a.~()` — see §2 and [ADR-0012].
+`a.+(b)`, `a ** b` is `a.**(b)`, `a & b` is `a.&(b)`, and `~a` is `a.~()` — see §2 and [TDR-0011].
 
 Power's right operand is `unary`, rather than `postfix`, deliberately. Therefore `2 ** -2`
 groups as `2 ** (-2)`, while a prefix on the left binds outside power: `-2 ** 2` groups as
-`-(2 ** 2)`. This is the Python power rule ratified by PDR-0027.
+`-(2 ** 2)`. This is the Python power rule ratified by TDR-0072.
 
 ## 2. Message sends
 
@@ -138,7 +138,7 @@ evaluating further sends. `??` (tier 2) is right-associative: looser than
 comparison and arithmetic, tighter than assignment, so `a ?? b == c` parses
 as `a ?? (b == c)` and `x = a ?? b` parses as `x = (a ?? b)`.
 
-See [Lexical Structure §9](../lexical-structure.md#9) and [ADR-0007].
+See [Lexical Structure §9](../lexical-structure.md#9) and [TDR-0006].
 
 ## 4. Primary expressions
 
@@ -147,9 +147,9 @@ primary := literal | grouping | tuple | list | map | block
          | symbol | method_ref | "self" | "super" | IDENT | FIELD
 ```
 
-**Literals.** `INT`, `FLOAT` ([ADR-0024]), `STRING` with `\( )` interpolation
-([ADR-0022], completed in [PDR-0029](../../../pdr/0029-string-literals-and-interpolation-completion.md)), `true` / `false`. There is no `nil` literal — absence is
-expressed with `Option`, i.e. `None` ([ADR-0007]; [Values & Absence](../values-and-absence.md)).
+**Literals.** `INT`, `FLOAT` ([TDR-0022]), `STRING` with `\( )` interpolation
+([TDR-0020], completed in [TDR-0073](../../../decisions/accepted/0073-string-literals-and-interpolation-completion.md)), `true` / `false`. There is no `nil` literal — absence is
+expressed with `Option`, i.e. `None` ([TDR-0006]; [Values & Absence](../values-and-absence.md)).
 
 **Grouping vs. tuple.** A trailing comma disambiguates:
 
@@ -167,9 +167,9 @@ tuple    := "(" ")"
 ```
 
 `(a,)` — the trailing comma is required for a one-element tuple, since `(a)`
-is plain grouping ([ADR-0032]).
+is plain grouping ([TDR-0029]).
 
-**List** ([ADR-0029]).
+**List** ([TDR-0026]).
 
 ```
 list := "[" [ expr { "," expr } [ "," ] ] "]"
@@ -184,7 +184,7 @@ list := "[" [ expr { "," expr } [ "," ] ] "]"
 A list literal is construction only — there is no subscript sugar; element
 access is the message `at(_)`. A list literal is itself a `primary`.
 
-**Map** ([ADR-0032]).
+**Map** ([TDR-0029]).
 
 ```
 map       := "{" map_entry { "," map_entry } [ "," ] "}"
@@ -263,10 +263,10 @@ lists, and parameter lists. Everywhere else `*` is the multiply operator (tier
 Phalcom has no cascade syntax. `;` is only a statement separator, never a
 message-chaining operator.
 
-[ADR-0007]: ../../../adr/0007-option-as-abstract-with-some-none.md
-[ADR-0012]: ../../../adr/0012-selector-signature-encoding-and-dispatch.md
-[ADR-0022]: ../../../adr/0022-string-interpolation-backslash-paren-sigil.md
-[ADR-0024]: ../../../adr/0024-numeric-surface-split-int-float-and-division.md
-[ADR-0025]: ../../../adr/0025-external-internal-parameter-names.md
-[ADR-0029]: ../../../adr/0029-list-literal-syntax.md
-[ADR-0032]: ../../../adr/0032-collections-representation-and-literals.md
+[TDR-0006]: ../../../adr/0007-option-as-abstract-with-some-none.md
+[TDR-0011]: ../../../adr/0012-selector-signature-encoding-and-dispatch.md
+[TDR-0020]: ../../../adr/0022-string-interpolation-backslash-paren-sigil.md
+[TDR-0022]: ../../../adr/0024-numeric-surface-split-int-float-and-division.md
+[TDR-0023]: ../../../adr/0025-external-internal-parameter-names.md
+[TDR-0026]: ../../../adr/0029-list-literal-syntax.md
+[TDR-0029]: ../../../adr/0032-collections-representation-and-literals.md

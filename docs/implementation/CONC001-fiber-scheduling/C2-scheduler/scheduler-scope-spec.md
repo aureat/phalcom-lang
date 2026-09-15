@@ -14,4 +14,4 @@ Future library completion                 -> CONC002.C4
 
 The old reactor worker/timer implementation record is no longer an executable plan.
 
-Accepted PDR-0003/PDR-0004 and `docs/spec/current/stdlib/reactor.md` remain architectural/normative authorities independent of this program move.
+Accepted TDR-0056/TDR-0057 and `docs/spec/current/stdlib/reactor.md` remain architectural/normative authorities independent of this program move.

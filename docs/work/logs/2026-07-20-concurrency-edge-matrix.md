@@ -54,6 +54,6 @@ the error-handling surface.
   `5ba6101`, since `.each` is now precisely the place this *cannot* happen.
   The example should name a still-true site (`.on(_)` handler / `ensure`).
 - Combinator yield-transparency now *differs* from `.on`/`ensure` opacity —
-  neither spec §6's restriction table nor ADR-0030 §4 reflects the flat-entry
+  neither spec §6's restriction table nor TDR-0027 §4 reflects the flat-entry
   split yet; ADR-0033's Deferred status is also half-overtaken (its trampoline
   goal shipped for the bytecode-call path under a different mechanism).

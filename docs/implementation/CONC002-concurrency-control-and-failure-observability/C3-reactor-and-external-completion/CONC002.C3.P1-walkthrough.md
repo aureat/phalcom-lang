@@ -86,4 +86,4 @@ All test gates were executed serially with clean compiler flags (`RUSTFLAGS='' R
 
 ## 5. Next Steps
 
-- Proceed to **`CONC002.C3.P2`** (*Poller-Backed External Readiness*) upon resolution and acceptance of PDR-0016.
+- Proceed to **`CONC002.C3.P2`** (*Poller-Backed External Readiness*) upon resolution and acceptance of TDR-0080.

@@ -523,6 +523,21 @@ fn build_module_workspace_symbols(structure: &SourceScopeIndex) -> Arc<[Workspac
                     container_name: Some(id.owner.name.clone()),
                 });
             }
+            SourceSiteKind::AssociatedType(id) => {
+                let name = format!("type {}", id.index).into_boxed_str();
+                symbols.push(WorkspaceSymbolEntry {
+                    id: WorkspaceSymbolId {
+                        target: SemanticTargetId::AssociatedType(id.clone()),
+                        site: site.id.clone(),
+                    },
+                    name: name.clone(),
+                    normalized_name: name.to_lowercase().into_boxed_str(),
+                    target: SemanticTargetId::AssociatedType(id.clone()),
+                    declaration_site: site.id.clone(),
+                    kind: EditorSymbolKind::Callable,
+                    container_name: Some(id.owner.name.clone()),
+                });
+            }
             _ => {}
         }
     }

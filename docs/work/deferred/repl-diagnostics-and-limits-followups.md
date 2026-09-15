@@ -1,10 +1,10 @@
 # Deferred: diagnostics, depth-limit and REPL follow-ups (unowned)
 
 Surfaced while verifying U-REPL and implementing
-[PDR-0006](../pdr/0006-repl-completeness-is-a-parser-signal.md),
-[PDR-0007](../pdr/0007-bounded-call-depth-and-native-reentrancy.md),
-[PDR-0008](../pdr/0008-cell-boundary-diagnostics-and-state-hygiene.md) and
-[PDR-0009](../pdr/0009-defer-lsp-backed-repl-surface.md). These are the items those
+[TDR-0058](../../decisions/accepted/0058-repl-completeness-is-a-parser-signal.md),
+[TDR-0059](../../decisions/accepted/0059-bounded-call-depth-and-native-reentrancy.md),
+[TDR-0060](../../decisions/accepted/0060-cell-boundary-diagnostics-and-state-hygiene.md) and
+[TDR-0061](../../decisions/accepted/0061-defer-lsp-backed-repl-surface.md). These are the items those
 records either explicitly scoped out, or that turned up during implementation and have no
 owning unit.
 
@@ -21,7 +21,7 @@ needs a call frame. It used to run *before* `unwind_to(stack_len, frames_len)`, 
 the failed protected block's abandoned frames. That was merely untidy until the frame budget
 itself became exhaustible: at `MAX_CALL_DEPTH` the probe could not get a frame, so
 `RuntimeError::DepthExceeded` propagated straight through every `try`/`catch` and was
-**uncatchable** — the recovery path needed exactly the resource that had run out. PDR-0007 §2
+**uncatchable** — the recovery path needed exactly the resource that had run out. TDR-0060 §2
 requires it be catchable, so the unwind moved first.
 
 **Why this needs a second pair of eyes:** it is a semantics change to the error-handling core,
@@ -33,7 +33,7 @@ made in service of a different unit. Two consequences worth confirming deliberat
   the whole reason this entry exists.
 - An uncaught error that passes through a non-matching `on` now has its frames unwound
   earlier, so any traceback rendered *above* that point is shorter than it was. For the REPL
-  this is moot (PDR-0008 §2 reports at the raise site, before any unwind); for `cmd_run` the
+  this is moot (TDR-0061 §2 reports at the raise site, before any unwind); for `cmd_run` the
   report happens after `run_in_module` returns and may now show less.
 
 Covered by `phalcom-core/tests/depth_limits.rs::depth_error_is_an_ordinary_catchable_raise`,
@@ -43,16 +43,16 @@ which fails without the reorder. No test pins the outer-handler case.
 
 `phalcom-core/src/vm/mod.rs:41,62`
 
-PDR-0007 bounds recursion on both axes it identified and **explicitly scopes out** the other
+TDR-0060 bounds recursion on both axes it identified and **explicitly scopes out** the other
 two exhaustion paths. Both remain fully open:
 
-- **Loops.** ADR-0018's sacred-selector inliner lowers `whileTrue` to `Jump`, pushing no
+- **Loops.** TDR-0016's sacred-selector inliner lowers `whileTrue` to `Jump`, pushing no
   frame, so `while (true) {}` spins forever and no depth counter can see it. Bounding this
-  needs an instruction/time budget, which taxes the dispatch loop ADR-0051's performance
+  needs an instruction/time budget, which taxes the dispatch loop TDR-0049's performance
   program is trying to make cheaper — a real trade, not an oversight.
 - **Allocation.** `List` growth in a loop exhausts the heap with no cap.
 
-A one-line script can still take the host down; PDR-0007 only removed the *recursive* route.
+A one-line script can still take the host down; TDR-0060 only removed the *recursive* route.
 Wants its own record if ever taken.
 
 ## 3. `MAX_NATIVE_REENTRY` is a proxy, and the resource it proxies varies by thread
@@ -66,7 +66,7 @@ that spawns the VM on a thread with a smaller stack, or a future interpreter cha
 observe the resource it stands for.
 
 The principled fix is native stack probing (`stacker`, or Go-style growable stacks), rejected
-in PDR-0007's alternatives as disproportionate. Revisit if native re-entrancy depth ever
+in TDR-0060's alternatives as disproportionate. Revisit if native re-entrancy depth ever
 becomes load-bearing, or if an embedding host reports an abort.
 
 ## 4. Compile-error diagnostics carry no span
@@ -74,7 +74,7 @@ becomes load-bearing, or if an embedding host reports an abort.
 `phalcom-core/src/diagnostics.rs:102` (`print_compile`),
 `phalcom-core/src/vm/dispatch.rs:180` (`compiler_error`)
 
-`compiler_error` was an empty function body until PDR-0008 §1; it now renders, but message-only.
+`compiler_error` was an empty function body until TDR-0061 §1; it now renders, but message-only.
 Two reasons, both real:
 
 - Most `CompilerError` variants carry no `SourceRange` at all.
@@ -102,7 +102,7 @@ the same bug a third time.
 
 `phalcom-repl/src/repl.rs:106`
 
-PDR-0008 §3 names this cost explicitly and accepts it: `eval` prints the diagnostics it owns,
+TDR-0061 §3 names this cost explicitly and accepts it: `eval` prints the diagnostics it owns,
 matching the file-run path. The consequence is that an LSP, a test harness, or any embedding
 host has no way to evaluate a cell without the diagnostic hitting the process's stderr.
 
@@ -110,11 +110,11 @@ The fix is an injected reporter/sink (rustc's `DiagCtxt` is the shape) and is pu
 nothing here forecloses it. Left until there is a first embedder to design against, so the
 sink's shape is driven by a real caller rather than guessed.
 
-## 7. PDR-0006's per-mode obligation has no enforcement
+## 7. TDR-0059's per-mode obligation has no enforcement
 
 `phalcom-ast/src/parser.rs:175` (`push_lex_error`)
 
-PDR-0006 §3 binds every future lexer mode: *"Every lexer mode that can be left open at end of
+TDR-0059 §3 binds every future lexer mode: *"Every lexer mode that can be left open at end of
 input must co-emit `UnrecognizedEof`."* Today that is block comments and strings. A future
 heredoc, raw string, or nested-interpolation mode that forgets silently stops continuing in the
 REPL — the buffer submits mid-construct and the author sees a syntax error for text they were

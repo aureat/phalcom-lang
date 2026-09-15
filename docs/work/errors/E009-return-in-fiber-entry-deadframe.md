@@ -3,7 +3,7 @@
 - **Status:** OPEN — confirmed 2026-07-20 (reproduced under `target/debug/phalcom`, isolated by control)
 - **Severity:** **major** — the most natural early-exit form (`if (c) { return x }`) crashes the run on first `.call()`, with a message that never mentions fibers
 - **Subsystem:** fibers × block non-local return (home-frame tokens)
-- **Related:** ADR-0013 (non-local return via frame token), ADR-0030 §6 / `concurrency.md:280-282` (cross-fiber `return` rule — the *general* rule this is a defensible-but-hostile instance of)
+- **Related:** TDR-0012 (non-local return via frame token), TDR-0027 §6 / `concurrency.md:280-282` (cross-fiber `return` rule — the *general* rule this is a defensible-but-hostile instance of)
 
 ## Defect
 

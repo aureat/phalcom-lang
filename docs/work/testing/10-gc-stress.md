@@ -6,8 +6,8 @@
 
 ## 1. The claim
 
-ADR-0050 selects a **non-moving** precise mark-sweep collector over the handle
-arena. Non-moving means object addresses never change; combined with ADR-0009's
+TDR-0048 selects a **non-moving** precise mark-sweep collector over the handle
+arena. Non-moving means object addresses never change; combined with TDR-0008's
 handle indirection, it means **no correct program can observe that a collection
 happened**. Identity, hashing, and equality are all handle-based, not
 address-based.
@@ -130,12 +130,12 @@ The relation gives a bisection bonus: because the two runs are *supposed* to be
 identical, any divergence is a first-order signal, and the diff between the two
 stdouts points directly at the first observation that went wrong.
 
-## 6. Preclusion — read before amending ADR-0050
+## 6. Preclusion — read before amending TDR-0048
 
 **This lane is an executable encoding of "GC is behavior-invariant."** It is
 sound only under a non-moving collector.
 
-If the moving/compacting alternative ADR-0050 rejects is ever revived:
+If the moving/compacting alternative TDR-0048 rejects is ever revived:
 
 - Object identity or hashing derived from address would make collection
   observable, and the metamorphic relation would become **false**.
@@ -144,7 +144,7 @@ If the moving/compacting alternative ADR-0050 rejects is ever revived:
   way.
 
 Therefore: the invariance assumption **must be written into the lane's own
-module doc**, citing ADR-0050, so that anyone amending the collector finds the
+module doc**, citing TDR-0048, so that anyone amending the collector finds the
 dependency at the amendment site rather than in this directory. A moving
 collector requires re-deriving the relation (likely to "identity-preserving
 projections of the output are equal"), not merely re-running the lane.

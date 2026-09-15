@@ -9,7 +9,7 @@ Grounds: [scheduler-unit.md](../../../../design/experimental/v0.2/scheduler-unit
 [concurrency.md §2](../../../../spec/current/concurrency.md) Implementation/Slice B
 (design intent this unit realizes) · [system.md §2](../../../../spec/current/system.md)
 Scheduler row (`schedule(_)`/`sleep(_)` reserved seam) ·
-[ADR-0030](../../../../adr/0030-fibers-and-futures-cooperative-concurrency.md)
+[TDR-0026](../../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md)
 (no second concurrency primitive — this unit adds a queue, not a mechanism).
 
 **Supersedes scheduler-unit.md's "main runs inside the root scheduler fiber"

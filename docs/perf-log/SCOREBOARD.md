@@ -10,7 +10,7 @@
 > per-function cost is stable and reproduced, it belongs in the rustdoc of the
 > function that owns it (`# Performance` section), citing the row below.
 
-**Laws this file inherits** (ADR-0051, `performance.md` §2, law P1):
+**Laws this file inherits** (TDR-0049, `performance.md` §2, law P1):
 
 - **No oral numbers.** Every cell is a measurement with a commit, a workload and an
   instrument, or it says `not measured` — never a guess, never an interpolation.

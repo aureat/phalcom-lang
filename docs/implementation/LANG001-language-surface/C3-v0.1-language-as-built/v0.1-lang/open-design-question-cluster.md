@@ -17,12 +17,12 @@ below, not silently chosen.
 | Unit | Plan | Mission (1-line) | Question(s) | Spec / ADR | Status |
 |---|---|---|---|---|:--:|
 | **U12** | [U12-plan.md](U12-plan.md) | Numeric surface split — keep flat `Number` vs abstract `Number`→`Integer`/`Float` | Q2 | ADR-0005 (amend), 0010; object-model §4 | **BLOCKED-ON-DECISION** |
-| **U13** | [U13-plan.md](U13-plan.md) | Class-hierarchy stability policy — runtime `superclass=` mutability + traits/mixins/MI | Q4, Q10 | ADR-0002/0009/0011/0018; object-model §1.5/§5 | **BLOCKED-ON-DECISION ×2** |
+| **U13** | [U13-plan.md](U13-plan.md) | Class-hierarchy stability policy — runtime `superclass=` mutability + traits/mixins/MI | Q4, Q10 | TDR-0002/0009/0011/0018; object-model §1.5/§5 | **BLOCKED-ON-DECISION ×2** |
 | **U14** | [U14-plan.md](U14-plan.md) | Destructuring bindings — `let (a,b)=…`, `let [first,*rest]=…` (irrefutable) | Q7 | ADR-0014; values-and-absence §1; messages §4–5 | architect-decidable; **dep on collection-literals unit** |
 | **U15** | [U15-plan.md](U15-plan.md) | Modules & imports — give the `import` token meaning (source-only Module namespaces) | Q8 | object-model §4 (`Module`) | **BLOCKED-ON-DECISION** |
-| **U16** | [U16-plan.md](U16-plan.md) | Method references `::` + `Family` value + base-name index + Family introspection | Q14 | selectors §3/§3.1; ADR-0012; U8 dNU | soft flag (surface richness) |
-| **U17** | [U17-plan.md](U17-plan.md) | `Option` bootstrap formalization (ADR) + niche-encoding decision (rec: defer) | Q13 | ADR-0007/0010; values-and-absence §3 | soft flag (mostly docs) |
-| **U18** | [U18-plan.md](U18-plan.md) | Default arguments — trailing-only, definer-side arity-family expansion | Q12 | ADR-0012; selectors §7.3; U9 | **BLOCKED-ON-DECISION** |
+| **U16** | [U16-plan.md](U16-plan.md) | Method references `::` + `Family` value + base-name index + Family introspection | Q14 | selectors §3/§3.1; TDR-0011; U8 dNU | soft flag (surface richness) |
+| **U17** | [U17-plan.md](U17-plan.md) | `Option` bootstrap formalization (ADR) + niche-encoding decision (rec: defer) | Q13 | TDR-0006/0010; values-and-absence §3 | soft flag (mostly docs) |
+| **U18** | [U18-plan.md](U18-plan.md) | Default arguments — trailing-only, definer-side arity-family expansion | Q12 | TDR-0011; selectors §7.3; U9 | **BLOCKED-ON-DECISION** |
 
 Merge rationale: **Q4+Q10 → U13** (both decide what stability dispatch/IC/slot-layout may assume
 about the class graph; shared write-set `class.rs`/`vm.rs`/invariants). Q2 and Q12 were **kept
@@ -113,7 +113,7 @@ load-bearing sub-feature waits on the ruling._
 | ID | Unit | Decision | Architect recommendation |
 |---|---|---|---|
 | **DEC-U12** | U12 | **Number: single flat `Number` (f64) vs surface `Integer`/`Float` split.** Changes `5/2`, literal typing, `==`/`hash`, adds a `Value::Int` arm. | If a concrete driver exists (indexing, bitwise, exact ints): **abstract `Number`→immediate `Integer(i64)`+`Float(f64)`**, `/` always Float, add `//`, mixed→Float, `1==1.0`. Else **keep flat** and close Q2 as resolved-flat. **User must rule** (surface-semantic, ~irreversible). |
-| **DEC-U13a** | U13 | **Class-hierarchy mutability: runtime `superclass=` legal (Smalltalk) or sealed (Wren)?** | **Sealed for Draft 0.1** (keeps ADR-0011 slot layout + ADR-0012 IC stable); method *reopening* still allowed; document the ADR-0018-epoch escape path so mutability isn't foreclosed. |
+| **DEC-U13a** | U13 | **Class-hierarchy mutability: runtime `superclass=` legal (Smalltalk) or sealed (Wren)?** | **Sealed for Draft 0.1** (keeps TDR-0010 slot layout + TDR-0011 IC stable); method *reopening* still allowed; document the TDR-0016-epoch escape path so mutability isn't foreclosed. |
 | **DEC-U13b** | U13 | **Traits / mixins / multiple inheritance?** | **Affirm single inheritance, defer traits.** If wanted, the *only* admissible form is **stateless traits flattened at finalization** (preserves one-hashmap-probe dispatch); **reject C3/full-MI** (breaks committed dispatch + slot layout). |
 | **DEC-U15** | U15 | **Module resolution + binding model** (path scheme, whole-module vs selective binding, export policy). | **Relative file-path source import + whole-module `import "p" as Name` + "everything top-level is a member" (no `export`) for Draft 0.1.** Reserve `from`/`export` as future keywords. Compiled-unit imports deferred (need a bytecode verifier). **User must rule** (surface model). |
 | **DEC-U18** | U18 | **Default arguments at all? + expansion policy.** Fights selector identity (an omitted default → different selector → lookup miss). | **If wanted: trailing-only defaults via definer-side arity-family expansion** (bounded k+1 selectors sharing one body; no dispatch/caller change; reject default+rest, required-after-default, and synthesized/hand-written selector collision). Else **no default args** (most Smalltalk-honest). **selectors §7.3 "decide before shipping."** |
@@ -129,24 +129,24 @@ load-bearing sub-feature waits on the ruling._
   formalizing the blessed-singleton/no-cycle bootstrap. Confirm if you want the niche now.
 
 ## 7. New ADRs to draft (via `documentation-and-adrs`)
-Provisional numbers **0024–0030** — **ADR-0023 is already reserved** (core-floor omnibus, per
+Provisional numbers **0024–0030** — **TDR-0021 is already reserved** (core-floor omnibus, per
 `docs/spec/current/core/README.md`), and the concurrent **collection-literals** and **concurrency** planning
 agents are also claiming numbers. **Do not hard-code these; grab the next-free at authoring time**
 and update the plan's `00XX` placeholder.
 
 | Provisional | Unit | Kind |
 |---|---|---|
-| ADR-0024 | U12 | numeric surface split (amends ADR-0005) |
-| ADR-0025 | U13 | class-hierarchy stability (sealing + single-inheritance affirmation / trait forward-path) |
+| TDR-0022 | U12 | numeric surface split (amends ADR-0005) |
+| TDR-0023 | U13 | class-hierarchy stability (sealing + single-inheritance affirmation / trait forward-path) |
 | ADR-0026 | U14 | destructuring binding desugaring (irrefutable) |
-| ADR-0027 | U15 | module & import model (source-only, whole-module) |
-| ADR-0028 | U16 | method references `::` / `Family` + reflective surface (realizes selectors §3, extends ADR-0012) |
-| ADR-0029 | U17 | `Option` bootstrap blessing + niche decision (extends ADR-0007/0010) |
-| ADR-0030 | U18 | default arguments via arity-family expansion (extends ADR-0012) |
+| TDR-0024 | U15 | module & import model (source-only, whole-module) |
+| TDR-0025 | U16 | method references `::` / `Family` + reflective surface (realizes selectors §3, extends TDR-0011) |
+| TDR-0026 | U17 | `Option` bootstrap blessing + niche decision (extends TDR-0006/0010) |
+| TDR-0027 | U18 | default arguments via arity-family expansion (extends TDR-0011) |
 
 ## 8. Deferred (speed/scope items, not on any critical path)
 - `Option`/`None` niche-encoding + `Some` payload packing (U17) — behind the `Value` API, with
-  NaN-boxing (ADR-0010).
+  NaN-boxing (TDR-0009).
 - Compiled-unit imports + bytecode verifier; selective import; `export`/visibility; import
   sandboxing / path-traversal policy (U15).
 - Per-candidate `Method` reflection on `Family`; inline-cache population for Open-family calls (U16).

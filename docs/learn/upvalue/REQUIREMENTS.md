@@ -193,7 +193,7 @@ closure/capture ADR only — no spec-tree sweep.
 **Outcome: half right, and the wrong half was the load-bearing half.**
 
 Phalcom *is* Lua-style **architecturally** — two states, find-or-create map, recursive compiler
-resolve, `is_local` descriptors, ADR-0013 accepted. So §4's design-space walk survived intact.
+resolve, `is_local` descriptors, TDR-0012 accepted. So §4's design-space walk survived intact.
 
 Phalcom is Lua's **inverse representationally** — name, not address. So §3's grip was wrong and
 is rewritten at §3b. The lesson generalizes past this doc: *"X-style" is a claim about

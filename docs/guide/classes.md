@@ -156,7 +156,7 @@ metaclass's superclass chain exactly like an instance send walks `Person`'s.
 That's why class-side methods and `@constructor` inherit correctly along a class
 hierarchy for free. The full tower — metaclasses, `X class`, why classes being
 objects pays off — is [The Object Model](../spec/current/object-model.md); the
-slot-layout mechanics are [ADR-0011](../adr/0011-static-instance-slot-layout.md).
+slot-layout mechanics are [TDR-0010](../decisions/accepted/0010-static-instance-slot-layout.md).
 
 ## `super` and method resolution
 

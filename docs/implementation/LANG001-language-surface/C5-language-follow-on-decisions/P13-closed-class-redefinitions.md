@@ -16,8 +16,8 @@ deferred_reason: null
 # LANG001.C5.P13 — closed class redefinitions
 
 Companion to [`err-plan.md`](u30-class-close-plan.md). Governed by
-[PDR-0001](../../../pdr/0001-classes-are-closed.md) (**Accepted**), as amended by
-[PDR-0002](../../../pdr/0002-class-declarations-join-the-binding-namespace.md).
+[TDR-0053](../../../decisions/accepted/0053-classes-are-closed.md) (**Accepted**), as amended by
+[TDR-0054](../../../decisions/accepted/0054-class-declarations-join-the-binding-namespace.md).
 
 > **STATUS: SHIPPED 2026-07-20** — `7c2cfab`, with `c346200` (parser ban) and a follow-up
 > restoring five kernel-override tests in-crate. Green at each step. See
@@ -581,7 +581,7 @@ fixture so the behavior is pinned by this unit's lane rather than left implicit 
 | `phalcom-core/src/chunk.rs` | the two IC tests, in the existing `#[cfg(test)] mod tests` (§11) |
 | `phalcom-core/tests/lang/classes/` + `classes/negative/` | delete 4 `class_reopen_*` fixtures + sidecars; add new negative fixtures |
 | `phalcom-core/tests/lang/ic/` | delete 2 `.ph` + `.expected`, superseded by the in-crate tests |
-| `docs/pdr/0002-class-declarations-join-the-binding-namespace.md` | the §3 mechanism amendment (was `0066-…` before the PDR renumber, `63dc4d4`) |
+| `docs/decisions/0002-class-declarations-join-the-binding-namespace.md` | the §3 mechanism amendment (was `0066-…` before the PDR renumber, `63dc4d4`) |
 
 **Not** in the write-set: `phalcom-core/core/core.ph` — zero true reopens, and stub completion is
 untouched. No conflict with any `.ph`-editing unit in either order.

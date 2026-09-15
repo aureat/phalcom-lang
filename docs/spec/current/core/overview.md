@@ -12,12 +12,12 @@ Phalcom's core library is a **hybrid native + self-hosted** library layered over
 
 - **Kernel tower.** `Object → Behavior → {Class, Metaclass}` is the self-describing
   spine, wired by the metaclass *parallel rule*
-  ([ADR-0002](../../../adr/0002-metaclass-tower-parallel-rule.md) /
-  [ADR-0003](../../../adr/0003-introduce-behavior-kernel-class.md)). Every other
+  ([TDR-0002](../../../decisions/accepted/0002-metaclass-tower-parallel-rule.md) /
+  [TDR-0003](../../../decisions/accepted/0003-introduce-behavior-kernel-class.md)). Every other
   core class hangs off `Object`.
 - **The floor.** [`floor-census.md`](./floor-census.md) — **80** native
   `(class, selector)` bindings frozen by
-  [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md): closed,
+  [TDR-0017](../../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md): closed,
   machine-checked (R-INV-0.1), "the default answer to adding a primitive is *no*."
   A capability goes native **only** when it reads representation below the `.ph`
   line (handle bits, an `f64` value, the method map).
@@ -28,13 +28,13 @@ Phalcom's core library is a **hybrid native + self-hosted** library layered over
 ## The commitments
 
 - **Absence is `Option`, never `nil`**
-  ([ADR-0007](../../../adr/0007-option-as-abstract-with-some-none.md) /
-  [ADR-0021](../../../adr/0021-no-truthiness-enforcement.md); Invariant 4).
+  ([TDR-0006](../../../decisions/accepted/0006-option-as-abstract-with-some-none.md) /
+  [TDR-0019](../../../decisions/accepted/0019-no-truthiness-enforcement.md); Invariant 4).
 - **Booleans** are abstract `Bool` with `True`/`False` singletons
-  ([ADR-0004](../../../adr/0004-boolean-as-abstract-bool-with-true-false.md)).
+  ([TDR-0004](../../../decisions/accepted/0004-boolean-as-abstract-bool-with-true-false.md)).
 - **Seven sacred selectors** (`Bool` control-flow + `Block#whileTrue`) are
   compiler-inlined with deopt guards
-  ([ADR-0018](../../../adr/0018-sacred-selector-inliner-and-override-guard.md)).
+  ([TDR-0016](../../../decisions/accepted/0016-sacred-selector-inliner-and-override-guard.md)).
 - **Message-send is the only computational primitive**; everything is an object.
 
 ## State (post-U-CORE-1)

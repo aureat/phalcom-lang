@@ -218,6 +218,38 @@ A getter witness cannot substitute for a setter requirement, and an index getter
 >
 > Trait property requirements describe observable access capabilities, never physical storage.
 
+## Property elaboration and direct-field `via`
+
+A property-shaped trait requirement is behavioral syntax. A readable property
+contributes an ordinary getter requirement; a mutable property contributes both
+an ordinary getter and an ordinary setter requirement. The resulting
+`TraitRequirementId`s remain behavior-owned and participate in the normal
+witness and selector rules.
+
+The initial `via` form supplies a class or inherent-implementation witness for
+those ordinary accessors by naming one directly declared field:
+
+```phalcom
+class Counter {
+  mut _count: Int
+  mut count via _count
+}
+```
+
+The field remains the sole authority for the value type and mutability. A
+setter delegation is valid only when the named field is mutable. The named
+field must belong directly to the declaration being checked; inherited fields,
+property chains, subscripts, calls, arbitrary places, and delegate objects are
+not `via` targets. `via` creates no storage and no runtime delegation protocol;
+its accessors are ordinary target behavior and are subject to ordinary
+selector-conflict rules.
+
+The initial form is available in class bodies and inherent implementations.
+Conformance-local `via` is rejected because a conformance body does not acquire
+the target class's private-field authority. A target may instead expose
+ordinary accessors that a conformance witnesses through the normal conformance
+rules.
+
 ---
 
 # Selector Identity
@@ -282,6 +314,27 @@ Its concrete meaning is obtained through a conformance.
 >
 > Associated types are trait-owned declarations whose concrete bindings are conformance-dependent projections.
 
+In the initial declaration/binding surface, an associated declaration is a
+plain trait-owned type requirement with no default, generic associated-type
+binder, or additional trait-bound syntax:
+
+```phalcom
+trait Iterator {
+  type Item
+}
+
+impl<T> Iterator for List<T> {
+  type Item = T
+}
+```
+
+The binding name resolves against the exact trait declaration, not by a global
+name lookup. Its right-hand side is checked in the conformance's generic
+scope. Duplicate, unknown, invalid, or missing bindings make the conformance
+incomplete; valid bindings are retained as conformance evidence. Associated
+type declarations do not become callable requirements and do not add storage
+or runtime lookup behavior.
+
 ## Associated type constraints
 
 An associated type declaration may carry constraints where permitted by the general type system.
@@ -292,7 +345,12 @@ A conformance binding must satisfy those constraints under the conformance's gen
 
 Associated type projection uses the language's associated-type projection rules. Within a trait or conformance, `Self::Item` denotes the `Item` projection associated with the relevant `Self` and trait context when unambiguous.
 
-Projection normalization, ambiguity, cycles, and future generic associated types are specified by the associated-type/type-system specifications rather than by this chapter.
+Projection formation and normalization are later semantic consumers of the
+canonical declaration, binding, and evidence products described above. They do
+not authorize a second name-based binding resolver or runtime associated-type
+lookup. Projection normalization, ambiguity, cycles, and future generic
+associated types are specified by the associated-type/type-system
+specifications rather than by this chapter.
 
 ---
 

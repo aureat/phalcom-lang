@@ -40,7 +40,7 @@ C++ vtables are the road not taken — an offset resolved at compile time, fast 
 
 ## 2. Selector encoding as a design lever
 
-**`[V]`** ADR-0012 rejected arity-only dispatch for a concrete reason: it cannot distinguish
+**`[V]`** TDR-0011 rejected arity-only dispatch for a concrete reason: it cannot distinguish
 `move(to:duration:)` from `move(_,_)`. The chosen key encodes name *and* labels *and* kind. The
 canonical forms, per `SignatureKind`:
 
@@ -55,7 +55,7 @@ canonical forms, per `SignatureKind`:
 Each row encodes a decision. Making a getter's selector bare rather than 0-arity means properties
 and no-argument methods occupy different namespaces and can coexist. Making the bracket its own
 identity means subscript is a real selector rather than sugar — a position this project reached
-only after retiring the opposite one (ADR-0055 retired, superseded by ADR-0060).
+only after retiring the opposite one (ADR-0055 retired, superseded by TDR-0050).
 
 **`[V]`** Three real defects came from having *two* encoders — compiler and runtime — that could
 drift: a dropped `Result` that silently swallowed errors, a mis-tagged 0-argument `new()`, and a
@@ -77,7 +77,7 @@ single phenomenon rather than two unrelated decisions.
 
 **`[V]`** From `docs/design-notes/eliminator-convention-and-sacred-match.md`:
 
-> Phalcom's dispatch-key design (name+arity+kind selector identity, ADR-0012) gives eliminator
+> Phalcom's dispatch-key design (name+arity+kind selector identity, TDR-0011) gives eliminator
 > totality **without** a Maranget-style usefulness algorithm. `match(ok:)` and `match(ok:, err:)`
 > are different selectors — a caller who forgets an arm doesn't get silent fallthrough, they get a
 > missed method lookup and `doesNotUnderstand`.
@@ -105,7 +105,7 @@ argument produces a *different selector*, so lookup misses the full-arity method
 only available repairs were combinatorial arity-family expansion at install time, or static
 knowledge of the callee that a dynamically dispatched language does not have.
 
-ADR-0043 resolves it **by declining the feature**. Arity is fixed and 1:1 with signature
+TDR-0037 resolves it **by declining the feature**. Arity is fixed and 1:1 with signature
 identity; manual arity overloading (`foo`, `foo(_)`, `foo(_,_)` as separate methods) is the
 idiom. The stated cost is repetitive overloads; the stated benefit is that the single-probe
 lookup is preserved with no signature aliasing at install and no arity-fold at the call site.

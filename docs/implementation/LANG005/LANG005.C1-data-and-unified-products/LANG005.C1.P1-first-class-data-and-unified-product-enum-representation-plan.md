@@ -2328,7 +2328,7 @@ Edit operations:
 2. [ ] RUN focused data/product tests first, then affected crate suites, then workspace delivery gates in the documented order.
 3. [ ] RUN every final negative search and record intentional legacy tuple/record/@data exceptions.
 4. [ ] RUN format, workspace check, workspace tests, and clippy; record exact PASS/FAIL in the state file.
-5. [ ] COPY PDR-0035 into repository path and update `docs/pdr/STATUS.md` in the same commit when implementation work is actually landing.
+5. [ ] COPY PDR-0035 into repository path and update `docs/decisions/STATUS.md` in the same commit when implementation work is actually landing.
 6. [ ] MARK P1 COMPLETE only after the deferred-evidence audit has no remaining P1 item and no INCIDENT remains.
 Testing classification:
 - final P1 evidence.
@@ -2607,10 +2607,10 @@ This plan does not implement:
 
 ## PDR landing requirements
 
-When PDR-0035 is copied into `docs/pdr/`:
+When PDR-0035 is copied into `docs/decisions/`:
 
-- add it as `docs/pdr/0035-data-is-a-nominal-transparent-immutable-value-product.md`;
-- update `docs/pdr/STATUS.md` in the same commit;
+- add it as `docs/decisions/0035-data-is-a-nominal-transparent-immutable-value-product.md`;
+- update `docs/decisions/STATUS.md` in the same commit;
 - keep status `Accepted`;
 - mark Shipped as unimplemented until this plan has actual completion evidence;
 - update syntax/type docs touched by the implemented behavior rather than leaving PDR as the sole user-facing specification.

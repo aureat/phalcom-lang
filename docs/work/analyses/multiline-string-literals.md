@@ -1,6 +1,6 @@
 # Analysis: Multiline String Literals
 
-> **Resolution:** Accepted on 2026-08-15 via [PDR-0034](../pdr/0034-multiline-string-text-blocks.md). Phalcom adopts triple-quoted `"""` text blocks with closing-delimiter-defined indentation margin and standard `\(expr)` interpolation.
+> **Resolution:** Accepted on 2026-08-15 via [TDR-0078](../../decisions/accepted/0078-multiline-string-text-blocks.md). Phalcom adopts triple-quoted `"""` text blocks with closing-delimiter-defined indentation margin and standard `\(expr)` interpolation.
 
 ## Allowing ordinary `"..."` strings to span lines
 

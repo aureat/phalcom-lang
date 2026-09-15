@@ -142,7 +142,7 @@ note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 **`capture_error_value`** (`dispatch.rs:361-379`):
 ```rust
 361    /// Extracts the surface `Error` [`Value`] a fiber-floor capture stores in
-362    /// [`crate::heap::FiberObject::result`] (ADR-0030 §6, spec §3.2).
+362    /// [`crate::heap::FiberObject::result`] (TDR-0027 §6, spec §3.2).
 363    ///
 364    /// [`RuntimeError::Raise`]'s `error` is already the surface instance
 365    /// (U-CORE-6); any other terminal error (a native VM error with no
@@ -176,7 +176,7 @@ note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 20     /// return value and the fiber can no longer be resumed.
 21     Done,
 22     /// The entry raised an uncaught error; [`FiberObject::result`] holds the
-23     /// captured `Error` value (the fiber-floor capture, ADR-0030 §6) and the
+23     /// captured `Error` value (the fiber-floor capture, TDR-0027 §6) and the
 24     /// fiber can no longer be resumed.
 25     Failed,
 26 }
@@ -236,7 +236,7 @@ The loop stops (a) at the first `Try`-mode fiber, delivering `error_value` as an
 308     // runs, and that block re-enters the interpreter — so its back-edge
 309     // safepoint can collect. Neither `vm.stack` nor `vm.frames` describes
 310     // `outcome`, so without a temp root the collector frees it and `ensure`
-311     // returns a dangling handle (ADR-0050 §7; memory-management.md §4).
+311     // returns a dangling handle (TDR-0048 §7; memory-management.md §4).
 312     //
 313     // Both arms carry a handle: `Ok` is the protected block's value, and a
 314     // `Raise` error is the surface `Error` instance an enclosing `on` will
@@ -381,7 +381,7 @@ cannot resume a fiber across a native call frame (e.g. inside .each { })
 ```
 No type check whatsoever on `args[0]` — any `Value` is raised as-is.
 
-**`throw`** desugars to `expr.raise()` (ADR-0031 §1), landing in `error_raise` (`primitive/error.rs:61-65`):
+**`throw`** desugars to `expr.raise()` (TDR-0028 §1), landing in `error_raise` (`primitive/error.rs:61-65`):
 ```rust
 pub fn error_raise(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     let message_sym = vm.get_or_intern("message");

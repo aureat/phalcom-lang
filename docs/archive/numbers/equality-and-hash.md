@@ -4,10 +4,10 @@
 - Axis: values (equality ladder), object-model §8
 
 > **Partially superseded (2026-07-12).** This note heavily overlaps the now-landed
-> [ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md) and
+> [TDR-0021](../../decisions/accepted/0021-amend-floor-admit-hash-and-kernel-reflection.md) and
 > [core/decisions.md](../core/decisions.md) Q1/Q5 — it is a **candidate to become
 > normative**. Also: NaN reasoning that started from "`Number` is f64" predates
-> [ADR-0024](../../../adr/0024-numeric-surface-split-int-float-and-division.md); under the
+> [TDR-0022](../../decisions/accepted/0022-numeric-surface-split-int-float-and-division.md); under the
 > split, NaN lives **only on `Float`** (`Int` is exact), so NaN-specific claims now
 > read `Float`, not `Number`. Index: [deferred-work.md](../deferred-work.md).
 

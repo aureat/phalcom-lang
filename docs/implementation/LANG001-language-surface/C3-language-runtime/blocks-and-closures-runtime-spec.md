@@ -1,7 +1,7 @@
 # LANG001.C3 — Blocks and closures runtime spec
 
 - **Status:** ✅ Landed — `707dc17` (`feat(u4): first-class blocks + open/closed upvalues + frame-token infra`), plus in-flight fixes `71df836` (blocks without a trailing `return`) and the review-driven runtime wiring closed in the same session. In-tree on `main`, no worktree.
-- **Realizes:** [ADR-0013](../../../adr/0013-closure-upvalues-and-frame-token-return.md) (open/closed upvalues + frame-token non-local return infrastructure); [ADR-0006](../../../adr/0006-function-as-abstract-callable-root.md) (`Function` abstract callable root); builds on [ADR-0009/0010](../../../adr/0009-handle-arena-heap.md) (heap handles + tagged `Value`). Spec: [blocks.md](../../../spec/current/blocks.md) §1–7, [functions.md](../../../spec/current/functions.md) §1–4.
+- **Realizes:** [TDR-0012](../../../decisions/accepted/0012-closure-upvalues-and-frame-token-return.md) (open/closed upvalues + frame-token non-local return infrastructure); [TDR-0005](../../../decisions/accepted/0005-function-as-abstract-callable-root.md) (`Function` abstract callable root); builds on [TDR-0008](../../../decisions/accepted/0008-handle-arena-heap.md) (heap handles + tagged `Value`). Spec: [blocks.md](../../../spec/current/blocks.md) §1–7, [functions.md](../../../spec/current/functions.md) §1–4.
 - **Reviewer gate:** ON (load-bearing — closures can corrupt the object model). The independent `phalcom-reviewer` pass returned `request-changes` on the first cut: the front end + type scaffolding were correct but the runtime was stubbed (`block.call` returned "not wired yet", `GetUpvalue`/`SetUpvalue` raised `RuntimeError::Internal`, `Bytecode::Closure` never allocated a `BlockObject`) and it silently regressed the `example_calculator` golden. The gaps were closed in a follow-up pass and re-verified green.
 
 ## Mission
@@ -29,7 +29,7 @@ Front end (`phalcom-ast`): new `Expr::Block`/`BlockExpr` AST node (`ast.rs`) plu
 
 Object model (`phalcom-core/src`):
 - `block.rs` (new) — `BlockObject { closure: ObjRef, home_frame_token: FrameToken }`, a `Copy` struct pairing the closure handle with the token of its creating activation.
-- `upvalue.rs` (new) — `Upvalue` cell, `Open(usize)` (index of a live VM stack slot) or `Closed(Value)` (value copied out after the frame exited); heap-owned so a closed upvalue outlives its frame ([ADR-0009](../../../adr/0009-handle-arena-heap.md)).
+- `upvalue.rs` (new) — `Upvalue` cell, `Open(usize)` (index of a live VM stack slot) or `Closed(Value)` (value copied out after the frame exited); heap-owned so a closed upvalue outlives its frame ([TDR-0008](../../../decisions/accepted/0008-handle-arena-heap.md)).
 - `closure.rs` — `ClosureObject` carries heap-owned upvalue handles (replacing the old `upvalues: Vec<Value>` / `num_upvalues: 0` stub); `callable.rs` — `Callable` carries capture **descriptors** (`is_local` + `index`) telling the VM how to materialize each cell at closure creation.
 - `frame.rs` — `CallFrame` gains a monotonic `generation: u64` (minted by `VM::new_call_frame` via `next_frame_generation`) plus `CallFrame::token(frame_index) -> FrameToken`; `FrameToken { frame_index, generation }`. The `home_frame_token` field is present on `CallFrame` but only populated by U10. `CallFrame` stays `Copy`.
 - `value.rs` — blocks are carried as a heap `Obj(ObjRef)` to a `BlockObject`.
@@ -41,7 +41,7 @@ Opcodes (`bytecode.rs`, executed in `vm.rs`, disassembled via `Debug`):
 
 Compiler (`compiler/lib.rs`): `compile_block` performs upvalue resolution (walk enclosing compiler scopes, mark captured locals, build descriptors, capture `self` as an upvalue), emits the four opcodes, and closes upvalues at scope exit.
 
-Tower (`universe.rs`): `Function` (abstract) is installed under `Object`; `Block` is installed under `Function`, and `Method` re-parents from `Object` to `Function` so all three share the `ClosureObject` call protocol ([ADR-0006](../../../adr/0006-function-as-abstract-callable-root.md)). `Function` must be allocated before `Block`/`Method` because `make_core_class` reads `Function`'s metaclass to wire the parallel rule.
+Tower (`universe.rs`): `Function` (abstract) is installed under `Object`; `Block` is installed under `Function`, and `Method` re-parents from `Object` to `Function` so all three share the `ClosureObject` call protocol ([TDR-0005](../../../decisions/accepted/0005-function-as-abstract-callable-root.md)). `Function` must be allocated before `Block`/`Method` because `make_core_class` reads `Function`'s metaclass to wire the parallel rule.
 
 Apply protocol (`primitive/block.rs`, wired in `universe.rs`): `arity` and `name` are getters; `call` is registered **per arity** `Method(0)..=Method(4)` (`MAX_CALL_ARITY = 4`) on both `Function` and `Block`, because dispatch keys on the arity-encoded selector rather than a single variadic entry. `block_call` resolves the closure handle via `resolve_callable`, checks arity, pushes a fresh `CallFrame`, and re-enters `VM::run_until` with the current frame count as the floor so the call returns synchronously. `callWith(_:)` (one packed argument) is a forward stub pending kernel `List`.
 

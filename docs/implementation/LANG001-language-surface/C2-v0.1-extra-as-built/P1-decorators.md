@@ -1,11 +1,11 @@
 # PLAN-DECORATORS — the `Attribute`/decorator mechanism (Install/Dispatch/Runtime/Layout) + the 8 named decorators
 
 _Architect plan. Dependency-ordered, write-set-annotated units for one implementer each. Grounded in
-**[ADR-0054](../adr/0054-two-speed-ratification-annotation-decorator-tiers.md)** (Accepted — ratifies
-all five tiers), **[ADR-0052](../adr/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)**
+**[TDR-0044](../../../decisions/accepted/0044-two-speed-ratification-annotation-decorator-tiers.md)** (Accepted — ratifies
+all five tiers), **[TDR-0042](../../../decisions/accepted/0042-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)**
 (receiver-scoped guard — LANDED; Layout-confined per-receiver state),
-**[ADR-0053](../adr/0053-runtime-decorator-interception-reuses-override-epoch-guard.md)** (Runtime
-interceptor guard bit), **[ADR-0057](../adr/0057-decorator-granularity-vs-proxy-granularity-split.md)**
+**[TDR-0043](../../../decisions/accepted/0043-runtime-decorator-interception-reuses-override-epoch-guard.md)** (Runtime
+interceptor guard bit), **[TDR-0045](../../../decisions/accepted/0045-decorator-granularity-vs-proxy-granularity-split.md)**
 (decorator vs `Proxy` split), and the normative specs
 [attribute-classes.md](../spec/current/decorators/on.md),
 [decorators.md](../spec/current/decorators/README.md),
@@ -432,7 +432,7 @@ serialization constraint in the wave schedule (§4).
   (manual dispose only) are all ruled and need no new VM surface beyond M-LAYOUT-SLOTS. **R-2 (tracking-context
   home) resolved to a design call that itself needs new native support**: no `.ph`-reachable class-side/module
   mutable state exists today (`concurrency.md:234`), so `Reactive.current`/`trackedBy`/`untracked`/
-  `schedule`/`batch`/`flush` need a native module — [ADR-0058](../adr/0058-reactive-tracking-context-needs-a-native-module.md),
+  `schedule`/`batch`/`flush` need a native module — [TDR-0046](../../../decisions/accepted/0046-reactive-tracking-context-needs-a-native-module.md),
   same shape as `System.schedule`'s landed precedent for `Future`. **This unit is now BLOCKED only on a new
   prerequisite unit, tentatively `U-REACTIVE-NATIVE`** (not yet scoped/write-set-annotated in this plan — a
   follow-on planning pass, not a design question), not on any further user decision.

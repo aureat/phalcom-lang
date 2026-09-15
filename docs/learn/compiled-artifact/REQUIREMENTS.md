@@ -48,7 +48,7 @@ anonymously / ancestor). Candidates:
   no per-instance closure object (pre-lambda) — the contrast that shows why Phalcom *needs* a second
   layer where Java did not. Keep, but tightly.
 - **Smalltalk** — `CompiledMethod` (bytecode + literal frame) and block context/home identity — the
-  ancestor of `home_frame_token` and the `Method`/`Block` sibling framing (ADR-0006). Keep for the
+  ancestor of `home_frame_token` and the `Method`/`Block` sibling framing (TDR-0005). Keep for the
   home-frame stamp only; one paragraph.
 - **Cut:** JS engine hidden-class/shape machinery (different problem), Wren (same lineage but adds
   no *name* Lua doesn't already give), any JIT tier (out of scope, like Doc 1). Name them cut.
@@ -155,7 +155,7 @@ Then, each with `file:line` + quoted def, and live output where behavioural:
 | "the box wants to become two boxes" (template + instance) | **Four** types, three object boundaries: `Chunk` ⊂ `Callable` (Rc-shared recipe) ← `ClosureObject` (instance) ← `BlockObject` (stamp). `callable.rs:21`, `closure.rs:24`, `block.rs:18` |
 | template ref is "a pointer, handle, or Rc" | specifically `Rc<Callable>` (`closure.rs:28`) — a **measured perf cut** (perf-log 004), not a neutral choice |
 | a "MakeClosure-style instruction" mints the closure | `Bytecode::Closure(idx)` (`dispatch.rs:577`) — and it does **double duty**: materializes the `ClosureObject` *and* wraps it in a `BlockObject` in one arm. No separate block opcode exists |
-| identity/home-frame is "a small number of languages," a bridge | Phalcom **took it**: `BlockObject.home_frame_token` (`block.rs:22`), ADR-0013 |
+| identity/home-frame is "a small number of languages," a bridge | Phalcom **took it**: `BlockObject.home_frame_token` (`block.rs:22`), TDR-0012 |
 | module link "typically per-instance (CPython `__globals__`)" | matches: `ClosureObject.module: ObjRef` (`closure.rs:31`), per-instance |
 | constant pool "MAY dedup — compiler policy"; Lua/CPython dedup within a code object | Phalcom does **not** dedup (`chunk.rs:85` unconditional push; verified: two `"hello"` → two `ObjRef`s, `1+1` → two slots). Diverges from both |
 | fork (c) native: variant-of-code-object (Ruby MRI) vs sibling (CPython) | Phalcom = **sibling**: `MethodKind::{Closure(ObjRef), Primitive(fn)}` (`method/object.rs:17`); `Callable` has no native variant |
@@ -170,8 +170,8 @@ Then, each with `file:line` + quoted def, and live output where behavioural:
   assert "designed shared."
 - **No-dedup is an absence, not a choice.** A `ConstKey` dedup was *specced* (U-COMPILE) but did not
   land. State HEAD behaviour; do not dress the absence as a rationale.
-- **Layer count is reconstruction.** ADR-0006 frames Block/Method as siblings (deliberated);
-  ADR-0013 the frame token (deliberated, with rejected alternatives). But *Chunk-by-value inside
+- **Layer count is reconstruction.** TDR-0005 frames Block/Method as siblings (deliberated);
+  TDR-0012 the frame token (deliberated, with rejected alternatives). But *Chunk-by-value inside
   Callable and the Rc on Callable* is how the types fell out + a perf cut — not an ADR. Label the
   "why exactly these layers" walk pedagogical.
 

@@ -282,7 +282,7 @@ phalcom> where
 **Not in U-TRACE.** Post-mortem inspection means the dead stack outlived the unwind — frames,
 their closures, and their modules all stay rooted past the point the unwind normally drops them.
 That is structurally the same shape as the confirmed `block_ensure` temp-root UAF: a live
-reference the collector cannot see. Gate on `temp_roots` existing (ADR-0050 §7, unbuilt).
+reference the collector cannot see. Gate on `temp_roots` existing (TDR-0048 §7, unbuilt).
 
 The API supports it either way. `StackWalk<'vm>` borrows; a post-mortem variant needs an owned
 snapshot type. Leave that type unbuilt rather than design around its absence.

@@ -20,7 +20,7 @@ over an already-landed protocol, zero primitives, zero compiler/VM touch — sam
 ran reviewer-OFF) — confirm against the current reviewer roster policy at dispatch time; if any doubt,
 default reviewer ON since this unit reopens a kernel file (`core.ph`) live editors share. Green gate:
 `./scripts/verify.sh` exits 0 + `cargo doc --workspace --no-deps` clean. Grounded in
-**[iteration.md](../../../spec/current/iteration.md) §5**, **[ADR-0035](../../../adr/0035-iteration-protocol-cursor.md)**,
+**[iteration.md](../../../spec/current/iteration.md) §5**, **[TDR-0029](../../../decisions/accepted/0029-iteration-protocol-cursor.md)**,
 **[collection-protocol.md](../../../spec/current/core/collection-protocol.md)**, and Wren's `Sequence` +
 view-class precedent (`wren_core.wren` L7–182, cited throughout as precedent-with-consequence, not
 gospel — see §3.4 for the one place the port deliberately diverges). New governing artifact: **none**

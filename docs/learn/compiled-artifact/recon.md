@@ -45,11 +45,11 @@ captured variables together (the textbook picture). Phalcom splits *shared-and-i
 
 ## 3. What was actually deliberated (honesty basis)
 
-- **ADR-0006** (`0006-function-as-abstract-callable-root.md`) — *Decision*: `Function` is an
+- **TDR-0005** (`0006-function-as-abstract-callable-root.md`) — *Decision*: `Function` is an
   abstract kernel class; `Block` and `Method` are **sibling** concrete subclasses; `Method.bind(_)`
   reuses Block machinery. This is the object-model framing (why a method and a block are the same
   kind of thing). **Deliberated.**
-- **ADR-0013** (`0013-closure-upvalues-and-frame-token-return.md`) — closure upvalues + frame-token
+- **TDR-0012** (`0013-closure-upvalues-and-frame-token-return.md`) — closure upvalues + frame-token
   non-local return. The `home_frame_token` on `BlockObject` is this ADR. **Deliberated.**
 - The `Rc<Callable>` sharing is **U-HOTPATH / perf-log** (memory: "Change 4 committed: Rc<Callable>
   wrapping for block literal efficiency," 6081), a measured perf cut — **an outcome, not an object-

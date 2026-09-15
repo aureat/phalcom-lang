@@ -6,7 +6,7 @@ Blocks are the keystone construct. A block, a lambda, a method body, and a gette
 body all **share one closure representation** — the same closure machinery, spelled
 at different levels of ceremony. `Block` is a real class
 ([Object Model](object-model.md)). A `Method` and a `Block` are **siblings** under
-the abstract `Function` root ([ADR-0006](../../adr/0006-function-as-abstract-callable-root.md));
+the abstract `Function` root ([TDR-0005](../../decisions/accepted/0005-function-as-abstract-callable-root.md));
 a `Method` is **not** a `Block` — it carries a selector, holder, and receiver that a
 `Block` does not (see [Functions](functions.md)).
 

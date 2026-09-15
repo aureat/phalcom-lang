@@ -3,12 +3,12 @@
 > **Status:** **Accepted.** The one genuinely *un*specified list concern
 > ([`core-classes.md`](./core-classes.md) §6, DEFERRED #6): surface literal syntax
 > for `List`. This doc is the design ratified by
-> [ADR-0029](../../../adr/0029-list-literal-syntax.md) (Accepted) and the collections
-> umbrella [ADR-0032](../../../adr/0032-collections-representation-and-literals.md);
+> [TDR — List literals `[a, b, c]` desugar to `List` construction sends](../../../decisions/accepted/0025-list-literal-syntax.md) (Accepted) and the collections
+> umbrella [TDR-0028](../../../decisions/accepted/0028-collections-representation-and-literals.md);
 > parser/compiler work follows in U-LEX. Grounded in
-> [ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md) (native `List`),
-> [ADR-0021](../../../adr/0021-no-truthiness-enforcement.md) (no truthiness),
-> [ADR-0016](../../../adr/0016-hand-written-lexer-and-recursive-descent-parser.md)
+> [TDR-0018](../../../decisions/accepted/0018-kernel-list-native-array-protocol.md) (native `List`),
+> [TDR-0019](../../../decisions/accepted/0019-no-truthiness-enforcement.md) (no truthiness),
+> [TDR-0014](../../../decisions/accepted/0014-hand-written-lexer-and-recursive-descent-parser.md)
 > (lexer/parser). Inherits the baseline pin from [`README.md`](./README.md).
 >
 > **Owner:** U-LEX (surface syntax) + a new ADR (the literal decision).
@@ -55,7 +55,7 @@ Two lowering strategies (the ADR picks one):
 | **B — dedicated `BuildList(n)` opcode** | compiler pushes *n* values, one opcode builds the `List` | avoids *n* message sends per literal; needs a new `Bytecode` variant + VM handler + disassembler row |
 
 Strategy **A** ships within U-LEX with no floor change (the derivability default,
-[ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md) §1). Strategy **B**
+[TDR-0017](../../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md) §1). Strategy **B**
 is a later performance optimization if literal-heavy code shows the send overhead —
 it does **not** change the surface or the value produced.
 
@@ -67,7 +67,7 @@ it does **not** change the surface or the value produced.
   yields; identity per literal (two `[1]` literals are `!=` by identity but `==` by
   structure once `List#==` lands, U-CORE-5).
 - **Absence:** `[]` is an empty list, **not** `None` — a list is never absence
-  ([ADR-0021](../../../adr/0021-no-truthiness-enforcement.md)).
+  ([TDR-0019](../../../decisions/accepted/0019-no-truthiness-enforcement.md)).
 
 ## 5. Non-goals (this spec)
 

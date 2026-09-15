@@ -8,7 +8,7 @@
 
 **`[V]`** Primary sources: `docs/design-notes/optimization-method-and-harness-fidelity.md`
 (findings O1–O5) and `docs/design-notes/bytecode-representation-and-borrowed-techniques.md`
-(findings B1–B5), both grounded 2026-07-14, both governed by ADR-0051 (measure-first, tiered,
+(findings B1–B5), both grounded 2026-07-14, both governed by TDR-0049 (measure-first, tiered,
 behavior-invariant). Per-cut numbers live in `docs/forge/perf-log/`; **that ledger is the only
 citable source for a number**, and quoting a figure from memory is a known way to be wrong here.
 

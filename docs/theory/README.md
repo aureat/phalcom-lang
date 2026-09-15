@@ -28,7 +28,7 @@ as settled fact. That is what the provenance tags below exist for.
 ## Provenance tags — read this before reading anything else
 
 This directory exists partly because of a specific failure. On 2026-07-19 an automated
-summarizer wrote an observation titled *"ADR-0030 Decision section fully read; Conway 1963
+summarizer wrote an observation titled *"TDR-0027 Decision section fully read; Conway 1963
 foundational paper verified"*, whose body asserted that Conway's 1963 CACM paper had been
 "located and verified as source." The citation it produced was, as it happens, bibliographically
 correct. It had also never been checked against anything: the string `Conway` does not appear

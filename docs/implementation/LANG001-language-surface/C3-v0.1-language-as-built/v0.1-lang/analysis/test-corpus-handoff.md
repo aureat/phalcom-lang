@@ -34,7 +34,7 @@ expected stdout/exit.
   semantics. Read at least: `README.md`, `lexical-structure.md`, `values-and-absence.md`,
   `messages-and-selectors.md`, `method-lookup.md`, `control-flow.md`, `classes.md`, `blocks.md`,
   `object-model.md`, plus the WIP parts `functions.md`, `error-handling.md`, `system.md`,
-  `concurrency.md`. Cross-check ratified decisions in `docs/adr/0007`–`0016`.
+  `concurrency.md`. Cross-check ratified decisions in `docs/decisions/0007`–`0016`.
 - **`docs/spec/implementation-status.md`** tells you what is built vs greenfield. The current tree is
   a **partial** VM — many spec-correct programs fail today. That is expected: they become PENDING.
 - **Calibrate current syntax empirically**: run `examples/core_new.ph`, `person2.ph`, `person.ph`,
@@ -164,7 +164,7 @@ Each `.ph` starts with a header using the language's line-comment syntax (confir
 - **Only touch**: `phalcom-core/tests/lang/**`, new `phalcom-core/tests/lang.rs`, new
   `phalcom-core/tests/support/mod.rs`, and (optionally) `scripts/test-lang.sh` wrapper.
 - **Do NOT modify**: `phalcom-core/src/**`, `phalcom-ast/**`, `phalcom-core/tests/golden.rs`,
-  `tests/invariants.rs`, `tests/fixtures/**`, `docs/spec/**`, `docs/adr/**`, **`Cargo.toml`** (any).
+  `tests/invariants.rs`, `tests/fixtures/**`, `docs/spec/**`, `docs/decisions/**`, **`Cargo.toml`** (any).
   Reading them is fine.
 - If a test reveals a real VM bug (panic on valid input, wrong output), **do not fix it** — record it
   in the manifest and append a one-liner to `docs/forge/DEFERRED.md`.

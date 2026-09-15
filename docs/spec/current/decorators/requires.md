@@ -56,7 +56,7 @@ conservative syntactic check: assignments, `SetProperty`, `SetIndex`, sends name
 `add`/`remove`/`put`, and any selector ending in `=` are impure; everything else
 recurses structurally. It is a floor, not a proof — the same
 "floor-not-proof" limitation as the truthiness ban
-([ADR-0021](../../../adr/accepted/0021-no-truthiness-enforcement.md)).
+([TDR-0019](../../../decisions/accepted/0019-no-truthiness-enforcement.md)).
 
 **Purity runs in every `CompileMode`**, including modes that strip the guard. This
 is deliberate (attributes.rs L184-190): purity is a compile-time soundness floor,

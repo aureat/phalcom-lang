@@ -1331,7 +1331,7 @@ If a golden-output test changes, treat that as a suspected bug, not as an expect
 
 # 23. Documentation updates
 
-## `docs/adr/accepted/0010-tagged-value-enum.md`
+## `docs/decisions/accepted/0010-tagged-value-enum.md`
 
 Amend the ADR rather than erasing historical decisions.
 

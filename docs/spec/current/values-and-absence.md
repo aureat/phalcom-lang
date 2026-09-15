@@ -3,15 +3,15 @@
 Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
 
 **Governing ADRs:**
-[ADR-0007](../../adr/0007-option-as-abstract-with-some-none.md) (Option as abstract with Some/None) ·
-[ADR-0010](../../adr/0010-tagged-value-enum.md) (tagged Value enum) ·
-[ADR-0014](../../adr/0014-let-and-var-bindings.md) (let and var bindings)
+[TDR-0006](../../decisions/accepted/0006-option-as-abstract-with-some-none.md) (Option as abstract with Some/None) ·
+[TDR-0009](../../decisions/accepted/0009-tagged-value-enum.md) (tagged Value enum) ·
+[TDR — Variable bindings are `let` (immutable) and `var` (mutable)](../../decisions/retired/let-and-var-bindings.md) (let and var bindings)
 
 ## 1. Value types
 
 | Type | Notes |
 |------|-------|
-| `Int` / `Float` | Abstract `Number` split into exact unbounded `Int` + `f64` `Float` ([ADR-0024](../../adr/0024-numeric-surface-split-int-float-and-division.md)) |
+| `Int` / `Float` | Abstract `Number` split into exact unbounded `Int` + `f64` `Float` ([TDR-0022](../../decisions/accepted/0022-numeric-surface-split-int-float-and-division.md)) |
 | `String` | Immutable, interpolating |
 | `Bool` | A real class; `ifTrue`/`ifFalse` are stdlib methods, not VM builtins |
 | `Block` | First-class closure ([Blocks](blocks.md)) |
@@ -76,7 +76,7 @@ c.ifTrue({ "yes" }, ifFalse: { "no" })        // -> R directly ("yes" or "no")
 ### 3.1 Class shape
 
 `Option` is an abstract kernel class with two concrete subclasses, exactly
-mirroring `Bool` / `True` / `False` ([ADR-0004](../../adr/), [Object Model](object-model.md)):
+mirroring `Bool` / `True` / `False` ([TDR-0004](../../adr/), [Object Model](object-model.md)):
 
 | Class | Kind | State |
 |-------|------|-------|
@@ -203,7 +203,7 @@ exceptional. It mirrors `Option` exactly.
 
 ### 4.1 Class shape
 
-Like `Option` ([§3.1](#31-class-shape), [ADR-0007](../../adr/0007-option-as-abstract-with-some-none.md)),
+Like `Option` ([§3.1](#31-class-shape), [TDR-0006](../../decisions/accepted/0006-option-as-abstract-with-some-none.md)),
 `Result` is abstract with two concrete subclasses:
 
 | Class | Kind | State |

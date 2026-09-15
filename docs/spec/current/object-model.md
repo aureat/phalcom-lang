@@ -3,17 +3,17 @@
 Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
 
 **Governing ADRs:**
-[ADR-0002](../../adr/0002-metaclass-tower-parallel-rule.md) (metaclass tower parallel rule) ·
-[ADR-0003](../../adr/0003-introduce-behavior-kernel-class.md) (Behavior kernel class) ·
-[ADR-0009](../../adr/0009-handle-arena-heap.md) (handle/arena heap) ·
-[ADR-0010](../../adr/0010-tagged-value-enum.md) (tagged Value enum)
+[TDR-0002](../../decisions/accepted/0002-metaclass-tower-parallel-rule.md) (metaclass tower parallel rule) ·
+[TDR-0003](../../decisions/accepted/0003-introduce-behavior-kernel-class.md) (Behavior kernel class) ·
+[TDR-0008](../../decisions/accepted/0008-handle-arena-heap.md) (handle/arena heap) ·
+[TDR-0009](../../decisions/accepted/0009-tagged-value-enum.md) (tagged Value enum)
 
 This part defines the **kernel**: the class/metaclass tower and the catalog of
 core classes. Surface semantics live in the sibling parts. It is reconciled with
 the [Values & Absence](values-and-absence.md) decisions (private `nil` + `Option`,
-abstract `Bool` with `True`/`False` subclasses ([ADR-0004](../../adr/0004-boolean-as-abstract-bool-with-true-false.md)),
+abstract `Bool` with `True`/`False` subclasses ([TDR-0004](../../decisions/accepted/0004-boolean-as-abstract-bool-with-true-false.md)),
 `Block` as the closure class) and the instance-display decision in
-[ADR-0015](../../adr/0015-object-default-tostring.md).
+[TDR-0013](../../decisions/accepted/0013-object-default-tostring.md).
 
 ---
 
@@ -29,7 +29,7 @@ abstract `Bool` with `True`/`False` subclasses ([ADR-0004](../../adr/0004-boolea
 5. **Single inheritance.** One `superclass` per class; `Object` is the root.
 6. **Uniform tower.** Class-side (`@class`, `@constructor`) methods obey the same
    inheritance rules as instance-side methods, via the parallel metaclass
-   hierarchy (§5, [ADR-0002](../../adr/0002-metaclass-tower-parallel-rule.md)). No class is special-cased to lack a metaclass.
+   hierarchy (§5, [TDR-0002](../../decisions/accepted/0002-metaclass-tower-parallel-rule.md)). No class is special-cased to lack a metaclass.
 
 ---
 
@@ -79,14 +79,14 @@ selector exists, but it does not grant invocation authority.
 
 The VM's tagged value maps onto classes as follows. `x.class` is total for every
 surface value; primitives bypass the generic instance representation.
-**Ratified representation: [ADR-0010](../../adr/0010-tagged-value-enum.md).
-Object references are `ObjRef` handles into the arena heap: [ADR-0009](../../adr/0009-handle-arena-heap.md).**
+**Ratified representation: [TDR-0009](../../decisions/accepted/0009-tagged-value-enum.md).
+Object references are `ObjRef` handles into the arena heap: [TDR-0008](../../decisions/accepted/0008-handle-arena-heap.md).**
 
 | Surface value | Class | Notes |
 |---------------|-------|-------|
-| `true` / `false` | `True` / `False` | abstract `Bool` with concrete singleton subclasses `True`/`False` ([ADR-0004](../../adr/0004-boolean-as-abstract-bool-with-true-false.md)); `true.class == True`. `ifTrue`/`ifFalse`/`and`/`or`/`not` live on `Bool`, inherited. |
-| `42` | `Int` | exact, unbounded integer (§4 note; [ADR-0024](../../adr/0024-numeric-surface-split-int-float-and-division.md)) |
-| `3.14` | `Float` | IEEE-754 `f64` (§4 note; [ADR-0024](../../adr/0024-numeric-surface-split-int-float-and-division.md)) |
+| `true` / `false` | `True` / `False` | abstract `Bool` with concrete singleton subclasses `True`/`False` ([TDR-0004](../../decisions/accepted/0004-boolean-as-abstract-bool-with-true-false.md)); `true.class == True`. `ifTrue`/`ifFalse`/`and`/`or`/`not` live on `Bool`, inherited. |
+| `42` | `Int` | exact, unbounded integer (§4 note; [TDR-0022](../../decisions/accepted/0022-numeric-surface-split-int-float-and-division.md)) |
+| `3.14` | `Float` | IEEE-754 `f64` (§4 note; [TDR-0022](../../decisions/accepted/0022-numeric-surface-split-int-float-and-division.md)) |
 | `"hi"` | `String` | immutable, interpolating |
 | `#name` / selectors | `Symbol` | interned — see [Selectors, Symbols & References §2](selectors.md#2-symbol-literals-) for the name-symbol (`#name`) vs. selector-symbol (`#name(_,to,duration)`) distinction |
 | `{ x => … }` | `Block` | closures / block literals |
@@ -123,7 +123,7 @@ Legend — **A** = abstract, **I** = immediate/primitive representation,
 | `Class` | `Behavior` | U | The class of every *named* class. |
 | `Metaclass` | `Behavior` | U | The class of every *metaclass*; each metaclass has exactly one instance (its class). |
 
-> `Behavior` is an object-model refinement ratified by [ADR-0003](../../adr/0003-introduce-behavior-kernel-class.md);
+> `Behavior` is an object-model refinement ratified by [TDR-0003](../../decisions/accepted/0003-introduce-behavior-kernel-class.md);
 > the top-level spec is silent on it and neither requires nor forbids it. It exists
 > to give `Class` and `Metaclass` a shared home for `_$new`/`new`/reflection
 > and to keep the tower uniform.
@@ -132,10 +132,10 @@ Legend — **A** = abstract, **I** = immediate/primitive representation,
 
 | Class | Superclass | Kind | Role |
 |-------|-----------|------|------|
-| `Bool` | `Object` | A | Abstract boolean ([ADR-0004](../../adr/0004-boolean-as-abstract-bool-with-true-false.md)). Holds the control-flow protocol — `not`, `and(_)`, `or(_)`, `ifTrue(_)`, `ifTrue(_)ifFalse(_)` — inherited by `True`/`False`. `ifTrue`/`ifFalse` return `Option`. No value is directly of class `Bool`. |
-| `True` / `False` | `Bool` | I | The two concrete singleton boolean classes; surface classes of `true`/`false` ([ADR-0004](../../adr/0004-boolean-as-abstract-bool-with-true-false.md)). Empty bodies — all behaviour is inherited from `Bool`. |
-| `Number` | `Object` | A | Abstract numeric root ([ADR-0024](../../adr/0024-numeric-surface-split-int-float-and-division.md)). Holds the shared arithmetic/comparison protocol; no value is directly of class `Number`. |
-| `Int` | `Number` | I | Exact, **unbounded** integer — tagged `i64` immediate, auto-promoting to a heap `LargeInt` (bignum) on overflow ([ADR-0009](../../adr/0009-handle-arena-heap.md)). Never wraps or traps. |
+| `Bool` | `Object` | A | Abstract boolean ([TDR-0004](../../decisions/accepted/0004-boolean-as-abstract-bool-with-true-false.md)). Holds the control-flow protocol — `not`, `and(_)`, `or(_)`, `ifTrue(_)`, `ifTrue(_)ifFalse(_)` — inherited by `True`/`False`. `ifTrue`/`ifFalse` return `Option`. No value is directly of class `Bool`. |
+| `True` / `False` | `Bool` | I | The two concrete singleton boolean classes; surface classes of `true`/`false` ([TDR-0004](../../decisions/accepted/0004-boolean-as-abstract-bool-with-true-false.md)). Empty bodies — all behaviour is inherited from `Bool`. |
+| `Number` | `Object` | A | Abstract numeric root ([TDR-0022](../../decisions/accepted/0022-numeric-surface-split-int-float-and-division.md)). Holds the shared arithmetic/comparison protocol; no value is directly of class `Number`. |
+| `Int` | `Number` | I | Exact, **unbounded** integer — tagged `i64` immediate, auto-promoting to a heap `LargeInt` (bignum) on overflow ([TDR-0008](../../decisions/accepted/0008-handle-arena-heap.md)). Never wraps or traps. |
 | `Float` | `Number` | I | IEEE-754 `f64`. |
 | `String` | `Object` | U/I | UTF-8 text. Immutable, interpolating. |
 | `Symbol` | `Object` | I | Interned identifier / selector. |
@@ -143,15 +143,15 @@ Legend — **A** = abstract, **I** = immediate/primitive representation,
 | `Some` | `Option` | I | Final immediate present variant; bounded payload, zero instance fields. |
 | `None` | `Option` | I | Final immediate absence variant; no heap singleton. |
 
-> **`Bool` tower note ([ADR-0004](../../adr/0004-boolean-as-abstract-bool-with-true-false.md)).**
+> **`Bool` tower note ([TDR-0004](../../decisions/accepted/0004-boolean-as-abstract-bool-with-true-false.md)).**
 > `Bool` is abstract; `true`/`false` are instances of the concrete singleton
 > subclasses `True`/`False`, so `true.class == True` is **surface-visible**. The
 > six control selectors (`not`/`and`/`or`/`ifTrue`/`ifFalse`/`ifTrue:ifFalse:`)
 > are native primitives on `Bool` and reached by inheritance; on the hot path the
-> sacred-selector inliner ([control flow](control-flow.md); ADR-0018) elides the
+> sacred-selector inliner ([control flow](control-flow.md); TDR-0016) elides the
 > send entirely. `True`/`False` have empty bodies.
 >
-> **Numeric note ([ADR-0024](../../adr/0024-numeric-surface-split-int-float-and-division.md)).**
+> **Numeric note ([TDR-0022](../../decisions/accepted/0022-numeric-surface-split-int-float-and-division.md)).**
 > `Number` is **abstract**, with two concrete immediate subclasses: `Int` (exact,
 > unbounded — tagged `i64` immediate boxing to a heap `LargeInt` on overflow) and
 > `Float` (`f64`). `1` is an `Int`, `1.0` a `Float`; `1 == 1.0` is `true` and
@@ -238,7 +238,7 @@ every metaclass's superclass to `Class`, breaking it (see
 
 Rule 4 is also the whole of constructor dispatch. A constructor is an ordinary
 class-side method ([Classes §1](classes.md),
-[PDR-0028](../../pdr/0028-class-and-constructor-decorator-canon.md)),
+[TDR-0072](../../decisions/accepted/0072-class-and-constructor-decorator-canon.md)),
 so `Foo.new(1)` is an ordinary send resolved by walking `Foo class` and its
 superclass chain — from any receiver expression, with no constructor-specific
 namespace, table, or call-site rewriting. The bare allocator `Class >> new()` sits at
@@ -250,7 +250,7 @@ the root of that chain as an ordinary default, shadowed by ordinary lookup.
 > Every other receiver shape walked past the constructor to the bare allocator and
 > silently produced an uninitialized instance. The kernel's own `List.new()` /
 > `Map.new()` never had the bug because they always registered as ordinary selectors
-> and let this rule do the work. See PDR-0028's Context.
+> and let this rule do the work. See TDR-0073's Context.
 
 ### Diagram
 

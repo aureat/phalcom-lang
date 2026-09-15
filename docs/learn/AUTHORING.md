@@ -254,7 +254,7 @@ branch Phalcom took.**
 > redaction is A's brief's job, not the requirements doc's.
 
 **Evidence it works.** On C1 ([`concurrency/restricted-loop.md`](concurrency/restricted-loop.md))
-A was kept blind this way and independently re-derived ADR-0030's own GC-based rejection of
+A was kept blind this way and independently re-derived TDR-0027's own GC-based rejection of
 stackful coroutines — an argument it had no access to. It also assumed, wrongly, that the
 collection combinator was native. That error was *useful*: it is exactly the reader's error, and
 it became the doc's predict-then-check moment. **An uncontaminated A is worth more than a

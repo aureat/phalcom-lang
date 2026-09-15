@@ -64,7 +64,7 @@ unstated assumption.
 | `phalcom-core/src/vm.rs` | Only if mutability ruled: bump the override epoch / invalidate ICs on a hierarchy change. **Contended** — serialize. |
 | `phalcom-core/tests/invariants.rs` | Assert the policy: sealing rejects `superclass=`, or mutation preserves invariants. |
 | `phalcom-core/core/core.ph` | Only if traits ruled: trait-composition surface. Otherwise untouched. |
-| `docs/adr/00XX-hierarchy-stability.md` | New ADR (Q4+Q10) — provisional number, grab next-free. |
+| `docs/decisions/00XX-hierarchy-stability.md` | New ADR (Q4+Q10) — provisional number, grab next-free. |
 | `docs/spec/object-model.md §1.5/§5`, `open-questions.md` Q4/Q10 | Flip to RESOLVED with the ruling. |
 
 **Disjointness:** in the recommended (conservative) form this unit does **not** touch

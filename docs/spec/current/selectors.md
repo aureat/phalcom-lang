@@ -3,7 +3,7 @@
 Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
 
 **Governing ADRs:**
-[ADR-0012](../../adr/0012-selector-signature-encoding-and-dispatch.md) (label-encoded selectors and inline-cache-ready dispatch)
+[TDR-0011](../../decisions/accepted/0011-selector-signature-encoding-and-dispatch.md) (label-encoded selectors and inline-cache-ready dispatch)
 
 Scope: selector identity, `#` symbol literals, `&` callable references, `@`
 attributes, field visibility. Supersedes `SignatureKind::Method(u8)`
@@ -94,13 +94,13 @@ Two distinct value types, both backed by an interned `Symbol`:
 **Implementation note (U-LEX-HASH):** `#[]` (the bracket-subscript operator
 selector) is **not yet lexed** — the language has no user-facing `[](...)`
 method-definition syntax to fix its arity/canonical-form convention against
-(ADR-0016's hand-written parser doesn't parse a subscript method name at all
+(TDR-0014's hand-written parser doesn't parse a subscript method name at all
 yet), so it is deferred rather than guessed at. See `DEFERRED.md`. Every other
 row in the table above is implemented.
 
 ### Lexing
 
-Lexed as a **single atomic token** by the hand-written scanner (ADR-0016;
+Lexed as a **single atomic token** by the hand-written scanner (TDR-0014;
 `phalcom-ast::lexer`) — the grammar below is unchanged from the original
 Logos-era design, only the implementation strategy moved:
 
@@ -270,7 +270,7 @@ Per-field escape hatches (e.g. `@get(priv)`) fit without a grammar change.
 declaration order, with labels stripped of the leading underscore (`_x` → `x:`).
 `@constructor` is method-only. It marks the method that performs construction.
 `@class` is target-polymorphic for class-side fields and methods. These are three
-separate placement/meaning decisions ([PDR-0028](../../pdr/0028-class-and-constructor-decorator-canon.md)).
+separate placement/meaning decisions ([TDR-0072](../../decisions/accepted/0072-class-and-constructor-decorator-canon.md)).
 
 ---
 

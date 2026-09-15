@@ -60,10 +60,10 @@ The relations Phalcom's semantics license:
 
 | Relation | Licensed by |
 |---|---|
-| `output(P, collect at every safepoint) ≡ output(P, default threshold)` | ADR-0050 non-moving mark-sweep — collection is unobservable |
-| `await(async { e }) ≡ e`, for `e` free of scheduler-visible effects | ADR-0030 §1 |
+| `output(P, collect at every safepoint) ≡ output(P, default threshold)` | TDR-0048 non-moving mark-sweep — collection is unobservable |
+| `await(async { e }) ≡ e`, for `e` free of scheduler-visible effects | TDR-0027 §1 |
 | `f.then(g).then(h) ≡ f.then(x => h(g(x)))` | `Future` functor law, concurrency.md §2 |
-| computation split across N yielding fibers ≡ the same computation inline | ADR-0030 §1, cooperative determinism |
+| computation split across N yielding fibers ≡ the same computation inline | TDR-0027 §1, cooperative determinism |
 
 ### 4. Model / differential (property against a second implementation)
 

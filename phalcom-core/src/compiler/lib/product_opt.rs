@@ -662,7 +662,10 @@ impl<'a> ProductPlanner<'a> {
                 }
             }
             Statement::Impl(impl_def) => {
-                for member in &impl_def.members {
+                for impl_member in &impl_def.members {
+                    let Some(member) = impl_member.behavior() else {
+                        continue;
+                    };
                     self.nested_block_depth += 1;
                     match member {
                         phalcom_ast::ast::BehaviorMember::Method(method) => {

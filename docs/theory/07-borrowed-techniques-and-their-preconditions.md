@@ -137,10 +137,10 @@ measurement half.
 anyone schedules them, since each is routinely described in terms that hide its dependency:
 
 - **NaN-boxing** — exploits that pointers fit in 48 bits and that a language's numeric type is
-  IEEE-754 doubles. **`[V]`** Phalcom's ADR-0024 commits to a split numeric surface with an
+  IEEE-754 doubles. **`[V]`** Phalcom's TDR-0022 commits to a split numeric surface with an
   auto-promoting bignum `Int`, which introduces a heap kind. Whether NaN-boxing still pays under a
   split tower is a genuinely different question from whether it pays under flat `f64`, and the
-  deferral (ADR-0010/ADR-0044) predates the split.
+  deferral (TDR-0009/TDR-0038) predates the split.
 - **Inline caches** — exploit that a call site's receiver class is stable *and* that invalidation
   is cheap. **`[V]`** Phalcom's preconditions are recorded as unmet: `Symbol` is one mixed
   namespace and needs a selector-only interner first; the IC seam is a comment. Sealed superclasses

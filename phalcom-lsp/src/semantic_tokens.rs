@@ -667,12 +667,16 @@ fn collect_decl_names(statements: &[Statement], out: &mut Vec<DeclNameOverride>)
                     is_index: false,
                 });
                 for member in &trait_def.members {
-                    collect_behavior_decl_name(member, out);
+                    if let Some(member) = member.behavior() {
+                        collect_behavior_decl_name(member, out);
+                    }
                 }
             }
             Statement::Impl(impl_def) => {
                 for member in &impl_def.members {
-                    collect_behavior_decl_name(member, out);
+                    if let Some(member) = member.behavior() {
+                        collect_behavior_decl_name(member, out);
+                    }
                 }
             }
             Statement::For(for_stmt) => collect_decl_names(&for_stmt.body, out),
@@ -756,6 +760,13 @@ fn collect_member_decl_name(member: &ClassMember, out: &mut Vec<DeclNameOverride
         ClassMember::Field(field_def) => {
             out.push(DeclNameOverride {
                 range: field_def.name_range,
+                kind: SemanticTokenKind::Property,
+                is_index: false,
+            });
+        }
+        ClassMember::Delegation(delegation) => {
+            out.push(DeclNameOverride {
+                range: delegation.name_range,
                 kind: SemanticTokenKind::Property,
                 is_index: false,
             });

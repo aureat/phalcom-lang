@@ -42,7 +42,7 @@ deferred_reason: null
 _Self-contained implementation plan for **one** implementer. Runtime/heap unit — no surface, no parser,
 no `core.ph` protocol. **Reviewer ON** (touches spine files `heap.rs`, `vm.rs`) — hand the diff to
 `phalcom-reviewer`; do not self-approve. Green gate: `./scripts/verify.sh` exits 0 +
-`cargo doc --workspace --no-deps` clean. Grounded in **[ADR-0050](../../../adr/0050-non-moving-mark-sweep-collector.md)**
+`cargo doc --workspace --no-deps` clean. Grounded in **[TDR-0047](../../../decisions/accepted/0047-non-moving-mark-sweep-collector.md)**
 and normative **[memory-management.md](../../../spec/current/memory-management.md) §1–§7**. Governing ADR:
 ADR-0050 (Proposed — ratify before merge, or land behind the flag; see §8 DEC-GC-A)._
 
@@ -253,7 +253,7 @@ that discipline — not a decorator-aware tracer — is the defence.
 - **Precedent:** Wren's single-threaded non-moving mark-sweep + `nextGC = live * heapGrowFactor` + the
   `wrenPushRoot`/`wrenPopRoot` temp-root API (the direct model). Rejected alternatives (refcount — kernel
   cycle + `Copy`-`Value` tax; moving/copying — breaks handle stability; immediate generational/incremental —
-  write-barrier invasive, no measured pause) are in [ADR-0050 §Alternatives](../../../adr/0050-non-moving-mark-sweep-collector.md).
+  write-barrier invasive, no measured pause) are in [TDR-0047](../../../decisions/accepted/0047-non-moving-mark-sweep-collector.md).
 
 ## 4. Confirmed write-set (tight & disjoint; re-validate with `graphify affected` on HEAD)
 | File | Why | Slice |

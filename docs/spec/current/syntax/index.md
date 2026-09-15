@@ -21,7 +21,7 @@ divergence is tracked centrally in [Implementation Status](../implementation-sta
 rather than being restated file by file.
 
 The governing decision for the parsing strategy itself — hand-written lexer,
-recursive-descent parser, no parser-generator — is [ADR-0016]. Individual
+recursive-descent parser, no parser-generator — is [TDR-0014]. Individual
 productions cite their own governing ADR inline where one exists.
 
 ## 2. Notation
@@ -47,7 +47,7 @@ are given in ` ```phalcom ` fenced blocks with aligned `//` comments.
 | File | Covers |
 |---|---|
 | [`lexical.md`](lexical.md) | Tokens: whitespace/newline handling, comments, identifiers, keywords, string/boolean/symbol literals, operators and punctuation |
-| [Numeric literals](../../library/numbers/numeric-literals.md) | Normative numeric literal grammar: radices, separators, exponent floats, boundaries, diagnostics |
+| [TDR-0070](../../../decisions/accepted/0070-numeric-literals.md) | Normative numeric literal grammar: radices, separators, exponent floats, boundaries, diagnostics |
 | [`expressions.md`](expressions.md) | The expression grammar: primary/postfix/binary forms, message sends, operator precedence and associativity |
 | [`statements-and-declarations.md`](statements-and-declarations.md) | Statements, blocks, and declarations: `let`/`var`, `class`, `trait`, methods, modules, error-handling clauses |
 | [`grammar.md`](grammar.md) | Consolidated appendix — every production from the three files above collected in one place |
@@ -68,29 +68,29 @@ consult it once you already know which production you're looking for.
 
 | ADR | Syntax-relevant decision |
 |---|---|
-| [ADR-0016] | Hand-written lexer + recursive-descent parser; governs precedence climbing and error recovery shape |
-| [ADR-0012] | Selector signature encoding — labels are part of selector identity, driving `#symbol` and callable-reference grammar |
-| [ADR-0064] | `let` (mutable) / `const` (immutable) binding forms; unkeyworded mutable fields — supersedes [ADR-0014] |
-| [ADR-0021] | No truthiness enforcement — condition positions require `Boolean`, no implicit coercion |
-| [ADR-0022] | String interpolation: `\(expr)` sigil, backslash-paren form |
-| [PDR-0029] | String escape, diagnostic, lowering, and range completion; multiline literals deferred |
-| [ADR-0024] | Numeric surface split: `Int` vs `Float` literal forms, `~/` integer division |
-| [ADR-0025] | External/internal parameter names — labeled-argument surface syntax |
-| [ADR-0027] | Modules as files, public-by-default, `import`/`as` |
-| [ADR-0029] / [ADR-0032] | Collection literal syntax (`List`) and collection representation |
-| [ADR-0031] | Error-handling surface syntax: `throw`, `try`/`catch`/`on`/`ensure` |
-| [ADR-0035] | Iteration protocol (cursor-based) and `for`/`in` desugaring |
+| [TDR-0014] | Hand-written lexer + recursive-descent parser; governs precedence climbing and error recovery shape |
+| [TDR-0011] | Selector signature encoding — labels are part of selector identity, driving `#symbol` and callable-reference grammar |
+| [TDR-0053] | `let` (mutable) / `const` (immutable) binding forms; unkeyworded mutable fields — supersedes [ADR-0014] |
+| [TDR-0019] | No truthiness enforcement — condition positions require `Boolean`, no implicit coercion |
+| [TDR-0020] | String interpolation: `\(expr)` sigil, backslash-paren form |
+| [TDR-0074] | String escape, diagnostic, lowering, and range completion; multiline literals deferred |
+| [TDR-0022] | Numeric surface split: `Int` vs `Float` literal forms, `~/` integer division |
+| [TDR-0023] | External/internal parameter names — labeled-argument surface syntax |
+| [TDR-0024] | Modules as files, public-by-default, `import`/`as` |
+| [TDR-0026] / [TDR-0029] | Collection literal syntax (`List`) and collection representation |
+| [TDR-0028] | Error-handling surface syntax: `throw`, `try`/`catch`/`on`/`ensure` |
+| [TDR-0030] | Iteration protocol (cursor-based) and `for`/`in` desugaring |
 
-[ADR-0016]: ../../../adr/0016-hand-written-lexer-and-recursive-descent-parser.md
-[ADR-0012]: ../../../adr/0012-selector-signature-encoding-and-dispatch.md
+[TDR-0014]: ../../../adr/0016-hand-written-lexer-and-recursive-descent-parser.md
+[TDR-0011]: ../../../adr/0012-selector-signature-encoding-and-dispatch.md
 [ADR-0014]: ../../../adr/0014-let-and-var-bindings.md
-[ADR-0021]: ../../../adr/0021-no-truthiness-enforcement.md
-[ADR-0022]: ../../../adr/0022-string-interpolation-backslash-paren-sigil.md
-[PDR-0029]: ../../../pdr/0029-string-literals-and-interpolation-completion.md
-[ADR-0024]: ../../../adr/0024-numeric-surface-split-int-float-and-division.md
-[ADR-0025]: ../../../adr/0025-external-internal-parameter-names.md
-[ADR-0027]: ../../../adr/0027-modules-as-files-with-public-by-default-imports.md
-[ADR-0029]: ../../../adr/0029-list-literal-syntax.md
-[ADR-0031]: ../../../adr/0031-error-handling-surface-syntax.md
-[ADR-0032]: ../../../adr/0032-collections-representation-and-literals.md
-[ADR-0035]: ../../../adr/0035-iteration-protocol-cursor.md
+[TDR-0019]: ../../../adr/0021-no-truthiness-enforcement.md
+[TDR-0020]: ../../../adr/0022-string-interpolation-backslash-paren-sigil.md
+[TDR-0074]: ../../../pdr/0029-string-literals-and-interpolation-completion.md
+[TDR-0022]: ../../../adr/0024-numeric-surface-split-int-float-and-division.md
+[TDR-0023]: ../../../adr/0025-external-internal-parameter-names.md
+[TDR-0024]: ../../../adr/0027-modules-as-files-with-public-by-default-imports.md
+[TDR-0026]: ../../../adr/0029-list-literal-syntax.md
+[TDR-0028]: ../../../adr/0031-error-handling-surface-syntax.md
+[TDR-0029]: ../../../adr/0032-collections-representation-and-literals.md
+[TDR-0030]: ../../../adr/0035-iteration-protocol-cursor.md

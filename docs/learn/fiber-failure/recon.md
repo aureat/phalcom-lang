@@ -14,7 +14,7 @@ Sibling docs read *before* writing this file, per the lean procedure's own findi
 **Architecture.** An uncaught error inside a fiber does not propagate past that fiber. `run_until`'s
 top-level driver (`base_frames == 0`) wraps the interpreter in a loop whose `Err` arm is the **fiber
 floor**: it converts the `PhError` into a surface `Error` value, marks the fiber `Failed`, stores the
-value in its `result` slot, and hands control to a resumer (ADR-0030 §6, `vm/dispatch.rs:290-338`).
+value in its `result` slot, and hands control to a resumer (TDR-0027 §6, `vm/dispatch.rs:290-338`).
 
 **Representation — the axis that matters.** Phalcom has **two different deliveries for one error**,
 and the floor is where one becomes the other:
@@ -45,8 +45,8 @@ per-frame step at all, by construction, for any number of fibers.
 
 ## 3. What was actually deliberated
 
-ADR-0030 §6 (L120-131) deliberates the *containment*, in one paragraph, and it deliberates it
-correctly: the ADR-0008 unwind "operates on `self.frames` only and stops at the **fiber floor**, so a
+TDR-0027 §6 (L120-131) deliberates the *containment*, in one paragraph, and it deliberates it
+correctly: the TDR-0007 unwind "operates on `self.frames` only and stops at the **fiber floor**, so a
 failing fiber captures its `Error` into its result slot instead of terminating the host." It is
 explicit, and it is what shipped.
 
@@ -58,7 +58,7 @@ What no ADR section deliberates:
   `call`/`try` pair is where it comes from** — ten `concurrency_fiber_wren_*` fixtures — but that is
   a *port*, not a deliberation (C1 §Wren already establishes this framing; do not re-argue it).
 - **whether "stops at the floor" means "unwinds to the floor" or "abandons at the floor."** The ADR
-  says the ADR-0008 unwind "stops at" the floor. The implementation never runs the ADR-0008 unwind
+  says the TDR-0007 unwind "stops at" the floor. The implementation never runs the TDR-0007 unwind
   at all on this path. Nothing records that as a decision. **This is the doc's honesty note and it
   must be stated as an absence, not as a rejected alternative.**
 - **the cascade's no-bytecode rule** — an intermediate `call`-mode fiber's own code never resumes.
@@ -145,7 +145,7 @@ condition — arrives in user code as a catchable `Error` value (C1 named this; 
 | `Upvalue::Open { fiber, slot }`, the fiber-aware `GetUpvalue`/`SetUpvalue` read branch | **[`vm/upvalues.md`](../vm/upvalues.md)** (shipped) | the crash lands *in* that branch (`dispatch.rs:1062`); show the panic and link. Do not re-teach the read path |
 | `FrameToken`, generation counters, `DeadFrameError` mechanics | **[`vm/frame-identity.md`](../vm/frame-identity.md)** (shipped) | a cross-fiber return token failing its generation check is one line, cited |
 | `System.schedule(_)`, `ready_queue`, the root-drive pump, `Future`, `async`/`await` | **C4** | the pump lives in the same `Ok` arm C3 quotes — one line, "C4's" |
-| GC root enumeration as a subject, `collect_roots`, the mark-sweep design | **unowned; ADR-0050** | E001's fix is `push_temp_root` and that is all this doc needs. No collector tour |
+| GC root enumeration as a subject, `collect_roots`, the mark-sweep design | **unowned; TDR-0048** | E001's fix is `push_temp_root` and that is all this doc needs. No collector tour |
 
 ## 6. Open risks
 
@@ -163,9 +163,9 @@ condition — arrives in user code as a catchable `Error` value (C1 named this; 
 
 Two *committed, shipped* features collide, which is the definition:
 
-- **ADR-0008's unwind is terminating and ordered.** It walks frames down and closes upvalue cells
+- **TDR-0007's unwind is terminating and ordered.** It walks frames down and closes upvalue cells
   before reclaiming slots, and its own rustdoc says why.
-- **ADR-0030 §6's containment forbids that walk from continuing past the fiber floor.**
+- **TDR-0027 §6's containment forbids that walk from continuing past the fiber floor.**
 
 They meet at exactly one `Err` arm, and the shipped resolution — stop the walk by *discarding* the
 frames rather than by *finishing* them — is what produces E002. Neither feature is wrong; the

@@ -142,7 +142,7 @@ failure mode is invisible: any future edit that wraps that yield in `.attempt()`
 `ensure` silently reinstates the whole bug.
 
 This is a **floor amendment** (136 → 137 bindings), recorded with its rationale in
-`phalcom-core/tests/invariants.rs`. Justified against the ADR-0019 freeze on the ground that no
+`phalcom-core/tests/invariants.rs`. Justified against the TDR-0017 freeze on the ground that no
 arrangement of library code can observe root-ness without it: attempt-and-inspect is unfixable in
 `.ph` when the attempt changes the answer.
 

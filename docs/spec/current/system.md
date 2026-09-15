@@ -60,7 +60,7 @@ monotonic `Duration` values.
 
 CONC002.C2.P2 owns the implementation transition from scheduler-as-coroutine-resumer driving to a VM-owned executor. The selector-level scheduler surface remains.
 
-`System.sleep` is governed by PDR-0004 and `stdlib/reactor.md`; implementation owner is CONC002.C3.P1.
+`System.sleep` is governed by TDR-0057 and `stdlib/reactor.md`; implementation owner is CONC002.C3.P1.
 
 ## 3. Implementation ownership
 

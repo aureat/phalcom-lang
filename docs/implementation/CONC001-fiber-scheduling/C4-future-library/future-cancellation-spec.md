@@ -1,7 +1,7 @@
 # CONC001.C4 — Future cancellation spec
 
 > **Status:** **blocked on ratification** of
-> [PDR-0017](../../../pdr/0017-future-cancel-is-renunciation.md) (Proposed —
+> [TDR — `Future#cancel` is renunciation: settle `#cancelled` now, suppress unstarted work best-effort, interrupt nothing](../../../decisions/proposed/future-cancel-is-renunciation.md) (Proposed —
 > rule 5). Dispatch-ready otherwise. Surface contract
 > [`../stdlib/cancellation.md`](../../spec/current/stdlib/cancellation.md); substrate contract
 > [`../stdlib/reactor.md`](../../spec/current/stdlib/reactor.md) §3/§7.

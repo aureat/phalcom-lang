@@ -1,7 +1,7 @@
 # Reactivity — OOP coherence, and hazards found before `U-REACTIVE-NATIVE`
 
 Status: investigation notes. The design itself is **not** open — `docs/spec/current/drafts/reactivity.md`
-is Accepted (ratified 2026-07-13, R-1–R-5 all resolved) and [ADR-0058](../adr/0058-reactive-tracking-context-needs-a-native-module.md)
+is Accepted (ratified 2026-07-13, R-1–R-5 all resolved) and [TDR-0046](../../decisions/accepted/0046-reactive-tracking-context-needs-a-native-module.md)
 is Accepted. Nothing here reopens either. Findings 1–3 are gaps *inside* the
 accepted design, surfaced pre-implementation; finding 1 is a cross-ADR coupling
 that no document currently records.
@@ -31,16 +31,16 @@ is historically well-supported:
 Uniform access is why this is easy here and was hard elsewhere: JS needed `Proxy`
 and Swift needed macros only because they have raw property access. The spec's
 choice to ride `@observable`-derived accessors rather than instrument `GetField`
-keeps [ADR-0011](../adr/0011-static-instance-slot-layout.md)'s slot path
+keeps [TDR-0010](../../decisions/accepted/0010-static-instance-slot-layout.md)'s slot path
 barrier-free and confines tracking cost to observed properties — the same
 per-property granularity Swift's `@Observable` gets, without its per-read
 thread-local + lock (which Phalcom does not need at all: one `VM`,
-cooperative single-threaded, [ADR-0030](../adr/0030-fibers-and-futures-cooperative-concurrency.md)).
+cooperative single-threaded, [TDR-0026](../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md)).
 
 ### "Compiler support" — already answered *no*, correctly, by construction
 
 A compiler cannot know dependency edges in a language where any send is
-redefinable ([ADR-0026](../adr/0026-class-hierarchy-mutability.md)/[ADR-0041](../adr/0041-hierarchy-stability-policy.md)),
+redefinable ([TDR — Methods are open; superclass reparenting is sealed](../../decisions/retired/class-hierarchy-mutability.md)/[TDR-0035](../../decisions/accepted/0035-hierarchy-stability-policy.md)),
 proxyable via `doesNotUnderstand`, or reachable via `perform`/`SEND_DYNAMIC`.
 Precedent with consequence: **Svelte retreated from exactly this.** Svelte 3/4's
 `$:` was compile-time dependency analysis; it broke as soon as state crossed a
@@ -56,7 +56,7 @@ accessors, no compile-time dep analysis. The question is closed by construction.
 
 This session first argued that *transparent* reactive reads (`cart.total`, not
 `cart.totalSignal.value`) contradict the explicitness posture of
-[ADR-0021](../adr/0021-no-truthiness-enforcement.md) (no truthiness) — that
+[TDR-0019](../../decisions/accepted/0019-no-truthiness-enforcement.md) (no truthiness) — that
 auto-tracking is "truthiness for control flow." **That argument is wrong**, for
 two reasons:
 
@@ -65,28 +65,28 @@ two reasons:
    tracking. Dependency registration is a side effect of reading, not a
    reinterpretation of the read.
 2. The spec marks at the **declaration** site (`@observable var _items`), which is
-   the same discipline as `let`/`var` ([ADR-0014](../adr/0014-let-and-var-bindings.md)) —
+   the same discipline as `let`/`var` ([TDR — Variable bindings are `let` (immutable) and `var` (mutable)](../../decisions/retired/let-and-var-bindings.md)) —
    declare-site marking, not use-site re-marking. Requiring `.value` at every use
    would be redundant re-marking, and would buy no information the declaration
    doesn't already carry.
 
-The spec's transparent-read choice is coherent with ADR-0021. Do not reopen it.
+The spec's transparent-read choice is coherent with TDR-0019. Do not reopen it.
 
-## Finding 1 — ADR-0058's `Reactive.current` is sound only because ADR-0033 is Deferred (undocumented coupling)
+## Finding 1 — TDR-0047's `Reactive.current` is sound only because ADR-0033 is Deferred (undocumented coupling)
 
-**The strongest finding here.** [ADR-0058](../adr/0058-reactive-tracking-context-needs-a-native-module.md)
+**The strongest finding here.** [TDR-0046](../../decisions/accepted/0046-reactive-tracking-context-needs-a-native-module.md)
 makes `Reactive.current` a single **`VM`-owned** `Option<ObjRef>`, with
 `trackedBy`/`untracked` as native save/set/run/restore — explicitly mirroring
 `Fiber`'s `store_live_into`/`load_live_from` swap. That is safe **only** while the
 `run.call()` inside `trackedBy` cannot suspend.
 
-Today it cannot: [ADR-0030](../adr/0030-fibers-and-futures-cooperative-concurrency.md)
+Today it cannot: [TDR-0026](../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md)
 §4 is restricted Option A, so `f.call(x)` routes through the re-entrant
 `block_call` primitive → recursive `run_until` → a native Rust frame, and a
 `Fiber.yield` beneath it raises `CannotYieldAcrossNativeFrame`. The tracking
 context cannot be observed mid-flight because the block cannot suspend mid-flight.
 
-[ADR-0033](../adr/0033-amend-fiber-execution-trampolined-block-callsite.md) is
+[TDR — Amend the fiber execution model — trampoline the bytecode block call-site](../../decisions/retired/amend-fiber-execution-trampolined-block-callsite.md) is
 **Deferred, not Rejected** ("revisit as the general lift"). It trampolines the
 bytecode block call-site, making block calls yield-transparent. If a `Computed`'s
 compute block then suspends inside `Reactive.trackedBy`, another fiber resumes and
@@ -96,12 +96,12 @@ No error, no diagnostic.
 
 What makes this a documentation bug rather than a live one:
 
-- ADR-0058's Negative consequence *does* mention per-fiber isolation, but frames it
+- TDR-0047's Negative consequence *does* mention per-fiber isolation, but frames it
   as a future **sandboxing/isolation** nice-to-have — "not a v0.2 concern" — not as
   a **correctness** precondition on ADR-0033's deferral. Different severity, and
   the framing is what a future reader will act on.
 - ADR-0033 §Decision 4 already carries a sequencing constraint listing what it must
-  not land before (the ADR-0030 §5 typed fiber-switch signal). `Reactive.current`
+  not land before (the TDR-0027 §5 typed fiber-switch signal). `Reactive.current`
   is **not** on that list and should be.
 - ADR-0033 §Decision 2 retains re-entrant `block_call` for **native** callers, and
   `trackedBy` is native — so the natural implementation stays native-framed and
@@ -125,13 +125,13 @@ static flush { let due = _pending; _pending = Set.new(); due.each { e => e.run }
 ```
 
 `_pending` is cleared **before** iterating. Under
-[ADR-0008](../adr/0008-layered-exceptions-and-result.md) the error model is
+[TDR-0007](../../decisions/accepted/0007-layered-exceptions-and-result.md) the error model is
 terminating (Smalltalk `resume:` was rejected), so if any `e.run` raises, the
 remaining effects in `due` never run **and** are no longer in `_pending` — they are
 dropped, not retried. The graph is left half-updated with no recovery point and no
 record of what was skipped.
 
-ADR-0058 is careful to specify that `trackedBy` restores its field "even across a
+TDR-0047 is careful to specify that `trackedBy` restores its field "even across a
 raise". `flush` has no equivalent guarantee, and it is the one that loses data.
 
 Precedent: MobX and Vue both punt here (log and continue to the next effect);
@@ -145,8 +145,8 @@ Needs an explicit decision, not an implementation guess.
 ## Finding 3 — `!=` as the write-time bail is wrong on `NaN` and `±0`
 
 `Signal.value=(next)` bails with `if (_value != next)`. `Number` is flat `f64`
-([ADR-0005](../adr/0005-number-as-flat-f64.md), reaffirmed by
-[ADR-0042](../adr/0042-flat-number-defer-integer-float-split.md)), so IEEE-754
+([TDR — Keep a single flat `Number` type backed by `f64`](../../decisions/retired/number-as-flat-f64.md), reaffirmed by
+[TDR — Flat `Number` now; defer the `Integer` / `Float` split](../../decisions/retired/flat-number-defer-integer-float-split.md)), so IEEE-754
 semantics apply and `!=` is wrong in **both** directions:
 
 - `NaN != NaN` is **true** → writing `NaN` over `NaN` propagates. Spurious rerun
@@ -159,8 +159,8 @@ JS has `Object.is` for exactly this pair, and React uses it for state-change
 detection for exactly this reason.
 
 The spec's "Equality is a message — user-overridable" design call does not cover
-this: `Number`'s `==` is floor ([ADR-0019](../adr/0019-freeze-vm-blessed-primitive-floor.md),
-amended by [ADR-0036](../adr/0036-amend-floor-admit-number-tostring.md)), so a user
+this: `Number`'s `==` is floor ([TDR-0017](../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md),
+amended by [TDR-0030](../../decisions/accepted/0030-amend-floor-admit-number-tostring.md)), so a user
 cannot override it, and should not have to.
 
 **Action:** `Signal.value=` needs a same-value predicate rather than `!=`. Decide
@@ -174,20 +174,20 @@ inherits whatever predicate is chosen here.
 
 - **Effect block escape ⊗ non-local return.** `Effect.new(run: { … return … })` —
   the block's home frame is dead by flush time, so
-  [ADR-0013](../adr/0013-closure-upvalues-and-frame-token-return.md) raises
+  [TDR-0012](../../decisions/accepted/0012-closure-upvalues-and-frame-token-return.md) raises
   `DeadFrameError` at flush, blamed on whoever wrote the triggering assignment,
   arbitrarily far from the offending block. Sound by construction; diagnostics will
   be poor. Worth a targeted error message.
 - **Allocation shape.** `recompute` does `_sources = Set.new()` per evaluation and
   `flush` does `_pending = Set.new()` per drain. Per
-  [ADR-0051](../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md)
+  [TDR-0048](../../decisions/accepted/0048-performance-strategy-measure-first-tiered-optimization.md)
   (measure-first) this is **not** a reason to pre-optimize — recording it only so
   it is instrumented when `U-REACTIVE-NATIVE` lands, given allocation is the #1
   measured cost mechanism to date and F5 already showed a pooling null result.
 - **Computed purity is unenforceable.** A `Computed` reading untracked ambient
   state gives stale values with no diagnostic; there is no effect system, by design
   (overlay Axis 6: "every send would need an effect row the runtime can't check").
-  Same shape as the truthiness-without-flow-analysis problem ADR-0021 already
+  Same shape as the truthiness-without-flow-analysis problem TDR-0019 already
   settled: a runtime floor plus rejection of obvious cases is the ceiling. Inherent,
   accepted, not actionable — MobX's documented gotcha surface is this tax paid in
   another language.

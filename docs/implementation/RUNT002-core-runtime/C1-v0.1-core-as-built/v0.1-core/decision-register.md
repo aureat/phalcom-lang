@@ -14,16 +14,16 @@
 > numbers (Q1 hash, Q2 errors, Q4 prelude, Q5 collections). They are **not**
 > [`open-questions.md`](../open-questions.md)'s own Q1–Q14. Cross-references to
 > that file use its numbers explicitly (e.g. "open-Q2 Int/Float", now closed by
-> [ADR-0024](../../../adr/0024-numeric-surface-split-int-float-and-division.md);
+> [TDR-0022](../../../../decisions/accepted/0022-numeric-surface-split-int-float-and-division.md);
 > "open-Q8 imports", now closed by
-> [ADR-0027](../../../adr/0027-modules-as-files-with-public-by-default-imports.md)).
+> [TDR — A module is a file; exports are public by default; imports are qualified, selective, or aliased](../../../../decisions/retired/modules-as-files-with-public-by-default-imports.md)).
 
 ## Summary
 
 | Q / § | Question | Ruling | ADR action | Owner |
 |---|---|---|---|:--:|
-| **Q1** | Is `Object#hash` a floor primitive? | **Yes** — hash needs native access to representation/identity; underivable in `.ph`. | **ADR-0019 amendment — ratified as [ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md) (Accepted)** | U-CORE-1 |
-| **Q2** | Error mechanism | **Confirm [ADR-0008](../../../adr/0008-layered-exceptions-and-result.md)** — layered exceptions + `Result`, terminating, one unwind. Do not redesign. | surface spelling: [ADR-0031](../../../adr/0031-error-handling-surface-syntax.md) | U-CORE-6 |
+| **Q1** | Is `Object#hash` a floor primitive? | **Yes** — hash needs native access to representation/identity; underivable in `.ph`. | **ADR-0019 amendment — ratified as [TDR-0021](../../../../decisions/accepted/0021-amend-floor-admit-hash-and-kernel-reflection.md) (Accepted)** | U-CORE-1 |
+| **Q2** | Error mechanism | **Confirm [TDR-0007](../../../../decisions/accepted/0007-layered-exceptions-and-result.md)** — layered exceptions + `Result`, terminating, one unwind. Do not redesign. | surface spelling: [TDR-0027](../../../../decisions/accepted/0027-error-handling-surface-syntax.md) | U-CORE-6 |
 | **Q4** | Prelude / global model | Kernel names are **the core module's exports, auto-imported** into every unit; user `import` deferred to the module unit. | none (ruling) | (module unit) |
 | **Q5** | Collection mutability + equality | **Mutable by default**; sequence `==` is **structural**; **mutable collections are not hashable**, immutable ones are (Python-precedented). | none (contract in U-CORE-5) | U-CORE-5 |
 | **§4.1** | `Method` superclass: catalog `<Function`, code `<Object` | **Re-parent code to `Method < Function`** (ADR-0006 is explicit). | none (fixes an ADR-0006 violation) | U-CORE-1/3 |
@@ -46,7 +46,7 @@ Can `hash` be written in `.ph` over the existing floor, or must it be native?
 | `String` | its bytes/codepoints | **No** — `String` floor is only `+`/`new` (no length/index) |
 | `Symbol` | its interned id | **No** — only `toString`/`new` |
 
-So `hash` fails the [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md)
+So `hash` fails the [TDR-0017](../../../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md)
 §1 derivability test: it touches representation/identity below the `.ph`
 boundary. Per ADR-0019, adding it is an **amendment via a new superseding ADR**,
 not an ordinary commit.
@@ -58,7 +58,7 @@ also native. It lands with **U-CORE-1** (the reflection unit that owns the
 universal `Object` protocol) and **blocks `Map`/`Set`** (U-STD), not U-CORE-1
 itself.
 
-**Ratified as [ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)
+**Ratified as [TDR-0021](../../../../decisions/accepted/0021-amend-floor-admit-hash-and-kernel-reflection.md)
 (Accepted, 2026-07-12)** — the omnibus amendment covering this ruling plus the
 U-CORE-3/4/6 amendments (README.md §"Cross-spec integration notes" note 2). Text:
 
@@ -80,7 +80,7 @@ reflection) actually lands and bumps the census.
 
 **Question.** `throw`/`try`/`catch` vs `Result`? Resumable or terminating?
 
-**Ruling.** Already decided by **[ADR-0008](../../../adr/0008-layered-exceptions-and-result.md)**
+**Ruling.** Already decided by **[TDR-0007](../../../../decisions/accepted/0007-layered-exceptions-and-result.md)**
 (Accepted) — this unit **confirms**, it does not re-open:
 
 - **Layer both.** `throw`/`Error` unwind for exceptional failure; `Result`/`Ok`/`Err`
@@ -104,7 +104,7 @@ The [ADR-0008 amendment note](../../../forge/archive/phase2/PHASE2-INDEX.md) ("`
 
 > **Surface syntax (2026-07-12).** The keyword *spelling* ADR-0008 left
 > illustrative is now ratified as
-> **[ADR-0031](../../../adr/0031-error-handling-surface-syntax.md)**:
+> **[TDR-0027](../../../../decisions/accepted/0027-error-handling-surface-syntax.md)**:
 > `throw` / `try` / `catch` / `on` / `ensure`, pure 1:1 sugar over the block
 > protocol (`ensure` mirrors `.ensure{}`; `on T e` mirrors `.on(T){}`). U-CORE-6's
 > non-minimal slice implements against this spelling.
@@ -126,7 +126,7 @@ auto-imported into every compilation unit."** Concretely:
 2. A U-CORE unit that adds a surface name adds it to the core module (via
    `install_core` / `core.ph`), **not** to an ad-hoc global table keyed by raw
    string — so the `import` system (open-Q8, now decided by
-   [ADR-0027](../../../adr/0027-modules-as-files-with-public-by-default-imports.md):
+   [TDR — A module is a file; exports are public by default; imports are qualified, selective, or aliased](../../../../decisions/retired/modules-as-files-with-public-by-default-imports.md):
    file-as-module, public-by-default, qualified/selective/aliased) can re-scope
    or shadow it without a breaking change (forward-compat §3).
 3. User-facing `import` semantics are now **decided** by ADR-0027 (open-Q8
@@ -164,7 +164,7 @@ ADR; the contract lives in the U-CORE-5 spec.
 
 ## §4.1 — `Method` superclass: re-parent to `Method < Function`
 
-**Divergence.** Catalog (object-model §4) and [ADR-0006](../../../adr/0006-function-as-abstract-callable-root.md)
+**Divergence.** Catalog (object-model §4) and [TDR-0005](../../../../decisions/accepted/0005-function-as-abstract-callable-root.md)
 say **"`Block` and `Method` both inherit from `Function` as siblings."** The code
 (`universe.rs` `make_core_class(heap, "Method", object_class, …)`) makes
 **`Method < Object`** — a direct **ADR-0006 violation**, not a catalog error.
@@ -204,12 +204,12 @@ under an existing confirmed divergence. (Relatedly, DEFERRED F4 — the
 
 | Ruling | Source |
 |---|---|
-| hash reads representation below `.ph` | [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md) §1; [`floor-census.md`](./floor-census.md) §2.5/§2.7 (String/Symbol floor) |
+| hash reads representation below `.ph` | [TDR-0017](../../../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md) §1; [`floor-census.md`](./floor-census.md) §2.5/§2.7 (String/Symbol floor) |
 | `hash` on `Object` protocol; `Map`/`Set` use `hash`/`==` | [`object-model.md`](../object-model.md) §4, §8 |
-| Error model | [ADR-0008](../../../adr/0008-layered-exceptions-and-result.md); [`error-handling.md`](../error-handling.md) |
+| Error model | [TDR-0007](../../../../decisions/accepted/0007-layered-exceptions-and-result.md); [`error-handling.md`](../error-handling.md) |
 | dNU/`Message` reification (U8) the raise wires to | [`floor-census.md`](./floor-census.md) §2.14; [`catalog-delta.md`](./catalog-delta.md) §2.7 |
-| `import` semantics decided (ADR-0027), single global today | [ADR-0027](../../../adr/0027-modules-as-files-with-public-by-default-imports.md); [`open-questions.md`](../open-questions.md) §8; `vm.rs::install_core` |
-| `List` mutable native `Vec` | [ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md); [`floor-census.md`](./floor-census.md) §2.13 |
-| `Method`/`Block` siblings under `Function` | [ADR-0006](../../../adr/0006-function-as-abstract-callable-root.md); [`object-model.md`](../object-model.md) §4 |
+| `import` semantics decided (ADR-0027), single global today | [TDR — A module is a file; exports are public by default; imports are qualified, selective, or aliased](../../../../decisions/retired/modules-as-files-with-public-by-default-imports.md); [`open-questions.md`](../open-questions.md) §8; `vm.rs::install_core` |
+| `List` mutable native `Vec` | [TDR-0018](../../../../decisions/accepted/0018-kernel-list-native-array-protocol.md); [`floor-census.md`](./floor-census.md) §2.13 |
+| `Method`/`Block` siblings under `Function` | [TDR-0005](../../../../decisions/accepted/0005-function-as-abstract-callable-root.md); [`object-model.md`](../object-model.md) §4 |
 | `Method` load order | [`bootstrap-phases.md`](./bootstrap-phases.md) §2.1 step 5 |
-| `toString` message vs `Value::to_string` | [`catalog-delta.md`](./catalog-delta.md) §4.4; [ADR-0015](../../../adr/0015-object-default-tostring.md) |
+| `toString` message vs `Value::to_string` | [`catalog-delta.md`](./catalog-delta.md) §4.4; [TDR-0013](../../../../decisions/accepted/0013-object-default-tostring.md) |

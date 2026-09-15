@@ -545,6 +545,7 @@ pub enum SemanticTargetId {
     VariantFamily(VariantFamilyId),
     VariantField(VariantFieldId),
     DataComponent(DataComponentId),
+    AssociatedType(crate::traits::AssociatedTypeRequirementId),
 }
 
 /// Snapshot-local binding identity for local variables/parameters.

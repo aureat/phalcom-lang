@@ -69,7 +69,7 @@ This is a good parse-cache foundation, but it has no semantic revision, inferred
 
 ### 2.4 Workspace index
 
-`WorkspaceIndex` correctly keeps selector identity separate from class identity. Definitions and references use ADR-0012 comma-form selectors, while classes are keyed by `(file URI, class name)` rather than a global bare name.
+`WorkspaceIndex` correctly keeps selector identity separate from class identity. Definitions and references use TDR-0011 comma-form selectors, while classes are keyed by `(file URI, class name)` rather than a global bare name.
 
 **Repository reference:** [`phalcom-lsp/src/index.rs`](https://github.com/aureat/phalcom-lang/blob/5b6d67be93d6167558931a5c5dae3ae69959c9c4/phalcom-lsp/src/index.rs#L150-L350)
 

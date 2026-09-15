@@ -9,20 +9,20 @@ rejected) deliberately rather than improvised.
 
 > **Partially superseded (2026-07-12).** The "flat f64 numbers, Int/Float split open
 > (ADR-0005, Q2)" premise is now **closed** by
-> [ADR-0024](../../../adr/0024-numeric-surface-split-int-float-and-division.md): exact
+> [TDR-0022](../../decisions/accepted/0022-numeric-surface-split-int-float-and-division.md): exact
 > unbounded `Int` + `Float`, with `/` true division and `~/` floor integer division.
 > This also settles the "integer division threatens erasure" tension — **§5.9 should be
 > revisited against `~/`** (floor division is a distinct selector, not an erasure of
 > `/`). Index: [deferred-work.md](../deferred-work.md).
 
 **Anchoring ADRs (constraints, not endorsements):**
-[ADR-0002](../../../adr/0002-metaclass-tower-parallel-rule.md) (metaclass tower) ·
-[ADR-0004](../../../adr/0004-boolean-as-abstract-bool-with-true-false.md) (Bool tower) ·
-[ADR-0005](../../../adr/0005-number-as-flat-f64.md) (flat `f64`) ·
-[ADR-0007](../../../adr/0007-option-as-abstract-with-some-none.md) (Option/Some/None) ·
-[ADR-0009](../../../adr/0009-handle-arena-heap.md) (handle heap) ·
-[ADR-0010](../../../adr/0010-tagged-value-enum.md) (tagged `Value`) ·
-[ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md) (selector identity & dispatch)
+[TDR-0002](../../decisions/accepted/0002-metaclass-tower-parallel-rule.md) (metaclass tower) ·
+[TDR-0004](../../decisions/accepted/0004-boolean-as-abstract-bool-with-true-false.md) (Bool tower) ·
+[TDR — Keep a single flat `Number` type backed by `f64`](../../decisions/retired/number-as-flat-f64.md) (flat `f64`) ·
+[TDR-0006](../../decisions/accepted/0006-option-as-abstract-with-some-none.md) (Option/Some/None) ·
+[TDR-0008](../../decisions/accepted/0008-handle-arena-heap.md) (handle heap) ·
+[TDR-0009](../../decisions/accepted/0009-tagged-value-enum.md) (tagged `Value`) ·
+[TDR-0011](../../decisions/accepted/0011-selector-signature-encoding-and-dispatch.md) (selector identity & dispatch)
 
 Relates to open questions: [Q2 Int/Float](../open-questions.md), [Q3 param labels](../open-questions.md),
 [Q4 hierarchy mutability](../open-questions.md), [Q10 traits](../open-questions.md).
@@ -48,15 +48,15 @@ Three words, each load-bearing:
 This shape is not a free choice — it is forced by what Phalcom has already
 committed to (§2). Message-send + `doesNotUnderstand` is exactly the language shape
 Strongtalk was built to type; the erasable/optional stance is the only one that
-leaves the dynamic substrate (ADR-0009/0010/0012) untouched.
+leaves the dynamic substrate (TDR-0008/0010/0012) untouched.
 
 ### 1.1 Why not the alternatives
 
 | Alternative | Why rejected here |
 |---|---|
 | Mandatory static types | Kills the dynamic core: `doesNotUnderstand`, `perform`, proxies, runtime hierarchy edits ([Q4](../open-questions.md)) become untypable or illegal. |
-| Gradual-with-contracts (Typed Racket) | Inserts blame-tracking contracts at every typed/untyped boundary → real runtime cost, violating the immediate `Some`/heap-object allocation posture (ADR-0010). |
-| Types drive dispatch (CLOS/Julia multimethods) | Would make argument types part of selector identity → breaks the one-hashmap-probe `name+labels` invariant (ADR-0012, Invariant 2/3). |
+| Gradual-with-contracts (Typed Racket) | Inserts blame-tracking contracts at every typed/untyped boundary → real runtime cost, violating the immediate `Some`/heap-object allocation posture (TDR-0009). |
+| Types drive dispatch (CLOS/Julia multimethods) | Would make argument types part of selector identity → breaks the one-hashmap-probe `name+labels` invariant (TDR-0011, Invariant 2/3). |
 
 Erasable-optional keeps *all* runtime semantics decided by the existing dispatch
 machinery and confines types to a checker that emits diagnostics and then discards
@@ -72,13 +72,13 @@ obey, and the mechanism it forces.
 
 | Committed position | Forces |
 |---|---|
-| Selector identity = `name+labels`, one probe (ADR-0012, Inv. 2–3) | Types **cannot** be dispatch keys. Must be **erased** (§5.2). Protocol members key on the *same* `encode_selector`. |
+| Selector identity = `name+labels`, one probe (TDR-0011, Inv. 2–3) | Types **cannot** be dispatch keys. Must be **erased** (§5.2). Protocol members key on the *same* `encode_selector`. |
 | `doesNotUnderstand` / `perform` / proxies are first-class ([method-lookup](../method-lookup.md)) | A static checker cannot see dNU-provided methods → a `Dynamic` (`?`) escape hatch is mandatory (§5.7). |
-| Absence is `Option`/`Some`/`None`, `None` a shared singleton (ADR-0007) | No nullable tracking needed, **but** the core library is already generic → generics + a `Nothing` bottom type are mandatory, not optional (§5.4). |
-| Tagged `Value`, handle heap, "no new runtime cost" (ADR-0009/0010) | Erasable types honor this; contract systems do not. |
-| `Bool` abstract + `True`/`False`, truthiness banned (ADR-0004, [values §3.5](../values-and-absence.md)) | Typed code gets *static* enforcement of the ban; untyped code keeps the runtime floor (§5.10). |
-| Parallel metaclass tower (ADR-0002) | Classes are values with type `T class`; constructors/factories must be typed on the class side (§5.6). |
-| Flat `f64` numbers, Int/Float split open (ADR-0005, [Q2](../open-questions.md)) <!-- RESOLVED by ADR-0024: split decided (exact `Int` + `Float`); `~/` floor div removes the erasure tension — see §5.9. --> | A surface `Number > Int, Float` split can live in the *type lattice only* — but integer division threatens erasure (§5.9). |
+| Absence is `Option`/`Some`/`None`, `None` a shared singleton (TDR-0006) | No nullable tracking needed, **but** the core library is already generic → generics + a `Nothing` bottom type are mandatory, not optional (§5.4). |
+| Tagged `Value`, handle heap, "no new runtime cost" (TDR-0008/0010) | Erasable types honor this; contract systems do not. |
+| `Bool` abstract + `True`/`False`, truthiness banned (TDR-0004, [values §3.5](../values-and-absence.md)) | Typed code gets *static* enforcement of the ban; untyped code keeps the runtime floor (§5.10). |
+| Parallel metaclass tower (TDR-0002) | Classes are values with type `T class`; constructors/factories must be typed on the class side (§5.6). |
+| Flat `f64` numbers, Int/Float split open (ADR-0005, [Q2](../open-questions.md)) <!-- RESOLVED by TDR-0022: split decided (exact `Int` + `Float`); `~/` floor div removes the erasure tension — see §5.9. --> | A surface `Number > Int, Float` split can live in the *type lattice only* — but integer division threatens erasure (§5.9). |
 
 ---
 
@@ -238,7 +238,7 @@ is usable.
 
 #### 5.4.1 The `Nothing` bottom type
 
-`ADR-0007`'s immediate `None` variant is only typable with a bottom type:
+`TDR-0006`'s immediate `None` variant is only typable with a bottom type:
 
 ```
 None : Option<Nothing>          Nothing <: T   for all T
@@ -272,7 +272,7 @@ they are in the bootstrap, `Self` cannot be deferred (§9).
 
 ### 5.6 Class-side and metaclass types
 
-Classes are values (ADR-0002), so each class `C` has a **metaclass type `C class`**
+Classes are values (TDR-0002), so each class `C` has a **metaclass type `C class`**
 carrying the class-side protocol: `construct`s, `static` methods, factories.
 
 ```phalcom
@@ -287,7 +287,7 @@ List<Int>()      : List<Int>        // the metaclass application carries <Int>
 ```
 
 Because the metaclass tower is *parallel* (`(X class).super == (X.super) class`,
-ADR-0002), class-side inheritance of `construct`/`static` types works with no extra
+TDR-0002), class-side inheritance of `construct`/`static` types works with no extra
 rule — the same conformance machinery (§5.3) applies one level up.
 
 ### 5.7 The Dynamic seam
@@ -374,7 +374,7 @@ retroactively answers an open enforcement question.
 
 A block's type is `[A…] -> R` where `R` is its **normal** value. Non-local `return`
 ([blocks §5](../blocks.md)) is an **effect**, not part of the block type — modeled
-like Phalcom's already-unchecked terminating errors (ADR-0008), which the type
+like Phalcom's already-unchecked terminating errors (TDR-0007), which the type
 system also does not track. The one rule: inside a block, `^expr` / `return expr` is
 checked against the **home method's** declared result type (known from lexical
 scope), not against `R`.
@@ -429,7 +429,7 @@ enum Type {
 ```
 
 Protocol members are keyed by the **interned selector `Symbol`** — the *same* key
-[`encode_selector`](../../../adr/0012-selector-signature-encoding-and-dispatch.md)
+[TDR-0011](../../decisions/accepted/0011-selector-signature-encoding-and-dispatch.md)
 produces for dispatch — so there is one source of truth for "what message is this,"
 and the checker and VM can never disagree about selector identity.
 

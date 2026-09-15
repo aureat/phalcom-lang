@@ -56,7 +56,7 @@ Module-level doc (`frame.rs` ~L1-6) — VERIFIED, quoted in full:
 //! Call frames and their receiver context.
 //!
 //! A [`CallFrame`] is a single method/closure activation. Because every link it
-//! holds is now a `Copy` handle ([ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md))
+//! holds is now a `Copy` handle ([TDR-0008](../../decisions/accepted/0008-handle-arena-heap.md))
 //! the whole frame is `Copy`, so the VM keeps frames in a plain `Vec` with no
 //! `Rc<RefCell<T>>` and no borrow-panic surface.
 ```
@@ -91,7 +91,7 @@ Field-by-field `Copy` confirmation:
 
 | Field | Type | Copy? |
 |---|---|---|
-| `closure` | `ObjRef` | yes — `ObjRef` is an arena index (integer handle, ADR-0009) |
+| `closure` | `ObjRef` | yes — `ObjRef` is an arena index (integer handle, TDR-0008) |
 | `context` | `CallContext` | yes — `#[derive(Debug, Clone, Copy)]` on the enum itself (§2) |
 | `ip` | `usize` | yes — primitive |
 | `stack_offset` | `usize` | yes — primitive |
@@ -103,8 +103,8 @@ No field is `Rc<_>`, `Box<_>`, `RefCell<_>`, or a raw/native pointer of any
 kind — every field is either a primitive or an `ObjRef`/`ClassId`-style arena
 handle. **Confirmed: no caller/parent-pointer field exists.**
 
-Tie to ADR-0009 (handle-arena-heap, §8): the whole reason `CallFrame` can be
-`Copy` is that ADR-0009 replaced `Rc<RefCell<T>>` object links with `Copy`
+Tie to TDR-0008 (handle-arena-heap, §8): the whole reason `CallFrame` can be
+`Copy` is that TDR-0008 replaced `Rc<RefCell<T>>` object links with `Copy`
 integer handles (`ObjRef`) into a central `Heap` arena. `CallFrame::closure`
 and the `ObjRef`s inside `CallContext` are exactly those handles. Because
 dereferencing always goes through the `Heap` rather than through a pointer
@@ -138,7 +138,7 @@ pub enum CallContext {
     },
     /// Executing a closure-backed (non-primitive) method on an **immediate**
     /// receiver (`Bool`/`Number`/`Symbol`) — e.g. a user-defined sacred
-    /// selector reopened onto the kernel `Bool` class (U5, ADR-0018: needed
+    /// selector reopened onto the kernel `Bool` class (U5, TDR-0016: needed
     /// to make the sacred-selector inliner's override-epoch deopt guard
     /// exercisable, since only a closure method — never a primitive — needs
     /// a `CallContext` at all). Carries the receiver `Value` itself, since
@@ -150,7 +150,7 @@ pub enum CallContext {
 }
 ```
 
-Why `Immediate` carries a `Value` and not an `ObjRef` (ADR-0018 / U5): `Bool`,
+Why `Immediate` carries a `Value` and not an `ObjRef` (TDR-0016 / U5): `Bool`,
 `Number`, and `Symbol` receivers are *immediate* values in Phalcom's
 representation — they live directly in a `Value` (unboxed), not as arena
 objects with an `ObjRef` handle. `Instance`/`Class`/`Module` all point at
@@ -171,7 +171,7 @@ Full body — VERIFIED, quoted:
 ```rust
 /// Builds a [`CallFrame`] stamped with a fresh, monotonically-increasing
 /// generation for the frame-token infrastructure
-/// ([ADR-0013](../../../docs/adr/0013-block-closure-upvalues.md)).
+/// ([TDR-0012](../../decisions/accepted/0012-closure-upvalues-and-frame-token-return.md)).
 ///
 /// Every pushed activation gets its own generation so a [`BlockObject`]
 /// created inside it can later (in U10) tell whether its home activation is
@@ -216,7 +216,7 @@ Bytecode::Return => {
     let popped = self.frames.pop().unwrap();
     // Close any upvalues that still alias this frame's window so
     // escaping closures survive the frame's disappearance
-    // (ADR-0013). Must run before the stack is truncated.
+    // (TDR-0012). Must run before the stack is truncated.
     self.close_upvalues_from(popped.stack_offset);
     self.stack.truncate(popped.stack_offset);
     if self.frames.len() <= base_frames {
@@ -263,7 +263,7 @@ Vec-truncate pop, not a different unwind primitive.)
 ///
 /// This is the **live mirror** of the currently-[`Object::Fiber`]-running
 /// fiber's own `frames` buffer ([`crate::heap::FiberObject`],
-/// [ADR-0030](../../../docs/adr/0030-fibers-and-futures-cooperative-concurrency.md)
+/// [TDR-0026](../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md)
 /// §3, D-FIB-4): while [`Self::current`] runs, its state lives here; a
 /// fiber switch stores this back into the parking fiber and loads the
 /// resuming fiber's state in, an O(1) pointer-free copy (a `Vec` swap).
@@ -391,7 +391,7 @@ line numbers below are from direct reads):
 
 ## 8. Spec/ADR (bounded)
 
-**ADR-0009 (handle-arena-heap)** — `docs/adr/accepted/0009-handle-arena-heap.md`:
+**TDR-0008 (handle-arena-heap)** — `docs/adr/accepted/0009-handle-arena-heap.md`:
 
 - **Decision:** Objects live in a central `Heap`, referenced by `Copy`
   integer handles (`ObjRef` for heap objects, `ClassId` for classes) — "no
@@ -405,7 +405,7 @@ line numbers below are from direct reads):
   much scope up front, with the handle heap chosen precisely so a tracing GC
   (§6 shows one now exists) could be layered on later without an API break.
 
-**ADR-0013 (closure upvalues and frame-token return)** —
+**TDR-0012 (closure upvalues and frame-token return)** —
 `docs/adr/accepted/0013-closure-upvalues-and-frame-token-return.md`: this is
 the ADR that owns `FrameToken`/`generation`/`DeadFrameError` (the "home frame
 plus generation counter, compared on non-local `return`" mechanism). Per this

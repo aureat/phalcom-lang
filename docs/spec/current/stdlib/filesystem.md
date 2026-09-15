@@ -1,24 +1,24 @@
 # Specification — Filesystem (`Path`, `File`, `Fs`, `DirEntry`, `Metadata`, `Permissions`, `OpenMode`)
 
 > **Status:** **Normative.** The `File` selector surface (§4) encodes
-> [PDR-0005](../../../pdr/0005-resources-are-disposable-handles-not-finalized.md) §7;
+> [TDR-0057](../../../decisions/accepted/0057-resources-are-disposable-handles-not-finalized.md) §7;
 > everything else (`Path`, `Fs`, `DirEntry`, `Metadata`, `Permissions`, `OpenMode` beyond
 > its ratified spellings) encodes
-> [PDR-0013](../../../pdr/0013-path-is-bytes-backed-filesystem-surface.md) — both
-> **Accepted** (PDR-0013 ratified 2026-07-20).
-> Depends on [`bytes.md`](bytes.md) / [PDR-0011](../../../pdr/0011-admit-bytes-native-octet-buffer.md)
+> [TDR-0065](../../../decisions/accepted/0065-path-is-bytes-backed-filesystem-surface.md) — both
+> **Accepted** (TDR-0066 ratified 2026-07-20).
+> Depends on [`bytes.md`](bytes.md) / [TDR-0063](../../../decisions/accepted/0063-admit-bytes-native-octet-buffer.md)
 > (Accepted) for the backing store, and on the reactor
-> ([PDR-0004](../../../pdr/0004-io-is-future-shaped-reactor-owned.md) §2) before any
-> implementation. **Floor delta: nonzero, enumerated in PDR-0013 ruling 10**, censused at
-> impl time under PDR-0012 ruling 21's rebase discipline.
-> Selector spellings follow ADR-0012 (labelled-parameter comma form) and ADR-0043 (no
+> ([TDR-0056](../../../decisions/accepted/0056-io-is-future-shaped-reactor-owned.md) §2) before any
+> implementation. **Floor delta: nonzero, enumerated in TDR-0066 ruling 10**, censused at
+> impl time under TDR-0065 ruling 21's rebase discipline.
+> Selector spellings follow TDR-0011 (labelled-parameter comma form) and TDR-0037 (no
 > default arguments, no flags — every variant is its own selector).
 >
 > **Owner:** unassigned.
 
 ## 1. Scope and the shape of the surface
 
-Three kinds of thing, split by what can block (PDR-0004 §1):
+Three kinds of thing, split by what can block (TDR-0057 §1):
 
 | Kind | Blocks? | Returns |
 |---|---|---|
@@ -27,7 +27,7 @@ Three kinds of thing, split by what can block (PDR-0004 §1):
 | `Fs` path-addressed operations (§5) | yes, all of them | `Future` |
 | `Metadata`/`DirEntry`/`Permissions` accessors (§6) | never — cached snapshot fields | plain values |
 
-Everything that blocks runs on the worker pool (PDR-0004 §3/§4): workers see owned plain
+Everything that blocks runs on the worker pool (TDR-0057 §3/§4): workers see owned plain
 data (path bytes, buffers), never a `Value`, and completions settle at the dispatch
 safepoint.
 
@@ -36,10 +36,10 @@ safepoint.
 **Not a `String`.** `StringObject` enforces UTF-8 and caches a content hash
 (`heap/string.rs:11-16`); POSIX paths are arbitrary bytes. A `String` path cannot hold
 every name `readDir` can return — Python's `surrogateescape` retrofit is the cost of
-pretending otherwise (PDR-0013 Context).
+pretending otherwise (TDR-0066 Context).
 
 `Path` is an immutable `.ph` value class over a `Bytes` it owns exclusively (construction
-copies in, `bytes` copies out — PDR-0013 ruling 1). Structural `==`, content `hash` cached
+copies in, `bytes` copies out — TDR-0066 ruling 1). Structural `==`, content `hash` cached
 at construction, sound because of the exclusive ownership (ruling 2). Immutable +
 value-hashed ⇒ **a valid `Map`/`Set` key** (collection-protocol law 4).
 
@@ -54,7 +54,7 @@ value-hashed ⇒ **a valid `Map`/`Set` key** (collection-protocol law 4).
 | `isAbsolute` | `Bool` | leading separator |
 | `components` | `List` | of `Path`, split on separators, no normalization |
 | `bytes` | `Bytes` | defensive copy of the octets |
-| `toString` | `String` | **lossy** display (invalid UTF-8 → U+FFFD) via `Bytes#utf8Lossy_` (PDR-0013 ruling 4). For humans only |
+| `toString` | `String` | **lossy** display (invalid UTF-8 → U+FFFD) via `Bytes#utf8Lossy_` (TDR-0066 ruling 4). For humans only |
 | `==(_)` / `!=(_)` / `hash` | | value semantics (ruling 2) |
 
 **Laws:**
@@ -71,30 +71,30 @@ value-hashed ⇒ **a valid `Map`/`Set` key** (collection-protocol law 4).
 
 ## 3. `OpenMode`
 
-Four singleton objects, no numbers, no flags (PDR-0013 ruling 5; spellings from
-PDR-0005 §7): `OpenMode.read`, `OpenMode.write` (write + truncate), `OpenMode.append`,
+Four singleton objects, no numbers, no flags (TDR-0066 ruling 5; spellings from
+TDR-0058 §7): `OpenMode.read`, `OpenMode.write` (write + truncate), `OpenMode.append`,
 `OpenMode.readWrite`. Future sealed-enum members if the feature lands; until then a
 plain `.ph` class with four static instances and `toString`.
 
-## 4. `File` — encoding PDR-0005 §7, ratified
+## 4. `File` — encoding TDR-0058 §7, ratified
 
 `File < Resource` ([`stream-protocol.md`](stream-protocol.md) §3 laws apply verbatim:
 synchronous idempotent fallible `close`, use-after-close raises `kind: #useAfterClose`).
-The descriptor lives in the VM-side generation-tagged resource table (PDR-0005 §4), never
+The descriptor lives in the VM-side generation-tagged resource table (TDR-0058 §4), never
 in the object — GC sweep drop glue must have nothing OS-visible to drop.
 
 | Selector | Returns | Meaning |
 |---|---|---|
 | `File.open(_)` | `Future` | open read-only; settles to `Ok(File)`/`Err` |
 | `File.create(_)` | `Future` | create, write + truncate |
-| `File.openWith(_, mode:)` | `Future` | one selector, labelled parameter (ADR-0012); mode is an `OpenMode` singleton |
+| `File.openWith(_, mode:)` | `Future` | one selector, labelled parameter (TDR-0011); mode is an `OpenMode` singleton |
 | `read(_)` | `Future` | fill the given `Bytes`, settle to count; **0 = EOF** (stream law 1) |
-| `write(_)` | `Future` | direct syscall — `File` is unbuffered (PDR-0005 §3c); settle to count accepted |
+| `write(_)` | `Future` | direct syscall — `File` is unbuffered (TDR-0058 §3c); settle to count accepted |
 | `sync` | `Future` | fsync — the explicit blocking residue (§3b) |
 | `seek(_)` | `Future` | `SeekFrom.start(_)` / `.current(_)` / `.end(_)` |
 | `position` | `Future` | current offset |
 | `metadata` | `Future` | fstat snapshot (§6) |
-| `path` | `Path` | cached at open; deliberately **not** a `Future` (PDR-0004 §1 scope note) |
+| `path` | `Path` | cached at open; deliberately **not** a `Future` (TDR-0057 §1 scope note) |
 | `close` | `Result` | from `Resource` |
 
 Buffering is a wrapper, never a parameter (stream-protocol §4): `BufferedWriter.new(f)`,
@@ -108,9 +108,9 @@ ruled there rather than by an implicit coercion.
 
 ## 5. `Fs`
 
-Path-addressed, one syscall each, all `Future` (PDR-0004 §1 — including `exists`: a live
+Path-addressed, one syscall each, all `Future` (TDR-0057 §1 — including `exists`: a live
 stat blocks), all worker-pool. Eleven selectors, each its own name, no `recursive:` flag,
-no options bag (ADR-0043; PDR-0013 ruling 6):
+no options bag (TDR-0037; TDR-0066 ruling 6):
 
 | Selector | Settles to | Meaning |
 |---|---|---|
@@ -130,7 +130,7 @@ no options bag (ADR-0043; PDR-0013 ruling 6):
 ## 6. `Metadata`, `DirEntry`, `Permissions`
 
 All three are immutable snapshots: one syscall creates them, accessors read cached fields
-and never block, so none returns a `Future` (PDR-0013 ruling 7; the PDR-0004 §1
+and never block, so none returns a `Future` (TDR-0066 ruling 7; the TDR-0057 §1
 "cached stat" case).
 
 **`Metadata`:** `size -> Number` (bytes), `isFile`/`isDir`/`isSymlink -> Bool`,
@@ -148,7 +148,7 @@ never a raw `Number`).
 
 ## 7. Laws, consolidated
 
-1. **Blocking is visible in the type** (PDR-0004 §1): `Path`/snapshot accessors return
+1. **Blocking is visible in the type** (TDR-0057 §1): `Path`/snapshot accessors return
    plain values; every syscall-bearing selector returns `Future`; `close` alone is the
    synchronous `Result` (stream-protocol §3).
 2. **Paths are bytes end to end.** Any byte sequence `readDir` returns can round-trip
@@ -161,7 +161,7 @@ never a raw `Number`).
    and the next operation the world may change. The blessed idiom is open-and-handle-`Err`,
    not check-then-open.
 5. **One selector, one operation.** No selector both checks and acts, both creates and
-   opens differently on a flag, or takes an options bag (ADR-0043).
+   opens differently on a flag, or takes an options bag (TDR-0037).
 
 ## 8. Conformance harness
 
@@ -181,11 +181,11 @@ exists.
 | snapshot non-blocking | `Metadata`/`DirEntry` accessors return plain values (no `Future` in any accessor position) |
 | `createDirAll` idempotent | second call `Ok` |
 | `rename` visibility | old path `#notFound`, new path opens |
-| leak report | an unclosed `File` at exit appears in `System.leakReport` naming its open site (PDR-0005 §5) |
+| leak report | an unclosed `File` at exit appears in `System.leakReport` naming its open site (TDR-0058 §5) |
 
 ## 9. Open questions
 
-PDR-0013's Q-1 (Windows), Q-2 (POSIX mode surface), Q-3 (streaming `readDir`), Q-4
+TDR-0066's Q-1 (Windows), Q-2 (POSIX mode surface), Q-3 (streaming `readDir`), Q-4
 (TOCTOU posture), plus:
 
 | # | Question | Notes |

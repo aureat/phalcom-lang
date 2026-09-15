@@ -66,7 +66,7 @@ Feature-gated `opcode-histogram`, **off by default**, zero-cost when off (verifi
 | `snapshot()` / `pair_snapshot()` | `:108` / `:113` | readers |
 | `dump()` / `dump_pairs(total)` | `:123` / `:149` | stderr output |
 
-Thread-local, not atomic: the VM is single-threaded (fibers are cooperative, ADR-0030),
+Thread-local, not atomic: the VM is single-threaded (fibers are cooperative, TDR-0027),
 so an atomic would cost a lock-prefixed instruction on the hottest path and distort the
 very mix being counted.
 

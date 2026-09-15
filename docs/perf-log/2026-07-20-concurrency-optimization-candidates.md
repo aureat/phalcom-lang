@@ -4,7 +4,7 @@ Third lens of the concurrency audit (after
 [correctness](../../logs/2026-07-20-concurrency-correctness-audit.md) and
 [edges](../../logs/2026-07-20-concurrency-edge-matrix.md)): where the
 fiber/scheduler/Future stack spends work it doesn't have to. **Everything here
-is a candidate, not a claim** — per ADR-0051, nothing lands without an in-repo
+is a candidate, not a claim** — per TDR-0049, nothing lands without an in-repo
 benchmark, a profile naming the mechanism, and a before/after row in
 `SCOREBOARD.md`. No numbers appear below because none were measured in this
 pass; `SCOREBOARD.md` is the only number authority.
@@ -50,9 +50,9 @@ tune the current driver.
 `await`'s root branch does `System.nextScheduled` → `Some(fiber)` allocation +
 `isNone` dispatch + `unwrapOr` per queue pop (`core.ph:1621-1628`), where the
 native root-drive pump (`dispatch.rs:296-299`) pops the queue raw. This is the
-ADR-0044 deferral (Option niche-encoding) showing up on a concurrency path;
+TDR-0038 deferral (Option niche-encoding) showing up on a concurrency path;
 also fixable locally by a native "pump until settled or quiescent" primitive —
-but that trades against the ADR-0019 floor-admission rule (speed is never
+but that trades against the TDR-0017 floor-admission rule (speed is never
 sufficient), so the niche-encoding pass is the legitimate route.
 
 ### 5. Flat-entry's own win is unmeasured
@@ -65,7 +65,7 @@ microbench, for-vs-each gap) to know what it bought; the for-loop seam
 ### 6. Switch path is already right — leave it
 `store_live_into`/`load_live_from` are four `mem::take` pointer moves; resume
 delivery is truncate+push into a recorded slot. O(1), allocation-free,
-matches ADR-0030 §3's design intent. The only structure that *grows* with
+matches TDR-0027 §3's design intent. The only structure that *grows* with
 fiber count is parked-stack mark time in GC (linear in parked live data,
 non-moving, no barrier) — nothing to do until a workload shows it.
 
@@ -75,7 +75,7 @@ non-moving, no barrier) — nothing to do until a workload shows it.
   interacts badly with E002 (recycled buffers turn the dangling-upvalue panic
   into a silent stale read). Leave the feature off.
 - **Eager per-fiber stack presizing** — measured negative (F18 family).
-- **"Move the pump into Rust for speed"** — blocked by ADR-0019's admission
+- **"Move the pump into Rust for speed"** — blocked by TDR-0017's admission
   rule as a speed-only motive; the legitimate versions are candidate 4's
   niche-encoding or a capability argument, not a performance one.
 

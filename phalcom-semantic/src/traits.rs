@@ -4,10 +4,10 @@
 //! therefore stores only the declaration identity, generic contract metadata,
 //! and source provenance needed by later C3 trait products.
 
-use crate::declaration_type::{DeclaredTypeFact, DeclaredTypeState};
+use crate::declaration_type::{DeclaredTypeBasis, DeclaredTypeFact, DeclaredTypeState};
 use crate::diagnostic::SemanticSourceSpan;
 use crate::identity::{CallableId, CallableOwnerId, DeclarationId, DispatchSide, ModuleId};
-use crate::signature::CallableSemanticSignature;
+use crate::signature::{CallableParameterSemantic, CallableSemanticSignature};
 use crate::surface::MemberVisibility;
 use crate::types::environment::{TypeEnvironment, TypeView};
 use crate::types::id::{KindId, TypeId};
@@ -15,7 +15,7 @@ use crate::types::parameter::GenericSignature;
 use crate::types::parameter::{GenericConstraint, TypeTerm};
 use crate::types::relation::{TypeHierarchy, is_subtype};
 use crate::types::store::TypeStore;
-use phalcom_ast::ast::{BehaviorMember, TraitDef};
+use phalcom_ast::ast::{BehaviorMember, TraitDef, TraitMember, TraitPropertyRequirement};
 use phalcom_common::selector::Selector;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -123,6 +123,33 @@ pub struct TraitRequirementId {
     pub side: DispatchSide,
 }
 
+/// Stable identity for one associated type declaration owned by a trait.
+///
+/// The source-order index, rather than the spelling, is canonical so that
+/// declarations with the same name in different traits (or future repeated
+/// declarations diagnosed by the surface builder) cannot alias a behavioral
+/// requirement or a type parameter.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct AssociatedTypeRequirementId {
+    pub owner: DeclarationId,
+    pub index: u32,
+}
+
+impl AssociatedTypeRequirementId {
+    pub fn new(owner: DeclarationId, index: u32) -> Self {
+        Self { owner, index }
+    }
+}
+
+/// One plain `type Name` requirement published by a trait.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TraitAssociatedTypeRequirement {
+    pub requirement: AssociatedTypeRequirementId,
+    pub name: Box<str>,
+    pub kind: KindId,
+    pub source: SemanticSourceSpan,
+}
+
 /// One published abstract contract member and its optional default source.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TraitSurfaceMember {
@@ -194,6 +221,7 @@ pub struct TraitSurface {
     pub declaration: DeclarationId,
     pub generic_signature: Option<GenericSignature>,
     pub members: BTreeMap<TraitRequirementId, TraitSurfaceMember>,
+    pub associated_types: BTreeMap<AssociatedTypeRequirementId, TraitAssociatedTypeRequirement>,
     pub diagnostics: Box<[crate::diagnostic::SemanticDiagnostic]>,
 }
 
@@ -203,6 +231,7 @@ impl TraitSurface {
             declaration,
             generic_signature,
             members: BTreeMap::new(),
+            associated_types: BTreeMap::new(),
             diagnostics: Box::new([]),
         }
     }
@@ -219,6 +248,14 @@ impl TraitSurface {
 
     pub fn iter(&self) -> impl Iterator<Item = (&TraitRequirementId, &TraitSurfaceMember)> {
         self.members.iter()
+    }
+
+    pub fn associated_type(&self, requirement: &AssociatedTypeRequirementId) -> Option<&TraitAssociatedTypeRequirement> {
+        self.associated_types.get(requirement)
+    }
+
+    pub fn associated_type_by_name(&self, name: &str) -> Option<&TraitAssociatedTypeRequirement> {
+        self.associated_types.values().find(|requirement| requirement.name.as_ref() == name)
     }
 
     /// Materializes every requirement in stable requirement-id order.
@@ -289,7 +326,85 @@ pub(crate) fn build_trait_surface(ctx: &mut crate::checker::CheckingContext<'_>,
     };
 
     let mut diagnostics = Vec::new();
-    for member in &trait_def.members {
+    let mut associated_type_index = 0u32;
+    for trait_member in &trait_def.members {
+        if let TraitMember::AssociatedType(declaration) = trait_member {
+            let requirement = AssociatedTypeRequirementId::new(header.declaration.clone(), associated_type_index);
+            associated_type_index += 1;
+            if surface.associated_types.values().any(|existing| existing.name.as_ref() == declaration.name) {
+                diagnostics.push(crate::diagnostic::SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    crate::diagnostic::DiagnosticCode::AssociatedTypeDuplicate,
+                    format!("duplicate associated type declaration `{}`", declaration.name),
+                    declaration.range,
+                ));
+                continue;
+            }
+            surface.associated_types.insert(
+                requirement.clone(),
+                TraitAssociatedTypeRequirement {
+                    requirement,
+                    name: declaration.name.clone().into_boxed_str(),
+                    kind: KindId::TYPE,
+                    source: SemanticSourceSpan::new(ctx.current_module.clone(), declaration.range),
+                },
+            );
+            continue;
+        }
+        if let TraitMember::Property(property) = trait_member {
+            let mut property_diagnostics = Vec::new();
+            let formation_site = crate::types::annotation::TypeFormationSite::member(
+                ctx.current_module.clone(),
+                header.declaration.clone(),
+                DispatchSide::Instance,
+            );
+            let declared_type = crate::types::annotation::resolve_type_annotation(
+                ctx.store,
+                ctx.declarations,
+                &declaration_resolver,
+                &formation_site,
+                &property.annotation,
+                &mut property_diagnostics,
+            );
+            diagnostics.extend(property_diagnostics);
+            let declared_type = DeclaredTypeFact::from_knowledge_with_basis(&declared_type, DeclaredTypeBasis::SourceAnnotation);
+            let source = SemanticSourceSpan::new(ctx.current_module.clone(), property.range);
+            let visibility = trait_property_visibility(property);
+            let mut generated = Vec::with_capacity(if property.mutable { 2 } else { 1 });
+            generated.push(trait_property_signature(ctx, &header.declaration, property, &declared_type, false));
+            if property.mutable {
+                generated.push(trait_property_signature(ctx, &header.declaration, property, &declared_type, true));
+            }
+            for signature in generated {
+                let requirement = TraitRequirementId::new(header.declaration.clone(), signature.selector.clone(), DispatchSide::Instance);
+                if surface.members.contains_key(&requirement) {
+                    diagnostics.push(crate::diagnostic::SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        crate::diagnostic::DiagnosticCode::TraitMemberConflict,
+                        format!("duplicate trait member selector `{}`", requirement.selector.encode()),
+                        property.range,
+                    ));
+                    continue;
+                }
+                let callable = signature.callable.clone();
+                surface.members.insert(
+                    requirement.clone(),
+                    TraitSurfaceMember {
+                        requirement,
+                        callable,
+                        signature,
+                        visibility,
+                        source: source.clone(),
+                        default_present: false,
+                        default_source: None,
+                    },
+                );
+            }
+            continue;
+        }
+        let Some(member) = trait_member.behavior() else {
+            continue;
+        };
         let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(member);
         let side = DispatchSide::Instance;
         let Some(callable) = crate::checker::declaration_signature::callable_id_for_syntax(&owner, syntax, side) else {
@@ -297,7 +412,7 @@ pub(crate) fn build_trait_surface(ctx: &mut crate::checker::CheckingContext<'_>,
                 ctx.current_module.clone(),
                 crate::diagnostic::DiagnosticCode::AnnotationUnresolved,
                 "trait member has no valid canonical callable selector",
-                member.range(),
+                trait_member.range(),
             ));
             continue;
         };
@@ -307,7 +422,7 @@ pub(crate) fn build_trait_surface(ctx: &mut crate::checker::CheckingContext<'_>,
                 ctx.current_module.clone(),
                 crate::diagnostic::DiagnosticCode::TraitMemberConflict,
                 format!("duplicate trait member selector `{}`", requirement.selector.encode()),
-                member.range(),
+                trait_member.range(),
             ));
             continue;
         }
@@ -319,7 +434,7 @@ pub(crate) fn build_trait_surface(ctx: &mut crate::checker::CheckingContext<'_>,
         let source = signature
             .source
             .clone()
-            .unwrap_or_else(|| SemanticSourceSpan::new(ctx.current_module.clone(), member.range()));
+            .unwrap_or_else(|| SemanticSourceSpan::new(ctx.current_module.clone(), trait_member.range()));
         let default_present = syntax.has_body();
         let default_source = default_present.then(|| source.clone());
         surface.members.insert(
@@ -338,6 +453,68 @@ pub(crate) fn build_trait_surface(ctx: &mut crate::checker::CheckingContext<'_>,
     diagnostics.extend(ctx.diagnostics.iter().cloned());
     surface.diagnostics = diagnostics.into_boxed_slice();
     surface
+}
+
+fn trait_property_visibility(property: &TraitPropertyRequirement) -> MemberVisibility {
+    if property.name.starts_with("_$") {
+        MemberVisibility::Internal
+    } else if property.attributes.iter().any(|attribute| attribute.name == "private") {
+        MemberVisibility::Private
+    } else if property.attributes.iter().any(|attribute| attribute.name == "protected") {
+        MemberVisibility::Protected
+    } else {
+        MemberVisibility::Public
+    }
+}
+
+fn trait_property_signature(
+    ctx: &mut crate::checker::CheckingContext<'_>,
+    owner: &DeclarationId,
+    property: &TraitPropertyRequirement,
+    declared_type: &DeclaredTypeFact,
+    setter: bool,
+) -> CallableSemanticSignature {
+    let selector = if setter {
+        Selector::setter(&property.name).expect("parser guarantees a valid property setter selector")
+    } else {
+        Selector::getter(&property.name).expect("parser guarantees a valid property getter selector")
+    };
+    let callable = CallableId::new(CallableOwnerId::Declaration(owner.clone()), selector.clone(), DispatchSide::Instance);
+    let source = SemanticSourceSpan::new(ctx.current_module.clone(), property.range);
+    let parameters = if setter {
+        vec![CallableParameterSemantic::new(
+            crate::identity::CallableParameterId::new(callable.clone(), 0),
+            "_",
+            declared_type.clone(),
+        )
+        .with_source(source.clone())]
+        .into_boxed_slice()
+    } else {
+        Box::new([])
+    };
+    let declared_return = if setter {
+        DeclaredTypeFact::known(TypeTerm::Canonical(ctx.store.unit()), DeclaredTypeBasis::DeclarationSemantics)
+    } else {
+        declared_type.clone()
+    };
+    CallableSemanticSignature {
+        callable,
+        owner: owner.clone(),
+        side: DispatchSide::Instance,
+        selector,
+        generics: None,
+        parameters,
+        declared_return,
+        return_validation: crate::signature::ReturnContractValidation::NotApplicable,
+        inferred_return: None,
+        source: Some(source),
+        implementation: phalcom_native_meta::ImplementationKind::Abstract,
+        native_id: None,
+        effects: phalcom_native_meta::EffectSpec::Unknown,
+        raises: phalcom_native_meta::RaisesSpec::Unknown,
+        flow: phalcom_native_meta::ReturnFlowSpec::Value,
+        lifecycle: phalcom_native_meta::NativeLifecycleSpec::UNKNOWN,
+    }
 }
 
 pub(crate) fn behavior_member_visibility(member: &BehaviorMember) -> MemberVisibility {

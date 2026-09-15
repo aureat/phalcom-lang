@@ -358,7 +358,10 @@ impl NativeSourceIndex {
             return Ok(());
         };
 
-        for member in &impl_def.members {
+        for impl_member in &impl_def.members {
+            let Some(member) = impl_member.behavior() else {
+                continue;
+            };
             let class_member = match member {
                 phalcom_ast::ast::BehaviorMember::Method(m) => ClassMember::Method(m.clone()),
                 phalcom_ast::ast::BehaviorMember::Getter(g) => ClassMember::Getter(g.clone()),
@@ -652,6 +655,7 @@ impl NativeSourceIndex {
                 (is_native, has_internal, is_internal, side, selector, false, typed, ix.range)
             }
             ClassMember::Variant(_) => return Ok(()),
+            ClassMember::Delegation(_) => return Ok(()),
         };
 
         self.census.members.push(UniverseMemberRow {

@@ -70,6 +70,32 @@ fn editor_facade_fails_closed_for_unknown_receiver() {
 }
 
 #[test]
+fn associated_type_declaration_and_binding_lhs_share_canonical_source_target() {
+    let source = "trait Iterable { type Item }\nclass Box {}\nimpl Iterable for Box { type Item = Int }\n";
+    let parsed = parse(source, 0);
+    assert!(parsed.errors.is_empty(), "parser errors: {:?}", parsed.errors);
+    let module = ModuleId::universe_root();
+    let analysis = analyze_single_module(module.clone(), Arc::from(source), Arc::new(parsed.program));
+    assert!(!analysis.snapshot.has_errors(), "semantic diagnostics: {:?}", analysis.snapshot.diagnostics);
+    let trait_declaration = DeclarationId::new(module.clone(), "Iterable".into());
+    let requirement = analysis
+        .snapshot
+        .trait_surfaces
+        .get(&trait_declaration)
+        .expect("trait surface")
+        .associated_type_by_name("Item")
+        .expect("Item requirement")
+        .requirement
+        .clone();
+    let declaration_offset = source.find("type Item").expect("associated declaration") + "type ".len();
+    let binding_offset = source.rfind("type Item").expect("associated binding") + "type ".len();
+    let target = SemanticTargetId::AssociatedType(requirement);
+    assert_eq!(analysis.snapshot.editor().target_at(&module, declaration_offset), Some(target.clone()));
+    assert_eq!(analysis.snapshot.editor().target_at(&module, binding_offset), Some(target.clone()));
+    assert!(!analysis.snapshot.editor().definition_sites(&target).is_empty());
+}
+
+#[test]
 fn editor_facade_projects_exact_trait_members_without_re_solving_them() {
     let source = r#"
 trait Tagged { tag -> String }

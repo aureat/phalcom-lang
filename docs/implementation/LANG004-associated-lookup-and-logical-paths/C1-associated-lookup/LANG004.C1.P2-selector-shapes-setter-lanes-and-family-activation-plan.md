@@ -1658,8 +1658,8 @@ The migration is incomplete if execution works but the current language corpus, 
 - `docs/spec/primitives/Selectors II.md`
 - `docs/spec/current/core/core-classes.md`
 - `docs/spec/current/core/floor-census.md`
-- `docs/adr/accepted/0060-index-operator-as-real-selector.md`
-- `docs/pdr/0032-transition-1-language-surface-convergence.md`
+- `docs/decisions/accepted/0060-index-operator-as-real-selector.md`
+- `docs/decisions/0032-transition-1-language-surface-convergence.md`
 - LANG004 C1 checkpoint/plan/state files.
 
 **Fixtures/examples:**

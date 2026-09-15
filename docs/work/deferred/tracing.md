@@ -1,7 +1,7 @@
-> **STALENESS NOTE (2026-07-20).** Superseded in part. PDR-0008 landed after this was written:
+> **STALENESS NOTE (2026-07-20).** Superseded in part. TDR-0061 landed after this was written:
 > `cmd_run` now reports through `compiler_error`/`runtime_error`, defects 1 (unwrap) and 2
 > (ip underflow) below are fixed, and `compiler_error` is implemented (message-only). The
-> locked capture-at-raise decision is superseded by PDR-0010 §3 (Proposed). Authoritative
+> locked capture-at-raise decision is superseded by TDR-0063 §3 (Proposed). Authoritative
 > current picture: `docs/spec/current/traceback/verification-2026-07-20.md`; the spec and plan live in
 > `docs/spec/current/traceback/implementation-spec.md` + `err-plan.md`. Kept for the audit trail.
 
@@ -76,7 +76,7 @@ VERIFIED CLEAN — do not re-audit:
   - Fiber floor always reifies to a catchable surface Error; no native Rust error leaks across the
     boundary (capture_error_value dispatch.rs:370-379).
   - Rethrow preserves origin: Result#unwrap/unwrapErr (core.ph:586, :593) re-raise the same instance.
-  - The unwind core matches ADR-0008. This is the expensive-to-be-wrong part and it is sound.
+  - The unwind core matches TDR-0007. This is the expensive-to-be-wrong part and it is sound.
 
 OUT OF SCOPE — do not bundle into U-TRACE:
   - BLOCKER, separate fix, higher priority than U-TRACE: Map/Set locate() sends user hash/== reentrantly
@@ -121,8 +121,8 @@ Decisions locked (do not re-litigate):
     per-opcode argument does not apply. Runtime filter alone suffices.
 
 Open decisions:
-  - Does U-TRACE need its own ADR, or does it ride an existing one? If new: flip docs/adr/STATUS.md in the
-    SAME pass (two-way sync rule), and note docs/adr/README.md still lists ADR-0014 as Accepted though its
+  - Does U-TRACE need its own ADR, or does it ride an existing one? If new: flip docs/decisions/README.md in the
+    SAME pass (two-way sync rule), and note docs/decisions/README.md still lists ADR-0014 as Accepted though its
     own file says Superseded.
   - Which code paths leave ModuleObject::source as None (REPL? `-i` inline? core.ph bootstrap?).
     Determines where source-line echo degrades to bare file:line. [verify: enumerate None-yielding paths]

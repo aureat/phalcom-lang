@@ -52,7 +52,7 @@ optimizer, and therefore the user, permanently.
 ## 2. Where Phalcom sits, and the standing obligation this creates
 
 **`[V]`** Phalcom took the mechanism road on concurrency. The fiber is the sole primitive;
-`Future`, `async`/`await`, generators, and the scheduler all derive from it, and ADR-0030's
+`Future`, `async`/`await`, generators, and the scheduler all derive from it, and TDR-0027's
 Consequences state that `Future` "adds **no** VM mechanism beyond `Fiber` + a ready-queue."
 
 The design note then records a defensive obligation, and it is worth quoting because it is a
@@ -101,7 +101,7 @@ Worth checking **before** anyone moves a hot operation across that boundary in e
 since that is the decision the answer would change.
 
 **`[V]`** Related, and a genuinely elegant piece of design hygiene: the floor-admission rule of
-ADR-0019 says admission requires proof that a capability *cannot be expressed in `.ph` at all* —
+TDR-0017 says admission requires proof that a capability *cannot be expressed in `.ph` at all* —
 and that **speed is explicitly never sufficient**. The named counter-move to hot-path cost is
 "fund an inline cache or JIT *above* the floor." It is a one-way door: native→`.ph` is always
 allowed and needs no record; `.ph`→native needs a superseding decision. That rule is a policy
@@ -168,7 +168,7 @@ correctness, and the correlation between them is weaker than designers reflexive
 overflow, on a side effect, on a redefinition, or on a subclass override is a correctness bug
 wearing a performance hat. Every fast path needs a guard that provably implies the slow path.
 
-**`[V]`** Phalcom's committed answer is ADR-0018's sacred-selector inliner with a per-family
+**`[V]`** Phalcom's committed answer is TDR-0016's sacred-selector inliner with a per-family
 override-epoch flag: `ifTrue(_)`, `and(_)`, `whileTrue(_)` and friends inline to `Jump`/`Loop`
 opcodes, and if any sacred method is ever redefined the flag flips and the site deopts to a real
 send. The overlay records the property that makes it sound: "Guard failure is *observably

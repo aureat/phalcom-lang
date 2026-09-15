@@ -1,7 +1,7 @@
 # U-ITER — Implementation Spec: cursor protocol + `for` / `break` / `continue`
 
 > **Status:** Normative work order for a `phalcom-implementer`. Realizes
-> [ADR-0035](../../../adr/0035-iteration-protocol-cursor.md) and the deepened
+> [TDR-0029](../../../../decisions/accepted/0029-iteration-protocol-cursor.md) and the deepened
 > [specification.md](u26-iter-spec1.md) (which extends the normative
 > [`iteration.md`](../../../spec/current/iteration.md) §1–§7). Where a fact was verified
 > against source it carries a `file:line`; **re-confirm line numbers at dispatch** —
@@ -287,7 +287,7 @@ Add `phalcom-core/tests/lang/iteration/` and bump `tests/lang/MANIFEST.md`.
 ## §5. Must-not-preclude
 
 *Grounded in [`iteration.md`](../../../spec/current/iteration.md) §6,
-[ADR-0035](../../../adr/0035-iteration-protocol-cursor.md) §5, and the
+[TDR-0029](../../../../decisions/accepted/0029-iteration-protocol-cursor.md) §5, and the
 [[U-FIBER]](../U-FIBER/specification.md) seam.*
 
 | Hazard | How this design clears it |
@@ -370,11 +370,11 @@ Each step is a self-verifiable commit; reviewer gates the `compiler/lib.rs` diff
 
 | Claim / requirement | Source |
 |---|---|
-| Two-selector cursor protocol; `for` → cursor `while` not `.each`; `iterate`/`iteratorValue` non-inlined; break/continue jumps; U-STD combinator follow-on | [ADR-0035](../../../adr/0035-iteration-protocol-cursor.md) §1–§5; [iteration.md](../../../spec/current/iteration.md) §1–§6; [specification.md](u26-iter-spec1.md) |
-| `for` ⊗ fiber generator (the load-bearing preclusion) | [iteration.md](../../../spec/current/iteration.md) §6; [ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md) §4; [ADR-0033](../../../adr/0033-amend-fiber-execution-trampolined-block-callsite.md) Context; [[U-FIBER]](../U-FIBER/specification.md#the-crown-jewel) |
+| Two-selector cursor protocol; `for` → cursor `while` not `.each`; `iterate`/`iteratorValue` non-inlined; break/continue jumps; U-STD combinator follow-on | [TDR-0029](../../../../decisions/accepted/0029-iteration-protocol-cursor.md) §1–§5; [iteration.md](../../../spec/current/iteration.md) §1–§6; [specification.md](u26-iter-spec1.md) |
+| `for` ⊗ fiber generator (the load-bearing preclusion) | [iteration.md](../../../spec/current/iteration.md) §6; [TDR-0026](../../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) §4; [TDR — Amend the fiber execution model — trampoline the bytecode block call-site](../../../../decisions/retired/amend-fiber-execution-trampolined-block-callsite.md) Context; [[U-FIBER]](../U-FIBER/specification.md#the-crown-jewel) |
 | Jump opcodes / inliner helpers exist | `bytecode.rs:130/139/145`; `compiler/inliner.rs:157/167/182/194` |
 | `while` desugars to `whileTrue` at parse time | `parser.rs:1338-1357` |
 | tokens already lex (plan-precondition correction) | `token.rs` `For`/`Break`/`Continue`/`In`; `lexer.rs:256-263` |
-| `List` reference iterable (`size`/`at`/`each`) | `core.ph:163/164/166/175`; [ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md) |
+| `List` reference iterable (`size`/`at`/`each`) | `core.ph:163/164/166/175`; [TDR-0018](../../../../decisions/accepted/0018-kernel-list-native-array-protocol.md) |
 | disasm renders via `Debug` (no arm needed) | `bin/phalcom/disasm.rs:18` |
-| DEC-ITER-A/B/C | plan §8; [ADR-0035](../../../adr/0035-iteration-protocol-cursor.md); this HEAD |
+| DEC-ITER-A/B/C | plan §8; [TDR-0029](../../../../decisions/accepted/0029-iteration-protocol-cursor.md); this HEAD |

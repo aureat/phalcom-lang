@@ -17,7 +17,7 @@ The answer is not "the big ones" or "the ones that change." It is a three-way pa
 different justifications, and once you can state the criterion you can predict the membership of the
 set without looking — including the one field whose membership is, at HEAD, unexercisable.
 
-And one word has to go first. Everyone in this repository calls the switch a *swap* — ADR-0030 §3
+And one word has to go first. Everyone in this repository calls the switch a *swap* — TDR-0027 §3
 heads its section "Fiber switch is an O(1) pointer swap"; [Doc 3](../vm/frames.md) says the buffers
 are swapped "as a unit"; C1 inherited it. It is not a swap. It is `mem::take` — a **move**, twice,
 in opposite directions. The difference is invisible when both halves complete, and it is the whole
@@ -35,7 +35,7 @@ Three shipped docs left an IOU here.
   pointer-free copy (a `Vec` swap)."* **That text is not at HEAD any more** (the field now reads
   "empty while running — mirrored by `VM::stack`", `heap/fiber.rs::FiberObject` @ ~L64). Paying this
   debt means correcting the word as well as expanding it — see [§ Move is not swap](#move-is-not-swap).
-- **[Doc 6 (frame identity)](../vm/frame-identity.md)** borrowed ADR-0030 §6's
+- **[Doc 6 (frame identity)](../vm/frame-identity.md)** borrowed TDR-0027 §6's
   `next_frame_generation` invariant as a given. [§ The counter that must not move](#the-counter-that-must-not-move)
   gives it back.
 - **[C1](restricted-loop.md)** used the four `mem::take`s as a one-line fact and named the handoff
@@ -70,7 +70,7 @@ control leaves.
 |---|---|---|
 | **Moves** | `stack`, `frames`, `open_upvalues`, `checking` | `mem::take`n out of the VM into this object; taken back out on resume |
 | **Resident** | `status`, `resumer`, `result`, `entry`, `started`, `resume_slot`, `floor_depth`, `resume_mode` | never mirrored; read and written **on the object**, in place, by whoever is running |
-| **Not here at all** | `next_frame_generation` | stays a `VM` field, and ADR-0030 §6 makes relocating it a named violation |
+| **Not here at all** | `next_frame_generation` | stays a `VM` field, and TDR-0027 §6 makes relocating it a named violation |
 
 Verified field by field against `heap/fiber.rs::FiberObject` @ ~L62 and both halves of the switch
 (`primitive/fiber.rs::store_live_into` @ ~L29, `::load_live_from` @ ~L49): those two functions
@@ -117,7 +117,7 @@ stack. They are not three fields that happen to travel together — they are one
 containers.
 
 **One moves for a semantic reason.** `checking` is a `HashSet<ObjRef>` — the identity set of
-receivers currently inside an `@invariant` re-entrancy guard (ADR-0052 Fix 1). It has no stack
+receivers currently inside an `@invariant` re-entrancy guard (TDR-0043 Fix 1). It has no stack
 dependence at all; nothing indexes it. It moves because a guarded call could `yield` mid-body, and
 one fiber's in-flight guard bookkeeping must not be visible to whichever fiber runs next. That is a
 statement about *meaning*, not about representation.
@@ -304,7 +304,7 @@ per-execution state that looks per-fiber and is forbidden from becoming so:
 
 > **Invariant:** the VM-global monotonic `next_frame_generation` counter **must not** be relocated
 > into `FiberObject` — it is the only thing making a cross-fiber token globally non-matching.
-> — ADR-0030 §6
+> — TDR-0027 §6
 
 Re-derive it rather than memorizing it. A `FrameToken` is a `(frame_index, generation)` pair
 ([Doc 6](../vm/frame-identity.md): a pointer split into *where to look* and *who it was*). A block
@@ -328,7 +328,7 @@ one case and about the whole program in the other.
 
 ## Parked fibers and the collector
 
-ADR-0030 §7 states the invariant this way:
+TDR-0027 §7 states the invariant this way:
 
 > *"a `FiberObject`'s value stack and frame stack are GC roots for as long as the fiber is reachable
 > and not `done`/`failed` — **not only** the `current` fiber's."*
@@ -368,7 +368,7 @@ Both parked stacks survive the collection intact. **Verified for this shape**; t
 — that every reachable fiber's buffers are reached — is *inferred* from the exhaustive destructure
 plus the wildcard-free `trace_object` match, not exhaustively proven over every container shape.
 
-And this is where ADR-0030's rejection of stackful coroutines pays off, in a subsystem that did not
+And this is where TDR-0027's rejection of stackful coroutines pays off, in a subsystem that did not
 exist when the choice was made. Because a parked fiber's stack is a `Vec` **inside an arena object**,
 the collector reaches it with the same `trace_value` it uses for a list. Had the stacks been native
 machine stacks, no amount of tracing would reach them — the collector would need conservative
@@ -452,7 +452,7 @@ finish.**
 | `vm/gc.rs::VM::collect_roots` | @ ~L18 — exhaustive destructure; `current` + `ready_queue`, no fiber registry |
 | `heap/trace.rs::trace_object` | `Fiber` arm — traces stack, frames, open upvalues, `resumer`, `result`, `entry`, `checking` |
 | `primitive/object.rs::object_invariant_enter` / `_exit` | @ ~L336 / ~L353 — the only writers of `checking` |
-| ADR-0030 §2/§3/§6/§7 + Alternatives | [`docs/adr/accepted/0030-…`](../../adr/accepted/0030-fibers-and-futures-cooperative-concurrency.md) |
+| TDR-0027 §2/§3/§6/§7 + Alternatives | [TDR-0026](../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) |
 | F10 pooling measurement | [`perf-log/findings.md`](../../forge/perf-log/findings.md) |
 
 Fixtures: `phalcom-core/tests/lang/concurrency/` —

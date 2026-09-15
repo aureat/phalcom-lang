@@ -8,8 +8,9 @@ use crate::compiler::lib::{Compiler, checked_send_arity};
 use crate::heap::{ObjRef, Object};
 use crate::method::{MethodKind, MethodObject, SignatureKind, encode_selector, make_signature};
 use crate::value::Value;
-use phalcom_ast::ast::{AttrKind, Attribute, BehaviorMember, BuiltinAttr, ClosureParameters, IndexAccessor, MemberBody};
+use phalcom_ast::ast::{AttrKind, Attribute, BehaviorMember, BuiltinAttr, ClosureParameters, DelegatedAccessorDef, DelegatedAccessorKind, IndexAccessor, MemberBody};
 use phalcom_common::range::SourceRange;
+use phalcom_common::selector::SelectorKind;
 use phalcom_modules::DeclarationId;
 use phalcom_semantic::identity::{CallableId, CallableOwnerId, DispatchSide, VariantId};
 
@@ -23,6 +24,79 @@ pub(crate) struct CompiledBehaviorMember {
 }
 
 impl<'vm> Compiler<'vm> {
+    /// Compiles one ordinary getter/setter projection for a direct-field
+    /// delegation. The target field and slot are resolved by the owning class
+    /// layout; no delegation-specific runtime method or lookup is introduced.
+    pub(crate) fn compile_delegated_accessor(
+        &mut self,
+        delegation: &DelegatedAccessorDef,
+        target_field: &str,
+        setter: bool,
+        expected_callable: Option<&CallableId>,
+    ) -> Result<CompiledBehaviorMember, CompilerError> {
+        let supports_accessor = match (delegation.kind, setter) {
+            (DelegatedAccessorKind::Getter, false) | (DelegatedAccessorKind::Setter, true) | (DelegatedAccessorKind::ReadWrite, _) => true,
+            _ => false,
+        };
+        if !supports_accessor {
+            return Err(CompilerError::ImplCallableMismatch(delegation.range));
+        }
+
+        let selector = make_signature(&delegation.name, if setter { SignatureKind::Setter } else { SignatureKind::Getter });
+        let selector_sym = self.vm.interner.intern(&selector);
+        if let Some(expected) = expected_callable
+            && (expected.selector.encode() != selector || expected.side != DispatchSide::Instance)
+        {
+            return Err(CompilerError::ImplCallableMismatch(delegation.range));
+        }
+
+        let class_key = self.current_class.ok_or(CompilerError::ImplCallableMismatch(delegation.range))?;
+        let field_sym = self.vm.interner.intern(target_field);
+        let slot = self
+            .vm
+            .field_layouts
+            .get(&class_key)
+            .and_then(|layout| layout.field_slots.get(&field_sym).copied())
+            .ok_or(CompilerError::ImplCallableMismatch(delegation.range))?;
+
+        let prior_static = self.is_static_context;
+        self.is_static_context = false;
+        let closure = self.compile_generated_field_accessor(selector_sym, slot, setter, delegation.range);
+        self.is_static_context = prior_static;
+        let closure = closure?;
+
+        let signature_kind = if setter { SignatureKind::Setter } else { SignatureKind::Getter };
+        let method_obj = self.vm.heap.alloc(Object::Method(Box::new(MethodObject::new_single(
+            selector_sym,
+            signature_kind,
+            MethodKind::Closure(closure),
+        ))));
+        self.vm.heap.method_mut(method_obj).visibility = member_visibility(Some(&delegation.name), &delegation.attributes);
+
+        let strip_metadata = match self.vm.compile_mode {
+            CompileMode::Debug => self.vm.strip_contract_metadata,
+            CompileMode::Release => self.vm.strip_contract_metadata,
+            CompileMode::Unchecked => true,
+        };
+        if !strip_metadata {
+            let contracts = self.build_contracts_metadata(&delegation.attributes)?;
+            if !contracts.is_empty() {
+                self.vm.heap.method_mut(method_obj).contracts = Some(contracts);
+            }
+        }
+
+        let method_obj_idx = self.add_constant(Value::obj(method_obj));
+        let selector_const = self.add_constant(Value::symbol(selector_sym));
+        Ok(CompiledBehaviorMember {
+            method_obj,
+            method_obj_idx,
+            selector_const,
+            is_class_side: false,
+            range: delegation.range,
+            attributes: delegation.attributes.clone().into_boxed_slice(),
+        })
+    }
+
     /// Compiles accepted conformance witnesses and trait defaults into
     /// detached method objects. These handles are VM-rooted and callable by
     /// semantic identity; this path never emits a class-method installation.
@@ -43,7 +117,7 @@ impl<'vm> Compiler<'vm> {
                     impl_def
                         .members
                         .get(*source_member_index)
-                        .cloned()
+                        .and_then(|member| member.behavior().cloned())
                         .ok_or(CompilerError::ImplCallableMismatch(impl_def.range))?
                 }
                 crate::modules::semantic_lowering::DetachedMethodSource::TraitDefault {
@@ -55,7 +129,7 @@ impl<'vm> Compiler<'vm> {
                             if phalcom_modules::DeclarationId::new(self.vm.heap.module(self.module).id.clone(), trait_def.name.clone().into())
                                 == *trait_declaration =>
                         {
-                            trait_def.members.get(*source_member_index).cloned()
+                            trait_def.members.get(*source_member_index).and_then(|member| member.behavior().cloned())
                         }
                         _ => None,
                     }) else {
@@ -324,7 +398,7 @@ impl<'vm> Compiler<'vm> {
                 for member_lowering in spec.members.iter() {
                     if &member_lowering.callable == callable {
                         if let Some(impl_def) = self.inherent_impl_defs.get(&spec.id).cloned() {
-                            if let Some(member) = impl_def.members.get(member_lowering.source_member_index) {
+                            if let Some(member) = impl_def.members.get(member_lowering.source_member_index).and_then(|member| member.behavior()) {
                                 let compiled = self.compile_behavior_member(member, callable)?;
                                 self.conditional_method_objects.insert(callable.clone(), compiled.method_obj);
                                 return Ok(compiled.method_obj);
@@ -339,7 +413,7 @@ impl<'vm> Compiler<'vm> {
                 for member_lowering in spec.members.iter() {
                     if &member_lowering.callable == callable {
                         if let Some(impl_def) = self.inherent_impl_defs.get(&spec.id).cloned() {
-                            if let Some(member) = impl_def.members.get(member_lowering.source_member_index) {
+                            if let Some(member) = impl_def.members.get(member_lowering.source_member_index).and_then(|member| member.behavior()) {
                                 let compiled = self.compile_behavior_member(member, callable)?;
                                 self.conditional_method_objects.insert(callable.clone(), compiled.method_obj);
                                 return Ok(compiled.method_obj);
@@ -404,11 +478,17 @@ impl<'vm> Compiler<'vm> {
                     return Err(CompilerError::ImplCallableMismatch(impl_def.range));
                 }
 
-                let Some(member) = impl_def.members.get(member_lowering.source_member_index) else {
+                let compiled = if let Some(member) = impl_def.members.get(member_lowering.source_member_index).and_then(|member| member.behavior()) {
+                    self.compile_behavior_member(member, &member_lowering.callable)?
+                } else if let (Some(target_field), Some(phalcom_ast::ast::ImplMember::Delegation(delegation))) = (
+                    member_lowering.delegation_target_field.as_deref(),
+                    impl_def.members.get(member_lowering.source_member_index),
+                ) {
+                    let setter = matches!(member_lowering.callable.selector.kind, SelectorKind::Setter);
+                    self.compile_delegated_accessor(delegation, target_field, setter, Some(&member_lowering.callable))?
+                } else {
                     return Err(CompilerError::ImplCallableMismatch(impl_def.range));
                 };
-
-                let compiled = self.compile_behavior_member(member, &member_lowering.callable)?;
                 self.conditional_method_objects.insert(member_lowering.callable.clone(), compiled.method_obj);
                 if !spec.is_conditional {
                     self.emit(Bytecode::Constant(compiled.method_obj_idx), compiled.range);
@@ -438,7 +518,7 @@ impl<'vm> Compiler<'vm> {
                     return Err(CompilerError::ImplCallableMismatch(impl_def.range));
                 }
 
-                let Some(member) = impl_def.members.get(member_lowering.source_member_index) else {
+                let Some(member) = impl_def.members.get(member_lowering.source_member_index).and_then(|member| member.behavior()) else {
                     return Err(CompilerError::ImplCallableMismatch(impl_def.range));
                 };
 

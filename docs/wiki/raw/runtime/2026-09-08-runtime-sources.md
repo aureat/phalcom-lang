@@ -10,17 +10,17 @@
 Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
 
 **Governing ADRs:**
-[ADR-0002](../../adr/0002-metaclass-tower-parallel-rule.md) (metaclass tower parallel rule) ·
-[ADR-0003](../../adr/0003-introduce-behavior-kernel-class.md) (Behavior kernel class) ·
-[ADR-0009](../../adr/0009-handle-arena-heap.md) (handle/arena heap) ·
-[ADR-0010](../../adr/0010-tagged-value-enum.md) (tagged Value enum)
+[TDR-0002](../../../decisions/accepted/0002-metaclass-tower-parallel-rule.md) (metaclass tower parallel rule) ·
+[TDR-0003](../../../decisions/accepted/0003-introduce-behavior-kernel-class.md) (Behavior kernel class) ·
+[TDR-0008](../../../decisions/accepted/0008-handle-arena-heap.md) (handle/arena heap) ·
+[TDR-0009](../../../decisions/accepted/0009-tagged-value-enum.md) (tagged Value enum)
 
 This part defines the **kernel**: the class/metaclass tower and the catalog of
 core classes. Surface semantics live in the sibling parts. It is reconciled with
 the [Values & Absence](values-and-absence.md) decisions (private `nil` + `Option`,
-abstract `Bool` with `True`/`False` subclasses ([ADR-0004](../../adr/0004-boolean-as-abstract-bool-with-true-false.md)),
+abstract `Bool` with `True`/`False` subclasses ([TDR-0004](../../../decisions/accepted/0004-boolean-as-abstract-bool-with-true-false.md)),
 `Block` as the closure class) and the instance-display decision in
-[ADR-0015](../../adr/0015-object-default-tostring.md).
+[TDR-0013](../../../decisions/accepted/0013-object-default-tostring.md).
 
 ---
 
@@ -36,7 +36,7 @@ abstract `Bool` with `True`/`False` subclasses ([ADR-0004](../../adr/0004-boolea
 5. **Single inheritance.** One `superclass` per class; `Object` is the root.
 6. **Uniform tower.** Class-side (`@class`, `@constructor`) methods obey the same
    inheritance rules as instance-side methods, via the parallel metaclass
-   hierarchy (§5, [ADR-0002](../../adr/0002-metaclass-tower-parallel-rule.md)). No class is special-cased to lack a metaclass.
+   hierarchy (§5, [TDR-0002](../../../decisions/accepted/0002-metaclass-tower-parallel-rule.md)). No class is special-cased to lack a metaclass.
 
 ---
 
@@ -86,14 +86,14 @@ selector exists, but it does not grant invocation authority.
 
 The VM's tagged value maps onto classes as follows. `x.class` is total for every
 surface value; primitives bypass the generic instance representation.
-**Ratified representation: [ADR-0010](../../adr/0010-tagged-value-enum.md).
-Object references are `ObjRef` handles into the arena heap: [ADR-0009](../../adr/0009-handle-arena-heap.md).**
+**Ratified representation: [TDR-0009](../../../decisions/accepted/0009-tagged-value-enum.md).
+Object references are `ObjRef` handles into the arena heap: [TDR-0008](../../../decisions/accepted/0008-handle-arena-heap.md).**
 
 | Surface value | Class | Notes |
 |---------------|-------|-------|
-| `true` / `false` | `True` / `False` | abstract `Bool` with concrete singleton subclasses `True`/`False` ([ADR-0004](../../adr/0004-boolean-as-abstract-bool-with-true-false.md)); `true.class == True`. `ifTrue`/`ifFalse`/`and`/`or`/`not` live on `Bool`, inherited. |
-| `42` | `Int` | exact, unbounded integer (§4 note; [ADR-0024](../../adr/0024-numeric-surface-split-int-float-and-division.md)) |
-| `3.14` | `Float` | IEEE-754 `f64` (§4 note; [ADR-0024](../../adr/0024-numeric-surface-split-int-float-and-division.md)) |
+| `true` / `false` | `True` / `False` | abstract `Bool` with concrete singleton subclasses `True`/`False` ([TDR-0004](../../../decisions/accepted/0004-boolean-as-abstract-bool-with-true-false.md)); `true.class == True`. `ifTrue`/`ifFalse`/`and`/`or`/`not` live on `Bool`, inherited. |
+| `42` | `Int` | exact, unbounded integer (§4 note; [TDR-0022](../../../decisions/accepted/0022-numeric-surface-split-int-float-and-division.md)) |
+| `3.14` | `Float` | IEEE-754 `f64` (§4 note; [TDR-0022](../../../decisions/accepted/0022-numeric-surface-split-int-float-and-division.md)) |
 | `"hi"` | `String` | immutable, interpolating |
 | `#name` / selectors | `Symbol` | interned — see [Selectors, Symbols & References §2](selectors.md#2-symbol-literals-) for the name-symbol (`#name`) vs. selector-symbol (`#name(_,to,duration)`) distinction |
 | `{ x => … }` | `Block` | closures / block literals |
@@ -105,15 +105,15 @@ Object references are `ObjRef` handles into the arena heap: [ADR-0009](../../adr
 # Memory Management & Garbage Collection
 
 > Normative specification of object lifetime, reachability, and reclamation in
-> the Phalcom runtime. Realises [ADR-0009](../../adr/0009-handle-arena-heap.md)
-> (the handle heap) and [ADR-0050](../../adr/0050-non-moving-mark-sweep-collector.md)
+> the Phalcom runtime. Realises [TDR-0008](../../../decisions/accepted/0008-handle-arena-heap.md)
+> (the handle heap) and [TDR-0047](../../../decisions/accepted/0047-non-moving-mark-sweep-collector.md)
 > (the collector). The surface contract of `System.gc` lives in
 > [system.md](system.md) §`gc`; this document specifies what backs it.
 
 Related: [values-and-absence.md](values-and-absence.md) (the `Value` tags; the
 private `nil` sentinel), [object-model.md](object-model.md) §6 (kernel cycle),
-[ADR-0010](../../adr/0010-tagged-value-enum.md) (`Value` representation),
-[ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md) (fibers).
+[TDR-0009](../../../decisions/accepted/0009-tagged-value-enum.md) (`Value` representation),
+[TDR-0026](../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) (fibers).
 
 ---
 
@@ -136,7 +136,7 @@ diagnostic (never to a different object, never to undefined behaviour).
 **No finalization.** Object destruction runs no user code. There is no `Drop`
 protocol, no `finalize`, no resurrection. Cleanup that must run on a code path
 (`ensure`/`finally`) is driven by unwinding
-([ADR-0008](../../adr/0008-error-handling-model.md)), never by collection. This is
+([TDR-0007](../../../decisions/accepted/0007-layered-exceptions-and-result.md)), never by collection. This is
 a standing invariant, not an omission (§7, Invariant M4).
 
 ## 2. Reachability
@@ -204,8 +204,8 @@ its saved stack alone kept alive die with it.
 Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
 
 **Governing ADRs:**
-[ADR-0008](../../adr/0008-layered-exceptions-and-result.md) (layered exceptions + `Result`, terminating semantics) ·
-[ADR-0031](../../adr/0031-error-handling-surface-syntax.md) (surface syntax: `throw`/`try`/`catch`/`on`/`ensure`)
+[TDR-0007](../../../decisions/accepted/0007-layered-exceptions-and-result.md) (layered exceptions + `Result`, terminating semantics) ·
+[TDR-0027](../../../decisions/accepted/0027-error-handling-surface-syntax.md) (surface syntax: `throw`/`try`/`catch`/`on`/`ensure`)
 
 Phalcom has **two** failure channels, layered rather than competing:
 
@@ -256,7 +256,7 @@ protected block — the same shape as control flow:
 ### The `try` statement (sugar)
 
 `try` / `on` / `catch` / `ensure` desugar directly to the block protocol
-([ADR-0031](../../adr/0031-error-handling-surface-syntax.md)):
+([TDR-0027](../../../decisions/accepted/0027-error-handling-surface-syntax.md)):
 
 ```phalcom
 try {

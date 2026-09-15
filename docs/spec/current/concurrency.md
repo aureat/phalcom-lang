@@ -2,7 +2,7 @@
 
 Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1. The
 surface and execution model are ratified by
-[ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md).
+[TDR-0026](../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md).
 
 Concurrency in Phalcom is **cooperative and single-threaded**, built on one
 primitive — the `Fiber` — with `Future` as the ergonomic layer over it. Both are
@@ -87,7 +87,7 @@ It does not inject an ordinary catchable exception at the call expression.
 
 ### Implementation
 
-**Landed** (U-FIBER, [ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md)).
+**Landed** (U-FIBER, [TDR-0026](../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md)).
 No `Value::Fiber` arm — `Object::Fiber(FiberObject)` is a heap arena variant
 reached through `Value::Obj(ObjRef)`, exactly as native `List` is
 ([`heap.rs`](../../../phalcom-core/src/heap.rs) `FiberObject`/`Object::Fiber`).
@@ -113,7 +113,7 @@ The four points below are realized:
    ordinary post-call stack reconciliation and the dispatch loop transparently
    resumes at the new fiber's saved position;
 4. failure = the entry's error unwinds via the unified unwind
-   (U-CORE-6, [ADR-0008](../../adr/0008-layered-exceptions-and-result.md)) to the
+   (U-CORE-6, [TDR-0007](../../decisions/accepted/0007-layered-exceptions-and-result.md)) to the
    fiber's own top-level activation; `VM::run_until`'s fiber-floor capture
    marks it `failed`, stores the captured `Error`, and resumes the resumer —
    re-raising under `call`'s cascade, delivering the `Error` as a value under
@@ -260,7 +260,7 @@ Future. Observer handles are GC-traced and detached once at `Done`/`Failed`.
   `call`/`await` (propagate) or `try`/`catch` (capture) — never implicitly.
 
 The **execution model** (restricted re-entrant loop, Option A) is decided —
-[ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md), recorded
+[TDR-0026](../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md), recorded
 as open-question 15 in [Open Questions](open-questions.md). Still open there:
 structured concurrency / cancellation scopes, whether `Future` gets `select`/`race`
 combinators, and the scheduler's fairness guarantees.

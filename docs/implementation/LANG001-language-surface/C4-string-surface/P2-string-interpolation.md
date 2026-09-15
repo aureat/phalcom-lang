@@ -49,7 +49,7 @@ The expression body is `String.new(")")`. The parenthesis inside the nested stri
 
 ## 1.1 Accepted implementation decisions
 
-PDR-0029 records these rulings. They do **not** reopen any language semantics
+TDR-0074 records these rulings. They do **not** reopen any language semantics
 locked in Section 2. The historical options remain for provenance; the selected
 option is binding.
 
@@ -1094,7 +1094,7 @@ Update the grammar production near the current string-escape rule to list:
 
 Make it explicit that `\(` opens interpolation and is not part of the decoded literal.
 Keep the grammar's raw-LF, CRLF, and CR exclusion. Triple-quoted syntax does
-not exist. Multiline string literal syntax is deferred by PDR-0029.
+not exist. Multiline string literal syntax is deferred by TDR-0074.
 
 ### 14.2 Lexical structure
 

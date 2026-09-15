@@ -1,7 +1,7 @@
 # `@constructor` — mark a constructor method
 
 - Status: **Canonical design; implementation pending**
-- Governing decision: [PDR-0028](../../../pdr/0028-class-and-constructor-decorator-canon.md)
+- Governing decision: [TDR-0072](../../../decisions/accepted/0072-class-and-constructor-decorator-canon.md)
 - Related: [Classes](../classes.md) · [`@construct`](construct.md) · [`@class`](../classes.md#21-class-side-fields--class)
 
 ## What it does

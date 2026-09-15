@@ -1,6 +1,6 @@
 # Numeric literals
 
-Part of the [Phalcom Language Specification](spec/current/README.md). **Status: Normative** — [PDR-0026](../../../pdr/0026-numeric-literals.md).
+Part of the [Phalcom Language Specification](spec/current/README.md). **Status: Normative** — [TDR-0070](../../decisions/accepted/0070-numeric-literals.md).
 
 ## 1. Forms and values
 

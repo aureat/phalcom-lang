@@ -3,7 +3,7 @@
 **Status: FINDINGS.** Grounded in HEAD (`2b75429`) while writing
 [U-IC/implementation-spec.md](../forge/units/U-IC/implementation-spec.md) and
 [U-HOTPATH/implementation-spec.md](../forge/units/U-HOTPATH/implementation-spec.md). Governed by
-[performance.md](../spec/current/performance.md) + [ADR-0051](../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md)
+[performance.md](../spec/current/performance.md) + [TDR-0048](../../decisions/accepted/0048-performance-strategy-measure-first-tiered-optimization.md)
 (measure-first, tiered, behavior-invariant).
 
 Companion to [optimization-method-and-harness-fidelity.md](optimization-method-and-harness-fidelity.md).
@@ -80,7 +80,7 @@ bookkeeping — not operand fetches. That win is immune to B1 and B3 alike, beca
 on how an instruction is encoded or dispatched, only on how many there are.
 
 Not scoped anywhere yet, and it wants profile data first (which triples actually dominate) per
-ADR-0051. Registered here so the B1 finding is not read as "superinstructions are useless for
+TDR-0049. Registered here so the B1 finding is not read as "superinstructions are useless for
 Phalcom" — the operand-folding *variant* is what does not apply.
 
 ## B5 — The generalizable rule

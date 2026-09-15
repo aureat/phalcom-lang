@@ -16,7 +16,7 @@ This document records the architectural changes, implementation details, invaria
 ## 2. Key Architecture & Implementation Changes
 
 ### 2.1 PDR-0016 Ratification & Confinement
-- **Decision Ratified**: Updated `PDR-0016` status to **Accepted (ratified 2026-09-12)** in [`docs/pdr/0016-poller-backend-is-mio.md`](../../../../docs/pdr/0016-poller-backend-is-mio.md) and [`docs/pdr/STATUS.md`](../../../../docs/pdr/STATUS.md).
+- **Decision Ratified**: Updated `PDR-0016` status to **Accepted (ratified 2026-09-12)** in [TDR-0079](../../../decisions/accepted/0079-poller-backend-is-mio.md) and [`docs/decisions/STATUS.md`](../../../../docs/decisions/STATUS.md).
 - **Workspace Dependency**: Added `mio = { version = "1.0", features = ["os-poll", "net"] }` to `[workspace.dependencies]` in root [`Cargo.toml`](../../../../Cargo.toml) and `mio = { workspace = true }` in [`phalcom-core/Cargo.toml`](../../../../phalcom-core/Cargo.toml).
 - **Law of Confinement**: No `mio` type, import, or signature appears outside `phalcom-core/src/reactor/`. Validated at test time by `test_confinement_no_mio_outside_reactor`.
 

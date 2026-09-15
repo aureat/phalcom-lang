@@ -10,7 +10,7 @@ The documents are authoritative as a set. Public semantics do not depend on host
 |---|---|
 | [`numeric-tower.md`](numeric-tower.md) | Public classes, arithmetic, comparison, conversion, numeric keys, hashing, and tower closure. |
 | [`float-protocol.md`](float-protocol.md) | Binary64 interpretation, signed zero, NaN, narrowing, remainder, power, and total ordering. |
-| [`numeric-literals.md`](numeric-literals.md) | Source grammar, token boundaries, classification, oversized constants, limits, and diagnostics. |
+| [TDR-0070](../../../decisions/accepted/0070-numeric-literals.md) | Source grammar, token boundaries, classification, oversized constants, limits, and diagnostics. |
 | [`text-and-errors.md`](text-and-errors.md) | Text constructors, correctly rounded parsing, canonical rendering, and structured numeric errors. |
 | [`bitwise.md`](bitwise.md) | Infinite-two's-complement Int operations, syntax, huge-count behavior, and primitive floor. |
 | [Conformance](../../conformance/numbers.md) | Reference models, properties, edge corpora, differential tests, and release gates. |

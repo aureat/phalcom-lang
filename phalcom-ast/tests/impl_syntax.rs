@@ -1,4 +1,4 @@
-use phalcom_ast::ast::{BehaviorMember, ImplKind, Statement, TypeAnnotationExpr};
+use phalcom_ast::ast::{BehaviorMember, DelegatedAccessorKind, ImplKind, ImplMember, Statement, TypeAnnotationExpr};
 use phalcom_ast::lexer::Lexer;
 use phalcom_ast::parse_source;
 use phalcom_ast::token::Token;
@@ -23,7 +23,7 @@ fn test_parse_basic_impl() {
     assert!(impl_def.generic_parameters.is_empty());
     assert!(impl_def.where_clause.is_none());
     assert_eq!(impl_def.members.len(), 1);
-    let BehaviorMember::Getter(getter) = &impl_def.members[0] else {
+    let ImplMember::Behavior(BehaviorMember::Getter(getter)) = &impl_def.members[0] else {
         panic!("expected getter member");
     };
     assert_eq!(getter.name, "name");
@@ -86,7 +86,7 @@ fn test_parse_generic_impl() {
     assert_eq!(impl_def.generic_parameters.len(), 1);
     assert_eq!(impl_def.generic_parameters[0].name, "T");
     assert_eq!(impl_def.members.len(), 1);
-    let BehaviorMember::Method(method) = &impl_def.members[0] else {
+    let ImplMember::Behavior(BehaviorMember::Method(method)) = &impl_def.members[0] else {
         panic!("expected method");
     };
     assert_eq!(method.name, "translated");
@@ -129,9 +129,9 @@ impl Container {
         panic!("expected Statement::Impl");
     };
     assert_eq!(impl_def.members.len(), 3);
-    assert!(matches!(&impl_def.members[0], BehaviorMember::Method(m) if m.attributes.iter().any(|a| a.name == "class")));
-    assert!(matches!(&impl_def.members[1], BehaviorMember::Setter(_)));
-    assert!(matches!(&impl_def.members[2], BehaviorMember::Index(_)));
+    assert!(matches!(&impl_def.members[0], ImplMember::Behavior(BehaviorMember::Method(m)) if m.attributes.iter().any(|a| a.name == "class")));
+    assert!(matches!(&impl_def.members[1], ImplMember::Behavior(BehaviorMember::Setter(_))));
+    assert!(matches!(&impl_def.members[2], ImplMember::Behavior(BehaviorMember::Index(_))));
 }
 
 #[test]
@@ -143,6 +143,61 @@ fn test_parse_impl_rejects_fields() {
     let source_mut = "impl User {\n  _cache = 1\n}\n";
     let err_mut = parse_source(source_mut, 0);
     assert!(err_mut.is_err(), "impl with bare field must be rejected");
+}
+
+#[test]
+fn c5p1_associated_type_binding_preserves_value_and_ranges() {
+    let source = "impl<T> Iterable for List<T> { type Item = T }\n";
+    let program = parse_source(source, 0).expect("associated type binding parses");
+    let Statement::Impl(impl_def) = &program.statements[0] else { panic!("expected impl") };
+    let ImplMember::AssociatedTypeBinding(binding) = &impl_def.members[0] else {
+        panic!("expected associated type binding")
+    };
+    assert_eq!(binding.name, "Item");
+    assert_eq!(&source[binding.name_range.start..binding.name_range.end], "Item");
+    assert_eq!(&source[binding.range.start..binding.range.end], "type Item = T");
+    assert!(matches!(binding.value.expr, TypeAnnotationExpr::Reference(_)));
+}
+
+#[test]
+fn c5p1_direct_field_delegation_parses_in_class_and_impl() {
+    let source = r#"class Counter {
+  mut _count: Int
+  count via _count
+  count=(_) via _count
+  mut total via _count
+}
+impl Counter {
+  count=(_) via _count
+}
+"#;
+    let program = parse_source(source, 0).expect("direct field delegation parses");
+    let Statement::Class(class_def) = &program.statements[0] else { panic!("expected class") };
+    assert!(matches!(&class_def.members[0], phalcom_ast::ast::ClassMember::Field(field) if field.mutable));
+    assert!(matches!(&class_def.members[1], phalcom_ast::ast::ClassMember::Delegation(delegation) if delegation.kind == DelegatedAccessorKind::Getter && delegation.target_field == "_count"));
+    assert!(matches!(&class_def.members[2], phalcom_ast::ast::ClassMember::Delegation(delegation) if delegation.kind == DelegatedAccessorKind::Setter));
+    assert!(matches!(&class_def.members[3], phalcom_ast::ast::ClassMember::Delegation(delegation) if delegation.kind == DelegatedAccessorKind::ReadWrite));
+    let Statement::Impl(impl_def) = &program.statements[1] else { panic!("expected impl") };
+    assert!(matches!(&impl_def.members[0], ImplMember::Delegation(delegation) if delegation.kind == DelegatedAccessorKind::Setter));
+}
+
+#[test]
+fn c5p1_top_level_type_alias_remains_unchanged() {
+    let source = "type Item = Int\n";
+    let program = parse_source(source, 0).expect("type alias parses");
+    assert!(matches!(&program.statements[0], Statement::TypeAlias(alias) if alias.name == "Item"));
+}
+
+#[test]
+fn c5p1_unsupported_delegation_targets_and_bodyless_bindings_are_rejected() {
+    for source in [
+        "class Counter { count via state.count }\n",
+        "class Counter { count via values[index] }\n",
+        "class Counter { count via makeStorage() }\n",
+        "impl Counter { type Item }\n",
+    ] {
+        assert!(parse_source(source, 0).is_err(), "expected rejection: {source}");
+    }
 }
 
 #[test]

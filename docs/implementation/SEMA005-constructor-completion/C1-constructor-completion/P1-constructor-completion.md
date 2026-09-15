@@ -1,6 +1,6 @@
 # U-CTOR — constructors become ordinary class-side methods: `@construct`/`@constructor`/`@class`, `new_` allocator
 
-> **Revised 2026-07-21** for [PDR-0028](../../../pdr/0028-class-and-constructor-decorator-canon.md).
+> **Revised 2026-07-21** for [TDR-0072](../../../decisions/accepted/0072-class-and-constructor-decorator-canon.md).
 > `@construct` is class-header-only; `@constructor` is method-only; and `@class`
 > owns all class-side placement. Legacy `construct` and `static` declarations remain
 > parseable during migration with non-fatal help hints. U-CTOR-4's **tombstone and
@@ -11,7 +11,7 @@
 > ground this unit's `@class` fields stand on.
 
 Status: **IMPLEMENTATION COMPLETE (CLOSURE WORK PENDING)** (2026-07-22). Closure authority: [`ctor-completion-implementation-spec.md`](../ctor-completion-implementation-spec.md). Final verification is deferred pending explicit instruction.
-[PDR-0028](../../../pdr/0028-class-and-constructor-decorator-canon.md) is **Accepted**
+[TDR-0072](../../../decisions/accepted/0072-class-and-constructor-decorator-canon.md) is **Accepted**
 and supersedes ADR-0063's target-polymorphic `@constructor` surface. Six sub-units
 land independently, but U-CTOR-5's two-method lowering is required semantics, not a
 performance option.
@@ -47,11 +47,11 @@ dissolved, not closed; rewrite it to say so.
 
 ## Spec anchor
 
-- **[PDR-0028](../../../pdr/0028-class-and-constructor-decorator-canon.md)** — governing canon. `docs/spec/current` is authoritative; this pending unit follows it.
-- [ADR-0002](../../../adr/accepted/0002-metaclass-tower-parallel-rule.md) — the parallel tower is the mechanism this stops opting out of.
-- [ADR-0012](../../../adr/accepted/0012-selector-signature-encoding-and-dispatch.md) — `SignatureKind::Initializer` retired (§9).
-- [ADR-0019](../../../adr/accepted/0019-freeze-vm-blessed-primitive-floor.md) — **floor amendment**; census is normative.
-- [ADR-0051](../../../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md) — measure performance but never make a semantic lowering optional.
+- **[TDR-0072](../../../decisions/accepted/0072-class-and-constructor-decorator-canon.md)** — governing canon. `docs/spec/current` is authoritative; this pending unit follows it.
+- [TDR-0002](../../../decisions/accepted/0002-metaclass-tower-parallel-rule.md) — the parallel tower is the mechanism this stops opting out of.
+- [TDR-0011](../../../decisions/accepted/0011-selector-signature-encoding-and-dispatch.md) — `SignatureKind::Initializer` retired (§9).
+- [TDR-0017](../../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md) — **floor amendment**; census is normative.
+- [TDR-0048](../../../decisions/accepted/0048-performance-strategy-measure-first-tiered-optimization.md) — measure performance but never make a semantic lowering optional.
 - [Classes §1–3](../../../spec/current/classes.md) and [Selectors §4](../../../spec/current/selectors.md) — canonical constructor, placement, and decorator-target contract.
 
 ### Current-spec crosswalk (implementation reading order)
@@ -410,7 +410,7 @@ confirm the suite reddens, restore ([[phalcom-golden-test-lanes]]).
 | **G/G2** | A `class` keyword-variable? | **Yes — dynamic ≡ `self.class`**, legal everywhere |
 | **H** | Does declaring `new(n)` drop the inherited `new()`? | **No** — `new()` is an ordinary inherited method; **tombstone + arity guard deleted** |
 | **H2** | May any class bare-allocate? | **Only `Object::Instance`-backed** — via a new `native_repr` flag |
-| **I/I2** | `let` on fields unenforced | **`let`/`const` rework → [ADR-0064](../../../adr/accepted/0064-let-const-bindings-and-field-mutability.md), [U-BINDINGS](../../../forge/units/U-BINDINGS/u30-bindings-plan.md), lands first** |
+| **I/I2** | `let` on fields unenforced | **`let`/`const` rework → [TDR-0052](../../../decisions/accepted/0052-let-const-bindings-and-field-mutability.md), [U-BINDINGS](../../../forge/units/U-BINDINGS/u30-bindings-plan.md), lands first** |
 
 ### The A → F reversal, and why the measurement mattered twice
 

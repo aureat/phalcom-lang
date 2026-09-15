@@ -4,7 +4,7 @@
   retention+reflection are built. **The hooks are validated but never dispatched**;
   see "Not built" below.
 - Unit: M-ATTR-ROOT (ratified 2026-07-14 per
-  [ADR-0054](../../../adr/accepted/0054-two-speed-ratification-annotation-decorator-tiers.md)
+  [TDR-0044](../../../decisions/accepted/0044-two-speed-ratification-annotation-decorator-tiers.md)
   §2(b); A-1–A-5 resolved inline 2026-07-13, A-6 deferred to v0.3 non-blocking)
 - Evidence: `phalcom-core/src/compiler/attributes.rs` — `OnExpander` (L607-632),
   registered at L650; `validate_attribute_class` (L1433-1490); `RESERVED_HOOKS`
@@ -420,7 +420,7 @@ dict). Until that floor exists:
   implicit consequence of this note.
 
 This defers alongside the other v0.3 items (e.g. the `?:` operator,
-[iteration Route B ADR-0048](../../../adr/accepted/0048-amend-iteration-bare-cursor-sentinel-and-iterable-root.md));
+[TDR-0041](../../../decisions/accepted/0041-amend-iteration-bare-cursor-sentinel-and-iterable-root.md));
 it is recorded here so the v0.2 `Behavior`-only line is understood as a floor
 limitation, not a design rejection.
 
@@ -530,10 +530,10 @@ decorates*, it crosses from user Install into builtin Layout.
 - **Frozen retention — resolved (A-5).** The retained-attribute store is
   immutable once the class is defined; there is no reflective attach/detach
   after that point (no monkey-patching a decorator on later). Attempting to
-  mutate it is an error. This keeps [ADR-0053](../../../adr/accepted/0053-runtime-decorator-interception-reuses-override-epoch-guard.md)'s
+  mutate it is an error. This keeps [TDR-0043](../../../decisions/accepted/0043-runtime-decorator-interception-reuses-override-epoch-guard.md)'s
   `has_runtime_interceptor` bit valid as a one-time, never-invalidated flag —
   admitting mutation would force it into a full epoch counter, a real VM cost
-  ADR-0053 explicitly priced but did not build. Deferred to v0.3 alongside
+  TDR-0044 explicitly priced but did not build. Deferred to v0.3 alongside
   runtime class-hierarchy mutation (open-Q4) — the same gate, not paid twice.
 - **Retention cost.** Every retained attribute is a live heap object reachable
   from its artifact. A `@Author("…")` on ten thousand classes is ten thousand
@@ -584,5 +584,5 @@ decorates*, it crosses from user Install into builtin Layout.
 | ~~A-2~~ | **RESOLVED** (2026-07-13): per-attribute-class `inherited:` labeled arg on `@On`, default `false` (matches C#/Java's opt-in-false convention). Chain-walk is single-inheritance-simple, no diamond case. |
 | ~~A-3~~ | **RESOLVED** (2026-07-13): **arbitrary code allowed** — no literal/const restriction. Install/Dispatch/Runtime already fire at ordinary class-definition-time (the object world is up); restricting would break this note's own worked examples for no matching hazard. Compile/Layout tiers stay compiler-owned, now enforced as an immediate `attr.compile_tier_reserved` compile error at the attribute class's own definition site (cheap, thanks to A-1's explicit tier). |
 | ~~A-4~~ | **RESOLVED** (2026-07-13): **allowed, compose normally** — two `@Memoize` on one member is legal (double-wraps, wasteful not wrong), reusing the existing source-order-innermost-last composition rule rather than adding a dedup/`@Repeatable` mechanism. Stricter enforcement is addable later as a lint without breaking existing code. |
-| ~~A-5~~ | **RESOLVED** (2026-07-13): **frozen** after class-definition; mutating the retained store is an error. Keeps [ADR-0053](../../../adr/accepted/0053-runtime-decorator-interception-reuses-override-epoch-guard.md)'s one-time `has_runtime_interceptor` bit valid without a redesign. Deferred to v0.3, grouped with class-hierarchy mutation (open-Q4). |
+| ~~A-5~~ | **RESOLVED** (2026-07-13): **frozen** after class-definition; mutating the retained store is an error. Keeps [TDR-0043](../../../decisions/accepted/0043-runtime-decorator-interception-reuses-override-epoch-guard.md)'s one-time `has_runtime_interceptor` bit valid without a redesign. Deferred to v0.3, grouped with class-hierarchy mutation (open-Q4). |
 | A-6 | **(v0.3, still open)** When per-instance behavior lands (`anObject.defineMethod`, per-object dict / implicit metaclass), does an Install hook gain an `aReceiver`-scoped variant, and does `_attributes` retention hang off arbitrary objects — or does the `Behavior`-only surface stay even then? Requires its own v0.3 floor ADR. Grouped with A-5's mutability deferral and open-Q4 — likely one v0.3 design session, not three. |

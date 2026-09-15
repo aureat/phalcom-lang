@@ -70,7 +70,7 @@ selector or the metaclass tower.
 | `phalcom-core/core/core.ph` | Abstract `class Number`; `class Integer < Number`; `class Float < Number` skeletons + protocol. **Contended (additive)** — never co-schedule another `core.ph` editor. |
 | `phalcom-ast/src/lexer.rs` / `token.rs` | **Only if** the numeric token cannot distinguish int/float (see §2). Prefer to avoid. |
 | `phalcom-core/tests/lang.rs` (+ fixtures) | Arithmetic + coercion corpus (§7). |
-| `docs/adr/00XX-numeric-surface-split.md` | New ADR amending ADR-0005 (number TBD — see cluster summary; grab next-free at authoring). |
+| `docs/decisions/00XX-numeric-surface-split.md` | New ADR amending ADR-0005 (number TBD — see cluster summary; grab next-free at authoring). |
 | `docs/spec/object-model.md §4`, `values-and-absence.md §1`, `open-questions.md` Q2 | Flip Q2 to RESOLVED; update the numeric note. |
 
 **Adopted debt (incidental — fix in this unit's `number.rs` pass; was orphaned, no prior owner).**

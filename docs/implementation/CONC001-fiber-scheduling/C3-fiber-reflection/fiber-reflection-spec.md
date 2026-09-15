@@ -7,7 +7,7 @@ fixture skeletons. No design decisions live here; all judgment calls are
 already closed in the companion plan §2/§7.
 
 Grounds: [concurrency.md §1](../../../../spec/current/concurrency.md) Interface
-table · [ADR-0030](../../../../adr/0030-fibers-and-futures-cooperative-concurrency.md).
+table · [TDR-0026](../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md).
 
 ---
 

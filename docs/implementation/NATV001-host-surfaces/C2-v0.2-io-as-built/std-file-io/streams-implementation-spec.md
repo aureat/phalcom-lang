@@ -1,7 +1,7 @@
 # Implementation spec — streams: `BytesReader`/`BytesWriter`, `BufferedReader`/`BufferedWriter` (U-STREAMS)
 
 > **Status:** dispatch-ready. Governing records **Accepted**:
-> [PDR-0005](../../../pdr/0005-resources-are-disposable-handles-not-finalized.md)
+> [TDR-0057](../../../../decisions/accepted/0057-resources-are-disposable-handles-not-finalized.md)
 > §3c/§7/§7a; surface contract [`../stdlib/stream-protocol.md`](../../spec/current/stdlib/stream-protocol.md)
 > (all of it — this unit is that spec's first implementation and runs its conformance
 > harness §8 with **no filesystem and no reactor**).

@@ -1934,7 +1934,7 @@ Update or add normative docs in the same change train. At minimum reconcile:
 
 - `docs/spec/current/iteration.md` — new header, pattern lanes, `at`, comma zip, strictness, `.indexed`, `.zipped`;
 - control-flow documentation — parentheses no longer required; `if let`, `while let`;
-- `docs/adr/accepted/0046-destructuring-bindings.md` — no longer only Name/Tuple/List; document shared irrefutable/refutable engine or supersede with a new ADR;
+- `docs/decisions/accepted/0046-destructuring-bindings.md` — no longer only Name/Tuple/List; document shared irrefutable/refutable engine or supersede with a new ADR;
 - `docs/spec/current/selectors.md` — selector pattern `matches` bridge and `understands` selector argument semantics;
 - lexical structure — `===`, `<=>`, expression `...`, contextual relation words;
 - object/equality docs — distinguish `==` from `===`;

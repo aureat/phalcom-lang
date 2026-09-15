@@ -29,7 +29,7 @@ variants), plus the two ADRs and goldens below. Landed in a worktree
 selector" pick below — see that section's addendum for the full story):**
 this doc's own Design section chose "Option 1" — `[](_)`/`[](_,put:)`, a
 name-token `[]` with params in an ordinary, separate `(...)` slot, mirroring
-`==(other)`. **That is not what shipped.** [ADR-0060](../../../adr/accepted/0060-index-operator-as-real-selector.md)
+`==(other)`. **That is not what shipped.** [TDR — `[]` Is a Real, Overridable Selector — No `at` Lowering](../../../decisions/accepted/0049-index-operator-as-real-selector.md)
 (Status: Accepted, ratified after this plan was drafted) specifies the
 opposite shape — **params live inside the brackets, no separate parens**:
 `[idx] { ... }` (read), `[idx, put:] { ... }` (write), `[] { ... }` /
@@ -58,7 +58,7 @@ operator name, defined the same way `==(other)` is already a definable
 operator-method name on HEAD (`class Op { ==(other) { return true } }`
 dispatches correctly today). This still adds **zero** new primitives and
 **zero** new `Value` representation — floor stays `+0`
-([ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md)
+([TDR-0017](../../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md)
 unaffected) — but it **does** add one new selector name (`"[]"`,
 `parse_method_name`-recognized) and, as a direct consequence, `List`/`Map`/
 `Tuple` need an explicit `[](...)` method defined in `core.ph` (thin
@@ -77,7 +77,7 @@ buys more than it costs.
   refinement. `[](...)`/`[](...,put:)` are new `core.ph` methods that
   delegate to these — the underlying contract (total read, raising OOB
   write) is unchanged and still governs.
-- [ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md) —
+- [TDR-0011](../../../decisions/accepted/0011-selector-signature-encoding-and-dispatch.md) —
   comma-canonical selector spelling; a selector's identity is name + arity +
   labels. `"[]"` is just another name under this same rule — `[](_)`,
   `[](_,_)`, `[](_,put:)` are distinct selectors exactly like `at(_)`,
@@ -277,7 +277,7 @@ self.at(i)`, which is itself a second `Invoke`. Under the original
 by construction; under the now-adopted dedicated-selector design it is not
 — every `[]`/`[]=` pays one extra full `IndexMap<Symbol, ObjRef>` hash-probe
 send relative to calling `.at(i)` directly
-([ADR-0051](../../../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md)
+([TDR-0048](../../../decisions/accepted/0048-performance-strategy-measure-first-tiered-optimization.md)
 context: "every `Invoke` resolves through an `IndexMap<Symbol, ObjRef>` hash
 probe… no IC populated"). This is a real, measurable cost of the user's
 directed change, not a hypothetical — flag it plainly rather than repeat
@@ -308,7 +308,7 @@ delegation are ordinary sends on the same generic-send path U-IC
 instruments — no separate cache, no separate fast-path opcode to maintain
 in parallel. **Recommendation: do not build a bytecode-level "sacred
 index" fast path** (the pattern used for `ifTrue`/`whileTrue`,
-[ADR-0018](../../../adr/0018-sacred-selector-inliner-and-override-guard.md))
+[TDR-0016](../../../decisions/accepted/0016-sacred-selector-inliner-and-override-guard.md))
 for `[]`/`[](_,put:)` (or `at`/`at(_,put:)`) in this unit or as a
 follow-on to it. Reasons:
 - ADR-0051 is explicit that optimization work is measure-first and
@@ -417,7 +417,7 @@ follow-on to it. Reasons:
   arm (same shape as an ordinary `Method`, `SignatureKind::Subscript` selector).
 - `phalcom-core/core/core.ph` — `[i] {}`/`[i, put:] {}` on `List` and `Map`,
   `[i] {}` (read-only) on `Tuple`, each a one-line delegation to `at(_)`/`at(_,put:)`.
-- `docs/adr/accepted/0060-index-operator-as-real-selector.md` — the ADR (already
+- `docs/decisions/accepted/0060-index-operator-as-real-selector.md` — the ADR (already
   existed, Accepted; amended in this pass to record what landed).
 - `docs/spec/current/lexical-structure.md` — new section for `[]` call-site syntax
   and the bracket-method definition form.

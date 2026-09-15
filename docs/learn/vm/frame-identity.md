@@ -128,7 +128,7 @@ enough to do on every call that might be captured, (2) using it to jump back is 
 every non-local return, and (3) using one whose target has been recycled is **detectable**, not
 silently wrong.
 
-**An honesty note before the walk.** ADR-0013's *Alternatives considered* has exactly two entries,
+**An honesty note before the walk.** TDR-0012's *Alternatives considered* has exactly two entries,
 and only one of them is about identity: **by-value snapshot capture** (a *capture* alternative,
 rejected for breaking shared mutation) and **"raw frame pointer with no generation counter."** So the
 deliberated space was (a) vs (b) below, full stop. Branches (c) through (f) are **pedagogical
@@ -146,7 +146,7 @@ what a naive interpreter reaches for, and what C's `setjmp`/`longjmp` effectivel
 frame which called `setjmp` is still live. Using it after that frame returns is undefined behavior,
 not a checked error. C simply does not offer the check.
 
-ADR-0013 kills it in one sentence, and the sentence is the ABA problem in domain clothes:
+TDR-0012 kills it in one sentence, and the sentence is the ABA problem in domain clothes:
 
 > a reused frame slot would alias a stale pointer to a live frame, silently returning to the wrong
 > method. The generation counter is what makes the dead-frame case detectable.
@@ -177,10 +177,10 @@ as any reference survives.
 
 Note what this means for Phalcom, and note the direction of causation, because it is the opposite of
 what you would guess. Phalcom did not evaluate (c) and reject it on cost. Doc 3 showed that
-`CallFrame` is `Copy` because **ADR-0009** made every cross-object link a `Copy` handle — a decision
+`CallFrame` is `Copy` because **TDR-0008** made every cross-object link a `Copy` handle — a decision
 taken for entirely unrelated reasons, about the heap. `Copy` frames in a `Vec` followed from that;
 branch (c) was foreclosed as a side effect, before frame identity was a question anyone had asked.
-By the time ADR-0013 was written, the only live fork was (a) vs (b) — which is exactly the fork the
+By the time TDR-0012 was written, the only live fork was (a) vs (b) — which is exactly the fork the
 ADR records.
 
 ### (d), (e), (f) — briefly, and one of them for the wrong reason
@@ -375,9 +375,9 @@ plus one initializer — none inside any fiber-switch path. The counter is never
 reset. Every activation the VM has ever pushed, on any fiber, has a distinct serial.
 
 **And this is written down.** It is not a happy accident anyone is retrofitting a rationale onto —
-ADR-0030 §6 states it as a named invariant:
+TDR-0027 §6 states it as a named invariant:
 
-> Once `self.frames` is the *current* fiber's vector, [ADR-0013]'s `ReturnNonLocal` searches only
+> Once `self.frames` is the *current* fiber's vector, [TDR-0012]'s `ReturnNonLocal` searches only
 > that fiber; a token whose home is on another fiber fails the generation check → `DeadFrameError`.
 > **Invariant:** the VM-global monotonic `next_frame_generation` counter **must not** be relocated
 > into `FiberObject` — it is the only thing making a cross-fiber token globally non-matching.
@@ -644,7 +644,7 @@ exists to manufacture, for two words and no allocation, an approximation of the 
 real heap object gets for free by being a real heap object.** Smalltalk pays for the real version with
 a heap allocation per call. Implementations that wanted cheap call/return moved activations onto flat
 reusable storage — and then had to reinvent, out of smaller parts, an identity guarantee heap objects
-had never given up. Phalcom is downstream of that trade, though it arrived there via ADR-0009's
+had never given up. Phalcom is downstream of that trade, though it arrived there via TDR-0008's
 handles rather than by re-running the argument.
 
 **Generational arenas and ECS entity ids — the pattern with a name.** This is the highest-value
@@ -694,7 +694,7 @@ Java cut, and already spent in `upvalues.md`).
 
 Delete `FrameToken`. From three constraints —
 
-1. **frames are `Copy` values in a recycled `Vec`** (Doc 3, downstream of ADR-0009),
+1. **frames are `Copy` values in a recycled `Vec`** (Doc 3, downstream of TDR-0008),
 2. **a block can outlive the activation it names** (Doc 2 / `upvalues.md`), and
 3. **the failure must be recoverable, not undefined** —
 
@@ -734,8 +734,8 @@ this is the bill being paid.
 - `phalcom-core/src/heap/trace.rs` (~L35, ~L143) — not a GC edge. `vm/gc.rs::collect_roots` (~L83) —
   classified non-root by exhaustive destructure.
 - `phalcom-core/src/error.rs::RuntimeError::DeadFrameError` (~L138–151).
-- ADR-0013 (`0013-closure-upvalues-and-frame-token-return.md`) — Decision + the two Alternatives.
-  ADR-0030 §6 — the "must not be relocated into `FiberObject`" invariant. ADR-0009 — why frames are
+- TDR-0012 (`0013-closure-upvalues-and-frame-token-return.md`) — Decision + the two Alternatives.
+  TDR-0027 §6 — the "must not be relocated into `FiberObject`" invariant. TDR-0008 — why frames are
   `Copy` at all. `docs/spec/current/blocks.md` §5 — the surface promise.
 - Fixtures: `blocks/blocks_non_local_return{,_bare,_two_deep,_in_loop}.ph`,
   `control-flow/control_flow_inline_non_local_return.ph` (inlined `if`/`while` is an *ordinary*
@@ -746,7 +746,7 @@ this is the bill being paid.
 
 ## Unverified, partial, or open — stated rather than smuggled
 
-- **ADR-0013's claim that "the frame token also unifies with `throw` and fiber `abort` as one
+- **TDR-0012's claim that "the frame token also unifies with `throw` and fiber `abort` as one
   stack-unwinding primitive" is partial at HEAD.** `VM::unwind_to` is a genuinely shared primitive
   and mirrors `ReturnNonLocal`'s close-then-truncate order exactly, but it takes raw lengths, not a
   `FrameToken`. `block_on`/`block_ensure` coordinate with non-local return by comparing
@@ -764,7 +764,7 @@ this is the bill being paid.
 ## Forward pointers
 
 - **Concurrency / fibers** — five VM docs now owe this one. This document leaned on the fiber swap
-  (`mem::take` of four fields) as an established fact and on ADR-0030 §6 for the invariant, but never
+  (`mem::take` of four fields) as an established fact and on TDR-0027 §6 for the invariant, but never
   explained *why* `frames` is a per-fiber mirror in the first place, what a yield actually does, or
   how a fiber's failure interacts with open upvalues. It is the track's largest unpaid debt.
 - **The sacred-selector inliner** — [Doc 5](caches-and-fusion.md) opened it; this doc leaned on it

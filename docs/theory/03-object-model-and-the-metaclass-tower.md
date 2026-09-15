@@ -35,7 +35,7 @@ that has to be excluded from it.
 
 ## 2. The parallel rule, and why it *is* constructor dispatch
 
-**`[V]`** ADR-0002 states the invariant:
+**`[V]`** TDR-0002 states the invariant:
 
 > `(X class).super == (X.super) class`, with the root case `(Object class).super == Class`
 
@@ -50,7 +50,7 @@ algorithm, no "static methods are not inherited" caveat.
 
 **`[V]`** The overlay states the consequence in the strongest possible terms:
 
-> This rule **is** constructor dispatch (ADR-0063) — every constructor bug to date came from
+> This rule **is** constructor dispatch (TDR-0052) — every constructor bug to date came from
 > opting out of it.
 
 **`[V]`** And the failure history bears that out in a way worth reading as a sequence, because
@@ -112,7 +112,7 @@ hold.
 
 ## 4. Where the shared behavior lives
 
-**`[V]`** ADR-0003 introduces `Behavior` as an abstract superclass of both `Class` and
+**`[V]`** TDR-0003 introduces `Behavior` as an abstract superclass of both `Class` and
 `Metaclass`, sitting under `Object`. The method dictionary, the lookup protocol, and the
 allocation protocol live there, in one place, rather than being duplicated across the two kinds
 of class-like object.
@@ -129,7 +129,7 @@ the object model, and is therefore programmable.
 ## 5. Class-side state: the naming trap
 
 **`[V]`** Class-side stored fields are implemented as `ClassObject.static_slots`, indexed by a
-per-*metaclass* field table — literally ADR-0011's instance slot vector shifted one level up the
+per-*metaclass* field table — literally TDR-0010's instance slot vector shifted one level up the
 tower. No new storage primitive, no new absence path, one mechanism instead of two.
 
 The semantics that follow are sharp and were **ratified as correct rather than fixed**:
@@ -192,7 +192,7 @@ protect the value binding if real `None` members are ever introduced.
 
 ## 7. Constructors need no machinery
 
-**`[V]`** ADR-0063: a constructor is an **ordinary class-side method**. It compiles to a static
+**`[V]`** TDR-0052: a constructor is an **ordinary class-side method**. It compiles to a static
 method on the metaclass carrying a normal `SignatureKind::Method(arity)` selector, and it shadows
 the inherited bare allocator `Class >> new()` through ordinary metaclass-tower lookup. The special
 `SignatureKind::Initializer` survives only as a flag gating super-constructor hops.

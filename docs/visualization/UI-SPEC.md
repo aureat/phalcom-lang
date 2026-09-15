@@ -14,7 +14,7 @@ recorded — those are the load-bearing decisions.
 |---|---|---|---|
 | **D1** | **The tape is one flat horizontal array; frames are brackets over regions** | N2, R-SPINE | Per-frame boxes — the universal debugger rendering, and *it is the misconception itself*. `stack_offset` indexes a shared `Vec`; boxes assert otherwise |
 | **D2** | **A switch is three stoppable cursor positions: take → hole → install** | N4, N7, R-STATIC | A single smooth tween. Lua/Wren swap a pointer and genuinely have no hole; a tween would render Phalcom as if it were Lua |
-| **D3** | **Fibers are cards; the host stack is a bolted-down rail** | N1 | Same vocabulary for both — would render Phalcom as stackful coroutines, the model ADR-0030 rejected |
+| **D3** | **Fibers are cards; the host stack is a bolted-down rail** | N1 | Same vocabulary for both — would render Phalcom as stackful coroutines, the model TDR-0027 rejected |
 | **D4** | **Editorial register, not IDE register** | R-SILENT, N2 | Debugger chrome. Every debugger shows a call-stack list plus a per-frame variables panel — adopting the register imports N2 for free and primes viewers to hunt for breakpoints |
 
 Everything below is downstream of these.

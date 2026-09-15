@@ -1,15 +1,15 @@
 # Memory Management & Garbage Collection
 
 > Normative specification of object lifetime, reachability, and reclamation in
-> the Phalcom runtime. Realises [ADR-0009](../../adr/0009-handle-arena-heap.md)
-> (the handle heap) and [ADR-0050](../../adr/0050-non-moving-mark-sweep-collector.md)
+> the Phalcom runtime. Realises [TDR-0008](../../decisions/accepted/0008-handle-arena-heap.md)
+> (the handle heap) and [TDR-0047](../../decisions/accepted/0047-non-moving-mark-sweep-collector.md)
 > (the collector). The surface contract of `System.gc` lives in
 > [system.md](system.md) §`gc`; this document specifies what backs it.
 
 Related: [values-and-absence.md](values-and-absence.md) (the `Value` tags; the
 private `nil` sentinel), [object-model.md](object-model.md) §6 (kernel cycle),
-[ADR-0010](../../adr/0010-tagged-value-enum.md) (`Value` representation),
-[ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md) (fibers).
+[TDR-0009](../../decisions/accepted/0009-tagged-value-enum.md) (`Value` representation),
+[TDR-0026](../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) (fibers).
 
 ---
 
@@ -32,7 +32,7 @@ diagnostic (never to a different object, never to undefined behaviour).
 **No finalization.** Object destruction runs no user code. There is no `Drop`
 protocol, no `finalize`, no resurrection. Cleanup that must run on a code path
 (`ensure`/`finally`) is driven by unwinding
-([ADR-0008](../../adr/0008-error-handling-model.md)), never by collection. This is
+([TDR-0007](../../decisions/accepted/0007-layered-exceptions-and-result.md)), never by collection. This is
 a standing invariant, not an omission (§7, Invariant M4).
 
 ## 2. Reachability
@@ -153,7 +153,7 @@ anyway is harmless (they are empty), but the mirror is the truth.
 ## 3. The collector
 
 Reclamation is **non-moving, precise, stop-the-world mark-sweep**
-([ADR-0050](../../adr/0050-non-moving-mark-sweep-collector.md)):
+([TDR-0047](../../decisions/accepted/0047-non-moving-mark-sweep-collector.md)):
 
 1. **Mark.** Clear the mark set (a `SecondaryMap<ObjRef, ()>` — marks live beside
    the objects, not in them). Push every root (§2.1) onto an explicit worklist,
@@ -166,7 +166,7 @@ Reclamation is **non-moving, precise, stop-the-world mark-sweep**
 
 The collector is **non-moving**: a surviving object keeps its handle for life.
 This is required, not incidental — inline-cache tags
-([ADR-0012](../../adr/0012-selector-signature-encoding-and-dispatch.md)), `==`
+([TDR-0011](../../decisions/accepted/0011-selector-signature-encoding-and-dispatch.md)), `==`
 object identity (`Value::value_eq`), and the `Value`s held in suspended fiber
 stacks all assume a handle names the same object across a collection.
 
@@ -252,7 +252,7 @@ loop), so pinning is a liveness guarantee, not a cycle workaround.
   *every* string, range, and instance on the hot `heap.get` path threaded through
   all dispatch.
 
-  **Measured pre-boxing on HEAD 2026-07-14: 280 B** — up from the 256 B ADR-0050
+  **Measured pre-boxing on HEAD 2026-07-14: 280 B** — up from the 256 B TDR-0048
   recorded, because `ClassObject` gained `attributes: Vec<Value>` (+24 B) and
   `attributes_frozen` (U-ANNOT). `ClassObject` alone *is* the 280 B. The descending
   ladder, which decides how many variants must be boxed to hit a given bound:
@@ -274,12 +274,12 @@ loop), so pinning is a liveness guarantee, not a cycle workaround.
   `Map`/`Set`** — six variants — for `Range` (40 B) to become the cap. Boxing
   `Instance` is *counterproductive*: at 24 B it is already below the floor and is
   the most-allocated variant, so a `Box` would add an indirection and an allocation
-  for no size win. (ADR-0050 §9's variant list predates this measurement; this table
+  for no size win. (TDR-0048 §9's variant list predates this measurement; this table
   supersedes it.)
 - **`Value` size.** `Value` is a 16-byte explicit tagged struct (`payload: u64,
   meta: u64`) today, down from the 24-byte enum it replaced (a density gain of
   33% per stack slot). NaN-boxing to a single 8-byte word is deferred behind
-  the `Value` API ([ADR-0010](../../adr/0010-tagged-value-enum.md)); §2.3's
+  the `Value` API ([TDR-0009](../../decisions/accepted/0009-tagged-value-enum.md)); §2.3's
   object accessor is the seam that keeps the collector independent of this.
 - **Fiber-stack pooling.** Fiber operand/frame `Vec`s may be pooled and reused
   across fiber deaths to cut allocation churn; this is a memory-management

@@ -1,12 +1,12 @@
 # Specification — `Map` and `Set` (hash collections)
 
 > **Status:** **Accepted** (representation + `Map` literal ratified by the collections
-> umbrella [ADR-0032](../../../adr/0032-collections-representation-and-literals.md);
+> umbrella [TDR-0028](../../../decisions/accepted/0028-collections-representation-and-literals.md);
 > `Set` literal `#{…}` reserved-inactive). Absent classes (names reserved in `ClassName`), now
 > **unblocked** — their precondition `Object#hash` landed with
 > [U-CORE-1](../../../forge/units/U-CORE-1/ucore1.md)
 > ([`catalog-delta.md`](./catalog-delta.md) §2.4/§4.5). Each is its own unit per
-> [ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md); both must
+> [TDR-0018](../../../decisions/accepted/0018-kernel-list-native-array-protocol.md); both must
 > satisfy the [collection protocol](./collection-protocol.md). Inherits the
 > baseline pin from [`README.md`](./README.md).
 >
@@ -15,7 +15,7 @@
 ## 1. Preconditions (all met)
 
 - `Object#hash` + per-immediate value hashes (`Number`/`String`/`Bool`/`Symbol`) —
-  **landed U-CORE-1** ([ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)).
+  **landed U-CORE-1** ([TDR-0021](../../../decisions/accepted/0021-amend-floor-admit-hash-and-kernel-reflection.md)).
 - `==` on keys — floor/`.ph`. Hash-consistency law (`a == b ⇒ a.hash == b.hash`,
   R-INV-1.3) holds, so hash lookup is correct.
 - `Option` for total lookup — landed (U-CORE-2/U-STD).
@@ -64,17 +64,17 @@ identity hash.
 
 | Option | Mechanism | Recommendation |
 |---|---|---|
-| **Native heap arm** (`Object::Map`/`Object::Set` over a Rust `HashMap`/`HashSet` keyed by the value's `hash`+`==`) | mirrors `List`'s `ListObject` (ADR-0020) | **Recommended** — O(1) ops, matches the "native container, `.ph` protocol" pattern; needs a small floor for `get_`/`put_`/`has_`/iteration |
+| **Native heap arm** (`Object::Map`/`Object::Set` over a Rust `HashMap`/`HashSet` keyed by the value's `hash`+`==`) | mirrors `List`'s `ListObject` (TDR-0018) | **Recommended** — O(1) ops, matches the "native container, `.ph` protocol" pattern; needs a small floor for `get_`/`put_`/`has_`/iteration |
 | **`.ph` over `List`** of buckets | pure `.ph`, zero floor | rejected — O(n) lookup defeats the point; hashing in `.ph` is awkward |
 
-The native arm implies a small **ADR-0019 amendment** (the raw hash-table
+The native arm implies a small **TDR-0017 amendment** (the raw hash-table
 primitives) — scoped and justified when the unit lands, analogous to `List`'s five
 raw primitives. Combinators (`map`/`filter`/…) stay `.ph`.
 
 ## 5. Non-goals
 
 - **Literal syntax.** The **`Map` literal `{ a: 1 }` is ratified** and ships
-  ([ADR-0032](../../../adr/0032-collections-representation-and-literals.md) §3.1:
+  ([TDR-0028](../../../decisions/accepted/0028-collections-representation-and-literals.md) §3.1:
   bare-identifier keys are symbols; `{}` stays a block; empty map is `Map.new()`).
   The **`Set` literal `#{…}` is reserved-inactive** — construct via `Set.new()` /
   `Set(1, 2)` (open-Q6). Parser/compiler work is U-LEX.

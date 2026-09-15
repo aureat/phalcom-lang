@@ -17,6 +17,7 @@ enum Result<T> {
   Ok(_ value: T)
   Error(_ message: String)
 }
+
 impl Tagged for Result<Int>::Ok(_) { tag -> String { "ok" } }
 let result = Result<Int>::Ok(42).tag
 "#;
@@ -25,6 +26,59 @@ let result = Result<Int>::Ok(42).tag
     vm.run_compiled(&program).expect("exact-case trait conformance executes");
     let module = vm.module_registry.get(&program.entry).expect("entry module").object;
     assert_eq!(named(&vm, module, "result").expect("result").to_string(&vm), "ok");
+}
+
+#[test]
+fn direct_field_delegation_executes_as_ordinary_accessors() {
+    let source = r#"
+trait CounterTrait {
+  mut count: Int
+  doubled -> Int { self.count + self.count }
+}
+
+class Counter {
+  mut _count: Int
+  @constructor new(_ initial: Int) { _count = initial }
+}
+impl Counter { mut count via _count }
+impl CounterTrait for Counter {}
+
+let counter = Counter.new(3)
+let before = counter.count
+counter.count = 8
+let after = counter.count
+let doubled = counter.doubled
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("delegated accessors compile");
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("delegated accessors execute");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    assert_eq!(named(&vm, module, "before").expect("before").to_string(&vm), "3");
+    assert_eq!(named(&vm, module, "after").expect("after").to_string(&vm), "8");
+    assert_eq!(named(&vm, module, "doubled").expect("doubled").to_string(&vm), "16");
+}
+
+#[test]
+fn delegated_getter_coexists_with_custom_inherent_setter() {
+    let source = r#"
+class Counter {
+  mut _count: Int
+  @constructor new(_ initial: Int) { _count = initial }
+  count via _count
+}
+impl Counter {
+  count=(_ value: Int) { _count = value + 1 }
+}
+
+let counter = Counter.new(2)
+counter.count = 6
+let result = counter.count
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("custom setter composition compiles");
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("custom setter composition executes");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    assert_eq!(named(&vm, module, "result").expect("result").to_string(&vm), "7");
 }
 
 #[test]

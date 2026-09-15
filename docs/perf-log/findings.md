@@ -7,13 +7,13 @@ U-BENCH numbers, not hypothesis.
 
 U-BENCH Tier 0 (`benchmarks/vm/BASELINE.md`) measured Skynet at **~19–20× Wren
 wall-clock, ~7–9× RSS** (Phalcom 13.7–15.6 s / 4.65–6.09 GB vs local `wren_test`
-0.68–0.79 s / ~667 MB). The oral "~29×" (ADR-0051 context) is revised **down** to a
+0.68–0.79 s / ~667 MB). The oral "~29×" (TDR-0049 context) is revised **down** to a
 measured ~19–20×.
 
 **Attribution re-ranks [performance.md §2](../../spec/current/performance.md).**
 malloc/free is the single largest attributable mechanism on **both** workloads
 (arith 19.7%, Skynet 28.2%) — larger than the tracing span (18.3%) and larger than
-dispatch lookup (13.9% arith / 7.8% Skynet). Confirms ADR-0051's rejection of a
+dispatch lookup (13.9% arith / 7.8% Skynet). Confirms TDR-0049's rejection of a
 dispatch-first ordering: **allocation is the top lever, not the inline cache.**
 → drove cut [001](001-prim-abi-inline-args.md).
 
@@ -65,7 +65,7 @@ creation, returned on `Finished`/`Failed`). Next measured lever after 001.
   field** yet, and there is no global `world_version` — U-IC introduces the first
   epoch primitive.
 - The existing override epoch (`bool_sacred_pristine`/`block_sacred_pristine`,
-  ADR-0018) is a coarse global one-shot bit. Per [PLAN-DECORATORS](../PLAN-DECORATORS.md),
+  TDR-0016) is a coarse global one-shot bit. Per [PLAN-DECORATORS](../PLAN-DECORATORS.md),
   the IC guard must read that bit **alongside** the `(class_id, SelectorId)`
   compare. Mutation-site enumeration for epoch bumps (esp. `superclass=`) is still
   open.
@@ -449,7 +449,7 @@ caught the moment the destructure was written, before any test ran.
 **Consequences:**
 - §2.3 is now **field-level and exhaustive** over all 16 variants, and states what is
   *not* an edge — so the next drift is visible rather than silent.
-- The exhaustive `match` (ADR-0050 §3) catches a new **variant** at compile time but
+- The exhaustive `match` (TDR-0048 §3) catches a new **variant** at compile time but
   **not a new field on an existing variant** — which is exactly how all five annotation
   edges got in.
 - **The real lesson is that documenting the fix was not the fix.** Step 0 regenerated
@@ -466,7 +466,7 @@ Writing the step-2 tests surfaced this: a freshly bootstrapped `VM` is **not
 garbage-free**. `core.ph`'s top-level `Closure` is unreachable the moment bootstrap
 returns — the core `ModuleObject::closure` field is already `None`, and a full
 reverse-scan over the arena (every live object traced, asking who points at it)
-finds **zero holders**. It has been leaking since ADR-0009 deferred reclamation, and
+finds **zero holders**. It has been leaking since TDR-0008 deferred reclamation, and
 it is the first object the collector reclaimed.
 
 Harmless in itself (one closure per process). It matters for two reasons:
@@ -483,7 +483,7 @@ Harmless in itself (one closure per process). It matters for two reasons:
 
 ## F7 — `size_of::<Object>()` grew to 280 B; Win A is six variants, not "the driver"
 
-ADR-0050 measured 256 B. HEAD 2026-07-14 measures **280 B**
+TDR-0048 measured 256 B. HEAD 2026-07-14 measures **280 B**
 (`cargo +nightly rustc -p phalcom-core --lib -- -Zprint-type-sizes`), because
 `ClassObject` gained `attributes: Vec<Value>` (+24 B) + `attributes_frozen` under
 U-ANNOT. `ClassObject` alone *is* the 280 B, and the `SlotMap` sizes every slot to it —
@@ -494,7 +494,7 @@ Range 40 · Str 32 · {Instance, Block, List, BoundMethod, Upvalue, Family} ≤2
 
 Two consequences for U-GC Win A:
 - **Six variants must be boxed** (Class, Fiber, Module, Closure, Method, Map/Set) for
-  `Range` (40 B) to cap the enum and the plan's pinned `<= 48` bound to hold. ADR-0050
+  `Range` (40 B) to cap the enum and the plan's pinned `<= 48` bound to hold. TDR-0048
   §9's list predates the measurement.
 - **Do not box `Instance`.** At 24 B it is already under the floor, and it is the
   most-allocated variant — boxing it adds an indirection plus an allocation for zero
@@ -652,14 +652,14 @@ framing of per-fiber density as an `Object`-arena question: the arena is 40 B/sl
 fine; **the bytes are in the two `Vec`s.**
 
 **The blocker nobody had named.** NaN-boxing is deferred *behind the enum API* by
-[ADR-0010](../../adr/accepted/0010-tagged-value-enum.md), and `Value::as_obj` is
+[TDR-0009](../decisions/accepted/0009-tagged-value-enum.md), and `Value::as_obj` is
 documented as the GC's sole seam precisely so the rewrite touches one function
 ([`value/mod.rs:37`](../../../phalcom-core/src/value/mod.rs)) — the runway is
 deliberately prepared. But a NaN payload holds ~48–51 bits, and **`ObjRef` is a full
 64** (`slotmap::new_key_type!` ⇒ `KeyData` = `u32` index + `u32` version). It does not
 fit. Wren gets away with 48 by boxing a **raw pointer** (`wren_value.h:848`:
 `SIGN_BIT | QNAN | (uint64_t)(uintptr_t)(obj)`); Phalcom's handle-arena
-([ADR-0009](../../adr/accepted/0009-handle-arena-heap.md)) deliberately is not a
+([TDR-0008](../decisions/accepted/0008-handle-arena-heap.md)) deliberately is not a
 pointer.
 
 ⇒ **NaN-boxing requires shrinking `ObjRef` to ≤48 bits first** (e.g. `u32` index +
@@ -773,8 +773,8 @@ deterministic, so they stand independently of machine load; the timing is owed
 ### The chain
 
 `for (x in list)` lowers to `Invoke`-only `iterate`/`iteratorValue` sends
-([ADR-0035](../../adr/accepted/0035-iteration-protocol-cursor.md) §1,
-[ADR-0048](../../adr/accepted/0048-amend-iteration-bare-cursor-sentinel-and-iterable-root.md)).
+([TDR-0029](../decisions/accepted/0029-iteration-protocol-cursor.md) §1,
+[TDR-0041](../decisions/accepted/0041-amend-iteration-bare-cursor-sentinel-and-iterable-root.md)).
 `List` defines neither `iterate` nor `size`'s caller, so per element:
 
 | step | `.ph` frames |
@@ -838,7 +838,7 @@ collection — so that frame is paid by *all* iteration in the language, not jus
 ### What blocks it, and the resolution already in tree
 
 **The probe as written is NOT behavior-invariant** (P2). Methods are open
-([ADR-0026](../../adr/accepted/0026-class-hierarchy-mutability.md)), so a user
+([TDR — Methods are open; superclass reparenting is sealed](../decisions/retired/class-hierarchy-mutability.md)), so a user
 reopening `List` to override `size` or `at` would no longer see `for` honor it. The
 golden corpus does not cover that, and a green corpus is therefore **not** evidence of
 invariance here — it is evidence the corpus does not reopen `List`.

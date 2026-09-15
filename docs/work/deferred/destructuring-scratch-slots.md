@@ -95,7 +95,7 @@ change names at will.
 Two invariants that are **not** involved, listed because conflating them makes this look far
 more dangerous than it is:
 
-- **ADR-0011's frozen slot offsets** govern *instance field* layout, not frame locals.
+- **TDR-0010's frozen slot offsets** govern *instance field* layout, not frame locals.
 - **Upvalues** never apply — a scratch is unnameable, so it can never be captured, and
   `end_scope`'s `CloseUpvalue` emission never covers one.
 
@@ -116,7 +116,7 @@ retention semantics and the code-generation discipline, not for a number.
 ## When to do it
 
 **With the pattern-matching work, not before.** Full pattern matching (map patterns, match
-arms) is deferred to v0.3 under ADR-0046 / open-questions Q7. That is the feature that
+arms) is deferred to v0.3 under TDR-0040 / open-questions Q7. That is the feature that
 justifies the machinery: many arms, each with its own synthetic bindings, each dead at arm
 exit. Slot reclamation is exactly what a many-armed `match` wants, and building it there means
 the slot-allocation change is reviewed on its own terms rather than inside a correctness gate.

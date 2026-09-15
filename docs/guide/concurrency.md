@@ -6,7 +6,7 @@ scheduler — is a library built on top of it.
 
 None of this runs yet. `Fiber` and `Future` are reserved class names with a
 design that's fully specified and ratified
-([ADR-0030](../adr/0030-fibers-and-futures-cooperative-concurrency.md)), but no
+([TDR-0026](../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md)), but no
 primitives behind them — see
 [concurrency.md](../spec/current/concurrency.md) for the "unrealized today" list.
 This page teaches the target semantics: what you'll write once the concurrency
@@ -66,7 +66,7 @@ mid-`yield` there would mean capturing a **native Rust stack frame** as part of
 the fiber's parked state — and that frame isn't something the VM can snapshot
 and resume later, only unwind. `for`, by contrast, lowers to an *inlined*
 `while` over the cursor protocol
-([ADR-0018](../adr/0018-sacred-selector-inliner-and-override-guard.md),
+([TDR-0016](../decisions/accepted/0016-sacred-selector-inliner-and-override-guard.md),
 [iteration.md](../spec/current/iteration.md) §2) — one bytecode chunk, no native
 frame in between, so `yield` suspends exactly where it's called.
 
@@ -76,7 +76,7 @@ loops over the cursor protocol. What's foreclosed is yielding from *inside a
 block you handed to someone else's native code*. This is a guard, not a
 permanent wall: lifting it for callback-shaped generators is tracked as the
 additive follow-up
-[ADR-0033](../adr/0033-amend-fiber-execution-trampolined-block-callsite.md).
+[TDR — Amend the fiber execution model — trampoline the bytecode block call-site](../decisions/retired/amend-fiber-execution-trampolined-block-callsite.md).
 Until then, reach for `for` wherever you'd have reached for `.each { yield }`.
 
 ## Generators are just fibers that yield

@@ -70,7 +70,7 @@ U12/U13/U17/U18. Floor → 113. Tip `e85f31a`.
 
 ## Landed this session (cont.)
 - **U-COLLTYPES** ✅ — native `Map`/`Set`/`Tuple`/`Range` arena arms + `.ph` protocol.
-  `bdbdaaf`(ADR-0039)/`be8426e`(Map+Set)/`2d140f0`(Tuple-orphan)/`f934cf1`(Range+Phase2-spine)/
+  `bdbdaaf`(TDR-0034)/`be8426e`(Map+Set)/`2d140f0`(Tuple-orphan)/`f934cf1`(Range+Phase2-spine)/
   `10e1715`(`{k:v}`→Map). Floor 88→109 (+21). **Reviewer BLOCK → ACCEPTED functional** at
   `10e1715` (green, sound, all load-bearing checks pass); block was history-honesty only
   (`2d140f0` orphaned dead code + false msg; Phase-2 spine actually in `f934cf1`). Squash OFF
@@ -81,30 +81,30 @@ U12/U13/U17/U18. Floor → 113. Tip `e85f31a`.
 
 - **U13** ✅ — hierarchy-stability policy `5d84ad8`. Sealing was ALREADY enforced (ADR-0026,
   prior session; `class_set_superclass`→`InvalidSetSuper` "Can't set superclass of a class").
-  Delivered: invariants test + golden negative + ADR-0041 (DEC-U13a/b=A; MI/C3 rejected, only
+  Delivered: invariants test + golden negative + TDR-0036 (DEC-U13a/b=A; MI/C3 rejected, only
   stateless-traits-at-finalization pre-approved). Zero runtime-logic change → orchestrator-accepted.
   **New bug filed (DEFERRED):** method-reopening broken — 2nd `class A{}` block OVERWRITES not
-  merges, violates ADR-0018 (pre-existing, repro'd on clean HEAD; compiler/lib.rs+Bytecode::Class).
+  merges, violates TDR-0016 (pre-existing, repro'd on clean HEAD; compiler/lib.rs+Bytecode::Class).
 - **item4** ✅ — List combinator migration `c35171a`. `each`→`for (x in self)` (protocol-driven,
   no block_call); map/filter/reduce/includes transitive. Behavior-preserving, goldens byte-exact.
 
 ## Single-writer phase (compiler-spine chokepoint — everything left touches compiler/lib.rs or core.ph)
 - **U-ERR** ✅ LANDED `7c901cf` (42 files, +952/-68). throw=AST node→`.raise()` (no bytecode);
   try/on/catch/ensure=pure parser desugar (no new AST); `Block#on/ensure` native via `VM::unwind_to`;
-  Result/Ok/Err pure `.ph`. **Floor +2** (block_class) under ADR-0038 (Accepted), census 109→111.
+  Result/Ok/Err pure `.ph`. **Floor +2** (block_class) under TDR-0033 (Accepted), census 109→111.
   Graduated 2 pending + 7 PASS + 2 negatives. Caught+fixed Error-subclass field-aliasing (reopened
   `Error` w/ `@constructor
 new(msg)` + bare `new()`; reverted a wrong compiler-fix that broke a golden).
   Verify green. **Reviewer APPROVE** (`ada613e4`) — all 8 focus areas pass (unwind_to order,
   try/on/ensure desugar, throw-reject scope, on isA-match, Error-reopen field layout, floor +2,
   fixture honesty, docs); spot-checks match real binary. **U-ERR ACCEPTED.** 3 non-blocking nits:
-  ADR-0038 stale count (FIXED → 109→111), unwind_to doc overstates order-equiv (vm.rs, minor),
+  TDR-0033 stale count (FIXED → 109→111), unwind_to doc overstates order-equiv (vm.rs, minor),
   multiple-catch not grammar-rejected (dead code, not unsound). DEC-ERR-B=(B): Ok/Err bare-call
   sugar deferred (filed).
 - **U15** ✅ LANDED `6188973` — `import "./x" as X` (relative-path + whole-module bind), source-only,
   memoized `Module` registry (single HashMap, insert-before-compile = cycle marker), member access via
-  `Module#doesNotUnderstand`. New `Bytecode::Import` + ADR-0045 + spec `modules.md`. **Floor +1**
-  (Module DNU fails derivability) → ADR-0045 superseding amendment, census **111→112**, invariants
+  `Module#doesNotUnderstand`. New `Bytecode::Import` + TDR-0039 + spec `modules.md`. **Floor +1**
+  (Module DNU fails derivability) → TDR-0039 superseding amendment, census **111→112**, invariants
   lockstep — STOP-and-reported. 5 PASS + 2 NEGATIVE goldens + 8 lib companions; MANIFEST self-reconciled
   →367. Write-set deltas (cli.rs entry-path fix, interpret.rs scaffolding) reported. Verify green.
   **Reviewer APPROVE** (`a1a95771`) — all 9 focus areas pass, live-verified (cycle <5s no hang,
@@ -114,7 +114,7 @@ new(msg)` + bare `new()`; reverted a wrong compiler-fix that broke a golden).
   diagnostic-source overwrite) + pre-existing duplicate insert.
 - **U14** ✅ LANDED `0769316` — destructuring `let (a,b)=t` / `let [first,*rest]=xs`. Desugar to
   `at(_)` (single-RHS-eval into scratch local), arity guard → `Error.new().raise()` (clean), `*rest`
-  last enforced at parse. ADR-0046 + spec destructuring.md + Q7→RESOLVED. **Floor 0** (pure desugar).
+  last enforced at parse. TDR-0040 + spec destructuring.md + Q7→RESOLVED. **Floor 0** (pure desugar).
   6 positive + 4 negative goldens, all lane-correct (lane lesson applied). 7 snapshot re-baselines
   (LetBinding.name→pattern, legit). Verify green. **Reviewer APPROVE** (`a4cd9922`) — all areas pass,
   live-verified (single-eval, arity boundaries, nested, snapshot honesty); shipping list/*rest now
@@ -128,7 +128,7 @@ new(msg)` + bare `new()`; reverted a wrong compiler-fix that broke a golden).
   - **U16 now = Open-form `::` only, callable-only:** `obj::m`/`Type::m` → `Object::Family` heap variant,
     `family_class#doesNotUnderstand` call-router (encode_selector→send_dynamic, no new dispatch), base-name
     index via new `FinalizeClass` opcode, empty-family check honors DNU. Floor +1 (the one call-router) →
-    ADR-0047. Does NOT touch lexer.rs/token.rs.
+    TDR-0041. Does NOT touch lexer.rs/token.rs.
   - **LANDED** `dfb96ff` (feat) + `41b7227` (deferred-filing). Gate green, cargo doc clean. As-built:
     Family defines ONLY `doesNotUnderstand(_:)`; bare `f(args)`→`call(...)` misses→DNU router
     `decode_selector`→`encode_selector(name,labels,kind)`→`send_dynamic` (U8 path, no 2nd dispatch).
@@ -156,7 +156,7 @@ new(msg)` + bare `new()`; reverted a wrong compiler-fix that broke a golden).
   (SUPER-STATIC/SUPER-OP-SYNTAX/NOT-KEYWORD/PRINT-TOSTRING); MANIFEST reconciled 229→**360**
   (PASS 292/NEG 40/PEND 28). Method-reopening bug already in DEFERRED (U13-filed).
 - **U-LEX-HASH** ✅ ACCEPTED `fac45ae` (`#` symbol literals — name + selector forms; hand-scanner not Logos
-  per ADR-0016; canonicalization reuses `encode_selector` → selector-symbol==method-identity proven; coupled
+  per TDR-0014; canonicalization reuses `encode_selector` → selector-symbol==method-identity proven; coupled
   Symbol#== fix `value.rs` value_eq; graduated `literal_map_symbol_keys.ph` + `functions_method_bind.ph`;
   6 goldens + 7 snapshots, 2 negative-lane; **floor 0**). `#[]`/`#+(_)` paren-operator forms deferred (no
   `[]` method-def grammar to canonicalize against) → DEFERRED, spec §2 mark honest. Reviewer APPROVE (10/10),
@@ -176,7 +176,7 @@ new(msg)` + bare `new()`; reverted a wrong compiler-fix that broke a golden).
   APPROVE (4/4 + 9 cross-cut), clean-checkout green+doc-clean. Blemish: e904b57+b5ac831 red-in-iso (disclosed,
   cumulatively fixed @69c1157; tip green). 4 DEFERRED struck.
 - **⚠ CONCURRENT SESSION active on main** — big iteration/string track (6 unit plans: U-IS/U-ITERABLE/
-  U-NATIVE-MARKER/U-NEG/U-SEQ/U-STRING; ADR-0048 cursor-sentinel/Iterable root, ADR-0049 string-byte floor
+  U-NATIVE-MARKER/U-NEG/U-SEQ/U-STRING; TDR-0042 cursor-sentinel/Iterable root, TDR-0051 string-byte floor
   amendment). As of dd2e178 still DOCS/PLANNING only, no source uncommitted. Will churn spine (vm.rs/compiler/
   core.ph/floor-census/invariants) heavily soon. My bug-fix tail C/D contend those → run tail collision-aware:
   `git status` before each dispatch, pick a group with no live concurrent SOURCE, else PAUSE. NEVER two writers
@@ -193,7 +193,7 @@ new(msg)` + bare `new()`; reverted a wrong compiler-fix that broke a golden).
   field-adding.
 - **U-REOPEN-FIX** ✅ LANDED `e85f31a` (Group C, floor 0): Fix 1 method-reopening — `Bytecode::Class` (vm.rs)
   now checks `self.classes` at runtime and REUSES the already-registered ClassId instead of `create_class`
-  shadowing, so a 2nd surface `class A {}` block APPENDS methods onto block 1's dict (ADR-0018; existing
+  shadowing, so a 2nd surface `class A {}` block APPENDS methods onto block 1's dict (TDR-0016; existing
   `Bytecode::Method` epoch-bump unchanged). Field-adding + superclass-change reopen out of scope → rejected at
   compile time with clear diagnostic (detected via persist-within-unit `field_layouts`/`class_parents`). Fix 2
   materialized-block break/continue (U-ITER-FIX item 1(a)) — `emit_deopt_block_control_trap` raises
@@ -205,7 +205,7 @@ new(msg)` + bare `new()`; reverted a wrong compiler-fix that broke a golden).
   deopt-trap+method-reopening (`e85f31a`)·U-FIBER-FIX cluster (`a3e23e8`). REMAINING: **SuperSend-IC+SOURCE_MAP**
   group → then **U-SCHED** (U-FUTURE Slice B). RECONCILE-FIRST: `has_new_construct` guard (DEFERRED L18) may
   already be fixed per [[ctor-inherit-guard-fix]] — verify before implementing.
-- **U17** ✅ closed — Option-bootstrap formalization, affirm-ADR-0044. DEC-U17=A: defer
+- **U17** ✅ closed — Option-bootstrap formalization, affirm-TDR-0038. DEC-U17=A: defer
   niche-encoding (perf-only, belongs with NaN-boxing pass; None fieldless-singleton bootstrap
   already resolved, now ADR-anchored). No code. (Trivial follow-on: spec cross-ref in
   values-and-absence §3 — delicate file, skipped for now.)
@@ -285,11 +285,11 @@ Serialize code-writers on the shared tree (one at a time, commit-on-green — th
 1. **U-COLL** — running.
 2. **U-COLLTYPES** — native `Map`/`Set`/`Tuple`/`Range` arena arms; graduates
    U-COLL's pending tuple/map goldens. Reviewer ON. Gate DEC-CT-A **cleared**:
-   ADR-0039 (`+21` floor, 80→101, Status: Proposed — ratifies with the unit like
-   ADR-0028 did) is drafted with the exact raw-primitive census. Write-set
+   TDR-0034 (`+21` floor, 80→101, Status: Proposed — ratifies with the unit like
+   TDR-0025 did) is drafted with the exact raw-primitive census. Write-set
    `heap.rs`/`universe.rs`/`core.ph` + per-phase census bump. Dispatch on U-COLL land.
 3. **U-ERR** — `throw`/`try`/`catch`/`on`/`ensure` + `Result`/`Ok`/`Err`
-   (ADR-0008/0031/0007; ADR-0038 block-on-ensure floor already drafted). Reviewer
+   (TDR-0007/0031/0007; TDR-0033 block-on-ensure floor already drafted). Reviewer
    ON. Contends `parser.rs` → after U-COLL. U-CORE-6 error root (dep) landed.
 
 4. **U-ITER-FIX** — U-ITER loop-control follow-ons (`units/U-ITER-FIX/u25-iter-fix-plan.md`):
@@ -317,20 +317,20 @@ bootstrap ADR — mostly docs).
   precluded). ✅ LANDED as affirm-ADR-0042 (`f16b58a`), no runtime change.
 - **DEC-U13a → A** — sealed-after-definition (superclass fixed at creation, method
   reopening kept). **U13b → A** — single inheritance, defer traits/mixins/MI. Preserves
-  one-probe dispatch + ADR-0011 slot/IC stability. U13 = small enforcement + ADR unit,
+  one-probe dispatch + TDR-0010 slot/IC stability. U13 = small enforcement + ADR unit,
   conservative form disjoint from `phalcom-ast` (`class.rs`/`vm.rs`/invariants).
 - **DEC-U15 → A + A** — relative file-path resolution (`import "./x"`) + whole-module
   binding (`import "x" as X`, members via sends). Greenfield: `parser.rs` + new `module.rs`.
 - **DEC-U18 → A** — no default arguments now; selector identity pristine, add later if
-  wanted. ✅ LANDED as affirm-ADR-0043 (`f16b58a`), no runtime change.
+  wanted. ✅ LANDED as affirm-TDR-0037 (`f16b58a`), no runtime change.
 
 ## Still user-only
-- **ADR-0039** already ratified. No open user-only decisions remain; DEC-FUT-SCHED resolved above.
+- **TDR-0034** already ratified. No open user-only decisions remain; DEC-FUT-SCHED resolved above.
 - **DEC-FUT-SCHED** — ✅ RESOLVED (orchestrator, autonomous authority 2026-07-12):
   **Slice A only** for v1 (settle-once `Future`, pure `.ph`, zero `vm.rs` risk). Slice B
   (native scheduler: FIFO + `Fiber#isDone` + root-drive) deferred to an owned `U-SCHED`.
   Reversible pre-release; revisit if user objects.
-- (**ADR-0039** +21 floor — **RATIFIED by user 2026-07-12, all four arms**; U-COLLTYPES
+- (**TDR-0034** +21 floor — **RATIFIED by user 2026-07-12, all four arms**; U-COLLTYPES
   unblocked and resumed. Implementer Phase 0 flips Status→Accepted as landing record.)
 
 The unblocked queue (U-COLL→U-COLLTYPES→U-ERR) runs regardless of these.
@@ -338,7 +338,7 @@ The unblocked queue (U-COLL→U-COLLTYPES→U-ERR) runs regardless of these.
 ## Next
 Bug-fix tail: only **SuperSend-IC + SOURCE_MAP** group left, then **U-SCHED** (U-FUTURE Slice B).
 BUT ⚠ concurrent iteration/string track (U-IS/U-ITERABLE/U-SEQ/U-STRING/U-NEG/U-NATIVE-MARKER,
-ADR-0048/0049) will churn spine (vm.rs/compiler/core.ph/floor-census/invariants) heavily — as of
+TDR-0042/0049) will churn spine (vm.rs/compiler/core.ph/floor-census/invariants) heavily — as of
 `e85f31a` still docs/planning only, no source uncommitted. Run tail collision-aware: `git status`
 before each dispatch; if their SOURCE goes live on a shared file, PAUSE (never two writers on one file).
 

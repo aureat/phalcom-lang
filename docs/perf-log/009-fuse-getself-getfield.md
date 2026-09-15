@@ -164,7 +164,7 @@ index d4ee7fa..3e228b6 100644
 +    /// Fused [`Bytecode::GetSelf`] + [`Bytecode::GetField`] — reads a field of the
 +    /// current frame's receiver and pushes it, in one dispatch (perf-log cut 009).
 +    ///
-+    /// 0: the slot offset of the field in the receiver's slots array (ADR-0011).
++    /// 0: the slot offset of the field in the receiver's slots array (TDR-0010).
 +    ///
 +    /// Same in-place rewrite and `ip += 2` advance as [`Bytecode::InvokeLocal`],
 +    /// with the dead `GetField` left at `ip + 1`. Unlike the fused sends this reads
@@ -328,7 +328,7 @@ index 2eec3fc..e59487a 100644
 +        Ok(())
 +    }
 +
-+    /// Reads `receiver`'s field at `slot`, with absence surfaced (ADR-0007).
++    /// Reads `receiver`'s field at `slot`, with absence surfaced (TDR-0006).
 +    ///
 +    /// Shared verbatim by the [`Bytecode::GetField`] and [`Bytecode::GetSelfField`]
 +    /// arms so the two cannot drift — the same reason `Invoke`'s body lives in

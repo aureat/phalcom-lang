@@ -20,10 +20,10 @@ surfaces `compiler/lib.rs` + `phalcom-ast/src/parser.rs`, the frozen-floor `prim
 `core.ph`) — hand the diff to `phalcom-reviewer`; never self-approve. **Worktree isolation** (mutates
 `block.rs` / a small `vm.rs` helper / `core.ph` / `compiler/lib.rs` while U-ITER, U-FIBER, and the
 U-CORE / `phalcom-ast` clusters are live). Green gate: `./scripts/verify.sh` exits 0 +
-`cargo doc --workspace --no-deps` clean. Grounded in **[ADR-0008](../../../adr/0008-layered-exceptions-and-result.md)**
+`cargo doc --workspace --no-deps` clean. Grounded in **[TDR-0007](../../../decisions/accepted/0007-layered-exceptions-and-result.md)**
 (error **model** — terminating, one unwind, handling as a `Block` protocol),
-**[ADR-0031](../../../adr/0031-error-handling-surface-syntax.md)** (surface **syntax** —
-`throw`/`try`/`catch`/`on`/`ensure`), **[ADR-0007](../../../adr/0007-option-as-abstract-with-some-none.md)**
+**[TDR-0027](../../../decisions/accepted/0027-error-handling-surface-syntax.md)** (surface **syntax** —
+`throw`/`try`/`catch`/`on`/`ensure`), **[TDR-0006](../../../decisions/accepted/0006-option-as-abstract-with-some-none.md)**
 (the abstract-root-plus-two-subclasses machinery `Result` reuses), and the normative
 **[error-handling.md](../../../spec/current/error-handling.md)** §1–§6 + **[result.md](../../../spec/current/result.md)** §1–§5.
 **New governing ADR REQUIRED:** one ADR-0019 floor amendment for the two native `Block` handler
@@ -100,12 +100,12 @@ bridges — with `attempt()` itself derived in `.ph` over `on`, so the net floor
 derivability test — a `.ph` body has **no way** to observe a `throw` (a Rust-level `Err`) or a non-local
 `return` (an invisible in-place unwind); the whole point of these primitives is to convert those into a
 value/handler dispatch. So they are an **ADR-0019 amendment**. **This is NOT pre-cleared** — the omnibus
-[ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md) named hash + kernel
+[TDR-0021](../../../decisions/accepted/0021-amend-floor-admit-hash-and-kernel-reflection.md) named hash + kernel
 reflection + `Error#message`/`raise`, but **not** `Block#on`/`ensure` (confirmed: no match at plan time).
-So author a **new per-unit ADR-0019 landing-record amendment** (mirrors [ADR-0028](../../../adr/0028-amend-floor-admit-method-reflection.md)
+So author a **new per-unit ADR-0019 landing-record amendment** (mirrors [TDR-0024](../../../decisions/accepted/0024-amend-floor-admit-method-reflection.md)
 for U-CORE-3): cite ADR-0008 as the design authority, record `+2 bindings` / `+2 distinct fns`
 (`block_on`, `block_ensure`), and bump `floor-census.md`. **Claim the next free ADR number at dispatch
-(`ls docs/adr/`).** See DEC-ERR-A. *A small `pub(crate)` `vm.rs` restore helper (§2.3) is **plumbing**,
+(`ls docs/decisions/`).** See DEC-ERR-A. *A small `pub(crate)` `vm.rs` restore helper (§2.3) is **plumbing**,
 not a bound selector — it does not count toward the floor, exactly as U-CORE-6's `Raise` payload did not.*
 
 ### 2.2 `throw` — prefix lowering + the only-`Error`-throwable rule (error-handling.md §1)
@@ -272,7 +272,7 @@ class Err { construct(e) { _error = e }  match(ok: o, err: e) => e.call(_error) 
 | `phalcom-core/src/vm.rs` **(SPINE)** | *optional* `pub(crate) fn unwind_to(stack_len, frames_len)` restore helper (plumbing, no unwind-semantics change) | floor |
 | `phalcom-core/src/universe.rs` | register `on`/`ensure` on `block_cls`+`function_cls`; **floor census bump (+2)** | floor |
 | `phalcom-core/core/core.ph` **(never two editors — serialize)** | `class Result`/`Ok`/`Err` (pure `.ph`); `Option`/`Some`/`None` reopen for `okOr(_)`; `Block#attempt` `.ph` | protocol |
-| `docs/adr/00NN-amend-floor-admit-block-handlers.md` (**new**, claim number at dispatch) | ADR-0019 amendment landing-record for `Block#on`/`ensure` (+2) | ADR |
+| `docs/decisions/00NN-amend-floor-admit-block-handlers.md` (**new**, claim number at dispatch) | ADR-0019 amendment landing-record for `Block#on`/`ensure` (+2) | ADR |
 | `docs/spec/current/core/floor-census.md` | +2 census rows, in lockstep with the ADR (same change) | ADR |
 | `../../../../phalcom-core/src/primitive/option.rs` (**adopted debt**) | repoint the broken rustdoc intra-doc link at `nil.rs:~64` → private `wrap_some` (was orphaned) | docs |
 | `docs/spec/current/core/README.md` (**adopted debt**) | re-baseline the stale "Baseline & drift policy" floor table to the post-U-CORE ceiling (was orphaned; ex-DEFERRED) | docs |
@@ -368,7 +368,7 @@ but step 4's `attempt` needs step 2 landed first.
 ## 7. Decisions flagged (flag, don't pick)
 | ID | Decision | Options | Architect recommendation |
 |---|---|---|---|
-| **DEC-ERR-A** ⚠ **ADR DRAFTED (Proposed)** | **The ADR-0019 amendment for `Block#on`/`ensure` (+2).** Not pre-cleared by ADR-0023. | Recommendation was (A) a fresh per-unit amendment ADR. | **Drafted as [ADR-0038](../../../adr/0038-amend-floor-admit-block-on-ensure.md) (Proposed, +2, census 80→82)**, citing ADR-0008 as design authority. **Awaiting user ratification** — the one gate that must clear before the step-2 diff merges. |
+| **DEC-ERR-A** ⚠ **ADR DRAFTED (Proposed)** | **The ADR-0019 amendment for `Block#on`/`ensure` (+2).** Not pre-cleared by ADR-0023. | Recommendation was (A) a fresh per-unit amendment ADR. | **Drafted as [TDR-0032](../../../decisions/accepted/0032-amend-floor-admit-block-on-ensure.md) (Proposed, +2, census 80→82)**, citing ADR-0008 as design authority. **Awaiting user ratification** — the one gate that must clear before the step-2 diff merges. |
 | **DEC-ERR-B** | **`Ok(v)`/`Err(v)` construction sugar.** Does the `Name(args)` construction form generalise beyond `Some`? | **(A)** generalise the `Some(x)` construction desugar to any class with a matching `construct`; **(B)** ship `Ok.new(v)`/`Err.new(v)` now, add `Ok(v)` sugar as a follow-on. | **Confirm on HEAD** how `Some(x)` lowers. Recommend **(A)** if it is a small generalisation (cleaner surface, matches `Some`), else **(B)** to keep this unit's write-set small and defer the sugar. Do not block on it — `Ok.new(v)` is always available. |
 | **DEC-ERR-C** | **`on` selector encoding + the `blk.on(T){e=>}` surface form.** §13/U-CORE-6 name `on(_)(_)`; does the parser accept a **trailing block after a parenthesized arg**? | **(A)** register `on` as `SignatureKind::Method(2)` (positional class + handler) and confirm trailing-block-after-args parses; **(B)** if it doesn't parse, add minimal grammar support, or accept the all-in-parens form `on(T, { e => })`. | **(A)** register `Method(2)`. The **`try` lowering emits the 2-arg `Invoke` directly**, so it does **not** depend on the surface trailing-block grammar; making the bare `blk.on(T){e=>}` form parse is a secondary nicety — verify on HEAD (compare `ifTrue({},ifFalse:{})` vs `whileTrue{}`), flag if a small grammar add is needed. |
 | **DEC-ERR-D** | **The `vm.rs` restore helper vs inline in `block.rs`.** | **(A)** add `pub(crate) fn unwind_to` to `vm.rs`; **(B)** inline via existing `pub(crate)` VM methods from `block.rs` to avoid the `vm.rs` edit while U-FIBER holds it. | **(A)** for locality beside the other unwind handlers, **unless** U-FIBER is mid-flight on `vm.rs` at dispatch — then **(B)** to keep write-sets disjoint. Either way it is plumbing, not a floor binding. |

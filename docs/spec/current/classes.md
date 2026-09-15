@@ -3,10 +3,10 @@
 Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
 
 **Governing ADRs:**
-[PDR-0028](../../pdr/0028-class-and-constructor-decorator-canon.md) (**Accepted** — `@construct` classes, `@constructor` methods, target-polymorphic `@class`) ·
-[ADR-0011](../../adr/accepted/0011-static-instance-slot-layout.md) (static per-class slot layout) ·
-[ADR-0064](../../adr/accepted/0064-let-const-bindings-and-field-mutability.md) (**Accepted** — `let`/`const`; unkeyworded mutable fields; supersedes ADR-0014) ·
-[ADR-0002](../../adr/accepted/0002-metaclass-tower-parallel-rule.md) (the parallel tower that resolves them)
+[TDR-0072](../../decisions/accepted/0072-class-and-constructor-decorator-canon.md) (**Accepted** — `@construct` classes, `@constructor` methods, target-polymorphic `@class`) ·
+[TDR-0010](../../decisions/accepted/0010-static-instance-slot-layout.md) (static per-class slot layout) ·
+[TDR-0052](../../decisions/accepted/0052-let-const-bindings-and-field-mutability.md) (**Accepted** — `let`/`const`; unkeyworded mutable fields; supersedes ADR-0014) ·
+[TDR-0002](../../decisions/accepted/0002-metaclass-tower-parallel-rule.md) (the parallel tower that resolves them)
 
 ## 1. Constructors
 
@@ -61,7 +61,7 @@ root, so `Ref.at(1, 2)` either finds the constructor or raises `doesNotUnderstan
 
 `new` is the **one** name the language treats specially, and only because
 `Class >> new()` occupies it as a default (§1.2) — and even that is ordinary
-inheritance, not constructor-specific dispatch (PDR-0028).
+inheritance, not constructor-specific dispatch (TDR-0073).
 
 ### 1.2 The allocator: `_$new`
 
@@ -133,7 +133,7 @@ layout at class-definition time.
   fields are always private, with no visibility syntax; every external access
   is a message send through a derived or hand-written accessor.
 
-**Mutability** ([ADR-0064](../../adr/accepted/0064-let-const-bindings-and-field-mutability.md)):
+**Mutability** ([TDR-0052](../../decisions/accepted/0052-let-const-bindings-and-field-mutability.md)):
 
 | Form | Meaning |
 |---|---|
@@ -154,7 +154,7 @@ and specified rather than repaired.
 ### 2.1 Class-side fields — `@class`
 
 `@class` on a field declares storage on the **class object** rather than on instances
-([ADR-0017](../../adr/accepted/0017-class-side-stored-static-fields.md)):
+([TDR-0015](../../decisions/accepted/0015-class-side-stored-static-fields.md)):
 
 ```phalcom
 class Counter {
@@ -185,8 +185,8 @@ Base.count      // 2
 Derived.count   // None — its own slot
 ```
 
-This is §2's field rule exactly, one tower level up: ADR-0017 is
-[ADR-0011](../../adr/accepted/0011-static-instance-slot-layout.md)'s slot vector
+This is §2's field rule exactly, one tower level up: TDR-0015 is
+[TDR-0010](../../decisions/accepted/0010-static-instance-slot-layout.md)'s slot vector
 shifted onto the metaclass. In Smalltalk terms a `@class` field is a **class-instance
 variable**, *not* a class variable — nothing is shared across a hierarchy, which is
 why it is not spelled `@shared` or `@classvar` — each would assert a sharing that does

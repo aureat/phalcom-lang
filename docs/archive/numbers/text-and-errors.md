@@ -1,6 +1,6 @@
 # Numeric text and errors
 
-**Status:** Normative. Ratified by [PDR-0027](../../../pdr/0027-float-protocol-and-explicit-narrowing.md).
+**Status:** Normative. Ratified by [TDR-0071](../../decisions/accepted/0071-float-protocol-and-explicit-narrowing.md).
 
 ## 1. Constructors
 
@@ -21,7 +21,7 @@ DECIMAL     := INT-TEXT-UNSIGNED [ "." DIGITS ] [ EXPONENT ]
 ```
 
 `INT-TEXT-UNSIGNED`, `DIGITS`, and `EXPONENT` use the literal separator rules in
-[numeric literals](numeric-literals.md). `Int.new` accepts only `INT-TEXT`.
+[TDR-0070](../../decisions/accepted/0070-numeric-literals.md). `Int.new` accepts only `INT-TEXT`.
 `Float.new` accepts `FLOAT-TEXT`; `+Infinity` and signed NaN are rejected. Valid finite decimal
 text whose magnitude overflows binary64 becomes signed infinity. A malformed string raises
 `#numericText`, identifies `Int` or `Float`, and reports a zero-based byte offset within the

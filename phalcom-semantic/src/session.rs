@@ -2935,6 +2935,24 @@ impl SemanticWorkspaceSession {
                         QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
                     }
                 }
+                let mut delegation_context = crate::checker::CheckingContext::new(
+                    Arc::make_mut(&mut self.store),
+                    &hierarchy,
+                    &resolver,
+                    &declarations,
+                    module_id.clone(),
+                );
+                delegation_context.attach_field_signatures(&field_signatures);
+                for member in &class_def.members {
+                    let phalcom_ast::ast::ClassMember::Delegation(delegation) = member else {
+                        continue;
+                    };
+                    if let Ok(generated) = crate::checker::declaration_signature::delegated_accessor_signatures(&mut delegation_context, &decl_id, delegation) {
+                        for signature in generated {
+                            callable_signatures.insert(signature);
+                        }
+                    }
+                }
 
                 let surface = match query_declaration_surface(
                     &mut self.db,
@@ -2946,6 +2964,7 @@ impl SemanticWorkspaceSession {
                         hierarchy: &hierarchy,
                         resolver: &resolver,
                         declarations: &declarations,
+                        field_signatures: Some(&field_signatures),
                         type_aliases: Some(&type_aliases),
                         linked: Some(input.linked.as_ref()),
                         import_products: Some(&input.import_products),
@@ -3108,9 +3127,11 @@ impl SemanticWorkspaceSession {
         let mut conformance_witness_visibilities: BTreeMap<crate::identity::CallableId, crate::surface::MemberVisibility> = BTreeMap::new();
         let mut conformance_invalid_witnesses: BTreeMap<crate::identity::ImplId, BTreeSet<crate::traits::TraitRequirementId>> = BTreeMap::new();
         let mut conformance_invalid_members = BTreeSet::new();
+        let mut conformance_associated_type_plans: BTreeMap<crate::identity::ImplId, crate::impls::ConformanceAssociatedTypePlan> = BTreeMap::new();
         for module in structural_work_modules.iter().chain(removed_modules.iter()) {
             conformance_index.remove_source(module);
             conformance_witness_plans.retain(|impl_id, _| &impl_id.module != module);
+            conformance_associated_type_plans.retain(|impl_id, _| &impl_id.module != module);
         }
         for module_id in &structural_work_modules {
             let Some(shard) = self.semantic_structure_shards.get(module_id) else {
@@ -3131,6 +3152,20 @@ impl SemanticWorkspaceSession {
                                 let target_owner = head.target.declaration().clone();
                                 let impl_signature = head.generic_signature.clone();
                                 let contribution = crate::impls::ConformanceContribution::from_resolved(head, authorized);
+                                if let Some(surface) = trait_surfaces.get(&contribution.trait_ref.declaration) {
+                                    let associated_plan = crate::impls::build_conformance_associated_type_plan(
+                                        &mut context,
+                                        &contribution.impl_id,
+                                        impl_def,
+                                        surface,
+                                        impl_signature.as_ref(),
+                                    );
+                                    diags_by_module
+                                        .entry(module_id.clone())
+                                        .or_default()
+                                        .extend(associated_plan.diagnostics.iter().cloned());
+                                    conformance_associated_type_plans.insert(contribution.impl_id.clone(), associated_plan);
+                                }
                                 if !contribution.authorized {
                                     diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
                                         module_id.clone(),
@@ -3146,7 +3181,20 @@ impl SemanticWorkspaceSession {
                                 if contribution.is_lookup_eligible() {
                                     let callable_owner = crate::identity::CallableOwnerId::Conformance(contribution.impl_id.clone());
                                     let mut seen_requirements = BTreeSet::new();
-                                    for (source_member_index, member) in impl_def.members.iter().enumerate() {
+                                    for (source_member_index, impl_member) in impl_def.members.iter().enumerate() {
+                                        if let phalcom_ast::ast::ImplMember::Delegation(delegation) = impl_member {
+                                            conformance_invalid_members.insert(contribution.impl_id.clone());
+                                            diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
+                                                module_id.clone(),
+                                                DiagnosticCode::DelegationInConformanceUnsupported,
+                                                "direct-field `via` is supported only in class and inherent impl declarations",
+                                                delegation.range,
+                                            ));
+                                            continue;
+                                        }
+                                        let Some(member) = impl_member.behavior() else {
+                                            continue;
+                                        };
                                         let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(member);
                                         let side = crate::semantic_shard::behavior_side(member);
                                         let Some(candidate_callable) =
@@ -3239,6 +3287,7 @@ impl SemanticWorkspaceSession {
                     }
                     let mut context =
                         crate::checker::CheckingContext::new(Arc::make_mut(&mut self.store), &hierarchy, &resolver, &declarations, module_id.clone());
+                    context.attach_field_signatures(&field_signatures);
                     context.attach_data_semantics(&data_semantics);
                     context.attach_enum_semantics(&enum_semantics);
                     let contribution = crate::impls::build_inherent_impl_contribution(&mut context, &impl_id, impl_def);
@@ -3330,6 +3379,7 @@ impl SemanticWorkspaceSession {
                             hierarchy: &hierarchy,
                             resolver: &resolver,
                             declarations: &declarations,
+                            field_signatures: None,
                             type_aliases: Some(&type_aliases),
                             linked: Some(input.linked.as_ref()),
                             import_products: Some(&input.import_products),
@@ -3648,6 +3698,7 @@ impl SemanticWorkspaceSession {
             &conformance_witness_visibilities,
             &conformance_invalid_witnesses,
             &conformance_invalid_members,
+            &conformance_associated_type_plans,
             &data_semantics,
             &trait_surfaces,
             &mut diags_by_module,
@@ -3672,7 +3723,10 @@ impl SemanticWorkspaceSession {
                 let (Some(header), Some(surface)) = (trait_headers.get(&declaration), trait_surfaces.get(&declaration)) else {
                     continue;
                 };
-                for member in &trait_def.members {
+                for trait_member in &trait_def.members {
+                    let Some(member) = trait_member.behavior() else {
+                        continue;
+                    };
                     let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(member);
                     let Some(callable) = crate::checker::declaration_signature::callable_id_for_syntax(
                         &crate::identity::CallableOwnerId::Declaration(declaration.clone()),
@@ -3985,7 +4039,10 @@ impl SemanticWorkspaceSession {
                                 type_parameters: type_params_map,
                             };
                             let callable_owner = crate::identity::CallableOwnerId::Conformance(impl_id.clone());
-                            for member in &impl_def.members {
+                            for impl_member in &impl_def.members {
+                                let Some(member) = impl_member.behavior() else {
+                                    continue;
+                                };
                                 let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(member);
                                 let side = crate::semantic_shard::behavior_side(member);
                                 let Some(callable) = crate::checker::declaration_signature::callable_id_for_syntax(&callable_owner, syntax, side) else {
@@ -4088,6 +4145,7 @@ impl SemanticWorkspaceSession {
                         let impl_id = crate::identity::ImplId::new(module_id.clone(), crate::identity::ImplLocalId(stmt_idx as u32));
                         let mut ctx =
                             crate::checker::CheckingContext::new(Arc::make_mut(&mut self.store), &hierarchy, &resolver, &declarations, module_id.clone());
+                        ctx.attach_field_signatures(&field_signatures);
                         ctx.attach_data_semantics(&data_semantics);
                         ctx.attach_enum_semantics(&enum_semantics);
                         let contribution = crate::impls::build_inherent_impl_contribution(&mut ctx, &impl_id, impl_def);
@@ -4109,7 +4167,10 @@ impl SemanticWorkspaceSession {
                             type_parameters: type_params_map,
                         };
 
-                        for (member_index, member) in impl_def.members.iter().enumerate() {
+                        for (member_index, impl_member) in impl_def.members.iter().enumerate() {
+                            let Some(member) = impl_member.behavior() else {
+                                continue;
+                            };
                             let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(member);
                             let is_class_side = syntax.attributes().iter().any(|a| a.name == "class")
                                 || match member {
@@ -4548,6 +4609,7 @@ impl SemanticWorkspaceSession {
             current_modules: &current_modules,
             analysis_callables: &source_index_analysis_callables,
             import_sites_by_module: &input.import_sites_by_module,
+            trait_surfaces: &trait_surfaces,
         });
         // Presentation-only Universe source shards provide provenance and
         // navigation. They are deliberately not workspace query inputs.
@@ -5235,6 +5297,7 @@ struct SourceSemanticIndexInputs<'a> {
     current_modules: &'a BTreeSet<ModuleId>,
     analysis_callables: &'a BTreeMap<ModuleId, BTreeSet<crate::identity::CallableId>>,
     import_sites_by_module: &'a BTreeMap<ModuleId, BTreeSet<phalcom_modules::identity::ImportSiteId>>,
+    trait_surfaces: &'a TraitSurfaceTable,
 }
 
 fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (SourceSemanticIndex, BTreeMap<ModuleId, Arc<str>>) {
@@ -5252,6 +5315,7 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
         current_modules,
         analysis_callables,
         import_sites_by_module,
+        trait_surfaces,
     } = inputs;
     // Canonical Universe modules are source-owned presentation inputs: index
     // their declarations for navigation without linking or deeply analyzing
@@ -5305,6 +5369,28 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
             .collect(),
         ..SourceIndexContext::default()
     };
+    for (module, source) in &index_sources {
+        for statement in &source.program.statements {
+            let Statement::Impl(impl_def) = statement else { continue };
+            let phalcom_ast::ast::ImplKind::Conformance { trait_ref, .. } = &impl_def.kind else { continue };
+            let trait_ranges = resolve_type_reference_targets(module, &source.program, type_resolver);
+            let Some(trait_declaration) = trait_ranges
+                .iter()
+                .filter(|(range, _)| range.start >= trait_ref.range.start && range.end <= trait_ref.range.end)
+                .map(|(_, declaration)| declaration)
+                .next()
+            else {
+                continue;
+            };
+            let Some(surface) = trait_surfaces.get(trait_declaration) else { continue };
+            for member in &impl_def.members {
+                let phalcom_ast::ast::ImplMember::AssociatedTypeBinding(binding) = member else { continue };
+                if let Some(requirement) = surface.associated_type_by_name(&binding.name) {
+                    context.associated_type_targets.insert((module.clone(), binding.name_range), requirement.requirement.clone());
+                }
+            }
+        }
+    }
     for (module, source) in &index_sources {
         if previous.is_some() && !rebuild_modules.contains(module) {
             continue;
@@ -6044,7 +6130,7 @@ fn advisory_callable_member<'a>(declaration: &DeclarationId, member: &'a ClassMe
                 index.range,
             ))
         }
-        ClassMember::Field(_) | ClassMember::Variant(_) => None,
+        ClassMember::Field(_) | ClassMember::Variant(_) | ClassMember::Delegation(_) => None,
     }
 }
 
@@ -6078,7 +6164,8 @@ fn advisory_target_resolution(site: &SourceSiteId, target: &SemanticTargetId) ->
         | SemanticTargetId::Variant(_)
         | SemanticTargetId::VariantFamily(_)
         | SemanticTargetId::VariantField(_)
-        | SemanticTargetId::DataComponent(_) => AdvisoryOrigin::Constraint(site.clone()),
+        | SemanticTargetId::DataComponent(_)
+        | SemanticTargetId::AssociatedType(_) => AdvisoryOrigin::Constraint(site.clone()),
     };
     AdvisoryTargetResolution {
         target: target.clone(),
@@ -6155,7 +6242,10 @@ fn source_body_for_callable<'a>(callable: &CallableId, unit: &'a ParsedModuleUni
             }
             Statement::Enum(_) => {}
             Statement::Impl(impl_def) => {
-                for member in &impl_def.members {
+                for impl_member in &impl_def.members {
+                    let Some(member) = impl_member.behavior() else {
+                        continue;
+                    };
                     let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(member);
                     let side = if syntax.attributes().iter().any(|attr| attr.name == "class")
                         || match member {
@@ -6651,6 +6741,7 @@ fn publish_conformance_witness_plans(
     conformance_witness_visibilities: &BTreeMap<CallableId, crate::surface::MemberVisibility>,
     conformance_invalid_witnesses: &BTreeMap<crate::identity::ImplId, BTreeSet<crate::traits::TraitRequirementId>>,
     conformance_invalid_members: &BTreeSet<crate::identity::ImplId>,
+    conformance_associated_type_plans: &BTreeMap<crate::identity::ImplId, crate::impls::ConformanceAssociatedTypePlan>,
     data_semantics: &DataSemanticTable,
     trait_surfaces: &TraitSurfaceTable,
     diags_by_module: &mut BTreeMap<ModuleId, Vec<SemanticDiagnostic>>,
@@ -6848,6 +6939,10 @@ fn publish_conformance_witness_plans(
             &deferred_inherent_candidates,
             &data_candidates,
             &terminal_candidates,
+            conformance_associated_type_plans
+                .get(impl_id)
+                .cloned()
+                .unwrap_or_else(|| crate::impls::ConformanceAssociatedTypePlan::empty(impl_id.clone())),
         );
         if let crate::impls::ConformanceCompleteness::Incomplete { failures } = &plan.completeness {
             let mut diagnostic = SemanticDiagnostic::error_in(
@@ -6860,10 +6955,16 @@ fn publish_conformance_witness_plans(
                 contribution.source.range,
             );
             for failure in failures {
-                diagnostic.labels.push(DiagnosticLabel::new(
-                    SemanticSourceSpan::new(contribution.source.module.clone(), contribution.source.range),
-                    format!("requirement `{}`: {}", failure.requirement.selector, failure.reason),
-                ));
+                match failure {
+                    crate::impls::ConformanceFailure::Behavioral(failure) => diagnostic.labels.push(DiagnosticLabel::new(
+                        SemanticSourceSpan::new(contribution.source.module.clone(), contribution.source.range),
+                        format!("requirement `{}`: {}", failure.requirement.selector, failure.reason),
+                    )),
+                    crate::impls::ConformanceFailure::AssociatedType(failure) => diagnostic.labels.push(DiagnosticLabel::new(
+                        failure.source.clone(),
+                        format!("associated type `{}`: {}", failure.name, failure.reason),
+                    )),
+                }
             }
             diags_by_module.entry(contribution.source.module.clone()).or_default().push(diagnostic);
         }

@@ -1,7 +1,7 @@
 # `@invariant` — class-level invariant weave
 
 - Status: **Implemented**
-- Unit: U-ANNOT-CONTRACTS (+ [ADR-0052](../../../adr/accepted/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md) receiver-scoped guard)
+- Unit: U-ANNOT-CONTRACTS (+ [TDR-0042](../../../decisions/accepted/0042-invariant-reentrancy-scope-and-layout-confined-decorator-state.md) receiver-scoped guard)
 - Evidence: `phalcom-core/src/compiler/attributes.rs` — `InvariantExpander`
   (L446-460), registered at L643; the real weave in `expand_class_attributes`
   (L1661-1681) via `weave_invariant_checks`; predicate collection at L1550-1554.
@@ -45,15 +45,15 @@ As built (L1661-1681):
 Woven **only in `Debug`** (L1661) — `Release` and `Unchecked` strip it. See the
 `CompileMode` table in [requires.md](requires.md).
 
-### ADR-0052 receiver-scoped guard
+### TDR-0043 receiver-scoped guard
 
-[ADR-0052](../../../adr/accepted/0052-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)
+[TDR-0042](../../../decisions/accepted/0042-invariant-reentrancy-scope-and-layout-confined-decorator-state.md)
 rules the re-entrancy guard **receiver-scoped**, and rules per-receiver decorator
 state Layout-confined (no side table keyed on receiver).
 
 ## Not built
 
-- **The re-entrancy guard itself.** ADR-0052 Fix 1 is cited by `InvariantExpander`'s
+- **The re-entrancy guard itself.** TDR-0043 Fix 1 is cited by `InvariantExpander`'s
   own doc-comment, but the weave at L1661-1681 emits a plain entry/exit check with
   **no guard flag** — a self-send from inside a woven method re-checks the
   invariant mid-mutation. **Divergence: the ADR is ratified, the guard is absent.**

@@ -30,7 +30,7 @@ what it covers, and is ratified by a new **ADR-0017**.
    References" to **"Symbols & Method References"** (selector *identity* proper now
    lives in `messages-and-selectors.md`, which `selectors.md` should defer to
    rather than re-declare — see B1).
-3. Create `docs/adr/accepted/0017-symbol-literals-method-references-and-attributes.md`
+3. Create `docs/decisions/accepted/0017-symbol-literals-method-references-and-attributes.md`
    recording the `#`/`::`/`@` decisions, so "design-locked" is backed the same way
    every other resolved decision is. Change `selectors.md`'s status line from a
    bare "Decided (design-locked)" to `**Governing ADR:** ADR-0017`.
@@ -66,7 +66,7 @@ and independent of visibility.
 ### A4 — broken link
 
 **Edit.** `values-and-absence.md §3.1`: `[ADR-0004](../../../adr/)` →
-`[ADR-0004](../../../adr/0004-boolean-as-abstract-bool-with-true-false.md)`.
+`[TDR-0004](../../../../../decisions/accepted/0004-boolean-as-abstract-bool-with-true-false.md)`.
 
 ---
 
@@ -171,7 +171,7 @@ representation" are rewritten to the sibling model:
 > representation** ([Functions §4](functions.md)). A `Method` is **not** a `Block`:
 > both are siblings under the abstract [`Function`](functions.md), and a `Method`
 > additionally carries a selector, a holder, and a `self` a `Block` does not. See
-> [ADR-0006](../../../adr/0006-function-as-abstract-callable-root.md).
+> [TDR-0005](../../../../../decisions/accepted/0005-function-as-abstract-callable-root.md).
 
 ### B4 — `ifFalse(_:)` existence + the `Option`-chaining hazard
 

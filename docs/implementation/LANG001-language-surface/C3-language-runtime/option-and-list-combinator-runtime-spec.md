@@ -1,7 +1,7 @@
 # LANG001.C3 — Option and list combinator runtime spec
 
 - **Status:** ✅ Landed — `176d454` (Option combinators), `5e2b395` (List combinators), `454f2b8` (discharge DEFERRED #25 + STATE). In-tree on `main`, no worktree.
-- **Realizes:** [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md) (frozen floor — this unit adds **zero** primitives), [ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md) (List floor), [ADR-0007](../../../adr/0007-option-as-abstract-with-some-none.md) (Option as abstract). Spec [values-and-absence.md](../../../spec/current/values-and-absence.md) §3.3, [catalog-delta.md](../../../spec/current/core/catalog-delta.md) §2.2 / §2.4.
+- **Realizes:** [TDR-0017](../../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md) (frozen floor — this unit adds **zero** primitives), [TDR-0018](../../../decisions/accepted/0018-kernel-list-native-array-protocol.md) (List floor), [TDR-0006](../../../decisions/accepted/0006-option-as-abstract-with-some-none.md) (Option as abstract). Spec [values-and-absence.md](../../../spec/current/values-and-absence.md) §3.3, [catalog-delta.md](../../../spec/current/core/catalog-delta.md) §2.2 / §2.4.
 - **Reviewer gate:** OFF per policy — self-verified on the green gate (`../../archive/phase2/u0-state.md` §"U-STD — LANDED"; reviewer roster line: "Reviewer OFF … U-STD").
 
 ## Mission
@@ -57,7 +57,7 @@ Single file — `phalcom-core/core/core.ph`:
 
 ## Sources
 
-- ADRs: [0019-freeze-vm-blessed-primitive-floor.md](../../../adr/0019-freeze-vm-blessed-primitive-floor.md), [0020-kernel-list-native-array-protocol.md](../../../adr/0020-kernel-list-native-array-protocol.md), [0007-option-as-abstract-with-some-none.md](../../../adr/0007-option-as-abstract-with-some-none.md).
+- ADRs: [TDR-0017](../../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md), [TDR-0018](../../../decisions/accepted/0018-kernel-list-native-array-protocol.md), [TDR-0006](../../../decisions/accepted/0006-option-as-abstract-with-some-none.md).
 - Spec: [values-and-absence.md](../../../spec/current/values-and-absence.md) §3.3; [catalog-delta.md](../../../spec/current/core/catalog-delta.md) §2.2 / §2.4.
 - Code: `phalcom-core/core/core.ph` (`Option` block L70–124, `List` block L142–212); tests `phalcom-core/tests/lang/option/*`, `phalcom-core/tests/lang/list/*`, `phalcom-core/tests/lang/blocks/blocks_argument_to_method.ph`.
 - Forge: [STATE.md](../../archive/phase2/u0-state.md) §"U-STD — LANDED". Per-unit planning record (`U-STD-implementation-spec.md`, `U-STD-plan.md`) folded into this spec; see git history.

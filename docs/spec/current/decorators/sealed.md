@@ -70,7 +70,7 @@ As built:
      runs — the `Unknown superclass` error fires first. An imported class cannot be a
      superclass at all, sealed or not.
   2. **Naming.** `is S.Shape` does not parse (`is` takes a bare identifier, not a
-     member access), and [ADR-0045](../../../adr/accepted/0045-module-import-relative-path-whole-module-binding.md)'s
+     member access), and [TDR-0038](../../../decisions/accepted/0038-module-import-relative-path-whole-module-binding.md)'s
      whole-module binding leaks no globals.
 
   So module structure already supplies the protection `@sealed` advertises, and the check

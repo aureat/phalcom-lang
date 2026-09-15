@@ -68,7 +68,7 @@ pub(crate) enum ValueTag {
 | `Int` | `payload as i64` — full signed 64-bit integer | Full i64 range without boxing |
 | `Float` | `f64::from_bits(payload)` — raw IEEE 754 bits | Bit-exact NaN payloads are preserved |
 | `Symbol` | `payload as u32` — interned symbol index | Upper 32 bits of payload are unused |
-| `Obj` | `ObjRef::from_opaque_u64(payload)` — arena handle | The arena is a SlotMap (ADR-0009) |
+| `Obj` | `ObjRef::from_opaque_u64(payload)` — arena handle | The arena is a SlotMap (TDR-0008) |
 | `None` | 0 (unused) | Represents `Option.None` (not `nil`) |
 | `AdtSingleton` | `RuntimeVariantId` packed as u32 | Used for nullary enum variants |
 | `DataSingleton` | `RuntimeDataDescriptorId` packed as u32 | Used for nullary data class values |
@@ -201,5 +201,5 @@ value.as_data_singleton() -> Option<RuntimeDataDescriptorId>
 ## See also
 
 - [02-product-layout-and-storage.md](02-product-layout-and-storage.md) — packed word storage for multi-field objects
-- [ADR-0010](../../adr/accepted/0010-tagged-value-enum.md) — rationale for the explicit tag representation over NaN-boxing
-- [ADR-0044](../../adr/accepted/0044-option-bootstrap-formalization-and-defer-niche-encoding.md) — why niche encoding is deferred
+- [TDR-0009](../../decisions/accepted/0009-tagged-value-enum.md) — rationale for the explicit tag representation over NaN-boxing
+- [TDR-0037](../../decisions/accepted/0037-option-bootstrap-formalization-and-defer-niche-encoding.md) — why niche encoding is deferred

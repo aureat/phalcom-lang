@@ -229,5 +229,5 @@ data classes) or `RuntimeVariantDescriptor` (for ADT cases).
   class instances are constructed using `ProductStorage`
 - [04-adt-enum-variants.md](04-adt-enum-variants.md) — how ADT case payloads
   use the same storage
-- [ADR-0010](../../adr/accepted/0010-tagged-value-enum.md) — the tagged Value design
-- [ADR-0011](../../adr/accepted/0011-static-instance-slot-layout.md) — static slot layout policy
+- [TDR-0009](../../decisions/accepted/0009-tagged-value-enum.md) — the tagged Value design
+- [TDR-0010](../../decisions/accepted/0010-static-instance-slot-layout.md) — static slot layout policy

@@ -1,7 +1,7 @@
 # U1 — Heap & Value (as-built)
 
 - **Status:** ✅ Landed — `6515ea3` (`feat(u1): handle/arena heap + tagged Value`, 2026-07-11).
-- **Realizes:** [ADR-0009](../../../adr/0009-handle-arena-heap.md) (handle/arena heap) + [ADR-0010](../../../adr/0010-tagged-value-enum.md) (tagged `Value` enum); spec [object-model §3](../../../spec/current/object-model.md) (value representation) and [§6](../../../spec/current/object-model.md) (bootstrap), [values-and-absence §2](../../../spec/current/values-and-absence.md).
+- **Realizes:** [TDR-0008](../../../../decisions/accepted/0008-handle-arena-heap.md) (handle/arena heap) + [TDR-0009](../../../../decisions/accepted/0009-tagged-value-enum.md) (tagged `Value` enum); spec [object-model §3](../../../spec/current/object-model.md) (value representation) and [§6](../../../spec/current/object-model.md) (bootstrap), [values-and-absence §2](../../../spec/current/values-and-absence.md).
 - **Reviewer gate:** **ON** (load-bearing — can corrupt the object model). Independent `phalcom-reviewer` **PASSED** after a scoped fixer restored a `Symbol`/`Module` `==`/`!=` semantics regression (`value_eq` had fallen through to derived `PartialEq`).
 
 ## Mission
@@ -35,5 +35,5 @@ No surface-language change; behavior preserved observationally (goldens byte-ide
 ## Sources
 - forge: [`u0-state.md`](../../archive/phase2/u0-state.md) "U1 — LANDED". Per-unit planning record (`U1-plan.md`, `U1-progress.md`) folded into this spec; see git history.
 - code: `phalcom-core/src/heap.rs`, `phalcom-core/src/value.rs`.
-- ADRs: [0009](../../../adr/0009-handle-arena-heap.md), [0010](../../../adr/0010-tagged-value-enum.md).
+- ADRs: [TDR-0008](../../../../decisions/accepted/0008-handle-arena-heap.md), [TDR-0009](../../../../decisions/accepted/0009-tagged-value-enum.md).
 - landing: `6515ea3` (squash of `feat/u1-heap`, slices 1–4 + review fix).

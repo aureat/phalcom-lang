@@ -161,7 +161,7 @@ pub fn lookup_method_in_hierarchy(heap: &Heap, mut class: ClassId, selector: Sym
 
 That is the whole resolver. `current.methods` is `IndexMap<Symbol, ObjRef>` — a selector-keyed map
 whose value is a *handle* to a `MethodObject`, not the method inline. `superclass` is
-`Option<ClassId>` — a `Copy` arena handle (ADR-0009), `None` only at the tower's apex, `Object`.
+`Option<ClassId>` — a `Copy` arena handle (TDR-0008), `None` only at the tower's apex, `Object`.
 One hashmap probe per class, climb on miss, `None` at the top. That is it.
 
 The climb is a straight line because Phalcom is **single-inheritance**: every class has exactly one
@@ -214,7 +214,7 @@ call stack, and never touches `self.frames` at all:
 
 ```rust
 MethodKind::Primitive(native_fn) => {
-    // arguments copied into a small on-stack buffer (INLINE_ARGS = 8; ADR-0051) ...
+    // arguments copied into a small on-stack buffer (INLINE_ARGS = 8; TDR-0049) ...
     let result = native_fn(self, &receiver, &args[..arity]);
     // ... place result back on the value stack ...
 }
@@ -321,7 +321,7 @@ flowchart TD
 ## The fork Phalcom actually deliberated: what goes in the key
 
 Committing to a per-class dictionary settles *when* binding happens; it does **not** settle *what
-identifies an entry*. That is the real decision, and unlike the coarse fork it has an ADR — **ADR-0012**.
+identifies an entry*. That is the real decision, and unlike the coarse fork it has an ADR — **TDR-0011**.
 
 Two answers. **Arity-only:** the key is (name, argument count). A method `move` taking two arguments
 is one slot, regardless of what the arguments are called. **Full label-encoded:** the key is the
@@ -355,14 +355,14 @@ act. `foo(_)` and `foo(_,_)` coexisting is not overload resolution; it is two ke
 The cost doesn't vanish, it *moves* — from a compile-time algorithm to a **design discipline**: every
 place a selector is produced (call site, method install, `perform`, the dNU forward) must encode it
 *identically*, because a near-miss is now a silent dictionary miss, not a compile error caught by a
-forgiving second pass. And this is the honesty beat the recursion guard set up. ADR-0012's
+forgiving second pass. And this is the honesty beat the recursion guard set up. TDR-0011's
 **rejected** alternative was exactly arity-only dispatch — and it was rejected not on elegance but on
 **scars**: three shipped defects the forge audit pinned in this code — **F1** (`Invoke` swallowed
 `call_method`'s `Result`, silently eating primitive errors), **F7** (a 0-argument `new()` mis-tagged
 as `Method(1)`), **F8** (a divergent encoder that interned `">( _)"` with a stray space, a slot that
 could never be hit). That last one is the discipline's bill made real: two code paths built "the same"
 selector differently and produced an unreachable method. Label-encoding is the deliberated choice;
-its cost is that the encoder must be the *only* encoder, which is why ADR-0012 mandates exactly one.
+its cost is that the encoder must be the *only* encoder, which is why TDR-0011 mandates exactly one.
 
 ## The comparisons that earn their place
 
@@ -415,7 +415,7 @@ Delete `send.rs`. From two constraints —
 
 1. **binding must stay late** (so the language keeps polymorphism, monkeypatching, and a catchable
    miss), which forces the call site to name **only a selector** — no method, no offset; and
-2. **a selector must distinguish keyword shapes** (ADR-0012), which forces the key to encode name +
+2. **a selector must distinguish keyword shapes** (TDR-0011), which forces the key to encode name +
    labels, so `foo(_)` and `foo(_,_)` are different methods with no overload-resolution phase —
 
 you can rebuild the send: a call site holds a selector-constant index (constraint 1); at send time
@@ -439,15 +439,15 @@ the rest is what dictionary dispatch is.
 - `phalcom-core/src/method/object.rs::MethodKind` (@ L17) — `Closure(ObjRef)` vs `Primitive(PrimitiveFn)`.
 - `phalcom-core/src/value/mod.rs::Value::lookup_method` (@ L170) → `heap/class.rs::lookup_method_in_hierarchy`
   (@ L74) — the single-inheritance chain walk; `MethodsMap = IndexMap<Symbol, ObjRef>` (@ L17).
-- `phalcom-core/src/method/mod.rs::encode_selector` (@ L102) — the sole selector encoder (ADR-0012);
+- `phalcom-core/src/method/mod.rs::encode_selector` (@ L102) — the sole selector encoder (TDR-0011);
   `move(to,duration)` vs `move(_,_)` as distinct keys.
 - `phalcom-core/src/vm/send.rs::VM::new_message` (@ L138) — the four-slot `Message`;
   `forward_does_not_understand` (@ L181) — the dNU forward and its structural recursion backstop.
 - `phalcom-core/src/vm/send.rs::VM::send_dynamic` (@ L218) / `invoke_method_object` (@ L259) — the
   reflective `perform`/`invokeOn` surface, re-entering `run_until` (not the compiled `Invoke` path).
-- ADR-0012 (label-encoded selectors & IC-ready dispatch) — the deliberated key-encoding choice, with
-  the F1/F7/F8 scar. ADR-0040 (SuperSend), ADR-0063 (constructors are ordinary class-side methods),
-  ADR-0060 (`[]` is a real selector) — supporting, deferred.
+- TDR-0011 (label-encoded selectors & IC-ready dispatch) — the deliberated key-encoding choice, with
+  the F1/F7/F8 scar. TDR-0035 (SuperSend), TDR-0052 (constructors are ordinary class-side methods),
+  TDR-0050 (`[]` is a real selector) — supporting, deferred.
 
 ## Forward pointers
 
@@ -456,6 +456,6 @@ the rest is what dictionary dispatch is.
   superinstructions that fuse a load into the send.
 - **[Doc 6 (frame identity)](frame-identity.md)** — destroys Lie #2's non-local-return branch: what `generation` and the
   frame token do when a `return` unwinds through a primitive.
-- **SuperSend** (`Bytecode::SuperSend`, ADR-0040) — its own opcode: the walk starts *above* a
+- **SuperSend** (`Bytecode::SuperSend`, TDR-0035) — its own opcode: the walk starts *above* a
   statically-named defining class, not the receiver's class. Mechanism deferred.
 - **The concurrency doc** — Lie #2's `switch_pending` branch: a fiber switch firing inside a primitive.

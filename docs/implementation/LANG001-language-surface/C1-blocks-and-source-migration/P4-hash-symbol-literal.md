@@ -37,7 +37,7 @@ Two value types, both backed by an interned `Symbol`:
 `perform` accepting only selector symbols is **not** this unit (no `perform` surface yet) —
 U-LEX-HASH only lexes + interns both forms.
 
-Also grounds: [ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md)
+Also grounds: [TDR-0011](../../../decisions/accepted/0011-selector-signature-encoding-and-dispatch.md)
 (canonical selector string is the intern key — reuse `encode_selector`/interner, do NOT fork
 a parallel canonicalizer); selectors §1 R2 (positionals precede labels — reject interior
 positionals `#move(to,_)`).

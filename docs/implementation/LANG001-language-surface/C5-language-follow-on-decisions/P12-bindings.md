@@ -16,7 +16,7 @@ deferred_reason: null
 # LANG001.C5.P12 — bindings
 
 Companion to [`err-plan.md`](u30-bindings-plan.md). Governed by
-[ADR-0064](../../../adr/accepted/0064-let-const-bindings-and-field-mutability.md)
+[TDR-0052](../../../decisions/accepted/0052-let-const-bindings-and-field-mutability.md)
 (**Accepted**, supersedes ADR-0014).
 
 > **ADR-0061 ruled 2026-07-19 — ratified, with its bare-`_` rejection scoped to field
@@ -198,8 +198,8 @@ ADR-0014 status flip as work to do. **All of it is already done**, verified 2026
 | `docs/spec/current/syntax/statements-and-declarations.md:28` | `binding := ("let" \| "const") IDENT [ "=" expr ]` |
 | `docs/spec/current/syntax/statements-and-declarations.md:42-43` | "`var` is **not** a keyword." |
 | `docs/spec/current/classes.md:8,134,143` | cites ADR-0064, uses `let` for mutable |
-| `docs/adr/accepted/0014-…:3` | already `Superseded by ADR-0064` |
-| `docs/adr/STATUS.md:44` | already `Superseded by 0064` |
+| `docs/decisions/accepted/0014-…:3` | already `Superseded by ADR-0064` |
+| `docs/decisions/STATUS.md:44` | already `Superseded by 0064` |
 
 **This is a status/reality gap running the opposite direction from the usual one.** The
 normal Phalcom failure is an ADR left Proposed after the code shipped (0028/0036/0037/0040,
@@ -220,7 +220,7 @@ Two consequences for this unit:
 
 ### 1.6 One ADR index row was missed by the otherwise-complete flip
 
-`docs/adr/README.md:57` still lists ADR-0014 as **Accepted**, while the ADR file itself and
+`docs/decisions/README.md:57` still lists ADR-0014 as **Accepted**, while the ADR file itself and
 `STATUS.md` both say Superseded. **ADR-0064 has no row in that index at all.** Two-way ADR
 status sync is a standing convention here; this is a third place that needs to agree, and
 it is the one that got missed. Fix in step 4.
@@ -494,8 +494,8 @@ after. One pre-registered exception (§1.3). Anything else that moves is a regre
 | `phalcom-repl/src/rustyline/completer.rs:73` | **third** independent copy, doesn't import `common::KEYWORDS` |
 | `fuzz/phalcom.dict:8,80` | `"let"` entries stay valid; add `"const"` |
 | `docs/spec/current/syntax/{grammar,lexical,statements-and-declarations}.md`, `classes.md` | ⚠️ **already migrated (§1.5) — verify only, do not rewrite** |
-| `docs/adr/accepted/0014-*.md`, `docs/adr/STATUS.md` | ⚠️ **already flipped (§1.5) — no action** |
-| `docs/adr/README.md:57` | ADR-0014 row still says Accepted; **ADR-0064 has no row at all** (§1.6) |
+| `docs/decisions/accepted/0014-*.md`, `docs/decisions/STATUS.md` | ⚠️ **already flipped (§1.5) — no action** |
+| `docs/decisions/README.md:57` | ADR-0014 row still says Accepted; **ADR-0064 has no row at all** (§1.6) |
 | ~30 further `docs/spec/current/**` files | still describe the old pair — `implementation-status.md:26-27,60`, `destructuring.md` (title included), `values-and-absence.md`, `modules.md`, `iteration.md:50`, `selectors.md:236-239`, `is-tests.md:122`, `open-questions.md`, `deferred-work.md`, plus most of `decorators/` and `drafts/` and `experimental/`. **Scope decision required — see §12.5** |
 
 ---
@@ -534,7 +534,7 @@ Not "docs" as `err-plan.md` framed it — the syntax spec and the ADR-0014 flip 
 - **`CHECKLIST.md:34-36`**, which currently instructs a human tester to verify that `const`
   is **not** highlighted. Left unfixed, it will produce a false bug report on the first
   post-migration dev-host run.
-- **`docs/adr/README.md:57`** (§1.6).
+- **`docs/decisions/README.md:57`** (§1.6).
 - The ~30 remaining spec files, per the §12.5 scope decision.
 
 Commit per green step. Verify each commit from a **clean throwaway worktree at the SHA**,
@@ -635,7 +635,7 @@ enforcement it does not currently specify. An implementer may not reopen them.
 | **L-1** | **`var` does not exist after this unit.** Not deprecated, not an alias — removed from the token set, the keyword table, and every keyword list in the tree. The step-1 alias in §8 is a transient build device that must be gone by the end of step 2. |
 | **L-2** | **Fields are `_x` or `const _x`. Nothing else.** No `let _x`, no `var _x`, no third form. `let _x` is a hard error (`field.no_mutable_keyword`). |
 | **L-3** | **`const` is enforced on every path**, not just direct assignment: assignment, reassignment through a captured upvalue, and same-scope redeclaration are all errors. See §12B for the four paths and which are currently unguarded. |
-| ~~**L-4**~~ | ~~Duplicate field declarations are an error.~~ **WITHDRAWN 2026-07-19 — owned by [PDR-0001](../../../pdr/0001-classes-are-closed.md) instead.** Its decision item 2 already rules redefinition within a module a compile error, explicitly covering "a duplicate member within one body — a field or a method", with the diagnostic `X is already defined` carrying both spans. Two units had independently ruled the same thing on the same day with conflicting diagnostic names. **U-BINDINGS does not implement this**; do not add a duplicate-field check here. Corpus cost is zero either way (a brace-depth scan finds 0 duplicate field declarations), so nothing is lost by deferring it to 0065's unit. |
+| ~~**L-4**~~ | ~~Duplicate field declarations are an error.~~ **WITHDRAWN 2026-07-19 — owned by [TDR-0053](../../../decisions/accepted/0053-classes-are-closed.md) instead.** Its decision item 2 already rules redefinition within a module a compile error, explicitly covering "a duplicate member within one body — a field or a method", with the diagnostic `X is already defined` carrying both spans. Two units had independently ruled the same thing on the same day with conflicting diagnostic names. **U-BINDINGS does not implement this**; do not add a duplicate-field check here. Corpus cost is zero either way (a brace-depth scan finds 0 duplicate field declarations), so nothing is lost by deferring it to 0065's unit. |
 | **L-6** | **All implicit bindings are immutable.** Method parameters, block parameters, and the `for` loop variable may not be reassigned. Today params are mutable and the loop variable is not, with nothing declaring or documenting the split. **Corpus cost: zero** — an AST-shaped scan finds **0** methods that assign to their own parameter. Fills the gap ADR-0064 §167-168 explicitly left open (`const` on parameters "not spent on any other position"). To vary a parameter, declare a local from it. `add_local`'s synthetic receiver/parameter slots (`scope.rs:114`) must stop passing `is_mutable: true`. |
 | **L-7** | **The ~30 stale spec files are in scope** (resolves the former §12.5). The same single-pass rewrite covers `.md` and `.ph`. Includes the three contradictions below, which are *not* mere spelling drift: `open-questions.md` Q1 (`:28-33`, `:202`) still states the pre-ADR-0064 mapping as RESOLVED with **zero** references to ADR-0064 — a reader following Q1 alone writes both keywords wrong; `deferred-work.md` frames its live re-opening concern in `var` terms; `values-and-absence.md:8` cites ADR-0014 as governing **via a broken relative path** (`../../adr/0014-…`, missing `accepted/`) with no supersession note. |
 | **L-8** | **Field names must begin with `_` + a letter.** `class Z { var foo = 1 }` is accepted today and declares an **unreachable slot** — verified: `foo` in a method body resolves as a variable, giving `Undefined variable 'foo'`, while the declaration silently consumes a slot. The new grammar (§4.1 rule 5) closes this by construction, but only if the leading-`_` requirement is *enforced* rather than conventional. This is ADR-0061's field-name tightening, ratified 2026-07-19 **scoped to field position** — bare `_` remains a legal *binding* name, so the 13 corpus `let _ = …` throwaway reads are untouched. Enforce the rule in `parse_field_decl`, **not** in the lexer or `parse_primary`, or the scoping is lost. |
@@ -781,7 +781,7 @@ Diagnostics to add: `binding.redeclared`, plus reusing
 ## 12C. Removed from scope: DEFERRED #17 — `class None` reopen clobbers its global
 
 **This unit no longer fixes #17.** It was folded in on 2026-07-19 and pulled back out the
-same day, once [PDR-0001](../../../pdr/0001-classes-are-closed.md) (*Classes are
+same day, once [TDR-0053](../../../decisions/accepted/0053-classes-are-closed.md) (*Classes are
 closed: remove class reopening*, Accepted 2026-07-19) surfaced. 0065 lists `DEFERRED.md` #17
 under its own Related set.
 
@@ -820,16 +820,16 @@ hit), so the exemption has a precise predicate rather than needing a heuristic.
 ## 12D. Issues flagged for the user
 
 1. **ADR-0061's ratification is not yet filed, deliberately.** The ruling is recorded here
-   and in the banner, but the ADR file still sits in `docs/adr/proposed/` marked Proposed.
+   and in the banner, but the ADR file still sits in `docs/decisions/proposed/` marked Proposed.
    The edit was held because the repo is mid-convention-change:
-   [`docs/pdr/README.md`](../../../pdr/README.md) (uncommitted, authored by a
+   [`docs/decisions/README.md`](../../../pdr/README.md) (uncommitted, authored by a
    concurrent session) establishes a **flat** directory where *status is never encoded in a
    path*, precisely because "a status change is a file move" guarantees drift. So the old
    convention's `git mv proposed/ → accepted/` is the exact operation the new one exists to
    eliminate, while leaving an Accepted ADR inside `proposed/` violates the old one. Filing
-   it also means editing `docs/adr/` structure while another session works there
+   it also means editing `docs/decisions/` structure while another session works there
    uncommitted. **The minimal non-colliding action** — flip the status line in place, update
-   `docs/adr/STATUS.md`, fix `docs/adr/README.md`'s rows (0056/0059 point at `proposed/`;
+   `docs/decisions/STATUS.md`, fix `docs/decisions/README.md`'s rows (0056/0059 point at `proposed/`;
    0061 and 0064 have no rows at all), and append the field-position amendment — is correct
    under both conventions and awaits a go-ahead. **Same holds for the ADR-0056 and ADR-0059
    ratifications ruled the same day.**

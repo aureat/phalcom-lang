@@ -3,14 +3,14 @@
 - Status: **Proposed** (experimental; not ratified) · **soundness teeth**
 - Axis: typing ⊗ absence ⊗ bindings
 - Resolves: [typing.md](spec/design/experimental/typing.md) Tier-1 gap #1 (typed init vs "unassigned reads as `None`")
-- Related: [ADR-0007](../../../adr/0007-option-as-abstract-with-some-none.md) (Option/None), [ADR-0014](../../../adr/0014-let-and-var-bindings.md) (`let`/`var`), [classes.md](../classes.md) (fields, read-before-write), [values-and-absence.md §3](../values-and-absence.md)
+- Related: [TDR-0006](../../decisions/accepted/0006-option-as-abstract-with-some-none.md) (Option/None), [TDR — Variable bindings are `let` (immutable) and `var` (mutable)](../../decisions/retired/let-and-var-bindings.md) (`let`/`var`), [classes.md](../classes.md) (fields, read-before-write), [values-and-absence.md §3](../values-and-absence.md)
 
 ## Problem
 
 [typing.md](spec/design/experimental/typing.md) never types fields or local bindings, and that silence
 collides with three committed behaviors:
 
-1. **`var x` with no initializer reads as `None`** ([ADR-0014](../../../adr/0014-let-and-var-bindings.md)).
+1. **`var x` with no initializer reads as `None`** ([TDR — Variable bindings are `let` (immutable) and `var` (mutable)](../../decisions/retired/let-and-var-bindings.md)).
 2. **A declared-but-unassigned field reads as `None`** ([values §3](../values-and-absence.md)).
 3. **`nil` may never be user-visible; absence is always `Option`** (Invariant 4).
 
@@ -53,7 +53,7 @@ untouched). Rationale:
 - Preserves **E**: no annotation ⇒ today's semantics; annotation ⇒ strictly tighter.
 - Avoids the silent `T`-vs-`None` mismatch entirely rather than papering it with an
   implicit `Option<T>` widening the programmer didn't write.
-- `let x` with no initializer is already rejected ([ADR-0014](../../../adr/0014-let-and-var-bindings.md)) — this is the symmetric rule for `var`.
+- `let x` with no initializer is already rejected ([TDR — Variable bindings are `let` (immutable) and `var` (mutable)](../../decisions/retired/let-and-var-bindings.md)) — this is the symmetric rule for `var`.
 
 An author who wants absence writes it: `var x: Option<Int> = None`.
 

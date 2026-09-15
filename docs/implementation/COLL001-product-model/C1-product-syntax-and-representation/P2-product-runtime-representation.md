@@ -314,7 +314,7 @@ Do not introduce a Tuple/Record/Unit common superclass. The product capability h
 
 A.2 should add no new primitive binding. It changes the internals behind existing Tuple bindings and introduces runtime Record storage that is not yet surfaced.
 
-This is deliberate. `docs/adr/accepted/0039-amend-floor-admit-collection-container-primitives.md` and `docs/spec/current/core/floor-census.md` govern the currently admitted Tuple floor. New lane/Record raw methods belong to A.3, where the exact minimal floor delta can be reviewed as one coherent surface change.
+This is deliberate. `docs/decisions/accepted/0039-amend-floor-admit-collection-container-primitives.md` and `docs/spec/current/core/floor-census.md` govern the currently admitted Tuple floor. New lane/Record raw methods belong to A.3, where the exact minimal floor delta can be reviewed as one coherent surface change.
 
 If implementation unexpectedly requires a new native method in A.2, stop and resolve the floor amendment rather than silently registering it.
 

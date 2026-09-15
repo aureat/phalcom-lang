@@ -170,5 +170,5 @@ they support typed (scalar-optimized) slots.
 - [01-value-representation.md](01-value-representation.md) — `Unit` tag for empty tuples
 - [02-product-layout-and-storage.md](02-product-layout-and-storage.md) — the product engine used by data classes
 - [03-data-classes-and-records.md](03-data-classes-and-records.md) — how data classes differ
-- [ADR-0032](../../adr/accepted/0032-collections-representation-and-literals.md) — Tuple native representation decision
-- [ADR-0039](../../adr/accepted/0039-amend-floor-admit-collection-container-primitives.md) — floor primitives amendment
+- [TDR-0028](../../decisions/accepted/0028-collections-representation-and-literals.md) — Tuple native representation decision
+- [TDR-0033](../../decisions/accepted/0033-amend-floor-admit-collection-container-primitives.md) — floor primitives amendment

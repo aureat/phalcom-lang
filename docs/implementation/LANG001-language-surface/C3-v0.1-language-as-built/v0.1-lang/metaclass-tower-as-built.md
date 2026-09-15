@@ -1,7 +1,7 @@
 # U2 — Metaclass Tower (as-built)
 
 - **Status:** ✅ Landed — `037da3d` (`feat(u2): metaclass tower parallel rule + Behavior kernel + verify_invariants()`, 2026-07-11).
-- **Realizes:** [ADR-0002](../../../adr/0002-metaclass-tower-parallel-rule.md) (metaclass parallel rule) + [ADR-0003](../../../adr/0003-introduce-behavior-kernel-class.md) (`Behavior` kernel class); spec [object-model §5](../../../spec/current/object-model.md) (metaclass tower) and [§6](../../../spec/current/object-model.md) (bootstrap order).
+- **Realizes:** [TDR-0002](../../../../decisions/accepted/0002-metaclass-tower-parallel-rule.md) (metaclass parallel rule) + [TDR-0003](../../../../decisions/accepted/0003-introduce-behavior-kernel-class.md) (`Behavior` kernel class); spec [object-model §5](../../../spec/current/object-model.md) (metaclass tower) and [§6](../../../spec/current/object-model.md) (bootstrap order).
 - **Reviewer gate:** policy = **ON** (load-bearing — can corrupt the object model), but the independent `phalcom-reviewer` pass was **explicitly SKIPPED this pass** per user instruction ("no reviewer or architect yet, just pure coding"). U2-progress.md flags a follow-up review as recommended before this is considered fully forge-verified.
 
 ## Mission
@@ -29,12 +29,12 @@ Class-side (`static`) method inheritance now works: a subclass's static methods 
 ## Deviations & deferrals
 - **Reviewer gate skipped** (see above) — the one explicit verification-risk deferral.
 - Apex kernel rows use a **space** display name (`"Object class"`, matching the spec diagram) while runtime user classes use a **dot** (`"Object.class"`); the two naming conventions were not unified (out of scope).
-- **F4** (`object_name` / instance `toString`, [ADR-0015](../../../adr/0015-object-default-tostring.md)) was scoped **out** of U2 — see [deferred-work](../../../spec/current/deferred-work.md).
+- **F4** (`object_name` / instance `toString`, [TDR-0013](../../../../decisions/accepted/0013-object-default-tostring.md)) was scoped **out** of U2 — see [deferred-work](../../../spec/current/deferred-work.md).
 - `clippy` and the strict byte-identical golden ceremony were not run this pass (golden tests did pass inside the full `cargo test -p phalcom-core`).
 - ADR fold-ins landed here: ADR-0002 gained a "Superseded (U2)" pointer note (Rc `new_cyclic` → ADR-0009 handle-patching); ADR-0003's "Open question" note replaced with an "Implementation note (U2)" confirming Q11 resolved.
 
 ## Sources
 - forge: [`u0-state.md`](../../archive/phase2/u0-state.md). Per-unit planning record (`U2-plan.md`, `U2-progress.md`) folded into this spec; see git history.
 - code: `phalcom-core/src/universe.rs` (`create_core_classes`, `make_core_class`, `verify_invariants`), `phalcom-core/src/vm.rs` (`VM::new`, `VM::create_class`), `phalcom-core/tests/invariants.rs`.
-- ADRs: [0002](../../../adr/0002-metaclass-tower-parallel-rule.md), [0003](../../../adr/0003-introduce-behavior-kernel-class.md).
+- ADRs: [TDR-0002](../../../../decisions/accepted/0002-metaclass-tower-parallel-rule.md), [TDR-0003](../../../../decisions/accepted/0003-introduce-behavior-kernel-class.md).
 - landing: `037da3d`.

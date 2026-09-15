@@ -6,7 +6,7 @@
 
 ## 1. Why generated, not hand-written
 
-`Future` is a settle-once state machine (concurrency.md §2, ADR-0030 §1). Eleven
+`Future` is a settle-once state machine (concurrency.md §2, TDR-0027 §1). Eleven
 hand-written fixtures cover it today, chosen by intuition.
 
 The precedent is unambiguous. **Promises/A+ is a one-page specification with an

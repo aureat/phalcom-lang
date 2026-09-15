@@ -78,7 +78,7 @@ is inherent to the algorithm rather than accumulated unrelated concerns.
 | New file | Contents | Why this seam |
 |---|---|---|
 | `universe/mod.rs` | `pub struct Universe` (fields), `impl Universe { fn new, fn note_method_installed }`, `mod` declarations | Core struct + the two small methods that don't obviously belong elsewhere. |
-| `universe/core_classes.rs` | `pub struct CoreClasses`, `impl Universe { fn create_core_classes }`, `fn make_core_class` (private helper) | Building the metaclass tower's class *rows* (allocate-then-patch bootstrap, ADR-0002/ADR-0009). Self-contained: reads/writes only the heap and the class handles it's constructing. |
+| `universe/core_classes.rs` | `pub struct CoreClasses`, `impl Universe { fn create_core_classes }`, `fn make_core_class` (private helper) | Building the metaclass tower's class *rows* (allocate-then-patch bootstrap, TDR-0002/TDR-0008). Self-contained: reads/writes only the heap and the class handles it's constructing. |
 | `universe/primitives.rs` | `impl Universe { fn install_primitives }` | Registers every native Rust method onto its core class. High-churn: adding a new primitive method is one of the most common unit-of-work edits in this codebase, so isolating it means that work never touches bootstrap or invariant-checking code. |
 | `universe/invariants.rs` | `impl Universe { fn verify_invariants }` | The kernel-soundness checker (object-model.md §5-6). Read-only over `&Heap`; a fully separate concern from both construction and primitive registration, and changed only when the invariant set itself changes. |
 

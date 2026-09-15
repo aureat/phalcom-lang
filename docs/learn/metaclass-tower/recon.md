@@ -12,13 +12,13 @@ honestly, show the real tie.
 
 **Architecture (the shape).** Smalltalk-style *parallel metaclass tower*. Every class `X` has a
 companion **metaclass** `X class` that holds `X`'s class-side (`static`) methods. The two chains
-run in lockstep by the **parallel rule** (ADR-0002):
+run in lockstep by the **parallel rule** (TDR-0002):
 
 ```
 (X class).superclass  ==  (X.superclass) class
 ```
 
-A shared kernel — `Behavior` / `Class` / `Metaclass` (ADR-0003) — owns the method dictionary,
+A shared kernel — `Behavior` / `Class` / `Metaclass` (TDR-0003) — owns the method dictionary,
 superclass link, lookup, and instance creation, so `Class` and `Metaclass` are not special-cased.
 The tower closes at the top: `Object class`'s superclass is `Class`, and `Metaclass` is an
 **instance of itself**.
@@ -76,19 +76,19 @@ borrow checker forbids for references; handles dissolve it.
 Read the ADRs' real decisions — the doc must not present its full design-space walk as if it were
 the deliberation (honesty pass, §5.2).
 
-- **ADR-0002 (metaclass-tower-parallel-rule), accepted.** *Decision:* the parallel rule.
+- **TDR-0002 (metaclass-tower-parallel-rule), accepted.** *Decision:* the parallel rule.
   *Deliberated alternative was NOT a fresh menu of options* — it was a **bug fix**. The prior state
   was a **flat metaclass chain** under which class-side (`static`) methods did **not** inherit
   correctly. The ADR calls the parallel rule a *"correctness fix, not an optional refinement …
   the minimum required for static-method inheritance to work at all,"* and adds
   `verify_invariants()` as a permanent guard against *"reintroducing the flat-chain bug."* No
   "Alternatives considered" list exists in the file.
-- **ADR-0003 (introduce-behavior-kernel-class), accepted.** *Decision:* add `Behavior` as an
+- **TDR-0003 (introduce-behavior-kernel-class), accepted.** *Decision:* add `Behavior` as an
   abstract kernel class owning the shared protocol; `Class` and `Metaclass` both inherit it;
   `Behavior` inherits `Object`. *Alternative it displaced:* **asymmetric special-casing of
   `Metaclass` vs `Class`.** It exists so the parallel tower "express[es] cleanly rather than as a
   pile of special cases."
-- **ADR-0009 (handle-arena-heap), accepted — supersedes the original representation.** ADR-0002 was
+- **TDR-0008 (handle-arena-heap), accepted — supersedes the original representation.** TDR-0002 was
   first built on `Rc<RefCell<T>>` + `PhRef::new_cyclic` (a real cyclic-`Rc` construction dance).
   U2 (2026-07-11) replaced that with a `slotmap`-backed `Heap` and `Copy` `ClassId` handles;
   "instance of itself" became "a handle pointing at itself," and allocate-then-wire became

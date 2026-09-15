@@ -48,7 +48,7 @@ and a block handed to `.each` has no loop to jump out of. The protocol itself,
 and why `.each`/`.map`/`.filter` are just `core.ph` defaults over the same two
 selectors, is [Collections](collections.md)'s job to teach — full story in
 [Iteration](../spec/current/iteration.md) and
-[ADR-0035](../adr/0035-iteration-protocol-cursor.md).
+[TDR-0029](../decisions/accepted/0029-iteration-protocol-cursor.md).
 
 ## `and` / `or` / `not` — laziness from the object model
 
@@ -108,7 +108,7 @@ asked for the generic path.
 This is [Invariant 5](../spec/current/control-flow.md), and it's load-bearing on
 purpose: if blocks were slow, everyone would learn to avoid them, and "control
 flow is just message sends" stops being true in practice even though it's true
-on paper. See [ADR-0018](../adr/0018-sacred-selector-inliner-and-override-guard.md)
+on paper. See [TDR-0016](../decisions/accepted/0016-sacred-selector-inliner-and-override-guard.md)
 for the override-guard mechanics, including why a loop containing `break`/
 `continue` bypasses the overridable `whileTrue` send entirely rather than
 relying on inliner deopt.

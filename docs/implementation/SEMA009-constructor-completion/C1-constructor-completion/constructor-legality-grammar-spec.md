@@ -4,7 +4,7 @@
 - Date: 2026-07-11
 - Depends on: [annotations-core.md](annotations-core.md)
 - Resolves: core gaps — `Target` undefined, no legality table, unknown-attribute behavior, newline binding, arg grammar
-- Related: ADR-0016 (newlines are tokens), ADR-0012 (selector identity)
+- Related: TDR-0014 (newlines are tokens), TDR-0011 (selector identity)
 
 ## Context
 
@@ -36,7 +36,7 @@ member-decl   := field-decl | method | getter | setter   (* field-decl: annotati
 - **`old(...)`** is ordinary call syntax at parse time; it is recognized as a
   pseudo-selector only by the `@ensures` expander (annotations-contracts.md).
 
-### Newline binding (ADR-0016)
+### Newline binding (TDR-0014)
 
 An attribute binds to the **next member**, skipping any number of newlines
 between them:

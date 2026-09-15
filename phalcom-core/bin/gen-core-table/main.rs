@@ -184,6 +184,7 @@ fn harvest_universe_sources(classes: &mut BTreeMap<String, Vec<SelectorEntry>>) 
                             source: "universe",
                         });
                     }
+                    ClassMember::Delegation(_) => {}
                 }
             }
         }
@@ -198,6 +199,7 @@ fn member_is_class_side(member: &ClassMember) -> bool {
         ClassMember::Index(ix) => (false, ix.attributes.as_slice()),
         ClassMember::Field(f) => (f.is_static, f.attributes.as_slice()),
         ClassMember::Variant(v) => (false, v.attributes.as_slice()),
+        ClassMember::Delegation(d) => (false, d.attributes.as_slice()),
     };
     intrinsic
         || attrs
@@ -213,6 +215,7 @@ fn member_visibility(member: &ClassMember) -> &'static str {
         ClassMember::Index(ix) => (None, ix.attributes.as_slice()),
         ClassMember::Field(f) => (Some(f.name.as_str()), f.attributes.as_slice()),
         ClassMember::Variant(v) => (Some(v.name.as_str()), v.attributes.as_slice()),
+        ClassMember::Delegation(d) => (Some(d.name.as_str()), d.attributes.as_slice()),
     };
     if name.is_some_and(|name| name.starts_with("_$")) {
         "internal"

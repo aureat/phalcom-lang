@@ -25,7 +25,7 @@ function coloring in JS, without having a model for *why* such a rule exists at 
 
 ## 3. Doc kind — **fork**, and unusually a real one
 
-Per recon §3, ADR-0030 records four genuinely rejected branches with bills. **This is the first doc
+Per recon §3, TDR-0027 records four genuinely rejected branches with bills. **This is the first doc
 in the course whose design space is not a pedagogical reconstruction.**
 
 > **Structural rule, non-negotiable:** do **not** carry over the VM track's standing caveat that the
@@ -50,7 +50,7 @@ should be placeable on that sentence. If a section cannot be, cut it.
 | **B — full trampoline** | Lua 5.2+ (via `lua_yieldk`), CPS interpreters | yield anywhere | rewrite of the whole primitive/callback protocol | **heavy — the additivity claim is the decision's spine** |
 | **C — stackful coroutines** | Go, Ruby `Fiber`, `corosensei` | yield across native frames, no protocol change | `unsafe` stack switching; **permanently constrains the GC** — every parked native stack is a root a moving collector must scan and relocate | **heavy — the bill is GC-shaped and that is the point** |
 | **Preemptive / OS threads** | Go, JVM | true parallelism | a memory model + locks throughout the object model | one paragraph — the outer boundary |
-| **Resumable (Smalltalk) suspension** | Smalltalk | resume a failed computation | orthogonal; ADR-0008 propagation is terminating | one sentence |
+| **Resumable (Smalltalk) suspension** | Smalltalk | resume a failed computation | orthogonal; TDR-0007 propagation is terminating | one sentence |
 
 **The asymmetry is the argument:** A→B is purely additive; A→C is irreversible. A doc that walks
 five branches evenly has missed the decision. Expect to cut ~30% from the walk (AUTHORING §5.5).
@@ -59,7 +59,7 @@ five branches evenly has missed the decision. Expect to cut ~30% from the walk (
 
 | Language | Test passed | Job in this doc |
 |---|---|---|
-| **Lua 5.1** | (4) ancestor — *named in ADR-0030 itself* | Same branch, and **the same error message**: `attempt to yield across a C-call boundary`. The reader may have hit it personally. |
+| **Lua 5.1** | (4) ancestor — *named in TDR-0027 itself* | Same branch, and **the same error message**: `attempt to yield across a C-call boundary`. The reader may have hit it personally. |
 | **Lua 5.2/5.3** | (2) scar → shipped fix | The A→B lift, **actually shipped by the ancestor**: `lua_yieldk` + continuations. This is the highest-value comparison in the doc — it makes "additively reachable" concrete instead of aspirational. |
 | **Go** | (1) other branch, bill attached | Branch C+preemption: real stacks, growable, a scheduler. Bill: `unsafe`-equivalent machinery, a race detector, and a GC that must cope with many stacks. |
 | **JS** | (3) **names what Phalcom does anonymously** | *Function coloring.* Phalcom's restriction is a coloring rule that the language never gives a name to; JS's `async`/`await` supplies the vocabulary. Highest-value-by-filter-rank. |
@@ -73,7 +73,7 @@ already makes the coloring point), C#/Kotlin `async`/`suspend` (same, and colori
 
 1. **Cheapness ⊗ restriction.** The spine. One representational choice buys both.
 2. **The optimizer sets the language's rules.** `while` is legal to yield from and `each` is not —
-   and the difference is *entirely* whether ADR-0018's inliner lowered it inside one chunk. A
+   and the difference is *entirely* whether TDR-0016's inliner lowered it inside one chunk. A
    user-visible language restriction falling out of an optimizer decision is the doc's sharpest
    point. Cite Doc 5; do not re-teach the inliner.
 3. **The guard is stricter than the spec, knowingly** (recon F3). ADR §4 forecloses yield; HEAD also
@@ -161,7 +161,7 @@ inevitable rather than arbitrary.
 | Risk | If wrong, the doc… |
 |---|---|
 | Recon F4 (`floor_depth` always 0) rests on one dominance argument in one function. | …asserts dead generality that is actually live. **Agent B must adversarially re-check every writer** (brief item 2). If B finds a nonzero path, tension 4 is deleted, not softened. |
-| The inliner claim (`while` frameless, `each` through `block_call`) is quoted from ADR-0018 and comments, not yet observed. | …rests the doc's sharpest tension on an unverified mechanism. B must confirm mechanically or the claim ships **INFERRED**. |
+| The inliner claim (`while` frameless, `each` through `block_call`) is quoted from TDR-0016 and comments, not yet observed. | …rests the doc's sharpest tension on an unverified mechanism. B must confirm mechanically or the claim ships **INFERRED**. |
 | `ready_queue` / `System.schedule` / the root-drive pump sit inside `run_until` and are visible while reading it. | …drifts into C4's subject and doubles in length. Named in B's brief as a scope check: report, do not expand. |
 | Overlap with C2 on the swap. | …spends C2's subject. §8 forbidden list is the control; re-check at the gate. |
-| ADR-0030 is one document doing double duty (fibers *and* futures), and futures are a quarter built. | …repeats spec text as shipped. Plan §7 predicts this is the track's recurring honesty note. Verify each §-citation against HEAD before quoting. |
+| TDR-0027 is one document doing double duty (fibers *and* futures), and futures are a quarter built. | …repeats spec text as shipped. Plan §7 predicts this is the track's recurring honesty note. Verify each §-citation against HEAD before quoting. |

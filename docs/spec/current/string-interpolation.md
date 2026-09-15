@@ -1,6 +1,6 @@
 # Phalcom String Literals and Interpolation
 
-**Status:** Accepted by [PDR-0029](../../pdr/0029-string-literals-and-interpolation-completion.md)
+**Status:** Accepted by [TDR-0073](../../decisions/accepted/0073-string-literals-and-interpolation-completion.md)
 **Target:** Phalcom language specification
 **Date:** 2026-07-22
 
@@ -35,7 +35,7 @@ A scanner MUST advance by complete UTF-8 scalar values when it is not consuming 
 
 ### 3.1 String literal
 
-A string literal is either a single-line double-quoted string or a triple-quoted multiline text block ([PDR-0034](../../pdr/0034-multiline-string-text-blocks.md)):
+A string literal is either a single-line double-quoted string or a triple-quoted multiline text block ([TDR-0078](../../decisions/accepted/0078-multiline-string-text-blocks.md)):
 
 ```text
 string-literal ::= single-line-string | multiline-text-block

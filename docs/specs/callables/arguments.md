@@ -482,6 +482,40 @@ The external label `to` participates in selector identity; the local binding nam
 
 Where the language permits a shorthand with identical external label and local binding, it is semantically the same parameter shape as writing those identities explicitly.
 
+## Parameter shape forms
+
+You can optionally discard a parameter's local binding by omitting its name, yielding the following 7 total parameter forms:
+
+```md
+_ value: T
+    external label: _
+    local binding: value
+
+_: T
+    external label: _
+    local binding: [*discarded*]
+
+_ _: T [verbose form]
+    external label: _
+    local binding: [*discarded*]
+
+from origin: T
+    external label: from
+    local binding: origin
+
+from: T
+    external label: from
+    local binding: from
+
+from from: T [verbose form]
+    external label: from
+    local binding: from
+
+from _: T
+    external label: from
+    local binding: [*discarded*]
+```
+
 ## Exact parameter acceptance
 
 Let an argument shape contain:

@@ -27,7 +27,7 @@ It owns reactor registrations, worker completions, timers, executor idle/livenes
 | Plan | Scope | Status | Verification | Summary / Outcome |
 |---|---|---|---|---|
 | `CONC002.C3.P1` | Reactor core, generational token registry, plain-data worker pool, monotonic timers, safepoint ingress, executor idle wait/liveness, `System.sleep` | **COMPLETE** | `VERIFIED` | Generational token table implemented; worker pool and channel transport strictly isolate threads from `Value`/`ObjRef`/`Heap`; timer min-heap integrated into executor idle wait; `System.sleep(Duration) -> Future<Unit>` added; unit and language corpus tests green. |
-| `CONC002.C3.P2` | Poller-backed descriptor readiness and unified external wait | **COMPLETE** | `VERIFIED` | PDR-0016 ratified (`mio` confined to `reactor/`); `Poller` and cross-thread `Waker` integrated; unified wait in `idle_wait`; try-first ET correctness verified; unit and corpus tests green. |
+| `CONC002.C3.P2` | Poller-backed descriptor readiness and unified external wait | **COMPLETE** | `VERIFIED` | TDR-0080 ratified (`mio` confined to `reactor/`); `Poller` and cross-thread `Waker` integrated; unified wait in `idle_wait`; try-first ET correctness verified; unit and corpus tests green. |
 
 ---
 
@@ -95,4 +95,4 @@ All verification commands executed serially on `main` with cleared compiler flag
 ## 6. Next Actions and Handoff
 
 - **Active Plan**: `CONC002.C3.P1` is completed and certified.
-- **Next Step**: `CONC002.C3.P2` (*Poller-backed descriptor readiness*) remains gated on PDR-0016 acceptance.
+- **Next Step**: `CONC002.C3.P2` (*Poller-backed descriptor readiness*) remains gated on TDR-0080 acceptance.

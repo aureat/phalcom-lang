@@ -167,8 +167,8 @@ survey JITs).
   stale-stamp (warm cache → `Method` install bumps `world_version` → next probe fails its own stamp →
   re-resolve) is the strange one. Trace from real observed output (the reopen fixture).
 - **Present the cache-shape fork honestly as scaffolding**: HEAD did not bench-race no-cache /
-  monomorphic / PIC; the seam (ADR-0012) got populated monomorphic-with-global-stamp. Land the two
-  genuinely-deliberated things: the **seam** (ADR-0012) and **fusion** (perf-log 008, *measured*).
+  monomorphic / PIC; the seam (TDR-0011) got populated monomorphic-with-global-stamp. Land the two
+  genuinely-deliberated things: the **seam** (TDR-0011) and **fusion** (perf-log 008, *measured*).
 - **The landed-vs-planned split is the honesty spine** — state plainly what runs (global counter,
   mixed `Symbol`, `IndexMap` dict, cut-008 fusion) vs what `U-IC` plans (selector interner, per-class
   epoch, design-B arrays, operand-free loads). Cite the plan as *intent*, HEAD as *truth*.
@@ -192,7 +192,7 @@ survey JITs).
    even though Phalcom doesn't run it.
 3. **Selector-only interner / design-B own-method arrays** — `U-IC` Changes 1–2, not built. Mention
    only as the planned redesign; do not describe as current. (B confirms `Symbol` still mixed.)
-4. **Sacred-selector inliner mechanism** (ADR-0018) — `GuardBool`/`GuardBlock` get a brief mention as
+4. **Sacred-selector inliner mechanism** (TDR-0016) — `GuardBool`/`GuardBlock` get a brief mention as
    a *third* fast-path family; the inliner's full mechanism (`compile_sacred_call`, override-epoch
    deopt) is **its own future topic**, deferred.
 5. **`SuperSend` is uncached** (DEC-IC-B, DEFERRED) — a statically-known target left out of the IC in
@@ -206,7 +206,7 @@ survey JITs).
 - [ ] Every rejected cache-shape branch made tempting before it is set aside.
 - [ ] The **invalidation fork** (global counter vs per-class epoch) walked; global framed as
       HEAD-truth *and* absence-of-planned-machinery, per-class epoch marked planned-unbuilt.
-- [ ] The two genuinely-deliberated things landed: the **seam** (ADR-0012) and **fusion** (perf-log
+- [ ] The two genuinely-deliberated things landed: the **seam** (TDR-0011) and **fusion** (perf-log
       008, with the real numbers and the F16-verdict-flip / `map_numeric` non-result scar).
 - [ ] ≥1 predict-then-check moment (primary: redefine `foo` mid-loop — does the warm site notice?;
       secondary: define on `Foo` — is unrelated `Bar`'s cache flushed?).
@@ -219,7 +219,7 @@ survey JITs).
       stay aligned, `branch_targets` guards jump-into-superinstruction.
 - [ ] `gcaches` covered as the same shape on a *different* stamp (`globals_version`); why split from
       `caches`.
-- [ ] Guard opcodes (ADR-0018) mentioned as a third fast-path family — **brief**, marked as its own
+- [ ] Guard opcodes (TDR-0016) mentioned as a third fast-path family — **brief**, marked as its own
       future topic.
 - [ ] Every language present passes §5; named cut list.
 - [ ] Vocabulary imported and findable.

@@ -15,7 +15,7 @@ deferred_reason: null
 
 # LANG001.C3.P10 — module scoped class identity
 
-_Unit **A** of two implementing [PDR-0001](../../../pdr/0001-classes-are-closed.md)
+_Unit **A** of two implementing [TDR-0053](../../../decisions/accepted/0053-classes-are-closed.md)
 (ruling 1). Unit B is [`U-CLASSCLOSE`](../U-CLASSCLOSE/plan.md) and **must land after this
 one** — its redefinition error is undecidable without module-scoped identity._
 

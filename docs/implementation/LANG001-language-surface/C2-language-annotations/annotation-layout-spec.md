@@ -8,7 +8,7 @@ that unit's `attributes.rs` scaffolding (registry, `Target`, `ExpandCtx`, span-h
 landed; this unit adds rows, it does not re-shape the trait. **Reviewer ON** (spine files
 `parser.rs`/`compiler/lib.rs`, plus `ClassLayout`) — hand the diff to `phalcom-reviewer`; do not
 self-approve. Green gate: `./scripts/verify.sh` exits 0 + `cargo doc --workspace --no-deps`
-clean. Grounded in **[ADR-0054](../../../adr/0054-two-speed-ratification-annotation-decorator-tiers.md)**
+clean. Grounded in **[TDR-0044](../../../decisions/accepted/0044-two-speed-ratification-annotation-decorator-tiers.md)**
 and normative **[annotations-construct.md](../../../design/experimental/v0.2/annotations-construct.md)**,
 **[annotations-construct-inheritance.md](../../../design/experimental/v0.2/annotations-construct-inheritance.md)**,
 **[annotations-data.md](../../../design/experimental/v0.2/annotations-data.md)**,

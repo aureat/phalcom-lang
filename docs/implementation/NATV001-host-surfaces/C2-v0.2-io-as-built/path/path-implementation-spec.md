@@ -1,7 +1,7 @@
 # Implementation spec — `Path` and `OpenMode` (U-PATH)
 
 > **Status:** dispatch-ready. Governing record **Accepted**:
-> [PDR-0013](../../../pdr/0013-path-is-bytes-backed-filesystem-surface.md)
+> [TDR-0065](../../../../decisions/accepted/0065-path-is-bytes-backed-filesystem-surface.md)
 > rulings 1-5; surface contract [`../stdlib/filesystem.md`](../../spec/current/stdlib/filesystem.md) §2-§3.
 > **Needs U-BYTES (✅ shipped).** No reactor, no resource table, no syscalls — this is a
 > **pure `.ph` unit**: zero floor primitives, zero Rust files, no ADR-0019 traffic

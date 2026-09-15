@@ -17,7 +17,7 @@ deferred_reason: null
 
 Scope: **PLANNED** (dispatch-ready). Tier 3 of the performance strategy
 ([performance.md](../../../spec/current/performance.md) §4 Tier 3,
-[ADR-0051](../../../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md)).
+[TDR-0048](../../../decisions/accepted/0048-performance-strategy-measure-first-tiered-optimization.md)).
 Populates the inline-cache seam ADR-0012 already reserves. Single-writer on
 `vm.rs` + `class.rs` + `interner.rs` → **worktree-isolate**; serialize against
 `U-HOTPATH`, `U-PRIM-ABI`, `U-GC` ([[phalcom-concurrent-session-hazards]]).
@@ -33,11 +33,11 @@ is the **most correctness-sensitive** unit in the roadmap: an inline cache that
 misses a hierarchy mutation serves a stale method.
 
 ## Spec anchor
-[ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md) (the
+[TDR-0011](../../../decisions/accepted/0011-selector-signature-encoding-and-dispatch.md) (the
 `ClassId`-keyed IC seam — **locked**; this unit *populates* it, does not redesign
 it), [performance.md](../../../spec/current/performance.md) §4 Tier 3 + invariant I2,
 [method-lookup.md](../../../spec/current/method-lookup.md),
-[ADR-0041](../../../adr/0041-hierarchy-stability-policy.md) (what mutations the
+[TDR-0035](../../../decisions/accepted/0035-hierarchy-stability-policy.md) (what mutations the
 cache must invalidate on). Behavior-invariant (P2): identical methods resolved,
 faster. No new surface, so no ADR amendment — but the epoch-invalidation contract
 (I2) is load-bearing and reviewer-audited.
@@ -50,7 +50,7 @@ faster. No new surface, so no ADR amendment — but the epoch-invalidation contr
   (vars/fields/selectors) — the reason a raw-`Symbol`-indexed per-class row is
   sparse and a selector-only space is needed first.
 - Enumerate the hierarchy-mutation sites that must bump an epoch: class reopen,
-  method (re)definition, `superclass=` ([ADR-0041](../../../adr/0041-hierarchy-stability-policy.md),
+  method (re)definition, `superclass=` ([TDR-0035](../../../decisions/accepted/0035-hierarchy-stability-policy.md),
   the `superclass=` open question). Missing one is the classic IC soundness bug.
 
 ## Design

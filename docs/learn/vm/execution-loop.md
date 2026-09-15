@@ -553,7 +553,7 @@ the thing the loop reads — and pays off Lie #1.
 - `interpret.rs::VM::interpret_source` (~L186) → `compile_closure` (~L142) → `run_in_module` (~L163); re-entrant `run_until` in `import_module` (~L265).
 - `bytecode.rs::Bytecode` (~L48) — the enum; `chunk.rs::Chunk` (~L45) — `code: Vec<Bytecode>`.
 - `gc.rs::VM::service_gc_safepoint` (~L152); `heap/mod.rs::Heap::insert` — the latch (Invariant L).
-- Design note: [`bytecode-representation-and-borrowed-techniques.md`](../../design-notes/bytecode-representation-and-borrowed-techniques.md) §B1/§B3/§B4. Perf discipline: [ADR-0051](../../adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md) (measure-first).
+- Design note: [`bytecode-representation-and-borrowed-techniques.md`](../../design-notes/bytecode-representation-and-borrowed-techniques.md) §B1/§B3/§B4. Perf discipline: [TDR-0048](../../decisions/accepted/0048-performance-strategy-measure-first-tiered-optimization.md) (measure-first).
 
 *All Phalcom source claims verified against HEAD by disassembling and running real `.ph`
 programs; the `1 + 2 * 3` and two-statement listings above are verbatim tool output.

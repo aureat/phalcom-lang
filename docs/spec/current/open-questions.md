@@ -10,9 +10,9 @@ before the work it blocks begins.
 > for future design sessions.
 
 > **Status (2026-07-12):** all fifteen questions are now resolved. Q2/Q3/Q4/Q8
-> were ratified this session as [ADR-0024](../../adr/0024-numeric-surface-split-int-float-and-division.md)–[ADR-0027](../../adr/0027-modules-as-files-with-public-by-default-imports.md);
+> were ratified this session as [TDR-0022](../../decisions/accepted/0022-numeric-surface-split-int-float-and-division.md)–[TDR — A module is a file; exports are public by default; imports are qualified, selective, or aliased](../../decisions/retired/modules-as-files-with-public-by-default-imports.md);
 > Q15 (concurrency execution model) was added from the forward-compat audit and
-> ratified as [ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md);
+> ratified as [TDR-0026](../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md);
 > Q6/Q7/Q10/Q12/Q13/Q14 were resolved as doc-only rulings (recorded inline). Several
 > carry deliberately **non-foreclosed** deferrals (bignum `Int` migration is not one —
 > it is the chosen default; but stateful mixins, `Some` niche-encoding, list/rest
@@ -25,10 +25,10 @@ before the work it blocks begins.
 
 ---
 
-1. ~~**`let` vs `var`.**~~ **RESOLVED** → [ADR-0014](../../adr/0014-let-and-var-bindings.md):
+1. ~~**`let` vs `var`.**~~ **RESOLVED** → [TDR — Variable bindings are `let` (immutable) and `var` (mutable)](../../decisions/retired/let-and-var-bindings.md):
    `let` introduces an immutable binding; `var` introduces a mutable one.
    `var x` with no initializer reads as `None` (consistent with an unassigned
-   field, see Q5 / absence → [ADR-0007](../../adr/0007-option-as-abstract-with-some-none.md)).
+   field, see Q5 / absence → [TDR-0006](../../decisions/accepted/0006-option-as-abstract-with-some-none.md)).
    `let x` with no initializer is rejected at the declaration site.
    The lexer now needs both `let` and `var` keywords.
 
@@ -53,35 +53,35 @@ before the work it blocks begins.
    > ([Control Flow §3](control-flow.md)).
 
 2. ~~**`Number`.** One numeric type, or `Int` / `Float` split?~~ **RESOLVED** →
-   [ADR-0024](../../adr/0024-numeric-surface-split-int-float-and-division.md):
+   [TDR-0022](../../decisions/accepted/0022-numeric-surface-split-int-float-and-division.md):
    split `Number` (abstract) into **exact, unbounded `Int`** (auto-promoting
    bignum — tagged `i64` immediate that boxes to a heap `LargeInt` on overflow,
    never wraps or traps) and **`Float`** (`f64`, retained from
-   [ADR-0005](../../adr/0005-number-as-flat-f64.md)). `1` is an `Int`, `1.0` a
-   `Float`; `1 == 1.0` and `2.hash == 2.0.hash` (value-based, per ADR-0023).
+   [TDR — Keep a single flat `Number` type backed by `f64`](../../decisions/retired/number-as-flat-f64.md)). `1` is an `Int`, `1.0` a
+   `Float`; `1 == 1.0` and `2.hash == 2.0.hash` (value-based, per TDR-0021).
    **`/` is true division** (`Int / Int → Float`); **`~/` is integer division**
    (floor semantics, sign agrees with `%`; spelled `~/` because `//` is the
-   line-comment token). ADR-0024 supersedes ADR-0005 in part.
+   line-comment token). TDR-0022 supersedes ADR-0005 in part.
 
 3. ~~**External vs internal parameter names.** Swift allows `move(to target:)`.~~
-   **RESOLVED** → [ADR-0025](../../adr/0025-external-internal-parameter-names.md):
+   **RESOLVED** → [TDR-0023](../../decisions/accepted/0023-external-internal-parameter-names.md):
    **yes** — a labeled parameter may declare a separate internal binding, spelled
    `move(to target:)` (label `to`, binding `target`); the single-word form
    `width:` is sugar for `width width:`. Selector identity is unchanged (the label,
-   not the binding, is encoded — [ADR-0012](../../adr/0012-selector-signature-encoding-and-dispatch.md)),
+   not the binding, is encoded — [TDR-0011](../../decisions/accepted/0011-selector-signature-encoding-and-dispatch.md)),
    so this is a parser + frame-binding change with zero dispatch impact.
 
 4. ~~**Class hierarchy mutability.** Is `Test.superclass = Test` legal at runtime?~~
-   **RESOLVED** → [ADR-0026](../../adr/0026-class-hierarchy-mutability.md): split the
-   two axes. **Methods are open** (add/replace after definition, via the ADR-0018
+   **RESOLVED** → [TDR — Methods are open; superclass reparenting is sealed](../../decisions/retired/class-hierarchy-mutability.md): split the
+   two axes. **Methods are open** (add/replace after definition, via the TDR-0016
    override-epoch guard); **superclass reparenting is sealed** at definition (it
-   would shift the ADR-0011/0017 fixed slot offsets). Reparenting stays sealed *by
+   would shift the TDR-0010/0017 fixed slot offsets). Reparenting stays sealed *by
    policy*, not impossibility — a future opt-in `reshape`-with-migration primitive
-   is left explicitly non-foreclosed ([ADR-0009](../../adr/0009-handle-arena-heap.md)
+   is left explicitly non-foreclosed ([TDR-0008](../../decisions/accepted/0008-handle-arena-heap.md)
    keeps it implementable).
 
 5. ~~**String interpolation syntax.**~~ **RESOLVED** →
-   [ADR-0022](../../adr/0022-string-interpolation-backslash-paren-sigil.md): the
+   [TDR-0020](../../decisions/accepted/0020-string-interpolation-backslash-paren-sigil.md): the
    `\(expr)` sigil (Swift-style), landed with U-LEX.
 
 6. ~~**Set literal.**~~ **RESOLVED** (ruling, no ADR — additive sugar): construct
@@ -90,18 +90,18 @@ before the work it blocks begins.
    future collections unit (candidate `#{ }`, Clojure-precedented, **not**
    committed — `#` is left free). Sets themselves are gated on `Object#hash`
    (U-CORE-1) regardless. The collections umbrella
-   [ADR-0032](../../adr/0032-collections-representation-and-literals.md) confirms
+   [TDR-0028](../../decisions/accepted/0028-collections-representation-and-literals.md) confirms
    this and formally reserves `#{…}` (inactive, committed meaning) alongside the
    ratified `Map` `{k:v}` and `Tuple` `(a,b)` literals.
 
-7. ~~**Destructuring.**~~ **RESOLVED** → [ADR-0046](../../adr/0046-destructuring-bindings.md)
+7. ~~**Destructuring.**~~ **RESOLVED** → [TDR-0039](../../decisions/accepted/0039-destructuring-bindings.md)
    (amends this ruling's scope, U14): ship **irrefutable tuple AND list
    destructuring** in `let`/`var` now — `let (a, b) = point`,
    `let (q, r) = divmod(17, 5)`, `let [first, *rest] = list` — desugaring to a
    single evaluation of the initializer followed by positional reads through the
-   same `at(_)` selector `List`/`Tuple` already expose (ADR-0020), with an inline
+   same `at(_)` selector `List`/`Tuple` already expose (TDR-0018), with an inline
    arity guard that raises a clean `Error` on a shape mismatch (a `List`'s
-   `at(_)` is already total — ADR-0020 — so the irrefutable list form costs no
+   `at(_)` is already total — TDR-0018 — so the irrefutable list form costs no
    more to build correctly than the tuple form). U9's `*rest` spelling is reused
    verbatim, and it must be the pattern's last element. Both forms stay
    irrefutable — there is no `match`/`if let` failure branch yet. Fuller pattern
@@ -109,17 +109,17 @@ before the work it blocks begins.
    same `Pattern` AST node) remains deferred to a future unit.
 
 8. ~~**Modules / imports.**~~ **RESOLVED** →
-   [ADR-0027](../../adr/0027-modules-as-files-with-public-by-default-imports.md)
-   (design) + [ADR-0045](../../adr/0045-module-import-relative-path-whole-module-binding.md)
+   [TDR — A module is a file; exports are public by default; imports are qualified, selective, or aliased](../../decisions/retired/modules-as-files-with-public-by-default-imports.md)
+   (design) + [TDR-0038](../../decisions/accepted/0038-module-import-relative-path-whole-module-binding.md)
    (Draft 0.1 implementation, DEC-U15 = A + A, U15): **file = module**; a
    `Module` is a first-class namespace object whose members are reached by
-   **ordinary sends** ([modules.md](modules.md)). ADR-0027's original grammar
+   **ordinary sends** ([modules.md](modules.md)). TDR-0024's original grammar
    (qualified/selective/aliased forms over logical-name resolution) is
    narrowed for Draft 0.1: **relative file-path resolution**
    (`import "./geometry/point"`, `.ph` appended, canonicalized) +
    **whole-module binding only** (`import "path" as Name`; no bare/selective
    form yet). Every top-level name is a member — no `export`, no `_`-prefix
-   privacy enforcement yet (ADR-0027 §2 not enforced). A unit is compiled and
+   privacy enforcement yet (TDR-0024 §2 not enforced). A unit is compiled and
    run exactly once, memoized by canonical path; a mutual import cycle
    terminates (a name read across its not-yet-complete edge is an ordinary
    `doesNotUnderstand` miss, documented). Parameterized/first-class modules
@@ -128,13 +128,13 @@ before the work it blocks begins.
    all deferred (non-foreclosed).
 
 9. ~~**Error handling.** `throw` / `try` / `catch`, or `Result` as a sibling of
-   `Option`?~~ **RESOLVED** → [ADR-0008](../../adr/0008-layered-exceptions-and-result.md)
+   `Option`?~~ **RESOLVED** → [TDR-0007](../../decisions/accepted/0007-layered-exceptions-and-result.md)
    (see also [Error Handling](error-handling.md)):
    both, layered — unwinding `throw`/`Error` for the exceptional path, `Result`
    for expected failure, with bridges. Terminating (non-resumable) semantics;
    `throw`/`return`/`abort` unify as one unwind primitive. The surface **syntax**
    (`throw`/`try`/`catch`/`on`/`ensure`, 1:1 sugar over the block protocol) is
-   ratified by [ADR-0031](../../adr/0031-error-handling-surface-syntax.md).
+   ratified by [TDR-0027](../../decisions/accepted/0027-error-handling-surface-syntax.md).
 
 10. ~~**Traits / mixins / multiple inheritance.**~~ **RESOLVED**: classes retain
     **single inheritance only**. The effective C3 extension now admits
@@ -145,7 +145,7 @@ before the work it blocks begins.
     associated types, and trait-driven runtime dispatch remain deferred to later
     checkpoints.
 
-11. ~~**`Behavior` in the kernel.**~~ **RESOLVED** → [ADR-0003](../../adr/0003-introduce-behavior-kernel-class.md):
+11. ~~**`Behavior` in the kernel.**~~ **RESOLVED** → [TDR-0003](../../decisions/accepted/0003-introduce-behavior-kernel-class.md):
    `Behavior` is the shared superclass of `Class`/`Metaclass`.
 
 12. ~~**Default arguments.**~~ **RESOLVED** (ruling, no ADR): **no default
@@ -160,10 +160,10 @@ before the work it blocks begins.
     selectors, not combinatorial). With that mechanism fixed, adding defaults later
     is non-breaking sugar.
 
-13. ~~**`Option` bootstrap.**~~ **RESOLVED** by [PDR-0033](../../pdr/0033-immediate-bounded-option.md):
+13. ~~**`Option` bootstrap.**~~ **RESOLVED** by [TDR-0077](../../decisions/accepted/0077-immediate-bounded-option.md):
     the feared cycle is broken by the bootstrap's class metadata plus immediate
     variants. `Value::Nil` remains a **private** uninitialized-slot sentinel
-    ([ADR-0010](../../adr/0010-tagged-value-enum.md), no surface syntax); **`None` is
+    ([TDR-0009](../../decisions/accepted/0009-tagged-value-enum.md), no surface syntax); **`None` is
     an immediate value with no heap singleton**; the `Nil` sentinel is **surfaced to
     `None`** one-directionally at read boundaries (`Nil → None`, never the reverse),
     so an uninitialized `var` reads as `None` without construction. `Some(x)` is
@@ -186,7 +186,7 @@ before the work it blocks begins.
 
 15. ~~**Concurrency execution model.** Restricted re-entrant loop, full
     trampoline, or stackful coroutines?~~ **RESOLVED** →
-    [ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md): the
+    [TDR-0026](../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md): the
     **restricted re-entrant loop** (Lua-5.1 style). `Fiber.yield` integrates with
     the top-level dispatch loop only; yielding across a native callback frame
     raises `CannotYieldAcrossNativeFrame`. It is the smallest correct step on the
@@ -201,22 +201,22 @@ before the work it blocks begins.
 
 | Q  | Decision | ADR / ruling |
 |----|----------|-----|
-| Q1 | `let` (immutable) / `var` (mutable); `var x` without initializer = `None` | [ADR-0014](../../adr/0014-let-and-var-bindings.md) |
-| Q2 | Split `Number` → exact bignum `Int` + `Float`; `/` true division, `~/` floor integer division | [ADR-0024](../../adr/0024-numeric-surface-split-int-float-and-division.md) |
-| Q3 | Separate external label from internal binding (`move(to target:)`); selector identity unchanged | [ADR-0025](../../adr/0025-external-internal-parameter-names.md) |
-| Q4 | Methods open (epoch guard); superclass reparenting sealed; future `reshape` non-foreclosed | [ADR-0026](../../adr/0026-class-hierarchy-mutability.md) |
-| Q5 (interp.) | String interpolation uses `\(expr)` | [ADR-0022](../../adr/0022-string-interpolation-backslash-paren-sigil.md) |
-| Q5 / absence | `Option` is abstract; `Some`/`None` final immediate variants; `None` has no singleton handle | [ADR-0007](../../adr/0007-option-as-abstract-with-some-none.md) + [PDR-0033](../../pdr/0033-immediate-bounded-option.md) |
-| Q6 | `Set(...)` constructor; `#{…}` set literal reserved-inactive (`Map`/`Tuple` literals ship) | ruling (Q6 above) + [ADR-0032](../../adr/0032-collections-representation-and-literals.md) |
-| Q7 | Irrefutable tuple AND list/`*rest` destructuring now, via `at(_)`; fuller pattern matching (map patterns, match arms) deferred | [ADR-0046](../../adr/0046-destructuring-bindings.md) |
-| Q8 | File = module; Draft 0.1: relative file-path resolution + whole-module binding only (`import "./x" as Name`), members via ordinary sends | [ADR-0027](../../adr/0027-modules-as-files-with-public-by-default-imports.md) + [ADR-0045](../../adr/0045-module-import-relative-path-whole-module-binding.md) |
-| Q9 | Layered exceptions + `Result`; terminating, not resumable; surface `throw`/`try`/`catch`/`on`/`ensure` | [ADR-0008](../../adr/0008-layered-exceptions-and-result.md) + [ADR-0031](../../adr/0031-error-handling-surface-syntax.md) |
+| Q1 | `let` (immutable) / `var` (mutable); `var x` without initializer = `None` | [TDR — Variable bindings are `let` (immutable) and `var` (mutable)](../../decisions/retired/let-and-var-bindings.md) |
+| Q2 | Split `Number` → exact bignum `Int` + `Float`; `/` true division, `~/` floor integer division | [TDR-0022](../../decisions/accepted/0022-numeric-surface-split-int-float-and-division.md) |
+| Q3 | Separate external label from internal binding (`move(to target:)`); selector identity unchanged | [TDR-0023](../../decisions/accepted/0023-external-internal-parameter-names.md) |
+| Q4 | Methods open (epoch guard); superclass reparenting sealed; future `reshape` non-foreclosed | [TDR — Methods are open; superclass reparenting is sealed](../../decisions/retired/class-hierarchy-mutability.md) |
+| Q5 (interp.) | String interpolation uses `\(expr)` | [TDR-0020](../../decisions/accepted/0020-string-interpolation-backslash-paren-sigil.md) |
+| Q5 / absence | `Option` is abstract; `Some`/`None` final immediate variants; `None` has no singleton handle | [TDR-0006](../../decisions/accepted/0006-option-as-abstract-with-some-none.md) + [TDR-0077](../../decisions/accepted/0077-immediate-bounded-option.md) |
+| Q6 | `Set(...)` constructor; `#{…}` set literal reserved-inactive (`Map`/`Tuple` literals ship) | ruling (Q6 above) + [TDR-0028](../../decisions/accepted/0028-collections-representation-and-literals.md) |
+| Q7 | Irrefutable tuple AND list/`*rest` destructuring now, via `at(_)`; fuller pattern matching (map patterns, match arms) deferred | [TDR-0039](../../decisions/accepted/0039-destructuring-bindings.md) |
+| Q8 | File = module; Draft 0.1: relative file-path resolution + whole-module binding only (`import "./x" as Name`), members via ordinary sends | [TDR — A module is a file; exports are public by default; imports are qualified, selective, or aliased](../../decisions/retired/modules-as-files-with-public-by-default-imports.md) + [TDR-0038](../../decisions/accepted/0038-module-import-relative-path-whole-module-binding.md) |
+| Q9 | Layered exceptions + `Result`; terminating, not resumable; surface `throw`/`try`/`catch`/`on`/`ensure` | [TDR-0007](../../decisions/accepted/0007-layered-exceptions-and-result.md) + [TDR-0027](../../decisions/accepted/0027-error-handling-surface-syntax.md) |
 | Q10 | Single class inheritance plus the ratified C3 non-storage trait extension; mixins/MI/conformance remain deferred | ruling (Q10 above) and [First-Class Traits](../extensions/traits.md) |
-| Q11 | `Behavior` is the shared superclass of `Class`/`Metaclass` | [ADR-0003](../../adr/0003-introduce-behavior-kernel-class.md) |
+| Q11 | `Behavior` is the shared superclass of `Class`/`Metaclass` | [TDR-0003](../../decisions/accepted/0003-introduce-behavior-kernel-class.md) |
 | Q12 | No default arguments now; if added → definition-time overload desugar, trailing-only | ruling (Q12 above) |
 | Q13 | Keep as-built `None` singleton + private `Nil` sentinel; `Some` heap instance | ruling (Q13 above) |
 | Q14 | `Family` callable-only now; reflective mirror deferred to a unified reflection unit | ruling (Q14 above) |
-| Q15 | Concurrency execution model: restricted re-entrant loop (Lua-5.1 style); yield across a native frame raises `CannotYieldAcrossNativeFrame` | [ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md) |
-| heap/ownership | Handle/arena heap; no `Rc`/`RefCell`; `ObjRef`/`ClassId` are `Copy` integers | [ADR-0009](../../adr/0009-handle-arena-heap.md) |
-| Value repr | Tagged `enum` with private `Nil` sentinel; `Int(i64)`/`Float(f64)`, `Bool(bool)`, `Obj(ObjRef)`, `Symbol(…)` | [ADR-0010](../../adr/0010-tagged-value-enum.md) + [ADR-0024](../../adr/0024-numeric-surface-split-int-float-and-division.md) |
-| instance `toString` | Default renders `"<ClassName>"`; class `toString` returns its own name | [ADR-0015](../../adr/0015-object-default-tostring.md) |
+| Q15 | Concurrency execution model: restricted re-entrant loop (Lua-5.1 style); yield across a native frame raises `CannotYieldAcrossNativeFrame` | [TDR-0026](../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) |
+| heap/ownership | Handle/arena heap; no `Rc`/`RefCell`; `ObjRef`/`ClassId` are `Copy` integers | [TDR-0008](../../decisions/accepted/0008-handle-arena-heap.md) |
+| Value repr | Tagged `enum` with private `Nil` sentinel; `Int(i64)`/`Float(f64)`, `Bool(bool)`, `Obj(ObjRef)`, `Symbol(…)` | [TDR-0009](../../decisions/accepted/0009-tagged-value-enum.md) + [TDR-0022](../../decisions/accepted/0022-numeric-surface-split-int-float-and-division.md) |
+| instance `toString` | Default renders `"<ClassName>"`; class `toString` returns its own name | [TDR-0013](../../decisions/accepted/0013-object-default-tostring.md) |

@@ -5,7 +5,7 @@
 > is cited; verify line numbers before editing (concurrent forge sessions shift
 > them).
 >
-> **Scope in one line:** the *minimal reification slice* of [ADR-0008](../../../adr/0008-layered-exceptions-and-result.md) —
+> **Scope in one line:** the *minimal reification slice* of [TDR-0007](../../../../decisions/accepted/0007-layered-exceptions-and-result.md) —
 > reify `Error` (root) + `MessageNotUnderstood` (`< Error`) as surface classes with
 > `message`/`raise`, and rewire the existing native miss path (U8's
 > `object_does_not_understand` + `Message` reification) to **raise a surface
@@ -34,7 +34,7 @@
 > touched-file set): **85 installed `(class, selector)` bindings / 69 distinct
 > native fns** (post-U-CORE-3). U-CORE-4 is expected to land at **86 bindings**
 > — unambiguous, both `floor-census.md`'s own U-CORE-4 amendment note and
-> [ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)'s
+> [TDR-0021](../../../../decisions/accepted/0021-amend-floor-admit-hash-and-kernel-reflection.md)'s
 > cumulative ledger agree (85 + 1 = 86). The **distinct-fn** count is
 > convention-sensitive: `floor-census.md` §1.1's own U-CORE-4 note computes
 > **71** (it counts the `object_to_string` rehome off `object_name` as a
@@ -47,7 +47,7 @@
 > (`Error#message`, `Error#raise`) **on top of whatever U-CORE-4 lands —
 > i.e. 88 installed bindings once all four omnibus-cleared units
 > (U-CORE-1/3/4/6) have landed**, which is exactly the cumulative ceiling
-> [ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)
+> [TDR-0021](../../../../decisions/accepted/0021-amend-floor-admit-hash-and-kernel-reflection.md)
 > already authorizes ("Floor count. Cumulative, if all four units land as
 > specified: **73 → 88** (+7 +5 +1 +2)"). This unit's own **distinct-fn** delta
 > is also +2 (`error_message`, `error_raise` are wholly new fns, no rehome
@@ -74,18 +74,18 @@
 
 ### Explicitly OUT of scope (RESERVE, do not implement)
 
-Per [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) §Q2 and [ADR-0008](../../../adr/0008-layered-exceptions-and-result.md),
+Per [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) §Q2 and [TDR-0007](../../../../decisions/accepted/0007-layered-exceptions-and-result.md),
 the following are **later units** — U-CORE-6 must *reserve* their shapes (keep them
 layerable) but ship **none** of them:
 
 - **`Result` / `Ok` / `Err`** and the bridges `{…}.attempt()`, `result.unwrap()`,
   `option.okOr(_)`, `result.ok()` ([values-and-absence.md](../../../spec/current/values-and-absence.md) §4).
   Later **Result unit**; must mirror `Option`/`Some`/`None` (abstract root + two
-  concrete subclasses), ADR-0008/[ADR-0007](../../../adr/0007-option-as-abstract-with-some-none.md).
+  concrete subclasses), ADR-0008/[TDR-0006](../../../../decisions/accepted/0006-option-as-abstract-with-some-none.md).
 - **The full handling protocol** — `blk.on(ErrorClass){…}`, `blk.ensure{…}`, and the
   `try`/`catch`/`finally` sugar over it ([error-handling.md](../../../spec/current/error-handling.md) §2).
   **This is no longer a vague "later unit": the keyword spelling is now ratified
-  by [ADR-0031](../../../adr/0031-error-handling-surface-syntax.md)** (Accepted,
+  by [TDR-0027](../../../../decisions/accepted/0027-error-handling-surface-syntax.md)** (Accepted,
   2026-07-12 — landed *during* this refresh pass): `throw`/`try`/`on`/`catch`/`ensure`
   as pure 1:1 sugar over `.on(_)(_)`/`.ensure(_)`, with `throw expr ≡ expr.raise()`.
   ADR-0031 explicitly confirms it targets **this unit's mechanism** ("U-CORE-6's
@@ -104,7 +104,7 @@ layerable) but ship **none** of them:
   scope; §0 here and U-CORE-3's own hand-off are the authoritative scope fence.)
 - **`throw`-as-compile-error** (`throw "oops"` rejected at compile time,
   error-handling.md §1). That is a parser/compiler check owned by the error-syntax
-  unit (now [ADR-0031](../../../adr/0031-error-handling-surface-syntax.md)). This
+  unit (now [TDR-0027](../../../../decisions/accepted/0027-error-handling-surface-syntax.md)). This
   unit delivers the *mechanism* (`raise` lives only on `Error`), not the syntactic
   rejection (§4, R-INV-6.3).
 
@@ -113,19 +113,19 @@ layerable) but ship **none** of them:
 - **ADR-0019 floor is frozen.** This unit adds **two** native primitives
   (`Error#message`, `Error#raise`) — that is an **ADR-0019 amendment**, already
   pre-cleared "in principle" by the omnibus
-  [ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)
+  [TDR-0021](../../../../decisions/accepted/0021-amend-floor-admit-hash-and-kernel-reflection.md)
   (Accepted; its Decision §4 names `Error#message`/`raise` by owner "U-CORE-6",
   **+2 bindings**, verbatim). This unit still needs its own **per-unit landing-record
   ADR** to formally move the census 86→88, mirroring the pattern
-  [ADR-0028](../../../adr/0028-amend-floor-admit-method-reflection.md) set for
+  [TDR-0024](../../../../decisions/accepted/0024-amend-floor-admit-method-reflection.md) set for
   U-CORE-3 and the (currently "Proposed", not yet landed)
-  [ADR-0036](../../../adr/0036-amend-floor-admit-number-tostring.md) is setting
+  [TDR-0030](../../../../decisions/accepted/0030-amend-floor-admit-number-tostring.md) is setting
   for U-CORE-4. **Claim the next available ADR number at dispatch** — as of this
   pass the highest assigned is 0036 (0034 was drafted-then-dropped per
-  `docs/adr/README.md`, so 0035/0036 are the two most recent; the next free slot
-  is **0037**, but re-run `ls docs/adr/` before claiming, since sibling units may
+  `docs/decisions/README.md`, so 0035/0036 are the two most recent; the next free slot
+  is **0037**, but re-run `ls docs/decisions/` before claiming, since sibling units may
   claim numbers first) (§6).
-- **No truthiness ([ADR-0021](../../../adr/0021-no-truthiness-enforcement.md)).** Nothing here reintroduces surface `nil`.
+- **No truthiness ([TDR-0019](../../../../decisions/accepted/0019-no-truthiness-enforcement.md)).** Nothing here reintroduces surface `nil`.
 - **No sacred-selector contact.** `message`/`raise` are not sacred (floor-census §5);
   the inliner is untouched.
 
@@ -169,7 +169,7 @@ not exist yet as a value-carrying channel: today an error is a `PhError` string 
 propagates via Rust `?` and, uncaught, renders + exits. U-CORE-6 introduces the
 Raise payload as a **surface-`Error`-carrying** `PhError` that propagates through
 the *same* `PhResult`/`?` channel an uncaught error already uses — so that later
-`on`/`ensure` (block protocol, now spelled by [ADR-0031](../../../adr/0031-error-handling-surface-syntax.md))
+`on`/`ensure` (block protocol, now spelled by [TDR-0027](../../../../decisions/accepted/0027-error-handling-surface-syntax.md))
 and a fiber's result-slot capture (forward-compat §1) intercept a real `Value`, not
 a Rust string.
 
@@ -225,7 +225,7 @@ solves exactly this problem the native way (floor-census §2.14); `Error`/`MNU` 
 > **Floor delta: +2 bindings on top of whichever base U-CORE-4 lands** (two new
 > installed bindings: `message`, `raise` on `Error`) — see the header "Floor
 > math" box for the full accounting (base 86 → 88 at the binding level,
-> unambiguous per [ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)'s
+> unambiguous per [TDR-0021](../../../../decisions/accepted/0021-amend-floor-admit-hash-and-kernel-reflection.md)'s
 > "73 → 88" cumulative ledger). The `RuntimeError::Raise` variant is *plumbing
 > the primitive returns*, not an installed `(class, selector)` binding, so it
 > does **not** count. R-INV-0.1 census + R-INV-6.5 update in lockstep (§4).
@@ -426,7 +426,7 @@ pub fn error_raise(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<V
 > `Error` only. A non-`Error` receiver has no `raise`, so a future `throw 42`
 > (`42.raise()`) misses → dNU → `MessageNotUnderstood`; this is the runtime half of
 > R-INV-6.3 (the compile-time rejection of `throw 42` is error-syntax, now spelled
-> by [ADR-0031](../../../adr/0031-error-handling-surface-syntax.md), still deferred
+> by [TDR-0027](../../../../decisions/accepted/0027-error-handling-surface-syntax.md), still deferred
 > from this unit).
 
 ### 3.3 Propagation & rendering (no changes needed, confirm)
@@ -449,7 +449,7 @@ Neither is a **direct** flip — both need surface syntax this unit does not add
 
 | Fixture | Category | This unit delivers | Flips when |
 |---|---|---|---|
-| `errors/errors_throw_try_catch_finally` | B+C | the **raise mechanism** (`Error`/`MNU`, `raise`, unified-unwind payload) | error-syntax — now [ADR-0031](../../../adr/0031-error-handling-surface-syntax.md) (ratified, not yet implemented) **+** the `on`/`ensure` block-protocol unit |
+| `errors/errors_throw_try_catch_finally` | B+C | the **raise mechanism** (`Error`/`MNU`, `raise`, unified-unwind payload) | error-syntax — now [TDR-0027](../../../../decisions/accepted/0027-error-handling-surface-syntax.md) (ratified, not yet implemented) **+** the `on`/`ensure` block-protocol unit |
 | `errors/errors_result_bridge` | B | **nothing** — `Result`/`Ok`/`Err` + `.attempt()`/`.unwrap()` are RESERVED (§0) | the later **Result unit** **+** error-syntax (ADR-0031) |
 
 Set the acceptance bar on **new unit-local fixtures in already-supported syntax**,
@@ -520,7 +520,7 @@ not on these lexer/Result-gated ones.
 |---|---|
 | §2 — a *second, non-`Error`* error channel | The miss raises a `MessageNotUnderstood` **`< Error`**; `raise` is on `Error` only. Single channel, ADR-0008-conformant. |
 | §2 — wiring dNU to a non-`Error` or to **host termination** | dNU raises a surface `Error` subclass **value** that propagates through the ordinary `PhResult`/`?` channel. Uncaught → the existing top-level render/exit (unchanged behavior), **not** a special `throw`-terminates-host path. |
-| §2 — forking the unwind | The Raise payload is the **sibling** of U10's `Return` payload within the *one* unwind (ADR-0008), carried by the same `PhResult` the VM already threads. No second mechanism; `ensure`-on-any-unwind and `on(_)` (now spelled by [ADR-0031](../../../adr/0031-error-handling-surface-syntax.md)) layer over `RuntimeError::Raise { error, .. }` later. |
+| §2 — forking the unwind | The Raise payload is the **sibling** of U10's `Return` payload within the *one* unwind (ADR-0008), carried by the same `PhResult` the VM already threads. No second mechanism; `ensure`-on-any-unwind and `on(_)` (now spelled by [TDR-0027](../../../../decisions/accepted/0027-error-handling-surface-syntax.md)) layer over `RuntimeError::Raise { error, .. }` later. |
 | §2 — `Result` shape incompatible with `Option` | `Result`/`Ok`/`Err` are **reserved, not built**; §0 pins them to the `Option` abstract-root + two-subclass shape so the later unit mirrors it. Nothing here shapes them. |
 | §2 — `ensure` as exception-only | Not built here; but because Raise is a payload of the unified unwind (not a bespoke exception path), a later `ensure` that fires on *any* unwind (Return/Raise/abort) is additive. ADR-0031 §2's `ensure { … }` clause ("always runs — normal exit, throw, return, or abort") is exactly this — confirms this unit's design imposed no rework. |
 | §1 — fiber captures a propagating `Error` into its result slot | The Raise payload **carries the surface `error` `Value`** (not a Rust string). A future `Fiber` boundary extracts that `Value` into its result slot; `throw` is never special-cased as host-process termination. |
@@ -529,7 +529,7 @@ not on these lexer/Result-gated ones.
 **Reserved shapes to keep layerable (do not implement):** `Result`/`Ok`/`Err`
 (abstract + two subclasses, `Option`-mirrored); `attempt`/`unwrap`/`okOr`/`ok`
 bridges; `on(_)(_)`/`ensure(_)` block protocol and its now-ratified
-[ADR-0031](../../../adr/0031-error-handling-surface-syntax.md) `try`/`on`/`catch`/`ensure`
+[TDR-0027](../../../../decisions/accepted/0027-error-handling-surface-syntax.md) `try`/`on`/`catch`/`ensure`
 keyword sugar; surface `DeadFrameError`/`TypeError`/`ArgumentError`/`RangeError`.
 
 **PHASE2-INDEX ADR-0008 amendment note (folded in):** *"`MessageNotUnderstood` is the
@@ -584,7 +584,7 @@ bookkeeping ADR (mirrors ADR-0028/ADR-0036), not a design ADR.
 
 ### ADR-0019 amendment — status update this pass
 
-The omnibus [ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)
+The omnibus [TDR-0021](../../../../decisions/accepted/0021-amend-floor-admit-hash-and-kernel-reflection.md)
 (**Accepted**, 2026-07-12) already exists and already admits `Error#message`/`Error#raise`
 to the floor **in principle**, verbatim: *"`Error#message`/`raise` (owner: U-CORE-6) —
 `Error#message` (getter, native slot-0 accessor) and `Error#raise` (initiates the
@@ -594,8 +594,8 @@ itself land the binding (ADR-0023 is explicit: *"Each named primitive is still
 *installed* only when its owning unit actually lands and bumps the census"*).
 
 **What this unit must still do:** author its own **per-unit landing-record ADR**
-— the same role [ADR-0028](../../../adr/0028-amend-floor-admit-method-reflection.md)
-played for U-CORE-3 and the currently-"Proposed" [ADR-0036](../../../adr/0036-amend-floor-admit-number-tostring.md)
+— the same role [TDR-0024](../../../../decisions/accepted/0024-amend-floor-admit-method-reflection.md)
+played for U-CORE-3 and the currently-"Proposed" [TDR-0030](../../../../decisions/accepted/0030-amend-floor-admit-number-tostring.md)
 is playing for U-CORE-4 — that:
 
 1. Cites ADR-0023 as the in-principle clearance (no re-litigating derivability).
@@ -607,23 +607,23 @@ is playing for U-CORE-4 — that:
    cites "floor-census.md §1.1, §2.1, §2.4 (re-baselined in the same
    implementation change as this ADR)").
 4. **Claims the next free ADR number at dispatch** — as of this pass, 0036 is the
-   highest assigned (0034 was drafted then dropped, per `docs/adr/README.md`
+   highest assigned (0034 was drafted then dropped, per `docs/decisions/README.md`
    line 96: "An earlier draft ADR-0034... was dropped"), so **0037** is the
-   expected next slot; re-run `ls docs/adr/` immediately before creating the file,
+   expected next slot; re-run `ls docs/decisions/` immediately before creating the file,
    since a concurrent session may claim it first.
 
 ### Traceability
 
 | Claim / requirement | Source |
 |---|---|
-| Confirm ADR-0008; U-CORE-6 = minimal reification | [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) §Q2; [ADR-0008](../../../adr/0008-layered-exceptions-and-result.md) |
+| Confirm ADR-0008; U-CORE-6 = minimal reification | [`decisions.md`](../../../forge/units/U-CORE-0/decision-register.md) §Q2; [TDR-0007](../../../../decisions/accepted/0007-layered-exceptions-and-result.md) |
 | `Error`/`MNU`/… catalog rows (`message`, `raise`) | [object-model.md](../../../spec/current/object-model.md) §4 "Errors" (lines 170-179, was cited 160-165) |
 | Raise / handling as block protocol; `throw expr === expr.raise()`; only-`Error` throwable | [error-handling.md](../../../spec/current/error-handling.md) §1-2, §4 |
-| Surface keyword spelling for `throw`/`try`/`on`/`catch`/`ensure` (ratified this pass) | [ADR-0031](../../../adr/0031-error-handling-surface-syntax.md) (Accepted, 2026-07-12) |
-| One unwind primitive (Return vs Raise payloads) | [ADR-0008](../../../adr/0008-layered-exceptions-and-result.md); U10 spec §2 |
-| `Result`/`Ok`/`Err` reserved, `Option`-mirrored | [values-and-absence.md](../../../spec/current/values-and-absence.md) §4; [ADR-0007](../../../adr/0007-option-as-abstract-with-some-none.md) |
+| Surface keyword spelling for `throw`/`try`/`on`/`catch`/`ensure` (ratified this pass) | [TDR-0027](../../../../decisions/accepted/0027-error-handling-surface-syntax.md) (Accepted, 2026-07-12) |
+| One unwind primitive (Return vs Raise payloads) | [TDR-0007](../../../../decisions/accepted/0007-layered-exceptions-and-result.md); U10 spec §2 |
+| `Result`/`Ok`/`Err` reserved, `Option`-mirrored | [values-and-absence.md](../../../spec/current/values-and-absence.md) §4; [TDR-0006](../../../../decisions/accepted/0006-option-as-abstract-with-some-none.md) |
 | dNU/`Message` reification the raise wires to | [floor-census.md](../../../spec/current/core/floor-census.md) §2.14; [catalog-delta.md](../../../spec/current/core/catalog-delta.md) §2.7/§4.5 |
-| Floor amendment pre-cleared in principle (+2 bindings) | [ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md) Decision §4; sibling per-unit landing records [ADR-0028](../../../adr/0028-amend-floor-admit-method-reflection.md) (U-CORE-3), [ADR-0036](../../../adr/0036-amend-floor-admit-number-tostring.md) (U-CORE-4, Proposed) |
+| Floor amendment pre-cleared in principle (+2 bindings) | [TDR-0021](../../../../decisions/accepted/0021-amend-floor-admit-hash-and-kernel-reflection.md) Decision §4; sibling per-unit landing records [TDR-0024](../../../../decisions/accepted/0024-amend-floor-admit-method-reflection.md) (U-CORE-3), [TDR-0030](../../../../decisions/accepted/0030-amend-floor-admit-number-tostring.md) (U-CORE-4, Proposed) |
 | Invariants R-INV-6.1…6.5 | [invariant-requirements.md](../../../spec/current/core/invariant-requirements.md) §U-CORE-6 (verbatim-matched this pass, no drift) |
 | Must-not-preclude (errors + fibers) | [forward-compat.md](../../../spec/current/core/forward-compat.md) §2, §1 |
 | Fixtures `errors_throw_try_catch_finally` / `errors_result_bridge` | [pending-retirement.md](../../../spec/current/core/pending-retirement.md) §4 |

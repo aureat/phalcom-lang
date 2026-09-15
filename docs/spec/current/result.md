@@ -1,8 +1,8 @@
 # Result
 
 Part of the [Phalcom Language Specification](README.md). Status: Normative
-(model fixed by [ADR-0008](../../adr/0008-layered-exceptions-and-result.md);
-shape mirrors [ADR-0007](../../adr/0007-option-as-abstract-with-some-none.md)).
+(model fixed by [TDR-0007](../../decisions/accepted/0007-layered-exceptions-and-result.md);
+shape mirrors [TDR-0006](../../decisions/accepted/0006-option-as-abstract-with-some-none.md)).
 
 `Result` is the **value** channel for *expected, local* failure — the sibling of
 [`Option`](values-and-absence.md) for cases where the caller wants the failure
@@ -13,7 +13,7 @@ with the exception channel through cheap bridges
 ## 1. Shape — mirrors `Option`
 
 `Result` is an **abstract superclass** with exactly two concrete subclasses, laid
-out identically to `Option`/`Some`/`None` (ADR-0007), so the same machinery and
+out identically to `Option`/`Some`/`None` (TDR-0006), so the same machinery and
 mental model apply:
 
 | `Option` | `Result` | Holds |
@@ -33,7 +33,7 @@ mental model apply:
 | `map(_)` | `Result` | transform the `Ok` value; `Err` passes through unchanged |
 | `mapErr(_)` | `Result` | transform the `Err` reason; `Ok` passes through |
 | `andThen(_)` | `Result` | chain an `Ok`→`Result` function (flat-map); short-circuits on `Err` |
-| `unwrap` | `Result` | the `Ok` value, or **`throw`** the `Err` ([ADR-0008](../../adr/0008-layered-exceptions-and-result.md)) |
+| `unwrap` | `Result` | the `Ok` value, or **`throw`** the `Err` ([TDR-0007](../../decisions/accepted/0007-layered-exceptions-and-result.md)) |
 | `unwrapOr(_)` | `Result` | the `Ok` value, or a default |
 | `unwrapErr` | `Result` | the `Err` reason, or `throw` if `Ok` |
 | `ok()` | `Result` | to `Option`: `Ok(v)` → `Some(v)`, `Err(_)` → `None` |
@@ -62,7 +62,7 @@ The two channels are interconvertible in one send each — the reason layering w
 ## 4. Bootstrap & status
 
 `Result`/`Ok`/`Err` are kernel value classes that bootstrap **alongside**
-`Option`/`Some`/`None`, reusing the ADR-0007 abstract-root-plus-two-subclasses
+`Option`/`Some`/`None`, reusing the TDR-0006 abstract-root-plus-two-subclasses
 machinery (no new mechanism). They are **reserved** by U-CORE-6 and implemented by
 a later value-classes unit ([Deferred & Future Work §3](deferred-work.md)); this
 spec is the ratified design that unit builds to.

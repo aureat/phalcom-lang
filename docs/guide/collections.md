@@ -64,8 +64,8 @@ Full detail on each literal — evaluation order, key rules, edge cases — live
 in [List Literal Syntax](../spec/current/syntax/list-literals.md),
 [Map and Set](../spec/current/stdlib/map-and-set.md), and
 [Tuple and Range](../spec/current/stdlib/tuple-and-range.md), ratified by
-[ADR-0029](../adr/0029-list-literal-syntax.md) and the collections umbrella
-[ADR-0032](../adr/0032-collections-representation-and-literals.md).
+[TDR — List literals `[a, b, c]` desugar to `List` construction sends](../decisions/accepted/0025-list-literal-syntax.md) and the collections umbrella
+[TDR-0028](../decisions/accepted/0028-collections-representation-and-literals.md).
 
 ## One protocol behind every loop
 

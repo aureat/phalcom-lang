@@ -1,8 +1,8 @@
 # Implementation spec — the reactor, phase 1: worker pool + timers (U-REACTOR)
 
 > **Status:** dispatch-ready. Governing records **Accepted**:
-> [PDR-0004](../../../../pdr/0004-io-is-future-shaped-reactor-owned.md) (all),
-> [PDR-0003](../../../../pdr/0003-no-user-visible-threads-fibers-and-isolates.md) §3;
+> [TDR-0056](../../../../decisions/accepted/0056-io-is-future-shaped-reactor-owned.md) (all),
+> [TDR-0055](../../../../decisions/accepted/0055-no-user-visible-threads-fibers-and-isolates.md) §3;
 > machinery contract [`../stdlib/reactor.md`](../../spec/current/stdlib/reactor.md).
 > **Phase 1 scope ruling (settles the surface spec's Q-R3):** **std-only** — worker
 > pool (`std::thread` + `std::sync::mpsc`) and timers; **no poller, no sockets, no new

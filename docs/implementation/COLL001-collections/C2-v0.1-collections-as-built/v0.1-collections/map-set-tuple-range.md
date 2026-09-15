@@ -6,15 +6,15 @@ they share the spine files `heap.rs`/`universe.rs`/`core.ph`, so they cannot fan
 `phalcom-reviewer`; never self-approve. **Worktree isolation** (mutates `heap.rs`/`universe.rs`/`core.ph`
 while U-ITER, U-FIBER, and the U-CORE `core.ph` track are live). Green gate: `./scripts/verify.sh` exits 0 +
 `cargo doc --workspace --no-deps` clean, **per phase**. Grounded in
-**[ADR-0032](../../../adr/0032-collections-representation-and-literals.md)** (native heap arms, hashing
+**[TDR-0028](../../../../decisions/accepted/0028-collections-representation-and-literals.md)** (native heap arms, hashing
 contract, §1 representation table), **[map-and-set.md](../../../spec/current/stdlib/map-and-set.md)**,
 **[tuple-and-range.md](../../../spec/current/stdlib/tuple-and-range.md)**,
 **[collection-protocol.md](../../../spec/current/core/collection-protocol.md)** (the binding laws + the
 U-CORE-5 conformance harness), **[decisions.md Q5](../../../forge/units/U-CORE-0/decision-register.md)** (mutability ⇒
 identity hash / immutability ⇒ value hash), and the native-arm precedent
-**[ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md)**. Floor extension governed by
-**[ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md)** + its amendment convention
-([ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)) — **needs a NEW ADR** (§0,
+**[TDR-0018](../../../../decisions/accepted/0018-kernel-list-native-array-protocol.md)**. Floor extension governed by
+**[TDR-0017](../../../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md)** + its amendment convention
+([TDR-0021](../../../../decisions/accepted/0021-amend-floor-admit-hash-and-kernel-reflection.md)) — **needs a NEW ADR** (§0,
 the load-bearing gate)._
 
 > **Unit-name note.** This unit builds the **runtime classes and their native arms**, NOT their literal
@@ -30,13 +30,13 @@ the load-bearing gate)._
 
 Each native arm needs a **small, scoped set of raw floor primitives** (hash-table get/put/has/remove +
 ordered indexed access for `Map`/`Set`; slice access for `Tuple`; bound-field access for `Range`).
-[ADR-0032 §1](../../../adr/0032-collections-representation-and-literals.md) *authorizes the pattern* — "each
+[TDR-0028](../../../../decisions/accepted/0028-collections-representation-and-literals.md) *authorizes the pattern* — "each
 native arm brings a small, scoped ADR-0019 amendment for its raw primitives … justified per-unit exactly as
 `List`'s five raw primitives were" — but ADR-0032 is an **umbrella that changes no runtime**; it does **not**
-itself amend the frozen floor. Per [ADR-0019](../../../adr/0019-freeze-vm-blessed-primitive-floor.md), a new
+itself amend the frozen floor. Per [TDR-0017](../../../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md), a new
 native binding requires "a new superseding ADR that amends this list." The `hash`/reflection floor moves went
-through the omnibus [ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md); the
-`Method` moves through [ADR-0028](../../../adr/0028-amend-floor-admit-method-reflection.md). **This unit's
+through the omnibus [TDR-0021](../../../../decisions/accepted/0021-amend-floor-admit-hash-and-kernel-reflection.md); the
+`Method` moves through [TDR-0024](../../../../decisions/accepted/0024-amend-floor-admit-method-reflection.md). **This unit's
 container primitives need the same.**
 
 **Gate (BLOCKED-ON-DECISION — see DEC-CT-A):** before Phase 1 emits a single `primitive!`, one of the
@@ -72,8 +72,8 @@ any Phase 1 edit. If DEC-CT-A is unresolved at dispatch, **stop** — this is th
 ## 1. Mission (one sentence)
 Build the four native collection runtime classes as arena arms —
 `Object::Map`/`Object::Set`/`Object::Tuple`/`Object::Range` over the handle heap
-([ADR-0009](../../../adr/0009-handle-arena-heap.md)), mirroring `List`'s `ListObject`
-([ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md)) — each with a **thin native raw-primitive
+([TDR-0008](../../../../decisions/accepted/0008-handle-arena-heap.md)), mirroring `List`'s `ListObject`
+([TDR-0018](../../../../decisions/accepted/0018-kernel-list-native-array-protocol.md)) — each with a **thin native raw-primitive
 floor** and its **public protocol authored in `.ph`**, such that all four pass the **U-CORE-5 conformance
 harness** and the Q5 mutability/hashability contract holds: `Map`/`Set` are **mutable ⇒ identity `hash`, not
 valid keys**; `Tuple`/`Range` are **immutable ⇒ value `hash`, valid keys**.
@@ -96,7 +96,7 @@ valid keys**; `Tuple`/`Range` are **immutable ⇒ value `hash`, valid keys**.
   the **`toList` materialization target** for `Range`/`Map#keys`/`Map#values` and the `keys`/`values` return
   type. Landed.
 - **U-CORE-2 landed** — `Option`/`Some`/`None` for **total `at(_)`** (`Some(v)`/`None`, never `nil`, never a
-  raise — [ADR-0021](../../../adr/0021-no-truthiness-enforcement.md)). `Map#at(_)`, `Tuple#at(_)`, and
+  raise — [TDR-0019](../../../../decisions/accepted/0019-no-truthiness-enforcement.md)). `Map#at(_)`, `Tuple#at(_)`, and
   `list_raw_at`'s `None`-on-out-of-range precedent (`primitive/list.rs` L72–79) all depend on it. Landed
   (U-CORE-2 as-built).
 - **U-CORE-6 landed (soft, for enforcement only)** — `throw`/`raise` + the unified unwind (ADR-0008,
@@ -112,7 +112,7 @@ valid keys**; `Tuple`/`Range` are **immutable ⇒ value `hash`, valid keys**.
 
 ## 3. Design (ordered phases — realise the specs; do not re-litigate the model)
 
-> Per [ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md) each collection "its own unit,"
+> Per [TDR-0018](../../../../decisions/accepted/0018-kernel-list-native-array-protocol.md) each collection "its own unit,"
 > these **could** dispatch as four sub-units — but they share `heap.rs`/`universe.rs`/`core.ph`, so they
 > **serialize** as ordered phases behind one worktree. All four instantiate the **same U-CORE-5 harness**.
 > The native-vs-`.ph` split is fixed by ADR-0032 §1: **native arm + raw primitives, `.ph` protocol +
@@ -133,7 +133,7 @@ follow the `List` accessor set (`heap.rs` L152/323/335/343; `primitive/mod.rs` L
 `rawRemove(_)`, `rawAt(_)`. Internal (`raw*`), wrapped by `.ph`.
 
 **The key-hashing crux (§Rubric — the load-bearing subtlety).** "Keyed by `hash`+`==`"
-([ADR-0032 §1](../../../adr/0032-collections-representation-and-literals.md)) means **Phalcom** `hash`/`==`,
+([TDR-0028](../../../../decisions/accepted/0028-collections-representation-and-literals.md)) means **Phalcom** `hash`/`==`,
 not Rust's `Value: Hash`/`value_eq` (`value.rs` L245/314 — those give **identity** for `Value::Obj`, which is
 **wrong** for a value-keyed `Tuple`). So `rawGet`/`rawPut`/`rawHas`/`rawRemove` must **re-enter the VM**:
 send `hash` to the key to get its bucket, and send `==` to disambiguate collisions. Two hard constraints:
@@ -253,7 +253,7 @@ cursor value yielded by `iteratorValue` is a design point: **DEC-CT-E** (recomme
 | `phalcom-core/tests/collections_contract.rs` | `build_map`/`build_set`/`build_tuple`/`build_range` + one `#[test]` each (extend U-CORE-5 harness) | 1,2,3 |
 | `phalcom-core/tests/lang/collections/` + `tests/lang.rs` | `.ph` golden corpus + per-class extras | 1,2,3 |
 | `phalcom-core/tests/invariants.rs` | R-INV-0.1 census bump (+21) + arm-registration invariant | 1,2,3 |
-| [`0039-amend-floor-admit-collection-container-primitives.md`](../../../adr/0039-amend-floor-admit-collection-container-primitives.md) (**Proposed, Phase 0**) | the §0 ADR-0019 amendment | 0 |
+| [TDR-0033](../../../../decisions/accepted/0033-amend-floor-admit-collection-container-primitives.md) (**Proposed, Phase 0**) | the §0 ADR-0019 amendment | 0 |
 
 **Deliberately NOT in scope:** any **literal** parser/lexer/compiler surface (`{k:v}`/`(a,b)`/`#{…}`/`..` —
 that is **U-COLL** / U-LEX, ADR-0032 §3); the `for`/`break`/`continue` lowering (**U-ITER**); `Fiber`
@@ -276,7 +276,7 @@ are the existing `.ph` U-STD defaults — they inherit onto each new class via t
 
 ## 5. Build order (small, independently-green diffs)
 
-0. **Phase 0 gate** — ratify [ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md) (drafted, Proposed; DEC-CT-A). No code until it is Accepted.
+0. **Phase 0 gate** — ratify [TDR-0033](../../../../decisions/accepted/0033-amend-floor-admit-collection-container-primitives.md) (drafted, Proposed; DEC-CT-A). No code until it is Accepted.
 1. **Phase 1a — `Map`/`Set` arms + raw primitives (no `.ph`).** `MapObject`/`SetObject`, `Object::Map/Set`,
    `alloc_*`/accessors, `expect_*`, the raw primitives, class registration + census bump. Rust-level unit
    tests on the raw primitives (put/get/has/remove/keyAt) directly. Green (existing suite untouched — pure
@@ -337,7 +337,7 @@ Each phase is a self-verifiable commit; commit per green checkpoint (never a non
 
 | ID | Decision | Options | Architect recommendation |
 |---|---|---|---|
-| **DEC-CT-A** ⚠️ **ADR DRAFTED (Proposed) — the §0 gate** | The **ADR-0019 floor amendment** admitting the ~21 native container primitives. ADR-0032 authorizes the *pattern* but does not itself amend the floor. | Recommendation was (A) one standalone ADR over all four classes. | **Drafted as [ADR-0039](../../../adr/0039-amend-floor-admit-collection-container-primitives.md) (Proposed, +21, census 80→101 per-phase)**, enumerating all four classes' raw primitives. **Awaiting user ratification** — no Phase-1 code until Accepted. |
+| **DEC-CT-A** ⚠️ **ADR DRAFTED (Proposed) — the §0 gate** | The **ADR-0019 floor amendment** admitting the ~21 native container primitives. ADR-0032 authorizes the *pattern* but does not itself amend the floor. | Recommendation was (A) one standalone ADR over all four classes. | **Drafted as [TDR-0033](../../../../decisions/accepted/0033-amend-floor-admit-collection-container-primitives.md) (Proposed, +21, census 80→101 per-phase)**, enumerating all four classes' raw primitives. **Awaiting user ratification** — no Phase-1 code until Accepted. |
 | **DEC-CT-B** | `Map`/`Set` **shared backing** vs separate structs. | **(A)** `Set` reuses the `Map` ordered-hash helper (keys-only); **(B)** independent `SetObject`. | **(A)** — a set *is* a keys-only ordered hash map; sharing the helper halves the re-entrant-hash surface (one place for the borrow-model review). Distinct `Object` variants + distinct bindings, shared Rust helper. |
 | **DEC-CT-C** | **Enforce** mutable-key rejection now (needs U-CORE-6), or specify-only (U-CORE-5's deferral)? | **(A)** enforce: `rawPut`/`rawAdd` raise on a mutable-collection key; **(B)** leave identity-keyed (silently wrong per Q5). | **(A)** if U-CORE-6 is confirmed landed on HEAD — this unit is the *consumer* U-CORE-5 §2.4 deferred enforcement to. Ship the rejection + negative test. If U-CORE-6 is somehow not landed, degrade to (B) with a `DEFERRED.md` pointer and a `pending/` negative. |
 | **DEC-CT-D** | `Tuple`/`Range` value **hash**: `.ph` fold vs native primitive. | **(A)** `.ph` fold over element/field `.hash`; **(B)** native `tuple_hash`/`range_hash`. | **(A)** — zero extra floor, and it inherits element hashes so it survives the Int/Float split automatically (forward-compat §4). Fall back to **(B)** (a scoped +1/+1 on the §0 amendment) *only* if `.ph` `Number` arithmetic can't express a serviceable combine — verify on HEAD what bitwise/wrapping ops `Number` exposes before choosing. |

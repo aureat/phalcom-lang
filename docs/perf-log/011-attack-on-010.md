@@ -616,7 +616,7 @@ Rank = (expected effect × confidence) ÷ (window cost + landing cost).
 
 | # | item | ceiling + basis | conf | preclusion |
 |---|---|---|---|---|
-| 5 | **`Value` 16 B → 8 B** (NaN-box / niche-pack) | `Value` = 16 B, `CallFrame` = 96 B (G5, from the binary). Halves operand-stack traffic, frame size, arg-buffer. **Subsumes H13 entirely** | medium | NaN-box ⊗ moving GC; ⊗ `Option` niche absence. ADR-0010 names NaN-boxing as the successor and `Value::obj_ref` is already the GC's sole seam — the escape hatch is **built**. Precedent: LuaJIT/SpiderMonkey NaN-box and pay in pointer-width assumptions and platform lock-in; Wren tagged-unions and stays portable and slower |
+| 5 | **`Value` 16 B → 8 B** (NaN-box / niche-pack) | `Value` = 16 B, `CallFrame` = 96 B (G5, from the binary). Halves operand-stack traffic, frame size, arg-buffer. **Subsumes H13 entirely** | medium | NaN-box ⊗ moving GC; ⊗ `Option` niche absence. TDR-0009 names NaN-boxing as the successor and `Value::obj_ref` is already the GC's sole seam — the escape hatch is **built**. Precedent: LuaJIT/SpiderMonkey NaN-box and pay in pointer-width assumptions and platform lock-in; Wren tagged-unions and stays portable and slower |
 | 6 | `CallFrame` 96 B — what is derivable? | 96 B × every call; `for` pushes **4 frames/element** | medium | `caller_source: Option<SourceRange>` and `generation: u64` are stack-trace/identity infrastructure. Shrinking costs diagnostics |
 
 ### T3/T4 — dispatch and calls
@@ -664,10 +664,10 @@ calls `self.length_` directly, so a user who reopens `List` to override `size` n
 sees `for` honor it. 010 is right that the green corpus is not evidence of invariance.
 
 But **ADR-0026 is "Methods are open; superclass *reparenting* is sealed"** (Accepted,
-`docs/adr/STATUS.md:56`). Methods being open is not an accident awaiting a sealing ADR —
+`docs/decisions/README.md:56`). Methods being open is not an accident awaiting a sealing ADR —
 **it is the committed position.** Sealing kernel collections would *reverse* it.
 
-And **ADR-0018 — "Sacred-selector inliner + override-epoch guard" — is Accepted and
+And **TDR-0016 — "Sacred-selector inliner + override-epoch guard" — is Accepted and
 built** (`STATUS.md:48`, marked ✅). It exists in the tree, right now:
 
 ```
@@ -675,7 +675,7 @@ universe/mod.rs:41   pub bool_sacred_pristine: bool,
 universe/mod.rs:45   pub block_sacred_pristine: bool,
 universe/mod.rs      BOOL_SACRED_SELECTORS  = ["and(_)","or(_)","not()","ifTrue(_)","ifFalse(_)","ifTrue(_,ifFalse)"]
 universe/mod.rs      BLOCK_SACRED_SELECTORS = ["whileTrue(_)"]
-dispatch.rs:931      // Sacred-selector override-epoch tracking (ADR-0018)
+dispatch.rs:931      // Sacred-selector override-epoch tracking (TDR-0016)
 bytecode.rs:237      // the override-epoch half of the deopt guard
 ```
 
@@ -695,22 +695,22 @@ H17 is the same ruling applied to `List`.
 `LIST_SACRED_SELECTORS = ["size()", "at(_)"]`, mirroring the shipped Bool/Block design.
 
 **Deopt without a hot-path guard (PLAUSIBLE, unverified — this is a design sketch, not a
-measurement).** H17 differs from ADR-0018 in one way that matters: ADR-0018 guards a
+measurement).** H17 differs from TDR-0016 in one way that matters: TDR-0016 guards a
 *compile-time-known inlined site* with a `GuardBool` opcode, whereas H17's change is a
 `core.ph` method body. So the deopt need not be a per-iteration guard at all — when the
 epoch flips, **swap `List.iterate`/`List.iteratorValue`'s installed `Callable` back to
 the wrapper version**. A method-dictionary swap at override time costs the hot loop
 nothing, adds no opcode arm, and therefore pays no F21 tax whatever H18 concludes about
 it. Cost is one-time and paid only by programs that actually reopen `List`. This wants
-its own ADR and a check against ADR-0048 (bare-cursor sentinel + `Iterable` root, which
-amends ADR-0035) before anyone writes it.
+its own ADR and a check against TDR-0042 (bare-cursor sentinel + `Iterable` root, which
+amends TDR-0030) before anyone writes it.
 
 ### What it precludes (mandatory)
 
 - **The epoch is coarse and one-way.** Any override of `size`/`at` on `List` deopts
   **all** `List` iteration, **permanently, process-wide** — there is no re-optimization,
   exactly as `bool_sacred_pristine` has no path back to `true`. That is the price, and
-  it is the price ADR-0018 already agreed to pay.
+  it is the price TDR-0016 already agreed to pay.
 - **It precludes per-site tiering.** A monotone `bool` is the wrong shape if Phalcom
   ever wants tiered reopt or per-callsite deopt. Adopting it for `List` deepens a
   commitment to coarse, global, one-way invalidation. That is a real cost and it should
@@ -733,13 +733,13 @@ amends ADR-0035) before anyone writes it.
   when the object model can be reshaped at runtime, the implementation pays for it
   forever unless there is a guard.
 
-Phalcom already picked Java's answer once, in ADR-0018. **Picking it again for `List` is
+Phalcom already picked Java's answer once, in TDR-0016. **Picking it again for `List` is
 cheaper and less precluding than picking Ruby's problem's solution (sealing).**
 
 ### The generalisation is bigger than the arm — and it is the real prize
 
 010 notes it and then drops it: `Iterable.iterate` calls `self.size` **per element**, and
-`size` is a `.ph` wrapper over a native on **every** collection (ADR-0048 makes
+`size` is a `.ph` wrapper over a native on **every** collection (TDR-0042 makes
 `Iterable` the root). **Fixing `List` is one row; fixing `Iterable` is language-wide
 iteration.**
 

@@ -2,17 +2,17 @@
 
 Continuing: implement `M-ATTR-ROOT` (the `Attribute`/`@On`/tier-singleton/retention
 mechanism — first foundational unit of `docs/forge/PLAN-DECORATORS.md`, the
-Install/Dispatch/Runtime decorator work ratified this session under ADR-0054).
+Install/Dispatch/Runtime decorator work ratified this session under TDR-0045).
 
 **Adopt `/forge senior` first.** Entry points below are pre-verified — do not re-survey.
 
 ## What's landed on `main` already (commits, this session)
 
-- ADR-0052/0053 ratified (Proposed → Accepted).
-- ADR-0057 (decorator vs proxy granularity split, both kept) — new, Accepted.
-- ADR-0058 (Reactive tracking-context needs a native module, not class-side `.ph`
+- TDR-0043/0053 ratified (Proposed → Accepted).
+- TDR-0046 (decorator vs proxy granularity split, both kept) — new, Accepted.
+- TDR-0047 (Reactive tracking-context needs a native module, not class-side `.ph`
   state) — new, Accepted.
-- ADR-0054 fully ratified (Install/Dispatch/Runtime tier unblocked; both gate
+- TDR-0045 fully ratified (Install/Dispatch/Runtime tier unblocked; both gate
   conditions in Decision §2 satisfied).
 - `docs/spec/current/drafts/decorators-behavioral.md`, `decorators-dispatch-observability.md`,
   `decorators-observable.md` — new, ratified, all open questions (B-1/B-2/D-1/D-2/D-3/R-1..R-5)
@@ -28,7 +28,7 @@ Install/Dispatch/Runtime decorator work ratified this session under ADR-0054).
   depend on M-ATTR-ROOT — pure library code, safe, already done.
 - **NOT built:** `Flags` (`@featureFlag`'s registry) — cannot be pure `.ph`, needs a
   native module (no `.ph`-reachable class-side/module mutable state exists today,
-  `concurrency.md:234`, same class of gap as ADR-0058's `Reactive` finding).
+  `concurrency.md:234`, same class of gap as TDR-0047's `Reactive` finding).
   `Backoff.fixed`/`.exponential` raise rather than working — `System.sleep(_)` doesn't
   exist yet (`system.md`: "still open").
 
@@ -112,7 +112,7 @@ this is real signal, not a guess.
   `__freezeAttributes` Method(0)) on `object_class` instance-side**
   (`universe/primitives.rs:~38+`). Because `Object` sits at the bottom of every
   metaclass chain, this single registration site covers class objects, method
-  objects, and module objects (confirmed via the ADR-0002 parallel rule) — no need
+  objects, and module objects (confirmed via the TDR-0002 parallel rule) — no need
   for three separate registration sites.
 - **`Behavior` class already exists** in the tower (`core_classes.rs:18`,
   `behavior_class` field), not yet reopened in `core.ph`. Neither is `Method`. Both
@@ -189,10 +189,10 @@ this is real signal, not a guess.
 - Does `Bytecode::Method`'s handler clone or share the method `ObjRef`? The
   member-level attach plan assumes it shares (mutating the dict's method object
   in place). Verify in `vm/mod.rs`'s `Bytecode::Method` arm.
-- Freeze necessity is NOT gate-required by ADR-0053/A-5 (mutation must error
+- Freeze necessity is NOT gate-required by TDR-0044/A-5 (mutation must error
   eventually, but doesn't have to be enforced in this first landing). If member-loop
   freeze emission proves stack-fragile, ship class-level freeze only and defer
-  member-level freeze — do NOT build an epoch counter instead (ADR-0053 explicitly
+  member-level freeze — do NOT build an epoch counter instead (TDR-0044 explicitly
   rules this out).
 
 ## Separately triaged — 4 pre-existing red test groups + 1 new bug (read-only, not fixed)

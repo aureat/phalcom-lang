@@ -5,7 +5,7 @@
 > verified 164/0. This document is now the **as-built record**; §7 lists the deviations
 > discovered during implementation — read §7 before writing any future impl spec, its
 > items are standing obligations. Scope addition at ratification:
-> [PDR-0013](../../../pdr/0013-path-is-bytes-backed-filesystem-surface.md) ruling 4's
+> [TDR-0065](../../../../decisions/accepted/0065-path-is-bytes-backed-filesystem-surface.md) ruling 4's
 > `utf8Lossy_` shipped here as the **eleventh** primitive (own census constant
 > `NEW_BYTES_LOSSY`). Surface contract: [`../stdlib/bytes.md`](../../spec/current/stdlib/bytes.md).
 > `file:line` anchors below are as of the pre-implementation tree (`4c902b3`).

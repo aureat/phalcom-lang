@@ -59,7 +59,7 @@ if is_static {
 } else {
     self.heap.class_mut(class_id).add_method(selector, method_id);
     self.world_version += 1;
-    // Sacred-selector override-epoch tracking (ADR-0018): ...
+    // Sacred-selector override-epoch tracking (TDR-0016): ...
     self.universe.note_method_installed(class_id, selector, &self.interner);
 }
 ```
@@ -448,7 +448,7 @@ from `world_version` and from any other module's counter, matching
 ## 7. Guard opcodes — adjacent, not core (brief)
 
 `GuardBool`/`GuardBlock` (`vm/dispatch.rs` @ L1184-1195) and
-`note_method_installed` (`universe/mod.rs` @ L188) are the ADR-0018
+`note_method_installed` (`universe/mod.rs` @ L188) are the TDR-0016
 sacred-selector pristine-flag fast path — a narrower, separate mechanism from
 the general method IC. `note_method_installed` flips one of four boolean
 "pristine" flags (`bool_sacred_pristine`, `block_sacred_pristine`,
@@ -457,7 +457,7 @@ the general method IC. `note_method_installed` flips one of four boolean
 instant a sacred selector (`ifTrue(_)`, etc.) is redefined directly on kernel
 `Bool`/`Block`/`Number`/`Symbol`/`String`. The guard opcodes then read the flag
 each time to decide whether the compiler's inlined fast path (jump opcodes
-instead of a real send, per ADR-0018) is still safe to take:
+instead of a real send, per TDR-0016) is still safe to take:
 
 ```rust
 Bytecode::GuardBool(offset) => {
@@ -610,7 +610,7 @@ Output:
 
 ## 9. Bounded ADR/plan/perf-log read
 
-- **ADR-0012** (`docs/adr/accepted/0012-selector-signature-encoding-and-dispatch.md`)
+- **TDR-0011** (`docs/adr/accepted/0012-selector-signature-encoding-and-dispatch.md`)
   — Decision (L47-50): *"Dispatch is built **inline-cache-ready**: each call
   site owns a monomorphic cache slot (receiver class → resolved method), keyed
   by the stable class handle... The IC *population* may be deferred, but the
@@ -620,22 +620,22 @@ Output:
   Alternatives considered (L79-81): populating the IC immediately was
   considered and explicitly rejected at ADR time as premature ("front-loads
   polymorphic/megamorphic bookkeeping onto dispatch that is not yet correct").
-  **Confirms the seam-reservation framing**: ADR-0012 fixed the shape (a
+  **Confirms the seam-reservation framing**: TDR-0011 fixed the shape (a
   `ClassId`-keyed slot per call site) at zero cost; population happened later,
   piecemeal, outside this ADR's own scope.
-- **ADR-0051** (performance strategy) — one line: Tier 3 of the tiered strategy
+- **TDR-0049** (performance strategy) — one line: Tier 3 of the tiered strategy
   is explicitly named "`U-IC`: selector-only interner + monomorphic inline
   cache at the `ClassId` seam + superinstructions" (L89-90), i.e. the plan
-  ADR-0051 points at is the same not-yet-fully-landed U-IC unit described in
+  TDR-0049 points at is the same not-yet-fully-landed U-IC unit described in
   §4.
-- **ADR-0018** (sacred-selector guards) — one line: the compiler recognizes a
+- **TDR-0016** (sacred-selector guards) — one line: the compiler recognizes a
   sacred selector with a literal block argument at the call site and emits
   jump opcodes instead of a real send, guarded by the pristine flags §7 reads.
-- **ADR-0041** (hierarchy-stability policy) — mutations requiring invalidation:
+- **TDR-0036** (hierarchy-stability policy) — mutations requiring invalidation:
   the ADR seals `superclass` at class creation (DEC-U13a, "methods stay open"),
   and its "what must this not preclude" section names the mutation that a
   *future* mutable-superclass feature would need to handle: *"invalidate every
-  dependent inline cache (reusing the ADR-0018 override epoch)"* (L79-80) —
+  dependent inline cache (reusing the TDR-0016 override epoch)"* (L79-80) —
   language that assumes an epoch-shaped invalidation mechanism, which (per §0
   above) is not what shipped; what shipped is the coarser global counter. The
   ADR also states plainly (L106-107): *"Dispatch stays exactly one hashmap
@@ -713,7 +713,7 @@ above is the ground truth for this table, not the graphify traversal alone.
 2. `note_method_installed` guards **five** pristine flags, not a single
    "sacred selector" flag — `bool_sacred_pristine`, `block_sacred_pristine`,
    `number_tostring_pristine`, `symbol_tostring_pristine`,
-   `str_tostring_pristine`. Still one mechanism, ADR-0018-scoped, correctly
+   `str_tostring_pristine`. Still one mechanism, TDR-0016-scoped, correctly
    described as adjacent-not-core to this doc.
 3. The U-IC plan's "Preconditions" section (`err-plan.md` L33: "no IC is populated
    (only comment stubs at `vm.rs:1578,1630`, `bytecode.rs:92`)") is **stale**

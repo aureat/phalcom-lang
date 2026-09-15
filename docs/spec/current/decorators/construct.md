@@ -1,7 +1,7 @@
 # `@construct` — derive constructor methods from class fields
 
 - Status: **Canonical design; implementation currently uses legacy internals**
-- Governing decision: [PDR-0028](../../../pdr/0028-class-and-constructor-decorator-canon.md)
+- Governing decision: [TDR-0072](../../../decisions/accepted/0072-class-and-constructor-decorator-canon.md)
 - Related: [`@constructor`](constructor.md) · [Classes](../classes.md) · [pending notes](../../../work/pending/ctor/notes/construct-derive.md)
 
 ## What it does

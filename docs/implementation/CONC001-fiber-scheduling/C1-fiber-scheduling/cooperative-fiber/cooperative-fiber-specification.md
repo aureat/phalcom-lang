@@ -3,7 +3,7 @@
 > **Status:** Normative surface (deepens the ratified spec). Unit-scoped, full-detail
 > specification for U-FIBER. It **extends** [`concurrency.md`](../../../spec/current/concurrency.md)
 > §1 (Draft 0.1, execution model ratified by
-> [ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md)) — that
+> [TDR-0026](../../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md)) — that
 > document stays the surface index; this one adds the `FiberObject` state machine, the
 > operational semantics of `call`/`yield`/`try`/`abort` (the O(1) switch + the typed
 > `ControlFlow` signal), the restricted-yield guard at the bytecode level, the
@@ -12,16 +12,16 @@
 > `yield`/resumer/result-slot seam with the later [[U-FUTURE]](../U-FUTURE/specification.md)),
 > worked examples, and conformance points.
 >
-> **Governing sources.** [ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md)
+> **Governing sources.** [TDR-0026](../../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md)
 > §1–§7 (the execution model — the whole thing); [`concurrency.md`](../../../spec/current/concurrency.md)
 > §1 (the surface); [`forward-compat.md`](../../../spec/current/core/forward-compat.md) §7
 > (the code-grounded foreclosure audit, D1–D7 + the re-entrant-loop finding);
-> [ADR-0009](../../../adr/0009-handle-arena-heap.md) (arena heap — `Object::Fiber`, no
-> native fiber stacks); [ADR-0010](../../../adr/0010-tagged-value-enum.md) (tagged
-> `Value` — no `Value::Fiber` arm); [ADR-0013](../../../adr/0013-closure-upvalues-and-frame-token-return.md)
+> [TDR-0008](../../../../decisions/accepted/0008-handle-arena-heap.md) (arena heap — `Object::Fiber`, no
+> native fiber stacks); [TDR-0009](../../../../decisions/accepted/0009-tagged-value-enum.md) (tagged
+> `Value` — no `Value::Fiber` arm); [TDR-0012](../../../../decisions/accepted/0012-closure-upvalues-and-frame-token-return.md)
 > (frame-token non-local return, fiber-local by construction);
-> [ADR-0008](../../../adr/0008-layered-exceptions-and-result.md) (one unwind primitive —
-> the seam the fiber-floor capture layers over); [ADR-0033](../../../adr/0033-amend-fiber-execution-trampolined-block-callsite.md)
+> [TDR-0007](../../../../decisions/accepted/0007-layered-exceptions-and-result.md) (one unwind primitive —
+> the seam the fiber-floor capture layers over); [TDR — Amend the fiber execution model — trampoline the bytecode block call-site](../../../../decisions/retired/amend-fiber-execution-trampolined-block-callsite.md)
 > (the Deferred `.each { yield }` lift — this unit only *builds the switch signal* it
 > depends on).
 >
@@ -150,7 +150,7 @@ never `done`/`failed` under normal termination and has no resumer.
 ## 3. Execution model — restricted yield (Option A)
 
 *Deepens [`concurrency.md`](../../../spec/current/concurrency.md) §1 "Execution model";
-grounded in [ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md) §4
+grounded in [TDR-0026](../../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) §4
 and [`forward-compat.md`](../../../spec/current/core/forward-compat.md) §7.2.*
 
 ### 3.1 The crown-jewel hazard — native-stack frames ⊗ suspendable control {#the-crown-jewel}
@@ -185,7 +185,7 @@ suspended position.
 
 **This is a guard, not a wall.** The residue (`.each { yield }`, a stored-block generator,
 a user native combinator that yields) is the **Deferred**
-[ADR-0033](../../../adr/0033-amend-fiber-execution-trampolined-block-callsite.md) lift —
+[TDR — Amend the fiber execution model — trampoline the bytecode block call-site](../../../../decisions/retired/amend-fiber-execution-trampolined-block-callsite.md) lift —
 de-recursing the block call-site (Option B), purely additive, breaking no program that ran
 under A, to land *with* the typed switch signal U-FIBER builds (§4.3). U-FIBER **does not**
 implement ADR-0033. The common generator ergonomic is delivered for v0.2 by
@@ -268,9 +268,9 @@ boundary raises `DeadFrameError`." **This falls out with no new code**, provided
 
 ## 5. Failure and the fiber-floor unwind
 
-*Grounded in [ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md) §6,
+*Grounded in [TDR-0026](../../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) §6,
 [`forward-compat.md`](../../../spec/current/core/forward-compat.md) §7.1 D7,
-[ADR-0008](../../../adr/0008-layered-exceptions-and-result.md), and the landed U-CORE-6
+[TDR-0007](../../../../decisions/accepted/0007-layered-exceptions-and-result.md), and the landed U-CORE-6
 unwind.*
 
 A fiber that raises (via `throw`→`raise`, `abort(_)`, or any `RuntimeError`) must **capture
@@ -349,7 +349,7 @@ documents the restriction and the `for`-loop workaround (§7.1). It is **never**
 ### 7.1 `Fiber` ⊗ `for` — the generator seam (with [[U-ITER]](../U-ITER/specification.md))
 
 *Cross-links [[U-ITER §7.1]](../U-ITER/specification.md#fiber-generator-seam),
-[ADR-0035](../../../adr/0035-iteration-protocol-cursor.md) §5, ADR-0030 §4.*
+[TDR-0029](../../../../decisions/accepted/0029-iteration-protocol-cursor.md) §5, ADR-0030 §4.*
 
 The cursor protocol needs **no** `Fiber`; conversely, `for` is the idiomatic v0.2
 generator body because it lowers to an inlined `while` (no `block_call`) and so **suspends

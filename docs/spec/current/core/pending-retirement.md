@@ -10,7 +10,7 @@
 > in [`README.md`](./README.md) §"Baseline & drift policy"; this doc inherits
 > them. Retirement-specific effects: **U10** retired
 > `blocks_non_local_return`/`_bare`; **U-LEX** shipped string interpolation as
-> **`\(expr)`** ([ADR-0022](../../../adr/0022-string-interpolation-backslash-paren-sigil.md),
+> **`\(expr)`** ([TDR-0020](../../../decisions/accepted/0020-string-interpolation-backslash-paren-sigil.md),
 > not the `"{expr}"` form earlier drafts cited) but **not** selector literals
 > `#…`, collection literals `[…]`/`{…}`/`(…)`, `::`, or spread-call syntax
 > (DEFERRED #6/#21/#28) — which is why many reflection fixtures below stay
@@ -89,7 +89,7 @@ green lane actually guards the feature.
 | `absence/pending/absence_comparison_lt_gt` | `<`/`>` as sends (U5) | `absence/` |
 | `bindings/pending/binding_var_reassignment` | `var` reassignment (U6, ADR-0014) | `bindings/` |
 | `control-flow/pending/control_flow_while` | `while` lowering (U4/U5) | `control-flow/` |
-| `control-flow/pending/control_flow_sacred_selector_inliner` | `{…}.whileTrue{…}` sacred inliner (U5, ADR-0018) | `control-flow/` |
+| `control-flow/pending/control_flow_sacred_selector_inliner` | `{…}.whileTrue{…}` sacred inliner (U5, TDR-0016) | `control-flow/` |
 | `dispatch/pending/dispatch_does_not_understand` | overridable dNU hook (U8) | `dispatch/` |
 | `control-flow/pending/control_flow_iftrue_iffalse` | `Option#unwrapOr` (U-STD, `core.ph:105`) | `control-flow/` |
 | `dispatch/pending/dispatch_rest_param` | `List#reduce` (U-STD, `core.ph:169`) | `dispatch/` |
@@ -132,8 +132,8 @@ one, others are co-requisites. "syntax" always means **U-LEX**.
 | `control-flow/control_flow_for` | C | `for (x in …)` + list literal | **U-LEX** |
 | `classes/class_inheritance_super` | C | `class Dog : Animal` + `super.speak()` | **inheritance unit** (not U-CORE) |
 | `classes/class_attribute_construct_get_set` | C | `@construct` / `@get` attribute annotations | **attribute unit** (not U-CORE) |
-| `errors/errors_throw_try_catch_finally` | B+C | `throw`/`try`/`catch`/`finally` (ADR-0008) | **U-CORE-6** + error-syntax |
-| `errors/errors_result_bridge` | B | `Result`/`Ok`/`Err` + `.attempt()`/`.unwrap()` bridge (ADR-0008) | **U-CORE-6** (Result unit) |
+| `errors/errors_throw_try_catch_finally` | B+C | `throw`/`try`/`catch`/`finally` (TDR-0007) | **U-CORE-6** + error-syntax |
+| `errors/errors_result_bridge` | B | `Result`/`Ok`/`Err` + `.attempt()`/`.unwrap()` bridge (TDR-0007) | **U-CORE-6** (Result unit) |
 | `concurrency/concurrency_fiber_yield_resume` | E | `Fiber` class (concurrency.md) | concurrency unit |
 | `concurrency/concurrency_future_async_await` | E | `Future` class (concurrency.md) | concurrency unit |
 | `system/system_args` | E | `System.args` | system unit |
@@ -153,7 +153,7 @@ an immediate green.
 | **U-CORE-2** absence + Boolean | — (its combinators already landed `0da64d6`; no pending fixture is gated on the residue) | — |
 | **U-CORE-3** callables/Block | — | `functions/functions_method_for_invoke_on`, `functions/functions_method_bind`, `messages/messages_family_reference` (all need U-LEX `#…`/`&`) |
 | **U-CORE-4** value classes | `absence/absence_option_none`, `absence/absence_var_defaults_to_none`, `bindings/binding_var_uninitialized` (all via `None#toString`) | `absence/absence_option_some` (needs U-LEX `Some(_)` sugar too); `messages/messages_selector_symbol_literal` (Symbol `toString`, needs U-LEX literal) |
-| **U-CORE-5** collection contract | — (contract, not classes — ADR-0020; flips nothing directly) | enables `Map`/`Set` fixtures once those classes land |
+| **U-CORE-5** collection contract | — (contract, not classes — TDR-0018; flips nothing directly) | enables `Map`/`Set` fixtures once those classes land |
 | **U-CORE-6** errors | — | `errors/errors_result_bridge`, `errors/errors_throw_try_catch_finally` (both need error-syntax sugar) |
 
 > **U-STD update:** `List#reduce` and `Option#unwrapOr` have since landed
@@ -181,4 +181,4 @@ waiting on the lexer.
 | `None#toString` / per-type `toString` owner | [`catalog-delta.md`](./catalog-delta.md) §4.4 → U-CORE-4 |
 | `Option#unwrapOr` re-scoped to U-STD | [`catalog-delta.md`](./catalog-delta.md) §2.2 |
 | `isA`/`hash` on `Object` | [`object-model.md`](../object-model.md) §8 → U-CORE-1 |
-| error mechanism | [ADR-0008](../../../adr/0008-layered-exceptions-and-result.md) → U-CORE-6 |
+| error mechanism | [TDR-0007](../../../decisions/accepted/0007-layered-exceptions-and-result.md) → U-CORE-6 |

@@ -2,7 +2,7 @@
 
 Part of the [Phalcom Language Specification](README.md). Status: Normative
 (promoted from `experimental/iteration-protocol.md`, ratified by
-[ADR-0035](../../adr/0035-iteration-protocol-cursor.md)).
+[TDR-0029](../../decisions/accepted/0029-iteration-protocol-cursor.md)).
 
 Every form of iteration in Phalcom — `for`, `.each`, `.map`, `.filter`,
 `.reduce` — bottoms out in **one** two-selector cursor protocol. A value is
@@ -21,7 +21,7 @@ A value is **iterable** iff it answers:
 The cursor is an ordinary value — for `List` it is an integer index; for a tree it
 might be a node. **No iterator object is allocated.** `Option` carries the "is
 there more?" signal, so no surface `nil` ever appears
-([Invariant 4](README.md); [ADR-0007](../../adr/0007-option-as-abstract-with-some-none.md)).
+([Invariant 4](README.md); [TDR-0006](../../decisions/accepted/0006-option-as-abstract-with-some-none.md)).
 
 These two selectors are the only "magic methods" of iteration — the analogue of
 Python's `__iter__`/`__next__`, but cursor-based rather than object-based. They are
@@ -80,16 +80,16 @@ for (x in xs) {
 label, and a `continue` → loop-step label — **bypassing the overridable
 `whileTrue(_)` send** rather than routing through it. This keeps the jump targets
 always valid: there is **no inliner-deopt path** to fall back to
-([ADR-0018](../../adr/0018-sacred-selector-inliner-and-override-guard.md)), and a
+([TDR-0016](../../decisions/accepted/0016-sacred-selector-inliner-and-override-guard.md)), and a
 `continue` re-runs the cursor's `iterate(_)` step. Loops *without* `break`/`continue`
 keep the plain `whileTrue`/cursor desugar (§2). The semantics are identical either
 way; the direct lowering is purely how loop-control stays sound
-([ADR-0035](../../adr/0035-iteration-protocol-cursor.md) §3).
+([TDR-0029](../../decisions/accepted/0029-iteration-protocol-cursor.md) §3).
 
 ## 4. Dispatch and the inliner
 
 `iterate(_)`/`iteratorValue(_)` are **not** sacred selectors and are **not**
-inlined ([ADR-0018](../../adr/0018-sacred-selector-inliner-and-override-guard.md)).
+inlined ([TDR-0016](../../decisions/accepted/0016-sacred-selector-inliner-and-override-guard.md)).
 Only the loop *scaffold* — the `whileTrue(_)` skeleton and the `Option` `isSome`
 test — is inlined to jumps. A `for` loop is therefore an inlined `while` skeleton
 driving two regular protocol sends per step: cheap control flow, fully generic
@@ -129,7 +129,7 @@ selectors.
 
 The cursor protocol needs **no** `Fiber`. A lazy or infinite sequence is produced
 by a `Fiber`-backed generator, subject to the restricted-yield model
-([ADR-0030](../../adr/0030-fibers-and-futures-cooperative-concurrency.md) §4): a
+([TDR-0026](../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) §4): a
 generator that `yield`s **under a non-inlined native callback** (a `block_call`
 inside a combinator) raises `CannotYieldAcrossNativeFrame`, while a cursor-based or
 inlined producer suspends freely. An external pull-iterator / `Stream` layer, if ever wanted, builds

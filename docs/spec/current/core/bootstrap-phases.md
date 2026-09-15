@@ -13,7 +13,7 @@ The kernel tower is cyclic: `Metaclass.class == Metaclass class` and
 `(Metaclass class).class == Metaclass`; `Object` has no superclass yet
 `Object class` inherits from `Class` ([`../object-model.md`](../object-model.md)
 §5–6). No pure top-down or bottom-up construction order exists, so the tower is
-built by **allocate-then-patch** ([ADR-0009](../../../adr/0009-handle-arena-heap.md)):
+built by **allocate-then-patch** ([TDR-0008](../../../decisions/accepted/0008-handle-arena-heap.md)):
 every class row is first allocated *bare* to obtain its `ClassId`, then its
 `class` and `superclass` handles are written in place. Between allocation and
 patching the graph is deliberately inconsistent. The phases below fence those
@@ -30,7 +30,7 @@ Source of truth: [`vm.rs::VM::new`](../../../../phalcom-core/src/vm.rs) L116–1
 | **B** | Tower allocate-then-patch | `Universe::new` → `create_core_classes` | 19 named kernel classes (incl. `Message`, U8) (+ their metaclasses) + immediate `None` variant, fully wired |
 | **C** | VM struct assembly | `VM { … }` literal | frames/stack/module maps, `universe` moved in |
 | **D** | Core module + globals | `install_core` | core module registered; class globals + `None`-value global bound |
-| **E** | Fixed-slot layouts | inline block, `VM::new` | `Some._value` at slot 0, plus the `Message` four-slot layout ([ADR-0011](../../../adr/0011-static-instance-slot-layout.md)) |
+| **E** | Fixed-slot layouts | inline block, `VM::new` | `Some._value` at slot 0, plus the `Message` four-slot layout ([TDR-0010](../../../decisions/accepted/0010-static-instance-slot-layout.md)) |
 | **F** | Primitive floor install | `Universe::install_primitives` | all 80 native bindings ([`floor-census.md`](./floor-census.md)) |
 | **G** | Run `core.ph` | `run_core_module` | `.ph` reopens attached (List protocol, `Option` combinators (U-CORE-2, `0da64d6`), skeletons, `System.print`) |
 | **H** | Invariant verification | `verify_invariants().expect(…)` | asserts §5–6 apex table, or aborts |
@@ -46,12 +46,12 @@ Source of truth: [`vm.rs::VM::new`](../../../../phalcom-core/src/vm.rs) L116–1
 3. Wire instance-side superclasses (`Object.superclass = None`, `Behavior→Object`,
    `Class→Behavior`, `Metaclass→Behavior`).
 4. Wire metaclass-side superclasses by the parallel rule
-   ([ADR-0002](../../../adr/0002-metaclass-tower-parallel-rule.md)):
+   ([TDR-0002](../../../decisions/accepted/0002-metaclass-tower-parallel-rule.md)):
    `(X class).superclass == (X.superclass) class`.
 5. `make_core_class` for the ordinary rows, **in this load order**:
    `Number, String, Nil, Bool, Method, Function, Block(<Function), Symbol,
    Module, System`, then absence `Option, Some(<Option), None(<Option)`, then
-   establish the **immediate `None` variant**, then `List` (positioned per ADR-0020 after
+   establish the **immediate `None` variant**, then `List` (positioned per TDR-0018 after
    absence, before any dependant), then `Message` (U8, `< Object`, after `List`
    per its `args`-dependency note).
 6. (returns `CoreClasses`; `verify_invariants` is step 7, deferred to Phase H.)
@@ -101,7 +101,7 @@ must be preserved by any change to `VM::new`:
    tower, so H after G is safe and final).
 
 Everything else (e.g. the relative order of unrelated `make_core_class` calls
-within B.5, beyond the ADR-0020 `List`-after-absence constraint) is free.
+within B.5, beyond the TDR-0018 `List`-after-absence constraint) is free.
 
 ## 5. Self-hosting layering rule for `core.ph` (R-BOOT-2)
 

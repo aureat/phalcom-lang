@@ -1,8 +1,8 @@
 # Deferred: class-sealing follow-ups (unowned)
 
-Split out of the [PDR-0001](../pdr/0001-classes-are-closed.md) design work
+Split out of the [TDR-0053](../../decisions/accepted/0053-classes-are-closed.md) design work
 (2026-07-19). These are items that work surfaced which are **not** in scope for either of
-PDR-0001's two units and currently have no owning unit.
+TDR-0054's two units and currently have no owning unit.
 
 > **Both units have since landed** — `U-CLASSNS`, then `U-CLASSCLOSE` (`7c2cfab`, plus
 > `14cdfb9` / `c346200`); see
@@ -150,11 +150,11 @@ the union-read in `compiler/attributes.rs` collapsed back to one source — beco
 
 ### Why 0065 stopped short
 
-Adding the body drags ADR-0044's bootstrap ordering into a unit that otherwise does not touch
+Adding the body drags TDR-0038's bootstrap ordering into a unit that otherwise does not touch
 it: `Nil`→`None` surfacing runs *during* bootstrap, **before** `.ph` decorators. #35 flags that
 as an open unknown, not as known-safe. Two questions must be answered before any code:
 
-1. Can `None` take a `.ph` body (or a native attach) without disturbing ADR-0044's `Option`
+1. Can `None` take a `.ph` body (or a native attach) without disturbing TDR-0038's `Option`
    bootstrap?
 2. ~~**Ownership.**~~ **RESOLVED 2026-07-19 — #35 overstates this; there is no hazard.**
    #35 predicted that bootstrap writes `sealed_classes[Option] = <bootstrap module>` while an
@@ -175,7 +175,7 @@ as an open unknown, not as known-safe. Two questions must be answered before any
 
 Not to be confused with the B-wide form (`@sealed class Option { @variant Some(v); @variant
 None }`), which needs its own decision: `@variant` generates `@data` classes with mutable
-fields, but `None` must stay a zero-allocation singleton (ADR-0044), and
+fields, but `None` must stay a zero-allocation singleton (TDR-0038), and
 `Option#match(some:none:)` is already hand-rolled native
 (`phalcom-core/src/universe/primitives.rs:191-198`) precisely because it is the eliminator
 `@variant` would generate.
@@ -222,7 +222,7 @@ representation question is answered by that work instead.
 
 ## 5. The nested-class ban is a syntax rule, not an invariant
 
-**Created by:** U-CLASSCLOSE's parser ban (PDR-0001 ruling 5). Verified 2026-07-20.
+**Created by:** U-CLASSCLOSE's parser ban (TDR-0054 ruling 5). Verified 2026-07-20.
 
 `class.nested_declaration` is raised in exactly one place — `phalcom-ast/src/parser.rs:1638`,
 reached from `parse_block_statements`. `rg "nested_declaration|NestedClass"` over
@@ -258,13 +258,13 @@ mechanical fix, which is why it is parked here rather than done.
 
 ## 6. Kernel override coverage no longer exercises the `.ph` path — by design, and it is a real hole
 
-**Created by:** PDR-0001 itself. Recorded in
+**Created by:** TDR-0054 itself. Recorded in
 [the implementation log §4.1](../logs/2026-07-20-u-classclose-two-issues-and-five-restored-tests.md);
 repeated here because a log entry is not a tracked item.
 
 Five goldens reopened a **kernel** class from user source to flip an override-epoch flag or bust
 an inline cache (`Number#toString`, `Bool#and` ×2, `Block#whileTrue`, `Option#match`). Reopening a
-kernel class is precisely what PDR-0001 removes, so the fixtures could not survive. Coverage was
+kernel class is precisely what TDR-0054 removes, so the fixtures could not survive. Coverage was
 restored in-crate — `phalcom-core/src/universe/mod.rs`'s `#[cfg(test)] mod tests`, five tests —
 driving the install path directly (`add_method` → `world_version` bump →
 `note_method_installed`, in that exact order, mirroring `Bytecode::Method`'s handler). This must
@@ -283,7 +283,7 @@ The two `chunk.rs` inline-cache tests do exercise the real `.ph` compile path, b
 
 **Direction (not a ruling):** a test that compiles a class body directly **into the core module**
 would close it — the one remaining sanctioned way to install onto a kernel class (stub completion,
-PDR-0001 ruling 4). That needs a test seam for "compile this source as the core module," which
+TDR-0054 ruling 4). That needs a test seam for "compile this source as the core module," which
 does not exist today. Worth scoping before anyone assumes kernel override is covered end to end.
 
 ---

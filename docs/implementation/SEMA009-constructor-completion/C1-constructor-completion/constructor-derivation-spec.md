@@ -3,12 +3,12 @@
 - Status: **Proposed** (experimental; not ratified)
 - Date: 2026-07-11
 - Depends on: [annotations-core.md](annotations-core.md)
-- Related: ADR-0011 (fixed slot layout), ADR-0014 (`let`/`var` bindings), classes.md §1–2, selectors.md §1 (R3 label order = identity)
+- Related: TDR-0010 (fixed slot layout), ADR-0014 (`let`/`var` bindings), classes.md §1–2, selectors.md §1 (R3 label order = identity)
 
 ## Context
 
 `@construct` is **not** a body-weave — it generates a whole member from the field
-set and therefore touches instance layout (ADR-0011's fixed slot vector). It is
+set and therefore touches instance layout (TDR-0010's fixed slot vector). It is
 the **layout-derive** tier and has two prerequisites absent from the current tree.
 
 ## Decision
@@ -77,7 +77,7 @@ ClassMember::Construct(ConstructDef {
 
 Derive an accessor pair for a field field-member. `@get var _label` ⇒ `label =>
 _label`; `@set` ⇒ `label=(value) { _label = value }`. Collision with a
-hand-written accessor of the same selector is a **compile error** (ADR-0012:
+hand-written accessor of the same selector is a **compile error** (TDR-0011:
 selector is the sole dispatch key — no last-wins). `@get(priv)` is **advisory
 naming only**, never enforcement (selectors.md §5 rejects visibility syntax).
 

@@ -3,13 +3,13 @@
 - Status: **Proposed** (experimental; not ratified)
 - Axis: typing ⊗ standard-library surface
 - Resolves: [typing.md](spec/design/experimental/typing.md) Tier-2 gaps #5 (variadics), #6 (equality), #8 (catch) and Tier-3 (root protocol, collection literals, interpolation)
-- Related: [equality-and-hash.md](equality-and-hash.md), [iteration-protocol.md](iteration-protocol.md), [numeric-and-string-indexing.md](numeric-and-string-indexing.md), [error-handling.md](../error-handling.md), [messages-and-selectors.md](../messages-and-selectors.md), [ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md)
+- Related: [equality-and-hash.md](equality-and-hash.md), [iteration-protocol.md](iteration-protocol.md), [numeric-and-string-indexing.md](numeric-and-string-indexing.md), [error-handling.md](../error-handling.md), [messages-and-selectors.md](../messages-and-selectors.md), [TDR-0011](../../decisions/accepted/0011-selector-signature-encoding-and-dispatch.md)
 
 ## Problem
 
 [typing.md](spec/design/experimental/typing.md) types `List` and the core forms but skips several *committed*
 surface features and the root of the type lattice: the universal `Object` protocol
-(what `Any` can do), how `==` is typed, variadic rest params (`*xs`, ADR-0012), the
+(what `Any` can do), how `==` is typed, variadic rest params (`*xs`, TDR-0011), the
 `catch` binding, and the non-`List` collection / interpolation literals. Each is a
 small but load-bearing decision; left implicit they will be improvised inconsistently.
 

@@ -44,7 +44,7 @@ without docs is incomplete and a reviewer must block it.
   `[\`module\`]` so the docs are navigable. Don't paste bare type names as prose.
 - **Spec grounding.** Where an item realizes a spec rule or an ADR, cite it in the doc
   (e.g. "Implements the parallel-superclass rule — see `docs/spec/object-model.md` §5 /
-  ADR-0002."). This keeps code, spec, and decisions cross-referenced.
+  TDR-0002."). This keeps code, spec, and decisions cross-referenced.
 - **Keep docs true.** When behavior changes, the doc changes in the same diff. A stale doc is
   a bug.
 

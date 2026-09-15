@@ -18,7 +18,7 @@ deferred_reason: null
 _Self-contained implementation plan for **one** implementer. Post-U-ITER / post-U-STD unit.
 **Reviewer ON** (touches `compiler/lib.rs`, a spine file, plus `bytecode.rs`/`vm.rs`) — hand the
 diff to `phalcom-reviewer`; do not self-approve. Green gate: `./scripts/verify.sh` exits 0 +
-`cargo doc --workspace --no-deps` clean. Grounded in **[ADR-0048](../../../adr/0048-amend-iteration-bare-cursor-sentinel-and-iterable-root.md)**
+`cargo doc --workspace --no-deps` clean. Grounded in **[TDR-0041](../../../decisions/accepted/0041-amend-iteration-bare-cursor-sentinel-and-iterable-root.md)**
 (amends ADR-0035 §1/§4) and normative **[iteration.md](../../../spec/current/iteration.md) §1–§6**
 (already rewritten for this unit — read it first, it is more current than ADR-0035 alone).
 
@@ -359,7 +359,7 @@ remove from each class body; nothing else in any of the five classes moves):
 **Deliberately NOT in scope:** `phalcom-ast/*` (no surface syntax changes — `for`/`break`/
 `continue` grammar is untouched), `primitive/*` (zero new native rows), `heap.rs`/`class.rs`
 (no new `Value`/`Object` variant, no `ClassObject` shape change beyond the ordinary
-`make_core_class` call already used for every kernel class), `docs/adr/*`/`docs/spec/*` (already
+`make_core_class` call already used for every kernel class), `docs/decisions/*`/`docs/spec/*` (already
 written — this unit is realization only), `docs/forge/DEFERRED.md` (flag DEC-ITER-A's closure
 for the orchestrator/reviewer, do not edit it yourself), U-SEQ's `all`/`any`/`count`/`find`/
 `join`/`toList`/lazy-view suite (iteration.md §5 lists it on `Iterable` but explicitly assigns

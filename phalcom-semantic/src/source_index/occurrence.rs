@@ -125,6 +125,7 @@ impl OccurrenceIndex {
                     crate::source_index::site::SourceSiteKind::VariantFamily(_) => (OccurrenceKind::Member, OccurrenceRole::Declaration),
                     crate::source_index::site::SourceSiteKind::VariantField(_) => (OccurrenceKind::Field, OccurrenceRole::Declaration),
                     crate::source_index::site::SourceSiteKind::DataComponent(_) => (OccurrenceKind::Field, OccurrenceRole::Declaration),
+                    crate::source_index::site::SourceSiteKind::AssociatedType(_) => (OccurrenceKind::Member, OccurrenceRole::Declaration),
                     crate::source_index::site::SourceSiteKind::Module
                     | crate::source_index::site::SourceSiteKind::Expression
                     | crate::source_index::site::SourceSiteKind::Occurrence => return None,
@@ -422,7 +423,7 @@ impl OccurrenceBuilder<'_> {
                                 self.expr(default, OccurrenceRole::Read);
                             }
                         }
-                        phalcom_ast::ast::ClassMember::Variant(_) => {}
+                        phalcom_ast::ast::ClassMember::Variant(_) | phalcom_ast::ast::ClassMember::Delegation(_) => {}
                     }
                 }
             }
@@ -446,7 +447,25 @@ impl OccurrenceBuilder<'_> {
             Statement::Export(export) => self.export_items(export),
             Statement::Break { .. } | Statement::Continue { .. } | Statement::TypeAlias(_) | Statement::Data(_) | Statement::Enum(_) | Statement::Trait(_) => {}
             Statement::Impl(impl_def) => {
-                for member in &impl_def.members {
+                for impl_member in &impl_def.members {
+                    if let phalcom_ast::ast::ImplMember::AssociatedTypeBinding(binding) = impl_member {
+                        let target = self
+                            .context
+                            .and_then(|context| context.associated_type_targets.get(&(self.scopes.module.clone(), binding.name_range)))
+                            .cloned()
+                            .map(SemanticTargetId::AssociatedType);
+                        self.record_targeted(
+                            binding.name_range,
+                            OccurrenceKind::Member,
+                            OccurrenceRole::Reference,
+                            Some(OccurrenceHint::Name(binding.name.clone().into())),
+                            target,
+                        );
+                        continue;
+                    }
+                    let Some(member) = impl_member.behavior() else {
+                        continue;
+                    };
                     match member {
                         phalcom_ast::ast::BehaviorMember::Method(m) => {
                             if let Some(body) = m.body.statements() {

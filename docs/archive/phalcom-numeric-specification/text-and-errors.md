@@ -4,7 +4,7 @@
 >
 > **Decision set:** NUM-006, NUM-007, NUM-016, NUM-018, NUM-022.
 >
-> **Related:** [`numeric-literals.md`](numeric-literals.md), [`numeric-tower.md`](numeric-tower.md), [`float-protocol.md`](float-protocol.md).
+> **Related:** [TDR-0070](../../decisions/accepted/0070-numeric-literals.md), [`numeric-tower.md`](numeric-tower.md), [`float-protocol.md`](float-protocol.md).
 
 ## 1. Constructor behavior
 

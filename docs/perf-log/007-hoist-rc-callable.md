@@ -99,7 +99,7 @@ switch into the *same* closure at a *different* `ip` still executes correctly.
 guard.** Hoisting `ip` behind it is precisely the stale-across-fiber-switch bug
 `u22-seq-spec.md` §4 calls "the classic bug this unit could ship". S1b needs a
 **frame-identity** guard — `CallFrame.generation` / `FrameToken` already exist
-(`frame.rs`, ADR-0013) — not this one. The comment at the guard site says so.
+(`frame.rs`, TDR-0012) — not this one. The comment at the guard site says so.
 
 ### Soundness precondition, verified
 

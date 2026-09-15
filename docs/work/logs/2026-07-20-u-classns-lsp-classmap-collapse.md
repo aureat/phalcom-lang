@@ -4,7 +4,7 @@
 - Scope: `phalcom-lsp` only — `index.rs`, `completion.rs`, one line of `backend.rs`
 - Realizes: [U-CLASSNS implementation-spec.md](../forge/units/U-CLASSNS/implementation-spec.md)
   §8 ("LSP — collapse, do not just re-key"), the last unbuilt piece of
-  [PDR-0001](../pdr/0001-classes-are-closed.md)
+  [TDR-0053](../../decisions/accepted/0053-classes-are-closed.md)
 - Closes: [`docs/deferred/class-sealing-followups.md`](../deferred/class-sealing-followups.md)
   item 7, filed earlier the same day
 - Related: [2026-07-20-u-classclose-two-issues-and-five-restored-tests.md](2026-07-20-u-classclose-two-issues-and-five-restored-tests.md)
@@ -53,7 +53,7 @@ The `Vec` is deleted rather than re-keyed, which is the part of §8 worth not gl
 reopening, so it no longer modelled anything real — it only merged genuinely distinct classes
 that happened to share a name.
 
-`Url` is the correct module proxy here and the only one available: a file is a module (ADR-0045),
+`Url` is the correct module proxy here and the only one available: a file is a module (TDR-0039),
 this crate never resolves `import` (`Statement::Import` is a no-op in every walker), and
 `ClassEntry` already carried the `uri`.
 

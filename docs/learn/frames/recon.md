@@ -23,7 +23,7 @@ value**, not a heap object.
   (`dispatch.rs` @ L1099). You do not unlink a node; you shorten an array.
 
 The consequence axis is representation: **frame-as-value-in-array** vs **frame-as-heap-object-with-parent-pointer**.
-This is the direct frame-level payoff of ADR-0009 (handle arena): once every link is a `Copy`
+This is the direct frame-level payoff of TDR-0008 (handle arena): once every link is a `Copy`
 handle, the frame can be `Copy`, so the array works with zero borrow pain.
 
 Cite: `frame.rs::CallFrame` @ L66 (the `Copy` derive + field list); module doc L1–6 (the *why*).
@@ -41,26 +41,26 @@ values pushed and truncated.
 
 ## 3. What was actually deliberated (ADR) vs pedagogical reconstruction
 
-- **Deliberated — ADR-0009 (handle-arena-heap).** *Decision:* objects live in a central `Heap`,
+- **Deliberated — TDR-0008 (handle-arena-heap).** *Decision:* objects live in a central `Heap`,
   referenced by `Copy` integer handles (`ObjRef`/`ClassId`); no `Rc`, no `RefCell`.
   *Alternatives considered:* (a) `Rc<RefCell<T>>` + intentional kernel cycle — rejected: keeps the
   `RefCell` borrow-panic surface; (b) an immediate tracing `Gc<T>` — rejected as too much scope up
   front. **This is the decision that makes `CallFrame` `Copy`.** The frame being a value is a
-  *consequence* of ADR-0009, not its own ADR — say so.
-- **Deliberated — ADR-0013 (closure-upvalues-and-frame-token-return).** *Decision:* non-local
+  *consequence* of TDR-0008, not its own ADR — say so.
+- **Deliberated — TDR-0012 (closure-upvalues-and-frame-token-return).** *Decision:* non-local
   return uses a **frame token** = frame index + **generation counter**; a generation mismatch
   raises `DeadFrameError`. *Alternatives:* by-value snapshot capture (rejected: breaks shared
   mutation); raw frame pointer with no generation (rejected: reused slot aliases a stale pointer).
   **This is Doc 6 (frame-identity) territory** — the `generation`/`home_frame_token` fields on the
   frame are a forward-pointer lie here.
-- **Deliberated — ADR-0018/U5 (referenced in frame.rs L51–61).** The `CallContext::Immediate`
+- **Deliberated — TDR-0016/U5 (referenced in frame.rs L51–61).** The `CallContext::Immediate`
   variant exists because a *closure* method reopened onto an immediate (`Bool`/`Number`/`Symbol`)
   has **no `ObjRef`** to point at, so the context carries the `Value` itself. A real scar, worth a
   short trace.
 - **Reconstructed (NOT an ADR).** The "stack of activation records / LIFO push-pop" framing and
   the design-space walk (heap-object-frame vs array-of-values vs native-stack) are **pedagogical
   scaffolding**. Phalcom did not hold a frame-representation bake-off; the Copy-value-in-`Vec`
-  form *fell out* of ADR-0009. The honesty pass (§5.2) must state this.
+  form *fell out* of TDR-0008. The honesty pass (§5.2) must state this.
 
 ## 4. Brief-steering notes
 
@@ -89,9 +89,9 @@ values pushed and truncated.
 - `frame.rs::CallFrame` @ L66 — quote the full struct + the `Copy` derive. Confirm **no `parent`/
   caller-pointer field exists**. This is the load-bearing negative.
 - `frame.rs::CallContext` @ L34 — quote all four variants; confirm `Immediate { value: Value }`
-  and read the L51–61 doc explaining why (ADR-0018/U5).
+  and read the L51–61 doc explaining why (TDR-0016/U5).
 - `frame.rs` module doc L1–6 — the "every link is a `Copy` handle, so the whole frame is `Copy`,
-  so plain `Vec` with no `Rc<RefCell>`" claim. Tie to ADR-0009.
+  so plain `Vec` with no `Rc<RefCell>`" claim. Tie to TDR-0008.
 - **Push:** `dispatch.rs::new_call_frame` @ ~L29 — how a frame is constructed and pushed; confirm
   the generation bump (`next_frame_generation.wrapping_add(1)` @ ~L38).
 - **Pop / unwind:** `dispatch.rs` @ ~L1099 (`frames.pop()`), `unwind_to` @ ~L110 (`frames.truncate`).

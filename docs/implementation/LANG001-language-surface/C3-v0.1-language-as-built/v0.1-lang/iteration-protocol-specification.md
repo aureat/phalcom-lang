@@ -3,7 +3,7 @@
 > **Status:** Normative surface (deepens the ratified spec). This document is the
 > unit-scoped, full-detail specification for U-ITER. It **extends** the already-normative
 > [`iteration.md`](../../../spec/current/iteration.md) (ratified by
-> [ADR-0035](../../../adr/0035-iteration-protocol-cursor.md)) — that document stays the
+> [TDR-0029](../../../../decisions/accepted/0029-iteration-protocol-cursor.md)) — that document stays the
 > terse normative index; this one adds the surface grammar, the exact operational
 > desugars at the bytecode level, the loop-control lowering, the error surface,
 > cross-feature interactions (chiefly the `for`-generator seam with
@@ -11,19 +11,19 @@
 > conformance points. **Nothing here overrides a ratified claim.** Every normative
 > statement cites its governing ADR §/spec §; where this deepens the index, it says so.
 >
-> **Governing sources.** [ADR-0035](../../../adr/0035-iteration-protocol-cursor.md)
+> **Governing sources.** [TDR-0029](../../../../decisions/accepted/0029-iteration-protocol-cursor.md)
 > (the protocol + the three lowering rules); [`iteration.md`](../../../spec/current/iteration.md)
-> §1–§7 (the promoted spec); [ADR-0018](../../../adr/0018-sacred-selector-inliner-and-override-guard.md)
+> §1–§7 (the promoted spec); [TDR-0016](../../../../decisions/accepted/0016-sacred-selector-inliner-and-override-guard.md)
 > (the sacred-selector inliner the loop scaffold rides on);
-> [ADR-0007](../../../adr/0007-option-as-abstract-with-some-none.md) (`Option` as the
-> "more?" signal); [ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md)
+> [TDR-0006](../../../../decisions/accepted/0006-option-as-abstract-with-some-none.md) (`Option` as the
+> "more?" signal); [TDR-0018](../../../../decisions/accepted/0018-kernel-list-native-array-protocol.md)
 > (`List` as the reference iterable);
-> [ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md) §4 (the
+> [TDR-0026](../../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) §4 (the
 > restricted-yield model that the `for` lowering must serve — the load-bearing
 > preclusion check).
 >
 > **Ratified constraints honored verbatim (2026-07-12).** `for` lowers to an inlined
-> cursor `while`, **never** to `.each` ([ADR-0035](../../../adr/0035-iteration-protocol-cursor.md)
+> cursor `while`, **never** to `.each` ([TDR-0029](../../../../decisions/accepted/0029-iteration-protocol-cursor.md)
 > §2). `iterate(_)`/`iteratorValue(_)` are **ordinary sends, never inlined**
 > (ADR-0035 §4). Combinator migration onto the protocol is **out of scope** —
 > **DEC-ITER-A resolved to a U-STD follow-on** (ADR-0035 §5). Zero new floor
@@ -253,7 +253,7 @@ as `break` (ADR-0035 §2, Alternatives).
 ## 5. Dispatch and the inliner (deepened)
 
 *Deepens [`iteration.md`](../../../spec/current/iteration.md) §4; grounded in
-[ADR-0018](../../../adr/0018-sacred-selector-inliner-and-override-guard.md).*
+[TDR-0016](../../../../decisions/accepted/0016-sacred-selector-inliner-and-override-guard.md).*
 
 | Element of a `for` loop | Inlined? | Mechanism |
 |---|---|---|
@@ -264,7 +264,7 @@ as `break` (ADR-0035 §2, Alternatives).
 | `unwrap` on the cursor `Some` | ordinary send | not a control selector |
 
 **Why `iterate`/`iteratorValue` must stay non-inlined** (ADR-0035 §4): they are open,
-type-specific methods ([ADR-0026](../../../adr/0026-class-hierarchy-mutability.md)).
+type-specific methods ([TDR — Methods are open; superclass reparenting is sealed](../../../../decisions/retired/class-hierarchy-mutability.md)).
 Inlining them would freeze `List`'s implementation into every `for` call-site and break
 the "a user type opts in by defining two methods" contract — `Countdown` (§2.3) would no
 longer drive `for`. Only the *fixed* `Bool`/`Block` control selectors are sacred and
@@ -299,9 +299,9 @@ time, never at runtime.
 
 *Cross-links [[U-FIBER §4.3]](../U-FIBER/specification.md#yield-guard)
 and [`iteration.md`](../../../spec/current/iteration.md) §6;
-[ADR-0030](../../../adr/0030-fibers-and-futures-cooperative-concurrency.md) §4,
-[ADR-0035](../../../adr/0035-iteration-protocol-cursor.md) §5,
-[ADR-0033](../../../adr/0033-amend-fiber-execution-trampolined-block-callsite.md) Context.*
+[TDR-0026](../../../../decisions/accepted/0026-fibers-and-futures-cooperative-concurrency.md) §4,
+[TDR-0029](../../../../decisions/accepted/0029-iteration-protocol-cursor.md) §5,
+[TDR — Amend the fiber execution model — trampoline the bytecode block call-site](../../../../decisions/retired/amend-fiber-execution-trampolined-block-callsite.md) Context.*
 
 The cursor protocol needs **no** `Fiber` (ADR-0035 §5). But the *reason* `for` lowers to
 an inlined `while` rather than to `.each` is precisely to serve the restricted-yield
@@ -325,7 +325,7 @@ Fiber.new { coll.each { x => Fiber.yield(x) } }    // ✗ CannotYieldAcrossNativ
 This interaction is **served, not precluded**, by U-ITER; it is verified by a PENDING
 cross-unit fixture that graduates when [[U-FIBER]](../U-FIBER/specification.md) lands
 (§9 C-ITER-8, implementation-spec §4). The residual `.each { yield }` lift is the
-**Deferred** [ADR-0033](../../../adr/0033-amend-fiber-execution-trampolined-block-callsite.md)
+**Deferred** [TDR — Amend the fiber execution model — trampoline the bytecode block call-site](../../../../decisions/retired/amend-fiber-execution-trampolined-block-callsite.md)
 — orthogonal to U-ITER, which adds no block-call path.
 
 ### 7.2 `for` ⊗ combinators (`.each`/`.map`/`.filter`/`.reduce`)

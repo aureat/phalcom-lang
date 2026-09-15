@@ -18,7 +18,7 @@ field-privacy diagnostic in `CompilerError` at all**. The only error that can fi
 flow-analysis one (`phalcom-core/src/compiler/lib/error.rs:100-102`):
 
 ```rust
-/// A field read whose name is in no assignment set in the class (ADR-0011).
+/// A field read whose name is in no assignment set in the class (TDR-0010).
 #[error("Read-before-write: field '{0}' is used before being assigned anywhere in this class.")]
 ReadBeforeWrite(String),
 ```
@@ -34,7 +34,7 @@ field in this class — is exactly the action that creates a **second slot**, pe
 The parent's value and the subclass's value then coexist on one object under one name, each visible
 only to the methods of its own declaring class.
 
-This is adjacent to super-construct, whose purpose (`super.new(x)`, ADR-0040 + idempotent
+This is adjacent to super-construct, whose purpose (`super.new(x)`, TDR-0035 + idempotent
 `NewInstance`) is to fill the parent's inherited slots — which the subclass then cannot read.
 
 ## Reproduction

@@ -38,7 +38,7 @@ Doc 3 pointed forward to: what a call site *does* to select and enter a method.*
   Honesty caveat (§5.2 territory): the *coarse* fork is **lineage, not a bake-off** — Phalcom is
   Smalltalk/Wren-lineage dictionary dispatch, the same way Doc 1's stack-machine was lineage. The
   **deliberated** fork is finer: *given* dictionary dispatch, key on arity-only or on full
-  label-encoded selectors? That is ADR-0012, and it carries the real scar. The doc presents the
+  label-encoded selectors? That is TDR-0011, and it carries the real scar. The doc presents the
   coarse fork as pedagogical scaffolding and lands the deliberated choice on the finer axis.
 - **Mechanism** — the two-move spine: **resolve** (walk the receiver's class chain) then **enter**
   (`call_method` forks on `MethodKind`). And the miss order.
@@ -73,12 +73,12 @@ binding**. When is it bound, and to what?
 | **Dynamic dictionary lookup** — compile only the *selector*; at send time hash it against the receiver-class's method dictionary, walk superclasses on miss | Smalltalk, Ruby, Objective-C, Python (roughly), **Phalcom** | Latest binding possible: define/redefine methods at runtime, receiver fully decides, a miss is a *first-class runtime event* (`doesNotUnderstand`/`method_missing`/`__getattr__`). Bill: a hash + chain-walk per send unless cached; invalidation cost when the world changes. |
 
 The coarse three-way choice above is **lineage** for Phalcom (Smalltalk/Wren), not a deliberated
-bake-off — the doc must say so. The deliberated fork (ADR-0012) is *inside* the dictionary branch:
+bake-off — the doc must say so. The deliberated fork (TDR-0011) is *inside* the dictionary branch:
 
 | Finer branch (given dictionary dispatch) | Bill |
 |---|---|
 | **Arity-only key** — `SignatureKind::Method(u8)`, the pre-ADR tree | Cannot distinguish `move(to,duration)` from `move(_,_)`; forces malformed encodings. **Rejected.** Scar: shipped defects F1 (Invoke dropped `call_method`'s `Result`, swallowing primitive errors), F7 (0-arg `new()` mis-tagged `Method(1)`), F8 (divergent encoder interned `">( _)"` with a stray space). |
-| **Full label-encoded selector** — name + arg labels baked into the interned `Symbol` | One hashmap probe per class; `move(to,duration)` and `move(_,_)` are distinct keys. **Chosen** (ADR-0012). |
+| **Full label-encoded selector** — name + arg labels baked into the interned `Symbol` | One hashmap probe per class; `move(to,duration)` and `move(_,_)` are distinct keys. **Chosen** (TDR-0011). |
 
 ## 5. Comparison filter
 
@@ -115,16 +115,16 @@ delegation, not class dictionary — risks muddying the fork).
 
 - **Selector encoding ⊗ overloading** — labels baked into the symbol mean `foo(_)` and `foo(_,_)`
   coexist as distinct methods; there is no arity-overload resolution step because arity *is* part of
-  the key. Ties the deliberated ADR-0012 choice to a visible language feature.
+  the key. Ties the deliberated TDR-0011 choice to a visible language feature.
 - **Send ⊗ frame push** — the corollary grip: primitive sends push zero frames. `call_method`'s
   `MethodKind` fork is where "run a method" splits into "native in place" vs "push a `CallFrame`."
   Direct tie to Doc 3.
 - **Miss ⊗ recursion guard** — `doesNotUnderstand` is itself a send; sending it must not re-enter
   `doesNotUnderstand` on a class that lacks it. The guard is the mechanism.
-- **Send ⊗ super** — `SuperSend` (ADR-0040) starts the walk *above* the receiver's class; own
+- **Send ⊗ super** — `SuperSend` (TDR-0035) starts the walk *above* the receiver's class; own
   opcode, bypasses the receiver-class start. Mention, defer full mechanism.
 - **Constructors ⊗ dispatch** — `Foo.new()` is an ordinary class-side method resolved by the same
-  walk (ADR-0063); no constructor special-case in `lookup_method`. Reinforces "everything is a
+  walk (TDR-0052); no constructor special-case in `lookup_method`. Reinforces "everything is a
   selector."
 
 ## 7. Structural rules (constraints, not a skeleton)
@@ -148,7 +148,7 @@ delegation, not class dictionary — risks muddying the fork).
    → **Doc 5 (caches-and-fusion)**.
 2. **Fusion** — `InvokeLocal`/`InvokeConst` superinstructions fold a preceding load into the send
    → **Doc 5**.
-3. **SuperSend** (ADR-0040) — starts the walk above the receiver's class; own opcode. Mention, defer.
+3. **SuperSend** (TDR-0035) — starts the walk above the receiver's class; own opcode. Mention, defer.
 4. **Fiber-switch return path** — `switch_pending` branch after a primitive returns → **concurrency
    doc**. Mark.
 5. **Non-local-return guard** — the frame-identity branch in the primitive-return handler → **Doc 6**
@@ -159,7 +159,7 @@ delegation, not class dictionary — risks muddying the fork).
 - [ ] Grip stated early, one sentence, *earned* by the end.
 - [ ] Call site shown to hold a **selector**, not a method — explicitly, from the `Invoke` operand.
 - [ ] Every rejected branch made tempting before it is killed.
-- [ ] The **deliberated** finer fork (ADR-0012) landed, with the F1/F7/F8 scar, and the coarse fork
+- [ ] The **deliberated** finer fork (TDR-0011) landed, with the F1/F7/F8 scar, and the coarse fork
       labelled pedagogical scaffolding.
 - [ ] ≥1 predict-then-check moment (primary: what does `Invoke` hold; secondary: does every send
       push a frame).
@@ -198,7 +198,7 @@ bends:
    or a compile error. The whole "miss is a first-class event" fork-payoff depends on it. B must
    **run a fixture** and report the observed message, not read it off code.
 4. **The coarse static/vtable/dictionary fork was *not* deliberated; only the finer arity-vs-label
-   axis (ADR-0012) was.** If B finds an ADR deliberating the coarse choice, §5.2's honesty framing
-   flips. *(Recon found only ADR-0012 on the finer axis — B does a bounded confirm.)*
+   axis (TDR-0011) was.** If B finds an ADR deliberating the coarse choice, §5.2's honesty framing
+   flips. *(Recon found only TDR-0011 on the finer axis — B does a bounded confirm.)*
 5. **A method defined/monkeypatched after compile takes effect on an already-compiled call site.**
    The "late binding" claim rests on it. B runs a fixture (define-after-use, or reopen a class).

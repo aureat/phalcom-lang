@@ -9,9 +9,9 @@
 Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
 
 **Governing ADRs:**
-[ADR-0027](../../adr/0027-modules-as-files-with-public-by-default-imports.md)
+[TDR — A module is a file; exports are public by default; imports are qualified, selective, or aliased](../../../decisions/retired/modules-as-files-with-public-by-default-imports.md)
 (file = module; core is the auto-imported module; first-class `Module` object) ·
-[ADR-0045](../../adr/0045-module-import-relative-path-whole-module-binding.md)
+[TDR-0038](../../../decisions/accepted/0038-module-import-relative-path-whole-module-binding.md)
 (Draft 0.1 narrowing: relative file-path resolution + whole-module binding;
 `Module#doesNotUnderstand(_)` floor amendment)
 
@@ -22,11 +22,11 @@ open-question [Q8](open-questions.md).
 ## 1. A module is a file
 
 Every `.ph` file is a module. Its top level — every `var`/`let`/`class` it
-declares — becomes that module's members (ADR-0027 §1). The core library
+declares — becomes that module's members (TDR-0024 §1). The core library
 (`core.ph`) is the module that happens to be auto-imported into every
 compilation unit; a user module differs only in that you name it explicitly.
 
-## 2. Resolution — relative file path (DEC-U15, ADR-0045)
+## 2. Resolution — relative file path (DEC-U15, TDR-0039)
 
 ```phalcom
 import "./geometry/point" as Point
@@ -44,7 +44,7 @@ There is no logical-name resolver and no search path in Draft 0.1 — Draft 0.1
 is "scripts plus a lib directory". `import "./x"` fails with a clean,
 attempted-path-naming error if no such file exists; it never panics.
 
-## 3. Binding — whole module (DEC-U15, ADR-0045)
+## 3. Binding — whole module (DEC-U15, TDR-0039)
 
 ```phalcom
 import "path" as Name
@@ -55,7 +55,7 @@ object as an ordinary immutable global in the **importing scope only** — never
 a namespace merge into the importer's own globals (no global-namespace
 pollution). There is no bare `import "path"` and no selective
 `import a, b from "path"` form yet; `from`/`export` are reserved keywords for
-that future grammar (ADR-0027's qualified/selective forms), not yet lexed.
+that future grammar (TDR-0024's qualified/selective forms), not yet lexed.
 
 ## 4. A module is a first-class object
 
@@ -71,7 +71,7 @@ System.print(Math.distance(1, 2))  // forwards to the member's own `call`
 
 A member send that finds no match on `Module` itself is resolved against the
 module's own top-level globals (`Module#doesNotUnderstand(_)`,
-`primitive/module.rs`; [ADR-0045](../../adr/0045-module-import-relative-path-whole-module-binding.md)
+`primitive/module.rs`; [TDR-0038](../../../decisions/accepted/0038-module-import-relative-path-whole-module-binding.md)
 Part 2). A zero-arg `Getter` selector returns the member value directly; any
 other selector shape whose bound value is callable is forwarded to it via the
 matching-arity `call(...)` send — "the member, called with these arguments"
@@ -80,8 +80,8 @@ needing a bespoke static-method dispatch path. A selector matching no member
 at all falls through to `Object`'s ordinary `MessageNotUnderstood` raise.
 
 Every top-level name is a member in Draft 0.1 — there is no `export` keyword
-and no `_`-prefix privacy enforcement yet (ADR-0027 §2 is not enforced; see
-ADR-0045's alternatives).
+and no `_`-prefix privacy enforcement yet (TDR-0024 §2 is not enforced; see
+TDR-0039's alternatives).
 
 ## 5. Compile-once, memoized by canonical path
 
@@ -105,7 +105,7 @@ before the unit that defines it has reached that point in its own top level —
 surfaces as the ordinary "member not found" `doesNotUnderstand` miss on the
 still-partially-populated `Module`. This is a documented hazard, not a
 compiler proof obligation (matching most languages' circular-import handling,
-and consistent with ADR-0027's original "circular-import policy is an
+and consistent with TDR-0024's original "circular-import policy is an
 implementation detail" stance): order your mutual imports so a value is
 defined before the cyclic edge that reads it, or read it lazily (inside a
 method body, not at the importing unit's own top level).

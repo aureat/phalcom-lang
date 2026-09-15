@@ -66,7 +66,7 @@ occupied branches in an ADR. Two things *were* genuinely deliberated, both to be
    This is the doc's **one real fork** and earns the design-space depth.
 2. **The hoisted `Callable` `Rc`** (perf cut 004 / F14 S1a) and **safepoint placement** (the loop
    back-edge as the *only* GC point, memory-management.md §4, "Invariant L") — real perf decisions,
-   governed by ADR-0051 (measure-first). But these are **Doc 2 / GC-doc detail**. In Doc 1 they are
+   governed by TDR-0049 (measure-first). But these are **Doc 2 / GC-doc detail**. In Doc 1 they are
    *marked lies* with forward pointers, not design-space branches.
 
 Honesty note for synthesis (§5.2): the loop is a **mechanism**, not a fork. The stack-vs-register

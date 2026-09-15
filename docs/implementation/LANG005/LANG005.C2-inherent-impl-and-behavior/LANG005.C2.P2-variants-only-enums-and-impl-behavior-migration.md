@@ -165,7 +165,7 @@ Read these in order after P1 has landed:
 7. LANG005.C2.P1 walkthrough
 8. LANG005.C2.P1 handoff
 9. the current LANG005 program/semantic update source used by the project
-10. relevant accepted PDR/ADR records, especially PDR-0035 for LANG005 identity/representation boundaries
+10. relevant accepted PDR/ADR records, especially TDR-0081 for LANG005 identity/representation boundaries
 11. TYPE001 ADT/GADT declaration-identity and runtime-lowering specs as historical implementation authority where still consistent with current docs/spec
 12. phalcom-semantic/tests/semantic/README.md
 13. phalcom-core/tests/README.md

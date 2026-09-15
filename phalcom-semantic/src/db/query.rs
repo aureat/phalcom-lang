@@ -1054,6 +1054,7 @@ pub struct DeclarationSurfaceQuery<'a> {
     pub hierarchy: &'a dyn TypeHierarchy,
     pub resolver: &'a dyn TypeResolver,
     pub declarations: &'a DeclarationTypeTable,
+    pub field_signatures: Option<&'a crate::signature::FieldSignatureTable>,
     pub type_aliases: Option<&'a crate::type_alias::TypeAliasTable>,
     pub linked: Option<&'a LinkedProgram>,
     pub import_products: Option<&'a BTreeMap<phalcom_modules::identity::ImportSiteId, Arc<phalcom_modules::resolver::ImportResolutionProduct>>>,
@@ -1269,6 +1270,7 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
                     hierarchy: inputs.hierarchy,
                     resolver: inputs.base_resolver,
                     declarations: inputs.declarations,
+                    field_signatures: None,
                     type_aliases: Some(inputs.type_aliases),
                     linked: Some(inputs.linked),
                     import_products: Some(inputs.import_products),
@@ -1440,6 +1442,7 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
         hierarchy,
         resolver,
         declarations,
+        field_signatures,
         type_aliases,
         linked,
         import_products,
@@ -1513,6 +1516,9 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
     // cache lookup misses. Body-only source edits therefore avoid this branch.
     let (computed_surface, computed_diagnostics, captured_dependencies) = {
         let mut context = crate::checker::context::CheckingContext::new(store, hierarchy, resolver, declarations, decl_id.module.clone());
+        if let Some(field_signatures) = field_signatures {
+            context.attach_field_signatures(field_signatures);
+        }
         if let Some(class_def) = class_def {
             crate::checker::declaration::register_class_surface(&mut context, class_def);
         } else {

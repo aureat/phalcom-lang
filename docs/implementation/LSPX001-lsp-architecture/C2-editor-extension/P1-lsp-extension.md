@@ -28,7 +28,7 @@ flag-gated increments, the subprocess-per-save intelligence U-VSPHALCOM shipped
 in `tools/vsphalcom`. **Floor: +0** — parse-only, no VM/`Value`/opcode/primitive
 changes; does not link `phalcom-core`.
 
-Grounded in **[ADR-0056](../../../adr/0056-phalcom-lsp-architecture.md)** (this
+Grounded in **[TDR — Phalcom language intelligence is an in-process `phalcom-lsp` server](../../../decisions/proposed/phalcom-lsp-architecture.md)** (this
 unit implements it). Successor to **[U-VSPHALCOM](../U-VSPHALCOM/plan.md)**,
 whose "What must this not preclude" section named exactly this crate as its
 intended endgame.
@@ -53,24 +53,24 @@ grows it capability-by-capability.
 
 ## Spec / ADR anchors
 
-- **[ADR-0056](../../../adr/0056-phalcom-lsp-architecture.md)** — the governing
+- **[TDR — Phalcom language intelligence is an in-process `phalcom-lsp` server](../../../decisions/proposed/phalcom-lsp-architecture.md)** — the governing
   decision: `tower-lsp` framework; `phalcom-lsp` = new workspace member (lib +
   bin) depending on `phalcom-ast` + `phalcom-common` only (no `phalcom-core`);
   five staged capabilities; index keyed by (file URI, comma-form selector);
   server owns a UTF-16 `LineIndex`; first increment = Stage 1 diagnostics behind
   `phalcom.lsp.enabled`, alongside the subprocess path.
-- **[ADR-0012](../../../adr/0012-selector-signature-encoding-and-dispatch.md)** —
+- **[TDR-0011](../../../decisions/accepted/0011-selector-signature-encoding-and-dispatch.md)** —
   selectors are canonical comma-form label-encoded symbols; `foo`, `foo(_)`,
   `move(_,to,duration)` are **distinct**. The symbol-index key, go-to-def target,
   find-refs set, completion entry, and hover key MUST be the comma-form selector,
   **never** a bare name. A bare-name key is wrong-by-construction (same gate
   U-VSPHALCOM enforces on its table).
-- **[ADR-0016](../../../adr/0016-hand-written-lexer-and-recursive-descent-parser.md)** —
+- **[TDR-0014](../../../decisions/accepted/0014-hand-written-lexer-and-recursive-descent-parser.md)** —
   `phalcom-ast` is the single, standalone, VM-free front end the server embeds;
   no second grammar in TypeScript.
-- **[ADR-0025](../../../adr/0025-external-internal-parameter-names.md)** — the
+- **[TDR-0023](../../../decisions/accepted/0023-external-internal-parameter-names.md)** — the
   external labels the completion snippets and hover signatures render.
-- **[ADR-0027](../../../adr/0027-modules-as-files-with-public-by-default-imports.md)** —
+- **[TDR — A module is a file; exports are public by default; imports are qualified, selective, or aliased](../../../decisions/retired/modules-as-files-with-public-by-default-imports.md)** —
   module = file: the workspace index's per-file granularity and warm-scan unit.
 - `docs/spec/current/lexical-structure.md` §§9–14 — the token surface Stage 5
   (`semanticTokens`) classifies from the real lexer, mooting DEC-VSP-C.

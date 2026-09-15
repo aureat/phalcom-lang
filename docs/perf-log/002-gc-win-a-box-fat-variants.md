@@ -1,6 +1,6 @@
 # 002 — U-GC Win A: box the six fat `Object` variants (Tier 4 representation)
 
-Commit `7480d75`. Grounded in [ADR-0050 §Decision 9](../../adr/accepted/0050-non-moving-mark-sweep-collector.md)
+Commit `7480d75`. Grounded in [TDR-0047](../decisions/accepted/0047-non-moving-mark-sweep-collector.md)
 + [memory-management.md §7](../../spec/current/memory-management.md). U-GC step 1 of 5;
 standalone, no collector dependency.
 
@@ -12,7 +12,7 @@ arena — a 16 B `Tuple` and a 32 B `Str` each cost 280 B.
 
 `size_of::<Object>()` measured **280 B** on HEAD 2026-07-14 —
 [F7](findings.md#f7--size_ofobject-grew-to-280-b-win-a-is-six-variants-not-the-driver),
-up from the 256 B ADR-0050 recorded, because `ClassObject` gained
+up from the 256 B TDR-0048 recorded, because `ClassObject` gained
 `attributes: Vec<Value>` (+24 B) under U-ANNOT. `ClassObject` alone *was* the 280 B.
 
 ## The cut
@@ -33,7 +33,7 @@ Set(Box<MapObject>),
 **`Instance` is deliberately not boxed.** At 24 B it is already under the `Range`
 floor, and it is the most-allocated variant — a `Box` would add an indirection *and*
 an allocation for zero size win. The obvious-looking move is the wrong one, and
-ADR-0050 §9's variant list (which predates the measurement) named it.
+TDR-0048 §9's variant list (which predates the measurement) named it.
 
 **`size_of::<Object>()`: 280 B → 40 B (7×).**
 
@@ -54,7 +54,7 @@ diff lines and no API change.
 **`for.ph` −43% wall · `skynet` −34% wall.** Boxed wins 4/4 comparisons, margins far
 above the noise floor.
 
-**The mechanism is `sys` time, and it is not what ADR-0050 predicted.** The ADR
+**The mechanism is `sys` time, and it is not what TDR-0048 predicted.** The ADR
 hypothesised a `heap.get` cache-density win; `user` time barely moves (−8% on
 `for.ph`). What moves is `sys`: 3.34/2.78 → 1.40/0.59 on `for.ph` (~4×), 7.21/7.02 →
 4.22/3.64 on `skynet` (~2×). The cause is **`SlotMap` backing-array growth**: at

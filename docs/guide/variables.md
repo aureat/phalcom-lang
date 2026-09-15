@@ -4,7 +4,7 @@ Two binding forms, and the difference is exactly the one word: whether the name
 can be reassigned. Everything else — scope, shadowing, fields — follows from
 keeping that one distinction sharp.
 
-For the normative rules, see [ADR-0014](../adr/0014-let-and-var-bindings.md) and
+For the normative rules, see [TDR — Variable bindings are `let` (immutable) and `var` (mutable)](../decisions/retired/let-and-var-bindings.md) and
 [Values & Absence §3](../spec/current/values-and-absence.md).
 
 ## `let` vs `var`

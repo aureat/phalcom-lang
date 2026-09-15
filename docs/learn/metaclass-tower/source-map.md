@@ -18,7 +18,7 @@ index-plus-generation `Copy` key into a `slotmap::SlotMap<ObjRef, Object>`
 (`heap/mod.rs::Heap` L88-97). It is **not** `Rc<RefCell<_>>`/`Weak`, **not**
 `&ClassObject`/`*const`, and **not** an embedded/owned sub-object — `ClassObject`
 stores its metaclass and superclass as `ClassId` *values*, resolved through
-`&Heap` on every access ([ADR-0009](../../adr/accepted/0009-handle-arena-heap.md)).
+`&Heap` on every access ([TDR-0008](../../decisions/accepted/0008-handle-arena-heap.md)).
 This matches the "name/handle resolved through a heap" candidate exactly.
 
 **The apex cycle, corrected.** Both `heap/class.rs`'s module doc (L1-8) and the
@@ -65,7 +65,7 @@ this doc corrects above):
 //!
 //! A [`ClassObject`] is a heap [`Object`](crate::heap::Object) referenced by a
 //! [`ClassId`]. Its links to its metaclass and superclass are plain [`ClassId`]
-//! handles ([ADR-0009](../../../docs/adr/accepted/0009-handle-arena-heap.md)), so the
+//! handles ([TDR-0008](../../decisions/accepted/0008-handle-arena-heap.md)), so the
 //! kernel's cyclic wiring (e.g. `Metaclass.class == Metaclass`) is just a handle
 //! that points at itself — no `Rc`, no `Weak`, no `RefCell` (`object-model.md`
 //! §5–6). Method lookup walks the superclass chain through the heap.
@@ -91,11 +91,11 @@ pub struct ClassObject {
     pub superclass: Option<ClassId>,
     /// Methods defined directly on this class, keyed by selector [`Symbol`].
     pub methods: MethodsMap,
-    /// Instance fields, keyed by name [`Symbol`] to their slot offset (ADR-0011).
+    /// Instance fields, keyed by name [`Symbol`] to their slot offset (TDR-0010).
     pub field_slots: IndexMap<Symbol, u16>,
-    /// Number of instance slots (ADR-0011).
+    /// Number of instance slots (TDR-0010).
     pub field_count: u16,
-    /// Class-side stored fields (static fields), stored as a fixed-size slot vector (ADR-0017).
+    /// Class-side stored fields (static fields), stored as a fixed-size slot vector (TDR-0015).
     pub static_slots: Box<[Value]>,
     /// The per-class **base-name index** (selectors.md §3.1, U16-Open): …
     pub base_names: HashMap<Symbol, Vec<Symbol>>,
@@ -119,7 +119,7 @@ class-typed fields and signatures without introducing a distinct key type."*).
 `ClassObject::bare(name)` (`heap/class.rs` L93-106) creates an **unwired**
 row: `class: ClassId::default()` (the null slotmap key), `superclass: None`.
 Every kernel/core row starts here; bootstrap patches `class`/`superclass`
-afterward (§4) — this is the "allocate-then-patch" the module doc and ADR-0009
+afterward (§4) — this is the "allocate-then-patch" the module doc and TDR-0008
 both name.
 
 ---
@@ -231,7 +231,7 @@ Two corrections to the task's own file-path guesses, both VERIFIED: `universe.rs
 is now a directory, `phalcom-core/src/universe/{mod.rs,core_classes.rs,
 invariants.rs,primitives.rs}` — `create_core_classes` lives in `core_classes.rs`
 (not `mod.rs`), `verify_invariants` in `invariants.rs`. `universe/mod.rs`'s own
-module doc (L1-17) names the same seven-step order the ADR-0002 Decision
+module doc (L1-17) names the same seven-step order the TDR-0002 Decision
 section states.
 
 ### 4a. `create_core_classes` — full, `universe/core_classes.rs` L15-195
@@ -268,7 +268,7 @@ pub fn create_core_classes(heap: &mut Heap) -> CoreClasses {
     heap.class_mut(metaclass_class).superclass = Some(behavior_class);
 
     // 4. Wire metaclass-side superclasses by the parallel rule (§6 step 4,
-    //    ADR-0002): (X class).superclass == (X.superclass) class.
+    //    TDR-0002): (X class).superclass == (X.superclass) class.
     heap.class_mut(object_metaclass).superclass = Some(class_class);
     heap.class_mut(behavior_metaclass).superclass = Some(object_metaclass);
     heap.class_mut(class_metaclass).superclass = Some(behavior_metaclass);
@@ -388,7 +388,7 @@ pub fn verify_invariants(&self, heap: &Heap) -> Result<(), String> {
         return Err("Metaclass.class.superclass should be Behavior.class".to_string());
     }
 
-    // R-INV-0.2 — the parallel rule (ADR-0002) holds for *every* ordinary
+    // R-INV-0.2 — the parallel rule (TDR-0002) holds for *every* ordinary
     // (non-apex) core row, not just `Number` …
     let ordinary_rows: [(&str, ClassId); 24] = [ /* Number, String, Nil, Bool, True,
         False, Method, Function, Block, Symbol, Module, System, Option, Some,
@@ -432,7 +432,7 @@ pub fn verify_invariants(&self, heap: &Heap) -> Result<(), String> {
 ```
 
 This is the **explicit assertion of the parallel rule**
-(`(X class).superclass == (X.superclass) class`, ADR-0002) plus the closed
+(`(X class).superclass == (X.superclass) class`, TDR-0002) plus the closed
 2-node metaclass loop (`Metaclass.class == Metaclass class`, `(Metaclass
 class).class == Metaclass` — read directly off `object_metaclass`/
 `behavior_metaclass`/`class_metaclass`/`metaclass_metaclass` all being
@@ -475,7 +475,7 @@ All four exist and are wired at HEAD (VERIFIED, `core_classes.rs` L17-51):
 - **Instance-side chain:** `Object` (superclass `None`, the sole apex root)
   ← `Behavior` (superclass `Object`) ← `Class` (superclass `Behavior`);
   `Metaclass` also has superclass `Behavior` (a sibling of `Class`, not a
-  subclass of it) — matching ADR-0003's *"`Class` and `Metaclass` both
+  subclass of it) — matching TDR-0003's *"`Class` and `Metaclass` both
   inherit from `Behavior`"*.
 - **Metaclass-side chain (parallel rule):** `Object class`.superclass ==
   `Class`; `Behavior class`.superclass == `Object class`; `Class
@@ -632,7 +632,7 @@ function body (not separately tried live).
 | GC / tracing | `heap/trace.rs::trace_object`, `Object::Class` arm (~L79-96) | marks `class`, `superclass`, `methods`, `static_slots`, `attributes` as outgoing edges (§8) |
 | Object enum | `heap/object.rs::Object` (~L24), `Class(Box<ClassObject>)` variant | tags an arena slot as a class row |
 | Value dispatch | `value/mod.rs::Value::class`/`lookup_method` (~L121,170) | Value→ClassId, then §2's hierarchy walk |
-| Compiler / inline caching | `chunk.rs::InlineCache.class: ClassId` (L10-12) | `ClassId` doubles as the per-call-site inline-cache tag (ADR-0012) |
+| Compiler / inline caching | `chunk.rs::InlineCache.class: ClassId` (L10-12) | `ClassId` doubles as the per-call-site inline-cache tag (TDR-0011) |
 | Universe / bootstrap | `universe/core_classes.rs::create_core_classes`, `universe/invariants.rs::verify_invariants` | builds and asserts the tower (§4) |
 
 ---
@@ -665,7 +665,7 @@ edges for the mark worklist — the collector **marks through** them. The
 collector is confirmed **non-moving, mark-sweep**:
 `heap/mod.rs::Heap::collect` doc (~L262-292) states it runs *"one full
 **non-moving, precise, stop-the-world mark-sweep**"* per
-[ADR-0050](../../adr/accepted/0050-non-moving-mark-sweep-collector.md), and
+[TDR-0047](../../decisions/accepted/0047-non-moving-mark-sweep-collector.md), and
 explicitly: *"**Non-moving** (Invariant M1): a surviving object keeps its
 `ObjRef` for life"* and *"Cycles — including the kernel's own (`Metaclass` is
 an instance of itself) — terminate because an already-marked object is never
@@ -677,21 +677,21 @@ never patched or relocated by a collection — only ever read, marked, and
 
 ## 9. Spec / ADR — bounded
 
-- **ADR-0002 (metaclass-tower-parallel-rule), accepted.** Decision: `(X
+- **TDR-0002 (metaclass-tower-parallel-rule), accepted.** Decision: `(X
   class).superclass == (X.superclass) class`; `Object class`'s superclass is
   `Class`, closing the tower; `Metaclass` is stated to be *"an instance of
   itself"* in this ADR's own prose (the same simplification §THE ANSWER
   corrects against the actual bootstrap code) — and it enumerates the same
   seven-step bootstrap order `universe/mod.rs`'s module doc and
   `create_core_classes` implement.
-- **ADR-0003 (introduce-behavior-kernel-class), accepted.** Decision: add
+- **TDR-0003 (introduce-behavior-kernel-class), accepted.** Decision: add
   `Behavior` as an abstract kernel class owning the shared method-dictionary/
   superclass/lookup/instantiation protocol; `Class` and `Metaclass` both
   inherit from it; `Behavior` inherits from `Object`. Explicitly named as
   what "unifies the kernel and removes the need for asymmetric
   special-casing of `Metaclass` versus `Class`" — i.e. it displaced an
   asymmetric-special-case design, not a menu of fresh alternatives.
-- **ADR-0009 (handle-arena-heap), accepted — supersedes an `Rc`/`new_cyclic`
+- **TDR-0008 (handle-arena-heap), accepted — supersedes an `Rc`/`new_cyclic`
   representation.** Decision: objects live in a central `Heap`, referenced
   by `Copy` integer handles (`ObjRef`/`ClassId`); *"No `Rc`, no `RefCell`, no
   `MaybeWeak`. The kernel cycle is expressed as handles that refer to each
@@ -733,7 +733,7 @@ in full, including the exact 2-node-loop assertion; the `VM::new` call order
 two scratch `.ph` probes run live against a freshly built `phalcom` CLI
 (`cargo build -p phalcom-core --bin phalcom` succeeded); three existing
 golden fixtures re-run live and matched their `.expected` files exactly;
-ADR-0002/0003/0009 Decision (and 0009's Alternatives) sections;
+TDR-0002/0003/0009 Decision (and 0009's Alternatives) sections;
 `core-classes.md` §3's four kernel-row entries.
 
 **Inferred, not independently re-derived from source**: `object_set_class`'s
@@ -748,7 +748,7 @@ task specified) — `core-classes.md` §3 and the ADRs were treated as the
 bounded spec surface instead, per instruction.
 
 **Confirmed not to exist / not applicable at HEAD**: no `Rc`/`RefCell`/`Weak`
-anywhere in the class/metaclass representation (superseded by ADR-0009); no
+anywhere in the class/metaclass representation (superseded by TDR-0008); no
 row whose `class` field equals its own `ClassId` (the apex "self-cycle" is
 actually a 2-node loop — §THE ANSWER); no bindable `.ph` `nil` literal
 (`Value::Nil` is a private sentinel); no live class-mutation surface

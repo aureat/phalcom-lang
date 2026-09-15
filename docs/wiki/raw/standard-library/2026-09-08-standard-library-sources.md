@@ -105,12 +105,12 @@ Load a module containing many oversized Int constants under GC stress. Every con
 # Specification — `Map` and `Set` (hash collections)
 
 > **Status:** **Accepted** (representation + `Map` literal ratified by the collections
-> umbrella [ADR-0032](../../../adr/0032-collections-representation-and-literals.md);
+> umbrella [TDR-0028](../../../decisions/accepted/0028-collections-representation-and-literals.md);
 > `Set` literal `#{…}` reserved-inactive). Absent classes (names reserved in `ClassName`), now
 > **unblocked** — their precondition `Object#hash` landed with
 > [U-CORE-1](../../../forge/units/U-CORE-1/ucore1.md)
 > ([`catalog-delta.md`](./catalog-delta.md) §2.4/§4.5). Each is its own unit per
-> [ADR-0020](../../../adr/0020-kernel-list-native-array-protocol.md); both must
+> [TDR-0018](../../../decisions/accepted/0018-kernel-list-native-array-protocol.md); both must
 > satisfy the [collection protocol](./collection-protocol.md). Inherits the
 > baseline pin from [`README.md`](./README.md).
 >
@@ -119,7 +119,7 @@ Load a module containing many oversized Int constants under GC stress. Every con
 ## 1. Preconditions (all met)
 
 - `Object#hash` + per-immediate value hashes (`Number`/`String`/`Bool`/`Symbol`) —
-  **landed U-CORE-1** ([ADR-0023](../../../adr/0023-amend-floor-admit-hash-and-kernel-reflection.md)).
+  **landed U-CORE-1** ([TDR-0021](../../../decisions/accepted/0021-amend-floor-admit-hash-and-kernel-reflection.md)).
 - `==` on keys — floor/`.ph`. Hash-consistency law (`a == b ⇒ a.hash == b.hash`,
   R-INV-1.3) holds, so hash lookup is correct.
 - `Option` for total lookup — landed (U-CORE-2/U-STD).
@@ -168,17 +168,17 @@ identity hash.
 
 | Option | Mechanism | Recommendation |
 |---|---|---|
-| **Native heap arm** (`Object::Map`/`Object::Set` over a Rust `HashMap`/`HashSet` keyed by the value's `hash`+`==`) | mirrors `List`'s `ListObject` (ADR-0020) | **Recommended** — O(1) ops, matches the "native container, `.ph` protocol" pattern; needs a small floor for `get_`/`put_`/`has_`/iteration |
+| **Native heap arm** (`Object::Map`/`Object::Set` over a Rust `HashMap`/`HashSet` keyed by the value's `hash`+`==`) | mirrors `List`'s `ListObject` (TDR-0018) | **Recommended** — O(1) ops, matches the "native container, `.ph` protocol" pattern; needs a small floor for `get_`/`put_`/`has_`/iteration |
 | **`.ph` over `List`** of buckets | pure `.ph`, zero floor | rejected — O(n) lookup defeats the point; hashing in `.ph` is awkward |
 
-The native arm implies a small **ADR-0019 amendment** (the raw hash-table
+The native arm implies a small **TDR-0017 amendment** (the raw hash-table
 primitives) — scoped and justified when the unit lands, analogous to `List`'s five
 raw primitives. Combinators (`map`/`filter`/…) stay `.ph`.
 
 ## 5. Non-goals
 
 - **Literal syntax.** The **`Map` literal `{ a: 1 }` is ratified** and ships
-  ([ADR-0032](../../../adr/0032-collections-representation-and-literals.md) §3.1:
+  ([TDR-0028](../../../decisions/accepted/0028-collections-representation-and-literals.md) §3.1:
   bare-identifier keys are symbols; `{}` stays a block; empty map is `Map.new()`).
   The **`Set` literal `#{…}` is reserved-inactive** — construct via `Set.new()` /
   `Set(1, 2)` (open-Q6). Parser/compiler work is U-LEX.
@@ -194,33 +194,33 @@ for each; plus: hash-collision correctness, key-overwrite, `remove` idempotence,
 # Specification — `Bytes` (the native octet buffer)
 
 > **Status:** **Normative.** Encodes
-> [PDR-0011](../../../pdr/0011-admit-bytes-native-octet-buffer.md) (**Accepted**,
+> [TDR-0063](../../../decisions/accepted/0063-admit-bytes-native-octet-buffer.md) (**Accepted**,
 > ratified 2026-07-20); the exploration and precedent survey behind it is
 > [`drafts/bytes.md`](../drafts/bytes.md); the implementation spec is
 > [`../../forge/units/U-BYTES/implementation-spec.md`](../../forge/units/U-BYTES/implementation-spec.md).
-> [PDR-0013](../../../pdr/0013-path-is-bytes-backed-filesystem-surface.md) ruling 4
+> [TDR-0065](../../../decisions/accepted/0065-path-is-bytes-backed-filesystem-surface.md) ruling 4
 > (also Accepted) adds an eleventh primitive on this class, `utf8Lossy_`, censused with
 > that record.
-> **Floor delta: +10 primitives (audited floor 137 → 147; +1 more via PDR-0013)** — this is
+> **Floor delta: +10 primitives (audited floor 137 → 147; +1 more via TDR-0066)** — this is
 > *not* a zero-floor spec;
-> the amendment to [ADR-0019](../../adr/accepted/0019-freeze-vm-blessed-primitive-floor.md),
+> the amendment to [TDR-0017](../../../decisions/accepted/0017-freeze-vm-blessed-primitive-floor.md),
 > and the amended admission posture for container bulk operations (§3.1), are carried by
-> PDR-0011. The 137 baseline is the tree's, not a record's: the source of record is
+> TDR-0064. The 137 baseline is the tree's, not a record's: the source of record is
 > `floor_census_matches_installed_bindings` (`phalcom-core/tests/invariants.rs:605`; last
 > delta `Fiber#isRoot`, 136 → 137, 2026-07-19). Never quote a floor number from a document.
 > Selector spellings follow
-> [ADR-0012](../../adr/accepted/0012-selector-signature-encoding-and-dispatch.md) and
-> [ADR-0043](../../adr/accepted/0043-no-default-arguments-keep-selector-identity-pristine.md);
+> [TDR-0011](../../../decisions/accepted/0011-selector-signature-encoding-and-dispatch.md) and
+> [TDR-0036](../../../decisions/accepted/0036-no-default-arguments-keep-selector-identity-pristine.md);
 > native primitives carry the trailing `_`
-> ([ADR-0049](../../adr/accepted/0049-amend-floor-admit-string-byte-and-raw-write-primitives.md)).
+> ([TDR-0050](../../../decisions/accepted/0050-amend-floor-admit-string-byte-and-raw-write-primitives.md)).
 >
 > **Owner:** unassigned. Hard prerequisite for any
 > [`stream-protocol.md`](stream-protocol.md) implementation (its §9).
 
 ## 1. What `Bytes` is
 
-A fixed-length, mutable buffer of octets — the ADR-0020 kernel pattern: storage is a native
-heap arm (`Object::Bytes`, backed by `Box<[u8]>`; PDR-0011 ruling 1), the protocol above the
+A fixed-length, mutable buffer of octets — the TDR-0018 kernel pattern: storage is a native
+heap arm (`Object::Bytes`, backed by `Box<[u8]>`; TDR-0064 ruling 1), the protocol above the
 floor primitives is authored in `.ph`. Length is fixed at construction and contents are
 mutable — `Tuple`'s backing shape with `List`'s mutability corner. Fixed length is a security
 property, not a convenience: it is what makes `zeroize` (§7) complete.
@@ -230,21 +230,21 @@ property, not a convenience: it is what makes `zeroize` (§7) complete.
 no `.ph` `extends`, no field layout). It supplies `size => self.size_` and
 `iteratorValue(cursor) => self.at_(cursor)` (`Tuple`'s exact shape, `core.ph:1011`) and
 inherits `Iterable#iterate` (`core.ph:645-651`) and the whole combinator suite unchanged.
-The cursor is a `Number` index in `0..size`, so ADR-0048's "a cursor is never `None`"
+The cursor is a `Number` index in `0..size`, so TDR-0042's "a cursor is never `None`"
 constraint holds vacuously.
 
 `Bytes` is **not** a `String` variant and never converts to one for free: `StringObject`
 enforces UTF-8 and caches a content hash (`heap/string.rs:11-16`), so decode is fallible
-(§4) and a `String` holding arbitrary octets is permanently foreclosed (PDR-0011
+(§4) and a `String` holding arbitrary octets is permanently foreclosed (TDR-0064
 consequences).
 
 ## 2. The element type
 
 **An element is a `Number` that is an integer in 0–255.** There is no `Byte` value type
-(PDR-0011 ruling 2). At ruling time ADR-0024 is verified unbuilt — no `Int` heap arm,
+(TDR-0064 ruling 2). At ruling time TDR-0022 is verified unbuilt — no `Int` heap arm,
 `class Number {}` flat at `core.ph:82` — so `Number` is IEEE f64, and every integer in 0–255
 is **exactly** representable; reads and writes lose nothing. The contract is worded
-representation-independently, so ADR-0024 landing later changes nothing at this surface.
+representation-independently, so TDR-0022 landing later changes nothing at this surface.
 
 Writes enforce the range: a `set`/`fill` argument that is not an integer in 0–255 **raises**
 (precondition violation, stream-protocol law 5's category — a programmer error must not
@@ -252,7 +252,7 @@ travel the same channel as data).
 
 ## 3. Floor primitives (+10)
 
-Admitted by PDR-0011 ruling 3. Return conventions mirror `List`'s floor exactly
+Admitted by TDR-0064 ruling 3. Return conventions mirror `List`'s floor exactly
 (`primitive/list.rs:72-103`): a fallible *read* returns the bare value or `None` (no `Some`
 wrapping — and unlike `List`, the union is unambiguous, because an octet is never `None`);
 a bad *write* is a native type error, not a `None`.
@@ -268,7 +268,7 @@ a bad *write* is a native type error, not a `None`.
 | `slice_(_,_)` | instance | `Bytes` | **copy** of `[start, end)` into a fresh buffer; type error on a bad range |
 | `copyInto_(_,_)` | instance | `None` | copy the whole receiver into the given `Bytes` at the given offset (one memmove); type error if it does not fit |
 | `utf8_` | instance | `String` \| `None` | fallible UTF-8 decode of the whole buffer; invalid → `None` |
-| `utf8Lossy_` | instance | `String` | total lossy decode (invalid sequences → U+FFFD, Rust `from_utf8_lossy`); admitted by PDR-0013 ruling 4 for `Path#toString`, censused with that record |
+| `utf8Lossy_` | instance | `String` | total lossy decode (invalid sequences → U+FFFD, Rust `from_utf8_lossy`); admitted by TDR-0066 ruling 4 for `Path#toString`, censused with that record |
 | `equalsConstantTime_(_)` | instance | `Bool` | §8; the one selector whose *timing* is part of its contract |
 
 Natives never build a `Result` — `Result`/`Ok`/`Err` are pure `.ph`; the `.ph` layer lifts
@@ -276,8 +276,8 @@ where it wants to.
 
 ### 3.1 The native/`.ph` boundary — where each operation lives, and why
 
-PDR-0011 ruling 3 amends the admission posture **for kernel container arms** beyond
-ADR-0019's inexpressibility-only rule, with a bright line:
+TDR-0064 ruling 3 amends the admission posture **for kernel container arms** beyond
+TDR-0017's inexpressibility-only rule, with a bright line:
 
 - **A bulk operation with no user code inside its loop is native.** The arm exists to
   eliminate per-element representation and dispatch cost; a `.ph` per-byte loop over
@@ -376,9 +376,9 @@ to move. Blockers listed are the ones that must be *resolved*, not merely noted.
 
 | # | Item | Cx | Work | Blocked on | Spec file |
 |---|---|:--:|:--:|---|---|
-| **1** | **Numeric tower** — `Number` abstract, `Int` (exact, unbounded) / `Float`, bitwise ops, `/` vs `~/` | **5** | **XL** | ADR-0024 (ratified, unbuilt). Nothing else. | `01-numeric-tower.md` |
+| **1** | **Numeric tower** — `Number` abstract, `Int` (exact, unbounded) / `Float`, bitwise ops, `/` vs `~/` | **5** | **XL** | TDR-0022 (ratified, unbuilt). Nothing else. | `01-numeric-tower.md` |
 | **2** | **`BigInt` surface + `Decimal`** — radix conversion, `modPow`/`gcd`; `Decimal` scale + rounding modes | 4 | L | 1 | `02-bigint-decimal.md` |
-| **3** | **Sealed types / enums** — exhaustiveness checking over `match` | **4** | **M** | PDR-0001 (classes are closed) | `03-sealed-enums.md` |
+| **3** | **Sealed types / enums** — exhaustiveness checking over `match` | **4** | **M** | TDR-0054 (classes are closed) | `03-sealed-enums.md` |
 | **4** | **`Comparable` / `Hashable` / `sort`** — ordering contract, total-order law, stable sort | 2 | M | 1 (`Float` NaN ordering); protocols prototype-only (S-12); **ffi.md F-12** | `04-ordering-hashing.md` |
 | **5** | **`Bytes`** — mutable octet buffer, new heap arm | 3 | M | 1, 4 | `05-bytes.md` |
 | **6** | **`Path`** — opaque, not `String` | 3 | M | 5; **S-4** ruling | `06-path.md` |
@@ -392,7 +392,7 @@ to move. Blockers listed are the ones that must be *resolved*, not merely noted.
 | **14** | **`os`** | **1** | **S** | 1; **S-13** | `14-os.md` |
 | **15** | **`Uuid`** — v4, v7, parse | **1** | **S** | 5, 12, 13 | `15-uuid.md` |
 | **16** | **Backtraces** — reified `Backtrace`, `Error#backtrace`, `Error#cause` | 2 | M | — | `16-backtraces.md` |
-| **17** | **`WeakRef` / `WeakMap`** | **4** | **M** | ADR-0050 amendment; **S-8** (cost unscoped) | `17-weakref.md` |
+| **17** | **`WeakRef` / `WeakMap`** | **4** | **M** | TDR-0048 amendment; **S-8** (cost unscoped) | `17-weakref.md` |
 | **18** | **`DateTime` / `TimeZone` / calendar** | **5** | **XL** | 13, 10 | `18-datetime.md` |
 | **19** | **Timers** — `sleep`, `Timer.after/every`, and the reactor behind them | **5** | **L** | 13; **S-2** and **S-3** rulings; `open-questions.md` §15 fairness | `19-timers.md` |
 

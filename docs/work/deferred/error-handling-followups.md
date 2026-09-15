@@ -33,7 +33,7 @@ worse — pointing at a different, swapped-in entry. The second case is memory-s
 `.expect("slot from locate() is live")` at `primitive/map.rs:80` — a **Rust process abort,
 uncatchable by `on(_)`** — not a catchable `RuntimeError`. The corruption mode reproduced as: a
 key silently removed, a neighboring key's value overwritten with the value destined for the
-removed key, `size` shrunk, exit 0. The naive trigger sketch above recurses into PDR-0007's
+removed key, `size` shrunk, exit 0. The naive trigger sketch above recurses into TDR-0060's
 native-reentrancy limit; a reentrancy-guard flag in `==` is needed to reach the actual defect.
 
 Trigger sketch:
@@ -102,7 +102,7 @@ spec doc was never marked to match, so it currently reads as ground truth.
 lying. **Defer:** the reification itself, which is U-ERR's territory and wants an ADR.
 
 **DONE 2026-07-20:** examples annotated in `error-handling.md` §6 with the ruled `e.kind`
-replacement form. The reification question itself is **closed by PDR-0010 §2** (ratified
+replacement form. The reification question itself is **closed by TDR-0063 §2** (ratified
 2026-07-20): `kind` Symbol on `Error`, no kernel classes minted; lands with traceback plan
 units T3/T6. This item is resolved.
 
@@ -126,14 +126,14 @@ misleads anyone reading the source as ground truth for what `on` catches.
 **Do now:** fix the comment. Cheap, no behavior change.
 
 **DONE 2026-07-20:** rustdoc rewritten to match the wrap-and-probe behavior — including the
-second stale bullet (non-matching `Raise` "frames untouched", false since PDR-0007 moved the
+second stale bullet (non-matching `Raise` "frames untouched", false since TDR-0060 moved the
 unwind before the probe). This item is resolved.
 
 ---
 
 ## 4. No compile-error renderer exists — every compile-error span is carried and dropped
 
-**Added 2026-07-20**, surfaced by U-CLASSCLOSE's two-span diagnostic work (PDR-0002). Appended
+**Added 2026-07-20**, surfaced by U-CLASSCLOSE's two-span diagnostic work (TDR-0055). Appended
 rather than inserted to avoid renumbering items a concurrent session may be citing — **by severity
 it belongs second**, above items 2 and 3: it is a user-facing defect across every compile error,
 not a doc or comment fix.
@@ -153,7 +153,7 @@ frame for a syntax error and nothing for a compile error — an inconsistency no
 **miette is unused repo-wide.** `use miette` / `miette::` appears in **zero** `.rs` files, despite
 miette being a declared workspace dependency and `CLAUDE.md` naming "thiserror + miette" as the
 convention. `CompilerError` derives `thiserror::Error` only. **Any doc or decision that says
-"rendered as miette labels" is describing something that does not exist** — PDR-0002 did, and was
+"rendered as miette labels" is describing something that does not exist** — TDR-0055 did, and was
 amended for it (`bb4f365`).
 
 This is the same shape as [`tracing.md`](tracing.md)'s finding, one layer up: the renderer exists
@@ -162,7 +162,7 @@ one line of context either side), and the call site doesn't reach it.
 
 **Consequence for anyone adding a diagnostic:** adding a span to a compiler error is *not* a
 user-visible change on its own. Adding one costs a struct field; making it appear costs wiring
-this path. Price them separately. U-CLASSCLOSE hit this directly — PDR-0001 ruling 2 asked for
+this path. Price them separately. U-CLASSCLOSE hit this directly — TDR-0054 ruling 2 asked for
 both spans of a duplicate-class error, and the shipped compromise puts both **locations in the
 message text** (*"first declared at 3:1"*) precisely because there was nothing to render into.
 That variant already carries both `SourceRange`s, so literal two-label rendering later is a pure

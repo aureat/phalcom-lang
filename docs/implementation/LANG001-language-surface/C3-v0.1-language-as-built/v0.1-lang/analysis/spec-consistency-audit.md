@@ -1,6 +1,6 @@
 # Phalcom Specification — Consistency & Completeness Audit
 
-**Scope:** every file in `docs/spec/`, cross-checked against `docs/adr/0001`–`0016` and
+**Scope:** every file in `docs/spec/`, cross-checked against `docs/decisions/0001`–`0016` and
 `docs/spec/implementation-status.md`. This audit does **not** re-litigate the
 spec-vs-implementation gap (that is `implementation-status.md`'s job, and it is
 current and accurate). It asks a narrower question: **does the spec agree with
@@ -57,7 +57,7 @@ ADR-0014 already foreclosed.
 
 ### A3. ADR-0004 contradicts its own status line
 
-`docs/adr/accepted/0004-boolean-as-abstract-bool-with-true-false.md` is headed
+`docs/decisions/accepted/0004-boolean-as-abstract-bool-with-true-false.md` is headed
 `- Status: Accepted`, but its own **Decision** section reads: *"**Recommendation
 (pending approval):** adopt the abstract `Bool` + `True`/`False` model."* An ADR
 cannot simultaneously be Accepted and pending approval; downstream documents

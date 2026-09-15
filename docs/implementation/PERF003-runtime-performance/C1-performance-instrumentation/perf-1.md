@@ -115,8 +115,8 @@
   | **static field, instance context** | `GetSelf; Invoke(class); GetField` | a **send result** ❌ |
 
   Inside a block, `self` is not the block object — it is the enclosing method's receiver,
-  captured as an ordinary upvalue (ADR-0013, functions.md §2). And static-field access
-  sends `class` to self first (ADR-0017), so the receiver is a class object off the stack.
+  captured as an ordinary upvalue (TDR-0012, functions.md §2). And static-field access
+  sends `class` to self first (TDR-0015), so the receiver is a class object off the stack.
 - **Cost to refute: two file reads.** No build, no benchmark.
 - **What survives:** the *observation* is real and still unexploited — the receiver is
   stored **three** times (`stack[stack_offset]`, `CallFrame.context`, and pushed again by
@@ -198,9 +198,9 @@
   proves the corpus never reopens `List`. Resolution already in tree: `VM::sealed_classes`
   sealed `Option`/`Some`/`None` at `8d401f4`; **sealing the kernel collections converts
   this whole family of wrapper collapses into behavior-invariant ones.**
-- **ADR-0019's floor rule does not block this.** That rule bars moving `.ph` → native
+- **TDR-0017's floor rule does not block this.** That rule bars moving `.ph` → native
   *for speed*. Collapsing a `.ph` wrapper into a call on an **existing** floor primitive is
-  above the floor and does not engage it. Do not cite ADR-0019 to reject this.
+  above the floor and does not engage it. Do not cite TDR-0017 to reject this.
 
 ---
 

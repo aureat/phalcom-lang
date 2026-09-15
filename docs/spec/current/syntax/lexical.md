@@ -116,7 +116,7 @@ ordinary `IDENT` and may be used as identifiers.
 
 | Word | Reserved position |
 |---|---|
-| `try`, `catch`, `on`, `ensure` | error-handling clauses ([ADR-0031]) |
+| `try`, `catch`, `on`, `ensure` | error-handling clauses ([TDR-0028]) |
 
 ### 5.3 Reserved-inactive
 
@@ -128,12 +128,12 @@ consumes it yet.
 
 There is no `nil`, `null`, or `none` keyword in Phalcom. Absence is
 represented by the `None` value of the abstract `Option` type; there is no
-lexical token for it ([ADR-0007]).
+lexical token for it ([TDR-0006]).
 
 ## 6. Numeric literals
 
-Numeric syntax is specified by [Numeric literals](../../library/numbers/numeric-literals.md), ratified by
-PDR-0026. It supplies exact radix `Int` literals, decimal exponent `Float` literals,
+Numeric syntax is specified by [TDR-0070](../../../decisions/accepted/0070-numeric-literals.md), ratified by
+TDR-0071. It supplies exact radix `Int` literals, decimal exponent `Float` literals,
 separator rules, and atomic malformed-literal diagnostics.
 
 ```
@@ -157,7 +157,7 @@ MULTILINE-STRING := "\"\"\"" [ HSPACE ] NEWLINE { MULTILINE-LINE } MARGIN "\"\"\
 Double-quoted single-line strings do not span physical lines. A raw `NEWLINE` is invalid
 inside the literal; use `\n` or `\r\n` escapes for embedded line breaks.
 
-### 7.1 Multiline text blocks ([PDR-0034](../../../pdr/0034-multiline-string-text-blocks.md))
+### 7.1 Multiline text blocks ([TDR-0078](../../../decisions/accepted/0078-multiline-string-text-blocks.md))
 
 Triple-quoted strings (`"""`) represent indented multiline text blocks.
 
@@ -167,7 +167,7 @@ Triple-quoted strings (`"""`) represent indented multiline text blocks.
 - **Blank lines**: Lines containing only whitespace (or empty) are stripped to empty string `""` without requiring the margin prefix.
 - **Escapes & Interpolation**: Standard string escapes (`\"`, `\\`, `\n`, `\t`, `\r`, `\(`) apply. Physical newlines normalize to `\n`.
 
-### 7.2 Interpolation ([ADR-0022])
+### 7.2 Interpolation ([TDR-0020])
 
 A string containing one or more `\(expr)` interpolations is an *interpolated
 string*. Each `\(expr)` desugars to a `toString` send on the evaluated
@@ -218,7 +218,7 @@ token class.
 ## 9. Symbol literals (`#`)
 
 Symbol literals name a message selector or a bare name as a first-class
-value ([ADR-0012]; semantics in [`../selectors.md#2-symbol-literals-`](../selectors.md)).
+value ([TDR-0011]; semantics in [`../selectors.md#2-symbol-literals-`](../selectors.md)).
 
 ```
 SYMBOL           := NAME-SYMBOL | SELECTOR-SYMBOL
@@ -290,13 +290,13 @@ ATTRIBUTE := "@" IDENT
 
 | Group | Tokens |
 |---|---|
-| Arithmetic | `+` `-` `*` `/` `%` `~/` (`~/` is integer division, [ADR-0024]) |
-| Bitwise | `&` `|` `^` `~` `<<` `>>` (PDR-0020) |
+| Arithmetic | `+` `-` `*` `/` `%` `~/` (`~/` is integer division, [TDR-0022]) |
+| Bitwise | `&` `|` `^` `~` `<<` `>>` (TDR-0069) |
 | Comparison | `==` `!=` `<` `<=` `>` `>=` |
 | Assignment | `=`, compound `+=` `-=` `*=` `/=` `%=` |
 | Option | `??` `?.` |
 | Member | `.` |
-| Range | `..` `...` (reserved-inactive: `a..b` inclusive, `a...b` exclusive, [ADR-0032]) |
+| Range | `..` `...` (reserved-inactive: `a..b` inclusive, `a...b` exclusive, [TDR-0029]) |
 | Spread / rest | prefix `*` |
 | Label / map | `:` |
 | Arrow | `=>` (block/expression body); `->` reserved-inactive |
@@ -365,10 +365,10 @@ PUNCT      :=
   | "," | ";"
 ```
 
-[ADR-0007]: ../../../adr/0007-option-as-abstract-with-some-none.md
-[ADR-0012]: ../../../adr/0012-selector-signature-encoding-and-dispatch.md
-[ADR-0022]: ../../../adr/0022-string-interpolation-backslash-paren-sigil.md
-[ADR-0024]: ../../../adr/0024-numeric-surface-split-int-float-and-division.md
-[ADR-0027]: ../../../adr/0027-modules-as-files-with-public-by-default-imports.md
-[ADR-0031]: ../../../adr/0031-error-handling-surface-syntax.md
-[ADR-0032]: ../../../adr/0032-collections-representation-and-literals.md
+[TDR-0006]: ../../../adr/0007-option-as-abstract-with-some-none.md
+[TDR-0011]: ../../../adr/0012-selector-signature-encoding-and-dispatch.md
+[TDR-0020]: ../../../adr/0022-string-interpolation-backslash-paren-sigil.md
+[TDR-0022]: ../../../adr/0024-numeric-surface-split-int-float-and-division.md
+[TDR-0024]: ../../../adr/0027-modules-as-files-with-public-by-default-imports.md
+[TDR-0028]: ../../../adr/0031-error-handling-surface-syntax.md
+[TDR-0029]: ../../../adr/0032-collections-representation-and-literals.md

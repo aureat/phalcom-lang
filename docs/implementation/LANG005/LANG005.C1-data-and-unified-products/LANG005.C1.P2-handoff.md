@@ -31,7 +31,7 @@ Read it completely before modifying code.
 Also read:
 
 ```text
-PDR-0035
+TDR-0081
 LANG005.C1.P1 plan
 LANG005.C1.P1 diagnosis / completion guidance
 LANG005.C1.P3 plan — for boundary awareness only, NOT implementation

@@ -48,7 +48,7 @@ a cheap structural check at boot plus a behavioral guard in the corpus.
 | `verify_invariants_holds_after_bootstrap` | Phase H passes on a clean boot |
 | `metaclass_superclass_parallels_instance_superclass`, `…parallels_instance_superclass` (user class), `core_classes_have_correct_metaclass_and_superclass` | parallel rule across **more** classes than `verify_invariants` |
 | `behavior_class_exists_in_tower`, `metaclass_responds_to_superclass_via_behavior`, `…closing_the_loop`, `class_is_instance_of_class_class_not_metaclass_directly`, `object_class_class_is_metaclass`, `object_has_no_superclass`, `walking_metaclass_superclass_chain_terminates` | tower apex |
-| `subclass_field_offset_stability`, `subclass_static_field_offset_stability` | ADR-0011/0017 slot layout |
+| `subclass_field_offset_stability`, `subclass_static_field_offset_stability` | TDR-0010/0017 slot layout |
 
 ## 3. The four U-CORE-0-mandated gaps (landed with U-CORE-1)
 
@@ -65,7 +65,7 @@ invariant substrate the rest of the roadmap extends.
   `VM::new()` and assert it **equals** the census in [`floor-census.md`](./floor-census.md)
   — count **= 80**, and ideally the exact set, not just the cardinality.
 - **Why:** floor drift is otherwise silent (floor-census §7); a stray
-  `primitive!` or a dropped binding is an ADR-0019 violation. This turns the
+  `primitive!` or a dropped binding is an TDR-0017 violation. This turns the
   manual checksum into a red test.
 - **Note:** the assertion must count **bindings**, not macro-call sites (`call`
   expands to 5 arities × 2 classes; see floor-census §1.1). Prefer enumerating
@@ -77,7 +77,7 @@ invariant substrate the rest of the roadmap extends.
 - **Assertion:** for every ordinary kernel class `X` in `CoreClasses`
   (`Number, String, Bool, Symbol, Method, Function, Block, Option, Some, None,
   List, Module, System, Message, Nil`), `X.class.superclass == X.superclass.class`
-  (ADR-0002). Today `verify_invariants` checks only `Number`.
+  (TDR-0002). Today `verify_invariants` checks only `Number`.
 - **Why:** bootstrap-phases §6 — the parallel rule is the one tower invariant a
   `make_core_class` reordering can silently break for a class the corpus does not
   happen to name.
@@ -98,7 +98,7 @@ invariant substrate the rest of the roadmap extends.
 - **Where:** `verify_invariants` (structural, cheap).
 - **Assertion:** `Some` and `None` have zero instance fields and native variant
   representation; `Message` has exactly **four** (`selector`, `name`/target,
-  `labels`, `args`), as stamped in `VM::new` — ADR-0011. Assert the field count
+  `labels`, `args`), as stamped in `VM::new` — TDR-0010. Assert the field count
   and native representation on each class object post-boot.
 - **Why:** bootstrap-phases §6 — an E/F reordering or accidental return to
   instance allocation would fail *silently* until the first Option construction
@@ -122,7 +122,7 @@ this unit adds."** "H" = `verify_invariants` (boot); "C" = corpus.
 ### U-CORE-2 — absence + Boolean (residue; core landed `0da64d6`)
 | # | Invariant | Where |
 |---|---|---|
-| 2.1 | **Fast-path ≡ deopt-path for the Some-lift** (ADR-0018): an inlined `ifTrue { A }` and the same site after a sacred-selector override both yield `Some(A)` on the taken arm and `None` on the untaken arm. This is the load-bearing check for the `WrapSome` op. | C |
+| 2.1 | **Fast-path ≡ deopt-path for the Some-lift** (TDR-0016): an inlined `ifTrue { A }` and the same site after a sacred-selector override both yield `Some(A)` on the taken arm and `None` on the untaken arm. This is the load-bearing check for the `WrapSome` op. | C |
 | 2.2 | **Pop-context elision is observationally invisible:** discarding an `ifTrue`/`ifFalse` result (statement position) produces identical program output to using it — the elided immediate `Some` wrapper never changes semantics. | C |
 | 2.3 | `ifTrue(_, ifFalse)` and `and`/`or` still return **raw** values (not `Some`-lifted) — the divergence fix is one-armed only (catalog §4.2). | C |
 | 2.4 | Every `Option` combinator routes through `match` (no combinator peeks at a variant tag): `isSome`/`isNone`/`ifNone`/`orElse` on a user-subclassed `Option` respect an overridden `match`. | C |
@@ -139,11 +139,11 @@ this unit adds."** "H" = `verify_invariants` (boot); "C" = corpus.
 | # | Invariant | Where |
 |---|---|---|
 | 4.1 | **`toString` message vs `Value::to_string` print-path stay consistent:** for every value type, `x.toString` (the message) equals what `System.print(x)` renders (catalog §4.4). Assert for `Number`, `String`, `Symbol`, `Bool`, `None`, `Some(_)`, `List`. | C |
-| 4.2 | The `Object#toString` default (`"<ClassName>"`, ADR-0015) is **preserved for user classes** — a per-type override on `Number` must not change what a user `Foo` instance prints. | C |
+| 4.2 | The `Object#toString` default (`"<ClassName>"`, TDR-0013) is **preserved for user classes** — a per-type override on `Number` must not change what a user `Foo` instance prints. | C |
 | 4.3 | `None.toString == "None"` and `Some(x).toString == "Some(" + x.toString + ")"` — the fixtures `absence_option_none` / `absence_var_defaults_to_none` / `binding_var_uninitialized` go green (pending-retirement §4). | C |
 | 4.4 | Value `toString` is **total** (never raises) and never surfaces the `Nil` sentinel (Invariant 4 held through the new overrides). | C |
 
-### U-CORE-5 — collection protocol **contract** (not new classes — ADR-0020)
+### U-CORE-5 — collection protocol **contract** (not new classes — TDR-0018)
 | # | Invariant | Where |
 |---|---|---|
 | 5.1 | The contract is a set of selector + law assertions that **`List` already satisfies** (it is the reference implementation): `size ≥ 0`, `at(i)` for `0 ≤ i < size` total, `add` grows `size` by 1. Encode as a reusable conformance corpus keyed by "the collection under test." | C |
@@ -156,15 +156,15 @@ this unit adds."** "H" = `verify_invariants` (boot); "C" = corpus.
 |---|---|---|
 | 6.1 | `MessageNotUnderstood < Error < Object`; the tower parallel rule holds for the new error rows (R-INV-0.2 extended). | H + C |
 | 6.2 | A genuine miss (no method, dNU not overridden) raises a **surface** `MessageNotUnderstood` carrying the reified `Message` (census §2.14), **not** the native `RuntimeError` — and the raised object `isA(Error)`. | C |
-| 6.3 | Only `Error` subclasses are throwable (ADR-0008): `throw 42` is rejected; `throw someError` unwinds. | C |
+| 6.3 | Only `Error` subclasses are throwable (TDR-0007): `throw 42` is rejected; `throw someError` unwinds. | C |
 | 6.4 | An overriding `doesNotUnderstand(_)` (proxy) still **intercepts** before `MessageNotUnderstood` is raised — wiring the default raise must not break the U8 hook. | C |
-| 6.5 | The floor census (R-INV-0.1) is updated in lockstep if U-CORE-6 adds any native error-raising primitive (likely an ADR-0019 amendment — see [`decisions.md`](./decisions.md) Q2). | C |
+| 6.5 | The floor census (R-INV-0.1) is updated in lockstep if U-CORE-6 adds any native error-raising primitive (likely an TDR-0017 amendment — see [`decisions.md`](./decisions.md) Q2). | C |
 
 ## 5. Sequencing note
 
 R-INV-0.1…0.4 are a **hard prerequisite** for trusting every later unit's
 invariant additions: without the floor-census audit, a unit that accidentally
-adds a native primitive (violating ADR-0019) passes its own tests. Land the four
+adds a native primitive (violating TDR-0017) passes its own tests. Land the four
 0.x assertions **first** (with U-CORE-1, or as a standalone slice ahead of it),
 then each unit extends the parallel-rule sweep (0.2) and the census set (0.1) as
 it adds classes.
@@ -179,5 +179,5 @@ it adds classes.
 | Floor count = 80 (post-U-CORE-1) | [`floor-census.md`](./floor-census.md) §1.1 / §7 |
 | `Some`/`Message` fixed slots | [`floor-census.md`](./floor-census.md) §2.8/§2.14; `vm.rs::new` (Phase E) |
 | `hash`/`isA`/`==` consistency | [`object-model.md`](../object-model.md) §4 (Map/Set), §8 (protocol) |
-| Some-lift fast≡deopt | [ADR-0018](../../../adr/0018-sacred-selector-inliner-and-override-guard.md) amendment; `0da64d6` |
-| Error mechanism | [ADR-0008](../../../adr/0008-layered-exceptions-and-result.md) |
+| Some-lift fast≡deopt | [TDR-0016](../../../decisions/accepted/0016-sacred-selector-inliner-and-override-guard.md) amendment; `0da64d6` |
+| Error mechanism | [TDR-0007](../../../decisions/accepted/0007-layered-exceptions-and-result.md) |

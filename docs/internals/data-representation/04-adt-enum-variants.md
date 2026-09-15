@@ -241,7 +241,7 @@ iterator for the GC roots scanner.
   `some_depth` for Option
 - [02-product-layout-and-storage.md](02-product-layout-and-storage.md) — shared
   product storage engine
-- [ADR-0010](../../adr/accepted/0010-tagged-value-enum.md) — tagged Value design
-- [ADR-0044](../../adr/accepted/0044-option-bootstrap-formalization-and-defer-niche-encoding.md) — Option representation
+- [TDR-0009](../../decisions/accepted/0009-tagged-value-enum.md) — tagged Value design
+- [TDR-0037](../../decisions/accepted/0037-option-bootstrap-formalization-and-defer-niche-encoding.md) — Option representation
 - [spec: associated-lookup-surface.md](../../spec/associated-lookup-surface.md)
 - [spec: nullary-adt-variant.md](../../spec/nullary-adt-variant.md)

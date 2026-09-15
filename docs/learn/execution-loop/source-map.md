@@ -567,11 +567,11 @@ adjacent technique that *does* survive: **fusion** (`InvokeLocal`/
 `InvokeConst`, seen live in §7), which cuts dispatches rather than fetches
 and so is immune to the same precondition failure.
 
-**ADR-0051** (`docs/adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md`),
+**TDR-0049** (`docs/adr/accepted/0051-performance-strategy-measure-first-tiered-optimization.md`),
 Decision section (L60-94): adopts a "measure-first, tiered,
 behavior-invariant" performance strategy. Governs the hoisted-`Callable`
 optimization in §4 and the fusion pass cited above (both cite perf-log cuts,
-consistent with ADR-0051's "no optimization lands without a reproducible
+consistent with TDR-0049's "no optimization lands without a reproducible
 benchmark + attributed profile + before/after number" policy). Not read
 beyond the Decision section — bounded per instruction.
 
@@ -579,7 +579,7 @@ No dedicated ADR exists for "the execution loop" itself as a design
 question — it did not turn up in a grep for `dispatch loop`/`run_until_inner`/
 `hoisted callable`/`computed goto`/`threaded dispatch` across `docs/adr/` and
 `docs/design-notes/` beyond the two docs above (plus incidental hits in
-ADR-0030/ADR-0050/ADR-0056/the retired ADR-0033, not opened — the loop's
+TDR-0027/TDR-0048/ADR-0056/the retired ADR-0033, not opened — the loop's
 *existence* as a fetch-decode-execute cycle is treated in this codebase as
 foundational machinery, not a deliberated fork).
 
@@ -593,7 +593,7 @@ that it is fiber-unaware:
 > "The inner dispatch loop, unaware of fibers: drains bytecode until
 > [`Self::frames`] shrinks to `base_frames`, or a [`RuntimeError`]
 > propagates out. [`Self::run_until`] wraps this with the fiber-floor
-> capture (ADR-0030 §6); this function's own behavior is otherwise exactly
+> capture (TDR-0027 §6); this function's own behavior is otherwise exactly
 > the pre-U-FIBER `run_until`."
 
 `run_until` (`dispatch.rs:221-341`) is more than a thin wrapper — I read it
@@ -636,7 +636,7 @@ live disassembler runs (`1 + 2 * 3` showing `InvokeConst` fusion with its
 dead-code `Invoke` left in place, and a two-statement program showing the
 `Constant`/`Pop` delta) matched against the fusion doc comment and opcode
 semantics; the `bytecode-representation-and-borrowed-techniques.md` §B1/§B3/§B4
-findings, quoted verbatim; ADR-0051's Decision section header.
+findings, quoted verbatim; TDR-0049's Decision section header.
 
 **Inferred, not independently re-derived**: that disassembled selector
 constants `[3]`/`[4]` in the `1 + 2 * 3` run are literally the symbols `*`

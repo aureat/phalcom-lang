@@ -150,7 +150,7 @@ variadic probe, then `doesNotUnderstand(_)` forward":**
 
 Every branch reaches `self.call_method(...)` or
 `self.forward_does_not_understand(...)`, both of which propagate `PhResult`
-with `?` — confirming ADR-0012's F1 fix (the `Result` is threaded, not
+with `?` — confirming TDR-0011's F1 fix (the `Result` is threaded, not
 discarded) is live at HEAD.
 
 ## 3. `call_method` full body — the fork
@@ -243,7 +243,7 @@ branch on:
    primitive (`fiber_call`/`fiber_try`/`fiber_yield`); neither `result` nor
    the stack is touched, because the primitive already repointed
    `self.frames`/`self.stack` to a different fiber. *→ concurrency doc
-   (ADR-0030), flagged, not analyzed here.*
+   (TDR-0027), flagged, not analyzed here.*
 2. **`self.frames.len() >= frames_before`** (L68) — the ordinary case: no
    frame-count change, so the receiver+args window is truncated and the
    result pushed in its place.
@@ -306,7 +306,7 @@ the method inline).
 **Superclass link type** — `ClassObject.superclass: Option<ClassId>`
 (`heap/class.rs` L33, VERIFIED: "Handle to this class's superclass, or
 `None` at the tower's apex (`Object`)."). `ClassId` is a `Copy` arena handle
-(ADR-0009), not a pointer/`Rc`.
+(TDR-0008), not a pointer/`Rc`.
 
 ## 5. The selector representation
 
@@ -332,7 +332,7 @@ pub fn encode_selector(name: &str, labels: &[Option<String>], kind: SignatureKin
 argument or the label text for a keyword argument, comma-joined. The encoded
 string is then interned to a `Symbol` at the call site (compiler) and at
 every runtime selector-building path (`perform`, `doesNotUnderstand`
-forwarding, `new_message`) — ADR-0012 requires this be the *only* encoder, to
+forwarding, `new_message`) — TDR-0011 requires this be the *only* encoder, to
 close a prior divergent-encoder defect (F8, §11).
 
 **`move(to,duration)` and `move(_,_)` are confirmed different keys.** Given
@@ -340,7 +340,7 @@ close a prior divergent-encoder defect (F8, §11).
 `comma_form_slots` produces `"to,duration"` vs `"_,_"`, so `encode_selector`
 returns the distinct strings `"move(to,duration)"` and `"move(_,_)"` — which
 intern to distinct `Symbol`s and therefore distinct `MethodsMap` keys. This
-is exactly ADR-0012's core claim (§11).
+is exactly TDR-0011's core claim (§11).
 
 The inverse, `decode_selector` (`method/mod.rs` L156-207, read in full), is
 total (never panics — an unparseable string decodes to `SignatureKind::Getter`,
@@ -431,12 +431,12 @@ send.
 **Confirmed: its own opcode**, not a flag on `Invoke`. `SuperSend(u8, u16, u16)`
 — `bytecode.rs` L138, doc comment: "Sends `selector` starting the method walk
 **above** a statically-known class, with the original receiver (`self`)... the
-lowering of a `super.sel(…)` send (method-lookup.md §1.14, U-INH, ADR-0040)."
+lowering of a `super.sel(…)` send (method-lookup.md §1.14, U-INH, TDR-0035)."
 The dispatch arm (`vm/dispatch.rs` L863-916) resolves the *defining class*
 by name at dispatch time (`self.classes.get(&defining_sym)`), reads its
 `superclass` fresh each send, and walks `lookup_method_in_hierarchy` starting
 there — never touching the receiver's own class for the walk's start point.
-*→ deferred mechanism (ADR-0040), not analyzed further here.*
+*→ deferred mechanism (TDR-0035), not analyzed further here.*
 
 ## 9. Constructors
 
@@ -455,7 +455,7 @@ neighboring read) states it directly:
 `Foo.new()` resolves through the identical `lookup_method_in_hierarchy` walk
 (§4) as any other send — `new` is an ordinary selector on `Foo`'s metaclass
 that happens to shadow `Class`'s bare allocator at the tower root, per
-ADR-0063 ("Constructors are ordinary class-side methods").
+TDR-0052 ("Constructors are ordinary class-side methods").
 
 ## 10. Fixtures run live
 
@@ -564,7 +564,7 @@ same lookup/dispatch machinery as a static send.
 0012, 0040, 0060, 0063 (plus 0009, 0011, 0018 as supporting handle/slot/inliner
 ADRs, not read here).
 
-**ADR-0012 — "Label-encoded selectors and inline-cache-ready dispatch"**
+**TDR-0011 — "Label-encoded selectors and inline-cache-ready dispatch"**
 (Accepted, 2026-07-11). Decision: replace arity-only `SignatureKind::Method(u8)`
 dispatch with label-encoded selector symbols (`add(_,_)`, `move(to,duration)`,
 `name=(_)`, `+(_)`, variadic `sum(*)`), one `encode_selector` helper shared by
@@ -581,7 +581,7 @@ for a 0-arg selector; F8 = a malformed selector `">( _)"` from a divergent
 encoder. All three are folded into this ADR's decision rather than patched
 separately.
 
-**ADR-0040 — "SuperSend opcode"** (Accepted, verified against the U-INH
+**TDR-0035 — "SuperSend opcode"** (Accepted, verified against the U-INH
 implementation 2026-07-14, per its own status line). Decision: a third
 send opcode, `SuperSend(argc: u8, selector: u16, defining_class_name: u16)`;
 receiver stays the original `self`; walk starts at `defining.superclass`,
@@ -589,7 +589,7 @@ computed fresh at dispatch time; a super-construct miss retries against the
 superclass's metaclass chain; a full-chain miss routes to the same
 `doesNotUnderstand` path as an ordinary `Invoke` miss, never a panic.
 
-**ADR-0063 — "Constructors are ordinary class-side methods"** (Accepted,
+**TDR-0052 — "Constructors are ordinary class-side methods"** (Accepted,
 ratified 2026-07-15). Establishes that `new`'s only special treatment is two
 hardcoded compiler string checks (`class_decl.rs`, `expr.rs`) needed solely
 because `new` collides with the tower-root's bare allocator; named
@@ -597,7 +597,7 @@ constructors (`Ref.at`, `Cell.of`, etc.) have no such collision and dispatch
 as ordinary class-side sends. `construct`/`static` are pure syntactic
 metadata, changing zero grammar.
 
-**ADR-0060 — "Index operator as a real selector"** (Accepted). Decision:
+**TDR-0050 — "Index operator as a real selector"** (Accepted). Decision:
 `expr[idx]` / `expr[idx] = value` / `expr[]` / `expr[] = value` compile
 directly to sends against dedicated bracket selectors `[_]` / `[_,put]` /
 `[]` / `[put]` — no `at(_)`/`at(_,put:)` lowering. Confirms `[]` is a real

@@ -74,7 +74,7 @@ class Object {
 - Move the existing `isA` body into `is` **verbatim** — no guard line.
 - **I-4 ratified = `false`** (non-class RHS returns false via the natural chain walk). Do **not**
   add a `cls.is(…)` guard: it re-enters `is` through the alias and recurses forever, and it would
-  target `Behavior`, which is **not bootstrapped** (ADR-0003 designs it; core.ph has only
+  target `Behavior`, which is **not bootstrapped** (TDR-0003 designs it; core.ph has only
   `Object`/`Class`/`Metaclass`, and it is absent from `phalcom-core/src/`). A raising variant is
   deferred until a non-recursive native class-predicate exists (would also break floor-0).
 - **No `Behavior` reference anywhere in this unit.**
@@ -89,7 +89,7 @@ class Object {
 - `docs/spec/current/is-tests.md` — mark surface IMPLEMENTED; `docs/forge/units/README.md` +
   DEFERRED/STATE as the index requires.
 - **Floor: +0** (pure parser desugar + `.ph` methods over the floor; no native primitive). If a
-  primitive turns out needed → STOP-and-report per ADR-0019.
+  primitive turns out needed → STOP-and-report per TDR-0017.
 
 ## Tests / graduation
 - **Positive goldens** (stdout byte-exact) covering the semantics table:

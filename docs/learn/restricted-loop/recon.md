@@ -9,7 +9,7 @@ Scope discipline: this answers the four recon questions and stops. It does not d
 
 ## 1. Architecture vs representation
 
-**Architecture.** Cooperative, single-threaded, **restricted re-entrant loop** — ADR-0030 §4's
+**Architecture.** Cooperative, single-threaded, **restricted re-entrant loop** — TDR-0027 §4's
 Option A, whose lineage the ADR names as Lua 5.1. There is exactly one dispatch loop
 (`dispatch.rs::VM::run_until_inner`), and it is documented as *"the inner dispatch loop, **unaware
 of fibers**"* (`dispatch.rs::VM::run_until_inner` doc comment, ~L470). Fibers are not scheduled by
@@ -79,16 +79,16 @@ the only ones there are**. The restriction is not an extra rule bolted on; it is
 
 ## 3. What was actually deliberated
 
-Unlike every VM-track doc, **the design space here is real, not reconstructed.** ADR-0030
+Unlike every VM-track doc, **the design space here is real, not reconstructed.** TDR-0027
 *Alternatives considered* records four rejections with bills attached:
 
 | Branch | Recorded fate | Bill the ADR names |
 |---|---|---|
 | **A** — restricted re-entrant loop | **Taken** | forecloses the callback generator |
 | **B** — full trampoline, yield anywhere | "Not now" — **additively reachable from A** | invasive rewrite of the whole primitive/callback protocol |
-| **C** — stackful coroutines (real native stacks) | Rejected | `unsafe` stack-switch dependency, and **permanently constrains the GC** — every parked native stack becomes a root a moving collector must scan/relocate (named crown-jewel conflict *stackful-fiber ⊗ moving-GC*, weakening ADR-0009) |
+| **C** — stackful coroutines (real native stacks) | Rejected | `unsafe` stack-switch dependency, and **permanently constrains the GC** — every parked native stack becomes a root a moving collector must scan/relocate (named crown-jewel conflict *stackful-fiber ⊗ moving-GC*, weakening TDR-0008) |
 | Preemptive / multithreaded | Rejected | needs a memory model + locks throughout the object model |
-| Resumable (Smalltalk) suspension for failures | Out of scope | ADR-0008 propagation is terminating |
+| Resumable (Smalltalk) suspension for failures | Out of scope | TDR-0007 propagation is terminating |
 
 **The spine of the decision is the A→B vs A→C asymmetry**: A→B is purely additive, A→C is an
 irreversible GC commitment. The doc's design-space walk must carry that asymmetry, and **must not

@@ -81,7 +81,7 @@ else.
 that can be written can be ignored.
 
 `Field` is excluded because dropping a field changes the instance layout
-(ADR-0011), which is a materially different act from dropping a method — see I-2.
+(TDR-0010), which is a materially different act from dropping a method — see I-2.
 This is the target the trap fixture pins: legality is checked *before* the drop, so
 `@ignore var hidden` raises `attr.illegal_target` rather than silently vanishing.
 
@@ -201,7 +201,7 @@ from a passing one.
 | # | Question |
 |---|---|
 | I-1 | Should `@ignore` warn? A member that is silently dropped forever is exactly the kind of thing a linter should mention once. Argues for a diagnostic at `warn` level — but Phalcom has no warning tier today, only errors. Deferred until one exists. |
-| I-2 | `@ignore` on a `Field`? Dropping a field changes the instance layout (ADR-0011), which is materially different from dropping a method and interacts with `@construct`/`@data`/`@get`/`@set` derives that read the field list. Currently `attr.illegal_target`. Revisit only with a concrete need. |
+| I-2 | `@ignore` on a `Field`? Dropping a field changes the instance layout (TDR-0010), which is materially different from dropping a method and interacts with `@construct`/`@data`/`@get`/`@set` derives that read the field list. Currently `attr.illegal_target`. Revisit only with a concrete need. |
 | I-3 | `@ignore` on a whole class? Same shape as native.md N-4. Out of scope. |
 | I-4 | `@native` + `@ignore` on one member — error, or redundant-but-legal? Leaning error (`attr.redundant`). Shared with native.md N-5; decide once, for both. |
 

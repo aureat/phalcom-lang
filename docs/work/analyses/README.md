@@ -39,4 +39,4 @@ next artifact is a PDR, not a branch.
 - [`hashbrown-in-phalcom.md`](hashbrown-in-phalcom.md) — could the SwissTable hash map be written
   in Phalcom? No, twice: four missing capabilities today, and a constant-factor inversion that
   survives closing all four. Notes that ~half of hashbrown's complexity dissolves under a
-  handle-arena GC, and that ratified-but-unbuilt PDR-0012 does **not** close the gap.
+  handle-arena GC, and that ratified-but-unbuilt TDR-0065 does **not** close the gap.

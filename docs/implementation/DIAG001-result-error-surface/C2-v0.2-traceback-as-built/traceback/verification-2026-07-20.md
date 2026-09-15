@@ -2,10 +2,10 @@
 
 Adversarial re-verification of every claim in [`tracing.md`](../../deferred/tracing.md) and the
 U-TRACE handoff prompt, performed before the implementation spec was written. Method: each claim
-re-derived from the tree at HEAD (post-PDR-0007/0008), reproduced with the built binary where
+re-derived from the tree at HEAD (post-TDR-0060/0008), reproduced with the built binary where
 behavioral, and two claims delegated to independent verifier agents with instructions to refute.
 
-**Headline: the tree moved under the audit.** PDR-0008 (Accepted, shipped `dcc4420`+`8466867`)
+**Headline: the tree moved under the audit.** TDR-0061 (Accepted, shipped `dcc4420`+`8466867`)
 already wired `cmd_run` through both reporters and fixed two of the four `runtime_error` defects.
 Five of the handoff's "personally verified, treat as CONFIRMED" claims are now stale. This is the
 `landed-state-claims-go-stale` failure mode, again — the audit was correct when written and wrong
@@ -15,7 +15,7 @@ by the time it was read.
 
 | Claim | Verdict now | Evidence |
 |---|---|---|
-| `cmd_run` bypasses the diagnostic path (`eprintln!("{e}"); exit(1)`) | **STALE — fixed** | `cli.rs:166-180` now calls `vm.compiler_error(err)` and `vm.runtime_error(err)`; comment cites PDR-0008 |
+| `cmd_run` bypasses the diagnostic path (`eprintln!("{e}"); exit(1)`) | **STALE — fixed** | `cli.rs:166-180` now calls `vm.compiler_error(err)` and `vm.runtime_error(err)`; comment cites TDR-0061 |
 | `compiler_error` is an empty stub | **STALE — fixed** | `dispatch.rs:180-182` calls `print_compile` (message-only, span-less; see followups §4) |
 | `interpret_source` called only from tests/benches | **STALE — narrowed** | Still true for the CLI (`cmd_run` does not call it), but it now reports on both paths; duplication recorded in `repl-diagnostics-and-limits-followups.md` §5 |
 | Empirical: bogusSelector prints bare message, no frames | **STALE — changed** | Same repro now prints a `Traceback` header + per-frame caret blocks (see §2 defect table for what is still wrong with it) |
@@ -33,8 +33,8 @@ by the time it was read.
 | # | Defect | Verdict | Evidence |
 |---|---|---|---|
 | 1 | `module_source.unwrap()` panics on `None` | **REFUTED (already fixed)** | `dispatch.rs:150-156`: `module.source_at(source_id).cloned()`, doc comment names the old `.unwrap()` |
-| 2 | `spans[ip - 1]` underflow at `ip == 0` | **REFUTED (already fixed)** | `dispatch.rs:136`: `saturating_sub(1)`; fixed by PDR-0007 (its STATUS row names this defect) |
-| 3 | `self.frames.clone()` per error | **CONFIRMED** | `dispatch.rs:123`. PDR-0010 §3 dissolves it (capture at the `on` boundary walks borrowed frames; no clone) |
+| 2 | `spans[ip - 1]` underflow at `ip == 0` | **REFUTED (already fixed)** | `dispatch.rs:136`: `saturating_sub(1)`; fixed by TDR-0060 (its STATUS row names this defect) |
+| 3 | `self.frames.clone()` per error | **CONFIRMED** | `dispatch.rs:123`. TDR-0063 §3 dissolves it (capture at the `on` boundary walks borrowed frames; no clone) |
 | 4 | Ordering inverted | **CONFIRMED, empirically** | Repro prints innermost frame first under a "most recent call last" header; `print_rt`'s doc (`diagnostics.rs:108`) demands caller→callee input, `runtime_error`'s `.rev()` (`dispatch.rs:123`) delivers callee→caller. **The code is wrong, not the doc** — both the doc and the locked Python-ordering decision agree. Also: the error message renders at the *top*, and every frame gets a caret block — both contradict the locked decisions (message at bottom, caret innermost-only) |
 
 Current empirical output (repro: `class T { a { self.b } b { self.c } c { 1.bogusSelector } }` + `T.new().a`):
@@ -70,7 +70,7 @@ Independent verifier reproduced both:
 
 `locate()` really does send user `hash` (`map.rs:55`) and `==` (`map.rs:61`) via `send_dynamic`.
 The recorded trigger sketch needed corrections: `hash { 0 }` (getter, no parens), and a
-reentrancy guard flag — the naive sketch infinitely recurses into PDR-0007's native-reentrancy
+reentrancy guard flag — the naive sketch infinitely recurses into TDR-0060's native-reentrancy
 limit instead of reaching the stale slot. Repro files preserved in the session scratchpad
 (`repro4.ph` panic, `repro6.ph` corruption). Stays **out of U-TRACE**, ranked above it.
 
@@ -78,8 +78,8 @@ limit instead of reaching the stale slot. Repro files preserved in the session s
 
 `error-handling.md:140-148` still presents `on(RangeError)` / `on(DeadFrameError)` as working;
 no `RangeError`/`DeadFrameError`/`TypeError` kernel classes exist; every non-`Raise` error wraps
-to base `Error`. Now **owned by PDR-0010 §2** (`kind` Symbol), which explicitly closes
-followups §2 — but PDR-0010 is Proposed. Until ratified, the spec examples remain false and
+to base `Error`. Now **owned by TDR-0063 §2** (`kind` Symbol), which explicitly closes
+followups §2 — but TDR-0063 is Proposed. Until ratified, the spec examples remain false and
 unannotated.
 
 ### e. "VERIFIED CLEAN" list — spot-checked behaviorally, CONFIRMED-CLEAN
@@ -97,7 +97,7 @@ facts confirmed while testing: `Error.new("msg").raise()`, `throw X` sugar, `Sys
 `size_of::<Bytecode>() == 8`, `size_of::<SourceRange>() == 16` (throwaway test, deleted). The
 span table outweighs the code it annotates **2:1**, before counting the other `ip`-indexed
 parallel arrays (`caches`, `gcaches`, `chunk.rs:115`). The "very likely outweighs" hedge can be
-retired; the debt record and accessor requirement (PDR-0010 §5) stand on a measurement now.
+retired; the debt record and accessor requirement (TDR-0063 §5) stand on a measurement now.
 
 ### g. Catalog §1 `help: did you mean 'floor'?` — CONFIRMED WRONG
 
@@ -108,14 +108,14 @@ toString new`; **no `floor`**. Fixed in the catalog this pass: the example now t
 ### h. Cross-fiber link vs DEC-FIB-A — NO COLLISION
 
 DEC-FIB-A was resolved and its fix has **landed**: the fiber-floor capture + `Call`-mode cascade
-is live at `dispatch.rs:325-373`. PDR-0010 §3a already specifies exactly where the trace link
+is live at `dispatch.rs:325-373`. TDR-0063 §3a already specifies exactly where the trace link
 must be captured (per hop, inside the cascade loop, before each `clear()` at
 `dispatch.rs:354-356`). What remains is **write-set coordination** — that loop is U-FIBER
 territory and U-TRACE-3 must edit it — not a design conflict.
 
 ## 3. Findings the audit did not contain
 
-- **PDR-0010 supersedes the locked capture-at-raise decision** (Proposed 2026-07-20, commit
+- **TDR-0063 supersedes the locked capture-at-raise decision** (Proposed 2026-07-20, commit
   `2c6e022`): capture at the first `on` boundary, per-hop inside the fiber cascade, record holds
   Symbols + line — never `ObjRef`s — plus `Error#kind`/`#cause`/`#displaced`. It names U-TRACE
   directly: *"U-TRACE's implementation spec must be written against §3 and §4."* It is **not
@@ -143,4 +143,4 @@ From the handoff's claims: defects a1 and a2 (already fixed), the `cmd_run` bypa
 empty `compiler_error` (fixed), the empirical no-traceback repro (now renders, differently
 wrong), the "module source is None in REPL/-i/core.ph" hypothesis (all three record source now),
 the catalog's `floor` suggestion (no such selector), the capture-at-raise locked decision
-(superseded by Proposed PDR-0010 — pending ratification), and "@native is not built" (it is).
+(superseded by Proposed TDR-0063 — pending ratification), and "@native is not built" (it is).

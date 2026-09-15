@@ -3,8 +3,8 @@
 Part of the [Phalcom Language Specification](README.md). Status: Draft 0.1.
 
 **Governing ADRs:**
-[ADR-0008](../../adr/0008-layered-exceptions-and-result.md) (layered exceptions + `Result`, terminating semantics) ·
-[ADR-0031](../../adr/0031-error-handling-surface-syntax.md) (surface syntax: `throw`/`try`/`catch`/`on`/`ensure`)
+[TDR-0007](../../decisions/accepted/0007-layered-exceptions-and-result.md) (layered exceptions + `Result`, terminating semantics) ·
+[TDR-0027](../../decisions/accepted/0027-error-handling-surface-syntax.md) (surface syntax: `throw`/`try`/`catch`/`on`/`ensure`)
 
 Phalcom has **two** failure channels, layered rather than competing:
 
@@ -55,7 +55,7 @@ protected block — the same shape as control flow:
 ### The `try` statement (sugar)
 
 `try` / `on` / `catch` / `ensure` desugar directly to the block protocol
-([ADR-0031](../../adr/0031-error-handling-surface-syntax.md)):
+([TDR-0027](../../decisions/accepted/0027-error-handling-surface-syntax.md)):
 
 ```phalcom
 try {
@@ -124,7 +124,7 @@ The layering only works because conversion is trivial in both directions
 |-----------|------|---------|
 | throw → value | `{ risky() }.attempt()` | run the block, capturing a `throw` into `Err(e)`; success is `Ok(v)`. Returns `Result`. |
 | value → throw | `result.unwrap()` | the value, or `throw` the contained `Err` |
-| absence ↔ error | `option.okOr(err)` / `result.ok()` | reserved in [ADR-0007](../../adr/0007-option-as-abstract-with-some-none.md) |
+| absence ↔ error | `option.okOr(err)` / `result.ok()` | reserved in [TDR-0006](../../decisions/accepted/0006-option-as-abstract-with-some-none.md) |
 
 `attempt()` is the synchronous sibling of the fiber-level `try` ([concurrency.md](concurrency.md)):
 both mean "run this, and hand me the failure as a value instead of propagating it."
@@ -148,14 +148,14 @@ so all of them are catchable with the same protocol:
 > **Correction (2026-07-20).** The second and third examples cannot work: `RangeError` and
 > `DeadFrameError` kernel classes do not exist, and every non-`Raise` native error is wrapped,
 > on catch, into a generic base `Error` instance — so those handlers silently never fire.
-> The **ruled** replacement is [PDR-0010](../../pdr/0010-errors-carry-structure-and-cheap-origin.md)
+> The **ruled** replacement is [TDR-0062](../../decisions/accepted/0062-errors-carry-structure-and-cheap-origin.md)
 > §2 (ratified 2026-07-20): every `Error` carries a `kind` Symbol, matched as
 >
 > ```phalcom
 > { list[99] }.on(Error) { e => if (e.kind == #range) { … } }
 > ```
 >
-> Kernel classes per condition are deliberately **not** minted (PDR-0001 makes them the most
+> Kernel classes per condition are deliberately **not** minted (TDR-0054 makes them the most
 > expensive answer). Normative `kind` table:
 > [`traceback/implementation-spec.md`](../traceback/implementation-spec.md) §8.1. Unimplemented
 > until traceback plan units T3/T6 land; until then only `Error`, `MessageNotUnderstood`, and

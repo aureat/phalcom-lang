@@ -4,11 +4,11 @@
 
 **Goal:** Build the first representation-aware product optimizer on top of LANG005.C1.P1 so non-escaping `data` values and provably non-observable exact enum payloads can remain virtual, live as scalar component slots, project directly without aggregate allocation, and materialize through P1's canonical `ProductLayout` / `ProductStorage` boundary only when execution actually requires a runtime `Value`.
 
-**Architecture:** Keep Phalcom's existing direct AST-to-stack-bytecode compiler. Do **not** introduce a general SSA/IR rewrite in this checkpoint. Add one backend-only intraprocedural product planning layer in `phalcom-core`: it consumes P1's already-resolved semantic lowering attachments, walks lexical AST use structure only to prove escape/capture/use shape, and selects a conservative emission strategy. Optimized product locals occupy ordinary `Value` frame slots, one per scalar leaf, so the VM stack/call ABI remains unchanged. `data` may be rematerialized because PDR-0035 forbids observable allocation identity; general enum cases may be virtualized only when the compiler proves no whole-case/identity-observing use, because PDR-0035 does not change enum allocation identity. P1 bytecode remains the canonical fallback and is always available through an optimizer-disabled test seam.
+**Architecture:** Keep Phalcom's existing direct AST-to-stack-bytecode compiler. Do **not** introduce a general SSA/IR rewrite in this checkpoint. Add one backend-only intraprocedural product planning layer in `phalcom-core`: it consumes P1's already-resolved semantic lowering attachments, walks lexical AST use structure only to prove escape/capture/use shape, and selects a conservative emission strategy. Optimized product locals occupy ordinary `Value` frame slots, one per scalar leaf, so the VM stack/call ABI remains unchanged. `data` may be rematerialized because TDR-0081 forbids observable allocation identity; general enum cases may be virtualized only when the compiler proves no whole-case/identity-observing use, because TDR-0081 does not change enum allocation identity. P1 bytecode remains the canonical fallback and is always available through an optimizer-disabled test seam.
 
 **Tech stack:** Rust 2024 workspace; `phalcom-core` AST-to-bytecode compiler; P1 data/product lowering specs; existing `ReserveScratchLocal` / `ReleaseScratchLocal` stack machinery; `ModuleLoweringSemantics`; `Chunk` and `ExecutableSemanticPool`; existing ADT match lowering; Criterion VM benchmark harness.
 
-**Governing decisions and prerequisite:** PDR-0035 and LANG005.C1.P1. P2 does not add new language semantics. P1 must be COMPLETE before P2 implementation begins.
+**Governing decisions and prerequisite:** TDR-0081 and LANG005.C1.P1. P2 does not add new language semantics. P1 must be COMPLETE before P2 implementation begins.
 
 ---
 
@@ -137,7 +137,7 @@ P2 is therefore an emission optimization, not a second semantic pipeline.
 4. **Evaluate exactly once.** Every source constructor argument executes exactly once.
 5. **Preserve source evaluation order.** Arguments execute in the same source order as canonical P1 lowering, including labeled arguments.
 6. **Do not skip unused arguments.** Projection of one component does not permit dropping evaluation of other constructor arguments; they may throw, allocate, mutate, suspend, or otherwise have effects.
-7. **Data rematerialization is legal.** A virtual data value may be reconstructed at a whole-value boundary because PDR-0035 removes observable backing allocation identity.
+7. **Data rematerialization is legal.** A virtual data value may be reconstructed at a whole-value boundary because TDR-0081 removes observable backing allocation identity.
 8. **Enum rematerialization is not assumed legal.** A general enum case may be virtualized only when no whole-case value can be observed. If an enum value must escape, be compared as a whole, be sent a method, be returned, be captured, or be bound whole by a pattern, compile the candidate through canonical P1 materialization.
 9. **Native `Option` is not a P2 target.** It already has a specialized immediate representation. Do not route it through the general virtual-enum path merely for architectural symmetry.
 10. **Only local immutable bindings are virtualized in P2.** Globals, fields, parameters, mutable/reassigned locals, destructuring bindings, and captured locals use canonical materialization.
@@ -989,7 +989,7 @@ Tasks:
 
 Why this checkpoint exists:
 
-C2 is the first user-visible performance change. It proves PDR-0035's representation freedom is usable in the actual stack VM without changing the method ABI.
+C2 is the first user-visible performance change. It proves TDR-0081's representation freedom is usable in the actual stack VM without changing the method ABI.
 
 Entry conditions:
 - C1 COMPLETE.
@@ -1155,7 +1155,7 @@ sink(p) // only here does the aggregate need a runtime Value
 - when ordinary variable compilation resolves the virtual head at the planned whole-use range, call `emit_virtual_data_materialization`;
 - do not store/cache the materialized object back into the virtual binding;
 - after the use, components remain authoritative;
-- because PDR-0035 removes allocation identity, rematerialization does not change data semantics.
+- because TDR-0081 removes allocation identity, rematerialization does not change data semantics.
 
 One whole-value use is allowed. More than one falls back for P2.
 
@@ -1196,7 +1196,7 @@ One whole-value use is allowed. More than one falls back for P2.
 - heap allocation/live-count instrumentation introduced by P1.
 - diagnostics comparison helpers for runtime and compile errors.
 
-**Source of truth:** Disabled P1 execution is the semantic oracle; PDR-0035 permits backing-allocation differences only.
+**Source of truth:** Disabled P1 execution is the semantic oracle; TDR-0081 permits backing-allocation differences only.
 
 **Dependencies:** Tasks 8–10.
 
@@ -1228,7 +1228,7 @@ For each suitable fixture:
 3. compare result/output/error kind/source span;
 4. separately assert the expected allocation/opcode difference.
 
-Do not compare heap handles; PDR-0035 intentionally permits them to differ.
+Do not compare heap handles; TDR-0081 intentionally permits them to differ.
 
 **Edit operations:**
 1. [ ] Add a crate-internal differential harness.
@@ -1455,7 +1455,7 @@ Tasks:
 
 Why this checkpoint exists:
 
-P1 gives general enums the same physical product substrate, but PDR-0035 did **not** make enum allocations identity-free. C4 therefore uses a stricter proof: the case object may disappear only when no execution can observe the whole case value.
+P1 gives general enums the same physical product substrate, but TDR-0081 did **not** make enum allocations identity-free. C4 therefore uses a stricter proof: the case object may disappear only when no execution can observe the whole case value.
 
 Entry conditions:
 - C3 COMPLETE.
@@ -1905,7 +1905,7 @@ Benchmark both Enabled and Disabled with identical source/semantic setup where h
 3. [ ] Record all Enabled/Disabled differential evidence.
 4. [ ] Record allocation/disassembly matrix.
 5. [ ] Record benchmark method/results.
-6. [ ] Update PDR/spec implementation notes only where they describe shipped representation optimization; do not amend PDR-0035 semantics.
+6. [ ] Update PDR/spec implementation notes only where they describe shipped representation optimization; do not amend TDR-0081 semantics.
 7. [ ] Run all final negative searches.
 8. [ ] Run affected crate suites, then workspace gates.
 9. [ ] Perform deferred-evidence audit.

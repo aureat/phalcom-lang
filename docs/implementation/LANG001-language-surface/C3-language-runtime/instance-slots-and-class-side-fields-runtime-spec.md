@@ -1,7 +1,7 @@
 # LANG001.C3 — Instance slots and class side fields runtime spec
 
 - **Status:** ✅ Landed — `b619448` (parse `construct`) → `f38e591` (layout + `construct` + static fields + dispatch fix) → `561f7e2` (two missing negative goldens). In-tree on `main`, no worktree.
-- **Realizes:** [ADR-0011](../../../adr/0011-static-instance-slot-layout.md) (static per-class instance slot layout), [ADR-0017](../../../adr/0017-class-side-stored-static-fields.md) (class-side stored static fields, DEC-D); spec [classes §1](../../../spec/current/classes.md) (Constructors), [classes §2](../../../spec/current/classes.md) (Fields), [object-model §5](../../../spec/current/object-model.md) (metaclass tower). Reuses U6's private `Value::Nil` sentinel + surfacing helper.
+- **Realizes:** [TDR-0010](../../../decisions/accepted/0010-static-instance-slot-layout.md) (static per-class instance slot layout), [TDR-0015](../../../decisions/accepted/0015-class-side-stored-static-fields.md) (class-side stored static fields, DEC-D); spec [classes §1](../../../spec/current/classes.md) (Constructors), [classes §2](../../../spec/current/classes.md) (Fields), [object-model §5](../../../spec/current/object-model.md) (metaclass tower). Reuses U6's private `Value::Nil` sentinel + surfacing helper.
 - **Reviewer gate:** **OFF** per STATE.md policy (U7 is not hierarchy-load-bearing) — self-verified on the green gate + `cargo doc` clean.
 
 ## Mission
