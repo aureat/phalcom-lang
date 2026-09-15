@@ -6,6 +6,7 @@ use phalcom_modules::metadata::ModuleMetadata;
 use phalcom_modules::project::ProjectUniverse;
 use phalcom_modules::source::ModuleKind;
 use phalcom_semantic::db::{CancellationToken, QueryBudget, QueryKey};
+use phalcom_semantic::diagnostic::DiagnosticCode;
 use phalcom_semantic::identity::{CallableId, CallableOwnerId, DeclarationId, DispatchSide};
 use phalcom_semantic::impls::{CallableDefinitionOrigin, ConformanceTarget};
 use phalcom_semantic::session::{SemanticWorkspaceSession, SemanticWorkspaceUpdate};
@@ -409,6 +410,108 @@ fn ordinary_body_dispatch_reports_ambiguous_trait_evidence_at_expression_boundar
         ambiguous_expression.trait_dispatch.is_none(),
         "ambiguous dispatch must not publish a selected target"
     );
+}
+
+#[test]
+fn trait_dispatch_interaction_matrix_preserves_precedence_convergence_and_terminals() {
+    let cases = [
+        (
+            "inherent only",
+            "class User { tag -> String { \"inherent\" } }\nclass Caller { read(_ user: User) -> String { user.tag } }\n",
+            false,
+            false,
+            None,
+        ),
+        (
+            "trait default only",
+            "trait Tagged { tag -> String { \"default\" } }\nclass User {}\nimpl Tagged for User {}\nclass Caller { read(_ user: User) -> String { user.tag } }\n",
+            true,
+            false,
+            Some("Tagged"),
+        ),
+        (
+            "inherent plus default",
+            "trait Tagged { tag -> String { \"default\" } }\nclass User { tag -> String { \"inherent\" } }\nimpl Tagged for User {}\nclass Caller { read(_ user: User) -> String { user.tag } }\n",
+            false,
+            false,
+            None,
+        ),
+        (
+            "inherent plus conformance witness",
+            "trait Tagged { tag -> String }\nclass User { tag -> String { \"inherent\" } }\nimpl Tagged for User { tag -> String { \"witness\" } }\nclass Caller { read(_ user: User) -> String { user.tag } }\n",
+            false,
+            false,
+            None,
+        ),
+        (
+            "shared concrete witness convergence",
+            "trait First { tag -> String }\ntrait Second { tag -> String }\nclass User { tag -> String { \"inherent\" } }\nimpl First for User {}\nimpl Second for User {}\nclass Caller { read(_ user: User) -> String { user.tag } }\n",
+            false,
+            false,
+            None,
+        ),
+        (
+            "competing defaults",
+            "trait First { tag -> String { \"first\" } }\ntrait Second { tag -> String { \"second\" } }\nclass User {}\nimpl First for User {}\nimpl Second for User {}\nclass Caller { read(_ user: User) -> String { user.tag } }\n",
+            false,
+            true,
+            None,
+        ),
+        (
+            "incomplete conformance",
+            "trait Tagged { tag -> String }\nclass User {}\nimpl Tagged for User { tag -> String }\nclass Caller { read(_ user: User) -> String { user.tag } }\n",
+            false,
+            false,
+            None,
+        ),
+    ];
+
+    for (label, source, expect_site, expect_ambiguity, expected_trait) in cases {
+        let module = test_module();
+        let mut session = SemanticWorkspaceSession::new();
+        let output = session.update(single_module_input(module.clone(), source));
+        let caller = DeclarationId::new(module.clone(), "Caller".into());
+        let caller_analysis = output
+            .snapshot
+            .callable_analyses
+            .iter()
+            .find_map(|(callable, analysis)| (callable.try_declaration_owner() == Some(&caller)).then_some(analysis))
+            .unwrap_or_else(|| panic!("{label}: missing Caller.read analysis"));
+        let expression = caller_analysis
+            .expressions
+            .values()
+            .find(|expression| source.get(expression.range.start..expression.range.end) == Some("user.tag"))
+            .unwrap_or_else(|| panic!("{label}: missing user.tag expression"));
+        let ambiguity_count = output
+            .snapshot
+            .all_diagnostics()
+            .filter(|diagnostic| diagnostic.code == DiagnosticCode::TraitDispatchAmbiguous)
+            .count();
+        assert_eq!(ambiguity_count, usize::from(expect_ambiguity), "{label}: {expression:#?}");
+        assert_eq!(expression.trait_dispatch.is_some(), expect_site, "{label}: {expression:#?}");
+        assert_eq!(
+            expression.trait_dispatch_candidates.as_ref().map(|candidates| candidates.len()),
+            expect_ambiguity.then_some(2),
+            "{label}: {expression:#?}"
+        );
+        if let Some(expected_trait) = expected_trait {
+            let phalcom_semantic::trait_dispatch::TraitDispatchSite::Evidenced(selection) =
+                expression.trait_dispatch.as_ref().expect("expected proven trait dispatch")
+            else {
+                panic!("{label}: expected evidenced trait dispatch");
+            };
+            assert_eq!(selection.exact_trait_ref.declaration.name, expected_trait.into(), "{label}: {selection:#?}");
+            assert_eq!(
+                selection.exact_target,
+                output
+                    .snapshot
+                    .declarations
+                    .form(&DeclarationId::new(module, "User".into()))
+                    .expect("User type"),
+                "{label}: {selection:#?}"
+            );
+        }
+    }
 }
 
 #[test]

@@ -173,6 +173,13 @@ remaining vertical/certification gates are not complete. The focused
 ambiguity regression is green; the existing broad baseline blockers remain
 unchanged.
 
+The T5 semantic interaction matrix is now green for inherent-only lookup,
+trait-default lookup, inherent precedence over defaults and conformance
+witnesses, shared-concrete-witness convergence, competing-default ambiguity,
+and incomplete conformance terminals. Proven selections assert their exact
+target and exact `TraitRef`; ambiguous products retain both candidates and
+publish no selected target.
+
 The planning baseline remains pre-C3, but T0 re-grounding verified the live
 post-C3 predecessor state before production edits began. P1 and P2 remain
 complete; the current completion plan is focused-tested but not
@@ -1389,7 +1396,7 @@ P4 completion evidence on 2026-09-15:
 
 ```text
 focused semantic ambiguity diagnostic:                PASS (1)
-focused semantic impls query suite:                   PASS (51)
+focused semantic impls query suite:                   PASS (52)
 focused semantic impls suite:                         PASS (83)
 focused semantic editor suite:                        PASS (10)
 focused semantic incremental trait suite:              PASS (3)
@@ -1421,8 +1428,8 @@ and `tests/semantic/associated/lookup.rs`; and pre-existing AST
 `large_enum_variant` Clippy violations. These remain outside the focused C4
 implementation boundary.
 
-The landed T4 ambiguity slice is `IMPLEMENTED` + `FOCUSED_TESTED`. The overall
-P4 completion plan remains `PARTIAL` with checkpoint verification
+The landed T4/T5 semantic slices are `IMPLEMENTED` + `FOCUSED_TESTED`. The
+overall P4 completion plan remains `PARTIAL` with checkpoint verification
 `BASELINE_BLOCKED`; C4 is not marked release-complete. The next actionable
-slice is T5: add the dispatch interaction matrix and verify convergence,
-ambiguity, and terminal behavior through the same canonical authority.
+slice is T6/T13 follow-through: certify the remaining generic-source/runtime
+and editor/incremental verticals against the already-closed dispatch matrix.

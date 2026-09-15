@@ -82,6 +82,10 @@ do not weaken assertions or attribute them to C5/C6 without a clean comparison.
 
 The user-supplied plan file has a P4 filename but historical P3 internal id;
 preserve it as the authoritative input. The checkpoint is the single durable
-`BASELINE_BLOCKED`; T5's interaction matrix and the remaining certification
-gates are still open. Do not mark C4 release-complete until the baseline gates
-are resolved or explicitly accepted by project policy.
+state source and currently remains `IN_PROGRESS` / `PARTIAL` /
+`BASELINE_BLOCKED`; T5's interaction matrix is now focused-tested, while the
+remaining generic-source/runtime, editor/incremental, vertical, and broad
+certification gates are still open. The next implementer should continue with
+the T6/T13 vertical follow-through and re-run the named baseline gates before
+any release claim. Do not mark C4 release-complete until the baseline gates are
+resolved or explicitly accepted by project policy.

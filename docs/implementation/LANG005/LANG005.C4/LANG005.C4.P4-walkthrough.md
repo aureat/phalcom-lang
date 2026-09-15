@@ -8,7 +8,7 @@ kind: implementation-walkthrough
 status: IN_PROGRESS
 completion: PARTIAL
 verification: BASELINE_BLOCKED
-revision: 6de76967
+revision: 7ec5b07b
 date: 2026-09-15
 ---
 
@@ -88,6 +88,16 @@ proves one dedicated diagnostic, two candidate identity notes, two source
 labels, causal ownership, retained candidates, and no selected target. The
 existing 51-test `impls::queries` suite also remains green.
 
+## T5 dispatch interaction matrix
+
+The focused semantic matrix now covers seven ordinary lookup boundaries:
+inherent-only behavior, trait-default behavior, inherent precedence over a
+default, inherent precedence over a conformance witness, shared concrete
+witness convergence, competing defaults, and incomplete conformance proof
+states. It asserts the diagnostic family, retained ambiguity candidates,
+selected-site presence, and exact target/trait identity for proven selection.
+All 52 `impls::queries` tests pass.
+
 ## Verification outcome
 
 Focused semantic, core, LSP, AST, and workspace-check gates passed. The
@@ -95,5 +105,5 @@ workspace test, workspace Clippy, format check, and existing Iterable stress
 surface remain baseline-blocked; exact results and classifications are owned
 by the checkpoint record and handoff. No release-complete claim is made.
 
-T5's complete dispatch interaction matrix and the remaining vertical and
+The remaining generic-source/runtime, editor/incremental, vertical, and broad
 certification gates are still open, so this plan remains partial.
