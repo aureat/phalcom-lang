@@ -8,7 +8,7 @@ kind: implementation-walkthrough
 status: IN_PROGRESS
 completion: PARTIAL
 verification: BASELINE_BLOCKED
-revision: 7ec5b07b
+revision: dd802182
 date: 2026-09-15
 ---
 
@@ -98,6 +98,14 @@ states. It asserts the diagnostic family, retained ambiguity candidates,
 selected-site presence, and exact target/trait identity for proven selection.
 All 52 `impls::queries` tests pass.
 
+## T15 runtime ambiguity and convergence verticals
+
+The core closure adds two vertical regressions. Competing independent defaults
+fail compilation with the dedicated `trait.dispatch.ambiguous` diagnostic;
+two traits sharing the target's concrete `render` member compile and execute
+the inherent result. These tests preserve the semantic/compiler boundary and
+confirm that convergence does not require runtime trait discovery.
+
 ## Verification outcome
 
 Focused semantic, core, LSP, AST, and workspace-check gates passed. The
@@ -105,5 +113,5 @@ workspace test, workspace Clippy, format check, and existing Iterable stress
 surface remain baseline-blocked; exact results and classifications are owned
 by the checkpoint record and handoff. No release-complete claim is made.
 
-The remaining generic-source/runtime, editor/incremental, vertical, and broad
-certification gates are still open, so this plan remains partial.
+The remaining stress, invalid-corpus, anti-authority, and broad certification
+gates are still open, so this plan remains partial.

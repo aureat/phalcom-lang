@@ -180,6 +180,12 @@ and incomplete conformance terminals. Proven selections assert their exact
 target and exact `TraitRef`; ambiguous products retain both candidates and
 publish no selected target.
 
+The T15 runtime verticals now include a compile-failing competing-default
+program asserting `trait.dispatch.ambiguous`, and an executing convergence
+program proving two trait requirements use the target's single inherent
+`render` member. Both regressions pass through the compiler boundary; no
+runtime trait scan or class-dictionary injection is involved.
+
 The planning baseline remains pre-C3, but T0 re-grounding verified the live
 post-C3 predecessor state before production edits began. P1 and P2 remain
 complete; the current completion plan is focused-tested but not
@@ -1400,7 +1406,7 @@ focused semantic impls query suite:                   PASS (52)
 focused semantic impls suite:                         PASS (83)
 focused semantic editor suite:                        PASS (10)
 focused semantic incremental trait suite:              PASS (3)
-focused core C4 trait closure suite:                   PASS (3)
+focused core C4 trait closure suite:                   PASS (5)
 focused core trait runtime suite:                      PASS (17)
 focused LSP completion suite:                          PASS (7)
 focused AST impl syntax suite:                         PASS (12)
@@ -1431,5 +1437,5 @@ implementation boundary.
 The landed T4/T5 semantic slices are `IMPLEMENTED` + `FOCUSED_TESTED`. The
 overall P4 completion plan remains `PARTIAL` with checkpoint verification
 `BASELINE_BLOCKED`; C4 is not marked release-complete. The next actionable
-slice is T6/T13 follow-through: certify the remaining generic-source/runtime
-and editor/incremental verticals against the already-closed dispatch matrix.
+slice is T16/T17/T20 follow-through: certify the stress and invalid-corpus
+surfaces, then re-run broad release gates against the recorded baselines.
