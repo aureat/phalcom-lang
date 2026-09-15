@@ -362,6 +362,56 @@ fn ordinary_body_dispatch_consumes_trait_evidence_after_inherent_miss() {
 }
 
 #[test]
+fn ordinary_body_dispatch_reports_ambiguous_trait_evidence_at_expression_boundary() {
+    let module = test_module();
+    let source = "trait First { tag -> String { \"first\" } }\ntrait Second { tag -> String { \"second\" } }\nclass User {}\nimpl First for User {}\nimpl Second for User {}\nclass Caller { read(_ user: User) -> String { user.tag } }\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    let diagnostics = output
+        .snapshot
+        .all_diagnostics()
+        .filter(|diagnostic| diagnostic.code == phalcom_semantic::diagnostic::DiagnosticCode::TraitDispatchAmbiguous)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        diagnostics.len(),
+        1,
+        "expected one ambiguity diagnostic: {:?}",
+        output.snapshot.all_diagnostics().collect::<Vec<_>>()
+    );
+    assert_eq!(
+        diagnostics[0].notes.len(),
+        2,
+        "each proven candidate needs a stable identity note: {diagnostics:#?}"
+    );
+    assert!(
+        diagnostics[0]
+            .notes
+            .iter()
+            .all(|note| note.contains("exact target") && note.contains("selector"))
+    );
+    assert_eq!(diagnostics[0].labels.len(), 2, "each source conformance should be labeled: {diagnostics:#?}");
+
+    let caller = DeclarationId::new(module, "Caller".into());
+    let caller_analysis = output
+        .snapshot
+        .callable_analyses
+        .iter()
+        .find_map(|(callable, analysis)| (callable.try_declaration_owner() == Some(&caller)).then_some(analysis))
+        .expect("Caller.read analysis");
+    let ambiguous_expression = caller_analysis
+        .expressions
+        .values()
+        .find(|expression| expression.trait_dispatch_candidates.as_ref().is_some_and(|candidates| candidates.len() == 2))
+        .expect("ambiguous expression should retain both proven candidates");
+    let diagnostic_cause = diagnostics[0].root_cause.expect("ambiguity diagnostic cause");
+    assert!(ambiguous_expression.causal_invalidity.contains(diagnostic_cause));
+    assert!(
+        ambiguous_expression.trait_dispatch.is_none(),
+        "ambiguous dispatch must not publish a selected target"
+    );
+}
+
+#[test]
 fn conformance_witness_plan_uses_conformance_owned_callable_identity() {
     let module = test_module();
     let source = "trait Tagged { tag -> String }\nclass User {}\nimpl Tagged for User { tag -> String { \"tagged\" } }\n";

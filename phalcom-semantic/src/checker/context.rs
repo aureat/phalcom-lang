@@ -955,6 +955,12 @@ impl<'a> CheckingContext<'a> {
         self.expression_owners.last().copied()
     }
 
+    pub(crate) fn trait_dispatch_candidates_for_current_expression(&self) -> Option<&[crate::trait_dispatch::TraitEvidencedMemberCandidate]> {
+        self.current_expression_id()
+            .and_then(|id| self.resolved_trait_dispatch_candidates.get(&id))
+            .map(Box::as_ref)
+    }
+
     pub fn resolved_callable_for_current_expression(&self) -> Option<CallableId> {
         self.current_expression_id().and_then(|id| self.resolved_callables.get(&id).cloned())
     }

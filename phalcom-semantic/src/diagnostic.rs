@@ -118,6 +118,7 @@ pub enum DiagnosticCode {
     ImplConformanceOverlap,
     ImplConformanceIncomplete,
     TraitMemberConflict,
+    TraitDispatchAmbiguous,
 }
 
 impl DiagnosticCode {
@@ -223,6 +224,7 @@ impl DiagnosticCode {
             Self::ImplConformanceOverlap => "impl.conformance.overlap",
             Self::ImplConformanceIncomplete => "impl.conformance.incomplete",
             Self::TraitMemberConflict => "trait.member.conflict",
+            Self::TraitDispatchAmbiguous => "trait.dispatch.ambiguous",
         }
     }
 }

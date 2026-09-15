@@ -160,6 +160,19 @@ data-component witnesses; the LSP completion adapter preserves exact receiver
 types. Temporary C4 P3 source-rewriting scripts and branch-specific workflows
 were removed after their coverage was represented by normal tests.
 
+The P4/T4 ambiguity-diagnostic slice is now implemented on the merged `main`
+line. `DiagnosticCode::TraitDispatchAmbiguous` is emitted from the canonical
+unresolved-application path with deterministic candidate notes containing the
+exact target, exact `TraitRef`, selector, `TraitRequirementId`, source
+`ImplId`, and witness/default selection. Candidate conformance source spans
+are retained as diagnostic labels. The expression product keeps the complete
+candidate set and does not publish a selected `TraitDispatchSite`.
+
+P4 remains in progress because the T5 dispatch interaction matrix and the
+remaining vertical/certification gates are not complete. The focused
+ambiguity regression is green; the existing broad baseline blockers remain
+unchanged.
+
 The planning baseline remains pre-C3, but T0 re-grounding verified the live
 post-C3 predecessor state before production edits began. P1 and P2 remain
 complete; the current completion plan is focused-tested but not
@@ -280,7 +293,7 @@ Do not reorganize C1–C3 while landing C4 records.
 | `LANG005.C4.P1` | explicit conformance declaration, canonical head resolution, ownership, publication, exact query, coherence, incrementality/source projection | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | coherence-safe `ConformanceContribution` + exact `ConformanceHeadMatch`; **no satisfaction proof** |
 | `LANG005.C4.P2` | witness sources, conformance-local callables, compatibility, defaults, completeness, structured evidence | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | source `ConformanceWitnessPlan` and exact `ConformanceEvidence` resolver with terminal applicability, C2 specialization evidence, and incremental parity |
 | `LANG005.C4.P3` | trait-evidenced ordinary dispatch, ambiguity, callable refs, default/requirement lowering, compiler/runtime execution, integration certification | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | executable conformance semantics; runtime and terminal closure |
-| `LANG005.C4.P4` | completion, exact generic/enum closure, editor/LSP projection, terminal propagation, probe cleanup, and certification | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | focused C4 closure with broad baseline blockers |
+| `LANG005.C4.P4` | completion, exact generic/enum closure, editor/LSP projection, terminal propagation, probe cleanup, and certification | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | focused C4 closure plus dedicated ambiguity diagnostic; T5 matrix and broad baseline blockers remain |
 
 The planned checkpoint sequence is:
 
@@ -1375,7 +1388,8 @@ LANG005.C5 — associated types and projection
 P4 completion evidence on 2026-09-15:
 
 ```text
-focused semantic impls query:                         PASS (1)
+focused semantic ambiguity diagnostic:                PASS (1)
+focused semantic impls query suite:                   PASS (51)
 focused semantic impls suite:                         PASS (83)
 focused semantic editor suite:                        PASS (10)
 focused semantic incremental trait suite:              PASS (3)
@@ -1407,6 +1421,8 @@ and `tests/semantic/associated/lookup.rs`; and pre-existing AST
 `large_enum_variant` Clippy violations. These remain outside the focused C4
 implementation boundary.
 
-The requested completion plan is therefore `IMPLEMENTED` + `FOCUSED_TESTED`
-for its landed semantic/runtime/editor closure, with checkpoint verification
-`BASELINE_BLOCKED`; C4 is not marked release-complete.
+The landed T4 ambiguity slice is `IMPLEMENTED` + `FOCUSED_TESTED`. The overall
+P4 completion plan remains `PARTIAL` with checkpoint verification
+`BASELINE_BLOCKED`; C4 is not marked release-complete. The next actionable
+slice is T5: add the dispatch interaction matrix and verify convergence,
+ambiguity, and terminal behavior through the same canonical authority.

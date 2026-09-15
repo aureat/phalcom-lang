@@ -2847,7 +2847,7 @@ pub(crate) enum UnresolvedApplicationReason {
     PremiseInvalidUnavailable,
     PremiseDynamic(DynamicReason),
     DispatchMissing,
-    DispatchAmbiguous,
+    DispatchAmbiguous(SourceRange),
     DynamicShape(DynamicReason),
     IterationArgumentUnavailable,
 }
@@ -2864,12 +2864,12 @@ pub(crate) fn analyze_unresolved_application(
             explanation_parents.push(explanation);
         }
     }
-    let causal_invalidity = premise.causal_invalidity.join(argument_invalidity);
+    let mut causal_invalidity = premise.causal_invalidity.join(argument_invalidity);
     let knowledge = match &reason {
         UnresolvedApplicationReason::PremiseUnknown => premise.knowledge.clone(),
         UnresolvedApplicationReason::PremiseInvalidUnavailable => TypeKnowledge::Unknown(UnknownReason::SuppressedByInvalidCause),
         UnresolvedApplicationReason::PremiseDynamic(reason) | UnresolvedApplicationReason::DynamicShape(reason) => TypeKnowledge::Dynamic(reason.clone()),
-        UnresolvedApplicationReason::DispatchMissing | UnresolvedApplicationReason::DispatchAmbiguous => {
+        UnresolvedApplicationReason::DispatchMissing | UnresolvedApplicationReason::DispatchAmbiguous(_) => {
             TypeKnowledge::Unknown(UnknownReason::DynamicMessageSend)
         }
         UnresolvedApplicationReason::IterationArgumentUnavailable => TypeKnowledge::Unknown(UnknownReason::UncheckedExpression),
@@ -2902,18 +2902,28 @@ pub(crate) fn analyze_unresolved_application(
         },
         _ => None,
     };
-    let status = argument_status.or(terminal_status).unwrap_or_else(|| match &reason {
-        UnresolvedApplicationReason::PremiseInvalidUnavailable => premise
-            .causal_invalidity
-            .suppression_cause()
-            .map(AnalysisStatus::Suppressed)
-            .unwrap_or(AnalysisStatus::Ready),
-        UnresolvedApplicationReason::PremiseDynamic(reason) | UnresolvedApplicationReason::DynamicShape(reason) => {
-            AnalysisStatus::DynamicBoundary(reason.clone())
-        }
-        UnresolvedApplicationReason::IterationArgumentUnavailable => AnalysisStatus::Ready,
-        _ => AnalysisStatus::Ready,
-    });
+    let ambiguity_cause = match reason {
+        UnresolvedApplicationReason::DispatchAmbiguous(range) => emit_trait_dispatch_ambiguity(ctx, range),
+        _ => None,
+    };
+    if let Some(cause) = ambiguity_cause {
+        causal_invalidity = causal_invalidity.join(CausalInvalidity::One(cause));
+    }
+    let status = argument_status
+        .or(terminal_status)
+        .or_else(|| ambiguity_cause.map(AnalysisStatus::Invalid))
+        .unwrap_or_else(|| match &reason {
+            UnresolvedApplicationReason::PremiseInvalidUnavailable => premise
+                .causal_invalidity
+                .suppression_cause()
+                .map(AnalysisStatus::Suppressed)
+                .unwrap_or(AnalysisStatus::Ready),
+            UnresolvedApplicationReason::PremiseDynamic(reason) | UnresolvedApplicationReason::DynamicShape(reason) => {
+                AnalysisStatus::DynamicBoundary(reason.clone())
+            }
+            UnresolvedApplicationReason::IterationArgumentUnavailable => AnalysisStatus::Ready,
+            _ => AnalysisStatus::Ready,
+        });
     let local_type = local_type_from_arguments(ctx, knowledge.ty(), &local_types);
     let result = CallCheckResult {
         knowledge,
@@ -2927,6 +2937,46 @@ pub(crate) fn analyze_unresolved_application(
     ctx.flow.invalidate_opaque_calls();
     debug_assert_call_result_coherent(&result);
     result
+}
+
+fn emit_trait_dispatch_ambiguity(ctx: &mut CheckingContext<'_>, range: SourceRange) -> Option<crate::identity::DiagnosticCauseId> {
+    let Some(candidates) = ctx.trait_dispatch_candidates_for_current_expression() else {
+        return None;
+    };
+    if candidates.is_empty() {
+        return None;
+    }
+
+    let mut diagnostic = SemanticDiagnostic::error_in(
+        ctx.current_module.clone(),
+        DiagnosticCode::TraitDispatchAmbiguous,
+        "trait dispatch is ambiguous; multiple proven conformance witnesses provide this member",
+        range,
+    );
+    let mut labels = Vec::new();
+    for (index, candidate) in candidates.iter().enumerate() {
+        diagnostic = diagnostic.with_note(format!(
+            "candidate {}: exact target {:?}, trait {:?}, selector {:?}, requirement {:?}, source impl {:?}, selection {:?}",
+            index + 1,
+            candidate.evidence.exact_target,
+            candidate.exact_trait_ref,
+            candidate.requirement.selector,
+            candidate.requirement,
+            candidate.source_impl,
+            candidate.selection,
+        ));
+        if let Some(source) = ctx.conformance_semantics.and_then(|view| view.conformance_index.get(&candidate.source_impl)) {
+            labels.push((
+                source.source.module.clone(),
+                source.source.range,
+                format!("candidate {} conformance", index + 1),
+            ));
+        }
+    }
+    for (module, label_range, message) in labels {
+        diagnostic = diagnostic.with_label_in(module, label_range, message);
+    }
+    ctx.emit_diagnostic(diagnostic)
 }
 
 pub(crate) fn analyze_non_callable_invocation(

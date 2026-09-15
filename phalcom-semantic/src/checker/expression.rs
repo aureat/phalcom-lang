@@ -2727,7 +2727,7 @@ fn synthesize_method_call(ctx: &mut CheckingContext<'_>, call: &MethodCallExpr, 
             analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchMissing).into()
         }
         ResolvedDispatchResult::Ambiguous(_) => {
-            analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchAmbiguous).into()
+            analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchAmbiguous(call.range)).into()
         }
         ResolvedDispatchResult::TraitTerminal(terminal) => {
             analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::TraitTerminal(terminal)).into()
@@ -2975,7 +2975,7 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
                         return apply_resolved_callable(ctx, &target, &premise, &arguments, expected, call.range).into();
                     }
                     ResolvedDispatchResult::Ambiguous(_) => {
-                        return analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchAmbiguous).into();
+                        return analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchAmbiguous(call.range)).into();
                     }
                     ResolvedDispatchResult::TraitTerminal(terminal) => {
                         return analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::TraitTerminal(terminal)).into();
@@ -3048,7 +3048,7 @@ fn synthesize_unqualified_call(ctx: &mut CheckingContext<'_>, call: &Unqualified
                 }
                 ResolvedDispatchResult::Missing { .. } => {}
                 ResolvedDispatchResult::Ambiguous(_) => {
-                    return analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchAmbiguous).into();
+                    return analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchAmbiguous(call.range)).into();
                 }
                 ResolvedDispatchResult::TraitTerminal(terminal) => {
                     return analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::TraitTerminal(terminal)).into();
@@ -3193,7 +3193,7 @@ pub(crate) fn apply_binary_operation_from_typed(
             analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchMissing).into()
         }
         ResolvedDispatchResult::Ambiguous(_) => {
-            analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchAmbiguous).into()
+            analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchAmbiguous(range)).into()
         }
         ResolvedDispatchResult::TraitTerminal(terminal) => {
             analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::TraitTerminal(terminal)).into()
@@ -3318,7 +3318,7 @@ fn synthesize_membership_expr(ctx: &mut CheckingContext<'_>, m: &MembershipExpr)
             analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchMissing).into()
         }
         ResolvedDispatchResult::Ambiguous(_) => {
-            analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchAmbiguous).into()
+            analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchAmbiguous(m.range)).into()
         }
         ResolvedDispatchResult::TraitTerminal(terminal) => {
             analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::TraitTerminal(terminal)).into()
@@ -3373,7 +3373,9 @@ fn apply_boolean_not(ctx: &mut CheckingContext<'_>, value: TypedExpression, expe
             apply_resolved_callable(ctx, &target, &premise, &[], expected, range).into()
         }
         ResolvedDispatchResult::Missing { .. } => analyze_unresolved_application(ctx, &premise, &[], UnresolvedApplicationReason::DispatchMissing).into(),
-        ResolvedDispatchResult::Ambiguous(_) => analyze_unresolved_application(ctx, &premise, &[], UnresolvedApplicationReason::DispatchAmbiguous).into(),
+        ResolvedDispatchResult::Ambiguous(_) => {
+            analyze_unresolved_application(ctx, &premise, &[], UnresolvedApplicationReason::DispatchAmbiguous(range)).into()
+        }
         ResolvedDispatchResult::TraitTerminal(terminal) => {
             analyze_unresolved_application(ctx, &premise, &[], UnresolvedApplicationReason::TraitTerminal(terminal)).into()
         }
@@ -3509,7 +3511,9 @@ fn synthesize_unary_expr(ctx: &mut CheckingContext<'_>, unary: &UnaryExpr, expec
             apply_resolved_callable(ctx, &target, &premise, &[], expected, unary.range).into()
         }
         ResolvedDispatchResult::Missing { .. } => analyze_unresolved_application(ctx, &premise, &[], UnresolvedApplicationReason::DispatchMissing).into(),
-        ResolvedDispatchResult::Ambiguous(_) => analyze_unresolved_application(ctx, &premise, &[], UnresolvedApplicationReason::DispatchAmbiguous).into(),
+        ResolvedDispatchResult::Ambiguous(_) => {
+            analyze_unresolved_application(ctx, &premise, &[], UnresolvedApplicationReason::DispatchAmbiguous(unary.range)).into()
+        }
         ResolvedDispatchResult::TraitTerminal(terminal) => {
             analyze_unresolved_application(ctx, &premise, &[], UnresolvedApplicationReason::TraitTerminal(terminal)).into()
         }
@@ -3620,7 +3624,7 @@ fn synthesize_get_property(ctx: &mut CheckingContext<'_>, get: &GetPropertyExpr,
             }
             ResolvedDispatchResult::Missing { .. } => {}
             ResolvedDispatchResult::Ambiguous(_) => {
-                return analyze_unresolved_application(ctx, &premise, &[], UnresolvedApplicationReason::DispatchAmbiguous).into();
+                return analyze_unresolved_application(ctx, &premise, &[], UnresolvedApplicationReason::DispatchAmbiguous(get.range)).into();
             }
             ResolvedDispatchResult::TraitTerminal(terminal) => {
                 return analyze_unresolved_application(ctx, &premise, &[], UnresolvedApplicationReason::TraitTerminal(terminal)).into();
@@ -3744,7 +3748,7 @@ fn synthesize_set_property(ctx: &mut CheckingContext<'_>, set: &SetPropertyExpr)
                         expression: &set.value,
                         range: set.value.range(),
                     }],
-                    UnresolvedApplicationReason::DispatchAmbiguous,
+                    UnresolvedApplicationReason::DispatchAmbiguous(set.range),
                 );
                 return super::call::assignment_result_from_call(ctx, operation, set.range);
             }
@@ -3835,7 +3839,7 @@ fn synthesize_index_expr(ctx: &mut CheckingContext<'_>, idx: &IndexExpr, expecte
         }
         ResolvedDispatchResult::Missing { .. } => {}
         ResolvedDispatchResult::Ambiguous(_) => {
-            return analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchAmbiguous).into();
+            return analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::DispatchAmbiguous(idx.range)).into();
         }
         ResolvedDispatchResult::TraitTerminal(terminal) => {
             return analyze_unresolved_application(ctx, &premise, &arguments, UnresolvedApplicationReason::TraitTerminal(terminal)).into();
@@ -3915,7 +3919,7 @@ fn synthesize_set_index_expr(ctx: &mut CheckingContext<'_>, set_idx: &SetIndexEx
         }
         ResolvedDispatchResult::Missing { .. } => {}
         ResolvedDispatchResult::Ambiguous(_) => {
-            let operation = analyze_unresolved_application(ctx, &premise, &all_arguments, UnresolvedApplicationReason::DispatchAmbiguous);
+            let operation = analyze_unresolved_application(ctx, &premise, &all_arguments, UnresolvedApplicationReason::DispatchAmbiguous(set_idx.range));
             return super::call::assignment_result_from_call(ctx, operation, set_idx.range);
         }
         ResolvedDispatchResult::TraitTerminal(terminal) => {

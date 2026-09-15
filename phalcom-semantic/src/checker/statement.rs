@@ -577,7 +577,7 @@ fn resolve_iteration_element_application(
                 return apply_resolved_callable(ctx, &target, premise, &[], &ExpectedType::None, call_range);
             }
             crate::dispatch::ResolvedDispatchResult::Ambiguous(_) => {
-                return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::DispatchAmbiguous);
+                return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::DispatchAmbiguous(call_range));
             }
             crate::dispatch::ResolvedDispatchResult::TraitTerminal(terminal) => {
                 return analyze_unresolved_application(ctx, premise, &[], UnresolvedApplicationReason::TraitTerminal(terminal));

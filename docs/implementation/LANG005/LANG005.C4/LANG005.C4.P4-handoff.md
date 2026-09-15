@@ -5,10 +5,10 @@ program: LANG005
 checkpoint: LANG005.C4
 plan: LANG005.C4.P4
 kind: implementation-handoff
-status: COMPLETE
-completion: IMPLEMENTED
+status: IN_PROGRESS
+completion: PARTIAL
 verification: BASELINE_BLOCKED
-next_checkpoint: LANG005.C5
+next_checkpoint: LANG005.C4.P4
 date: 2026-09-15
 ---
 
@@ -30,6 +30,13 @@ semantic-to-core trait invocation projection
 executable conformance plan and runtime conformance environment
 detached trait defaults and conformance-local witnesses
 editor/LSP projection through canonical semantic products
+
+The ambiguity diagnostic is also now a stable seam: `DiagnosticCode::TraitDispatchAmbiguous`
+is emitted from the canonical unresolved-application path, while
+`ExpressionAnalysis::trait_dispatch_candidates` remains the complete
+candidate product and `trait_dispatch` remains unset until a unique selection
+exists. Candidate notes and source labels use exact conformance identities;
+they do not re-solve dispatch in diagnostics.
 ```
 
 The semantic authority remains in `phalcom-semantic`. Compiler and VM code
@@ -75,6 +82,6 @@ do not weaken assertions or attribute them to C5/C6 without a clean comparison.
 
 The user-supplied plan file has a P4 filename but historical P3 internal id;
 preserve it as the authoritative input. The checkpoint is the single durable
-state source and currently remains `IN_PROGRESS` / `PARTIAL` /
-`BASELINE_BLOCKED`; do not mark C4 release-complete until the baseline gates
+`BASELINE_BLOCKED`; T5's interaction matrix and the remaining certification
+gates are still open. Do not mark C4 release-complete until the baseline gates
 are resolved or explicitly accepted by project policy.

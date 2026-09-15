@@ -5,10 +5,10 @@ program: LANG005
 checkpoint: LANG005.C4
 plan: LANG005.C4.P4
 kind: implementation-walkthrough
-status: COMPLETE
-completion: IMPLEMENTED
+status: IN_PROGRESS
+completion: PARTIAL
 verification: BASELINE_BLOCKED
-revision: df2272d179e04eb18d50fd4e4bbb1ed7c80630c6
+revision: 6de76967
 date: 2026-09-15
 ---
 
@@ -71,9 +71,29 @@ the target class dictionary.
 Temporary C4 P3 probe scripts and branch-specific workflows were removed after
 their useful coverage was represented by these durable tests.
 
+## T4 ambiguity-diagnostic continuation
+
+The live semantic boundary now emits `DiagnosticCode::TraitDispatchAmbiguous`
+when exact trait-evidenced candidates remain ambiguous. The diagnostic is
+driven by the existing per-expression candidate product and records, in
+deterministic resolver order, each candidate's exact target, exact `TraitRef`,
+selector, `TraitRequirementId`, source `ImplId`, and witness/default
+selection. Canonical conformance source spans are presented as supporting
+labels. The expression retains all candidates and publishes no selected
+`TraitDispatchSite`.
+
+The regression
+`ordinary_body_dispatch_reports_ambiguous_trait_evidence_at_expression_boundary`
+proves one dedicated diagnostic, two candidate identity notes, two source
+labels, causal ownership, retained candidates, and no selected target. The
+existing 51-test `impls::queries` suite also remains green.
+
 ## Verification outcome
 
 Focused semantic, core, LSP, AST, and workspace-check gates passed. The
 workspace test, workspace Clippy, format check, and existing Iterable stress
 surface remain baseline-blocked; exact results and classifications are owned
 by the checkpoint record and handoff. No release-complete claim is made.
+
+T5's complete dispatch interaction matrix and the remaining vertical and
+certification gates are still open, so this plan remains partial.
