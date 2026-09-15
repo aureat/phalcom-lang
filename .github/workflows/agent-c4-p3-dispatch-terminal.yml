@@ -31,9 +31,10 @@ jobs:
       - name: Apply dispatch terminal patch
         run: |
           python .github/scripts/c4_p3_dispatch_terminal.py
+          python .github/scripts/c4_p3_dispatch_terminal_consumers.py
           cargo fmt --all
           git diff --check
-          git diff -- phalcom-semantic/src/trait_dispatch.rs phalcom-semantic/src/dispatch.rs phalcom-semantic/src/checker/context.rs
+          git diff -- phalcom-semantic/src/trait_dispatch.rs phalcom-semantic/src/dispatch.rs phalcom-semantic/src/checker/context.rs phalcom-semantic/src/checker/call.rs phalcom-semantic/src/checker/expression.rs phalcom-semantic/src/checker/statement.rs
 
       - name: Compile semantic crate
         run: cargo +nightly-2026-07-10 --config 'build.rustc-wrapper=""' check -p phalcom-semantic
