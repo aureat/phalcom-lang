@@ -268,6 +268,15 @@ fn display_inner(context: &TypingContextData, registry: &RuntimeTypingRegistry, 
                 TypeNode::Parameter(parameter) => format!("T{}", parameter.index),
                 TypeNode::SelfType(_) => "Self".to_string(),
                 TypeNode::TypeLambda(_) => "<type-lambda>".to_string(),
+                TypeNode::AssociatedProjection {
+                    subject,
+                    trait_application,
+                    requirement,
+                } => {
+                    let subject_str = display_inner(context, registry, heap, RuntimeTypeRef::Base { pool, node: *subject }, depth + 1);
+                    let trait_name = trait_application.declaration.path.last().map_or_else(|| "<trait>", |name| name.as_ref());
+                    format!("<{} as {}>::#{}", subject_str, trait_name, requirement.index)
+                }
             },
             None => "<invalid-type>".to_string(),
         },

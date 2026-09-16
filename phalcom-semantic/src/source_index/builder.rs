@@ -306,9 +306,13 @@ impl TypeReferenceTargetCollector<'_> {
                 GenericConstraintSyntax::Conforms { subject, bounds, .. } => {
                     self.annotation(subject, bound);
                     for b in bounds {
-                        self.trait_annotation(b, bound);
+                        self.trait_annotation(&b.trait_type, bound);
+                        for spec in &b.associated_specializations {
+                            self.annotation(&spec.value, bound);
+                        }
                     }
                 }
+                GenericConstraintSyntax::KindFact { .. } => {}
                 GenericConstraintSyntax::Invalid { .. } => {}
             }
         }
@@ -448,6 +452,13 @@ impl TypeReferenceTargetCollector<'_> {
                 }
             }
             TypeAnnotationExpr::AssociatedTypeProjection { subject, .. } => self.annotation(subject, bound),
+            TypeAnnotationExpr::QualifiedAssociatedTypeProjection { subject, trait_ref, .. } => {
+                self.annotation(subject, bound);
+                self.trait_annotation(&trait_ref.trait_type, bound);
+                for spec in &trait_ref.associated_specializations {
+                    self.annotation(&spec.value, bound);
+                }
+            }
             TypeAnnotationExpr::Unit { .. }
             | TypeAnnotationExpr::Dynamic { .. }
             | TypeAnnotationExpr::Never { .. }
@@ -552,6 +563,22 @@ impl SourceScopeBuilder<'_> {
         match &annotation.expr {
             TypeAnnotationExpr::AssociatedTypeProjection { subject, name_range, .. } => {
                 self.visit_annotation_projection_targets(subject);
+                if let Some(requirement) = self
+                    .context
+                    .associated_projection_targets
+                    .get(&(self.index.module.clone(), *name_range))
+                    .cloned()
+                {
+                    let site = self.allocate_site(self.current_owner.clone(), *name_range, SourceSiteKind::Occurrence);
+                    self.index.register_target(site, SemanticTargetId::AssociatedType(requirement));
+                }
+            }
+            TypeAnnotationExpr::QualifiedAssociatedTypeProjection { subject, trait_ref, name_range, .. } => {
+                self.visit_annotation_projection_targets(subject);
+                self.visit_annotation_projection_targets(&trait_ref.trait_type);
+                for spec in &trait_ref.associated_specializations {
+                    self.visit_annotation_projection_targets(&spec.value);
+                }
                 if let Some(requirement) = self
                     .context
                     .associated_projection_targets

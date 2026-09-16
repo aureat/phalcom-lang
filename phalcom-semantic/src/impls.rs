@@ -2373,6 +2373,7 @@ pub fn resolve_conformance_head(
         ));
         for constraint in &where_clause.constraints {
             match constraint {
+                phalcom_ast::ast::GenericConstraintSyntax::KindFact { .. } => {}
                 phalcom_ast::ast::GenericConstraintSyntax::Subtype { lower, upper, .. } => {
                     let lower = resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, lower, &mut diagnostics);
                     let upper = resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, upper, &mut diagnostics);
@@ -2397,7 +2398,7 @@ pub fn resolve_conformance_head(
                     let s_k = resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, subject, &mut diagnostics);
                     if let TypeKnowledge::Known(s_ev) = s_k {
                         for bound in bounds {
-                            let (decl, args) = match &bound.expr {
+                            let (decl, args) = match &bound.trait_type.expr {
                                 TypeAnnotationExpr::Reference(sym_ref) => {
                                     let members: Vec<String> = sym_ref.members.iter().map(|m| m.name.clone()).collect();
                                     (ctx.resolver.resolve_type_name(&ctx.current_module, &sym_ref.root, &members), Vec::new())
@@ -3574,6 +3575,7 @@ pub fn resolve_inherent_impl_target(
     if let Some(ref where_clause) = impl_def.where_clause {
         for c in &where_clause.constraints {
             match c {
+                phalcom_ast::ast::GenericConstraintSyntax::KindFact { .. } => {}
                 phalcom_ast::ast::GenericConstraintSyntax::Subtype { lower, upper, range: _ } => {
                     let l_k = resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, lower, &mut diagnostics);
                     let u_k = resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, upper, &mut diagnostics);
@@ -3598,7 +3600,7 @@ pub fn resolve_inherent_impl_target(
                     let s_k = resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, subject, &mut diagnostics);
                     if let TypeKnowledge::Known(s_ev) = s_k {
                         for bound in bounds {
-                            let (decl, args) = match &bound.expr {
+                            let (decl, args) = match &bound.trait_type.expr {
                                 TypeAnnotationExpr::Reference(sym_ref) => {
                                     let members: Vec<String> = sym_ref.members.iter().map(|m| m.name.clone()).collect();
                                     (ctx.resolver.resolve_type_name(&ctx.current_module, &sym_ref.root, &members), Vec::new())

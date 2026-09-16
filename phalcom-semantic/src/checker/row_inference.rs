@@ -161,6 +161,9 @@ pub fn term_has_row_variables(term: &InferenceTerm) -> bool {
             callable.parameters.iter().any(|parameter| term_has_row_variables(&parameter.term)) || term_has_row_variables(&callable.return_type)
         }
         InferenceTerm::Family(members) => members.iter().any(|member| term_has_row_variables(&member.term)),
+        InferenceTerm::AssociatedProjection { subject, trait_ref, .. } => {
+            term_has_row_variables(subject) || trait_ref.arguments.iter().any(term_has_row_variables)
+        }
         InferenceTerm::Canonical(_) | InferenceTerm::Var(_) | InferenceTerm::Rigid(_) => false,
     }
 }

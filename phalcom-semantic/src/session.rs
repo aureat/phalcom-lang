@@ -2271,9 +2271,13 @@ impl SemanticWorkspaceSession {
                                 phalcom_ast::ast::GenericConstraintSyntax::Conforms { subject, bounds, .. } => {
                                     collect_type_annotation_declarations(subject, &module_id, &resolver, &mut header_dependencies);
                                     for bound in bounds {
-                                        collect_type_annotation_declarations(bound, &module_id, &resolver, &mut header_dependencies);
+                                        collect_type_annotation_declarations(&bound.trait_type, &module_id, &resolver, &mut header_dependencies);
+                                        for spec in &bound.associated_specializations {
+                                            collect_type_annotation_declarations(&spec.value, &module_id, &resolver, &mut header_dependencies);
+                                        }
                                     }
                                 }
+                                phalcom_ast::ast::GenericConstraintSyntax::KindFact { .. } => {}
                                 phalcom_ast::ast::GenericConstraintSyntax::Invalid { .. } => {}
                             }
                         }
@@ -2411,9 +2415,13 @@ impl SemanticWorkspaceSession {
                                 phalcom_ast::ast::GenericConstraintSyntax::Conforms { subject, bounds, .. } => {
                                     collect_type_annotation_declarations(subject, &module_id, &resolver, &mut header_dependencies);
                                     for bound in bounds {
-                                        collect_type_annotation_declarations(bound, &module_id, &resolver, &mut header_dependencies);
+                                        collect_type_annotation_declarations(&bound.trait_type, &module_id, &resolver, &mut header_dependencies);
+                                        for spec in &bound.associated_specializations {
+                                            collect_type_annotation_declarations(&spec.value, &module_id, &resolver, &mut header_dependencies);
+                                        }
                                     }
                                 }
+                                phalcom_ast::ast::GenericConstraintSyntax::KindFact { .. } => {}
                                 phalcom_ast::ast::GenericConstraintSyntax::Invalid { .. } => {}
                             }
                         }
@@ -2472,9 +2480,13 @@ impl SemanticWorkspaceSession {
                                 phalcom_ast::ast::GenericConstraintSyntax::Conforms { subject, bounds, .. } => {
                                     collect_type_annotation_declarations(subject, &module_id, &resolver, &mut header_dependencies);
                                     for bound in bounds {
-                                        collect_type_annotation_declarations(bound, &module_id, &resolver, &mut header_dependencies);
+                                        collect_type_annotation_declarations(&bound.trait_type, &module_id, &resolver, &mut header_dependencies);
+                                        for spec in &bound.associated_specializations {
+                                            collect_type_annotation_declarations(&spec.value, &module_id, &resolver, &mut header_dependencies);
+                                        }
                                     }
                                 }
+                                phalcom_ast::ast::GenericConstraintSyntax::KindFact { .. } => {}
                                 phalcom_ast::ast::GenericConstraintSyntax::Invalid { .. } => {}
                             }
                         }
@@ -5178,6 +5190,13 @@ fn collect_alias_dependencies(
         TypeAnnotationExpr::AssociatedTypeProjection { subject, .. } => {
             collect_alias_dependencies(subject, module, resolver, aliases, dependencies);
         }
+        TypeAnnotationExpr::QualifiedAssociatedTypeProjection { subject, trait_ref, .. } => {
+            collect_alias_dependencies(subject, module, resolver, aliases, dependencies);
+            collect_alias_dependencies(&trait_ref.trait_type, module, resolver, aliases, dependencies);
+            for spec in &trait_ref.associated_specializations {
+                collect_alias_dependencies(&spec.value, module, resolver, aliases, dependencies);
+            }
+        }
         TypeAnnotationExpr::Unit { .. }
         | TypeAnnotationExpr::Dynamic { .. }
         | TypeAnnotationExpr::Never { .. }
@@ -5203,6 +5222,22 @@ fn collect_associated_projection_targets(
             if matches!(subject.expr, TypeAnnotationExpr::SelfType { .. })
                 && let Some(requirement) = surface.associated_type_by_name(name)
             {
+                targets.insert((module.clone(), *name_range), requirement.requirement.clone());
+            }
+        }
+        TypeAnnotationExpr::QualifiedAssociatedTypeProjection {
+            subject,
+            trait_ref,
+            name,
+            name_range,
+            ..
+        } => {
+            collect_associated_projection_targets(subject, module, surface, targets);
+            collect_associated_projection_targets(&trait_ref.trait_type, module, surface, targets);
+            for spec in &trait_ref.associated_specializations {
+                collect_associated_projection_targets(&spec.value, module, surface, targets);
+            }
+            if let Some(requirement) = surface.associated_type_by_name(name) {
                 targets.insert((module.clone(), *name_range), requirement.requirement.clone());
             }
         }
@@ -5354,6 +5389,13 @@ fn collect_type_annotation_declarations(
         }
         TypeAnnotationExpr::AssociatedTypeProjection { subject, .. } => {
             collect_type_annotation_declarations(subject, module, resolver, dependencies);
+        }
+        TypeAnnotationExpr::QualifiedAssociatedTypeProjection { subject, trait_ref, .. } => {
+            collect_type_annotation_declarations(subject, module, resolver, dependencies);
+            collect_type_annotation_declarations(&trait_ref.trait_type, module, resolver, dependencies);
+            for spec in &trait_ref.associated_specializations {
+                collect_type_annotation_declarations(&spec.value, module, resolver, dependencies);
+            }
         }
         TypeAnnotationExpr::Unit { .. }
         | TypeAnnotationExpr::Dynamic { .. }

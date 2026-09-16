@@ -119,3 +119,78 @@ fn c5p2_only_self_projection_gets_the_new_type_syntax_category() {
     let annotation = getter.return_annotation.as_ref().expect("return annotation");
     assert!(matches!(annotation.expr, TypeAnnotationExpr::ExactEnumCase { .. }));
 }
+
+#[test]
+fn c6p2_trait_requirement_with_named_specialization_parses() {
+    let source = "class Box<T> where T |= Iterator<Item = Int>, T |= Converts<String, Error = ErrorCode> {}\n";
+    let program = parse_source(source, 0).expect("trait requirement with named specializations parses");
+    let Statement::Class(class_def) = &program.statements[0] else { panic!("expected class") };
+    let where_clause = class_def.where_clause.as_ref().expect("where clause");
+    assert_eq!(where_clause.constraints.len(), 2);
+
+    match &where_clause.constraints[0] {
+        phalcom_ast::ast::GenericConstraintSyntax::Conforms { subject, bounds, .. } => {
+            assert!(matches!(subject.expr, TypeAnnotationExpr::Reference(ref r) if r.root == "T"));
+            assert_eq!(bounds.len(), 1);
+            let req = &bounds[0];
+            assert!(matches!(req.trait_type.expr, TypeAnnotationExpr::Reference(ref r) if r.root == "Iterator"));
+            assert_eq!(req.associated_specializations.len(), 1);
+            assert_eq!(req.associated_specializations[0].name, "Item");
+        }
+        _ => panic!("expected Conforms"),
+    }
+
+    match &where_clause.constraints[1] {
+        phalcom_ast::ast::GenericConstraintSyntax::Conforms { subject, bounds, .. } => {
+            assert!(matches!(subject.expr, TypeAnnotationExpr::Reference(ref r) if r.root == "T"));
+            assert_eq!(bounds.len(), 1);
+            let req = &bounds[0];
+            assert!(matches!(req.trait_type.expr, TypeAnnotationExpr::Application { .. }));
+            assert_eq!(req.associated_specializations.len(), 1);
+            assert_eq!(req.associated_specializations[0].name, "Error");
+        }
+        _ => panic!("expected Conforms"),
+    }
+}
+
+#[test]
+fn c6p2_qualified_associated_projection_parses() {
+    let source = "class Reader<T> where T |= Iterator<Item = Int> { value -> <T as Iterator>::Item }\n";
+    let program = parse_source(source, 0).expect("qualified projection parses");
+    let Statement::Class(class_def) = &program.statements[0] else { panic!("expected class") };
+    let phalcom_ast::ast::ClassMember::Getter(getter) = &class_def.members[0] else { panic!("expected getter") };
+    let annotation = getter.return_annotation.as_ref().expect("return annotation");
+    match &annotation.expr {
+        TypeAnnotationExpr::QualifiedAssociatedTypeProjection { subject, trait_ref, name, .. } => {
+            assert!(matches!(subject.expr, TypeAnnotationExpr::Reference(ref r) if r.root == "T"));
+            assert!(matches!(trait_ref.trait_type.expr, TypeAnnotationExpr::Reference(ref r) if r.root == "Iterator"));
+            assert_eq!(name, "Item");
+        }
+        _ => panic!("expected QualifiedAssociatedTypeProjection"),
+    }
+}
+
+#[test]
+fn c6p2_where_clause_kind_fact_parses() {
+    let source = "class Monad<F> where F: Type -> Type {}\n";
+    let program = parse_source(source, 0).expect("where clause kind fact parses");
+    let Statement::Class(class_def) = &program.statements[0] else { panic!("expected class") };
+    let where_clause = class_def.where_clause.as_ref().expect("where clause");
+    assert_eq!(where_clause.constraints.len(), 1);
+    match &where_clause.constraints[0] {
+        phalcom_ast::ast::GenericConstraintSyntax::KindFact { subject, kind, .. } => {
+            assert_eq!(subject, "F");
+            assert!(matches!(kind, phalcom_ast::ast::KindSyntax::Arrow { .. }));
+        }
+        _ => panic!("expected KindFact"),
+    }
+}
+
+#[test]
+fn c6p2_trait_requirement_rejects_positional_after_named_and_duplicate_specialization() {
+    // Positional after named
+    assert!(parse_source("class Box<T> where T |= Converts<Item = Int, String> {}\n", 0).is_err());
+    // Duplicate specialization
+    assert!(parse_source("class Box<T> where T |= Converts<Item = Int, Item = String> {}\n", 0).is_err());
+}
+

@@ -9,9 +9,9 @@ completion: PARTIAL
 verification: FOCUSED_TESTED
 requires:
   - LANG005.C5
-active_plan: null
-latest_completed_plan: LANG005.C6.P1
-next_plan: LANG005.C6.P2
+active_plan: LANG005.C6.P3
+latest_completed_plan: LANG005.C6.P2
+next_plan: LANG005.C6.P3
 next_checkpoint: null
 planning_baseline_revision: 14352f3824e8dcfc9f5b3f46d9f4a4bb5cf48709
 prepared: 2026-09-16
@@ -321,7 +321,7 @@ C6 must not migrate production `for`, collections, Range, Map, lazy adapters, ru
 | Plan | Scope | Status | Completion | Verification | Outcome / dependency |
 |---|---|---|---|---|---|
 | `LANG005.C6.P1` | Direct generic conformance propositions, lexical assumed evidence, generic body dispatch, exact/forwarded call discharge, runtime evidence transport, stable metadata/tooling | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Direct-bound vertical is green; one unrelated recomputation baseline retained |
-| `LANG005.C6.P2` | Generic/qualified associated projections, associated specialization/equality, projection-driven inference, durable associated constraint metadata | PROPOSED | NOT_STARTED | UNVERIFIED | Depends on P1 evidence environment/proof model |
+| `LANG005.C6.P2` | Generic/qualified associated projections, associated specialization/equality, projection-driven inference, durable associated constraint metadata | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Tasks T1–T10 complete; generic associated projections, refinements, equality, and inference verified; G1–G5 pass |
 | `LANG005.C6.P3` | Conditional conformances, nested recursive obligations, cycle/memoization proof state, conditional coherence | PROPOSED | NOT_STARTED | UNVERIFIED | Depends on P1/P2 |
 | `LANG005.C6.P4` | Iterator/Iterable generic laws, canonical Universe migration, explicit blanket/derived implication decision | PROPOSED | NOT_STARTED | UNVERIFIED | Depends on recursive proof/equality authority |
 | `LANG005.C6.P5` | Production `for`, collections, Map, Range, lazy stateful iterators, cursor/runtime-superclass retirement | PROPOSED | NOT_STARTED | UNVERIFIED | Depends on P4 semantic laws |
@@ -954,7 +954,7 @@ The final C6 completion state must be truthfully distinguished from individual p
 The active next action is:
 
 ```text
-Begin `LANG005.C6.P2` according to its authoritative plan when scheduled. The P1 walkthrough and handoff contain the completed direct-bound evidence and remaining C6 boundaries.
+Begin `LANG005.C6.P3` (Conditional Conformance Proofs & Cycles) according to its authoritative plan when scheduled. The P2 walkthrough and handoff contain the completed generic associated projections, refinements, equality, and inference substrate.
 ```
 
 Before implementation:
@@ -970,9 +970,8 @@ Then re-read:
 
 ```text
 LANG005.C6-CHECKPOINT.md
-LANG005.C6-GUIDANCE.md
-LANG005.C6.P1-canonical-generic-conformance-evidence-and-runtime-transport-plan.md
-latest C5 P3 walkthrough/handoff
+LANG005.C6.P2-walkthrough.md
+LANG005.C6.P2-handoff.md
 docs/specs/generic-constraints.md
 ```
 
@@ -1002,3 +1001,44 @@ verification: FOCUSED_TESTED
 ```
 
 That state must remain until actual implementation evidence justifies an update.
+
+## C6.P2/T1 consultation — receiver-owner evidence (2026-09-16)
+
+Starting revision: `af2d0aec`; checkout already contained partial T1 work.
+User scope: fix independent owner-evidence/layout failures; leave exact variant
+conformance, exact-case inference, and enum lowering untouched.
+
+Decision: receiver specialization supplies fixed declaration-owner substitutions.
+Do not activate owner inference merely to transport evidence. Finalize one call
+specialization after ordinary/method-local application, discharge the composed
+owner/method obligations canonically, and preserve semantic runtime slot positions.
+Evidence layout construction/composition must propagate failure, never default to
+an empty environment. No VM conformance search or persistent capture redesign.
+
+Active work: T1 correction and focused verification; P2 overall remains partial.
+Exact-variant work and broader P2 projection implementation are outside this run.
+
+### C6.P2/T1 nominal-owner dependency correction and focused result — 2026-09-16
+
+- **Plan/Task**: `LANG005.C6.P2.T1`
+- **Trigger**: Receiver-owner finalization queried generic signature metadata for a trait-owned callable requirement, creating a nominal `DeclarationShell` dependency and causing the semantic workspace fallback to publish an empty callable snapshot.
+- **Decision**: Guard owner finalization with nominal declaration-table membership before querying `declaration_generic_signature()`. Trait-owned requirements therefore retain the established `TraitHeader` dependency lane; only nominal owners contribute receiver-owned generic evidence.
+- **Affected invariant/scope**: Owner and method evidence compose into one semantic specialization; failed calls remove partial specialization; exact-variant, exact-case, and enum-lowering work remains outside this correction.
+- **Follow-up**: Core generic-conformance (9 selected tests) and semantic generic-conformance (15 tests) pass on the corrected tree. Scoped semantic/core compile check passes. Resume P2 at T2; do not treat this partial T1 slice as P2 closure.
+
+### C6.P2 Completion & Verification Record — 2026-09-16
+
+- **Plan**: `LANG005.C6.P2` (Generic Associated Projections, Refinements, Equality, and Inference)
+- **Status**: `COMPLETE` / `IMPLEMENTED` / `FOCUSED_TESTED`
+- **Accomplishments**:
+  - T1: Resolved receiver-owner evidence composition and generic evidence layout ordering.
+  - T2: AST & Parser support for associated specialization syntax in trait requirements (`Iterator<Item = T>`), qualified projections (`<I as Iterator>::Item`), and where-clause kind facts.
+  - T3: Lowered associated specialization into canonical `GenericConstraint::Conforms` + `GenericConstraint::Equivalent` with canonical orientation (`left <= right`, `INV-13`).
+  - T4: Canonical projection formation and generic evidence normalization (`INV-01`, `INV-04`, `INV-13`).
+  - T5: Lexical generic evidence environment composition, projection normalizer integration with generic evidence, and contextual projection support.
+  - T6: Extended solver term calculus with `InferenceTerm::AssociatedProjection`, bounded 16-iteration fixed-point normalization loop, one-way inference discipline (`INV-27`), and call-site equality discharge (`INV-20`, `INV-29`).
+  - T7: Durable stable metadata support with `StableAssociatedTypeRequirementRef`, `TypeNode::AssociatedProjection`, and metadata validation (`INV-33`).
+  - T8: Source index mapping for associated projection targets, occurrence resolution, and semantic fingerprint parity (`INV-13`).
+  - T9: Purely behavioral runtime boundary closure (`INV-37`) with zero runtime projection bytecodes or associated dictionary machinery.
+  - T10: All 5 stabilization gates G1–G5 passed cleanly.
+

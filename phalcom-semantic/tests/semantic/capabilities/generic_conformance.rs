@@ -138,11 +138,11 @@ class Probe {
     let t_param_ty = store.parameter_form(t_param);
 
     // Build evidence env from the callable generics
-    let env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::from_constraints(
+    let env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
         &generics.constraints,
         generics.owner.clone(),
         &fixture.analysis.snapshot.trait_surfaces,
-    );
+    ).expect("valid evidence layout");
 
     // 1. Exact proof for User |= Alpha
     let exact_proof = phalcom_semantic::generic_evidence::query_generic_conformance_proof(
@@ -287,20 +287,20 @@ class Probe {
     let run1 = fixture1.callable("Probe", "run", DispatchSide::Class);
     let sig1 = fixture1.analysis.snapshot.callable_signatures.get(&run1.callable).expect("sig1");
     let gen1 = sig1.generics.as_ref().expect("gen1");
-    let env1 = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::from_constraints(
+    let env1 = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
         &gen1.constraints,
         gen1.owner.clone(),
         &fixture1.analysis.snapshot.trait_surfaces,
-    );
+    ).expect("valid evidence layout");
 
     let run2 = fixture2.callable("Probe", "run", DispatchSide::Class);
     let sig2 = fixture2.analysis.snapshot.callable_signatures.get(&run2.callable).expect("sig2");
     let gen2 = sig2.generics.as_ref().expect("gen2");
-    let env2 = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::from_constraints(
+    let env2 = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
         &gen2.constraints,
         gen2.owner.clone(),
         &fixture2.analysis.snapshot.trait_surfaces,
-    );
+    ).expect("valid evidence layout");
 
     // Both layouts must have 3 slots: (T, Alpha.first), (T, Beta.second), (U, Alpha.first)
     assert_eq!(env1.layout().len(), 3);
@@ -532,4 +532,162 @@ class DynamicCaller {
     );
 
     fixture.assert_diagnostic(phalcom_semantic::diagnostic::DiagnosticCode::GenericConstraintUnsatisfied, 1);
+}
+
+#[test]
+fn generic_evidence_layout_overflow_is_a_checked_failure() {
+    use phalcom_semantic::generic_evidence::{GenericEvidenceLayout, GenericEvidenceLayoutError, GenericConformanceKey, AssumedConformanceEvidence};
+    use std::collections::BTreeMap;
+
+    let fixture = Fixture::new(
+        r#"
+trait Alpha {
+  alpha_req -> String
+}
+"#,
+    );
+
+    let alpha_decl = fixture.decl("Alpha");
+    let mut conformances = BTreeMap::new();
+    let owner = TypeParameterOwner::Declaration(fixture.decl("Alpha"));
+
+    // Create 65537 conformances with this trait
+    for i in 0..=65536 {
+        let key = GenericConformanceKey::new(
+            TypeTerm::Canonical(phalcom_semantic::types::id::TypeId(i as u32)),
+            phalcom_semantic::traits::TraitRef::new(alpha_decl.clone(), vec![]),
+        );
+        conformances.insert(key.clone(), AssumedConformanceEvidence {
+            key,
+            owner: owner.clone(),
+        });
+    }
+
+    let constraints = conformances.keys().map(|key| GenericConstraint::Conforms {
+        subject: key.subject.clone(), trait_ref: key.trait_ref.clone(),
+    }).collect::<Vec<_>>();
+    let surfaces = &fixture.analysis.snapshot.trait_surfaces;
+    use phalcom_semantic::generic_evidence::GenericEvidenceEnvironment;
+    assert!(matches!(GenericEvidenceEnvironment::try_from_constraints(&constraints, owner.clone(), surfaces),
+        Err(GenericEvidenceLayoutError::SlotCapacityExceeded(65536))));
+    let left = GenericEvidenceEnvironment::try_from_constraints(&constraints[..32768], owner.clone(), surfaces).unwrap();
+    let right = GenericEvidenceEnvironment::try_from_constraints(&constraints[32768..], owner, surfaces).unwrap();
+    assert!(matches!(left.try_compose(&right, surfaces), Err(GenericEvidenceLayoutError::SlotCapacityExceeded(65536))));
+
+    let layout_res = GenericEvidenceLayout::build(&conformances, &fixture.analysis.snapshot.trait_surfaces);
+    assert!(matches!(layout_res, Err(GenericEvidenceLayoutError::SlotCapacityExceeded(_))), "expected SlotCapacityExceeded, got {:?}", layout_res);
+}
+
+#[test]
+fn concrete_missing_conformance_is_rejected_at_call_site() {
+    let fixture = Fixture::new_allowing_internal_incidents(
+        r#"
+trait Printable {
+  print -> String
+}
+
+class NonPrintable {}
+
+class Discharger {
+  @class
+  display<T>(_ item: T) -> String
+    where T |= Printable
+  {
+    item.print
+  }
+}
+
+class Probe {
+  @class
+  run() -> String {
+    let item = NonPrintable.new()
+    Discharger.display(item)
+  }
+}
+"#,
+    );
+
+    fixture.assert_diagnostic(phalcom_semantic::diagnostic::DiagnosticCode::GenericConstraintUnsatisfied, 1);
+}
+
+#[test]
+fn failed_bounded_call_does_not_contaminate_later_analysis() {
+    let fixture = Fixture::new_allowing_internal_incidents(
+        r#"
+trait Printable {
+  print -> String
+}
+
+class NonPrintable {}
+class ValidPrintable {}
+
+impl Printable for ValidPrintable {
+  print -> String { "valid" }
+}
+
+class Discharger {
+  @class
+  display<T>(_ item: T) -> String
+    where T |= Printable
+  {
+    item.print
+  }
+}
+
+class Probe {
+  @class
+  run() -> String {
+    let bad = NonPrintable.new()
+    let _ = Discharger.display(bad)
+    let good = ValidPrintable.new()
+    Discharger.display(good)
+  }
+}
+"#,
+    );
+
+    // Only the bad call diagnoses unsatisfied generic constraint; good call proceeds cleanly
+    fixture.assert_diagnostic(phalcom_semantic::diagnostic::DiagnosticCode::GenericConstraintUnsatisfied, 1);
+}
+
+#[test]
+fn receiver_owner_evidence_is_published_without_owner_inference() {
+    let fixture = Fixture::new(r#"
+trait Printable { print -> String }
+class User { @constructor new() {} }
+impl Printable for User { print -> String { "user" } }
+class Container<T> where T |= Printable {
+  _val: T
+  @constructor new(_ val: T) { _val = val }
+  show() -> String { _val.print }
+  combine<U>(_ other: U) -> String where U |= Printable { _val.print + other.print }
+}
+class Runner {
+  @class run() -> String {
+    let c = Container.new(User.new())
+    let first = c.show()
+    c.combine(User.new())
+  }
+  @class forward<U>(_ c: Container<U>) -> String where U |= Printable { c.show() }
+}
+"#);
+    fixture.assert_no_error_diagnostics();
+    let show = fixture.callable("Container", "show", DispatchSide::Instance);
+    assert!(show.expressions.values().any(|expression| matches!(expression.trait_dispatch,
+        Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::Assumed(_)))), "owner body retains assumed dispatch");
+    let run = fixture.callable("Runner", "run", DispatchSide::Class);
+    for (name, expected) in [("show", 1), ("combine", 2)] {
+        let specialization = run.expressions.values().filter_map(|expression| expression.call_specialization.as_ref())
+            .find(|specialization| matches!(&specialization.callable.selector.base, SelectorBase::Named(selector) if selector == name))
+            .expect("receiver-specialized call");
+        assert_eq!(specialization.conformances.len(), expected);
+        assert_eq!(specialization.bindings.len(), expected);
+        assert!(specialization.conformances.iter().all(|binding| matches!(binding.source,
+            phalcom_semantic::checker::analysis::GenericCallConformanceSource::Exact { .. })));
+    }
+    let forward = fixture.callable("Runner", "forward", DispatchSide::Class);
+    let specialization = forward.expressions.values().filter_map(|expression| expression.call_specialization.as_ref()).next().expect("forwarded owner call");
+    assert_eq!(specialization.conformances.len(), 1);
+    assert!(matches!(specialization.conformances[0].source,
+        phalcom_semantic::checker::analysis::GenericCallConformanceSource::Forwarded { .. }));
 }

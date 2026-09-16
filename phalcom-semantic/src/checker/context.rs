@@ -87,8 +87,8 @@ type SharedSemanticDependencies = Rc<RefCell<BTreeSet<SemanticDependency>>>;
 /// resetting query limits or escaping cancellation.
 #[derive(Clone)]
 pub struct CheckerControl {
-    budget: Rc<RefCell<QueryBudget>>,
-    cancellation: CancellationToken,
+    pub(crate) budget: Rc<RefCell<QueryBudget>>,
+    pub(crate) cancellation: CancellationToken,
 }
 
 impl SpecializationControl for CheckerControl {
@@ -881,10 +881,46 @@ impl<'a> CheckingContext<'a> {
         session: &mut crate::checker::inference::InferenceSession,
         frame: crate::checker::inference::InferenceFrameId,
     ) -> crate::checker::inference::InferenceOutcome {
-        match session.propagate_with_control(self.store, &self.hierarchy, &self.control) {
-            Ok(_) => session.finish_frame(frame),
-            Err(outcome) => *outcome,
+        let empty_surfaces = crate::traits::TraitSurfaceTable::new();
+        const MAX_ASSOCIATED_INFERENCE_ITERATIONS: usize = 16;
+        for _ in 0..MAX_ASSOCIATED_INFERENCE_ITERATIONS {
+            match session.propagate_with_control(self.store, &self.hierarchy, &self.control) {
+                Ok(_) => {
+                    let mut progress = false;
+                    let norm_progress = {
+                        let mut budget = self.control.budget.borrow_mut();
+                        let mut norm_context = crate::types::ProjectionNormalizationContext::new(
+                            crate::types::ProjectionNormalizationMode::Generic {
+                                evidence: &self.generic_evidence,
+                                conformance_index: self.conformance_semantics.map(|cs| cs.conformance_index),
+                                witness_plans: self.conformance_semantics.map(|cs| cs.witness_plans),
+                                trait_surfaces: self.conformance_semantics.map(|cs| cs.trait_surfaces).unwrap_or(&empty_surfaces),
+                                declarations: self.declarations,
+                                hierarchy: self.hierarchy.inner(),
+                            },
+                            &mut budget,
+                            &self.control.cancellation,
+                        );
+                        session.extract_and_normalize_projections(self.store, |store, ty| {
+                            crate::types::normalize_type(store, ty, &mut norm_context).type_id()
+                        })
+                    };
+                    match norm_progress {
+                        Ok(changed) => {
+                            progress |= changed;
+                        }
+                        Err(failure) => {
+                            return session.failure_outcome(failure, None, None);
+                        }
+                    }
+                    if !progress {
+                        break;
+                    }
+                }
+                Err(outcome) => return *outcome,
+            }
         }
+        session.finish_frame(frame)
     }
 
     /// Creates one query-local inference graph and its root application frame.
@@ -1485,6 +1521,10 @@ impl<'a> CheckingContext<'a> {
         analysis.denotation = typed.denotation.clone();
         analysis.status = typed.status.clone();
         analysis.causal_invalidity = typed.causal_invalidity;
+    }
+
+    pub(crate) fn take_call_specialization(&mut self, id: ExpressionId) -> Option<crate::checker::analysis::CallSpecialization> {
+        self.call_specializations.remove(&id)
     }
 
     pub(crate) fn publish_call_specialization(&mut self, id: ExpressionId, specialization: crate::checker::analysis::CallSpecialization) {

@@ -459,6 +459,40 @@ pub(crate) fn semantic_signature_for_syntax_with_owner(
     semantic_signature_for_syntax_with_owner_and_site(ctx, owner, declaration_owner, declaration_resolver, &formation_site, syntax, declared_side)
 }
 
+fn compose_signature_evidence(
+    ctx: &CheckingContext<'_>,
+    declaration_owner: &DeclarationId,
+    generic_signature: Option<&crate::types::parameter::GenericSignature>,
+) -> crate::generic_evidence::GenericEvidenceEnvironment {
+    let empty_surfaces = crate::traits::TraitSurfaceTable::default();
+    let trait_surfaces = ctx
+        .conformance_semantics
+        .map(|v| v.trait_surfaces)
+        .unwrap_or(&empty_surfaces);
+
+    let mut method_env = crate::generic_evidence::GenericEvidenceEnvironment::empty();
+    if let Some(generics) = generic_signature {
+        if let Ok(env) = crate::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
+            &generics.constraints,
+            generics.owner.clone(),
+            trait_surfaces,
+        ) {
+            method_env = env;
+        }
+    }
+    let owner_env = ctx
+        .declaration_generic_signature(declaration_owner)
+        .and_then(|sig| {
+            crate::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
+                &sig.constraints,
+                sig.owner.clone(),
+                trait_surfaces,
+            ).ok()
+        })
+        .unwrap_or_default();
+    owner_env.try_compose(&method_env, trait_surfaces).unwrap_or(method_env)
+}
+
 pub(crate) fn semantic_signature_for_syntax_with_owner_and_site(
     ctx: &mut CheckingContext<'_>,
     owner: &CallableOwnerId,
@@ -475,13 +509,16 @@ pub(crate) fn semantic_signature_for_syntax_with_owner_and_site(
             let generic_signature = resolve_callable_local_generics(
                 ctx,
                 declaration_resolver,
-                &formation_site,
+                formation_site,
                 &callable,
                 &method.generic_parameters,
                 method.where_clause.as_ref(),
                 method.range,
                 "method",
             );
+            let member_site = formation_site
+                .clone()
+                .with_generic_evidence(compose_signature_evidence(ctx, declaration_owner, generic_signature.as_ref()));
             let method_type_parameters = generic_signature
                 .as_ref()
                 .map(|signature| signature.parameters.to_vec())
@@ -510,7 +547,7 @@ pub(crate) fn semantic_signature_for_syntax_with_owner_and_site(
                         index,
                         parameter,
                         &method_resolver,
-                        &formation_site,
+                        &member_site,
                         UnknownReason::NoTypeEvidence,
                     )
                 })
@@ -529,7 +566,7 @@ pub(crate) fn semantic_signature_for_syntax_with_owner_and_site(
                 annotation_fact(
                     ctx,
                     &method_resolver,
-                    &formation_site,
+                    &member_site,
                     method.return_annotation.as_ref(),
                     UnknownReason::UnannotatedDeclaration,
                 )
@@ -540,13 +577,16 @@ pub(crate) fn semantic_signature_for_syntax_with_owner_and_site(
             let generic_signature = resolve_callable_local_generics(
                 ctx,
                 declaration_resolver,
-                &formation_site,
+                formation_site,
                 &callable,
                 &getter.generic_parameters,
                 getter.where_clause.as_ref(),
                 getter.range,
                 "getter",
             );
+            let member_site = formation_site
+                .clone()
+                .with_generic_evidence(compose_signature_evidence(ctx, declaration_owner, generic_signature.as_ref()));
             let getter_type_parameters = generic_signature
                 .as_ref()
                 .map(|signature| signature.parameters.to_vec())
@@ -570,7 +610,7 @@ pub(crate) fn semantic_signature_for_syntax_with_owner_and_site(
                 annotation_fact(
                     ctx,
                     &getter_resolver,
-                    &formation_site,
+                    &member_site,
                     getter.return_annotation.as_ref(),
                     UnknownReason::UnannotatedDeclaration,
                 ),
@@ -580,13 +620,16 @@ pub(crate) fn semantic_signature_for_syntax_with_owner_and_site(
             let generic_signature = resolve_callable_local_generics(
                 ctx,
                 declaration_resolver,
-                &formation_site,
+                formation_site,
                 &callable,
                 &setter.generic_parameters,
                 setter.where_clause.as_ref(),
                 setter.range,
                 "setter",
             );
+            let member_site = formation_site
+                .clone()
+                .with_generic_evidence(compose_signature_evidence(ctx, declaration_owner, generic_signature.as_ref()));
             let setter_type_parameters = generic_signature
                 .as_ref()
                 .map(|signature| signature.parameters.to_vec())
@@ -607,7 +650,7 @@ pub(crate) fn semantic_signature_for_syntax_with_owner_and_site(
                 0,
                 &setter.param,
                 &setter_resolver,
-                &formation_site,
+                &member_site,
                 UnknownReason::UnannotatedDeclaration,
             );
             let unit = TypeKnowledge::established(ctx.store.unit(), EvidenceOrigin::DeclarationSemantics);
@@ -621,13 +664,16 @@ pub(crate) fn semantic_signature_for_syntax_with_owner_and_site(
             let generic_signature = resolve_callable_local_generics(
                 ctx,
                 declaration_resolver,
-                &formation_site,
+                formation_site,
                 &callable,
                 &index.generic_parameters,
                 index.where_clause.as_ref(),
                 index.range,
                 "index member",
             );
+            let member_site = formation_site
+                .clone()
+                .with_generic_evidence(compose_signature_evidence(ctx, declaration_owner, generic_signature.as_ref()));
             let index_type_parameters = generic_signature
                 .as_ref()
                 .map(|signature| signature.parameters.to_vec())
@@ -653,7 +699,7 @@ pub(crate) fn semantic_signature_for_syntax_with_owner_and_site(
                         parameter_index,
                         parameter,
                         &index_resolver,
-                        &formation_site,
+                        &member_site,
                         UnknownReason::NoTypeEvidence,
                     )
                 })
@@ -662,7 +708,7 @@ pub(crate) fn semantic_signature_for_syntax_with_owner_and_site(
                 phalcom_ast::ast::IndexAccessor::Get => annotation_fact(
                     ctx,
                     &index_resolver,
-                    &formation_site,
+                    &member_site,
                     index.return_annotation.as_ref(),
                     UnknownReason::NoTypeEvidence,
                 ),
@@ -673,7 +719,7 @@ pub(crate) fn semantic_signature_for_syntax_with_owner_and_site(
                         parameters.len(),
                         value,
                         &index_resolver,
-                        &formation_site,
+                        &member_site,
                         UnknownReason::NoTypeEvidence,
                     );
                     let result = value_semantic.declared_type.clone();

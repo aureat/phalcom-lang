@@ -34,6 +34,7 @@ pub struct TypeFormationSite {
     pub self_term: Option<SelfTypeTerm>,
     pub self_type_override: Option<TypeId>,
     pub associated_type_context: Option<AssociatedTypeFormationContext>,
+    pub generic_evidence: Option<crate::generic_evidence::GenericEvidenceEnvironment>,
 }
 
 /// Trait-owned context used to form symbolic associated-type projections.
@@ -50,6 +51,7 @@ impl TypeFormationSite {
             self_term: None,
             self_type_override: None,
             associated_type_context: None,
+            generic_evidence: None,
         }
     }
 
@@ -63,6 +65,7 @@ impl TypeFormationSite {
             }),
             self_type_override: None,
             associated_type_context: None,
+            generic_evidence: None,
         }
     }
 
@@ -82,11 +85,17 @@ impl TypeFormationSite {
             }),
             self_type_override: None,
             associated_type_context: Some(AssociatedTypeFormationContext { trait_ref, associated_types }),
+            generic_evidence: None,
         }
     }
 
     pub fn with_self_type_override(mut self, self_type: TypeId) -> Self {
         self.self_type_override = Some(self_type);
+        self
+    }
+
+    pub fn with_generic_evidence(mut self, generic_evidence: crate::generic_evidence::GenericEvidenceEnvironment) -> Self {
+        self.generic_evidence = Some(generic_evidence);
         self
     }
 }
@@ -507,6 +516,10 @@ fn lower_scoped_type_form(
             resolve_associated_type_projection(store, declarations, resolver, site, subject, name, *name_range, *range, diagnostics)
                 .map_ready(|ty| intern_scoped_free(store, ty))
         }
+        TypeAnnotationExpr::QualifiedAssociatedTypeProjection { subject, trait_ref, name, name_range, range } => {
+            resolve_qualified_associated_projection(store, declarations, resolver, site, subject, trait_ref, name, *name_range, *range, diagnostics)
+                .map_ready(|ty| intern_scoped_free(store, ty))
+        }
         TypeAnnotationExpr::Reference(sym_ref) => {
             let name = sym_ref.leaf_name();
             if sym_ref.members.is_empty() {
@@ -713,7 +726,29 @@ fn lower_scoped_type_form(
             ));
             TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::Lambda(lambda_id)))
         }
-        TypeAnnotationExpr::ExactEnumCase { range, .. } => {
+        TypeAnnotationExpr::ExactEnumCase {
+            enum_target,
+            variant_name,
+            variant_name_range,
+            generic_arguments,
+            payload_shape,
+            range,
+        } => {
+            if generic_arguments.is_empty() && payload_shape.is_none() {
+                let res = resolve_associated_type_projection(
+                    store,
+                    declarations,
+                    resolver,
+                    site,
+                    enum_target,
+                    variant_name,
+                    *variant_name_range,
+                    *range,
+                    diagnostics,
+                );
+                let ty = scoped_ready_or_propagate!(res);
+                return TypeFormationOutcome::Ready(store.arena_mut().intern_scoped(ScopedTypeData::Free(ty)));
+            }
             diagnostics.push(SemanticDiagnostic::error_in(
                 current_module.clone(),
                 DiagnosticCode::AnnotationUnresolved,
@@ -893,27 +928,7 @@ fn resolve_associated_type_projection(
     diagnostics: &mut Vec<SemanticDiagnostic>,
 ) -> TypeFormResolution {
     let current_module = &site.module;
-    if !matches!(subject.expr, TypeAnnotationExpr::SelfType { .. }) {
-        diagnostics.push(SemanticDiagnostic::error_in(
-            current_module.clone(),
-            DiagnosticCode::AnnotationUnresolved,
-            "associated type projection subject must be Self",
-            range,
-        ));
-        return TypeFormResolution::Unresolved(TypeFormationUnresolved::Name(name.into()));
-    }
-
-    let Some(context) = site.associated_type_context.as_ref() else {
-        diagnostics.push(SemanticDiagnostic::error_in(
-            current_module.clone(),
-            DiagnosticCode::AnnotationUnresolved,
-            "associated type projection requires a trait context",
-            range,
-        ));
-        return TypeFormResolution::Unresolved(TypeFormationUnresolved::Name("Self::associated type".into()));
-    };
-
-    let subject = match resolve_type_form(store, declarations, resolver, site, subject, diagnostics) {
+    let subject_ty = match resolve_type_form(store, declarations, resolver, site, subject, diagnostics) {
         TypeFormResolution::Ready(subject) => subject,
         TypeFormResolution::Dynamic => return TypeFormResolution::Dynamic,
         TypeFormResolution::Missing(reason) => return TypeFormResolution::Missing(reason),
@@ -924,17 +939,117 @@ fn resolve_associated_type_projection(
         TypeFormResolution::BudgetExceeded(report) => return TypeFormResolution::BudgetExceeded(report),
         TypeFormResolution::InternalFailure(failure) => return TypeFormResolution::InternalFailure(failure),
     };
-    let Some(requirement) = context.associated_types.get(name).cloned() else {
-        diagnostics.push(SemanticDiagnostic::error_in(
-            current_module.clone(),
-            DiagnosticCode::AssociatedTypeUnknown,
-            format!("unknown associated type `{name}` in trait `{}`", context.trait_ref.declaration.name),
-            name_range,
-        ));
-        return TypeFormResolution::Unresolved(TypeFormationUnresolved::Name(name.into()));
+
+    if let Some(context) = site.associated_type_context.as_ref() {
+        if matches!(subject.expr, TypeAnnotationExpr::SelfType { .. }) {
+            let Some(requirement) = context.associated_types.get(name).cloned() else {
+                diagnostics.push(SemanticDiagnostic::error_in(
+                    current_module.clone(),
+                    DiagnosticCode::AssociatedTypeUnknown,
+                    format!("unknown associated type `{name}` in trait `{}`", context.trait_ref.declaration.name),
+                    name_range,
+                ));
+                return TypeFormResolution::Unresolved(TypeFormationUnresolved::Name(name.into()));
+            };
+            return TypeFormResolution::Ready(store.associated_projection(subject_ty, context.trait_ref.clone(), requirement));
+        }
+    }
+
+    if let Some(evidence) = site.generic_evidence.as_ref() {
+        let subject_term = TypeTerm::Canonical(subject_ty);
+        let mut matching_traits = Vec::new();
+
+        for (conformance_key, _) in evidence.conformances() {
+            if conformance_key.subject == subject_term
+                || evidence.are_equivalent(&conformance_key.subject, &subject_term) == crate::generic_evidence::GenericEquivalenceProof::Proven
+            {
+                if let Some(context) = site.associated_type_context.as_ref() {
+                    if context.trait_ref.declaration == conformance_key.trait_ref.declaration {
+                        if let Some(req_id) = context.associated_types.get(name).cloned() {
+                            matching_traits.push((conformance_key.trait_ref.clone(), req_id));
+                            continue;
+                        }
+                    }
+                }
+                let req_id = AssociatedTypeRequirementId::new(conformance_key.trait_ref.declaration.clone(), 0);
+                matching_traits.push((conformance_key.trait_ref.clone(), req_id));
+            }
+        }
+
+        matching_traits.dedup_by(|a, b| a.1 == b.1);
+
+        if matching_traits.len() == 1 {
+            let (trait_ref, req_id) = matching_traits.into_iter().next().unwrap();
+            return TypeFormResolution::Ready(store.associated_projection(subject_ty, trait_ref, req_id));
+        } else if matching_traits.len() > 1 {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                current_module.clone(),
+                DiagnosticCode::AnnotationUnresolved,
+                format!("ambiguous contextual associated type projection `{name}` for subject"),
+                range,
+            ));
+            return TypeFormResolution::Unresolved(TypeFormationUnresolved::Name(name.into()));
+        }
+    }
+
+    diagnostics.push(SemanticDiagnostic::error_in(
+        current_module.clone(),
+        DiagnosticCode::AnnotationUnresolved,
+        "contextual associated type projection subject must have conformance evidence",
+        range,
+    ));
+    TypeFormResolution::Unresolved(TypeFormationUnresolved::Name(name.into()))
+}
+
+fn resolve_qualified_associated_projection(
+    store: &mut TypeStore,
+    declarations: &DeclarationTypeTable,
+    resolver: &dyn TypeResolver,
+    site: &TypeFormationSite,
+    subject: &TypeAnnotation,
+    trait_requirement: &phalcom_ast::ast::TraitRequirementSyntax,
+    name: &str,
+    _name_range: phalcom_common::range::SourceRange,
+    _range: phalcom_common::range::SourceRange,
+    diagnostics: &mut Vec<SemanticDiagnostic>,
+) -> TypeFormResolution {
+    let _current_module = &site.module;
+    let subject_ty = match resolve_type_form(store, declarations, resolver, site, subject, diagnostics) {
+        TypeFormResolution::Ready(s) => s,
+        TypeFormResolution::Dynamic => return TypeFormResolution::Dynamic,
+        TypeFormResolution::Missing(reason) => return TypeFormResolution::Missing(reason),
+        TypeFormResolution::Unresolved(reason) => return TypeFormResolution::Unresolved(reason),
+        TypeFormResolution::Invalid(reason) => return TypeFormResolution::Invalid(reason),
+        TypeFormResolution::Blocked(reason) => return TypeFormResolution::Blocked(reason),
+        TypeFormResolution::Cancelled => return TypeFormResolution::Cancelled,
+        TypeFormResolution::BudgetExceeded(report) => return TypeFormResolution::BudgetExceeded(report),
+        TypeFormResolution::InternalFailure(failure) => return TypeFormResolution::InternalFailure(failure),
     };
 
-    TypeFormResolution::Ready(store.associated_projection(subject, context.trait_ref.clone(), requirement))
+    let trait_res = resolve_trait_ref_for_conformance(store, declarations, resolver, site, &trait_requirement.trait_type, diagnostics);
+    let trait_ref = match trait_res {
+        TypeFormationOutcome::Ready(t) => t,
+        TypeFormationOutcome::Dynamic => return TypeFormResolution::Dynamic,
+        TypeFormationOutcome::Missing(reason) => return TypeFormResolution::Missing(reason),
+        TypeFormationOutcome::Unresolved(reason) => return TypeFormResolution::Unresolved(reason),
+        TypeFormationOutcome::Invalid(reason) => return TypeFormResolution::Invalid(reason),
+        TypeFormationOutcome::Blocked(reason) => return TypeFormResolution::Blocked(reason),
+        TypeFormationOutcome::Cancelled => return TypeFormResolution::Cancelled,
+        TypeFormationOutcome::BudgetExceeded(report) => return TypeFormResolution::BudgetExceeded(report),
+        TypeFormationOutcome::InternalFailure(failure) => return TypeFormResolution::InternalFailure(failure),
+    };
+
+    // If trait context is available for this trait declaration, look up the requirement
+    if let Some(context) = site.associated_type_context.as_ref() {
+        if context.trait_ref.declaration == trait_ref.declaration {
+            if let Some(requirement) = context.associated_types.get(name).cloned() {
+                return TypeFormResolution::Ready(store.associated_projection(subject_ty, trait_ref, requirement));
+            }
+        }
+    }
+
+    let requirement = AssociatedTypeRequirementId::new(trait_ref.declaration.clone(), 0);
+    TypeFormResolution::Ready(store.associated_projection(subject_ty, trait_ref, requirement))
 }
 
 /// Resolves an AST [`TypeAnnotation`] into a type constructor or proper type form.
@@ -968,6 +1083,9 @@ pub fn resolve_type_form(
         }
         TypeAnnotationExpr::AssociatedTypeProjection { subject, name, name_range, range } => {
             resolve_associated_type_projection(store, declarations, resolver, site, subject, name, *name_range, *range, diagnostics)
+        }
+        TypeAnnotationExpr::QualifiedAssociatedTypeProjection { subject, trait_ref, name, name_range, range } => {
+            resolve_qualified_associated_projection(store, declarations, resolver, site, subject, trait_ref, name, *name_range, *range, diagnostics)
         }
         TypeAnnotationExpr::Reference(sym_ref) => {
             let name = sym_ref.leaf_name();
@@ -1303,7 +1421,27 @@ pub fn resolve_type_form(
             )
             .map_ready(|lambda_id| store.type_lambda(lambda_id))
         }
-        TypeAnnotationExpr::ExactEnumCase { range, .. } => {
+        TypeAnnotationExpr::ExactEnumCase {
+            enum_target,
+            variant_name,
+            variant_name_range,
+            generic_arguments,
+            payload_shape,
+            range,
+        } => {
+            if generic_arguments.is_empty() && payload_shape.is_none() {
+                return resolve_associated_type_projection(
+                    store,
+                    declarations,
+                    resolver,
+                    site,
+                    enum_target,
+                    variant_name,
+                    *variant_name_range,
+                    *range,
+                    diagnostics,
+                );
+            }
             diagnostics.push(SemanticDiagnostic::error_in(
                 current_module.clone(),
                 DiagnosticCode::AnnotationUnresolved,
@@ -1438,21 +1576,63 @@ pub fn resolve_generic_signature(
     diagnostics: &mut Vec<SemanticDiagnostic>,
 ) -> TypeFormationOutcome<GenericSignature> {
     let current_module = &site.module;
+
+    // Phase 1: Unify parameter kind facts from binder and where-clause KindFacts
+    let mut where_kind_facts = std::collections::HashMap::new();
+    if let Some(clause) = where_clause {
+        for c in &clause.constraints {
+            if let GenericConstraintSyntax::KindFact { subject, kind, range, .. } = c {
+                let resolved_kind = resolve_kind_syntax(store, kind);
+                if let KindResolution::Invalid(reason) = &resolved_kind {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        current_module.clone(),
+                        DiagnosticCode::AnnotationUnresolved,
+                        format!("invalid generic parameter kind in where clause: {reason:?}"),
+                        *range,
+                    ));
+                }
+                let k = scoped_ready_or_propagate!(resolved_kind);
+                where_kind_facts.insert(subject.clone(), (k, *range));
+            }
+        }
+    }
+
     let mut pending = Vec::with_capacity(params.len());
     for p in params {
-        let kind = match p.kind.as_ref() {
-            None => KindResolution::Ready(KindId::TYPE),
-            Some(syntax) => resolve_kind_syntax(store, syntax),
+        let binder_kind = match p.kind.as_ref() {
+            None => None,
+            Some(syntax) => {
+                let res = resolve_kind_syntax(store, syntax);
+                if let KindResolution::Invalid(reason) = &res {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        current_module.clone(),
+                        DiagnosticCode::AnnotationUnresolved,
+                        format!("invalid generic parameter kind: {reason:?}"),
+                        p.range,
+                    ));
+                }
+                Some(scoped_ready_or_propagate!(res))
+            }
         };
-        if let KindResolution::Invalid(reason) = &kind {
-            diagnostics.push(SemanticDiagnostic::error_in(
-                current_module.clone(),
-                DiagnosticCode::AnnotationUnresolved,
-                format!("invalid generic parameter kind: {reason:?}"),
-                p.range,
-            ));
-        }
-        let kind = scoped_ready_or_propagate!(kind);
+
+        let kind = match (binder_kind, where_kind_facts.get(&p.name)) {
+            (None, None) => KindId::TYPE,
+            (Some(k), None) => k,
+            (None, Some((k, _))) => *k,
+            (Some(k1), Some((k2, where_range))) => {
+                if k1 != *k2 {
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        current_module.clone(),
+                        DiagnosticCode::AnnotationUnresolved,
+                        format!("conflicting generic parameter kind for `{}` between binder and where clause", p.name),
+                        *where_range,
+                    ));
+                    return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+                }
+                k1
+            }
+        };
+
         let variance = lower_variance(p.variance);
         if kind == KindId::RECORD_ROW && binder_site != GenericBinderSite::Callable {
             diagnostics.push(SemanticDiagnostic::error_in(
@@ -1475,6 +1655,7 @@ pub fn resolve_generic_signature(
         pending.push((p, kind, variance));
     }
 
+    // Phase 2: Intern parameter identities
     let mut param_ids = Vec::with_capacity(params.len());
     for (idx, (p, kind, variance)) in pending.iter().enumerate() {
         let data = TypeParameterData::new(owner.clone(), idx as u32, p.name.clone(), *kind)
@@ -1494,7 +1675,10 @@ pub fn resolve_generic_signature(
         type_parameters: param_map,
     };
 
+    // Phase 3: Lower direct conformance bounds and extract specializations
     let mut constraints = Vec::new();
+    let mut pending_specializations = Vec::new();
+
     if let Some(clause) = where_clause {
         for c in &clause.constraints {
             match c {
@@ -1549,10 +1733,14 @@ pub fn resolve_generic_signature(
                         ));
                         return TypeFormationOutcome::Invalid(TypeFormationInvalid::GenericConstraintOperandNotType);
                     }
-                    constraints.push(GenericConstraint::Equivalent {
-                        left: TypeTerm::Canonical(l_ty),
-                        right: TypeTerm::Canonical(r_ty),
-                    });
+                    let left_term = TypeTerm::Canonical(l_ty);
+                    let right_term = TypeTerm::Canonical(r_ty);
+                    let (left, right) = if left_term <= right_term {
+                        (left_term, right_term)
+                    } else {
+                        (right_term, left_term)
+                    };
+                    constraints.push(GenericConstraint::Equivalent { left, right });
                 }
                 GenericConstraintSyntax::Conforms { subject, bounds, range: _ } => {
                     let s_res = resolve_type_form(store, declarations, &scoped_resolver, site, subject, diagnostics);
@@ -1567,14 +1755,18 @@ pub fn resolve_generic_signature(
                         return TypeFormationOutcome::Invalid(TypeFormationInvalid::GenericConstraintOperandNotType);
                     }
                     for bound in bounds {
-                        let trait_res = resolve_trait_ref_for_conformance(store, declarations, &scoped_resolver, site, bound, diagnostics);
+                        let trait_res = resolve_trait_ref_for_conformance(store, declarations, &scoped_resolver, site, &bound.trait_type, diagnostics);
                         let trait_ref = scoped_ready_or_propagate!(trait_res);
                         constraints.push(GenericConstraint::Conforms {
                             subject: TypeTerm::Canonical(s_ty),
-                            trait_ref,
+                            trait_ref: trait_ref.clone(),
                         });
+                        for spec in &bound.associated_specializations {
+                            pending_specializations.push((s_ty, trait_ref.clone(), spec));
+                        }
                     }
                 }
+                GenericConstraintSyntax::KindFact { .. } => {}
                 GenericConstraintSyntax::Invalid { message, range } => {
                     diagnostics.push(SemanticDiagnostic::error_in(
                         current_module.clone(),
@@ -1588,6 +1780,23 @@ pub fn resolve_generic_signature(
         }
     }
 
+    // Phase 4: Elaborate associated specializations into canonical Equivalent constraints
+    for (s_ty, trait_ref, spec) in pending_specializations {
+        let val_res = resolve_type_form(store, declarations, &scoped_resolver, site, &spec.value, diagnostics);
+        let val_ty = scoped_ready_or_propagate!(val_res);
+        let req_id = AssociatedTypeRequirementId::new(trait_ref.declaration.clone(), 0);
+        let proj_ty = store.associated_projection(s_ty, trait_ref, req_id);
+        let left_term = TypeTerm::Canonical(proj_ty);
+        let right_term = TypeTerm::Canonical(val_ty);
+        let (left, right) = if left_term <= right_term {
+            (left_term, right_term)
+        } else {
+            (right_term, left_term)
+        };
+        constraints.push(GenericConstraint::Equivalent { left, right });
+    }
+
+    // Phase 5: Canonical sort and deduplication
     constraints.sort();
     constraints.dedup();
 

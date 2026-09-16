@@ -1,7 +1,7 @@
 //! Canonical global type-term graph.
 
 use crate::fingerprint::Fingerprint128;
-use crate::generic::StableTypeParameterRef;
+use crate::generic::{StableAssociatedTypeRequirementRef, StableTraitApplicationRef, StableTypeParameterRef};
 use crate::identity::{StableDeclarationRef, StableDispatchSide};
 use crate::kind::KindNodeId;
 use crate::scoped_type::TypeLambdaRef;
@@ -69,6 +69,11 @@ pub enum TypeNode {
     SelfType(SelfTypeRef),
     TypeLambda(TypeLambdaRef),
     OpenRecord(OpenRecordTypeRef),
+    AssociatedProjection {
+        subject: TypeNodeId,
+        trait_application: StableTraitApplicationRef,
+        requirement: StableAssociatedTypeRequirementRef,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]

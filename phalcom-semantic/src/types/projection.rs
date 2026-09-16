@@ -7,9 +7,11 @@ use super::row::RecordRowField;
 use super::family::FamilyMemberType;
 use super::store::{AssociatedTypeProjection, CallableParameterType, CallableType, TupleTypeElement, TypeData, TypeStore};
 use crate::declarations::DeclarationTypeTable;
+use crate::generic_evidence::{GenericConformanceKey, GenericEvidenceEnvironment};
 use crate::identity::ImplId;
 use crate::impls::{ConformanceAssociatedTypePlan, ConformanceIndex, ConformanceResolution, ConformanceWitnessPlan};
 use crate::traits::{TraitRef, TraitSurfaceTable};
+use crate::types::parameter::TypeTerm;
 use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
@@ -27,6 +29,15 @@ pub enum ProjectionNormalizationMode<'a> {
     Exact {
         conformance_index: &'a ConformanceIndex,
         witness_plans: &'a BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>,
+        trait_surfaces: &'a TraitSurfaceTable,
+        declarations: &'a DeclarationTypeTable,
+        hierarchy: &'a dyn crate::types::relation::TypeHierarchy,
+    },
+    /// A generic evidence environment supplies assumed conformance and equality/refinement facts.
+    Generic {
+        evidence: &'a GenericEvidenceEnvironment,
+        conformance_index: Option<&'a ConformanceIndex>,
+        witness_plans: Option<&'a BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>>,
         trait_surfaces: &'a TraitSurfaceTable,
         declarations: &'a DeclarationTypeTable,
         hierarchy: &'a dyn crate::types::relation::TypeHierarchy,
@@ -94,7 +105,7 @@ pub enum ProjectionNormalizationResult {
 }
 
 impl ProjectionNormalizationResult {
-    fn type_id(&self) -> Option<TypeId> {
+    pub fn type_id(&self) -> Option<TypeId> {
         match self {
             Self::Normalized(ty) | Self::Symbolic(ty) => Some(*ty),
             _ => None,
@@ -322,6 +333,78 @@ fn normalize_projection(
             let result = normalize_type(store, binding.value, context);
             context.active.remove(&projection);
             result
+        }
+        ProjectionNormalizationMode::Generic {
+            evidence,
+            conformance_index,
+            witness_plans,
+            trait_surfaces,
+            declarations,
+            hierarchy,
+        } => {
+            // 1. Check assumed conformance for the subject (or any equivalent subject)
+            let key = GenericConformanceKey::new(TypeTerm::Canonical(subject), trait_ref.clone());
+            let has_assumed = evidence.assumed_conformance(&key).is_some()
+                || evidence.equivalent_terms(&TypeTerm::Canonical(subject)).iter().any(|equiv| {
+                    evidence.assumed_conformance(&GenericConformanceKey::new(equiv.clone(), trait_ref.clone())).is_some()
+                });
+
+            if has_assumed {
+                // 2. Check if there is a unique lexical refinement for this projection
+                let proj_term = TypeTerm::Canonical(rewritten);
+                if let Some(refinement_term) = evidence.unique_refinement(&proj_term) {
+                    if let TypeTerm::Canonical(refinement_ty) = refinement_term {
+                        if !context.active.insert(projection.clone()) {
+                            return ProjectionNormalizationResult::Recursive;
+                        }
+                        let result = normalize_type(store, *refinement_ty, context);
+                        context.active.remove(&projection);
+                        return result;
+                    }
+                }
+                // Assumed conformance without refinement remains symbolic
+                return ProjectionNormalizationResult::Symbolic(rewritten);
+            }
+
+            // 3. Exact fallback for canonical types
+            if let (Some(conformance_index), Some(witness_plans)) = (conformance_index, witness_plans) {
+                if !trait_surfaces.contains(&trait_ref.declaration) {
+                    return ProjectionNormalizationResult::InternalFailure("trait surface is unavailable for projection normalization".into());
+                }
+                let resolution = crate::impls::resolve_conformance_evidence_with_surfaces(
+                    conformance_index,
+                    witness_plans,
+                    trait_surfaces,
+                    declarations,
+                    store,
+                    *hierarchy,
+                    subject,
+                    &trait_ref,
+                );
+                let exact_evidence = match resolution {
+                    ConformanceResolution::Proven(exact_evidence) => exact_evidence,
+                    ConformanceResolution::NotDeclared => return ProjectionNormalizationResult::Symbolic(rewritten),
+                    ConformanceResolution::InvalidSource(_) | ConformanceResolution::Incomplete(_) => return ProjectionNormalizationResult::Incomplete,
+                    ConformanceResolution::CoherenceConflict(candidates) => return ProjectionNormalizationResult::Ambiguous(candidates),
+                    ConformanceResolution::Unknown(reason) => return ProjectionNormalizationResult::Unknown(reason),
+                    ConformanceResolution::Blocked(reason) => return ProjectionNormalizationResult::Blocked(reason),
+                    ConformanceResolution::Dynamic(obligation) => return ProjectionNormalizationResult::Dynamic(obligation),
+                    ConformanceResolution::Cancelled => return ProjectionNormalizationResult::Cancelled,
+                    ConformanceResolution::BudgetExceeded(report) => return ProjectionNormalizationResult::BudgetExceeded(report),
+                    ConformanceResolution::InternalFailure(message) => return ProjectionNormalizationResult::InternalFailure(message),
+                };
+                let Some(binding) = exact_evidence.associated_types.get(&projection.requirement) else {
+                    return ProjectionNormalizationResult::Incomplete;
+                };
+                if !context.active.insert(projection.clone()) {
+                    return ProjectionNormalizationResult::Recursive;
+                }
+                let result = normalize_type(store, binding.value, context);
+                context.active.remove(&projection);
+                result
+            } else {
+                ProjectionNormalizationResult::Symbolic(rewritten)
+            }
         }
     }
 }

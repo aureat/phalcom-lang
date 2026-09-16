@@ -346,6 +346,32 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                     });
                 }
             }
+            TypeNode::AssociatedProjection {
+                subject,
+                trait_application,
+                requirement,
+            } => {
+                if subject.0 as usize >= i {
+                    return Err(MetadataValidationError::TopologicalOrderViolation {
+                        index: i as u32,
+                        target: subject.0,
+                    });
+                }
+                for &arg in trait_application.arguments.iter() {
+                    if arg.0 as usize >= i {
+                        return Err(MetadataValidationError::TopologicalOrderViolation {
+                            index: i as u32,
+                            target: arg.0,
+                        });
+                    }
+                }
+                if requirement.owner != trait_application.declaration {
+                    return Err(MetadataValidationError::Malformed(format!(
+                        "associated type requirement owner {:?} does not match trait application declaration {:?}",
+                        requirement.owner, trait_application.declaration
+                    )));
+                }
+            }
         }
     }
 

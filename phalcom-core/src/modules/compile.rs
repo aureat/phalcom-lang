@@ -157,6 +157,9 @@ pub enum ProgramCompileError {
     /// Canonical Universe semantic diagnostics differ from their reviewed baseline.
     #[error("canonical Universe semantic baseline rejected: {0}")]
     CanonicalSemanticBaseline(String),
+    /// Canonical generic evidence could not be represented for lowering.
+    #[error("generic evidence layout error: {0}")]
+    GenericEvidenceLayout(String),
 }
 
 /// Fully analyzed program snapshot ready for code generation.
@@ -614,21 +617,21 @@ impl ProgramCompiler {
             };
             let mut caller_evidence = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::empty();
             if let Some(owner_sig) = caller_owner_sig {
-                let owner_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::from_constraints(
+                let owner_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
                     &owner_sig.constraints,
                     owner_sig.owner.clone(),
                     &analyzed.semantic.trait_surfaces,
-                );
-                caller_evidence = caller_evidence.compose(&owner_env, &analyzed.semantic.trait_surfaces);
+                ).map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
+                caller_evidence = caller_evidence.try_compose(&owner_env, &analyzed.semantic.trait_surfaces).map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
             }
             if let Some(sig) = analyzed.semantic.callable_signatures.get(callable) {
                 if let Some(generics) = &sig.generics {
-                    let callable_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::from_constraints(
+                    let callable_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
                         &generics.constraints,
                         generics.owner.clone(),
                         &analyzed.semantic.trait_surfaces,
-                    );
-                    caller_evidence = caller_evidence.compose(&callable_env, &analyzed.semantic.trait_surfaces);
+                    ).map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
+                    caller_evidence = caller_evidence.try_compose(&callable_env, &analyzed.semantic.trait_surfaces).map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
                 }
             }
 
@@ -647,31 +650,33 @@ impl ProgramCompiler {
                 };
                 let mut callee_evidence = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::empty();
                 if let Some(owner_sig) = callee_owner_sig {
-                    let owner_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::from_constraints(
+                    let owner_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
                         &owner_sig.constraints,
                         owner_sig.owner.clone(),
                         &analyzed.semantic.trait_surfaces,
-                    );
-                    callee_evidence = callee_evidence.compose(&owner_env, &analyzed.semantic.trait_surfaces);
+                    ).map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
+                    callee_evidence = callee_evidence.try_compose(&owner_env, &analyzed.semantic.trait_surfaces).map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
                 }
                 if let Some(sig) = analyzed.semantic.callable_signatures.get(callee) {
                     if let Some(generics) = &sig.generics {
-                        let callable_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::from_constraints(
+                        let callable_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
                             &generics.constraints,
                             generics.owner.clone(),
                             &analyzed.semantic.trait_surfaces,
-                        );
-                        callee_evidence = callee_evidence.compose(&callable_env, &analyzed.semantic.trait_surfaces);
+                        ).map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
+                        callee_evidence = callee_evidence.try_compose(&callable_env, &analyzed.semantic.trait_surfaces).map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("{error:?}")))?;
                     }
                 }
 
-                let mut slots = Vec::new();
+                let layout_len = callee_evidence.layout().len();
+                let mut slots: Vec<Option<crate::typing::RuntimeConformanceSlotRecipe>> = vec![None; layout_len];
                 let mut callee_instantiation = phalcom_semantic::types::instantiation::GenericInstantiation::default();
                 for &(parameter, ty) in specialization.bindings.iter() {
                     callee_instantiation.bind_type(parameter, ty);
                 }
                 let mut materialization_store = (*analyzed.semantic.store).clone();
-                for (slot_key, _) in callee_evidence.layout().slots.iter() {
+                for (slot_key, slot_idx) in callee_evidence.layout().slots.iter() {
+                    let idx = *slot_idx as usize;
                     let instantiated_subject = match &slot_key.conformance.subject {
                         phalcom_semantic::types::parameter::TypeTerm::Canonical(ty) => {
                             phalcom_semantic::types::instantiation::materialize_type(
@@ -681,7 +686,7 @@ impl ProgramCompiler {
                                 phalcom_semantic::types::instantiation::RowMaterializationMode::PreserveUnboundStableTail,
                             )
                             .map(phalcom_semantic::types::parameter::TypeTerm::Canonical)
-                            .unwrap_or_else(|_| slot_key.conformance.subject.clone())
+                            .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("conformance subject instantiation failed: {error:?}")))?
                         }
                         _ => slot_key.conformance.subject.clone(),
                     };
@@ -699,9 +704,9 @@ impl ProgramCompiler {
                                     &callee_instantiation,
                                     phalcom_semantic::types::instantiation::RowMaterializationMode::PreserveUnboundStableTail,
                                 )
-                                .unwrap_or(arg)
+                                .map_err(|error| ProgramCompileError::GenericEvidenceLayout(format!("conformance trait argument instantiation failed: {error:?}")))
                             })
-                            .collect::<Vec<_>>(),
+                            .collect::<Result<Vec<_>, _>>()?,
                     );
                     let instantiated_conformance = phalcom_semantic::generic_evidence::GenericConformanceKey::new(instantiated_subject, instantiated_trait_ref);
                     let binding = specialization
@@ -727,10 +732,12 @@ impl ProgramCompiler {
                                         phalcom_semantic::impls::RequirementSelectionTemplate::DataComponent { .. } => None,
                                     };
                                     if let Some(callable) = callable {
-                                        slots.push(crate::typing::RuntimeConformanceSlotRecipe::Selection {
-                                            callable,
-                                            selector,
-                                        });
+                                        if idx < slots.len() {
+                                            slots[idx] = Some(crate::typing::RuntimeConformanceSlotRecipe::Selection {
+                                                callable,
+                                                selector,
+                                            });
+                                        }
                                     }
                                 }
                             }
@@ -740,13 +747,26 @@ impl ProgramCompiler {
                                     slot_key.requirement.clone(),
                                 );
                                 if let Some(caller_slot) = caller_evidence.slot_for(&caller_slot_key) {
-                                    slots.push(crate::typing::RuntimeConformanceSlotRecipe::Forwarded(caller_slot));
+                                    if idx < slots.len() {
+                                        slots[idx] = Some(crate::typing::RuntimeConformanceSlotRecipe::Forwarded(caller_slot));
+                                    }
                                 }
                             }
                         }
                     }
                 }
-                call_conformance_slots.insert((callable.owner.module().clone(), expression.range, callee.clone()), slots);
+                let resolved_slots = slots
+                    .into_iter()
+                    .enumerate()
+                    .map(|(slot, recipe)| {
+                        recipe.ok_or_else(|| {
+                            ProgramCompileError::GenericEvidenceLayout(format!(
+                                "missing runtime conformance recipe for semantic slot {slot} at call to {callee:?}"
+                            ))
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                call_conformance_slots.insert((callable.owner.module().clone(), expression.range, callee.clone()), resolved_slots);
             }
         }
 

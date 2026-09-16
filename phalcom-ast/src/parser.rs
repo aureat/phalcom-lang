@@ -640,6 +640,39 @@ impl<'source> Parser<'source> {
         false
     }
 
+    /// Checks if a qualified projection `<... as ...>` is immediately ahead.
+    fn is_qualified_projection_ahead(&self) -> bool {
+        if !matches!(self.peek(), Token::Less) {
+            return false;
+        }
+        let mut depth: i32 = 0;
+        let mut i = self.pos;
+        while i < self.tokens.len() {
+            match &self.tokens[i].token {
+                Token::Less => depth += 1,
+                Token::ShiftLeft => depth += 2,
+                Token::Greater => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return false;
+                    }
+                }
+                Token::ShiftRight => {
+                    depth -= 2;
+                    if depth <= 0 {
+                        return false;
+                    }
+                }
+                Token::As if depth == 1 => return true,
+                Token::Newline => {}
+                Token::Semicolon | Token::Eof | Token::LBrace | Token::RBrace => return false,
+                _ => {}
+            }
+            i += 1;
+        }
+        false
+    }
+
     /// Skips any run of [`Token::Newline`] tokens (blank lines).
     fn skip_newlines(&mut self) {
         while matches!(self.peek(), Token::Newline) {
@@ -2002,88 +2035,6 @@ impl<'source> Parser<'source> {
         Ok(atom)
     }
 
-    /// Parses an atomic type form (Spec 04 §5.1).
-    pub fn parse_type_atom(&mut self) -> ParserResult<TypeAnnotation> {
-        let start = self.cur_start();
-        match self.peek() {
-            Token::LParen => self.parse_paren_type(),
-            Token::RecordLBrace => self.parse_record_type(),
-            Token::Identifier(s) => {
-                let name = s.clone();
-                let root_start = self.cur_start();
-                self.advance();
-                let root_range = (root_start..self.prev_end).into();
-                let mut members = Vec::new();
-                while self.eat(&Token::Dot) {
-                    let m_start = self.cur_start();
-                    let m_name = self.expect_identifier(&["qualified type name"])?;
-                    members.push(PathSegment {
-                        name: m_name,
-                        range: (m_start..self.prev_end).into(),
-                    });
-                }
-                let range = (start..self.prev_end).into();
-                if members.is_empty() {
-                    match name.as_str() {
-                        "Never" => {
-                            return Ok(TypeAnnotation {
-                                expr: TypeAnnotationExpr::Never { range },
-                                range,
-                            });
-                        }
-                        "Dynamic" => {
-                            return Ok(TypeAnnotation {
-                                expr: TypeAnnotationExpr::Dynamic { range },
-                                range,
-                            });
-                        }
-                        "Self" => {
-                            return Ok(TypeAnnotation {
-                                expr: TypeAnnotationExpr::SelfType { range },
-                                range,
-                            });
-                        }
-                        "Unknown" => {
-                            self.errors.push(SyntaxError {
-                                kind: SyntaxErrorKind::Message("Unknown is an analysis state, not a source type; use Dynamic or omit annotation".to_string()),
-                                range: start..self.prev_end,
-                            });
-                        }
-                        "Any" => {
-                            self.errors.push(SyntaxError {
-                                kind: SyntaxErrorKind::Message("Any is reserved and not yet enabled as a source type".to_string()),
-                                range: start..self.prev_end,
-                            });
-                        }
-                        _ => {}
-                    }
-                }
-                let sym_ref = StaticSymbolRef {
-                    root: name,
-                    root_range,
-                    members,
-                    range,
-                };
-                Ok(TypeAnnotation {
-                    expr: TypeAnnotationExpr::Reference(sym_ref),
-                    range,
-                })
-            }
-            _ => {
-                let err = self.error_here(vec!["type name".to_string(), "\"(\"".to_string(), "\"#{\"".to_string()]);
-                self.advance();
-                let range = (start..self.prev_end).into();
-                Ok(TypeAnnotation {
-                    expr: TypeAnnotationExpr::Invalid {
-                        message: format!("{:?}", err.kind),
-                        range,
-                    },
-                    range,
-                })
-            }
-        }
-    }
-
     /// Parses a structural record type `#{ ... }` (Spec 04 §5.7).
     pub fn parse_record_type(&mut self) -> ParserResult<TypeAnnotation> {
         let start = self.cur_start();
@@ -2293,6 +2244,212 @@ impl<'source> Parser<'source> {
         Ok(params)
     }
 
+    /// Parses an atomic type form (Spec 04 §5.1).
+    pub fn parse_type_atom(&mut self) -> ParserResult<TypeAnnotation> {
+        let start = self.cur_start();
+        if self.is_qualified_projection_ahead() {
+            return self.parse_qualified_projection();
+        }
+        match self.peek() {
+            Token::LParen => self.parse_paren_type(),
+            Token::RecordLBrace => self.parse_record_type(),
+            Token::Identifier(s) => {
+                let name = s.clone();
+                let root_start = self.cur_start();
+                self.advance();
+                let root_range = (root_start..self.prev_end).into();
+                let mut members = Vec::new();
+                while self.eat(&Token::Dot) {
+                    let m_start = self.cur_start();
+                    let m_name = self.expect_identifier(&["qualified type name"])?;
+                    members.push(PathSegment {
+                        name: m_name,
+                        range: (m_start..self.prev_end).into(),
+                    });
+                }
+                let range = (start..self.prev_end).into();
+                if members.is_empty() {
+                    match name.as_str() {
+                        "Never" => {
+                            return Ok(TypeAnnotation {
+                                expr: TypeAnnotationExpr::Never { range },
+                                range,
+                            });
+                        }
+                        "Dynamic" => {
+                            return Ok(TypeAnnotation {
+                                expr: TypeAnnotationExpr::Dynamic { range },
+                                range,
+                            });
+                        }
+                        "Self" => {
+                            return Ok(TypeAnnotation {
+                                expr: TypeAnnotationExpr::SelfType { range },
+                                range,
+                            });
+                        }
+                        "Unknown" => {
+                            self.errors.push(SyntaxError {
+                                kind: SyntaxErrorKind::Message("Unknown is an analysis state, not a source type; use Dynamic or omit annotation".to_string()),
+                                range: start..self.prev_end,
+                            });
+                        }
+                        "Any" => {
+                            self.errors.push(SyntaxError {
+                                kind: SyntaxErrorKind::Message("Any is reserved and not yet enabled as a source type".to_string()),
+                                range: start..self.prev_end,
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+                let sym_ref = StaticSymbolRef {
+                    root: name,
+                    root_range,
+                    members,
+                    range,
+                };
+                Ok(TypeAnnotation {
+                    expr: TypeAnnotationExpr::Reference(sym_ref),
+                    range,
+                })
+            }
+            _ => {
+                let err = self.error_here(vec!["type name".to_string(), "\"(\"".to_string(), "\"#{\"".to_string()]);
+                self.advance();
+                let range = (start..self.prev_end).into();
+                Ok(TypeAnnotation {
+                    expr: TypeAnnotationExpr::Invalid {
+                        message: format!("{:?}", err.kind),
+                        range,
+                    },
+                    range,
+                })
+            }
+        }
+    }
+
+    /// Parses a qualified associated-type projection: `<Subject as TraitRef>::Item` (LANG005.C6.P2 Task 2).
+    pub fn parse_qualified_projection(&mut self) -> ParserResult<TypeAnnotation> {
+        let start = self.cur_start();
+        self.expect(&Token::Less, &["\"<\""])?;
+        self.skip_newlines();
+        let subject = self.parse_type_form()?;
+        self.skip_newlines();
+        self.expect(&Token::As, &["\"as\""])?;
+        self.skip_newlines();
+        let trait_req = self.parse_trait_requirement()?;
+        self.skip_newlines();
+        self.expect_greater()?;
+        self.skip_newlines();
+        self.expect(&Token::ColonColon, &["\"::\""])?;
+        let name_start = self.cur_start();
+        let name = self.expect_identifier(&["associated type name"])?;
+        let name_range = (name_start..self.prev_end).into();
+        let range = (start..self.prev_end).into();
+        Ok(TypeAnnotation {
+            expr: TypeAnnotationExpr::QualifiedAssociatedTypeProjection {
+                subject: Box::new(subject),
+                trait_ref: Box::new(trait_req),
+                name,
+                name_range,
+                range,
+            },
+            range,
+        })
+    }
+
+    /// Parses a single structured trait requirement, e.g. `Iterator<Item = A>` or `Converts<A, B, Error = E>`.
+    pub fn parse_trait_requirement(&mut self) -> ParserResult<TraitRequirementSyntax> {
+        let start = self.cur_start();
+        let mut atom = self.parse_type_atom()?;
+        let mut associated_specializations = Vec::new();
+
+        while matches!(self.peek(), Token::Less | Token::ShiftLeft) {
+            let app_start = atom.range.start;
+            self.eat_less();
+            self.skip_newlines();
+            let mut arguments = Vec::new();
+            let mut seen_named = false;
+            let mut seen_names = std::collections::HashSet::new();
+
+            while !matches!(self.peek(), Token::Greater | Token::ShiftRight | Token::Eof) {
+                let is_named = if matches!(self.peek(), Token::Identifier(_)) {
+                    let next = self.skip_newlines_at(self.pos + 1);
+                    matches!(self.tokens.get(next).map(|t| &t.token), Some(Token::Equal))
+                } else {
+                    false
+                };
+
+                if is_named {
+                    seen_named = true;
+                    let n_start = self.cur_start();
+                    let name = self.expect_identifier(&["associated type name"])?;
+                    let name_range = (n_start..self.prev_end).into();
+                    self.expect(&Token::Equal, &["\"=\""])?;
+                    self.skip_newlines();
+                    let val = self.parse_type_form()?;
+                    let spec_range: SourceRange = (n_start..self.prev_end).into();
+
+                    if seen_names.contains(&name) {
+                        self.errors.push(SyntaxError {
+                            kind: SyntaxErrorKind::Message(format!("duplicate associated type specialization '{}'", name)),
+                            range: spec_range.start..spec_range.end,
+                        });
+                    } else {
+                        seen_names.insert(name.clone());
+                    }
+
+                    associated_specializations.push(AssociatedSpecializationSyntax {
+                        name,
+                        name_range,
+                        value: val,
+                        range: spec_range,
+                    });
+                } else {
+                    if seen_named {
+                        let pos_start = self.cur_start();
+                        let val = self.parse_type_form()?;
+                        let pos_range: SourceRange = (pos_start..self.prev_end).into();
+                        self.errors.push(SyntaxError {
+                            kind: SyntaxErrorKind::Message("positional type arguments cannot follow associated type specializations".to_string()),
+                            range: pos_range.start..pos_range.end,
+                        });
+                        arguments.push(val);
+                    } else {
+                        arguments.push(self.parse_type_form()?);
+                    }
+                }
+
+                if self.eat(&Token::Comma) {
+                    self.skip_newlines();
+                } else {
+                    break;
+                }
+            }
+            self.skip_newlines();
+            self.expect_greater()?;
+            let app_range = (app_start..self.prev_end).into();
+            if !arguments.is_empty() {
+                atom = TypeAnnotation {
+                    expr: TypeAnnotationExpr::Application {
+                        origin: Box::new(atom),
+                        arguments,
+                        range: app_range,
+                    },
+                    range: app_range,
+                };
+            }
+        }
+
+        let range = (start..self.prev_end).into();
+        Ok(TraitRequirementSyntax {
+            trait_type: atom,
+            associated_specializations,
+            range,
+        })
+    }
+
     /// Parses a generic `where` clause (Spec 04 §8).
     pub fn parse_where_clause(&mut self) -> ParserResult<WhereClauseSyntax> {
         let start = self.cur_start();
@@ -2306,7 +2463,40 @@ impl<'source> Parser<'source> {
             }
             let c_start = self.cur_start();
             let left = self.parse_type_form()?;
-            if self.eat(&Token::Subtype) {
+            if self.eat(&Token::Colon) {
+                if let TypeAnnotationExpr::Reference(ref sym_ref) = left.expr {
+                    if sym_ref.members.is_empty() {
+                        let kind = self.parse_kind_expression()?;
+                        let range = (c_start..self.prev_end).into();
+                        constraints.push(GenericConstraintSyntax::KindFact {
+                            subject: sym_ref.root.clone(),
+                            subject_range: sym_ref.root_range,
+                            kind,
+                            range,
+                        });
+                    } else {
+                        let range = (c_start..self.prev_end).into();
+                        self.errors.push(SyntaxError {
+                            kind: SyntaxErrorKind::Message("kind fact subject must be a bare type parameter name".to_string()),
+                            range: c_start..self.prev_end,
+                        });
+                        constraints.push(GenericConstraintSyntax::Invalid {
+                            message: "invalid kind fact subject".to_string(),
+                            range,
+                        });
+                    }
+                } else {
+                    let range = (c_start..self.prev_end).into();
+                    self.errors.push(SyntaxError {
+                        kind: SyntaxErrorKind::Message("kind fact subject must be a bare type parameter name".to_string()),
+                        range: c_start..self.prev_end,
+                    });
+                    constraints.push(GenericConstraintSyntax::Invalid {
+                        message: "invalid kind fact subject".to_string(),
+                        range,
+                    });
+                }
+            } else if self.eat(&Token::Subtype) {
                 if self.at_top_level_item_boundary() {
                     return Err(self.error_here(strs(&["type name"])));
                 }
@@ -2328,13 +2518,13 @@ impl<'source> Parser<'source> {
                 if self.at_top_level_item_boundary() {
                     return Err(self.error_here(strs(&["trait name"])));
                 }
-                let first_bound = self.parse_type_form()?;
+                let first_bound = self.parse_trait_requirement()?;
                 let mut bounds = vec![first_bound];
                 while self.eat(&Token::Plus) {
                     if self.at_top_level_item_boundary() {
                         return Err(self.error_here(strs(&["trait name"])));
                     }
-                    bounds.push(self.parse_type_form()?);
+                    bounds.push(self.parse_trait_requirement()?);
                 }
                 let range = (c_start..self.prev_end).into();
                 constraints.push(GenericConstraintSyntax::Conforms {

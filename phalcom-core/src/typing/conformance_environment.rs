@@ -77,6 +77,10 @@ impl RuntimeConformanceEnvironmentRegistry {
     pub fn handles(&self) -> impl Iterator<Item = ObjRef> + '_ {
         self.environments.iter().flat_map(|environment| environment.slots.iter().copied().flatten())
     }
+
+    pub fn len(&self) -> usize {
+        self.environments.len()
+    }
 }
 
 #[allow(dead_code)]

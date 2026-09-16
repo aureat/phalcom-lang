@@ -188,32 +188,40 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
             None
         }
     });
+    let evidence_result = (|| -> Result<(), crate::generic_evidence::GenericEvidenceLayoutError> {
     if let Some(owner_sig) = owner_sig {
-        let owner_env = crate::generic_evidence::GenericEvidenceEnvironment::from_constraints(
+        let owner_env = crate::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
             &owner_sig.constraints,
             owner_sig.owner.clone(),
             trait_surfaces,
-        );
-        generic_evidence = generic_evidence.compose(&owner_env, trait_surfaces);
+        )?;
+        generic_evidence = generic_evidence.try_compose(&owner_env, trait_surfaces)?;
     }
     if let Some((_, signature)) = declared_signature {
         if let Some(generics) = &signature.generics {
-            let callable_env = crate::generic_evidence::GenericEvidenceEnvironment::from_constraints(
+            let callable_env = crate::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
                 &generics.constraints,
                 generics.owner.clone(),
                 trait_surfaces,
-            );
-            generic_evidence = generic_evidence.compose(&callable_env, trait_surfaces);
+            )?;
+            generic_evidence = generic_evidence.try_compose(&callable_env, trait_surfaces)?;
         }
     }
     if let Some(domain) = &impl_domain {
         let domain_owner = crate::types::parameter::TypeParameterOwner::Callable(callable.clone());
-        let domain_env = crate::generic_evidence::GenericEvidenceEnvironment::from_constraints(
+        let domain_env = crate::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
             &domain.constraints,
             domain_owner,
             trait_surfaces,
-        );
-        generic_evidence = generic_evidence.compose(&domain_env, trait_surfaces);
+        )?;
+        generic_evidence = generic_evidence.try_compose(&domain_env, trait_surfaces)?;
+    }
+        Ok(())
+    })();
+    if let Err(error) = evidence_result {
+        ctx.current_callable = Some(callable.clone());
+        let incident = ctx.publish_analysis_incident(format!("generic evidence layout error: {error:?}"));
+        return ctx.finalize(callable, body_range, CallableAnalysisStatus::InternalFailure(incident));
     }
     ctx.generic_evidence = generic_evidence;
     ctx.ambient_constraints = ctx.generic_evidence.constraints().to_vec();

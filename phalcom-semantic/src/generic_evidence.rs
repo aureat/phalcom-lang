@@ -57,6 +57,26 @@ pub enum GenericConformanceProof {
     InternalFailure(Box<str>),
 }
 
+/// Typed generic equivalence proof result preserving rich terminal outcomes.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum GenericEquivalenceProof {
+    Proven,
+    NotProven,
+    Ambiguous,
+    Blocked(BlockReason),
+    Dynamic(DynamicBoundaryObligation),
+    Recursive,
+    Cancelled,
+    BudgetExceeded(BudgetReport),
+    InternalFailure(Box<str>),
+}
+
+impl GenericEquivalenceProof {
+    pub fn is_proven(&self) -> bool {
+        matches!(self, Self::Proven)
+    }
+}
+
 /// Complete semantic identity for one generic evidence slot.
 /// Both the conformance subject/trait and the requirement identity determine the slot.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -147,7 +167,58 @@ impl GenericEvidenceLayout {
 pub struct GenericEvidenceEnvironment {
     constraints: Box<[GenericConstraint]>,
     conformances: BTreeMap<GenericConformanceKey, AssumedConformanceEvidence>,
+    equivalences: BTreeMap<TypeTerm, BTreeSet<TypeTerm>>,
+    refinements: BTreeMap<TypeTerm, TypeTerm>,
     layout: GenericEvidenceLayout,
+}
+
+fn build_equivalences_and_refinements(
+    constraints: &[GenericConstraint],
+) -> (BTreeMap<TypeTerm, BTreeSet<TypeTerm>>, BTreeMap<TypeTerm, TypeTerm>) {
+    let mut adjacency: BTreeMap<TypeTerm, BTreeSet<TypeTerm>> = BTreeMap::new();
+    for c in constraints {
+        if let GenericConstraint::Equivalent { left, right } = c {
+            adjacency.entry(left.clone()).or_default().insert(right.clone());
+            adjacency.entry(right.clone()).or_default().insert(left.clone());
+        }
+    }
+
+    let mut visited = BTreeSet::new();
+    let mut components: Vec<BTreeSet<TypeTerm>> = Vec::new();
+    for node in adjacency.keys() {
+        if !visited.contains(node) {
+            let mut comp = BTreeSet::new();
+            let mut queue = vec![node.clone()];
+            visited.insert(node.clone());
+            comp.insert(node.clone());
+            while let Some(curr) = queue.pop() {
+                if let Some(neighbors) = adjacency.get(&curr) {
+                    for n in neighbors {
+                        if visited.insert(n.clone()) {
+                            comp.insert(n.clone());
+                            queue.push(n.clone());
+                        }
+                    }
+                }
+            }
+            components.push(comp);
+        }
+    }
+
+    let mut equivalences: BTreeMap<TypeTerm, BTreeSet<TypeTerm>> = BTreeMap::new();
+    let mut refinements: BTreeMap<TypeTerm, TypeTerm> = BTreeMap::new();
+
+    for comp in components {
+        for term in &comp {
+            equivalences.insert(term.clone(), comp.clone());
+            let others: Vec<&TypeTerm> = comp.iter().filter(|t| *t != term).collect();
+            if others.len() == 1 {
+                refinements.insert(term.clone(), (*others[0]).clone());
+            }
+        }
+    }
+
+    (equivalences, refinements)
 }
 
 impl GenericEvidenceEnvironment {
@@ -155,6 +226,8 @@ impl GenericEvidenceEnvironment {
         Self {
             constraints: vec![].into_boxed_slice(),
             conformances: BTreeMap::new(),
+            equivalences: BTreeMap::new(),
+            refinements: BTreeMap::new(),
             layout: GenericEvidenceLayout::empty(),
         }
     }
@@ -164,19 +237,23 @@ impl GenericEvidenceEnvironment {
         conformances: BTreeMap<GenericConformanceKey, AssumedConformanceEvidence>,
         layout: GenericEvidenceLayout,
     ) -> Self {
+        let (equivalences, refinements) = build_equivalences_and_refinements(&constraints);
         Self {
             constraints,
             conformances,
+            equivalences,
+            refinements,
             layout,
         }
     }
 
-    /// Builds a generic evidence environment from a slice of constraints and owner.
-    pub fn from_constraints(
+    /// Builds a generic evidence environment from a slice of constraints and owner,
+    /// returning an error if evidence layout capacity is exceeded.
+    pub fn try_from_constraints(
         constraints: &[GenericConstraint],
         owner: TypeParameterOwner,
         trait_surfaces: &TraitSurfaceTable,
-    ) -> Self {
+    ) -> Result<Self, GenericEvidenceLayoutError> {
         let mut conformances = BTreeMap::new();
         for constraint in constraints {
             if let GenericConstraint::Conforms { subject, trait_ref } = constraint {
@@ -187,16 +264,19 @@ impl GenericEvidenceEnvironment {
                 });
             }
         }
-        let layout = GenericEvidenceLayout::build(&conformances, trait_surfaces).unwrap_or_default();
-        Self {
+        let (equivalences, refinements) = build_equivalences_and_refinements(constraints);
+        let layout = GenericEvidenceLayout::build(&conformances, trait_surfaces)?;
+        Ok(Self {
             constraints: constraints.to_vec().into_boxed_slice(),
             conformances,
+            equivalences,
+            refinements,
             layout,
-        }
+        })
     }
 
-    /// Composes two evidence environments (e.g. enclosing declaration + callable).
-    pub fn compose(&self, other: &Self, trait_surfaces: &TraitSurfaceTable) -> Self {
+    /// Composes two evidence environments, returning an error if combined layout capacity is exceeded.
+    pub fn try_compose(&self, other: &Self, trait_surfaces: &TraitSurfaceTable) -> Result<Self, GenericEvidenceLayoutError> {
         let mut combined_constraints = self.constraints.to_vec();
         for c in other.constraints.iter() {
             if !combined_constraints.contains(c) {
@@ -211,12 +291,15 @@ impl GenericEvidenceEnvironment {
             conformances.entry(key.clone()).or_insert_with(|| evidence.clone());
         }
 
-        let layout = GenericEvidenceLayout::build(&conformances, trait_surfaces).unwrap_or_default();
-        Self {
+        let (equivalences, refinements) = build_equivalences_and_refinements(&combined_constraints);
+        let layout = GenericEvidenceLayout::build(&conformances, trait_surfaces)?;
+        Ok(Self {
             constraints: combined_constraints.into_boxed_slice(),
             conformances,
+            equivalences,
+            refinements,
             layout,
-        }
+        })
     }
 
     pub fn constraints(&self) -> &[GenericConstraint] {
@@ -237,6 +320,29 @@ impl GenericEvidenceEnvironment {
 
     pub fn slot_for(&self, key: &GenericEvidenceSlotKey) -> Option<u16> {
         self.layout.slot_for(key)
+    }
+
+    /// Are two terms provably equivalent under lexical facts?
+    pub fn are_equivalent(&self, left: &TypeTerm, right: &TypeTerm) -> GenericEquivalenceProof {
+        if left == right {
+            return GenericEquivalenceProof::Proven;
+        }
+        if let Some(equivs) = self.equivalences.get(left) {
+            if equivs.contains(right) {
+                return GenericEquivalenceProof::Proven;
+            }
+        }
+        GenericEquivalenceProof::NotProven
+    }
+
+    /// Returns all terms provably equivalent to `start` in the lexical environment.
+    pub fn equivalent_terms(&self, start: &TypeTerm) -> BTreeSet<TypeTerm> {
+        self.equivalences.get(start).cloned().unwrap_or_default()
+    }
+
+    /// Does projection P have a unique lexical refinement?
+    pub fn unique_refinement(&self, projection: &TypeTerm) -> Option<&TypeTerm> {
+        self.refinements.get(projection)
     }
 }
 
@@ -259,6 +365,12 @@ pub fn query_generic_conformance_proof(
     if let Some(env) = environment {
         if let Some(assumed) = env.assumed_conformance(&key) {
             return GenericConformanceProof::Proven(GenericConformanceEvidence::Assumed(assumed.clone()));
+        }
+        for equiv_subject in env.equivalent_terms(subject) {
+            let equiv_key = GenericConformanceKey::new(equiv_subject, trait_ref.clone());
+            if let Some(assumed) = env.assumed_conformance(&equiv_key) {
+                return GenericConformanceProof::Proven(GenericConformanceEvidence::Assumed(assumed.clone()));
+            }
         }
     }
 

@@ -811,6 +811,14 @@ pub enum TypeAnnotationExpr {
         name_range: SourceRange,
         range: SourceRange,
     },
+    /// Qualified associated-type projection (e.g. `<T as Iterator>::Item` or `<T as Converts<A, B>>::Error`).
+    QualifiedAssociatedTypeProjection {
+        subject: Box<TypeAnnotation>,
+        trait_ref: Box<TraitRequirementSyntax>,
+        name: String,
+        name_range: SourceRange,
+        range: SourceRange,
+    },
     /// Structural record type (e.g. `#{ name: String, age: Int }` or `#{ name: String, | R }`).
     Record {
         fields: Vec<RecordTypeField>,
@@ -903,6 +911,21 @@ pub struct GenericParameterSyntax {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct TraitRequirementSyntax {
+    pub trait_type: TypeAnnotation,
+    pub associated_specializations: Vec<AssociatedSpecializationSyntax>,
+    pub range: SourceRange,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AssociatedSpecializationSyntax {
+    pub name: String,
+    pub name_range: SourceRange,
+    pub value: TypeAnnotation,
+    pub range: SourceRange,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum GenericConstraintSyntax {
     Subtype {
         lower: TypeAnnotation,
@@ -916,7 +939,13 @@ pub enum GenericConstraintSyntax {
     },
     Conforms {
         subject: TypeAnnotation,
-        bounds: Vec<TypeAnnotation>,
+        bounds: Vec<TraitRequirementSyntax>,
+        range: SourceRange,
+    },
+    KindFact {
+        subject: String,
+        subject_range: SourceRange,
+        kind: KindSyntax,
         range: SourceRange,
     },
     Invalid {
@@ -931,6 +960,7 @@ impl GenericConstraintSyntax {
             GenericConstraintSyntax::Subtype { range, .. } => *range,
             GenericConstraintSyntax::Equivalent { range, .. } => *range,
             GenericConstraintSyntax::Conforms { range, .. } => *range,
+            GenericConstraintSyntax::KindFact { range, .. } => *range,
             GenericConstraintSyntax::Invalid { range, .. } => *range,
         }
     }

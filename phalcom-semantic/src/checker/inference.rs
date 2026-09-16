@@ -5,7 +5,8 @@
 
 use super::context::CheckerControl;
 use super::row_inference::{InferenceRecord, InferenceRecordField, InferenceRecordTail};
-use crate::identity::{CallableId, ExplanationId, ExpressionId, InferVarId};
+use crate::identity::{CallableId, DeclarationId, ExplanationId, ExpressionId, InferVarId};
+use crate::traits::AssociatedTypeRequirementId;
 use crate::types::application::TypeApplicationError;
 use crate::types::evidence::{DynamicReason, EvidenceStatus, TypeKnowledge, UnknownReason};
 use crate::types::id::{KindId, RigidTypeVariableId, TypeId, TypeParameterId, VariantTypeId};
@@ -17,6 +18,13 @@ use crate::types::type_lambda::{ScopedRecordTail, ScopedTypeData};
 use crate::types::variance::Variance;
 use crate::types::{FamilyMemberType, FamilyMemberTypeKind, FamilyOperationShape, RecordRowTail, TupleTypeElement};
 use std::collections::{HashMap, HashSet};
+
+/// Solver-local representation of a trait application in an associated projection.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InferenceTraitRef {
+    pub declaration: DeclarationId,
+    pub arguments: Box<[InferenceTerm]>,
+}
 
 /// A local inference term representing a canonical type, a solver variable, or a compound inference form.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -39,6 +47,11 @@ pub enum InferenceTerm {
     Callable(InferenceCallable),
     Record(InferenceRecord),
     Family(InferenceFamily),
+    AssociatedProjection {
+        subject: Box<InferenceTerm>,
+        trait_ref: InferenceTraitRef,
+        requirement: AssociatedTypeRequirementId,
+    },
 }
 
 /// Query-local owner for solver variables shared by nested generic applications.
@@ -733,6 +746,20 @@ impl InferenceSession {
                     .collect::<Vec<_>>()
                     .into_boxed_slice(),
             ),
+            TypeData::AssociatedProjection(proj) => InferenceTerm::AssociatedProjection {
+                subject: Box::new(self.type_id_to_inference(proj.subject, subst, store)),
+                trait_ref: InferenceTraitRef {
+                    declaration: proj.trait_ref.declaration.clone(),
+                    arguments: proj
+                        .trait_ref
+                        .arguments
+                        .iter()
+                        .map(|&arg| self.type_id_to_inference(arg, subst, store))
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice(),
+                },
+                requirement: proj.requirement.clone(),
+            },
             _ => InferenceTerm::Canonical(ty),
         }
     }
@@ -824,6 +851,20 @@ impl InferenceSession {
                     .collect::<Vec<_>>()
                     .into_boxed_slice(),
             ),
+            TypeData::AssociatedProjection(proj) => InferenceTerm::AssociatedProjection {
+                subject: Box::new(self.type_id_to_inference_with_rows(proj.subject, subst, row_subst, store)),
+                trait_ref: InferenceTraitRef {
+                    declaration: proj.trait_ref.declaration.clone(),
+                    arguments: proj
+                        .trait_ref
+                        .arguments
+                        .iter()
+                        .map(|&arg| self.type_id_to_inference_with_rows(arg, subst, row_subst, store))
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice(),
+                },
+                requirement: proj.requirement.clone(),
+            },
             _ => InferenceTerm::Canonical(ty),
         }
     }
@@ -923,6 +964,15 @@ impl InferenceSession {
                     })
                     .collect::<Option<Vec<_>>>()?;
                 store.family_type(members).ok()
+            }
+            InferenceTerm::AssociatedProjection { subject, trait_ref, requirement } => {
+                let subject_ty = self.materialize_for_expected(subject, store)?;
+                let mut args = Vec::with_capacity(trait_ref.arguments.len());
+                for arg in trait_ref.arguments.iter() {
+                    args.push(self.materialize_for_expected(arg, store)?);
+                }
+                let trait_ref = crate::traits::TraitRef::new(trait_ref.declaration.clone(), args);
+                Some(store.associated_projection(subject_ty, trait_ref, requirement.clone()))
             }
         }
     }
@@ -1311,6 +1361,19 @@ impl InferenceSession {
                     .collect::<Vec<_>>()
                     .into_boxed_slice(),
             ),
+            InferenceTerm::AssociatedProjection { subject, trait_ref, requirement } => InferenceTerm::AssociatedProjection {
+                subject: Box::new(self.term_for_expected(subject)),
+                trait_ref: InferenceTraitRef {
+                    declaration: trait_ref.declaration.clone(),
+                    arguments: trait_ref
+                        .arguments
+                        .iter()
+                        .map(|arg| self.term_for_expected(arg))
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice(),
+                },
+                requirement: requirement.clone(),
+            },
         }
     }
 
@@ -1610,7 +1673,7 @@ impl InferenceSession {
         }
     }
 
-    fn failure_outcome(&mut self, failure: InferenceFailureReason, constraint_index: Option<u32>, origin: Option<ConstraintOrigin>) -> InferenceOutcome {
+    pub(crate) fn failure_outcome(&mut self, failure: InferenceFailureReason, constraint_index: Option<u32>, origin: Option<ConstraintOrigin>) -> InferenceOutcome {
         self.failure_outcome_with_related(failure, constraint_index, origin, &[])
     }
 
@@ -1849,6 +1912,10 @@ impl InferenceSession {
             }
             InferenceTerm::Record(record) => record.fields.iter().any(|field| self.term_has_unresolved_variables(&field.term)),
             InferenceTerm::Family(family) => family.iter().any(|member| self.term_has_unresolved_variables(&member.term)),
+            InferenceTerm::AssociatedProjection { subject, trait_ref, .. } => {
+                self.term_has_unresolved_variables(subject)
+                    || trait_ref.arguments.iter().any(|arg| self.term_has_unresolved_variables(arg))
+            }
             InferenceTerm::Canonical(_) | InferenceTerm::Rigid(_) => false,
         }
     }
@@ -1918,6 +1985,12 @@ impl InferenceSession {
                     self.collect_term_variables(&member.term, variables);
                 }
             }
+            InferenceTerm::AssociatedProjection { subject, trait_ref, .. } => {
+                self.collect_term_variables(subject, variables);
+                for arg in trait_ref.arguments.iter() {
+                    self.collect_term_variables(arg, variables);
+                }
+            }
             InferenceTerm::Canonical(_) | InferenceTerm::Rigid(_) => {}
         }
     }
@@ -1969,6 +2042,12 @@ impl InferenceSession {
                     self.record_term_proof_state(&member.term, proof.clone());
                 }
             }
+            InferenceTerm::AssociatedProjection { subject, trait_ref, .. } => {
+                self.record_term_proof_state(subject, proof.clone());
+                for arg in trait_ref.arguments.iter() {
+                    self.record_term_proof_state(arg, proof.clone());
+                }
+            }
             InferenceTerm::Canonical(_) | InferenceTerm::Rigid(_) => {}
         }
     }
@@ -2009,6 +2088,12 @@ impl InferenceSession {
             InferenceTerm::Family(family) => {
                 for member in family.iter() {
                     self.record_term_support(&member.term, support);
+                }
+            }
+            InferenceTerm::AssociatedProjection { subject, trait_ref, .. } => {
+                self.record_term_support(subject, support);
+                for arg in trait_ref.arguments.iter() {
+                    self.record_term_support(arg, support);
                 }
             }
             InferenceTerm::Canonical(_) | InferenceTerm::Rigid(_) => {}
@@ -2094,6 +2179,10 @@ impl InferenceSession {
             TypeData::Record(row_id) => store.record_row(*row_id).fields.iter().any(|f| self.occurs_in_type(var, f.ty, store)),
             TypeData::Callable(c) => c.parameters.iter().any(|p| self.occurs_in_type(var, p.ty, store)) || self.occurs_in_type(var, c.return_type, store),
             TypeData::Family(fid) => store.get_family(*fid).members.iter().any(|m| self.occurs_in_type(var, m.ty, store)),
+            TypeData::AssociatedProjection(proj) => {
+                self.occurs_in_type(var, proj.subject, store)
+                    || proj.trait_ref.arguments.iter().any(|&a| self.occurs_in_type(var, a, store))
+            }
             _ => false,
         }
     }
@@ -2112,6 +2201,39 @@ impl InferenceSession {
             InferenceTerm::Callable(c) => c.parameters.iter().any(|p| self.occurs_in_term(rep, &p.term)) || self.occurs_in_term(rep, &c.return_type),
             InferenceTerm::Record(record) => record.fields.iter().any(|field| self.occurs_in_term(rep, &field.term)),
             InferenceTerm::Family(family) => family.iter().any(|member| self.occurs_in_term(rep, &member.term)),
+            InferenceTerm::AssociatedProjection { subject, trait_ref, .. } => {
+                self.occurs_in_term(rep, subject) || trait_ref.arguments.iter().any(|arg| self.occurs_in_term(rep, arg))
+            }
+        }
+    }
+
+    /// Checks if `term` contains an associated type projection.
+    pub fn term_has_projection(&self, term: &InferenceTerm, store: &TypeStore) -> bool {
+        match term {
+            InferenceTerm::AssociatedProjection { .. } => true,
+            InferenceTerm::Canonical(ty) => matches!(store.get(*ty), TypeData::AssociatedProjection(_)),
+            InferenceTerm::Var(v) => {
+                let rep = self.find_var(*v);
+                if let Some(ty) = self.substitutions.get(&rep).copied() {
+                    matches!(store.get(ty), TypeData::AssociatedProjection(_))
+                } else if let Some(t) = self.var_terms.get(&rep) {
+                    self.term_has_projection(t, store)
+                } else {
+                    false
+                }
+            }
+            InferenceTerm::Applied { origin, arguments } => {
+                self.term_has_projection(origin, store) || arguments.iter().any(|a| self.term_has_projection(a, store))
+            }
+            InferenceTerm::ExactCase { enum_type, .. } => self.term_has_projection(enum_type, store),
+            InferenceTerm::Union(members) => members.iter().any(|m| self.term_has_projection(m, store)),
+            InferenceTerm::Tuple(elems) => elems.iter().any(|e| self.term_has_projection(&e.term, store)),
+            InferenceTerm::Callable(c) => {
+                c.parameters.iter().any(|p| self.term_has_projection(&p.term, store)) || self.term_has_projection(&c.return_type, store)
+            }
+            InferenceTerm::Record(record) => record.fields.iter().any(|field| self.term_has_projection(&field.term, store)),
+            InferenceTerm::Family(family) => family.iter().any(|member| self.term_has_projection(&member.term, store)),
+            InferenceTerm::Rigid(_) => false,
         }
     }
 
@@ -2231,7 +2353,7 @@ impl InferenceSession {
                     self.unify_terms(&canon, term, store)
                 } else if self.occurs_in_term(rep, term) {
                     Err(InferenceFailureReason::OccursCheck { var: rep })
-                } else if let Ok(ty) = self.materialize(term, store) {
+                } else if !self.term_has_projection(term, store) && let Ok(ty) = self.materialize(term, store) {
                     self.bind(rep, ty, store)
                 } else {
                     // Constraint replay is expected to revisit the same
@@ -2451,10 +2573,46 @@ impl InferenceSession {
                 }
                 Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
             }
-            (InferenceTerm::Canonical(ty), other @ (InferenceTerm::Record(_) | InferenceTerm::Family(_)))
-            | (other @ (InferenceTerm::Record(_) | InferenceTerm::Family(_)), InferenceTerm::Canonical(ty)) => {
+            (
+                InferenceTerm::AssociatedProjection {
+                    subject: left_subject,
+                    trait_ref: left_trait_ref,
+                    requirement: left_requirement,
+                },
+                InferenceTerm::AssociatedProjection {
+                    subject: right_subject,
+                    trait_ref: right_trait_ref,
+                    requirement: right_requirement,
+                },
+            ) => {
+                if left_requirement != right_requirement
+                    || left_trait_ref.declaration != right_trait_ref.declaration
+                    || left_trait_ref.arguments.len() != right_trait_ref.arguments.len()
+                {
+                    return Err(InferenceFailureReason::StructuralMismatch {
+                        left: Box::new(left.clone()),
+                        right: Box::new(right.clone()),
+                    });
+                }
+                let mut changed = self.unify_terms(left_subject, right_subject, store)?.is_changed();
+                for (left_arg, right_arg) in left_trait_ref.arguments.iter().zip(right_trait_ref.arguments.iter()) {
+                    changed |= self.unify_terms(left_arg, right_arg, store)?.is_changed();
+                }
+                Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
+            }
+            (
+                InferenceTerm::Canonical(ty),
+                other @ (InferenceTerm::Record(_) | InferenceTerm::Family(_) | InferenceTerm::AssociatedProjection { .. }),
+            )
+            | (
+                other @ (InferenceTerm::Record(_) | InferenceTerm::Family(_) | InferenceTerm::AssociatedProjection { .. }),
+                InferenceTerm::Canonical(ty),
+            ) => {
                 let canonical = self.type_id_to_inference(*ty, &HashMap::new(), store);
                 if canonical == InferenceTerm::Canonical(*ty) {
+                    if matches!(other, InferenceTerm::AssociatedProjection { .. }) {
+                        return Ok(SolveEffect::Unchanged);
+                    }
                     return Err(InferenceFailureReason::StructuralMismatch {
                         left: Box::new(left.clone()),
                         right: Box::new(right.clone()),
@@ -2508,15 +2666,17 @@ impl InferenceSession {
         // semantics. This keeps solver-local inference from inventing a second
         // subtype algebra for nominal, union, and structural types.
         if !self.term_has_unresolved_variables(sub) && !self.term_has_unresolved_variables(sup) {
-            if let (Ok(sub_ty), Ok(sup_ty)) = (self.materialize(sub, store), self.materialize(sup, store)) {
-                return if is_subtype(store, hier, sub_ty, sup_ty) {
-                    Ok(SolveEffect::Unchanged)
-                } else {
-                    Err(InferenceFailureReason::StructuralMismatch {
-                        left: Box::new(sub.clone()),
-                        right: Box::new(sup.clone()),
-                    })
-                };
+            if !self.term_has_projection(sub, store) && !self.term_has_projection(sup, store) {
+                if let (Ok(sub_ty), Ok(sup_ty)) = (self.materialize(sub, store), self.materialize(sup, store)) {
+                    return if is_subtype(store, hier, sub_ty, sup_ty) {
+                        Ok(SolveEffect::Unchanged)
+                    } else {
+                        Err(InferenceFailureReason::StructuralMismatch {
+                            left: Box::new(sub.clone()),
+                            right: Box::new(sup.clone()),
+                        })
+                    };
+                }
             }
         }
 
@@ -2733,10 +2893,43 @@ impl InferenceSession {
                 }
                 Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
             }
-            _ => Err(InferenceFailureReason::StructuralMismatch {
-                left: Box::new(sub.clone()),
-                right: Box::new(sup.clone()),
-            }),
+            (
+                InferenceTerm::AssociatedProjection {
+                    subject: left_subject,
+                    trait_ref: left_trait_ref,
+                    requirement: left_requirement,
+                },
+                InferenceTerm::AssociatedProjection {
+                    subject: right_subject,
+                    trait_ref: right_trait_ref,
+                    requirement: right_requirement,
+                },
+            ) => {
+                if left_requirement != right_requirement
+                    || left_trait_ref.declaration != right_trait_ref.declaration
+                    || left_trait_ref.arguments.len() != right_trait_ref.arguments.len()
+                {
+                    return Err(InferenceFailureReason::StructuralMismatch {
+                        left: Box::new(sub.clone()),
+                        right: Box::new(sup.clone()),
+                    });
+                }
+                let mut changed = self.unify_terms(left_subject, right_subject, store)?.is_changed();
+                for (left_arg, right_arg) in left_trait_ref.arguments.iter().zip(right_trait_ref.arguments.iter()) {
+                    changed |= self.unify_terms(left_arg, right_arg, store)?.is_changed();
+                }
+                Ok(if changed { SolveEffect::Changed } else { SolveEffect::Unchanged })
+            }
+            _ => {
+                if self.term_has_projection(sub, store) || self.term_has_projection(sup, store) {
+                    Ok(SolveEffect::Unchanged)
+                } else {
+                    Err(InferenceFailureReason::StructuralMismatch {
+                        left: Box::new(sub.clone()),
+                        right: Box::new(sup.clone()),
+                    })
+                }
+            }
         }
     }
 
@@ -2838,7 +3031,105 @@ impl InferenceSession {
                     .collect::<Result<Vec<_>, InferenceMaterializationFailure>>()?;
                 store.family_type(members).map_err(|_| InferenceMaterializationFailure::InternalInvariant)
             }
+            InferenceTerm::AssociatedProjection { subject, trait_ref, requirement } => {
+                let subject_ty = self.materialize(subject, store)?;
+                let mut arg_tys = Vec::with_capacity(trait_ref.arguments.len());
+                for arg in trait_ref.arguments.iter() {
+                    arg_tys.push(self.materialize(arg, store)?);
+                }
+                let trait_ref = crate::traits::TraitRef::new(trait_ref.declaration.clone(), arg_tys);
+                Ok(store.associated_projection(subject_ty, trait_ref, requirement.clone()))
+            }
         }
+    }
+
+    /// Extracts materialized projections from constraints and var_terms, normalizes them via
+    /// the provided normalizer closure, and unifies the normalized types.
+    pub fn extract_and_normalize_projections<F>(&mut self, store: &mut TypeStore, mut normalizer: F) -> Result<bool, InferenceFailureReason>
+    where
+        F: FnMut(&mut TypeStore, TypeId) -> Option<TypeId>,
+    {
+        let mut progress = false;
+
+        // Check var_terms for materialized projections
+        let var_terms = self.var_terms.clone();
+        for (var, term) in var_terms {
+            let rep = self.find_var(var);
+            if !self.substitutions.contains_key(&rep) {
+                if let Ok(ty) = self.materialize(&term, store) {
+                    if let Some(norm_ty) = normalizer(store, ty) {
+                        if norm_ty != ty || !self.term_has_unresolved_variables(&term) {
+                            let effect = self.bind(rep, norm_ty, store)?;
+                            progress |= effect.is_changed();
+                        }
+                    }
+                }
+            }
+        }
+
+        // Check constraints for projections where one side is materialized & normalizable
+        let mut constraints = self.constraints.clone();
+        for constraint in &mut constraints {
+            match &mut constraint.relation {
+                InferenceRelation::Equivalent(left, right) => {
+                    let mut new_left = None;
+                    let mut new_right = None;
+                    if let Ok(left_ty) = self.materialize(left, store) {
+                        if let Some(norm_ty) = normalizer(store, left_ty) {
+                            if norm_ty != left_ty {
+                                new_left = Some(InferenceTerm::Canonical(norm_ty));
+                            }
+                        }
+                    }
+                    if let Ok(right_ty) = self.materialize(right, store) {
+                        if let Some(norm_ty) = normalizer(store, right_ty) {
+                            if norm_ty != right_ty {
+                                new_right = Some(InferenceTerm::Canonical(norm_ty));
+                            }
+                        }
+                    }
+                    if let Some(nl) = new_left {
+                        let effect = self.unify_terms(&nl, right, store)?;
+                        progress |= effect.is_changed();
+                        *left = nl;
+                    }
+                    if let Some(nr) = new_right {
+                        let effect = self.unify_terms(left, &nr, store)?;
+                        progress |= effect.is_changed();
+                        *right = nr;
+                    }
+                }
+                InferenceRelation::Subtype(sub, sup) => {
+                    let mut new_sub = None;
+                    let mut new_sup = None;
+                    if let Ok(sub_ty) = self.materialize(sub, store) {
+                        if let Some(norm_ty) = normalizer(store, sub_ty) {
+                            if norm_ty != sub_ty {
+                                new_sub = Some(InferenceTerm::Canonical(norm_ty));
+                            }
+                        }
+                    }
+                    if let Ok(sup_ty) = self.materialize(sup, store) {
+                        if let Some(norm_ty) = normalizer(store, sup_ty) {
+                            if norm_ty != sup_ty {
+                                new_sup = Some(InferenceTerm::Canonical(norm_ty));
+                            }
+                        }
+                    }
+                    if let Some(ns) = new_sub {
+                        *sub = ns;
+                        progress = true;
+                    }
+                    if let Some(ns) = new_sup {
+                        *sup = ns;
+                        progress = true;
+                    }
+                }
+            }
+        }
+        self.constraints = constraints;
+
+        Ok(progress)
     }
 }
 

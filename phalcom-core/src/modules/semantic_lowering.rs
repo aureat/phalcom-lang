@@ -481,6 +481,8 @@ impl ModuleLoweringSemantics {
 /// Errors occurring during semantic-to-lowering projection.
 #[derive(Clone, Debug, Error, PartialEq)]
 pub enum ProjectionError {
+    #[error("generic evidence layout error: {0}")]
+    GenericEvidenceLayout(String),
     #[error("data type metadata projection failed: {0}")]
     DataTypeMetadata(String),
     #[error("ambiguous lowering site attachment at {0:?}")]
@@ -959,24 +961,23 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
         };
         let mut generic_evidence = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::empty();
         if let Some(owner_sig) = owner_sig {
-            let owner_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::from_constraints(
+            let owner_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
                 &owner_sig.constraints,
                 owner_sig.owner.clone(),
                 &snapshot.trait_surfaces,
-            );
-            generic_evidence = generic_evidence.compose(&owner_env, &snapshot.trait_surfaces);
+            ).map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
+            generic_evidence = generic_evidence.try_compose(&owner_env, &snapshot.trait_surfaces).map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
         }
         if let Some(sig) = snapshot.callable_signatures.get(callable_id) {
             if let Some(generics) = &sig.generics {
-                let callable_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::from_constraints(
+                let callable_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
                     &generics.constraints,
                     generics.owner.clone(),
                     &snapshot.trait_surfaces,
-                );
-                generic_evidence = generic_evidence.compose(&callable_env, &snapshot.trait_surfaces);
+                ).map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
+                generic_evidence = generic_evidence.try_compose(&callable_env, &snapshot.trait_surfaces).map_err(|error| ProjectionError::GenericEvidenceLayout(format!("{error:?}")))?;
             }
         }
-
         // Family-valued expressions
         for expression in analysis.expressions.values() {
             let is_associated_family = matches!(

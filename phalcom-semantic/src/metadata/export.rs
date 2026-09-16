@@ -20,8 +20,8 @@ use phalcom_type_meta::declaration::{
 };
 use phalcom_type_meta::fingerprint::{Fingerprint128, FingerprintBuilder};
 use phalcom_type_meta::generic::{
-    GenericConstraintRef, GenericSignatureRecord, GenericSignatureRecordId, StableTraitApplicationRef, StableTypeParameterOwnerRef,
-    StableTypeParameterRef, TypeParameterRecord, VarianceRef,
+    GenericConstraintRef, GenericSignatureRecord, GenericSignatureRecordId, StableAssociatedTypeRequirementRef, StableTraitApplicationRef,
+    StableTypeParameterOwnerRef, StableTypeParameterRef, TypeParameterRecord, VarianceRef,
 };
 use phalcom_type_meta::header::{
     ArtifactIdentityScheme, MetadataFeatures, MetadataProfile, NATIVE_SURFACE_SCHEMA_VERSION, ProducerIdentity, SEMANTIC_MODEL_VERSION, SemanticMetadataHeader,
@@ -584,7 +584,28 @@ impl<'a> MetadataExporter<'a> {
                     SelfRole::ReceiverValue => SelfRoleRef::ReceiverValue,
                 },
             }),
-            TypeData::AssociatedProjection(_) => return Err(MetadataExportError::NonExportableForm(ty)),
+            TypeData::AssociatedProjection(proj) => {
+                let subject = self.export_type_form(proj.subject)?;
+                let arguments = proj
+                    .trait_ref
+                    .arguments
+                    .iter()
+                    .map(|&arg| self.export_type_form(arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let trait_application = StableTraitApplicationRef {
+                    declaration: self.stable_declaration(&proj.trait_ref.declaration),
+                    arguments: arguments.into_boxed_slice(),
+                };
+                let requirement = StableAssociatedTypeRequirementRef {
+                    owner: self.stable_declaration(&proj.requirement.owner),
+                    index: proj.requirement.index,
+                };
+                TypeNode::AssociatedProjection {
+                    subject,
+                    trait_application,
+                    requirement,
+                }
+            }
             TypeData::Lambda(lam_id) => {
                 let lam_data = self.store.arena().get_lambda(lam_id).clone();
                 let p_kinds: Vec<KindNodeId> = lam_data.parameter_kinds.iter().map(|&pk| self.export_kind(pk)).collect();
@@ -676,6 +697,25 @@ impl<'a> MetadataExporter<'a> {
                     fp_b.write_fingerprint(self.kinds[pk.0 as usize].structural_fingerprint);
                 }
                 fp_b.write_fingerprint(self.scoped_types[lambda.body.0 as usize].structural_fingerprint);
+            }
+            TypeNode::AssociatedProjection {
+                subject,
+                trait_application,
+                requirement,
+            } => {
+                fp_b.write_u8(13);
+                fp_b.write_fingerprint(self.types[subject.0 as usize].structural_fingerprint);
+                for c in trait_application.declaration.path.iter() {
+                    fp_b.write_str(c);
+                }
+                fp_b.write_u32(trait_application.arguments.len() as u32);
+                for arg in trait_application.arguments.iter() {
+                    fp_b.write_fingerprint(self.types[arg.0 as usize].structural_fingerprint);
+                }
+                for c in requirement.owner.path.iter() {
+                    fp_b.write_str(c);
+                }
+                fp_b.write_u32(requirement.index);
             }
         }
         let structural_fingerprint = fp_b.finish();

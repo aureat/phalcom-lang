@@ -49,6 +49,13 @@ pub struct GenericSignatureRecord {
 ///
 /// Traits are behavioral declarations rather than nominal type nodes, so the
 /// declaration and its canonical type arguments are carried explicitly.
+/// Stable identity for an associated type requirement within a trait declaration.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+pub struct StableAssociatedTypeRequirementRef {
+    pub owner: StableDeclarationRef,
+    pub index: u32,
+}
+
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
 pub struct StableTraitApplicationRef {
     pub declaration: StableDeclarationRef,
