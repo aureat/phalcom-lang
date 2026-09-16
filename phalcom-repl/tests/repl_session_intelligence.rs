@@ -1,4 +1,4 @@
-//! Comprehensive unit and integration test suite for U-REPL Phase B (§04–§07).
+//! Comprehensive unit and integration test suite for REPL session intelligence.
 
 use phalcom_core::vm::VM;
 use phalcom_repl::completer::PhalcomCompleter;

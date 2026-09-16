@@ -13,7 +13,7 @@ fn location(path: &Path) -> SourceLocation {
 }
 
 #[test]
-fn checkpoint_a2_evidence_1_twenty_imports_edit_one_resolves_one_reuses_nineteen() {
+fn twenty_imports_edit_one_resolves_one_reuses_nineteen() {
     let temp = TempDir::new().unwrap();
     let root = temp.path().join("pkg");
     fs::create_dir_all(&root).unwrap();
@@ -83,7 +83,7 @@ fn checkpoint_a2_evidence_1_twenty_imports_edit_one_resolves_one_reuses_nineteen
 }
 
 #[test]
-fn checkpoint_a2_evidence_2_body_only_edit_zero_import_resolutions() {
+fn body_only_edit_zero_import_resolutions() {
     let temp = TempDir::new().unwrap();
     let root = temp.path().join("pkg");
     fs::create_dir_all(&root).unwrap();
@@ -137,7 +137,7 @@ fn checkpoint_a2_evidence_2_body_only_edit_zero_import_resolutions() {
 }
 
 #[test]
-fn checkpoint_a2_evidence_3_export_only_edit_zero_import_resolutions() {
+fn export_only_edit_zero_import_resolutions() {
     let temp = TempDir::new().unwrap();
     let root = temp.path().join("pkg");
     fs::create_dir_all(&root).unwrap();
@@ -179,7 +179,7 @@ fn checkpoint_a2_evidence_3_export_only_edit_zero_import_resolutions() {
 }
 
 #[test]
-fn checkpoint_a2_evidence_4_and_5_negative_resolution_survives_unrelated_and_invalidates_on_candidate() {
+fn negative_resolution_survives_unrelated_and_invalidates_on_candidate() {
     let temp = TempDir::new().unwrap();
     let root = temp.path().join("pkg");
     fs::create_dir_all(&root).unwrap();
@@ -238,7 +238,7 @@ fn checkpoint_a2_evidence_4_and_5_negative_resolution_survives_unrelated_and_inv
 }
 
 #[test]
-fn checkpoint_a2_evidence_6_prefix_provenance_compound_imports() {
+fn prefix_provenance_compound_imports() {
     let temp = TempDir::new().unwrap();
     let root = temp.path().join("pkg");
     let sub = root.join("sub");

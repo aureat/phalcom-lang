@@ -80,8 +80,8 @@ name = "semantic_boundary"
 path = "tests/semantic_boundary.rs"
 
 [[test]]
-name = "plan_b_indexing"
-path = "tests/plan_b_indexing.rs"
+name = "workspace_indexing"
+path = "tests/workspace_indexing.rs"
 
 [[test]]
 name = "performance"

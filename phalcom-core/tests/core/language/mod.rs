@@ -51,5 +51,5 @@ mod numeric_values;
 mod option;
 #[path = "traits.rs"]
 mod traits;
-#[path = "traits_p3_closure.rs"]
-mod traits_p3_closure;
+#[path = "associated_traits.rs"]
+mod associated_traits;

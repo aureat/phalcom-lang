@@ -1,4 +1,4 @@
-//! A7 deterministic module graphs and performance acceptance evidence.
+//! Deterministic module graphs and performance acceptance tests.
 
 use phalcom_modules::{SourceId, SourceLocation, SourceRevision, WorkspaceModuleSession, WorkspaceSourceBatchMutation};
 use std::fs;
@@ -159,7 +159,7 @@ fn alias_scc(count: usize) -> Vec<FixtureSource> {
 }
 
 #[test]
-fn checkpoint_a7_fixture_builders_are_deterministic() {
+fn fixture_builders_are_deterministic() {
     let builders: [fn(usize) -> Vec<FixtureSource>; 8] = [
         linear_chain,
         star_provider,
@@ -184,7 +184,7 @@ fn checkpoint_a7_fixture_builders_are_deterministic() {
 }
 
 #[test]
-fn checkpoint_a7_acceptance_matrix_module_work_counts() {
+fn acceptance_matrix_module_work_counts() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     fs::write(root.join("package.ph"), "").unwrap();
@@ -242,7 +242,7 @@ fn checkpoint_a7_acceptance_matrix_module_work_counts() {
 }
 
 #[test]
-fn checkpoint_a7_thousand_module_linear_fixture_has_bounded_body_edit_work() {
+fn thousand_module_linear_fixture_has_bounded_body_edit_work() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     fs::write(root.join("package.ph"), "").unwrap();
@@ -270,7 +270,7 @@ fn checkpoint_a7_thousand_module_linear_fixture_has_bounded_body_edit_work() {
 }
 
 #[test]
-fn checkpoint_a0_ten_thousand_source_edit_stages_only_touched_indexes() {
+fn ten_thousand_source_edit_stages_only_touched_indexes() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
     fs::write(root.join("package.ph"), "").unwrap();

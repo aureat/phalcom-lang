@@ -1,4 +1,4 @@
-//! A7 semantic work-count publication and cold/incremental metric evidence.
+//! Semantic work-count publication and cold/incremental metric evidence.
 
 use super::support::multi_module_input;
 use phalcom_common::selector::Selector;
@@ -34,7 +34,7 @@ fn module(name: &str) -> ModuleId {
 }
 
 #[test]
-fn a7_semantic_stats_separate_recomputation_validation_and_dependents() {
+fn semantic_stats_separate_recomputation_validation_and_dependents() {
     let first = module("first");
     let second = module("second");
     let mut session = SemanticWorkspaceSession::new();
@@ -330,7 +330,7 @@ fn cross_module_inheritance_input(b_cycle: bool, generation: u64) -> SemanticWor
 }
 
 #[test]
-fn a7_unused_public_export_does_not_recompute_unrelated_consumer_body() {
+fn unused_public_export_does_not_recompute_unrelated_consumer_body() {
     let mut session = SemanticWorkspaceSession::new();
     let initial = session.update(unused_public_export_input(false, 1));
     assert!(!initial.snapshot.has_errors(), "initial diagnostics: {:?}", initial.snapshot.diagnostics);
@@ -904,7 +904,7 @@ fn high_fanout_input(provider_source: &str, generation: u64) -> SemanticWorkspac
 }
 
 #[test]
-fn pa10_cold_and_incremental_snapshots_have_presentation_parity_across_mutations() {
+fn cold_and_incremental_snapshots_have_presentation_parity_across_mutations() {
     const LAST_STEP: usize = 15;
     let mut incremental = SemanticWorkspaceSession::new();
     let initial = incremental
@@ -915,7 +915,11 @@ fn pa10_cold_and_incremental_snapshots_have_presentation_parity_across_mutations
     let cold_initial = cold
         .update_with_budget_and_cancel(parity_input(0, 1), QueryBudget::default(), &CancellationToken::new())
         .expect("initial cold parity update");
-    assert_eq!(initial_projection, semantic_parity_projection(&cold_initial.snapshot));
+    let cold_projection = semantic_parity_projection(&cold_initial.snapshot);
+    if initial_projection != cold_projection {
+        report_semantic_parity_diff(0, &initial_projection, &cold_projection);
+    }
+    assert_eq!(initial_projection, cold_projection);
 
     for step in 1..=LAST_STEP {
         let input = parity_input(step, step as u64 + 1);
@@ -964,7 +968,7 @@ fn report_parity_vec_diff(step: usize, field: &str, incremental: &[String], cold
     }
 
     eprintln!(
-        "\nPA-10 step {step}: field `{field}` diverged \
+        "\nStep {step}: field `{field}` diverged \
          (incremental_len={}, cold_len={})",
         incremental.len(),
         cold.len(),
@@ -992,7 +996,7 @@ fn report_parity_vec_diff(step: usize, field: &str, incremental: &[String], cold
 fn report_semantic_parity_diff(step: usize, incremental: &SemanticParityProjection, cold: &SemanticParityProjection) {
     if incremental.status != cold.status {
         eprintln!(
-            "\nPA-10 step {step}: field `status` diverged\n\
+            "\nStep {step}: field `status` diverged\n\
              incremental: {:?}\n\
              cold:        {:?}",
             incremental.status, cold.status,
@@ -1541,7 +1545,7 @@ fn parity_input(step: usize, generation: u64) -> SemanticWorkspaceInput {
 }
 
 #[test]
-fn a7_production_module_delta_body_edit_reuses_structural_world() {
+fn production_module_delta_body_edit_reuses_structural_world() {
     let source = |path: &str| {
         let path = PathBuf::from(path);
         SourceLocation {

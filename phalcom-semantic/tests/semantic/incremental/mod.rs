@@ -1,4 +1,3 @@
-mod a7_performance;
 mod adts;
 mod associated_types;
 mod advisory;
@@ -9,10 +8,11 @@ mod declaration_authority;
 mod fingerprints;
 mod generic_contracts;
 mod match_analysis;
-mod plan_b_indexing;
 mod product_stability;
 mod query_ownership;
+mod recomputation_metrics;
 mod record_rows;
 pub(crate) mod support;
 mod traits;
 mod type_store_revisions;
+mod workspace_indexing;

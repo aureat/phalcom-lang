@@ -129,7 +129,7 @@ fn setup_three_component_fixture() -> (
 }
 
 #[test]
-fn checkpoint_a3_evidence_1_body_only_edit_reuses_all_components() {
+fn body_only_edit_reuses_all_components() {
     let (_temp, mut session, _loc_a, loc_b, _loc_c, _loc_d, _loc_e) = setup_three_component_fixture();
 
     assert_eq!(session.retained_components().len(), 3, "fixture should form 3 components");
@@ -148,7 +148,7 @@ fn checkpoint_a3_evidence_1_body_only_edit_reuses_all_components() {
 }
 
 #[test]
-fn checkpoint_a3_evidence_2_public_interface_edit_recomputes_only_affected_component() {
+fn public_interface_edit_recomputes_only_affected_component() {
     let (_temp, mut session, _loc_a, loc_b, _loc_c, _loc_d, _loc_e) = setup_three_component_fixture();
 
     let mod_c = session.module_for_source(&_loc_c.source_id).cloned().unwrap();
@@ -189,7 +189,7 @@ fn checkpoint_a3_evidence_2_public_interface_edit_recomputes_only_affected_compo
 }
 
 #[test]
-fn checkpoint_a3_evidence_3_import_target_change_affects_only_target_component() {
+fn import_target_change_affects_only_target_component() {
     let (_temp, mut session, _loc_a, _loc_b, loc_c, _loc_d, _loc_e) = setup_three_component_fixture();
 
     // Change C's import target from cd.d to e.e
@@ -208,7 +208,7 @@ fn checkpoint_a3_evidence_3_import_target_change_affects_only_target_component()
 }
 
 #[test]
-fn checkpoint_a3_evidence_4_private_dependency_fingerprint_split() {
+fn private_dependency_fingerprint_split() {
     let (_temp, mut session, _loc_a, loc_b, _loc_c, _loc_d, _loc_e) = setup_three_component_fixture();
 
     let mod_b = session.module_for_source(&loc_b.source_id).cloned().unwrap();
@@ -235,7 +235,7 @@ fn checkpoint_a3_evidence_4_private_dependency_fingerprint_split() {
 }
 
 #[test]
-fn checkpoint_a3_evidence_5_strict_and_tolerant_linking_parity() {
+fn strict_and_tolerant_linking_parity() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 
@@ -300,7 +300,7 @@ fn checkpoint_a3_evidence_5_strict_and_tolerant_linking_parity() {
 }
 
 #[test]
-fn checkpoint_a3_evidence_6_cycle_survivors_retain_initialization_order() {
+fn cycle_survivors_retain_initialization_order() {
     let temp = TempDir::new().unwrap();
     let root = temp.path();
 

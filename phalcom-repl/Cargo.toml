@@ -18,8 +18,8 @@ phalcom-ast = { path = "../phalcom-ast" }
 #phalcom-lsp = { path = "../phalcom-lsp" }
 
 [[test]]
-name = "repl_phase_b"
-path = "tests/repl_phase_b.rs"
+name = "repl_session_intelligence"
+path = "tests/repl_session_intelligence.rs"
 
 [[test]]
 name = "repl_import_bugs"

@@ -1,11 +1,11 @@
 mod signature_help;
-mod stage1_diagnostics;
-mod stage2_index;
-mod stage3_completion;
-mod stage4_hover;
-mod stage5_semantic_tokens;
-mod stage6_inlay_hints;
-mod stage7_static_diagnostics;
+mod jsonrpc_syntax_diagnostics;
+mod jsonrpc_workspace_symbols;
+mod jsonrpc_completion;
+mod jsonrpc_hover;
+mod jsonrpc_semantic_tokens;
+mod jsonrpc_inlay_hints;
+mod jsonrpc_static_diagnostics;
 
 mod support;
 
@@ -18,4 +18,4 @@ mod semantic_tokens_current_syntax;
 mod source_text;
 mod workspace_semantics;
 
-mod composition1;
+mod constructor_factory_composition;

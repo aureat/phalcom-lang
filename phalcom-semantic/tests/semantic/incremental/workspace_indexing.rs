@@ -1,5 +1,5 @@
 //! Incremental indexing, reference publication, formal projection retention,
-//! and workspace-symbol verification for Phalcom LSP Module Architecture Plan B (PB-1 through PB-12).
+//! and workspace-symbol verification.
 
 use super::support::multi_module_input;
 use phalcom_modules::identity::{ModuleComponent, ModuleId, ModulePath, ResolvedProjectId};
@@ -183,10 +183,10 @@ fn two_module_input_with_provider(
 }
 
 // -----------------------------------------------------------------------------
-// PB-1 — Presentation-only movement
+// Presentation-only movement
 // -----------------------------------------------------------------------------
 #[test]
-fn pb_1_presentation_only_movement() {
+fn presentation_only_movement() {
     let app = module("app");
     let unrelated = module("unrelated");
     let mut session = SemanticWorkspaceSession::new();
@@ -258,10 +258,10 @@ fn pb_1_presentation_only_movement() {
 }
 
 // -----------------------------------------------------------------------------
-// PB-2 — Local references
+// Local references
 // -----------------------------------------------------------------------------
 #[test]
-fn pb_2_local_references() {
+fn local_references() {
     let app = module("app");
     let mut session = SemanticWorkspaceSession::new();
 
@@ -300,10 +300,10 @@ fn pb_2_local_references() {
 }
 
 // -----------------------------------------------------------------------------
-// PB-3 — Imported binding reference indexing
+// Imported binding reference indexing
 // -----------------------------------------------------------------------------
 #[test]
-fn pb_3_imported_binding() {
+fn imported_binding() {
     let mut session = SemanticWorkspaceSession::new();
     let input = two_module_input(
         "class Foo { @class make() -> Int { 1 } }\nexport Foo\n",
@@ -356,7 +356,7 @@ fn pb_3_imported_binding() {
 }
 
 #[test]
-fn pb_3_production_module_session_import_products_preserve_dual_identity() {
+fn production_module_session_import_products_preserve_dual_identity() {
     let root = tempfile::tempdir().expect("temporary workspace");
     std::fs::write(root.path().join("package.ph"), "").expect("package marker");
     let provider_path = root.path().join("provider.ph");
@@ -523,10 +523,10 @@ fn ia1_import_product_root_is_retained_and_replaced_by_exact_delta() {
 }
 
 // -----------------------------------------------------------------------------
-// PB-4 — Alias dual relation
+// Alias dual relation
 // -----------------------------------------------------------------------------
 #[test]
-fn pb_4_alias_dual_relation() {
+fn alias_dual_relation() {
     let mut session = SemanticWorkspaceSession::new();
     let input = two_module_input(
         "class Foo { @class make() -> Int { 1 }\n@class new() -> Foo { Foo.new() } }\nexport Foo\n",
@@ -584,10 +584,10 @@ fn pb_4_alias_dual_relation() {
 }
 
 // -----------------------------------------------------------------------------
-// PB-5 — Missing target appears
+// Missing target appears
 // -----------------------------------------------------------------------------
 #[test]
-fn pb_5_missing_target_appears() {
+fn missing_target_appears() {
     let mut session = SemanticWorkspaceSession::new();
     let provider = module("provider");
 
@@ -617,10 +617,10 @@ fn pb_5_missing_target_appears() {
 }
 
 // -----------------------------------------------------------------------------
-// PB-6 — Target disappears
+// Target disappears
 // -----------------------------------------------------------------------------
 #[test]
-fn pb_6_target_disappears() {
+fn target_disappears() {
     let mut session = SemanticWorkspaceSession::new();
     let provider = module("provider");
 
@@ -645,10 +645,10 @@ fn pb_6_target_disappears() {
 }
 
 // -----------------------------------------------------------------------------
-// PB-7 — Rename and delete/re-add
+// Rename and delete/re-add
 // -----------------------------------------------------------------------------
 #[test]
-fn pb_7_rename_and_delete_readd() {
+fn rename_and_delete_readd() {
     let app = module("app");
     let mut session = SemanticWorkspaceSession::new();
 
@@ -677,10 +677,10 @@ fn pb_7_rename_and_delete_readd() {
 }
 
 // -----------------------------------------------------------------------------
-// PB-8 — Structural sharing
+// Structural sharing
 // -----------------------------------------------------------------------------
 #[test]
-fn pb_8_structural_sharing() {
+fn structural_sharing() {
     let m1 = module("m1");
     let m2 = module("m2");
     let m3 = module("m3");
@@ -802,7 +802,7 @@ fn make_fanout_input(provider_source: &str, consumer_sources: Vec<(usize, String
 }
 
 #[test]
-fn pb_9a_high_fanout_provider_body_only_edit() {
+fn high_fanout_provider_body_only_edit() {
     let mut session = SemanticWorkspaceSession::new();
     let initial = session.update(make_fanout_input("class Foo { @class value() -> Int { 1 } }\nexport Foo\n", Vec::new(), 1));
     assert!(initial.snapshot.source_index().modules().count() >= 51);
@@ -852,7 +852,7 @@ fn pb_9a_high_fanout_provider_body_only_edit() {
 }
 
 #[test]
-fn pb_9b_high_fanout_one_consumer_reference_edit() {
+fn high_fanout_one_consumer_reference_edit() {
     let mut session = SemanticWorkspaceSession::new();
     let initial = session.update(make_fanout_input("class Foo { @class value() -> Int { 1 } }\nexport Foo\n", Vec::new(), 1));
 
@@ -919,10 +919,10 @@ fn formal_reuse_stats_keep_previous_modules_reused_when_a_new_module_is_added() 
 }
 
 // -----------------------------------------------------------------------------
-// PB-10 — Cold/incremental editor parity
+// Cold/incremental editor parity
 // -----------------------------------------------------------------------------
 #[test]
-fn pb_10_cold_incremental_parity() {
+fn cold_incremental_parity() {
     let mut session = SemanticWorkspaceSession::new();
     let provider = module("provider");
 
@@ -977,10 +977,10 @@ fn pb_10_cold_incremental_parity() {
 }
 
 // -----------------------------------------------------------------------------
-// PB-11 — Old snapshot immutability
+// Old snapshot immutability
 // -----------------------------------------------------------------------------
 #[test]
-fn pb_11_old_snapshot_immutability() {
+fn old_snapshot_immutability() {
     let mut session = SemanticWorkspaceSession::new();
     let app = module("app");
 
@@ -1017,7 +1017,7 @@ fn pb_11_old_snapshot_immutability() {
 }
 
 #[test]
-fn pb_11_old_snapshot_survives_import_retarget() {
+fn old_snapshot_survives_import_retarget() {
     let mut session = SemanticWorkspaceSession::new();
     let first = session.update(two_module_input_with_provider(
         "provider",
@@ -1046,10 +1046,10 @@ fn pb_11_old_snapshot_survives_import_retarget() {
 }
 
 // -----------------------------------------------------------------------------
-// PB-12 — Zero prohibited workspace scans
+// Zero prohibited workspace scans
 // -----------------------------------------------------------------------------
 #[test]
-fn pb_12_zero_prohibited_workspace_scans() {
+fn zero_prohibited_workspace_scans() {
     let mut session = SemanticWorkspaceSession::new();
     let _initial = session.update(make_fanout_input("class Foo { @class value() -> Int { 1 } }\nexport Foo\n", Vec::new(), 1));
 
@@ -1067,7 +1067,7 @@ fn pb_12_zero_prohibited_workspace_scans() {
 }
 
 #[test]
-fn pb_12_large_production_workspace_keeps_all_four_delta_scenarios_scan_free() {
+fn large_production_workspace_keeps_all_four_delta_scenarios_scan_free() {
     let root = tempfile::tempdir().expect("temporary workspace");
     std::fs::write(root.path().join("package.ph"), "").expect("package marker");
     let provider_path = root.path().join("provider.ph");
@@ -1162,7 +1162,7 @@ fn pb_12_large_production_workspace_keeps_all_four_delta_scenarios_scan_free() {
 }
 
 #[test]
-fn pb_12_delta_publication_covers_body_reference_presentation_and_removal() {
+fn delta_publication_covers_body_reference_presentation_and_removal() {
     let root = tempfile::tempdir().expect("temporary workspace");
     let provider_path = root.path().join("provider.ph");
     let consumer_path = root.path().join("consumer.ph");

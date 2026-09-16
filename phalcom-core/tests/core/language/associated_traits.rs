@@ -501,7 +501,7 @@ let result = Caller.new().run(Item.new())
 }
 
 #[test]
-fn high_density_c5_stress_composes_projection_products_and_exact_cases() {
+fn high_density_associated_type_stress_composes_projection_products_and_exact_cases() {
     let source = r#"
 trait DenseCell {
   type Item
@@ -569,7 +569,7 @@ let entryResult = entry[#key].toString + ":" + entry[#value]
 }
 
 #[test]
-fn high_density_c4_stress_program_preserves_exact_evidence_and_runtime_results() {
+fn high_density_trait_conformance_stress_program_preserves_exact_evidence_and_runtime_results() {
     let source = r#"
 trait Named {
   name -> String
