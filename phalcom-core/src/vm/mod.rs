@@ -15,8 +15,6 @@ mod bootstrap;
 pub mod control;
 pub mod data;
 mod dispatch;
-#[cfg(test)]
-mod f2_pack_authority_tests;
 mod gc;
 mod output;
 mod send;
@@ -251,7 +249,7 @@ pub struct VM {
     /// Nesting depth of a compiler-emitted internal helper send currently
     /// being authorized. This is nonzero for the single dispatch operation
     /// only; called code never inherits it as ambient authority.
-    pub(crate) compiler_internal_dispatch_depth: usize,
+    pub compiler_internal_dispatch_depth: usize,
     /// Stackable lexical contexts for active native primitive bodies.
     pub(crate) native_method_contexts: Vec<NativeMethodContext>,
     // Ceilings for both counters live at module scope — see `MAX_CALL_DEPTH` and

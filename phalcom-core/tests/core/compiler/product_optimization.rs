@@ -1,14 +1,18 @@
-use super::*;
-use crate::bytecode::Bytecode;
-use crate::error::PhError;
-use crate::modules::compile::{EntrySelection, ProgramCompiler};
-use crate::product::ProductSlotRepr;
-use crate::value::Value;
-use crate::vm::VM;
+//! Representation-aware product optimization and scalar replacement integration tests.
+
+use phalcom_common::range::SourceRange;
+use phalcom_core::bytecode::Bytecode;
+use phalcom_core::compiler::lib::product_opt::*;
+use phalcom_core::error::PhError;
+use phalcom_core::modules::compile::{EntrySelection, ProgramCompiler};
+use phalcom_core::product::ProductSlotRepr;
+use phalcom_core::value::Value;
+use phalcom_core::vm::VM;
 use phalcom_modules::DeclarationId;
+use phalcom_semantic::identity::BindingId;
 use std::sync::Arc;
 
-fn run_inline_with_mode(source: &str, mode: ProductOptimizationMode) -> Result<(VM, crate::heap::ObjRef), PhError> {
+fn run_inline_with_mode(source: &str, mode: ProductOptimizationMode) -> Result<(VM, phalcom_core::heap::ObjRef), PhError> {
     let mut vm = VM::new();
     vm.product_optimization_mode = mode;
     let src: Arc<str> = source.into();
@@ -26,7 +30,7 @@ fn static_anonymous_product_lowering_is_projected_for_module_roots() {
     let spec = module.lowering.anonymous_products.values().next().expect("static tuple lowering spec");
     assert!(matches!(
         spec.kind,
-        crate::modules::semantic_lowering::AnonymousProductConstructionKind::Tuple { positional_len: 2, .. }
+        phalcom_core::modules::semantic_lowering::AnonymousProductConstructionKind::Tuple { positional_len: 2, .. }
     ));
 }
 
@@ -244,10 +248,10 @@ fn test_decision_engine_pure_cases() {
         shape: Some(VirtualShapePlan {
             kind: VirtualProductKind::Data {
                 constructor: ctor_id.clone(),
-                construction: Arc::new(crate::modules::semantic_lowering::DataConstructionLoweringSpec {
+                construction: Arc::new(phalcom_core::modules::semantic_lowering::DataConstructionLoweringSpec {
                     constructor: ctor_id,
                     exact_type: bundle,
-                    layout: crate::product::ProductLayoutSpec::empty(),
+                    layout: phalcom_core::product::ProductLayoutSpec::empty(),
                     argument_to_component: Box::new([0, 1]),
                 }),
             },

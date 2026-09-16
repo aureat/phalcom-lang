@@ -50,6 +50,8 @@ mod type_metadata_invariants;
 mod compiler_contract_metadata;
 #[path = "compiler/declaration_dispatch.rs"]
 mod compiler_declaration_dispatch;
+#[path = "compiler/product_optimization.rs"]
+mod compiler_product_optimization;
 #[path = "collections/contract.rs"]
 mod core_collections;
 #[path = "collections/outgoing_packs.rs"]
@@ -58,6 +60,8 @@ mod core_outgoing_packs;
 mod core_outgoing_packs_completion;
 #[path = "collections/symbol_selector.rs"]
 mod core_symbol_selector;
+#[path = "execution/compiler_authority.rs"]
+mod execution_compiler_authority;
 #[path = "execution/depth_limits.rs"]
 mod execution_depth_limits;
 #[path = "execution/family_runtime.rs"]
@@ -88,3 +92,6 @@ mod repl_immutability;
 mod repl_session;
 #[path = "repl/source_maps.rs"]
 mod repl_source_maps;
+
+#[path = "audit_probes/mod.rs"]
+mod audit_probes;

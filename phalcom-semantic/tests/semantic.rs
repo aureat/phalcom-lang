@@ -17,3 +17,6 @@ mod explanation_derivation;
 
 #[path = "export_invalidation.rs"]
 mod export_invalidation;
+
+#[path = "audit_probes/mod.rs"]
+mod audit_probes;

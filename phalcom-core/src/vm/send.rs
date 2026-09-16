@@ -194,7 +194,7 @@ impl VM {
     /// Enforces member visibility for every invocation path. Lookup remains
     /// separate: an existing inaccessible selector is an access violation,
     /// never a `doesNotUnderstand` miss.
-    pub(crate) fn authorize_method_access(&self, method: ObjRef) -> PhResult<()> {
+    pub fn authorize_method_access(&self, method: ObjRef) -> PhResult<()> {
         self.authorize_method_access_as(method, self.current_access_class(), self.current_has_internal_privilege())
     }
 

@@ -26,7 +26,7 @@ pub enum ProductOptimizationMode {
 
 /// Identifies the kind of virtualized product.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum VirtualProductKind {
+pub enum VirtualProductKind {
     Data {
         constructor: DataConstructorId,
         construction: Arc<DataConstructionLoweringSpec>,
@@ -44,7 +44,7 @@ pub(crate) enum VirtualProductKind {
 
 /// A component inside a virtual shape plan.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum VirtualComponentPlan {
+pub enum VirtualComponentPlan {
     Scalar {
         logical_component: u32,
         leaf_offset: u16,
@@ -58,7 +58,7 @@ pub(crate) enum VirtualComponentPlan {
 
 /// Virtual shape layout describing how logical components map to scalar leaf slots.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct VirtualShapePlan {
+pub struct VirtualShapePlan {
     pub kind: VirtualProductKind,
     pub components: Box<[VirtualComponentPlan]>,
     pub leaf_count: u16,
@@ -136,7 +136,7 @@ impl VirtualShapePlan {
 /// Reasons why a product candidate is not virtualized.
 #[allow(dead_code)]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum MaterializationReason {
+pub enum MaterializationReason {
     OptimizationDisabled,
     NoResolvedConstruction,
     NotSimpleLocalBinding,
@@ -157,7 +157,7 @@ pub(crate) enum MaterializationReason {
 
 /// Optimization decision for a candidate local binding.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum ProductOptimizationDecision {
+pub enum ProductOptimizationDecision {
     Virtualize(VirtualShapePlan),
     Materialize(MaterializationReason),
 }
@@ -173,7 +173,7 @@ pub(crate) enum ProductUseKind {
 
 /// Summarized usage profile for an analyzed binding.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(crate) struct ProductUseSummary {
+pub struct ProductUseSummary {
     pub creation_loop_depth: u16,
     pub projections: usize,
     pub exact_variant_matches: usize,
@@ -243,7 +243,7 @@ pub(crate) enum UseContext<'a> {
 /// Planner candidate recorded before eligibility decision.
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
-pub(crate) struct CandidateBinding {
+pub struct CandidateBinding {
     pub binding: BindingId,
     pub name: String,
     pub range: SourceRange,
@@ -972,7 +972,7 @@ impl<'a> ProductPlanner<'a> {
 
 /// Pure eligibility decision function.
 /// Takes candidate declaration facts, use summary, and mode, and returns a `ProductOptimizationDecision`.
-pub(crate) fn decide_product_optimization(candidate: &CandidateBinding, mode: ProductOptimizationMode) -> ProductOptimizationDecision {
+pub fn decide_product_optimization(candidate: &CandidateBinding, mode: ProductOptimizationMode) -> ProductOptimizationDecision {
     if mode == ProductOptimizationMode::Disabled {
         return ProductOptimizationDecision::Materialize(MaterializationReason::OptimizationDisabled);
     }
@@ -1548,6 +1548,3 @@ impl<'vm> Compiler<'vm> {
         self.emit_virtual_materialization(product, range)
     }
 }
-
-#[cfg(test)]
-mod tests;
