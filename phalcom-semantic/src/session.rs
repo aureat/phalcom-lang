@@ -3152,20 +3152,40 @@ impl SemanticWorkspaceSession {
                                 let target_owner = head.target.declaration().clone();
                                 let impl_signature = head.generic_signature.clone();
                                 let contribution = crate::impls::ConformanceContribution::from_resolved(head, authorized);
-                                if let Some(surface) = trait_surfaces.get(&contribution.trait_ref.declaration) {
+                                let mut source_associated_type_plan = if let Some(surface) = trait_surfaces.get(&contribution.trait_ref.declaration) {
                                     let associated_plan = crate::impls::build_conformance_associated_type_plan(
                                         &mut context,
                                         &contribution.impl_id,
                                         impl_def,
                                         surface,
                                         impl_signature.as_ref(),
+                                        &contribution.trait_ref,
+                                        contribution.target_head,
                                     );
                                     diags_by_module
                                         .entry(module_id.clone())
                                         .or_default()
                                         .extend(associated_plan.diagnostics.iter().cloned());
-                                    conformance_associated_type_plans.insert(contribution.impl_id.clone(), associated_plan);
-                                }
+                                    Some(associated_plan)
+                                } else {
+                                    None
+                                };
+                                let source_formation_site = if let Some(surface) = trait_surfaces.get(&contribution.trait_ref.declaration) {
+                                    let associated_type_context = surface
+                                        .associated_types
+                                        .values()
+                                        .map(|requirement| (requirement.name.to_string(), requirement.requirement.clone()))
+                                        .collect();
+                                    Some(TypeFormationSite::trait_member(
+                                        module_id.clone(),
+                                        contribution.trait_ref.declaration.clone(),
+                                        DispatchSide::Instance,
+                                        contribution.trait_ref.clone(),
+                                        associated_type_context,
+                                    ).with_self_type_override(contribution.target_head))
+                                } else {
+                                    None
+                                };
                                 if !contribution.authorized {
                                     diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
                                         module_id.clone(),
@@ -3228,16 +3248,37 @@ impl SemanticWorkspaceSession {
                                             ));
                                             continue;
                                         }
-                                        let Some(signature) = crate::checker::declaration_signature::semantic_signature_for_conformance_syntax(
-                                            &mut context,
-                                            &callable_owner,
-                                            &target_owner,
-                                            impl_signature.as_ref(),
-                                            syntax,
-                                            side,
-                                        ) else {
+                                        let Some(mut signature) = (if let Some(formation_site) = source_formation_site.as_ref() {
+                                            crate::checker::declaration_signature::semantic_signature_for_conformance_syntax_with_site(
+                                                &mut context,
+                                                &callable_owner,
+                                                &target_owner,
+                                                impl_signature.as_ref(),
+                                                formation_site,
+                                                syntax,
+                                                side,
+                                            )
+                                        } else {
+                                            crate::checker::declaration_signature::semantic_signature_for_conformance_syntax(
+                                                &mut context,
+                                                &callable_owner,
+                                                &target_owner,
+                                                impl_signature.as_ref(),
+                                                syntax,
+                                                side,
+                                            )
+                                        }) else {
                                             continue;
                                         };
+                                        if let Some(associated_plan) = source_associated_type_plan.as_mut() {
+                                            signature = crate::impls::normalize_source_signature(
+                                                &mut context,
+                                                &contribution.trait_ref,
+                                                contribution.target_head,
+                                                associated_plan,
+                                                signature,
+                                            );
+                                        }
                                         let callable = signature.callable.clone();
                                         conformance_witness_visibilities.insert(callable.clone(), crate::traits::behavior_member_visibility(member));
                                         let has_body = match member {
@@ -3273,6 +3314,9 @@ impl SemanticWorkspaceSession {
                                         callable_signatures.insert(signature.clone());
                                         let _ = query_bootstrap_callable_signature(&mut self.db, Arc::new(signature));
                                     }
+                                }
+                                if let Some(associated_plan) = source_associated_type_plan.take() {
+                                    conformance_associated_type_plans.insert(contribution.impl_id.clone(), associated_plan);
                                 }
                                 conformance_index.insert(contribution);
                             }
@@ -5086,11 +5130,129 @@ fn collect_alias_dependencies(
                 collect_alias_dependencies(argument, module, resolver, aliases, dependencies);
             }
         }
+        TypeAnnotationExpr::AssociatedTypeProjection { subject, .. } => {
+            collect_alias_dependencies(subject, module, resolver, aliases, dependencies);
+        }
         TypeAnnotationExpr::Unit { .. }
         | TypeAnnotationExpr::Dynamic { .. }
         | TypeAnnotationExpr::Never { .. }
         | TypeAnnotationExpr::SelfType { .. }
         | TypeAnnotationExpr::Invalid { .. } => {}
+    }
+}
+
+fn collect_associated_projection_targets(
+    annotation: &TypeAnnotation,
+    module: &ModuleId,
+    surface: &crate::traits::TraitSurface,
+    targets: &mut BTreeMap<(ModuleId, SourceRange), crate::traits::AssociatedTypeRequirementId>,
+) {
+    match &annotation.expr {
+        TypeAnnotationExpr::AssociatedTypeProjection {
+            subject,
+            name,
+            name_range,
+            ..
+        } => {
+            collect_associated_projection_targets(subject, module, surface, targets);
+            if matches!(subject.expr, TypeAnnotationExpr::SelfType { .. })
+                && let Some(requirement) = surface.associated_type_by_name(name)
+            {
+                targets.insert((module.clone(), *name_range), requirement.requirement.clone());
+            }
+        }
+        TypeAnnotationExpr::Application { origin, arguments, .. } => {
+            collect_associated_projection_targets(origin, module, surface, targets);
+            for argument in arguments {
+                collect_associated_projection_targets(argument, module, surface, targets);
+            }
+        }
+        TypeAnnotationExpr::Union { members, .. } => {
+            for member in members {
+                collect_associated_projection_targets(member, module, surface, targets);
+            }
+        }
+        TypeAnnotationExpr::Tuple { elements, .. } => {
+            for element in elements {
+                collect_associated_projection_targets(&element.ty, module, surface, targets);
+            }
+        }
+        TypeAnnotationExpr::Record { fields, .. } => {
+            for field in fields {
+                collect_associated_projection_targets(&field.ty, module, surface, targets);
+            }
+        }
+        TypeAnnotationExpr::Callable { parameters, result, .. } => {
+            for parameter in parameters {
+                collect_associated_projection_targets(&parameter.ty, module, surface, targets);
+            }
+            collect_associated_projection_targets(result, module, surface, targets);
+        }
+        TypeAnnotationExpr::TypeLambda { body, .. } => collect_associated_projection_targets(body, module, surface, targets),
+        TypeAnnotationExpr::ExactEnumCase {
+            enum_target,
+            generic_arguments,
+            ..
+        } => {
+            collect_associated_projection_targets(enum_target, module, surface, targets);
+            for argument in generic_arguments {
+                collect_associated_projection_targets(argument, module, surface, targets);
+            }
+        }
+        TypeAnnotationExpr::Reference(_)
+        | TypeAnnotationExpr::Unit { .. }
+        | TypeAnnotationExpr::Dynamic { .. }
+        | TypeAnnotationExpr::Never { .. }
+        | TypeAnnotationExpr::SelfType { .. }
+        | TypeAnnotationExpr::Invalid { .. } => {}
+    }
+}
+
+fn collect_associated_projection_targets_from_behavior(
+    member: &phalcom_ast::ast::BehaviorMember,
+    module: &ModuleId,
+    surface: &crate::traits::TraitSurface,
+    targets: &mut BTreeMap<(ModuleId, SourceRange), crate::traits::AssociatedTypeRequirementId>,
+) {
+    match member {
+        phalcom_ast::ast::BehaviorMember::Method(method) => {
+            for parameter in &method.params {
+                if let Some(annotation) = &parameter.annotation {
+                    collect_associated_projection_targets(annotation, module, surface, targets);
+                }
+            }
+            if let Some(annotation) = &method.return_annotation {
+                collect_associated_projection_targets(annotation, module, surface, targets);
+            }
+        }
+        phalcom_ast::ast::BehaviorMember::Getter(getter) => {
+            if let Some(annotation) = &getter.return_annotation {
+                collect_associated_projection_targets(annotation, module, surface, targets);
+            }
+        }
+        phalcom_ast::ast::BehaviorMember::Setter(setter) => {
+            if let Some(annotation) = &setter.param.annotation {
+                collect_associated_projection_targets(annotation, module, surface, targets);
+            }
+            if let Some(annotation) = &setter.return_annotation {
+                collect_associated_projection_targets(annotation, module, surface, targets);
+            }
+        }
+        phalcom_ast::ast::BehaviorMember::Index(index) => {
+            for parameter in &index.params {
+                if let Some(annotation) = &parameter.annotation {
+                    collect_associated_projection_targets(annotation, module, surface, targets);
+                }
+            }
+            if let phalcom_ast::ast::IndexAccessor::Set { value } = &index.accessor
+                && let Some(annotation) = &value.annotation
+            {
+                collect_associated_projection_targets(annotation, module, surface, targets);
+            }
+            if let Some(annotation) = &index.return_annotation {
+                collect_associated_projection_targets(annotation, module, surface, targets);
+            }
+        }
     }
 }
 
@@ -5144,6 +5306,9 @@ fn collect_type_annotation_declarations(
             for argument in generic_arguments {
                 collect_type_annotation_declarations(argument, module, resolver, dependencies);
             }
+        }
+        TypeAnnotationExpr::AssociatedTypeProjection { subject, .. } => {
+            collect_type_annotation_declarations(subject, module, resolver, dependencies);
         }
         TypeAnnotationExpr::Unit { .. }
         | TypeAnnotationExpr::Dynamic { .. }
@@ -5371,23 +5536,62 @@ fn build_source_semantic_index(inputs: SourceSemanticIndexInputs<'_>) -> (Source
     };
     for (module, source) in &index_sources {
         for statement in &source.program.statements {
-            let Statement::Impl(impl_def) = statement else { continue };
-            let phalcom_ast::ast::ImplKind::Conformance { trait_ref, .. } = &impl_def.kind else { continue };
-            let trait_ranges = resolve_type_reference_targets(module, &source.program, type_resolver);
-            let Some(trait_declaration) = trait_ranges
-                .iter()
-                .filter(|(range, _)| range.start >= trait_ref.range.start && range.end <= trait_ref.range.end)
-                .map(|(_, declaration)| declaration)
-                .next()
-            else {
-                continue;
-            };
-            let Some(surface) = trait_surfaces.get(trait_declaration) else { continue };
-            for member in &impl_def.members {
-                let phalcom_ast::ast::ImplMember::AssociatedTypeBinding(binding) = member else { continue };
-                if let Some(requirement) = surface.associated_type_by_name(&binding.name) {
-                    context.associated_type_targets.insert((module.clone(), binding.name_range), requirement.requirement.clone());
+            match statement {
+                Statement::Trait(trait_def) => {
+                    let declaration = DeclarationId::new(module.clone(), trait_def.name.clone().into());
+                    let Some(surface) = trait_surfaces.get(&declaration) else { continue };
+                    for member in &trait_def.members {
+                        if let Some(behavior) = member.behavior() {
+                            collect_associated_projection_targets_from_behavior(behavior, module, surface, &mut context.associated_projection_targets);
+                        }
+                        if let phalcom_ast::ast::TraitMember::Property(property) = member {
+                            collect_associated_projection_targets(
+                                &property.annotation,
+                                module,
+                                surface,
+                                &mut context.associated_projection_targets,
+                            );
+                        }
+                    }
                 }
+                Statement::Impl(impl_def) => {
+                    let phalcom_ast::ast::ImplKind::Conformance { trait_ref, .. } = &impl_def.kind else { continue };
+                    let trait_ranges = resolve_type_reference_targets(module, &source.program, type_resolver);
+                    let Some(trait_declaration) = trait_ranges
+                        .iter()
+                        .filter(|(range, _)| range.start >= trait_ref.range.start && range.end <= trait_ref.range.end)
+                        .map(|(_, declaration)| declaration)
+                        .next()
+                    else {
+                        continue;
+                    };
+                    let Some(surface) = trait_surfaces.get(trait_declaration) else { continue };
+                    for member in &impl_def.members {
+                        match member {
+                            phalcom_ast::ast::ImplMember::AssociatedTypeBinding(binding) => {
+                                if let Some(requirement) = surface.associated_type_by_name(&binding.name) {
+                                    context.associated_type_targets.insert((module.clone(), binding.name_range), requirement.requirement.clone());
+                                }
+                                collect_associated_projection_targets(
+                                    &binding.value,
+                                    module,
+                                    surface,
+                                    &mut context.associated_projection_targets,
+                                );
+                            }
+                            phalcom_ast::ast::ImplMember::Behavior(behavior) => {
+                                collect_associated_projection_targets_from_behavior(
+                                    behavior,
+                                    module,
+                                    surface,
+                                    &mut context.associated_projection_targets,
+                                );
+                            }
+                            phalcom_ast::ast::ImplMember::Delegation(_) => {}
+                        }
+                    }
+                }
+                _ => {}
             }
         }
     }
@@ -6753,7 +6957,7 @@ fn publish_conformance_witness_plans(
         let Some(surface) = trait_surfaces.get(&contribution.trait_ref.declaration) else {
             continue;
         };
-        let requirement_views = crate::impls::instantiate_conformance_requirements(
+        let mut requirement_views = crate::impls::instantiate_conformance_requirements(
             store,
             Some(declarations),
             surface,
@@ -6761,6 +6965,15 @@ fn publish_conformance_witness_plans(
             contribution.target_head,
             &HashMap::new(),
         );
+        if let Some(associated_type_plan) = conformance_associated_type_plans.get(impl_id) {
+            crate::impls::normalize_source_requirement_views(
+                store,
+                &contribution.trait_ref,
+                contribution.target_head,
+                associated_type_plan,
+                &mut requirement_views,
+            );
+        }
         let mut inherent_candidates = BTreeMap::new();
         let mut inherent_mismatches = BTreeMap::new();
         let mut deferred_inherent_candidates = BTreeMap::new();

@@ -406,6 +406,15 @@ fn check_subtype_impl(
         }
         (TypeData::ExactCase { enum_type, .. }, _) => check_subtype_impl(store, hierarchy, enum_type, sup, budget, cancellation, visited),
 
+        (TypeData::AssociatedProjection(sub_projection), TypeData::AssociatedProjection(sup_projection)) => {
+            if sub_projection == sup_projection {
+                RelationOutcome::proven(())
+            } else {
+                RelationOutcome::Blocked(BlockReason::RecursiveFixpoint)
+            }
+        }
+        (TypeData::AssociatedProjection(_), _) | (_, TypeData::AssociatedProjection(_)) => RelationOutcome::Blocked(BlockReason::RecursiveFixpoint),
+
         (TypeData::Tuple(sub_elems), TypeData::Tuple(sup_elems)) => {
             if sub_elems.len() == sup_elems.len() {
                 for (a, b) in sub_elems.iter().zip(sup_elems.iter()) {

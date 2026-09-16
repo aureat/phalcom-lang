@@ -407,13 +407,13 @@ impl SemanticSnapshot {
     /// view and cannot mutate the published snapshot or reselect witnesses.
     pub fn resolve_conformance_evidence(&self, target: TypeId, trait_ref: &TraitRef) -> ConformanceResolution {
         let mut store = (*self.store).clone();
-        let Some(trait_surface) = self.trait_surfaces.get(&trait_ref.declaration) else {
+        if !self.trait_surfaces.contains(&trait_ref.declaration) {
             return ConformanceResolution::InternalFailure("trait surface is unavailable for conformance evidence".into());
-        };
-        crate::impls::resolve_conformance_evidence(
+        }
+        crate::impls::resolve_conformance_evidence_with_surfaces(
             &self.conformance_index,
             &self.conformance_witness_plans,
-            trait_surface,
+            &self.trait_surfaces,
             &self.declarations,
             &mut store,
             self.hierarchy.as_ref(),
@@ -427,6 +427,27 @@ impl SemanticSnapshot {
             ConformanceResolution::Proven(evidence) => Some(evidence),
             _ => None,
         }
+    }
+
+    /// Normalizes a canonical type through exact published conformance
+    /// evidence using the same semantic projection normalizer as all other
+    /// consumers.
+    pub fn normalize_projection_type(&self, ty: TypeId) -> crate::types::ProjectionNormalizationResult {
+        let mut store = (*self.store).clone();
+        let mut budget = crate::types::QueryBudget::default();
+        let cancel = crate::types::CancellationToken::new();
+        let mut context = crate::types::ProjectionNormalizationContext::new(
+            crate::types::ProjectionNormalizationMode::Exact {
+                conformance_index: &self.conformance_index,
+                witness_plans: &self.conformance_witness_plans,
+                trait_surfaces: &self.trait_surfaces,
+                declarations: &self.declarations,
+                hierarchy: self.hierarchy.as_ref(),
+            },
+            &mut budget,
+            &cancel,
+        );
+        crate::types::normalize_type(&mut store, ty, &mut context)
     }
 
     pub fn with_callable_analyses(mut self, callable_analyses: Arc<HashMap<crate::identity::CallableId, Arc<crate::checker::CallableAnalysis>>>) -> Self {

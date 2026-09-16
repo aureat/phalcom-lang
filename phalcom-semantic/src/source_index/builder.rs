@@ -50,6 +50,10 @@ pub struct SourceIndexContext {
     /// Exact trait-owned associated declarations keyed by conformance binding
     /// LHS range. The semantic session supplies this identity map.
     pub associated_type_targets: BTreeMap<(ModuleId, SourceRange), AssociatedTypeRequirementId>,
+    /// Exact trait-owned associated declarations keyed by contextual
+    /// projection name range. The semantic session supplies this identity
+    /// map from canonical trait formation products.
+    pub associated_projection_targets: BTreeMap<(ModuleId, SourceRange), AssociatedTypeRequirementId>,
 }
 
 struct CallableVisit<'a> {
@@ -191,6 +195,9 @@ impl TypeReferenceTargetCollector<'_> {
                 for trait_member in &trait_def.members {
                     if let Some(member) = trait_member.behavior() {
                         self.behavior_members(std::slice::from_ref(member), &trait_bound);
+                    }
+                    if let phalcom_ast::ast::TraitMember::Property(property) = trait_member {
+                        self.annotation(&property.annotation, &trait_bound);
                     }
                 }
             }
@@ -434,6 +441,7 @@ impl TypeReferenceTargetCollector<'_> {
                     self.annotation(argument, bound);
                 }
             }
+            TypeAnnotationExpr::AssociatedTypeProjection { subject, .. } => self.annotation(subject, bound),
             TypeAnnotationExpr::Unit { .. }
             | TypeAnnotationExpr::Dynamic { .. }
             | TypeAnnotationExpr::Never { .. }
@@ -512,6 +520,67 @@ impl SourceScopeBuilder<'_> {
                 )))
             }
             _ => self.type_reference_target(annotation).map(SemanticTargetId::Declaration),
+        }
+    }
+
+    fn visit_annotation_projection_targets(&mut self, annotation: &TypeAnnotation) {
+        match &annotation.expr {
+            TypeAnnotationExpr::AssociatedTypeProjection { subject, name_range, .. } => {
+                self.visit_annotation_projection_targets(subject);
+                if let Some(requirement) = self
+                    .context
+                    .associated_projection_targets
+                    .get(&(self.index.module.clone(), *name_range))
+                    .cloned()
+                {
+                    let site = self.allocate_site(self.current_owner.clone(), *name_range, SourceSiteKind::Occurrence);
+                    self.index.register_target(site, SemanticTargetId::AssociatedType(requirement));
+                }
+            }
+            TypeAnnotationExpr::Application { origin, arguments, .. } => {
+                self.visit_annotation_projection_targets(origin);
+                for argument in arguments {
+                    self.visit_annotation_projection_targets(argument);
+                }
+            }
+            TypeAnnotationExpr::Union { members, .. } => {
+                for member in members {
+                    self.visit_annotation_projection_targets(member);
+                }
+            }
+            TypeAnnotationExpr::Tuple { elements, .. } => {
+                for element in elements {
+                    self.visit_annotation_projection_targets(&element.ty);
+                }
+            }
+            TypeAnnotationExpr::Record { fields, .. } => {
+                for field in fields {
+                    self.visit_annotation_projection_targets(&field.ty);
+                }
+            }
+            TypeAnnotationExpr::Callable { parameters, result, .. } => {
+                for parameter in parameters {
+                    self.visit_annotation_projection_targets(&parameter.ty);
+                }
+                self.visit_annotation_projection_targets(result);
+            }
+            TypeAnnotationExpr::TypeLambda { body, .. } => self.visit_annotation_projection_targets(body),
+            TypeAnnotationExpr::ExactEnumCase {
+                enum_target,
+                generic_arguments,
+                ..
+            } => {
+                self.visit_annotation_projection_targets(enum_target);
+                for argument in generic_arguments {
+                    self.visit_annotation_projection_targets(argument);
+                }
+            }
+            TypeAnnotationExpr::Reference(_)
+            | TypeAnnotationExpr::Unit { .. }
+            | TypeAnnotationExpr::Dynamic { .. }
+            | TypeAnnotationExpr::Never { .. }
+            | TypeAnnotationExpr::SelfType { .. }
+            | TypeAnnotationExpr::Invalid { .. } => {}
         }
     }
 
@@ -688,18 +757,19 @@ impl SourceScopeBuilder<'_> {
                 crate::identity::ImplLocalId(statement_index as u32),
             ));
             for impl_member in &impl_def.members {
-                if let phalcom_ast::ast::ImplMember::AssociatedTypeBinding(binding) = impl_member {
-                    if let Some(requirement) = self
+            if let phalcom_ast::ast::ImplMember::AssociatedTypeBinding(binding) = impl_member {
+                if let Some(requirement) = self
                         .context
                         .associated_type_targets
                         .get(&(self.index.module.clone(), binding.name_range))
                         .cloned()
-                    {
-                        let site = self.allocate_site(self.current_owner.clone(), binding.name_range, SourceSiteKind::Occurrence);
-                        self.index.register_target(site, SemanticTargetId::AssociatedType(requirement));
-                    }
-                    continue;
+                {
+                    let site = self.allocate_site(self.current_owner.clone(), binding.name_range, SourceSiteKind::Occurrence);
+                    self.index.register_target(site, SemanticTargetId::AssociatedType(requirement));
                 }
+                self.visit_annotation_projection_targets(&binding.value);
+                continue;
+            }
                 let Some(member) = impl_member.behavior() else {
                     continue;
                 };
@@ -835,6 +905,9 @@ impl SourceScopeBuilder<'_> {
                 self.index.register_target(site, SemanticTargetId::AssociatedType(requirement));
                 continue;
             }
+            if let phalcom_ast::ast::TraitMember::Property(property) = trait_member {
+                self.visit_annotation_projection_targets(&property.annotation);
+            }
             let Some(member) = trait_member.behavior() else {
                 continue;
             };
@@ -950,6 +1023,28 @@ impl SourceScopeBuilder<'_> {
     }
 
     fn visit_behavior_member(&mut self, parent: SourceScopeId, owner: CallableOwnerId, behavior: &phalcom_ast::ast::BehaviorMember, side: DispatchSide) {
+        match behavior {
+            BehaviorMember::Method(method) => {
+                if let Some(annotation) = &method.return_annotation {
+                    self.visit_annotation_projection_targets(annotation);
+                }
+            }
+            BehaviorMember::Getter(getter) => {
+                if let Some(annotation) = &getter.return_annotation {
+                    self.visit_annotation_projection_targets(annotation);
+                }
+            }
+            BehaviorMember::Setter(setter) => {
+                if let Some(annotation) = &setter.return_annotation {
+                    self.visit_annotation_projection_targets(annotation);
+                }
+            }
+            BehaviorMember::Index(index) => {
+                if let Some(annotation) = &index.return_annotation {
+                    self.visit_annotation_projection_targets(annotation);
+                }
+            }
+        }
         let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(behavior);
         let Some(callable) = crate::checker::declaration_signature::callable_id_for_syntax(&owner, syntax, side) else {
             return;
@@ -1202,6 +1297,9 @@ impl SourceScopeBuilder<'_> {
         let scope = self.new_scope(parent, body_range);
         let mut parameter_sites = BTreeMap::new();
         for (index, parameter) in parameters.iter().enumerate() {
+            if let Some(annotation) = &parameter.annotation {
+                self.visit_annotation_projection_targets(annotation);
+            }
             let site = self.declare_with_annotation(
                 scope,
                 parameter.name.clone(),

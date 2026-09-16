@@ -491,6 +491,17 @@ fn apply_substitution_to_fixpoint(store: &mut TypeStore, substitution: &TypeSubs
                 let variant = store.variant_identity(variant).clone();
                 store.exact_case_type(&variant, enum_type).unwrap_or(ty)
             }
+            TypeData::AssociatedProjection(projection) => {
+                let subject = normalize(store, substitution, projection.subject, states);
+                let arguments = projection
+                    .trait_ref
+                    .arguments
+                    .iter()
+                    .map(|&argument| normalize(store, substitution, argument, states))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                store.associated_projection(subject, crate::traits::TraitRef::new(projection.trait_ref.declaration, arguments), projection.requirement)
+            }
             TypeData::Union(members) => {
                 let members = members.iter().map(|&member| normalize(store, substitution, member, states)).collect::<Vec<_>>();
                 store.union(&members)
@@ -579,6 +590,12 @@ fn collect_type_parameters(store: &TypeStore, ty: TypeId, output: &mut Vec<TypeP
             }
         }
         TypeData::ExactCase { enum_type, .. } => collect_type_parameters(store, *enum_type, output),
+        TypeData::AssociatedProjection(projection) => {
+            collect_type_parameters(store, projection.subject, output);
+            for &argument in projection.trait_ref.arguments.iter() {
+                collect_type_parameters(store, argument, output);
+            }
+        }
         TypeData::Union(members) => {
             for &member in members.iter() {
                 collect_type_parameters(store, member, output);

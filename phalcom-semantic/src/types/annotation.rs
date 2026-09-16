@@ -16,7 +16,9 @@ use super::variance::Variance;
 use crate::declarations::DeclarationTypeTable;
 use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic};
 use crate::identity::{DeclarationId, DispatchSide, ModuleId};
+use crate::traits::{AssociatedTypeRequirementId, TraitRef};
 use phalcom_ast::ast::{GenericConstraintSyntax, GenericParameterSyntax, KindSyntax, TypeAnnotation, TypeAnnotationExpr, VarianceSyntax, WhereClauseSyntax};
+use std::collections::BTreeMap;
 
 /// Lexical type-level binding domain. Record-row binders cannot be represented as value type forms.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -30,11 +32,25 @@ pub enum TypeLevelBinding {
 pub struct TypeFormationSite {
     pub module: ModuleId,
     pub self_term: Option<SelfTypeTerm>,
+    pub self_type_override: Option<TypeId>,
+    pub associated_type_context: Option<AssociatedTypeFormationContext>,
+}
+
+/// Trait-owned context used to form symbolic associated-type projections.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AssociatedTypeFormationContext {
+    pub trait_ref: TraitRef,
+    pub associated_types: BTreeMap<String, AssociatedTypeRequirementId>,
 }
 
 impl TypeFormationSite {
     pub fn module(module: ModuleId) -> Self {
-        Self { module, self_term: None }
+        Self {
+            module,
+            self_term: None,
+            self_type_override: None,
+            associated_type_context: None,
+        }
     }
 
     pub fn member(module: ModuleId, owner: DeclarationId, side: DispatchSide) -> Self {
@@ -45,7 +61,33 @@ impl TypeFormationSite {
                 side,
                 role: SelfRole::InstanceType,
             }),
+            self_type_override: None,
+            associated_type_context: None,
         }
+    }
+
+    pub fn trait_member(
+        module: ModuleId,
+        owner: DeclarationId,
+        side: DispatchSide,
+        trait_ref: TraitRef,
+        associated_types: BTreeMap<String, AssociatedTypeRequirementId>,
+    ) -> Self {
+        Self {
+            module,
+            self_term: Some(SelfTypeTerm {
+                owner,
+                side,
+                role: SelfRole::InstanceType,
+            }),
+            self_type_override: None,
+            associated_type_context: Some(AssociatedTypeFormationContext { trait_ref, associated_types }),
+        }
+    }
+
+    pub fn with_self_type_override(mut self, self_type: TypeId) -> Self {
+        self.self_type_override = Some(self_type);
+        self
     }
 }
 
@@ -449,6 +491,10 @@ fn lower_scoped_type_form(
             let form = resolve_type_form(store, declarations, resolver, site, annotation, diagnostics);
             form.map_ready(|ty| intern_scoped_free(store, ty))
         }
+        TypeAnnotationExpr::AssociatedTypeProjection { subject, name, name_range, range } => {
+            resolve_associated_type_projection(store, declarations, resolver, site, subject, name, *name_range, *range, diagnostics)
+                .map_ready(|ty| intern_scoped_free(store, ty))
+        }
         TypeAnnotationExpr::Reference(sym_ref) => {
             let name = sym_ref.leaf_name();
             if sym_ref.members.is_empty() {
@@ -823,6 +869,62 @@ fn lower_scoped_type_lambda(
     result
 }
 
+fn resolve_associated_type_projection(
+    store: &mut TypeStore,
+    declarations: &DeclarationTypeTable,
+    resolver: &dyn TypeResolver,
+    site: &TypeFormationSite,
+    subject: &TypeAnnotation,
+    name: &str,
+    name_range: phalcom_common::range::SourceRange,
+    range: phalcom_common::range::SourceRange,
+    diagnostics: &mut Vec<SemanticDiagnostic>,
+) -> TypeFormResolution {
+    let current_module = &site.module;
+    if !matches!(subject.expr, TypeAnnotationExpr::SelfType { .. }) {
+        diagnostics.push(SemanticDiagnostic::error_in(
+            current_module.clone(),
+            DiagnosticCode::AnnotationUnresolved,
+            "associated type projection subject must be Self",
+            range,
+        ));
+        return TypeFormResolution::Unresolved(TypeFormationUnresolved::Name(name.into()));
+    }
+
+    let Some(context) = site.associated_type_context.as_ref() else {
+        diagnostics.push(SemanticDiagnostic::error_in(
+            current_module.clone(),
+            DiagnosticCode::AnnotationUnresolved,
+            "associated type projection requires a trait context",
+            range,
+        ));
+        return TypeFormResolution::Unresolved(TypeFormationUnresolved::Name("Self::associated type".into()));
+    };
+
+    let subject = match resolve_type_form(store, declarations, resolver, site, subject, diagnostics) {
+        TypeFormResolution::Ready(subject) => subject,
+        TypeFormResolution::Dynamic => return TypeFormResolution::Dynamic,
+        TypeFormResolution::Missing(reason) => return TypeFormResolution::Missing(reason),
+        TypeFormResolution::Unresolved(reason) => return TypeFormResolution::Unresolved(reason),
+        TypeFormResolution::Invalid(reason) => return TypeFormResolution::Invalid(reason),
+        TypeFormResolution::Blocked(reason) => return TypeFormResolution::Blocked(reason),
+        TypeFormResolution::Cancelled => return TypeFormResolution::Cancelled,
+        TypeFormResolution::BudgetExceeded(report) => return TypeFormResolution::BudgetExceeded(report),
+        TypeFormResolution::InternalFailure(failure) => return TypeFormResolution::InternalFailure(failure),
+    };
+    let Some(requirement) = context.associated_types.get(name).cloned() else {
+        diagnostics.push(SemanticDiagnostic::error_in(
+            current_module.clone(),
+            DiagnosticCode::AssociatedTypeUnknown,
+            format!("unknown associated type `{name}` in trait `{}`", context.trait_ref.declaration.name),
+            name_range,
+        ));
+        return TypeFormResolution::Unresolved(TypeFormationUnresolved::Name(name.into()));
+    };
+
+    TypeFormResolution::Ready(store.associated_projection(subject, context.trait_ref.clone(), requirement))
+}
+
 /// Resolves an AST [`TypeAnnotation`] into a type constructor or proper type form.
 pub fn resolve_type_form(
     store: &mut TypeStore,
@@ -838,7 +940,9 @@ pub fn resolve_type_form(
         TypeAnnotationExpr::Dynamic { .. } => TypeFormResolution::Dynamic,
         TypeAnnotationExpr::Never { .. } => TypeFormResolution::Ready(store.never()),
         TypeAnnotationExpr::SelfType { range } => {
-            if let Some(term) = site.self_term.clone() {
+            if let Some(self_type) = site.self_type_override {
+                TypeFormResolution::Ready(self_type)
+            } else if let Some(term) = site.self_term.clone() {
                 TypeFormResolution::Ready(store.self_type(term))
             } else {
                 diagnostics.push(SemanticDiagnostic::error_in(
@@ -849,6 +953,9 @@ pub fn resolve_type_form(
                 ));
                 TypeFormResolution::Unresolved(TypeFormationUnresolved::SelfOutsideOwner)
             }
+        }
+        TypeAnnotationExpr::AssociatedTypeProjection { subject, name, name_range, range } => {
+            resolve_associated_type_projection(store, declarations, resolver, site, subject, name, *name_range, *range, diagnostics)
         }
         TypeAnnotationExpr::Reference(sym_ref) => {
             let name = sym_ref.leaf_name();

@@ -88,6 +88,17 @@ fn materialize_type_inner(
                 .exact_case_type(&variant, enum_type)
                 .map_err(|_| TypeMaterializationError::TypeApplication)
         }
+        TypeData::AssociatedProjection(projection) => {
+            let subject = materialize_type_inner(store, projection.subject, instantiation, row_mode, visiting_rows)?;
+            let arguments = projection
+                .trait_ref
+                .arguments
+                .iter()
+                .map(|&argument| materialize_type_inner(store, argument, instantiation, row_mode, visiting_rows))
+                .collect::<Result<Vec<_>, _>>()?
+                .into_boxed_slice();
+            Ok(store.associated_projection(subject, crate::traits::TraitRef::new(projection.trait_ref.declaration, arguments), projection.requirement))
+        }
         TypeData::Union(members) => {
             let members = members
                 .iter()

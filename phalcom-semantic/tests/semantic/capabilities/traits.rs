@@ -5,7 +5,7 @@ use phalcom_semantic::checker::body::{BodyAnalysisContext, CallableBodyRequest};
 use phalcom_semantic::checker::{CallableAnalysisStatus, analyze_callable_body};
 use phalcom_semantic::core_surface::CoreDeclarationIds;
 use phalcom_semantic::db::{CancellationToken, QueryBudget};
-use phalcom_semantic::identity::{CallableOwnerId, DispatchSide};
+use phalcom_semantic::identity::{CallableOwnerId, DispatchSide, ImplId, ImplLocalId};
 use phalcom_semantic::types::annotation::SimpleTypeResolver;
 use phalcom_semantic::types::parameter::TypeParameterOwner;
 use phalcom_semantic::{TraitRef, TraitRefFormationError, TraitRequirementId};
@@ -83,7 +83,7 @@ trait Display<T> where T <: Int {
         marker.clone(),
         &[],
     )
-    .expect("non-generic trait reference");
+        .expect("non-generic trait reference");
     let display_ref = TraitRef::form(
         &mut store,
         &fixture.analysis.snapshot.trait_headers,
@@ -91,7 +91,7 @@ trait Display<T> where T <: Int {
         display.clone(),
         &[int],
     )
-    .expect("generic trait reference");
+        .expect("generic trait reference");
 
     assert_eq!(marker_ref, TraitRef::new(marker, Box::<[phalcom_semantic::TypeId]>::default()));
     assert_eq!(display_ref, TraitRef::new(display, vec![int].into_boxed_slice()));
@@ -322,6 +322,11 @@ impl Iterable for Box {
     assert!(failures.iter().any(|failure| {
         matches!(failure, phalcom_semantic::impls::ConformanceFailure::AssociatedType(failure) if failure.reason.contains("no conformance binding"))
     }));
+    let missing = failures.iter().find_map(|failure| {
+        let phalcom_semantic::impls::ConformanceFailure::AssociatedType(failure) = failure else { return None };
+        (failure.kind == phalcom_semantic::impls::AssociatedTypeBindingFailureKind::Missing).then_some(failure)
+    }).expect("missing associated binding failure");
+    assert_eq!(missing.source.module, fixture.decl("main", "Box").module);
     assert!(fixture
         .analysis
         .snapshot
@@ -642,6 +647,788 @@ fn trait_surface_reuses_actual_trait_and_member_generic_binders() {
 }
 
 #[test]
+fn trait_associated_projection_formation_is_source_order_independent_and_nested() {
+    let before = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"trait Before {
+  type Item
+  get -> Option<Self::Item>
+}
+"#,
+        )
+        .analyze();
+    let after = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"trait After {
+  get -> Option<Self::Item>
+  type Item
+}
+"#,
+        )
+        .analyze();
+
+    for (fixture, trait_name) in [(&before, "Before"), (&after, "After")] {
+        assert!(!fixture.analysis.snapshot.has_errors(), "projection diagnostics: {:?}", fixture.analysis.snapshot.diagnostics);
+        let declaration = fixture.decl("main", trait_name);
+        let surface = fixture.analysis.snapshot.trait_surfaces.get(&declaration).expect("trait surface");
+        let member = surface
+            .get_by_selector(&Selector::getter("get").expect("getter selector"), DispatchSide::Instance)
+            .expect("get requirement");
+        let option = member.signature.declared_return.canonical_type().expect("Option<Self::Item> type");
+        let phalcom_semantic::TypeData::Applied { arguments, .. } = fixture.analysis.snapshot.store.get(option) else {
+            panic!("expected nested Option application");
+        };
+        assert_eq!(arguments.len(), 1);
+        let phalcom_semantic::TypeData::AssociatedProjection(projection) = fixture.analysis.snapshot.store.get(arguments[0]) else {
+            panic!("expected nested associated projection");
+        };
+        assert_eq!(projection.trait_ref.declaration, declaration);
+        assert_eq!(projection.trait_ref.arguments.len(), 0);
+        assert_eq!(projection.requirement.owner, declaration);
+        assert_eq!(projection.requirement.index, 0);
+        assert!(matches!(fixture.analysis.snapshot.store.get(projection.subject), phalcom_semantic::TypeData::SelfType(_)));
+    }
+}
+
+#[test]
+fn trait_associated_projection_same_spelling_is_trait_owned() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"trait First {
+  type Item
+  get -> Self::Item
+}
+
+trait Second {
+  type Item
+  get -> Self::Item
+}
+"#,
+        )
+        .analyze();
+    assert!(!fixture.analysis.snapshot.has_errors(), "projection diagnostics: {:?}", fixture.analysis.snapshot.diagnostics);
+
+    let projection = |trait_name: &str| {
+        let declaration = fixture.decl("main", trait_name);
+        let surface = fixture.analysis.snapshot.trait_surfaces.get(&declaration).expect("trait surface");
+        let member = surface
+            .get_by_selector(&Selector::getter("get").expect("getter selector"), DispatchSide::Instance)
+            .expect("get requirement");
+        let ty = member.signature.declared_return.canonical_type().expect("projection type");
+        let phalcom_semantic::TypeData::AssociatedProjection(projection) = fixture.analysis.snapshot.store.get(ty) else {
+            panic!("expected associated projection");
+        };
+        projection.clone()
+    };
+    let first = projection("First");
+    let second = projection("Second");
+    assert_ne!(first, second);
+    assert_ne!(first.trait_ref.declaration, second.trait_ref.declaration);
+    assert_ne!(first.requirement.owner, second.requirement.owner);
+    assert_eq!(first.requirement.index, second.requirement.index);
+}
+
+#[test]
+fn generic_trait_associated_projection_retains_abstract_trait_arguments() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"trait Converter<Target> {
+  type Output
+  convert -> Self::Output
+}
+"#,
+        )
+        .analyze();
+    assert!(!fixture.analysis.snapshot.has_errors(), "projection diagnostics: {:?}", fixture.analysis.snapshot.diagnostics);
+    let declaration = fixture.decl("main", "Converter");
+    let header = fixture.analysis.snapshot.trait_headers.get(&declaration).expect("trait header");
+    let parameter = header.generic_signature.as_ref().expect("generic signature").parameters[0];
+    let surface = fixture.analysis.snapshot.trait_surfaces.get(&declaration).expect("trait surface");
+    let member = surface
+        .get_by_selector(&Selector::getter("convert").expect("getter selector"), DispatchSide::Instance)
+        .expect("convert requirement");
+    let ty = member.signature.declared_return.canonical_type().expect("projection type");
+    let phalcom_semantic::TypeData::AssociatedProjection(projection) = fixture.analysis.snapshot.store.get(ty) else {
+        panic!("expected associated projection");
+    };
+    let mut expected_store = (*fixture.analysis.snapshot.store).clone();
+    let expected_parameter_form = expected_store.parameter_form(parameter);
+    assert_eq!(projection.trait_ref.declaration, declaration);
+    assert_eq!(projection.trait_ref.arguments.as_ref(), &[expected_parameter_form]);
+    assert_eq!(projection.requirement.owner, declaration);
+    assert_eq!(projection.requirement.index, 0);
+}
+
+#[test]
+fn unknown_trait_associated_projection_reports_written_name() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"trait MissingAssociation {
+  get -> Self::Missing
+}
+"#,
+        )
+        .analyze();
+    let diagnostics = fixture
+        .analysis
+        .snapshot
+        .all_diagnostics()
+        .filter(|diagnostic| diagnostic.code == phalcom_semantic::DiagnosticCode::AssociatedTypeUnknown)
+        .collect::<Vec<_>>();
+    assert_eq!(diagnostics.len(), 1, "unexpected associated projection diagnostics: {diagnostics:?}");
+    assert!(diagnostics[0].message.contains("Missing"));
+    assert!(diagnostics[0].primary.range.start < diagnostics[0].primary.range.end);
+}
+
+#[test]
+fn source_conformance_projection_normalizes_sibling_bindings_and_local_signatures() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"trait Sequence {
+  type Element
+  type Collection
+  next -> Option<Self::Element>
+}
+
+class List<T> {
+}
+
+impl<T> Sequence for List<T> {
+  type Element = T
+  type Collection = List<Self::Element>
+  next -> Option<Self::Element> { None }
+}
+"#,
+        )
+        .analyze();
+    assert!(!fixture
+        .analysis
+        .snapshot
+        .all_diagnostics()
+        .any(|diagnostic| matches!(diagnostic.code, phalcom_semantic::DiagnosticCode::AssociatedTypeUnknown | phalcom_semantic::DiagnosticCode::AssociatedTypeBindingInvalid)));
+
+    let declaration = fixture.decl("main", "Sequence");
+    let surface = fixture.analysis.snapshot.trait_surfaces.get(&declaration).expect("trait surface");
+    let element = surface.associated_type_by_name("Element").expect("Element requirement");
+    let collection = surface.associated_type_by_name("Collection").expect("Collection requirement");
+    let impl_id = ImplId::new(fixture.module("main").clone(), ImplLocalId(2));
+    let plan = fixture.analysis.snapshot.conformance_witness_plans.get(&impl_id).expect("conformance plan");
+    let element_binding = plan.associated_type_plan.bindings.get(&element.requirement).expect("Element binding");
+    let collection_binding = plan.associated_type_plan.bindings.get(&collection.requirement).expect("Collection binding");
+    let phalcom_semantic::TypeData::Parameter(element_parameter) = fixture.analysis.snapshot.store.get(element_binding.value_template) else {
+        panic!("expected Element = T source parameter");
+    };
+    assert!(matches!(
+        fixture.analysis.snapshot.store.type_parameter(*element_parameter).owner,
+        phalcom_semantic::TypeParameterOwner::Impl(_)
+    ));
+    let phalcom_semantic::TypeData::Applied { arguments, .. } = fixture.analysis.snapshot.store.get(collection_binding.value_template) else {
+        panic!("expected Collection = List<T> source application");
+    };
+    assert_eq!(arguments.len(), 1);
+    assert_eq!(fixture.analysis.snapshot.store.get(arguments[0]), fixture.analysis.snapshot.store.get(element_binding.value_template));
+
+    let next = phalcom_semantic::CallableId::new(
+        CallableOwnerId::Conformance(impl_id.clone()),
+        Selector::getter("next").expect("next selector"),
+        DispatchSide::Instance,
+    );
+    let signature = fixture.analysis.snapshot.callable_signatures.get(&next).expect("source conformance signature");
+    let option = signature.declared_return.canonical_type().expect("Option<T> source return");
+    let phalcom_semantic::TypeData::Applied { arguments, .. } = fixture.analysis.snapshot.store.get(option) else {
+        panic!("expected Option<T> source return");
+    };
+    assert_eq!(arguments.len(), 1);
+    assert_eq!(fixture.analysis.snapshot.store.get(arguments[0]), fixture.analysis.snapshot.store.get(element_binding.value_template));
+    assert_eq!(plan.associated_type_plan.failures.len(), 0);
+}
+
+#[test]
+fn source_conformance_projection_is_order_independent_and_cycles_are_incomplete() {
+    let make_fixture = |bindings: &str| {
+        WorkspaceFixture::new()
+            .module(
+                "main",
+                format!(
+                    "trait Sequence {{\n  type Element\n  type Collection\n  next -> Option<Self::Element>\n}}\n\nclass List<T> {{\n}}\n\nimpl<T> Sequence for List<T> {{\n{bindings}\n  next -> Option<Self::Element> {{ None }}\n}}\n"
+                ),
+            )
+            .analyze()
+    };
+    let forward = make_fixture("  type Element = T\n  type Collection = List<Self::Element>");
+    let reverse = make_fixture("  type Collection = List<Self::Element>\n  type Element = T");
+
+    for fixture in [&forward, &reverse] {
+        assert!(!fixture
+            .analysis
+            .snapshot
+            .all_diagnostics()
+            .any(|diagnostic| matches!(diagnostic.code, phalcom_semantic::DiagnosticCode::AssociatedTypeUnknown | phalcom_semantic::DiagnosticCode::AssociatedTypeBindingInvalid)));
+        let plan = fixture.analysis.snapshot.conformance_witness_plans.values().next().expect("conformance plan");
+        assert!(plan.associated_type_plan.failures.is_empty());
+        assert_eq!(plan.associated_type_plan.bindings.len(), 2);
+    }
+    let forward_plan = forward.analysis.snapshot.conformance_witness_plans.values().next().expect("forward plan");
+    let reverse_plan = reverse.analysis.snapshot.conformance_witness_plans.values().next().expect("reverse plan");
+    assert_eq!(forward_plan.associated_type_plan.bindings.values().map(|binding| binding.value_template).collect::<Vec<_>>().len(), 2);
+    assert_eq!(reverse_plan.associated_type_plan.bindings.values().map(|binding| binding.value_template).collect::<Vec<_>>().len(), 2);
+
+    let cycle = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"trait Cyclic {
+  type A
+  type B
+}
+
+class Box {
+}
+
+impl Cyclic for Box {
+  type A = Self::B
+  type B = Self::A
+}
+"#,
+        )
+        .analyze();
+    let cycle_plan = cycle.analysis.snapshot.conformance_witness_plans.values().next().expect("cycle plan");
+    assert!(matches!(cycle_plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Incomplete { .. }));
+    assert!(cycle_plan
+        .associated_type_plan
+        .failures
+        .iter()
+        .any(|failure| failure.reason.contains("cyclic associated type binding")));
+}
+
+#[test]
+fn exact_projection_normalization_consumes_published_associated_evidence() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"trait Iterable {
+  type Item
+}
+
+class Box<T> {
+}
+
+impl<T> Iterable for Box<T> {
+  type Item = T
+}
+"#,
+        )
+        .analyze();
+    let trait_declaration = fixture.decl("main", "Iterable");
+    let target_declaration = fixture.decl("main", "Box");
+    let int = fixture.analysis.snapshot.declarations.form(&CoreDeclarationIds::default().int).expect("Int form");
+    let box_form = fixture.analysis.snapshot.declarations.form(&target_declaration).expect("Box form");
+    let mut store = (*fixture.analysis.snapshot.store).clone();
+    let target = store.apply_type_form(box_form, &[int]).expect("Box<Int>");
+    let surface = fixture.analysis.snapshot.trait_surfaces.get(&trait_declaration).expect("trait surface");
+    let requirement = surface.associated_type_by_name("Item").expect("Item requirement");
+    let trait_ref = TraitRef::new(trait_declaration, Vec::new().into_boxed_slice());
+    let projection = store.associated_projection(target, trait_ref, requirement.requirement.clone());
+
+    let mut budget = phalcom_semantic::QueryBudget::default();
+    let cancel = phalcom_semantic::CancellationToken::new();
+    let mut context = phalcom_semantic::types::ProjectionNormalizationContext::new(
+        phalcom_semantic::types::ProjectionNormalizationMode::Exact {
+            conformance_index: &fixture.analysis.snapshot.conformance_index,
+            witness_plans: &fixture.analysis.snapshot.conformance_witness_plans,
+            trait_surfaces: &fixture.analysis.snapshot.trait_surfaces,
+            declarations: &fixture.analysis.snapshot.declarations,
+            hierarchy: fixture.analysis.snapshot.hierarchy.as_ref(),
+        },
+        &mut budget,
+        &cancel,
+    );
+    assert_eq!(
+        phalcom_semantic::types::normalize_type(&mut store, projection, &mut context),
+        phalcom_semantic::types::ProjectionNormalizationResult::Normalized(int)
+    );
+
+    let option_form = fixture
+        .analysis
+        .snapshot
+        .declarations
+        .form(&CoreDeclarationIds::default().option)
+        .expect("Option type form");
+    let nested = store.apply_type_form(option_form, &[projection]).expect("Option projection");
+    let nested_result = phalcom_semantic::types::normalize_type(&mut store, nested, &mut context);
+    let phalcom_semantic::types::ProjectionNormalizationResult::Normalized(nested) = nested_result else {
+        panic!("expected nested exact projection normalization, got {nested_result:?}");
+    };
+    let phalcom_semantic::TypeData::Applied { arguments, .. } = store.get(nested) else {
+        panic!("expected normalized Option application, got {:?}", store.get(nested));
+    };
+    assert_eq!(arguments.as_ref(), &[int]);
+}
+
+#[test]
+fn exact_projection_integration_normalizes_parameter_and_return_witness_contracts() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"trait Iterator {
+  type Item
+  next -> Option<Self::Item>
+  accept(_ value: Self::Item) -> Self::Item
+}
+
+class List<T> {
+}
+
+impl<T> Iterator for List<T> {
+  type Item = T
+  next -> Option<T> { None }
+  accept(_ value: T) -> T { value }
+}
+"#,
+        )
+        .analyze();
+    let iterator = fixture.decl("main", "Iterator");
+    let list = fixture.decl("main", "List");
+    let int = fixture.analysis.snapshot.declarations.form(&CoreDeclarationIds::default().int).expect("Int form");
+    let list_form = fixture.analysis.snapshot.declarations.form(&list).expect("List form");
+    let mut store = (*fixture.analysis.snapshot.store).clone();
+    let target = store.apply_type_form(list_form, &[int]).expect("List<Int>");
+    let trait_ref = TraitRef::new(iterator.clone(), Vec::new().into_boxed_slice());
+    let evidence = match phalcom_semantic::impls::resolve_conformance_evidence_with_surfaces(
+        &fixture.analysis.snapshot.conformance_index,
+        &fixture.analysis.snapshot.conformance_witness_plans,
+        &fixture.analysis.snapshot.trait_surfaces,
+        &fixture.analysis.snapshot.declarations,
+        &mut store,
+        fixture.analysis.snapshot.hierarchy.as_ref(),
+        target,
+        &trait_ref,
+    ) {
+        phalcom_semantic::impls::ConformanceResolution::Proven(evidence) => evidence,
+        other => panic!("expected exact Iterator evidence, got {other:?}"),
+    };
+    let item = fixture
+        .analysis
+        .snapshot
+        .trait_surfaces
+        .get(&iterator)
+        .expect("Iterator surface")
+        .associated_type_by_name("Item")
+        .expect("Item requirement")
+        .requirement
+        .clone();
+    assert_eq!(evidence.associated_types.get(&item).expect("exact Item binding").value, int);
+
+    let surface = fixture.analysis.snapshot.trait_surfaces.get(&iterator).expect("Iterator surface");
+    let next = surface
+        .get_by_selector(&Selector::getter("next").expect("next selector"), DispatchSide::Instance)
+        .expect("next requirement")
+        .requirement
+        .clone();
+    let accept = surface
+        .get_by_selector(
+            &Selector::method("accept", vec![SelectorSlot::Positional]).expect("accept selector"),
+            DispatchSide::Instance,
+        )
+        .expect("accept requirement")
+        .requirement
+        .clone();
+    let next_return = evidence.requirement_views.get(&next).expect("next view").signature.declared_return.canonical_type().expect("next return");
+    let phalcom_semantic::TypeData::Applied { arguments, .. } = store.get(next_return) else {
+        panic!("expected normalized Option<Int>, got {:?}", store.get(next_return));
+    };
+    assert_eq!(arguments.as_ref(), &[int]);
+    assert_eq!(
+        evidence
+            .requirement_views
+            .get(&accept)
+            .expect("accept view")
+            .signature
+            .parameters[0]
+            .declared_type
+            .canonical_type(),
+        Some(int)
+    );
+    assert_eq!(evidence.requirement_views.get(&accept).expect("accept view").signature.declared_return.canonical_type(), Some(int));
+}
+
+#[test]
+fn trait_default_can_use_abstract_associated_projection_and_exact_view_normalizes_it() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"trait Defaulted {
+  type Item
+  echo(_ value: Self::Item) -> Self::Item { value }
+}
+
+class Box {
+}
+
+impl Defaulted for Box {
+  type Item = Int
+}
+"#,
+        )
+        .analyze();
+    assert!(!fixture.analysis.snapshot.has_errors(), "unexpected diagnostics: {:?}", fixture.analysis.snapshot.all_diagnostics().collect::<Vec<_>>());
+    let defaulted = fixture.decl("main", "Defaulted");
+    let target = fixture
+        .analysis
+        .snapshot
+        .declarations
+        .form(&fixture.decl("main", "Box"))
+        .expect("Box form");
+    let int = fixture.analysis.snapshot.declarations.form(&CoreDeclarationIds::default().int).expect("Int form");
+    let trait_ref = TraitRef::new(defaulted.clone(), Vec::new().into_boxed_slice());
+    let evidence = fixture.analysis.snapshot.conformance_evidence_for(target, &trait_ref).expect("default-backed evidence");
+    let surface = fixture.analysis.snapshot.trait_surfaces.get(&defaulted).expect("Defaulted surface");
+    let requirement = surface
+        .get_by_selector(&Selector::method("echo", vec![SelectorSlot::Positional]).expect("echo selector"), DispatchSide::Instance)
+        .expect("echo requirement")
+        .requirement
+        .clone();
+    assert!(matches!(
+        evidence.requirements.get(&requirement),
+        Some(phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { .. })
+    ));
+    assert_eq!(evidence.requirement_views.get(&requirement).expect("echo view").signature.parameters[0].declared_type.canonical_type(), Some(int));
+    assert_eq!(evidence.requirement_views.get(&requirement).expect("echo view").signature.declared_return.canonical_type(), Some(int));
+}
+
+#[test]
+fn normalized_associated_projection_rejects_incompatible_witness() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"trait Typed {
+  type Item
+  echo(_ value: Self::Item) -> Self::Item
+}
+
+class Box {
+}
+
+impl Typed for Box {
+  type Item = Int
+  echo(_ value: String) -> String { value }
+}
+"#,
+        )
+        .analyze();
+    let plan = fixture.analysis.snapshot.conformance_witness_plans.values().next().expect("Typed conformance plan");
+    assert!(matches!(
+        plan.completeness,
+        phalcom_semantic::impls::ConformanceCompleteness::Incomplete { ref failures }
+            if failures.iter().any(|failure| matches!(failure, phalcom_semantic::impls::ConformanceFailure::Behavioral(failure) if failure.reason.contains("subtype") || failure.reason.contains("type")))
+    ), "expected normalized witness incompatibility, got {:?}", plan.completeness);
+}
+
+#[test]
+fn projection_normalization_modes_preserve_symbolic_source_and_unknown_states() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"trait Abstract {
+  type Item
+  get -> Self::Item
+}
+
+trait Other {
+  type Item
+}
+
+class Box<T> {
+}
+
+impl<T> Abstract for Box<T> {
+  type Item = T
+}
+"#,
+        )
+        .analyze();
+    let abstract_declaration = fixture.decl("main", "Abstract");
+    let abstract_surface = fixture.analysis.snapshot.trait_surfaces.get(&abstract_declaration).expect("Abstract surface");
+    let abstract_member = abstract_surface
+        .get_by_selector(&Selector::getter("get").expect("get selector"), DispatchSide::Instance)
+        .expect("get requirement");
+    let abstract_projection = abstract_member.signature.declared_return.canonical_type().expect("abstract projection");
+    let abstract_trait_ref = match fixture.analysis.snapshot.store.get(abstract_projection) {
+        phalcom_semantic::TypeData::AssociatedProjection(projection) => projection.trait_ref.clone(),
+        other => panic!("expected abstract projection, got {other:?}"),
+    };
+    let mut abstract_store = (*fixture.analysis.snapshot.store).clone();
+    let mut abstract_budget = phalcom_semantic::QueryBudget::default();
+    let abstract_cancel = phalcom_semantic::CancellationToken::new();
+    let mut abstract_context = phalcom_semantic::types::ProjectionNormalizationContext::new(
+        phalcom_semantic::types::ProjectionNormalizationMode::AbstractTrait { trait_ref: &abstract_trait_ref },
+        &mut abstract_budget,
+        &abstract_cancel,
+    );
+    assert_eq!(
+        phalcom_semantic::types::normalize_type(&mut abstract_store, abstract_projection, &mut abstract_context),
+        phalcom_semantic::types::ProjectionNormalizationResult::Symbolic(abstract_projection)
+    );
+
+    let source_plan = fixture.analysis.snapshot.conformance_witness_plans.values().next().expect("source plan");
+    let source_requirement = source_plan
+        .associated_type_plan
+        .bindings
+        .keys()
+        .next()
+        .expect("source associated requirement")
+        .clone();
+    let source_binding = source_plan.associated_type_plan.bindings.get(&source_requirement).expect("source binding");
+    let source_target = source_plan.target_template;
+    let source_trait_ref = source_plan.trait_ref_template.clone();
+    let mut source_store = (*fixture.analysis.snapshot.store).clone();
+    let source_projection = source_store.associated_projection(source_target, source_trait_ref.clone(), source_requirement);
+    let mut source_budget = phalcom_semantic::QueryBudget::default();
+    let source_cancel = phalcom_semantic::CancellationToken::new();
+    let mut source_context = phalcom_semantic::types::ProjectionNormalizationContext::new(
+        phalcom_semantic::types::ProjectionNormalizationMode::SourceConformance {
+            trait_ref: &source_trait_ref,
+            target: source_target,
+            plan: &source_plan.associated_type_plan,
+        },
+        &mut source_budget,
+        &source_cancel,
+    );
+    assert_eq!(
+        phalcom_semantic::types::normalize_type(&mut source_store, source_projection, &mut source_context),
+        phalcom_semantic::types::ProjectionNormalizationResult::Normalized(source_binding.value_template)
+    );
+
+    let other_declaration = fixture.decl("main", "Other");
+    let other_requirement = fixture
+        .analysis
+        .snapshot
+        .trait_surfaces
+        .get(&other_declaration)
+        .expect("Other surface")
+        .associated_type_by_name("Item")
+        .expect("Other Item")
+        .requirement
+        .clone();
+    let box_declaration = fixture.decl("main", "Box");
+    let box_form = fixture.analysis.snapshot.declarations.form(&box_declaration).expect("Box form");
+    let int = fixture.analysis.snapshot.declarations.form(&CoreDeclarationIds::default().int).expect("Int form");
+    let mut exact_store = (*fixture.analysis.snapshot.store).clone();
+    let exact_target = exact_store.apply_type_form(box_form, &[int]).expect("Box<Int>");
+    let other_ref = TraitRef::new(other_declaration, Vec::new().into_boxed_slice());
+    let other_projection = exact_store.associated_projection(exact_target, other_ref, other_requirement);
+    let mut exact_budget = phalcom_semantic::QueryBudget::default();
+    let exact_cancel = phalcom_semantic::CancellationToken::new();
+    let mut exact_context = phalcom_semantic::types::ProjectionNormalizationContext::new(
+        phalcom_semantic::types::ProjectionNormalizationMode::Exact {
+            conformance_index: &fixture.analysis.snapshot.conformance_index,
+            witness_plans: &fixture.analysis.snapshot.conformance_witness_plans,
+            trait_surfaces: &fixture.analysis.snapshot.trait_surfaces,
+            declarations: &fixture.analysis.snapshot.declarations,
+            hierarchy: fixture.analysis.snapshot.hierarchy.as_ref(),
+        },
+        &mut exact_budget,
+        &exact_cancel,
+    );
+    assert_eq!(
+        phalcom_semantic::types::normalize_type(&mut exact_store, other_projection, &mut exact_context),
+        phalcom_semantic::types::ProjectionNormalizationResult::Unknown(phalcom_semantic::UnknownReason::UnderconstrainedTypeVariable)
+    );
+}
+
+#[test]
+fn projection_normalization_propagates_cancellation_and_budget_states() {
+    let mut store = phalcom_semantic::TypeStore::new();
+    let ty = store.unit();
+    let cancel = phalcom_semantic::CancellationToken::new();
+    cancel.cancel();
+    let mut budget = phalcom_semantic::QueryBudget::default();
+    let trait_ref = TraitRef::new(fixture_module(), Vec::new().into_boxed_slice());
+    let mut context = phalcom_semantic::types::ProjectionNormalizationContext::new(
+        phalcom_semantic::types::ProjectionNormalizationMode::AbstractTrait {
+            trait_ref: &trait_ref,
+        },
+        &mut budget,
+        &cancel,
+    );
+    assert_eq!(
+        phalcom_semantic::types::normalize_type(&mut store, ty, &mut context),
+        phalcom_semantic::types::ProjectionNormalizationResult::Cancelled
+    );
+
+    let cancel = phalcom_semantic::CancellationToken::new();
+    let mut budget = phalcom_semantic::QueryBudget::new(0);
+    let trait_ref = TraitRef::new(fixture_module(), Vec::new().into_boxed_slice());
+    let mut context = phalcom_semantic::types::ProjectionNormalizationContext::new(
+        phalcom_semantic::types::ProjectionNormalizationMode::AbstractTrait { trait_ref: &trait_ref },
+        &mut budget,
+        &cancel,
+    );
+    assert!(matches!(
+        phalcom_semantic::types::normalize_type(&mut store, ty, &mut context),
+        phalcom_semantic::types::ProjectionNormalizationResult::BudgetExceeded(_)
+    ));
+}
+
+#[test]
+fn source_projection_normalization_detects_recursive_binding_cycles() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"trait Cyclic {
+  type A
+  type B
+}
+
+class Box {
+}
+
+impl Cyclic for Box {
+  type A = Self::B
+  type B = Self::A
+}
+"#,
+        )
+        .analyze();
+    let plan = fixture.analysis.snapshot.conformance_witness_plans.values().next().expect("cycle plan");
+    let requirement = plan.associated_type_plan.bindings.keys().next().expect("cycle requirement").clone();
+    let mut store = (*fixture.analysis.snapshot.store).clone();
+    let projection = store.associated_projection(plan.target_template, plan.trait_ref_template.clone(), requirement);
+    let mut budget = phalcom_semantic::QueryBudget::default();
+    let cancel = phalcom_semantic::CancellationToken::new();
+    let trait_ref = plan.trait_ref_template.clone();
+    let mut context = phalcom_semantic::types::ProjectionNormalizationContext::new(
+        phalcom_semantic::types::ProjectionNormalizationMode::SourceConformance {
+            trait_ref: &trait_ref,
+            target: plan.target_template,
+            plan: &plan.associated_type_plan,
+        },
+        &mut budget,
+        &cancel,
+    );
+    assert_eq!(
+        phalcom_semantic::types::normalize_type(&mut store, projection, &mut context),
+        phalcom_semantic::types::ProjectionNormalizationResult::Recursive
+    );
+}
+
+#[test]
+fn exact_projection_normalization_preserves_exact_enum_case_identity() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"trait Tagged {
+  type Item
+}
+
+enum Status {
+  Ready
+  Waiting
+}
+
+impl Tagged for Status::Ready {
+  type Item = Self
+}
+"#,
+        )
+        .analyze();
+    let trait_declaration = fixture.decl("main", "Tagged");
+    let status_declaration = fixture.decl("main", "Status");
+    let surface = fixture.analysis.snapshot.trait_surfaces.get(&trait_declaration).expect("Tagged surface");
+    let requirement = surface.associated_type_by_name("Item").expect("Item requirement").requirement.clone();
+    let (_, contribution) = fixture.analysis.snapshot.conformance_index.iter().next().expect("case conformance");
+    let phalcom_semantic::impls::ConformanceTarget::ExactEnumCase(variant) = &contribution.target else {
+        panic!("expected exact enum-case conformance");
+    };
+    let mut store = (*fixture.analysis.snapshot.store).clone();
+    let status = fixture.analysis.snapshot.declarations.form(&status_declaration).expect("Status type");
+    let target = store.exact_case_type(variant, status).expect("Status::Ready type");
+    let trait_ref = TraitRef::new(trait_declaration, Vec::new().into_boxed_slice());
+    let projection = store.associated_projection(target, trait_ref, requirement);
+    let mut budget = phalcom_semantic::QueryBudget::default();
+    let cancel = phalcom_semantic::CancellationToken::new();
+    let mut context = phalcom_semantic::types::ProjectionNormalizationContext::new(
+        phalcom_semantic::types::ProjectionNormalizationMode::Exact {
+            conformance_index: &fixture.analysis.snapshot.conformance_index,
+            witness_plans: &fixture.analysis.snapshot.conformance_witness_plans,
+            trait_surfaces: &fixture.analysis.snapshot.trait_surfaces,
+            declarations: &fixture.analysis.snapshot.declarations,
+            hierarchy: fixture.analysis.snapshot.hierarchy.as_ref(),
+        },
+        &mut budget,
+        &cancel,
+    );
+    let normalized = match phalcom_semantic::types::normalize_type(&mut store, projection, &mut context) {
+        phalcom_semantic::types::ProjectionNormalizationResult::Normalized(ty) => ty,
+        other => panic!("expected exact enum-case normalization, got {other:?}"),
+    };
+    assert!(matches!(store.get(normalized), phalcom_semantic::TypeData::ExactCase { .. }));
+    assert_eq!(normalized, target);
+}
+
+#[test]
+fn exact_projection_normalization_preserves_ambiguity() {
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "main",
+            r#"trait Tagged {
+  type Item
+}
+
+class Value<T> {
+}
+
+class Marker {
+}
+
+impl<T> Tagged for Value<T> {
+  type Item = T
+}
+
+impl Tagged for Value<Marker> {
+  type Item = Int
+}
+"#,
+        )
+        .analyze();
+    let trait_declaration = fixture.decl("main", "Tagged");
+    let value_declaration = fixture.decl("main", "Value");
+    let marker_declaration = fixture.decl("main", "Marker");
+    let surface = fixture.analysis.snapshot.trait_surfaces.get(&trait_declaration).expect("Tagged surface");
+    let requirement = surface.associated_type_by_name("Item").expect("Item requirement").requirement.clone();
+    let value_form = fixture.analysis.snapshot.declarations.form(&value_declaration).expect("Value form");
+    let marker = fixture.analysis.snapshot.declarations.form(&marker_declaration).expect("Marker form");
+    let mut store = (*fixture.analysis.snapshot.store).clone();
+    let target = store.apply_type_form(value_form, &[marker]).expect("Value<Marker>");
+    let trait_ref = TraitRef::new(trait_declaration, Vec::new().into_boxed_slice());
+    let projection = store.associated_projection(target, trait_ref, requirement);
+    let mut budget = phalcom_semantic::QueryBudget::default();
+    let cancel = phalcom_semantic::CancellationToken::new();
+    let mut context = phalcom_semantic::types::ProjectionNormalizationContext::new(
+        phalcom_semantic::types::ProjectionNormalizationMode::Exact {
+            conformance_index: &fixture.analysis.snapshot.conformance_index,
+            witness_plans: &fixture.analysis.snapshot.conformance_witness_plans,
+            trait_surfaces: &fixture.analysis.snapshot.trait_surfaces,
+            declarations: &fixture.analysis.snapshot.declarations,
+            hierarchy: fixture.analysis.snapshot.hierarchy.as_ref(),
+        },
+        &mut budget,
+        &cancel,
+    );
+    let result = phalcom_semantic::types::normalize_type(&mut store, projection, &mut context);
+    assert!(matches!(result, phalcom_semantic::types::ProjectionNormalizationResult::Ambiguous(ref candidates) if candidates.len() == 2), "expected ambiguity, got {result:?}");
+}
+
+fn fixture_module() -> phalcom_semantic::DeclarationId {
+    phalcom_semantic::DeclarationId::new(phalcom_semantic::ModuleId::universe_root(), "SyntheticTrait".into())
+}
+
+#[test]
 fn trait_surface_reports_duplicate_selector_and_preserves_source_visibility() {
     let fixture = WorkspaceFixture::new()
         .module(
@@ -689,11 +1476,11 @@ fn trait_surface_reports_duplicate_selector_and_preserves_source_visibility() {
             .range
             .start
             < surface
-                .get_by_selector(&Selector::method("run", []).unwrap(), DispatchSide::Instance)
-                .expect("run member")
-                .source
-                .range
-                .end
+            .get_by_selector(&Selector::method("run", []).unwrap(), DispatchSide::Instance)
+            .expect("run member")
+            .source
+            .range
+            .end
     );
     assert_eq!(
         fixture

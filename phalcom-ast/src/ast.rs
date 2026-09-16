@@ -804,6 +804,13 @@ pub enum TypeAnnotationExpr {
     Never { range: SourceRange },
     /// Owner-relative type `Self`.
     SelfType { range: SourceRange },
+    /// Contextual associated-type projection (e.g. `Self::Item`).
+    AssociatedTypeProjection {
+        subject: Box<TypeAnnotation>,
+        name: String,
+        name_range: SourceRange,
+        range: SourceRange,
+    },
     /// Structural record type (e.g. `#{ name: String, age: Int }` or `#{ name: String, | R }`).
     Record {
         fields: Vec<RecordTypeField>,

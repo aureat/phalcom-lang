@@ -176,6 +176,19 @@ impl OccurrenceIndex {
         }
         if let Some(context) = context {
             let module = visitor.scopes.module.clone();
+            for ((_owner, range), requirement) in context
+                .associated_projection_targets
+                .iter()
+                .filter(|((owner, _), _)| owner == &module)
+            {
+                visitor.record_targeted(
+                    *range,
+                    OccurrenceKind::Member,
+                    OccurrenceRole::Reference,
+                    None,
+                    Some(SemanticTargetId::AssociatedType(requirement.clone())),
+                );
+            }
             let references = context
                 .type_reference_targets
                 .iter()

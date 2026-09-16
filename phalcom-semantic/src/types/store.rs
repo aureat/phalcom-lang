@@ -9,6 +9,7 @@ use super::row::{RecordRowData, RecordRowField, RecordRowTail};
 use super::type_lambda::{BetaReductionError, BetaResult, TypeLambdaArena};
 use super::variance::Variance;
 use crate::identity::{DeclarationId, VariantId};
+use crate::traits::{AssociatedTypeRequirementId, TraitRef};
 use phalcom_common::selector::{SelectorKind, SelectorSlot};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -62,6 +63,18 @@ pub struct CallableType {
     pub return_type: TypeId,
 }
 
+/// Canonical contextual associated-type projection.
+///
+/// The subject, relevant trait application, and trait-owned requirement
+/// identity together determine the projection. Source spelling and ranges are
+/// intentionally not part of this semantic type node.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct AssociatedTypeProjection {
+    pub subject: TypeId,
+    pub trait_ref: TraitRef,
+    pub requirement: AssociatedTypeRequirementId,
+}
+
 /// Structural canonical type definition.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum TypeData {
@@ -93,6 +106,8 @@ pub enum TypeData {
     Lambda(TypeLambdaId),
     /// Owner-relative `Self` type term.
     SelfType(SelfTypeTerm),
+    /// Contextual associated-type projection.
+    AssociatedProjection(AssociatedTypeProjection),
 }
 
 /// Central store for canonical type interning, hash-consing, and kind assignments.
@@ -252,6 +267,12 @@ impl TypeStore {
     /// Interns an owner-relative `Self` type term.
     pub fn self_type(&mut self, term: SelfTypeTerm) -> TypeId {
         self.intern_with_kind(TypeData::SelfType(term), KindId::TYPE)
+    }
+
+    /// Interns a canonical contextual associated-type projection.
+    pub fn associated_projection(&mut self, subject: TypeId, trait_ref: TraitRef, requirement: AssociatedTypeRequirementId) -> TypeId {
+        debug_assert_eq!(requirement.owner, trait_ref.declaration, "associated projection requirement must belong to its trait");
+        self.intern_with_kind(TypeData::AssociatedProjection(AssociatedTypeProjection { subject, trait_ref, requirement }), KindId::TYPE)
     }
 
     #[inline]
@@ -809,6 +830,9 @@ impl TypeStore {
             TypeData::Parameter(param_id) => self.type_parameters[param_id.index()].name.to_string(),
             TypeData::Lambda(_) => "[TypeLambda]".to_string(),
             TypeData::SelfType(_) => "Self".to_string(),
+            TypeData::AssociatedProjection(projection) => {
+                format!("<{} as {}>::{}", self.format_type(projection.subject), projection.trait_ref.declaration.name, projection.requirement.index)
+            }
         }
     }
 
@@ -897,6 +921,10 @@ impl TypeStore {
                 call.parameters.iter().any(|p| self.contains_type_parameter(p.ty, target)) || self.contains_type_parameter(call.return_type, target)
             }
             TypeData::ExactCase { enum_type, .. } => self.contains_type_parameter(*enum_type, target),
+            TypeData::AssociatedProjection(projection) => {
+                self.contains_type_parameter(projection.subject, target)
+                    || projection.trait_ref.arguments.iter().any(|&argument| self.contains_type_parameter(argument, target))
+            }
             _ => false,
         }
     }
@@ -922,6 +950,9 @@ pub enum ExactCaseTypeError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::identity::DispatchSide;
+    use crate::types::environment::{TypeEnvironment, TypeView};
+    use crate::types::parameter::{SelfRole, SelfTypeTerm};
     use phalcom_modules::identity::ModuleId;
 
     fn test_decl(name: &str) -> DeclarationId {
@@ -961,5 +992,48 @@ mod tests {
 
         let empty_union = store.union(&[]);
         assert_eq!(empty_union, store.never(), "empty union is never");
+    }
+
+    #[test]
+    fn associated_projection_interning_uses_trait_and_requirement_identity() {
+        let mut store = TypeStore::new();
+        let subject = store.nominal_type(test_decl("Subject"));
+        let first_trait = test_decl("First");
+        let second_trait = test_decl("Second");
+        let first_requirement = AssociatedTypeRequirementId::new(first_trait.clone(), 0);
+        let second_requirement = AssociatedTypeRequirementId::new(second_trait.clone(), 0);
+        let first_ref = TraitRef::new(first_trait, Vec::<TypeId>::new().into_boxed_slice());
+        let second_ref = TraitRef::new(second_trait, Vec::<TypeId>::new().into_boxed_slice());
+
+        let first = store.associated_projection(subject, first_ref.clone(), first_requirement.clone());
+        assert_eq!(first, store.associated_projection(subject, first_ref, first_requirement));
+        assert_ne!(first, store.associated_projection(subject, second_ref, second_requirement));
+        assert_eq!(store.kind_of(first), KindId::TYPE);
+    }
+
+    #[test]
+    fn associated_projection_structural_materialization_rewrites_subject_only() {
+        let mut store = TypeStore::new();
+        let owner = test_decl("Iterator");
+        let self_type = store.self_type(SelfTypeTerm {
+            owner: owner.clone(),
+            side: DispatchSide::Instance,
+            role: SelfRole::InstanceType,
+        });
+        let subject = store.nominal_type(test_decl("List"));
+        let requirement = AssociatedTypeRequirementId::new(owner.clone(), 0);
+        let projection = store.associated_projection(
+            self_type,
+            TraitRef::new(owner, Vec::<TypeId>::new().into_boxed_slice()),
+            requirement.clone(),
+        );
+        let nested = store.tuple(vec![TupleTypeElement { label: None, ty: projection }].into_boxed_slice());
+        let mut environment = TypeEnvironment::new();
+        environment.bind_self(subject);
+        let materialized = TypeView::new(nested, environment).materialize(&mut store);
+        let TypeData::Tuple(elements) = store.get(materialized) else { panic!("expected tuple") };
+        let TypeData::AssociatedProjection(projected) = store.get(elements[0].ty) else { panic!("expected projection") };
+        assert_eq!(projected.subject, subject);
+        assert_eq!(projected.requirement, requirement);
     }
 }

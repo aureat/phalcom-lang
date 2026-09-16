@@ -848,6 +848,75 @@ fn exact_conditional_inherent_witness_can_outrank_trait_default() {
 }
 
 #[test]
+fn associated_failure_survives_deferred_conditional_witness() {
+    let module = test_module();
+    let source = "trait Tagged { type Item\n tag -> Int }\nclass Value<T> {}\nclass Number {}\nimpl<T> Value<T> where T <: Number { tag -> Int { 1 } }\nimpl<T> Tagged for Value<T> {}\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    let plan = output.snapshot.conformance_witness_plans.values().next().expect("source witness plan");
+    assert!(matches!(plan.completeness, phalcom_semantic::impls::ConformanceCompleteness::Incomplete { .. }), "fixed associated failure must remain incomplete: {:?}", plan.completeness);
+    assert!(matches!(
+        plan.completeness,
+        phalcom_semantic::impls::ConformanceCompleteness::Incomplete { ref failures }
+            if failures.iter().any(|failure| matches!(failure, phalcom_semantic::impls::ConformanceFailure::AssociatedType(_)))
+    ));
+
+    let value = DeclarationId::new(module.clone(), "Value".into());
+    let number = DeclarationId::new(module.clone(), "Number".into());
+    let value_form = output.snapshot.declarations.form(&value).expect("Value form");
+    let number_form = output.snapshot.declarations.form(&number).expect("Number form");
+    let mut store = (*output.snapshot.store).clone();
+    let exact_target = store.apply_type_form(value_form, &[number_form]).expect("Value<Number>");
+    let tagged = TraitRef::new(DeclarationId::new(module.clone(), "Tagged".into()), Vec::new().into_boxed_slice());
+    let surface = output.snapshot.trait_surfaces.get(&tagged.declaration).expect("trait surface");
+    let resolution = phalcom_semantic::impls::resolve_conformance_evidence(
+        &output.snapshot.conformance_index,
+        &output.snapshot.conformance_witness_plans,
+        surface,
+        &output.snapshot.declarations,
+        &mut store,
+        output.snapshot.hierarchy.as_ref(),
+        exact_target,
+        &tagged,
+    );
+    assert!(!matches!(resolution, phalcom_semantic::impls::ConformanceResolution::Proven(_)), "fixed associated failure must not be erased by exact conditional applicability: {resolution:?}");
+}
+
+#[test]
+fn duplicate_associated_failure_survives_deferred_conditional_witness() {
+    let module = test_module();
+    let source = "trait Tagged { type Item\n tag -> Int }\nclass Value<T> {}\nclass Number {}\nimpl<T> Value<T> where T <: Number { tag -> Int { 1 } }\nimpl<T> Tagged for Value<T> { type Item = Number\n type Item = Int }\n";
+    let mut session = SemanticWorkspaceSession::new();
+    let output = session.update(single_module_input(module.clone(), source));
+    let plan = output.snapshot.conformance_witness_plans.values().next().expect("source witness plan");
+    assert!(matches!(
+        plan.completeness,
+        phalcom_semantic::impls::ConformanceCompleteness::Incomplete { ref failures }
+            if failures.iter().any(|failure| matches!(failure, phalcom_semantic::impls::ConformanceFailure::AssociatedType(failure) if failure.kind == phalcom_semantic::impls::AssociatedTypeBindingFailureKind::Duplicate))
+    ));
+
+    let value = DeclarationId::new(module.clone(), "Value".into());
+    let number = DeclarationId::new(module.clone(), "Number".into());
+    let value_form = output.snapshot.declarations.form(&value).expect("Value form");
+    let number_form = output.snapshot.declarations.form(&number).expect("Number form");
+    let mut store = (*output.snapshot.store).clone();
+    let exact_target = store.apply_type_form(value_form, &[number_form]).expect("Value<Number>");
+    let tagged = TraitRef::new(DeclarationId::new(module.clone(), "Tagged".into()), Vec::new().into_boxed_slice());
+    let surface = output.snapshot.trait_surfaces.get(&tagged.declaration).expect("trait surface");
+    let resolution = phalcom_semantic::impls::resolve_conformance_evidence(
+        &output.snapshot.conformance_index,
+        &output.snapshot.conformance_witness_plans,
+        surface,
+        &output.snapshot.declarations,
+        &mut store,
+        output.snapshot.hierarchy.as_ref(),
+        exact_target,
+        &tagged,
+    );
+    assert!(!matches!(resolution, phalcom_semantic::impls::ConformanceResolution::Proven(_)), "fixed duplicate associated failure must not be erased: {resolution:?}");
+}
+
+#[test]
 fn alpha_renamed_member_generics_are_compared_by_contract() {
     let module = test_module();
     let source = "trait Mapper<T> { map<U>(_ value: U) -> U where U == Int, U <: Int }\nclass User {}\nimpl Mapper<Int> for User { map<V>(_ value: V) -> V where V <: Int { value } }\n";

@@ -68,6 +68,14 @@ P1's associated declaration, binding-plan, exact-evidence, completeness,
 property, and direct-field `via` interfaces are frozen for P2. The inherited
 C5-BL-07 Universe Bool capability failures remain classified baseline D.
 
+P2 is now complete as `IMPLEMENTED / FOCUSED_TESTED`. Its canonical
+`AssociatedProjection` carrier, contextual `Self::Item` formation, singular
+`types::normalize_type` authority, exact evidence/signature integration,
+owner-complete incremental products, and source-index target bridge are frozen
+for P3. The next plan is responsible for Iterable migration, cross-stack
+integration, and broader certification; it must not add generic trait-bound
+assumption semantics or a runtime projection solver.
+
 ---
 
 # 2. Canonical repository location
@@ -902,6 +910,14 @@ incremental dependency recording
 ```
 
 Never map “could not prove” directly to `Dynamic` unless the actual type-system rule says the source crossed a Dynamic boundary.
+
+P2's implemented authority is singular: `types::normalize_type` performs the
+recursive walk and cycle detection for abstract, source-conformance, and exact
+contexts. T5 may stage bindings, schedule dependencies, mutate its plan, and
+retain failure provenance, but it must invoke this normalizer rather than
+reimplementing source recursion. Source mode preserves a missing sibling as a
+symbolic residual until conformance completeness reports `Missing`; exact mode
+consumes exact evidence and never uses source-name lookup or runtime lookup.
 
 ---
 

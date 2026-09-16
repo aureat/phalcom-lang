@@ -345,6 +345,24 @@ A conformance binding must satisfy those constraints under the conformance's gen
 
 Associated type projection uses the language's associated-type projection rules. Within a trait or conformance, `Self::Item` denotes the `Item` projection associated with the relevant `Self` and trait context when unambiguous.
 
+The contextual `Self::Item` form is represented by the canonical semantic type
+graph. Its identity contains the projected subject, the relevant trait
+application/context, and the trait-owned associated requirement identity;
+written names and source ranges are not part of that identity. An abstract
+trait projection remains symbolic. During source conformance checking,
+projection normalization consumes the staged associated binding plan and does
+not request the final conformance evidence being constructed. A missing
+sibling binding remains symbolic until the conformance completeness pass emits
+the ordinary missing-binding failure. Exact projection normalization consumes
+published exact conformance evidence and recursively normalizes projections
+inside ordinary type structure.
+
+Normalization preserves incomplete, ambiguous, recursive, blocked, unknown,
+cancelled, budget-exceeded, and internal terminal states; it does not collapse
+those states to `Dynamic`. No generic `T::Item` assumption rule, explicit
+`<T as Trait>::Item` syntax, or runtime associated-type lookup is defined by
+this initial projection surface.
+
 Projection formation and normalization are later semantic consumers of the
 canonical declaration, binding, and evidence products described above. They do
 not authorize a second name-based binding resolver or runtime associated-type

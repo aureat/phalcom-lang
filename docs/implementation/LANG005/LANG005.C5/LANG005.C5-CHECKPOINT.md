@@ -9,12 +9,12 @@ completion: PARTIAL
 verification: FOCUSED_TESTED
 requires:
   - LANG005.C4 semantic completion
-active_plan: null
-latest_completed_plan: LANG005.C5.P1
-next_plan: LANG005.C5.P2
+active_plan: LANG005.C5.P3
+latest_completed_plan: LANG005.C5.P2
+next_plan: LANG005.C5.P3
 next_checkpoint: LANG005.C6
-planning_baseline_revision: e5152196d716ed70fc47d104a0fd789e602285db
-planning_baseline_commit: "docs: record C4 stress and certification evidence"
+planning_baseline_revision: 3a2dcbd49fa7548337b52e9562cab4f8582741e4
+planning_baseline_commit: "chore: synchronize accumulated workspace changes"
 prepared: 2026-09-15
 repository: aureat/phalcom-lang
 ---
@@ -136,21 +136,96 @@ checkpoint: LANG005.C5
 status: IN_PROGRESS
 completion: PARTIAL
 verification: FOCUSED_TESTED
-active_plan: null
-next_plan: LANG005.C5.P2
+active_plan: LANG005.C5.P3
+latest_completed_plan: LANG005.C5.P2
+next_plan: LANG005.C5.P3
 next_checkpoint: LANG005.C6
 ```
 
-The patch-grade P1 plan is complete against the shared working tree. T0 takeover
-was re-verified, T1–T10 were implemented, and the affected crates plus
-P1-focused semantic/compiler gates were checked. The two known Universe
-capability failures remain inherited baseline evidence; they do not block the
-focused P1 result. P2 remains the active successor for projection formation and
-normalization.
+The patch-grade P1 plan is complete against the pushed synchronization commit.
+P2 T0 re-grounded the live takeover at `3a2dcbd49fa7548337b52e9562cab4f8582741e4`:
+the affected crates compile, `impls::queries` is 53/53, and
+`incremental::associated_types` is 3/3. The focused trait slice remains 21/23;
+the two failures are the same Universe `Bool` declaration-dependency/capability
+baseline (`C5-BL-07`), with no P2-specific coupling found. P2 is complete as
+`IMPLEMENTED / FOCUSED_TESTED`; P3 is the next active plan for vertical
+integration and certification.
 
 The predecessor checkpoint, C4, remains recorded as `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED` because broad workspace/release certification is blocked by known pre-existing failures. Its **focused semantic architecture required by C5 is complete and stable**: explicit conformance, exact target/`TraitRef` matching, witness/default selection, `ConformanceEvidence`, trait-evidenced dispatch, semantic lowering, runtime execution, and source/editor projection all have focused evidence.
 
 C5 must not reinterpret the inherited C4 broad blockers as missing C5 prerequisites unless a fresh reproducer proves they affect the C5 semantic slice.
+
+P2 G1 is complete: exact-deferred behavioral applicability can no longer erase
+fixed source conformance invalidity. Missing and duplicate associated binding
+failures remain in the singular `ConformanceCompleteness::Incomplete` result,
+and missing-binding diagnostics use the conformance declaration provenance.
+`AssociatedTypeBindingFailureKind` is the durable typed classification for the
+P2 normalization boundary. The focused conformance query slice is 55/55,
+including both deferred-witness regressions.
+
+P2 G3 is complete: trait formation now performs an associated-shape prepass
+before behavioral signature formation and attaches an owned abstract
+`TraitRef`/associated-name context to trait signatures. `Self::Item` forms a
+canonical symbolic projection, nested projections preserve their structure,
+generic trait arguments remain symbolic parameter forms, same-spelling
+associated declarations remain trait-owned and distinct, and unknown names
+produce a written-name diagnostic. The exact P2 formation tests pass (4/4).
+The owning trait capability slice is 25/27; its two failures are the unchanged
+Universe `Bool` declaration-dependency/capability baseline `C5-BL-07`, with no
+P2 coupling found.
+
+P2 T5 is complete: source conformance associated bindings now stage all valid
+LHS requirement identities before forming RHS templates, normalize sibling
+projections by requirement identity under the conformance trait application
+and symbolic target head, and retain deterministic cycle failures in the
+existing conformance completeness authority. Conformance-local signatures use
+the same staged source plan and normalize `Self::Item` into the bound source
+type where available. Exact witness compatibility for symbolic trait
+requirements remains deferred to T6/T7 by plan. The focused source projection
+tests pass 2/2 and the owning `impls::queries` slice passes 55/55.
+
+P2 T6/G4 is complete: `types::normalize_type` is the sole recursive
+type/projection normalization authority for abstract, source, and exact modes,
+including applied, tuple, record, callable, union, exact-case, and family
+children. T5 retains only source-plan scheduling/publication and failure
+provenance; it invokes the T6 normalizer and preserves a missing sibling as a
+symbolic residual until the completeness pass emits the ordinary `Missing`
+failure. Exact mode consumes canonical conformance evidence and preserves
+unknown, incomplete, ambiguity, recursive, cancellation, budget, and internal
+terminal states without a dynamic catch-all. Focused T6 projection tests pass
+6/6 and `impls::queries` passes 55/55. The adviser decision was
+`PROCEED`; no plan amendment was required.
+
+P2 T7/G5 is complete for the focused semantic integration surface: exact
+associated binding values and exact requirement views now normalize through
+the central authority, source witness selection sees source-plan-normalized
+parameter/return contracts, trait defaults remain valid with abstract
+`Self::Item`, and incompatible witnesses are rejected after normalization.
+Focused tests cover exact generic specialization, exact enum-case identity,
+parameter and return positions, default selection, and normalized witness
+rejection; all pass. The owning `impls::queries` slice remains 55/55.
+
+P2 T8/G6 is complete for the owner-complete incremental and source-identity
+surface. Projection-bearing exact evidence changes from `Int` to `String`, is
+removed with its associated binding, and is recovered with cold-parity
+evidence; adding/removing a projection-bearing trait method updates and retires
+the exact requirement view; and renaming `Item` to `Element` republishes the
+current declaration, binding, and `Self::Element` occurrences against the
+trait-owned `AssociatedTypeRequirementId`. The focused associated incremental
+module passes 5/5, and the source-index navigation regression passes 1/1.
+The semantic-session occurrence table remains the canonical source-index
+bridge; no editor-owned associated-name resolver was added.
+
+P2 T9/G7 is complete with focused stabilization. The affected AST, semantic,
+core, and LSP crates compile; AST trait syntax passes 8/8; `impls::queries`
+passes 55/55; associated incremental tests pass 5/5; source-index/editor
+integration passes 11/11 (including the projection target regression); and
+the projection-normalization discriminator passes 6/6. The owning trait
+capability slice passes 36/38: the two failures reproduce the unchanged
+Universe `Bool` declaration-dependency/capability baseline `C5-BL-07`
+(classification D). The scoped review found no duplicate source normalizer,
+consumer-owned resolver, runtime projection solver, or broad-invalidation
+change.
 
 ---
 
@@ -321,7 +396,7 @@ projection solver, or runtime delegation/conformance authority was added.
 | Plan | Scope | Status | Completion | Verification | Outcome / next dependency |
 |---|---|---|---|---|---|
 | `LANG005.C5.P1` | Associated declarations/bindings, exact binding evidence, trait property elaboration, direct-field `via`, incremental/source foundations | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T1–T10 complete; T11 records synchronized; P2 consumes the frozen identity/evidence seams |
-| `LANG005.C5.P2` | Associated projection formation and normalization | PLANNED | NOT_STARTED | UNVERIFIED | Consumes P1 associated identities/bindings; establishes `Self::Item` and normalization semantics |
+| `LANG005.C5.P2` | Associated projection formation and normalization | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T1–T10 complete; canonical projection, normalization, exact evidence, incremental parity, source identity, and focused stabilization are complete; P3 consumes the frozen interfaces |
 | `LANG005.C5.P3` | Vertical integration, Iterable migration, tooling/runtime consequences, stress/certification | PLANNED | NOT_STARTED | UNVERIFIED | Closes C5 and hands generic trait-bound proof work to C6 |
 
 Canonical P1 plan:
@@ -886,7 +961,16 @@ recorded below.
 | P1 G5 | incremental lifecycle | PASS | `cargo test -p phalcom-semantic --test semantic incremental::associated_types` (3/3); incremental `db` (14/14) | replacement/removal/readdition and cold parity preserve P1 products |
 | P1 G6 | executable ordinary accessor lowering | PASS | `direct_field_delegation_executes_as_ordinary_accessors` (1/1); `delegated_getter_coexists_with_custom_inherent_setter` (1/1); exact generic C4 runtime (1/1) | `via` executes as ordinary field accessors; no runtime delegation/conformance solver exists |
 | P1 G7 | final focused stabilization | PASS with inherited baseline exceptions | affected-crate check passed; AST 6/6 + 16/16; semantic traits 21/23; semantic impl queries 53/53; incremental associated types 3/3; core P1 equivalents passed | the two `capabilities::traits` failures are C5-BL-07 Universe Bool dependency/capability baseline failures, classification D |
-| P2 gates | pending | NOT RUN | Defined by future P2 patch-grade plan |
+| P2 gates | in progress | T1–T8 executed | T9–T10 remain; evidence is recorded in the P2 plan and this ledger |
+| P2 G2 | canonical projection structural plumbing | PASS | semantic check; AST trait syntax 8/8; canonical projection interning/materialization 2/2 | projection identity and structural traversal are established before contextual formation |
+| P2 G3 | abstract trait projection formation | PASS with inherited baseline exceptions | exact formation tests 4/4; trait capability slice 25/27 | two-phase trait surface and contextual symbolic projections are established; failures are C5-BL-07 classification D |
+| P2 T5 | source-conformance projection normalization | PASS | source projection tests 2/2; `impls::queries` 55/55 | T5 invokes the central T6 normalizer; source-plan scheduling preserves missing-sibling and provenance semantics |
+| P2 G4 | source/exact normalization and terminal states | PASS | projection-normalization tests 6/6; `impls::queries` 55/55 | abstract/source/exact modes, nested normalization, exact-case identity, ambiguity, cycle, cancellation, and budget states are distinct |
+| P2 T7 | exact evidence/signature/default/witness integration | PASS | exact integration, default, and incompatible-witness tests 3/3; `impls::queries` 55/55 | exact associated values and requirement views normalize canonically; source witness compatibility uses the same source plan |
+| P2 G5 | signatures/defaults/witness integration | PASS | focused T7 tests 3/3; T6 projection tests 6/6; `impls::queries` 55/55 | parameter/return projections, abstract defaults, generic/exact specialization, enum-case identity, and normalized incompatibility are covered |
+| P2 T8 | projection incrementality/source identity | PASS | `incremental::associated_types` 5/5; source-index navigation regression 1/1 | replacement/removal/readdition, method add/remove, rename, cold parity, and canonical `Self::Item` source targets are covered |
+| P2 G6 | incremental and semantic tooling | PASS | focused associated incremental module 5/5; exact source-index integration 1/1 | owner-complete invalidation and canonical associated requirement navigation are established without an independent resolver |
+| P2 G7 | final focused P2 stabilization | PASS with inherited baseline exceptions | affected-crate check; AST trait syntax 8/8; `impls::queries` 55/55; associated incremental 5/5; editor integration 11/11; projection normalization 6/6; traits 36/38 | all P2-focused gates are green except the unchanged C5-BL-07 Universe Bool failures, classification D; broad workspace/release gates remain deferred |
 | P3/certification gates | pending | NOT RUN | Defined by future P3 patch-grade plan |
 
 Do not convert inherited C4 focused evidence into a C5 PASS entry. C5 must gather its own evidence.
@@ -1059,6 +1143,26 @@ PROCEED, no plan amendment.
 Status: adopted and verified by the direct-field runtime test.
 ```
 
+### C5-INC-03 — T5 source normalization delegates to the T6 authority
+
+```text
+Plan/task: LANG005.C5.P2 T5/T6
+Trigger: T5 initially retained an independent recursive source-type normalizer,
+which would have created a second projection walk and cycle detector.
+Decision: T5 retains only staged binding/dependency scheduling, plan mutation,
+diagnostics, and failure provenance; every recursive type/projection walk and
+cycle check goes through `types::normalize_type`. Building/source mode preserves
+a missing sibling as a symbolic residual so the later completeness pass emits
+`Missing`; published source mode may report `Incomplete`; source mode never
+requests final conformance evidence.
+Architecture impact: one canonical normalizer and one cycle detector serve all
+abstract/source/exact consumers. No plan amendment was required.
+Consultation: adviser task 01a0a645-6654-7b20-99dc-973a16164e05, decision
+PROCEED, adopted from the explicit T5/T6 consultation response.
+Status: adopted and verified by source normalization, exact evidence, and
+focused interaction gates.
+```
+
 No unresolved C5 design incident is currently open.
 
 ---
@@ -1068,18 +1172,16 @@ No unresolved C5 design incident is currently open.
 Latest completed plan:
 
 ```text
-LANG005.C5.P1
-Associated Type Declarations, Binding Foundations, and Trait Property Delegation
+LANG005.C5.P2
+Associated Projection Formation, Normalization, and Evidence Hardening
 ```
 
 Immediate next action for the next implementer:
 
 ```text
-1. read this checkpoint, the P1 walkthrough, and the P1 handoff;
-2. read the P2 plan when it is authored and verify the frozen P1 interfaces;
-3. form and normalize `Self::Item` through canonical semantic evidence;
-4. do not recompute bindings from syntax or redesign P1 identity, completeness,
-   property, or `via` products.
+1. continue LANG005.C5.P2 at T9;
+2. run the focused P2 interaction matrix and affected-crate stabilization;
+3. preserve the frozen P1 identity, completeness, property, and `via` products.
 ```
 
 Before writing/executing P2, preserve this record and extend it only with new

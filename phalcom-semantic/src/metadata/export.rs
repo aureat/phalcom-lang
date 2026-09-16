@@ -584,6 +584,7 @@ impl<'a> MetadataExporter<'a> {
                     SelfRole::ReceiverValue => SelfRoleRef::ReceiverValue,
                 },
             }),
+            TypeData::AssociatedProjection(_) => return Err(MetadataExportError::NonExportableForm(ty)),
             TypeData::Lambda(lam_id) => {
                 let lam_data = self.store.arena().get_lambda(lam_id).clone();
                 let p_kinds: Vec<KindNodeId> = lam_data.parameter_kinds.iter().map(|&pk| self.export_kind(pk)).collect();

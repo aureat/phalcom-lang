@@ -450,9 +450,25 @@ pub(crate) fn semantic_signature_for_syntax_with_owner(
     syntax: CallableSyntaxRef<'_>,
     declared_side: DispatchSide,
 ) -> Option<CallableSemanticSignature> {
-    let callable = callable_id_for_syntax(owner, syntax, declared_side)?;
-    let formation_side = callable.side;
+    let formation_side = if matches!(syntax, CallableSyntaxRef::Method(method) if method.is_constructor || method.attributes.iter().any(|attribute| attribute.name == "constructor")) {
+        DispatchSide::Class
+    } else {
+        declared_side
+    };
     let formation_site = TypeFormationSite::member(ctx.current_module.clone(), declaration_owner.clone(), formation_side);
+    semantic_signature_for_syntax_with_owner_and_site(ctx, owner, declaration_owner, declaration_resolver, &formation_site, syntax, declared_side)
+}
+
+pub(crate) fn semantic_signature_for_syntax_with_owner_and_site(
+    ctx: &mut CheckingContext<'_>,
+    owner: &CallableOwnerId,
+    declaration_owner: &DeclarationId,
+    declaration_resolver: &dyn crate::types::annotation::TypeResolver,
+    formation_site: &TypeFormationSite,
+    syntax: CallableSyntaxRef<'_>,
+    declared_side: DispatchSide,
+) -> Option<CallableSemanticSignature> {
+    let callable = callable_id_for_syntax(owner, syntax, declared_side)?;
 
     let (generics, parameters, declared_return) = match syntax {
         CallableSyntaxRef::Method(method) => {
@@ -699,6 +715,19 @@ pub(crate) fn semantic_signature_for_conformance_syntax(
     syntax: CallableSyntaxRef<'_>,
     declared_side: DispatchSide,
 ) -> Option<CallableSemanticSignature> {
+    let formation_site = TypeFormationSite::member(ctx.current_module.clone(), target_owner.clone(), declared_side);
+    semantic_signature_for_conformance_syntax_with_site(ctx, owner, target_owner, impl_signature, &formation_site, syntax, declared_side)
+}
+
+pub(crate) fn semantic_signature_for_conformance_syntax_with_site(
+    ctx: &mut CheckingContext<'_>,
+    owner: &CallableOwnerId,
+    target_owner: &DeclarationId,
+    impl_signature: Option<&crate::types::parameter::GenericSignature>,
+    formation_site: &TypeFormationSite,
+    syntax: CallableSyntaxRef<'_>,
+    declared_side: DispatchSide,
+) -> Option<CallableSemanticSignature> {
     let type_parameters = impl_signature
         .map(|signature| {
             signature
@@ -716,7 +745,7 @@ pub(crate) fn semantic_signature_for_conformance_syntax(
         parent: &parent,
         type_parameters,
     };
-    semantic_signature_for_syntax_with_owner(ctx, owner, target_owner, &resolver, syntax, declared_side)
+    semantic_signature_for_syntax_with_owner_and_site(ctx, owner, target_owner, &resolver, formation_site, syntax, declared_side)
 }
 
 #[allow(clippy::too_many_arguments)]

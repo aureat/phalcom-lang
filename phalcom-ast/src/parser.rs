@@ -1903,6 +1903,19 @@ impl<'source> Parser<'source> {
             let variant_name = self.expect_identifier(&["variant name"])?;
             let variant_name_range = (v_start..self.prev_end).into();
 
+            if matches!(atom.expr, TypeAnnotationExpr::SelfType { .. }) {
+                let range = (start..self.prev_end).into();
+                return Ok(TypeAnnotation {
+                    expr: TypeAnnotationExpr::AssociatedTypeProjection {
+                        subject: Box::new(atom),
+                        name: variant_name,
+                        name_range: variant_name_range,
+                        range,
+                    },
+                    range,
+                });
+            }
+
             let mut generic_arguments = Vec::new();
             if matches!(self.peek(), Token::Less | Token::ShiftLeft) {
                 self.eat_less();

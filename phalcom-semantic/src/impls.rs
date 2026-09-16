@@ -9,7 +9,7 @@ use crate::diagnostic::{DiagnosticCode, SemanticDiagnostic, SemanticSourceSpan};
 use crate::identity::{CallableId, CallableOwnerId, DeclarationId, DispatchSide, ImplId};
 use crate::signature::CallableSemanticSignature;
 use crate::surface::MemberVisibility;
-use crate::traits::{InstantiatedTraitRequirement, TraitHeaderTable, TraitRef, TraitRefFormationError, TraitSurface};
+use crate::traits::{InstantiatedTraitRequirement, TraitHeaderTable, TraitRef, TraitRefFormationError, TraitSurface, TraitSurfaceTable};
 use crate::types::annotation::{
     ScopedTypeResolver, TypeFormationSite, TypeLevelBinding, TypeResolver, resolve_type_annotation, type_level_binding_for_parameter,
 };
@@ -470,8 +470,19 @@ pub struct AssociatedTypeBindingTemplate {
 
 /// A deterministic source binding failure retained for conformance
 /// completeness and diagnostics.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum AssociatedTypeBindingFailureKind {
+    Missing,
+    Duplicate,
+    Unknown,
+    Invalid,
+}
+
+/// A deterministic source binding failure retained for conformance
+/// completeness and diagnostics.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AssociatedTypeBindingFailure {
+    pub kind: AssociatedTypeBindingFailureKind,
     pub name: Box<str>,
     pub reason: Box<str>,
     pub source: SemanticSourceSpan,
@@ -510,6 +521,8 @@ pub fn build_conformance_associated_type_plan(
     impl_def: &ImplDef,
     trait_surface: &TraitSurface,
     generic_signature: Option<&GenericSignature>,
+    trait_ref: &TraitRef,
+    target_head: TypeId,
 ) -> ConformanceAssociatedTypePlan {
     let type_parameters = generic_signature
         .map(|signature| {
@@ -525,8 +538,23 @@ pub fn build_conformance_associated_type_plan(
         .unwrap_or_default();
     let parent = ctx.resolver.clone();
     let resolver = ScopedTypeResolver { parent: &parent, type_parameters };
-    let formation_site = TypeFormationSite::module(ctx.current_module.clone());
+    let associated_type_context = trait_surface
+        .associated_types
+        .values()
+        .map(|requirement| (requirement.name.to_string(), requirement.requirement.clone()))
+        .collect::<BTreeMap<_, _>>();
+    let formation_site = TypeFormationSite::trait_member(
+        ctx.current_module.clone(),
+        trait_ref.declaration.clone(),
+        DispatchSide::Instance,
+        trait_ref.clone(),
+        associated_type_context,
+    )
+    .with_self_type_override(target_head);
+    let conformance_source = SemanticSourceSpan::new(ctx.current_module.clone(), impl_def.range);
+    let mut pending = BTreeMap::new();
     let mut bindings = BTreeMap::new();
+    let mut seen_requirements = BTreeSet::new();
     let mut failures = Vec::new();
     let mut diagnostics = Vec::new();
 
@@ -536,6 +564,7 @@ pub fn build_conformance_associated_type_plan(
         let Some(requirement) = trait_surface.associated_type_by_name(&binding.name) else {
             let reason = format!("associated type `{}` is not declared by the conformance trait", binding.name);
             failures.push(AssociatedTypeBindingFailure {
+                kind: AssociatedTypeBindingFailureKind::Unknown,
                 name: binding.name.clone().into_boxed_str(),
                 reason: reason.clone().into_boxed_str(),
                 source: member_source.clone(),
@@ -544,9 +573,10 @@ pub fn build_conformance_associated_type_plan(
             diagnostics.push(SemanticDiagnostic::error_in(ctx.current_module.clone(), DiagnosticCode::AssociatedTypeUnknown, reason, binding.name_range));
             continue;
         };
-        if bindings.contains_key(&requirement.requirement) {
+        if !seen_requirements.insert(requirement.requirement.clone()) {
             let reason = format!("associated type `{}` is bound more than once", binding.name);
             failures.push(AssociatedTypeBindingFailure {
+                kind: AssociatedTypeBindingFailureKind::Duplicate,
                 name: binding.name.clone().into_boxed_str(),
                 reason: reason.clone().into_boxed_str(),
                 source: member_source.clone(),
@@ -555,39 +585,50 @@ pub fn build_conformance_associated_type_plan(
             diagnostics.push(SemanticDiagnostic::error_in(ctx.current_module.clone(), DiagnosticCode::AssociatedTypeDuplicate, reason, binding.name_range));
             continue;
         }
-        let knowledge = resolve_type_annotation(ctx.store, ctx.declarations, &resolver, &formation_site, &binding.value, &mut diagnostics);
+        pending.insert(
+            requirement.requirement.clone(),
+            (binding.value.clone(), member_source, binding.name.clone().into_boxed_str()),
+        );
+    }
+
+    for (requirement, (syntax, source, name)) in pending {
+        let knowledge = resolve_type_annotation(ctx.store, ctx.declarations, &resolver, &formation_site, &syntax, &mut diagnostics);
         let Some(value_template) = knowledge.ty() else {
-            let reason = format!("associated type `{}` binding has no usable type", binding.name);
+            let reason = format!("associated type `{name}` binding has no usable type");
             failures.push(AssociatedTypeBindingFailure {
-                name: binding.name.clone().into_boxed_str(),
+                kind: AssociatedTypeBindingFailureKind::Invalid,
+                name: name.clone(),
                 reason: reason.clone().into_boxed_str(),
-                source: member_source.clone(),
-                requirement: Some(requirement.requirement.clone()),
+                source: source.clone(),
+                requirement: Some(requirement.clone()),
             });
-            diagnostics.push(SemanticDiagnostic::error_in(ctx.current_module.clone(), DiagnosticCode::AssociatedTypeBindingInvalid, reason, binding.value.range));
+            diagnostics.push(SemanticDiagnostic::error_in(ctx.current_module.clone(), DiagnosticCode::AssociatedTypeBindingInvalid, reason, syntax.range));
             continue;
         };
         if ctx.store.kind_of(value_template) != KindId::TYPE {
-            let reason = format!("associated type `{}` binding must have type kind", binding.name);
+            let reason = format!("associated type `{name}` binding must have type kind");
             failures.push(AssociatedTypeBindingFailure {
-                name: binding.name.clone().into_boxed_str(),
+                kind: AssociatedTypeBindingFailureKind::Invalid,
+                name: name.clone(),
                 reason: reason.clone().into_boxed_str(),
-                source: member_source.clone(),
-                requirement: Some(requirement.requirement.clone()),
+                source: source.clone(),
+                requirement: Some(requirement.clone()),
             });
-            diagnostics.push(SemanticDiagnostic::error_in(ctx.current_module.clone(), DiagnosticCode::AssociatedTypeBindingInvalid, reason, binding.value.range));
+            diagnostics.push(SemanticDiagnostic::error_in(ctx.current_module.clone(), DiagnosticCode::AssociatedTypeBindingInvalid, reason, syntax.range));
             continue;
         }
         bindings.insert(
-            requirement.requirement.clone(),
+            requirement.clone(),
             AssociatedTypeBindingTemplate {
-                requirement: requirement.requirement.clone(),
+                requirement: requirement.clone(),
                 value_template,
                 source_impl: impl_id.clone(),
-                source: member_source,
+                source,
             },
         );
     }
+
+    normalize_source_associated_bindings(ctx, impl_id, trait_ref, target_head, trait_surface, &mut bindings, &mut failures, &mut diagnostics);
 
     for requirement in trait_surface.associated_types.values() {
         if bindings.contains_key(&requirement.requirement) {
@@ -595,16 +636,17 @@ pub fn build_conformance_associated_type_plan(
         }
         let reason = format!("associated type `{}` has no conformance binding", requirement.name);
         failures.push(AssociatedTypeBindingFailure {
+            kind: AssociatedTypeBindingFailureKind::Missing,
             name: requirement.name.clone(),
             reason: reason.clone().into_boxed_str(),
-            source: requirement.source.clone(),
+            source: conformance_source.clone(),
             requirement: Some(requirement.requirement.clone()),
         });
         diagnostics.push(SemanticDiagnostic::error_in(
             ctx.current_module.clone(),
             DiagnosticCode::AssociatedTypeMissing,
             reason,
-            requirement.source.range,
+            impl_def.range,
         ));
     }
 
@@ -619,6 +661,231 @@ pub fn build_conformance_associated_type_plan(
     plan
 }
 
+fn normalize_source_associated_bindings(
+    ctx: &mut CheckingContext<'_>,
+    impl_id: &ImplId,
+    trait_ref: &TraitRef,
+    target_head: TypeId,
+    trait_surface: &TraitSurface,
+    bindings: &mut BTreeMap<crate::traits::AssociatedTypeRequirementId, AssociatedTypeBindingTemplate>,
+    failures: &mut Vec<AssociatedTypeBindingFailure>,
+    diagnostics: &mut Vec<SemanticDiagnostic>,
+) {
+    // T5 owns staged binding publication and failure provenance, while T6
+    // owns the only recursive canonical type/projection walk and cycle set.
+    // Keep one immutable view of the pre-normalized graph so dependency
+    // results are independent of source order.
+    let source_plan = ConformanceAssociatedTypePlan {
+        impl_id: impl_id.clone(),
+        bindings: bindings.clone(),
+        failures: Box::new([]),
+        diagnostics: Box::new([]),
+        fingerprint: ProductFingerprint::default(),
+    };
+    let requirements = bindings.keys().cloned().collect::<Vec<_>>();
+    for requirement in requirements {
+        let Some(binding) = bindings.get(&requirement).cloned() else { continue };
+        let mut budget = QueryBudget::default();
+        let cancel = CancellationToken::new();
+        let mut normalization_context = crate::types::ProjectionNormalizationContext::new(
+            crate::types::ProjectionNormalizationMode::SourceConformance {
+                trait_ref,
+                target: target_head,
+                plan: &source_plan,
+            },
+            &mut budget,
+            &cancel,
+        );
+        let result = crate::types::normalize_type(ctx.store, binding.value_template, &mut normalization_context);
+        let normalized = match &result {
+            crate::types::ProjectionNormalizationResult::Normalized(ty)
+            | crate::types::ProjectionNormalizationResult::Symbolic(ty) => Some(*ty),
+            crate::types::ProjectionNormalizationResult::Recursive => {
+                Some(binding.value_template)
+            }
+            crate::types::ProjectionNormalizationResult::Incomplete => None,
+            _other => None,
+        };
+        if let Some(normalized) = normalized {
+            if let Some(current) = bindings.get_mut(&requirement) {
+                current.value_template = normalized;
+            }
+        }
+        let failure_reason = match &result {
+            crate::types::ProjectionNormalizationResult::Recursive => {
+                Some(format!("cyclic associated type binding involving requirement {}", requirement.index))
+            }
+            crate::types::ProjectionNormalizationResult::Incomplete => {
+                Some(format!("associated type binding for requirement {} is incomplete", requirement.index))
+            }
+            crate::types::ProjectionNormalizationResult::Unknown(reason) => Some(format!("associated type binding normalization is unknown: {reason:?}")),
+            crate::types::ProjectionNormalizationResult::Blocked(reason) => Some(format!("associated type binding normalization is blocked: {reason:?}")),
+            crate::types::ProjectionNormalizationResult::Dynamic(obligation) => {
+                Some(format!("associated type binding normalization crossed a dynamic boundary: {obligation:?}"))
+            }
+            crate::types::ProjectionNormalizationResult::Ambiguous(candidates) => {
+                Some(format!("associated type binding normalization is ambiguous across {} candidates", candidates.len()))
+            }
+            crate::types::ProjectionNormalizationResult::Cancelled => Some("associated type binding normalization was cancelled".into()),
+            crate::types::ProjectionNormalizationResult::BudgetExceeded(report) => {
+                Some(format!("associated type binding normalization exceeded its budget: {report:?}"))
+            }
+            crate::types::ProjectionNormalizationResult::InternalFailure(message) => {
+                Some(format!("associated type binding normalization failed internally: {message}"))
+            }
+            crate::types::ProjectionNormalizationResult::Normalized(_)
+            | crate::types::ProjectionNormalizationResult::Symbolic(_) => None,
+        };
+        if let Some(reason) = failure_reason {
+            let name = trait_surface
+                .associated_type(&requirement)
+                .map(|requirement| requirement.name.clone())
+                .unwrap_or_else(|| "<unknown>".into());
+            let source = bindings.get(&requirement).map(|binding| binding.source.clone()).unwrap_or_else(|| {
+                SemanticSourceSpan::new(ctx.current_module.clone(), phalcom_common::range::SourceRange::default())
+            });
+            let source_range = source.range;
+            failures.push(AssociatedTypeBindingFailure {
+                kind: AssociatedTypeBindingFailureKind::Invalid,
+                name,
+                reason: reason.clone().into_boxed_str(),
+                source,
+                requirement: Some(requirement.clone()),
+            });
+            diagnostics.push(SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                DiagnosticCode::AssociatedTypeBindingInvalid,
+                reason,
+                source_range,
+            ));
+        }
+    }
+}
+
+/// Normalizes a source conformance signature through its staged associated
+/// binding plan. This consumes only the source plan; final exact evidence is
+/// intentionally not consulted here.
+pub fn normalize_source_signature(
+    ctx: &mut CheckingContext<'_>,
+    trait_ref: &TraitRef,
+    target_head: TypeId,
+    plan: &mut ConformanceAssociatedTypePlan,
+    signature: CallableSemanticSignature,
+) -> CallableSemanticSignature {
+    normalize_source_signature_in_store(ctx.store, trait_ref, target_head, plan, signature)
+}
+
+fn normalize_source_signature_in_store(
+    store: &mut TypeStore,
+    trait_ref: &TraitRef,
+    target_head: TypeId,
+    plan: &ConformanceAssociatedTypePlan,
+    mut signature: CallableSemanticSignature,
+) -> CallableSemanticSignature {
+    let normalize_fact = |store: &mut TypeStore, fact: &mut crate::declaration_type::DeclaredTypeFact| {
+        if let DeclaredTypeState::Known(TypeTerm::Canonical(ty)) = &mut fact.state {
+            let mut budget = QueryBudget::default();
+            let cancel = CancellationToken::new();
+            let mut normalization_context = crate::types::ProjectionNormalizationContext::new(
+                crate::types::ProjectionNormalizationMode::SourceConformance {
+                    trait_ref,
+                    target: target_head,
+                    plan: &*plan,
+                },
+                &mut budget,
+                &cancel,
+            );
+            match crate::types::normalize_type(store, *ty, &mut normalization_context) {
+                crate::types::ProjectionNormalizationResult::Normalized(normalized)
+                | crate::types::ProjectionNormalizationResult::Symbolic(normalized) => *ty = normalized,
+                _ => {}
+            }
+        }
+    };
+    for parameter in &mut signature.parameters {
+        normalize_fact(store, &mut parameter.declared_type);
+    }
+    normalize_fact(store, &mut signature.declared_return);
+    signature
+}
+
+/// Normalizes source-owned trait requirement views through the staged
+/// associated binding plan before witness selection. This is source-plan
+/// authority only; exact conformance evidence is never requested here.
+pub fn normalize_source_requirement_views(
+    store: &mut TypeStore,
+    trait_ref: &TraitRef,
+    target_head: TypeId,
+    plan: &ConformanceAssociatedTypePlan,
+    views: &mut BTreeMap<crate::traits::TraitRequirementId, InstantiatedTraitRequirement>,
+) {
+    for view in views.values_mut() {
+        view.signature = normalize_source_signature_in_store(store, trait_ref, target_head, plan, view.signature.clone());
+    }
+}
+
+fn normalize_exact_requirement_signature(
+    store: &mut TypeStore,
+    trait_ref: &TraitRef,
+    target: TypeId,
+    associated_types: &BTreeMap<crate::traits::AssociatedTypeRequirementId, ExactAssociatedTypeBinding>,
+    index: &ConformanceIndex,
+    plans: &BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>,
+    trait_surfaces: &TraitSurfaceTable,
+    declarations: &DeclarationTypeTable,
+    hierarchy: &dyn TypeHierarchy,
+    mut signature: CallableSemanticSignature,
+) -> Result<CallableSemanticSignature, crate::types::ProjectionNormalizationResult> {
+    let mut normalize_fact = |fact: &mut crate::declaration_type::DeclaredTypeFact| -> Result<(), crate::types::ProjectionNormalizationResult> {
+        if let DeclaredTypeState::Known(TypeTerm::Canonical(ty)) = &mut fact.state {
+            let mut budget = QueryBudget::default();
+            let cancel = CancellationToken::new();
+            let mut context = crate::types::ProjectionNormalizationContext::new(
+                crate::types::ProjectionNormalizationMode::Exact {
+                    conformance_index: index,
+                    witness_plans: plans,
+                    trait_surfaces,
+                    declarations,
+                    hierarchy,
+                },
+                &mut budget,
+                &cancel,
+            )
+            .with_current_exact_evidence(target, trait_ref, associated_types);
+            match crate::types::normalize_type(store, *ty, &mut context) {
+                crate::types::ProjectionNormalizationResult::Normalized(normalized)
+                | crate::types::ProjectionNormalizationResult::Symbolic(normalized) => *ty = normalized,
+                other => return Err(other),
+            }
+        }
+        Ok(())
+    };
+    for parameter in &mut signature.parameters {
+        normalize_fact(&mut parameter.declared_type)?;
+    }
+    normalize_fact(&mut signature.declared_return)?;
+    Ok(signature)
+}
+
+fn projection_result_to_conformance_resolution(
+    result: crate::types::ProjectionNormalizationResult,
+    impl_id: ImplId,
+) -> ConformanceResolution {
+    match result {
+        crate::types::ProjectionNormalizationResult::Normalized(_)
+        | crate::types::ProjectionNormalizationResult::Symbolic(_)
+        | crate::types::ProjectionNormalizationResult::Incomplete
+        | crate::types::ProjectionNormalizationResult::Recursive => ConformanceResolution::Incomplete(impl_id),
+        crate::types::ProjectionNormalizationResult::Unknown(reason) => ConformanceResolution::Unknown(reason),
+        crate::types::ProjectionNormalizationResult::Blocked(reason) => ConformanceResolution::Blocked(reason),
+        crate::types::ProjectionNormalizationResult::Dynamic(obligation) => ConformanceResolution::Dynamic(obligation),
+        crate::types::ProjectionNormalizationResult::Ambiguous(candidates) => ConformanceResolution::CoherenceConflict(candidates),
+        crate::types::ProjectionNormalizationResult::Cancelled => ConformanceResolution::Cancelled,
+        crate::types::ProjectionNormalizationResult::BudgetExceeded(report) => ConformanceResolution::BudgetExceeded(report),
+        crate::types::ProjectionNormalizationResult::InternalFailure(message) => ConformanceResolution::InternalFailure(message),
+    }
+}
+
 pub fn associated_type_plan_fingerprint(plan: &ConformanceAssociatedTypePlan) -> ProductFingerprint {
     let mut hasher = DefaultHasher::new();
     plan.impl_id.hash(&mut hasher);
@@ -628,6 +895,7 @@ pub fn associated_type_plan_fingerprint(plan: &ConformanceAssociatedTypePlan) ->
         binding.source_impl.hash(&mut hasher);
     }
     for failure in &plan.failures {
+        failure.kind.hash(&mut hasher);
         failure.name.hash(&mut hasher);
         failure.reason.hash(&mut hasher);
         failure.requirement.hash(&mut hasher);
@@ -1241,13 +1509,21 @@ pub fn build_conformance_witness_plan(
     terminal_candidates: &BTreeMap<crate::traits::TraitRequirementId, ConformanceCompleteness>,
     associated_type_plan: ConformanceAssociatedTypePlan,
 ) -> ConformanceWitnessPlan {
-    let requirement_views = instantiate_conformance_requirements(
+    let associated_type_plan = associated_type_plan;
+    let mut requirement_views = instantiate_conformance_requirements(
         store,
         Some(declarations),
         trait_surface,
         &contribution.trait_ref,
         contribution.target_head,
         &HashMap::new(),
+    );
+    normalize_source_requirement_views(
+        store,
+        &contribution.trait_ref,
+        contribution.target_head,
+        &associated_type_plan,
+        &mut requirement_views,
     );
     let mut requirements = BTreeMap::new();
     let mut failures = Vec::new();
@@ -1466,6 +1742,36 @@ pub fn resolve_conformance_evidence(
     target: TypeId,
     trait_ref: &TraitRef,
 ) -> ConformanceResolution {
+    let mut trait_surfaces = TraitSurfaceTable::new();
+    trait_surfaces.insert(Arc::new(trait_surface.clone()));
+    resolve_conformance_evidence_with_surfaces(
+        index,
+        plans,
+        &trait_surfaces,
+        declarations,
+        store,
+        hierarchy,
+        target,
+        trait_ref,
+    )
+}
+
+/// Resolves exact evidence with the complete published trait-surface table so
+/// projection-bearing associated bindings can normalize foreign trait
+/// applications without rebuilding a second conformance query.
+pub fn resolve_conformance_evidence_with_surfaces(
+    index: &ConformanceIndex,
+    plans: &BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>,
+    trait_surfaces: &TraitSurfaceTable,
+    declarations: &DeclarationTypeTable,
+    store: &mut TypeStore,
+    hierarchy: &dyn TypeHierarchy,
+    target: TypeId,
+    trait_ref: &TraitRef,
+) -> ConformanceResolution {
+    let Some(trait_surface) = trait_surfaces.get(&trait_ref.declaration) else {
+        return ConformanceResolution::InternalFailure("trait surface is unavailable for conformance evidence".into());
+    };
     let matches = index.query_exact(store, target, trait_ref);
     match matches.len() {
         0 => return ConformanceResolution::NotDeclared,
@@ -1478,17 +1784,19 @@ pub fn resolve_conformance_evidence(
     let Some(plan) = plans.get(&head.impl_id) else {
         return ConformanceResolution::InvalidSource(head.impl_id.clone());
     };
-    let has_deferred_selection = plan
-        .requirements
-        .values()
-        .any(|selection| matches!(selection, RequirementSelectionTemplate::ConditionalInherent { .. }));
-    if let Some(resolution) = plan.completeness.clone().into_resolution(head.impl_id.clone())
-        && !has_deferred_selection
-    {
-        return resolution;
+    if let ConformanceCompleteness::Incomplete { .. } = &plan.completeness {
+        return ConformanceResolution::Incomplete(head.impl_id.clone());
+    }
+    if let Some(resolution) = plan.completeness.clone().into_resolution(head.impl_id.clone()) {
+        let has_deferred_selection = plan
+            .requirements
+            .values()
+            .any(|selection| matches!(selection, RequirementSelectionTemplate::ConditionalInherent { .. }));
+        if !has_deferred_selection {
+            return resolution;
+        }
     }
     let environment = conformance_environment(store, Some(declarations), trait_surface, &head.exact_trait_ref, target, &head.impl_bindings);
-    let requirement_views = trait_surface.instantiate(store, &environment);
     let mut requirements = BTreeMap::new();
     for (requirement, selection) in &plan.requirements {
         let selection = match selection {
@@ -1543,7 +1851,7 @@ pub fn resolve_conformance_evidence(
         };
         requirements.insert(requirement.clone(), selection);
     }
-    let associated_types = plan
+    let mut associated_types = plan
         .associated_type_plan
         .bindings
         .iter()
@@ -1558,7 +1866,50 @@ pub fn resolve_conformance_evidence(
                 },
             )
         })
-        .collect();
+        .collect::<BTreeMap<_, _>>();
+    for (requirement, _binding) in &plan.associated_type_plan.bindings {
+        let value = associated_types
+            .get(requirement)
+            .expect("associated binding was staged before exact normalization")
+            .value;
+        let mut budget = QueryBudget::default();
+        let cancel = CancellationToken::new();
+        let mut normalization_context = crate::types::ProjectionNormalizationContext::new(
+            crate::types::ProjectionNormalizationMode::Exact {
+                conformance_index: index,
+                witness_plans: plans,
+                trait_surfaces,
+                declarations,
+                hierarchy,
+            },
+            &mut budget,
+            &cancel,
+        )
+        .with_current_exact_evidence(target, trait_ref, &associated_types);
+        let value = match crate::types::normalize_type(store, value, &mut normalization_context) {
+            crate::types::ProjectionNormalizationResult::Normalized(value) => value,
+            other => return projection_result_to_conformance_resolution(other, head.impl_id.clone()),
+        };
+        associated_types.get_mut(requirement).expect("associated binding remains staged").value = value;
+    }
+    let mut requirement_views = trait_surface.instantiate(store, &environment);
+    for view in requirement_views.values_mut() {
+        view.signature = match normalize_exact_requirement_signature(
+            store,
+            trait_ref,
+            target,
+            &associated_types,
+            index,
+            plans,
+            trait_surfaces,
+            declarations,
+            hierarchy,
+            view.signature.clone(),
+        ) {
+            Ok(signature) => signature,
+            Err(result) => return projection_result_to_conformance_resolution(result, head.impl_id.clone()),
+        };
+    }
     let fingerprint = conformance_evidence_fingerprint(
         plan.fingerprint,
         target,
@@ -3960,7 +4311,7 @@ pub fn build_inherent_impl_contribution(ctx: &mut CheckingContext<'_>, impl_id: 
 
 #[cfg(test)]
 mod completeness_tests {
-    use super::{ConformanceCompleteness, ConformanceResolution, RequirementFailure};
+    use super::{ConformanceCompleteness, ConformanceFailure, ConformanceResolution, RequirementFailure};
     use crate::identity::{DeclarationId, ImplId, ImplLocalId, ModuleId};
     use crate::types::evidence::UnknownReason;
     use crate::types::outcome::{BlockReason, BudgetKind, BudgetReport, DynamicBoundaryObligation};
@@ -3984,7 +4335,7 @@ mod completeness_tests {
         let cases: &[(ConformanceCompleteness, fn(ConformanceResolution) -> bool)] = &[
             (
                 ConformanceCompleteness::Incomplete {
-                    failures: vec![failure].into_boxed_slice(),
+                    failures: vec![ConformanceFailure::Behavioral(failure)].into_boxed_slice(),
                 },
                 |r| matches!(r, ConformanceResolution::Incomplete(_)),
             ),

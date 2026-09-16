@@ -328,35 +328,53 @@ pub(crate) fn build_trait_surface(ctx: &mut crate::checker::CheckingContext<'_>,
     let mut diagnostics = Vec::new();
     let mut associated_type_index = 0u32;
     for trait_member in &trait_def.members {
-        if let TraitMember::AssociatedType(declaration) = trait_member {
-            let requirement = AssociatedTypeRequirementId::new(header.declaration.clone(), associated_type_index);
-            associated_type_index += 1;
-            if surface.associated_types.values().any(|existing| existing.name.as_ref() == declaration.name) {
-                diagnostics.push(crate::diagnostic::SemanticDiagnostic::error_in(
-                    ctx.current_module.clone(),
-                    crate::diagnostic::DiagnosticCode::AssociatedTypeDuplicate,
-                    format!("duplicate associated type declaration `{}`", declaration.name),
-                    declaration.range,
-                ));
-                continue;
-            }
-            surface.associated_types.insert(
-                requirement.clone(),
-                TraitAssociatedTypeRequirement {
-                    requirement,
-                    name: declaration.name.clone().into_boxed_str(),
-                    kind: KindId::TYPE,
-                    source: SemanticSourceSpan::new(ctx.current_module.clone(), declaration.range),
-                },
-            );
+        let TraitMember::AssociatedType(declaration) = trait_member else { continue };
+        let requirement = AssociatedTypeRequirementId::new(header.declaration.clone(), associated_type_index);
+        associated_type_index += 1;
+        if surface.associated_types.values().any(|existing| existing.name.as_ref() == declaration.name) {
+            diagnostics.push(crate::diagnostic::SemanticDiagnostic::error_in(
+                ctx.current_module.clone(),
+                crate::diagnostic::DiagnosticCode::AssociatedTypeDuplicate,
+                format!("duplicate associated type declaration `{}`", declaration.name),
+                declaration.range,
+            ));
             continue;
         }
+        surface.associated_types.insert(
+            requirement.clone(),
+            TraitAssociatedTypeRequirement {
+                requirement,
+                name: declaration.name.clone().into_boxed_str(),
+                kind: KindId::TYPE,
+                source: SemanticSourceSpan::new(ctx.current_module.clone(), declaration.range),
+            },
+        );
+    }
+
+    let trait_ref = TraitRef::new(
+        header.declaration.clone(),
+        header
+            .generic_signature
+            .as_ref()
+            .map(|signature| signature.parameters.iter().map(|&parameter| ctx.store.parameter_form(parameter)).collect::<Vec<_>>())
+            .unwrap_or_default()
+            .into_boxed_slice(),
+    );
+    let associated_type_context = surface
+        .associated_types
+        .values()
+        .map(|requirement| (requirement.name.to_string(), requirement.requirement.clone()))
+        .collect::<BTreeMap<_, _>>();
+
+    for trait_member in &trait_def.members {
         if let TraitMember::Property(property) = trait_member {
             let mut property_diagnostics = Vec::new();
-            let formation_site = crate::types::annotation::TypeFormationSite::member(
+            let formation_site = crate::types::annotation::TypeFormationSite::trait_member(
                 ctx.current_module.clone(),
                 header.declaration.clone(),
                 DispatchSide::Instance,
+                trait_ref.clone(),
+                associated_type_context.clone(),
             );
             let declared_type = crate::types::annotation::resolve_type_annotation(
                 ctx.store,
@@ -402,6 +420,9 @@ pub(crate) fn build_trait_surface(ctx: &mut crate::checker::CheckingContext<'_>,
             }
             continue;
         }
+        if matches!(trait_member, TraitMember::AssociatedType(_)) {
+            continue;
+        }
         let Some(member) = trait_member.behavior() else {
             continue;
         };
@@ -426,8 +447,23 @@ pub(crate) fn build_trait_surface(ctx: &mut crate::checker::CheckingContext<'_>,
             ));
             continue;
         }
+        let formation_site = crate::types::annotation::TypeFormationSite::trait_member(
+            ctx.current_module.clone(),
+            header.declaration.clone(),
+            side,
+            trait_ref.clone(),
+            associated_type_context.clone(),
+        );
         let Some(signature) =
-            crate::checker::declaration_signature::semantic_signature_for_syntax_with_resolver(ctx, &owner, &declaration_resolver, syntax, side)
+            crate::checker::declaration_signature::semantic_signature_for_syntax_with_owner_and_site(
+                ctx,
+                &owner,
+                &header.declaration,
+                &declaration_resolver,
+                &formation_site,
+                syntax,
+                side,
+            )
         else {
             continue;
         };

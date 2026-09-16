@@ -71,7 +71,7 @@ fn editor_facade_fails_closed_for_unknown_receiver() {
 
 #[test]
 fn associated_type_declaration_and_binding_lhs_share_canonical_source_target() {
-    let source = "trait Iterable { type Item }\nclass Box {}\nimpl Iterable for Box { type Item = Int }\n";
+    let source = "trait Iterable { type Item\n next -> Option<Self::Item> }\nclass Box {}\nimpl Iterable for Box { type Item = Int\n next -> Option<Int> { None } }\n";
     let parsed = parse(source, 0);
     assert!(parsed.errors.is_empty(), "parser errors: {:?}", parsed.errors);
     let module = ModuleId::universe_root();
@@ -89,9 +89,11 @@ fn associated_type_declaration_and_binding_lhs_share_canonical_source_target() {
         .clone();
     let declaration_offset = source.find("type Item").expect("associated declaration") + "type ".len();
     let binding_offset = source.rfind("type Item").expect("associated binding") + "type ".len();
+    let projection_offset = source.find("Self::Item").expect("associated projection") + "Self::".len();
     let target = SemanticTargetId::AssociatedType(requirement);
     assert_eq!(analysis.snapshot.editor().target_at(&module, declaration_offset), Some(target.clone()));
     assert_eq!(analysis.snapshot.editor().target_at(&module, binding_offset), Some(target.clone()));
+    assert_eq!(analysis.snapshot.editor().target_at(&module, projection_offset), Some(target.clone()));
     assert!(!analysis.snapshot.editor().definition_sites(&target).is_empty());
 }
 

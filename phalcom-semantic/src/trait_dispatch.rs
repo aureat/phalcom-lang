@@ -287,17 +287,17 @@ pub fn resolve_trait_evidenced_candidates(
         let Some(head) = matches.into_iter().find(|head| head.impl_id == contribution.impl_id) else {
             continue;
         };
-        let Some(surface) = trait_surfaces.get(&contribution.trait_declaration) else {
+        if !trait_surfaces.contains(&contribution.trait_declaration) {
             retain_terminal(
                 &mut terminal,
                 TraitDispatchResolution::InternalFailure("trait surface is unavailable for dispatch candidate".into()),
             );
             continue;
-        };
-        match crate::impls::resolve_conformance_evidence(
+        }
+        match crate::impls::resolve_conformance_evidence_with_surfaces(
             conformance_index,
             plans,
-            surface,
+            trait_surfaces,
             declarations,
             store,
             hierarchy,

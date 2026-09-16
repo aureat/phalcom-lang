@@ -15,6 +15,7 @@ pub mod kind;
 pub mod native;
 pub mod outcome;
 pub mod parameter;
+pub mod projection;
 pub mod relation;
 pub mod rigid;
 pub mod row;
@@ -55,6 +56,7 @@ pub use outcome::{
     BlockReason, BudgetKind, BudgetReport, CancellationToken, DynamicBoundaryObligation, QueryBudget, RelationEvidence, RelationFailure, RelationOutcome,
 };
 pub use parameter::{GenericConstraint, GenericSignature, SelfRole, SelfTypeTerm, TypeParameterData, TypeParameterOwner, TypeTerm};
+pub use projection::{ProjectionNormalizationContext, ProjectionNormalizationMode, ProjectionNormalizationResult, normalize_type};
 pub use relation::{
     Assignability, MapTypeHierarchy, RefutationReason, TypeHierarchy, check_assignability, check_assignability_bounded, check_knowledge_against_type,
     check_knowledge_against_type_bounded, check_subtype_bounded, is_subtype,
@@ -68,7 +70,7 @@ pub use row_solver::{
 pub use specialization::{
     ReceiverSpecialization, ReceiverSpecializationFailure, ReceiverSpecializationStep, SpecializationControl, specialize_receiver_to_owner,
 };
-pub use store::{CallableParameterType, CallableType, RecordTypeField, TupleTypeElement, TypeData, TypeStore};
+pub use store::{AssociatedTypeProjection, CallableParameterType, CallableType, RecordTypeField, TupleTypeElement, TypeData, TypeStore};
 pub use substitution::{TypeSubstitution, substitution_for_applied};
 pub use type_lambda::{
     BetaReductionError, BetaResult, ScopedCallableParameter, ScopedCallableType, ScopedOpenRecord, ScopedRecordField, ScopedRecordTail, ScopedTupleElement,

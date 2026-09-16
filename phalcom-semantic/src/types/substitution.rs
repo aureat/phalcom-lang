@@ -117,6 +117,17 @@ impl TypeSubstitution {
                 store.family_type(subst_members).unwrap_or(ty)
             }
             TypeData::SelfType(_) => ty,
+            TypeData::AssociatedProjection(projection) => {
+                let subject = self.apply(store, projection.subject);
+                let arguments = projection
+                    .trait_ref
+                    .arguments
+                    .iter()
+                    .map(|&argument| self.apply(store, argument))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice();
+                store.associated_projection(subject, crate::traits::TraitRef::new(projection.trait_ref.declaration, arguments), projection.requirement)
+            }
             TypeData::Lambda(lambda_id) => {
                 if self.is_empty() {
                     ty
@@ -194,6 +205,17 @@ pub fn specialize_self_type(store: &mut TypeStore, declarations: &DeclarationTyp
             let subst_enum = specialize_self_type(store, declarations, receiver, enum_type);
             let variant_id = store.variant_identity(variant).clone();
             store.exact_case_type(&variant_id, subst_enum).unwrap_or(ty)
+        }
+        TypeData::AssociatedProjection(projection) => {
+            let subject = specialize_self_type(store, declarations, receiver, projection.subject);
+            let arguments = projection
+                .trait_ref
+                .arguments
+                .iter()
+                .map(|&argument| specialize_self_type(store, declarations, receiver, argument))
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
+            store.associated_projection(subject, crate::traits::TraitRef::new(projection.trait_ref.declaration, arguments), projection.requirement)
         }
         TypeData::Union(members) => {
             let subst_members: Vec<TypeId> = members.iter().map(|&m| specialize_self_type(store, declarations, receiver, m)).collect();

@@ -123,6 +123,12 @@ fn collect_stable_record_row_lacks_inner(
                 collect_stable_record_row_lacks_inner(store, member.ty, visited, emitted, lacks);
             }
         }
+        TypeData::AssociatedProjection(projection) => {
+            collect_stable_record_row_lacks_inner(store, projection.subject, visited, emitted, lacks);
+            for &argument in projection.trait_ref.arguments.iter() {
+                collect_stable_record_row_lacks_inner(store, argument, visited, emitted, lacks);
+            }
+        }
         TypeData::Never
         | TypeData::Unit
         | TypeData::ClassObject { .. }

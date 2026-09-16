@@ -1,4 +1,4 @@
-use phalcom_ast::ast::{BehaviorMember, IndexAccessor, MemberBody, Statement, TraitMember, TypeAnnotationExpr};
+use phalcom_ast::ast::{BehaviorMember, ImplMember, IndexAccessor, MemberBody, Statement, TraitMember, TypeAnnotationExpr};
 use phalcom_ast::lexer::Lexer;
 use phalcom_ast::parse_source;
 use phalcom_ast::token::Token;
@@ -83,4 +83,39 @@ fn c5p1_trait_property_requirements_preserve_mutability_and_annotation() {
 fn c5p1_trait_associated_type_default_is_rejected() {
     let source = "trait Iterable { type Item = Int }\n";
     assert!(parse_source(source, 0).is_err(), "trait associated type defaults are not P1 syntax");
+}
+
+#[test]
+fn c5p2_self_associated_type_projection_preserves_nested_ranges() {
+    let source = "trait Iterator {\n  type Item\n  next -> Option<Self::Item>\n}\n";
+    let program = parse_source(source, 0).expect("contextual projection parses");
+    let Statement::Trait(trait_def) = &program.statements[0] else { panic!("expected trait") };
+    let TraitMember::Behavior(BehaviorMember::Getter(getter)) = &trait_def.members[1] else {
+        panic!("expected behavioral getter")
+    };
+    let annotation = getter.return_annotation.as_ref().expect("return annotation");
+    let TypeAnnotationExpr::Application { arguments, .. } = &annotation.expr else {
+        panic!("expected Option application")
+    };
+    let projection = &arguments[0];
+    let TypeAnnotationExpr::AssociatedTypeProjection { subject, name, name_range, range } = &projection.expr else {
+        panic!("expected associated projection")
+    };
+    assert!(matches!(subject.expr, TypeAnnotationExpr::SelfType { .. }));
+    assert_eq!(name, "Item");
+    assert_eq!(&source[name_range.start..name_range.end], "Item");
+    assert_eq!(&source[range.start..range.end], "Self::Item");
+    assert_eq!(&source[subject.range.start..subject.range.end], "Self");
+}
+
+#[test]
+fn c5p2_only_self_projection_gets_the_new_type_syntax_category() {
+    let source = "class Item {}\nclass Box {}\nimpl Box { value -> Item::Part }\n";
+    let program = parse_source(source, 0).expect("legacy exact-case type syntax parses");
+    let Statement::Impl(impl_def) = &program.statements[2] else { panic!("expected impl") };
+    let ImplMember::Behavior(BehaviorMember::Getter(getter)) = &impl_def.members[0] else {
+        panic!("expected getter")
+    };
+    let annotation = getter.return_annotation.as_ref().expect("return annotation");
+    assert!(matches!(annotation.expr, TypeAnnotationExpr::ExactEnumCase { .. }));
 }
