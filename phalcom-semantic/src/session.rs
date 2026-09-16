@@ -2592,8 +2592,13 @@ impl SemanticWorkspaceSession {
                 QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
             }
         }
-        for (declaration, surface) in self.base_dispatch.surfaces() {
-            match query_bootstrap_declaration_surface(&mut self.db, declaration.clone(), Arc::new(surface.clone())) {
+        for (declaration, _) in self.base_declarations.iter() {
+            let surface = self
+                .base_dispatch
+                .surface(declaration)
+                .cloned()
+                .unwrap_or_else(|| crate::surface::DeclarationSurface::new(Some(declaration.clone())));
+            match query_bootstrap_declaration_surface(&mut self.db, declaration.clone(), Arc::new(surface)) {
                 QueryOutcome::Ready(_) => {}
                 QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
                 QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),

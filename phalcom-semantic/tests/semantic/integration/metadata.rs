@@ -9,6 +9,7 @@ use phalcom_semantic::metadata::MetadataExporter;
 use phalcom_semantic::metadata::stable_identity::StableIdentityContext;
 use phalcom_semantic::signature::{CallableParameterSemantic, CallableSemanticSignature, ReturnContractValidation};
 use phalcom_semantic::type_alias::{TypeAliasInfo, TypeAliasTable};
+use phalcom_semantic::traits::{AssociatedTypeRequirementId, TraitRef};
 use phalcom_semantic::types::id::KindId;
 use phalcom_semantic::types::parameter::{GenericConstraint, GenericSignature, SelfRole, SelfTypeTerm, TypeParameterData, TypeParameterOwner, TypeTerm};
 use phalcom_semantic::types::row::{RecordRowField, RecordRowTail};
@@ -409,6 +410,24 @@ fn test_metadata_rejects_stale_alias_form_before_publication() {
         exporter.build_bundle(&[]),
         Err(phalcom_semantic::metadata::MetadataExportError::NonExportableForm(form))
             if form == phalcom_semantic::types::id::TypeId::DUMMY
+    ));
+}
+
+#[test]
+fn metadata_branch_a_rejects_raw_associated_projection() {
+    let mut store = TypeStore::new();
+    let subject = store.nominal(dummy_decl("Box"));
+    let trait_declaration = dummy_decl("Cell");
+    let projection = store.associated_projection(
+        subject,
+        TraitRef::new(trait_declaration.clone(), Vec::<phalcom_semantic::types::id::TypeId>::new().into_boxed_slice()),
+        AssociatedTypeRequirementId::new(trait_declaration, 0),
+    );
+    let mut exporter = MetadataExporter::new(&store, None, None, None, MetadataProfile::RuntimePublic);
+
+    assert!(matches!(
+        exporter.export_type_form(projection),
+        Err(MetadataExportError::NonExportableForm(form)) if form == projection
     ));
 }
 

@@ -254,7 +254,7 @@ impl<T, U> Boxed<T>::Pack<U>(_) {
 
     // 3. Option<T>::Some(_)
     let Statement::Impl(impl3) = &program.statements[2] else { panic!() };
-    let phalcom_ast::ast::TypeAnnotationExpr::ExactEnumCase {
+    let TypeAnnotationExpr::ExactEnumCase {
         variant_name, payload_shape, ..
     } = &impl3.target.expr
     else {
@@ -266,7 +266,7 @@ impl<T, U> Boxed<T>::Pack<U>(_) {
 
     // 4. Result::Error(reason: _)
     let Statement::Impl(impl4) = &program.statements[3] else { panic!() };
-    let phalcom_ast::ast::TypeAnnotationExpr::ExactEnumCase {
+    let TypeAnnotationExpr::ExactEnumCase {
         variant_name, payload_shape, ..
     } = &impl4.target.expr
     else {

@@ -8,8 +8,8 @@ status: ACTIVE_PLANNING_GUIDANCE
 requires:
   - LANG005.C5-CHECKPOINT.md
   - LANG005.C5.P1-associated-type-declarations-and-binding-foundations-plan.md
-planning_baseline_revision: e5152196d716ed70fc47d104a0fd789e602285db
-prepared: 2026-09-15
+planning_baseline_revision: e3e3813720c200e277a9414857536f3e2e026054
+prepared: 2026-09-16
 repository: aureat/phalcom-lang
 ---
 
@@ -24,7 +24,7 @@ Load it before working on:
 ```text
 C5.P1 associated declarations/bindings + property/via foundation
 C5.P2 associated projection formation/normalization
-C5.P3 vertical integration / Iterable migration / certification
+C5.P3 associated vertical integration / concrete iterator reference model / certification
 ```
 
 The checkpoint's core semantic sentence is:
@@ -53,15 +53,16 @@ A fresh implementer must begin with the active plan's T0 takeover/re-grounding p
 
 Do not infer live repository state from this document alone.
 
-Current durable state after P1:
+Current durable state after P3 completion:
 
 ```text
 checkpoint: LANG005.C5
-status: IN_PROGRESS
-completion: PARTIAL
+status: COMPLETE
+completion: IMPLEMENTED
 verification: FOCUSED_TESTED
-completed plan: LANG005.C5.P1 (COMPLETE / IMPLEMENTED / FOCUSED_TESTED)
-next plan: LANG005.C5.P2
+completed plans: LANG005.C5.P1, LANG005.C5.P2, and LANG005.C5.P3 (COMPLETE / IMPLEMENTED / FOCUSED_TESTED)
+active plan: none (LANG005.C5 complete)
+next checkpoint: LANG005.C6
 ```
 
 P1's associated declaration, binding-plan, exact-evidence, completeness,
@@ -72,9 +73,23 @@ P2 is now complete as `IMPLEMENTED / FOCUSED_TESTED`. Its canonical
 `AssociatedProjection` carrier, contextual `Self::Item` formation, singular
 `types::normalize_type` authority, exact evidence/signature integration,
 owner-complete incremental products, and source-index target bridge are frozen
-for P3. The next plan is responsible for Iterable migration, cross-stack
-integration, and broader certification; it must not add generic trait-bound
-assumption semantics or a runtime projection solver.
+for P3. P3 owns C5 associated vertical integration, certification, and a
+concrete/exact reference model for the ratified stateful `Iterator`/`Iterable`
+API. C6 owns generic conformance/equality evidence, the general
+`Iterator`/`Iterable` relationships, and production `for`/collection/lazy
+migration, runtime `Iterable` superclass retirement, and cursor protocol
+retirement. Current production iteration remains cursor-based until C6.
+
+P3 adds no generic conformance-bound surface or assumption semantics:
+
+`T |= Trait`, `T |= A + B`, `Trait<Item = A>`, and generic `T::Item = A`
+constraints remain C6 work. The existing `T: Trait` spelling is not adopted
+as Phalcom conformance syntax.
+
+Current production iteration remains the cursor-based `Iterable`/`for`
+implementation described by `docs/spec/current/iteration.md`. P3 may certify
+only a concrete/exact stateful `Iterator`/`Iterable` reference model. C6 owns
+the general evidence relationships and production migration.
 
 ---
 
@@ -1318,7 +1333,7 @@ source navigation/hover
 P3 must cover:
 
 ```text
-Iterable migration
+concrete/exact Iterator and Iterable reference-model integration without generic evidence
 cross-module/package associated declarations/bindings
 trait defaults/witnesses using projections
 bound callable/reference interactions where affected
@@ -1326,7 +1341,7 @@ compiler/runtime generic reification where affected
 high-density valid program
 negative diagnostic corpus
 cold/incremental equivalence
-workspace-scale regression slice relevant to C5
+focused certification and truthful C6 handoff
 ```
 
 Do not automatically include every generic semantic suite after every patch.
@@ -1594,15 +1609,15 @@ C5.P2
     incremental/tooling projection
         ↓
 C5.P3
-    Iterable migration
-    cross-stack integration
+    concrete/exact Iterator/Iterable reference model
+    cross-stack associated-type integration
     compiler/runtime reification consequences
     editor/LSP UX
     stress/negative corpus
     cold/incremental certification
         ↓
 C6
-    generic T: Trait assumptions
+    generic conformance/equality evidence
     conditional conformance
     nested evidence
     generic-body dispatch/projection through proof

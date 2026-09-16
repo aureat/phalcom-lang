@@ -1,124 +1,36 @@
-// LANG005 — proposed kernel trait surface.
-// Target-facing syntax: not expected to parse before LANG005 lands.
+// LANG005 — proposed future kernel trait surface.
 //
-// Iteration remains the two-selector cursor protocol. Cursor progression returns
-// Option<Cursor>; the compiler may optimize the wrapper away when proven.
+// This is migration input for C6. Current production Iterable/for behavior
+// remains the cursor-based implementation described by docs/spec/current/iteration.md.
+
+// Target architecture after C6 generic evidence and production migration.
+trait Iterator {
+  type Item
+
+  next -> Option<Self::Item>
+
+  iterator { self }
+}
 
 trait Iterable {
   type Item
-  type Cursor
+  type Iterator
 
-  iterate(_ cursor: Option<Cursor>) -> Option<Cursor>
-  iteratorValue(_ cursor: Cursor) -> Item
-
-  each(_ f) {
-    let cursor = self.iterate(None)
-    while cursor.isSome {
-      const live = cursor.unwrap
-      f.call(self.iteratorValue(live))
-      cursor = self.iterate(Some(live))
-    }
-    ()
-  }
-
-  map(_ f) {
-    const result = List.new()
-    let cursor = self.iterate(None)
-    while cursor.isSome {
-      const live = cursor.unwrap
-      result.append(f.call(self.iteratorValue(live)))
-      cursor = self.iterate(Some(live))
-    }
-    result
-  }
-
-  filter(_ predicate) {
-    const result = List.new()
-    let cursor = self.iterate(None)
-    while cursor.isSome {
-      const live = cursor.unwrap
-      const value = self.iteratorValue(live)
-      if predicate.call(value) {
-        result.append(value)
-      }
-      cursor = self.iterate(Some(live))
-    }
-    result
-  }
-
-  contains(_ expected) -> Bool {
-    let cursor = self.iterate(None)
-    while cursor.isSome {
-      const live = cursor.unwrap
-      if self.iteratorValue(live) == expected {
-        return true
-      }
-      cursor = self.iterate(Some(live))
-    }
-    false
-  }
-
-  all(where predicate) -> Bool {
-    let cursor = self.iterate(None)
-    while cursor.isSome {
-      const live = cursor.unwrap
-      if not predicate.call(self.iteratorValue(live)) {
-        return false
-      }
-      cursor = self.iterate(Some(live))
-    }
-    true
-  }
-
-  any(where predicate) -> Bool {
-    let cursor = self.iterate(None)
-    while cursor.isSome {
-      const live = cursor.unwrap
-      if predicate.call(self.iteratorValue(live)) {
-        return true
-      }
-      cursor = self.iterate(Some(live))
-    }
-    false
-  }
-
-  none(where predicate) -> Bool {
-    not self.any(where: predicate)
-  }
-
-  count -> Int {
-    let n = 0
-    let cursor = self.iterate(None)
-    while cursor.isSome {
-      const live = cursor.unwrap
-      n = n + 1
-      cursor = self.iterate(Some(live))
-    }
-    n
-  }
-
-  find(where predicate) -> Option<Item> {
-    let cursor = self.iterate(None)
-    while cursor.isSome {
-      const live = cursor.unwrap
-      const value = self.iteratorValue(live)
-      if predicate.call(value) {
-        return Some(value)
-      }
-      cursor = self.iterate(Some(live))
-    }
-    None
-  }
-
-  toList -> List<Item> {
-    const result = List.new()
-    self.each(|value| { result.append(value) })
-    result
-  }
-
-  toSet -> Set<Item> {
-    const result = Set.new()
-    self.each(|value| { result.add(value) })
-    result
-  }
+  iterator -> Self::Iterator
 }
+
+// C6 must supply the ordinary evidence relationships:
+//   Self::Iterator conforms to Iterator
+//   Self::Iterator::Item = Self::Item
+//
+// C6 must also establish the general Iterator ⇒ Iterable relationship. These
+// relationships are intentionally not represented as provisional trait-bound
+// syntax in this support artifact.
+
+// Target laws:
+// - a reusable source's iterator getter creates a fresh traversal;
+// - an iterator's iterator getter returns the same traversal object;
+// - next returns Option<Item> directly;
+// - None is stable exhaustion;
+// - ordinary errors propagate and are not converted to None;
+// - no public cursor, hasNext, reset, or clone requirement remains.

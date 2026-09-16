@@ -693,6 +693,17 @@ impl Backend {
         Some(sections.join("\n\n---\n\n"))
     }
 
+    fn compiler_associated_type_hover(
+        &self,
+        request: &RequestContext,
+        requirement: &phalcom_semantic::traits::AssociatedTypeRequirementId,
+    ) -> Option<String> {
+        let compiler = request.compiler.as_deref()?;
+        let surface = compiler.trait_surfaces.get(&requirement.owner)?;
+        let associated = surface.associated_types.get(requirement)?;
+        Some(format!("`{}.{}`\n\nassociated type", requirement.owner.name, associated.name))
+    }
+
     fn compiler_uri_for_module(&self, compiler: &phalcom_semantic::SemanticSnapshot, module: &phalcom_modules::ModuleId) -> Option<Url> {
         compiler_uri_for_module(compiler, module)
     }
@@ -1038,6 +1049,14 @@ impl Backend {
                 }
                 phalcom_semantic::SemanticTargetId::Binding(binding) => {
                     if let Some(contents) = self.compiler_binding_hover(request, &binding) {
+                        return Some(Hover {
+                            contents: markdown_contents(contents),
+                            range: Some(span),
+                        });
+                    }
+                }
+                phalcom_semantic::SemanticTargetId::AssociatedType(requirement) => {
+                    if let Some(contents) = self.compiler_associated_type_hover(request, &requirement) {
                         return Some(Hover {
                             contents: markdown_contents(contents),
                             range: Some(span),

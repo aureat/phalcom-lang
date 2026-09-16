@@ -1,4 +1,4 @@
-use crate::support::TestLsp;
+use crate::support::{MarkedSource, TestLsp};
 use serde_json::json;
 
 #[tokio::test]
@@ -108,6 +108,67 @@ async fn enum_exact_case_and_root_impl_navigation() {
         case_locs.iter().any(|loc| loc["range"]["start"] == json!({ "line": 1, "character": 2 })),
         "{case_target:#?}"
     );
+
+    lsp.finish().await;
+}
+
+#[tokio::test]
+async fn associated_type_navigation_and_hover_use_canonical_trait_owned_target() {
+    let uri = "file:///associated-type-navigation.ph";
+    let source = MarkedSource::parse(
+        r#"trait Cell {
+  type /*@declaration*/Item
+  read -> Self::/*@projection*/Item
+}
+trait Other {
+  type Item
+}
+class Box {}
+impl Cell for Box {
+  type /*@binding*/Item = Int
+  read -> Int { 1 }
+}
+class Caller {
+  run(_ box: Box) -> Int { box.read }
+}
+"#,
+    );
+    let mut lsp = TestLsp::start().await;
+    lsp.initialize(None).await;
+    lsp.open_and_wait(uri, &source.text).await;
+
+    for marker in ["declaration", "binding", "projection"] {
+        let definition = lsp
+            .request(
+                "textDocument/definition",
+                json!({
+                    "textDocument": { "uri": uri },
+                    "position": source.position(marker)
+                }),
+            )
+            .await;
+        let locations = definition["result"].as_array().expect("associated type definition locations");
+        assert_eq!(locations.len(), 1, "{marker}: {definition:#?}");
+        assert_eq!(locations[0]["uri"], uri);
+        assert_eq!(
+            locations[0]["range"]["start"],
+            json!({ "line": 1, "character": 7 }),
+            "{marker} must resolve to Cell.Item, not a same-spelled local target"
+        );
+    }
+
+    let hover = lsp
+        .request(
+            "textDocument/hover",
+            json!({
+                "textDocument": { "uri": uri },
+                "position": source.position("projection")
+            }),
+        )
+        .await;
+    let hover_text = hover["result"]["contents"]["value"].as_str().expect("associated type hover markdown");
+    assert!(hover_text.contains("Cell.Item"), "hover must include the canonical owner and associated name: {hover:#?}");
+    assert!(hover_text.contains("associated type"), "hover must identify the target kind: {hover:#?}");
 
     lsp.finish().await;
 }

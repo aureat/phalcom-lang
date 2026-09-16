@@ -1,108 +1,81 @@
-// LANG005 — proposed kernel conformances.
+// LANG005 — proposed future kernel conformance sketches.
 //
-// Existing concrete members witness requirements where signatures match.
-// Bodies are supplied where the old Iterable superclass supplied behavior.
-//
+// These declarations are migration input for C6, not production Universe
+// sources. Current production Iterable/for behavior remains cursor-based.
 // No blanket Hashable-for-Object rule is introduced here.
 
 // -----------------------------------------------------------------------------
-// Iterable
+// Stateful Iterator / Iterable target
 // -----------------------------------------------------------------------------
+
+// Target conformance sketches after C6 provides nested conformance and
+// associated-equality evidence. The relationship between Item and Iterator is
+// deliberately not encoded here as provisional syntax.
 
 impl<T> Iterable for List<T> {
   type Item = T
-  type Cursor = Int
+  type Iterator = ListIterator<T>
+}
 
-  iterate(_ previous: Option<Int>) -> Option<Int> {
-    const next = previous.match(
-      some: |cursor| { cursor + 1 },
-      none: || { 0 },
-    )
-    if next < self.size { Some(next) } else { None }
-  }
-
-  iteratorValue(_ cursor: Int) -> T {
-    self[cursor]
-  }
+impl<T> Iterator for ListIterator<T> {
+  type Item = T
 }
 
 impl<T> Iterable for Set<T> {
   type Item = T
-  type Cursor = Int
+  type Iterator = SetIterator<T>
+}
 
-  iterate(_ previous: Option<Int>) -> Option<Int> {
-    const next = previous.match(
-      some: |cursor| { cursor + 1 },
-      none: || { 0 },
-    )
-    if next < self.size { Some(next) } else { None }
-  }
-
-  iteratorValue(_ cursor: Int) -> T {
-    self.at(cursor)
-  }
+impl<T> Iterator for SetIterator<T> {
+  type Item = T
 }
 
 impl<K, V> Iterable for Map<K, V> {
-  // Current Phalcom Map iteration yields keys.
-  type Item = K
-  type Cursor = Int
+  type Item = (key: K, value: V)
+  type Iterator = MapIterator<K, V>
+}
 
-  iterate(_ previous: Option<Int>) -> Option<Int> {
-    const next = previous.match(
-      some: |cursor| { cursor + 1 },
-      none: || { 0 },
-    )
-    if next < self.size { Some(next) } else { None }
-  }
-
-  iteratorValue(_ cursor: Int) -> K {
-    self._$keyAt(cursor)
-  }
+impl<K, V> Iterator for MapIterator<K, V> {
+  type Item = (key: K, value: V)
 }
 
 impl Iterable for Tuple {
-  // Runtime Tuple is heterogeneous. Static tuple types may later refine Item
-  // to the union of their element types.
+  // Runtime Tuple is heterogeneous; retain Dynamic for the initial target.
   type Item = Dynamic
-  type Cursor = Int
+  type Iterator = TupleIterator
+}
 
-  iterate(_ previous: Option<Int>) -> Option<Int> {
-    const next = previous.match(
-      some: |cursor| { cursor + 1 },
-      none: || { 0 },
-    )
-    if next < self.size { Some(next) } else { None }
-  }
-
-  iteratorValue(_ cursor: Int) -> Dynamic {
-    self[cursor]
-  }
+impl Iterator for TupleIterator {
+  type Item = Dynamic
 }
 
 impl Iterable for Bytes {
   type Item = Int
-  type Cursor = Int
+  type Iterator = BytesIterator
+}
 
-  iterate(_ previous: Option<Int>) -> Option<Int> {
-    const next = previous.match(
-      some: |cursor| { cursor + 1 },
-      none: || { 0 },
-    )
-    if next < self.size { Some(next) } else { None }
-  }
-
-  iteratorValue(_ cursor: Int) -> Int {
-    self[cursor]
-  }
+impl Iterator for BytesIterator {
+  type Item = Int
 }
 
 impl Iterable for Range {
   type Item = Number
-  type Cursor = Number
-
-  // Existing Range#iterate(_) and Range#iteratorValue(_) are witnesses.
+  type Iterator = RangeIterator
 }
+
+impl Iterator for RangeIterator {
+  type Item = Number
+}
+
+// Target laws for these future conformances:
+// - source iterator getters create fresh stateful traversals;
+// - iterator.iterator returns self;
+// - next returns Option<Item>, with stable None exhaustion;
+// - ordinary errors propagate unchanged;
+// - no public Cursor/hasNext/reset/clone protocol is required.
+//
+// Current Map direct iteration still yields keys through the cursor-based
+// production Iterable until C6 performs the migration to entry tuples.
 
 // -----------------------------------------------------------------------------
 // Sized

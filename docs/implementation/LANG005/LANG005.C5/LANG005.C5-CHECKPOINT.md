@@ -4,18 +4,18 @@ category: LANG
 program: LANG005
 checkpoint: LANG005.C5
 kind: checkpoint-record
-status: IN_PROGRESS
-completion: PARTIAL
+status: COMPLETE
+completion: IMPLEMENTED
 verification: FOCUSED_TESTED
 requires:
   - LANG005.C4 semantic completion
 active_plan: LANG005.C5.P3
-latest_completed_plan: LANG005.C5.P2
-next_plan: LANG005.C5.P3
+latest_completed_plan: LANG005.C5.P3
+next_plan: null
 next_checkpoint: LANG005.C6
-planning_baseline_revision: 3a2dcbd49fa7548337b52e9562cab4f8582741e4
-planning_baseline_commit: "chore: synchronize accumulated workspace changes"
-prepared: 2026-09-15
+planning_baseline_revision: e3e3813720c200e277a9414857536f3e2e026054
+planning_baseline_commit: "feat(semantic): implement associated type projections"
+prepared: 2026-09-16
 repository: aureat/phalcom-lang
 ---
 
@@ -77,7 +77,7 @@ projection normalization through semantic evidence
             ↓
 compiler/lowering/runtime reification only after semantic normalization
             ↓
-source index / editor / LSP / Iterable integration / certification
+source index / editor / LSP / concrete iterator reference model / certification
 ```
 
 C5 owns:
@@ -95,7 +95,8 @@ projection normalization through exact/symbolic conformance evidence
 projection ambiguity/cycle/terminal-state preservation
 associated-type use in trait/conformance signatures and defaults where proven
 incremental/fingerprint/source-index/tooling support for associated declarations/bindings/projections
-associated-type-driven Iterable migration/integration
+concrete/exact stateful Iterator/Iterable reference model for C6
+cross-stack associated-type integration and certification
 compiler/runtime transport of already-normalized associated type information when required
 C5-focused stress and certification
 ```
@@ -133,23 +134,36 @@ Planning state:
 
 ```yaml
 checkpoint: LANG005.C5
-status: IN_PROGRESS
-completion: PARTIAL
+status: COMPLETE
+completion: IMPLEMENTED
 verification: FOCUSED_TESTED
 active_plan: LANG005.C5.P3
-latest_completed_plan: LANG005.C5.P2
-next_plan: LANG005.C5.P3
+latest_completed_plan: LANG005.C5.P3
+next_plan: null
 next_checkpoint: LANG005.C6
 ```
 
-The patch-grade P1 plan is complete against the pushed synchronization commit.
-P2 T0 re-grounded the live takeover at `3a2dcbd49fa7548337b52e9562cab4f8582741e4`:
-the affected crates compile, `impls::queries` is 53/53, and
-`incremental::associated_types` is 3/3. The focused trait slice remains 21/23;
-the two failures are the same Universe `Bool` declaration-dependency/capability
-baseline (`C5-BL-07`), with no P2-specific coupling found. P2 is complete as
-`IMPLEMENTED / FOCUSED_TESTED`; P3 is the next active plan for vertical
+The patch-grade P1 and P2 plans are complete. P3 T0 re-grounded the live
+takeover at `e3e3813720c200e277a9414857536f3e2e026054`: the affected crates
+compile, `impls::queries` is 55/55, and `incremental::associated_types` is
+5/5. The focused trait slice remains 36/38; the two failures are the same
+Universe `Bool` declaration-dependency/capability baseline (`C5-BL-07`), with
+no P2-specific coupling found. P3 is now the active plan for C5 vertical
 integration and certification.
+
+Accepted P3 scope amendment: C5 owns associated-type vertical integration,
+certification, and a concrete/exact reference model for the ratified stateful
+`Iterator`/`Iterable` API. C6 owns generic conformance/equality evidence, the
+general `Iterator`/`Iterable` relationships, and the production migration of
+`for`, collections, lazy adapters, the runtime `Iterable` superclass, and the
+cursor protocol. Current production iteration remains cursor-based until that
+C6 migration; the current iteration specification remains authoritative for
+the live implementation.
+
+P3 adds no generic conformance-bound surface or assumption semantics:
+`T |= Trait`, `T |= A + B`, `Trait<Item = A>`, and generic `T::Item = A`
+constraints remain C6 work. The existing `T: Trait` spelling is not adopted
+as Phalcom conformance syntax.
 
 The predecessor checkpoint, C4, remains recorded as `IN_PROGRESS / PARTIAL / BASELINE_BLOCKED` because broad workspace/release certification is blocked by known pre-existing failures. Its **focused semantic architecture required by C5 is complete and stable**: explicit conformance, exact target/`TraitRef` matching, witness/default selection, `ConformanceEvidence`, trait-evidenced dispatch, semantic lowering, runtime execution, and source/editor projection all have focused evidence.
 
@@ -269,7 +283,7 @@ git rev-parse HEAD
 git log -5 --oneline
 ```
 
-and re-reading the live files named by the active plan. Mechanical drift may be adapted. Architectural drift requires consultation. The live checkout is `main` at `e5152196d716ed70fc47d104a0fd789e602285db`; unrelated working-tree changes remain outside C5 scope and are not staged by this work.
+and re-reading the live files named by the active plan. Mechanical drift may be adapted. Architectural drift requires consultation. The live checkout is `main` at `e3e3813720c200e277a9414857536f3e2e026054`; unrelated working-tree changes remain outside C5 scope and are not staged by this work.
 
 ---
 
@@ -397,7 +411,7 @@ projection solver, or runtime delegation/conformance authority was added.
 |---|---|---|---|---|---|
 | `LANG005.C5.P1` | Associated declarations/bindings, exact binding evidence, trait property elaboration, direct-field `via`, incremental/source foundations | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T1–T10 complete; T11 records synchronized; P2 consumes the frozen identity/evidence seams |
 | `LANG005.C5.P2` | Associated projection formation and normalization | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T1–T10 complete; canonical projection, normalization, exact evidence, incremental parity, source identity, and focused stabilization are complete; P3 consumes the frozen interfaces |
-| `LANG005.C5.P3` | Vertical integration, Iterable migration, tooling/runtime consequences, stress/certification | PLANNED | NOT_STARTED | UNVERIFIED | Closes C5 and hands generic trait-bound proof work to C6 |
+| `LANG005.C5.P3` | Associated vertical integration, concrete iterator reference model, tooling/runtime consequences, stress/certification | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | T0–T10 complete; all focused certification gates pass; baseline classifications confirmed; C6 handoff created |
 
 Canonical P1 plan:
 
@@ -406,7 +420,12 @@ docs/implementation/LANG005/LANG005.C5/
   LANG005.C5.P1-associated-type-declarations-and-binding-foundations-plan.md
 ```
 
-The planned filenames for P2/P3 should be chosen when their patch-grade plans are written; do not create empty placeholder plan files.
+The active P3 plan is:
+
+```text
+docs/implementation/LANG005/LANG005.C5/
+  LANG005.C5.P3-associated-type-vertical-integration-iterator-substrate-and-certification-plan.md
+```
 
 ---
 
@@ -485,7 +504,7 @@ If P2 requires a new user-visible explicit qualification syntax such as `<T as T
 P3 must integrate the C5 semantic model through:
 
 ```text
-associated-type-driven core library forms, especially Iterable
+concrete/exact Iterator and Iterable reference-model integration without generic evidence
 trait defaults and witness compatibility using projection
 source index / hover / definition / diagnostics
 compiler lowering of already-normalized type information
@@ -971,7 +990,16 @@ recorded below.
 | P2 T8 | projection incrementality/source identity | PASS | `incremental::associated_types` 5/5; source-index navigation regression 1/1 | replacement/removal/readdition, method add/remove, rename, cold parity, and canonical `Self::Item` source targets are covered |
 | P2 G6 | incremental and semantic tooling | PASS | focused associated incremental module 5/5; exact source-index integration 1/1 | owner-complete invalidation and canonical associated requirement navigation are established without an independent resolver |
 | P2 G7 | final focused P2 stabilization | PASS with inherited baseline exceptions | affected-crate check; AST trait syntax 8/8; `impls::queries` 55/55; associated incremental 5/5; editor integration 11/11; projection normalization 6/6; traits 36/38 | all P2-focused gates are green except the unchanged C5-BL-07 Universe Bool failures, classification D; broad workspace/release gates remain deferred |
-| P3/certification gates | pending | NOT RUN | Defined by future P3 patch-grade plan |
+| P3 G0 | PASS | T0 takeover complete | affected-crate check; `impls::queries` 55/55; `incremental::associated_types` 5/5 | pushed P2 state remains a valid base; P3/C6 boundary is amended and current production iteration remains cursor-based |
+| P3 T2/G1 | PASS | `associated_type_default_executes_for_multiple_exact_generic_targets` 1/1; `associated_type_explicit_witness_executes_with_normalized_parameter_and_return` 1/1; owning core trait closure 10/10 | projection-bearing defaults and explicit witnesses execute for exact `String`/`Int` targets; trait-only methods remain detached; no runtime projection solver is required |
+| P3 T3/G2 | PASS | exact enum associated execution 1/1; labeled tuple binding 1/1; bound callable after forced GC 1/1; concrete iterator reference model 1/1; owning core trait closure 16/16 | exact-case identity, labeled associated product values, callable lifetime, iterator freshness/self-identity/stable exhaustion/error propagation pass; explicit iterator conformances remain fixture-local |
+| P3 T4/G3 | PASS | cross-module associated runtime 1/1; metadata Branch A discriminator 1/1 | linked project modules execute exact associated specializations; raw symbolic projections remain intentionally non-exportable because this path consumes normalized products |
+| P3 T5/G4 | PASS | canonical associated definition/hover protocol test 1/1 | LSP definition and hover consume `SemanticTargetId::AssociatedType`; same-name trait isolation is preserved; no LSP resolver added |
+| P3 T6/G5 | PASS | cross-module associated binding replacement/removal/readdition cold parity 1/1; `incremental::associated_types` 6/6 | module mutations recompute exact evidence, invalidate consumer, and converge with cold analysis |
+| P3 T7/G6 | PASS | dense C5 stress program 1/1; associated negative semantic corpus | multi-invocation lowering sites, exact generic, enum case, bound GC, and labeled tuple compose; missing/duplicate/recursive/incompatible witnesses fail closed |
+| P3 T8/G7 | PASS with inherited baseline exceptions | transitional production iteration smoke; baseline classification | legacy List `for` loop (`corpus::list` 1/1, `iteration_disasm` 1/1, `iteration_negative` 1/1) and Map key iteration pass; BL-01/BL-04 classified baseline D; BL-07 traits capability 36/38 confirmed baseline D |
+| P3 T9/G8 | PASS with inherited baseline exceptions | final focused C5 certification matrix | affected-crate check; `impls::queries` 55/55; `incremental::associated_types` 6/6; `language::traits_p3_closure` 16/16; LSP `impl_navigation` 1/1; `git diff --check` clean; traits 36/38 (BL-07 baseline D) |
+| P3 T10/G9 | PASS | state synchronization and C6 handoff | checkpoint, guidance, walkthrough, and C6 handoff finalized; C5 closed as COMPLETE / IMPLEMENTED / FOCUSED_TESTED |
 
 Do not convert inherited C4 focused evidence into a C5 PASS entry. C5 must gather its own evidence.
 
@@ -984,9 +1012,10 @@ C5 inherits these broad baseline blockers from C4 unless a fresh live run proves
 ### C5-BL-01 — Universe generic call-entry failure
 
 ```text
-Classification: inherited baseline
-C5 impact: does not block focused semantic P1 work unless reproduced by a C5-specific vertical
-Policy: record; do not opportunistically repair inside P1
+Classification: inherited baseline (D)
+Observed: generic call-entry type recipe could not be instantiated when Range/Option.match runs in corpus::iteration.
+C5 impact: confirmed unrelated to C5 associated-type architecture; T2/T3/T7 associated runtime verticals execute without failure.
+Policy: classified D; deferred to C6 / runtime call-entry maintenance.
 ```
 
 ### C5-BL-02 — incremental A7 cold/incremental presentation mismatch
@@ -1008,9 +1037,10 @@ Policy: do not weaken C5 assertions to accommodate them
 ### C5-BL-04 — Iterable/outgoing-pack generic call-entry failures
 
 ```text
-Classification: inherited baseline
-C5 impact: may become relevant in P3 Iterable migration; P1 must not absorb this baseline repair without evidence
-Policy: reclassify only when a C5-specific discriminator demonstrates causal coupling
+Classification: inherited baseline (D)
+Observed: legacy Iterable/Range iteration calling Option.match fails with generic call-entry error.
+C5 impact: production Iterable migration is deferred to C6; new associated-type vertical does not reproduce this defect.
+Policy: classified D for C5 closure; handed off to C6.
 ```
 
 ### C5-BL-05 — formatting drift
@@ -1031,9 +1061,9 @@ Policy: repair only new/touched violations caused by C5; do not expand scope to 
 
 ```text
 Classification: inherited baseline (D)
-Observed: `capabilities::traits` reports failures in `trait_default_replays_external_nominal_callable_dependencies` and `trait_defaults_reject_unknown_members_storage_and_super_without_concrete_capabilities`; both failures involve unexpected Universe `Bool` declaration dependencies/capabilities.
-C5 impact: none established; C4 `impls::queries` and the exact generic runtime takeover regression remain green.
-Policy: do not repair or weaken these assertions during P1 unless a C5-specific discriminator demonstrates causal coupling.
+Observed: `capabilities::traits` reports 36/38 passing with the exact same two failures in `trait_default_replays_external_nominal_callable_dependencies` and `trait_defaults_reject_unknown_members_storage_and_super_without_concrete_capabilities`; both involve unexpected Universe `Bool` declaration dependencies/capabilities.
+C5 impact: confirmed unrelated to C5; all 36 other trait capability tests and all C5 associated projection tests pass.
+Policy: classified D; do not repair or weaken these assertions in C5.
 ```
 
 The ledger must be updated from actual live evidence during implementation. Removed blockers should be marked resolved with the gate/revision that proves it.
@@ -1163,6 +1193,50 @@ Status: adopted and verified by source normalization, exact evidence, and
 focused interaction gates.
 ```
 
+### C5-INC-04 — P3/C6 iterator and generic-evidence boundary
+
+```text
+Plan/task: LANG005.C5.P3 T0
+Trigger: inherited checkpoint wording still assigned the full Iterable
+migration to P3, while the ratified P3 plan reserves generic conformance and
+associated-equality evidence for C6.
+Decision: P3 owns C5 associated-type vertical integration, certification, and
+a concrete/exact stateful Iterator/Iterable reference model. C6 owns generic
+conformance/equality evidence, the general Iterator/Iterable relationships,
+production `for`/collection/lazy migration, runtime Iterable superclass
+retirement, and cursor protocol retirement.
+Architecture impact: current production iteration remains cursor-based and
+`docs/spec/current/iteration.md` remains authoritative until C6 migration.
+P3 adds no `|=` syntax, associated refinement syntax, or generic iterator
+theorem.
+Plan amendment: REQUIRED — Level 1 scope clarification; the active P3 plan
+already contains the ratified boundary.
+Verification required: G0 takeover checks, then concrete iterator and
+associated vertical gates without production migration.
+Status: adopted; T0 complete; implementer may resume with T1.
+```
+
+### C5-INC-05 — Built-in declaration-surface publication blocked concrete iterator dispatch
+
+```text
+Plan/task: LANG005.C5.P3 T3
+Trigger: the concrete C5Iterator/C5Iterable fixture compiled without trait
+invocation evidence and fell through to `doesNotUnderstand` for `source.iterator`.
+Observed: the semantic session rebuilt declaration-surface query products only
+for built-ins with non-empty dispatch surfaces. The empty built-in `Iterable`
+surface was therefore absent, aborting semantic analysis and publishing an
+empty fallback snapshot; this was not a witness or dispatch-selection defect.
+Decision: publish a declaration-surface product for every built-in declaration,
+using an empty surface when no dispatch members exist. Preserve the existing
+semantic authority and do not add runtime/compiler special cases.
+Architecture impact: built-in declaration surfaces are total over the built-in
+declaration set; concrete associated dispatch continues through ordinary
+semantic lowering and runtime evidence.
+Consultation: adviser task 01a0a645-6654-7b20-99dc-973a16164e05, decision
+PROCEED, no plan amendment required.
+Status: adopted and verified by the concrete iterator test (1/1).
+```
+
 No unresolved C5 design incident is currently open.
 
 ---
@@ -1172,20 +1246,21 @@ No unresolved C5 design incident is currently open.
 Latest completed plan:
 
 ```text
-LANG005.C5.P2
-Associated Projection Formation, Normalization, and Evidence Hardening
+LANG005.C5.P3
+Associated-Type Vertical Integration, Iterator Substrate, and C5 Certification
+COMPLETE / IMPLEMENTED / FOCUSED_TESTED
 ```
 
 Immediate next action for the next implementer:
 
 ```text
-1. continue LANG005.C5.P2 at T9;
-2. run the focused P2 interaction matrix and affected-crate stabilization;
-3. preserve the frozen P1 identity, completeness, property, and `via` products.
+1. Transition to checkpoint LANG005.C6;
+2. Execute C6 iterator and evidence migration handoff (generic `|=` bounds, nested evidence, associated equality, production `for`/collection migration);
+3. Preserve established C5 associated type requirement, projection, and normalization products.
 ```
 
-Before writing/executing P2, preserve this record and extend it only with new
-P2 decisions, gates, failures, and the next durable state:
+Before writing/executing P3, preserve this record and extend it only with new
+P3 decisions, gates, failures, and the next durable state:
 
 ```text
 plan ledger
@@ -1216,7 +1291,7 @@ C5 may be marked `COMPLETE` only when all of the following are true:
 11. source replacement/removal and cold/incremental equivalence are proven for C5 products.
 12. source index/editor/LSP project canonical associated identities rather than name-solving independently.
 13. compiler/runtime consume already-normalized semantic information and introduce no runtime projection/conformance solver.
-14. the associated-type-driven Iterable integration planned for C5 is implemented or an explicit accepted checkpoint amendment records its deferral.
+14. the C5 concrete/exact Iterator/Iterable reference model and associated vertical integration are implemented; production Iterable migration is explicitly deferred to C6.
 15. residual broad failures are classified truthfully.
 16. the checkpoint record, final walkthrough, and C6 handoff reflect actual implementation state.
 

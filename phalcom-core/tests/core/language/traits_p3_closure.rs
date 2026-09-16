@@ -106,6 +106,337 @@ let intResult = caller.intTag(intValue)
 }
 
 #[test]
+fn associated_type_default_executes_for_multiple_exact_generic_targets() {
+    let source = r#"
+trait Cell {
+  type Item
+  echo(_ value: Self::Item) -> Self::Item { value }
+}
+class CellBox<T> { @constructor new() {} }
+impl<T> Cell for CellBox<T> { type Item = T }
+class Caller {
+  stringEcho(_ value: CellBox<String>) -> String { value.echo("text") }
+  intEcho(_ value: CellBox<Int>) -> Int { value.echo(42) }
+}
+let caller = Caller.new()
+let stringBox: CellBox<String> = CellBox.new()
+let intBox: CellBox<Int> = CellBox.new()
+let stringResult = caller.stringEcho(stringBox)
+let intResult = caller.intEcho(intBox)
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("associated default compiles");
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("associated default executes");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    assert_eq!(named(&vm, module, "stringResult").expect("string result").to_string(&vm), "text");
+    assert_eq!(named(&vm, module, "intResult").expect("int result").to_string(&vm), "42");
+
+    for selector_name in ["echo"] {
+        let class = named(&vm, module, "CellBox").expect("CellBox binding").as_obj().expect("CellBox class");
+        if let Some(selector) = vm.interner.find(selector_name) {
+            assert!(
+                vm.heap.class(class).get_method(selector).is_none(),
+                "trait-only selector {selector_name} must remain detached from CellBox"
+            );
+        }
+    }
+}
+
+#[test]
+fn associated_type_explicit_witness_executes_with_normalized_parameter_and_return() {
+    let source = r#"
+trait Transformer {
+  type Item
+  transform(_ value: Self::Item) -> Self::Item
+}
+class TransformBox<T> { @constructor new() {} }
+impl<T> Transformer for TransformBox<T> {
+  type Item = T
+  transform(_ value: Self::Item) -> Self::Item { value }
+}
+class Caller {
+  stringTransform(_ value: TransformBox<String>) -> String { value.transform("text") }
+  intTransform(_ value: TransformBox<Int>) -> Int { value.transform(42) }
+}
+let caller = Caller.new()
+let stringBox: TransformBox<String> = TransformBox.new()
+let intBox: TransformBox<Int> = TransformBox.new()
+let stringResult = caller.stringTransform(stringBox)
+let intResult = caller.intTransform(intBox)
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("associated witness compiles");
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("associated witness executes");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    assert_eq!(named(&vm, module, "stringResult").expect("string result").to_string(&vm), "text");
+    assert_eq!(named(&vm, module, "intResult").expect("int result").to_string(&vm), "42");
+
+    let class = named(&vm, module, "TransformBox").expect("TransformBox binding").as_obj().expect("TransformBox class");
+    if let Some(selector) = vm.interner.find("transform") {
+        assert!(
+            vm.heap.class(class).get_method(selector).is_none(),
+            "trait-only selector transform must remain detached from TransformBox"
+        );
+    }
+}
+
+#[test]
+fn exact_enum_case_associated_type_executes_without_sibling_leakage() {
+    let source = r#"
+trait PayloadView {
+  type Item
+  reveal(_ value: Self::Item) -> Self::Item { value }
+}
+enum Payload<T> {
+  Ok(_ value: T)
+  Error(_ message: String)
+}
+impl PayloadView for Payload<Int>::Ok(_) { type Item = Int }
+let result = Payload<Int>::Ok(0).reveal(42)
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("exact-case associated conformance compiles");
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("exact-case associated conformance executes");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    assert_eq!(named(&vm, module, "result").expect("result").to_string(&vm), "42");
+}
+
+#[test]
+fn associated_type_bound_callable_survives_forced_gc() {
+    let source = r#"
+trait Tagged {
+  type Item
+  tag(_ value: Self::Item) -> Self::Item
+}
+class Identity {}
+impl Tagged for Identity {
+  type Item = Int
+  tag(_ value: Self::Item) -> Self::Item { value }
+}
+class Caller {
+  run(_ identity: Identity) -> Int {
+    let f = &identity.tag(_)
+    System.gc
+    f(42)
+  }
+}
+let result = Caller.new().run(Identity.new())
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("associated callable reference compiles");
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("associated callable reference survives GC");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    assert_eq!(named(&vm, module, "result").expect("result").to_string(&vm), "42");
+}
+
+#[test]
+fn associated_labeled_tuple_binding_preserves_labels_and_values() {
+    let source = r#"
+trait EntrySource {
+  type Item
+  first -> Self::Item
+}
+class PairSource<K, V> {
+  _key: K
+  _value: V
+  @constructor new(_ key: K, _ value: V) {
+    _key = key
+    _value = value
+  }
+  key { _key }
+  value { _value }
+}
+impl<K, V> EntrySource for PairSource<K, V> {
+  type Item = (key: K, value: V)
+  first -> Self::Item { (key: self.key, value: self.value) }
+}
+let source: PairSource<Int, String> = PairSource.new(7, "text")
+let entry = source.first
+let key = entry[#key]
+let value = entry[#value]
+let labels = (entry.labelAt(0) == #key).ifTrue(|| { 1 }, ifFalse: || { 0 })
+let labels2 = (entry.labelAt(1) == #value).ifTrue(|| { 1 }, ifFalse: || { 0 })
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("labeled tuple associated binding compiles");
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("labeled tuple associated binding executes");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    assert_eq!(named(&vm, module, "key").expect("key").to_string(&vm), "7");
+    assert_eq!(named(&vm, module, "value").expect("value").to_string(&vm), "text");
+    assert_eq!(named(&vm, module, "labels").expect("first label").to_string(&vm), "1");
+    assert_eq!(named(&vm, module, "labels2").expect("second label").to_string(&vm), "1");
+}
+
+#[test]
+fn concrete_associated_iterator_preserves_state_freshness_identity_and_exhaustion() {
+    let source = r#"
+trait C5Iterator {
+  type Item
+  next -> Option<Self::Item>
+  iterator { self }
+}
+trait C5Iterable {
+  type Item
+  type Iterator
+  iterator -> Self::Iterator
+}
+class C5List<T> {
+  _values: List<T>
+  @constructor new(_ values: List<T>) { _values = values }
+  values { _values }
+}
+class C5ListIterator<T> {
+  _values: List<T>
+  _index: Int
+  @constructor new(_ values: List<T>) {
+    _values = values
+    _index = 0
+  }
+  next -> Option<T> {
+    if (_index < _values.size) {
+      let value = _values[_index]
+      _index = _index + 1
+      Some(value)
+    } else {
+      None
+    }
+  }
+  iterator { self }
+}
+impl<T> C5Iterator for C5ListIterator<T> { type Item = T }
+impl<T> C5Iterable for C5ListIterator<T> {
+  type Item = T
+  type Iterator = C5ListIterator<T>
+}
+impl<T> C5Iterable for C5List<T> {
+  type Item = T
+  type Iterator = C5ListIterator<T>
+  iterator -> Self::Iterator { C5ListIterator.new(self.values) }
+}
+let source: C5List<Int> = C5List.new([1, 2, 3])
+let first = source.iterator
+let firstOne = first.next
+let firstTwo = first.next
+let fresh = source.iterator
+let freshOne = fresh.next
+let exhausted = source.iterator
+let exhaustedOne = exhausted.next
+let exhaustedTwo = exhausted.next
+let exhaustedThree = exhausted.next
+let exhaustedNone = exhausted.next
+let exhaustedNoneAgain = exhausted.next
+let identity = source.iterator
+let alias = identity.iterator
+let sameIdentity = (identity === alias).ifTrue(|| { 1 }, ifFalse: || { 0 })
+let identityOne = identity.next
+let aliasTwo = alias.next
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("concrete associated iterator compiles");
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("concrete associated iterator executes");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    assert_eq!(named(&vm, module, "firstOne").expect("first one").to_string(&vm), "Some(1)");
+    assert_eq!(named(&vm, module, "firstTwo").expect("first two").to_string(&vm), "Some(2)");
+    assert_eq!(named(&vm, module, "freshOne").expect("fresh one").to_string(&vm), "Some(1)");
+    assert_eq!(named(&vm, module, "exhaustedOne").expect("exhausted one").to_string(&vm), "Some(1)");
+    assert_eq!(named(&vm, module, "exhaustedTwo").expect("exhausted two").to_string(&vm), "Some(2)");
+    assert_eq!(named(&vm, module, "exhaustedThree").expect("exhausted three").to_string(&vm), "Some(3)");
+    assert_eq!(named(&vm, module, "exhaustedNone").expect("exhausted none").to_string(&vm), "None");
+    assert_eq!(named(&vm, module, "exhaustedNoneAgain").expect("exhausted none again").to_string(&vm), "None");
+    assert_eq!(named(&vm, module, "sameIdentity").expect("same identity").to_string(&vm), "1");
+    assert_eq!(named(&vm, module, "identityOne").expect("identity one").to_string(&vm), "Some(1)");
+    assert_eq!(named(&vm, module, "aliasTwo").expect("alias two").to_string(&vm), "Some(2)");
+
+    let failing_source = r#"
+trait C5Iterator {
+  type Item
+  next -> Option<Self::Item>
+}
+class C5FailingIterator {
+  _calls: Int
+  @constructor new() { _calls = 0 }
+  next -> Option<Int> {
+    if (_calls == 0) {
+      _calls = 1
+      Some(1)
+    } else {
+      throw Error.new("boom")
+    }
+  }
+}
+impl C5Iterator for C5FailingIterator { type Item = Int }
+let iterator = C5FailingIterator.new()
+let first = iterator.next
+let second = iterator.next
+"#;
+    let failing_program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(failing_source))).expect("failing iterator compiles");
+    let mut failing_vm = vm_support::universe_vm();
+    let error = failing_vm.run_compiled(&failing_program).expect_err("iterator failure must propagate");
+    assert!(error.to_string().contains("boom"), "iterator failure should preserve the original error: {error}");
+}
+
+#[test]
+fn associated_type_vertical_executes_across_project_modules() {
+    let directory = tempfile::tempdir().expect("temporary project directory");
+    let source_directory = directory.path().join("src");
+    std::fs::create_dir_all(&source_directory).expect("project source directory");
+    std::fs::write(
+        directory.path().join("project.toml"),
+        "[project]\nname = \"c5_vertical\"\nnamespace = \"c5_vertical\"\nversion = \"0.1.0\"\nentry = \"c5_vertical.main\"\n",
+    )
+    .expect("project manifest");
+    std::fs::write(source_directory.join("package.ph"), "expose .cell\nexpose .boxes\nexpose .main\n").expect("package exports");
+    std::fs::write(
+        source_directory.join("cell.ph"),
+        r#"
+trait Cell {
+  type Item
+  echo(_ value: Self::Item) -> Self::Item
+}
+export Cell
+"#,
+    )
+    .expect("trait module");
+    std::fs::write(
+        source_directory.join("boxes.ph"),
+        r#"
+from .cell import Cell
+class Box<T> { @constructor new() {} }
+impl<T> Cell for Box<T> {
+  type Item = T
+  echo(_ value: Self::Item) -> Self::Item { value }
+}
+export Box
+"#,
+    )
+    .expect("conformance module");
+    std::fs::write(
+        source_directory.join("main.ph"),
+        r#"
+from .boxes import Box
+class Caller {
+  stringEcho(_ value: Box<String>) -> String { value.echo("text") }
+  intEcho(_ value: Box<Int>) -> Int { value.echo(42) }
+}
+let caller = Caller.new()
+let stringBox: Box<String> = Box.new()
+let intBox: Box<Int> = Box.new()
+let stringResult = caller.stringEcho(stringBox)
+let intResult = caller.intEcho(intBox)
+export stringResult, intResult
+"#,
+    )
+    .expect("consumer module");
+
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Project(directory.path().to_path_buf())).expect("cross-module associated project compiles");
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("cross-module associated project executes");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    assert_eq!(named(&vm, module, "stringResult").expect("string result").to_string(&vm), "text");
+    assert_eq!(named(&vm, module, "intResult").expect("int result").to_string(&vm), "42");
+}
+
+#[test]
 fn generic_trait_bound_reference_survives_forced_gc() {
     let source = r#"
 trait Tagged<T> { tag(_ value: T) -> T }
@@ -167,6 +498,74 @@ let result = Caller.new().run(Item.new())
     vm.run_compiled(&program).expect("convergent traits execute");
     let module = vm.module_registry.get(&program.entry).expect("entry module").object;
     assert_eq!(named(&vm, module, "result").expect("result").to_string(&vm), "item");
+}
+
+#[test]
+fn high_density_c5_stress_composes_projection_products_and_exact_cases() {
+    let source = r#"
+trait DenseCell {
+  type Item
+  echo(_ value: Self::Item) -> Self::Item { value }
+  transform(_ value: Self::Item) -> Self::Item
+  pack(_ value: Self::Item) -> List<Self::Item> { [self.transform(value)] }
+}
+trait EntrySource {
+  type Item
+  first -> Self::Item
+}
+class DenseBox<T> { @constructor new() {} }
+impl<T> DenseCell for DenseBox<T> {
+  type Item = T
+  transform(_ value: Self::Item) -> Self::Item { value }
+}
+enum Payload<T> {
+  Ok(_ value: T)
+  Error(_ message: String)
+}
+impl DenseCell for Payload<Int>::Ok(_) {
+  type Item = Int
+  transform(_ value: Self::Item) -> Self::Item { value * 2 }
+}
+class PairSource<K, V> {
+  _key: K
+  _value: V
+  @constructor new(_ key: K, _ value: V) {
+    _key = key
+    _value = value
+  }
+  key { _key }
+  value { _value }
+}
+impl<K, V> EntrySource for PairSource<K, V> {
+  type Item = (key: K, value: V)
+  first -> Self::Item { (key: self.key, value: self.value) }
+}
+class Caller {
+  stringPack(_ value: DenseBox<String>) -> String { value.pack("packed")[0] }
+  intTransform(_ value: DenseBox<Int>) -> Int { value.transform(21) }
+}
+let caller = Caller.new()
+let stringBox: DenseBox<String> = DenseBox.new()
+let intBox: DenseBox<Int> = DenseBox.new()
+let stringResult = caller.stringPack(stringBox)
+let intResult = caller.intTransform(intBox)
+let bound = &stringBox.transform(_)
+System.gc
+let boundResult = bound("bound")
+let payloadResult = Payload<Int>::Ok(3).transform(4)
+let entry = PairSource.new(7, "text").first
+let entryResult = entry[#key].toString + ":" + entry[#value]
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("dense C5 program compiles");
+    assert!(program.modules[&program.entry].lowering.trait_invocations.len() >= 5, "dense C5 program must retain multiple trait invocation sites: {}", program.modules[&program.entry].lowering.trait_invocations.len());
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("dense C5 program executes");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    assert_eq!(named(&vm, module, "stringResult").expect("string result").to_string(&vm), "packed");
+    assert_eq!(named(&vm, module, "intResult").expect("int result").to_string(&vm), "21");
+    assert_eq!(named(&vm, module, "boundResult").expect("bound result").to_string(&vm), "bound");
+    assert_eq!(named(&vm, module, "payloadResult").expect("payload result").to_string(&vm), "8");
+    assert_eq!(named(&vm, module, "entryResult").expect("entry result").to_string(&vm), "7:text");
 }
 
 #[test]

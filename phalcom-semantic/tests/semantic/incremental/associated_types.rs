@@ -3,11 +3,12 @@
 use super::support::single_module_input;
 use phalcom_common::selector::Selector;
 use phalcom_modules::identity::{ModuleComponent, ModulePath, ResolvedProjectId};
-use phalcom_modules::ModuleId;
+use phalcom_modules::{ModuleId, SourceId, SourceLocation, SourceRevision, WorkspaceSourceBatchMutation};
 use phalcom_semantic::core_surface::CoreDeclarationIds;
 use phalcom_semantic::db::fingerprint::{declaration_surface_product_fingerprint, trait_surface_product_fingerprint};
 use phalcom_semantic::identity::{DeclarationId, ImplId, ImplLocalId, SemanticTargetId};
 use phalcom_semantic::session::SemanticWorkspaceSession;
+use std::sync::Arc;
 
 fn module() -> ModuleId {
     ModuleId::resolved(
@@ -277,4 +278,156 @@ fn incremental_read_write_delegation_to_getter_only_removes_only_setter() {
     let second_surface = second.snapshot.surfaces.get(&declaration).expect("updated Counter surface");
     let cold_surface = cold_result.snapshot.surfaces.get(&declaration).expect("cold Counter surface");
     assert_eq!(declaration_surface_product_fingerprint(second_surface), declaration_surface_product_fingerprint(cold_surface));
+}
+
+#[test]
+fn cross_module_associated_binding_replacement_recomputes_consumer_and_matches_cold() {
+    let root = tempfile::tempdir().expect("temporary workspace");
+    std::fs::write(root.path().join("package.ph"), "").expect("package marker");
+    let provider_path = root.path().join("cell.ph");
+    let conformance_path = root.path().join("boxes.ph");
+    let consumer_path = root.path().join("consumer.ph");
+    let location = |path: &std::path::Path| SourceLocation {
+        source_id: SourceId(path.to_string_lossy().into()),
+        display_path: path.to_path_buf(),
+    };
+    let provider = location(&provider_path);
+    let conformance = location(&conformance_path);
+    let consumer = location(&consumer_path);
+    let provider_source = "trait Cell { type Item\n echo(_ value: Self::Item) -> Self::Item }\nexport Cell\n";
+    let conformance_int = "from .cell import Cell\nclass Box<T> {}\nimpl<T> Cell for Box<T> { type Item = T\n echo(_ value: Self::Item) -> Self::Item { value } }\nexport Box\n";
+    let conformance_string = conformance_int.replace("type Item = T", "type Item = String").replace("Self::Item) -> Self::Item", "String) -> String");
+    let consumer_source = "from .cell import Cell\nfrom .boxes import Box\nclass Consumer { run(_ value: Box<Int>) -> Int { value.echo(1) } }\n";
+    let mut incremental = SemanticWorkspaceSession::new();
+    let first = incremental
+        .apply_module_mutations([
+            WorkspaceSourceBatchMutation::SetOverlay {
+                source: provider.clone(),
+                text: Arc::from(provider_source),
+                revision: SourceRevision(1),
+                recovered_program: None,
+            },
+            WorkspaceSourceBatchMutation::SetOverlay {
+                source: conformance.clone(),
+                text: Arc::from(conformance_int),
+                revision: SourceRevision(1),
+                recovered_program: None,
+            },
+            WorkspaceSourceBatchMutation::SetOverlay {
+                source: consumer.clone(),
+                text: Arc::from(consumer_source),
+                revision: SourceRevision(1),
+                recovered_program: None,
+            },
+        ])
+        .expect("initial cross-module publication");
+    assert!(!first.snapshot.has_errors(), "initial diagnostics: {:?}", first.snapshot.diagnostics);
+    let cell_module = first.snapshot.module_for_display_path(&provider_path).expect("Cell module").clone();
+    let boxes_module = first.snapshot.module_for_display_path(&conformance_path).expect("Box module").clone();
+    let consumer_module = first.snapshot.module_for_display_path(&consumer_path).expect("consumer module").clone();
+    let cell_declaration = DeclarationId::new(cell_module.clone(), "Cell".into());
+    let box_declaration = DeclarationId::new(boxes_module.clone(), "Box".into());
+    let trait_ref = phalcom_semantic::traits::TraitRef::new(cell_declaration.clone(), Vec::new().into_boxed_slice());
+    let requirement = first
+        .snapshot
+        .trait_surfaces
+        .get(&cell_declaration)
+        .expect("Cell surface")
+        .associated_type_by_name("Item")
+        .expect("Cell.Item requirement")
+        .requirement
+        .clone();
+    let box_form = first.snapshot.declarations.form(&box_declaration).expect("Box form");
+    let int_form = first.snapshot.declarations.form(&CoreDeclarationIds::default().int).expect("Int form");
+    let mut exact_store = (*first.snapshot.store).clone();
+    let box_type = exact_store.apply_type_form(box_form, &[int_form]).expect("Box<Int> form");
+    let first_evidence = first.snapshot.conformance_evidence_for(box_type, &trait_ref).unwrap_or_else(|| {
+        panic!(
+            "initial cross-module evidence missing; plans={:?}; diagnostics={:?}",
+            first.snapshot.conformance_witness_plans.keys().collect::<Vec<_>>(),
+            first.snapshot.diagnostics
+        )
+    });
+    assert_eq!(first_evidence.associated_types.get(&requirement).expect("initial Item binding").value, first.snapshot.declarations.form(&CoreDeclarationIds::default().int).expect("Int form"));
+
+    let second = incremental
+        .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
+            source: conformance,
+            text: Arc::from(conformance_string.clone()),
+            revision: SourceRevision(2),
+            recovered_program: None,
+        }])
+        .expect("replacement cross-module publication");
+    let second_box_form = second.snapshot.declarations.form(&box_declaration).expect("updated Box form");
+    let second_int_form = second.snapshot.declarations.form(&CoreDeclarationIds::default().int).expect("updated Int form");
+    let mut second_store = (*second.snapshot.store).clone();
+    let second_box = second_store.apply_type_form(second_box_form, &[second_int_form]).expect("updated Box<Int> form");
+    let second_evidence = second.snapshot.conformance_evidence_for(second_box, &trait_ref).expect("updated cross-module evidence");
+    assert_ne!(first_evidence.fingerprint, second_evidence.fingerprint, "cross-module RHS replacement must update exact evidence");
+    assert_eq!(second_evidence.associated_types.get(&requirement).expect("updated Item binding").value, second.snapshot.declarations.form(&CoreDeclarationIds::default().string).expect("String form"));
+    assert!(second.snapshot.diagnostics_for(&consumer_module).is_some_and(|diagnostics| !diagnostics.is_empty()), "consumer must be rechecked after its imported associated value changes");
+
+    let conformance_missing = conformance_string.replace("type Item = String\n", "");
+    let third = incremental
+        .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
+            source: location(&conformance_path),
+            text: Arc::from(conformance_missing),
+            revision: SourceRevision(3),
+            recovered_program: None,
+        }])
+        .expect("removal cross-module publication");
+    let third_box_form = third.snapshot.declarations.form(&box_declaration).expect("removed-binding Box form");
+    let third_int_form = third.snapshot.declarations.form(&CoreDeclarationIds::default().int).expect("removed-binding Int form");
+    let mut third_store = (*third.snapshot.store).clone();
+    let third_box = third_store.apply_type_form(third_box_form, &[third_int_form]).expect("removed-binding Box<Int> form");
+    assert!(third.snapshot.conformance_evidence_for(third_box, &trait_ref).is_none(), "removing an imported associated binding must retire exact evidence");
+
+    let fourth = incremental
+        .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
+            source: location(&conformance_path),
+            text: Arc::from(conformance_int),
+            revision: SourceRevision(4),
+            recovered_program: None,
+        }])
+        .expect("readdition cross-module publication");
+    assert!(!fourth.snapshot.has_errors(), "readdition diagnostics: {:?}", fourth.snapshot.diagnostics);
+    let fourth_box_form = fourth.snapshot.declarations.form(&box_declaration).expect("re-added Box form");
+    let fourth_int_form = fourth.snapshot.declarations.form(&CoreDeclarationIds::default().int).expect("re-added Int form");
+    let mut fourth_store = (*fourth.snapshot.store).clone();
+    let fourth_box = fourth_store.apply_type_form(fourth_box_form, &[fourth_int_form]).expect("re-added Box<Int> form");
+    let fourth_evidence = fourth.snapshot.conformance_evidence_for(fourth_box, &trait_ref).expect("re-added cross-module evidence");
+    assert_eq!(fourth_evidence.associated_types.get(&requirement).expect("re-added Item binding").value, fourth.snapshot.declarations.form(&CoreDeclarationIds::default().int).expect("re-added Int form"));
+
+    let mut cold = SemanticWorkspaceSession::new();
+    let cold_result = cold
+        .apply_module_mutations([
+            WorkspaceSourceBatchMutation::SetOverlay {
+                source: provider,
+                text: Arc::from(provider_source),
+                revision: SourceRevision(1),
+                recovered_program: None,
+            },
+            WorkspaceSourceBatchMutation::SetOverlay {
+                source: location(&conformance_path),
+                text: Arc::from(conformance_int),
+                revision: SourceRevision(1),
+                recovered_program: None,
+            },
+            WorkspaceSourceBatchMutation::SetOverlay {
+                source: consumer,
+                text: Arc::from(consumer_source),
+                revision: SourceRevision(1),
+                recovered_program: None,
+            },
+        ])
+        .expect("cold cross-module publication");
+    let cold_cell = cold_result.snapshot.module_for_display_path(&provider_path).expect("cold Cell module").clone();
+    let cold_boxes = cold_result.snapshot.module_for_display_path(&conformance_path).expect("cold Box module").clone();
+    let cold_trait = phalcom_semantic::traits::TraitRef::new(DeclarationId::new(cold_cell, "Cell".into()), Vec::new().into_boxed_slice());
+    let cold_box_form = cold_result.snapshot.declarations.form(&DeclarationId::new(cold_boxes, "Box".into())).expect("cold Box form");
+    let cold_int_form = cold_result.snapshot.declarations.form(&CoreDeclarationIds::default().int).expect("cold Int form");
+    let mut cold_store = (*cold_result.snapshot.store).clone();
+    let cold_box = cold_store.apply_type_form(cold_box_form, &[cold_int_form]).expect("cold Box<Int> form");
+    let cold_evidence = cold_result.snapshot.conformance_evidence_for(cold_box, &cold_trait).expect("cold cross-module evidence");
+    assert_eq!(fourth_evidence.fingerprint, cold_evidence.fingerprint, "re-added cross-module evidence must match cold analysis");
 }
