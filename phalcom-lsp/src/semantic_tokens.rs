@@ -241,6 +241,7 @@ fn classify(token: &Token) -> Option<SemanticTokenKind> {
         | Token::ShiftRight
         | Token::Ampersand
         | Token::Pipe
+        | Token::Conforms
         | Token::Caret
         | Token::Tilde => Some(Operator),
 

@@ -223,6 +223,8 @@ pub enum Token {
     Arrow,
     /// The `<:` generic subtype constraint operator (Spec 04).
     Subtype,
+    /// The `|=` generic trait conformance constraint operator (Spec 04, LANG005.C6).
+    Conforms,
     /// The `=>>` type lambda arrow operator (Spec 04).
     TypeLambdaArrow,
     /// The `=>` fat arrow operator used in match arms (Part 05.1).

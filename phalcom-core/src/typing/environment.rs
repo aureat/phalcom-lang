@@ -12,6 +12,16 @@ pub enum RuntimeTypeRecipe {
     Template(RuntimeTypeRef),
 }
 
+/// Executable recipe for one generic conformance evidence slot at call entry.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum RuntimeConformanceSlotRecipe {
+    Selection {
+        callable: phalcom_semantic::identity::CallableId,
+        selector: phalcom_common::selector::Selector,
+    },
+    Forwarded(u16),
+}
+
 /// Immutable call-entry recipe projected from the semantic call
 /// specialization product. The callable identity is retained so the VM can
 /// verify that a recipe is used only for its intended callee.
@@ -19,6 +29,7 @@ pub enum RuntimeTypeRecipe {
 pub struct RuntimeCallEnvironmentRecipe {
     pub callable: StableCallableRef,
     pub bindings: Box<[(StableTypeParameterRef, RuntimeTypeRecipe)]>,
+    pub conformance_slots: Box<[RuntimeConformanceSlotRecipe]>,
 }
 
 /// Compact identifier for an interned runtime type environment.

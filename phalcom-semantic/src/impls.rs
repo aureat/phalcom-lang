@@ -295,6 +295,14 @@ pub(crate) fn specialize_witness_signature(
                     materialize_term(store, lower);
                     materialize_term(store, upper);
                 }
+                crate::types::parameter::GenericConstraint::Conforms { subject, trait_ref } => {
+                    materialize_term(store, subject);
+                    let mut new_args = trait_ref.arguments.clone();
+                    for arg in new_args.iter_mut() {
+                        *arg = crate::types::environment::TypeView::new(*arg, environment.clone()).materialize(store);
+                    }
+                    *trait_ref = crate::traits::TraitRef::new(trait_ref.declaration.clone(), new_args);
+                }
             }
         }
     }
@@ -1072,6 +1080,16 @@ fn generic_constraint_exact(left: &crate::types::parameter::GenericConstraint, r
                 right: right_right,
             },
         ) => (left_left == right_left && left_right == right_right) || (left_left == right_right && left_right == right_left),
+        (
+            crate::types::parameter::GenericConstraint::Conforms {
+                subject: left_subject,
+                trait_ref: left_trait,
+            },
+            crate::types::parameter::GenericConstraint::Conforms {
+                subject: right_subject,
+                trait_ref: right_trait,
+            },
+        ) => left_subject == right_subject && left_trait == right_trait,
         _ => false,
     }
 }
@@ -1139,6 +1157,7 @@ fn generic_constraint_implied(
                     return Ok(true);
                 }
             }
+            crate::types::parameter::GenericConstraint::Conforms { .. } => {}
         }
     }
     Ok(false)
@@ -1204,6 +1223,22 @@ fn witness_generic_contract(
                         left: witness_generic_term(store, &alpha, left).ok_or(WitnessCompatibility::Blocked(BlockReason::RecursiveFixpoint))?,
                         right: witness_generic_term(store, &alpha, right).ok_or(WitnessCompatibility::Blocked(BlockReason::RecursiveFixpoint))?,
                     }),
+                    crate::types::parameter::GenericConstraint::Conforms { subject, trait_ref } => {
+                        let subject = witness_generic_term(store, &alpha, subject).ok_or(WitnessCompatibility::Blocked(BlockReason::RecursiveFixpoint))?;
+                        let mut new_args = Vec::with_capacity(trait_ref.arguments.len());
+                        for &arg in trait_ref.arguments.iter() {
+                            let term = witness_generic_term(store, &alpha, &crate::types::parameter::TypeTerm::Canonical(arg))
+                                .ok_or(WitnessCompatibility::Blocked(BlockReason::RecursiveFixpoint))?;
+                            let crate::types::parameter::TypeTerm::Canonical(ty) = term else {
+                                return Err(WitnessCompatibility::Blocked(BlockReason::RecursiveFixpoint));
+                            };
+                            new_args.push(ty);
+                        }
+                        Ok(crate::types::parameter::GenericConstraint::Conforms {
+                            subject,
+                            trait_ref: crate::traits::TraitRef::new(trait_ref.declaration.clone(), new_args.into_boxed_slice()),
+                        })
+                    }
                 })
                 .collect::<Result<Vec<_>, WitnessCompatibility>>()?;
             for candidate_constraint in &candidate_constraints {
@@ -2358,6 +2393,40 @@ pub fn resolve_conformance_head(
                         });
                     }
                 }
+                phalcom_ast::ast::GenericConstraintSyntax::Conforms { subject, bounds, range: _ } => {
+                    let s_k = resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, subject, &mut diagnostics);
+                    if let TypeKnowledge::Known(s_ev) = s_k {
+                        for bound in bounds {
+                            let (decl, args) = match &bound.expr {
+                                TypeAnnotationExpr::Reference(sym_ref) => {
+                                    let members: Vec<String> = sym_ref.members.iter().map(|m| m.name.clone()).collect();
+                                    (ctx.resolver.resolve_type_name(&ctx.current_module, &sym_ref.root, &members), Vec::new())
+                                }
+                                TypeAnnotationExpr::Application { origin, arguments, .. } => {
+                                    if let TypeAnnotationExpr::Reference(sym_ref) = &origin.expr {
+                                        let members: Vec<String> = sym_ref.members.iter().map(|m| m.name.clone()).collect();
+                                        (ctx.resolver.resolve_type_name(&ctx.current_module, &sym_ref.root, &members), arguments.clone())
+                                    } else {
+                                        (None, Vec::new())
+                                    }
+                                }
+                                _ => (None, Vec::new()),
+                            };
+                            if let Some(decl) = decl {
+                                let mut resolved_args = Vec::new();
+                                for arg in args {
+                                    if let TypeKnowledge::Known(a_ev) = resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, &arg, &mut diagnostics) {
+                                        resolved_args.push(a_ev.ty());
+                                    }
+                                }
+                                constraints.push(GenericConstraint::Conforms {
+                                    subject: TypeTerm::Canonical(s_ev.ty()),
+                                    trait_ref: crate::traits::TraitRef::new(decl, resolved_args.into_boxed_slice()),
+                                });
+                            }
+                        }
+                    }
+                }
                 phalcom_ast::ast::GenericConstraintSyntax::Invalid { message, range } => {
                     diagnostics.push(SemanticDiagnostic::error_in(
                         ctx.current_module.clone(),
@@ -3364,6 +3433,7 @@ pub fn check_impl_domain_constraints(
                                     }
                                 }
                             }
+                            GenericConstraint::Conforms { .. } => {}
                         }
                     }
                 }
@@ -3404,6 +3474,26 @@ pub fn check_impl_domain_constraints(
                     } else {
                         ImplConstraintResult::NotApplicable
                     };
+                }
+            }
+            GenericConstraint::Conforms { subject, trait_ref } => {
+                let subject_ty = match subject {
+                    TypeTerm::Canonical(ty) => subst.apply(store, *ty),
+                    _ => return ImplConstraintResult::Blocked(BlockReason::InvalidAnnotation(DiagnosticCode::AnnotationUnresolved)),
+                };
+                let mut proven = false;
+                for amb in ambient_constraints {
+                    if let GenericConstraint::Conforms { subject: amb_subj, trait_ref: amb_trait } = amb {
+                        if let TypeTerm::Canonical(s) = amb_subj {
+                            if *s == subject_ty && amb_trait == trait_ref {
+                                proven = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if !proven {
+                    return ImplConstraintResult::NotApplicable;
                 }
             }
         }
@@ -3502,6 +3592,40 @@ pub fn resolve_inherent_impl_target(
                             left: TypeTerm::Canonical(l_ev.ty()),
                             right: TypeTerm::Canonical(r_ev.ty()),
                         });
+                    }
+                }
+                phalcom_ast::ast::GenericConstraintSyntax::Conforms { subject, bounds, range: _ } => {
+                    let s_k = resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, subject, &mut diagnostics);
+                    if let TypeKnowledge::Known(s_ev) = s_k {
+                        for bound in bounds {
+                            let (decl, args) = match &bound.expr {
+                                TypeAnnotationExpr::Reference(sym_ref) => {
+                                    let members: Vec<String> = sym_ref.members.iter().map(|m| m.name.clone()).collect();
+                                    (ctx.resolver.resolve_type_name(&ctx.current_module, &sym_ref.root, &members), Vec::new())
+                                }
+                                TypeAnnotationExpr::Application { origin, arguments, .. } => {
+                                    if let TypeAnnotationExpr::Reference(sym_ref) = &origin.expr {
+                                        let members: Vec<String> = sym_ref.members.iter().map(|m| m.name.clone()).collect();
+                                        (ctx.resolver.resolve_type_name(&ctx.current_module, &sym_ref.root, &members), arguments.clone())
+                                    } else {
+                                        (None, Vec::new())
+                                    }
+                                }
+                                _ => (None, Vec::new()),
+                            };
+                            if let Some(decl) = decl {
+                                let mut resolved_args = Vec::new();
+                                for arg in args {
+                                    if let TypeKnowledge::Known(a_ev) = resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, &arg, &mut diagnostics) {
+                                        resolved_args.push(a_ev.ty());
+                                    }
+                                }
+                                constraints.push(GenericConstraint::Conforms {
+                                    subject: TypeTerm::Canonical(s_ev.ty()),
+                                    trait_ref: crate::traits::TraitRef::new(decl, resolved_args.into_boxed_slice()),
+                                });
+                            }
+                        }
                     }
                 }
                 phalcom_ast::ast::GenericConstraintSyntax::Invalid { message, range } => {

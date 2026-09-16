@@ -1,258 +1,128 @@
-# Generic Constraints and Trait Bounds
+# Generic Constraints
 
 **Status:** Normative  
 **Language area:** Type system, generics, trait conformance  
 **Implementation checkpoint:** LANG005.C6  
-**Specification role:** Authoritative surface-language and semantic specification for generic constraints and trait bounds
+**Specification role:** Authoritative specification of Phalcom generic constraints
 
-This document specifies Phalcom's generic constraint language: the `where` clause, kind constraints, trait-conformance requirements, associated-type specialization, associated projections, type-equivalence constraints, subtype constraints, generic evidence environments, and the rules by which these constraints participate in generic inference and instantiation.
+A generic declaration introduces abstract type-level entities. A `where` clause states propositions that must hold about them.
 
-The document defines language behavior. Concrete solver algorithms, query scheduling, cache organization, incremental implementation, worklist strategy, union-find representation, and other implementation mechanisms are outside its normative scope except where observable semantics require a specific distinction.
+> **Core rule:** generic code is checked under its declared constraints; every concrete specialization or invocation must satisfy the corresponding obligations.
 
-## Semantic model
+This specification defines constraint syntax and semantics. Solver algorithms, evidence representation, bytecode/runtime transport, caching, and incremental mechanics are non-normative.
 
-A generic declaration introduces abstract type-level parameters. A `where` clause states propositions that must hold about those parameters or about type-level expressions derived from them.
+---
 
-The central syntactic invariant is:
+## 1. Language model
 
-> Generic parameter lists introduce generic parameters. `where` clauses constrain them.
+Phalcom has **no source-level free functions**. Generic executable behavior is method-based.
 
-The central semantic invariant is:
+`where` clauses may occur on declaration forms that admit generic contracts, including:
 
-> A `where` clause denotes a conjunction of proof-bearing propositions. The generic body is checked under those propositions, and every concrete instantiation must discharge the corresponding obligations.
+- classes, data declarations, enums, and traits;
+- inherent and conformance `impl` declarations;
+- type aliases;
+- methods and other generic behavior members;
+- variant constructors where the ADT/GADT grammar permits constructor-specific constraints.
 
-Phalcom's initial generic constraint language contains four principal relation families:
+Example:
 
 ```phalcom
-F: (Type) -> Type
-T |= Iterator<Item = User>
-Lower <: T <: Upper
-A::Item == B::Item
+trait Printable {
+  print -> String
+}
+
+class Renderer {
+  render<T>(_ value: T) -> String
+      where T |= Printable
+  {
+    value.print
+  }
+}
 ```
 
-They are semantically distinct:
+This specification does not introduce any free-function declaration form.
 
-```text
-:     kind classification
-|=    trait conformance / evidence requirement
-<:    subtype relation
-==    canonical semantic type equivalence
-```
+---
 
-Supporting syntax includes:
+## 2. Relations
 
-```text
-::    associated selection / projection
-+     conjunction of same-subject trait requirements
-=     named associated-type specialization inside a constrained trait application
-```
+Phalcom generic constraints use four distinct relations:
 
-These relations must not be conflated. In particular:
+| Syntax | Meaning |
+|---|---|
+| `:` | kind classification |
+| `|=` | trait conformance |
+| `<:` | subtyping |
+| `==` | canonical type equivalence |
 
-- trait conformance is not subtyping;
-- trait conformance is not kinding;
-- type equivalence is not assignment;
-- type equivalence is not defined as mutual assignability;
-- `+` in a trait bound does not construct an intersection type or synthetic trait;
-- `Dynamic` is not proof of any static bound.
+Supporting syntax:
 
-All constraints in one `where` clause are conjunctive. Their source order has no semantic significance.
+| Syntax | Meaning |
+|---|---|
+| `+` | conjunction of trait requirements on one subject |
+| `=` | associated-type specialization inside a trait application |
+| `::` | associated-type projection |
 
-## Generic parameter introduction
+They must not be conflated. In particular:
 
-A generic parameter list binds generic parameters:
+- conformance is neither subtyping nor structural method matching;
+- kinding is not conformance;
+- `==` is neither assignment nor ordinary runtime equality;
+- `+` creates no intersection type or synthetic trait;
+- `Dynamic` is not automatic proof of a static constraint.
+
+Constraints in one `where` clause are conjunctive and source-order independent.
+
+---
+
+## 3. Generic parameters and `where`
+
+Generic parameter lists bind parameters:
 
 ```phalcom
 <T>
-```
-
-```phalcom
 <T, U>
+<F, A, B>
 ```
 
-```phalcom
-<F, G, A, B, E>
-```
-
-The parameter list itself does not contain generic bounds or relational constraints.
-
-The canonical form is therefore:
+Trait, subtype, and equivalence bounds belong in `where`:
 
 ```phalcom
-print<T>(_ value: T)
+class Box<T>
     where T |= Printable
 {
-    ...
+  ...
 }
 ```
 
 not:
 
 ```phalcom
-print<T: Printable>(_ value: T) {
-    ...
+class Box<T: Printable> {
+  ...
 }
 ```
 
-Likewise, higher-kind constraints belong in `where` rather than in the generic parameter list:
+Explicit kind constraints may also be written in `where`:
 
 ```phalcom
-map<F, A, B>(
-    _ value: F<A>,
-    _ transform: (A) -> B,
-) -> F<B>
-    where
-        F: (Type) -> Type,
-        F |= Functor,
-{
-    ...
-}
+where F: Type -> Type
 ```
 
-A `where` clause never introduces an implicit type parameter.
+If a declaration form also admits a kind annotation directly on a generic binder, both spellings contribute to the same parameter-kind contract and must agree.
 
-Therefore:
+`where` constrains already-bound or otherwise-resolvable type-level names. It never introduces an implicit generic parameter.
 
-```phalcom
-foo<T>()
-    where T == U
-{
-    ...
-}
-```
+Line breaks are non-semantic.
 
-is invalid unless `U` already resolves as a type-level name in the enclosing scope.
+---
 
-This separation is normative:
+## 4. Grammar
+
+The exact grammars of `TypeExpression`, `TypeLevelExpression`, `ProperTypeExpression`, `TraitReference`, and `Kind` are owned by their respective specifications.
 
 ```text
-<T, U, F>
-    binds generic parameters
-
-where ...
-    constrains already-bound or otherwise-resolvable type-level entities
-```
-
-## Where-clause placement
-
-A `where` clause is part of a declaration header. Its grammar is independent of physical line breaks.
-
-A short clause may appear on the same line:
-
-```phalcom
-print<T>(_ value: T) where T |= Printable {
-    ...
-}
-```
-
-The same declaration may place the clause on the following line:
-
-```phalcom
-print<T>(_ value: T)
-    where T |= Printable
-{
-    ...
-}
-```
-
-A longer clause may be expanded:
-
-```phalcom
-print<T>(_ value: T)
-    where
-        T |= Printable + Hashable,
-        T <: Entity,
-{
-    ...
-}
-```
-
-These forms are semantically identical.
-
-The language grammar must not depend on whether `where` appears on the same physical line as the declaration head.
-
-The formatter should generally:
-
-- retain genuinely short, simple clauses inline when doing so preserves readability;
-- move nontrivial `where` clauses below the principal declaration signature;
-- place multiple substantial constraints on separate lines;
-- use continuation indentation for long same-subject trait conjunctions.
-
-Formatting is not semantic.
-
-## Declarations that admit constraints
-
-A `where` clause may appear on generic declaration forms whose semantics admit generic constraints.
-
-The normative surface includes at least:
-
-- functions;
-- methods;
-- generic nominal declarations;
-- traits;
-- `impl` / conformance declarations;
-- generic type aliases;
-- GADT enum variant constructors;
-- other declaration forms that bind generic parameters and explicitly adopt the generic constraint grammar.
-
-Examples:
-
-```phalcom
-print<T>(_ value: T)
-    where T |= Printable
-{
-    ...
-}
-```
-
-```phalcom
-class Box<T>
-    where T |= Serializable
-{
-    ...
-}
-```
-
-```phalcom
-impl<T> Printable for Box<T>
-    where T |= Printable
-{
-    ...
-}
-```
-
-A generic alias may carry constraints:
-
-```phalcom
-type Items<I> = List<<I as Iterator>::Item>
-    where I |= Iterator
-```
-
-A GADT constructor may carry constructor-specific constraints:
-
-```phalcom
-enum Expr<T> {
-    IntLiteral(Int)
-        where T == Int
-
-    Wrapped<U>(Expr<U>)
-        where T == Option<U>
-}
-```
-
-The exact surrounding grammar of each declaration kind remains owned by that declaration's specification. The meaning of its `where` clause is governed by this document.
-
-## Constraint grammar
-
-The following grammar is illustrative normative grammar. Concrete parser notation may differ while preserving the same accepted language.
-
-```text
-GenericParameterList
-    := "<" GenericParameter ("," GenericParameter)* [","] ">"
-
-GenericParameter
-    := Identifier
-
 WhereClause
     := "where" Constraint ("," Constraint)* [","]
 
@@ -260,27 +130,30 @@ Constraint
     := KindConstraint
      | ConformanceConstraint
      | EquivalenceConstraint
-     | SubtypeConstraint
+     | SubtypeChain
 
 KindConstraint
     := GenericParameter ":" Kind
 
 ConformanceConstraint
-    := TypeLevelExpression "|=" TraitBoundList
+    := TypeLevelExpression "|=" TraitRequirementList
 
-TraitBoundList
-    := TraitBound ("+" TraitBound)*
+TraitRequirementList
+    := TraitRequirement ("+" TraitRequirement)*
 
-TraitBound
+TraitRequirement
     := TraitReference
-     | TraitReference "<" TraitBoundArgumentList ">"
+     | TraitReference "<" TraitArguments ">"
 
-TraitBoundArgumentList
-    := TraitBoundArgument ("," TraitBoundArgument)* [","]
+TraitArguments
+    := OrdinaryTraitArguments ["," AssociatedSpecializations]
+     | AssociatedSpecializations
 
-TraitBoundArgument
-    := TypeExpression
-     | AssociatedSpecialization
+OrdinaryTraitArguments
+    := TypeExpression ("," TypeExpression)*
+
+AssociatedSpecializations
+    := AssociatedSpecialization ("," AssociatedSpecialization)*
 
 AssociatedSpecialization
     := Identifier "=" TypeExpression
@@ -288,664 +161,159 @@ AssociatedSpecialization
 EquivalenceConstraint
     := TypeLevelExpression "==" TypeLevelExpression
 
-SubtypeConstraint
+SubtypeChain
     := ProperTypeExpression ("<:" ProperTypeExpression)+
 ```
 
-The exact productions for `Kind`, `TypeExpression`, `TypeLevelExpression`, `ProperTypeExpression`, and `TraitReference` are defined by their owning specifications.
+Ordinary trait arguments are positional. Once an associated specialization appears, remaining arguments must also be associated specializations.
 
-The grammar must preserve the semantic distinction between ordinary trait generic arguments and associated-type specializations.
+---
 
-## Kinds and kind constraints
+## 5. Kind constraints
 
-A kind classifies a type-level entity in the same broad sense that a type classifies a value-level entity.
-
-At the value level:
+`:` classifies a generic parameter by kind:
 
 ```phalcom
-value: Int
+where F: Type -> Type
 ```
 
-means that `value` has type `Int`.
-
-At the type level:
-
-```phalcom
-F: (Type) -> Type
-```
-
-means that `F` has kind `(Type) -> Type`.
-
-The use of `:` is therefore a classification relation across adjacent levels:
-
-```text
-value : type
-type-level entity : kind
-```
-
-Kind classification is semantically distinct from trait conformance.
-
-These two constraints state different facts:
-
-```phalcom
-F: (Type) -> Type
-F |= Functor
-```
-
-The first determines the category of type-level entity that `F` ranges over. The second requires conformance evidence for `Functor`.
-
-### Default kind
-
-An ordinary generic parameter defaults to kind `Type` when no explicit or inferred higher kind applies.
-
-Thus:
-
-```phalcom
-identity<T>(_ value: T) -> T {
-    value
-}
-```
-
-does not require:
-
-```phalcom
-where T: Type
-```
-
-Conceptually:
-
-```text
-T : Type
-```
-
-is implicit.
-
-### Explicit higher kinds
-
-Explicit higher-kind constraints are recommended when the public contract depends on a type constructor rather than a proper type.
-
-Preferred forms use callable-like kind syntax:
-
-```phalcom
-F: (Type) -> Type
-G: (Type, Type) -> Type
-H: (Type, Type, Type) -> Type
-```
-
-These correspond naturally to Phalcom's n-ary generic application syntax:
-
-```phalcom
-F<A>
-G<A, B>
-H<A, B, C>
-```
-
-The unparenthesized unary shorthand is permitted:
-
-```phalcom
-F: Type -> Type
-```
-
-and is semantically equivalent to:
-
-```phalcom
-F: (Type) -> Type
-```
-
-An accepted unparenthesized multi-argument form such as:
-
-```phalcom
-F: Type -> Type -> Type
-```
-
-must canonicalize to the corresponding n-ary callable-like kind:
-
-```phalcom
-F: (Type, Type) -> Type
-```
-
-for purposes of kind identity, diagnostics, reflection, and semantic comparison.
-
-The source spelling does not introduce currying or partial type-constructor application unless a separate language feature explicitly does so.
-
-A formatter or linter may prefer the canonical callable-like spelling:
-
-```phalcom
-(Type, Type) -> Type
-```
-
-over:
-
-```phalcom
-Type -> Type -> Type
-```
-
-### Kind inference
-
-Kinds may be inferred from type-forming use and from trait subject requirements.
-
-For example:
-
-```phalcom
-map<F, A, B>(
-    _ value: F<A>,
-    _ transform: (A) -> B,
-) -> F<B>
-    where F |= Functor
-{
-    ...
-}
-```
-
-may infer that `F` must accept one proper type and produce one proper type when both:
-
-- `F<A>` is well-formed only under that kind; and
-- `Functor` requires a subject of that kind.
-
-Explicit higher kinds remain recommended when they are part of the API contract:
+It does not state trait conformance.
 
 ```phalcom
 where
-    F: (Type) -> Type,
+    F: Type -> Type,
     F |= Functor,
 ```
 
-Kind inference and explicit kind constraints contribute to one coherent kind system.
+contains two independent propositions.
 
-Incompatible kind information is always a hard error.
+An ordinary generic parameter has kind `Type` unless its declaration, use, or explicit kind contract establishes another kind.
 
-For example, if one use requires:
+A `where` kind constraint directly constrains a generic parameter. Compound type expressions are kind-checked through ordinary type formation.
 
-```text
-F : (Type) -> Type
-```
+The kind specification owns kind syntax, canonical kind identity, application, and partial application.
 
-while another requires:
+---
 
-```text
-F : (Type, Type) -> Type
-```
+## 6. Conformance constraints
 
-the declaration is ill-kinded.
-
-The compiler must not widen the conflict to an unknown or dynamic kind.
-
-### Domain of explicit kind constraints
-
-An explicit kind constraint in `where` directly constrains a generic parameter introduced by the enclosing declaration.
-
-This is valid:
-
-```phalcom
-where F: (Type) -> Type
-```
-
-This is not the intended explicit constraint form:
-
-```phalcom
-where F<A>: Type
-```
-
-The kind of a compound type expression is checked through ordinary type formation rather than by restating it as a source-level `where` proposition.
-
-## Trait subject kinds
-
-Every trait application has a subject kind: the kind of entity that may conform to that trait.
-
-Most ordinary traits accept a subject of kind:
-
-```text
-Type
-```
-
-Higher-kinded traits may accept subjects such as:
-
-```text
-(Type) -> Type
-```
-
-Accordingly:
-
-```phalcom
-F |= Functor
-```
-
-is well-kinded only if the kind of `F` is compatible with the subject kind required by `Functor`.
-
-Kind compatibility is checked before conformance proof is meaningful.
-
-A trait applicable only to proper types cannot accidentally apply to a type constructor merely because member names happen to match.
-
-The exact declaration syntax by which a trait establishes its subject kind is owned by the trait and kind specifications.
-
-## Trait conformance constraints
-
-Trait conformance uses `|=`.
+Trait conformance uses `|=`:
 
 ```phalcom
 where T |= Printable
 ```
 
-is read:
-
-> `T` conforms to `Printable`.
-
-Semantically, the generic environment must provide evidence for the proposition:
+Semantically:
 
 ```text
 Conforms(T, Printable)
 ```
 
-The operator `|=` in a `where` clause is a built-in semantic relation.
+Conformance is nominal and evidence-based. Matching selectors or method shapes do not prove it.
 
-It is:
-
-- not compound assignment;
-- not bitwise assignment;
-- not overloadable;
-- not structural method matching;
-- not subtyping;
-- not a type annotation.
-
-A valid conformance requirement must resolve to canonical trait evidence according to Phalcom's conformance and coherence model.
-
-Method-shape coincidence alone is not proof.
-
-## General conformance subjects
-
-The subject of `|=` may be any well-formed type-level expression whose kind is compatible with the subject kind of the referenced trait application.
-
-Examples include:
+The subject may be any well-formed type-level expression whose kind is compatible with the applied trait:
 
 ```phalcom
 T |= Printable
-```
-
-```phalcom
-List<T> |= Printable
-```
-
-```phalcom
-F<T> |= Serializable
-```
-
-```phalcom
+List<T> |= Serializable
 I::Item |= Hashable
 ```
 
-and, for a higher-kinded trait:
+Higher-kinded subjects are permitted when the trait subject kind admits them:
 
 ```phalcom
-F |= Functor
+where
+    F: Type -> Type,
+    F |= Functor,
 ```
 
-where `F` itself has an appropriate higher kind.
+A generic conformance constraint supplies **assumed evidence** while checking the generic body. At a concrete specialization or invocation, the instantiated obligation must be discharged by valid evidence.
 
-The semantic primitive is therefore general:
+Assumed generic evidence is not a fabricated concrete `impl`, witness, or exact conformance identity.
 
-```text
-Conforms(subject, trait_application)
-```
+`Dynamic` does not satisfy `T |= Trait` merely because runtime dispatch is possible.
 
-It is not restricted to a special representation such as:
+---
 
-```text
-BoundOnGenericParameter(parameter, trait)
-```
+## 7. Same-subject conjunction
 
-Before proof search, the conformance subject is kind-checked and normalized according to all semantic normalization available in the current environment.
-
-Normalization must preserve distinctions relevant to conformance identity, including exact-case identity and canonical applied trait identity.
-
-## Conformance evidence
-
-A conformance constraint introduces abstract evidence into a generic body's semantic environment.
-
-Given:
+`+` is shorthand for multiple conformance obligations on the same subject:
 
 ```phalcom
-print<T>(_ value: T)
-    where T |= Printable
-{
-    ...
-}
+where T |= Printable + Hashable
 ```
 
-the body is checked under the assumption:
-
-```text
-T |= Printable
-```
-
-Operations justified by `Printable` may therefore be type-checked against `T`.
-
-At a concrete instantiation, the caller must discharge the same proposition with concrete conformance evidence.
-
-Generic assumed evidence and exact concrete evidence are distinct sources of knowledge but participate in one semantic conformance model.
-
-## Trait conjunction
-
-Multiple traits on the same subject may be conjoined with `+`:
-
-```phalcom
-where T |= Printable + Hashable + Serializable
-```
-
-This is semantic sugar for:
+is equivalent to:
 
 ```phalcom
 where
     T |= Printable,
     T |= Hashable,
-    T |= Serializable,
 ```
 
-Each trait contributes an independent conformance obligation.
+No combined trait is created. Operand order is irrelevant.
 
-No synthetic combined trait is created.
-
-Therefore:
+Associated specialization binds inside its immediate trait requirement:
 
 ```phalcom
-T |= A + B + C
-```
-
-normalizes conceptually to:
-
-```text
-Conforms(T, A)
-Conforms(T, B)
-Conforms(T, C)
-```
-
-and not:
-
-```text
-Conforms(T, A+B+C)
-```
-
-The `+` operator in this position:
-
-- does not construct an intersection type;
-- does not construct a trait object;
-- does not create a reflection identity;
-- does not affect coherence as though a new trait existed;
-- is local to same-subject conformance-bound syntax.
-
-Operand order is semantically irrelevant:
-
-```phalcom
-T |= A + B
-```
-
-and:
-
-```phalcom
-T |= B + A
-```
-
-state the same set of obligations.
-
-Likewise:
-
-```phalcom
-T |= A + B
-```
-
-and:
-
-```phalcom
-where
-    T |= A,
-    T |= B,
-```
-
-normalize to the same semantic obligations.
-
-### Conjunction precedence
-
-Associated specialization binds inside the immediately enclosing trait bound before trait conjunction is expanded.
-
-Thus:
-
-```phalcom
-T |= Iterator<Item = A> + Printable
+where T |= Iterator<Item = A> + Printable
 ```
 
 means:
 
 ```text
 T |= Iterator<Item = A>
-AND
 T |= Printable
 ```
 
-A comma terminates the same-subject conjunction:
+A comma ends the same-subject conjunction.
 
-```phalcom
-where
-    T |= A + B,
-    U |= C,
-```
+---
 
-means:
+## 8. Applied traits and associated specialization
 
-```text
-T |= A
-T |= B
-U |= C
-```
-
-## Generic trait applications
-
-A generic trait is referenced with ordinary positional generic arguments.
-
-Given:
+Applied trait identity includes the trait declaration and ordinary generic arguments.
 
 ```phalcom
 trait Converts<From, To> {
-    type Error
-
-    convert(_ value: From) -> Result<To, Self::Error>
+  type Error
+  convert(_ value: From) -> Result<To, Self::Error>
 }
 ```
 
-the following constraint refers to one canonical trait application:
+`Converts<String, Int>` and `Converts<Bytes, Int>` are distinct trait applications.
+
+Ordinary trait arguments are positional. `Name = Type` inside a constrained trait application means associated-type specialization:
 
 ```phalcom
-C |= Converts<String, Int>
+where C |= Converts<A, B, Error = E>
 ```
 
-Trait application identity includes its ordinary generic arguments.
+Here `A` and `B` are ordinary arguments and `Error = E` constrains `Converts::Error`.
 
-Therefore:
-
-```text
-Converts<String, Int>
-```
-
-and:
-
-```text
-Converts<Bytes, Int>
-```
-
-are different trait applications even though they share the same trait declaration.
-
-A type may be required to satisfy more than one applied form where coherence rules permit:
-
-```phalcom
-T |= Trait<A> + Trait<B>
-```
-
-This denotes two independent conformance obligations.
-
-Phalcom does not have labeled ordinary generic arguments.
-
-Accordingly:
-
-```phalcom
-Converter<From = A, To = B>
-```
-
-does not name ordinary generic parameters by label.
-
-Within a constrained trait application, `Name = Type` has one exclusive meaning: associated-type specialization.
-
-## Associated-type specialization
-
-A conformance bound may constrain associated types directly.
+A bound:
 
 ```phalcom
 where I |= Iterator<Item = User>
 ```
 
-requires both:
+states:
 
 ```text
 I |= Iterator
-```
-
-and:
-
-```text
 <I as Iterator>::Item == User
 ```
 
-The source form is intentionally compact and trait-anchored.
+Single `=` is used only for this structured specialization syntax. General equivalence uses `==`.
 
-Multiple associated types may be specialized:
-
-```phalcom
-where
-    I |= Iterator<
-        Cursor = Int,
-        Item = User,
-    >
-```
-
-Each associated name is resolved against the canonical associated-type requirements of the immediately enclosing trait application.
-
-Names are not looked up globally.
-
-### Generic arguments and associated specialization together
-
-A trait bound may contain both ordinary positional generic arguments and named associated specializations:
+The same associated requirement may appear at most once in one trait application:
 
 ```phalcom
-C |= Converts<A, B, Error = E>
+Iterator<Item = A, Item = B>   // invalid
+Iterator<Item = A, Item = A>   // invalid
 ```
 
-Given:
-
-```phalcom
-trait Converts<From, To> {
-    type Error
-}
-```
-
-the semantic partition is:
-
-```text
-A, B
-    ordinary trait generic arguments
-
-Error = E
-    associated-type specialization
-```
-
-The associated specialization does not become part of the trait's ordinary generic argument list.
-
-It constrains an associated projection of the already-identified trait application.
-
-Once an associated specialization appears inside the angle-bracket list, subsequent entries must also be associated specializations.
-
-Thus:
-
-```phalcom
-Converts<A, B, Error = E>
-```
-
-is valid.
-
-A form such as:
-
-```phalcom
-Converts<A, Error = E, B>
-```
-
-is invalid.
-
-### Single `=` in associated specialization
-
-Single `=` inside:
-
-```phalcom
-Iterator<Item = User>
-```
-
-is not the general type-equivalence operator.
-
-It is structured named-specialization syntax:
-
-```text
-associated requirement Item
-must resolve to
-User
-```
-
-Its semantic effect is an equivalence obligation, but its surface role is analogous to specifying the required value of a named associated member.
-
-General type equivalence uses `==`.
-
-### Duplicate associated specialization
-
-The same associated requirement may appear at most once in one constrained trait application.
-
-This is invalid:
-
-```phalcom
-Iterator<Item = A, Item = B>
-```
-
-This is also invalid:
-
-```phalcom
-Iterator<Item = A, Item = A>
-```
-
-Both are duplicate structured specializations and must produce a diagnostic.
-
-The compiler must not reinterpret:
-
-```phalcom
-Item = A, Item = B
-```
-
-as an implicit request to prove:
-
-```text
-A == B
-```
-
-If an additional equality is intended, it must be stated as a general `where` constraint.
-
-### Narrow specialization language
-
-Associated specialization intentionally supports exact specialization only:
-
-```phalcom
-Iterator<Item = User>
-```
-
-These forms are not part of the associated-specialization mini-language:
-
-```phalcom
-Iterator<Item <: Entity>
-Iterator<Item == Other::Item>
-```
-
-General relations remain ordinary `where` constraints:
+Associated specialization expresses exact equivalence only. Other relations remain top-level constraints:
 
 ```phalcom
 where
@@ -953,459 +321,102 @@ where
     I::Item <: Entity,
 ```
 
-or:
+---
+
+## 9. Associated projections
+
+Generic constraints may use contextual or qualified associated projections.
+
+### Contextual
 
 ```phalcom
-where
-    I |= Iterator,
-    I::Item == Other::Item,
-```
-
-This prevents `Trait<...>` from embedding a second copy of the full constraint language.
-
-## Associated projections
-
-Associated types may be projected from a subject when the relevant conformance context identifies the associated requirement.
-
-Phalcom supports contextual projections:
-
-```phalcom
+T::Item
 Self::Item
 ```
 
-```phalcom
-T::Item
-```
+A contextual projection is valid only when the available semantic evidence identifies exactly one applicable associated requirement with that name for the subject.
 
-and explicit qualified projections:
-
-```phalcom
-<T as Iterator>::Item
-```
-
-```phalcom
-<T as Converter<A, B>>::Error
-```
-
-### Contextual projection
-
-A contextual projection such as:
-
-```phalcom
-T::Item
-```
-
-is valid only when the available semantic environment identifies exactly one applicable associated requirement named `Item` for the subject.
-
-For example:
-
-```phalcom
-where T |= Iterator
-```
-
-may make:
-
-```phalcom
-T::Item
-```
-
-unambiguous if `Iterator` is the only applicable conformance exposing `Item`.
-
-Source order must never choose among multiple candidates.
-
-### Ambiguous contextual projection
-
-Suppose:
-
-```phalcom
-trait Iterator {
-    type Item
-}
-
-trait Collection {
-    type Item
-}
-```
-
-and:
+If both `Iterator` and `Collection` provide distinct `Item` requirements:
 
 ```phalcom
 where T |= Iterator + Collection
 ```
 
-Then:
+then `T::Item` is ambiguous. Source order must not choose one.
 
-```phalcom
-T::Item
-```
-
-is ambiguous because two distinct canonical associated requirements are available:
-
-```text
-Iterator::Item
-Collection::Item
-```
-
-The compiler must diagnose the ambiguity.
-
-### Qualified projection
-
-A qualified projection names the trait application explicitly:
+### Qualified
 
 ```phalcom
 <T as Iterator>::Item
+<T as Converts<A, B>>::Error
 ```
 
-This identifies the projection by:
+A qualified projection identifies its subject, applied trait, and trait-owned associated requirement explicitly.
 
-```text
-subject
-trait application
-canonical associated requirement
-```
+It is well-formed only if the qualifying conformance can be established. Writing the projection creates that well-formedness obligation; it does not make the conformance true.
 
-It is therefore unambiguous even when several traits expose the same associated name.
-
-For generic traits:
-
-```phalcom
-<T as Converter<A, B>>::Error
-```
-
-the ordinary trait arguments are part of the qualifying trait application and therefore part of projection identity.
-
-### Qualified projection and conformance obligations
-
-A qualified projection is meaningful only if the subject conforms to the qualifying trait application.
-
-Accordingly, forming:
-
-```phalcom
-<T as Iterator>::Item
-```
-
-creates or requires the well-formedness obligation:
-
-```text
-T |= Iterator
-```
-
-The programmer need not redundantly state the same conformance solely to make the projection well-formed.
-
-Thus this is a complete relation:
+Thus:
 
 ```phalcom
 where
-    <T as Iterator>::Item
-        == <T as Collection>::Item
+    <T as Iterator>::Item == <T as Collection>::Item
 ```
 
-It entails the well-formedness obligations necessary to form both projections:
+requires both qualifying conformances and then equality of the projected types.
 
-```text
-T |= Iterator
-T |= Collection
-```
+Projection normalization uses the conformance evidence available in the current environment. Associated declaration identity and normalization remain owned by the associated-type specification.
 
-and then constrains the resulting associated types to be equivalent.
+---
 
-Explicit qualification is the canonical escape hatch for otherwise ambiguous associated projections.
+## 10. Type equivalence
 
-### Same-named associated requirements
-
-Inline specialization remains naturally unambiguous:
-
-```phalcom
-where
-    T |= Iterator<Item = A>
-       + Collection<Item = B>
-```
-
-Each `Item` belongs to its immediately enclosing trait bound.
-
-If both associated types must be the same, either of the following is valid:
-
-```phalcom
-where
-    T |= Iterator<Item = X>
-       + Collection<Item = X>
-```
-
-or:
-
-```phalcom
-where
-    <T as Iterator>::Item
-        == <T as Collection>::Item
-```
-
-The first expresses equality by sharing a type parameter. The second expresses the projection relationship directly.
-
-## Type equivalence constraints
-
-General type equivalence uses `==`.
+General type equivalence uses `==`:
 
 ```phalcom
 where A == B
 ```
 
-is a type-level proposition, not a runtime equality operation and not an assignment.
+`A == B` holds when, after semantic normalization justified by the current environment, both operands denote the same canonical type.
 
-The normative meaning is:
+The relation is symmetric and distinct from assignment, assignability, and gradual consistency.
 
-> `A == B` holds when `A` and `B`, after all normalization justified by the current semantic environment, denote the same canonical semantic type.
-
-Relevant normalization may include:
-
-- generic substitution;
-- transparent type aliases;
-- canonical union normalization;
-- associated projection normalization;
-- generic assumed conformance evidence;
-- exact conformance evidence;
-- canonical tuple, record, callable, and other structural type normalization where applicable;
-- any other normative canonical type reduction defined by the type system.
-
-The relation is symmetric.
+Equivalence constraints participate in generic inference. Associated evidence may therefore determine a generic parameter:
 
 ```phalcom
-A == B
-```
-
-and:
-
-```phalcom
-B == A
-```
-
-state the same proposition.
-
-### Mathematical canonicalization
-
-Phalcom's type equivalence follows canonical semantic meaning rather than source spelling wherever the type system defines mathematically equivalent forms.
-
-For canonical unions:
-
-```phalcom
-A | B == B | A
-```
-
-is true.
-
-The same principle applies to other canonical forms whose owning type specification defines equivalent source representations.
-
-The compiler may choose efficient canonical representations, interning, hash-consing, equivalence classes, or normalization strategies, but those implementation choices must preserve the specified semantic equivalence.
-
-### Equivalence is not mutual assignability
-
-`==` is not defined as:
-
-```text
-Assignable(A, B) AND Assignable(B, A)
-```
-
-unless the owning type theory independently proves those relations coincide for a specific pair.
-
-Phalcom preserves distinct semantic relations for:
-
-- canonical equivalence;
-- subtyping;
-- assignability;
-- consistency;
-- conformance;
-- dynamic-boundary behavior.
-
-The generic constraint language invokes the canonical equivalence relation specifically.
-
-## Equality as a solver-producing constraint
-
-Type-equivalence constraints participate in generic inference.
-
-They are not merely post-inference assertions.
-
-Consider:
-
-```phalcom
-first<I, T>(_ iterator: I) -> T
-    where I |= Iterator<Item = T>
-{
+class IteratorTools {
+  first<I, T>(_ iterator: I) -> T
+      where I |= Iterator<Item = T>
+  {
     ...
+  }
 }
 ```
 
-At generic-body checking time, `I` and `T` are rigid generic parameters. The compiler records the relation:
+If concrete evidence establishes `<I as Iterator>::Item == User`, the constraint may determine `T = User`.
 
-```text
-<I as Iterator>::Item == T
-```
+Equivalence propagates information only when the combined constraints determine it. It does not choose arbitrary substitutions from an underdetermined solution set.
 
-without choosing a concrete type for `T`.
+`Dynamic` is not automatically equivalent to an arbitrary static type.
 
-At a concrete instantiation, generic parameters may correspond to inference metavariables.
+---
 
-If the caller determines:
+## 11. Subtype constraints
 
-```text
-I = UserIterator
-```
-
-and exact conformance evidence establishes:
-
-```text
-<UserIterator as Iterator>::Item == User
-```
-
-then the generic equality becomes:
-
-```text
-User == T
-```
-
-and may solve:
-
-```text
-T = User
-```
-
-Likewise:
-
-```phalcom
-process<T, U>(_ value: T)
-    where T == List<U>
-{
-    ...
-}
-```
-
-called with:
-
-```text
-T = List<Int>
-```
-
-may structurally constrain:
-
-```text
-U = Int
-```
-
-Equivalence constraints may propagate information in either direction when the combined constraint system uniquely determines a solution.
-
-### No arbitrary model selection
-
-Solver-producing does not mean that the compiler may invent arbitrary satisfying substitutions.
-
-Given:
-
-```phalcom
-make<T, U>() -> T
-    where T == List<U>
-{
-    ...
-}
-```
-
-and no arguments, expected type, or other constraints determining either variable, infinitely many substitutions satisfy the relation.
-
-The compiler must report underdetermined generic inference rather than arbitrarily choose:
-
-```text
-U = Int
-T = List<Int>
-```
-
-The normative rule is:
-
-> Equivalence constraints propagate information and may solve uniquely constrained inference variables. They do not select arbitrary substitutions from an underdetermined family of solutions.
-
-## Subtype constraints
-
-The subtype relation uses `<:`.
+Subtyping uses `<:`:
 
 ```phalcom
 where A <: B
 ```
 
-means:
+The left operand is the subtype and the right operand the supertype.
 
-> `A` is a subtype of `B`.
-
-The left operand is the subtype. The right operand is the supertype.
-
-The generic constraint language uses Phalcom's ordinary canonical subtype relation. It does not define a second subtype algorithm.
-
-Accordingly, ordinary subtype semantics apply, including whatever the owning type specification establishes for:
-
-- nominal inheritance;
-- unions;
-- exact enum cases;
-- variance;
-- `Never`;
-- top types, if any;
-- generic applications;
-- associated projections;
-- other proper-type forms.
-
-### General subtype operands
-
-Either side of `<:` may be any well-formed proper type expression of kind `Type`.
-
-Examples:
-
-```phalcom
-List<A> <: Sequence<B>
-```
-
-```phalcom
-I::Item <: Entity
-```
-
-```phalcom
-F<A> <: G<B>
-```
-
-```phalcom
-A | B <: C
-```
-
-Both operands must have kind `Type`.
-
-Higher-kinded constructor subtyping is not introduced by this specification.
-
-Thus:
-
-```phalcom
-where
-    F: (Type) -> Type,
-    G: (Type) -> Type,
-    F <: G,
-```
-
-is invalid unless a future specification explicitly defines subtyping between higher-kinded entities.
-
-## Lower and upper bounds
-
-An upper bound is written:
-
-```phalcom
-where T <: Upper
-```
-
-A lower bound is written:
-
-```phalcom
-where Lower <: T
-```
-
-Both are applications of the same binary subtype relation.
-
-Phalcom therefore supports simultaneous lower and upper bounds:
+Chains are pairwise shorthand:
 
 ```phalcom
 where Lower <: T <: Upper
 ```
 
-This is syntactic composition of adjacent subtype propositions:
+means:
 
 ```phalcom
 where
@@ -1413,1400 +424,324 @@ where
     T <: Upper,
 ```
 
-It does not construct a range type.
+Operands must be proper types of kind `Type`. This specification does not introduce higher-kinded subtyping.
 
-Longer chains are permitted by the same rule:
+Subtype constraints use Phalcom's ordinary subtype relation. They may constrain or validate inference, but they do not choose an arbitrary type from an underdetermined interval.
 
-```phalcom
-A <: B <: C <: D
-```
+---
 
-and elaborate pairwise:
+## 12. Lexical evidence and methods
 
-```text
-A <: B
-B <: C
-C <: D
-```
-
-### Subtype constraints and inference
-
-Subtype constraints restrict candidate substitutions but do not arbitrarily select a type from a valid interval.
-
-Consider:
+Constraint environments compose lexically.
 
 ```phalcom
-make<T>() -> T
-    where Dog <: T <: Animal
+class Box<T>
+    where T |= Printable
 {
-    ...
+  render<U>(_ value: U) -> String
+      where U |= Printable
+  {
+    value.print
+  }
 }
 ```
 
-Several types may satisfy the interval.
+The method body is checked under both the owner's and the method's applicable constraints.
 
-The compiler must not choose `Dog`, `Animal`, or another valid type merely because it satisfies the bounds.
-
-An independently supplied expected type may determine the candidate:
-
-```text
-expected result = Mammal
-```
-
-after which the bounds verify:
-
-```text
-Dog <: Mammal <: Animal
-```
-
-The normative rule is:
-
-> Subtype constraints narrow and validate inference. They do not invent an arbitrary point in an underdetermined subtype interval.
-
-## Interaction between equivalence and subtyping
-
-Canonical equivalence propagates through subtype constraints.
-
-Given:
-
-```phalcom
-where
-    A == B,
-    A <: C,
-```
-
-the constraint set also entails:
-
-```text
-B <: C
-```
-
-Likewise:
-
-```phalcom
-where
-    A == B,
-    Lower <: A <: Upper,
-```
-
-constrains `B` to the same subtype interval.
-
-This is not a special source-level rewrite rule.
-
-It follows because `A` and `B` denote the same semantic type under `==`, so subsequent semantic relations operate over equivalent normalized representatives.
-
-The implementation may realize this through canonicalization, unification, equivalence classes, substitution, or another sound mechanism.
-
-## Constraint normalization
-
-Surface syntax elaborates into a smaller canonical obligation language.
-
-Consider:
-
-```phalcom
-where
-    F: (Type) -> Type,
-
-    I |= Iterator<Item = A>
-       + Resettable
-       + ShowDebug,
-
-    Lower <: A <: Upper,
-```
-
-The semantic obligations are conceptually:
-
-```text
-Kind(
-    subject = F,
-    kind = (Type) -> Type
-)
-
-Conforms(
-    subject = I,
-    trait = Iterator
-)
-
-AssociatedEquivalent(
-    subject = I,
-    trait = Iterator,
-    requirement = Iterator::Item,
-    expected = A
-)
-
-Conforms(
-    subject = I,
-    trait = Resettable
-)
-
-Conforms(
-    subject = I,
-    trait = ShowDebug
-)
-
-Subtype(Lower, A)
-Subtype(A, Upper)
-```
-
-The exact internal representation is implementation-defined.
-
-The normative requirement is:
-
-> Proof and inference semantics operate over canonical obligations, not over syntax-specific special cases.
-
-Thus:
-
-```phalcom
-T |= A + B
-```
-
-and:
-
-```phalcom
-where
-    T |= A,
-    T |= B,
-```
-
-must normalize to the same conformance obligations.
-
-Likewise:
-
-```phalcom
-Lower <: T <: Upper
-```
-
-and:
-
-```phalcom
-where
-    Lower <: T,
-    T <: Upper,
-```
-
-must normalize identically.
-
-And:
-
-```phalcom
-I |= Iterator<Item = User>
-```
-
-contains the same associated-equivalence proposition as:
-
-```phalcom
-where
-    I |= Iterator,
-    I::Item == User,
-```
-
-when the unqualified projection is uniquely resolvable.
-
-The inline form is preferable because its associated requirement identity is explicitly anchored to `Iterator`.
-
-## Generic evidence environments
-
-A generic body is checked under an abstract constraint environment derived from its normalized `where` obligations.
+Because Phalcom is method-based, generic constraints compose with receiver specialization.
 
 For:
 
 ```phalcom
-consume<I>(_ input: I)
-    where I |= Iterator<Item = User>
+class Box<T>
+    where T |= Printable
 {
-    ...
+  describe(_ value: T) -> String {
+    value.print
+  }
 }
 ```
 
-the body receives abstract knowledge equivalent to:
-
-```text
-I |= Iterator
-<I as Iterator>::Item == User
-```
-
-This generic evidence may justify:
-
-- trait member availability;
-- trait-evidenced dispatch;
-- associated projection formation;
-- associated projection normalization;
-- equality propagation;
-- downstream subtype checks;
-- nested generic obligations.
-
-Generic assumed evidence is not exact concrete evidence, but both participate in a unified proof model.
-
-## Associated projection through generic evidence
-
-Given:
-
-```phalcom
-where I |= Iterator<Item = User>
-```
-
-the body may normalize:
-
-```phalcom
-I::Item
-```
-
-to:
-
-```phalcom
-User
-```
-
-when the projection is contextually unambiguous.
-
-Likewise, a qualified projection:
-
-```phalcom
-<I as Iterator>::Item
-```
-
-normalizes through the exact trait application named in the qualification.
-
-Generic projection normalization extends the associated-type machinery established by the associated-type specification. It does not create a second projection model.
-
-## Trait-member availability
-
-Generic code may use trait behavior when the generic environment provides the required evidence.
-
-Given:
-
-```phalcom
-consume<I>(_ input: I)
-    where I |= Iterator
-{
-    ...
-}
-```
-
-members justified by `Iterator` are available on `I` through the conformance evidence.
-
-Generic code does not gain trait methods merely because an unrelated type happens to contain selectors with matching shapes.
-
-Trait behavior in a constrained generic body remains evidence-based.
-
-## Constraint satisfaction at instantiation
-
-At a concrete generic use, the compiler must discharge the declaration's normalized obligations under the concrete or inferred substitutions.
-
-The semantic process must account for:
-
-- known generic arguments;
-- argument-derived inference;
-- expected-type inference;
-- kind constraints;
-- canonical type normalization;
-- generic and exact conformance evidence;
-- associated-type bindings;
-- type equivalence;
-- subtype relations;
-- nested conditional-conformance obligations.
-
-The implementation may choose any sound solving order or fixed-point strategy that preserves the specified result.
-
-Source order of constraints does not determine solving order.
-
-### Associated-type-driven inference
-
-Associated evidence may solve generic inference variables.
-
-For:
-
-```phalcom
-foo<I, T>(_ input: I)
-    where I |= Iterator<Item = T>
-{
-    ...
-}
-```
-
-if `I` is known and exact `Iterator` evidence establishes:
-
-```text
-<I as Iterator>::Item == User
-```
-
-then `T` may be inferred as `User`.
-
-### No reverse existential search
-
-Knowing only:
+specializing a receiver as `Box<User>` may establish:
 
 ```text
 T = User
 ```
 
-does not authorize the compiler to search the program for some arbitrary type `I` satisfying:
-
-```text
-I |= Iterator<Item = User>
-```
-
-Generic constraint solving constrains declared inference variables. It does not perform open-world existential type synthesis unless a separate language feature explicitly defines such search.
-
-This asymmetry is normative.
-
-## Constraint satisfiability
-
-A generic declaration is invalid when its declared constraint set is statically provably inconsistent.
-
-Examples include contradictions such as:
-
-```phalcom
-where
-    T == Int,
-    T == String,
-```
-
-when `Int` and `String` are canonically non-equivalent.
-
-A kind contradiction is likewise invalid:
-
-```phalcom
-where
-    F: (Type) -> Type,
-    F == Int,
-```
-
-if `Int` has kind `Type`.
-
-A subtype interval may also be statically contradictory when the subtype system can prove that no type can satisfy it.
-
-The compiler is not required to decide arbitrary undecidable propositions at declaration time.
-
-A constraint set may remain conditionally satisfiable until concrete substitutions are known.
-
-The important distinction is:
-
-- provable contradiction invalidates the generic declaration;
-- unresolved conditional obligations remain obligations to be discharged at instantiation.
-
-## Duplicate constraints
-
-Exact duplicate top-level logical constraints are semantically redundant.
-
-For example:
-
-```phalcom
-where
-    T |= Printable,
-    T |= Printable,
-```
-
-has the same logical meaning as:
-
-```phalcom
-where T |= Printable
-```
-
-The implementation may diagnose such duplication as a lint or style issue, but the duplicate does not create a second semantic conformance identity.
-
-This differs from duplicate associated specialization within one trait application, which is a structural diagnostic error.
-
-Repeated applications of the same generic trait with different generic arguments are not duplicates:
-
-```phalcom
-T |= Trait<A> + Trait<B>
-```
-
-denotes two distinct trait-application obligations.
-
-## Conditional conformance
-
-A conformance declaration may itself have a `where` clause.
-
-```phalcom
-impl<T> Printable for List<T>
-    where T |= Printable
-{
-    ...
-}
-```
-
-This defines a conditional conformance:
-
-> `List<T>` conforms to `Printable` whenever `T` conforms to `Printable`.
-
-An exact proof request for:
-
-```text
-List<User> |= Printable
-```
-
-therefore generates the nested obligation:
+but that type substitution does not itself prove:
 
 ```text
 User |= Printable
 ```
 
-The outer conformance is proven only if the nested obligation is proven.
+Receiver/type specialization and conformance evidence are distinct.
 
-Conditional conformance may depend on associated-type specialization:
+A constrained generic method may forward assumed evidence when invoking another constrained generic method:
 
 ```phalcom
-impl<I> Serializable for Stream<I>
-    where I |= Iterator<Item = Byte>
+class Renderer {
+  inner<T>(_ value: T) -> String
+      where T |= Printable
+  {
+    value.print
+  }
+
+  outer<T>(_ value: T) -> String
+      where T |= Printable
+  {
+    self.inner(value)
+  }
+}
+```
+
+`outer` may satisfy `inner`'s corresponding obligation with its existing assumed evidence; it need not invent an exact conformance for abstract `T`.
+
+---
+
+## 13. Instantiation and inference
+
+At a concrete generic use, every declared constraint is instantiated under the selected type substitutions and must be satisfied.
+
+Information may come from:
+
+- receiver specialization;
+- explicit generic arguments;
+- argument types;
+- expected result types;
+- enclosing generic assumptions;
+- exact conformance evidence;
+- associated-type bindings;
+- equivalence and subtype constraints.
+
+Solver order is not source semantics.
+
+A direct bound such as:
+
+```phalcom
+where T |= Printable
+```
+
+does not authorize the compiler to choose an arbitrary printable type for otherwise-undetermined `T`.
+
+Associated specialization and equivalence may constrain inference once their subject is known:
+
+```phalcom
+where I |= Iterator<Item = T>
+```
+
+may determine `T` from `I`'s associated evidence.
+
+The reverse does not authorize open-world existential search. Knowing `T = User` does not permit searching for an arbitrary `I` satisfying `I |= Iterator<Item = User>`.
+
+---
+
+## 14. Conditional conformance
+
+A conformance may itself carry generic constraints:
+
+```phalcom
+impl<T> Printable for List<T>
+    where T |= Printable
 {
-    ...
+  ...
 }
 ```
 
-It may also depend on equality and subtype constraints when those constraints are valid for the declaration:
+`List<T> |= Printable` is valid only when the nested obligation `T |= Printable` is satisfied.
+
+Conditional conformances may depend on any constraints valid for the `impl`, including associated specialization, equivalence, and subtype constraints.
+
+Trait candidate selection, overlap, and coherence remain governed by the trait/conformance specification. This specification introduces no "most specific wins" rule.
+
+A recursive obligation cycle is not proof by itself and must not be treated as automatic success or `Dynamic`.
+
+---
+
+## 15. Canonicalization, duplicates, and satisfiability
+
+Surface syntax denotes canonical propositions.
+
+These are semantically equivalent:
 
 ```phalcom
-impl<T> Trait for Wrapper<T>
-    where Lower <: T <: Upper
-{
-    ...
-}
+where T |= A + B
 ```
-
-Conditional conformance proof uses the same canonical obligation language as ordinary generic declarations.
-
-## Recursive obligations
-
-Conditional conformances and nested generic evidence may produce recursive proof graphs.
-
-A conforming proof system must detect recursive obligation cycles rather than recurse indefinitely.
-
-Conceptually:
-
-```text
-A |= Trait
-    requires B |= Trait
-
-B |= Trait
-    requires A |= Trait
-```
-
-is a recursive proof cycle.
-
-The language specification requires that recursion be represented as a distinct proof state until and unless another rule soundly resolves it.
-
-The implementation must not silently convert recursion to:
-
-- `Dynamic`;
-- success;
-- ordinary missing-conformance failure.
-
-The exact fixed-point or cycle-resolution algorithm belongs to implementation/internal specifications.
-
-## Proof outcomes
-
-Generic proof machinery must preserve semantically distinct outcomes.
-
-At minimum, the implementation model must be capable of distinguishing the equivalents of:
-
-```text
-proven
-refuted
-ambiguous
-blocked
-recursive
-dynamic boundary
-cancelled
-budget exhausted
-internal failure
-```
-
-Exact enum names are not normative.
-
-The semantic distinctions are.
-
-In particular:
-
-- ambiguity is not missing evidence;
-- blocked analysis is not refutation;
-- recursion is not automatically failure or success;
-- cancellation is not a semantic result;
-- budget exhaustion is not proof of absence;
-- a dynamic boundary is not proof of a static proposition.
-
-## Dynamic boundaries
-
-`Dynamic` does not discharge static generic constraints.
-
-The central rule is:
-
-> Dynamic knowledge represents absence or deferral of static proof. It cannot itself constitute proof of conformance, equivalence, or subtyping.
-
-Therefore the compiler must not satisfy:
 
 ```phalcom
-Dynamic |= Iterator
+where
+    T |= B,
+    T |= A,
 ```
 
-merely because the subject is dynamic.
+Likewise, subtype chains are equivalent to their pairwise expansion.
 
-It must not satisfy:
+Exact duplicate top-level constraints are redundant:
 
 ```phalcom
-Dynamic == T
+where
+    T |= Printable,
+    T |= Printable,
 ```
 
-merely through gradual consistency.
+They create one semantic obligation, not two.
 
-It must not satisfy:
+This differs from duplicate associated specialization inside one trait application, which is invalid.
+
+Distinct applied traits are not duplicates:
 
 ```phalcom
-Dynamic <: T
+where T |= Trait<A> + Trait<B>
 ```
 
-or:
+when the two trait applications are distinct.
 
-```phalcom
-T <: Dynamic
-```
+A generic declaration is invalid when its constraint set is statically provably inconsistent. Obligations that depend on later substitutions may remain conditional until specialization.
 
-merely because a dynamic boundary would permit a runtime operation.
+Canonical meaning is independent of source ordering, `+` grouping, and duplicate top-level obligations.
 
-If the static relation independently holds for a larger type expression containing a dynamic component without requiring `Dynamic` itself to satisfy a proof obligation, that larger proof is evaluated according to the ordinary static rules.
+---
 
-For example, an unconditional conformance of a generic outer type may still be provable for an instantiation containing `Dynamic` if no nested proof requires `Dynamic` to satisfy a trait or subtype relation.
+## 16. Declaration-specific use
 
-Conversely, a conditional conformance such as:
+### Type aliases
 
-```text
-Wrapper<T> |= Printable
-    if T |= Printable
-```
-
-cannot be proven for `T = Dynamic` by treating `Dynamic` as automatically printable.
-
-A dynamic-boundary outcome remains distinct from static proof.
-
-Unconstrained generic code may still accept a dynamic value where no static bound must be discharged:
-
-```phalcom
-identity<T>(_ value: T) -> T {
-    value
-}
-```
-
-Any future mechanism that explicitly checks a dynamic value at runtime and produces runtime conformance evidence is a separate language feature and does not alter the static meaning of ordinary C6 bounds.
-
-## Generic aliases
-
-Type aliases may be generic and may carry `where` clauses.
-
-Example:
+A constrained alias retains its generic contract:
 
 ```phalcom
 type Items<I> = List<<I as Iterator>::Item>
     where I |= Iterator
 ```
 
-The alias's constraints are part of its generic contract.
+Using the alias requires its instantiated constraints to hold. Alias expansion does not discard them.
 
-Using the alias requires the constraints to be satisfied under the concrete alias arguments.
+### Variant constructors and GADTs
 
-An alias `where` clause is not a textual comment and is not discarded after expansion.
+Where the ADT/GADT grammar permits constructor-specific generic parameters or `where` clauses, those constraints belong to the constructor's contract.
 
-Aliases participate in ordinary:
+Construction must satisfy them. A successful pattern match may expose proven constructor equalities or evidence to the matching branch according to the GADT/pattern specification.
 
-- kind checking;
-- conformance obligations;
-- associated projection normalization;
-- equality solving;
-- subtype obligations.
+### `Self`
 
-Alias expansion and generic constraint solving must preserve canonical type equivalence.
-
-## GADT variant constructors
-
-GADT enum variant constructors may carry constructor-specific `where` clauses.
-
-For example:
-
-```phalcom
-enum Expr<T> {
-    IntLiteral(Int)
-        where T == Int
-
-    StringLiteral(String)
-        where T == String
-}
-```
-
-Construction of a variant requires its constructor constraints to be satisfiable.
-
-Pattern matching on a successfully recognized GADT constructor may introduce the constructor's proven equalities and evidence into the corresponding branch environment according to the GADT/pattern-matching specification.
-
-Thus a variant-specific equality such as:
-
-```phalcom
-where T == Int
-```
-
-may refine `T` within the matching branch.
-
-A variant constructor may also carry conformance or associated-type constraints where semantically meaningful:
-
-```phalcom
-Case<U>(U)
-    where
-        U |= Printable,
-        <U as SomeTrait>::Item == T,
-```
-
-provided all referenced projections are well-formed.
-
-This document specifies the meaning of those constraints. The details of branch refinement and exhaustiveness remain owned by the GADT and pattern specifications.
-
-## Lexical composition of constraint environments
-
-Constraint environments compose lexically.
-
-For example:
-
-```phalcom
-class Box<T>
-    where T |= Printable
-{
-    method<U>(_ value: U)
-        where U |= Hashable
-    {
-        ...
-    }
-}
-```
-
-The method body is checked under both:
-
-```text
-T |= Printable
-U |= Hashable
-```
-
-The inner declaration adds constraints to the outer environment.
-
-It does not erase outer assumptions.
-
-If an inner constraint set is provably contradictory with the inherited environment, the inner declaration is invalid according to ordinary constraint-satisfiability rules.
-
-## `Self` in constraints
-
-`Self` may appear in a `where` clause wherever the enclosing declaration already gives `Self` a semantic meaning.
-
-For example:
+`Self` may occur in a constraint only where the enclosing declaration already defines it:
 
 ```phalcom
 where Self |= SomeTrait
 ```
 
-or:
-
 ```phalcom
-where
-    <Self as Iterator>::Item == T
+where <Self as Iterator>::Item == T
 ```
 
-may be valid inside an appropriate trait or conformance context.
+`where` never introduces `Self`.
 
-`where` does not itself introduce `Self`.
+---
 
-If the enclosing declaration has no `Self` binding, use of `Self` is invalid.
+## 17. Diagnostics
 
-The semantics of `Self` remain those defined by the enclosing declaration model.
+Diagnostics must preserve important semantic distinctions, especially:
 
-## Supertraits
+- kind mismatch vs conformance failure;
+- missing vs ambiguous conformance;
+- unknown vs ambiguous associated projection;
+- duplicate associated specialization vs unsatisfied equality;
+- underdetermined inference vs refuted constraint;
+- dynamic boundary vs static proof.
 
-This specification does not introduce supertraits.
-
-If a future supertrait feature establishes transitive conformance evidence, that specification must define how such evidence contributes to:
-
-- contextual associated projection lookup;
-- trait-member availability;
-- generic proof closure;
-- ambiguity detection.
-
-Until then, contextual projection lookup considers evidence actually established by the current language's conformance mechanisms.
-
-No implicit supertrait behavior is assumed by this document.
-
-## Source identity and canonical semantic identity
-
-Generic constraints are resolved to canonical semantic identities.
-
-For:
-
-```phalcom
-T |= Iterator<Item = A>
-```
-
-the compiler resolves:
-
-```text
-Iterator
-    -> canonical trait declaration / application
-
-Item
-    -> canonical associated-type requirement owned by Iterator
-```
-
-The implementation must not represent associated specialization solely by textual name.
-
-Conceptually:
-
-```text
-AssociatedEquivalent {
-    subject: T,
-    trait: Iterator,
-    requirement: Iterator::Item,
-    expected: A,
-}
-```
-
-is the semantic relation.
-
-Two unrelated traits may each declare `Item` without collision.
-
-Likewise:
-
-```phalcom
-<T as Iterator>::Item
-```
-
-is identified by:
-
-```text
-subject
-canonical trait application
-canonical associated requirement
-```
-
-rather than by source spelling alone.
-
-This identity model is required for:
-
-- coherence;
-- exact evidence;
-- generic evidence;
-- projection normalization;
-- diagnostics;
-- source indexing;
-- incremental dependency tracking;
-- reflection.
-
-## Source-order independence
-
-Constraint semantics are source-order independent.
-
-These are equivalent:
-
-```phalcom
-where
-    F: (Type) -> Type,
-    F |= Functor,
-    T |= Printable,
-```
-
-and:
-
-```phalcom
-where
-    T |= Printable,
-    F |= Functor,
-    F: (Type) -> Type,
-```
-
-A compiler may process kinds, formation, equivalence, conformance, and subtype obligations in an implementation-dependent order.
-
-That order must not make the source order semantically significant.
-
-Likewise, associated declarations and generic evidence must not acquire meaning from incidental ordering within the `where` clause.
-
-## Diagnostics
-
-The compiler should preserve distinct diagnostic categories for semantically distinct failures.
-
-Important categories include:
-
-- unknown kind;
-- incompatible kind;
-- conflicting inferred kinds;
-- unknown trait;
-- invalid trait application;
-- trait subject kind mismatch;
-- missing conformance;
-- ambiguous conformance;
-- unknown associated specialization name;
-- duplicate associated specialization;
-- ambiguous contextual projection;
-- invalid qualified projection;
-- missing conformance required by a qualified projection;
-- associated-type mismatch;
-- unsatisfied type equivalence;
-- subtype constraint failure;
-- unsatisfiable constraint set;
-- underdetermined generic inference;
-- recursive obligation;
-- dynamic-boundary failure;
-- blocked proof;
-- budget exhaustion;
-- cancellation.
-
-Exact diagnostic codes and wording are implementation-defined unless specified elsewhere.
-
-### Likely-syntax diagnostics
-
-When the source strongly suggests a mistaken relation, diagnostics should explain the correct relation.
-
-For example:
-
-```phalcom
-where T: Iterator
-```
-
-is invalid when `Iterator` is a trait rather than a kind.
-
-A diagnostic should explain that `:` in `where` denotes kind classification and that trait conformance uses:
-
-```phalcom
-T |= Iterator
-```
-
-Likewise:
-
-```phalcom
-where T::Item = User
-```
-
-is invalid as a standalone equivalence constraint.
-
-The correct form is:
-
-```phalcom
-where T::Item == User
-```
-
-Single `=` remains valid only inside named associated specialization:
-
-```phalcom
-where T |= Iterator<Item = User>
-```
-
-Inside associated specialization, the converse mistake should also be diagnosed:
-
-```phalcom
-I |= Iterator<Item == User>
-```
-
-should suggest:
-
-```phalcom
-I |= Iterator<Item = User>
-```
-
-## Formatting
-
-Formatting is non-semantic.
-
-The formatter should prefer readable structure while retaining short clauses inline where appropriate.
-
-A concise clause may remain:
-
-```phalcom
-print<T>(_ value: T) where T |= Printable {
-    ...
-}
-```
-
-A substantial clause should normally be formatted below the signature:
-
-```phalcom
-traverse<F, G, A, B>(
-    _ value: F<A>,
-    _ transform: (A) -> G<B>,
-) -> G<F<B>>
-    where
-        F: (Type) -> Type,
-        G: (Type) -> Type,
-        F |= Traversable<Item = A> + Functor,
-        G |= Applicative,
-{
-    ...
-}
-```
-
-A long conjunction may use continuation alignment:
-
-```phalcom
-where
-    T |= Printable
-       + Hashable
-       + Serializable
-       + ShowDebug,
-```
-
-A long associated specialization may use multiline angle-bracket formatting:
-
-```phalcom
-where
-    I |= Iterator<
-        Cursor = Int,
-        Item = User,
-    >,
-```
-
-The formatter may canonicalize accepted kind spelling toward callable-shaped forms such as:
-
-```phalcom
-(Type, Type) -> Type
-```
-
-## Integrated example: higher-kinded traversal
-
-```phalcom
-traverse<F, G, A, B>(
-    _ value: F<A>,
-    _ transform: (A) -> G<B>,
-) -> G<F<B>>
-    where
-        F: (Type) -> Type,
-        G: (Type) -> Type,
-
-        F |= Traversable<Item = A>
-           + Functor
-           + ShowDebug,
-
-        G |= Applicative
-           + Functor,
-{
-    ...
-}
-```
-
-This establishes:
-
-```text
-F : (Type) -> Type
-G : (Type) -> Type
-
-F |= Traversable
-<F as Traversable>::Item == A
-F |= Functor
-F |= ShowDebug
-
-G |= Applicative
-G |= Functor
-```
-
-The generic parameter list introduces only:
-
-```text
-F, G, A, B
-```
-
-The `where` clause establishes every nontrivial fact about them.
-
-## Integrated example: explicit associated projection equality
-
-Suppose:
-
-```phalcom
-trait Iterator {
-    type Item
-}
-
-trait Collection {
-    type Item
-}
-```
-
-A generic declaration may directly state that the two associated types coincide:
-
-```phalcom
-transfer<T>(_ value: T)
-    where
-        <T as Iterator>::Item
-            == <T as Collection>::Item
-{
-    ...
-}
-```
-
-The qualified projections create the well-formedness requirements:
-
-```text
-T |= Iterator
-T |= Collection
-```
-
-and then assert:
-
-```text
-<T as Iterator>::Item
-    ==
-<T as Collection>::Item
-```
-
-No ambiguity exists because each projection explicitly identifies its owning trait application.
-
-## Integrated example: subtype interval and solver-producing equality
-
-```phalcom
-process<T, U>(_ value: T) -> U
-    where
-        Entity <: T <: DomainObject,
-        U == Result<T, Error>,
-{
-    ...
-}
-```
-
-The declaration establishes:
-
-```text
-Entity <: T
-T <: DomainObject
-U == Result<T, Error>
-```
-
-If a call determines `T`, the equality may solve `U`.
-
-If a call determines `U = Result<User, Error>`, canonical structural equivalence may constrain `T = User`, after which the subtype interval verifies:
-
-```text
-Entity <: User <: DomainObject
-```
-
-If neither side is otherwise constrained, the compiler must not invent a satisfying `T` and `U`.
-
-## Integrated example: conditional conformance
-
-```phalcom
-impl<I> Serializable for Stream<I>
-    where
-        I |= Iterator<Item = Byte>
-           + Resettable,
-{
-    ...
-}
-```
-
-Proof of:
-
-```text
-Stream<UserIterator> |= Serializable
-```
-
-generates obligations equivalent to:
-
-```text
-UserIterator |= Iterator
-<UserIterator as Iterator>::Item == Byte
-UserIterator |= Resettable
-```
-
-The outer conformance is valid only if all nested obligations are proven.
-
-## Integrated example: generic alias
-
-```phalcom
-type Collected<I> = List<<I as Iterator>::Item>
-    where I |= Iterator
-```
-
-Use of:
-
-```phalcom
-Collected<UserIterator>
-```
-
-requires:
-
-```text
-UserIterator |= Iterator
-```
-
-and the alias expands semantically to:
-
-```text
-List<<UserIterator as Iterator>::Item>
-```
-
-with ordinary associated projection normalization.
-
-## Integrated example: GADT constructor constraints
-
-```phalcom
-enum Expr<T> {
-    IntLiteral(Int)
-        where T == Int
-
-    StringLiteral(String)
-        where T == String
-
-    Mapped<F, U>(F<U>)
-        where
-            F: (Type) -> Type,
-            F |= Functor,
-            T == F<U>,
-}
-```
-
-Each constructor carries its own propositions.
-
-Construction must satisfy them.
-
-A successful pattern match may refine the branch's generic environment using the constructor-specific evidence according to the GADT semantics.
-
-## Invalid examples
-
-Trait conformance does not use `:`:
+Clear operator mistakes should identify the proper relation:
 
 ```phalcom
 where T: Printable
 ```
 
-when `Printable` is a trait.
-
-Use:
-
-```phalcom
-where T |= Printable
-```
-
-A standalone equality does not use single `=`:
+is invalid when `Printable` is a trait; use `T |= Printable`.
 
 ```phalcom
 where T::Item = User
 ```
 
-Use:
+is invalid as standalone equivalence; use `T::Item == User`.
 
 ```phalcom
-where T::Item == User
+where T |= Iterator<Item == User>
 ```
 
-Associated specialization does use single `=`:
+is invalid specialization syntax; use `Item = User`.
 
-```phalcom
-where T |= Iterator<Item = User>
-```
+---
 
-Duplicate associated specialization is invalid:
+## 18. Non-features and ownership
 
-```phalcom
-where T |= Iterator<Item = A, Item = B>
-```
+This specification does not define:
 
-A `where` clause does not bind undeclared parameters:
-
-```phalcom
-foo<T>()
-    where T == U
-```
-
-is invalid if `U` is not already in scope.
-
-Subtype constraints do not apply to higher-kinded constructors merely because both sides have the same higher kind:
-
-```phalcom
-where
-    F: (Type) -> Type,
-    G: (Type) -> Type,
-    F <: G,
-```
-
-is invalid under this specification.
-
-A dynamic boundary cannot satisfy a static conformance requirement merely by being dynamic:
-
-```phalcom
-where Dynamic |= Iterator
-```
-
-does not establish static `Iterator` evidence.
-
-## Deferred features
-
-This specification intentionally does not define:
-
+- source-level free functions;
 - supertraits;
-- existential trait types;
-- trait objects;
-- general intersection types;
-- a general type-level meaning for `A + B`;
+- trait objects or existential trait types;
+- general intersection types or a general type-level meaning for `+`;
 - higher-kinded subtyping;
 - user-defined constraint operators;
-- runtime dynamic conformance checks;
-- automatic existential search for a type satisfying a bound;
-- partial application of type constructors unless independently specified;
-- any separate labeled generic-argument system.
+- open-world existential search for a type satisfying a bound;
+- automatic runtime conformance checks for `Dynamic`;
+- generic associated types or higher-kinded associated declarations.
 
-Future features may integrate with the generic constraint language, but they must preserve the distinctions established here unless this specification is explicitly amended.
+Neighboring specifications remain authoritative for:
 
-## Relationship to neighboring specifications
+- generic parameter binding, kinds, and type formation;
+- trait identity, conformance, witnesses, defaults, and coherence;
+- associated declarations, bindings, and projection normalization;
+- subtyping and canonical type equivalence;
+- ADT/GADT syntax and branch refinement;
+- method selectors, receiver semantics, method references, and invocation.
 
-This document owns:
+Implementation specifications own solver architecture, evidence storage and transport, runtime environments, caching, incremental invalidation, and cycle-detection mechanics.
 
-```text
-where-clause syntax
-constraint categories
-surface elaboration into canonical obligations
-generic conformance assumptions
-associated specialization inside trait bounds
-qualified projection use inside constraints
-constraint composition
-generic-body proof assumptions
-instantiation-time obligation semantics
-```
+---
 
-The kind specification owns:
+## 19. Normative summary
 
 ```text
-kind representation
-kind formation
-kind compatibility
-canonical kind identity
-```
+F: Type -> Type
+    kind classification
 
-The subtype specification owns:
-
-```text
-the semantic meaning of A <: B
-variance
-nominal subtype rules
-union subtype rules
-bottom/top behavior
-```
-
-The type-equivalence specification owns:
-
-```text
-canonical semantic equivalence used by ==
-normalization laws
-union equivalence
-alias transparency
-structural canonicalization
-```
-
-The trait/conformance specification owns:
-
-```text
-trait identity
-applied trait identity
-coherence
-conformance evidence
-witness resolution
-conditional conformance candidate selection
-```
-
-The associated-type specification owns:
-
-```text
-associated-type declarations
-associated requirement identity
-associated bindings
-projection identity
-projection normalization
-```
-
-The generic-inference and implementation-internals specifications own:
-
-```text
-solver data structures
-worklist algorithms
-union-find or equivalent implementation
-query caching
-incremental invalidation
-cycle-detection algorithm
-budget management
-cancellation machinery
-```
-
-Those implementations must nevertheless preserve the observable semantics required by this document.
-
-## Normative summary
-
-The generic parameter list introduces variables:
-
-```phalcom
-<T, U, F>
-```
-
-Nontrivial facts belong in `where`.
-
-Kinds use `:`:
-
-```phalcom
-F: (Type) -> Type
-```
-
-Trait conformance uses `|=`:
-
-```phalcom
 T |= Printable
-```
+    nominal trait-conformance obligation
 
-Same-subject trait conjunction uses `+`:
+T |= A + B
+    two independent conformance obligations on T
 
-```phalcom
-T |= Printable + Hashable
-```
-
-Associated specialization uses single `=` inside the constrained trait application:
-
-```phalcom
 I |= Iterator<Item = User>
-```
+    I |= Iterator
+    AND
+    <I as Iterator>::Item == User
 
-General type equivalence uses `==`:
-
-```phalcom
-I::Item == O::Input
-```
-
-Subtyping uses `<:`:
-
-```phalcom
-Lower <: T <: Upper
-```
-
-Contextual associated projection uses:
-
-```phalcom
 T::Item
-```
+    contextual associated projection; requires a unique applicable requirement
 
-when the owning associated requirement is uniquely determined.
-
-Explicit qualified projection uses:
-
-```phalcom
 <T as Iterator>::Item
+    explicitly qualified associated projection
+
+A == B
+    canonical semantic type equivalence
+
+A <: B
+    subtype relation
+
+Lower <: T <: Upper
+    pairwise subtype constraints
 ```
 
-when trait identity must be stated directly.
+The governing invariants are:
 
-General semantic equivalence is canonical and normalization-aware:
-
-```phalcom
-A | B == B | A
-```
-
-is true.
-
-Equivalence constraints participate in inference but never choose arbitrary solutions from an underdetermined solution family.
-
-Subtype constraints restrict inference but never arbitrarily choose a point in a subtype interval.
-
-Any well-kinded type-level expression may be a conformance subject when its kind is compatible with the referenced trait.
-
-Any well-formed proper type expression may participate in `<:`.
-
-`Dynamic` never acts as automatic proof of a static generic bound.
-
-Generic aliases and GADT variant constructors may carry `where` clauses.
-
-Constraint environments compose lexically.
-
-`where` never introduces implicit generic parameters.
-
-Surface syntax elaborates into canonical semantic obligations, and all proof machinery operates over those obligations rather than over syntax-specific special cases.
+1. Generic executable behavior is method-based; generic constraints do not imply free functions.
+2. `where` states proof-bearing propositions over already-bound type-level entities.
+3. Conformance is nominal and evidence-based.
+4. Assumed generic evidence and exact concrete evidence are distinct.
+5. Receiver specialization supplies type substitution, not conformance proof.
+6. Owner and method constraints compose lexically.
+7. `+` creates independent same-subject obligations, not a synthetic trait.
+8. Associated specialization is trait-anchored exact equivalence and uses single `=` only inside the trait application.
+9. Contextual projection requires unique associated identity; qualification names that identity explicitly.
+10. `==` and `<:` may constrain inference but never select arbitrary solutions.
+11. Direct conformance bounds do not invent otherwise-undetermined type arguments.
+12. Conditional conformance requires all nested obligations.
+13. `Dynamic` is not automatic proof of a static relation.
+14. Constraint meaning is canonical and source-order independent.

@@ -1073,6 +1073,9 @@ fn apply_generic_callable_in_context(
                         }
                     }
                 }
+                GenericConstraint::Conforms { .. } => {
+                    continue;
+                }
             };
             session_handle.borrow_mut().add_constraint(
                 relation,
@@ -1218,7 +1221,22 @@ fn apply_generic_callable_in_context(
                 }
             }
             TypeKnowledge::Dynamic(reason) => {
-                ctx.record_call_status(AnalysisStatus::DynamicBoundary(reason.clone()));
+                let has_conformance_bound = domains.signatures().any(|sig| {
+                    sig.constraints.iter().any(|c| matches!(c, GenericConstraint::Conforms { .. }))
+                });
+                if has_conformance_bound {
+                    let diagnostic = SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        DiagnosticCode::GenericConstraintUnsatisfied,
+                        "generic constraint unsatisfied: dynamic value does not satisfy static trait conformance bound",
+                        call_range,
+                    );
+                    if let Some(cause) = ctx.emit_diagnostic(diagnostic) {
+                        ctx.record_call_status(AnalysisStatus::Invalid(cause));
+                    }
+                } else {
+                    ctx.record_call_status(AnalysisStatus::DynamicBoundary(reason.clone()));
+                }
             }
         }
 
@@ -1443,9 +1461,7 @@ fn apply_generic_callable_in_context(
                 ctx.record_call_dependency(CausalInvalidity::Clean, Some(explanation));
             }
         }
-        if !ctx.call_status_is_recorded() {
-            publish_call_specialization(ctx, callable, &domains, fixed_generics, &var_map, &session_handle);
-        }
+        publish_call_specialization(ctx, callable, &domains, fixed_generics, &var_map, &session_handle, call_range);
     }
 
     match &outcome {
@@ -2053,6 +2069,10 @@ fn callable_signature_mentions_parameters(ctx: &CheckingContext<'_>, target: &Ca
                 GenericConstraint::Equivalent { left, right } => {
                     type_term_contains_any_parameter(ctx.store, left, parameters) || type_term_contains_any_parameter(ctx.store, right, parameters)
                 }
+                GenericConstraint::Conforms { subject, trait_ref } => {
+                    type_term_contains_any_parameter(ctx.store, subject, parameters)
+                        || trait_ref.arguments.iter().any(|&arg| type_contains_any_parameter(ctx.store, arg, parameters))
+                }
             })
         })
 }
@@ -2097,6 +2117,113 @@ fn apply_generic_callable(
     )
 }
 
+fn discharge_generic_conformance_obligations(
+    ctx: &mut CheckingContext<'_>,
+    domains: &GenericApplicationDomains<'_>,
+    bindings: &std::collections::BTreeMap<TypeParameterId, TypeId>,
+    call_range: SourceRange,
+) -> Option<Box<[crate::checker::analysis::GenericCallConformanceBinding]>> {
+    let mut instantiation = crate::types::instantiation::GenericInstantiation::default();
+    for (&param, &ty) in bindings {
+        instantiation.bind_type(param, ty);
+    }
+
+    let mut conformances = Vec::new();
+    let mut failed = false;
+
+    for signature in domains.signatures() {
+        for constraint in signature.constraints.iter() {
+            let GenericConstraint::Conforms { subject, trait_ref } = constraint else {
+                continue;
+            };
+
+            let instantiated_subject = match subject {
+                TypeTerm::Canonical(ty) => {
+                    match crate::types::instantiation::materialize_type(
+                        ctx.store,
+                        *ty,
+                        &instantiation,
+                        crate::types::instantiation::RowMaterializationMode::PreserveUnboundStableTail,
+                    ) {
+                        Ok(m_ty) => TypeTerm::Canonical(m_ty),
+                        Err(_) => TypeTerm::Canonical(*ty),
+                    }
+                }
+                TypeTerm::SelfType(_) | TypeTerm::Infer(_) => subject.clone(),
+            };
+
+            let mut instantiated_args = Vec::with_capacity(trait_ref.arguments.len());
+            for &arg in trait_ref.arguments.iter() {
+                match crate::types::instantiation::materialize_type(
+                    ctx.store,
+                    arg,
+                    &instantiation,
+                    crate::types::instantiation::RowMaterializationMode::PreserveUnboundStableTail,
+                ) {
+                    Ok(m_arg) => instantiated_args.push(m_arg),
+                    Err(_) => instantiated_args.push(arg),
+                }
+            }
+            let instantiated_trait_ref = crate::traits::TraitRef::new(trait_ref.declaration.clone(), instantiated_args);
+
+            let proof = crate::generic_evidence::query_generic_conformance_proof(
+                &instantiated_subject,
+                &instantiated_trait_ref,
+                Some(&ctx.generic_evidence),
+                ctx.conformance_semantics.map(|cs| cs.conformance_index),
+                ctx.conformance_semantics.map(|cs| cs.witness_plans),
+                ctx.conformance_semantics.map(|cs| cs.trait_surfaces),
+                Some(ctx.declarations),
+                Some(ctx.hierarchy.inner()),
+                Some(&mut ctx.store),
+            );
+
+            match proof {
+                crate::generic_evidence::GenericConformanceProof::Proven(crate::generic_evidence::GenericConformanceEvidence::Exact(ev)) => {
+                    conformances.push(crate::checker::analysis::GenericCallConformanceBinding {
+                        callee_conformance: crate::generic_evidence::GenericConformanceKey::new(
+                            instantiated_subject,
+                            instantiated_trait_ref,
+                        ),
+                        source: crate::checker::analysis::GenericCallConformanceSource::Exact { evidence: ev },
+                    });
+                }
+                crate::generic_evidence::GenericConformanceProof::Proven(crate::generic_evidence::GenericConformanceEvidence::Assumed(assumed)) => {
+                    conformances.push(crate::checker::analysis::GenericCallConformanceBinding {
+                        callee_conformance: crate::generic_evidence::GenericConformanceKey::new(
+                            instantiated_subject,
+                            instantiated_trait_ref,
+                        ),
+                        source: crate::checker::analysis::GenericCallConformanceSource::Forwarded { caller_conformance: assumed.key },
+                    });
+                }
+                _ => {
+                    failed = true;
+                    let message = format!(
+                        "generic constraint unsatisfied: type does not conform to trait `{}`",
+                        instantiated_trait_ref.declaration.name
+                    );
+                    let diagnostic = SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        DiagnosticCode::GenericConstraintUnsatisfied,
+                        message,
+                        call_range,
+                    );
+                    if let Some(cause) = ctx.emit_diagnostic(diagnostic) {
+                        ctx.record_call_status(AnalysisStatus::Invalid(cause));
+                    }
+                }
+            }
+        }
+    }
+
+    if failed {
+        None
+    } else {
+        Some(conformances.into_boxed_slice())
+    }
+}
+
 fn publish_call_specialization(
     ctx: &mut CheckingContext<'_>,
     callable: Option<CallableId>,
@@ -2104,6 +2231,7 @@ fn publish_call_specialization(
     fixed_generics: &[(TypeParameterId, TypeId)],
     type_terms: &std::collections::HashMap<TypeParameterId, InferenceTerm>,
     session_handle: &std::rc::Rc<std::cell::RefCell<InferenceSession>>,
+    call_range: SourceRange,
 ) {
     let Some(callable) = callable else {
         return;
@@ -2128,8 +2256,20 @@ fn publish_call_specialization(
         };
         bindings.insert(parameter, ty);
     }
+
+    let Some(conformances) = discharge_generic_conformance_obligations(ctx, domains, &bindings, call_range) else {
+        return;
+    };
+
     let bindings = bindings.into_iter().collect::<Vec<_>>().into_boxed_slice();
-    ctx.publish_call_specialization(expression, crate::checker::analysis::CallSpecialization { callable, bindings });
+    ctx.publish_call_specialization(
+        expression,
+        crate::checker::analysis::CallSpecialization {
+            callable,
+            bindings,
+            conformances,
+        },
+    );
 }
 
 fn target_has_generic_domains(ctx: &CheckingContext<'_>, target: &CallableApplicationTarget) -> bool {

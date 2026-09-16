@@ -106,6 +106,14 @@ pub trait TypeResolver {
     /// Resolve an unqualified or qualified nominal type name to a DeclarationId.
     fn resolve_type_name(&self, current_module: &ModuleId, root: &str, members: &[String]) -> Option<DeclarationId>;
 
+    /// Resolve a trait name at a conformance-bound formation site.
+    ///
+    /// Implementations that track semantic dependencies may distinguish the
+    /// trait-header contract from an ordinary nominal declaration shell.
+    fn resolve_trait_name(&self, current_module: &ModuleId, root: &str, members: &[String]) -> Option<DeclarationId> {
+        self.resolve_type_name(current_module, root, members)
+    }
+
     /// Resolve an in-scope type-level binding, including row-domain binders.
     fn resolve_type_level_binding(&self, _name: &str) -> Option<TypeLevelBinding> {
         None
@@ -139,6 +147,10 @@ pub struct ScopedTypeResolver<'a> {
 impl<'a> TypeResolver for ScopedTypeResolver<'a> {
     fn resolve_type_name(&self, current_module: &ModuleId, root: &str, members: &[String]) -> Option<DeclarationId> {
         self.parent.resolve_type_name(current_module, root, members)
+    }
+
+    fn resolve_trait_name(&self, current_module: &ModuleId, root: &str, members: &[String]) -> Option<DeclarationId> {
+        self.parent.resolve_trait_name(current_module, root, members)
     }
 
     fn resolve_type_level_binding(&self, name: &str) -> Option<TypeLevelBinding> {
@@ -1325,8 +1337,92 @@ fn generic_constraint_shape(store: &TypeStore, constraint: &GenericConstraint) -
     match constraint {
         GenericConstraint::Subtype { lower, upper } => format!("Subtype({}, {})", term_shape(store, lower), term_shape(store, upper)),
         GenericConstraint::Equivalent { left, right } => format!("Equivalent({}, {})", term_shape(store, left), term_shape(store, right)),
+        GenericConstraint::Conforms { subject, trait_ref } => {
+            let args_str = if trait_ref.arguments.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "<{}>",
+                    trait_ref
+                        .arguments
+                        .iter()
+                        .map(|ty| store.format_type(*ty))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            };
+            format!("Conforms({}, {}{})", term_shape(store, subject), trait_ref.declaration.name, args_str)
+        }
     }
     .into_boxed_str()
+}
+
+fn resolve_trait_ref_for_conformance(
+    store: &mut TypeStore,
+    declarations: &DeclarationTypeTable,
+    resolver: &dyn TypeResolver,
+    site: &TypeFormationSite,
+    annotation: &TypeAnnotation,
+    diagnostics: &mut Vec<SemanticDiagnostic>,
+) -> TypeFormationOutcome<TraitRef> {
+    let current_module = &site.module;
+    let (trait_declaration, type_arguments_syntax) = match &annotation.expr {
+        TypeAnnotationExpr::Reference(sym_ref) => {
+            let members: Vec<String> = sym_ref.members.iter().map(|m| m.name.clone()).collect();
+            let decl = resolver.resolve_trait_name(current_module, &sym_ref.root, &members);
+            let Some(decl) = decl else {
+                diagnostics.push(SemanticDiagnostic::error_in(
+                    current_module.clone(),
+                    DiagnosticCode::AnnotationUnresolved,
+                    format!("unresolved trait `{}`", sym_ref.root),
+                    annotation.range,
+                ));
+                return TypeFormationOutcome::Unresolved(TypeFormationUnresolved::Name(sym_ref.root.clone().into()));
+            };
+            (decl, Vec::new())
+        }
+        TypeAnnotationExpr::Application { origin, arguments, .. } => {
+            let TypeAnnotationExpr::Reference(sym_ref) = &origin.expr else {
+                diagnostics.push(SemanticDiagnostic::error_in(
+                    current_module.clone(),
+                    DiagnosticCode::AnnotationUnresolved,
+                    "conformance trait reference origin must be a trait name",
+                    origin.range,
+                ));
+                return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+            };
+            let members: Vec<String> = sym_ref.members.iter().map(|m| m.name.clone()).collect();
+            let decl = resolver.resolve_trait_name(current_module, &sym_ref.root, &members);
+            let Some(decl) = decl else {
+                diagnostics.push(SemanticDiagnostic::error_in(
+                    current_module.clone(),
+                    DiagnosticCode::AnnotationUnresolved,
+                    format!("unresolved trait `{}`", sym_ref.root),
+                    origin.range,
+                ));
+                return TypeFormationOutcome::Unresolved(TypeFormationUnresolved::Name(sym_ref.root.clone().into()));
+            };
+            (decl, arguments.clone())
+        }
+        _ => {
+            diagnostics.push(SemanticDiagnostic::error_in(
+                current_module.clone(),
+                DiagnosticCode::AnnotationUnresolved,
+                "conformance constraint bound must be a trait reference",
+                annotation.range,
+            ));
+            return TypeFormationOutcome::Invalid(TypeFormationInvalid::Syntax);
+        }
+    };
+
+    let mut arg_tys = Vec::with_capacity(type_arguments_syntax.len());
+    for arg_ann in &type_arguments_syntax {
+        let arg_res = resolve_type_form(store, declarations, resolver, site, arg_ann, diagnostics);
+        let arg_ty = scoped_ready_or_propagate!(arg_res);
+        arg_tys.push(arg_ty);
+    }
+
+    TypeFormationOutcome::Ready(TraitRef::new(trait_declaration, arg_tys.into_boxed_slice()))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1458,6 +1554,27 @@ pub fn resolve_generic_signature(
                         right: TypeTerm::Canonical(r_ty),
                     });
                 }
+                GenericConstraintSyntax::Conforms { subject, bounds, range: _ } => {
+                    let s_res = resolve_type_form(store, declarations, &scoped_resolver, site, subject, diagnostics);
+                    let s_ty = scoped_ready_or_propagate!(s_res);
+                    if store.kind_of(s_ty) != KindId::TYPE {
+                        diagnostics.push(SemanticDiagnostic::error_in(
+                            current_module.clone(),
+                            DiagnosticCode::KindExpectedType,
+                            "generic conformance subject must be a proper type",
+                            subject.range,
+                        ));
+                        return TypeFormationOutcome::Invalid(TypeFormationInvalid::GenericConstraintOperandNotType);
+                    }
+                    for bound in bounds {
+                        let trait_res = resolve_trait_ref_for_conformance(store, declarations, &scoped_resolver, site, bound, diagnostics);
+                        let trait_ref = scoped_ready_or_propagate!(trait_res);
+                        constraints.push(GenericConstraint::Conforms {
+                            subject: TypeTerm::Canonical(s_ty),
+                            trait_ref,
+                        });
+                    }
+                }
                 GenericConstraintSyntax::Invalid { message, range } => {
                     diagnostics.push(SemanticDiagnostic::error_in(
                         current_module.clone(),
@@ -1470,6 +1587,9 @@ pub fn resolve_generic_signature(
             }
         }
     }
+
+    constraints.sort();
+    constraints.dedup();
 
     let constraint_shapes = constraints
         .iter()

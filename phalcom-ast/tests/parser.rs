@@ -1679,3 +1679,41 @@ fn value_terminated_newline_remains_a_statement_boundary() {
     let program = parse_source("left\nright\n", 0).expect("separate expressions should parse");
     assert_eq!(program.statements.len(), 2);
 }
+
+#[test]
+fn parses_direct_trait_conformance_constraint() {
+    let source = "class Box<T> where T |= Printable {\n}\n";
+    let program = parse_source(source, 0).expect("direct conformance constraint should parse");
+    assert_eq!(program.statements.len(), 1);
+    let Statement::Class(class) = &program.statements[0] else {
+        panic!("expected class");
+    };
+    let where_clause = class.where_clause.as_ref().expect("expected where clause");
+    assert_eq!(where_clause.constraints.len(), 1);
+    match &where_clause.constraints[0] {
+        GenericConstraintSyntax::Conforms { subject, bounds, .. } => {
+            assert_eq!(bounds.len(), 1);
+            let subject_expr = format!("{:?}", subject.expr);
+            assert!(subject_expr.contains("Printable") == false);
+        }
+        other => panic!("expected Conforms constraint, got {other:?}"),
+    }
+}
+
+#[test]
+fn parses_same_subject_trait_conjunction() {
+    let source = "class Container<T> where T |= Printable + Serializable + Displayable {\n}\n";
+    let program = parse_source(source, 0).expect("conjunction constraint should parse");
+    assert_eq!(program.statements.len(), 1);
+    let Statement::Class(class) = &program.statements[0] else {
+        panic!("expected class");
+    };
+    let where_clause = class.where_clause.as_ref().expect("expected where clause");
+    assert_eq!(where_clause.constraints.len(), 1);
+    match &where_clause.constraints[0] {
+        GenericConstraintSyntax::Conforms { bounds, .. } => {
+            assert_eq!(bounds.len(), 3);
+        }
+        other => panic!("expected Conforms constraint with 3 bounds, got {other:?}"),
+    }
+}

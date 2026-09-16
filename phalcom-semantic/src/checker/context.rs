@@ -251,6 +251,30 @@ impl TypeResolver for TrackingTypeResolver<'_> {
         declaration
     }
 
+    fn resolve_trait_name(&self, current_module: &ModuleId, root: &str, members: &[String]) -> Option<DeclarationId> {
+        if is_query_owned_module(current_module) {
+            record_query_dependency(&self.dependencies, SemanticDependency::LinkedName(current_module.clone(), root.to_string()));
+        }
+
+        let qualified_target = if members.len() == 1 {
+            self.inner.resolve_module_alias(current_module, root)
+        } else {
+            None
+        };
+
+        if let Some(target) = &qualified_target {
+            if is_query_owned_module(target) {
+                record_query_dependency(&self.dependencies, SemanticDependency::PublicExport(target.clone(), members[0].clone()));
+            }
+        }
+
+        let declaration = self.inner.resolve_type_name(current_module, root, members);
+        if let Some(declaration) = &declaration {
+            record_query_dependency(&self.dependencies, SemanticDependency::TraitHeader(declaration.clone()));
+        }
+        declaration
+    }
+
     fn resolve_type_level_binding(&self, name: &str) -> Option<TypeLevelBinding> {
         self.inner.resolve_type_level_binding(name)
     }
@@ -419,6 +443,7 @@ pub struct CheckingContext<'a> {
     pub trait_surface: Option<&'a crate::traits::TraitSurface>,
     pub conformance_semantics: Option<&'a crate::trait_dispatch::ConformanceSemanticView<'a>>,
     pub dispatch: DispatchAccess<'a>,
+    pub generic_evidence: crate::generic_evidence::GenericEvidenceEnvironment,
     pub ambient_constraints: Vec<crate::types::parameter::GenericConstraint>,
     pub self_override_type: Option<TypeId>,
     pub core_ids: CoreDeclarationIds,
@@ -525,6 +550,7 @@ impl<'a> CheckingContext<'a> {
             trait_surface: None,
             conformance_semantics: None,
             dispatch: DispatchAccess::Owned(dispatch),
+            generic_evidence: crate::generic_evidence::GenericEvidenceEnvironment::empty(),
             ambient_constraints: Vec::new(),
             self_override_type: None,
             core_ids: CoreDeclarationIds::default(),
@@ -613,6 +639,7 @@ impl<'a> CheckingContext<'a> {
             trait_surface: None,
             conformance_semantics: None,
             dispatch: DispatchAccess::Borrowed(dispatch),
+            generic_evidence: crate::generic_evidence::GenericEvidenceEnvironment::empty(),
             ambient_constraints: Vec::new(),
             self_override_type: None,
             core_ids: CoreDeclarationIds::default(),
@@ -680,6 +707,7 @@ impl<'a> CheckingContext<'a> {
             trait_surface: self.trait_surface,
             conformance_semantics: self.conformance_semantics,
             dispatch: DispatchAccess::Borrowed(self.dispatch.get()),
+            generic_evidence: self.generic_evidence.clone(),
             ambient_constraints: self.ambient_constraints.clone(),
             self_override_type: self.self_override_type,
             core_ids: self.core_ids.clone(),
@@ -2010,6 +2038,17 @@ impl<'a> CheckingContext<'a> {
                         left: specialize_term(self, left),
                         right: specialize_term(self, right),
                     },
+                    crate::types::parameter::GenericConstraint::Conforms { subject, trait_ref } => {
+                        let new_args: Vec<TypeId> = trait_ref
+                            .arguments
+                            .iter()
+                            .map(|&arg| specialize_type(self, arg))
+                            .collect();
+                        crate::types::parameter::GenericConstraint::Conforms {
+                            subject: specialize_term(self, subject),
+                            trait_ref: crate::traits::TraitRef::new(trait_ref.declaration.clone(), new_args.into_boxed_slice()),
+                        }
+                    }
                 })
                 .collect();
             let constraint_mentions_parameter = |term: &crate::types::parameter::TypeTerm, parameter| match term {
@@ -2027,6 +2066,10 @@ impl<'a> CheckingContext<'a> {
                         crate::types::parameter::GenericConstraint::Subtype { lower, upper }
                         | crate::types::parameter::GenericConstraint::Equivalent { left: lower, right: upper } => {
                             constraint_mentions_parameter(lower, parameter) || constraint_mentions_parameter(upper, parameter)
+                        }
+                        crate::types::parameter::GenericConstraint::Conforms { subject, trait_ref } => {
+                            constraint_mentions_parameter(subject, parameter)
+                                || trait_ref.arguments.iter().any(|&arg| self.store.contains_type_parameter(arg, parameter))
                         }
                     })
             });
@@ -2162,6 +2205,105 @@ impl<'a> CheckingContext<'a> {
         })))
     }
 
+    fn resolve_assumed_trait_target(
+        &mut self,
+        receiver: TypeId,
+        selector: &Selector,
+        side: DispatchSide,
+    ) -> Option<ResolvedDispatchResult> {
+        let mut assumed_candidates = Vec::new();
+        for (key, _assumed) in self.generic_evidence.conformances() {
+            let subject_matches = match &key.subject {
+                crate::types::parameter::TypeTerm::Canonical(ty) => *ty == receiver,
+                crate::types::parameter::TypeTerm::SelfType(st) => {
+                    matches!(self.store.get(receiver), crate::types::store::TypeData::SelfType(term) if term == st)
+                }
+                crate::types::parameter::TypeTerm::Infer(_) => false,
+            };
+            if subject_matches {
+                if let Some(view) = self.conformance_semantics {
+                    if let Some(surface) = view.trait_surfaces.get(&key.trait_ref.declaration) {
+                        if let Some(member) = surface.get_by_selector(selector, side) {
+                            assumed_candidates.push((key.clone(), member.clone(), surface.clone()));
+                        }
+                    }
+                } else if let Some(surface) = self.trait_surface {
+                    if surface.declaration == key.trait_ref.declaration {
+                        if let Some(member) = surface.get_by_selector(selector, side) {
+                            assumed_candidates.push((key.clone(), member.clone(), std::sync::Arc::new((*surface).clone())));
+                        }
+                    }
+                }
+            }
+        }
+
+        if assumed_candidates.is_empty() {
+            return None;
+        }
+
+        if assumed_candidates.len() == 1 {
+            let (conformance_key, member, surface) = assumed_candidates.remove(0);
+            let mut signature = crate::checker::declaration_signature::project_semantic_signature(&member.signature);
+            let mut type_env = crate::types::environment::TypeEnvironment::default();
+            if let Some(generics) = &surface.generic_signature {
+                for (idx, &param) in generics.parameters.iter().enumerate() {
+                    if let Some(&arg) = conformance_key.trait_ref.arguments.get(idx) {
+                        type_env.bind_param(param, arg);
+                    }
+                }
+            }
+            let env_clone = type_env.clone();
+            let specialize_type = |ctx: &mut Self, ty: TypeId| {
+                let self_spec = ctx.specialize_self_type(receiver, ty);
+                crate::types::environment::TypeView::new(self_spec, env_clone.clone()).materialize(ctx.store)
+            };
+            for parameter in &mut signature.parameters {
+                parameter.ty = parameter.ty.map_type(|ty| specialize_type(self, ty));
+            }
+            signature.return_type = signature.return_type.map_type(|ty| specialize_type(self, ty));
+
+            let callable = member.callable.clone();
+            self.dependencies.insert(callable.clone());
+            self.record_semantic_dependency(SemanticDependency::TraitSurface(surface.declaration.clone()));
+            if let Some(expression) = self.current_expression_id() {
+                self.resolved_callables.insert(expression, callable.clone());
+                self.resolved_trait_dispatches.insert(
+                    expression,
+                    crate::trait_dispatch::TraitDispatchSite::Assumed(
+                        crate::trait_dispatch::AssumedTraitDispatchSelection {
+                            conformance: conformance_key,
+                            requirement: member.requirement.clone(),
+                            signature: member.signature.clone(),
+                        },
+                    ),
+                );
+            }
+            Some(ResolvedDispatchResult::Found(Box::new(ResolvedDispatch {
+                callable,
+                signature,
+                specialization: None,
+                conditional: None,
+                trait_dispatch: None,
+                abstract_contract: false,
+                visited_owners: vec![].into_boxed_slice(),
+            })))
+        } else {
+            let ambiguous = assumed_candidates
+                .into_iter()
+                .map(|(_, member, _)| ResolvedDispatch {
+                    callable: member.callable.clone(),
+                    signature: crate::checker::declaration_signature::project_semantic_signature(&member.signature),
+                    specialization: None,
+                    conditional: None,
+                    trait_dispatch: None,
+                    abstract_contract: false,
+                    visited_owners: vec![].into_boxed_slice(),
+                })
+                .collect();
+            Some(ResolvedDispatchResult::Ambiguous(ambiguous))
+        }
+    }
+
     /// Resolves dispatch against `dispatch_receiver` while optionally
     /// specializing the selected signature against a distinct proper type
     /// form.  Class-object values carry dispatch identity, whereas an applied
@@ -2178,6 +2320,9 @@ impl<'a> CheckingContext<'a> {
             return result;
         }
         let Some((decl, side)) = self.dispatch_owner_for_lookup(dispatch_receiver, lookup.clone()) else {
+            if let Some(result) = self.resolve_assumed_trait_target(dispatch_receiver, selector, DispatchSide::Instance) {
+                return result;
+            }
             return ResolvedDispatchResult::Missing { visited_owners: Box::new([]) };
         };
 
@@ -2327,6 +2472,11 @@ impl<'a> CheckingContext<'a> {
                         }
                     }
                 }
+
+                if let Some(result) = self.resolve_assumed_trait_target(specialization_receiver, selector, side) {
+                    return result;
+                }
+
                 if let Some(view) = self.conformance_semantics {
                     let trait_resolution = crate::trait_dispatch::resolve_trait_evidenced_candidates(
                         view.trait_dispatch,

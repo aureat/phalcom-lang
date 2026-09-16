@@ -9,6 +9,7 @@ use crate::db::ProductFingerprint;
 use crate::declarations::DeclarationTypeTable;
 use crate::identity::{CallableId, DataComponentId, DeclarationId, DispatchSide, ImplId, TypeId, VariantId};
 use crate::impls::{ConformanceEvidence, ConformanceIndex, ConformanceResolution, ConformanceTarget, ConformanceWitnessPlan, RequirementSelectionTemplate};
+use crate::generic_evidence::GenericConformanceKey;
 use crate::signature::CallableSemanticSignature;
 use crate::traits::{TraitRef, TraitRequirementId, TraitSurfaceTable};
 use crate::types::evidence::UnknownReason;
@@ -213,13 +214,23 @@ pub struct TraitDispatchSelection {
     pub requirement_targets: BTreeMap<TraitRequirementId, RequirementSelectionTemplate>,
 }
 
-/// The two semantic origins of a trait-dispatch expression. Abstract sites
+/// Assumed trait dispatch selection produced from a generic direct conformance bound.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AssumedTraitDispatchSelection {
+    pub conformance: GenericConformanceKey,
+    pub requirement: TraitRequirementId,
+    pub signature: CallableSemanticSignature,
+}
+
+/// The semantic origins of a trait-dispatch expression. Abstract sites
 /// inside a checked default carry only their canonical requirement; ordinary
-/// sites carry exact conformance evidence and the selected target.
+/// sites carry exact conformance evidence and the selected target; assumed sites
+/// carry the generic conformance assumption and resolved requirement.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum TraitDispatchSite {
     AbstractRequirement { requirement: TraitRequirementId },
     Evidenced(TraitDispatchSelection),
+    Assumed(AssumedTraitDispatchSelection),
 }
 
 /// Proof-aware result of bounded trait-evidenced discovery.

@@ -384,6 +384,51 @@ fn spec03_reflects_generic_signatures_parameters_and_specialized_member_lookup()
 }
 
 #[test]
+fn spec03_reflects_direct_conformance_constraint_without_fabricated_right_type() {
+    let mut vm = VM::new();
+    let mut bundle = build_test_bundle();
+    bundle.generic_signatures[0].constraints = vec![GenericConstraintRef::Conforms {
+        subject: TypeNodeId(2),
+        trait_application: phalcom_type_meta::generic::StableTraitApplicationRef {
+            declaration: StableDeclarationRef {
+                module: test_module(),
+                path: vec!["Printable".into()].into_boxed_slice(),
+            },
+            arguments: Box::new([]),
+        },
+    }]
+    .into_boxed_slice();
+    vm.typing_registry
+        .register_pool(LoadedSemanticMetadata::new(MetadataPoolId(0), Arc::new(bundle)));
+
+    let box_class_id = vm.heap.alloc_class(ClassObject::bare("Box"));
+    vm.typing_registry.register_nominal_binding(
+        StableDeclarationRef {
+            module: test_module(),
+            path: vec!["Box".into()].into_boxed_slice(),
+        },
+        box_class_id,
+    );
+    let typing_class = vm.universe.typing_classes.get("Typing").expect("Typing class");
+    let context = send0(&mut vm, Value::obj(typing_class), "current");
+    let known_sig = send1(&mut vm, context, "genericSignatureOf(_)", Value::obj(box_class_id));
+    let sig = send0(&mut vm, known_sig, "value");
+    let constraint = send1(&mut vm, sig, "constraintAt(_)", Value::int(0));
+
+    let relation = send0(&mut vm, constraint, "relation");
+    assert_eq!(vm.resolve_symbol(relation.as_symbol().unwrap()), "conforms");
+    let subject = send0(&mut vm, constraint, "subject");
+    let subject_display = send0(&mut vm, subject, "display");
+    assert_eq!(vm.heap.string(subject_display.as_obj().unwrap()).as_str(), "T0");
+    let trait_declaration = send0(&mut vm, constraint, "traitDeclaration");
+    assert_eq!(vm.resolve_symbol(trait_declaration.as_symbol().unwrap()), "Printable");
+    let arguments = send0(&mut vm, constraint, "traitArguments");
+    assert_eq!(arguments.to_string(&vm), "()");
+    let right_selector = vm.get_or_intern("right");
+    assert!(vm.send_dynamic(constraint, right_selector, &[]).is_err());
+}
+
+#[test]
 fn spec03_record_reflection_and_runtime_validation() {
     let mut vm = VM::new();
     let typing_class = vm.universe.typing_classes.get("Typing").expect("Typing class");

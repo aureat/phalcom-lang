@@ -2,6 +2,7 @@
 
 use crate::identity::{SourceSpanRef, StableCallableRef, StableDeclarationRef};
 use crate::kind::KindNodeId;
+use crate::type_node::TypeNodeId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
@@ -44,6 +45,16 @@ pub struct GenericSignatureRecord {
     pub constraints: Box<[GenericConstraintRef]>,
 }
 
+/// Stable identity for an applied trait contract in a generic constraint.
+///
+/// Traits are behavioral declarations rather than nominal type nodes, so the
+/// declaration and its canonical type arguments are carried explicitly.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
+pub struct StableTraitApplicationRef {
+    pub declaration: StableDeclarationRef,
+    pub arguments: Box<[TypeNodeId]>,
+}
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Deserialize, Serialize)]
 pub enum GenericConstraintRef {
     Subtype {
@@ -53,5 +64,9 @@ pub enum GenericConstraintRef {
     Equivalent {
         left: crate::type_node::TypeNodeId,
         right: crate::type_node::TypeNodeId,
+    },
+    Conforms {
+        subject: TypeNodeId,
+        trait_application: StableTraitApplicationRef,
     },
 }

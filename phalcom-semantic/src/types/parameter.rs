@@ -47,7 +47,7 @@ impl TypeParameterData {
 }
 
 /// Role of a `Self` type term.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum SelfRole {
     /// Instance type denoted by the current declaration, including specialization.
     InstanceType,
@@ -56,7 +56,7 @@ pub enum SelfRole {
 }
 
 /// Owner-relative `Self` type term.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct SelfTypeTerm {
     pub owner: DeclarationId,
     pub side: DispatchSide,
@@ -64,7 +64,7 @@ pub struct SelfTypeTerm {
 }
 
 /// Term used in generic declaration signatures and constraints.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum TypeTerm {
     Canonical(TypeId),
     SelfType(SelfTypeTerm),
@@ -78,10 +78,11 @@ impl From<TypeId> for TypeTerm {
 }
 
 /// Canonical generic constraint owned by a generic signature scope.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum GenericConstraint {
     Subtype { lower: TypeTerm, upper: TypeTerm },
     Equivalent { left: TypeTerm, right: TypeTerm },
+    Conforms { subject: TypeTerm, trait_ref: crate::traits::TraitRef },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -202,6 +203,14 @@ impl GenericSignature {
                 GenericConstraint::Equivalent { left, right } => {
                     validate_term(left)?;
                     validate_term(right)?;
+                }
+                GenericConstraint::Conforms { subject, trait_ref } => {
+                    validate_term(subject)?;
+                    for &arg in trait_ref.arguments.iter() {
+                        if arg.index() >= store.type_count() {
+                            return Err(GenericSignaturePublicationError::InvalidCanonicalType { ty: arg });
+                        }
+                    }
                 }
             }
         }

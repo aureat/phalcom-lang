@@ -2268,6 +2268,12 @@ impl SemanticWorkspaceSession {
                                     collect_type_annotation_declarations(lower, &module_id, &resolver, &mut header_dependencies);
                                     collect_type_annotation_declarations(upper, &module_id, &resolver, &mut header_dependencies);
                                 }
+                                phalcom_ast::ast::GenericConstraintSyntax::Conforms { subject, bounds, .. } => {
+                                    collect_type_annotation_declarations(subject, &module_id, &resolver, &mut header_dependencies);
+                                    for bound in bounds {
+                                        collect_type_annotation_declarations(bound, &module_id, &resolver, &mut header_dependencies);
+                                    }
+                                }
                                 phalcom_ast::ast::GenericConstraintSyntax::Invalid { .. } => {}
                             }
                         }
@@ -2402,6 +2408,12 @@ impl SemanticWorkspaceSession {
                                     collect_type_annotation_declarations(lower, &module_id, &resolver, &mut header_dependencies);
                                     collect_type_annotation_declarations(upper, &module_id, &resolver, &mut header_dependencies);
                                 }
+                                phalcom_ast::ast::GenericConstraintSyntax::Conforms { subject, bounds, .. } => {
+                                    collect_type_annotation_declarations(subject, &module_id, &resolver, &mut header_dependencies);
+                                    for bound in bounds {
+                                        collect_type_annotation_declarations(bound, &module_id, &resolver, &mut header_dependencies);
+                                    }
+                                }
                                 phalcom_ast::ast::GenericConstraintSyntax::Invalid { .. } => {}
                             }
                         }
@@ -2456,6 +2468,12 @@ impl SemanticWorkspaceSession {
                                 | phalcom_ast::ast::GenericConstraintSyntax::Equivalent { left: lower, right: upper, .. } => {
                                     collect_type_annotation_declarations(lower, &module_id, &resolver, &mut header_dependencies);
                                     collect_type_annotation_declarations(upper, &module_id, &resolver, &mut header_dependencies);
+                                }
+                                phalcom_ast::ast::GenericConstraintSyntax::Conforms { subject, bounds, .. } => {
+                                    collect_type_annotation_declarations(subject, &module_id, &resolver, &mut header_dependencies);
+                                    for bound in bounds {
+                                        collect_type_annotation_declarations(bound, &module_id, &resolver, &mut header_dependencies);
+                                    }
                                 }
                                 phalcom_ast::ast::GenericConstraintSyntax::Invalid { .. } => {}
                             }
@@ -2546,7 +2564,9 @@ impl SemanticWorkspaceSession {
                     QueryOutcome::Ready(header) => header,
                     QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
                     QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
-                    QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                    QueryOutcome::Blocked(reason) => {
+                        return Err(QueryOutcome::Blocked(reason));
+                    }
                     QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
                 };
                 trait_headers.insert(header);
@@ -2572,7 +2592,7 @@ impl SemanticWorkspaceSession {
                     QueryOutcome::Ready(surface) => surface,
                     QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
                     QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
-                    QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                        QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
                     QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
                 };
                 trait_surfaces.insert(surface);
@@ -2681,7 +2701,9 @@ impl SemanticWorkspaceSession {
                         QueryOutcome::Ready(_) => {}
                         QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
                         QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
-                        QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                        QueryOutcome::Blocked(reason) => {
+                            return Err(QueryOutcome::Blocked(reason));
+                        }
                         QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
                     }
                 }
@@ -2765,7 +2787,9 @@ impl SemanticWorkspaceSession {
                         QueryOutcome::Ready(edge) => edge,
                         QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
                         QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
-                        QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                        QueryOutcome::Blocked(reason) => {
+                            return Err(QueryOutcome::Blocked(reason));
+                        }
                         QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
                     };
 
@@ -2801,7 +2825,9 @@ impl SemanticWorkspaceSession {
                         QueryOutcome::Ready(edge) => edge,
                         QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
                         QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
-                        QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                        QueryOutcome::Blocked(reason) => {
+                            return Err(QueryOutcome::Blocked(reason));
+                        }
                         QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
                     };
                     if let Some(super_decl) = &edge.super_decl {
@@ -2895,7 +2921,9 @@ impl SemanticWorkspaceSession {
                         },
                     ) {
                         QueryOutcome::Ready(signature) => field_signatures.insert((*signature).clone()),
-                        QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                        QueryOutcome::Blocked(reason) => {
+                            return Err(QueryOutcome::Blocked(reason));
+                        }
                         QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
                         QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
                         QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
@@ -2978,7 +3006,9 @@ impl SemanticWorkspaceSession {
                     QueryOutcome::Ready(surface) => surface,
                     QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
                     QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
-                    QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                    QueryOutcome::Blocked(reason) => {
+                        return Err(QueryOutcome::Blocked(reason));
+                    }
                     QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
                 };
                 if let Some(diagnostics) = self
@@ -3630,7 +3660,9 @@ impl SemanticWorkspaceSession {
                                 }
                                 callable_signatures.insert(signature);
                             }
-                            QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                            QueryOutcome::Blocked(reason) => {
+                                return Err(QueryOutcome::Blocked(reason));
+                            }
                             QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
                             QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
                             QueryOutcome::Failed(error) => return Err(QueryOutcome::Failed(error)),
@@ -4050,7 +4082,9 @@ impl SemanticWorkspaceSession {
                                     }
                                     QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
                                     QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
-                                    QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                                    QueryOutcome::Blocked(reason) => {
+                                        return Err(QueryOutcome::Blocked(reason));
+                                    }
                                     QueryOutcome::Failed(err) => return Err(QueryOutcome::Failed(err)),
                                 }
                             }
@@ -4182,7 +4216,9 @@ impl SemanticWorkspaceSession {
                                     }
                                     QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
                                     QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
-                                    QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                                    QueryOutcome::Blocked(reason) => {
+                                        return Err(QueryOutcome::Blocked(reason));
+                                    }
                                     QueryOutcome::Failed(err) => return Err(QueryOutcome::Failed(err)),
                                 }
                             }
@@ -4371,7 +4407,9 @@ impl SemanticWorkspaceSession {
                                     }
                                     QueryOutcome::Cancelled => return Err(QueryOutcome::Cancelled),
                                     QueryOutcome::BudgetExceeded(report) => return Err(QueryOutcome::BudgetExceeded(report)),
-                                    QueryOutcome::Blocked(reason) => return Err(QueryOutcome::Blocked(reason)),
+                                    QueryOutcome::Blocked(reason) => {
+                                        return Err(QueryOutcome::Blocked(reason));
+                                    }
                                     QueryOutcome::Failed(err) => return Err(QueryOutcome::Failed(err)),
                                 }
                             }
@@ -4476,7 +4514,7 @@ impl SemanticWorkspaceSession {
         // interface publication iterate until return contracts stabilize.
         // During each iteration, we only run inference and update dispatch; we
         // do not run full checking or re-emit diagnostics.
-        refresh_inferred_callable_results(InferredCallableRefreshInputs {
+        if let Err(error) = refresh_inferred_callable_results(InferredCallableRefreshInputs {
             db: &mut self.db,
             sources: &retained_sources,
             store: Arc::make_mut(&mut self.store),
@@ -4498,7 +4536,9 @@ impl SemanticWorkspaceSession {
             previous_callable_signatures: previous_snapshot.as_ref().map(|snapshot| snapshot.callable_signatures.as_ref()),
             budget,
             cancel,
-        })?;
+        }) {
+            return Err(error);
+        }
 
         for (module_id, shard) in &self.semantic_structure_shards {
             if !semantic_work_modules.contains(module_id) {

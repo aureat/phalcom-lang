@@ -287,10 +287,8 @@ fn hash_generic_signature(signature: &GenericSignature, hasher: &mut impl Hasher
     } else {
         "legacy-generic-parameter-metadata-absent".hash(hasher);
     }
-    if signature.constraint_shapes.len() == signature.constraints.len() {
-        signature.constraint_shapes.hash(hasher);
-    } else {
-        "legacy-generic-constraint-metadata-absent".hash(hasher);
+    for constraint in signature.constraints.iter() {
+        constraint.hash(hasher);
     }
 }
 
@@ -1574,6 +1572,11 @@ fn hash_trait_dispatch_site(site: Option<&crate::trait_dispatch::TraitDispatchSi
                 requirement.hash(hasher);
                 hash_requirement_selection(target, hasher);
             }
+        }
+        Some(crate::trait_dispatch::TraitDispatchSite::Assumed(selection)) => {
+            3u8.hash(hasher);
+            selection.conformance.hash(hasher);
+            selection.requirement.hash(hasher);
         }
     }
 }

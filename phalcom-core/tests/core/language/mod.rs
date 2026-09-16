@@ -53,3 +53,5 @@ mod option;
 mod traits;
 #[path = "associated_traits.rs"]
 mod associated_traits;
+#[path = "generic_conformance.rs"]
+mod generic_conformance;

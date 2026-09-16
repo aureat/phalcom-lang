@@ -563,6 +563,46 @@ pub fn generic_constraint_relation(registry: &RuntimeTypingRegistry, handle: cra
     match generic_constraint_ref(registry, handle)? {
         phalcom_type_meta::generic::GenericConstraintRef::Subtype { .. } => Some("subtype"),
         phalcom_type_meta::generic::GenericConstraintRef::Equivalent { .. } => Some("equivalent"),
+        phalcom_type_meta::generic::GenericConstraintRef::Conforms { .. } => Some("conforms"),
+    }
+}
+
+pub fn generic_constraint_subject(
+    registry: &RuntimeTypingRegistry,
+    handle: crate::typing::handle::RuntimeGenericConstraintRef,
+) -> Option<RuntimeTypeRef> {
+    match generic_constraint_ref(registry, handle)? {
+        phalcom_type_meta::generic::GenericConstraintRef::Conforms { subject, .. } => Some(RuntimeTypeRef::Base {
+            pool: handle.pool,
+            node: *subject,
+        }),
+        _ => None,
+    }
+}
+
+pub fn generic_constraint_trait_declaration(
+    registry: &RuntimeTypingRegistry,
+    handle: crate::typing::handle::RuntimeGenericConstraintRef,
+) -> Option<&phalcom_type_meta::identity::StableDeclarationRef> {
+    match generic_constraint_ref(registry, handle)? {
+        phalcom_type_meta::generic::GenericConstraintRef::Conforms { trait_application, .. } => Some(&trait_application.declaration),
+        _ => None,
+    }
+}
+
+pub fn generic_constraint_trait_arguments(
+    registry: &RuntimeTypingRegistry,
+    handle: crate::typing::handle::RuntimeGenericConstraintRef,
+) -> Option<Vec<RuntimeTypeRef>> {
+    match generic_constraint_ref(registry, handle)? {
+        phalcom_type_meta::generic::GenericConstraintRef::Conforms { trait_application, .. } => Some(
+            trait_application
+                .arguments
+                .iter()
+                .map(|node| RuntimeTypeRef::Base { pool: handle.pool, node: *node })
+                .collect(),
+        ),
+        _ => None,
     }
 }
 
@@ -575,6 +615,10 @@ pub fn generic_constraint_left(registry: &RuntimeTypingRegistry, handle: crate::
         phalcom_type_meta::generic::GenericConstraintRef::Equivalent { left, .. } => Some(RuntimeTypeRef::Base {
             pool: handle.pool,
             node: *left,
+        }),
+        phalcom_type_meta::generic::GenericConstraintRef::Conforms { subject, .. } => Some(RuntimeTypeRef::Base {
+            pool: handle.pool,
+            node: *subject,
         }),
     }
 }
@@ -589,6 +633,7 @@ pub fn generic_constraint_right(registry: &RuntimeTypingRegistry, handle: crate:
             pool: handle.pool,
             node: *right,
         }),
+        phalcom_type_meta::generic::GenericConstraintRef::Conforms { .. } => None,
     }
 }
 

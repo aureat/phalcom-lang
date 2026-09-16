@@ -1,0 +1,535 @@
+//! Canonical generic conformance constraint ownership, representation, and canonicalization tests.
+
+use crate::semantic::support::Fixture;
+use phalcom_common::selector::SelectorBase;
+use phalcom_semantic::db::fingerprint::callable_signature_product_fingerprint;
+use phalcom_semantic::identity::DispatchSide;
+use phalcom_semantic::metadata::MetadataExporter;
+use phalcom_semantic::types::parameter::{GenericConstraint, TypeParameterOwner, TypeTerm};
+use phalcom_semantic::types::store::TypeData;
+use phalcom_type_meta::generic::GenericConstraintRef;
+use phalcom_type_meta::header::MetadataProfile;
+use phalcom_type_meta::validate::{validate_metadata_bundle, ValidationLimits};
+
+#[test]
+fn generic_conformance_constraint_lowering_and_ordering() {
+    let fixture = Fixture::new(
+        r#"
+trait Alpha {}
+trait Beta {}
+
+class Probe {
+  @class
+  run<T>(_ value: T) -> T
+    where T |= Beta + Alpha
+  {
+    value
+  }
+}
+
+"#,
+    );
+
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+    let run_sig = fixture.analysis.snapshot.callable_signatures.get(&run.callable).expect("run signature");
+    let generics = run_sig.generics.as_ref().expect("generics");
+    assert!(matches!(generics.owner, TypeParameterOwner::Callable(ref owner) if owner == &run.callable));
+    assert_eq!(generics.parameters.len(), 1);
+    // T |= Beta + Alpha should be canonicalized and sorted into Alpha then Beta!
+    assert_eq!(generics.constraints.len(), 2);
+    
+    let t_param = generics.parameters[0];
+    let alpha_trait = fixture.decl("Alpha");
+    let beta_trait = fixture.decl("Beta");
+
+    match &generics.constraints[0] {
+        GenericConstraint::Conforms { subject, trait_ref } => {
+            assert!(matches!(subject, TypeTerm::Canonical(ty) if matches!(fixture.analysis.snapshot.store.get(*ty), TypeData::Parameter(p) if *p == t_param)));
+            assert_eq!(trait_ref.declaration, alpha_trait);
+        }
+        other => panic!("expected Conforms Alpha, got {:?}", other),
+    }
+
+    match &generics.constraints[1] {
+        GenericConstraint::Conforms { subject, trait_ref } => {
+            assert!(matches!(subject, TypeTerm::Canonical(ty) if matches!(fixture.analysis.snapshot.store.get(*ty), TypeData::Parameter(p) if *p == t_param)));
+            assert_eq!(trait_ref.declaration, beta_trait);
+        }
+        other => panic!("expected Conforms Beta, got {:?}", other),
+    }
+}
+
+#[test]
+fn stable_metadata_preserves_direct_conformance_constraint() {
+    let fixture = Fixture::new(
+        r#"
+trait Printable {}
+
+class Probe {
+  @class
+  run<T>(_ value: T) -> T
+    where T |= Printable
+  {
+    value
+  }
+}
+"#,
+    );
+
+    let exporter = MetadataExporter::new(
+        &fixture.analysis.snapshot.store,
+        None,
+        Some(&fixture.analysis.snapshot.callable_signatures),
+        None,
+        MetadataProfile::RuntimePublic,
+    );
+    let bundle = exporter.build_bundle(&[]).expect("generic callable metadata");
+    validate_metadata_bundle(&bundle, &ValidationLimits::default()).expect("valid generic callable metadata");
+
+    let constraint = bundle
+        .generic_signatures
+        .iter()
+        .flat_map(|record| record.constraints.iter())
+        .find(|constraint| matches!(constraint, GenericConstraintRef::Conforms { .. }))
+        .expect("direct conformance constraint");
+    let GenericConstraintRef::Conforms { subject, trait_application } = constraint else {
+        panic!("expected stable conformance relation, got {constraint:?}");
+    };
+    assert!(bundle.types.get(subject.0 as usize).is_some(), "subject type node must be present");
+    assert_eq!(trait_application.declaration.path.last().map(|name| name.as_ref()), Some("Printable"));
+    assert!(trait_application.arguments.is_empty());
+}
+
+#[test]
+fn direct_conformance_proof_preserves_exact_and_terminal_outcomes() {
+    let fixture = Fixture::new(
+        r#"
+trait Alpha {}
+trait Beta {}
+
+class User {}
+
+impl Alpha for User {}
+
+class Probe {
+  @class
+  run<T>(_ value: T) -> T
+    where T |= Beta
+  {
+    value
+  }
+}
+"#,
+    );
+
+    let user_ty = fixture.ty("User");
+    let alpha_trait = fixture.decl("Alpha");
+    let beta_trait = fixture.decl("Beta");
+
+    let alpha_ref = phalcom_semantic::traits::TraitRef::new(alpha_trait.clone(), vec![]);
+    let beta_ref = phalcom_semantic::traits::TraitRef::new(beta_trait.clone(), vec![]);
+
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+    let run_sig = fixture.analysis.snapshot.callable_signatures.get(&run.callable).expect("run signature");
+    let generics = run_sig.generics.as_ref().expect("generics");
+    let t_param = generics.parameters[0];
+
+    let mut store = (*fixture.analysis.snapshot.store).clone();
+    let t_param_ty = store.parameter_form(t_param);
+
+    // Build evidence env from the callable generics
+    let env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::from_constraints(
+        &generics.constraints,
+        generics.owner.clone(),
+        &fixture.analysis.snapshot.trait_surfaces,
+    );
+
+    // 1. Exact proof for User |= Alpha
+    let exact_proof = phalcom_semantic::generic_evidence::query_generic_conformance_proof(
+        &TypeTerm::Canonical(user_ty),
+        &alpha_ref,
+        Some(&env),
+        Some(&fixture.analysis.snapshot.conformance_index),
+        Some(&fixture.analysis.snapshot.conformance_witness_plans),
+        Some(&fixture.analysis.snapshot.trait_surfaces),
+        Some(&fixture.analysis.snapshot.declarations),
+        Some(fixture.analysis.snapshot.hierarchy.as_ref()),
+        Some(&mut store),
+    );
+    match exact_proof {
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(
+            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Exact(evidence),
+        ) => {
+            assert_eq!(evidence.exact_target, user_ty);
+            assert_eq!(evidence.exact_trait_ref, alpha_ref);
+        }
+        other => panic!("expected Exact proof for User |= Alpha, got {:?}", other),
+    }
+
+    // 2. Assumed proof for T |= Beta
+    let assumed_proof = phalcom_semantic::generic_evidence::query_generic_conformance_proof(
+        &TypeTerm::Canonical(t_param_ty),
+        &beta_ref,
+        Some(&env),
+        Some(&fixture.analysis.snapshot.conformance_index),
+        Some(&fixture.analysis.snapshot.conformance_witness_plans),
+        Some(&fixture.analysis.snapshot.trait_surfaces),
+        Some(&fixture.analysis.snapshot.declarations),
+        Some(fixture.analysis.snapshot.hierarchy.as_ref()),
+        Some(&mut store),
+    );
+    match assumed_proof {
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(
+            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Assumed(assumed),
+        ) => {
+            assert_eq!(assumed.key.subject, TypeTerm::Canonical(t_param_ty));
+            assert_eq!(assumed.key.trait_ref, beta_ref);
+        }
+        other => panic!("expected Assumed proof for T |= Beta, got {:?}", other),
+    }
+
+    // 3. Missing proof for User |= Beta
+    let missing_proof = phalcom_semantic::generic_evidence::query_generic_conformance_proof(
+        &TypeTerm::Canonical(user_ty),
+        &beta_ref,
+        Some(&env),
+        Some(&fixture.analysis.snapshot.conformance_index),
+        Some(&fixture.analysis.snapshot.conformance_witness_plans),
+        Some(&fixture.analysis.snapshot.trait_surfaces),
+        Some(&fixture.analysis.snapshot.declarations),
+        Some(fixture.analysis.snapshot.hierarchy.as_ref()),
+        Some(&mut store),
+    );
+    assert_eq!(missing_proof, phalcom_semantic::generic_evidence::GenericConformanceProof::Missing);
+}
+
+#[test]
+fn owner_and_callable_conformance_assumptions_compose_lexically() {
+    let fixture = Fixture::new(
+        r#"
+trait Alpha {
+  alpha_call -> String
+}
+
+trait Beta {
+  beta_call -> String
+}
+
+class Box<T> where T |= Alpha {
+  run<U>(_ value: T, _ other: U) -> String
+    where U |= Beta
+  {
+    let a = value.alpha_call
+    let b = other.beta_call
+    a
+  }
+}
+"#,
+    );
+
+    let run = fixture.callable("Box", "run", DispatchSide::Instance);
+    
+    // Check that both alpha_call and beta_call expressions resolved to TraitDispatchSite::Assumed
+    let mut assumed_dispatches = Vec::new();
+    for expr in run.expressions.values() {
+        if let Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::Assumed(selection)) = &expr.trait_dispatch {
+            assumed_dispatches.push(selection.clone());
+        }
+    }
+
+    assert_eq!(assumed_dispatches.len(), 2, "expected 2 assumed trait dispatches in body, found {:?}", assumed_dispatches);
+    
+    let alpha_trait = fixture.decl("Alpha");
+    let beta_trait = fixture.decl("Beta");
+
+    assert!(assumed_dispatches.iter().any(|d| d.conformance.trait_ref.declaration == alpha_trait && matches!(&d.requirement.selector.base, SelectorBase::Named(name) if name == "alpha_call")));
+    assert!(assumed_dispatches.iter().any(|d| d.conformance.trait_ref.declaration == beta_trait && matches!(&d.requirement.selector.base, SelectorBase::Named(name) if name == "beta_call")));
+}
+
+#[test]
+fn generic_evidence_layout_is_order_independent_and_subject_sensitive() {
+    let fixture1 = Fixture::new(
+        r#"
+trait Alpha {
+  first -> String
+}
+trait Beta {
+  second -> String
+}
+
+class Probe {
+  @class
+  run<T, U>(_ t: T, _ u: U)
+    where T |= Beta + Alpha, U |= Alpha
+  {}
+}
+"#,
+    );
+
+    let fixture2 = Fixture::new(
+        r#"
+trait Alpha {
+  first -> String
+}
+trait Beta {
+  second -> String
+}
+
+class Probe {
+  @class
+  run<T, U>(_ t: T, _ u: U)
+    where U |= Alpha, T |= Alpha, T |= Beta
+  {}
+}
+"#,
+    );
+
+    let run1 = fixture1.callable("Probe", "run", DispatchSide::Class);
+    let sig1 = fixture1.analysis.snapshot.callable_signatures.get(&run1.callable).expect("sig1");
+    let gen1 = sig1.generics.as_ref().expect("gen1");
+    let env1 = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::from_constraints(
+        &gen1.constraints,
+        gen1.owner.clone(),
+        &fixture1.analysis.snapshot.trait_surfaces,
+    );
+
+    let run2 = fixture2.callable("Probe", "run", DispatchSide::Class);
+    let sig2 = fixture2.analysis.snapshot.callable_signatures.get(&run2.callable).expect("sig2");
+    let gen2 = sig2.generics.as_ref().expect("gen2");
+    let env2 = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::from_constraints(
+        &gen2.constraints,
+        gen2.owner.clone(),
+        &fixture2.analysis.snapshot.trait_surfaces,
+    );
+
+    // Both layouts must have 3 slots: (T, Alpha.first), (T, Beta.second), (U, Alpha.first)
+    assert_eq!(env1.layout().len(), 3);
+    assert_eq!(env2.layout().len(), 3);
+
+    // Slots must be identical
+    assert_eq!(env1.layout().slots, env2.layout().slots);
+    assert_eq!(
+        callable_signature_product_fingerprint(sig1),
+        callable_signature_product_fingerprint(sig2),
+        "reordering direct conformance bounds must preserve the semantic signature fingerprint"
+    );
+}
+
+#[test]
+fn generic_conformance_bound_source_index_targets_trait_declaration() {
+    let source = "trait Printable {}\nclass Probe { @class run<T>(_ value: T) -> T where T |= Printable { value } }\n";
+    let fixture = Fixture::new(source);
+    let start = source.match_indices("Printable").nth(1).expect("bound trait reference").0;
+    let range = (start..start + "Printable".len()).into();
+    let module_index = fixture.analysis.snapshot.source_index().module(&fixture.module).expect("source index");
+    let occurrence = module_index
+        .occurrences
+        .all()
+        .iter()
+        .find(|occurrence| occurrence.range == range)
+        .expect("bound trait occurrence");
+    assert_eq!(
+        module_index.occurrences.target_for(&occurrence.site),
+        Some(&phalcom_semantic::SemanticTargetId::Declaration(fixture.decl("Printable")))
+    );
+}
+
+#[test]
+fn generic_method_assumed_trait_dispatch_positive_and_structural_negative() {
+    let positive = Fixture::new(
+        r#"
+trait Printable {
+  print -> String
+}
+
+class Renderer {
+  @class
+  render<T>(_ value: T) -> String
+    where T |= Printable
+  {
+    value.print
+  }
+}
+"#,
+    );
+
+    let render = positive.callable("Renderer", "render", DispatchSide::Class);
+    let mut found_assumed = false;
+    for expr in render.expressions.values() {
+        if let Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::Assumed(selection)) = &expr.trait_dispatch {
+            assert!(matches!(&selection.requirement.selector.base, SelectorBase::Named(name) if name == "print"));
+            found_assumed = true;
+        }
+    }
+    assert!(found_assumed, "expected assumed trait dispatch for value.print");
+
+    // Negative: without bound, value.print on unconstrained T cannot resolve to assumed trait dispatch
+    let negative = Fixture::new_allowing_internal_incidents(
+        r#"
+class BadRenderer {
+  @class
+  render<T>(_ value: T) -> String {
+    value.print
+  }
+}
+"#,
+    );
+
+    let render_bad = negative.callable("BadRenderer", "render", DispatchSide::Class);
+    for expr in render_bad.expressions.values() {
+        assert!(expr.trait_dispatch.is_none(), "unconstrained T must not have trait dispatch");
+    }
+}
+
+#[test]
+fn generic_method_assumed_trait_dispatch_ambiguity() {
+    let fixture = Fixture::new_allowing_internal_incidents(
+        r#"
+trait Left {
+  name -> String
+}
+
+trait Right {
+  name -> String
+}
+
+class AmbiguousProbe {
+  @class
+  run<T>(_ value: T) -> String
+    where T |= Left + Right
+  {
+    value.name
+  }
+}
+"#,
+    );
+
+    let ambiguous = fixture.callable("AmbiguousProbe", "run", DispatchSide::Class);
+    // Two conflicting assumed traits expose the same selector: no single assumed dispatch site can be formed
+    for expr in ambiguous.expressions.values() {
+        assert!(expr.trait_dispatch.is_none(), "ambiguous assumed traits must not resolve to a single dispatch site");
+    }
+}
+
+#[test]
+fn conforming_concrete_argument_discharges_direct_bound() {
+    let fixture = Fixture::new(
+        r#"
+trait Printable {
+  print -> String
+}
+
+class User {
+  @constructor
+  new() {}
+}
+
+impl Printable for User {
+  print -> String { "user" }
+}
+
+class Discharger {
+  @class
+  display<T>(_ item: T) -> String
+    where T |= Printable
+  {
+    item.print
+  }
+
+  @class
+  run -> String {
+    let u = User.new()
+    Discharger.display(u)
+  }
+}
+"#,
+    );
+
+    let run = fixture.callable("Discharger", "run", DispatchSide::Class);
+    let mut found_call = false;
+    for expr in run.expressions.values() {
+        if let Some(spec) = &expr.call_specialization {
+            assert_eq!(spec.conformances.len(), 1);
+            match &spec.conformances[0].source {
+                phalcom_semantic::checker::analysis::GenericCallConformanceSource::Exact { evidence } => {
+                    let user_ty = fixture.ty("User");
+                    assert_eq!(evidence.exact_target, user_ty);
+                    found_call = true;
+                }
+                other => panic!("expected exact evidence for User |= Printable, got {:?}", other),
+            }
+        }
+    }
+    assert!(found_call, "expected CallSpecialization on Discharger.display(u)");
+}
+
+#[test]
+fn bounded_generic_caller_forwards_evidence_to_bounded_callee() {
+    let fixture = Fixture::new(
+        r#"
+trait Printable {
+  print -> String
+}
+
+class Forwarder {
+  @class
+  inner<T>(_ value: T) -> String
+    where T |= Printable
+  {
+    value.print
+  }
+
+  @class
+  outer<T>(_ value: T) -> String
+    where T |= Printable
+  {
+    Forwarder.inner(value)
+  }
+}
+"#,
+    );
+
+    let outer = fixture.callable("Forwarder", "outer", DispatchSide::Class);
+    let mut found_forwarded = false;
+    for expr in outer.expressions.values() {
+        if let Some(spec) = &expr.call_specialization {
+            assert_eq!(spec.conformances.len(), 1);
+            match &spec.conformances[0].source {
+                phalcom_semantic::checker::analysis::GenericCallConformanceSource::Forwarded { caller_conformance } => {
+                    let printable_decl = fixture.decl("Printable");
+                    assert_eq!(caller_conformance.trait_ref.declaration, printable_decl);
+                    found_forwarded = true;
+                }
+                other => panic!("expected forwarded evidence for T |= Printable, got {:?}", other),
+            }
+        }
+    }
+    assert!(found_forwarded, "expected forwarded evidence on Forwarder.inner(value)");
+}
+
+#[test]
+fn dynamic_does_not_discharge_static_conformance_bound() {
+    let fixture = Fixture::new_allowing_internal_incidents(
+        r#"
+trait Printable {
+  print -> String
+}
+
+class DynamicCaller {
+  @class
+  consume<T>(_ value: T) -> String
+    where T |= Printable
+  {
+    value.print
+  }
+
+  @class
+  run(_ dyn_val: Dynamic) -> String {
+    DynamicCaller.consume(dyn_val)
+  }
+}
+"#,
+    );
+
+    fixture.assert_diagnostic(phalcom_semantic::diagnostic::DiagnosticCode::GenericConstraintUnsatisfied, 1);
+}

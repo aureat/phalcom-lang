@@ -303,6 +303,12 @@ impl TypeReferenceTargetCollector<'_> {
                     self.annotation(left, bound);
                     self.annotation(right, bound);
                 }
+                GenericConstraintSyntax::Conforms { subject, bounds, .. } => {
+                    self.annotation(subject, bound);
+                    for b in bounds {
+                        self.trait_annotation(b, bound);
+                    }
+                }
                 GenericConstraintSyntax::Invalid { .. } => {}
             }
         }
@@ -447,6 +453,25 @@ impl TypeReferenceTargetCollector<'_> {
             | TypeAnnotationExpr::Never { .. }
             | TypeAnnotationExpr::SelfType { .. }
             | TypeAnnotationExpr::Invalid { .. } => {}
+        }
+    }
+
+    fn trait_annotation(&mut self, annotation: &TypeAnnotation, bound: &BTreeSet<String>) {
+        match &annotation.expr {
+            TypeAnnotationExpr::Reference(symbol) => {
+                let members = symbol.members.iter().map(|member| member.name.clone()).collect::<Vec<_>>();
+                if let Some(declaration) = self.resolver.resolve_trait_name(self.module, &symbol.root, &members) {
+                    let range = symbol.members.last().map_or(symbol.root_range, |member| member.range);
+                    self.targets.insert(range, declaration);
+                }
+            }
+            TypeAnnotationExpr::Application { origin, arguments, .. } => {
+                self.trait_annotation(origin, bound);
+                for argument in arguments {
+                    self.annotation(argument, bound);
+                }
+            }
+            _ => self.annotation(annotation, bound),
         }
     }
 }

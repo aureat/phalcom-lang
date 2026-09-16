@@ -701,7 +701,7 @@ impl Backend {
         let compiler = request.compiler.as_deref()?;
         let surface = compiler.trait_surfaces.get(&requirement.owner)?;
         let associated = surface.associated_types.get(requirement)?;
-        Some(format!("`{}.{}`\n\nassociated type", requirement.owner.name, associated.name))
+        Some(format!("`{}::{}`\n\nassociated type", requirement.owner.name, associated.name))
     }
 
     fn compiler_uri_for_module(&self, compiler: &phalcom_semantic::SemanticSnapshot, module: &phalcom_modules::ModuleId) -> Option<Url> {

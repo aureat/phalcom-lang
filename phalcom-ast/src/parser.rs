@@ -2258,6 +2258,17 @@ impl<'source> Parser<'source> {
                     range: inline_bound_start..self.prev_end,
                 });
                 None
+            } else if self.eat(&Token::Conforms) {
+                let inline_bound_start = self.cur_start();
+                let _bound = self.parse_type_form()?;
+                self.errors.push(SyntaxError {
+                    kind: SyntaxErrorKind::Message(format!(
+                        "inline generic constraint '<{} |= ...>' is rejected; move constraint to a 'where' clause",
+                        name
+                    )),
+                    range: inline_bound_start..self.prev_end,
+                });
+                None
             } else {
                 None
             };
@@ -2313,6 +2324,24 @@ impl<'source> Parser<'source> {
                 let right = self.parse_type_form()?;
                 let range = (c_start..self.prev_end).into();
                 constraints.push(GenericConstraintSyntax::Equivalent { left, right, range });
+            } else if self.eat(&Token::Conforms) {
+                if self.at_top_level_item_boundary() {
+                    return Err(self.error_here(strs(&["trait name"])));
+                }
+                let first_bound = self.parse_type_form()?;
+                let mut bounds = vec![first_bound];
+                while self.eat(&Token::Plus) {
+                    if self.at_top_level_item_boundary() {
+                        return Err(self.error_here(strs(&["trait name"])));
+                    }
+                    bounds.push(self.parse_type_form()?);
+                }
+                let range = (c_start..self.prev_end).into();
+                constraints.push(GenericConstraintSyntax::Conforms {
+                    subject: left,
+                    bounds,
+                    range,
+                });
             } else if self.eat(&Token::In) {
                 let in_start = self.cur_start();
                 if self.eat(&Token::LParen) {
@@ -2336,7 +2365,7 @@ impl<'source> Parser<'source> {
             } else {
                 let range = (c_start..self.prev_end).into();
                 self.errors.push(SyntaxError {
-                    kind: SyntaxErrorKind::Message("expected '<:' or '==' in generic constraint".to_string()),
+                    kind: SyntaxErrorKind::Message("expected '<:', '==', or '|=' in generic constraint".to_string()),
                     range: c_start..self.prev_end,
                 });
                 constraints.push(GenericConstraintSyntax::Invalid {

@@ -578,6 +578,25 @@ pub fn validate_metadata_bundle(bundle: &SemanticMetadataBundle, limits: &Valida
                         });
                     }
                 }
+                crate::generic::GenericConstraintRef::Conforms { subject, trait_application } => {
+                    if subject.0 as usize >= bundle.types.len() {
+                        return Err(MetadataValidationError::InvalidTypeIndex {
+                            index: subject.0,
+                            total: bundle.types.len(),
+                        });
+                    }
+                    for argument in trait_application.arguments.iter() {
+                        if argument.0 as usize >= bundle.types.len() {
+                            return Err(MetadataValidationError::InvalidTypeIndex {
+                                index: argument.0,
+                                total: bundle.types.len(),
+                            });
+                        }
+                    }
+                    if trait_application.declaration.path.is_empty() {
+                        return Err(MetadataValidationError::Malformed("conformance trait declaration path is empty".to_string()));
+                    }
+                }
             }
         }
     }

@@ -20,6 +20,7 @@ pub mod enum_requirements;
 pub mod enum_semantics;
 pub mod explain;
 pub mod export;
+pub mod generic_evidence;
 pub mod hierarchy_product;
 pub mod identity;
 pub mod impls;
@@ -98,6 +99,7 @@ pub use export::{
     CompiledCallableParam, CompiledCallableType, CompiledKindRef, CompiledRecordField, CompiledTupleElement, CompiledTypeParameterOwner, CompiledTypeRef,
     SemanticExportError, export_kind, export_type_form,
 };
+pub use generic_evidence::*;
 pub use identity::{
     AssociatedFamilyId, BindingId, CallableId, CallableOwnerId, CallableParameterId, DataComponentId, DataConstructorId, DeclarationId, FieldId,
     InvocationTargetId, ModuleId, ProperTypeId, SemanticRevision, SemanticTargetId, SnapshotId, SnapshotTypeRef, SourceOwner, SourceSiteId, SourceSiteLocalId,
@@ -132,8 +134,9 @@ pub use termination::{
     analyze_callable_termination, check_cfg_acyclicity,
 };
 pub use trait_dispatch::{
-    ConformanceSemanticView, TraitDispatchBucketKey, TraitDispatchContribution, TraitDispatchConvergenceKey, TraitDispatchIndex, TraitDispatchResolution,
-    TraitDispatchSelection, TraitDispatchSite, TraitDispatchTargetFamily, TraitDispatchTerminal, TraitEvidencedMemberCandidate, selected_callable,
+    AssumedTraitDispatchSelection, ConformanceSemanticView, TraitDispatchBucketKey, TraitDispatchContribution, TraitDispatchConvergenceKey, TraitDispatchIndex,
+    TraitDispatchResolution, TraitDispatchSelection, TraitDispatchSite, TraitDispatchTargetFamily, TraitDispatchTerminal, TraitEvidencedMemberCandidate,
+    selected_callable,
 };
 pub use traits::{
     AssociatedTypeRequirementId, TraitAssociatedTypeRequirement, TraitHeader, TraitHeaderTable, TraitRef, TraitRefFormationError, TraitRequirementId,

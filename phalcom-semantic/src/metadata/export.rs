@@ -20,8 +20,8 @@ use phalcom_type_meta::declaration::{
 };
 use phalcom_type_meta::fingerprint::{Fingerprint128, FingerprintBuilder};
 use phalcom_type_meta::generic::{
-    GenericConstraintRef, GenericSignatureRecord, GenericSignatureRecordId, StableTypeParameterOwnerRef, StableTypeParameterRef, TypeParameterRecord,
-    VarianceRef,
+    GenericConstraintRef, GenericSignatureRecord, GenericSignatureRecordId, StableTraitApplicationRef, StableTypeParameterOwnerRef,
+    StableTypeParameterRef, TypeParameterRecord, VarianceRef,
 };
 use phalcom_type_meta::header::{
     ArtifactIdentityScheme, MetadataFeatures, MetadataProfile, NATIVE_SURFACE_SCHEMA_VERSION, ProducerIdentity, SEMANTIC_MODEL_VERSION, SemanticMetadataHeader,
@@ -777,6 +777,21 @@ impl<'a> MetadataExporter<'a> {
                     let l = self.export_type_term(left)?;
                     let r = self.export_type_term(right)?;
                     constraint_refs.push(GenericConstraintRef::Equivalent { left: l, right: r });
+                }
+                GenericConstraint::Conforms { subject, trait_ref } => {
+                    let subject = self.export_type_term(subject)?;
+                    let arguments = trait_ref
+                        .arguments
+                        .iter()
+                        .map(|&argument| self.export_type_form(argument))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    constraint_refs.push(GenericConstraintRef::Conforms {
+                        subject,
+                        trait_application: StableTraitApplicationRef {
+                            declaration: self.stable_declaration(&trait_ref.declaration),
+                            arguments: arguments.into_boxed_slice(),
+                        },
+                    });
                 }
             }
         }

@@ -170,8 +170,53 @@ pub fn analyze_callable_body(context: BodyAnalysisContext<'_>, request: Callable
     }
     if let Some(domain) = &impl_domain {
         ctx.self_override_type = Some(domain.head_type);
-        ctx.ambient_constraints.extend(domain.constraints.iter().cloned());
     }
+
+    let empty_surfaces = crate::traits::TraitSurfaceTable::new();
+    let trait_surfaces = conformance_semantics
+        .or(request_conformance_semantics)
+        .map(|v| v.trait_surfaces)
+        .unwrap_or(&empty_surfaces);
+
+    let mut generic_evidence = crate::generic_evidence::GenericEvidenceEnvironment::empty();
+    let owner_sig = owner_generic_signature.or_else(|| {
+        if callable.side == crate::identity::DispatchSide::Instance {
+            callable
+                .try_declaration_owner()
+                .and_then(|owner| declarations.generic_signature(owner))
+        } else {
+            None
+        }
+    });
+    if let Some(owner_sig) = owner_sig {
+        let owner_env = crate::generic_evidence::GenericEvidenceEnvironment::from_constraints(
+            &owner_sig.constraints,
+            owner_sig.owner.clone(),
+            trait_surfaces,
+        );
+        generic_evidence = generic_evidence.compose(&owner_env, trait_surfaces);
+    }
+    if let Some((_, signature)) = declared_signature {
+        if let Some(generics) = &signature.generics {
+            let callable_env = crate::generic_evidence::GenericEvidenceEnvironment::from_constraints(
+                &generics.constraints,
+                generics.owner.clone(),
+                trait_surfaces,
+            );
+            generic_evidence = generic_evidence.compose(&callable_env, trait_surfaces);
+        }
+    }
+    if let Some(domain) = &impl_domain {
+        let domain_owner = crate::types::parameter::TypeParameterOwner::Callable(callable.clone());
+        let domain_env = crate::generic_evidence::GenericEvidenceEnvironment::from_constraints(
+            &domain.constraints,
+            domain_owner,
+            trait_surfaces,
+        );
+        generic_evidence = generic_evidence.compose(&domain_env, trait_surfaces);
+    }
+    ctx.generic_evidence = generic_evidence;
+    ctx.ambient_constraints = ctx.generic_evidence.constraints().to_vec();
     if let Some(field_signatures) = field_signatures {
         ctx.attach_field_signatures(field_signatures);
     }

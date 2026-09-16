@@ -541,6 +541,9 @@ pub fn install(vm: &mut VM) {
 
     let constraint = vm.universe.typing_classes.get("GenericConstraint").expect("GenericConstraint");
     primitive!(vm, constraint, "relation", crate::method::SignatureKind::Getter, generic_constraint_relation);
+    primitive!(vm, constraint, "subject", crate::method::SignatureKind::Getter, generic_constraint_subject);
+    primitive!(vm, constraint, "traitDeclaration", crate::method::SignatureKind::Getter, generic_constraint_trait_declaration);
+    primitive!(vm, constraint, "traitArguments", crate::method::SignatureKind::Getter, generic_constraint_trait_arguments);
     primitive!(vm, constraint, "left", crate::method::SignatureKind::Getter, generic_constraint_left);
     primitive!(vm, constraint, "right", crate::method::SignatureKind::Getter, generic_constraint_right);
     primitive!(vm, constraint, "source", crate::method::SignatureKind::Getter, generic_constraint_source);
@@ -1726,6 +1729,34 @@ fn generic_constraint_relation(vm: &mut VM, receiver: &Value, _args: &[Value]) -
         inspect::generic_constraint_relation(&vm.typing_registry, handle).ok_or_else(|| RuntimeError::Message("constraint relation not found".into()))?;
     let sym = vm.get_or_intern(relation);
     Ok(Value::symbol(sym))
+}
+
+fn generic_constraint_subject(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let (context, handle) = generic_constraint_parts(receiver, vm)?;
+    let subject = inspect::generic_constraint_subject(&vm.typing_registry, handle)
+        .ok_or_else(|| RuntimeError::Message("constraint subject not found".into()))?;
+    let desc_class = descriptor_class_for_handle(vm, context, subject)?;
+    crate::typing::reify::reify_type_form(context, subject, &vm.typing_registry, &mut vm.heap, desc_class)
+}
+
+fn generic_constraint_trait_declaration(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let handle = generic_constraint_parts(receiver, vm)?.1;
+    let declaration = inspect::generic_constraint_trait_declaration(&vm.typing_registry, handle)
+        .ok_or_else(|| RuntimeError::Message("constraint trait declaration not found".into()))?;
+    let name = declaration.path.last().map(|name| name.to_string()).unwrap_or_else(|| "<trait>".to_string());
+    Ok(Value::symbol(vm.get_or_intern(&name)))
+}
+
+fn generic_constraint_trait_arguments(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {
+    let (context, handle) = generic_constraint_parts(receiver, vm)?;
+    let arguments = inspect::generic_constraint_trait_arguments(&vm.typing_registry, handle)
+        .ok_or_else(|| RuntimeError::Message("constraint trait arguments not found".into()))?;
+    let mut values = Vec::with_capacity(arguments.len());
+    for argument in arguments {
+        let desc_class = descriptor_class_for_handle(vm, context, argument)?;
+        values.push(crate::typing::reify::reify_type_form(context, argument, &vm.typing_registry, &mut vm.heap, desc_class)?);
+    }
+    finish_typing_tuple(vm, values)
 }
 
 fn generic_constraint_left(vm: &mut VM, receiver: &Value, _args: &[Value]) -> PhResult<Value> {

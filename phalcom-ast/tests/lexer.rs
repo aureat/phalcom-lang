@@ -424,3 +424,18 @@ fn match_keyword_and_fat_arrow_are_distinct_tokens() {
 fn fat_arrow_does_not_steal_type_lambda_arrow() {
     assert_eq!(tokens("=>> => ="), vec![Token::TypeLambdaArrow, Token::FatArrow, Token::Equal, Token::Eof]);
 }
+
+#[test]
+fn lexes_conformance_constraint_operator() {
+    assert_eq!(
+        tokens("T |= Printable | Other"),
+        vec![
+            Token::Identifier("T".into()),
+            Token::Conforms,
+            Token::Identifier("Printable".into()),
+            Token::Pipe,
+            Token::Identifier("Other".into()),
+            Token::Eof,
+        ]
+    );
+}

@@ -599,22 +599,182 @@ impl ProgramCompiler {
                 .push((stable_parameter.clone(), recipe));
             let _ = stable_callable;
         }
-        for ((module, range, _callable), mut bindings) in call_bindings {
-            bindings.sort_by(|(left, _), (right, _)| left.cmp(right));
-            let Some(stable_callable) = stable_call_root_specs
-                .iter()
-                .find(|(candidate_module, candidate_range, candidate_callable, _, _, _, _)| {
-                    candidate_module == &module && candidate_range == &range && candidate_callable == &_callable
-                })
-                .map(|(_, _, _, stable_callable, _, _, _)| stable_callable.clone())
-            else {
-                continue;
+        let mut call_conformance_slots = BTreeMap::<
+            (ModuleId, SourceRange, phalcom_semantic::identity::CallableId),
+            Vec<crate::typing::RuntimeConformanceSlotRecipe>,
+        >::new();
+
+        for (callable, analysis) in analyzed.semantic.callable_analyses.iter() {
+            let caller_owner_sig = if callable.side == phalcom_semantic::identity::DispatchSide::Instance {
+                callable
+                    .try_declaration_owner()
+                    .and_then(|owner| analyzed.semantic.declarations.generic_signature(owner))
+            } else {
+                None
             };
+            let mut caller_evidence = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::empty();
+            if let Some(owner_sig) = caller_owner_sig {
+                let owner_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::from_constraints(
+                    &owner_sig.constraints,
+                    owner_sig.owner.clone(),
+                    &analyzed.semantic.trait_surfaces,
+                );
+                caller_evidence = caller_evidence.compose(&owner_env, &analyzed.semantic.trait_surfaces);
+            }
+            if let Some(sig) = analyzed.semantic.callable_signatures.get(callable) {
+                if let Some(generics) = &sig.generics {
+                    let callable_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::from_constraints(
+                        &generics.constraints,
+                        generics.owner.clone(),
+                        &analyzed.semantic.trait_surfaces,
+                    );
+                    caller_evidence = caller_evidence.compose(&callable_env, &analyzed.semantic.trait_surfaces);
+                }
+            }
+
+            for expression in analysis.expressions.values() {
+                let Some(specialization) = expression.call_specialization.as_ref() else {
+                    continue;
+                };
+
+                let callee = &specialization.callable;
+                let callee_owner_sig = if callee.side == phalcom_semantic::identity::DispatchSide::Instance {
+                    callee
+                        .try_declaration_owner()
+                        .and_then(|owner| analyzed.semantic.declarations.generic_signature(owner))
+                } else {
+                    None
+                };
+                let mut callee_evidence = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::empty();
+                if let Some(owner_sig) = callee_owner_sig {
+                    let owner_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::from_constraints(
+                        &owner_sig.constraints,
+                        owner_sig.owner.clone(),
+                        &analyzed.semantic.trait_surfaces,
+                    );
+                    callee_evidence = callee_evidence.compose(&owner_env, &analyzed.semantic.trait_surfaces);
+                }
+                if let Some(sig) = analyzed.semantic.callable_signatures.get(callee) {
+                    if let Some(generics) = &sig.generics {
+                        let callable_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::from_constraints(
+                            &generics.constraints,
+                            generics.owner.clone(),
+                            &analyzed.semantic.trait_surfaces,
+                        );
+                        callee_evidence = callee_evidence.compose(&callable_env, &analyzed.semantic.trait_surfaces);
+                    }
+                }
+
+                let mut slots = Vec::new();
+                let mut callee_instantiation = phalcom_semantic::types::instantiation::GenericInstantiation::default();
+                for &(parameter, ty) in specialization.bindings.iter() {
+                    callee_instantiation.bind_type(parameter, ty);
+                }
+                let mut materialization_store = (*analyzed.semantic.store).clone();
+                for (slot_key, _) in callee_evidence.layout().slots.iter() {
+                    let instantiated_subject = match &slot_key.conformance.subject {
+                        phalcom_semantic::types::parameter::TypeTerm::Canonical(ty) => {
+                            phalcom_semantic::types::instantiation::materialize_type(
+                                &mut materialization_store,
+                                *ty,
+                                &callee_instantiation,
+                                phalcom_semantic::types::instantiation::RowMaterializationMode::PreserveUnboundStableTail,
+                            )
+                            .map(phalcom_semantic::types::parameter::TypeTerm::Canonical)
+                            .unwrap_or_else(|_| slot_key.conformance.subject.clone())
+                        }
+                        _ => slot_key.conformance.subject.clone(),
+                    };
+                    let instantiated_trait_ref = phalcom_semantic::traits::TraitRef::new(
+                        slot_key.conformance.trait_ref.declaration.clone(),
+                        slot_key
+                            .conformance
+                            .trait_ref
+                            .arguments
+                            .iter()
+                            .map(|&arg| {
+                                phalcom_semantic::types::instantiation::materialize_type(
+                                    &mut materialization_store,
+                                    arg,
+                                    &callee_instantiation,
+                                    phalcom_semantic::types::instantiation::RowMaterializationMode::PreserveUnboundStableTail,
+                                )
+                                .unwrap_or(arg)
+                            })
+                            .collect::<Vec<_>>(),
+                    );
+                    let instantiated_conformance = phalcom_semantic::generic_evidence::GenericConformanceKey::new(instantiated_subject, instantiated_trait_ref);
+                    let binding = specialization
+                        .conformances
+                        .iter()
+                        .find(|b| b.callee_conformance == instantiated_conformance);
+                    if let Some(binding) = binding {
+                        match &binding.source {
+                            phalcom_semantic::checker::analysis::GenericCallConformanceSource::Exact { evidence } => {
+                                if let Some(selection) = evidence.requirements.get(&slot_key.requirement) {
+                                    let selector = analyzed
+                                        .semantic
+                                        .trait_surfaces
+                                        .get(&slot_key.conformance.trait_ref.declaration)
+                                        .and_then(|s| s.get(&slot_key.requirement))
+                                        .map(|m| m.requirement.selector.clone())
+                                        .unwrap_or_else(|| slot_key.requirement.selector.clone());
+                                    let callable = match selection {
+                                        phalcom_semantic::impls::RequirementSelectionTemplate::ConformanceCallable { callable }
+                                        | phalcom_semantic::impls::RequirementSelectionTemplate::TraitDefault { callable }
+                                        | phalcom_semantic::impls::RequirementSelectionTemplate::InherentCallable { callable, .. } => Some(callable.clone()),
+                                        phalcom_semantic::impls::RequirementSelectionTemplate::ConditionalInherent { candidate, .. } => Some(candidate.callable.clone()),
+                                        phalcom_semantic::impls::RequirementSelectionTemplate::DataComponent { .. } => None,
+                                    };
+                                    if let Some(callable) = callable {
+                                        slots.push(crate::typing::RuntimeConformanceSlotRecipe::Selection {
+                                            callable,
+                                            selector,
+                                        });
+                                    }
+                                }
+                            }
+                            phalcom_semantic::checker::analysis::GenericCallConformanceSource::Forwarded { caller_conformance } => {
+                                let caller_slot_key = phalcom_semantic::generic_evidence::GenericEvidenceSlotKey::new(
+                                    caller_conformance.clone(),
+                                    slot_key.requirement.clone(),
+                                );
+                                if let Some(caller_slot) = caller_evidence.slot_for(&caller_slot_key) {
+                                    slots.push(crate::typing::RuntimeConformanceSlotRecipe::Forwarded(caller_slot));
+                                }
+                            }
+                        }
+                    }
+                }
+                call_conformance_slots.insert((callable.owner.module().clone(), expression.range, callee.clone()), slots);
+            }
+        }
+
+        let mut all_call_keys = std::collections::BTreeSet::new();
+        for key in call_bindings.keys() {
+            all_call_keys.insert(key.clone());
+        }
+        for key in call_conformance_slots.keys() {
+            all_call_keys.insert(key.clone());
+        }
+
+        for (module, range, callee_id) in all_call_keys {
+            let mut bindings = call_bindings.remove(&(module.clone(), range, callee_id.clone())).unwrap_or_default();
+            bindings.sort_by(|(left, _), (right, _)| left.cmp(right));
+            let stable_callable = phalcom_semantic::metadata::stable_identity::to_stable_callable_with_context(
+                &callee_id,
+                &phalcom_semantic::metadata::stable_identity::StableIdentityContext::new(&analyzed.project_universe),
+            );
+            let conformance_slots = call_conformance_slots
+                .remove(&(module.clone(), range, callee_id))
+                .unwrap_or_default()
+                .into_boxed_slice();
             runtime_call_environment_recipes.entry(module).or_default().insert(
                 range,
                 Arc::new(RuntimeCallEnvironmentRecipe {
                     callable: stable_callable,
                     bindings: bindings.into_boxed_slice(),
+                    conformance_slots,
                 }),
             );
         }

@@ -259,6 +259,9 @@ fn import_native_generic_signature(
             GenericConstraint::Equivalent { left, right } => {
                 format!("Equivalent({}, {})", format_native_term(store, left), format_native_term(store, right))
             }
+            GenericConstraint::Conforms { subject, trait_ref } => {
+                format!("Conforms({}, {:?})", format_native_term(store, subject), trait_ref.declaration)
+            }
         })
         .map(String::into_boxed_str)
         .collect::<Vec<_>>()

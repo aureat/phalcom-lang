@@ -122,7 +122,25 @@ impl ExpressionAnalysis {
     }
 }
 
-/// Solved generic arguments for one canonical callable application.
+/// Provenance for one callee generic conformance bound discharged at a call site.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum GenericCallConformanceSource {
+    Exact {
+        evidence: Arc<crate::impls::ConformanceEvidence>,
+    },
+    Forwarded {
+        caller_conformance: crate::generic_evidence::GenericConformanceKey,
+    },
+}
+
+/// Binding for one callee generic conformance obligation discharged during callable application.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GenericCallConformanceBinding {
+    pub callee_conformance: crate::generic_evidence::GenericConformanceKey,
+    pub source: GenericCallConformanceSource,
+}
+
+/// Solved generic arguments and discharged conformance bindings for one canonical callable application.
 ///
 /// Bindings contain canonical `TypeId`s only. Inference-local variables never
 /// cross this publication boundary.
@@ -130,6 +148,7 @@ impl ExpressionAnalysis {
 pub struct CallSpecialization {
     pub callable: CallableId,
     pub bindings: Box<[(TypeParameterId, TypeId)]>,
+    pub conformances: Box<[GenericCallConformanceBinding]>,
 }
 
 /// Binding flow state tracking persistent declared constraint vs. current path knowledge.
@@ -302,6 +321,7 @@ use crate::identity::{DeclarationId, ModuleId};
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum SemanticDependency {
     DeclarationShell(DeclarationId),
+    TraitHeader(DeclarationId),
     CallableSignature(CallableId),
     FieldSignature(FieldId),
     DeclarationSurface(DeclarationId),

@@ -1270,6 +1270,7 @@ impl VM {
         let selector_sym = selector_val.as_symbol().unwrap();
         let layout = self.invocation_layout_for_selector(selector_sym, arity)?;
         let type_environment = call_environment.map(|recipe| self.materialize_call_environment(recipe)).transpose()?;
+        let conformance_environment = call_environment.map(|recipe| self.materialize_conformance_environment(receiver, recipe)).transpose()?;
 
         // A Family owns the selector shape of a callable reference. Bracket
         // sends therefore activate the family directly instead of looking up
@@ -1304,6 +1305,7 @@ impl VM {
         };
 
         let type_environment = type_environment.unwrap_or(crate::typing::RuntimeTypeEnvironmentId::EMPTY);
+        let conformance_environment = conformance_environment.unwrap_or(crate::typing::RuntimeConformanceEnvironmentId::EMPTY);
         if let Some(()) = self.try_module_export_send_with_environment(receiver_idx, selector_sym, arity, source_range, type_environment, call_environment)? {
             return Ok(());
         }
@@ -1325,7 +1327,7 @@ impl VM {
                 }
                 self.activate_rest_method(&receiver, method, receiver_idx, positional_count, &labels, selector_sym, source_range)?;
             } else {
-                self.call_method_with_selector_as_and_environment(
+                self.call_method_with_selector_as_and_environments(
                     &receiver,
                     method,
                     arity,
@@ -1334,6 +1336,7 @@ impl VM {
                     source_range,
                     (self.current_access_class(), self.current_has_internal_privilege()),
                     type_environment,
+                    conformance_environment,
                 )?;
             }
         } else {
@@ -1349,7 +1352,7 @@ impl VM {
                 if let Some(recipe) = call_environment {
                     self.validate_specialized_call(recipe, method)?;
                 }
-                self.call_method_with_selector_as_and_environment(
+                self.call_method_with_selector_as_and_environments(
                     &receiver,
                     method,
                     arity,
@@ -1358,6 +1361,7 @@ impl VM {
                     source_range,
                     (self.current_access_class(), self.current_has_internal_privilege()),
                     type_environment,
+                    conformance_environment,
                 )?;
             } else {
                 let (name, slots, kind) = decode_selector(self.resolve_symbol(selector_sym));
@@ -1436,6 +1440,45 @@ impl VM {
             bindings.push((parameter, ty));
         }
         Ok(self.runtime_type_environments.intern(crate::typing::RuntimeTypeEnvironment::new(bindings)))
+    }
+
+    fn materialize_conformance_environment(
+        &mut self,
+        receiver: Value,
+        recipe: &crate::typing::RuntimeCallEnvironmentRecipe,
+    ) -> PhResult<crate::typing::RuntimeConformanceEnvironmentId> {
+        if recipe.conformance_slots.is_empty() {
+            return Ok(crate::typing::RuntimeConformanceEnvironmentId::EMPTY);
+        }
+        let caller_conformance_env_id = self
+            .frames
+            .last()
+            .map(|frame| frame.conformance_environment)
+            .unwrap_or(crate::typing::RuntimeConformanceEnvironmentId::EMPTY);
+
+        let mut slots = Vec::with_capacity(recipe.conformance_slots.len());
+        for slot_recipe in recipe.conformance_slots.iter() {
+            match slot_recipe {
+                crate::typing::RuntimeConformanceSlotRecipe::Selection { callable, selector } => {
+                    let method = if let Some(&method) = self.detached_method_objects.get(callable) {
+                        method
+                    } else {
+                        let selector_sym = self.interner.intern(&selector.encode());
+                        receiver
+                            .lookup_method(self, selector_sym)
+                            .ok_or_else(|| RuntimeError::Internal(format!("trait-selected callable {callable:?} has no executable method")))?
+                    };
+                    slots.push(Some(method));
+                }
+                crate::typing::RuntimeConformanceSlotRecipe::Forwarded(caller_slot) => {
+                    let method = self
+                        .runtime_conformance_environments
+                        .target(caller_conformance_env_id, *caller_slot);
+                    slots.push(method);
+                }
+            }
+        }
+        Ok(self.runtime_conformance_environments.intern(crate::typing::RuntimeConformanceEnvironment::new(slots)))
     }
 
     /// Executes a compiler-emitted call to an internal runtime helper.

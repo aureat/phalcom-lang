@@ -1132,6 +1132,7 @@ impl<'input> Lexer<'input> {
             b'@' if next == Some(b'!') => (2, Token::AtBang),
             b'@' => (1, Token::At),
             b'&' => (1, Token::Ampersand),
+            b'|' if next == Some(b'=') => (2, Token::Conforms),
             b'|' => (1, Token::Pipe),
             b'^' => (1, Token::Caret),
             b'~' => (1, Token::Tilde),
@@ -1220,6 +1221,7 @@ fn suppresses_following_newline(prev: &Token) -> bool {
             | Token::Colon
             // Operators / Type syntax.
             | Token::Pipe
+            | Token::Conforms
             | Token::Subtype
             | Token::TypeLambdaArrow
             | Token::Where

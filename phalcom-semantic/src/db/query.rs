@@ -74,6 +74,7 @@ pub struct SignatureQueryInputs<'a> {
 fn semantic_dependency_query_key(dependency: &crate::checker::analysis::SemanticDependency) -> QueryKey {
     match dependency {
         crate::checker::analysis::SemanticDependency::DeclarationShell(declaration) => QueryKey::DeclarationShell(declaration.clone()),
+        crate::checker::analysis::SemanticDependency::TraitHeader(declaration) => QueryKey::TraitHeader(declaration.clone()),
         crate::checker::analysis::SemanticDependency::CallableSignature(callable) => QueryKey::CallableSignature(callable.clone()),
         crate::checker::analysis::SemanticDependency::FieldSignature(field) => QueryKey::FieldSignature(field.clone()),
         crate::checker::analysis::SemanticDependency::DeclarationSurface(declaration) => QueryKey::DeclarationSurface(declaration.clone()),
@@ -93,6 +94,7 @@ fn semantic_dependency_query_key(dependency: &crate::checker::analysis::Semantic
 fn semantic_dependency_from_query_key(key: &QueryKey) -> Option<crate::checker::analysis::SemanticDependency> {
     match key {
         QueryKey::DeclarationShell(declaration) => Some(crate::checker::analysis::SemanticDependency::DeclarationShell(declaration.clone())),
+        QueryKey::TraitHeader(declaration) => Some(crate::checker::analysis::SemanticDependency::TraitHeader(declaration.clone())),
         QueryKey::CallableSignature(callable) => Some(crate::checker::analysis::SemanticDependency::CallableSignature(callable.clone())),
         QueryKey::FieldSignature(field) => Some(crate::checker::analysis::SemanticDependency::FieldSignature(field.clone())),
         QueryKey::DeclarationSurface(declaration) => Some(crate::checker::analysis::SemanticDependency::DeclarationSurface(declaration.clone())),
@@ -331,7 +333,9 @@ pub fn query_advisory_module(
         QueryOutcome::Ready(_) => {}
         QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
         QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
-        QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+        QueryOutcome::Blocked(reason) => {
+            return QueryOutcome::Blocked(reason);
+        }
         QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
     }
     let input_fingerprint = crate::db::fingerprint::advisory_module_input_fingerprint(&product);
@@ -423,7 +427,9 @@ pub fn query_unlinked_interface(
         QueryOutcome::Ready(_) => {}
         QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
         QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
-        QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+        QueryOutcome::Blocked(reason) => {
+            return QueryOutcome::Blocked(reason);
+        }
         QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
     }
 
@@ -642,7 +648,9 @@ pub fn query_hierarchy_edge(
         QueryOutcome::Ready(_) => {}
         QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
         QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
-        QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+        QueryOutcome::Blocked(reason) => {
+            return QueryOutcome::Blocked(reason);
+        }
         QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
     }
 
@@ -696,7 +704,9 @@ pub fn query_hierarchy_edge(
             QueryOutcome::Ready(()) => {}
             QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
             QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
-            QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+            QueryOutcome::Blocked(reason) => {
+                return QueryOutcome::Blocked(reason);
+            }
             QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
         }
         if let Err(error) = db.record_dependency(&mut recorder, semantic_dependency_query_key(&dependency)) {
@@ -1090,6 +1100,16 @@ fn ensure_semantic_dependency_current(
                 QueryOutcome::Failed(failure) => QueryOutcome::Failed(failure),
             }
         }
+        crate::checker::analysis::SemanticDependency::TraitHeader(declaration) => {
+            let key = QueryKey::TraitHeader(declaration.clone());
+            if db.query_state(&key).and_then(QueryState::validated_revision) == Some(db.revision())
+                && db.product(&key).and_then(|product| product.as_trait_header()).is_some()
+            {
+                QueryOutcome::Ready(())
+            } else {
+                QueryOutcome::Blocked(BlockReason::SuppressedDependency)
+            }
+        }
         crate::checker::analysis::SemanticDependency::LinkedInterface(module) => {
             let key = QueryKey::LinkedInterface(module.clone());
             if db.query_state(&key).and_then(QueryState::validated_revision) == Some(db.revision()) {
@@ -1276,6 +1296,13 @@ pub(crate) fn ensure_formal_semantic_dependency_current(
                     import_products: Some(inputs.import_products),
                 },
             ))
+        }
+        crate::checker::analysis::SemanticDependency::TraitHeader(_declaration) => {
+            if db.product(&key).and_then(|product| product.as_trait_header()).is_some() {
+                QueryOutcome::Ready(())
+            } else {
+                QueryOutcome::Blocked(BlockReason::SuppressedDependency)
+            }
         }
         crate::checker::analysis::SemanticDependency::TraitSurface(_) => {
             if db.product(&key).and_then(|product| product.as_trait_surface()).is_some() {
@@ -1481,7 +1508,9 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
         QueryOutcome::Ready(_) => {}
         QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
         QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
-        QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+        QueryOutcome::Blocked(reason) => {
+            return QueryOutcome::Blocked(reason);
+        }
         QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
     }
 
@@ -1497,7 +1526,9 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
         QueryOutcome::Ready(()) => {}
         QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
         QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
-        QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+        QueryOutcome::Blocked(reason) => {
+            return QueryOutcome::Blocked(reason);
+        }
         QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
     }
 
@@ -1545,7 +1576,9 @@ pub fn query_declaration_surface(db: &mut SemanticDb, query: DeclarationSurfaceQ
             QueryOutcome::Ready(()) => {}
             QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
             QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
-            QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+            QueryOutcome::Blocked(reason) => {
+                return QueryOutcome::Blocked(reason);
+            }
             QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
         }
         let dependency_key = semantic_dependency_query_key(&dependency);
@@ -1705,7 +1738,9 @@ pub fn query_callable_signature_with_inputs(
         QueryOutcome::Ready(_) => {}
         QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
         QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
-        QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+        QueryOutcome::Blocked(reason) => {
+            return QueryOutcome::Blocked(reason);
+        }
         QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
     }
 
@@ -1715,7 +1750,9 @@ pub fn query_callable_signature_with_inputs(
             QueryOutcome::Ready(_) => {}
             QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
             QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
-            QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+            QueryOutcome::Blocked(reason) => {
+                return QueryOutcome::Blocked(reason);
+            }
             QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
         }
     }
@@ -1773,7 +1810,9 @@ pub fn query_callable_signature_with_inputs(
             QueryOutcome::Ready(()) => {}
             QueryOutcome::Cancelled => return QueryOutcome::Cancelled,
             QueryOutcome::BudgetExceeded(report) => return QueryOutcome::BudgetExceeded(report),
-            QueryOutcome::Blocked(reason) => return QueryOutcome::Blocked(reason),
+            QueryOutcome::Blocked(reason) => {
+                return QueryOutcome::Blocked(reason);
+            }
             QueryOutcome::Failed(failure) => return QueryOutcome::Failed(failure),
         }
     }

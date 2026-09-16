@@ -914,6 +914,11 @@ pub enum GenericConstraintSyntax {
         right: TypeAnnotation,
         range: SourceRange,
     },
+    Conforms {
+        subject: TypeAnnotation,
+        bounds: Vec<TypeAnnotation>,
+        range: SourceRange,
+    },
     Invalid {
         message: String,
         range: SourceRange,
@@ -925,6 +930,7 @@ impl GenericConstraintSyntax {
         match self {
             GenericConstraintSyntax::Subtype { range, .. } => *range,
             GenericConstraintSyntax::Equivalent { range, .. } => *range,
+            GenericConstraintSyntax::Conforms { range, .. } => *range,
             GenericConstraintSyntax::Invalid { range, .. } => *range,
         }
     }

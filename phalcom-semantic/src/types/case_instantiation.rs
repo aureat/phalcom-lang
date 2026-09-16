@@ -112,5 +112,6 @@ fn localize_constraint(store: &TypeStore, constraint: &GenericConstraint, replac
             left: localize(left)?,
             right: localize(right)?,
         }),
+        GenericConstraint::Conforms { .. } => None,
     }
 }

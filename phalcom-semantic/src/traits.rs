@@ -60,15 +60,11 @@ impl TraitRef {
         }
     }
 
-    /// Forms a trait reference from already-resolved canonical type arguments.
-    ///
-    /// Named declaration resolution remains the caller's responsibility: this
-    /// API starts at the canonical `DeclarationId` boundary and verifies that
-    /// the id belongs to a published trait header before accepting arguments.
-    pub fn form(
-        store: &mut TypeStore,
+    /// Forms a canonical trait reference verifying declaration identity, arity,
+    /// and argument kinds without checking or discharging trait generic constraints.
+    pub fn form_identity(
+        store: &TypeStore,
         headers: &TraitHeaderTable,
-        hierarchy: &dyn TypeHierarchy,
         declaration: DeclarationId,
         arguments: &[TypeId],
     ) -> Result<Self, TraitRefFormationError> {
@@ -107,11 +103,29 @@ impl TraitRef {
                     });
                 }
             }
-
-            validate_constraints(store, hierarchy, signature, arguments)?;
         }
 
         Ok(Self::new(declaration, arguments.to_vec().into_boxed_slice()))
+    }
+
+    /// Forms a trait reference from already-resolved canonical type arguments.
+    ///
+    /// Named declaration resolution remains the caller's responsibility: this
+    /// API starts at the canonical `DeclarationId` boundary and verifies that
+    /// the id belongs to a published trait header before accepting arguments.
+    pub fn form(
+        store: &mut TypeStore,
+        headers: &TraitHeaderTable,
+        hierarchy: &dyn TypeHierarchy,
+        declaration: DeclarationId,
+        arguments: &[TypeId],
+    ) -> Result<Self, TraitRefFormationError> {
+        let identity = Self::form_identity(store, headers, declaration.clone(), arguments)?;
+        let header = headers.get(&declaration).expect("header was verified by form_identity");
+        if let Some(signature) = &header.generic_signature {
+            validate_constraints(store, hierarchy, signature, arguments)?;
+        }
+        Ok(identity)
     }
 }
 
@@ -598,26 +612,24 @@ fn validate_constraints(
     }
 
     for (index, constraint) in signature.constraints.iter().enumerate() {
-        let (left, right, equivalent) = match constraint {
-            GenericConstraint::Subtype { lower, upper } => (
-                substitute_constraint_term(store, &substitution, lower, index)?,
-                substitute_constraint_term(store, &substitution, upper, index)?,
-                false,
-            ),
-            GenericConstraint::Equivalent { left, right } => (
-                substitute_constraint_term(store, &substitution, left, index)?,
-                substitute_constraint_term(store, &substitution, right, index)?,
-                true,
-            ),
-        };
-
-        let satisfied = if equivalent {
-            is_subtype(store, hierarchy, left, right) && is_subtype(store, hierarchy, right, left)
-        } else {
-            is_subtype(store, hierarchy, left, right)
-        };
-        if !satisfied {
-            return Err(TraitRefFormationError::ConstraintUnsatisfied { index });
+        match constraint {
+            GenericConstraint::Subtype { lower, upper } => {
+                let left = substitute_constraint_term(store, &substitution, lower, index)?;
+                let right = substitute_constraint_term(store, &substitution, upper, index)?;
+                if !is_subtype(store, hierarchy, left, right) {
+                    return Err(TraitRefFormationError::ConstraintUnsatisfied { index });
+                }
+            }
+            GenericConstraint::Equivalent { left, right } => {
+                let left = substitute_constraint_term(store, &substitution, left, index)?;
+                let right = substitute_constraint_term(store, &substitution, right, index)?;
+                if !is_subtype(store, hierarchy, left, right) || !is_subtype(store, hierarchy, right, left) {
+                    return Err(TraitRefFormationError::ConstraintUnsatisfied { index });
+                }
+            }
+            GenericConstraint::Conforms { .. } => {
+                // Direct conformance obligations on trait formation are handled by generic proof query
+            }
         }
     }
     Ok(())

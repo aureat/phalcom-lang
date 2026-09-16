@@ -950,6 +950,33 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
             callable_references.insert(site, spec);
         }
 
+        let owner_sig = if callable_id.side == phalcom_semantic::identity::DispatchSide::Instance {
+            callable_id
+                .try_declaration_owner()
+                .and_then(|owner| snapshot.declarations.generic_signature(owner))
+        } else {
+            None
+        };
+        let mut generic_evidence = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::empty();
+        if let Some(owner_sig) = owner_sig {
+            let owner_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::from_constraints(
+                &owner_sig.constraints,
+                owner_sig.owner.clone(),
+                &snapshot.trait_surfaces,
+            );
+            generic_evidence = generic_evidence.compose(&owner_env, &snapshot.trait_surfaces);
+        }
+        if let Some(sig) = snapshot.callable_signatures.get(callable_id) {
+            if let Some(generics) = &sig.generics {
+                let callable_env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::from_constraints(
+                    &generics.constraints,
+                    generics.owner.clone(),
+                    &snapshot.trait_surfaces,
+                );
+                generic_evidence = generic_evidence.compose(&callable_env, &snapshot.trait_surfaces);
+            }
+        }
+
         // Family-valued expressions
         for expression in analysis.expressions.values() {
             let is_associated_family = matches!(
@@ -988,6 +1015,23 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
                         site,
                         TraitRequirementInvocationSpec {
                             requirement: requirement.clone(),
+                            requirement_slot,
+                        },
+                    );
+                }
+                Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::Assumed(selection)) => {
+                    let slot_key = phalcom_semantic::generic_evidence::GenericEvidenceSlotKey::new(
+                        selection.conformance.clone(),
+                        selection.requirement.clone(),
+                    );
+                    let requirement_slot = generic_evidence
+                        .slot_for(&slot_key)
+                        .ok_or_else(|| ProjectionError::MissingTraitRequirementSlot(selection.requirement.clone()))?;
+                    let site = LoweringSite::new(source_id.clone(), expression.range, LoweringSiteKind::TraitRequirementInvoke);
+                    trait_requirement_invocations.insert(
+                        site,
+                        TraitRequirementInvocationSpec {
+                            requirement: selection.requirement.clone(),
                             requirement_slot,
                         },
                     );
