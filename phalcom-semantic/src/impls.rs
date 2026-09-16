@@ -11,13 +11,14 @@ use crate::signature::CallableSemanticSignature;
 use crate::surface::MemberVisibility;
 use crate::traits::{InstantiatedTraitRequirement, TraitHeaderTable, TraitRef, TraitRefFormationError, TraitSurface, TraitSurfaceTable};
 use crate::types::annotation::{
-    ScopedTypeResolver, TypeFormationSite, TypeLevelBinding, TypeResolver, resolve_type_annotation, type_level_binding_for_parameter,
+    GenericBinderSite, ScopedTypeResolver, TypeFormationOutcome, TypeFormationSite, TypeLevelBinding, TypeResolver,
+    resolve_generic_signature, resolve_type_annotation, type_level_binding_for_parameter,
 };
 use crate::types::environment::TypeEnvironment;
 use crate::types::evidence::{TypeKnowledge, UnknownReason};
 use crate::types::id::{KindId, TypeId, TypeParameterId};
 use crate::types::outcome::{BlockReason, BudgetReport, CancellationToken, DynamicBoundaryObligation, QueryBudget, RelationOutcome};
-use crate::types::parameter::{GenericSignature, TypeParameterData, TypeParameterOwner, TypeTerm};
+use crate::types::parameter::{GenericSignature, TypeParameterOwner, TypeTerm};
 use crate::types::store::{TypeData, TypeStore};
 use crate::types::substitution::TypeSubstitution;
 use phalcom_ast::ast::{BehaviorMember, ImplDef, ImplMember, TypeAnnotationExpr};
@@ -2346,108 +2347,40 @@ pub fn resolve_conformance_head(
         )]);
     };
 
+    let formation_site = TypeFormationSite::module(ctx.current_module.clone());
     let mut diagnostics = Vec::new();
+
+    let generic_signature = if impl_def.generic_parameters.is_empty() && impl_def.where_clause.is_none() {
+        None
+    } else if let TypeFormationOutcome::Ready(sig) = resolve_generic_signature(
+        ctx.store,
+        ctx.declarations,
+        &ctx.resolver,
+        &formation_site,
+        TypeParameterOwner::Impl(impl_id.clone()),
+        GenericBinderSite::Impl,
+        &impl_def.generic_parameters,
+        impl_def.where_clause.as_ref(),
+        &mut diagnostics,
+    ) {
+        Some(sig)
+    } else {
+        None
+    };
+
     let mut impl_type_parameter_ids = Vec::new();
     let mut impl_type_parameter_map = HashMap::new();
-    for (index, parameter) in impl_def.generic_parameters.iter().enumerate() {
-        let data = TypeParameterData::new(TypeParameterOwner::Impl(impl_id.clone()), index as u32, parameter.name.clone(), KindId::TYPE);
-        let id = ctx.store.intern_type_parameter(data);
-        impl_type_parameter_ids.push(id);
-        impl_type_parameter_map.insert(parameter.name.clone(), type_level_binding_for_parameter(ctx.store, id));
+    if let Some(signature) = &generic_signature {
+        impl_type_parameter_ids.extend(signature.parameters.iter().copied());
+        for (parameter, &id) in impl_def.generic_parameters.iter().zip(signature.parameters.iter()) {
+            impl_type_parameter_map.insert(parameter.name.clone(), type_level_binding_for_parameter(ctx.store, id));
+        }
     }
 
     let parent_resolver = ctx.resolver.clone();
     let impl_resolver = ScopedTypeResolver {
         parent: &parent_resolver,
         type_parameters: impl_type_parameter_map,
-    };
-    let formation_site = TypeFormationSite::module(ctx.current_module.clone());
-
-    let mut constraints = Vec::new();
-    if let Some(where_clause) = &impl_def.where_clause {
-        diagnostics.push(SemanticDiagnostic::error_in(
-            ctx.current_module.clone(),
-            DiagnosticCode::ImplWhereClauseUnsupported,
-            "conformance where-clauses are deferred until generic trait constraints are implemented",
-            where_clause.range,
-        ));
-        for constraint in &where_clause.constraints {
-            match constraint {
-                phalcom_ast::ast::GenericConstraintSyntax::KindFact { .. } => {}
-                phalcom_ast::ast::GenericConstraintSyntax::Subtype { lower, upper, .. } => {
-                    let lower = resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, lower, &mut diagnostics);
-                    let upper = resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, upper, &mut diagnostics);
-                    if let (TypeKnowledge::Known(lower), TypeKnowledge::Known(upper)) = (lower, upper) {
-                        constraints.push(GenericConstraint::Subtype {
-                            lower: TypeTerm::Canonical(lower.ty()),
-                            upper: TypeTerm::Canonical(upper.ty()),
-                        });
-                    }
-                }
-                phalcom_ast::ast::GenericConstraintSyntax::Equivalent { left, right, .. } => {
-                    let left = resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, left, &mut diagnostics);
-                    let right = resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, right, &mut diagnostics);
-                    if let (TypeKnowledge::Known(left), TypeKnowledge::Known(right)) = (left, right) {
-                        constraints.push(GenericConstraint::Equivalent {
-                            left: TypeTerm::Canonical(left.ty()),
-                            right: TypeTerm::Canonical(right.ty()),
-                        });
-                    }
-                }
-                phalcom_ast::ast::GenericConstraintSyntax::Conforms { subject, bounds, range: _ } => {
-                    let s_k = resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, subject, &mut diagnostics);
-                    if let TypeKnowledge::Known(s_ev) = s_k {
-                        for bound in bounds {
-                            let (decl, args) = match &bound.trait_type.expr {
-                                TypeAnnotationExpr::Reference(sym_ref) => {
-                                    let members: Vec<String> = sym_ref.members.iter().map(|m| m.name.clone()).collect();
-                                    (ctx.resolver.resolve_type_name(&ctx.current_module, &sym_ref.root, &members), Vec::new())
-                                }
-                                TypeAnnotationExpr::Application { origin, arguments, .. } => {
-                                    if let TypeAnnotationExpr::Reference(sym_ref) = &origin.expr {
-                                        let members: Vec<String> = sym_ref.members.iter().map(|m| m.name.clone()).collect();
-                                        (ctx.resolver.resolve_type_name(&ctx.current_module, &sym_ref.root, &members), arguments.clone())
-                                    } else {
-                                        (None, Vec::new())
-                                    }
-                                }
-                                _ => (None, Vec::new()),
-                            };
-                            if let Some(decl) = decl {
-                                let mut resolved_args = Vec::new();
-                                for arg in args {
-                                    if let TypeKnowledge::Known(a_ev) = resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, &arg, &mut diagnostics) {
-                                        resolved_args.push(a_ev.ty());
-                                    }
-                                }
-                                constraints.push(GenericConstraint::Conforms {
-                                    subject: TypeTerm::Canonical(s_ev.ty()),
-                                    trait_ref: crate::traits::TraitRef::new(decl, resolved_args.into_boxed_slice()),
-                                });
-                            }
-                        }
-                    }
-                }
-                phalcom_ast::ast::GenericConstraintSyntax::Invalid { message, range } => {
-                    diagnostics.push(SemanticDiagnostic::error_in(
-                        ctx.current_module.clone(),
-                        DiagnosticCode::AnnotationUnresolved,
-                        message.clone(),
-                        *range,
-                    ));
-                }
-            }
-        }
-    }
-
-    let generic_signature = if impl_type_parameter_ids.is_empty() && constraints.is_empty() {
-        None
-    } else {
-        Some(GenericSignature::with_constraints(
-            TypeParameterOwner::Impl(impl_id.clone()),
-            impl_type_parameter_ids.clone().into_boxed_slice(),
-            constraints.into_boxed_slice(),
-        ))
     };
 
     let trait_declaration = trait_syntax.origin_symbol_ref().and_then(|reference| {
@@ -3551,105 +3484,40 @@ pub fn resolve_inherent_impl_target(
     let mut diagnostics = Vec::new();
     let source = SemanticSourceSpan::new(ctx.current_module.clone(), impl_def.range);
 
-    // 1. Build impl-owned generic parameters
+    let formation_site = TypeFormationSite::module(ctx.current_module.clone());
+    let impl_generic_signature = if impl_def.generic_parameters.is_empty() && impl_def.where_clause.is_none() {
+        None
+    } else if let TypeFormationOutcome::Ready(sig) = resolve_generic_signature(
+        ctx.store,
+        ctx.declarations,
+        &ctx.resolver,
+        &formation_site,
+        TypeParameterOwner::Impl(impl_id.clone()),
+        GenericBinderSite::Impl,
+        &impl_def.generic_parameters,
+        impl_def.where_clause.as_ref(),
+        &mut diagnostics,
+    ) {
+        Some(sig)
+    } else {
+        None
+    };
+
     let mut impl_type_parameter_ids = Vec::new();
     let mut impl_type_parameter_map: HashMap<String, TypeLevelBinding> = HashMap::new();
-
-    for (index, param_syntax) in impl_def.generic_parameters.iter().enumerate() {
-        let param_data = TypeParameterData::new(TypeParameterOwner::Impl(impl_id.clone()), index as u32, param_syntax.name.clone(), KindId::TYPE);
-        let param_id = ctx.store.intern_type_parameter(param_data);
-        impl_type_parameter_ids.push(param_id);
-        let binding = type_level_binding_for_parameter(ctx.store, param_id);
-        impl_type_parameter_map.insert(param_syntax.name.clone(), binding);
+    if let Some(signature) = &impl_generic_signature {
+        impl_type_parameter_ids.extend(signature.parameters.iter().copied());
+        for (parameter, &id) in impl_def.generic_parameters.iter().zip(signature.parameters.iter()) {
+            impl_type_parameter_map.insert(parameter.name.clone(), type_level_binding_for_parameter(ctx.store, id));
+        }
     }
 
-    // 2. Resolve where clause constraints
+    let constraints = impl_generic_signature.as_ref().map(|s| s.constraints.to_vec()).unwrap_or_default();
+
     let parent_resolver = ctx.resolver.clone();
     let impl_resolver = ScopedTypeResolver {
         parent: &parent_resolver,
         type_parameters: impl_type_parameter_map.clone(),
-    };
-    let formation_site = TypeFormationSite::module(ctx.current_module.clone());
-
-    let mut constraints = Vec::new();
-    if let Some(ref where_clause) = impl_def.where_clause {
-        for c in &where_clause.constraints {
-            match c {
-                phalcom_ast::ast::GenericConstraintSyntax::KindFact { .. } => {}
-                phalcom_ast::ast::GenericConstraintSyntax::Subtype { lower, upper, range: _ } => {
-                    let l_k = resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, lower, &mut diagnostics);
-                    let u_k = resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, upper, &mut diagnostics);
-                    if let (TypeKnowledge::Known(l_ev), TypeKnowledge::Known(u_ev)) = (l_k, u_k) {
-                        constraints.push(GenericConstraint::Subtype {
-                            lower: TypeTerm::Canonical(l_ev.ty()),
-                            upper: TypeTerm::Canonical(u_ev.ty()),
-                        });
-                    }
-                }
-                phalcom_ast::ast::GenericConstraintSyntax::Equivalent { left, right, range: _ } => {
-                    let l_k = resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, left, &mut diagnostics);
-                    let r_k = resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, right, &mut diagnostics);
-                    if let (TypeKnowledge::Known(l_ev), TypeKnowledge::Known(r_ev)) = (l_k, r_k) {
-                        constraints.push(GenericConstraint::Equivalent {
-                            left: TypeTerm::Canonical(l_ev.ty()),
-                            right: TypeTerm::Canonical(r_ev.ty()),
-                        });
-                    }
-                }
-                phalcom_ast::ast::GenericConstraintSyntax::Conforms { subject, bounds, range: _ } => {
-                    let s_k = resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, subject, &mut diagnostics);
-                    if let TypeKnowledge::Known(s_ev) = s_k {
-                        for bound in bounds {
-                            let (decl, args) = match &bound.trait_type.expr {
-                                TypeAnnotationExpr::Reference(sym_ref) => {
-                                    let members: Vec<String> = sym_ref.members.iter().map(|m| m.name.clone()).collect();
-                                    (ctx.resolver.resolve_type_name(&ctx.current_module, &sym_ref.root, &members), Vec::new())
-                                }
-                                TypeAnnotationExpr::Application { origin, arguments, .. } => {
-                                    if let TypeAnnotationExpr::Reference(sym_ref) = &origin.expr {
-                                        let members: Vec<String> = sym_ref.members.iter().map(|m| m.name.clone()).collect();
-                                        (ctx.resolver.resolve_type_name(&ctx.current_module, &sym_ref.root, &members), arguments.clone())
-                                    } else {
-                                        (None, Vec::new())
-                                    }
-                                }
-                                _ => (None, Vec::new()),
-                            };
-                            if let Some(decl) = decl {
-                                let mut resolved_args = Vec::new();
-                                for arg in args {
-                                    if let TypeKnowledge::Known(a_ev) = resolve_type_annotation(ctx.store, ctx.declarations, &impl_resolver, &formation_site, &arg, &mut diagnostics) {
-                                        resolved_args.push(a_ev.ty());
-                                    }
-                                }
-                                constraints.push(GenericConstraint::Conforms {
-                                    subject: TypeTerm::Canonical(s_ev.ty()),
-                                    trait_ref: crate::traits::TraitRef::new(decl, resolved_args.into_boxed_slice()),
-                                });
-                            }
-                        }
-                    }
-                }
-                phalcom_ast::ast::GenericConstraintSyntax::Invalid { message, range } => {
-                    diagnostics.push(SemanticDiagnostic::error_in(
-                        ctx.current_module.clone(),
-                        DiagnosticCode::AnnotationUnresolved,
-                        message.clone(),
-                        *range,
-                    ));
-                }
-            }
-        }
-    }
-
-    let impl_generic_signature = if impl_type_parameter_ids.is_empty() && constraints.is_empty() {
-        None
-    } else {
-        Some(GenericSignature::with_constraints(
-            TypeParameterOwner::Impl(impl_id.clone()),
-            impl_type_parameter_ids.clone().into_boxed_slice(),
-            constraints.clone().into_boxed_slice(),
-        ))
     };
 
     // 3. Resolve target type annotation

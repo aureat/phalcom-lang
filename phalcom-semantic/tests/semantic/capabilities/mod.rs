@@ -14,6 +14,7 @@ mod flow_branches;
 mod flow_loops;
 mod generics;
 mod generic_conformance;
+mod conditional_conformance;
 mod generic_associated_constraints;
 mod getters;
 mod higher_kinded_generics;

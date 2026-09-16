@@ -17,6 +17,14 @@ impl TypeSubstitution {
         Self::default()
     }
 
+    pub fn from_bindings(bindings: HashMap<TypeParameterId, TypeId>) -> Self {
+        Self { bindings }
+    }
+
+    pub fn bindings(&self) -> &HashMap<TypeParameterId, TypeId> {
+        &self.bindings
+    }
+
     pub fn bind(&mut self, param: TypeParameterId, ty: TypeId) {
         self.bindings.insert(param, ty);
     }

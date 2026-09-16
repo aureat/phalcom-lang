@@ -1178,7 +1178,12 @@ impl VM {
         let mut slots = vec![None; spec.requirement_slots.iter().map(|(_, slot)| *slot as usize + 1).max().unwrap_or(0)];
         for (requirement, slot) in spec.requirement_slots.iter() {
             if let Some(target) = spec.selection.requirement_targets.get(requirement) {
-                slots[*slot as usize] = Some(self.trait_method_for_selection(receiver, target, &requirement.selector)?);
+                let method = self.trait_method_for_selection(receiver, target, &requirement.selector)?;
+                slots[*slot as usize] = Some(crate::typing::RuntimeConformanceSlot {
+                    method,
+                    type_environment: crate::typing::RuntimeTypeEnvironmentId::EMPTY,
+                    conformance_environment: crate::typing::RuntimeConformanceEnvironmentId::EMPTY,
+                });
             }
         }
         let environment = self
@@ -1224,10 +1229,11 @@ impl VM {
             .last()
             .map(|frame| frame.conformance_environment)
             .unwrap_or(crate::typing::RuntimeConformanceEnvironmentId::EMPTY);
-        let method = self
+        let slot_entry = self
             .runtime_conformance_environments
-            .target(conformance_environment, spec.requirement_slot)
+            .slot(conformance_environment, spec.requirement_slot)
             .ok_or_else(|| RuntimeError::Internal(format!("no active conformance target for requirement {:?}", spec.requirement)))?;
+        let method = slot_entry.method;
         let receiver_idx = self
             .stack
             .len()
@@ -1236,11 +1242,16 @@ impl VM {
         let receiver = self.stack[receiver_idx];
         let selector = self.interner.intern(&spec.requirement.selector.encode());
         let layout = self.invocation_layout_for_selector(selector, arity as usize)?;
-        let type_environment = self
-            .frames
-            .last()
-            .map(|frame| frame.type_environment)
-            .unwrap_or(crate::typing::environment::RuntimeTypeEnvironmentId::EMPTY);
+        let type_environment = if slot_entry.type_environment != crate::typing::RuntimeTypeEnvironmentId::EMPTY {
+            slot_entry.type_environment
+        } else {
+            self.frames.last().map(|frame| frame.type_environment).unwrap_or(crate::typing::environment::RuntimeTypeEnvironmentId::EMPTY)
+        };
+        let method_conf_env = if slot_entry.conformance_environment != crate::typing::RuntimeConformanceEnvironmentId::EMPTY {
+            slot_entry.conformance_environment
+        } else {
+            conformance_environment
+        };
         self.call_method_with_selector_as_and_environments(
             &receiver,
             method,
@@ -1250,7 +1261,7 @@ impl VM {
             callable.chunk.span_at(self.frames.last().map(|frame| frame.ip.saturating_sub(1)).unwrap_or(0)),
             (self.current_access_class(), self.current_has_internal_privilege()),
             type_environment,
-            conformance_environment,
+            method_conf_env,
         )
     }
 
@@ -1468,13 +1479,89 @@ impl VM {
                             .lookup_method(self, selector_sym)
                             .ok_or_else(|| RuntimeError::Internal(format!("trait-selected callable {callable:?} has no executable method")))?
                     };
-                    slots.push(Some(method));
+                    slots.push(Some(crate::typing::RuntimeConformanceSlot {
+                        method,
+                        type_environment: crate::typing::RuntimeTypeEnvironmentId::EMPTY,
+                        conformance_environment: crate::typing::RuntimeConformanceEnvironmentId::EMPTY,
+                    }));
                 }
                 crate::typing::RuntimeConformanceSlotRecipe::Forwarded(caller_slot) => {
-                    let method = self
+                    let slot_val = self
                         .runtime_conformance_environments
-                        .target(caller_conformance_env_id, *caller_slot);
-                    slots.push(method);
+                        .slot(caller_conformance_env_id, *caller_slot);
+                    slots.push(slot_val);
+                }
+                crate::typing::RuntimeConformanceSlotRecipe::DerivedConditional {
+                    callable,
+                    selector,
+                    type_bindings,
+                    nested_slots,
+                } => {
+                    let method = if let Some(&method) = self.detached_method_objects.get(callable) {
+                        method
+                    } else {
+                        let selector_sym = self.interner.intern(&selector.encode());
+                        receiver
+                            .lookup_method(self, selector_sym)
+                            .ok_or_else(|| RuntimeError::Internal(format!("trait-selected callable {callable:?} has no executable method")))?
+                    };
+
+                    let parent_id = self
+                        .frames
+                        .last()
+                        .map(|frame| frame.type_environment)
+                        .unwrap_or(crate::typing::RuntimeTypeEnvironmentId::EMPTY);
+                    let parent = self
+                        .runtime_type_environments
+                        .get(parent_id)
+                        .cloned()
+                        .unwrap_or_else(|| crate::typing::RuntimeTypeEnvironment::new(Vec::new()));
+                    let mut bindings = Vec::with_capacity(type_bindings.len());
+                    for (parameter, type_recipe) in type_bindings.iter().cloned() {
+                        let ty = crate::typing::instantiate_type_recipe(type_recipe, &parent, &mut self.runtime_typing_context, &self.typing_registry)
+                            .ok_or_else(|| RuntimeError::Internal("derived conditional impl type recipe could not be instantiated".into()))?;
+                        bindings.push((parameter, ty));
+                    }
+                    let type_env_id = self.runtime_type_environments.intern(crate::typing::RuntimeTypeEnvironment::new(bindings));
+
+                    let nested_conformance_env_id = if nested_slots.is_empty() {
+                        caller_conformance_env_id
+                    } else {
+                        let mut nested_conformance_slots = Vec::with_capacity(nested_slots.len());
+                        for nested_slot_recipe in nested_slots.iter() {
+                            let nested_slot_val = match nested_slot_recipe {
+                                crate::typing::RuntimeConformanceSlotRecipe::Selection { callable, selector } => {
+                                    let method = if let Some(&method) = self.detached_method_objects.get(callable) {
+                                        method
+                                    } else {
+                                        let selector_sym = self.interner.intern(&selector.encode());
+                                        receiver
+                                            .lookup_method(self, selector_sym)
+                                            .ok_or_else(|| RuntimeError::Internal(format!("trait-selected callable {callable:?} has no executable method")))?
+                                    };
+                                    Some(crate::typing::RuntimeConformanceSlot {
+                                        method,
+                                        type_environment: crate::typing::RuntimeTypeEnvironmentId::EMPTY,
+                                        conformance_environment: crate::typing::RuntimeConformanceEnvironmentId::EMPTY,
+                                    })
+                                }
+                                crate::typing::RuntimeConformanceSlotRecipe::Forwarded(caller_slot) => {
+                                    self.runtime_conformance_environments.slot(caller_conformance_env_id, *caller_slot)
+                                }
+                                crate::typing::RuntimeConformanceSlotRecipe::DerivedConditional { .. } => None,
+                            };
+                            nested_conformance_slots.push(nested_slot_val);
+                        }
+                        self.runtime_conformance_environments.intern(
+                            crate::typing::RuntimeConformanceEnvironment::new(nested_conformance_slots)
+                        )
+                    };
+
+                    slots.push(Some(crate::typing::RuntimeConformanceSlot {
+                        method,
+                        type_environment: type_env_id,
+                        conformance_environment: nested_conformance_env_id,
+                    }));
                 }
             }
         }

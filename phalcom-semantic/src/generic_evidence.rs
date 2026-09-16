@@ -6,10 +6,15 @@ use crate::identity::ImplId;
 use crate::impls::{ConformanceEvidence, ConformanceIndex, ConformanceResolution, ConformanceWitnessPlan};
 use crate::traits::{TraitRef, TraitRequirementId, TraitSurfaceTable};
 use crate::types::evidence::UnknownReason;
-use crate::types::outcome::{BlockReason, BudgetReport, DynamicBoundaryObligation};
+use crate::types::id::TypeId;
+use crate::types::outcome::{
+    BlockReason, BudgetReport, CancellationToken, DynamicBoundaryObligation, QueryBudget,
+    RelationOutcome,
+};
 use crate::types::parameter::{GenericConstraint, TypeParameterOwner, TypeTerm};
 use crate::types::relation::TypeHierarchy;
 use crate::types::store::TypeStore;
+use crate::types::substitution::TypeSubstitution;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -33,12 +38,44 @@ pub struct AssumedConformanceEvidence {
     pub owner: TypeParameterOwner,
 }
 
-/// Proven generic conformance evidence: either exact (backed by a source impl)
-/// or assumed (derived from a lexical generic bound).
+/// Proven generic obligation evidence across constraint forms.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum NestedGenericEvidence {
+    Conformance(GenericConformanceEvidence),
+    Equivalent,
+    Subtype,
+}
+
+/// Derived conformance evidence for an instantiated conditional conformance.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DerivedConformanceEvidence {
+    pub exact_source: Arc<ConformanceEvidence>,
+    pub impl_bindings: TypeSubstitution,
+    pub nested: Box<[NestedGenericEvidence]>,
+}
+
+/// Proven generic conformance evidence: exact (unconditional source impl),
+/// assumed (derived from a lexical generic bound), or derived (instantiated conditional conformance).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GenericConformanceEvidence {
     Exact(Arc<ConformanceEvidence>),
     Assumed(AssumedConformanceEvidence),
+    Derived(Arc<DerivedConformanceEvidence>),
+}
+
+/// Status of an active or completed proof goal in the recursive memo table.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ProofMemoState {
+    Visiting,
+    Completed(GenericConformanceProof),
+}
+
+/// Typed generic obligation proof result.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum GenericObligationProof {
+    Conformance(GenericConformanceProof),
+    Equivalent(GenericEquivalenceProof),
+    Subtype(RelationOutcome<()>),
 }
 
 /// Typed direct conformance proof result preserving rich terminal outcomes.
@@ -346,6 +383,518 @@ impl GenericEvidenceEnvironment {
     }
 }
 
+/// Recursive proof session context owning memoization, cycle tracking,
+/// query budget, cancellation, and semantic authorities.
+pub struct ConformanceProofContext<'a> {
+    pub lexical_evidence: Option<&'a GenericEvidenceEnvironment>,
+    pub conformance_index: Option<&'a ConformanceIndex>,
+    pub witness_plans: Option<&'a BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>>,
+    pub trait_surfaces: Option<&'a TraitSurfaceTable>,
+    pub declarations: Option<&'a DeclarationTypeTable>,
+    pub hierarchy: Option<&'a dyn TypeHierarchy>,
+    pub store: Option<&'a mut TypeStore>,
+    pub memo: BTreeMap<GenericConformanceKey, ProofMemoState>,
+    pub stack: Vec<GenericConformanceKey>,
+    pub budget: QueryBudget,
+    pub cancellation: CancellationToken,
+}
+
+impl<'a> ConformanceProofContext<'a> {
+    pub fn new(
+        lexical_evidence: Option<&'a GenericEvidenceEnvironment>,
+        conformance_index: Option<&'a ConformanceIndex>,
+        witness_plans: Option<&'a BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>>,
+        trait_surfaces: Option<&'a TraitSurfaceTable>,
+        declarations: Option<&'a DeclarationTypeTable>,
+        hierarchy: Option<&'a dyn TypeHierarchy>,
+        store: Option<&'a mut TypeStore>,
+    ) -> Self {
+        Self {
+            lexical_evidence,
+            conformance_index,
+            witness_plans,
+            trait_surfaces,
+            declarations,
+            hierarchy,
+            store,
+            memo: BTreeMap::new(),
+            stack: Vec::new(),
+            budget: QueryBudget::default(),
+            cancellation: CancellationToken::new(),
+        }
+    }
+
+    pub fn with_budget_and_cancellation(
+        mut self,
+        budget: QueryBudget,
+        cancellation: CancellationToken,
+    ) -> Self {
+        self.budget = budget;
+        self.cancellation = cancellation;
+        self
+    }
+}
+
+pub fn substitute_type_term(term: &TypeTerm, subst: &TypeSubstitution, store: &mut TypeStore) -> TypeTerm {
+    match term {
+        TypeTerm::Canonical(ty) => TypeTerm::Canonical(subst.apply(store, *ty)),
+        TypeTerm::SelfType(s) => TypeTerm::SelfType(s.clone()),
+        TypeTerm::Infer(i) => TypeTerm::Infer(*i),
+    }
+}
+
+pub fn substitute_trait_ref(trait_ref: &TraitRef, subst: &TypeSubstitution, store: &mut TypeStore) -> TraitRef {
+    let args: Vec<TypeId> = trait_ref.arguments.iter().map(|&arg| subst.apply(store, arg)).collect();
+    TraitRef::new(trait_ref.declaration.clone(), args)
+}
+
+pub fn substitute_generic_constraint(
+    constraint: &GenericConstraint,
+    subst: &TypeSubstitution,
+    store: &mut TypeStore,
+) -> GenericConstraint {
+    match constraint {
+        GenericConstraint::Conforms { subject, trait_ref } => GenericConstraint::Conforms {
+            subject: substitute_type_term(subject, subst, store),
+            trait_ref: substitute_trait_ref(trait_ref, subst, store),
+        },
+        GenericConstraint::Equivalent { left, right } => GenericConstraint::Equivalent {
+            left: substitute_type_term(left, subst, store),
+            right: substitute_type_term(right, subst, store),
+        },
+        GenericConstraint::Subtype { lower, upper } => GenericConstraint::Subtype {
+            lower: substitute_type_term(lower, subst, store),
+            upper: substitute_type_term(upper, subst, store),
+        },
+    }
+}
+
+fn normalize_term_in_context(
+    term: &TypeTerm,
+    context: &mut ConformanceProofContext,
+) -> Result<TypeTerm, GenericEquivalenceProof> {
+    match term {
+        TypeTerm::Canonical(ty) => {
+            let ty = *ty;
+            let Some(surfaces) = context.trait_surfaces else {
+                return Ok(TypeTerm::Canonical(ty));
+            };
+            let Some(decls) = context.declarations else {
+                return Ok(TypeTerm::Canonical(ty));
+            };
+            let Some(hier) = context.hierarchy else {
+                return Ok(TypeTerm::Canonical(ty));
+            };
+            let mode = if let Some(env) = context.lexical_evidence {
+                crate::types::ProjectionNormalizationMode::Generic {
+                    evidence: env,
+                    conformance_index: context.conformance_index,
+                    witness_plans: context.witness_plans,
+                    trait_surfaces: surfaces,
+                    declarations: decls,
+                    hierarchy: hier,
+                }
+            } else if let (Some(index), Some(plans)) = (context.conformance_index, context.witness_plans) {
+                crate::types::ProjectionNormalizationMode::Exact {
+                    conformance_index: index,
+                    witness_plans: plans,
+                    trait_surfaces: surfaces,
+                    declarations: decls,
+                    hierarchy: hier,
+                }
+            } else {
+                return Ok(TypeTerm::Canonical(ty));
+            };
+
+            let Some(store) = context.store.as_deref_mut() else {
+                return Ok(TypeTerm::Canonical(ty));
+            };
+
+            let mut norm_ctx = crate::types::ProjectionNormalizationContext::new(
+                mode,
+                &mut context.budget,
+                &context.cancellation,
+            );
+
+            match crate::types::normalize_type(store, ty, &mut norm_ctx) {
+                crate::types::ProjectionNormalizationResult::Normalized(norm_ty)
+                | crate::types::ProjectionNormalizationResult::Symbolic(norm_ty) => {
+                    Ok(TypeTerm::Canonical(norm_ty))
+                }
+                crate::types::ProjectionNormalizationResult::Recursive => {
+                    Err(GenericEquivalenceProof::Recursive)
+                }
+                crate::types::ProjectionNormalizationResult::Blocked(reason) => {
+                    Err(GenericEquivalenceProof::Blocked(reason))
+                }
+                crate::types::ProjectionNormalizationResult::Dynamic(obligation) => {
+                    Err(GenericEquivalenceProof::Dynamic(obligation))
+                }
+                crate::types::ProjectionNormalizationResult::Cancelled => {
+                    Err(GenericEquivalenceProof::Cancelled)
+                }
+                crate::types::ProjectionNormalizationResult::BudgetExceeded(report) => {
+                    Err(GenericEquivalenceProof::BudgetExceeded(report))
+                }
+                crate::types::ProjectionNormalizationResult::InternalFailure(msg) => {
+                    Err(GenericEquivalenceProof::InternalFailure(msg))
+                }
+                crate::types::ProjectionNormalizationResult::Incomplete
+                | crate::types::ProjectionNormalizationResult::Unknown(_)
+                | crate::types::ProjectionNormalizationResult::Ambiguous(_) => {
+                    Ok(TypeTerm::Canonical(ty))
+                }
+            }
+        }
+        other => Ok(other.clone()),
+    }
+}
+
+/// Evaluates a generic obligation constraint under the current proof session.
+pub fn prove_constraint(
+    constraint: &GenericConstraint,
+    substitution: &TypeSubstitution,
+    context: &mut ConformanceProofContext,
+) -> GenericObligationProof {
+    let subst_constraint = if let Some(store) = context.store.as_deref_mut() {
+        substitute_generic_constraint(constraint, substitution, store)
+    } else {
+        constraint.clone()
+    };
+
+    match subst_constraint {
+        GenericConstraint::Conforms { subject, trait_ref } => {
+            let key = GenericConformanceKey::new(subject, trait_ref);
+            let proof = prove_conformance_with_context(&key, context);
+            GenericObligationProof::Conformance(proof)
+        }
+        GenericConstraint::Equivalent { left, right } => {
+            let left = match normalize_term_in_context(&left, context) {
+                Ok(term) => term,
+                Err(proof) => return GenericObligationProof::Equivalent(proof),
+            };
+            let right = match normalize_term_in_context(&right, context) {
+                Ok(term) => term,
+                Err(proof) => return GenericObligationProof::Equivalent(proof),
+            };
+
+            if left == right {
+                return GenericObligationProof::Equivalent(GenericEquivalenceProof::Proven);
+            }
+            if let Some(env) = context.lexical_evidence {
+                let proof = env.are_equivalent(&left, &right);
+                if proof.is_proven() {
+                    return GenericObligationProof::Equivalent(proof);
+                }
+            }
+            GenericObligationProof::Equivalent(GenericEquivalenceProof::NotProven)
+        }
+        GenericConstraint::Subtype { lower, upper } => {
+            let lower = match normalize_term_in_context(&lower, context) {
+                Ok(term) => term,
+                Err(GenericEquivalenceProof::Recursive) => {
+                    return GenericObligationProof::Subtype(RelationOutcome::Blocked(BlockReason::RecursiveFixpoint));
+                }
+                Err(GenericEquivalenceProof::Blocked(reason)) => {
+                    return GenericObligationProof::Subtype(RelationOutcome::Blocked(reason));
+                }
+                Err(GenericEquivalenceProof::Dynamic(obligation)) => {
+                    return GenericObligationProof::Subtype(RelationOutcome::DynamicBoundary(obligation));
+                }
+                Err(GenericEquivalenceProof::Cancelled) => {
+                    return GenericObligationProof::Subtype(RelationOutcome::Cancelled);
+                }
+                Err(GenericEquivalenceProof::BudgetExceeded(report)) => {
+                    return GenericObligationProof::Subtype(RelationOutcome::BudgetExceeded(report));
+                }
+                Err(GenericEquivalenceProof::InternalFailure(msg)) => {
+                    return GenericObligationProof::Subtype(RelationOutcome::InternalFailure(msg.to_string()));
+                }
+                Err(_) => {
+                    return GenericObligationProof::Subtype(RelationOutcome::Refuted(
+                        crate::types::outcome::RelationFailure::Custom("equivalence failed during subtype normalization".into())
+                    ));
+                }
+            };
+            let upper = match normalize_term_in_context(&upper, context) {
+                Ok(term) => term,
+                Err(GenericEquivalenceProof::Recursive) => {
+                    return GenericObligationProof::Subtype(RelationOutcome::Blocked(BlockReason::RecursiveFixpoint));
+                }
+                Err(GenericEquivalenceProof::Blocked(reason)) => {
+                    return GenericObligationProof::Subtype(RelationOutcome::Blocked(reason));
+                }
+                Err(GenericEquivalenceProof::Dynamic(obligation)) => {
+                    return GenericObligationProof::Subtype(RelationOutcome::DynamicBoundary(obligation));
+                }
+                Err(GenericEquivalenceProof::Cancelled) => {
+                    return GenericObligationProof::Subtype(RelationOutcome::Cancelled);
+                }
+                Err(GenericEquivalenceProof::BudgetExceeded(report)) => {
+                    return GenericObligationProof::Subtype(RelationOutcome::BudgetExceeded(report));
+                }
+                Err(GenericEquivalenceProof::InternalFailure(msg)) => {
+                    return GenericObligationProof::Subtype(RelationOutcome::InternalFailure(msg.to_string()));
+                }
+                Err(_) => {
+                    return GenericObligationProof::Subtype(RelationOutcome::Refuted(
+                        crate::types::outcome::RelationFailure::Custom("equivalence failed during subtype normalization".into())
+                    ));
+                }
+            };
+
+            if lower == upper {
+                return GenericObligationProof::Subtype(RelationOutcome::proven(()));
+            }
+            match (&lower, &upper) {
+                (TypeTerm::Canonical(sub_ty), TypeTerm::Canonical(sup_ty)) => {
+                    let sub_ty = *sub_ty;
+                    let sup_ty = *sup_ty;
+                    if let (Some(hierarchy), Some(store)) = (context.hierarchy, context.store.as_deref_mut()) {
+                        let outcome = crate::types::relation::check_subtype_bounded(
+                            store,
+                            hierarchy,
+                            sub_ty,
+                            sup_ty,
+                            &mut context.budget,
+                            &context.cancellation,
+                        );
+                        GenericObligationProof::Subtype(outcome)
+                    } else {
+                        GenericObligationProof::Subtype(RelationOutcome::InternalFailure(
+                            "hierarchy or store is unavailable".into(),
+                        ))
+                    }
+                }
+                _ => GenericObligationProof::Subtype(RelationOutcome::Refuted(
+                    crate::types::outcome::RelationFailure::Custom(
+                        "non-canonical terms cannot be checked for subtyping".into(),
+                    ),
+                )),
+            }
+        }
+    }
+}
+
+fn map_conformance_resolution_to_proof(res: ConformanceResolution) -> GenericConformanceProof {
+    match res {
+        ConformanceResolution::Proven(ev) => GenericConformanceProof::Proven(GenericConformanceEvidence::Exact(ev)),
+        ConformanceResolution::NotDeclared => GenericConformanceProof::Missing,
+        ConformanceResolution::InvalidSource(impl_id) | ConformanceResolution::Incomplete(impl_id) => {
+            GenericConformanceProof::Incomplete(impl_id)
+        }
+        ConformanceResolution::CoherenceConflict(impls) => GenericConformanceProof::CoherenceConflict(impls),
+        ConformanceResolution::Unknown(reason) => GenericConformanceProof::Unknown(reason),
+        ConformanceResolution::Blocked(reason) => GenericConformanceProof::Blocked(reason),
+        ConformanceResolution::Dynamic(obligation) => GenericConformanceProof::Dynamic(obligation),
+        ConformanceResolution::Cancelled => GenericConformanceProof::Cancelled,
+        ConformanceResolution::BudgetExceeded(report) => GenericConformanceProof::BudgetExceeded(report),
+        ConformanceResolution::InternalFailure(msg) => GenericConformanceProof::InternalFailure(msg),
+    }
+}
+
+fn map_equivalence_proof_to_conformance_proof(proof: GenericEquivalenceProof) -> GenericConformanceProof {
+    match proof {
+        GenericEquivalenceProof::Proven => unreachable!(),
+        GenericEquivalenceProof::NotProven | GenericEquivalenceProof::Ambiguous => GenericConformanceProof::Missing,
+        GenericEquivalenceProof::Blocked(reason) => GenericConformanceProof::Blocked(reason),
+        GenericEquivalenceProof::Dynamic(obligation) => GenericConformanceProof::Dynamic(obligation),
+        GenericEquivalenceProof::Recursive => GenericConformanceProof::Blocked(BlockReason::RecursiveFixpoint),
+        GenericEquivalenceProof::Cancelled => GenericConformanceProof::Cancelled,
+        GenericEquivalenceProof::BudgetExceeded(report) => GenericConformanceProof::BudgetExceeded(report),
+        GenericEquivalenceProof::InternalFailure(msg) => GenericConformanceProof::InternalFailure(msg),
+    }
+}
+
+fn map_subtype_outcome_to_conformance_proof(outcome: RelationOutcome<()>) -> GenericConformanceProof {
+    match outcome {
+        RelationOutcome::Proven { .. } => unreachable!(),
+        RelationOutcome::Refuted(_) => GenericConformanceProof::Missing,
+        RelationOutcome::DynamicBoundary(obligation) => GenericConformanceProof::Dynamic(obligation),
+        RelationOutcome::Blocked(reason) => GenericConformanceProof::Blocked(reason),
+        RelationOutcome::Cancelled => GenericConformanceProof::Cancelled,
+        RelationOutcome::BudgetExceeded(report) => GenericConformanceProof::BudgetExceeded(report),
+        RelationOutcome::InternalFailure(msg) => GenericConformanceProof::InternalFailure(msg.into_boxed_str()),
+    }
+}
+
+fn evaluate_conformance_goal(
+    key: &GenericConformanceKey,
+    context: &mut ConformanceProofContext,
+) -> GenericConformanceProof {
+    // 1. Check lexical assumptions in the environment
+    if let Some(env) = context.lexical_evidence {
+        if let Some(assumed) = env.assumed_conformance(key) {
+            return GenericConformanceProof::Proven(GenericConformanceEvidence::Assumed(assumed.clone()));
+        }
+        for equiv_subject in env.equivalent_terms(&key.subject) {
+            let equiv_key = GenericConformanceKey::new(equiv_subject, key.trait_ref.clone());
+            if let Some(assumed) = env.assumed_conformance(&equiv_key) {
+                return GenericConformanceProof::Proven(GenericConformanceEvidence::Assumed(assumed.clone()));
+            }
+        }
+    }
+
+    // 2. Exact fallback for canonical types
+    match &key.subject {
+        TypeTerm::Canonical(target_type) => {
+            let target_type = *target_type;
+            let (Some(index), Some(plans), Some(surfaces), Some(decls), Some(hier)) = (
+                context.conformance_index,
+                context.witness_plans,
+                context.trait_surfaces,
+                context.declarations,
+                context.hierarchy,
+            ) else {
+                return GenericConformanceProof::Missing;
+            };
+
+            if !surfaces.contains(&key.trait_ref.declaration) {
+                return GenericConformanceProof::InternalFailure("trait surface is unavailable".into());
+            }
+
+            let Some(store) = context.store.as_deref_mut() else {
+                return GenericConformanceProof::InternalFailure("type store is unavailable".into());
+            };
+
+            let matches = index.query_exact(store, target_type, &key.trait_ref);
+            match matches.len() {
+                0 => GenericConformanceProof::Missing,
+                1 => {
+                    let head = &matches[0];
+                    let Some(plan) = plans.get(&head.impl_id) else {
+                        return GenericConformanceProof::Incomplete(head.impl_id.clone());
+                    };
+                    if let crate::impls::ConformanceCompleteness::Incomplete { .. } = &plan.completeness {
+                        return GenericConformanceProof::Incomplete(head.impl_id.clone());
+                    }
+
+                    let generic_signature = plan.generic_signature.as_ref();
+                    let constraints = generic_signature.map_or(&[] as &[GenericConstraint], |s| &s.constraints);
+
+                    if constraints.is_empty() {
+                        // Unconditional candidate: resolve exact evidence directly
+                        let store = context.store.as_deref_mut().unwrap();
+                        let exact_res = crate::impls::resolve_conformance_evidence_with_surfaces(
+                            index,
+                            plans,
+                            surfaces,
+                            decls,
+                            store,
+                            hier,
+                            target_type,
+                            &key.trait_ref,
+                        );
+                        map_conformance_resolution_to_proof(exact_res)
+                    } else {
+                        // Conditional candidate: instantiate constraints and prove each recursively
+                        let impl_bindings = TypeSubstitution::from_bindings(head.impl_bindings.clone());
+                        let constraints_vec = constraints.to_vec();
+                        let mut nested_evidences = Vec::with_capacity(constraints_vec.len());
+                        let mut failure_proof = None;
+
+                        for constraint in &constraints_vec {
+                            let obligation_proof = prove_constraint(constraint, &impl_bindings, context);
+                            match obligation_proof {
+                                GenericObligationProof::Conformance(GenericConformanceProof::Proven(ev)) => {
+                                    nested_evidences.push(NestedGenericEvidence::Conformance(ev));
+                                }
+                                GenericObligationProof::Conformance(failing) => {
+                                    failure_proof = Some(failing);
+                                    break;
+                                }
+                                GenericObligationProof::Equivalent(GenericEquivalenceProof::Proven) => {
+                                    nested_evidences.push(NestedGenericEvidence::Equivalent);
+                                }
+                                GenericObligationProof::Equivalent(failing) => {
+                                    failure_proof = Some(map_equivalence_proof_to_conformance_proof(failing));
+                                    break;
+                                }
+                                GenericObligationProof::Subtype(outcome) => {
+                                    if outcome.is_proven() {
+                                        nested_evidences.push(NestedGenericEvidence::Subtype);
+                                    } else {
+                                        failure_proof = Some(map_subtype_outcome_to_conformance_proof(outcome));
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        if let Some(failing) = failure_proof {
+                            failing
+                        } else {
+                            let (index, plans, surfaces, decls, hier) = (
+                                context.conformance_index.unwrap(),
+                                context.witness_plans.unwrap(),
+                                context.trait_surfaces.unwrap(),
+                                context.declarations.unwrap(),
+                                context.hierarchy.unwrap(),
+                            );
+                            let store = context.store.as_deref_mut().unwrap();
+                            let exact_res = crate::impls::resolve_conformance_evidence_with_surfaces(
+                                index,
+                                plans,
+                                surfaces,
+                                decls,
+                                store,
+                                hier,
+                                target_type,
+                                &key.trait_ref,
+                            );
+                            match exact_res {
+                                crate::impls::ConformanceResolution::Proven(exact_ev) => {
+                                    let derived = Arc::new(DerivedConformanceEvidence {
+                                        exact_source: exact_ev,
+                                        impl_bindings,
+                                        nested: nested_evidences.into_boxed_slice(),
+                                    });
+                                    GenericConformanceProof::Proven(GenericConformanceEvidence::Derived(derived))
+                                }
+                                other => map_conformance_resolution_to_proof(other),
+                            }
+                        }
+                    }
+                }
+                _ => GenericConformanceProof::CoherenceConflict(
+                    matches.into_iter().map(|item| item.impl_id).collect::<Vec<_>>().into_boxed_slice(),
+                ),
+            }
+        }
+        _ => GenericConformanceProof::Missing,
+    }
+}
+
+/// Recursive conformance proof query evaluated under an explicit session context.
+pub fn prove_conformance_with_context(
+    key: &GenericConformanceKey,
+    context: &mut ConformanceProofContext,
+) -> GenericConformanceProof {
+    if context.cancellation.is_cancelled() {
+        return GenericConformanceProof::Cancelled;
+    }
+
+    if let Some(state) = context.memo.get(key) {
+        match state {
+            ProofMemoState::Visiting => return GenericConformanceProof::Blocked(BlockReason::RecursiveFixpoint),
+            ProofMemoState::Completed(proof) => return proof.clone(),
+        }
+    }
+
+    if let Err(report) = context.budget.charge_step() {
+        return GenericConformanceProof::BudgetExceeded(report);
+    }
+
+    context.stack.push(key.clone());
+    context.memo.insert(key.clone(), ProofMemoState::Visiting);
+
+    let proof = evaluate_conformance_goal(key, context);
+
+    context.stack.pop();
+    context.memo.insert(key.clone(), ProofMemoState::Completed(proof.clone()));
+    proof
+}
+
 /// Direct generic conformance proof query.
 /// Checks assumed evidence from the lexical environment first; if not present,
 /// and the subject is a canonical concrete type, delegates to exact conformance resolution.
@@ -360,62 +909,15 @@ pub fn query_generic_conformance_proof(
     hierarchy: Option<&dyn TypeHierarchy>,
     store: Option<&mut TypeStore>,
 ) -> GenericConformanceProof {
-    // 1. Check lexical assumptions in the environment
+    let mut context = ConformanceProofContext::new(
+        environment,
+        conformance_index,
+        witness_plans,
+        trait_surfaces,
+        declarations,
+        hierarchy,
+        store,
+    );
     let key = GenericConformanceKey::new(subject.clone(), trait_ref.clone());
-    if let Some(env) = environment {
-        if let Some(assumed) = env.assumed_conformance(&key) {
-            return GenericConformanceProof::Proven(GenericConformanceEvidence::Assumed(assumed.clone()));
-        }
-        for equiv_subject in env.equivalent_terms(subject) {
-            let equiv_key = GenericConformanceKey::new(equiv_subject, trait_ref.clone());
-            if let Some(assumed) = env.assumed_conformance(&equiv_key) {
-                return GenericConformanceProof::Proven(GenericConformanceEvidence::Assumed(assumed.clone()));
-            }
-        }
-    }
-
-    // 2. Exact fallback for canonical types
-    match subject {
-        TypeTerm::Canonical(target_type) => {
-            if let (Some(index), Some(plans), Some(surfaces), Some(decls), Some(hier), Some(st)) = (
-                conformance_index,
-                witness_plans,
-                trait_surfaces,
-                declarations,
-                hierarchy,
-                store,
-            ) {
-                if !surfaces.contains(&trait_ref.declaration) {
-                    return GenericConformanceProof::InternalFailure("trait surface is unavailable".into());
-                }
-                let exact_res = crate::impls::resolve_conformance_evidence_with_surfaces(
-                    index,
-                    plans,
-                    surfaces,
-                    decls,
-                    st,
-                    hier,
-                    *target_type,
-                    trait_ref,
-                );
-                match exact_res {
-                    ConformanceResolution::Proven(ev) => GenericConformanceProof::Proven(GenericConformanceEvidence::Exact(ev)),
-                    ConformanceResolution::NotDeclared => GenericConformanceProof::Missing,
-                    ConformanceResolution::InvalidSource(impl_id) | ConformanceResolution::Incomplete(impl_id) => {
-                        GenericConformanceProof::Incomplete(impl_id)
-                    }
-                    ConformanceResolution::CoherenceConflict(impls) => GenericConformanceProof::CoherenceConflict(impls),
-                    ConformanceResolution::Unknown(reason) => GenericConformanceProof::Unknown(reason),
-                    ConformanceResolution::Blocked(reason) => GenericConformanceProof::Blocked(reason),
-                    ConformanceResolution::Dynamic(obligation) => GenericConformanceProof::Dynamic(obligation),
-                    ConformanceResolution::Cancelled => GenericConformanceProof::Cancelled,
-                    ConformanceResolution::BudgetExceeded(report) => GenericConformanceProof::BudgetExceeded(report),
-                    ConformanceResolution::InternalFailure(msg) => GenericConformanceProof::InternalFailure(msg),
-                }
-            } else {
-                GenericConformanceProof::Missing
-            }
-        }
-        _ => GenericConformanceProof::Missing,
-    }
+    prove_conformance_with_context(&key, &mut context)
 }

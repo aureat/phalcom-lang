@@ -2216,6 +2216,15 @@ fn discharge_generic_conformance_obligations(
                                 source: crate::checker::analysis::GenericCallConformanceSource::Forwarded { caller_conformance: assumed.key },
                             });
                         }
+                        crate::generic_evidence::GenericConformanceProof::Proven(crate::generic_evidence::GenericConformanceEvidence::Derived(derived)) => {
+                            conformances.push(crate::checker::analysis::GenericCallConformanceBinding {
+                                callee_conformance: crate::generic_evidence::GenericConformanceKey::new(
+                                    instantiated_subject,
+                                    instantiated_trait_ref,
+                                ),
+                                source: crate::checker::analysis::GenericCallConformanceSource::Derived { evidence: derived },
+                            });
+                        }
                         _ => {
                             failed = true;
                             let message = format!(

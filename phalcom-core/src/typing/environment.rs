@@ -20,6 +20,12 @@ pub enum RuntimeConformanceSlotRecipe {
         selector: phalcom_common::selector::Selector,
     },
     Forwarded(u16),
+    DerivedConditional {
+        callable: phalcom_semantic::identity::CallableId,
+        selector: phalcom_common::selector::Selector,
+        type_bindings: Box<[(StableTypeParameterRef, RuntimeTypeRecipe)]>,
+        nested_slots: Box<[RuntimeConformanceSlotRecipe]>,
+    },
 }
 
 /// Immutable call-entry recipe projected from the semantic call

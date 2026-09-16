@@ -375,6 +375,7 @@ pub enum GenericBinderSite {
     NominalDeclaration,
     Callable,
     TypeAlias,
+    Impl,
 }
 
 #[derive(Clone, Debug)]

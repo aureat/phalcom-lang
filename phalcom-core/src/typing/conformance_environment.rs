@@ -16,20 +16,33 @@ impl RuntimeConformanceEnvironmentId {
     pub const EMPTY: Self = Self(0);
 }
 
+/// One executable conformance evidence slot holding a method handle and its
+/// associated invocation type and conformance environments.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct RuntimeConformanceSlot {
+    pub method: ObjRef,
+    pub type_environment: crate::typing::environment::RuntimeTypeEnvironmentId,
+    pub conformance_environment: RuntimeConformanceEnvironmentId,
+}
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct RuntimeConformanceEnvironment {
-    pub slots: Box<[Option<ObjRef>]>,
+    pub slots: Box<[Option<RuntimeConformanceSlot>]>,
 }
 
 impl RuntimeConformanceEnvironment {
-    pub fn new(slots: Vec<Option<ObjRef>>) -> Self {
+    pub fn new(slots: Vec<Option<RuntimeConformanceSlot>>) -> Self {
         Self {
             slots: slots.into_boxed_slice(),
         }
     }
 
-    pub fn target(&self, slot: u16) -> Option<ObjRef> {
+    pub fn slot(&self, slot: u16) -> Option<RuntimeConformanceSlot> {
         self.slots.get(slot as usize).copied().flatten()
+    }
+
+    pub fn target(&self, slot: u16) -> Option<ObjRef> {
+        self.slot(slot).map(|s| s.method)
     }
 }
 
@@ -70,12 +83,16 @@ impl RuntimeConformanceEnvironmentRegistry {
         self.environments.get(id.0 as usize)
     }
 
+    pub fn slot(&self, id: RuntimeConformanceEnvironmentId, slot: u16) -> Option<RuntimeConformanceSlot> {
+        self.get(id).and_then(|environment| environment.slot(slot))
+    }
+
     pub fn target(&self, id: RuntimeConformanceEnvironmentId, slot: u16) -> Option<ObjRef> {
         self.get(id).and_then(|environment| environment.target(slot))
     }
 
     pub fn handles(&self) -> impl Iterator<Item = ObjRef> + '_ {
-        self.environments.iter().flat_map(|environment| environment.slots.iter().copied().flatten())
+        self.environments.iter().flat_map(|environment| environment.slots.iter().copied().flatten().map(|s| s.method))
     }
 
     pub fn len(&self) -> usize {

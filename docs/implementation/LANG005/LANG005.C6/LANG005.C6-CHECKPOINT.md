@@ -9,9 +9,9 @@ completion: PARTIAL
 verification: FOCUSED_TESTED
 requires:
   - LANG005.C5
-active_plan: LANG005.C6.P3
-latest_completed_plan: LANG005.C6.P2
-next_plan: LANG005.C6.P3
+active_plan: LANG005.C6.P4
+latest_completed_plan: LANG005.C6.P3
+next_plan: LANG005.C6.P4
 next_checkpoint: null
 planning_baseline_revision: 14352f3824e8dcfc9f5b3f46d9f4a4bb5cf48709
 prepared: 2026-09-16
@@ -322,7 +322,7 @@ C6 must not migrate production `for`, collections, Range, Map, lazy adapters, ru
 |---|---|---|---|---|---|
 | `LANG005.C6.P1` | Direct generic conformance propositions, lexical assumed evidence, generic body dispatch, exact/forwarded call discharge, runtime evidence transport, stable metadata/tooling | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Direct-bound vertical is green; one unrelated recomputation baseline retained |
 | `LANG005.C6.P2` | Generic/qualified associated projections, associated specialization/equality, projection-driven inference, durable associated constraint metadata | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Tasks T1–T10 complete; generic associated projections, refinements, equality, and inference verified; G1–G5 pass |
-| `LANG005.C6.P3` | Conditional conformances, nested recursive obligations, cycle/memoization proof state, conditional coherence | PROPOSED | NOT_STARTED | UNVERIFIED | Depends on P1/P2 |
+| `LANG005.C6.P3` | Conditional conformances, nested recursive obligations, cycle/memoization proof state, conditional coherence | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Tasks T0–T8 complete; recursive proof engine, cycle/memoization, derived runtime evidence, and cross-module/incremental integration verified; Gates G1–G6 pass |
 | `LANG005.C6.P4` | Iterator/Iterable generic laws, canonical Universe migration, explicit blanket/derived implication decision | PROPOSED | NOT_STARTED | UNVERIFIED | Depends on recursive proof/equality authority |
 | `LANG005.C6.P5` | Production `for`, collections, Map, Range, lazy stateful iterators, cursor/runtime-superclass retirement | PROPOSED | NOT_STARTED | UNVERIFIED | Depends on P4 semantic laws |
 | `LANG005.C6.P6` | Remaining generic-constraint closure, higher-kind integration where specified, alias/GADT/tooling/performance/stress/certification | PROPOSED | NOT_STARTED | UNVERIFIED | C6 closure plan; exact scope may be amended |

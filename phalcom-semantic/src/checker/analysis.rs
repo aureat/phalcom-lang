@@ -131,6 +131,9 @@ pub enum GenericCallConformanceSource {
     Forwarded {
         caller_conformance: crate::generic_evidence::GenericConformanceKey,
     },
+    Derived {
+        evidence: Arc<crate::generic_evidence::DerivedConformanceEvidence>,
+    },
 }
 
 /// Binding for one callee generic conformance obligation discharged during callable application.
