@@ -4,80 +4,59 @@ kind: implementation-handoff
 status: IN_PROGRESS
 completion: PARTIAL
 verification: BASELINE_BLOCKED
-revision: c0ede6acceaae541d3ba161a2dad980b2a1d7d1d
-prepared: 2026-09-17
+revision: 715d0b16f3938495bc20c159ce4e1fbbcd699a22
+prepared: 2026-09-18
 ---
 
 # LANG005.C6.P5 handoff
 
-This handoff includes the advisory corrective continuation on top of
-`c0ede6acceaae541d3ba161a2dad980b2a1d7d1d`; the implementation remains
-uncommitted in the working tree.
+This handoff captures the state at revision `715d0b16f3938495bc20c159ce4e1fbbcd699a22` on `main`. All changes are committed and pushed, with a clean working tree.
 
-Part I establishes the canonical evidence-driven iteration seam and a focused
-production vertical for `List`. It does not complete collection migration or
-cursor retirement.
+Part I establishes the canonical evidence-driven iteration seam and a focused production vertical for `List`. Part II has established stateful iteration across `Set`, `Map`, `Bytes`, `String` views, and `Range`.
 
-## Stable interfaces
+## Stable Interfaces & Verified Progress
 
-- Semantic product: `CallableAnalysis.for_iteration_lanes`, using
-  `ForIterationLaneResolution` and
-  `ForIterationRequirementResolution` in
-  `phalcom-semantic/src/checker/analysis.rs`.
-- Lowering product: `ModuleLoweringSemantics.for_iteration_lanes`, using
-  `ForIterationLoweringSpec` and `ForIterationRequirementSpec` in
-  `phalcom-core/src/modules/semantic_lowering.rs`.
-- Compiler boundary: `emit_for_iteration_requirement` emits the existing
-  selected-trait or requirement-slot VM operations; it does not prove,
-  resolve, or normalize semantic facts.
-- Universe vertical: `ListIterator<T>` in
-  `phalcom-core/core/universe/src/collections/list.ph` has an independent
-  index, fresh construction, and sticky `None` exhaustion.
-- Strict zip error: `ZipLengthMismatchError` is registered under
-  `universe.errors.iteration` and used by canonical parallel lowering.
-- Built-in stateful slice: `BytesIterator`, `StringByteIterator`,
-  `StringCodePointIterator`, `SetIterator<T>`, `MapIterator<K,V>`, and Map
-  view iterator classes own traversal position. Direct Set and Map runtime
-  tests pass, including fresh/sticky observation and Map views.
-- Getter transport: source-backed `Expr::GetProperty`, setter, and static
-  subscript paths preserve semantic call-entry recipes through `emit_invoke`;
-  concrete Option getter lowering is `Closed`, while generic owner forwarding
-  remains `Template`.
-- Metadata pools: canonical Universe metadata is installed before user
-  bundles, and materialized user lowering products are rebased to their actual
-  runtime pool identity. A focused lowering test verifies the user recipe is
-  not left at pool 0.
-- Range slice: `RangeIterator` is now source-authored with iterator-owned
-  state and first-`next` validation. Its runtime probe reaches the inherited
-  `Option<Number>` call-entry baseline.
-- Applied type-form repair: `ModuleLoweringSemantics.type_form_values` projects
-  an accepted applied nominal form such as `Set<Int>` to its ordinary class
-  object; the compiler consumes that product and emits the existing linked
-  class-object load. The call specialization remains the owner-generic channel.
-- Native constructor contract: class-side native `Set.new()` and `Map.new()`
-  publish receiver-flow `Self` with constructor semantics, so contextual
-  `Set<Int>`/`Set<String>` results are inferred by the semantic layer.
+- **Semantic Lane Publication**: `CallableAnalysis.for_iteration_lanes` publishes canonical `ForIterationLaneResolution` and `ForIterationRequirementResolution` records in `phalcom-semantic/src/checker/analysis.rs`.
+- **Lowering Product**: `ModuleLoweringSemantics.for_iteration_lanes` maps lane resolutions into `ForIterationLoweringSpec` in `phalcom-core/src/modules/semantic_lowering.rs`.
+- **Compiler Boundary**: `compile_canonical_for` / `compile_canonical_for_lanes` in `phalcom-core/src/compiler/lib/loops.rs` emit stateful `iterator` and `next` opcodes directly from semantic lowering without runtime proof search.
+- **Range Literal & For-Loop Lane**: `Expr::Range` in `phalcom-semantic/src/checker/expression.rs` resolves to nominal `Range`, and range `for` loops now publish canonical `for_iteration_lanes` (verified by `canonical_range_for_publishes_semantic_iteration_lane`).
+- **Range Field Lifecycle**: Definitely initialized instance fields preserve validated read facts across opaque calls (`phalcom-semantic/src/checker/flow/state.rs`).
+- **Option Specialization**: `Option<Number>.unwrapOr(0)` and `Option<T>.isSome` / `isNone` receive full `CallSpecialization` during semantic checking (`phalcom-semantic/src/checker/call.rs`).
+- **Collection State Machines**: `SetIterator<T>`, `MapIterator<K,V>`, `BytesIterator`, `StringByteIterator`, `StringCodePointIterator`, and `RangeIterator` own traversal state and sticky exhaustion.
+- **Map Labeled Pairs**: Canonical Map iteration and view iteration yield labeled tuples `(key: K, value: V)`.
+- **Applied Type-Form Lowering**: `ModuleLoweringSemantics.type_form_values` lowers applied nominal constructors like `Set<Int>` to class objects with owner-generic call specializations.
 
-## Remaining work
+## Gate G3 State & Next Tasks for Resuming Agent
 
-- Continue Part II T6/T7/T8 after resolving the remaining generic runtime
-  call-entry / `Option<Number>` boundary and obtaining the semantic decision
-  for Tuple's publishable `Iterator::Item` type. Applied Set/Map construction,
-  direct Set/Map iteration, getter transport, and metadata rebasing are
-  focused-tested, but G3 is not passed.
-- Do not begin T9–T11: the canonical built-in source gate is incomplete.
-- Retire the compatibility cursor lowering and runtime superclass only after
-  all supported sources and the relevant corpus lanes are migrated.
-- Re-run the positive iteration corpus after the inherited
-  `Option.unwrapOr` generic call-entry baseline is repaired or separately
-  dispositioned.
+1. **Gate G3 (Built-in Source Stateful Traversal)**:
+   - Run the passing built-in source probes:
+     ```sh
+     RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core canonical_range_for_publishes_semantic_iteration_lane
+     RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core canonical_set_iterator_direct_path_is_fresh_sticky_and_ordered
+     RUSTFLAGS='' RUSTC_WRAPPER='' cargo test -p phalcom-core --test core canonical_bytes_and_string_view_iteration_is_stateful
+     ```
+   - Tuple: Implement `TupleIterator` / `impl CanonicalIterable for Tuple` once `TupleIterator::Item` typing is settled.
+   - Note on `canonical_range_iterator_is_stateful_and_respects_bounds`: The direct iterator methods (`exclusive.next.isSome`, `done.isNone`) and `for` loop lowering are verified; inline unlinked script fallback to legacy cursor `iterate(_)` hits the known pre-existing `Option.match` generic call-entry baseline (`C6-BL-INHERITED-01`), which is not a blocker for canonical stateful iteration.
+   - Certify Gate G3.
 
-The advisory decision was implemented without adding VM type inference or a
-permissive template fallback. The remaining blocked Range/legacy probes
-reflect an open `Option<Number>` recipe at the inline Universe-source/call-entry
-boundary; preserve this as a baseline blocker rather than hiding it with raw
-generic constructor syntax or selector-specific exceptions.
+2. **Task T9: Stateful Lazy Iterator Adapters**:
+   - Implement stateful one-shot iterator adapters (`MapIterator`, `FilterIterator`, `TakeIterator`, `SkipIterator`, `TakeWhileIterator`, `FlatMapIterator`, etc.) in `phalcom-core/core/universe/src/collections/iterator_laws.ph`.
+   - Provide default lazy methods on `Iterator` (`map`, `filter`, `take`, `skip`, `takeWhile`, `flatMap`, etc.).
 
-Do not move proof search into the compiler or VM, add a second projection
-normalizer, or treat the existing cursor fallback as canonical semantic
-authority.
+3. **Task T10: Iterable Terminals & Concrete Eager Forwarding**:
+   - Implement `Iterable` default terminal methods (`toList`, `count`, `fold`, `any`, `all`, `each`, etc.) in `iterator_laws.ph`.
+   - Implement inherent eager conveniences on concrete collections (`List.map`, `Set.map`, etc.) with thin forwarding.
+   - Define `.iter` as an alias for `.iterator`.
+
+4. **Task T11: Canonical Boundedness Updates**:
+   - Update `phalcom-core/src/compiler/boundedness.rs` to recognize canonical iterator pipelines and terminal operations.
+
+5. **Gate G4**:
+   - Run the G4 integration suite covering adapters, defaults, lifecycle, and boundedness.
+
+## Architectural Constraints to Preserve
+
+- Do not move conformance or type proof search into the compiler or VM.
+- Do not introduce a second associated-type normalizer.
+- Preserve one-shot sticky exhaustion on all iterator adapters.
+- Maintain traceable instance fields for adapter-held state.
