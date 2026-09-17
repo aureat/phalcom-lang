@@ -469,10 +469,18 @@ pub struct ConformanceContribution {
 
 /// A source conformance's associated-type binding before exact head
 /// specialization. The RHS is formed in the source impl's generic scope.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum AssociatedTypeBindingValue {
+    Type(TypeId),
+    /// An explicit `Dynamic` associated-type binding. This is a runtime
+    /// boundary, not a canonical type or proof-producing semantic fact.
+    Dynamic,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AssociatedTypeBindingTemplate {
     pub requirement: crate::traits::AssociatedTypeRequirementId,
-    pub value_template: TypeId,
+    pub value_template: AssociatedTypeBindingValue,
     pub source_impl: ImplId,
     pub source: SemanticSourceSpan,
 }
@@ -615,16 +623,32 @@ pub fn build_conformance_associated_type_plan(
 
     for (requirement, (syntax, source, name)) in pending {
         let knowledge = resolve_type_annotation(ctx.store, ctx.declarations, &resolver, &formation_site, &syntax, &mut diagnostics);
-        let Some(value_template) = knowledge.ty() else {
-            let reason = format!("associated type `{name}` binding has no usable type");
-            failures.push(AssociatedTypeBindingFailure {
-                kind: AssociatedTypeBindingFailureKind::Invalid,
-                name: name.clone(),
-                reason: reason.clone().into_boxed_str(),
-                source: source.clone(),
-                requirement: Some(requirement.clone()),
-            });
-            diagnostics.push(SemanticDiagnostic::error_in(ctx.current_module.clone(), DiagnosticCode::AssociatedTypeBindingInvalid, reason, syntax.range));
+        let value_template = match knowledge {
+            TypeKnowledge::Known(evidence) => AssociatedTypeBindingValue::Type(evidence.ty),
+            TypeKnowledge::Dynamic(_) => AssociatedTypeBindingValue::Dynamic,
+            TypeKnowledge::Unknown(_) => {
+                let reason = format!("associated type `{name}` binding has no usable type");
+                failures.push(AssociatedTypeBindingFailure {
+                    kind: AssociatedTypeBindingFailureKind::Invalid,
+                    name: name.clone(),
+                    reason: reason.clone().into_boxed_str(),
+                    source: source.clone(),
+                    requirement: Some(requirement.clone()),
+                });
+                diagnostics.push(SemanticDiagnostic::error_in(ctx.current_module.clone(), DiagnosticCode::AssociatedTypeBindingInvalid, reason, syntax.range));
+                continue;
+            }
+        };
+        let AssociatedTypeBindingValue::Type(value_template) = value_template else {
+            bindings.insert(
+                requirement.clone(),
+                AssociatedTypeBindingTemplate {
+                    requirement: requirement.clone(),
+                    value_template,
+                    source_impl: impl_id.clone(),
+                    source,
+                },
+            );
             continue;
         };
         if ctx.store.kind_of(value_template) != KindId::TYPE {
@@ -718,19 +742,22 @@ fn normalize_source_associated_bindings(
             &mut budget,
             &cancel,
         );
-        let result = crate::types::normalize_type(ctx.store, binding.value_template, &mut normalization_context);
+        let AssociatedTypeBindingValue::Type(value_template) = binding.value_template else {
+            continue;
+        };
+        let result = crate::types::normalize_type(ctx.store, value_template, &mut normalization_context);
         let normalized = match &result {
             crate::types::ProjectionNormalizationResult::Normalized(ty)
             | crate::types::ProjectionNormalizationResult::Symbolic(ty) => Some(*ty),
             crate::types::ProjectionNormalizationResult::Recursive => {
-                Some(binding.value_template)
+                Some(value_template)
             }
             crate::types::ProjectionNormalizationResult::Incomplete => None,
             _other => None,
         };
         if let Some(normalized) = normalized {
             if let Some(current) = bindings.get_mut(&requirement) {
-                current.value_template = normalized;
+                current.value_template = AssociatedTypeBindingValue::Type(normalized);
             }
         }
         let failure_reason = match &result {
@@ -1518,7 +1545,7 @@ pub struct ConformanceEvidence {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExactAssociatedTypeBinding {
     pub requirement: crate::traits::AssociatedTypeRequirementId,
-    pub value: TypeId,
+    pub value: AssociatedTypeBindingValue,
     pub source_impl: ImplId,
     pub source: SemanticSourceSpan,
 }
@@ -1726,7 +1753,7 @@ pub fn build_conformance_witness_plan(
                         req.clone(),
                         ExactAssociatedTypeBinding {
                             requirement: req.clone(),
-                            value: binding.value_template,
+                            value: binding.value_template.clone(),
                             source_impl: binding.source_impl.clone(),
                             source: binding.source.clone(),
                         },
@@ -2034,7 +2061,12 @@ pub fn resolve_conformance_evidence_with_surfaces(
                 requirement.clone(),
                 ExactAssociatedTypeBinding {
                     requirement: requirement.clone(),
-                    value: crate::types::environment::TypeView::new(binding.value_template, environment.clone()).materialize(store),
+                    value: match &binding.value_template {
+                        AssociatedTypeBindingValue::Type(value) => AssociatedTypeBindingValue::Type(
+                            crate::types::environment::TypeView::new(*value, environment.clone()).materialize(store),
+                        ),
+                        AssociatedTypeBindingValue::Dynamic => AssociatedTypeBindingValue::Dynamic,
+                    },
                     source_impl: binding.source_impl.clone(),
                     source: binding.source.clone(),
                 },
@@ -2045,7 +2077,11 @@ pub fn resolve_conformance_evidence_with_surfaces(
         let value = associated_types
             .get(requirement)
             .expect("associated binding was staged before exact normalization")
-            .value;
+            .value
+            .clone();
+        let AssociatedTypeBindingValue::Type(value) = value else {
+            continue;
+        };
         let mut budget = QueryBudget::default();
         let cancel = CancellationToken::new();
         let mut normalization_context = crate::types::ProjectionNormalizationContext::new(
@@ -2065,7 +2101,7 @@ pub fn resolve_conformance_evidence_with_surfaces(
             crate::types::ProjectionNormalizationResult::Normalized(value) => value,
             other => return projection_result_to_conformance_resolution(other, head.impl_id.clone()),
         };
-        associated_types.get_mut(requirement).expect("associated binding remains staged").value = value;
+        associated_types.get_mut(requirement).expect("associated binding remains staged").value = AssociatedTypeBindingValue::Type(value);
     }
     if let Some(signature) = &trait_surface.generic_signature {
         if !signature.constraints.is_empty() {

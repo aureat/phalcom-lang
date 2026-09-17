@@ -9,10 +9,58 @@ use phalcom_modules::{
     UniverseSourceProvider, classify_entry_ownership,
 };
 use phalcom_semantic::SemanticDiagnostic;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use thiserror::Error;
+
+type RuntimeTraitEnvironmentRootSpec = (
+    ModuleId,
+    SourceRange,
+    phalcom_semantic::identity::ImplId,
+    phalcom_semantic::traits::TraitRequirementId,
+    phalcom_semantic::types::id::TypeParameterId,
+    phalcom_semantic::types::id::TypeId,
+    String,
+);
+
+fn add_runtime_trait_environment_roots(
+    roots: &mut Vec<RuntimeTraitEnvironmentRootSpec>,
+    seen: &mut BTreeSet<(
+        ModuleId,
+        SourceRange,
+        phalcom_semantic::identity::ImplId,
+        phalcom_semantic::traits::TraitRequirementId,
+        phalcom_semantic::types::id::TypeParameterId,
+    )>,
+    module: &ModuleId,
+    range: SourceRange,
+    source_impl: &phalcom_semantic::identity::ImplId,
+    requirement: &phalcom_semantic::traits::TraitRequirementId,
+    bindings: impl IntoIterator<Item = (phalcom_semantic::types::id::TypeParameterId, phalcom_semantic::types::id::TypeId)>,
+) {
+    for (parameter, ty) in bindings {
+        let identity = (
+            module.clone(),
+            range,
+            source_impl.clone(),
+            requirement.clone(),
+            parameter,
+        );
+        if !seen.insert(identity) {
+            continue;
+        }
+        let key = format!(
+            "trait-environment-{}-{}-{}-{}-{}",
+            range.start,
+            range.end,
+            source_impl.local.0,
+            requirement.selector.encode(),
+            parameter.index(),
+        );
+        roots.push((module.clone(), range, source_impl.clone(), requirement.clone(), parameter, ty, key));
+    }
+}
 
 /// Entry selection for a program compilation.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -500,6 +548,8 @@ impl ProgramCompiler {
             phalcom_semantic::types::id::TypeId,
             String,
         )>::new();
+        let mut runtime_trait_root_specs = Vec::<RuntimeTraitEnvironmentRootSpec>::new();
+        let mut runtime_trait_root_seen = BTreeSet::new();
         for (id, _) in &analyzed.linked.modules {
             if let Some(source) = analyzed.sources.get(id) {
                 for (range, ty) in super::semantic_lowering::anonymous_product_type_roots(id, &analyzed.semantic, &source.program) {
@@ -547,7 +597,72 @@ impl ProgramCompiler {
                             }
                         }
                     }
+                    if let Some(phalcom_semantic::trait_dispatch::TraitDispatchSite::Evidenced(selection)) = expression.trait_dispatch.as_ref()
+                        && let Some(evidence) = analyzed.semantic.conformance_evidence_for(selection.exact_target, &selection.exact_trait_ref)
+                    {
+                        add_runtime_trait_environment_roots(
+                            &mut runtime_trait_root_specs,
+                            &mut runtime_trait_root_seen,
+                            id,
+                            expression.range,
+                            &selection.source_impl,
+                            &selection.requirement,
+                            evidence.impl_environment.bindings.iter().map(|(&parameter, &ty)| (parameter, ty)),
+                        );
+                    }
                     let _ = callable;
+                }
+                for lane in analysis.for_iteration_lanes.values() {
+                    for requirement_resolution in [&lane.iterator, &lane.next] {
+                        let phalcom_semantic::checker::ForIterationRequirementResolution::Evidence {
+                            evidence,
+                            requirement,
+                            ..
+                        } = requirement_resolution
+                        else {
+                            continue;
+                        };
+                        match evidence {
+                            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Exact(exact) => {
+                                add_runtime_trait_environment_roots(
+                                    &mut runtime_trait_root_specs,
+                                    &mut runtime_trait_root_seen,
+                                    id,
+                                    lane.source_range,
+                                    &exact.source_impl,
+                                    requirement,
+                                    exact.impl_environment.bindings.iter().map(|(&parameter, &ty)| (parameter, ty)),
+                                );
+                            }
+                            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(derived) => {
+                                match &derived.origin {
+                                    phalcom_semantic::generic_evidence::DerivedConformanceOrigin::ConditionalSource { exact_source } => {
+                                        add_runtime_trait_environment_roots(
+                                            &mut runtime_trait_root_specs,
+                                            &mut runtime_trait_root_seen,
+                                            id,
+                                            lane.source_range,
+                                            &exact_source.source_impl,
+                                            requirement,
+                                            exact_source.impl_environment.bindings.iter().map(|(&parameter, &ty)| (parameter, ty)),
+                                        );
+                                    }
+                                    phalcom_semantic::generic_evidence::DerivedConformanceOrigin::GuardedRule { rule, .. } => {
+                                        add_runtime_trait_environment_roots(
+                                            &mut runtime_trait_root_specs,
+                                            &mut runtime_trait_root_seen,
+                                            id,
+                                            lane.source_range,
+                                            &rule.impl_id,
+                                            requirement,
+                                            derived.impl_bindings.bindings().iter().map(|(&parameter, &ty)| (parameter, ty)),
+                                        );
+                                    }
+                                }
+                            }
+                            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Assumed(_) => {}
+                        }
+                    }
                 }
             }
         }
@@ -555,6 +670,7 @@ impl ProgramCompiler {
             .iter()
             .map(|(module, _, ty, key)| (module, key.as_str(), *ty))
             .chain(runtime_call_root_specs.iter().map(|(module, _, _, _, ty, key)| (module, key.as_str(), *ty)))
+            .chain(runtime_trait_root_specs.iter().map(|(module, _, _, _, _, ty, key)| (module, key.as_str(), *ty)))
             .collect::<Vec<_>>();
         let exporter = phalcom_semantic::metadata::MetadataExporter::new(
             analyzed.semantic.store(),
@@ -577,6 +693,18 @@ impl ProgramCompiler {
                     &phalcom_semantic::metadata::stable_identity::StableIdentityContext::new(&analyzed.project_universe),
                 ),
                 *parameter,
+                exporter.export_type_parameter(*parameter),
+                *ty,
+                key.clone(),
+            ));
+        }
+        let mut stable_trait_root_specs = Vec::with_capacity(runtime_trait_root_specs.len());
+        for (module, range, source_impl, requirement, parameter, ty, key) in &runtime_trait_root_specs {
+            stable_trait_root_specs.push((
+                module.clone(),
+                *range,
+                source_impl.clone(),
+                requirement.clone(),
                 exporter.export_type_parameter(*parameter),
                 *ty,
                 key.clone(),
@@ -629,6 +757,32 @@ impl ProgramCompiler {
                     .push((stable_parameter.clone(), recipe));
             }
             let _ = stable_callable;
+        }
+        let mut runtime_trait_environment_bindings = BTreeMap::<ModuleId, super::semantic_lowering::RuntimeTraitEnvironmentBindings>::new();
+        for ((module, range, source_impl, requirement, stable_parameter, ty, _key), root) in stable_trait_root_specs
+            .iter()
+            .zip(metadata_bundle.runtime_roots.iter().skip(runtime_root_specs.len() + runtime_call_root_specs.len()))
+        {
+            let recipe = if phalcom_semantic::checker::associated::contains_any_type_parameter(&analyzed.semantic.store, *ty) {
+                RuntimeTypeRecipe::Template(RuntimeTypeRef::Base {
+                    pool: MetadataPoolId(0),
+                    node: root.form,
+                })
+            } else {
+                RuntimeTypeRecipe::Closed(RuntimeTypeRef::Base {
+                    pool: MetadataPoolId(0),
+                    node: root.form,
+                })
+            };
+            let bindings = runtime_trait_environment_bindings
+                .entry(module.clone())
+                .or_default()
+                .entry((*range, source_impl.clone(), requirement.clone()))
+                .or_insert_with(|| Box::new([]));
+            let mut updated = bindings.to_vec();
+            updated.push((stable_parameter.clone(), recipe));
+            updated.sort_by(|(left, _), (right, _)| left.cmp(right));
+            *bindings = updated.into_boxed_slice();
         }
         let mut call_conformance_slots = BTreeMap::<
             (ModuleId, SourceRange, phalcom_semantic::identity::CallableId),
@@ -999,7 +1153,7 @@ impl ProgramCompiler {
             } else {
                 (None, None)
             };
-            let lowering = super::semantic_lowering::build_module_lowering_semantics_with_runtime_types_and_calls(
+            let mut lowering = super::semantic_lowering::build_module_lowering_semantics_with_runtime_types_and_calls(
                 id,
                 &analyzed.semantic,
                 &analyzed.project_universe,
@@ -1007,6 +1161,9 @@ impl ProgramCompiler {
                 runtime_call_environment_recipes.get(id).unwrap_or(&BTreeMap::new()),
             )
             .map_err(|e| ProgramCompileError::Io(format!("lowering projection error in {id}: {e}")))?;
+            if let Some(environments) = runtime_trait_environment_bindings.get(id) {
+                super::semantic_lowering::attach_runtime_trait_environments(&mut lowering, environments);
+            }
             modules.insert(id.clone(), compile_module(id.clone(), linked_module, source, source_text, Arc::new(lowering)));
         }
 

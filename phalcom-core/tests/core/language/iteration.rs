@@ -99,7 +99,8 @@ let result = total
 #[ignore = "BASELINE: generic call-entry type recipe cannot instantiate generic SetIterator<T>"]
 fn canonical_set_iterator_is_fresh_sticky_and_ordered() {
     let source = r#"
-let values = [3, 1, 2].toSet
+let values: Set<Int> = Set.new()
+values.add(3).add(1).add(2)
 let it = values.iterator
 let directFirst = it.next.isSome
 let directSecond = it.next.isSome

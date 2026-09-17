@@ -401,7 +401,17 @@ pub struct TraitInvocationSpec {
     pub selection: phalcom_semantic::trait_dispatch::TraitDispatchSelection,
     pub requirement_slot: u16,
     pub requirement_slots: Box<[(phalcom_semantic::traits::TraitRequirementId, u16)]>,
+    /// Runtime bindings owned by the exact selected conformance/witness.
+    /// These are projected from semantic evidence; the VM never reconstructs
+    /// them from the receiver or from the selected method's class.
+    pub type_bindings: Box<[(phalcom_type_meta::StableTypeParameterRef, RuntimeTypeRecipe)]>,
 }
+
+pub type RuntimeTraitEnvironmentKey = (SourceRange, ImplId, phalcom_semantic::traits::TraitRequirementId);
+pub type RuntimeTraitEnvironmentBindings = BTreeMap<
+    RuntimeTraitEnvironmentKey,
+    Box<[(phalcom_type_meta::StableTypeParameterRef, RuntimeTypeRecipe)]>,
+>;
 
 /// Abstract requirement call inside a trait default. The active runtime
 /// conformance environment supplies the selected target for this slot.
@@ -472,6 +482,36 @@ pub struct ModuleLoweringSemantics {
     pub trait_requirement_invocations: BTreeMap<LoweringSite, TraitRequirementInvocationSpec>,
     pub for_iteration_lanes: BTreeMap<SourceRange, ForIterationLoweringSpec>,
     pub detached_methods: BTreeMap<CallableId, DetachedMethodSpec>,
+}
+
+pub(crate) fn attach_runtime_trait_environments(
+    lowering: &mut ModuleLoweringSemantics,
+    environments: &RuntimeTraitEnvironmentBindings,
+) {
+    for (site, spec) in lowering.trait_invocations.iter_mut() {
+        let key = (site.range, spec.selection.source_impl.clone(), spec.selection.requirement.clone());
+        if let Some(bindings) = environments.get(&key) {
+            spec.type_bindings = bindings.clone();
+        }
+    }
+
+    fn attach_requirement(
+        requirement: &mut ForIterationRequirementSpec,
+        range: SourceRange,
+        environments: &RuntimeTraitEnvironmentBindings,
+    ) {
+        let ForIterationRequirementSpec::Selected(spec) = requirement else { return };
+        let key = (range, spec.selection.source_impl.clone(), spec.selection.requirement.clone());
+        if let Some(bindings) = environments.get(&key) {
+            spec.type_bindings = bindings.clone();
+        }
+    }
+
+    for spec in lowering.for_iteration_lanes.values_mut() {
+        let range = spec.source;
+        attach_requirement(&mut spec.iterator, range, environments);
+        attach_requirement(&mut spec.next, range, environments);
+    }
 }
 
 impl ModuleLoweringSemantics {
@@ -1066,6 +1106,7 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
                             selection: selection.clone(),
                             requirement_slot,
                             requirement_slots: requirement_slots.iter().map(|(requirement, slot)| (requirement.clone(), *slot)).collect(),
+                            type_bindings: Box::new([]),
                         },
                     );
                 }
@@ -1239,6 +1280,7 @@ fn project_for_iteration_requirement(
                     selection,
                     requirement_slot,
                     requirement_slots: requirement_slots.iter().map(|(id, slot)| (id.clone(), *slot)).collect(),
+                    type_bindings: Box::new([]),
                 }))
             }
             phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(derived) => {
@@ -1279,6 +1321,7 @@ fn project_for_iteration_requirement(
                     selection,
                     requirement_slot,
                     requirement_slots: requirement_slots.iter().map(|(id, slot)| (id.clone(), *slot)).collect(),
+                    type_bindings: Box::new([]),
                 }))
             }
         },
@@ -2245,6 +2288,7 @@ fn project_trait_invocation_spec(
         selection: selection.clone(),
         requirement_slot,
         requirement_slots,
+        type_bindings: Box::new([]),
     })
 }
 

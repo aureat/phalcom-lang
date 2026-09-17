@@ -1175,13 +1175,14 @@ impl VM {
         receiver: Value,
         spec: &crate::modules::semantic_lowering::TraitInvocationSpec,
     ) -> PhResult<(crate::typing::RuntimeConformanceEnvironmentId, ObjRef)> {
+        let type_environment = self.materialize_type_bindings(&spec.type_bindings)?;
         let mut slots = vec![None; spec.requirement_slots.iter().map(|(_, slot)| *slot as usize + 1).max().unwrap_or(0)];
         for (requirement, slot) in spec.requirement_slots.iter() {
             if let Some(target) = spec.selection.requirement_targets.get(requirement) {
                 let method = self.trait_method_for_selection(receiver, target, &requirement.selector)?;
                 slots[*slot as usize] = Some(crate::typing::RuntimeConformanceSlot {
                     method,
-                    type_environment: crate::typing::RuntimeTypeEnvironmentId::EMPTY,
+                    type_environment,
                     conformance_environment: crate::typing::RuntimeConformanceEnvironmentId::EMPTY,
                 });
             }
@@ -1203,11 +1204,7 @@ impl VM {
         let receiver = self.stack[receiver_idx];
         let (conformance_environment, method) = self.materialize_trait_environment(receiver, &spec)?;
         let selector = self.interner.intern(&spec.selection.signature.selector.encode());
-        let type_environment = self
-            .frames
-            .last()
-            .map(|frame| frame.type_environment)
-            .unwrap_or(crate::typing::environment::RuntimeTypeEnvironmentId::EMPTY);
+        let type_environment = self.materialize_type_bindings(&spec.type_bindings)?;
         let layout = self.invocation_layout_for_selector(selector, arity as usize)?;
         self.call_method_with_selector_as_and_environments(
             &receiver,
@@ -1434,6 +1431,13 @@ impl VM {
         &mut self,
         recipe: &crate::typing::RuntimeCallEnvironmentRecipe,
     ) -> Result<crate::typing::RuntimeTypeEnvironmentId, RuntimeError> {
+        self.materialize_type_bindings(&recipe.bindings)
+    }
+
+    fn materialize_type_bindings(
+        &mut self,
+        bindings: &[(phalcom_type_meta::StableTypeParameterRef, crate::typing::RuntimeTypeRecipe)],
+    ) -> Result<crate::typing::RuntimeTypeEnvironmentId, RuntimeError> {
         let parent_id = self
             .frames
             .last()
@@ -1444,13 +1448,18 @@ impl VM {
             .get(parent_id)
             .cloned()
             .ok_or_else(|| RuntimeError::Internal(format!("missing caller runtime type environment {}", parent_id.0)))?;
-        let mut bindings = Vec::with_capacity(recipe.bindings.len());
-        for (parameter, type_recipe) in recipe.bindings.iter().cloned() {
+        let mut materialized = Vec::with_capacity(bindings.len());
+        for (parameter, type_recipe) in bindings.iter().cloned() {
             let ty = crate::typing::instantiate_type_recipe(type_recipe, &parent, &mut self.runtime_typing_context, &self.typing_registry)
-                .ok_or_else(|| RuntimeError::Internal("generic call-entry type recipe could not be instantiated".into()))?;
-            bindings.push((parameter, ty));
+                .ok_or_else(|| {
+                    RuntimeError::Internal(format!(
+                        "generic call-entry type recipe could not be instantiated for parameter {parameter:?}, recipe {type_recipe:?}, against parent {:?}",
+                        parent.bindings
+                    ))
+                })?;
+            materialized.push((parameter, ty));
         }
-        Ok(self.runtime_type_environments.intern(crate::typing::RuntimeTypeEnvironment::new(bindings)))
+        Ok(self.runtime_type_environments.intern(crate::typing::RuntimeTypeEnvironment::new(materialized)))
     }
 
     fn resolve_conformance_method(

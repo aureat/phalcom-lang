@@ -2440,7 +2440,7 @@ fn finalize_owner_call_specialization(ctx: &mut CheckingContext<'_>, target: &Ca
     let Some(owner) = ctx.declaration_generic_signature(owner_id) else {
         return;
     };
-    if !owner.constraints.iter().any(|constraint| matches!(constraint, GenericConstraint::Conforms { .. })) {
+    if owner.parameters.is_empty() && !owner.constraints.iter().any(|constraint| matches!(constraint, GenericConstraint::Conforms { .. })) {
         return;
     }
     let existing = ctx.take_call_specialization(expression);
