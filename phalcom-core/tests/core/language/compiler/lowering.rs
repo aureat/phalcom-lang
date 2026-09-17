@@ -5,6 +5,8 @@ use phalcom_core::bytecode::Bytecode;
 use phalcom_core::error::PhError;
 use phalcom_core::modules::compile::{CompiledProgram, EntrySelection, ProgramCompiler};
 use phalcom_core::modules::semantic_lowering::{AssociatedLoweringSpec, FamilyApplicationLoweringSpec, LoweringSiteKind, RuntimeTypeFormValueSpec};
+use phalcom_core::typing::RuntimeTypeRecipe;
+use phalcom_core::typing::handle::{MetadataPoolId, RuntimeTypeRef};
 use phalcom_core::vm::VM;
 use phalcom_semantic::enum_semantics::VariantShape;
 use std::sync::Arc;
@@ -103,6 +105,66 @@ fn applied_type_form_lowers_to_ordinary_class_object_reference() {
     let chunk = &vm.heap.closure(closure).callable.chunk;
     assert!(matches!(chunk.code.first(), Some(Bytecode::GetLinked(_))));
     assert!(matches!(chunk.code.get(1), Some(Bytecode::InvokeSpecialized(_, _, _))));
+}
+
+#[test]
+fn concrete_generic_getter_preserves_closed_call_environment() {
+    let source = r#"
+let value: Option<Int> = Option<Int>::Some(1)
+let result = value.isSome
+"#;
+    let (_vm, program, closure) = compile_inline(source).expect("generic getter should compile");
+    let lowering = &program.modules[&program.entry].lowering;
+    let recipe = lowering
+        .call_environment_recipes
+        .values()
+        .find(|recipe| recipe.callable.selector.as_ref() == "isSome")
+        .expect("Option.isSome must retain its call-entry recipe");
+    assert!(
+        matches!(recipe.bindings.as_ref(), [(_, RuntimeTypeRecipe::Closed(_))]),
+        "concrete Option<Int>.isSome must lower Option.T as Closed(Int), got {recipe:?}"
+    );
+
+    let runtime_chunk = &_vm.heap.closure(closure).callable.chunk;
+    let recipe_index = runtime_chunk
+        .code
+        .iter()
+        .find_map(|op| match op {
+            Bytecode::InvokeSpecialized(0, _, recipe) => Some(*recipe),
+            _ => None,
+        })
+        .expect("concrete generic getter must emit InvokeSpecialized");
+    let runtime_recipe = runtime_chunk.executable_semantics.call_environment_recipe(recipe_index);
+    assert!(matches!(
+        runtime_recipe.bindings.as_ref(),
+        [(_, RuntimeTypeRecipe::Closed(RuntimeTypeRef::Base { pool, .. }))] if *pool != MetadataPoolId(0)
+    ));
+    assert!(
+        _vm.typing_registry.pool_count() > 1,
+        "full Universe VM must keep canonical and user metadata pools distinct"
+    );
+}
+
+#[test]
+fn generic_getter_forwards_owner_parameter_as_template() {
+    let source = r#"
+class Probe<T> {
+  check(_ value: Option<T>) -> Bool { value.isSome }
+}
+"#;
+    let (_vm, program, _closure) = compile_inline(source).expect("generic getter body should compile");
+    let recipes: Vec<_> = program.modules[&program.entry]
+        .lowering
+        .call_environment_recipes
+        .values()
+        .filter(|recipe| recipe.callable.selector.as_ref() == "isSome")
+        .collect();
+    assert_eq!(recipes.len(), 1, "generic Probe should have one Option.isSome recipe");
+    assert!(
+        matches!(recipes[0].bindings.as_ref(), [(_, RuntimeTypeRecipe::Template(_))]),
+        "generic Probe<T>.check must forward Probe.T as a template, got {:?}",
+        recipes[0]
+    );
 }
 
 #[test]

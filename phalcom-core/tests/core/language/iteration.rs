@@ -237,3 +237,51 @@ let result = exclusiveSum == 6 and inclusiveSum == 6 and directFirst and directS
     let symbol = vm.interner.find("result").expect("result symbol");
     assert_eq!(vm.heap.module(module).get(symbol).expect("result binding").to_string(&vm), "true");
 }
+
+#[test]
+fn canonical_set_iterator_direct_path_is_fresh_sticky_and_ordered() {
+    let source = r#"
+let values = Set<Int>.new()
+values.add(3).add(1).add(2)
+let it = values.iterator
+let directFirst = it.next.isSome
+let directSecond = it.next.isSome
+let directThird = it.next.isSome
+let done = it.next
+let doneAgain = it.next
+let fresh = values.iterator
+let freshFirst = fresh.next.isSome
+let result = directFirst and directSecond and directThird and done.isNone and doneAgain.isNone and freshFirst
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("direct canonical Set iteration compiles");
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("direct canonical Set iteration executes");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    let symbol = vm.interner.find("result").expect("result symbol");
+    assert_eq!(vm.heap.module(module).get(symbol).expect("result binding").to_string(&vm), "true");
+}
+
+#[test]
+fn canonical_map_iterator_direct_path_exposes_entries_and_views() {
+    let source = r#"
+let values: Map<String, Int> = Map.new()
+values.at("a", put: 10).at("b", put: 20)
+let entries = values.iterator
+let directFirst = entries.next.isSome
+let directSecond = entries.next.isSome
+let done = entries.next
+let keyView = values.keys.iterator
+let valueView = values.values.iterator
+let entryView = values.entries.iterator
+let keyFirst = keyView.next.isSome
+let valueFirst = valueView.next.isSome
+let viewFirst = entryView.next.isSome
+let result = directFirst and directSecond and done.isNone and keyFirst and valueFirst and viewFirst
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("direct canonical Map iteration compiles");
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("direct canonical Map iteration executes");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    let symbol = vm.interner.find("result").expect("result symbol");
+    assert_eq!(vm.heap.module(module).get(symbol).expect("result binding").to_string(&vm), "true");
+}

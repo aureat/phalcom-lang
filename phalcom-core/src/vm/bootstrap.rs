@@ -169,6 +169,9 @@ impl VM {
         // their real module slots before compiling any initializer so those
         // references can use linked reads just like native Universe bindings.
         vm.prepare_universe_source_bindings(canonical)?;
+        if let Some(metadata_bundle) = canonical.program().semantic_metadata.clone() {
+            vm.install_semantic_metadata_bundle(metadata_bundle).map_err(crate::error::VmBootstrapError::Runtime)?;
+        }
 
         // Compile and run the registered universe modules now that every native
         // primitive is installed: this is what actually attaches each

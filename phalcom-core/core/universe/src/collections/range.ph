@@ -1,6 +1,8 @@
+from universe.collections.iterator_laws import Iterator as CanonicalIterator, Iterable as CanonicalIterable
+
 // Range is a native bounds descriptor. Its lower_/upper_/upperInclusive_
-// observations preserve omitted endpoints. Progression, equality, hashing,
-// and traversal are deliberately deferred.
+// observations preserve omitted endpoints. Stateful traversal is owned by
+// RangeIterator; the legacy cursor methods remain during the staged migration.
 @native
 class Range is Iterable {
   @internal @native _$lower -> Option<Number>
@@ -72,6 +74,8 @@ class Range is Iterable {
     }
     return Result::Ok((start, end))
   }
+
+  iterator -> RangeIterator { RangeIterator.new(self) }
 
   // iterate and iteratorValue for forward integer iteration (E.2).
   // The cursor is the current yielded integer value, not an offset from lower.
@@ -200,4 +204,73 @@ class Range is Iterable {
     let h3 = self._$upperInclusive.ifTrue(|| { 1 }, ifFalse: || { 0 })
     return h1 + h2 * 37 + h3 * 97
   }
+}
+
+class RangeIterator {
+  _range: Range
+  _started: Bool
+  _done: Bool
+  _nextValue: Number
+
+  @constructor
+  new(_ range: Range) {
+    _range = range
+    _started = false
+    _done = false
+    _nextValue = 0
+  }
+
+  next -> Option<Number> {
+    if (_done) { return None }
+
+    if (not _started) {
+      let lowerOpt = _range._$lower
+      if (lowerOpt.isNone) {
+        throw ArgumentError.new("Range iteration unsupported when lower bound is absent")
+      }
+      let lower = lowerOpt.unwrapOr(None)
+      if (not (lower.is(Number) and ((lower % 1) == 0))) {
+        throw ArgumentError.new("Range iteration unsupported: lower bound must be an integer")
+      }
+
+      let upperOpt = _range._$upper
+      if (upperOpt.isSome) {
+        let upper = upperOpt.unwrapOr(None)
+        if (not (upper.is(Number) and ((upper % 1) == 0))) {
+          throw ArgumentError.new("Range iteration unsupported: upper bound must be an integer")
+        }
+        if (lower > upper) {
+          throw ArgumentError.new("Range iteration unsupported: lower bound exceeds upper (descending traversal not supported)")
+        }
+      }
+
+      _nextValue = lower
+      _started = true
+    } else {
+      _nextValue = _nextValue + 1
+    }
+
+    let upperOpt = _range._$upper
+    if (upperOpt.isSome) {
+      let upper = upperOpt.unwrapOr(None)
+      let live = _range._$upperInclusive.ifTrue(|| { _nextValue <= upper }, ifFalse: || { _nextValue < upper })
+      if (not live) {
+        _done = true
+        return None
+      }
+    }
+    Some(_nextValue)
+  }
+
+  iterator { self }
+}
+
+impl CanonicalIterator for RangeIterator {
+  type Item = Number
+}
+
+impl CanonicalIterable for Range {
+  type Item = Number
+  type Iterator = RangeIterator
+  iterator -> RangeIterator { RangeIterator.new(self) }
 }

@@ -10,7 +10,106 @@ use phalcom_modules::LinkedReadSpec;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+fn remap_runtime_type_ref(
+    runtime_type: crate::typing::RuntimeTypeRef,
+    pool_id: crate::typing::MetadataPoolId,
+) -> crate::typing::RuntimeTypeRef {
+    match runtime_type {
+        crate::typing::RuntimeTypeRef::Base { node, .. } => crate::typing::RuntimeTypeRef::Base { pool: pool_id, node },
+        crate::typing::RuntimeTypeRef::Overlay(id) => crate::typing::RuntimeTypeRef::Overlay(id),
+    }
+}
+
+fn remap_runtime_type_recipe(
+    recipe: crate::typing::RuntimeTypeRecipe,
+    pool_id: crate::typing::MetadataPoolId,
+) -> crate::typing::RuntimeTypeRecipe {
+    match recipe {
+        crate::typing::RuntimeTypeRecipe::Closed(runtime_type) => crate::typing::RuntimeTypeRecipe::Closed(remap_runtime_type_ref(runtime_type, pool_id)),
+        crate::typing::RuntimeTypeRecipe::Template(runtime_type) => crate::typing::RuntimeTypeRecipe::Template(remap_runtime_type_ref(runtime_type, pool_id)),
+    }
+}
+
+fn remap_runtime_bindings(
+    bindings: &mut Box<[(phalcom_type_meta::StableTypeParameterRef, crate::typing::RuntimeTypeRecipe)]>,
+    pool_id: crate::typing::MetadataPoolId,
+) {
+    *bindings = bindings
+        .iter()
+        .map(|(parameter, recipe)| (parameter.clone(), remap_runtime_type_recipe(*recipe, pool_id)))
+        .collect();
+}
+
+fn remap_runtime_conformance_slots(
+    slots: &mut Box<[crate::typing::RuntimeConformanceSlotRecipe]>,
+    pool_id: crate::typing::MetadataPoolId,
+) {
+    for slot in slots.iter_mut() {
+        if let crate::typing::RuntimeConformanceSlotRecipe::DerivedConditional {
+            type_bindings,
+            nested_slots,
+            ..
+        } = slot
+        {
+            remap_runtime_bindings(type_bindings, pool_id);
+            remap_runtime_conformance_slots(nested_slots, pool_id);
+        }
+    }
+}
+
+fn remap_trait_invocation(spec: &mut crate::modules::semantic_lowering::TraitInvocationSpec, pool_id: crate::typing::MetadataPoolId) {
+    remap_runtime_bindings(&mut spec.type_bindings, pool_id);
+}
+
+fn remap_for_requirement(
+    requirement: &mut crate::modules::semantic_lowering::ForIterationRequirementSpec,
+    pool_id: crate::typing::MetadataPoolId,
+) {
+    if let crate::modules::semantic_lowering::ForIterationRequirementSpec::Selected(spec) = requirement {
+        remap_trait_invocation(spec, pool_id);
+    }
+}
+
+fn remap_lowering_metadata_pool(lowering: &mut crate::modules::semantic_lowering::ModuleLoweringSemantics, pool_id: crate::typing::MetadataPoolId) {
+    for spec in lowering.anonymous_products.values_mut() {
+        let spec = Arc::make_mut(spec);
+        spec.type_recipe = remap_runtime_type_recipe(spec.type_recipe, pool_id);
+    }
+    for recipe in lowering.call_environment_recipes.values_mut() {
+        let recipe = Arc::make_mut(recipe);
+        remap_runtime_bindings(&mut recipe.bindings, pool_id);
+        remap_runtime_conformance_slots(&mut recipe.conformance_slots, pool_id);
+    }
+    for spec in lowering.trait_invocations.values_mut() {
+        remap_trait_invocation(spec, pool_id);
+    }
+    for spec in lowering.callable_references.values_mut() {
+        if let crate::modules::semantic_lowering::CallableReferenceLoweringSpec::MakeTraitBoundMethod { invocation } = spec {
+            remap_trait_invocation(invocation, pool_id);
+        }
+    }
+    for spec in lowering.for_iteration_lanes.values_mut() {
+        remap_for_requirement(&mut spec.iterator, pool_id);
+        remap_for_requirement(&mut spec.next, pool_id);
+    }
+}
+
 impl VM {
+    pub(crate) fn install_semantic_metadata_bundle(
+        &mut self,
+        metadata_bundle: Arc<phalcom_type_meta::SemanticMetadataBundle>,
+    ) -> PhResult<crate::typing::handle::MetadataPoolId> {
+        let pool_id = crate::typing::handle::MetadataPoolId(self.typing_registry.pool_count() as u32);
+        let pool = crate::typing::loader::load_metadata_bundle(
+            pool_id,
+            metadata_bundle,
+            &phalcom_type_meta::validate::ValidationLimits::default(),
+        )?;
+        let registered = self.typing_registry.register_pool(pool);
+        debug_assert_eq!(registered, pool_id);
+        Ok(registered)
+    }
+
     /// Materializes one linked interface's public exports into runtime module
     /// references. This is the single runtime projection from canonical linked
     /// export identity to [`RuntimeExportRef`], shared by ordinary programs and
@@ -386,12 +485,7 @@ impl VM {
 
         // Phase 8: Load immutable semantic metadata pool into typing registry if present.
         if let Some(ref metadata_bundle) = program.semantic_metadata {
-            let pool = crate::typing::loader::load_metadata_bundle(
-                crate::typing::handle::MetadataPoolId(0),
-                metadata_bundle.clone(),
-                &phalcom_type_meta::validate::ValidationLimits::default(),
-            )?;
-            self.typing_registry.register_pool(pool);
+            let metadata_pool_id = self.install_semantic_metadata_bundle(metadata_bundle.clone())?;
 
             let identity_context = phalcom_semantic::metadata::stable_identity::StableIdentityContext::new(&program.project_universe);
             let mut source_metadata_bindings = Vec::new();
@@ -432,7 +526,7 @@ impl VM {
                                 method_semantics.push((
                                     *method,
                                     crate::typing::side_table::RuntimeCallableRef {
-                                        pool: crate::typing::handle::MetadataPoolId(0),
+                                        pool: metadata_pool_id,
                                         record: phalcom_type_meta::declaration::CallableRecordId(record as u32),
                                     },
                                 ));
@@ -447,6 +541,21 @@ impl VM {
                 for (method, callable) in method_semantics {
                     self.typing_registry.method_semantics.insert(method, callable);
                 }
+            }
+
+            // Compiler projection currently emits bundle-local base handles.
+            // Materialization assigns the bundle its VM pool identity, so
+            // rewrite the executable lowering products before any initializer
+            // can consume them. Canonical Universe source is installed once
+            // as pool 0 during VM bootstrap; user programs receive their own
+            // pool and remain isolated from that baseline.
+            for (id, compiled_mod) in &program.modules {
+                let Some(module) = self.module_registry.get(id).map(|record| record.object) else {
+                    continue;
+                };
+                let mut lowering = (*compiled_mod.lowering).clone();
+                remap_lowering_metadata_pool(&mut lowering, metadata_pool_id);
+                self.heap.module_mut(module).lowering = Some(Arc::new(lowering));
             }
 
             // Register nominal class bindings with their canonical Universe

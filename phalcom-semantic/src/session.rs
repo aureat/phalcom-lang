@@ -65,6 +65,49 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+fn canonical_universe_linked_program() -> Arc<LinkedProgram> {
+    let provider = phalcom_modules::UniverseSourceProvider::new();
+    let universe = Arc::new(phalcom_modules::project::ProjectUniverse::new());
+    let filesystem = phalcom_modules::FilesystemSourceProvider::new();
+    let mut module_resolver = phalcom_modules::ModuleResolver::new(&universe, &filesystem);
+    let mut interfaces = BTreeMap::new();
+
+    for node in provider.nodes() {
+        let path = phalcom_modules::ModulePath::from_components(
+            node.path
+                .iter()
+                .map(|component| phalcom_modules::ModuleComponent::from_identifier(component).expect("canonical Universe component"))
+                .collect::<Vec<_>>(),
+        );
+        let module = phalcom_modules::ModuleId::universe(path);
+        let interface = provider
+            .load_interface(&module)
+            .unwrap_or_else(|error| panic!("failed to load canonical Universe interface {module}: {error}"));
+        interfaces.insert(module, interface);
+    }
+
+    let mut resolved = BTreeMap::new();
+    for (module, interface) in &interfaces {
+        for import in &interface.imports {
+            let path = match import {
+                phalcom_modules::ImportSurface::Module(decl) => &decl.path,
+                phalcom_modules::ImportSurface::Selective(decl) => &decl.path,
+                phalcom_modules::ImportSurface::ReExport(decl) => &decl.path,
+            };
+            let target = module_resolver
+                .resolve_import(module, path)
+                .unwrap_or_else(|error| panic!("failed to resolve canonical Universe import {module}::{path}: {error}"));
+            resolved.insert((module.clone(), path.to_string()), target.id);
+        }
+    }
+
+    Arc::new(
+        phalcom_modules::ModuleLinker::new(universe, interfaces)
+            .link(phalcom_modules::ModuleId::universe_root(), &resolved)
+            .unwrap_or_else(|error| panic!("failed to link canonical Universe semantic baseline: {error}")),
+    )
+}
+
 /// Performance and recomputation metrics for one semantic workspace update.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct SemanticUpdateStats {
@@ -510,14 +553,8 @@ impl SemanticWorkspaceSession {
 
         let mut base_dispatch = SurfaceDispatchResolver::new();
         let known_declarations: HashSet<DeclarationId> = base_declarations.iter().map(|(decl_id, _)| decl_id.clone()).collect();
-        let dummy_linked = Arc::new(LinkedProgram {
-            universe: Arc::new(phalcom_modules::project::ProjectUniverse::new()),
-            modules: BTreeMap::new(),
-            graphs: phalcom_modules::graph::ModuleGraphs::default(),
-            entry: ModuleId::universe_root(),
-            initialization_order: vec![ModuleId::universe_root()],
-        });
-        let resolver = LinkedTypeResolver::new(dummy_linked, known_declarations, ModuleId::universe_root());
+        let canonical_linked = canonical_universe_linked_program();
+        let resolver = LinkedTypeResolver::new(canonical_linked.clone(), known_declarations, ModuleId::universe_root());
         let native_report = register_native_surfaces(&mut store, &base_declarations, &resolver, &ModuleId::universe_root(), &mut base_dispatch)
             .expect("canonical native surface must import during semantic bootstrap");
         crate::checker::context::ensure_core_object_type_tests(&mut store, &base_declarations, &mut base_dispatch);
@@ -650,6 +687,105 @@ impl SemanticWorkspaceSession {
                         generic_signature,
                         supertype_template: None,
                     });
+                }
+            }
+        }
+
+        // Rebuild the resolver after source-owned enum/data forms have been
+        // predeclared. The initial native registration only needs the
+        // declaration set available from the native/source bootstrap; source
+        // products must see the complete canonical declaration universe.
+        let mut known_declarations: HashSet<DeclarationId> = base_declarations.iter().map(|(decl_id, _)| decl_id.clone()).collect();
+        let mut trait_associated_types: BTreeMap<DeclarationId, BTreeMap<String, crate::traits::AssociatedTypeRequirementId>> = BTreeMap::new();
+        for node in provider.nodes() {
+            let path = phalcom_modules::ModulePath::from_components(
+                node.path
+                    .iter()
+                    .map(|p| phalcom_modules::ModuleComponent::from_identifier(p).expect("valid component"))
+                    .collect::<Vec<_>>(),
+            );
+            let module_id = phalcom_modules::ModuleId::universe(path);
+            let parsed = provider
+                .load_parsed(&module_id)
+                .unwrap_or_else(|e| panic!("failed to load universe module {module_id}: {e}"));
+            for stmt in &parsed.program.statements {
+                let Statement::Trait(trait_def) = stmt else { continue };
+                let declaration = DeclarationId::new(module_id.clone(), trait_def.name.clone().into());
+                known_declarations.insert(declaration.clone());
+                let mut associated_index = 0u32;
+                for member in &trait_def.members {
+                    if let TraitMember::AssociatedType(associated) = member {
+                        trait_associated_types
+                            .entry(declaration.clone())
+                            .or_default()
+                            .insert(
+                                associated.name.clone(),
+                                crate::traits::AssociatedTypeRequirementId::new(declaration.clone(), associated_index),
+                            );
+                        associated_index += 1;
+                    }
+                }
+            }
+        }
+        let resolver = LinkedTypeResolver::new(canonical_linked, known_declarations, ModuleId::universe_root())
+            .with_trait_associated_types(Arc::new(trait_associated_types.clone()));
+
+        // Publish source-authored class members into the reusable baseline.
+        // Native metadata remains authoritative for colliding native members;
+        // source-only members (including generic iterator constructors) are
+        // added to the same declaration surface consumed by user analysis.
+        for node in provider.nodes() {
+            let path = phalcom_modules::ModulePath::from_components(
+                node.path
+                    .iter()
+                    .map(|p| phalcom_modules::ModuleComponent::from_identifier(p).expect("valid component"))
+                    .collect::<Vec<_>>(),
+            );
+            let module_id = phalcom_modules::ModuleId::universe(path);
+            let parsed = provider
+                .load_parsed(&module_id)
+                .unwrap_or_else(|e| panic!("failed to load universe module {module_id}: {e}"));
+            for stmt in &parsed.program.statements {
+                let Statement::Class(class_def) = stmt else { continue };
+                let declaration = DeclarationId::new(module_id.clone(), class_def.name.clone().into());
+                let mut context = CheckingContext::new_with_dispatch_ref(
+                    &mut store,
+                    &base_hierarchy,
+                    &resolver,
+                    &base_declarations,
+                    &base_dispatch,
+                    module_id.clone(),
+                );
+                let (source_surface, source_signatures) = crate::checker::declaration::build_declared_class_surface(&mut context, class_def);
+                let mut merged = base_dispatch
+                    .surface(&declaration)
+                    .cloned()
+                    .unwrap_or_else(|| crate::surface::DeclarationSurface::new(Some(declaration.clone())));
+                for side in [DispatchSide::Instance, DispatchSide::Class] {
+                    let source_side = source_surface.surface(side);
+                    for (name, ty) in &source_side.fields {
+                        if !merged.surface(side).fields.contains_key(name) {
+                            merged.add_field_with_visibility(side, name.clone(), ty.clone(), *source_side.field_visibility.get(name).unwrap_or(&crate::surface::MemberVisibility::Public));
+                        }
+                    }
+                    for (selector, signature) in &source_side.callable_signatures {
+                        if merged.surface(side).get_callable(selector).is_none() {
+                            merged.add_callable_with_visibility(
+                                side,
+                                signature.clone(),
+                                *source_side.callable_visibility.get(selector).unwrap_or(&crate::surface::MemberVisibility::Public),
+                            );
+                        }
+                    }
+                }
+                for signature in source_signatures.into_values() {
+                    if base_callable_signatures.get(&signature.callable).is_none() {
+                        base_callable_signatures.insert(signature);
+                    }
+                }
+                base_dispatch.register_surface(declaration.clone(), merged);
+                if let Some(ty) = base_declarations.form(&declaration) {
+                    base_dispatch.register_type(ty, declaration);
                 }
             }
         }
@@ -1953,6 +2089,7 @@ impl SemanticWorkspaceSession {
 
         // 3. Construct LinkedTypeResolver
         let mut known_declarations: HashSet<DeclarationId> = declarations.iter().map(|(decl_id, _)| decl_id.clone()).collect();
+
         known_declarations.extend(alias_declarations.iter().cloned());
         let mut trait_associated_types: BTreeMap<DeclarationId, BTreeMap<String, crate::traits::AssociatedTypeRequirementId>> = BTreeMap::new();
         for (module, shard) in &self.semantic_structure_shards {
@@ -2570,7 +2707,10 @@ impl SemanticWorkspaceSession {
         // Resolve their stable declaration-owned generic binders through the
         // same canonical generic-signature path, but publish them separately
         // from `DeclarationTypeTable` so no fake form or class object exists.
-        let mut trait_headers = TraitHeaderTable::new();
+        let mut trait_headers = previous_snapshot
+            .as_ref()
+            .map(|snapshot| (*snapshot.trait_headers).clone())
+            .unwrap_or_else(TraitHeaderTable::new);
         for (module_id, shard) in &self.semantic_structure_shards {
             for stmt in &shard.source.program.statements {
                 let Statement::Trait(trait_def) = stmt else { continue };
@@ -2633,7 +2773,10 @@ impl SemanticWorkspaceSession {
         // Trait surfaces are semantic contract products, not declaration
         // surfaces. Publish every member signature before any body-analysis
         // work so defaults cannot influence the contract shape they consume.
-        let mut trait_surfaces = TraitSurfaceTable::new();
+        let mut trait_surfaces = previous_snapshot
+            .as_ref()
+            .map(|snapshot| (*snapshot.trait_surfaces).clone())
+            .unwrap_or_else(TraitSurfaceTable::new);
         for (module_id, shard) in &self.semantic_structure_shards {
             for stmt in &shard.source.program.statements {
                 let Statement::Trait(trait_def) = stmt else { continue };

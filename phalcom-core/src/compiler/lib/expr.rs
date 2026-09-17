@@ -828,7 +828,7 @@ impl<'vm> Compiler<'vm> {
                 let selector_sym = self.vm.interner.intern(&get_prop.property);
                 let selector_idx = self.add_constant(Value::symbol(selector_sym));
                 if !self.emit_trait_requirement_if_present(0, get_prop.range)? && !self.emit_trait_invoke_if_present(0, get_prop.range)? {
-                    self.emit(Bytecode::Invoke(0, selector_idx), get_prop.range);
+                    self.emit_invoke(0, selector_idx, get_prop.range, false)?;
                 }
             }
             Expr::SetProperty(set_prop) => {
@@ -837,7 +837,7 @@ impl<'vm> Compiler<'vm> {
                 let selector = make_signature(&set_prop.property, SignatureKind::Setter);
                 let selector_sym = self.vm.interner.intern(&selector);
                 let selector_idx = self.add_constant(Value::symbol(selector_sym));
-                self.emit(Bytecode::Invoke(1, selector_idx), set_prop.range);
+                self.emit_invoke(1, selector_idx, set_prop.range, false)?;
             }
             Expr::Index(ix) => {
                 // U-INDEX (ADR-0060): `xs[a, b, ...]` sends directly to the
@@ -860,7 +860,7 @@ impl<'vm> Compiler<'vm> {
                 let selector = encode_selector("", &labels, SignatureKind::SubscriptGet(argc));
                 let sym = self.vm.interner.intern(&selector);
                 let idx = self.add_constant(Value::symbol(sym));
-                self.emit(Bytecode::Invoke(argc, idx), ix.range);
+                self.emit_invoke(argc, idx, ix.range, false)?;
             }
             Expr::SetIndex(six) => {
                 let six = *six;
@@ -923,7 +923,7 @@ impl<'vm> Compiler<'vm> {
                 let selector = encode_selector("", &labels, SignatureKind::SubscriptSet(index_argc));
                 let sym = self.vm.interner.intern(&selector);
                 let idx = self.add_constant(Value::symbol(sym));
-                self.emit(Bytecode::Invoke(invoke_argc, idx), six.range);
+                self.emit_invoke(invoke_argc, idx, six.range, false)?;
 
                 // 7. Pop setter result
                 self.emit(Bytecode::Pop, six.range);

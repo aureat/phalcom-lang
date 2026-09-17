@@ -187,6 +187,7 @@
   },
   "active": "5352b906845ff7b4",
   "lastOpenFiles": [
+    "implementation/time.md",
     "implementation/LANG005/LANG005.C5/LANG005.C5.P1-handoff.md",
     "implementation/LANG005/LANG005.C5/LANG005.C5.P1-walkthrough.md",
     "decisions/accepted/0081-tuple-and-record-are-transparent-structural-value-products.md",
@@ -212,7 +213,6 @@
     "decisions/accepted/0061-defer-lsp-backed-repl-surface.md",
     "decisions/accepted/0060-cell-boundary-diagnostics-and-state-hygiene.md",
     "decisions/accepted/0059-bounded-call-depth-and-native-reentrancy.md",
-    "decisions/accepted/0058-repl-completeness-is-a-parser-signal.md",
     "decisions/retired",
     "decisions/proposed",
     "decisions/accepted",

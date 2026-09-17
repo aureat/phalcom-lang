@@ -100,11 +100,11 @@ class Map<K, V> is Iterable {
 
   // Lightweight live encounter-order views. They retain the Map and read its
   // current slots; they never copy associations into a List.
-  keys { MapKeysView.new(self) }
+  keys -> MapKeysView<K, V> { MapKeysView.new(self) }
 
-  values { MapValuesView.new(self) }
+  values -> MapValuesView<K, V> { MapValuesView.new(self) }
 
-  entries { MapEntriesView.new(self) }
+  entries -> MapEntriesView<K, V> { MapEntriesView.new(self) }
 
   iterator -> MapIterator<K, V> { MapIterator<K, V>.new(self) }
 
@@ -200,6 +200,8 @@ impl<K, V> CanonicalIterable for Map<K, V> {
 // the generic cursor walk and deliberately leave active-iteration mutation
 // behavior unspecified.
 class MapKeysView<K, V> is Iterable {
+  _map: Map<K, V>
+
   @constructor
   new(_ map: Map<K, V>) { _map = map }
 
@@ -213,6 +215,8 @@ class MapKeysView<K, V> is Iterable {
 }
 
 class MapValuesView<K, V> is Iterable {
+  _map: Map<K, V>
+
   @constructor
   new(_ map: Map<K, V>) { _map = map }
 
@@ -240,6 +244,8 @@ class Entry {
 }
 
 class MapEntriesView<K, V> is Iterable {
+  _map: Map<K, V>
+
   @constructor
   new(_ map: Map<K, V>) { _map = map }
 

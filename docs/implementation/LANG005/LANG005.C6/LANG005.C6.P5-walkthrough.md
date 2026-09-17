@@ -2,15 +2,15 @@
 id: LANG005.C6.P5
 kind: implementation-walkthrough
 status: IN_PROGRESS
-completion: IMPLEMENTED
+completion: PARTIAL
 verification: BASELINE_BLOCKED
-revision: a9b168f53506eff1a40d255204a4676f182c541
+revision: c0ede6acceaae541d3ba161a2dad980b2a1d7d1d
 prepared: 2026-09-17
 ---
 
 # LANG005.C6.P5 walkthrough
 
-This supplemental repair is based on `a9b168f53506eff1a40d255204a4676f182c541`
+This continuation is based on `c0ede6acceaae541d3ba161a2dad980b2a1d7d1d`
 with the implementation changes retained in the working tree.
 
 Part I landed the semantic and executable canonical iteration vertical for
@@ -51,13 +51,13 @@ and code-point views, `Set<T>`, `Map<K,V>`, and Map key/value/entry views. Map
 canonical items use the required labeled `(key: K, value: V)` shape. Legacy
 cursor methods remain in place for the staged compatibility boundary.
 
-The focused Bytes/String test passed. Set and Map probes reached the inherited
-VM error `generic call-entry type recipe could not be instantiated` while
-constructing generic iterator classes. Tuple was not changed after the live
-semantic model rejected `Dynamic` as a publishable associated Item type. Range
-was not retained after its canonical bound-extraction probe reached the same
-`Option<Number>` runtime recipe boundary. These are recorded blockers; no
-assertions or semantic baseline expectations were weakened.
+The focused Bytes/String test passed. Set and Map direct iterator/view tests
+now pass after the getter transport correction. Tuple was attempted and
+reverted when the live semantic model rejected `Dynamic` as a publishable
+associated Item type. Range now has a source-authored stateful iterator, but
+its focused path reaches the inherited `Option<Number>` runtime recipe
+boundary. These remain explicit blockers; no assertions or semantic baseline
+expectations were weakened.
 
 The resulting state is `IMPLEMENTED / BASELINE_BLOCKED` for the landed
 Bytes/String slice, with Part II partial overall. G3 is not passed, and T9–T11
@@ -74,12 +74,12 @@ with constructor semantics, and iterator source bodies retain explicit
 generic constructor forms.
 
 Focused regressions pass for contextual `Set<Int>`/`Set<String>` inference,
-applied `Set<Int>` and `Map<Int, String>` construction, ordinary generic-owner
-environment transport, and applied type-form lowering. The full Set iterator
-probe still reaches the inherited inline Universe-source/generic call-entry
-boundary when `SetIterator<T>.new(self)` needs its parent environment. No VM
-inference or permissive template fallback was added; G3 remains unpassed and
-Part II T6/T7/T8 remains for the follow-on session.
+applied `Set<Int>` and `Map<Int, String>` construction, concrete and generic
+getter recipe transport, metadata-pool rebasing, direct Set iteration, and
+direct Map iteration/views. Range's iterator implementation is present but
+its `Option<Number>` observation still reaches the inherited baseline. No VM
+inference or permissive template fallback was added; Tuple's `Dynamic` Item
+surface remains deferred, G3 remains unpassed, and T9–T11 are not started.
 
 ## Lifecycle state
 

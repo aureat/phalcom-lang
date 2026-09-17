@@ -324,7 +324,7 @@ C6 must not migrate production `for`, collections, Range, Map, lazy adapters, ru
 | `LANG005.C6.P2` | Generic/qualified associated projections, associated specialization/equality, projection-driven inference, durable associated constraint metadata | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Tasks T1–T10 complete; generic associated projections, refinements, equality, and inference verified; G1–G5 pass |
 | `LANG005.C6.P3` | Conditional conformances, nested recursive obligations, cycle/memoization proof state, conditional coherence | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Tasks T0–T8 complete; recursive proof engine, cycle/memoization, derived runtime evidence, and cross-module/incremental integration verified; Gates G1–G6 pass |
 | `LANG005.C6.P4` | Iterator/Iterable generic laws, canonical Universe migration, explicit blanket/derived implication decision | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | T0–T9 complete; canonical law and focused gates pass; positive legacy iteration corpus is reproduced baseline-blocked at clean HEAD |
-| `LANG005.C6.P5` | Production `for`, collections, Map, Range, lazy stateful iterators, cursor/runtime-superclass retirement | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | Part I plus Bytes/String canonical stateful lanes implemented and focused-tested; applied Set/Map construction is repaired, while iterator entry, Tuple Dynamic Item, and Range Option extraction remain baseline-blocked; G3 and T9–T11 are not started |
+| `LANG005.C6.P5` | Production `for`, collections, Map, Range, lazy stateful iterators, cursor/runtime-superclass retirement | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | Part I plus Bytes/String, Set, and Map direct canonical stateful lanes are implemented; getter recipe transport and metadata-pool rebasing are focused-tested; Range remains blocked at the inherited Option<Number> boundary, Tuple Dynamic Item remains semantically unpublished, and G3/T9–T11 are not started |
 | `LANG005.C6.P6` | Remaining generic-constraint closure, higher-kind integration where specified, alias/GADT/tooling/performance/stress/certification | PROPOSED | NOT_STARTED | UNVERIFIED | C6 closure plan; exact scope may be amended |
 
 The precise numbering/content of P2–P6 may be amended by later live repository analysis. The dependency structure is more authoritative than the placeholder plan names.
@@ -1071,6 +1071,43 @@ Mechanical drift may be adapted. Architectural drift requires consultation.
   legacy runtime superclass remain compatibility infrastructure.
 - **Next owner**: resolve the generic runtime/Option boundary and Tuple Item
   architecture, then resume T6/T7/T8 and rerun the blocked probes before G3.
+
+### C6.P5 Part II advisory continuation — 2026-09-17
+
+- **Advisory decision**: the missing generic environment belongs to the
+  semantic call edge. The compiler must preserve the canonical
+  `RuntimeCallEnvironmentRecipe` on every source-backed invocation; runtime
+  activation only materializes the recipe result. Concrete bindings are
+  `Closed(...)`; genuinely generic forwarding remains `Template(...)`.
+- **Applied correction**: ordinary `Expr::GetProperty` lowering now routes
+  through `emit_invoke`, preserving an attached recipe and emitting
+  `InvokeSpecialized`. Source-backed setter and subscript paths use the same
+  recipe-aware helper. Compiler-synthesized sends and dynamic argument-pack
+  sends remain outside this correction boundary.
+- **Focused evidence**: concrete `Option<Int>.isSome` lowering produces a
+  `Closed` owner binding and `InvokeSpecialized`; the generic `Probe<T>` getter
+  counterpart produces a `Template` owner binding. The metadata regression
+  confirms the executable recipe is rebased away from the canonical pool-0
+  placeholder when a user bundle is materialized. Direct Set and Map iterator
+  tests pass, including `Option.isSome`/`isNone` observation and Map views.
+- **T8 continuation**: `RangeIterator` now owns `_range`, `_started`, and
+  `_done` state, validates bounds on first `next`, preserves forward
+  exclusive/inclusive/unbounded semantics, and retains legacy cursor methods
+  for transition. Its focused runtime path reaches the inherited
+  `Option<Number>` generic call-entry baseline at `Option.isNone`.
+- **T6 Tuple disposition**: a bounded `TupleIterator` attempt was reverted
+  because publishing `TupleIterator |= Iterator` with `Item = Dynamic` changes
+  the canonical Universe baseline to `impl.conformance.incomplete`. Tuple
+  remains blocked pending the semantic associated-type decision; no baseline
+  assertion was weakened.
+- **Gate state**: G3 remains stopped. T9–T11 remain unstarted. The broader
+  canonical group has two direct Set/Map passes and five legacy/List/parallel
+  failures at the pre-existing cursor/Option boundary; those failures are
+  classified baseline/deferred, not masked.
+- **Next action**: finish the bounded invocation-transport audit and obtain or
+  implement the approved `Option<Number>`/legacy call-entry correction before
+  promoting Range or G3. Preserve the no-VM-inference and no-permissive-
+  template invariants.
 
 ---
 
