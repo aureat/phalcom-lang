@@ -1453,6 +1453,36 @@ impl VM {
         Ok(self.runtime_type_environments.intern(crate::typing::RuntimeTypeEnvironment::new(bindings)))
     }
 
+    fn resolve_conformance_method(
+        &mut self,
+        callable: &phalcom_semantic::identity::CallableId,
+        selector: &phalcom_common::selector::Selector,
+        receiver: Value,
+    ) -> PhResult<ObjRef> {
+        if let Some(&method) = self.detached_method_objects.get(callable) {
+            return Ok(method);
+        }
+        let selector_sym = self.interner.intern(&selector.encode());
+        if let Some(method) = receiver.lookup_method(self, selector_sym) {
+            return Ok(method);
+        }
+        let class_id = callable
+            .owner
+            .try_declaration()
+            .and_then(|decl| self.resolve_declaration_class(decl).ok());
+        let method = class_id.and_then(|cls| {
+            let class_obj = if callable.side.is_class() {
+                self.heap.class(cls).class
+            } else {
+                cls
+            };
+            crate::heap::lookup_method_in_hierarchy(&self.heap, class_obj, selector_sym)
+        });
+        method.ok_or_else(|| {
+            RuntimeError::Internal(format!("trait-selected callable {callable:?} has no executable method")).into()
+        })
+    }
+
     fn materialize_conformance_environment(
         &mut self,
         receiver: Value,
@@ -1471,14 +1501,7 @@ impl VM {
         for slot_recipe in recipe.conformance_slots.iter() {
             match slot_recipe {
                 crate::typing::RuntimeConformanceSlotRecipe::Selection { callable, selector } => {
-                    let method = if let Some(&method) = self.detached_method_objects.get(callable) {
-                        method
-                    } else {
-                        let selector_sym = self.interner.intern(&selector.encode());
-                        receiver
-                            .lookup_method(self, selector_sym)
-                            .ok_or_else(|| RuntimeError::Internal(format!("trait-selected callable {callable:?} has no executable method")))?
-                    };
+                    let method = self.resolve_conformance_method(callable, selector, receiver)?;
                     slots.push(Some(crate::typing::RuntimeConformanceSlot {
                         method,
                         type_environment: crate::typing::RuntimeTypeEnvironmentId::EMPTY,
@@ -1497,14 +1520,7 @@ impl VM {
                     type_bindings,
                     nested_slots,
                 } => {
-                    let method = if let Some(&method) = self.detached_method_objects.get(callable) {
-                        method
-                    } else {
-                        let selector_sym = self.interner.intern(&selector.encode());
-                        receiver
-                            .lookup_method(self, selector_sym)
-                            .ok_or_else(|| RuntimeError::Internal(format!("trait-selected callable {callable:?} has no executable method")))?
-                    };
+                    let method = self.resolve_conformance_method(callable, selector, receiver)?;
 
                     let parent_id = self
                         .frames
@@ -1531,14 +1547,7 @@ impl VM {
                         for nested_slot_recipe in nested_slots.iter() {
                             let nested_slot_val = match nested_slot_recipe {
                                 crate::typing::RuntimeConformanceSlotRecipe::Selection { callable, selector } => {
-                                    let method = if let Some(&method) = self.detached_method_objects.get(callable) {
-                                        method
-                                    } else {
-                                        let selector_sym = self.interner.intern(&selector.encode());
-                                        receiver
-                                            .lookup_method(self, selector_sym)
-                                            .ok_or_else(|| RuntimeError::Internal(format!("trait-selected callable {callable:?} has no executable method")))?
-                                    };
+                                    let method = self.resolve_conformance_method(callable, selector, receiver)?;
                                     Some(crate::typing::RuntimeConformanceSlot {
                                         method,
                                         type_environment: crate::typing::RuntimeTypeEnvironmentId::EMPTY,

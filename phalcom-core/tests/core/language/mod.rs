@@ -57,3 +57,5 @@ mod associated_traits;
 mod generic_conformance;
 #[path = "conditional_conformance.rs"]
 mod conditional_conformance;
+#[path = "derived_conformance.rs"]
+mod derived_conformance;

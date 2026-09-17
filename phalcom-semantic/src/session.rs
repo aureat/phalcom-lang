@@ -4298,16 +4298,20 @@ impl SemanticWorkspaceSession {
                         }
                         if matches!(impl_def.kind, phalcom_ast::ast::ImplKind::Conformance { .. }) {
                             let impl_id = crate::identity::ImplId::new(module_id.clone(), crate::identity::ImplLocalId(stmt_idx as u32));
-                            let Some(contribution) = conformance_index.get(&impl_id).cloned() else {
+                            let (contribution_generic_signature, contribution_target_head, trait_decl) = if let Some(contribution) = conformance_index.get(&impl_id).cloned() {
+                                if !contribution.is_lookup_eligible() {
+                                    continue;
+                                }
+                                (contribution.generic_signature, Some(contribution.target_head), contribution.trait_ref.declaration)
+                            } else if let Some(rule) = derived_conformance_rules.iter().find(|r| r.impl_id == impl_id) {
+                                (Some(rule.generic_signature.clone()), Some(rule.target_template), rule.trait_ref.declaration.clone())
+                            } else {
                                 continue;
                             };
-                            if !contribution.is_lookup_eligible() {
-                                continue;
-                            }
-                            let Some(trait_surface) = trait_surfaces.get(&contribution.trait_ref.declaration) else {
+                            let Some(trait_surface) = trait_surfaces.get(&trait_decl) else {
                                 continue;
                             };
-                            let type_params_map = if let Some(sig) = contribution.generic_signature.as_ref() {
+                            let type_params_map = if let Some(sig) = contribution_generic_signature.as_ref() {
                                 let mut map = std::collections::HashMap::new();
                                 for &param_id in sig.parameters.iter() {
                                     let name = self.store.type_parameter(param_id).name.to_string();
@@ -4379,8 +4383,8 @@ impl SemanticWorkspaceSession {
                                         body,
                                         body_range,
                                         declared_signature: Some((&signature.callable, signature)),
-                                        owner_generic_signature: contribution.generic_signature.as_ref(),
-                                        self_type_override: Some(contribution.target_head),
+                                        owner_generic_signature: contribution_generic_signature.as_ref(),
+                                        self_type_override: contribution_target_head,
                                         trait_surface: Some(trait_surface),
                                         store: Arc::make_mut(&mut self.store),
                                         hierarchy: &hierarchy,

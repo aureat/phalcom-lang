@@ -956,6 +956,22 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
             callable_id
                 .try_declaration_owner()
                 .and_then(|owner| snapshot.declarations.generic_signature(owner))
+                .or_else(|| match &callable_id.owner {
+                    phalcom_semantic::identity::CallableOwnerId::Conformance(impl_id) => {
+                        snapshot
+                            .conformance_witness_plans
+                            .get(impl_id)
+                            .and_then(|plan| plan.generic_signature.as_ref())
+                            .or_else(|| {
+                                snapshot
+                                    .derived_conformance_rules
+                                    .iter()
+                                    .find(|r| &r.impl_id == impl_id)
+                                    .map(|r| &r.generic_signature)
+                            })
+                    }
+                    _ => None,
+                })
         } else {
             None
         };
