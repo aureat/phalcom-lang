@@ -30,6 +30,7 @@ pub enum ProjectionNormalizationMode<'a> {
         conformance_index: &'a ConformanceIndex,
         witness_plans: &'a BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>,
         trait_surfaces: &'a TraitSurfaceTable,
+        derived_rules: Option<&'a crate::derived_conformance::DerivedConformanceRuleIndex>,
         declarations: &'a DeclarationTypeTable,
         hierarchy: &'a dyn crate::types::relation::TypeHierarchy,
     },
@@ -39,6 +40,7 @@ pub enum ProjectionNormalizationMode<'a> {
         conformance_index: Option<&'a ConformanceIndex>,
         witness_plans: Option<&'a BTreeMap<ImplId, Arc<ConformanceWitnessPlan>>>,
         trait_surfaces: &'a TraitSurfaceTable,
+        derived_rules: Option<&'a crate::derived_conformance::DerivedConformanceRuleIndex>,
         declarations: &'a DeclarationTypeTable,
         hierarchy: &'a dyn crate::types::relation::TypeHierarchy,
     },
@@ -282,6 +284,7 @@ fn normalize_projection(
             conformance_index,
             witness_plans,
             trait_surfaces,
+            derived_rules,
             declarations,
             hierarchy,
         } => {
@@ -312,33 +315,80 @@ fn normalize_projection(
                 subject,
                 &trait_ref,
             );
-            let evidence = match resolution {
-                ConformanceResolution::Proven(evidence) => evidence,
-                ConformanceResolution::NotDeclared => return ProjectionNormalizationResult::Unknown(UnknownReason::UnderconstrainedTypeVariable),
-                ConformanceResolution::InvalidSource(_) | ConformanceResolution::Incomplete(_) => return ProjectionNormalizationResult::Incomplete,
-                ConformanceResolution::CoherenceConflict(candidates) => return ProjectionNormalizationResult::Ambiguous(candidates),
-                ConformanceResolution::Unknown(reason) => return ProjectionNormalizationResult::Unknown(reason),
-                ConformanceResolution::Blocked(reason) => return ProjectionNormalizationResult::Blocked(reason),
-                ConformanceResolution::Dynamic(obligation) => return ProjectionNormalizationResult::Dynamic(obligation),
-                ConformanceResolution::Cancelled => return ProjectionNormalizationResult::Cancelled,
-                ConformanceResolution::BudgetExceeded(report) => return ProjectionNormalizationResult::BudgetExceeded(report),
-                ConformanceResolution::InternalFailure(message) => return ProjectionNormalizationResult::InternalFailure(message),
-            };
-            let Some(binding) = evidence.associated_types.get(&projection.requirement) else {
-                return ProjectionNormalizationResult::Incomplete;
-            };
-            if !context.active.insert(projection.clone()) {
-                return ProjectionNormalizationResult::Recursive;
+            match resolution {
+                ConformanceResolution::Proven(evidence) => {
+                    let Some(binding) = evidence.associated_types.get(&projection.requirement) else {
+                        return ProjectionNormalizationResult::Incomplete;
+                    };
+                    if !context.active.insert(projection.clone()) {
+                        return ProjectionNormalizationResult::Recursive;
+                    }
+                    let result = normalize_type(store, binding.value, context);
+                    context.active.remove(&projection);
+                    result
+                }
+                ConformanceResolution::NotDeclared => {
+                    if let Some(rules) = derived_rules {
+                        let candidate_rules = rules.rules_for_trait(&trait_ref.declaration);
+                        for rule in candidate_rules {
+                            let mut impl_bindings = crate::types::substitution::TypeSubstitution::new();
+                            impl_bindings.bind(rule.target_parameter, subject);
+
+                            let instantiated_trait_ref = crate::generic_evidence::substitute_trait_ref(&rule.trait_ref, &impl_bindings, store);
+                            if instantiated_trait_ref == trait_ref {
+                                let mut proof_context = crate::generic_evidence::ConformanceProofContext::new(
+                                    None,
+                                    Some(conformance_index),
+                                    Some(witness_plans),
+                                    Some(trait_surfaces),
+                                    Some(declarations),
+                                    Some(*hierarchy),
+                                    Some(store),
+                                ).with_derived_rules(Some(rules));
+
+                                let mut all_constraints_satisfied = true;
+                                for constraint in &rule.generic_signature.constraints {
+                                    let proof = crate::generic_evidence::prove_constraint(constraint, &impl_bindings, &mut proof_context);
+                                    if !proof.is_proven() {
+                                        all_constraints_satisfied = false;
+                                        break;
+                                    }
+                                }
+
+                                if all_constraints_satisfied {
+                                    if let Some(binding) = rule.associated_type_plan.bindings.get(&projection.requirement) {
+                                        let instantiated_val = impl_bindings.apply(store, binding.value_template);
+                                        if !context.active.insert(projection.clone()) {
+                                            return ProjectionNormalizationResult::Recursive;
+                                        }
+                                        let result = normalize_type(store, instantiated_val, context);
+                                        context.active.remove(&projection);
+                                        return result;
+                                    } else {
+                                        return ProjectionNormalizationResult::Incomplete;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    ProjectionNormalizationResult::Unknown(UnknownReason::UnderconstrainedTypeVariable)
+                }
+                ConformanceResolution::InvalidSource(_) | ConformanceResolution::Incomplete(_) => ProjectionNormalizationResult::Incomplete,
+                ConformanceResolution::CoherenceConflict(candidates) => ProjectionNormalizationResult::Ambiguous(candidates),
+                ConformanceResolution::Unknown(reason) => ProjectionNormalizationResult::Unknown(reason),
+                ConformanceResolution::Blocked(reason) => ProjectionNormalizationResult::Blocked(reason),
+                ConformanceResolution::Dynamic(obligation) => ProjectionNormalizationResult::Dynamic(obligation),
+                ConformanceResolution::Cancelled => ProjectionNormalizationResult::Cancelled,
+                ConformanceResolution::BudgetExceeded(report) => ProjectionNormalizationResult::BudgetExceeded(report),
+                ConformanceResolution::InternalFailure(message) => ProjectionNormalizationResult::InternalFailure(message),
             }
-            let result = normalize_type(store, binding.value, context);
-            context.active.remove(&projection);
-            result
         }
         ProjectionNormalizationMode::Generic {
             evidence,
             conformance_index,
             witness_plans,
             trait_surfaces,
+            derived_rules,
             declarations,
             hierarchy,
         } => {
@@ -366,6 +416,51 @@ fn normalize_projection(
                 return ProjectionNormalizationResult::Symbolic(rewritten);
             }
 
+            // 1b. Check if assumed evidence or candidate rules entail conformance via a derived rule
+            if let Some(rules) = derived_rules {
+                let candidate_rules = rules.rules_for_trait(&trait_ref.declaration);
+                for rule in candidate_rules {
+                    let mut impl_bindings = crate::types::substitution::TypeSubstitution::new();
+                    impl_bindings.bind(rule.target_parameter, subject);
+
+                    let instantiated_trait_ref = crate::generic_evidence::substitute_trait_ref(&rule.trait_ref, &impl_bindings, store);
+                    if instantiated_trait_ref == trait_ref {
+                        let mut proof_context = crate::generic_evidence::ConformanceProofContext::new(
+                            Some(evidence),
+                            *conformance_index,
+                            *witness_plans,
+                            Some(trait_surfaces),
+                            Some(declarations),
+                            Some(*hierarchy),
+                            Some(store),
+                        ).with_derived_rules(Some(rules));
+
+                        let mut all_satisfied = true;
+                        for constraint in &rule.generic_signature.constraints {
+                            let proof = crate::generic_evidence::prove_constraint(constraint, &impl_bindings, &mut proof_context);
+                            if !proof.is_proven() {
+                                all_satisfied = false;
+                                break;
+                            }
+                        }
+
+                        if all_satisfied {
+                            if let Some(binding) = rule.associated_type_plan.bindings.get(&projection.requirement) {
+                                let instantiated_val = impl_bindings.apply(store, binding.value_template);
+                                if !context.active.insert(projection.clone()) {
+                                    return ProjectionNormalizationResult::Recursive;
+                                }
+                                let result = normalize_type(store, instantiated_val, context);
+                                context.active.remove(&projection);
+                                return result;
+                            } else {
+                                return ProjectionNormalizationResult::Incomplete;
+                            }
+                        }
+                    }
+                }
+            }
+
             // 3. Exact fallback for canonical types
             if let (Some(conformance_index), Some(witness_plans)) = (conformance_index, witness_plans) {
                 if !trait_surfaces.contains(&trait_ref.declaration) {
@@ -381,27 +476,73 @@ fn normalize_projection(
                     subject,
                     &trait_ref,
                 );
-                let exact_evidence = match resolution {
-                    ConformanceResolution::Proven(exact_evidence) => exact_evidence,
-                    ConformanceResolution::NotDeclared => return ProjectionNormalizationResult::Symbolic(rewritten),
-                    ConformanceResolution::InvalidSource(_) | ConformanceResolution::Incomplete(_) => return ProjectionNormalizationResult::Incomplete,
-                    ConformanceResolution::CoherenceConflict(candidates) => return ProjectionNormalizationResult::Ambiguous(candidates),
-                    ConformanceResolution::Unknown(reason) => return ProjectionNormalizationResult::Unknown(reason),
-                    ConformanceResolution::Blocked(reason) => return ProjectionNormalizationResult::Blocked(reason),
-                    ConformanceResolution::Dynamic(obligation) => return ProjectionNormalizationResult::Dynamic(obligation),
-                    ConformanceResolution::Cancelled => return ProjectionNormalizationResult::Cancelled,
-                    ConformanceResolution::BudgetExceeded(report) => return ProjectionNormalizationResult::BudgetExceeded(report),
-                    ConformanceResolution::InternalFailure(message) => return ProjectionNormalizationResult::InternalFailure(message),
-                };
-                let Some(binding) = exact_evidence.associated_types.get(&projection.requirement) else {
-                    return ProjectionNormalizationResult::Incomplete;
-                };
-                if !context.active.insert(projection.clone()) {
-                    return ProjectionNormalizationResult::Recursive;
+                match resolution {
+                    ConformanceResolution::Proven(exact_evidence) => {
+                        let Some(binding) = exact_evidence.associated_types.get(&projection.requirement) else {
+                            return ProjectionNormalizationResult::Incomplete;
+                        };
+                        if !context.active.insert(projection.clone()) {
+                            return ProjectionNormalizationResult::Recursive;
+                        }
+                        let result = normalize_type(store, binding.value, context);
+                        context.active.remove(&projection);
+                        result
+                    }
+                    ConformanceResolution::NotDeclared => {
+                        if let Some(rules) = derived_rules {
+                            let candidate_rules = rules.rules_for_trait(&trait_ref.declaration);
+                            for rule in candidate_rules {
+                                let mut impl_bindings = crate::types::substitution::TypeSubstitution::new();
+                                impl_bindings.bind(rule.target_parameter, subject);
+
+                                let instantiated_trait_ref = crate::generic_evidence::substitute_trait_ref(&rule.trait_ref, &impl_bindings, store);
+                                if instantiated_trait_ref == trait_ref {
+                                    let mut proof_context = crate::generic_evidence::ConformanceProofContext::new(
+                                        None,
+                                        Some(conformance_index),
+                                        Some(witness_plans),
+                                        Some(trait_surfaces),
+                                        Some(declarations),
+                                        Some(*hierarchy),
+                                        Some(store),
+                                    ).with_derived_rules(Some(rules));
+
+                                    let mut all_constraints_satisfied = true;
+                                    for constraint in &rule.generic_signature.constraints {
+                                        let proof = crate::generic_evidence::prove_constraint(constraint, &impl_bindings, &mut proof_context);
+                                        if !proof.is_proven() {
+                                            all_constraints_satisfied = false;
+                                            break;
+                                        }
+                                    }
+
+                                    if all_constraints_satisfied {
+                                        if let Some(binding) = rule.associated_type_plan.bindings.get(&projection.requirement) {
+                                            let instantiated_val = impl_bindings.apply(store, binding.value_template);
+                                            if !context.active.insert(projection.clone()) {
+                                                return ProjectionNormalizationResult::Recursive;
+                                            }
+                                            let result = normalize_type(store, instantiated_val, context);
+                                            context.active.remove(&projection);
+                                            return result;
+                                        } else {
+                                            return ProjectionNormalizationResult::Incomplete;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        ProjectionNormalizationResult::Symbolic(rewritten)
+                    }
+                    ConformanceResolution::InvalidSource(_) | ConformanceResolution::Incomplete(_) => ProjectionNormalizationResult::Incomplete,
+                    ConformanceResolution::CoherenceConflict(candidates) => ProjectionNormalizationResult::Ambiguous(candidates),
+                    ConformanceResolution::Unknown(reason) => ProjectionNormalizationResult::Unknown(reason),
+                    ConformanceResolution::Blocked(reason) => ProjectionNormalizationResult::Blocked(reason),
+                    ConformanceResolution::Dynamic(obligation) => ProjectionNormalizationResult::Dynamic(obligation),
+                    ConformanceResolution::Cancelled => ProjectionNormalizationResult::Cancelled,
+                    ConformanceResolution::BudgetExceeded(report) => ProjectionNormalizationResult::BudgetExceeded(report),
+                    ConformanceResolution::InternalFailure(message) => ProjectionNormalizationResult::InternalFailure(message),
                 }
-                let result = normalize_type(store, binding.value, context);
-                context.active.remove(&projection);
-                result
             } else {
                 ProjectionNormalizationResult::Symbolic(rewritten)
             }

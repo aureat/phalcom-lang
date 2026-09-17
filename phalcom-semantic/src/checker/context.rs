@@ -155,7 +155,7 @@ fn is_query_owned_module(module: &ModuleId) -> bool {
 /// remain ordinary semantic identities and must retain their fine-grained
 /// dependency edges. Only the aggregate root is bootstrap-owned here.
 fn is_bootstrap_declaration(declaration: &DeclarationId) -> bool {
-    declaration.module == ModuleId::universe_root()
+    declaration.module.project == phalcom_modules::ProjectIdentity::Universe
 }
 
 /// Built-in type-test callables are represented by the standalone bootstrap
@@ -899,6 +899,7 @@ impl<'a> CheckingContext<'a> {
                                 conformance_index: self.conformance_semantics.map(|cs| cs.conformance_index),
                                 witness_plans: self.conformance_semantics.map(|cs| cs.witness_plans),
                                 trait_surfaces: self.conformance_semantics.map(|cs| cs.trait_surfaces).unwrap_or(&empty_surfaces),
+                                derived_rules: self.conformance_semantics.map(|cs| cs.derived_conformance_rules),
                                 declarations: self.declarations,
                                 hierarchy: self.hierarchy.inner(),
                             },

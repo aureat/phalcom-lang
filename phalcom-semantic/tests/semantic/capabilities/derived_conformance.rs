@@ -1536,5 +1536,405 @@ impl Iterable for MyType {}
     }
 }
 
+#[test]
+fn derived_associated_item_normalizes_through_antecedent_evidence() {
+    let fixture = Fixture::new(
+        r#"
+trait Iterator {
+    type Item
+}
+
+trait Iterable {
+    type Iterator
+    type Item
+}
+
+impl<T> Iterable for T
+    where T |= Iterator
+{
+    type Iterator = T
+    type Item = T::Item
+}
+
+class ItemType {}
+class Counter {}
+
+impl Iterator for Counter {
+    type Item = ItemType
+}
+"#,
+    );
+
+    fixture.assert_no_error_diagnostics();
+
+    let counter_ty = fixture.ty("Counter");
+    let item_ty = fixture.ty("ItemType");
+    let iterable_decl = fixture.decl("Iterable");
+    let surface = fixture.analysis.snapshot.trait_surfaces.get(&iterable_decl).expect("Iterable surface");
+    let item_req = surface.associated_type_by_name("Item").expect("Item requirement").requirement.clone();
+
+    let mut store = (*fixture.analysis.snapshot.store).clone();
+    let trait_ref = phalcom_semantic::traits::TraitRef::new(iterable_decl, vec![]);
+    let proj = store.associated_projection(counter_ty, trait_ref, item_req);
+
+    let mut budget = phalcom_semantic::types::outcome::QueryBudget::default();
+    let cancel = phalcom_semantic::types::outcome::CancellationToken::new();
+    let mut context = phalcom_semantic::types::ProjectionNormalizationContext::new(
+        phalcom_semantic::types::ProjectionNormalizationMode::Exact {
+            conformance_index: &fixture.analysis.snapshot.conformance_index,
+            witness_plans: &fixture.analysis.snapshot.conformance_witness_plans,
+            trait_surfaces: &fixture.analysis.snapshot.trait_surfaces,
+            derived_rules: Some(&fixture.analysis.snapshot.derived_conformance_rules),
+            declarations: &fixture.analysis.snapshot.declarations,
+            hierarchy: fixture.analysis.snapshot.hierarchy.as_ref(),
+        },
+        &mut budget,
+        &cancel,
+    );
+
+    let norm_res = phalcom_semantic::types::normalize_type(&mut store, proj, &mut context);
+    assert_eq!(norm_res, phalcom_semantic::types::ProjectionNormalizationResult::Normalized(item_ty));
+}
+
+#[test]
+fn derived_associated_iterator_is_exact_subject() {
+    let fixture = Fixture::new(
+        r#"
+trait Iterator {
+    type Item
+}
+
+trait Iterable {
+    type Iterator
+    type Item
+}
+
+impl<T> Iterable for T
+    where T |= Iterator
+{
+    type Iterator = T
+    type Item = T::Item
+}
+
+class ItemType {}
+class Counter {}
+
+impl Iterator for Counter {
+    type Item = ItemType
+}
+"#,
+    );
+
+    fixture.assert_no_error_diagnostics();
+
+    let counter_ty = fixture.ty("Counter");
+    let iterable_decl = fixture.decl("Iterable");
+    let surface = fixture.analysis.snapshot.trait_surfaces.get(&iterable_decl).expect("Iterable surface");
+    let iter_req = surface.associated_type_by_name("Iterator").expect("Iterator requirement").requirement.clone();
+
+    let mut store = (*fixture.analysis.snapshot.store).clone();
+    let trait_ref = phalcom_semantic::traits::TraitRef::new(iterable_decl, vec![]);
+    let proj = store.associated_projection(counter_ty, trait_ref, iter_req);
+
+    let mut budget = phalcom_semantic::types::outcome::QueryBudget::default();
+    let cancel = phalcom_semantic::types::outcome::CancellationToken::new();
+    let mut context = phalcom_semantic::types::ProjectionNormalizationContext::new(
+        phalcom_semantic::types::ProjectionNormalizationMode::Exact {
+            conformance_index: &fixture.analysis.snapshot.conformance_index,
+            witness_plans: &fixture.analysis.snapshot.conformance_witness_plans,
+            trait_surfaces: &fixture.analysis.snapshot.trait_surfaces,
+            derived_rules: Some(&fixture.analysis.snapshot.derived_conformance_rules),
+            declarations: &fixture.analysis.snapshot.declarations,
+            hierarchy: fixture.analysis.snapshot.hierarchy.as_ref(),
+        },
+        &mut budget,
+        &cancel,
+    );
+
+    let norm_res = phalcom_semantic::types::normalize_type(&mut store, proj, &mut context);
+    assert_eq!(norm_res, phalcom_semantic::types::ProjectionNormalizationResult::Normalized(counter_ty));
+}
+
+#[test]
+fn derived_projection_normalizes_inside_nested_type() {
+    let fixture = Fixture::new(
+        r#"
+trait Iterator {
+    type Item
+}
+
+trait Iterable {
+    type Iterator
+    type Item
+}
+
+impl<T> Iterable for T
+    where T |= Iterator
+{
+    type Iterator = T
+    type Item = T::Item
+}
+
+class ItemType {}
+class Counter {}
+
+impl Iterator for Counter {
+    type Item = ItemType
+}
+"#,
+    );
+
+    fixture.assert_no_error_diagnostics();
+
+    let counter_ty = fixture.ty("Counter");
+    let item_ty = fixture.ty("ItemType");
+    let iterable_decl = fixture.decl("Iterable");
+    let surface = fixture.analysis.snapshot.trait_surfaces.get(&iterable_decl).expect("Iterable surface");
+    let item_req = surface.associated_type_by_name("Item").expect("Item requirement").requirement.clone();
+
+    let mut store = (*fixture.analysis.snapshot.store).clone();
+    let trait_ref = phalcom_semantic::traits::TraitRef::new(iterable_decl, vec![]);
+    let proj = store.associated_projection(counter_ty, trait_ref, item_req);
+
+    let tuple_ty = store.tuple(vec![
+        phalcom_semantic::types::store::TupleTypeElement { label: None, ty: counter_ty },
+        phalcom_semantic::types::store::TupleTypeElement { label: None, ty: proj },
+    ].into_boxed_slice());
+
+    let expected_tuple = store.tuple(vec![
+        phalcom_semantic::types::store::TupleTypeElement { label: None, ty: counter_ty },
+        phalcom_semantic::types::store::TupleTypeElement { label: None, ty: item_ty },
+    ].into_boxed_slice());
+
+    let mut budget = phalcom_semantic::types::outcome::QueryBudget::default();
+    let cancel = phalcom_semantic::types::outcome::CancellationToken::new();
+    let mut context = phalcom_semantic::types::ProjectionNormalizationContext::new(
+        phalcom_semantic::types::ProjectionNormalizationMode::Exact {
+            conformance_index: &fixture.analysis.snapshot.conformance_index,
+            witness_plans: &fixture.analysis.snapshot.conformance_witness_plans,
+            trait_surfaces: &fixture.analysis.snapshot.trait_surfaces,
+            derived_rules: Some(&fixture.analysis.snapshot.derived_conformance_rules),
+            declarations: &fixture.analysis.snapshot.declarations,
+            hierarchy: fixture.analysis.snapshot.hierarchy.as_ref(),
+        },
+        &mut budget,
+        &cancel,
+    );
+
+    let norm_res = phalcom_semantic::types::normalize_type(&mut store, tuple_ty, &mut context);
+    assert_eq!(norm_res, phalcom_semantic::types::ProjectionNormalizationResult::Normalized(expected_tuple));
+}
+
+#[test]
+fn generic_derived_associated_projection_remains_symbolic() {
+    let fixture = Fixture::new(
+        r#"
+trait Iterator {
+    type Item
+}
+
+trait Iterable {
+    type Iterator
+    type Item
+}
+
+impl<T> Iterable for T
+    where T |= Iterator
+{
+    type Iterator = T
+    type Item = T::Item
+}
+
+class Container<T>
+    where T |= Iterator
+{}
+"#,
+    );
+
+    fixture.assert_no_error_diagnostics();
+
+    let container_decl = fixture.decl("Container");
+    let iterable_decl = fixture.decl("Iterable");
+    let iterator_decl = fixture.decl("Iterator");
+
+    let container_info = fixture.analysis.snapshot.declarations.get(&container_decl).expect("container decl");
+    let generics = container_info.generic_signature.as_ref().expect("generics on Container");
+    let t_param = generics.parameters[0];
+
+    let mut store = (*fixture.analysis.snapshot.store).clone();
+    let t_param_ty = store.parameter_form(t_param);
+
+    let env = phalcom_semantic::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
+        &generics.constraints,
+        generics.owner.clone(),
+        &fixture.analysis.snapshot.trait_surfaces,
+    ).expect("evidence env");
+
+    let iter_surface = fixture.analysis.snapshot.trait_surfaces.get(&iterable_decl).expect("Iterable surface");
+    let iterator_surface = fixture.analysis.snapshot.trait_surfaces.get(&iterator_decl).expect("Iterator surface");
+
+    let item_req = iter_surface.associated_type_by_name("Item").expect("Item requirement").requirement.clone();
+    let iter_req = iter_surface.associated_type_by_name("Iterator").expect("Iterator requirement").requirement.clone();
+    let iter_item_req = iterator_surface.associated_type_by_name("Item").expect("Item requirement").requirement.clone();
+
+    let iterable_ref = phalcom_semantic::traits::TraitRef::new(iterable_decl, vec![]);
+    let iterator_ref = phalcom_semantic::traits::TraitRef::new(iterator_decl, vec![]);
+
+    let proj_item = store.associated_projection(t_param_ty, iterable_ref.clone(), item_req);
+    let proj_iter = store.associated_projection(t_param_ty, iterable_ref, iter_req);
+
+    let mut budget = phalcom_semantic::types::outcome::QueryBudget::default();
+    let cancel = phalcom_semantic::types::outcome::CancellationToken::new();
+    let mut context = phalcom_semantic::types::ProjectionNormalizationContext::new(
+        phalcom_semantic::types::ProjectionNormalizationMode::Generic {
+            evidence: &env,
+            conformance_index: Some(&fixture.analysis.snapshot.conformance_index),
+            witness_plans: Some(&fixture.analysis.snapshot.conformance_witness_plans),
+            trait_surfaces: &fixture.analysis.snapshot.trait_surfaces,
+            derived_rules: Some(&fixture.analysis.snapshot.derived_conformance_rules),
+            declarations: &fixture.analysis.snapshot.declarations,
+            hierarchy: fixture.analysis.snapshot.hierarchy.as_ref(),
+        },
+        &mut budget,
+        &cancel,
+    );
+
+    // <T as Iterable>::Iterator normalizes to T
+    let iter_res = phalcom_semantic::types::normalize_type(&mut store, proj_iter, &mut context);
+    assert_eq!(iter_res, phalcom_semantic::types::ProjectionNormalizationResult::Normalized(t_param_ty));
+
+    // <T as Iterable>::Item normalizes to <T as Iterator>::Item (symbolic)
+    let expected_sym = store.associated_projection(t_param_ty, iterator_ref, iter_item_req);
+    let item_res = phalcom_semantic::types::normalize_type(&mut store, proj_item, &mut context);
+    assert_eq!(item_res, phalcom_semantic::types::ProjectionNormalizationResult::Symbolic(expected_sym));
+}
+
+#[test]
+fn derived_equality_solver_consumes_rule_binding() {
+    let fixture = Fixture::new(
+        r#"
+trait Iterator {
+    type Item
+}
+
+trait Iterable {
+    type Iterator
+    type Item
+}
+
+impl<T> Iterable for T
+    where T |= Iterator
+{
+    type Iterator = T
+    type Item = T::Item
+}
+
+class ItemType {}
+class Counter {}
+
+impl Iterator for Counter {
+    type Item = ItemType
+}
+"#,
+    );
+
+    fixture.assert_no_error_diagnostics();
+
+    let counter_ty = fixture.ty("Counter");
+    let item_ty = fixture.ty("ItemType");
+    let iterable_decl = fixture.decl("Iterable");
+    let surface = fixture.analysis.snapshot.trait_surfaces.get(&iterable_decl).expect("Iterable surface");
+    let item_req = surface.associated_type_by_name("Item").expect("Item requirement").requirement.clone();
+
+    let mut store = (*fixture.analysis.snapshot.store).clone();
+    let trait_ref = phalcom_semantic::traits::TraitRef::new(iterable_decl, vec![]);
+    let proj = store.associated_projection(counter_ty, trait_ref, item_req);
+
+    let mut context = phalcom_semantic::generic_evidence::ConformanceProofContext::new(
+        None,
+        Some(&fixture.analysis.snapshot.conformance_index),
+        Some(&fixture.analysis.snapshot.conformance_witness_plans),
+        Some(&fixture.analysis.snapshot.trait_surfaces),
+        Some(&fixture.analysis.snapshot.declarations),
+        Some(fixture.analysis.snapshot.hierarchy.as_ref()),
+        Some(&mut store),
+    ).with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
+
+    let constraint = phalcom_semantic::types::parameter::GenericConstraint::Equivalent {
+        left: phalcom_semantic::types::parameter::TypeTerm::Canonical(proj),
+        right: phalcom_semantic::types::parameter::TypeTerm::Canonical(item_ty),
+    };
+    let subst = phalcom_semantic::types::substitution::TypeSubstitution::new();
+    let proof = phalcom_semantic::generic_evidence::prove_constraint(&constraint, &subst, &mut context);
+    assert!(proof.is_proven(), "expected equivalence proof to succeed, got {:?}", proof);
+}
+
+#[test]
+fn derived_iterator_rule_satisfies_iterable_contract_using_memoized_iterator_proof() {
+    let fixture = Fixture::new(
+        r#"
+trait Iterator {
+    type Item
+}
+
+trait Iterable
+    where
+        Self::Iterator |= Iterator,
+        <Self::Iterator as Iterator>::Item == Self::Item
+{
+    type Iterator
+    type Item
+}
+
+impl<T> Iterable for T
+    where T |= Iterator
+{
+    type Iterator = T
+    type Item = T::Item
+}
+
+class ItemType {}
+class Counter {}
+
+impl Iterator for Counter {
+    type Item = ItemType
+}
+"#,
+    );
+
+    fixture.assert_no_error_diagnostics();
+
+    let counter_ty = fixture.ty("Counter");
+    let iterable_decl = fixture.decl("Iterable");
+    let trait_ref = phalcom_semantic::traits::TraitRef::new(iterable_decl, vec![]);
+
+    let mut store = (*fixture.analysis.snapshot.store).clone();
+    let mut context = phalcom_semantic::generic_evidence::ConformanceProofContext::new(
+        None,
+        Some(&fixture.analysis.snapshot.conformance_index),
+        Some(&fixture.analysis.snapshot.conformance_witness_plans),
+        Some(&fixture.analysis.snapshot.trait_surfaces),
+        Some(&fixture.analysis.snapshot.declarations),
+        Some(fixture.analysis.snapshot.hierarchy.as_ref()),
+        Some(&mut store),
+    ).with_derived_rules(Some(&fixture.analysis.snapshot.derived_conformance_rules));
+
+    let key = phalcom_semantic::generic_evidence::GenericConformanceKey::new(
+        phalcom_semantic::types::parameter::TypeTerm::Canonical(counter_ty),
+        trait_ref,
+    );
+
+    let proof = phalcom_semantic::generic_evidence::prove_conformance_with_context(&key, &mut context);
+    match proof {
+        phalcom_semantic::generic_evidence::GenericConformanceProof::Proven(
+            phalcom_semantic::generic_evidence::GenericConformanceEvidence::Derived(derived),
+        ) => {
+            assert_eq!(derived.nested.len(), 1);
+        }
+        other => panic!("expected Proven(Derived) proof, got {:?}", other),
+    }
+}
+
+
 
 

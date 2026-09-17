@@ -2292,6 +2292,7 @@ fn discharge_generic_conformance_obligations(
                                 conformance_index: ctx.conformance_semantics.map(|cs| cs.conformance_index),
                                 witness_plans: ctx.conformance_semantics.map(|cs| cs.witness_plans),
                                 trait_surfaces: ctx.conformance_semantics.map(|cs| cs.trait_surfaces).unwrap_or(&empty_surfaces),
+                                derived_rules: ctx.conformance_semantics.map(|cs| cs.derived_conformance_rules),
                                 declarations: ctx.declarations,
                                 hierarchy: ctx.hierarchy.inner(),
                             },

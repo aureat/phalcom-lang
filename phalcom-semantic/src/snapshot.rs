@@ -450,6 +450,7 @@ impl SemanticSnapshot {
                 conformance_index: &self.conformance_index,
                 witness_plans: &self.conformance_witness_plans,
                 trait_surfaces: &self.trait_surfaces,
+                derived_rules: Some(&self.derived_conformance_rules),
                 declarations: &self.declarations,
                 hierarchy: self.hierarchy.as_ref(),
             },

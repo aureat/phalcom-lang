@@ -202,6 +202,7 @@ class Tools {
             conformance_index: Some(&fixture.analysis.snapshot.conformance_index),
             witness_plans: Some(&fixture.analysis.snapshot.conformance_witness_plans),
             trait_surfaces: &fixture.analysis.snapshot.trait_surfaces,
+            derived_rules: None,
             declarations: &fixture.analysis.snapshot.declarations,
             hierarchy: &*fixture.analysis.snapshot.hierarchy,
         },

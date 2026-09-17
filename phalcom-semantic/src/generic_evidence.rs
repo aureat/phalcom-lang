@@ -553,6 +553,7 @@ fn normalize_term_in_context(
                     conformance_index: context.conformance_index,
                     witness_plans: context.witness_plans,
                     trait_surfaces: surfaces,
+                    derived_rules: context.derived_rules,
                     declarations: decls,
                     hierarchy: hier,
                 }
@@ -561,6 +562,7 @@ fn normalize_term_in_context(
                     conformance_index: index,
                     witness_plans: plans,
                     trait_surfaces: surfaces,
+                    derived_rules: context.derived_rules,
                     declarations: decls,
                     hierarchy: hier,
                 }
