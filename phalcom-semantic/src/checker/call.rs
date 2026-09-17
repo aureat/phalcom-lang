@@ -2444,7 +2444,12 @@ fn finalize_owner_call_specialization(ctx: &mut CheckingContext<'_>, target: &Ca
         return;
     }
     let existing = ctx.take_call_specialization(expression);
-    if ctx.call_status_is_recorded() || (target_has_generic_domains(ctx, target) && existing.is_none()) {
+    let callable_has_generic_domains = target
+        .signature
+        .generics
+        .as_ref()
+        .is_some_and(|signature| !signature.parameters.is_empty());
+    if ctx.call_status_is_recorded() || (callable_has_generic_domains && existing.is_none()) {
         return;
     }
     let mut bindings = existing

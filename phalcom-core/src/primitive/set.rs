@@ -38,7 +38,7 @@ fn set_mutation_error(err: MapMutationError, collection: &'static str) -> Runtim
 }
 
 /// Signature: `Set.class::new()` — allocates an empty set.
-#[phalcom_native_macros::primitive(Set, "new()", side = class)]
+#[phalcom_native_macros::primitive(Set, "new()", side = class, types = "() -> Self", flow = receiver)]
 pub fn set_class_new(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     Ok(Value::obj(vm.heap.alloc_set()))
 }

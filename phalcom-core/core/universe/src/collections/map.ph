@@ -106,7 +106,7 @@ class Map<K, V> is Iterable {
 
   entries { MapEntriesView.new(self) }
 
-  iterator -> MapIterator<K, V> { MapIterator.new(self) }
+  iterator -> MapIterator<K, V> { MapIterator<K, V>.new(self) }
 
   // Copies a positive Record's Symbol labels and values into a fresh mutable
   // Map. `#{}` canonicalizes to Unit, which represents the empty Record form.
@@ -192,7 +192,7 @@ impl<K, V> CanonicalIterator for MapIterator<K, V> {
 impl<K, V> CanonicalIterable for Map<K, V> {
   type Item = (key: K, value: V)
   type Iterator = MapIterator<K, V>
-  iterator -> MapIterator<K, V> { MapIterator.new(self) }
+  iterator -> MapIterator<K, V> { MapIterator<K, V>.new(self) }
 }
 
 
@@ -207,7 +207,7 @@ class MapKeysView<K, V> is Iterable {
 
   at(_ index) { _map._$keyAt(index) }
 
-  iterator -> MapKeysIterator<K, V> { MapKeysIterator.new(self) }
+  iterator -> MapKeysIterator<K, V> { MapKeysIterator<K, V>.new(self) }
 
   iteratorValue(_ cursor) { _map._$keyAt(cursor) }
 }
@@ -220,7 +220,7 @@ class MapValuesView<K, V> is Iterable {
 
   at(_ index) { _map._$valueAt(index) }
 
-  iterator -> MapValuesIterator<K, V> { MapValuesIterator.new(self) }
+  iterator -> MapValuesIterator<K, V> { MapValuesIterator<K, V>.new(self) }
 
   iteratorValue(_ cursor) { _map._$valueAt(cursor) }
 }
@@ -247,7 +247,7 @@ class MapEntriesView<K, V> is Iterable {
 
   at(_ index) { (key: _map._$keyAt(index), value: _map._$valueAt(index)) }
 
-  iterator -> MapEntriesIterator<K, V> { MapEntriesIterator.new(self) }
+  iterator -> MapEntriesIterator<K, V> { MapEntriesIterator<K, V>.new(self) }
 
   iteratorValue(_ cursor) { (key: _map._$keyAt(cursor), value: _map._$valueAt(cursor)) }
 }
@@ -337,7 +337,7 @@ impl<K, V> CanonicalIterator for MapKeysIterator<K, V> {
 impl<K, V> CanonicalIterable for MapKeysView<K, V> {
   type Item = K
   type Iterator = MapKeysIterator<K, V>
-  iterator -> MapKeysIterator<K, V> { MapKeysIterator.new(self) }
+  iterator -> MapKeysIterator<K, V> { MapKeysIterator<K, V>.new(self) }
 }
 
 impl<K, V> CanonicalIterator for MapValuesIterator<K, V> {
@@ -347,7 +347,7 @@ impl<K, V> CanonicalIterator for MapValuesIterator<K, V> {
 impl<K, V> CanonicalIterable for MapValuesView<K, V> {
   type Item = V
   type Iterator = MapValuesIterator<K, V>
-  iterator -> MapValuesIterator<K, V> { MapValuesIterator.new(self) }
+  iterator -> MapValuesIterator<K, V> { MapValuesIterator<K, V>.new(self) }
 }
 
 impl<K, V> CanonicalIterator for MapEntriesIterator<K, V> {
@@ -357,5 +357,5 @@ impl<K, V> CanonicalIterator for MapEntriesIterator<K, V> {
 impl<K, V> CanonicalIterable for MapEntriesView<K, V> {
   type Item = (key: K, value: V)
   type Iterator = MapEntriesIterator<K, V>
-  iterator -> MapEntriesIterator<K, V> { MapEntriesIterator.new(self) }
+  iterator -> MapEntriesIterator<K, V> { MapEntriesIterator<K, V>.new(self) }
 }

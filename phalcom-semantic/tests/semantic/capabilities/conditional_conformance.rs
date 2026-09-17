@@ -1308,7 +1308,7 @@ impl<T> Container for Box<T>
             let exact_source = derived.exact_source().unwrap();
             assert_eq!(exact_source.associated_types.len(), 1);
             let (_req, binding) = exact_source.associated_types.iter().next().unwrap();
-            assert_eq!(binding.value, user_ty);
+            assert_eq!(binding.value, phalcom_semantic::impls::AssociatedTypeBindingValue::Type(user_ty));
         }
         other => panic!("expected Derived conformance evidence, got {:?}", other),
     }
@@ -1956,5 +1956,4 @@ class Probe {
     let diags = fixture.diagnostics(DiagnosticCode::GenericConstraintUnsatisfied);
     assert_eq!(diags.len(), 1, "expected GenericConstraintUnsatisfied diagnostic");
 }
-
 

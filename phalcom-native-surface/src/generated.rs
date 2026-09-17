@@ -7582,7 +7582,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
                 labeled: &[],
                 rest: None,
             },
-            returns: &::phalcom_native_meta::TypeExprSpec::Unknown,
+            returns: &::phalcom_native_meta::TypeExprSpec::SelfType,
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
@@ -7590,12 +7590,12 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
                     labeled: &[],
                     rest: None,
                 },
-                return_type: &::phalcom_native_meta::TypeExprSpec::Unknown,
+                return_type: &::phalcom_native_meta::TypeExprSpec::SelfType,
                 constraints: &[],
             },
             raises: ::phalcom_native_meta::RaisesSpec::Unknown,
             effects: ::phalcom_native_meta::EffectSpec::Unknown,
-            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Receiver,
             termination: TerminationSpec::Unknown,
             since: None,
             deprecated_since: None,
@@ -7612,7 +7612,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
         },
         kind: NativeMemberKind::Method,
         abi: PrimitiveAbi::Value,
-        return_shape: NativeReturnShape::Unknown,
+        return_shape: NativeReturnShape::Receiver,
     },
     NativeSurfaceRecord {
         surface: PrimitiveSurfaceSpec {
@@ -7874,7 +7874,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
                 labeled: &[],
                 rest: None,
             },
-            returns: &::phalcom_native_meta::TypeExprSpec::Unknown,
+            returns: &::phalcom_native_meta::TypeExprSpec::SelfType,
             callable: &::phalcom_native_meta::CallableTypeSpec {
                 type_params: &[],
                 params: &::phalcom_native_meta::ParameterTupleSpec {
@@ -7882,12 +7882,12 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
                     labeled: &[],
                     rest: None,
                 },
-                return_type: &::phalcom_native_meta::TypeExprSpec::Unknown,
+                return_type: &::phalcom_native_meta::TypeExprSpec::SelfType,
                 constraints: &[],
             },
             raises: ::phalcom_native_meta::RaisesSpec::Unknown,
             effects: ::phalcom_native_meta::EffectSpec::Unknown,
-            flow: ::phalcom_native_meta::ReturnFlowSpec::Value,
+            flow: ::phalcom_native_meta::ReturnFlowSpec::Receiver,
             termination: TerminationSpec::Unknown,
             since: None,
             deprecated_since: None,
@@ -7904,7 +7904,7 @@ pub static NATIVE_SURFACES: &[NativeSurfaceRecord] = &[
         },
         kind: NativeMemberKind::Method,
         abi: PrimitiveAbi::Value,
-        return_shape: NativeReturnShape::Unknown,
+        return_shape: NativeReturnShape::Receiver,
     },
     NativeSurfaceRecord {
         surface: PrimitiveSurfaceSpec {

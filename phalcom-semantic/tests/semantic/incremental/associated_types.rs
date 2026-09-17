@@ -348,7 +348,10 @@ fn cross_module_associated_binding_replacement_recomputes_consumer_and_matches_c
             first.snapshot.diagnostics
         )
     });
-    assert_eq!(first_evidence.associated_types.get(&requirement).expect("initial Item binding").value, first.snapshot.declarations.form(&CoreDeclarationIds::default().int).expect("Int form"));
+    assert_eq!(
+        first_evidence.associated_types.get(&requirement).expect("initial Item binding").value,
+        phalcom_semantic::impls::AssociatedTypeBindingValue::Type(first.snapshot.declarations.form(&CoreDeclarationIds::default().int).expect("Int form"))
+    );
 
     let second = incremental
         .apply_module_mutations([WorkspaceSourceBatchMutation::SetOverlay {
@@ -364,7 +367,10 @@ fn cross_module_associated_binding_replacement_recomputes_consumer_and_matches_c
     let second_box = second_store.apply_type_form(second_box_form, &[second_int_form]).expect("updated Box<Int> form");
     let second_evidence = second.snapshot.conformance_evidence_for(second_box, &trait_ref).expect("updated cross-module evidence");
     assert_ne!(first_evidence.fingerprint, second_evidence.fingerprint, "cross-module RHS replacement must update exact evidence");
-    assert_eq!(second_evidence.associated_types.get(&requirement).expect("updated Item binding").value, second.snapshot.declarations.form(&CoreDeclarationIds::default().string).expect("String form"));
+    assert_eq!(
+        second_evidence.associated_types.get(&requirement).expect("updated Item binding").value,
+        phalcom_semantic::impls::AssociatedTypeBindingValue::Type(second.snapshot.declarations.form(&CoreDeclarationIds::default().string).expect("String form"))
+    );
     assert!(second.snapshot.diagnostics_for(&consumer_module).is_some_and(|diagnostics| !diagnostics.is_empty()), "consumer must be rechecked after its imported associated value changes");
 
     let conformance_missing = conformance_string.replace("type Item = String\n", "");
@@ -396,7 +402,10 @@ fn cross_module_associated_binding_replacement_recomputes_consumer_and_matches_c
     let mut fourth_store = (*fourth.snapshot.store).clone();
     let fourth_box = fourth_store.apply_type_form(fourth_box_form, &[fourth_int_form]).expect("re-added Box<Int> form");
     let fourth_evidence = fourth.snapshot.conformance_evidence_for(fourth_box, &trait_ref).expect("re-added cross-module evidence");
-    assert_eq!(fourth_evidence.associated_types.get(&requirement).expect("re-added Item binding").value, fourth.snapshot.declarations.form(&CoreDeclarationIds::default().int).expect("re-added Int form"));
+    assert_eq!(
+        fourth_evidence.associated_types.get(&requirement).expect("re-added Item binding").value,
+        phalcom_semantic::impls::AssociatedTypeBindingValue::Type(fourth.snapshot.declarations.form(&CoreDeclarationIds::default().int).expect("re-added Int form"))
+    );
 
     let mut cold = SemanticWorkspaceSession::new();
     let cold_result = cold

@@ -96,10 +96,25 @@ let result = total
 }
 
 #[test]
+fn applied_set_and_map_constructors_execute_as_ordinary_class_object_sends() {
+    let source = r#"
+let values = Set<Int>.new()
+let mapping = Map<Int, String>.new()
+let result = values.size == 0 and mapping.size == 0
+"#;
+    let program = ProgramCompiler::compile_entry_selection(EntrySelection::Inline(Arc::from(source))).expect("applied Set and Map construction compiles");
+    let mut vm = vm_support::universe_vm();
+    vm.run_compiled(&program).expect("applied Set and Map construction execute");
+    let module = vm.module_registry.get(&program.entry).expect("entry module").object;
+    let symbol = vm.interner.find("result").expect("result symbol");
+    assert_eq!(vm.heap.module(module).get(symbol).expect("result binding").to_string(&vm), "true");
+}
+
+#[test]
 #[ignore = "BASELINE: generic call-entry type recipe cannot instantiate generic SetIterator<T>"]
 fn canonical_set_iterator_is_fresh_sticky_and_ordered() {
     let source = r#"
-let values: Set<Int> = Set.new()
+let values = Set<Int>.new()
 values.add(3).add(1).add(2)
 let it = values.iterator
 let directFirst = it.next.isSome

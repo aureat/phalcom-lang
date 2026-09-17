@@ -254,3 +254,7 @@ impl Mover for MoverImpl {
 	move(_: Shape, from _: )
 }
 ```
+
+```ph
+native internal intrinsic primitive
+```

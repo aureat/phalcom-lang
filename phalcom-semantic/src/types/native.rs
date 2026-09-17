@@ -446,6 +446,20 @@ pub fn register_native_surfaces_from_records(
                 )?,
             };
 
+        // A class-side `new()` whose native contract returns the receiver's
+        // instance type is a declaration constructor.  Preserve that
+        // constructor basis so generic declaration parameters remain an
+        // owner-relative domain during class-side application; treating it as
+        // an opaque native value loses the applied receiver's type arguments.
+        let is_class_constructor = side == crate::identity::DispatchSide::Class
+            && selector.encode() == "new()"
+            && matches!(record.flow(), ReturnFlowSpec::Receiver);
+        let declared_return_basis = if is_class_constructor {
+            crate::declaration_type::DeclaredTypeBasis::ConstructorSemantics
+        } else {
+            crate::declaration_type::DeclaredTypeBasis::NativeSignature
+        };
+
         let canonical_signature = crate::signature::CallableSemanticSignature {
             callable: callable_id.clone(),
             owner: decl.clone(),
@@ -453,10 +467,7 @@ pub fn register_native_surfaces_from_records(
             selector: selector.clone(),
             generics: generic_signature,
             parameters: parameters.into_boxed_slice(),
-            declared_return: crate::declaration_type::DeclaredTypeFact::from_knowledge_with_basis(
-                &return_knowledge,
-                crate::declaration_type::DeclaredTypeBasis::NativeSignature,
-            ),
+            declared_return: crate::declaration_type::DeclaredTypeFact::from_knowledge_with_basis(&return_knowledge, declared_return_basis),
             return_validation: crate::signature::ReturnContractValidation::NotApplicable,
             inferred_return: None,
             source: None,

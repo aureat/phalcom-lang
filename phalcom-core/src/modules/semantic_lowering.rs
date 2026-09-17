@@ -80,6 +80,14 @@ pub enum ExecutableInvocationTarget {
     },
 }
 
+/// Semantic executable projection of a type-form expression. The generic
+/// arguments remain part of the semantic call specialization; the value of a
+/// declaration-backed nominal type form is its ordinary class object.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RuntimeTypeFormValueSpec {
+    ClassObject { declaration: DeclarationId },
+}
+
 /// Target of a member entry in an executable family descriptor.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExecutableFamilyTarget {
@@ -466,6 +474,7 @@ pub struct ModuleLoweringSemantics {
     /// ranges. The compiler may use these facts to classify AST uses, but it
     /// never resolves names or scopes independently.
     pub bindings: BTreeMap<SourceRange, BindingId>,
+    pub type_form_values: BTreeMap<SourceRange, RuntimeTypeFormValueSpec>,
     pub anonymous_products: BTreeMap<SourceRange, Arc<AnonymousProductConstructionLoweringSpec>>,
     pub call_environment_recipes: BTreeMap<SourceRange, Arc<RuntimeCallEnvironmentRecipe>>,
     pub enums: Box<[EnumLoweringSpec]>,
@@ -519,6 +528,7 @@ impl ModuleLoweringSemantics {
         Self {
             module,
             bindings: BTreeMap::new(),
+            type_form_values: BTreeMap::new(),
             anonymous_products: BTreeMap::new(),
             call_environment_recipes: BTreeMap::new(),
             enums: Box::new([]),
@@ -1200,10 +1210,12 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
         .get(module)
         .map(|source| project_anonymous_products(module, snapshot, &source.program, runtime_type_roots))
         .unwrap_or_default();
+    let type_form_values = project_type_form_values(module, snapshot);
 
     Ok(ModuleLoweringSemantics {
         module: module.clone(),
         bindings,
+        type_form_values,
         anonymous_products,
         call_environment_recipes: runtime_call_environment_recipes.clone(),
         enums: enums.into_boxed_slice(),
@@ -1221,6 +1233,23 @@ pub fn build_module_lowering_semantics_with_runtime_types_and_calls(
         for_iteration_lanes,
         detached_methods,
     })
+}
+
+fn project_type_form_values(module: &ModuleId, snapshot: &SemanticSnapshot) -> BTreeMap<SourceRange, RuntimeTypeFormValueSpec> {
+    let mut projected = BTreeMap::new();
+    for (callable, analysis) in snapshot.callable_analyses.iter().filter(|(callable, _)| callable.owner.module() == module) {
+        let _ = callable;
+        for expression in analysis.expressions.values() {
+            let Some(SemanticDenotation::TypeForm(form)) = expression.denotation.as_ref() else {
+                continue;
+            };
+            let Some(declaration) = snapshot.store.nominal_origin_declaration(*form).cloned() else {
+                continue;
+            };
+            projected.insert(expression.range, RuntimeTypeFormValueSpec::ClassObject { declaration });
+        }
+    }
+    projected
 }
 
 fn project_for_iteration_requirement(

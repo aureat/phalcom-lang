@@ -324,7 +324,7 @@ C6 must not migrate production `for`, collections, Range, Map, lazy adapters, ru
 | `LANG005.C6.P2` | Generic/qualified associated projections, associated specialization/equality, projection-driven inference, durable associated constraint metadata | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Tasks T1–T10 complete; generic associated projections, refinements, equality, and inference verified; G1–G5 pass |
 | `LANG005.C6.P3` | Conditional conformances, nested recursive obligations, cycle/memoization proof state, conditional coherence | COMPLETE | IMPLEMENTED | FOCUSED_TESTED | Tasks T0–T8 complete; recursive proof engine, cycle/memoization, derived runtime evidence, and cross-module/incremental integration verified; Gates G1–G6 pass |
 | `LANG005.C6.P4` | Iterator/Iterable generic laws, canonical Universe migration, explicit blanket/derived implication decision | COMPLETE | IMPLEMENTED | BASELINE_BLOCKED | T0–T9 complete; canonical law and focused gates pass; positive legacy iteration corpus is reproduced baseline-blocked at clean HEAD |
-| `LANG005.C6.P5` | Production `for`, collections, Map, Range, lazy stateful iterators, cursor/runtime-superclass retirement | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | Part I plus Bytes/String canonical stateful lanes implemented and focused-tested; Set/Map constructors, Tuple Dynamic Item, and Range Option extraction remain baseline-blocked; G3 and T9–T11 are not started |
+| `LANG005.C6.P5` | Production `for`, collections, Map, Range, lazy stateful iterators, cursor/runtime-superclass retirement | IN_PROGRESS | PARTIAL | BASELINE_BLOCKED | Part I plus Bytes/String canonical stateful lanes implemented and focused-tested; applied Set/Map construction is repaired, while iterator entry, Tuple Dynamic Item, and Range Option extraction remain baseline-blocked; G3 and T9–T11 are not started |
 | `LANG005.C6.P6` | Remaining generic-constraint closure, higher-kind integration where specified, alias/GADT/tooling/performance/stress/certification | PROPOSED | NOT_STARTED | UNVERIFIED | C6 closure plan; exact scope may be amended |
 
 The precise numbering/content of P2–P6 may be amended by later live repository analysis. The dependency structure is more authoritative than the placeholder plan names.
@@ -884,6 +884,14 @@ Record only durable architectural consultations or accepted amendments here.
 - **Decision**: Materialize callee layout conformance subjects and trait arguments with specialization bindings before matching semantic evidence; preserve semantic evidence as the sole witness authority.
 - **Follow-up**: Exact/default/forwarded core runtime tests pass; no second proof source or runtime search introduced.
 
+### 2026-09-17 — LANG005.C6.P5 advisory decision: applied class receivers and constructor transport
+
+- **Plan/Task**: `LANG005.C6.P5` corrective slice for Part II T6/T7/T8 prerequisites
+- **Trigger**: `Set<Int>.new()` exposed two distinct failures: executable lowering replaced an applied type form with `Nil`, and a later generic call-entry template could not be instantiated without its owner environment.
+- **Decision**: Keep the defects separate. An applied nominal type form lowers to its ordinary declaration class object; semantic call specialization carries the owner bindings into the activation; the VM must not infer or relax missing template environments. Native class-side `new()` contracts for generic collections publish receiver-flow `Self` with constructor semantics so contextual result inference remains semantic-owned.
+- **Affected Invariant/Scope**: Applied generic receivers change semantic specialization, not runtime class identity. Explicit Set/Map construction and compiler lowering are repaired; canonical iterator migration, Tuple `Item` representation, and the remaining generic `Option`/Universe-source boundary remain Part II work.
+- **Follow-up**: Added semantic executable type-form lowering, normalized Set/Map native constructor contracts, restored explicit generic iterator constructor forms, and added focused semantic/compiler/runtime regressions. No new incident report or plan redesign is required; G3 and T9–T11 remain unstarted.
+
 Each entry should include:
 
 ```text
@@ -954,7 +962,7 @@ The final C6 completion state must be truthfully distinguished from individual p
 The active next action is:
 
 ```text
-Resolve the generic runtime call-entry / Option<Number> boundary and obtain architectural guidance for Tuple's publishable Item type before resuming P5 Part II T6/T7/T8 and attempting G3.
+Resume P5 Part II T6/T7/T8 in the follow-on session after resolving the remaining generic runtime call-entry / Option boundary and Tuple's publishable Item type; the applied class-receiver advisory repair is complete, but G3 is still not passed.
 Do not begin T9–T11 or reopen P4 law/proof architecture.
 ```
 
@@ -1051,6 +1059,13 @@ Mechanical drift may be adapted. Architectural drift requires consultation.
   `CanonicalIterator::Item = Dynamic` was rejected by semantic associated-type
   publication. No baseline entries or assertions were weakened for these
   probes.
+- **Advisory corrective slice**: Applied `Set<Int>`/`Map<Int, String>` class-side
+  construction now lowers through the semantic type-form product to the
+  ordinary class object and executes with specialized owner bindings. Native
+  Set/Map `new()` publish receiver-flow `Self`, preserving contextual generic
+  inference. The nested `SetIterator<T>.new(self)` probe still reaches the
+  inherited inline Universe-source/call-entry boundary, so no VM inference or
+  permissive template fallback was added.
 - **Gate state**: G3 is not passed because P5-owned canonical sources are not
   all executable. T9, T10, and T11 remain unstarted; cursor fallback and the
   legacy runtime superclass remain compatibility infrastructure.

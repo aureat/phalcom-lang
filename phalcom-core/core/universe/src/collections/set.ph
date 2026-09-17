@@ -45,7 +45,7 @@ class Set<T> is Iterable {
 
   iteratorValue(_ cursor) { self._$at(cursor) }
 
-  iterator -> SetIterator<T> { SetIterator.new(self) }
+  iterator -> SetIterator<T> { SetIterator<T>.new(self) }
 
   // Structural equality: same members, order-independent. Same-size plus
   // "every element of self is in other" is sufficient since neither set
@@ -102,5 +102,5 @@ impl<T> CanonicalIterator for SetIterator<T> {
 impl<T> CanonicalIterable for Set<T> {
   type Item = T
   type Iterator = SetIterator<T>
-  iterator -> SetIterator<T> { SetIterator.new(self) }
+  iterator -> SetIterator<T> { SetIterator<T>.new(self) }
 }

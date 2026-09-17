@@ -9,7 +9,7 @@ use super::store::{AssociatedTypeProjection, CallableParameterType, CallableType
 use crate::declarations::DeclarationTypeTable;
 use crate::generic_evidence::{GenericConformanceKey, GenericEvidenceEnvironment};
 use crate::identity::ImplId;
-use crate::impls::{ConformanceAssociatedTypePlan, ConformanceIndex, ConformanceResolution, ConformanceWitnessPlan};
+use crate::impls::{AssociatedTypeBindingValue, ConformanceAssociatedTypePlan, ConformanceIndex, ConformanceResolution, ConformanceWitnessPlan};
 use crate::traits::{TraitRef, TraitSurfaceTable};
 use crate::types::parameter::TypeTerm;
 use std::collections::{BTreeMap, HashSet};
@@ -240,6 +240,19 @@ pub fn normalize_type(store: &mut TypeStore, ty: TypeId, context: &mut Projectio
     }
 }
 
+fn normalize_associated_binding(
+    store: &mut TypeStore,
+    binding: &AssociatedTypeBindingValue,
+    context: &mut ProjectionNormalizationContext<'_>,
+) -> ProjectionNormalizationResult {
+    match binding {
+        AssociatedTypeBindingValue::Type(ty) => normalize_type(store, *ty, context),
+        AssociatedTypeBindingValue::Dynamic => ProjectionNormalizationResult::Dynamic(DynamicBoundaryObligation {
+            reason: "associated type binding is dynamic".into(),
+        }),
+    }
+}
+
 fn normalize_projection(
     store: &mut TypeStore,
     _original: TypeId,
@@ -276,7 +289,7 @@ fn normalize_projection(
             if !context.active.insert(projection.clone()) {
                 return ProjectionNormalizationResult::Recursive;
             }
-            let result = normalize_type(store, binding.value_template, context);
+            let result = normalize_associated_binding(store, &binding.value_template, context);
             context.active.remove(&projection);
             result
         }
@@ -298,7 +311,7 @@ fn normalize_projection(
                 if !context.active.insert(projection.clone()) {
                     return ProjectionNormalizationResult::Recursive;
                 }
-                let result = normalize_type(store, binding.value, context);
+                        let result = normalize_associated_binding(store, &binding.value, context);
                 context.active.remove(&projection);
                 return result;
             }
@@ -323,7 +336,7 @@ fn normalize_projection(
                     if !context.active.insert(projection.clone()) {
                         return ProjectionNormalizationResult::Recursive;
                     }
-                    let result = normalize_type(store, binding.value, context);
+                    let result = normalize_associated_binding(store, &binding.value, context);
                     context.active.remove(&projection);
                     result
                 }
@@ -357,7 +370,12 @@ fn normalize_projection(
 
                                 if all_constraints_satisfied {
                                     if let Some(binding) = rule.associated_type_plan.bindings.get(&projection.requirement) {
-                                        let instantiated_val = impl_bindings.apply(store, binding.value_template);
+                                        let AssociatedTypeBindingValue::Type(value_template) = &binding.value_template else {
+                                            return ProjectionNormalizationResult::Dynamic(DynamicBoundaryObligation {
+                                                reason: "associated type binding is dynamic".into(),
+                                            });
+                                        };
+                                        let instantiated_val = impl_bindings.apply(store, *value_template);
                                         if !context.active.insert(projection.clone()) {
                                             return ProjectionNormalizationResult::Recursive;
                                         }
@@ -446,7 +464,12 @@ fn normalize_projection(
 
                         if all_satisfied {
                             if let Some(binding) = rule.associated_type_plan.bindings.get(&projection.requirement) {
-                                let instantiated_val = impl_bindings.apply(store, binding.value_template);
+                                let AssociatedTypeBindingValue::Type(value_template) = &binding.value_template else {
+                                    return ProjectionNormalizationResult::Dynamic(DynamicBoundaryObligation {
+                                        reason: "associated type binding is dynamic".into(),
+                                    });
+                                };
+                                let instantiated_val = impl_bindings.apply(store, *value_template);
                                 if !context.active.insert(projection.clone()) {
                                     return ProjectionNormalizationResult::Recursive;
                                 }
@@ -484,7 +507,7 @@ fn normalize_projection(
                         if !context.active.insert(projection.clone()) {
                             return ProjectionNormalizationResult::Recursive;
                         }
-                        let result = normalize_type(store, binding.value, context);
+                        let result = normalize_associated_binding(store, &binding.value, context);
                         context.active.remove(&projection);
                         result
                     }
@@ -518,7 +541,12 @@ fn normalize_projection(
 
                                     if all_constraints_satisfied {
                                         if let Some(binding) = rule.associated_type_plan.bindings.get(&projection.requirement) {
-                                            let instantiated_val = impl_bindings.apply(store, binding.value_template);
+                                            let AssociatedTypeBindingValue::Type(value_template) = &binding.value_template else {
+                                                return ProjectionNormalizationResult::Dynamic(DynamicBoundaryObligation {
+                                                    reason: "associated type binding is dynamic".into(),
+                                                });
+                                            };
+                                            let instantiated_val = impl_bindings.apply(store, *value_template);
                                             if !context.active.insert(projection.clone()) {
                                                 return ProjectionNormalizationResult::Recursive;
                                             }

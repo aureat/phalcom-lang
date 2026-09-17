@@ -4,7 +4,7 @@ use phalcom_common::selector::{SelectorKind, SelectorSlot};
 use phalcom_core::bytecode::Bytecode;
 use phalcom_core::error::PhError;
 use phalcom_core::modules::compile::{CompiledProgram, EntrySelection, ProgramCompiler};
-use phalcom_core::modules::semantic_lowering::{AssociatedLoweringSpec, FamilyApplicationLoweringSpec, LoweringSiteKind};
+use phalcom_core::modules::semantic_lowering::{AssociatedLoweringSpec, FamilyApplicationLoweringSpec, LoweringSiteKind, RuntimeTypeFormValueSpec};
 use phalcom_core::vm::VM;
 use phalcom_semantic::enum_semantics::VariantShape;
 use std::sync::Arc;
@@ -89,6 +89,20 @@ let result = Factory.make(value: 1)
     assert!(chunk.code.iter().any(|op| matches!(op, Bytecode::Invoke(1, _))));
     assert!(!chunk.code.iter().any(|op| matches!(op, Bytecode::InvokeResolvedAssociated { .. })));
     assert!(!chunk.code.iter().any(|op| matches!(op, Bytecode::MakeFamily { .. })));
+}
+
+#[test]
+fn applied_type_form_lowers_to_ordinary_class_object_reference() {
+    let source = "let values = Set<Int>.new()";
+    let (vm, program, closure) = compile_inline(source).expect("applied class-side construction should compile");
+    let lowering = &program.modules[&program.entry].lowering;
+    assert!(lowering.type_form_values.values().any(|spec| {
+        matches!(spec, RuntimeTypeFormValueSpec::ClassObject { declaration } if declaration.name.as_ref() == "Set")
+    }));
+
+    let chunk = &vm.heap.closure(closure).callable.chunk;
+    assert!(matches!(chunk.code.first(), Some(Bytecode::GetLinked(_))));
+    assert!(matches!(chunk.code.get(1), Some(Bytecode::InvokeSpecialized(_, _, _))));
 }
 
 #[test]

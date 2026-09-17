@@ -293,9 +293,12 @@ impl<T> Iterable for Box<T> {
     let trait_ref = TraitRef::new(trait_declaration, Vec::new().into_boxed_slice());
     let evidence = fixture.analysis.snapshot.conformance_evidence_for(target, &trait_ref).expect("exact evidence");
     let binding = evidence.associated_types.get(&requirement.requirement).expect("exact Item binding");
-    assert_eq!(binding.value, int);
+    assert_eq!(binding.value, phalcom_semantic::impls::AssociatedTypeBindingValue::Type(int));
     let text_evidence = fixture.analysis.snapshot.conformance_evidence_for(text_target, &trait_ref).expect("exact String evidence");
-    assert_eq!(text_evidence.associated_types[&requirement.requirement].value, string);
+    assert_eq!(
+        text_evidence.associated_types[&requirement.requirement].value,
+        phalcom_semantic::impls::AssociatedTypeBindingValue::Type(string)
+    );
 }
 
 #[test]
@@ -821,18 +824,24 @@ impl<T> Sequence for List<T> {
     let plan = fixture.analysis.snapshot.conformance_witness_plans.get(&impl_id).expect("conformance plan");
     let element_binding = plan.associated_type_plan.bindings.get(&element.requirement).expect("Element binding");
     let collection_binding = plan.associated_type_plan.bindings.get(&collection.requirement).expect("Collection binding");
-    let phalcom_semantic::TypeData::Parameter(element_parameter) = fixture.analysis.snapshot.store.get(element_binding.value_template) else {
+    let phalcom_semantic::impls::AssociatedTypeBindingValue::Type(element_type) = &element_binding.value_template else {
+        panic!("expected concrete Element binding");
+    };
+    let phalcom_semantic::TypeData::Parameter(element_parameter) = fixture.analysis.snapshot.store.get(*element_type) else {
         panic!("expected Element = T source parameter");
     };
     assert!(matches!(
         fixture.analysis.snapshot.store.type_parameter(*element_parameter).owner,
         phalcom_semantic::TypeParameterOwner::Impl(_)
     ));
-    let phalcom_semantic::TypeData::Applied { arguments, .. } = fixture.analysis.snapshot.store.get(collection_binding.value_template) else {
+    let phalcom_semantic::impls::AssociatedTypeBindingValue::Type(collection_type) = &collection_binding.value_template else {
+        panic!("expected concrete Collection binding");
+    };
+    let phalcom_semantic::TypeData::Applied { arguments, .. } = fixture.analysis.snapshot.store.get(*collection_type) else {
         panic!("expected Collection = List<T> source application");
     };
     assert_eq!(arguments.len(), 1);
-    assert_eq!(fixture.analysis.snapshot.store.get(arguments[0]), fixture.analysis.snapshot.store.get(element_binding.value_template));
+    assert_eq!(fixture.analysis.snapshot.store.get(arguments[0]), fixture.analysis.snapshot.store.get(*element_type));
 
     let next = phalcom_semantic::CallableId::new(
         CallableOwnerId::Conformance(impl_id.clone()),
@@ -845,7 +854,7 @@ impl<T> Sequence for List<T> {
         panic!("expected Option<T> source return");
     };
     assert_eq!(arguments.len(), 1);
-    assert_eq!(fixture.analysis.snapshot.store.get(arguments[0]), fixture.analysis.snapshot.store.get(element_binding.value_template));
+    assert_eq!(fixture.analysis.snapshot.store.get(arguments[0]), fixture.analysis.snapshot.store.get(*element_type));
     assert_eq!(plan.associated_type_plan.failures.len(), 0);
 }
 
@@ -876,8 +885,8 @@ fn source_conformance_projection_is_order_independent_and_cycles_are_incomplete(
     }
     let forward_plan = forward.analysis.snapshot.conformance_witness_plans.values().next().expect("forward plan");
     let reverse_plan = reverse.analysis.snapshot.conformance_witness_plans.values().next().expect("reverse plan");
-    assert_eq!(forward_plan.associated_type_plan.bindings.values().map(|binding| binding.value_template).collect::<Vec<_>>().len(), 2);
-    assert_eq!(reverse_plan.associated_type_plan.bindings.values().map(|binding| binding.value_template).collect::<Vec<_>>().len(), 2);
+    assert_eq!(forward_plan.associated_type_plan.bindings.values().map(|binding| binding.value_template.clone()).collect::<Vec<_>>().len(), 2);
+    assert_eq!(reverse_plan.associated_type_plan.bindings.values().map(|binding| binding.value_template.clone()).collect::<Vec<_>>().len(), 2);
 
     let cycle = WorkspaceFixture::new()
         .module(
@@ -1023,7 +1032,10 @@ impl<T> Iterator for List<T> {
         .expect("Item requirement")
         .requirement
         .clone();
-    assert_eq!(evidence.associated_types.get(&item).expect("exact Item binding").value, int);
+    assert_eq!(
+        evidence.associated_types.get(&item).expect("exact Item binding").value,
+        phalcom_semantic::impls::AssociatedTypeBindingValue::Type(int)
+    );
 
     let surface = fixture.analysis.snapshot.trait_surfaces.get(&iterator).expect("Iterator surface");
     let next = surface
@@ -1200,9 +1212,12 @@ impl<T> Abstract for Box<T> {
         &mut source_budget,
         &source_cancel,
     );
+    let phalcom_semantic::impls::AssociatedTypeBindingValue::Type(source_type) = &source_binding.value_template else {
+        panic!("expected concrete source binding");
+    };
     assert_eq!(
         phalcom_semantic::types::normalize_type(&mut source_store, source_projection, &mut source_context),
-        phalcom_semantic::types::ProjectionNormalizationResult::Normalized(source_binding.value_template)
+        phalcom_semantic::types::ProjectionNormalizationResult::Normalized(*source_type)
     );
 
     let other_declaration = fixture.decl("main", "Other");

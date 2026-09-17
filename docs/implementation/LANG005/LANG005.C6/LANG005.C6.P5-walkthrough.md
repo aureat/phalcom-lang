@@ -4,11 +4,14 @@ kind: implementation-walkthrough
 status: IN_PROGRESS
 completion: IMPLEMENTED
 verification: BASELINE_BLOCKED
-revision: 06e37b6830cd9114d03f2a794d0b9a973f8cdc82
+revision: a9b168f53506eff1a40d255204a4676f182c541
 prepared: 2026-09-17
 ---
 
 # LANG005.C6.P5 walkthrough
+
+This supplemental repair is based on `a9b168f53506eff1a40d255204a4676f182c541`
+with the implementation changes retained in the working tree.
 
 Part I landed the semantic and executable canonical iteration vertical for
 `List`, while preserving the staged compatibility boundary for sources that do
@@ -59,6 +62,24 @@ assertions or semantic baseline expectations were weakened.
 The resulting state is `IMPLEMENTED / BASELINE_BLOCKED` for the landed
 Bytes/String slice, with Part II partial overall. G3 is not passed, and T9–T11
 were not started.
+
+## Advisory corrective slice — applied class receivers
+
+The supplied advisory decision was implemented as a bounded prerequisite
+repair. Applied nominal type forms now project through
+`ModuleLoweringSemantics.type_form_values` to the ordinary declaration class
+object; their generic arguments remain semantic call-specialization data. The
+native Set/Map class-side `new()` contracts now publish receiver-flow `Self`
+with constructor semantics, and iterator source bodies retain explicit
+generic constructor forms.
+
+Focused regressions pass for contextual `Set<Int>`/`Set<String>` inference,
+applied `Set<Int>` and `Map<Int, String>` construction, ordinary generic-owner
+environment transport, and applied type-form lowering. The full Set iterator
+probe still reaches the inherited inline Universe-source/generic call-entry
+boundary when `SetIterator<T>.new(self)` needs its parent environment. No VM
+inference or permissive template fallback was added; G3 remains unpassed and
+Part II T6/T7/T8 remains for the follow-on session.
 
 ## Lifecycle state
 

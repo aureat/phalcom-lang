@@ -1741,15 +1741,30 @@ impl<'vm> Compiler<'vm> {
             Expr::Ellipsis { range } => {
                 self.emit(Bytecode::GetEllipsis, range);
             }
-            Expr::TypeForm(type_annotation) => match &type_annotation.expr {
-                phalcom_ast::ast::TypeAnnotationExpr::Reference(sym_ref) => {
-                    let sym = self.vm.interner.intern(sym_ref.leaf_name());
-                    self.emit_global_reference(sym, sym_ref.range);
+            Expr::TypeForm(type_annotation) => {
+                let type_form_value = self
+                    .lowering()
+                    .and_then(|lowering| lowering.type_form_values.get(&type_annotation.range))
+                    .cloned();
+                match type_form_value {
+                    Some(crate::modules::semantic_lowering::RuntimeTypeFormValueSpec::ClassObject { declaration }) => {
+                        let symbol = self.vm.interner.intern(&declaration.name);
+                        self.emit_global_reference(symbol, type_annotation.range);
+                    }
+                    None => match &type_annotation.expr {
+                        phalcom_ast::ast::TypeAnnotationExpr::Reference(sym_ref) => {
+                            let sym = self.vm.interner.intern(sym_ref.leaf_name());
+                            self.emit_global_reference(sym, sym_ref.range);
+                        }
+                        _ => {
+                            return Err(CompilerError::Message(format!(
+                                "unsupported executable type form at {:?}",
+                                type_annotation.range
+                            )));
+                        }
+                    },
                 }
-                _ => {
-                    self.emit(Bytecode::Nil, type_annotation.range);
-                }
-            },
+            }
             Expr::RecordConstruction(record_expr) => {
                 let spec = self.lowering().and_then(|l| {
                     l.associated

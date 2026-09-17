@@ -624,7 +624,7 @@ pub fn build_conformance_associated_type_plan(
     for (requirement, (syntax, source, name)) in pending {
         let knowledge = resolve_type_annotation(ctx.store, ctx.declarations, &resolver, &formation_site, &syntax, &mut diagnostics);
         let value_template = match knowledge {
-            TypeKnowledge::Known(evidence) => AssociatedTypeBindingValue::Type(evidence.ty),
+            TypeKnowledge::Known(evidence) => AssociatedTypeBindingValue::Type(evidence.ty()),
             TypeKnowledge::Dynamic(_) => AssociatedTypeBindingValue::Dynamic,
             TypeKnowledge::Unknown(_) => {
                 let reason = format!("associated type `{name}` binding has no usable type");
@@ -667,7 +667,7 @@ pub fn build_conformance_associated_type_plan(
             requirement.clone(),
             AssociatedTypeBindingTemplate {
                 requirement: requirement.clone(),
-                value_template,
+                value_template: AssociatedTypeBindingValue::Type(value_template),
                 source_impl: impl_id.clone(),
                 source,
             },

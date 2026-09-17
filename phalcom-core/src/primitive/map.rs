@@ -45,7 +45,7 @@ fn map_mutation_error(err: MapMutationError, collection: &'static str) -> Runtim
 }
 
 /// Signature: `Map.class::new()` — allocates an empty map.
-#[phalcom_native_macros::primitive(Map, "new()", side = class)]
+#[phalcom_native_macros::primitive(Map, "new()", side = class, types = "() -> Self", flow = receiver)]
 pub fn map_class_new(vm: &mut VM, _receiver: &Value, _args: &[Value]) -> PhResult<Value> {
     Ok(Value::obj(vm.heap.alloc_map()))
 }

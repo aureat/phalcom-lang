@@ -85,3 +85,29 @@ class Probe {
     assert_eq!(raw.knowledge, TypeKnowledge::Unknown(UnknownReason::UnderconstrainedTypeVariable));
     assert!(!fixture.diagnostics(DiagnosticCode::GenericInferenceUnderconstrained).is_empty());
 }
+
+#[test]
+fn native_generic_constructor_uses_contextual_result_type() {
+    let fixture = Fixture::new(
+        r#"
+class Probe {
+  @class
+  run() {
+    let ints: Set<Int> = Set.new()
+    let strings: Set<String> = Set.new()
+  }
+}
+"#,
+    );
+    let run = fixture.callable("Probe", "run", DispatchSide::Class);
+
+    fixture.assert_type(
+        fixture.binding(run, "ints").current.ty().expect("contextual Set<Int> result"),
+        applied("Set", [fixture.ty("Int").into()]),
+    );
+    fixture.assert_type(
+        fixture.binding(run, "strings").current.ty().expect("contextual Set<String> result"),
+        applied("Set", [fixture.ty("String").into()]),
+    );
+    fixture.assert_no_diagnostic(DiagnosticCode::GenericInferenceConflict);
+}
