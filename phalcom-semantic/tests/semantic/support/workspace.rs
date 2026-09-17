@@ -49,11 +49,14 @@ impl WorkspaceFixture {
             .collect::<BTreeMap<_, _>>();
 
         let mut sources = BTreeMap::new();
-        let mut linked_modules = BTreeMap::new();
+        let mut unlinked_interfaces = BTreeMap::new();
         for (name, source) in &self.modules {
             let module = module_ids.get(name).expect("module id created above").clone();
             let parsed = phalcom_ast::parse(source, 0);
             assert!(parsed.errors.is_empty(), "parse errors in `{name}`: {:#?}", parsed.errors);
+            if let Ok(iface) = phalcom_modules::interface::InterfaceBuilder::build(module.clone(), ModuleKind::Module, &parsed.program) {
+                unlinked_interfaces.insert(module.clone(), iface);
+            }
             sources.insert(
                 module.clone(),
                 Arc::new(ParsedModuleUnit::new(
@@ -64,32 +67,22 @@ impl WorkspaceFixture {
                     Arc::new(parsed.program),
                 )),
             );
-            linked_modules.insert(
-                module.clone(),
-                LinkedModule {
-                    interface: LinkedModuleInterface {
-                        module,
-                        kind: ModuleKind::Module,
-                        exports: BTreeMap::new(),
-                        metadata: ModuleMetadata::default(),
-                    },
-                    bindings: ModuleBindingLayout::default(),
-                    linked_reads: Vec::new(),
-                    runtime_dependencies: Vec::new(),
-                },
-            );
+        }
+
+        let mut resolved = BTreeMap::new();
+        for (importer_name, _) in &self.modules {
+            let importer_id = module_ids.get(importer_name).unwrap().clone();
+            for (target_name, target_id) in &module_ids {
+                resolved.insert((importer_id.clone(), target_name.clone()), target_id.clone());
+                resolved.insert((importer_id.clone(), format!(".{target_name}")), target_id.clone());
+            }
         }
 
         let entry_name = self.entry.or_else(|| self.modules.keys().next().cloned()).expect("non-empty modules");
         let entry = module_ids.get(&entry_name).expect("entry module exists").clone();
-        let initialization_order = module_ids.values().cloned().collect();
-        let linked = Arc::new(LinkedProgram {
-            universe: Arc::new(ProjectUniverse::new()),
-            modules: linked_modules,
-            graphs: phalcom_modules::graph::ModuleGraphs::default(),
-            entry,
-            initialization_order,
-        });
+        let linker = phalcom_modules::linker::ModuleLinker::new(Arc::new(ProjectUniverse::new()), unlinked_interfaces);
+        let linked_res = linker.link_component_interfaces_tolerant(entry, &resolved);
+        let linked = Arc::new(linked_res.program);
 
         let analysis = analyze_workspace(SemanticWorkspaceInput::new(linked, sources, 1));
         assert!(

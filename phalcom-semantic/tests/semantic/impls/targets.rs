@@ -93,7 +93,7 @@ fn test_explicit_conformance_head_resolves_trait_and_target_separately() {
         panic!("expected impl")
     };
     let impl_id = ImplId::new(module, ImplLocalId(0));
-    let head = resolve_conformance_head(&mut ctx, &trait_headers, &impl_id, impl_def).expect("head should resolve");
+    let head = resolve_conformance_head(&mut ctx, &trait_headers, &impl_id, impl_def).expect("head should resolve").expect_nominal();
     assert!(head.eligible);
     assert_eq!(head.trait_ref.declaration, trait_decl);
     assert!(matches!(head.target, ConformanceTarget::Declaration(declaration) if declaration == value_decl));

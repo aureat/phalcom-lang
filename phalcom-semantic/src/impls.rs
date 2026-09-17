@@ -552,7 +552,17 @@ pub fn build_conformance_associated_type_plan(
         .values()
         .map(|requirement| (requirement.name.to_string(), requirement.requirement.clone()))
         .collect::<BTreeMap<_, _>>();
-    let formation_site = TypeFormationSite::trait_member(
+    let generic_evidence = generic_signature.and_then(|sig| {
+        let empty_surfaces = crate::traits::TraitSurfaceTable::new();
+        let surfaces = ctx.conformance_semantics.map(|cs| cs.trait_surfaces).unwrap_or(&empty_surfaces);
+        let owner = crate::types::parameter::TypeParameterOwner::Impl(impl_id.clone());
+        crate::generic_evidence::GenericEvidenceEnvironment::try_from_constraints(
+            &sig.constraints,
+            owner,
+            surfaces,
+        ).ok()
+    });
+    let mut formation_site = TypeFormationSite::trait_member(
         ctx.current_module.clone(),
         trait_ref.declaration.clone(),
         DispatchSide::Instance,
@@ -560,6 +570,9 @@ pub fn build_conformance_associated_type_plan(
         associated_type_context,
     )
     .with_self_type_override(target_head);
+    if let Some(evidence) = generic_evidence {
+        formation_site = formation_site.with_generic_evidence(evidence);
+    }
     let conformance_source = SemanticSourceSpan::new(ctx.current_module.clone(), impl_def.range);
     let mut pending = BTreeMap::new();
     let mut bindings = BTreeMap::new();
@@ -2517,6 +2530,29 @@ impl ResolvedInherentImplTarget {
     }
 }
 
+/// Typed outcome of resolving a conformance implementation head.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ResolvedConformanceDeclaration {
+    Nominal(ResolvedConformanceHead),
+    GuardedRule(crate::derived_conformance::ResolvedDerivedConformanceRuleHead),
+}
+
+impl ResolvedConformanceDeclaration {
+    pub fn as_nominal(&self) -> Option<&ResolvedConformanceHead> {
+        match self {
+            Self::Nominal(h) => Some(h),
+            Self::GuardedRule(_) => None,
+        }
+    }
+
+    pub fn expect_nominal(self) -> ResolvedConformanceHead {
+        match self {
+            Self::Nominal(h) => h,
+            Self::GuardedRule(r) => panic!("expected nominal conformance head, found guarded derived rule {r:?}"),
+        }
+    }
+}
+
 /// Resolves an explicit `impl TraitRef for Target` header under one
 /// impl-owned generic environment.
 pub fn resolve_conformance_head(
@@ -2524,7 +2560,7 @@ pub fn resolve_conformance_head(
     trait_headers: &TraitHeaderTable,
     impl_id: &ImplId,
     impl_def: &ImplDef,
-) -> Result<ResolvedConformanceHead, Vec<SemanticDiagnostic>> {
+) -> Result<ResolvedConformanceDeclaration, Vec<SemanticDiagnostic>> {
     let phalcom_ast::ast::ImplKind::Conformance { trait_ref: trait_syntax, .. } = &impl_def.kind else {
         return Err(vec![SemanticDiagnostic::error_in(
             ctx.current_module.clone(),
@@ -2663,7 +2699,7 @@ pub fn resolve_conformance_head(
             }
         }
     }
-    let trait_ref = match TraitRef::form(ctx.store, trait_headers, &ctx.hierarchy, trait_declaration, &trait_arguments) {
+    let trait_ref = match TraitRef::form(ctx.store, trait_headers, &ctx.hierarchy, trait_declaration.clone(), &trait_arguments) {
         Ok(trait_ref) => trait_ref,
         Err(error) => {
             let message = format!("invalid conformance trait reference: {error}");
@@ -2762,6 +2798,74 @@ pub fn resolve_conformance_head(
             return Err(diagnostics);
         };
         let target_head = target_evidence.ty();
+        if let TypeData::Parameter(target_param) = ctx.store.get(target_head).clone() {
+            let param_data = ctx.store.type_parameter(target_param);
+            if param_data.owner != TypeParameterOwner::Impl(impl_id.clone()) {
+                diagnostics.push(SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    DiagnosticCode::ImplTargetNotNominal,
+                    "conformance target parameter must belong to the impl declaration",
+                    impl_def.target.range,
+                ));
+                return Err(diagnostics);
+            }
+            let Some(sig) = &generic_signature else {
+                diagnostics.push(SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    DiagnosticCode::DerivedConformanceUnguarded,
+                    "unguarded generic-target conformance is not permitted: derived conformance rule requires at least one constraint on the target parameter",
+                    impl_def.range,
+                ));
+                return Err(diagnostics);
+            };
+            let is_guarded = sig.constraints.iter().any(|c| constraint_mentions_param(ctx.store, c, target_param));
+            if !is_guarded {
+                diagnostics.push(SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    DiagnosticCode::DerivedConformanceUnguarded,
+                    "unguarded generic-target conformance is not permitted: derived conformance rule requires at least one constraint on the target parameter",
+                    impl_def.range,
+                ));
+                return Err(diagnostics);
+            }
+            if ctx.current_module != trait_declaration.module {
+                diagnostics.push(SemanticDiagnostic::error_in(
+                    ctx.current_module.clone(),
+                    DiagnosticCode::DerivedConformanceUnauthorized,
+                    "derived conformance rule must be declared in the trait's owning module",
+                    impl_def.range,
+                ));
+                return Err(diagnostics);
+            }
+            for parameter in &impl_type_parameter_ids {
+                if *parameter != target_param
+                    && !trait_ref.arguments.iter().any(|&arg| type_id_mentions_param(ctx.store, arg, *parameter))
+                    && !sig.constraints.iter().any(|c| constraint_mentions_param(ctx.store, c, *parameter))
+                {
+                    let name = ctx.store.type_parameter(*parameter).name.clone();
+                    diagnostics.push(SemanticDiagnostic::error_in(
+                        ctx.current_module.clone(),
+                        DiagnosticCode::ImplUnusedTypeParameter,
+                        format!("type parameter `{name}` is unused in conformance head"),
+                        impl_def.range,
+                    ));
+                }
+            }
+            if !diagnostics.is_empty() {
+                return Err(diagnostics);
+            }
+            return Ok(ResolvedConformanceDeclaration::GuardedRule(
+                crate::derived_conformance::ResolvedDerivedConformanceRuleHead {
+                    impl_id: impl_id.clone(),
+                    source_module: ctx.current_module.clone(),
+                    target_parameter: target_param,
+                    target_template: target_head,
+                    trait_ref,
+                    generic_signature: sig.clone(),
+                    source: SemanticSourceSpan::new(ctx.current_module.clone(), impl_def.range),
+                },
+            ));
+        }
         let target = match ctx.store.get(target_head).clone() {
             TypeData::Nominal { declaration } => {
                 if trait_headers.contains(&declaration) || ctx.resolver.resolve_alias_form(&declaration).is_some() {
@@ -2838,7 +2942,7 @@ pub fn resolve_conformance_head(
         }
     }
 
-    Ok(ResolvedConformanceHead {
+    Ok(ResolvedConformanceDeclaration::Nominal(ResolvedConformanceHead {
         impl_id: impl_id.clone(),
         source_module: ctx.current_module.clone(),
         trait_ref,
@@ -2848,7 +2952,49 @@ pub fn resolve_conformance_head(
         source: SemanticSourceSpan::new(ctx.current_module.clone(), impl_def.range),
         eligible: diagnostics.is_empty(),
         diagnostics: diagnostics.into_boxed_slice(),
-    })
+    }))
+}
+
+fn term_mentions_param(store: &TypeStore, term: &TypeTerm, param: TypeParameterId) -> bool {
+    match term {
+        TypeTerm::Canonical(ty) => type_id_mentions_param(store, *ty, param),
+        TypeTerm::SelfType(_) | TypeTerm::Infer(_) => false,
+    }
+}
+
+fn type_id_mentions_param(store: &TypeStore, ty: TypeId, param: TypeParameterId) -> bool {
+    match store.get(ty) {
+        TypeData::Parameter(p) => *p == param,
+        TypeData::Applied { origin, arguments } => {
+            type_id_mentions_param(store, *origin, param) || arguments.iter().any(|&a| type_id_mentions_param(store, a, param))
+        }
+        TypeData::AssociatedProjection(proj) => {
+            type_id_mentions_param(store, proj.subject, param)
+                || proj.trait_ref.arguments.iter().any(|&a| type_id_mentions_param(store, a, param))
+        }
+        TypeData::Tuple(elements) => elements.iter().any(|e| type_id_mentions_param(store, e.ty, param)),
+        TypeData::Union(types) => types.iter().any(|&t| type_id_mentions_param(store, t, param)),
+        TypeData::Callable(callable) => {
+            type_id_mentions_param(store, callable.return_type, param)
+                || callable.parameters.iter().any(|p| type_id_mentions_param(store, p.ty, param))
+        }
+        _ => false,
+    }
+}
+
+fn constraint_mentions_param(store: &TypeStore, constraint: &GenericConstraint, param: TypeParameterId) -> bool {
+    match constraint {
+        GenericConstraint::Conforms { subject, trait_ref } => {
+            term_mentions_param(store, subject, param)
+                || trait_ref.arguments.iter().any(|&arg| type_id_mentions_param(store, arg, param))
+        }
+        GenericConstraint::Equivalent { left, right } => {
+            term_mentions_param(store, left, param) || term_mentions_param(store, right, param)
+        }
+        GenericConstraint::Subtype { lower, upper } => {
+            term_mentions_param(store, lower, param) || term_mentions_param(store, upper, param)
+        }
+    }
 }
 
 /// A single behavior-only member contributed by an inherent impl block.

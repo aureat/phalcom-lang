@@ -170,6 +170,8 @@ pub struct SemanticSnapshot {
     /// Source witness/default selections, keyed by the declaring conformance
     /// identity. Exact evidence is derived only from this canonical plan.
     pub conformance_witness_plans: Arc<BTreeMap<crate::identity::ImplId, Arc<ConformanceWitnessPlan>>>,
+    /// Guarded derived conformance rules published for this semantic snapshot.
+    pub derived_conformance_rules: Arc<crate::derived_conformance::DerivedConformanceRuleIndex>,
     /// Bounded ordinary receiver/selector discovery for trait evidence.
     pub trait_dispatch_index: Arc<TraitDispatchIndex>,
     pub field_signatures: Arc<FieldSignatureTable>,
@@ -231,6 +233,7 @@ impl SemanticSnapshot {
             callable_definitions: Arc::new(BTreeMap::new()),
             conformance_index: Arc::new(ConformanceIndex::new()),
             conformance_witness_plans: Arc::new(BTreeMap::new()),
+            derived_conformance_rules: Arc::new(crate::derived_conformance::DerivedConformanceRuleIndex::new()),
             trait_dispatch_index: Arc::new(TraitDispatchIndex::default()),
             field_signatures: Arc::new(FieldSignatureTable::new()),
             declarations,
@@ -287,6 +290,7 @@ impl SemanticSnapshot {
             callable_definitions: Arc::new(BTreeMap::new()),
             conformance_index: Arc::new(ConformanceIndex::new()),
             conformance_witness_plans: Arc::new(BTreeMap::new()),
+            derived_conformance_rules: Arc::new(crate::derived_conformance::DerivedConformanceRuleIndex::new()),
             trait_dispatch_index: Arc::new(TraitDispatchIndex::default()),
             field_signatures: Arc::new(FieldSignatureTable::new()),
             declarations,
@@ -376,6 +380,11 @@ impl SemanticSnapshot {
 
     pub fn with_conformance_witness_plans(mut self, plans: Arc<BTreeMap<crate::identity::ImplId, Arc<ConformanceWitnessPlan>>>) -> Self {
         self.conformance_witness_plans = plans;
+        self
+    }
+
+    pub fn with_derived_conformance_rules(mut self, rules: Arc<crate::derived_conformance::DerivedConformanceRuleIndex>) -> Self {
+        self.derived_conformance_rules = rules;
         self
     }
 

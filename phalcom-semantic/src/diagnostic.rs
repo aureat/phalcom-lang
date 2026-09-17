@@ -128,6 +128,9 @@ pub enum DiagnosticCode {
     ImplConformanceIncomplete,
     TraitMemberConflict,
     TraitDispatchAmbiguous,
+    DerivedConformanceUnguarded,
+    DerivedConformanceUnauthorized,
+    DerivedConformanceOverlap,
 }
 
 impl DiagnosticCode {
@@ -243,6 +246,9 @@ impl DiagnosticCode {
             Self::ImplConformanceIncomplete => "impl.conformance.incomplete",
             Self::TraitMemberConflict => "trait.member.conflict",
             Self::TraitDispatchAmbiguous => "trait.dispatch.ambiguous",
+            Self::DerivedConformanceUnguarded => "impl.derived_conformance.unguarded",
+            Self::DerivedConformanceUnauthorized => "impl.derived_conformance.unauthorized",
+            Self::DerivedConformanceOverlap => "impl.derived_conformance.overlap",
         }
     }
 }

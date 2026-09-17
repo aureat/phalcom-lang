@@ -11,6 +11,7 @@ pub mod data_semantics;
 pub mod db;
 pub mod declaration_type;
 pub mod declarations;
+pub mod derived_conformance;
 pub mod diagnostic;
 pub mod diagnostic_presentation;
 pub mod dispatch;

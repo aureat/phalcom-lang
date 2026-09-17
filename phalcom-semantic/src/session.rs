@@ -3199,10 +3199,15 @@ impl SemanticWorkspaceSession {
         let mut conformance_invalid_witnesses: BTreeMap<crate::identity::ImplId, BTreeSet<crate::traits::TraitRequirementId>> = BTreeMap::new();
         let mut conformance_invalid_members = BTreeSet::new();
         let mut conformance_associated_type_plans: BTreeMap<crate::identity::ImplId, crate::impls::ConformanceAssociatedTypePlan> = BTreeMap::new();
+        let mut derived_conformance_rules = previous_snapshot
+            .as_ref()
+            .map(|snapshot| (*snapshot.derived_conformance_rules).clone())
+            .unwrap_or_default();
         for module in structural_work_modules.iter().chain(removed_modules.iter()) {
             conformance_index.remove_source(module);
             conformance_witness_plans.retain(|impl_id, _| &impl_id.module != module);
             conformance_associated_type_plans.retain(|impl_id, _| &impl_id.module != module);
+            derived_conformance_rules.remove_source(module);
         }
         for module_id in &structural_work_modules {
             let Some(shard) = self.semantic_structure_shards.get(module_id) else {
@@ -3218,7 +3223,7 @@ impl SemanticWorkspaceSession {
                         context.attach_data_semantics(&data_semantics);
                         context.attach_enum_semantics(&enum_semantics);
                         match crate::impls::resolve_conformance_head(&mut context, &trait_headers, &impl_id, impl_def) {
-                            Ok(head) => {
+                            Ok(crate::impls::ResolvedConformanceDeclaration::Nominal(head)) => {
                                 let authorized = crate::impls::conformance_is_authorized(&head.source_module, &head.trait_ref, &head.target);
                                 let target_owner = head.target.declaration().clone();
                                 let impl_signature = head.generic_signature.clone();
@@ -3390,6 +3395,165 @@ impl SemanticWorkspaceSession {
                                     conformance_associated_type_plans.insert(contribution.impl_id.clone(), associated_plan);
                                 }
                                 conformance_index.insert(contribution);
+                            }
+                            Ok(crate::impls::ResolvedConformanceDeclaration::GuardedRule(rule_head)) => {
+                                let Some(surface) = trait_surfaces.get(&rule_head.trait_ref.declaration) else {
+                                    continue;
+                                };
+                                let mut source_associated_type_plan = crate::impls::build_conformance_associated_type_plan(
+                                    &mut context,
+                                    &rule_head.impl_id,
+                                    impl_def,
+                                    surface,
+                                    Some(&rule_head.generic_signature),
+                                    &rule_head.trait_ref,
+                                    rule_head.target_template,
+                                );
+                                diags_by_module
+                                    .entry(module_id.clone())
+                                    .or_default()
+                                    .extend(source_associated_type_plan.diagnostics.iter().cloned());
+
+                                let mut rule_requirements = BTreeMap::new();
+                                let requirement_views = crate::impls::instantiate_conformance_requirements(
+                                    context.store,
+                                    Some(&declarations),
+                                    surface,
+                                    &rule_head.trait_ref,
+                                    rule_head.target_template,
+                                    &HashMap::new(),
+                                );
+                                let callable_owner = crate::identity::CallableOwnerId::Conformance(rule_head.impl_id.clone());
+                                let mut seen_requirements = BTreeSet::new();
+                                for (source_member_index, impl_member) in impl_def.members.iter().enumerate() {
+                                    if let phalcom_ast::ast::ImplMember::Delegation(delegation) = impl_member {
+                                        diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
+                                            module_id.clone(),
+                                            DiagnosticCode::DelegationInConformanceUnsupported,
+                                            "direct-field `via` is supported only in class and inherent impl declarations",
+                                            delegation.range,
+                                        ));
+                                        continue;
+                                    }
+                                    let Some(member) = impl_member.behavior() else {
+                                        continue;
+                                    };
+                                    let syntax = crate::checker::declaration_signature::CallableSyntaxRef::from(member);
+                                    let side = crate::semantic_shard::behavior_side(member);
+                                    let Some(candidate_callable) =
+                                        crate::checker::declaration_signature::callable_id_for_syntax(&callable_owner, syntax, side)
+                                    else {
+                                        continue;
+                                    };
+                                    let requirement = surface.get_by_selector(&candidate_callable.selector, candidate_callable.side);
+                                    let Some(requirement) = requirement else {
+                                        diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
+                                            module_id.clone(),
+                                            DiagnosticCode::ImplMemberConflict,
+                                            "conformance member does not match a trait requirement",
+                                            syntax.range(),
+                                        ));
+                                        continue;
+                                    };
+                                    if !seen_requirements.insert(requirement.requirement.clone()) {
+                                        diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
+                                            module_id.clone(),
+                                            DiagnosticCode::ImplMemberConflict,
+                                            "multiple conformance members target the same trait requirement",
+                                            syntax.range(),
+                                        ));
+                                        continue;
+                                    }
+                                    let associated_type_context = surface
+                                        .associated_types
+                                        .values()
+                                        .map(|r| (r.name.to_string(), r.requirement.clone()))
+                                        .collect();
+                                    let formation_site = TypeFormationSite::trait_member(
+                                        module_id.clone(),
+                                        rule_head.trait_ref.declaration.clone(),
+                                        DispatchSide::Instance,
+                                        rule_head.trait_ref.clone(),
+                                        associated_type_context,
+                                    ).with_self_type_override(rule_head.target_template);
+
+                                    let Some(mut signature) = crate::checker::declaration_signature::semantic_signature_for_conformance_syntax_with_site(
+                                        &mut context,
+                                        &callable_owner,
+                                        &rule_head.trait_ref.declaration,
+                                        Some(&rule_head.generic_signature),
+                                        &formation_site,
+                                        syntax,
+                                        side,
+                                    ) else {
+                                        continue;
+                                    };
+                                    signature = crate::impls::normalize_source_signature(
+                                        &mut context,
+                                        &rule_head.trait_ref,
+                                        rule_head.target_template,
+                                        &mut source_associated_type_plan,
+                                        signature,
+                                    );
+                                    let callable = signature.callable.clone();
+                                    conformance_witness_visibilities.insert(callable.clone(), crate::traits::behavior_member_visibility(member));
+                                    let has_body = match member {
+                                        phalcom_ast::ast::BehaviorMember::Method(method) => method.body.statements().is_some(),
+                                        phalcom_ast::ast::BehaviorMember::Getter(getter) => getter.body.statements().is_some(),
+                                        phalcom_ast::ast::BehaviorMember::Setter(setter) => setter.body.statements().is_some(),
+                                        phalcom_ast::ast::BehaviorMember::Index(index) => index.body.statements().is_some(),
+                                    };
+                                    if has_body {
+                                        conformance_witness_bodies.insert(callable.clone());
+                                    }
+                                    let definition = crate::impls::EffectiveCallableDefinition {
+                                        callable: callable.clone(),
+                                        origin: crate::impls::CallableDefinitionOrigin::ConformanceWitness(rule_head.impl_id.clone()),
+                                        source_member_index,
+                                        signature: signature.clone(),
+                                    };
+                                    callable_definitions.insert(callable.clone(), definition.clone());
+                                    let _ = query_callable_definition(&mut self.db, Arc::new(definition));
+                                    callable_signatures.insert(signature.clone());
+                                    let _ = query_bootstrap_callable_signature(&mut self.db, Arc::new(signature));
+
+                                    rule_requirements.insert(
+                                        requirement.requirement.clone(),
+                                        crate::impls::RequirementSelectionTemplate::ConformanceCallable { callable: candidate_callable },
+                                    );
+                                }
+                                for (requirement, member) in surface.iter() {
+                                    if !rule_requirements.contains_key(requirement) && member.default_present {
+                                        rule_requirements.insert(
+                                            requirement.clone(),
+                                            crate::impls::RequirementSelectionTemplate::TraitDefault { callable: requirement.source_callable() },
+                                        );
+                                    }
+                                }
+
+                                let existing_rules = derived_conformance_rules.rules_for_trait(&rule_head.trait_ref.declaration);
+                                if !existing_rules.is_empty() {
+                                    diags_by_module.entry(module_id.clone()).or_default().push(SemanticDiagnostic::error_in(
+                                        module_id.clone(),
+                                        DiagnosticCode::DerivedConformanceOverlap,
+                                        format!("overlapping derived conformance rules: multiple derived conformance rules found for trait `{}`", rule_head.trait_ref.declaration.name),
+                                        impl_def.range,
+                                    ));
+                                }
+
+                                let rule = crate::derived_conformance::DerivedConformanceRule::new(
+                                    rule_head.impl_id.clone(),
+                                    rule_head.source_module.clone(),
+                                    rule_head.target_parameter,
+                                    rule_head.target_template,
+                                    rule_head.trait_ref.clone(),
+                                    rule_head.generic_signature.clone(),
+                                    source_associated_type_plan,
+                                    requirement_views,
+                                    rule_requirements,
+                                    rule_head.source.clone(),
+                                );
+                                derived_conformance_rules.insert(rule);
                             }
                             Err(diagnostics) => {
                                 diags_by_module.entry(module_id.clone()).or_default().extend(diagnostics);
@@ -4909,6 +5073,7 @@ impl SemanticWorkspaceSession {
         snapshot_obj = snapshot_obj.with_callable_definitions(Arc::new(callable_definitions));
         snapshot_obj = snapshot_obj.with_conformance_index(Arc::new(conformance_index));
         snapshot_obj = snapshot_obj.with_conformance_witness_plans(Arc::new(conformance_witness_plans));
+        snapshot_obj = snapshot_obj.with_derived_conformance_rules(Arc::new(derived_conformance_rules));
         snapshot_obj = snapshot_obj.with_trait_dispatch_index(Arc::new(trait_dispatch_index));
         snapshot_obj = snapshot_obj.with_presentation_sources(Arc::new(presentation_sources));
         snapshot_obj = snapshot_obj.with_source_index(Arc::new(source_index));

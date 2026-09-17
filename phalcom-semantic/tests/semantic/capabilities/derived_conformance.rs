@@ -624,3 +624,322 @@ class Probe<T> {
         proof
     );
 }
+
+#[test]
+fn guarded_generic_target_conformance_forms_rule() {
+    let fixture = Fixture::new(
+        r#"
+trait Iterator {
+    type Item
+}
+
+trait Iterable {
+    type Item
+    type Iterator
+    iterator() -> Self::Iterator
+}
+
+impl<T> Iterable for T
+    where T |= Iterator
+{
+    type Item = T::Item
+    type Iterator = T
+
+    iterator() -> T {
+        self
+    }
+}
+"#,
+    );
+
+    let diags = fixture.analysis.snapshot.all_diagnostics().collect::<Vec<_>>();
+    assert!(diags.is_empty(), "unexpected diagnostics: {:?}", diags);
+
+    let iterable_decl = fixture.decl("Iterable");
+    let rules = fixture.analysis.snapshot.derived_conformance_rules.rules_for_trait(&iterable_decl);
+    assert_eq!(rules.len(), 1, "expected 1 derived conformance rule for Iterable");
+    let rule = &rules[0];
+    assert_eq!(rule.trait_ref.declaration, iterable_decl);
+    assert_eq!(rule.requirements.len(), 1);
+    assert_eq!(rule.associated_type_plan.bindings.len(), 2);
+}
+
+#[test]
+fn unguarded_generic_target_conformance_is_rejected() {
+    let fixture = Fixture::new(
+        r#"
+trait Target {
+    ping() -> Int
+}
+
+impl<T> Target for T {
+    ping() -> Int {
+        42
+    }
+}
+"#,
+    );
+
+    let codes: Vec<_> = fixture.analysis.snapshot.all_diagnostics().map(|d| d.code).collect();
+    assert!(
+        codes.contains(&DiagnosticCode::DerivedConformanceUnguarded),
+        "expected DerivedConformanceUnguarded, got: {:?}",
+        codes
+    );
+}
+
+#[test]
+fn generic_target_rule_requires_consequent_trait_ownership() {
+    use crate::semantic::support::WorkspaceFixture;
+
+    let fixture = WorkspaceFixture::new()
+        .module(
+            "upstream",
+            r#"
+trait OwnedTrait {
+    ping() -> Int
+}
+export OwnedTrait
+
+trait GuardTrait {}
+export GuardTrait
+"#,
+        )
+        .module(
+            "downstream",
+            r#"
+from upstream import OwnedTrait
+from upstream import GuardTrait
+
+impl<T> OwnedTrait for T
+    where T |= GuardTrait
+{
+    ping() -> Int {
+        0
+    }
+}
+"#,
+        )
+        .analyze();
+
+    let codes: Vec<_> = fixture.analysis.snapshot.all_diagnostics().map(|d| d.code).collect();
+    assert!(
+        codes.contains(&DiagnosticCode::DerivedConformanceUnauthorized),
+        "expected DerivedConformanceUnauthorized for external trait rule, got: {:?}",
+        codes
+    );
+}
+
+#[test]
+fn generic_target_rule_parameter_renaming_is_semantically_equal() {
+    let fixture1 = Fixture::new(
+        r#"
+trait Guard {}
+trait Target {
+    type Assoc
+}
+
+impl<U> Target for U
+    where U |= Guard
+{
+    type Assoc = U
+}
+"#,
+    );
+
+    let fixture2 = Fixture::new(
+        r#"
+trait Guard {}
+trait Target {
+    type Assoc
+}
+
+impl<V> Target for V
+    where V |= Guard
+{
+    type Assoc = V
+}
+"#,
+    );
+
+    let target_decl1 = fixture1.decl("Target");
+    let target_decl2 = fixture2.decl("Target");
+
+    let rule1 = &fixture1.analysis.snapshot.derived_conformance_rules.rules_for_trait(&target_decl1)[0];
+    let rule2 = &fixture2.analysis.snapshot.derived_conformance_rules.rules_for_trait(&target_decl2)[0];
+
+    assert_eq!(
+        rule1.target_template, rule2.target_template,
+        "target templates should be structurally equal regardless of parameter name"
+    );
+}
+
+#[test]
+fn generic_target_rule_constraint_order_is_fingerprint_stable() {
+    let fixture1 = Fixture::new(
+        r#"
+trait GuardA {}
+trait GuardB {}
+trait Target {}
+
+impl<T> Target for T
+    where T |= GuardA, T |= GuardB
+{}
+"#,
+    );
+
+    let fixture2 = Fixture::new(
+        r#"
+trait GuardA {}
+trait GuardB {}
+trait Target {}
+
+impl<T> Target for T
+    where T |= GuardB, T |= GuardA
+{}
+"#,
+    );
+
+    let target_decl1 = fixture1.decl("Target");
+    let target_decl2 = fixture2.decl("Target");
+
+    let rule1 = &fixture1.analysis.snapshot.derived_conformance_rules.rules_for_trait(&target_decl1)[0];
+    let rule2 = &fixture2.analysis.snapshot.derived_conformance_rules.rules_for_trait(&target_decl2)[0];
+
+    assert_eq!(
+        rule1.fingerprint, rule2.fingerprint,
+        "fingerprints should be stable under constraint order permutation"
+    );
+}
+
+#[test]
+fn generic_target_rule_associated_binding_uses_trait_owned_requirement() {
+    let fixture = Fixture::new(
+        r#"
+trait Iterator {
+    type Item
+}
+
+trait Iterable {
+    type Item
+    type Iterator
+}
+
+impl<T> Iterable for T
+    where T |= Iterator
+{
+    type Item = T::Item
+    type Iterator = T
+}
+"#,
+    );
+
+    let iterable_decl = fixture.decl("Iterable");
+    let rule = &fixture.analysis.snapshot.derived_conformance_rules.rules_for_trait(&iterable_decl)[0];
+
+    for req in rule.associated_type_plan.bindings.keys() {
+        assert_eq!(
+            req.owner, iterable_decl,
+            "associated type requirement must be owned by the consequent trait"
+        );
+    }
+}
+
+#[test]
+fn generic_target_rule_witness_does_not_enter_inherent_surface() {
+    let fixture = Fixture::new(
+        r#"
+trait Iterator {
+    type Item
+}
+
+trait Iterable {
+    iterator() -> Self
+}
+
+impl<T> Iterable for T
+    where T |= Iterator
+{
+    iterator() -> T {
+        self
+    }
+}
+
+class NumberStream {}
+"#,
+    );
+
+    let stream_decl = fixture.decl("NumberStream");
+    let stream_surface = fixture.analysis.snapshot.surfaces.get(&stream_decl).expect("stream surface");
+    assert!(
+        !stream_surface.instance.callables_by_selector.keys().any(|s| matches!(&s.base, phalcom_common::selector::SelectorBase::Named(name) if name == "iterator")),
+        "rule witness must not leak into inherent surface of arbitrary types"
+    );
+}
+
+#[test]
+fn overlapping_generic_target_rules_are_rejected() {
+    let fixture = Fixture::new(
+        r#"
+trait GuardA {}
+trait GuardB {}
+trait Target {}
+
+impl<T> Target for T
+    where T |= GuardA
+{}
+
+impl<T> Target for T
+    where T |= GuardB
+{}
+"#,
+    );
+
+    let codes: Vec<_> = fixture.analysis.snapshot.all_diagnostics().map(|d| d.code).collect();
+    assert!(
+        codes.contains(&DiagnosticCode::DerivedConformanceOverlap),
+        "expected DerivedConformanceOverlap, got: {:?}",
+        codes
+    );
+}
+
+#[test]
+fn generic_target_rule_order_does_not_select_winner() {
+    let fixture1 = Fixture::new(
+        r#"
+trait GuardA {}
+trait GuardB {}
+trait Target {}
+
+impl<T> Target for T
+    where T |= GuardA
+{}
+
+impl<T> Target for T
+    where T |= GuardB
+{}
+"#,
+    );
+
+    let fixture2 = Fixture::new(
+        r#"
+trait GuardA {}
+trait GuardB {}
+trait Target {}
+
+impl<T> Target for T
+    where T |= GuardB
+{}
+
+impl<T> Target for T
+    where T |= GuardA
+{}
+"#,
+    );
+
+    let codes1: Vec<_> = fixture1.analysis.snapshot.all_diagnostics().map(|d| d.code).collect();
+    let codes2: Vec<_> = fixture2.analysis.snapshot.all_diagnostics().map(|d| d.code).collect();
+
+    assert!(codes1.contains(&DiagnosticCode::DerivedConformanceOverlap));
+    assert!(codes2.contains(&DiagnosticCode::DerivedConformanceOverlap));
+}
