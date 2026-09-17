@@ -40,7 +40,7 @@ use crate::signature::{CallableSemanticSignature, CallableSignatureTable, FieldS
 use crate::snapshot::SemanticSnapshot;
 use crate::source::ParsedModuleUnit;
 use crate::source_index::{SourceIndexContext, SourceSemanticIndex, build_source_scope_index, resolve_type_reference_targets};
-use crate::traits::{TraitHeader, TraitHeaderTable, TraitSurfaceTable, build_trait_surface};
+use crate::traits::{TraitHeader, TraitHeaderTable, TraitRef, TraitSurfaceTable, build_trait_surface};
 use crate::type_alias::{TypeAliasInfo, TypeAliasTable};
 use crate::types::annotation::{
     GenericBinderSite, TypeFormationOutcome, TypeFormationSite, TypeResolver, lower_scoped_type_alias_form, resolve_generic_signature, resolve_kind_syntax,
@@ -52,7 +52,7 @@ use crate::types::parameter::{GenericSignature, TypeParameterData, TypeParameter
 use crate::types::relation::MapTypeHierarchy;
 use crate::types::store::TypeStore;
 use crate::workspace::SemanticWorkspaceInput;
-use phalcom_ast::ast::{ClassMember, PackItem, PackLabel, Statement, TypeAnnotation, TypeAnnotationExpr};
+use phalcom_ast::ast::{ClassMember, PackItem, PackLabel, Statement, TraitMember, TypeAnnotation, TypeAnnotationExpr};
 use phalcom_common::range::SourceRange;
 use phalcom_common::selector::Selector;
 use phalcom_modules::declaration::{DeclarationBlueprint, DeclarationKind, DeclarationRealizationError, DeclarationShellTable};
@@ -1933,10 +1933,22 @@ impl SemanticWorkspaceSession {
         // 3. Construct LinkedTypeResolver
         let mut known_declarations: HashSet<DeclarationId> = declarations.iter().map(|(decl_id, _)| decl_id.clone()).collect();
         known_declarations.extend(alias_declarations.iter().cloned());
+        let mut trait_associated_types: BTreeMap<DeclarationId, BTreeMap<String, crate::traits::AssociatedTypeRequirementId>> = BTreeMap::new();
         for (module, shard) in &self.semantic_structure_shards {
             for statement in &shard.source.program.statements {
                 if let Statement::Trait(trait_def) = statement {
-                    known_declarations.insert(DeclarationId::new(module.clone(), trait_def.name.clone().into()));
+                    let decl = DeclarationId::new(module.clone(), trait_def.name.clone().into());
+                    known_declarations.insert(decl.clone());
+                    let mut associated_index = 0u32;
+                    for member in &trait_def.members {
+                        if let TraitMember::AssociatedType(assoc) = member {
+                            trait_associated_types
+                                .entry(decl.clone())
+                                .or_default()
+                                .insert(assoc.name.clone(), crate::traits::AssociatedTypeRequirementId::new(decl.clone(), associated_index));
+                            associated_index += 1;
+                        }
+                    }
                 }
             }
         }
@@ -1945,7 +1957,8 @@ impl SemanticWorkspaceSession {
             known_declarations.clone(),
             ModuleId::universe_root(),
             self.alias_forms.clone(),
-        );
+        )
+        .with_trait_associated_types(Arc::new(trait_associated_types.clone()));
 
         // 4. Enrich Semantic Graph
         let mut semantic_graph = input.linked.graphs.semantics.clone();
@@ -2541,8 +2554,16 @@ impl SemanticWorkspaceSession {
             for stmt in &shard.source.program.statements {
                 let Statement::Trait(trait_def) = stmt else { continue };
                 let decl_id = DeclarationId::new(module_id.clone(), trait_def.name.clone().into());
-                let generic_signature = if !trait_def.generic_parameters.is_empty() {
-                    let formation_site = TypeFormationSite::member(module_id.clone(), decl_id.clone(), DispatchSide::Instance);
+                let generic_signature = if !trait_def.generic_parameters.is_empty() || trait_def.where_clause.is_some() {
+                    let associated_type_context = trait_associated_types.get(&decl_id).cloned().unwrap_or_default();
+                    let trait_ref = TraitRef::new(decl_id.clone(), Vec::new());
+                    let formation_site = TypeFormationSite::trait_member(
+                        module_id.clone(),
+                        decl_id.clone(),
+                        DispatchSide::Instance,
+                        trait_ref,
+                        associated_type_context,
+                    );
                     let outcome = resolve_generic_signature(
                         Arc::make_mut(&mut self.store),
                         &declarations,
@@ -2564,7 +2585,10 @@ impl SemanticWorkspaceSession {
                 } else {
                     None
                 };
-                if !trait_def.generic_parameters.is_empty() && generic_signature.is_none() {
+                if (!trait_def.generic_parameters.is_empty() || trait_def.where_clause.is_some())
+                    && generic_signature.is_none()
+                    && trait_def.where_clause.as_ref().is_some_and(|w| !w.constraints.is_empty())
+                {
                     continue;
                 }
                 let header = Arc::new(TraitHeader {

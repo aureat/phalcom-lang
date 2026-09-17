@@ -687,3 +687,172 @@ impl TraitHeaderTable {
         self.entries.iter()
     }
 }
+
+/// Materializes a trait's canonical generic signature constraints for a given subject and trait application.
+pub fn instantiate_trait_generic_contract(
+    store: &mut TypeStore,
+    signature: &GenericSignature,
+    subject: TypeId,
+    trait_ref: &TraitRef,
+) -> Vec<GenericConstraint> {
+    instantiate_trait_generic_contract_for_term(store, signature, &TypeTerm::Canonical(subject), trait_ref)
+}
+
+/// Materializes a trait's generic contract for a subject `TypeTerm`.
+pub fn instantiate_trait_generic_contract_for_term(
+    store: &mut TypeStore,
+    signature: &GenericSignature,
+    subject: &TypeTerm,
+    trait_ref: &TraitRef,
+) -> Vec<GenericConstraint> {
+    let mut subst = crate::types::substitution::TypeSubstitution::new();
+    for (&param_id, &arg) in signature.parameters.iter().zip(trait_ref.arguments.iter()) {
+        subst.bind(param_id, arg);
+    }
+    signature
+        .constraints
+        .iter()
+        .map(|c| substitute_generic_constraint_self_and_params(store, c, subject, &subst))
+        .collect()
+}
+
+fn term_to_type_id(store: &mut TypeStore, term: TypeTerm) -> TypeId {
+    match term {
+        TypeTerm::Canonical(t) => t,
+        TypeTerm::SelfType(s) => store.self_type(s),
+        TypeTerm::Infer(_) => panic!("inference variables must not appear in instantiated generic contracts"),
+    }
+}
+
+fn substitute_term_self_and_params(
+    store: &mut TypeStore,
+    term: &TypeTerm,
+    subject: &TypeTerm,
+    subst: &crate::types::substitution::TypeSubstitution,
+) -> TypeTerm {
+    match term {
+        TypeTerm::Canonical(ty) => substitute_type_id_self_and_params(store, *ty, subject, subst),
+        TypeTerm::SelfType(_) => subject.clone(),
+        TypeTerm::Infer(i) => TypeTerm::Infer(*i),
+    }
+}
+
+fn substitute_type_id_self_and_params(
+    store: &mut TypeStore,
+    ty: TypeId,
+    subject: &TypeTerm,
+    subst: &crate::types::substitution::TypeSubstitution,
+) -> TypeTerm {
+    match store.get(ty).clone() {
+        crate::types::store::TypeData::SelfType(_) => subject.clone(),
+        crate::types::store::TypeData::Parameter(p) => {
+            if let Some(replacement) = subst.get(p) {
+                TypeTerm::Canonical(replacement)
+            } else {
+                TypeTerm::Canonical(ty)
+            }
+        }
+        crate::types::store::TypeData::AssociatedProjection(projection) => {
+            let subst_subject = substitute_type_id_self_and_params(store, projection.subject, subject, subst);
+            let subst_args: Box<[TypeId]> = projection
+                .trait_ref
+                .arguments
+                .iter()
+                .map(|&arg| {
+                    let term = substitute_type_id_self_and_params(store, arg, subject, subst);
+                    term_to_type_id(store, term)
+                })
+                .collect();
+            let trait_ref = TraitRef::new(projection.trait_ref.declaration, subst_args);
+            let subject_ty = term_to_type_id(store, subst_subject);
+            TypeTerm::Canonical(store.associated_projection(subject_ty, trait_ref, projection.requirement))
+        }
+        crate::types::store::TypeData::Applied { origin, arguments } => {
+            let origin_term = substitute_type_id_self_and_params(store, origin, subject, subst);
+            let origin_ty = term_to_type_id(store, origin_term);
+            let args: Vec<TypeId> = arguments
+                .iter()
+                .map(|&a| {
+                    let term = substitute_type_id_self_and_params(store, a, subject, subst);
+                    term_to_type_id(store, term)
+                })
+                .collect();
+            TypeTerm::Canonical(store.apply_type_form(origin_ty, &args).unwrap_or(ty))
+        }
+        crate::types::store::TypeData::Tuple(elements) => {
+            let subst_elements: Vec<crate::types::store::TupleTypeElement> = elements
+                .iter()
+                .map(|elem| {
+                    let term = substitute_type_id_self_and_params(store, elem.ty, subject, subst);
+                    crate::types::store::TupleTypeElement {
+                        label: elem.label.clone(),
+                        ty: term_to_type_id(store, term),
+                    }
+                })
+                .collect();
+            TypeTerm::Canonical(store.tuple(subst_elements.into_boxed_slice()))
+        }
+        crate::types::store::TypeData::Callable(callable) => {
+            let params: Vec<crate::types::store::CallableParameterType> = callable
+                .parameters
+                .iter()
+                .map(|p| {
+                    let term = substitute_type_id_self_and_params(store, p.ty, subject, subst);
+                    crate::types::store::CallableParameterType {
+                        label: p.label.clone(),
+                        ty: term_to_type_id(store, term),
+                        rest: p.rest,
+                    }
+                })
+                .collect();
+            let return_term = substitute_type_id_self_and_params(store, callable.return_type, subject, subst);
+            let return_type = term_to_type_id(store, return_term);
+            TypeTerm::Canonical(store.callable(crate::types::store::CallableType {
+                parameters: params.into_boxed_slice(),
+                return_type,
+            }))
+        }
+        _ => TypeTerm::Canonical(subst.apply(store, ty)),
+    }
+}
+
+fn substitute_generic_constraint_self_and_params(
+    store: &mut TypeStore,
+    constraint: &GenericConstraint,
+    subject: &TypeTerm,
+    subst: &crate::types::substitution::TypeSubstitution,
+) -> GenericConstraint {
+    match constraint {
+        GenericConstraint::Conforms { subject: term, trait_ref } => {
+            let subst_term = substitute_term_self_and_params(store, term, subject, subst);
+            let subst_args: Vec<TypeId> = trait_ref
+                .arguments
+                .iter()
+                .map(|&a| {
+                    let t = substitute_type_id_self_and_params(store, a, subject, subst);
+                    term_to_type_id(store, t)
+                })
+                .collect();
+            GenericConstraint::Conforms {
+                subject: subst_term,
+                trait_ref: TraitRef::new(trait_ref.declaration.clone(), subst_args),
+            }
+        }
+        GenericConstraint::Equivalent { left, right } => {
+            let subst_left = substitute_term_self_and_params(store, left, subject, subst);
+            let subst_right = substitute_term_self_and_params(store, right, subject, subst);
+            let (left, right) = if subst_left <= subst_right {
+                (subst_left, subst_right)
+            } else {
+                (subst_right, subst_left)
+            };
+            GenericConstraint::Equivalent { left, right }
+        }
+        GenericConstraint::Subtype { lower, upper } => {
+            GenericConstraint::Subtype {
+                lower: substitute_term_self_and_params(store, lower, subject, subst),
+                upper: substitute_term_self_and_params(store, upper, subject, subst),
+            }
+        }
+    }
+}

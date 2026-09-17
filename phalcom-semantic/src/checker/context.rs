@@ -286,6 +286,10 @@ impl TypeResolver for TrackingTypeResolver<'_> {
     fn resolve_module_alias(&self, current_module: &ModuleId, alias: &str) -> Option<ModuleId> {
         self.inner.resolve_module_alias(current_module, alias)
     }
+
+    fn resolve_associated_type_requirement(&self, trait_declaration: &DeclarationId, name: &str) -> Option<crate::traits::AssociatedTypeRequirementId> {
+        self.inner.resolve_associated_type_requirement(trait_declaration, name)
+    }
 }
 
 /// Hierarchy wrapper that records each mutable direct edge consumed by body checking.

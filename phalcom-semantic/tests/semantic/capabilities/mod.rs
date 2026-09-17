@@ -6,6 +6,7 @@ pub(crate) mod checker_smoke;
 mod constraints;
 mod control_regions;
 mod deep_regressions;
+mod derived_conformance;
 mod diagnostics;
 mod dispatch;
 mod dynamic_boundaries;

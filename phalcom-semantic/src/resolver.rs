@@ -17,6 +17,7 @@ pub struct LinkedTypeResolver {
     prelude_types: Arc<PreludeTypeMap>,
     retained_alias_forms: Arc<BTreeMap<DeclarationId, crate::types::id::TypeId>>,
     alias_form_overrides: RefCell<BTreeMap<DeclarationId, Option<crate::types::id::TypeId>>>,
+    trait_associated_types: Arc<BTreeMap<DeclarationId, BTreeMap<String, crate::traits::AssociatedTypeRequirementId>>>,
 }
 
 impl LinkedTypeResolver {
@@ -39,6 +40,7 @@ impl LinkedTypeResolver {
             prelude_types,
             retained_alias_forms: Arc::new(BTreeMap::new()),
             alias_form_overrides: RefCell::new(BTreeMap::new()),
+            trait_associated_types: Arc::new(BTreeMap::new()),
         }
     }
 
@@ -58,7 +60,16 @@ impl LinkedTypeResolver {
             prelude_types: PreludeTypeMap::shared_canonical_universe(),
             retained_alias_forms,
             alias_form_overrides: RefCell::new(BTreeMap::new()),
+            trait_associated_types: Arc::new(BTreeMap::new()),
         }
+    }
+
+    pub fn with_trait_associated_types(
+        mut self,
+        trait_associated_types: Arc<BTreeMap<DeclarationId, BTreeMap<String, crate::traits::AssociatedTypeRequirementId>>>,
+    ) -> Self {
+        self.trait_associated_types = trait_associated_types;
+        self
     }
 
     pub fn prelude_types(&self) -> &Arc<PreludeTypeMap> {
@@ -91,6 +102,13 @@ impl TypeResolver for LinkedTypeResolver {
             return *form;
         }
         self.retained_alias_forms.get(declaration).copied()
+    }
+
+    fn resolve_associated_type_requirement(&self, trait_declaration: &DeclarationId, name: &str) -> Option<crate::traits::AssociatedTypeRequirementId> {
+        self.trait_associated_types
+            .get(trait_declaration)
+            .and_then(|members| members.get(name))
+            .cloned()
     }
 
     fn resolve_type_name(&self, current_module: &ModuleId, root: &str, members: &[String]) -> Option<DeclarationId> {
